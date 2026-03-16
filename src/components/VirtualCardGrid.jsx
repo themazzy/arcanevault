@@ -36,6 +36,9 @@ function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, onTo
   const imgSize = density === 'cozy' ? 'normal' : 'small'
   const img     = getImageUri(sfCard, imgSize)
   const priceMeta = getPriceWithMeta(sfCard, card.foil, { price_source: priceSource })
+  const plPct = (card.purchase_price > 0 && priceMeta?.value)
+    ? ((priceMeta.value - card.purchase_price) / card.purchase_price) * 100
+    : null
 
   // If card has a _displayFolder it's an expanded entry — show only that folder
   // Otherwise show all folders from cardFolderMap
@@ -77,9 +80,9 @@ function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, onTo
               <span className={`${styles.price}${priceMeta == null ? ' ' + styles.priceNa : (priceMeta?.isFallback ? ' ' + styles.priceFallback : '') + (card.foil ? ' ' + styles.priceFoil : '')}`}>
                 {priceMeta ? formatPriceMeta(priceMeta, displayCurrency) : loading ? '…' : '—'}
               </span>
-              {priceMeta?.pct != null && (
-                <span className={`${styles.pricePct} ${priceMeta.pct >= 0 ? styles.pricePctUp : styles.pricePctDown}`}>
-                  ({priceMeta.pct >= 0 ? '+' : ''}{priceMeta.pct.toFixed(1)}%)
+              {plPct != null && (
+                <span className={`${styles.pricePct} ${plPct >= 0 ? styles.pricePctUp : styles.pricePctDown}`}>
+                  ({plPct >= 0 ? '+' : ''}{plPct.toFixed(1)}%)
                 </span>
               )}
             </span>
