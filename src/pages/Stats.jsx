@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { sb } from '../lib/supabase'
-import { getInstantCache, getPrice, getPriceSource } from '../lib/scryfall'
+import { getInstantCache, getPrice, formatPrice } from '../lib/scryfall'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { EmptyState, SectionHeader, ProgressBar } from '../components/UI'
@@ -42,7 +42,8 @@ const CustomTooltip = ({ active, payload, label, sym }) => {
 export default function StatsPage() {
   const { user } = useAuth()
   const { price_source, display_currency } = useSettings()
-  const src = getPriceSource(price_source); const sym = src.symbol || '€'
+  const sym = display_currency === 'USD' ? '$' : '€'
+  const fmt = v => formatPrice(v, price_source, display_currency)
 
   const [cards, setCards]         = useState([])
   const [sfMap, setSfMap]         = useState({})
@@ -156,7 +157,7 @@ export default function StatsPage() {
       uniqueSets: Object.keys(bySet).length,
       rarityData, topSets, typeData, snapshotData, topCards
     }
-  }, [cards, sfMap, snapshots, price_source])
+  }, [cards, sfMap, snapshots, price_source, display_currency])
 
   const tt = (p) => <CustomTooltip {...p} sym={sym} />
 
@@ -174,10 +175,10 @@ export default function StatsPage() {
 
       {stats && <>
         <div className={styles.statGrid}>
-          <StatCard label="Total Value"   value={`${sym}${stats.totalValue.toFixed(2)}`}  sub={`${stats.totalQty.toLocaleString()} total cards`} />
-          <StatCard label="P&L"           value={<span style={{ color: stats.pl >= 0 ? 'var(--green)' : '#e05252' }}>{stats.pl >= 0 ? '+' : ''}{sym}{stats.pl.toFixed(2)}</span>} sub={`Cost basis: ${sym}${stats.totalCost.toFixed(2)}`} />
+          <StatCard label="Total Value"   value={fmt(stats.totalValue)}  sub={`${stats.totalQty.toLocaleString()} total cards`} />
+          <StatCard label="P&L"           value={<span style={{ color: stats.pl >= 0 ? 'var(--green)' : '#e05252' }}>{stats.pl >= 0 ? '+' : ''}{fmt(stats.pl)}</span>} sub={`Cost basis: ${fmt(stats.totalCost)}`} />
           <StatCard label="Unique Cards"  value={stats.uniqueCards.toLocaleString()} sub={`across ${stats.uniqueSets} sets`} />
-          <StatCard label="Foils"         value={stats.foilCount.toLocaleString()} sub={`${sym}${stats.foilValue.toFixed(2)} value`} />
+          <StatCard label="Foils"         value={stats.foilCount.toLocaleString()} sub={`${fmt(stats.foilValue)} value`} />
         </div>
 
         {stats.snapshotData.length > 1 && (
@@ -187,7 +188,7 @@ export default function StatsPage() {
               <LineChart data={stats.snapshotData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                 <XAxis dataKey="date" tick={{ fill: 'var(--text-dim)', fontSize: 11 }} />
-                <YAxis tick={{ fill: 'var(--text-dim)', fontSize: 11 }} tickFormatter={v => `${sym}${v}`} width={65} />
+                <YAxis tick={{ fill: 'var(--text-dim)', fontSize: 11 }} tickFormatter={v => fmt(v)} width={65} />
                 <Tooltip content={tt} />
                 <Line type="monotone" dataKey={`${sym} Value`} stroke="var(--gold)" strokeWidth={2} dot={false} />
               </LineChart>
@@ -201,7 +202,7 @@ export default function StatsPage() {
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={stats.rarityData} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
-                <XAxis type="number" tick={{ fill: 'var(--text-dim)', fontSize: 11 }} tickFormatter={v => `${sym}${v}`} />
+                <XAxis type="number" tick={{ fill: 'var(--text-dim)', fontSize: 11 }} tickFormatter={v => fmt(v)} />
                 <YAxis type="category" dataKey="name" tick={{ fill: 'var(--text-dim)', fontSize: 11 }} width={70} />
                 <Tooltip content={tt} />
                 <Bar dataKey="value" name={`${sym} Value`} radius={2}>
@@ -250,8 +251,8 @@ export default function StatsPage() {
                     <td style={{ padding: '7px 10px', color: 'var(--text-faint)', fontSize: '0.75rem' }}>{c._sf?.set_name || (c.set_code || '').toUpperCase()}</td>
                     <td style={{ padding: '7px 10px', textAlign: 'center', color: c.foil ? '#c8a0ff' : 'var(--text-faint)' }}>{c.foil ? '✦' : '—'}</td>
                     <td style={{ padding: '7px 10px', textAlign: 'center', color: 'var(--text-dim)' }}>{c.qty}</td>
-                    <td style={{ padding: '7px 10px', color: c.foil ? '#c8a0ff' : 'var(--green)' }}>{sym}{c._price.toFixed(2)}</td>
-                    <td style={{ padding: '7px 10px', color: 'var(--green)', fontWeight: 600 }}>{sym}{(c._price * c.qty).toFixed(2)}</td>
+                    <td style={{ padding: '7px 10px', color: c.foil ? '#c8a0ff' : 'var(--green)' }}>{fmt(c._price)}</td>
+                    <td style={{ padding: '7px 10px', color: 'var(--green)', fontWeight: 600 }}>{fmt(c._price * c.qty)}</td>
                   </tr>
                 ))}
               </tbody>
