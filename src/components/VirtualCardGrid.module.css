@@ -60,8 +60,12 @@
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .cardMeta { display: flex; justify-content: space-between; align-items: center; margin-top: 3px; }
-.setCode { font-size: 0.7rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em; }
-.price { font-size: 0.73rem; color: var(--green); }
+.setCode { font-family: var(--font-serif); font-size: 0.68rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em; }
+.priceWrap { display: flex; align-items: baseline; gap: 3px; }
+.price { font-family: var(--font-serif); font-size: 0.68rem; color: var(--green); }
+.pricePct { font-family: var(--font-serif); font-size: 0.6rem; }
+.pricePctUp { color: var(--green); }
+.pricePctDown { color: var(--red); }
 .priceFoil { color: var(--purple); }
 .priceNa { color: #3a3a3a; }
 

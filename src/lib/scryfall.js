@@ -180,6 +180,7 @@ async function fetchAndMerge(cards, onProgress) {
         type_line:        r.type_line,
         rarity:           r.rarity,
         prices:           r.prices,
+        prices_prev:      existing.prices || null,
         color_identity:   r.color_identity || [],
         cmc:              r.cmc ?? null,
         legalities:       r.legalities || {},
@@ -298,12 +299,20 @@ const FALLBACK_FIELDS = [
   { field: 'tix',        foilField: 'tix',        symbol: '',  currency: 'TIX', suffix: ' tix' },
 ]
 
-// Returns { value, symbol, suffix, currency, isFallback } in the native price currency
+// Returns { value, symbol, suffix, currency, isFallback, pct } in the native price currency
 // Conversion to display_currency is done in formatPrice / formatPriceMeta
 export function getPriceWithMeta(sfCard, foil, { price_source = 'cardmarket_trend' } = {}) {
   if (!sfCard?.prices) return null
-  const p = sfCard.prices
+  const p    = sfCard.prices
+  const prev = sfCard.prices_prev || null
   const source = getPriceSource(price_source)
+
+  const calcPct = (current, field) => {
+    if (!prev) return null
+    const prevVal = parseFloat(prev[field] || 0)
+    if (!prevVal || !current) return null
+    return ((current - prevVal) / prevVal) * 100
+  }
 
   const preferredField = foil ? source.foilField : source.field
   const preferred = parseFloat(p[preferredField] || 0)
@@ -313,6 +322,7 @@ export function getPriceWithMeta(sfCard, foil, { price_source = 'cardmarket_tren
     suffix: source.suffix || '',
     currency: source.currency || (source.symbol === '€' ? 'EUR' : source.symbol === '$' ? 'USD' : 'TIX'),
     isFallback: false,
+    pct: calcPct(preferred, preferredField),
   }
 
   // Fallbacks
@@ -320,7 +330,7 @@ export function getPriceWithMeta(sfCard, foil, { price_source = 'cardmarket_tren
     const fbField = foil ? fb.foilField : fb.field
     if (fbField === preferredField) continue
     const val = parseFloat(p[fbField] || 0)
-    if (val) return { value: val, symbol: fb.symbol, suffix: fb.suffix || '', currency: fb.currency, isFallback: true }
+    if (val) return { value: val, symbol: fb.symbol, suffix: fb.suffix || '', currency: fb.currency, isFallback: true, pct: calcPct(val, fbField) }
   }
   return null
 }
@@ -366,8 +376,7 @@ function formatInCurrency(value, fromCurrency, toCurrency) {
   const converted = _convertCurrency(value, fromCurrency, toCurrency)
   if (converted == null) return '—'
   const sym = toCurrency === 'EUR' ? '€' : '$'
-  const wasConverted = fromCurrency !== toCurrency && _fxReady
-  return `${sym}${converted.toFixed(2)}${wasConverted ? '*' : ''}`
+  return `${sym}${converted.toFixed(2)}`
 }
 
 export function getImageUri(sfCard, size = 'normal') {
