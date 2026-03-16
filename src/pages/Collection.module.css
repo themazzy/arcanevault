@@ -1,0 +1,13 @@
+.gridHeader {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 14px; color: var(--text-dim); font-size: 0.82rem;
+}
+
+.importBtn {
+  font-family: var(--font-display);
+  font-size: 0.75rem; letter-spacing: 0.06em;
+  padding: 9px 16px; border-radius: 3px; cursor: pointer;
+  background: rgba(201,168,76,0.08); border: 1px solid rgba(201,168,76,0.25);
+  color: var(--gold-dim); transition: all 0.2s;
+}
+.importBtn:hover { background: rgba(201,168,76,0.16); color: var(--gold); }
