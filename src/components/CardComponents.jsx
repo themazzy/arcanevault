@@ -239,7 +239,7 @@ async function fetchRulings(scryfallId) {
   } catch { return [] }
 }
 
-export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, priceSource = 'cardmarket_trend' }) {
+export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, priceSource = 'cardmarket_trend', displayCurrency = 'EUR' }) {
   if (!card) return null
 
   const [activeTab, setActiveTab] = useState('overview')
@@ -290,7 +290,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, p
   const price      = getPrice(liveSfCard, card.foil, { price_source: priceSource })
   const totalPrice = price != null ? price * card.qty : null
   const pl         = price != null && card.purchase_price ? (price - card.purchase_price) * card.qty : null
-  const fmt = v => formatPrice(v, priceSource)
+  const fmt = v => formatPrice(v, priceSource, displayCurrency)
 
   const tabs = [
     { id: 'overview',   label: 'Overview' },

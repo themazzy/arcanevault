@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { sb } from '../lib/supabase'
-import { getInstantCache, getPrice, getPriceSource } from '../lib/scryfall'
+import { getInstantCache, getPrice, getPriceSource, formatPrice } from '../lib/scryfall'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { EmptyState, SectionHeader, Button, Modal } from '../components/UI'
@@ -27,9 +27,8 @@ function sortFolders(folders, meta, sort) {
 }
 
 // ── ListCard (wishlist item) ──────────────────────────────────────────────────
-function WishlistItem({ item, sfCard, priceSource, onDelete }) {
-  const src = getPriceSource(price_source); const sym = src.symbol || '€'
-  const price = getPrice(sfCard, item.foil, { price_source })
+function WishlistItem({ item, sfCard, priceSource, displayCurrency, onDelete }) {
+  const price = getPrice(sfCard, item.foil, { price_source: priceSource })
   const img = sfCard?.image_uris?.small
 
   return (
@@ -43,7 +42,7 @@ function WishlistItem({ item, sfCard, priceSource, onDelete }) {
         <div className={listStyles.itemMeta}>
           <span className={listStyles.itemSet}>{(item.set_code || '').toUpperCase()} #{item.collector_number}</span>
           <span className={listStyles.itemPrice} style={{ color: price != null ? 'var(--green)' : 'var(--text-faint)' }}>
-            {price != null ? `${sym}${price.toFixed(2)}` : '—'}
+            {price != null ? formatPrice(price, priceSource, displayCurrency) : '—'}
           </span>
         </div>
         {item.qty > 1 && <div className={listStyles.itemQty}>×{item.qty}</div>}
@@ -97,8 +96,6 @@ function ListBrowser({ folder, onBack }) {
     setItems(prev => prev.filter(i => i.id !== id))
   }
 
-  const src = getPriceSource(price_source); const sym = src.symbol || '€'
-
   if (loading) return <EmptyState>Loading…</EmptyState>
 
   return (
@@ -108,7 +105,7 @@ function ListBrowser({ folder, onBack }) {
         title={folder.name}
         action={
           <span style={{ color: 'var(--text-dim)', fontSize: '0.82rem' }}>
-            {totalQty} cards · <strong style={{ color: 'var(--green)' }}>{sym}{totalValue.toFixed(2)}</strong>
+            {totalQty} cards · <strong style={{ color: 'var(--green)' }}>{formatPrice(totalValue, price_source, display_currency)}</strong>
           </span>
         }
       />
@@ -130,7 +127,8 @@ function ListBrowser({ folder, onBack }) {
             key={item.id}
             item={item}
             sfCard={sfMap[`${item.set_code}-${item.collector_number}`]}
-            currency={currency}
+            priceSource={price_source}
+            displayCurrency={display_currency}
             onDelete={handleDelete}
           />
         ))}
@@ -140,8 +138,7 @@ function ListBrowser({ folder, onBack }) {
 }
 
 // ── Folder card ───────────────────────────────────────────────────────────────
-function FolderCard({ folder, meta, priceSource, onClick, onDelete }) {
-  const sym   = getPriceSource(priceSource || 'cardmarket_trend').symbol || '€'
+function FolderCard({ folder, meta, priceSource, displayCurrency, onClick, onDelete }) {
   const value = meta?.value
   const qty   = meta?.totalQty ?? 0
 
@@ -152,7 +149,7 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete }) {
       <div className={styles.folderMeta}>
         <span>{qty} want{qty !== 1 ? 's' : ''}</span>
         <span style={{ color: value != null ? 'var(--green)' : 'var(--text-faint)' }}>
-          {value != null ? `${sym}${value.toFixed(2)}` : '—'}
+          {value != null ? formatPrice(value, priceSource, displayCurrency) : '—'}
         </span>
       </div>
     </div>
@@ -252,7 +249,8 @@ export default function ListsPage() {
             key={folder.id}
             folder={folder}
             meta={folderMeta[folder.id]}
-            currency={currency}
+            priceSource={price_source}
+            displayCurrency={display_currency}
             onClick={() => setActiveFolder(folder)}
             onDelete={() => deleteFolder(folder.id)}
           />

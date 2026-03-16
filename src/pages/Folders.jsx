@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { sb } from '../lib/supabase'
-import { getInstantCache, getScryfallKey, getPrice, getPriceSource } from '../lib/scryfall'
+import { getInstantCache, getScryfallKey, getPrice, getPriceSource, formatPrice } from '../lib/scryfall'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { CardGrid, CardDetail, FilterBar, applyFilterSort } from '../components/CardComponents'
@@ -28,8 +28,7 @@ function sortFolders(folders, meta, sort) {
 }
 
 // ── FolderCard ────────────────────────────────────────────────────────────────
-function FolderCard({ folder, meta, priceSource, onClick, onDelete, onShare }) {
-  const sym   = getPriceSource(priceSource || 'cardmarket_trend').symbol || '€'
+function FolderCard({ folder, meta, priceSource, displayCurrency, onClick, onDelete, onShare }) {
   const value = meta?.value
   const qty   = meta?.totalQty ?? meta?.count ?? 0
 
@@ -40,7 +39,7 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onShare }) {
       <div className={styles.folderMeta}>
         <span>{qty} card{qty !== 1 ? 's' : ''}</span>
         <span style={{ color: value != null ? 'var(--green)' : 'var(--text-faint)' }}>
-          {value != null ? `${sym}${value.toFixed(2)}` : '—'}
+          {value != null ? formatPrice(value, priceSource, displayCurrency) : '—'}
         </span>
       </div>
       <button className={styles.shareBtn} onClick={e => { e.stopPropagation(); onShare() }} title="Share">⬡</button>
@@ -92,7 +91,6 @@ function FolderBrowser({ folder, onBack }) {
     return { totalValue: v, totalQty: q }
   }, [cards, sfMap, price_source])
 
-  const sym          = getPriceSource(price_source || 'cardmarket_trend').symbol || '€'
   const selectedCard = selected ? cards.find(c => c.id === selected) : null
   const selectedSf   = selectedCard ? sfMap[getScryfallKey(selectedCard)] : null
 
@@ -105,18 +103,18 @@ function FolderBrowser({ folder, onBack }) {
         title={folder.name}
         action={
           <span style={{ color: 'var(--text-dim)', fontSize: '0.82rem' }}>
-            {totalQty} cards · <strong style={{ color: 'var(--green)' }}>{sym}{totalValue.toFixed(2)}</strong>
+            {totalQty} cards · <strong style={{ color: 'var(--green)' }}>{formatPrice(totalValue, price_source, display_currency)}</strong>
           </span>
         }
       />
       <FilterBar search={search} setSearch={setSearch} sort={sort} setSort={setSort} foil={foil} setFoil={setFoil} />
       <div className={styles.gridHeader}>
         <span>Showing {filtered.length} of {cards.length} unique · {totalQty} total</span>
-        <span>Value: <strong style={{ color: 'var(--green)' }}>{sym}{totalValue.toFixed(2)}</strong></span>
+        <span>Value: <strong style={{ color: 'var(--green)' }}>{formatPrice(totalValue, price_source, display_currency)}</strong></span>
       </div>
       <CardGrid cards={filtered} sfMap={sfMap} onSelect={c => setSelected(c.id)} />
       {filtered.length === 0 && <EmptyState>No cards match your search.</EmptyState>}
-      {selectedCard && <CardDetail card={selectedCard} sfCard={selectedSf} onClose={() => setSelected(null)} />}
+      {selectedCard && <CardDetail card={selectedCard} sfCard={selectedSf} priceSource={price_source} displayCurrency={display_currency} onClose={() => setSelected(null)} />}
     </div>
   )
 }
@@ -261,6 +259,7 @@ export default function FoldersPage({ type }) {
             folder={folder}
             meta={folderMeta[folder.id]}
             priceSource={price_source}
+            displayCurrency={display_currency}
             onClick={() => setActiveFolder(folder)}
             onDelete={() => deleteFolder(folder.id)}
             onShare={() => setShareFolder(folder)}

@@ -74,14 +74,7 @@ function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, onTo
           <span className={styles.setCode}>{(card.set_code || '').toUpperCase()}</span>
           {showPrice && (
             <span className={`${styles.price}${priceMeta == null ? ' ' + styles.priceNa : (priceMeta?.isFallback ? ' ' + styles.priceFallback : '') + (card.foil ? ' ' + styles.priceFoil : '')}`}>
-              {priceMeta ? (
-              <>
-                <span style={priceMeta.isFallback ? { fontSize: '0.6rem', opacity: 0.6, marginRight: 1 } : {}}>
-                  {priceMeta.isFallback ? priceMeta.symbol : ''}
-                </span>
-                {priceMeta.isFallback ? priceMeta.value.toFixed(2) : formatPriceMeta(priceMeta, displayCurrency)}
-              </>
-            ) : loading ? '…' : '—'}
+              {priceMeta ? formatPriceMeta(priceMeta, displayCurrency) : loading ? '…' : '—'}
             </span>
           )}
         </div>
