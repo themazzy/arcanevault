@@ -4,11 +4,13 @@ import { useAuth } from './Auth'
 import styles from './Layout.module.css'
 
 const TABS = [
-  { to: '/',         label: 'Collection' },
-  { to: '/decks',    label: 'Decks' },
-  { to: '/binders',  label: 'Binders' },
-  { to: '/lists',    label: 'Wishlists' },
-  { to: '/stats',    label: 'Stats' },
+  { to: '/',            label: '⌂ Home' },
+  { to: '/collection',  label: 'Collection' },
+  { to: '/decks',       label: 'Decks' },
+  { to: '/binders',     label: 'Binders' },
+  { to: '/lists',       label: 'Wishlists' },
+  { to: '/stats',       label: 'Stats' },
+  { to: '/life',        label: '♥ Life' },
 ]
 
 export default function Layout({ children }) {

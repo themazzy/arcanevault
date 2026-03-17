@@ -163,10 +163,15 @@ self.onmessage = (e) => {
   r.sort((a, b) => {
     const sfA = sfMap[`${a.set_code}-${a.collector_number}`]
     const sfB = sfMap[`${b.set_code}-${b.collector_number}`]
+    // P&L = (current EUR price - purchase_price) * qty
+    const plA = (() => { const p = getPrice(sfA, a.foil, 'cardmarket_trend'); return p != null && a.purchase_price > 0 ? (p - a.purchase_price) * a.qty : null })()
+    const plB = (() => { const p = getPrice(sfB, b.foil, 'cardmarket_trend'); return p != null && b.purchase_price > 0 ? (p - b.purchase_price) * b.qty : null })()
     switch (sort) {
       case 'name':       return a.name.localeCompare(b.name)
       case 'price_desc': return (getPrice(sfB, b.foil, priceSource) || 0) - (getPrice(sfA, a.foil, priceSource) || 0)
       case 'price_asc':  return (getPrice(sfA, a.foil, priceSource) || 0) - (getPrice(sfB, b.foil, priceSource) || 0)
+      case 'pl_desc':    return (plB ?? -Infinity) - (plA ?? -Infinity)
+      case 'pl_asc':     return (plA ?? Infinity) - (plB ?? Infinity)
       case 'qty':        return b.qty - a.qty
       case 'set':        return (a.set_code || '').localeCompare(b.set_code || '')
       case 'added':      return new Date(b.added_at || 0) - new Date(a.added_at || 0)

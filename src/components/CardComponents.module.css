@@ -51,7 +51,7 @@
 .setCode { font-size: 0.7rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em; }
 .price { font-size: 0.73rem; color: var(--green); }
 .priceFoil { color: var(--purple); }
-.priceNa { color: #3a3a3a; }
+.priceNa { color: var(--text-faint); }
 
 /* Filter bar */
 .filterBar {
@@ -116,6 +116,81 @@
   color: var(--red); transition: all 0.2s;
 }
 .deleteBtn:hover { background: rgba(196,96,96,0.14); }
+
+/* ── Edit controls ───────────────────────────────────────────────────────────── */
+.editGroup {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,0.04);
+  flex-wrap: wrap;
+}
+.editLabel {
+  font-size: 0.74rem; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  min-width: 90px; flex-shrink: 0;
+}
+.qtyEditor { display: flex; align-items: center; gap: 0; }
+.qtyBtn {
+  width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+  color: var(--text); font-size: 1rem; cursor: pointer; transition: background 0.15s;
+  border-radius: 3px 0 0 3px;
+}
+.qtyBtn + .qtyBtn { border-radius: 0 3px 3px 0; }
+.qtyBtn:hover { background: rgba(255,255,255,0.12); }
+.qtyInput {
+  width: 46px; height: 28px; text-align: center;
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
+  border-left: none; border-right: none;
+  color: var(--text); font-size: 0.9rem; outline: none;
+}
+.qtyInput::-webkit-inner-spin-button,
+.qtyInput::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+.foilToggleOn {
+  padding: 5px 12px; border-radius: 3px; cursor: pointer;
+  background: rgba(200,160,255,0.15); border: 1px solid rgba(200,160,255,0.4);
+  color: var(--purple); font-size: 0.82rem; transition: all 0.15s;
+}
+.foilToggleOff {
+  padding: 5px 12px; border-radius: 3px; cursor: pointer;
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
+  color: var(--text-dim); font-size: 0.82rem; transition: all 0.15s;
+}
+.foilToggleOn:hover, .foilToggleOff:hover { border-color: rgba(200,160,255,0.5); color: var(--purple); }
+
+.editSelect {
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 3px; padding: 5px 8px; color: var(--text); font-size: 0.85rem;
+  outline: none; cursor: pointer;
+}
+.editSelect option { background: var(--bg3); }
+
+.manualPriceBtn {
+  background: none; border: 1px dashed rgba(201,168,76,0.3); border-radius: 3px;
+  padding: 4px 10px; color: var(--text-faint); font-size: 0.78rem; cursor: pointer;
+  transition: all 0.15s;
+}
+.manualPriceBtn:hover { border-color: rgba(201,168,76,0.6); color: var(--gold); }
+
+.editSaveRow {
+  display: flex; align-items: center; gap: 10px; margin-top: 14px;
+}
+.saveBtn {
+  font-family: var(--font-display); font-size: 0.74rem; letter-spacing: 0.06em;
+  padding: 8px 18px; border-radius: 3px; cursor: pointer;
+  background: rgba(74,154,90,0.15); border: 1px solid rgba(74,154,90,0.4);
+  color: var(--green); transition: all 0.2s;
+}
+.saveBtn:hover:not(:disabled) { background: rgba(74,154,90,0.25); }
+.saveBtn:disabled { opacity: 0.6; cursor: default; }
+
+.addToFolderBtn {
+  padding: 5px 12px; border-radius: 3px; cursor: pointer;
+  background: rgba(138,111,196,0.12); border: 1px solid rgba(138,111,196,0.35);
+  color: var(--purple); font-size: 0.8rem; transition: all 0.15s; white-space: nowrap;
+}
+.addToFolderBtn:hover:not(:disabled) { background: rgba(138,111,196,0.22); }
+.addToFolderBtn:disabled { opacity: 0.4; cursor: default; }
 
 @media (max-width: 600px) {
   .detail { flex-direction: column; }
@@ -360,8 +435,8 @@
 .setChips::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
 
 .setCode2 {
-  font-size: 0.65rem;
-  opacity: 0.6;
+  font-size: 0.68rem;
+  color: var(--text-faint);
   font-family: monospace;
 }
 
