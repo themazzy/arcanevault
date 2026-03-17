@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { sb } from '../lib/supabase'
 import { enrichCards, getScryfallKey, getPrice, formatPrice, clearScryfallCache, clearAllScryfallCache, getCacheAge, getMemoryMap, getInstantCache } from '../lib/scryfall'
-import { getLocalCards, putCards, deleteCard, deleteAllCards, getAllLocalFolderCards, putFolderCards, getLocalFolders, putFolders, getMeta, setMeta } from '../lib/db'
+import { getLocalCards, putCards, deleteCard, deleteAllCards, getAllLocalFolderCards, putFolderCards, getLocalFolders, putFolders, setMeta } from '../lib/db'
 import { parseManaboxCSV } from '../lib/csvParser'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
@@ -131,7 +131,7 @@ export default function CollectionPage() {
           const folder = folderById[row.folder_id]
           if (!folder) continue
           if (!map[row.card_id]) map[row.card_id] = []
-          map[row.card_id].push({ name: folder.name, type: folder.type })
+          map[row.card_id].push({ id: folder.id, name: folder.name, type: folder.type })
         }
         setFolders(localFolders)
         setCardFolderMap(map)
@@ -165,7 +165,7 @@ export default function CollectionPage() {
         const folder = folderById[row.folder_id]
         if (!folder) continue
         if (!map[row.card_id]) map[row.card_id] = []
-        map[row.card_id].push({ name: folder.name, type: folder.type })
+        map[row.card_id].push({ id: folder.id, name: folder.name, type: folder.type })
       }
       setCardFolderMap(map)
     }
@@ -354,6 +354,13 @@ export default function CollectionPage() {
     setDetailCardId(null)
   }
 
+  const handleCardSave = useCallback(async (updatedCard) => {
+    // Update in-memory state → triggers worker re-filter/re-sort
+    setCards(prev => prev.map(c => c.id === updatedCard.id ? { ...c, ...updatedCard } : c))
+    // Persist to IDB
+    await putCards([updatedCard])
+  }, [])
+
   const toggleSelectMode = () => { setSelectMode(v => !v); setSelected(new Set()) }
   const toggleSelect = (id) => setSelected(prev => {
     const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next
@@ -485,10 +492,12 @@ export default function CollectionPage() {
         <CardDetail
           card={selectedCard} sfCard={selectedSf}
           folders={cardFolderMap[selectedCard.id]}
+          allFolders={folders}
           priceSource={price_source}
           displayCurrency={display_currency}
           onClose={() => setDetailCardId(null)}
           onDelete={() => handleDelete(selectedCard)}
+          onSave={handleCardSave}
         />
       )}
 

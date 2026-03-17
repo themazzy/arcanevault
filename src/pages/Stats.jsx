@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { sb } from '../lib/supabase'
-import { getInstantCache, getPrice, formatPrice } from '../lib/scryfall'
+import { getInstantCache, enrichCards, getPrice, formatPrice } from '../lib/scryfall'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { EmptyState, SectionHeader, ProgressBar } from '../components/UI'
@@ -50,6 +50,7 @@ export default function StatsPage() {
   const [snapshots, setSnapshots] = useState([])
   const [loading, setLoading]     = useState(true)
   const [loadProgress, setLoadProgress] = useState(0)
+  const [progLabel, setProgLabel] = useState('')
 
   useEffect(() => {
     const load = async () => {
@@ -57,8 +58,10 @@ export default function StatsPage() {
       setLoadProgress(0)
 
       // Paginated card fetch — no 1000-row limit
-      let allCards = [], from = 0
+      // Phase 1: DB fetch reports 0 → 40%
+      let allCards = [], from = 0, pageNum = 0
       const PAGE = 1000
+      setProgLabel('Loading collection…')
       while (true) {
         const { data, error } = await sb.from('cards')
           .select('id,set_code,collector_number,foil,qty,purchase_price,condition,language')
@@ -66,7 +69,9 @@ export default function StatsPage() {
           .range(from, from + PAGE - 1)
         if (error || !data?.length) break
         allCards = [...allCards, ...data]
-        setLoadProgress(Math.min(90, Math.round((allCards.length / Math.max(allCards.length, 1000)) * 80)))
+        pageNum++
+        // 8% per page, capped at 40% — progress grows as pages are fetched
+        setLoadProgress(Math.min(40, pageNum * 8))
         if (data.length < PAGE) break
         from += PAGE
       }
@@ -75,8 +80,18 @@ export default function StatsPage() {
         .select('*').eq('user_id', user.id).order('taken_at').limit(90)
 
       setCards(allCards)
-      // Use cached sfMap — no re-fetch
-      const cached = getInstantCache()
+
+      // Phase 2: Scryfall enrichment reports 40 → 100%
+      // Try instant cache first; if empty, run a full enrichment
+      let cached = await getInstantCache()
+      if (!cached && allCards.length) {
+        setProgLabel('Fetching card data…')
+        cached = await enrichCards(allCards, (pct, label) => {
+          // Map enrichCards 0–100 into the 40–100 window so bar never goes backwards
+          setLoadProgress(40 + Math.round(pct * 0.6))
+          if (label) setProgLabel(label)
+        })
+      }
       setSfMap(cached || {})
       setSnapshots(snaps || [])
       setLoadProgress(100)
@@ -93,7 +108,7 @@ export default function StatsPage() {
 
     for (const c of cards) {
       const sf  = sfMap[`${c.set_code}-${c.collector_number}`]
-      const price = getPrice(sf, c.foil, { price_source })
+      const price = getPrice(sf, c.foil, { price_source, cardId: c.id })
       const val   = price != null ? price * c.qty : 0
       totalValue += val
       totalCost  += (c.purchase_price || 0) * c.qty
@@ -143,7 +158,7 @@ export default function StatsPage() {
     const topCards = [...cards]
       .map(c => {
         const sf    = sfMap[`${c.set_code}-${c.collector_number}`]
-        const price = getPrice(sf, c.foil, { price_source })
+        const price = getPrice(sf, c.foil, { price_source, cardId: c.id })
         return { ...c, _price: price, _sf: sf }
       })
       .filter(c => c._price != null)
@@ -164,7 +179,7 @@ export default function StatsPage() {
   if (loading) return (
     <>
       <SectionHeader title="Collection Stats" />
-      <ProgressBar value={loadProgress} label={`Loading cards… ${cards.length > 0 ? `(${cards.length} so far)` : ''}`} />
+      <ProgressBar value={loadProgress} label={progLabel || `Loading cards… ${cards.length > 0 ? `(${cards.length} so far)` : ''}`} />
     </>
   )
   if (!cards.length) return <EmptyState>Import your collection first to see stats.</EmptyState>

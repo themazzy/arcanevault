@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { sb } from '../lib/supabase'
-import { getInstantCache, getPrice, getPriceSource, formatPrice } from '../lib/scryfall'
+import { enrichCards, getInstantCache, getPrice, getPriceSource, formatPrice } from '../lib/scryfall'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { EmptyState, SectionHeader, Button, Modal } from '../components/UI'
@@ -66,8 +66,8 @@ function ListBrowser({ folder, onBack }) {
       const { data } = await sb.from('list_items').select('*').eq('folder_id', folder.id).order('name')
       if (data) {
         setItems(data)
-        const cached = getInstantCache()
-        if (cached) setSfMap(cached)
+        const map = await enrichCards(data, null)
+        if (map) setSfMap({ ...map })
       }
       setLoading(false)
     }
@@ -189,7 +189,7 @@ export default function ListsPage() {
       from += 1000
     }
 
-    const sfMap = getInstantCache() || {}
+    const sfMap = await getInstantCache() || {}
     const meta  = {}
     for (const f of foldersData) meta[f.id] = { count: 0, totalQty: 0, value: 0 }
 

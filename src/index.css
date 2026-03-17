@@ -5,13 +5,13 @@
   --border:    rgba(180,140,60,0.2);
   --border-hi: rgba(201,168,76,0.5);
   --gold:      #c9a84c;
-  --gold-dim:  #7a6040;
+  --gold-dim:  #a08848;
   --purple:    #8a6fc4;
   --green:     #8ab87a;
   --red:       #c46060;
   --text:      #d4c5a9;
-  --text-dim:  #7a6a50;
-  --text-faint:#3a3020;
+  --text-dim:  #9a8870;
+  --text-faint:#7a6e5c;
   --font-serif: 'Crimson Pro', Georgia, serif;
   --font-display: 'Cinzel', Georgia, serif;
 }

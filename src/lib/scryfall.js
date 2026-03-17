@@ -92,6 +92,10 @@ export async function loadCacheFromIDB(cacheTtlMs = DEFAULT_TTL_MS) {
 }
 
 export async function getInstantCache(cacheTtlMs = DEFAULT_TTL_MS) {
+  // If already in memory, return directly — loadCacheFromIDB returns the raw map
+  // (not wrapped) in the `if (_sfMap) return _sfMap` fast-path, which breaks
+  // the result.map accessor. Bypass it entirely when in memory.
+  if (_sfMap) return _sfMap
   const result = await loadCacheFromIDB(cacheTtlMs)
   if (!result) return null
   return result.map
@@ -185,15 +189,19 @@ async function fetchAndMerge(cards, onProgress) {
         cmc:              r.cmc ?? null,
         legalities:       r.legalities || {},
         artist:           r.artist || null,
-        oracle_text:      (r.oracle_text || r.card_faces?.[0]?.oracle_text || '').slice(0, 200) || null,
+        oracle_text:      (r.oracle_text || r.card_faces?.[0]?.oracle_text || '').slice(0, 600) || null,
         power:            r.power ?? null,
         toughness:        r.toughness ?? null,
+        produced_mana:    r.produced_mana || null,
+        keywords:         r.keywords || [],
         // Image fields (keep existing if present — images never expire)
         image_uris: existing.image_uris || (r.image_uris ? {
-          small:  r.image_uris.small,
-          normal: r.image_uris.normal,
-          large:  r.image_uris.large,
+          small:    r.image_uris.small,
+          normal:   r.image_uris.normal,
+          large:    r.image_uris.large,
+          art_crop: r.image_uris.art_crop || null,
         } : null),
+        mana_cost: r.mana_cost || r.card_faces?.[0]?.mana_cost || null,
         card_faces: existing.card_faces || r.card_faces?.map(f => ({
           image_uris: f.image_uris ? {
             small:  f.image_uris.small,
@@ -201,6 +209,7 @@ async function fetchAndMerge(cards, onProgress) {
             large:  f.image_uris.large,
           } : null,
           name: f.name,
+          mana_cost: f.mana_cost || null,
         })) || null,
       }
       _sfMap[key] = entry
@@ -291,16 +300,28 @@ export function getScryfallKey(card) {
   return `${card.set_code}-${card.collector_number}`
 }
 
-// Fallback chain when preferred source has no price
-const FALLBACK_FIELDS = [
-  { field: 'eur',        foilField: 'eur_foil',   symbol: '€', currency: 'EUR' },
-  { field: 'usd',        foilField: 'usd_foil',   symbol: '$', currency: 'USD' },
-  { field: 'usd_etched', foilField: 'usd_etched', symbol: '$', currency: 'USD' },
-  { field: 'tix',        foilField: 'tix',        symbol: '',  currency: 'TIX', suffix: ' tix' },
-]
+// ── Manual price overrides (localStorage) ────────────────────────────────────
+// Keyed by card DB id (string). Price stored in native source currency.
 
-// Returns { value, symbol, suffix, currency, isFallback, pct } in the native price currency
-// Conversion to display_currency is done in formatPrice / formatPriceMeta
+const MANUAL_PRICES_KEY = 'arcanevault_manual_prices'
+
+export function getManualPrices() {
+  try { return JSON.parse(localStorage.getItem(MANUAL_PRICES_KEY) || '{}') } catch { return {} }
+}
+export function setManualPrice(cardId, price) {
+  const map = getManualPrices()
+  if (price == null || price === '') delete map[String(cardId)]
+  else map[String(cardId)] = parseFloat(price)
+  localStorage.setItem(MANUAL_PRICES_KEY, JSON.stringify(map))
+}
+export function getManualPrice(cardId) {
+  if (!cardId) return null
+  const v = getManualPrices()[String(cardId)]
+  return v != null ? v : null
+}
+
+// Returns { value, symbol, suffix, currency, isFallback, pct } in the native price currency.
+// Only looks at the user-selected source — no cross-source fallback.
 export function getPriceWithMeta(sfCard, foil, { price_source = 'cardmarket_trend' } = {}) {
   if (!sfCard?.prices) return null
   const p    = sfCard.prices
@@ -325,17 +346,16 @@ export function getPriceWithMeta(sfCard, foil, { price_source = 'cardmarket_tren
     pct: calcPct(preferred, preferredField),
   }
 
-  // Fallbacks
-  for (const fb of FALLBACK_FIELDS) {
-    const fbField = foil ? fb.foilField : fb.field
-    if (fbField === preferredField) continue
-    const val = parseFloat(p[fbField] || 0)
-    if (val) return { value: val, symbol: fb.symbol, suffix: fb.suffix || '', currency: fb.currency, isFallback: true, pct: calcPct(val, fbField) }
-  }
+  // Price not available in selected source — return null. User can enter manually.
   return null
 }
 
-export function getPrice(sfCard, foil, { price_source = 'cardmarket_trend' } = {}) {
+// Returns numeric price. Checks manual overrides first, then Scryfall data.
+export function getPrice(sfCard, foil, { price_source = 'cardmarket_trend', cardId = null } = {}) {
+  if (cardId != null) {
+    const manual = getManualPrice(cardId)
+    if (manual != null) return manual
+  }
   return getPriceWithMeta(sfCard, foil, { price_source })?.value ?? null
 }
 
@@ -369,6 +389,13 @@ let _fxReady = false
 export function injectFxConverter(convertFn) {
   _convertCurrency = convertFn
   _fxReady = true
+}
+
+// Convert a raw numeric value between currencies
+export function convertCurrency(value, from, to) {
+  if (value == null) return null
+  if (from === to) return value
+  return _convertCurrency(value, from, to) ?? value
 }
 
 function formatInCurrency(value, fromCurrency, toCurrency) {

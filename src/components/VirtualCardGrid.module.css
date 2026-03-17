@@ -3,6 +3,14 @@
   min-height: 400px;
   overflow-y: auto;
   overflow-x: hidden;
+  padding-top: 18px; /* prevents top-row cards being clipped by header on hover */
+}
+
+@media (max-width: 768px) {
+  .scroll {
+    height: calc(100vh - 210px);
+    padding-top: 12px;
+  }
 }
 
 /* Custom scrollbar */

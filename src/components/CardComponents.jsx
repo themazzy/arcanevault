@@ -1,8 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { getImageUri, getPrice, formatPrice, getPriceSource } from '../lib/scryfall'
 import { Modal, Badge } from './UI'
 import styles from './CardComponents.module.css'
 import { FolderTypeIcon } from './Icons'
+import { sb } from '../lib/supabase'
+import { putCards } from '../lib/db'
 
 const fmt = (v, currency = 'EUR') => {
   if (v == null || isNaN(v)) return '—'
@@ -216,36 +219,57 @@ const LANG_NAMES_FULL = {
   he:'Hebrew', la:'Latin', grc:'Ancient Greek', ar:'Arabic', sa:'Sanskrit', ph:'Phyrexian',
 }
 
-// Fetch full card data from Scryfall (prices, rulings, full oracle text)
+// Fetch full card data from Scryfall — by scryfall_id if available, else by set+collector_number
 const _fullCardCache = {}
-async function fetchFullCard(scryfallId) {
-  if (!scryfallId) return null
-  if (_fullCardCache[scryfallId]) return _fullCardCache[scryfallId]
+async function fetchFullCard(scryfallId, setCode, collectorNumber) {
+  const cacheKey = scryfallId || `${setCode}-${collectorNumber}`
+  if (!cacheKey) return null
+  if (_fullCardCache[cacheKey]) return _fullCardCache[cacheKey]
   try {
-    const res = await fetch(`https://api.scryfall.com/cards/${scryfallId}`)
+    const url = scryfallId
+      ? `https://api.scryfall.com/cards/${scryfallId}`
+      : `https://api.scryfall.com/cards/${setCode}/${collectorNumber}`
+    const res = await fetch(url)
     if (!res.ok) return null
     const data = await res.json()
-    _fullCardCache[scryfallId] = data
+    _fullCardCache[cacheKey] = data
+    if (data.id) _fullCardCache[data.id] = data  // also cache by scryfall id
     return data
   } catch { return null }
 }
 
-async function fetchRulings(scryfallId) {
-  if (!scryfallId) return []
+async function fetchRulings(scryfallId, setCode, collectorNumber) {
   try {
-    const res = await fetch(`https://api.scryfall.com/cards/${scryfallId}/rulings`)
+    const url = scryfallId
+      ? `https://api.scryfall.com/cards/${scryfallId}/rulings`
+      : `https://api.scryfall.com/cards/${setCode}/${collectorNumber}/rulings`
+    if (!scryfallId && (!setCode || !collectorNumber)) return []
+    const res = await fetch(url)
     if (!res.ok) return []
     return (await res.json()).data || []
   } catch { return [] }
 }
 
-export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, priceSource = 'cardmarket_trend', displayCurrency = 'EUR' }) {
+export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, allFolders = [], priceSource = 'cardmarket_trend', displayCurrency = 'EUR', onSave }) {
   if (!card) return null
 
-  const [activeTab, setActiveTab] = useState('overview')
+  const navigate = useNavigate()
+  const [activeTab, setActiveTab] = useState('collection')
   const [fullCard, setFullCard]   = useState(null)
   const [rulings, setRulings]     = useState(null) // null = not loaded yet
   const [loadingFull, setLoadingFull] = useState(false)
+
+  // Edit state
+  const [editQty,        setEditQty]        = useState(card.qty)
+  const [editFoil,       setEditFoil]       = useState(card.foil)
+  const [editCondition,  setEditCondition]  = useState(card.condition || 'near_mint')
+  const [editBuyPrice,   setEditBuyPrice]   = useState(parseFloat(card.purchase_price) || 0)
+  const [buyPriceEdit,   setBuyPriceEdit]   = useState(false)
+  const [buyPriceInput,  setBuyPriceInput]  = useState('')
+  const [moveFolderText, setMoveFolderText] = useState('')
+  const [saving,         setSaving]         = useState(false)
+  const [saved,          setSaved]          = useState(false)
+  const [saveError,      setSaveError]      = useState('')
 
   const cachedImg = getImageUri(sfCard, 'normal')
   const fullImg   = scryfallLargeUrl(card.scryfall_id)
@@ -262,22 +286,21 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, p
     image.src = fullImg
   }, [card.scryfall_id])
 
-  // Fetch full card data on mount
+  // Fetch full card data on mount — by scryfall_id or fallback to set+collector_number
   useEffect(() => {
     setFullCard(null); setRulings(null)
-    if (!card.scryfall_id) return
     setLoadingFull(true)
-    fetchFullCard(card.scryfall_id).then(data => {
+    fetchFullCard(card.scryfall_id, card.set_code, card.collector_number).then(data => {
       setFullCard(data)
       setLoadingFull(false)
     })
-  }, [card.scryfall_id])
+  }, [card.scryfall_id, card.set_code, card.collector_number])
 
   // Lazy-load rulings only when that tab is opened
   useEffect(() => {
     if (activeTab !== 'rulings' || rulings !== null) return
-    fetchRulings(card.scryfall_id).then(setRulings)
-  }, [activeTab, card.scryfall_id])
+    fetchRulings(card.scryfall_id, card.set_code, card.collector_number).then(setRulings)
+  }, [activeTab, card.scryfall_id, card.set_code, card.collector_number])
 
   // Merge cached + full card data
   const fc = fullCard || sfCard || {}
@@ -287,18 +310,76 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, p
   const liveSfCard = fullCard ? { ...sfCard, prices: fullCard.prices } : sfCard
   const pricesAreLive = !!fullCard
 
-  const price      = getPrice(liveSfCard, card.foil, { price_source: priceSource })
+  const scryPrice  = getPrice(liveSfCard, card.foil, { price_source: priceSource })
+  // Fall back to buy price if no market price available
+  const buyPrice   = editBuyPrice > 0 ? editBuyPrice : (parseFloat(card.purchase_price) || null)
+  const price      = scryPrice ?? buyPrice
+  const priceIsBuyFallback = scryPrice == null && buyPrice != null
   const totalPrice = price != null ? price * card.qty : null
-  const pl         = price != null && card.purchase_price ? (price - card.purchase_price) * card.qty : null
   const fmt = v => formatPrice(v, priceSource, displayCurrency)
 
+  const saveBuyPrice = async () => {
+    const parsed = parseFloat(buyPriceInput)
+    const val = !isNaN(parsed) && parsed >= 0 ? parsed : 0
+    setEditBuyPrice(val)
+    const { error } = await sb.from('cards').update({ purchase_price: val }).eq('id', card.id)
+    if (!error) {
+      const updatedCard = { ...card, purchase_price: val }
+      await putCards([updatedCard])
+      onSave?.(updatedCard)
+    }
+    setBuyPriceEdit(false)
+  }
+
+  const handleSave = async () => {
+    setSaving(true); setSaveError('')
+    const updates = { qty: editQty, foil: editFoil, condition: editCondition }
+    const { error } = await sb.from('cards').update(updates).eq('id', card.id)
+    if (error) { setSaveError(error.message); setSaving(false); return }
+    const updatedCard = { ...card, ...updates }
+    await putCards([updatedCard])
+    onSave?.(updatedCard)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2500)
+    setSaving(false)
+  }
+
+  const handleMoveToFolder = async () => {
+    const matched = allFolders.find(f => f.name.toLowerCase() === moveFolderText.toLowerCase() || f.id === moveFolderText)
+    if (!matched) return
+    const qty = editQty || 1
+    const { error } = await sb.from('folder_cards')
+      .upsert({ folder_id: matched.id, card_id: card.id, qty }, { onConflict: 'folder_id,card_id' })
+    if (!error) {
+      // Remove from all current folders (move semantics)
+      if (folders?.length) {
+        await sb.from('folder_cards').delete()
+          .eq('card_id', card.id)
+          .in('folder_id', folders.filter(f => f.id !== matched.id).map(f => f.id))
+      }
+      setMoveFolderText('')
+      onSave?.(card)
+    }
+  }
+
+  // P&L: always compare in EUR (purchase_price is stored in EUR)
+  // Get EUR price from live data if available, else from sfCard
+  const eurLiveSfCard = fullCard ? { ...sfCard, prices: fullCard.prices } : sfCard
+  const eurPrice = getPrice(eurLiveSfCard, card.foil, { price_source: 'cardmarket_trend' })
+  const pl = eurPrice != null && editBuyPrice > 0
+    ? (eurPrice - editBuyPrice) * card.qty
+    : null
+  const plPct = eurPrice != null && editBuyPrice > 0
+    ? ((eurPrice - editBuyPrice) / editBuyPrice) * 100
+    : null
+
   const tabs = [
+    { id: 'collection', label: 'Edit' },
     { id: 'overview',   label: 'Overview' },
     { id: 'rules',      label: 'Rules Text' },
     { id: 'legality',   label: 'Legality' },
     { id: 'prices',     label: 'Prices' },
     { id: 'rulings',    label: 'Rulings' },
-    { id: 'collection', label: 'My Copy' },
   ]
 
   return (
@@ -337,13 +418,17 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, p
                 </span>
               )}
             </span>
-            {pricesAreLive
-              ? <span style={{ fontSize: '0.68rem', color: '#4a9a5a', background: 'rgba(74,154,90,0.12)', border: '1px solid rgba(74,154,90,0.25)', borderRadius: 3, padding: '1px 6px' }}>
-                  ✓ Live price
+            {priceIsBuyFallback
+              ? <span style={{ fontSize: '0.68rem', color: 'var(--gold)', background: 'rgba(201,168,76,0.12)', border: '1px solid rgba(201,168,76,0.25)', borderRadius: 3, padding: '1px 6px' }}>
+                  € Buy price
                 </span>
-              : loadingFull
-                ? <span style={{ fontSize: '0.68rem', color: 'var(--text-faint)' }}>fetching live price…</span>
-                : null
+              : pricesAreLive
+                ? <span style={{ fontSize: '0.68rem', color: '#4a9a5a', background: 'rgba(74,154,90,0.12)', border: '1px solid rgba(74,154,90,0.25)', borderRadius: 3, padding: '1px 6px' }}>
+                    ✓ Live price
+                  </span>
+                : loadingFull
+                  ? <span style={{ fontSize: '0.68rem', color: 'var(--text-faint)' }}>fetching live price…</span>
+                  : null
             }
           </div>
 
@@ -527,13 +612,18 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, p
                 <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.07)' }}>
                   <div className={styles.detailInfoRow}>
                     <span className={styles.detailInfoLabel}>Purchase Price</span>
-                    <span className={styles.detailInfoVal}>€{parseFloat(card.purchase_price).toFixed(2)}</span>
+                    <span className={styles.detailInfoVal}>€{parseFloat(card.purchase_price).toFixed(2)}{card.qty > 1 && ` × ${card.qty} = €${(parseFloat(card.purchase_price) * card.qty).toFixed(2)}`}</span>
                   </div>
                   {pl != null && (
                     <div className={styles.detailInfoRow}>
                       <span className={styles.detailInfoLabel}>P&L</span>
-                      <span className={styles.detailInfoVal} style={{ color: pl >= 0 ? 'var(--green)' : '#e05252' }}>
+                      <span className={styles.detailInfoVal} style={{ color: pl >= 0 ? 'var(--green)' : '#e05252', fontWeight: 600 }}>
                         {pl >= 0 ? '+' : ''}€{pl.toFixed(2)}
+                        {plPct != null && (
+                          <span style={{ fontSize: '0.82rem', fontWeight: 400, marginLeft: 6, opacity: 0.85 }}>
+                            ({plPct >= 0 ? '+' : ''}{plPct.toFixed(1)}%)
+                          </span>
+                        )}
                       </span>
                     </div>
                   )}
@@ -576,58 +666,157 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, p
             </div>
           )}
 
-          {/* ── My Copy ── */}
+          {/* ── Edit / My Copy ── */}
           {activeTab === 'collection' && (
             <div className={styles.detailSection}>
-              <div className={styles.detailInfoRow}>
-                <span className={styles.detailInfoLabel}>Quantity</span>
-                <span className={styles.detailInfoVal}>{card.qty}</span>
-              </div>
-              <div className={styles.detailInfoRow}>
-                <span className={styles.detailInfoLabel}>Condition</span>
-                <span className={styles.detailInfoVal}>{CONDITION_LABELS[card.condition] || card.condition}</span>
-              </div>
-              <div className={styles.detailInfoRow}>
-                <span className={styles.detailInfoLabel}>Language</span>
-                <span className={styles.detailInfoVal}>{LANG_NAMES_FULL[card.language] || (card.language || '').toUpperCase()}</span>
-              </div>
-              <div className={styles.detailInfoRow}>
-                <span className={styles.detailInfoLabel}>Foil</span>
-                <span className={styles.detailInfoVal} style={{ color: card.foil ? 'var(--purple)' : 'var(--text)' }}>{card.foil ? 'Yes' : 'No'}</span>
-              </div>
-              {card.misprint && <div className={styles.detailInfoRow}><span className={styles.detailInfoLabel}>Misprint</span><span className={styles.detailInfoVal}>Yes</span></div>}
-              {card.altered  && <div className={styles.detailInfoRow}><span className={styles.detailInfoLabel}>Altered</span><span className={styles.detailInfoVal}>Yes</span></div>}
-              <div className={styles.detailInfoRow}>
-                <span className={styles.detailInfoLabel}>Added</span>
-                <span className={styles.detailInfoVal}>{card.added_at ? new Date(card.added_at).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' }) : '—'}</span>
-              </div>
-              <div className={styles.detailInfoRow}>
-                <span className={styles.detailInfoLabel}>Set</span>
-                <span className={styles.detailInfoVal}>{(card.set_code || '').toUpperCase()} · #{card.collector_number}</span>
+
+              {/* ── Editable fields ── */}
+              <div className={styles.editGroup}>
+                <span className={styles.editLabel}>Quantity</span>
+                <div className={styles.qtyEditor}>
+                  <button className={styles.qtyBtn} onClick={() => setEditQty(q => Math.max(1, q - 1))}>−</button>
+                  <input className={styles.qtyInput} type="number" min="1" value={editQty}
+                    onChange={e => setEditQty(Math.max(1, parseInt(e.target.value) || 1))} />
+                  <button className={styles.qtyBtn} onClick={() => setEditQty(q => q + 1)}>+</button>
+                </div>
               </div>
 
-              {folders?.length > 0 && (
-                <div className={styles.detailInfoRow} style={{ alignItems: 'flex-start', marginTop: 8 }}>
-                  <span className={styles.detailInfoLabel}>In</span>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                    {folders.map((f, i) => (
-                      <span key={i} style={{
-                        fontSize: '0.78rem', padding: '3px 8px', borderRadius: 3,
-                        border: `1px solid ${f.type === 'deck' ? 'rgba(138,111,196,0.4)' : 'rgba(201,168,76,0.35)'}`,
-                        background: f.type === 'deck' ? 'rgba(138,111,196,0.12)' : 'rgba(201,168,76,0.1)',
-                        color: 'var(--text-dim)', display: 'inline-flex', alignItems: 'center', gap: 4,
-                      }}>
-                        <FolderTypeIcon type={f.type} size={11} />{f.name}
-                      </span>
-                    ))}
+              <div className={styles.editGroup}>
+                <span className={styles.editLabel}>Foil</span>
+                <button
+                  className={editFoil ? styles.foilToggleOn : styles.foilToggleOff}
+                  onClick={() => setEditFoil(v => !v)}>
+                  {editFoil ? '✦ Foil' : '— Non-foil'}
+                </button>
+              </div>
+
+              <div className={styles.editGroup}>
+                <span className={styles.editLabel}>Condition</span>
+                <select className={styles.editSelect} value={editCondition} onChange={e => setEditCondition(e.target.value)}>
+                  {Object.entries(CONDITION_LABELS).map(([k, v]) => (
+                    <option key={k} value={k}>{v}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Buy Price */}
+              <div className={styles.editGroup}>
+                <span className={styles.editLabel}>Buy Price</span>
+                {!buyPriceEdit ? (
+                  <button
+                    className={styles.manualPriceBtn}
+                    onClick={() => { setBuyPriceEdit(true); setBuyPriceInput(editBuyPrice > 0 ? String(editBuyPrice) : '') }}>
+                    {editBuyPrice > 0 ? `✎ €${editBuyPrice.toFixed(2)}` : '+ Set buy price'}
+                  </button>
+                ) : (
+                  <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <input autoFocus type="number" min="0" step="0.01" value={buyPriceInput}
+                      onChange={e => setBuyPriceInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') saveBuyPrice(); if (e.key === 'Escape') setBuyPriceEdit(false) }}
+                      placeholder="0.00"
+                      style={{ width: 80, background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-hi)', borderRadius: 3, padding: '4px 8px', color: 'var(--text)', fontSize: '0.88rem', outline: 'none' }} />
+                    <button onClick={saveBuyPrice} style={{ background: 'rgba(201,168,76,0.15)', border: '1px solid rgba(201,168,76,0.3)', borderRadius: 3, padding: '4px 8px', color: 'var(--gold)', fontSize: '0.75rem', cursor: 'pointer' }}>Save</button>
+                    <button onClick={() => setBuyPriceEdit(false)} style={{ background: 'none', border: 'none', color: 'var(--text-faint)', cursor: 'pointer' }}>✕</button>
+                  </div>
+                )}
+              </div>
+
+              {/* ── Save changes ── */}
+              <div className={styles.editSaveRow}>
+                <button className={styles.saveBtn} onClick={handleSave} disabled={saving || saved}>
+                  {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save Changes'}
+                </button>
+                {saveError && <span style={{ fontSize: '0.78rem', color: '#e08878' }}>{saveError}</span>}
+              </div>
+
+              {/* ── Move to deck / binder ── */}
+              {allFolders.length > 0 && (
+                <div className={styles.editGroup} style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+                  <span className={styles.editLabel}>Move to</span>
+                  <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <input
+                      list="moveFolderList"
+                      className={styles.editSelect}
+                      style={{ flex: 1, minWidth: 140 }}
+                      value={moveFolderText}
+                      onChange={e => setMoveFolderText(e.target.value)}
+                      placeholder="Type or select deck / binder…"
+                    />
+                    <datalist id="moveFolderList">
+                      {allFolders.filter(f => f.type !== 'list').map(f => (
+                        <option key={f.id} value={f.name}>{f.name} ({f.type})</option>
+                      ))}
+                    </datalist>
+                    <button className={styles.addToFolderBtn}
+                      onClick={handleMoveToFolder}
+                      disabled={!moveFolderText || !allFolders.find(f => f.name.toLowerCase() === moveFolderText.toLowerCase())}>
+                      Move
+                    </button>
                   </div>
                 </div>
               )}
 
-              {(onEdit || onDelete) && (
-                <div className={styles.detailActions}>
-                  {onEdit && <button className={styles.editBtn} onClick={onEdit}>Edit</button>}
-                  {onDelete && <button className={styles.deleteBtn} onClick={onDelete}>Delete</button>}
+              {/* ── Static info ── */}
+              <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                <div className={styles.detailInfoRow}>
+                  <span className={styles.detailInfoLabel}>Language</span>
+                  <span className={styles.detailInfoVal}>{LANG_NAMES_FULL[card.language] || (card.language || '').toUpperCase()}</span>
+                </div>
+                <div className={styles.detailInfoRow}>
+                  <span className={styles.detailInfoLabel}>Set</span>
+                  <span className={styles.detailInfoVal}>{(card.set_code || '').toUpperCase()} · #{card.collector_number}</span>
+                </div>
+                <div className={styles.detailInfoRow}>
+                  <span className={styles.detailInfoLabel}>Added</span>
+                  <span className={styles.detailInfoVal}>{card.added_at ? new Date(card.added_at).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' }) : '—'}</span>
+                </div>
+                {editBuyPrice > 0 && (
+                  <div className={styles.detailInfoRow}>
+                    <span className={styles.detailInfoLabel}>Buy Price</span>
+                    <span className={styles.detailInfoVal}>
+                      €{editBuyPrice.toFixed(2)}
+                      {pl != null && (
+                        <span style={{ marginLeft: 8, fontSize: '0.82rem', color: pl >= 0 ? 'var(--green)' : '#e05252' }}>
+                          {pl >= 0 ? '+' : ''}€{pl.toFixed(2)}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                )}
+                {card.misprint && <div className={styles.detailInfoRow}><span className={styles.detailInfoLabel}>Misprint</span><span className={styles.detailInfoVal}>Yes</span></div>}
+                {card.altered  && <div className={styles.detailInfoRow}><span className={styles.detailInfoLabel}>Altered</span><span className={styles.detailInfoVal}>Yes</span></div>}
+              </div>
+
+              {/* ── In folders ── */}
+              {folders?.length > 0 && (
+                <div className={styles.detailInfoRow} style={{ alignItems: 'flex-start', marginTop: 8 }}>
+                  <span className={styles.detailInfoLabel}>In</span>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {folders.map((f, i) => {
+                      const path = f.type === 'deck' ? '/decks' : f.type === 'binder' ? '/binders' : '/lists'
+                      const dest = f.id ? `${path}?folder=${f.id}` : path
+                      return (
+                        <button key={i} onClick={() => { onClose?.(); navigate(dest) }} style={{
+                          fontSize: '0.78rem', padding: '3px 8px', borderRadius: 3,
+                          border: `1px solid ${f.type === 'deck' ? 'rgba(138,111,196,0.4)' : 'rgba(201,168,76,0.35)'}`,
+                          background: f.type === 'deck' ? 'rgba(138,111,196,0.12)' : 'rgba(201,168,76,0.1)',
+                          color: 'var(--text-dim)', display: 'inline-flex', alignItems: 'center', gap: 4,
+                          cursor: 'pointer', transition: 'all 0.15s',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.color = 'var(--gold)'}
+                        onMouseLeave={e => e.currentTarget.style.color = 'var(--text-dim)'}
+                        >
+                          <FolderTypeIcon type={f.type} size={11} />{f.name} →
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {onDelete && (
+                <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <button className={styles.deleteBtn} onClick={onDelete}>Delete Card</button>
                 </div>
               )}
             </div>
@@ -899,6 +1088,8 @@ export function FilterBar({
           <option value="name">Name A→Z</option>
           <option value="price_desc">Price ↓</option>
           <option value="price_asc">Price ↑</option>
+          <option value="pl_desc">P&L ↓</option>
+          <option value="pl_asc">P&L ↑</option>
           <option value="cmc_asc">Mana Value ↑</option>
           <option value="cmc_desc">Mana Value ↓</option>
           <option value="qty">Quantity</option>
@@ -1177,9 +1368,10 @@ export function applyFilterSort(cards, sfMap, search, sort, filters = {}, cardFo
   // Set
   if (sets.length) r = r.filter(c => sets.includes(c.set_code))
 
-  // Quantity
-  if (quantity === 'dupes')  r = r.filter(c => c.qty > 1)
-  if (quantity === 'single') r = r.filter(c => c.qty === 1)
+  // Quantity (prefer _folder_qty when inside a deck/binder view)
+  const getQty = c => c._folder_qty ?? c.qty ?? 1
+  if (quantity === 'dupes')  r = r.filter(c => getQty(c) > 1)
+  if (quantity === 'single') r = r.filter(c => getQty(c) === 1)
 
   // Special
   if (specials.includes('altered'))  r = r.filter(c => c.altered)
@@ -1293,17 +1485,22 @@ export function applyFilterSort(cards, sfMap, search, sort, filters = {}, cardFo
   }
 
   const RARITY_ORDER = { common: 0, uncommon: 1, rare: 2, mythic: 3, special: 4 }
+  const RARITY_ORDER2 = { common: 0, uncommon: 1, rare: 2, mythic: 3, special: 4 }
   r.sort((a, b) => {
     const sfA = sfMap[`${a.set_code}-${a.collector_number}`]
     const sfB = sfMap[`${b.set_code}-${b.collector_number}`]
+    const plA = (() => { const p = getPrice(sfA, a.foil); return p != null && a.purchase_price > 0 ? (p - a.purchase_price) * a.qty : null })()
+    const plB = (() => { const p = getPrice(sfB, b.foil); return p != null && b.purchase_price > 0 ? (p - b.purchase_price) * b.qty : null })()
     switch (sort) {
       case 'name':       return a.name.localeCompare(b.name)
       case 'price_desc': return (getPrice(sfB, b.foil) || 0) - (getPrice(sfA, a.foil) || 0)
       case 'price_asc':  return (getPrice(sfA, a.foil) || 0) - (getPrice(sfB, b.foil) || 0)
-      case 'qty':        return b.qty - a.qty
+      case 'pl_desc':    return (plB ?? -Infinity) - (plA ?? -Infinity)
+      case 'pl_asc':     return (plA ?? Infinity)  - (plB ?? Infinity)
+      case 'qty':        return (b._folder_qty ?? b.qty ?? 0) - (a._folder_qty ?? a.qty ?? 0)
       case 'set':        return (a.set_code || '').localeCompare(b.set_code || '')
       case 'added':      return new Date(b.added_at || 0) - new Date(a.added_at || 0)
-      case 'rarity':     return (RARITY_ORDER[sfB?.rarity] ?? 0) - (RARITY_ORDER[sfA?.rarity] ?? 0)
+      case 'rarity':     return (RARITY_ORDER2[sfB?.rarity] ?? 0) - (RARITY_ORDER2[sfA?.rarity] ?? 0)
       case 'cmc_asc':    return (sfA?.cmc ?? 99) - (sfB?.cmc ?? 99)
       case 'cmc_desc':   return (sfB?.cmc ?? 0)  - (sfA?.cmc ?? 0)
       default:           return 0

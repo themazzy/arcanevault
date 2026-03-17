@@ -54,10 +54,23 @@
 .main { padding: 28px 40px; max-width: 1600px; margin: 0 auto; }
 
 @media (max-width: 768px) {
-  .header { padding: 0 16px; }
-  .main { padding: 16px; }
-  .tab { padding: 11px 14px; font-size: 0.68rem; }
+  .header { padding: 0 12px; }
+  .main { padding: 12px 10px; }
+  .tab { padding: 10px 11px; font-size: 0.65rem; flex-shrink: 0; }
   .userName { display: none; }
+  .headerTop { padding: 10px 0 8px; }
+  .logo { font-size: 1.1rem; }
+}
+
+@media (max-width: 480px) {
+  .header { padding: 0 8px; }
+  .main { padding: 8px; }
+  .tabs { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { padding: 9px 9px; font-size: 0.6rem; letter-spacing: 0.06em; }
+  .signOut { display: none; }
+  .logo { font-size: 1rem; }
+  .headerTop { padding: 8px 0 6px; }
 }
 
 .settingsLink {
