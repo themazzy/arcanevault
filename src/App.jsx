@@ -40,7 +40,11 @@ function PrivateApp() {
 
 export default function App() {
   return (
-    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    /* Added basename="/arcanevault" here */
+    <BrowserRouter 
+      basename="/arcanevault"
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+    >
       <AuthProvider>
         <Routes>
           <Route path="/share/:token" element={<SharePage />} />
