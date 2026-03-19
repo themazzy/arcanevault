@@ -6,11 +6,13 @@ const SETTINGS_KEY = 'arcanevault_settings'
 
 const DEFAULTS = {
   price_source: 'cardmarket_trend',
-  display_currency: 'EUR',  // EUR | USD — for conversion
   default_sort: 'name',
   grid_density: 'comfortable',
   show_price: true,
   cache_ttl_h: 24,
+  binder_sort: 'name',
+  deck_sort: 'name',
+  list_sort: 'name',
 }
 
 function loadLocal() {
@@ -60,9 +62,11 @@ export function SettingsProvider({ children }) {
     // Debounce Supabase sync by 800ms to avoid hammering on toggle flicks
     clearTimeout(syncTimeout.current)
     syncTimeout.current = setTimeout(async () => {
-      const { price_source, display_currency, default_sort, grid_density, show_price, cache_ttl_h } = next
+      const { price_source, default_sort, grid_density, show_price, cache_ttl_h,
+              binder_sort, deck_sort, list_sort } = next
       const { error } = await sb.from('user_settings').upsert(
-        { user_id: user.id, price_source, display_currency, default_sort, grid_density, show_price, cache_ttl_h, updated_at: new Date().toISOString() },
+        { user_id: user.id, price_source, default_sort, grid_density, show_price, cache_ttl_h,
+          binder_sort, deck_sort, list_sort, updated_at: new Date().toISOString() },
         { onConflict: 'user_id' }
       )
       if (error) console.warn('Settings sync failed (table may not exist yet):', error.message)

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { sb } from '../lib/supabase'
 import { Modal, Button, ErrorBox } from './UI'
 import { useSettings } from './SettingsContext'
-import { getPrice, formatPrice, convertCurrency, getPriceSource } from '../lib/scryfall'
+import { getPrice, formatPrice, getPriceSource } from '../lib/scryfall'
 import { initScanner, ocrCardName, getFrameArtHash, filterPrintingsByArt } from '../lib/scanner'
 import styles from './AddCardModal.module.css'
 
@@ -28,34 +28,18 @@ function getCardImage(printing, size = 'normal') {
   return null
 }
 
-// Returns market price in display_currency as a string for the purchase price input.
-// Always prefers EUR source (most accurate for EUR-stored purchase prices), then converts.
-function getMarketPrice(printing, isFoil, price_source = 'cardmarket_trend', display_currency = 'EUR') {
-  if (!printing?.prices) return ''
-  const p = printing.prices
-  // Get raw EUR value first (canonical source for storage); fall back to USD
-  let eurVal = isFoil
-    ? (parseFloat(p.eur_foil) || parseFloat(p.usd_foil) || 0)
-    : (parseFloat(p.eur)      || parseFloat(p.usd)      || 0)
-  if (!eurVal) return ''
-  // Convert EUR → display currency
-  const converted = display_currency === 'EUR' ? eurVal : (convertCurrency(eurVal, 'EUR', display_currency) ?? eurVal)
-  return converted ? converted.toFixed(2) : ''
-}
-
-// Convert a purchase price entered in display_currency back to EUR for DB storage
-function purchasePriceToEur(value, display_currency) {
-  const v = parseFloat(value) || 0
-  if (!v) return 0
-  if (display_currency === 'EUR') return v
-  return convertCurrency(v, display_currency, 'EUR') ?? v
+// Returns market price in the native price_source currency as a string for the purchase price input.
+function getMarketPrice(printing, isFoil, price_source = 'cardmarket_trend') {
+  const v = getPrice(printing, isFoil, { price_source })
+  return v ? v.toFixed(2) : ''
 }
 
 // ── Camera / scan view ────────────────────────────────────────────────────────
 
 function ScanView({ onScanned, onManual }) {
-  const videoRef   = useRef(null)
-  const activeRef  = useRef(true)   // set to false on unmount to stop loop
+  const videoRef    = useRef(null)
+  const activeRef   = useRef(true)   // set to false on unmount to stop loop
+  const ocrBufRef   = useRef([])     // stability buffer — need 2 consecutive matches
   const [camReady, setCamReady]     = useState(false)
   const [camError, setCamError]     = useState(false)
   const [statusText, setStatusText] = useState('Starting camera…')
@@ -112,13 +96,28 @@ function ScanView({ onScanned, onManual }) {
         step: 'OCR',
       }))
 
-      if (!result || result.confidence < 62 || result.text.length < 3) {
-        setStatusText(`Hold card still… ${result ? `(OCR: "${result.text}" ${result.confidence.toFixed(0)}%)` : ''}`)
-        if (activeRef.current) timeout = setTimeout(scan, 900)
+      if (!result || result.confidence < 52 || result.text.length < 3) {
+        ocrBufRef.current = []  // reset stability buffer on failed read
+        setStatusText(`Hold card still inside the frame${result?.text ? ` — "${result.text}" (${result.confidence.toFixed(0)}%)` : ''}`)
+        if (activeRef.current) timeout = setTimeout(scan, 700)
         return
       }
 
-      setStatusText(`Reading: "${result.text}" (${result.confidence.toFixed(0)}%)…`)
+      // Stability buffer: require the same text twice in a row to avoid misreads
+      const buf = ocrBufRef.current
+      buf.push(result.text)
+      if (buf.length > 2) buf.shift()
+
+      setStatusText(`Scanning… "${result.text}" (${result.confidence.toFixed(0)}%)`)
+      setDebugInfo(d => ({ ...d, step: 'Stabilising' }))
+
+      if (buf.length < 2 || buf[0] !== buf[1]) {
+        if (activeRef.current) timeout = setTimeout(scan, 700)
+        return
+      }
+
+      // Got a stable read — proceed
+      ocrBufRef.current = []
       setDebugInfo(d => ({ ...d, step: 'Name lookup' }))
 
       try {
@@ -157,12 +156,13 @@ function ScanView({ onScanned, onManual }) {
         onScanned(card.name, matchedPrintings, allPrintings)
       } catch (e) {
         setDebugInfo(d => ({ ...d, step: 'Error', error: e.message }))
-        setStatusText('Not recognized — hold card still…')
-        if (activeRef.current) timeout = setTimeout(scan, 900)
+        setStatusText('Not recognized — try repositioning the card')
+        ocrBufRef.current = []
+        if (activeRef.current) timeout = setTimeout(scan, 700)
       }
     }
 
-    timeout = setTimeout(scan, 1200)  // brief delay before first attempt
+    timeout = setTimeout(scan, 1000)  // brief delay before first attempt
     return () => clearTimeout(timeout)
   }, [camReady])
 
@@ -287,26 +287,30 @@ function EditForm({ card, onClose, onSaved }) {
 }
 
 // ── Main modal ─────────────────────────────────────────────────────────────────
-export default function AddCardModal({ userId, onClose, onSaved, prefillCard = null }) {
+export default function AddCardModal({
+  userId, onClose, onSaved, prefillCard = null,
+  folderMode = false, defaultFolderType = 'binder', defaultFolderId = null,
+}) {
   return (
     <Modal onClose={onClose}>
       {prefillCard?.id
         ? <EditForm card={prefillCard} onClose={onClose} onSaved={onSaved} />
-        : <AddFlow userId={userId} onClose={onClose} onSaved={onSaved} />
+        : <AddFlow userId={userId} onClose={onClose} onSaved={onSaved}
+            folderMode={folderMode} defaultFolderType={defaultFolderType} defaultFolderId={defaultFolderId} />
       }
     </Modal>
   )
 }
 
 // ── Add flow ──────────────────────────────────────────────────────────────────
-function AddFlow({ userId, onClose, onSaved }) {
-  const { price_source, display_currency } = useSettings()
+function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderType = 'binder', defaultFolderId = null }) {
+  const { price_source } = useSettings()
 
-  // Format a printing's non-foil price using the user's currency settings
+  // Format a printing's non-foil price using the user's price source
   const fmtPrintingPrice = (printing) => {
     if (!printing) return '—'
     const v = getPrice(printing, false, { price_source })
-    return v != null ? formatPrice(v, price_source, display_currency) : '—'
+    return v != null ? formatPrice(v, price_source) : '—'
   }
 
   // View state: 'scan' | 'search' | 'configure'
@@ -338,19 +342,41 @@ function AddFlow({ userId, onClose, onSaved }) {
   const [queue, setQueue] = useState([])
 
   // Destination
-  const [destTab, setDestTab]           = useState('collection')
+  const [destTab, setDestTab]           = useState(folderMode ? (defaultFolderType || 'binder') : 'collection')
   const [folders, setFolders]           = useState([])
-  const [selectedFolder, setSelectedFolder] = useState(null)
+  const [selectedFolder, setSelectedFolder] = useState(defaultFolderId || null)
+
+  // Folder mode — searchable dropdown
+  const [folderSearch, setFolderSearch]   = useState('')
+  const [folderDropOpen, setFolderDropOpen] = useState(false)
+  const [creatingFolder, setCreatingFolder] = useState(false)
+  const [newFolderName, setNewFolderName]   = useState('')
+  const folderDropRef = useRef(null)
 
   // Save
   const [saving, setSaving]   = useState(false)
   const [error, setError]     = useState('')
 
   useEffect(() => {
-    sb.from('folders').select('id,name,type').eq('user_id', userId).then(({ data }) => {
+    sb.from('folders').select('id,name,type,description').eq('user_id', userId).then(({ data }) => {
       if (data) setFolders(data)
     })
   }, [userId])
+
+  // Pre-populate folder search label when folders load
+  useEffect(() => {
+    if (!folderMode || !defaultFolderId || !folders.length) return
+    const f = folders.find(fl => fl.id === defaultFolderId)
+    if (f) setFolderSearch(f.name)
+  }, [folderMode, defaultFolderId, folders])
+
+  // Close folder dropdown on outside click
+  useEffect(() => {
+    if (!folderDropOpen) return
+    const close = (e) => { if (folderDropRef.current && !folderDropRef.current.contains(e.target)) setFolderDropOpen(false) }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [folderDropOpen])
 
   // Close suggestions on outside click
   useEffect(() => {
@@ -443,14 +469,12 @@ function AddFlow({ userId, onClose, onSaved }) {
 
   const addToQueue = () => {
     if (!selectedPrinting) return
-    // Store purchase price in EUR regardless of display currency
-    const purchasePriceEur = purchasePriceToEur(purchasePrice, display_currency)
     setQueue(q => [...q, {
       id: Date.now(),
       printing: selectedPrinting,
       qty: parseInt(qty) || 1,
       foil, condition, language,
-      purchasePrice: purchasePriceEur,
+      purchasePrice: parseFloat(purchasePrice) || 0,
     }])
     resetSearch()
     setView('scan')
@@ -459,13 +483,63 @@ function AddFlow({ userId, onClose, onSaved }) {
   const removeFromQueue = (id) => setQueue(q => q.filter(item => item.id !== id))
 
   const destFolders = folders.filter(f => f.type === destTab)
-  const canSave = queue.length > 0 &&
-    (destTab === 'collection' || !destFolders.length || selectedFolder)
+
+  // Folder mode: filtered folders by selected type + search text, excluding groups
+  const filteredFoldersByType = (() => {
+    const byType = folders.filter(f => {
+      if (f.type !== destTab) return false
+      try { if (JSON.parse(f.description || '{}').isGroup) return false } catch {}
+      return true
+    })
+    if (!folderSearch.trim()) return byType
+    const q = folderSearch.toLowerCase()
+    return byType.filter(f => f.name.toLowerCase().includes(q))
+  })()
+
+  const createNewFolder = async () => {
+    if (!newFolderName.trim() || !userId) return
+    const { data } = await sb.from('folders').insert({
+      user_id: userId, type: destTab, name: newFolderName.trim(),
+    }).select().single()
+    if (data) {
+      setFolders(prev => [...prev, data])
+      setSelectedFolder(data.id)
+      setFolderSearch(data.name)
+      setCreatingFolder(false)
+      setNewFolderName('')
+    }
+  }
+
+  const canSave = queue.length > 0 && (
+    folderMode
+      ? selectedFolder != null
+      : (destTab === 'collection' || !destFolders.length || selectedFolder)
+  )
 
   const saveAll = async () => {
     if (!queue.length) return
     setSaving(true); setError('')
     try {
+      // Wishlist (list_items) save — only in folder mode
+      if (folderMode && destTab === 'list' && selectedFolder) {
+        const items = queue.map(item => ({
+          folder_id: selectedFolder,
+          name: item.printing.name,
+          set_code: item.printing.set,
+          collector_number: item.printing.collector_number,
+          scryfall_id: item.printing.id || null,
+          foil: item.foil,
+          qty: item.qty,
+        }))
+        const { error: err } = await sb.from('list_items')
+          .upsert(items, { onConflict: 'folder_id,set_code,collector_number,foil' })
+        if (err) { setError(err.message); setSaving(false); return }
+        onSaved()
+        setSaving(false)
+        return
+      }
+
+      // Binder / Deck / Collection save
       const cards = queue.map(item => ({
         user_id: userId,
         name: item.printing.name,
@@ -474,14 +548,15 @@ function AddFlow({ userId, onClose, onSaved }) {
         scryfall_id: item.printing.id || null,
         foil: item.foil, qty: item.qty,
         condition: item.condition, language: item.language,
-        purchase_price: item.purchasePrice,  // already in EUR
+        purchase_price: item.purchasePrice,
         currency: 'EUR',
       }))
       const { error: err } = await sb.from('cards')
         .upsert(cards, { onConflict: 'user_id,set_code,collector_number,foil,language,condition' })
       if (err) { setError(err.message); setSaving(false); return }
 
-      if (destTab !== 'collection' && selectedFolder) {
+      const folderTarget = folderMode ? selectedFolder : (destTab !== 'collection' ? selectedFolder : null)
+      if (folderTarget) {
         const setCodes = [...new Set(cards.map(c => c.set_code))]
         const { data: saved } = await sb.from('cards')
           .select('id,set_code,collector_number,foil,language,condition')
@@ -492,7 +567,7 @@ function AddFlow({ userId, onClose, onSaved }) {
               qc.set_code === c.set_code && qc.collector_number === c.collector_number &&
               qc.foil === c.foil && qc.language === c.language && qc.condition === c.condition
             ))
-            .map(c => ({ folder_id: selectedFolder, card_id: c.id }))
+            .map(c => ({ folder_id: folderTarget, card_id: c.id }))
           if (links.length) {
             await sb.from('folder_cards').upsert(links, { onConflict: 'folder_id,card_id' })
           }
@@ -677,12 +752,12 @@ function AddFlow({ userId, onClose, onSaved }) {
                   </select>
                 </div>
                 <div className={styles.field}>
-                  <label className={styles.label}>Purchase Price ({display_currency === 'USD' ? '$' : '€'})</label>
+                  <label className={styles.label}>Purchase Price ({getPriceSource(price_source).symbol})</label>
                   <div className={styles.priceInputRow}>
                     <input className={styles.input} type="number" min="0" step="0.01"
                       value={purchasePrice} onChange={e => setPurchasePrice(e.target.value)} />
                     <button className={styles.marketBtn}
-                      onClick={() => setPurchasePrice(getMarketPrice(selectedPrinting, foil, price_source, display_currency))}
+                      onClick={() => setPurchasePrice(getMarketPrice(selectedPrinting, foil, price_source))}
                       title="Use current market price">↺</button>
                   </div>
                 </div>
@@ -735,33 +810,92 @@ function AddFlow({ userId, onClose, onSaved }) {
           {/* Destination */}
           <div className={styles.destination}>
             <div className={styles.destLabel}>Save to</div>
-            <div className={styles.destTabs}>
-              {[['collection', 'Collection'], ['deck', 'Deck'], ['binder', 'Binder'], ['list', 'Wishlist']].map(([key, label]) => (
-                <button
-                  key={key}
-                  className={`${styles.destTab} ${destTab === key ? styles.destTabActive : ''}`}
-                  onClick={() => { setDestTab(key); setSelectedFolder(null) }}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            {destTab !== 'collection' && (
-              destFolders.length > 0
-                ? (
-                  <div className={styles.folderGrid}>
-                    {destFolders.map(f => (
-                      <button key={f.id}
-                        className={`${styles.folderBtn} ${selectedFolder === f.id ? styles.folderBtnActive : ''}`}
-                        onClick={() => setSelectedFolder(f.id)}>
-                        {f.name}
+
+            {folderMode ? (
+              /* ── Folder mode: type tabs + searchable dropdown ── */
+              <>
+                <div className={styles.destTabs}>
+                  {[['deck','Deck'],['binder','Binder'],['list','Wishlist']].map(([key,label]) => (
+                    <button key={key}
+                      className={`${styles.destTab} ${destTab===key ? styles.destTabActive : ''}`}
+                      onClick={() => { setDestTab(key); setSelectedFolder(null); setFolderSearch(''); setCreatingFolder(false) }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div ref={folderDropRef} className={styles.folderSearchWrap}>
+                  <input
+                    className={styles.folderSearchInput}
+                    value={selectedFolder ? (folders.find(f => f.id === selectedFolder)?.name || folderSearch) : folderSearch}
+                    onChange={e => { setFolderSearch(e.target.value); setSelectedFolder(null); setFolderDropOpen(true) }}
+                    onFocus={() => setFolderDropOpen(true)}
+                    placeholder={`Search ${destTab === 'list' ? 'wishlists' : destTab + 's'}…`}
+                  />
+                  {folderDropOpen && (
+                    <div className={styles.folderDropdown}>
+                      {filteredFoldersByType.map(f => (
+                        <button key={f.id}
+                          className={`${styles.folderDropItem} ${selectedFolder === f.id ? styles.folderDropItemActive : ''}`}
+                          onMouseDown={() => { setSelectedFolder(f.id); setFolderSearch(f.name); setFolderDropOpen(false) }}>
+                          {f.name}
+                        </button>
+                      ))}
+                      {filteredFoldersByType.length === 0 && folderSearch && (
+                        <div className={styles.folderDropEmpty}>No {destTab === 'list' ? 'wishlists' : destTab + 's'} found</div>
+                      )}
+                      <button className={styles.folderDropCreate}
+                        onMouseDown={() => { setCreatingFolder(true); setFolderDropOpen(false) }}>
+                        + Create new {destTab === 'list' ? 'wishlist' : destTab}
                       </button>
-                    ))}
+                    </div>
+                  )}
+                </div>
+                {creatingFolder && (
+                  <div className={styles.newFolderRow}>
+                    <input
+                      className={`${styles.input} ${styles.newFolderInput}`}
+                      value={newFolderName}
+                      onChange={e => setNewFolderName(e.target.value)}
+                      placeholder={`New ${destTab === 'list' ? 'wishlist' : destTab} name…`}
+                      autoFocus
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') createNewFolder()
+                        if (e.key === 'Escape') setCreatingFolder(false)
+                      }}
+                    />
+                    <button className={styles.marketBtn} onClick={createNewFolder} title="Create">✓</button>
+                    <button className={styles.clearBtn} onClick={() => { setCreatingFolder(false); setNewFolderName('') }}>×</button>
                   </div>
-                )
-                : <div className={styles.noFolders}>
-                    No {destTab}s yet — cards will be saved to collection only
-                  </div>
+                )}
+              </>
+            ) : (
+              /* ── Collection mode: original tabs + button grid ── */
+              <>
+                <div className={styles.destTabs}>
+                  {[['collection','Collection'],['deck','Deck'],['binder','Binder'],['list','Wishlist']].map(([key,label]) => (
+                    <button key={key}
+                      className={`${styles.destTab} ${destTab===key ? styles.destTabActive : ''}`}
+                      onClick={() => { setDestTab(key); setSelectedFolder(null) }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {destTab !== 'collection' && (
+                  destFolders.length > 0
+                    ? (
+                      <div className={styles.folderGrid}>
+                        {destFolders.map(f => (
+                          <button key={f.id}
+                            className={`${styles.folderBtn} ${selectedFolder === f.id ? styles.folderBtnActive : ''}`}
+                            onClick={() => setSelectedFolder(f.id)}>
+                            {f.name}
+                          </button>
+                        ))}
+                      </div>
+                    )
+                    : <div className={styles.noFolders}>No {destTab}s yet — cards will be saved to collection only</div>
+                )}
+              </>
             )}
           </div>
         </div>

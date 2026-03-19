@@ -4,6 +4,7 @@ import { getImageUri, getPriceWithMeta, formatPriceMeta } from '../lib/scryfall'
 import { Badge } from './UI'
 import { FolderTypeIcon } from './Icons'
 import styles from './VirtualCardGrid.module.css'
+import { useLongPress } from '../hooks/useLongPress'
 
 const DENSITY_MIN_WIDTH   = { cozy: 210, comfortable: 168, compact: 128 }
 const DENSITY_CARD_HEIGHT = { cozy: 375, comfortable: 325, compact: 260 }
@@ -32,10 +33,12 @@ function FolderTags({ folders }) {
   )
 }
 
-function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, onToggleSelect, priceSource, displayCurrency, showPrice, density, cardFolders }) {
+function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, onToggleSelect, onEnterSelectMode, priceSource, showPrice, density, cardFolders }) {
   const imgSize = density === 'cozy' ? 'normal' : 'small'
   const img     = getImageUri(sfCard, imgSize)
   const priceMeta = getPriceWithMeta(sfCard, card.foil, { price_source: priceSource })
+  const buyPrice = parseFloat(card.purchase_price) || null
+  const isBuyFallback = priceMeta == null && buyPrice != null
   const plPct = (card.purchase_price > 0 && priceMeta?.value)
     ? ((priceMeta.value - card.purchase_price) / card.purchase_price) * 100
     : null
@@ -51,10 +54,15 @@ function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, onTo
     else onClick?.(card)
   }
 
+  const longPress = useLongPress(() => {
+    if (!selectMode) onEnterSelectMode?.()
+  }, { delay: 500 })
+
   return (
     <div
       className={`${styles.cardWrap}${isSelected ? ' ' + styles.cardSelected : ''}`}
       onClick={handleClick}
+      {...longPress}
     >
       {selectMode && (
         <div className={`${styles.checkbox}${isSelected ? ' ' + styles.checkboxChecked : ''}`}>
@@ -77,8 +85,8 @@ function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, onTo
           <span className={styles.setCode}>{(card.set_code || '').toUpperCase()}</span>
           {showPrice && (
             <span className={styles.priceWrap}>
-              <span className={`${styles.price}${priceMeta == null ? ' ' + styles.priceNa : (priceMeta?.isFallback ? ' ' + styles.priceFallback : '') + (card.foil ? ' ' + styles.priceFoil : '')}`}>
-                {priceMeta ? formatPriceMeta(priceMeta, displayCurrency) : loading ? '…' : '—'}
+              <span className={`${styles.price}${(priceMeta == null && !isBuyFallback) ? ' ' + styles.priceNa : (priceMeta?.isFallback || isBuyFallback ? ' ' + styles.priceFallback : '')}`}>
+                {priceMeta ? formatPriceMeta(priceMeta) : isBuyFallback ? `${priceSource === 'tcgplayer_market' ? '$' : '€'}${buyPrice.toFixed(2)}` : loading ? '…' : '—'}
               </span>
               {plPct != null && (
                 <span className={`${styles.pricePct} ${plPct >= 0 ? styles.pricePctUp : styles.pricePctDown}`}>
@@ -96,9 +104,8 @@ function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, onTo
 
 export default function VirtualCardGrid({
   cards, sfMap, loading, onSelect,
-  selectMode, selected, onToggleSelect,
+  selectMode, selected, onToggleSelect, onEnterSelectMode,
   priceSource = 'cardmarket_trend',
-  displayCurrency,
   showPrice = true, density = 'comfortable',
   cardFolders,
 }) {
@@ -160,8 +167,8 @@ export default function VirtualCardGrid({
                   selectMode={selectMode}
                   isSelected={selectMode && selected?.has(card.id)}
                   onToggleSelect={onToggleSelect}
+                  onEnterSelectMode={onEnterSelectMode}
                   priceSource={priceSource}
-                  displayCurrency={displayCurrency}
                   showPrice={showPrice}
                   density={density}
                   cardFolders={cardFolders}

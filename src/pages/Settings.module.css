@@ -3,9 +3,14 @@
 .section {
   background: rgba(255,255,255,0.02);
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: 7px;
   margin-bottom: 16px;
   overflow: hidden;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.section:hover {
+  border-color: rgba(180,140,60,0.28);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
 }
 
 .sectionTitle {
@@ -38,17 +43,17 @@
 .select {
   background: rgba(255,255,255,0.05);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: 4px;
   padding: 8px 12px;
   color: var(--text);
   font-family: var(--font-serif);
   font-size: 0.9rem;
   outline: none;
   cursor: pointer;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
   min-width: 160px;
 }
-.select:focus { border-color: var(--border-hi); }
+.select:focus { border-color: var(--border-hi); box-shadow: var(--input-focus); }
 .select option { background: var(--bg3); }
 
 /* Toggle */
@@ -65,6 +70,7 @@
 .toggleOn {
   background: rgba(138,111,196,0.4);
   border-color: rgba(138,111,196,0.6);
+  box-shadow: 0 0 10px rgba(138,111,196,0.2);
 }
 .toggleKnob {
   position: absolute;
@@ -85,16 +91,16 @@
 .input {
   background: rgba(255,255,255,0.04);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: 4px;
   padding: 8px 12px;
   color: var(--text);
   font-family: var(--font-serif);
   font-size: 0.9rem;
   outline: none;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
   width: 180px;
 }
-.input:focus { border-color: var(--border-hi); }
+.input:focus { border-color: var(--border-hi); box-shadow: var(--input-focus); }
 .input::placeholder { color: var(--text-faint); }
 .pwError { font-size: 0.8rem; color: var(--red); margin-top: 6px; }
 .pwMsg { font-size: 0.8rem; color: var(--green); margin-top: 6px; }

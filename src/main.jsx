@@ -2,8 +2,6 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App'
-import { loadFxRates, convertCurrency } from './lib/fx'
-import { injectFxConverter } from './lib/scryfall'
 
 // Register Service Worker for image caching
 if ('serviceWorker' in navigator) {
@@ -14,10 +12,6 @@ if ('serviceWorker' in navigator) {
   })
 }
 
-// Load FX rates and inject converter into scryfall.js
-loadFxRates().then(() => {
-  injectFxConverter(convertCurrency)
-})
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

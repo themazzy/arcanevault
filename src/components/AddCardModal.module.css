@@ -21,7 +21,7 @@
 .modeTab {
   background: rgba(255,255,255,0.04);
   border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 3px;
+  border-radius: 4px;
   color: var(--text-faint);
   font-family: var(--font-display);
   font-size: 0.68rem;
@@ -31,11 +31,12 @@
   cursor: pointer;
   transition: all 0.15s;
 }
-.modeTab:hover { color: var(--text-dim); }
+.modeTab:hover { color: var(--text-dim); background: rgba(255,255,255,0.07); }
 .modeTabActive {
-  background: rgba(201,168,76,0.12);
-  border-color: rgba(201,168,76,0.35);
+  background: rgba(201,168,76,0.14);
+  border-color: rgba(201,168,76,0.4);
   color: var(--gold);
+  text-shadow: 0 0 10px rgba(201,168,76,0.2);
 }
 
 /* ── Edit mode ── */
@@ -63,11 +64,14 @@
 .cameraWrap {
   position: relative;
   width: 100%;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 4 / 3;   /* portrait-friendly on mobile */
   background: #000;
   border-radius: 5px;
   overflow: hidden;
   border: 1px solid rgba(255,255,255,0.08);
+}
+@media (min-width: 600px) {
+  .cameraWrap { aspect-ratio: 16 / 9; }
 }
 
 .videoEl {
@@ -88,17 +92,12 @@
 }
 
 .cardTarget {
-  /* ~63:88 ratio, 62% of frame height */
-  width: calc(62vh * 63 / 88);
-  height: 62%;
-  /* Fallback fixed size for when viewport height isn't useful */
-  min-width: 160px;
-  max-width: 240px;
-  min-height: 224px;
-  max-height: 335px;
+  /* Correct MTG card ratio — height drives everything, aspect-ratio derives width */
+  height: 75%;
+  aspect-ratio: 63 / 88;
   border: 2px solid rgba(201,168,76,0.85);
   border-radius: 8px;
-  box-shadow: 0 0 0 9999px rgba(0,0,0,0.46);
+  box-shadow: 0 0 0 9999px rgba(0,0,0,0.50);
   position: relative;
 }
 
@@ -729,6 +728,79 @@
   font-style: italic;
   padding: 3px 0;
 }
+
+/* ── Folder mode search dropdown ── */
+.folderSearchWrap {
+  position: relative;
+  margin-top: 8px;
+}
+.folderSearchInput {
+  width: 100%;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  font-size: 0.85rem;
+  padding: 7px 12px;
+  outline: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+.folderSearchInput:focus { border-color: rgba(201,168,76,0.45); }
+.folderDropdown {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 0; right: 0;
+  background: var(--bg2);
+  border: 1px solid var(--border-hi);
+  border-radius: 5px;
+  z-index: 400;
+  max-height: 200px;
+  overflow-y: auto;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+.folderDropItem {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  color: var(--text-dim);
+  font-size: 0.84rem;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.folderDropItem:hover { background: rgba(255,255,255,0.04); color: var(--text); }
+.folderDropItemActive { color: var(--gold) !important; background: rgba(201,168,76,0.07) !important; }
+.folderDropEmpty {
+  padding: 8px 12px;
+  color: var(--text-faint);
+  font-size: 0.8rem;
+  font-style: italic;
+}
+.folderDropCreate {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-top: 1px solid rgba(201,168,76,0.15);
+  color: var(--gold);
+  font-size: 0.82rem;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.folderDropCreate:hover { background: rgba(201,168,76,0.07); }
+.newFolderRow {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 8px;
+}
+.newFolderInput { flex: 1; }
 
 /* ── Actions ── */
 .actions {

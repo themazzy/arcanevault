@@ -30,14 +30,29 @@ function getPrice(sfCard, foil, priceSource = 'cardmarket_trend') {
   return null
 }
 
+// No cross-source fallback — matches display logic so sort/filter align with shown prices
+function getPriceStrict(sfCard, foil, priceSource = 'cardmarket_trend') {
+  if (!sfCard?.prices) return null
+  const src = PRICE_FIELDS[priceSource] || PRICE_FIELDS['cardmarket_trend']
+  const field = foil ? src.foilField : src.field
+  const val = parseFloat(sfCard.prices[field] || 0)
+  return val || null
+}
+
 function matchNumeric(rawVal, op, minStr, maxStr) {
   const val = parseFloat(rawVal)
   if (isNaN(val)) return op === 'any'
-  if (op === 'any')     return true
+  if (op === 'any') return true
+  if (op === 'in') {
+    const nums = String(minStr).split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n))
+    return nums.length > 0 && nums.some(n => n === val)
+  }
   const min = parseFloat(minStr)
   const max = parseFloat(maxStr)
   if (op === '=')       return !isNaN(min) && val === min
+  if (op === '<')       return !isNaN(min) && val < min
   if (op === '<=')      return !isNaN(min) && val <= min
+  if (op === '>')       return !isNaN(min) && val > min
   if (op === '>=')      return !isNaN(min) && val >= min
   if (op === 'between') return !isNaN(min) && !isNaN(max) && val >= min && val <= max
   return true
@@ -53,7 +68,7 @@ self.onmessage = (e) => {
     colors = [], colorMode = 'identity',
     colorCountMin = 0, colorCountMax = 5,
     rarity = [],
-    typeLine = '', oracleText = '', artist = '',
+    typeLine = [], oracleText = '', artist = '',
     conditions = [], languages = [], sets = [],
     formats = [],
     cmcOp = 'any', cmcMin = '', cmcMax = '',
@@ -81,13 +96,12 @@ self.onmessage = (e) => {
 
   if (location === 'binder') r = r.filter(c => (cardFolderMap[c.id] || []).some(f => f.type === 'binder'))
   if (location === 'deck')   r = r.filter(c => (cardFolderMap[c.id] || []).some(f => f.type === 'deck'))
-  if (location === 'none')   r = r.filter(c => !(cardFolderMap[c.id]?.length > 0))
 
-  if (typeLine.trim()) {
-    const words = typeLine.trim().toLowerCase().split(/\s+/)
+  const typeLineArr = Array.isArray(typeLine) ? typeLine : (typeLine ? typeLine.split(/\s+/) : [])
+  if (typeLineArr.length > 0) {
     r = r.filter(c => {
       const tl = (sfMap[`${c.set_code}-${c.collector_number}`]?.type_line || '').toLowerCase()
-      return words.every(w => tl.includes(w))
+      return typeLineArr.every(t => tl.includes(t.toLowerCase()))
     })
   }
 
@@ -143,7 +157,7 @@ self.onmessage = (e) => {
     const min = priceMin !== '' ? parseFloat(priceMin) : null
     const max = priceMax !== '' ? parseFloat(priceMax) : null
     r = r.filter(c => {
-      const p = getPrice(sfMap[`${c.set_code}-${c.collector_number}`], c.foil, priceSource)
+      const p = getPriceStrict(sfMap[`${c.set_code}-${c.collector_number}`], c.foil, priceSource) ?? parseFloat(c.purchase_price) ?? null
       if (p == null) return false
       if (min != null && p < min) return false
       if (max != null && p > max) return false
@@ -168,8 +182,8 @@ self.onmessage = (e) => {
     const plB = (() => { const p = getPrice(sfB, b.foil, 'cardmarket_trend'); return p != null && b.purchase_price > 0 ? (p - b.purchase_price) * b.qty : null })()
     switch (sort) {
       case 'name':       return a.name.localeCompare(b.name)
-      case 'price_desc': return (getPrice(sfB, b.foil, priceSource) || 0) - (getPrice(sfA, a.foil, priceSource) || 0)
-      case 'price_asc':  return (getPrice(sfA, a.foil, priceSource) || 0) - (getPrice(sfB, b.foil, priceSource) || 0)
+      case 'price_desc': return ((getPriceStrict(sfB, b.foil, priceSource) ?? parseFloat(b.purchase_price) ?? 0)) - ((getPriceStrict(sfA, a.foil, priceSource) ?? parseFloat(a.purchase_price) ?? 0))
+      case 'price_asc':  return ((getPriceStrict(sfA, a.foil, priceSource) ?? parseFloat(a.purchase_price) ?? 0)) - ((getPriceStrict(sfB, b.foil, priceSource) ?? parseFloat(b.purchase_price) ?? 0))
       case 'pl_desc':    return (plB ?? -Infinity) - (plA ?? -Infinity)
       case 'pl_asc':     return (plA ?? Infinity) - (plB ?? Infinity)
       case 'qty':        return b.qty - a.qty

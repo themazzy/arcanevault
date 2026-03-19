@@ -6,6 +6,7 @@ import styles from './CardComponents.module.css'
 import { FolderTypeIcon } from './Icons'
 import { sb } from '../lib/supabase'
 import { putCards } from '../lib/db'
+import { useLongPress } from '../hooks/useLongPress'
 
 const fmt = (v, currency = 'EUR') => {
   if (v == null || isNaN(v)) return '—'
@@ -20,50 +21,73 @@ function scryfallLargeUrl(scryfallId) {
 }
 
 // ── CardGrid ──────────────────────────────────────────────────────────────────
-export function CardGrid({ cards, sfMap, loading, onSelect, selectMode, selected, onToggleSelect }) {
+function CardItem({ card, sfCard, selectMode, isSelected, onSelect, onToggleSelect, onEnterSelectMode, loading }) {
+  const img = getImageUri(sfCard, 'normal')
+  const scryfallPrice = getPrice(sfCard, card.foil)
+  const price = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
+  const isBuyFallback = scryfallPrice == null && price != null
+  const priceClass = price == null ? styles.priceNa : isBuyFallback ? styles.priceFallback : ''
+
+  const longPress = useLongPress(() => {
+    if (!selectMode) onEnterSelectMode?.()
+  }, { delay: 500 })
+
+  const handleClick = () => {
+    if (selectMode) onToggleSelect?.(card.id)
+    else onSelect?.(card)
+  }
+
+  return (
+    <div
+      key={card.id || card._localId}
+      className={`${styles.cardWrap}${isSelected ? ' ' + styles.cardSelected : ''}`}
+      onClick={handleClick}
+      {...longPress}
+    >
+      {selectMode && (
+        <div className={`${styles.checkbox}${isSelected ? ' ' + styles.checkboxChecked : ''}`}>
+          {isSelected && '✓'}
+        </div>
+      )}
+      <div className={`${styles.imgContainer}${isSelected ? ' ' + styles.imgSelected : ''}`}>
+        {img
+          ? <img className={styles.img} src={img} alt={card.name} loading="lazy" />
+          : <div className={styles.imgPlaceholder}>{card.name}</div>
+        }
+        {card.qty > 1 && <div className={styles.qty}>×{card.qty}</div>}
+        {card.foil && <Badge variant="foil">Foil</Badge>}
+      </div>
+      <div className={styles.cardInfo}>
+        <div className={styles.cardName}>{card.name}</div>
+        <div className={styles.cardMeta}>
+          <span className={styles.setCode}>{(card.set_code || '').toUpperCase()}</span>
+          <span className={`${styles.price} ${priceClass}`}>
+            {price != null ? fmt(price) : loading ? '…' : '—'}
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function CardGrid({ cards, sfMap, loading, onSelect, selectMode, selected, onToggleSelect, onEnterSelectMode }) {
   return (
     <div className={styles.grid}>
       {cards.map(card => {
         const sfCard = sfMap?.[`${card.set_code}-${card.collector_number}`]
-        const img = getImageUri(sfCard, 'normal')
-        const price = getPrice(sfCard, card.foil)
-        const priceClass = price == null ? styles.priceNa : card.foil ? styles.priceFoil : ''
         const isSelected = selectMode && selected?.has(card.id)
-
-        const handleClick = () => {
-          if (selectMode) onToggleSelect?.(card.id)
-          else onSelect?.(card)
-        }
-
         return (
-          <div
+          <CardItem
             key={card.id || card._localId}
-            className={`${styles.cardWrap}${isSelected ? ' ' + styles.cardSelected : ''}`}
-            onClick={handleClick}
-          >
-            {selectMode && (
-              <div className={`${styles.checkbox}${isSelected ? ' ' + styles.checkboxChecked : ''}`}>
-                {isSelected && '✓'}
-              </div>
-            )}
-            <div className={`${styles.imgContainer}${isSelected ? ' ' + styles.imgSelected : ''}`}>
-              {img
-                ? <img className={styles.img} src={img} alt={card.name} loading="lazy" />
-                : <div className={styles.imgPlaceholder}>{card.name}</div>
-              }
-              {card.qty > 1 && <div className={styles.qty}>×{card.qty}</div>}
-              {card.foil && <Badge variant="foil">Foil</Badge>}
-            </div>
-            <div className={styles.cardInfo}>
-              <div className={styles.cardName}>{card.name}</div>
-              <div className={styles.cardMeta}>
-                <span className={styles.setCode}>{(card.set_code || '').toUpperCase()}</span>
-                <span className={`${styles.price} ${priceClass}`}>
-                  {price != null ? fmt(price) : loading ? '…' : '—'}
-                </span>
-              </div>
-            </div>
-          </div>
+            card={card}
+            sfCard={sfCard}
+            selectMode={selectMode}
+            isSelected={isSelected}
+            onSelect={onSelect}
+            onToggleSelect={onToggleSelect}
+            onEnterSelectMode={onEnterSelectMode}
+            loading={loading}
+          />
         )
       })}
     </div>
@@ -71,9 +95,26 @@ export function CardGrid({ cards, sfMap, loading, onSelect, selectMode, selected
 }
 
 // ── BulkActionBar ─────────────────────────────────────────────────────────────
-export function BulkActionBar({ selected, total, onSelectAll, onDeselectAll, onDelete, onMoveToFolder, folders }) {
+export function BulkActionBar({ selected, total, onSelectAll, onDeselectAll, onDelete, onMoveToFolder, folders, onCreateFolder }) {
   const [showMove, setShowMove] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [createType, setCreateType] = useState('binder')
+  const [createName, setCreateName] = useState('')
+  const [createSaving, setCreateSaving] = useState(false)
   const count = selected.size
+
+  const handleCreate = async () => {
+    if (!createName.trim()) return
+    setCreateSaving(true)
+    try {
+      await onCreateFolder?.(createType, createName.trim())
+      setCreating(false)
+      setCreateName('')
+      setShowMove(false)
+    } finally {
+      setCreateSaving(false)
+    }
+  }
 
   return (
     <div className={styles.bulkBar}>
@@ -84,15 +125,48 @@ export function BulkActionBar({ selected, total, onSelectAll, onDeselectAll, onD
       </div>
       <div className={styles.bulkActions}>
         <div className={styles.moveWrap}>
-          <button className={styles.bulkBtn} onClick={() => setShowMove(v => !v)}>Move to… ▾</button>
+          <button className={styles.bulkBtn} onClick={() => { setShowMove(v => !v); setCreating(false) }}>Move to… ▾</button>
           {showMove && (
             <div className={styles.moveDropdown}>
+              {/* Create new option */}
+              {!creating ? (
+                <button className={styles.moveCreate} onClick={() => setCreating(true)}>
+                  ＋ Create New Binder/Deck
+                </button>
+              ) : (
+                <div className={styles.moveCreateForm}>
+                  <select
+                    className={styles.moveCreateSelect}
+                    value={createType}
+                    onChange={e => setCreateType(e.target.value)}
+                  >
+                    <option value="binder">Binder</option>
+                    <option value="deck">Deck</option>
+                    <option value="list">Wishlist</option>
+                  </select>
+                  <input
+                    autoFocus
+                    className={styles.moveCreateInput}
+                    value={createName}
+                    onChange={e => setCreateName(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleCreate(); if (e.key === 'Escape') setCreating(false) }}
+                    placeholder="Name…"
+                  />
+                  <div className={styles.moveCreateActions}>
+                    <button className={styles.moveCreateSave} onClick={handleCreate} disabled={createSaving || !createName.trim()}>
+                      {createSaving ? '…' : 'Create & Move'}
+                    </button>
+                    <button className={styles.moveCreateCancel} onClick={() => { setCreating(false); setCreateName('') }}>✕</button>
+                  </div>
+                </div>
+              )}
+              <div className={styles.moveDivider} />
               {['binder', 'deck', 'list'].map(type => {
                 const typeFolders = folders.filter(f => f.type === type)
                 if (!typeFolders.length) return null
                 return (
                   <div key={type}>
-                    <div className={styles.moveGroup}>{type.charAt(0).toUpperCase() + type.slice(1)}s</div>
+                    <div className={styles.moveGroup}>{type === 'list' ? 'Wishlists' : type.charAt(0).toUpperCase() + type.slice(1) + 's'}</div>
                     {typeFolders.map(f => (
                       <button key={f.id} className={styles.moveItem}
                         onClick={() => { onMoveToFolder(f); setShowMove(false) }}>
@@ -102,7 +176,7 @@ export function BulkActionBar({ selected, total, onSelectAll, onDeselectAll, onD
                   </div>
                 )
               })}
-              {!folders.length && <div className={styles.moveEmpty}>No folders yet</div>}
+              {!folders.length && !creating && <div className={styles.moveEmpty}>No folders yet</div>}
             </div>
           )}
         </div>
@@ -250,7 +324,7 @@ async function fetchRulings(scryfallId, setCode, collectorNumber) {
   } catch { return [] }
 }
 
-export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, allFolders = [], priceSource = 'cardmarket_trend', displayCurrency = 'EUR', onSave }) {
+export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, allFolders = [], priceSource = 'cardmarket_trend', onSave }) {
   if (!card) return null
 
   const navigate = useNavigate()
@@ -316,7 +390,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
   const price      = scryPrice ?? buyPrice
   const priceIsBuyFallback = scryPrice == null && buyPrice != null
   const totalPrice = price != null ? price * card.qty : null
-  const fmt = v => formatPrice(v, priceSource, displayCurrency)
+  const fmt = v => formatPrice(v, priceSource)
 
   const saveBuyPrice = async () => {
     const parsed = parseFloat(buyPriceInput)
@@ -410,7 +484,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
 
           {/* Live price banner — shown once fullCard loads */}
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, margin: '10px 0 4px', flexWrap: 'wrap' }}>
-            <span style={{ fontFamily: 'var(--font-display)', fontSize: '1.4rem', color: card.foil ? 'var(--purple)' : 'var(--green)' }}>
+            <span style={{ fontFamily: 'var(--font-display)', fontSize: '1.4rem', color: 'var(--green)' }}>
               {price != null ? fmt(price) : '—'}
               {card.qty > 1 && price != null && (
                 <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginLeft: 6 }}>
@@ -507,12 +581,34 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
                   <span className={styles.detailInfoVal}>{fc.artist}</span>
                 </div>
               )}
-              {fc.scryfall_uri && (
+              {(fc.scryfall_uri || fc.purchase_uris || fc.related_uris) && (
                 <div className={styles.detailInfoRow}>
-                  <span className={styles.detailInfoLabel}>Scryfall</span>
-                  <span className={styles.detailInfoVal}>
-                    <a href={fc.scryfall_uri} target="_blank" rel="noreferrer"
-                       style={{ color: 'var(--gold-dim)', textDecoration: 'none' }}>View on Scryfall →</a>
+                  <span className={styles.detailInfoLabel}>Links</span>
+                  <span className={styles.detailInfoVal} style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    {fc.scryfall_uri && (
+                      <a href={fc.scryfall_uri} target="_blank" rel="noreferrer"
+                         style={{ color: 'var(--gold-dim)', textDecoration: 'none', fontSize: '0.82rem' }}>
+                        Scryfall ↗
+                      </a>
+                    )}
+                    {fc.related_uris?.gatherer && (
+                      <a href={fc.related_uris.gatherer} target="_blank" rel="noreferrer"
+                         style={{ color: 'var(--text-dim)', textDecoration: 'none', fontSize: '0.82rem' }}>
+                        Gatherer ↗
+                      </a>
+                    )}
+                    {fc.purchase_uris?.tcgplayer && (
+                      <a href={fc.purchase_uris.tcgplayer} target="_blank" rel="noreferrer"
+                         style={{ color: '#5a9fd4', textDecoration: 'none', fontSize: '0.82rem' }}>
+                        TCGPlayer ↗
+                      </a>
+                    )}
+                    {fc.purchase_uris?.cardmarket && (
+                      <a href={fc.purchase_uris.cardmarket} target="_blank" rel="noreferrer"
+                         style={{ color: '#6abf7a', textDecoration: 'none', fontSize: '0.82rem' }}>
+                        Cardmarket ↗
+                      </a>
+                    )}
                   </span>
                 </div>
               )}
@@ -596,7 +692,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
                 ].map(([cur, val, isFoil, label]) => val ? (
                   <div key={label} className={styles.priceDetailBlock}>
                     <div className={styles.priceDetailLabel}>{label}</div>
-                    <div className={styles.priceDetailVal} style={{ color: isFoil ? 'var(--purple)' : 'var(--green)' }}>
+                    <div className={styles.priceDetailVal} style={{ color: 'var(--green)' }}>
                       {cur === 'EUR' ? '€' : cur === 'USD' ? '$' : ''}{parseFloat(val).toFixed(2)}{cur === 'TIX' ? ' tix' : ''}
                     </div>
                     {card.qty > 1 && cur !== 'TIX' && (
@@ -880,7 +976,7 @@ export const EMPTY_FILTERS = {
   foil:       'all',
   colors:     [], colorMode: 'identity',
   rarity:     [],
-  typeLine:   '',       // free text
+  typeLine:   [],       // type/subtype tags (autocomplete from Scryfall catalog)
   oracleText: '',       // free text
   artist:     '',       // free text
   conditions: [],
@@ -906,7 +1002,7 @@ function countActive(f) {
     f.foil !== 'all' ? 1 : 0,
     f.colors.length,
     f.rarity.length,
-    f.typeLine   ? 1 : 0,
+    (Array.isArray(f.typeLine) ? f.typeLine.length : (f.typeLine ? 1 : 0)),
     f.oracleText ? 1 : 0,
     f.artist     ? 1 : 0,
     f.conditions.length,
@@ -959,17 +1055,20 @@ function TextFilter({ value, onChange, placeholder }) {
   )
 }
 
-// Operator + value(s) control  
-// ops: 'any' | '=' | '<=' | '>=' | 'between'
-const OPS = [
+// Operator + value(s) control
+// ops: 'any' | '=' | '<' | '<=' | '>' | '>=' | 'between' | 'in'
+export const OPS = [
   { id: 'any',     label: 'Any' },
   { id: '=',       label: '=' },
+  { id: '<',       label: '<' },
   { id: '<=',      label: '≤' },
+  { id: '>',       label: '>' },
   { id: '>=',      label: '≥' },
-  { id: 'between', label: 'Between' },
+  { id: 'between', label: 'Range' },
+  { id: 'in',      label: 'In list' },
 ]
 
-function NumericFilter({ opKey, valKey, val2Key, filters, set }) {
+export function NumericFilter({ opKey, valKey, val2Key, filters, set }) {
   const op = filters[opKey] || 'any'
   return (
     <div className={styles.numericFilter}>
@@ -983,17 +1082,126 @@ function NumericFilter({ opKey, valKey, val2Key, filters, set }) {
       </div>
       {op !== 'any' && (
         <div className={styles.rangeRow}>
-          <input className={styles.rangeInput} type="number" min="0" step="1"
-            placeholder={op === 'between' ? 'Min' : 'Value'}
-            value={filters[valKey] || ''}
-            onChange={e => set(valKey, e.target.value)} />
-          {op === 'between' && <>
-            <span className={styles.rangeSep}>—</span>
-            <input className={styles.rangeInput} type="number" min="0" step="1"
-              placeholder="Max"
-              value={filters[val2Key] || ''}
-              onChange={e => set(val2Key, e.target.value)} />
-          </>}
+          {op === 'in' ? (
+            <input className={styles.rangeInput} type="text"
+              placeholder="e.g. 1, 2, 3"
+              style={{ width: '100%' }}
+              value={filters[valKey] || ''}
+              onChange={e => set(valKey, e.target.value)} />
+          ) : (
+            <>
+              <input className={styles.rangeInput} type="number" min="0" step="1"
+                placeholder={op === 'between' ? 'Min' : 'Value'}
+                value={filters[valKey] || ''}
+                onChange={e => set(valKey, e.target.value)} />
+              {op === 'between' && <>
+                <span className={styles.rangeSep}>—</span>
+                <input className={styles.rangeInput} type="number" min="0" step="1"
+                  placeholder="Max"
+                  value={filters[val2Key] || ''}
+                  onChange={e => set(val2Key, e.target.value)} />
+              </>}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Scryfall type catalog (fetched once, cached) ─────────────────────────────
+let _typeCatalog = null
+async function loadTypeCatalog() {
+  if (_typeCatalog) return _typeCatalog
+  const endpoints = [
+    { url: 'https://api.scryfall.com/catalog/supertypes',         category: 'Supertype'    },
+    { url: 'https://api.scryfall.com/catalog/card-types',         category: 'Type'         },
+    { url: 'https://api.scryfall.com/catalog/artifact-types',     category: 'Artifact'     },
+    { url: 'https://api.scryfall.com/catalog/creature-types',     category: 'Creature'     },
+    { url: 'https://api.scryfall.com/catalog/enchantment-types',  category: 'Enchantment'  },
+    { url: 'https://api.scryfall.com/catalog/land-types',         category: 'Land'         },
+    { url: 'https://api.scryfall.com/catalog/planeswalker-types', category: 'Planeswalker' },
+    { url: 'https://api.scryfall.com/catalog/spell-types',        category: 'Spell'        },
+  ]
+  const results = await Promise.allSettled(
+    endpoints.map(e => fetch(e.url).then(r => r.json()).then(d => ({ types: d.data || [], category: e.category })))
+  )
+  const combined = []
+  const seen = new Set()
+  for (const r of results) {
+    if (r.status !== 'fulfilled') continue
+    for (const t of r.value.types) {
+      if (!seen.has(t)) {
+        seen.add(t)
+        combined.push({ name: t, category: r.value.category })
+      }
+    }
+  }
+  combined.sort((a, b) => a.name.localeCompare(b.name))
+  _typeCatalog = combined
+  return combined
+}
+
+// ── Type line tag filter ──────────────────────────────────────────────────────
+export function TypeLineFilter({ selected, onChange }) {
+  const [query,   setQuery]   = useState('')
+  const [open,    setOpen]    = useState(false)
+  const [catalog, setCatalog] = useState([])
+  const ref = useRef(null)
+
+  useEffect(() => { loadTypeCatalog().then(setCatalog).catch(() => {}) }, [])
+
+  useEffect(() => {
+    const handler = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const visible = query.trim()
+    ? catalog.filter(t => t.name.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 25)
+    : []
+
+  const addType = name => {
+    if (!selected.includes(name)) onChange([...selected, name])
+    setQuery(''); setOpen(false)
+  }
+
+  return (
+    <div className={styles.setDropWrap} ref={ref}>
+      {selected.length > 0 && (
+        <div className={styles.setTags}>
+          {selected.map(t => (
+            <span key={t} className={styles.setTag}>
+              {t}
+              <button className={styles.setTagRemove}
+                onClick={() => onChange(selected.filter(x => x !== t))}>✕</button>
+            </span>
+          ))}
+          <button className={styles.setTagClearAll} onClick={() => onChange([])}>Clear</button>
+        </div>
+      )}
+      <input
+        className={styles.setSearchInput}
+        placeholder={selected.length ? 'Add another type…' : 'e.g. Creature, Human, Legendary…'}
+        value={query}
+        onChange={e => { setQuery(e.target.value); setOpen(true) }}
+        onFocus={() => { if (query.trim()) setOpen(true) }}
+      />
+      {open && visible.length > 0 && (
+        <div className={styles.setDropList}>
+          {visible.map(t => {
+            const active = selected.includes(t.name)
+            return (
+              <div key={t.name}
+                className={`${styles.setDropItem}${active ? ' ' + styles.setDropItemActive : ''}`}
+                onMouseDown={e => { e.preventDefault(); addType(t.name) }}
+              >
+                <span className={styles.setDropName}>{t.name}</span>
+                <span className={styles.setDropCode} style={{ marginLeft: 'auto', fontSize: '0.7rem' }}>{t.category}</span>
+                {active && <span className={styles.setDropCheck}>✓</span>}
+              </div>
+            )
+          })}
         </div>
       )}
     </div>
@@ -1192,11 +1400,12 @@ export function FilterBar({
               </div>
             </FilterSection>
 
-            {/* Type line — free text */}
-            <FilterSection label="Type Line">
-              <TextFilter value={filters.typeLine} onChange={v => set('typeLine', v)}
-                placeholder="e.g. Legendary Creature Angel" />
-              <div className={styles.filterHint}>Separate multiple types with spaces</div>
+            {/* Type line — autocomplete tags */}
+            <FilterSection label="Type Line" fullWidth>
+              <TypeLineFilter
+                selected={Array.isArray(filters.typeLine) ? filters.typeLine : []}
+                onChange={v => set('typeLine', v)}
+              />
             </FilterSection>
 
             {/* Oracle text */}
@@ -1279,7 +1488,7 @@ export function FilterBar({
             {/* Location */}
             <FilterSection label="Location">
               <div className={styles.chips}>
-                {[['all','Any'],['binder','In a binder'],['deck','In a deck'],['none','Not in any']].map(([v,l]) => (
+                {[['all','Any'],['binder','In a binder'],['deck','In a deck']].map(([v,l]) => (
                   <Chip key={v} active={filters.location === v} onClick={() => set('location', v)}>{l}</Chip>
                 ))}
               </div>
@@ -1324,10 +1533,16 @@ function matchNumeric(valStr, op, minStr, maxStr) {
   const val = parseFloat(valStr)
   if (isNaN(val)) return op === 'any' // no value means skip for creatures, pass for lands
   if (op === 'any') return true
+  if (op === 'in') {
+    const nums = String(minStr).split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n))
+    return nums.length > 0 && nums.some(n => n === val)
+  }
   const min = parseFloat(minStr)
   const max = parseFloat(maxStr)
   if (op === '=')       return !isNaN(min) && val === min
+  if (op === '<')       return !isNaN(min) && val < min
   if (op === '<=')      return !isNaN(min) && val <= min
+  if (op === '>')       return !isNaN(min) && val > min
   if (op === '>=')      return !isNaN(min) && val >= min
   if (op === 'between') return !isNaN(min) && !isNaN(max) && val >= min && val <= max
   return true
@@ -1339,7 +1554,7 @@ export function applyFilterSort(cards, sfMap, search, sort, filters = {}, cardFo
     colors = [], colorMode = 'identity',
     colorCountMin = 0, colorCountMax = 5,
     rarity = [],
-    typeLine = '', oracleText = '', artist = '',
+    typeLine = [], oracleText = '', artist = '',
     conditions = [], languages = [], sets = [],
     formats = [],
     cmcOp = 'any', cmcMin = '', cmcMax = '',
@@ -1380,14 +1595,13 @@ export function applyFilterSort(cards, sfMap, search, sort, filters = {}, cardFo
   // Location
   if (location === 'binder') r = r.filter(c => (cardFolderMap[c.id] || []).some(f => f.type === 'binder'))
   if (location === 'deck')   r = r.filter(c => (cardFolderMap[c.id] || []).some(f => f.type === 'deck'))
-  if (location === 'none')   r = r.filter(c => !(cardFolderMap[c.id]?.length > 0))
 
-  // Type line — free text, all words must appear
-  if (typeLine.trim()) {
-    const words = typeLine.trim().toLowerCase().split(/\s+/)
+  // Type line — all selected tags must appear in type_line
+  const typeLineArr = Array.isArray(typeLine) ? typeLine : (typeLine ? typeLine.split(/\s+/) : [])
+  if (typeLineArr.length > 0) {
     r = r.filter(c => {
       const tl = (sfMap[`${c.set_code}-${c.collector_number}`]?.type_line || '').toLowerCase()
-      return words.every(w => tl.includes(w))
+      return typeLineArr.every(t => tl.includes(t.toLowerCase()))
     })
   }
 
@@ -1466,7 +1680,7 @@ export function applyFilterSort(cards, sfMap, search, sort, filters = {}, cardFo
     const min = priceMin !== '' ? parseFloat(priceMin) : null
     const max = priceMax !== '' ? parseFloat(priceMax) : null
     r = r.filter(c => {
-      const p = getPrice(sfMap[`${c.set_code}-${c.collector_number}`], c.foil)
+      const p = getPrice(sfMap[`${c.set_code}-${c.collector_number}`], c.foil) ?? (parseFloat(c.purchase_price) || null)
       if (p == null) return false
       if (min != null && p < min) return false
       if (max != null && p > max) return false
@@ -1493,8 +1707,8 @@ export function applyFilterSort(cards, sfMap, search, sort, filters = {}, cardFo
     const plB = (() => { const p = getPrice(sfB, b.foil); return p != null && b.purchase_price > 0 ? (p - b.purchase_price) * b.qty : null })()
     switch (sort) {
       case 'name':       return a.name.localeCompare(b.name)
-      case 'price_desc': return (getPrice(sfB, b.foil) || 0) - (getPrice(sfA, a.foil) || 0)
-      case 'price_asc':  return (getPrice(sfA, a.foil) || 0) - (getPrice(sfB, b.foil) || 0)
+      case 'price_desc': return ((getPrice(sfB, b.foil) ?? parseFloat(b.purchase_price) ?? 0)) - ((getPrice(sfA, a.foil) ?? parseFloat(a.purchase_price) ?? 0))
+      case 'price_asc':  return ((getPrice(sfA, a.foil) ?? parseFloat(a.purchase_price) ?? 0)) - ((getPrice(sfB, b.foil) ?? parseFloat(b.purchase_price) ?? 0))
       case 'pl_desc':    return (plB ?? -Infinity) - (plA ?? -Infinity)
       case 'pl_asc':     return (plA ?? Infinity)  - (plB ?? Infinity)
       case 'qty':        return (b._folder_qty ?? b.qty ?? 0) - (a._folder_qty ?? a.qty ?? 0)

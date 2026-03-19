@@ -29,11 +29,12 @@
   aspect-ratio: 63/88;
   background: rgba(255,255,255,0.04);
   border: 1px solid rgba(180,140,60,0.1);
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
 }
 .cardWrap:hover .imgContainer {
-  transform: translateY(-4px) scale(1.02);
-  box-shadow: 0 12px 36px rgba(0,0,0,0.6), 0 0 18px rgba(201,168,76,0.1);
+  transform: translateY(-5px) scale(1.025);
+  box-shadow: 0 16px 40px rgba(0,0,0,0.65), 0 0 22px rgba(201,168,76,0.14);
+  border-color: rgba(201,168,76,0.22);
 }
 .imgSelected {
   outline: 2px solid var(--gold);
@@ -74,7 +75,7 @@
 .pricePct { font-family: var(--font-serif); font-size: 0.6rem; }
 .pricePctUp { color: var(--green); }
 .pricePctDown { color: var(--red); }
-.priceFoil { color: var(--purple); }
+.priceFoil { color: var(--green); }
 .priceNa { color: #3a3a3a; }
 
 .checkbox {

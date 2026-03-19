@@ -10,6 +10,9 @@ import StatsPage from './pages/Stats'
 import SharePage from './pages/Share'
 import SettingsPage from './pages/Settings'
 import LifeTrackerPage from './pages/LifeTracker'
+import BuilderPage from './pages/Builder'
+import DeckBuilderPage from './pages/DeckBuilder'
+import DeckViewPage from './pages/DeckView'
 
 function PrivateApp() {
   const { user } = useAuth()
@@ -26,6 +29,8 @@ function PrivateApp() {
           <Route path="/stats"       element={<StatsPage />} />
           <Route path="/life"        element={<LifeTrackerPage />} />
           <Route path="/settings"    element={<SettingsPage />} />
+          <Route path="/builder"     element={<BuilderPage />} />
+          <Route path="/builder/:id" element={<DeckBuilderPage />} />
           <Route path="*"            element={<Navigate to="/" />} />
         </Routes>
       </Layout>
@@ -39,6 +44,7 @@ export default function App() {
       <AuthProvider>
         <Routes>
           <Route path="/share/:token" element={<SharePage />} />
+          <Route path="/d/:id" element={<DeckViewPage />} />
           <Route path="/*" element={<PrivateApp />} />
         </Routes>
       </AuthProvider>

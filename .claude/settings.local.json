@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(command -v node)",
+      "Bash(command -v npm)",
+      "mcp__Claude_Preview__preview_start",
+      "WebFetch(domain:claude.com)",
+      "Bash(claude plugin:*)",
+      "Bash(where claude:*)",
+      "Bash(cmd /c \"where claude\")",
+      "Bash(cmd /c \"claude --version\")",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "WebFetch(domain:archidekt.com)",
+      "WebFetch(domain:api.moxfield.com)",
+      "WebFetch(domain:www.mtggoldfish.com)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vite:*)",
+      "WebFetch(domain:api.allorigins.win)",
+      "WebFetch(domain:corsproxy.io)",
+      "WebFetch(domain:magic.wizards.com)",
+      "WebFetch(domain:edhrec.com)",
+      "WebFetch(domain:www.channelfireball.com)",
+      "WebFetch(domain:www.moxfield.com)",
+      "WebFetch(domain:www.coolstuffinc.com)",
+      "WebFetch(domain:api.rss2json.com)",
+      "WebFetch(domain:api.codetabs.com)",
+      "WebFetch(domain:gist.github.com)"
+    ]
+  }
+}
