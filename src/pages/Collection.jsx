@@ -17,7 +17,7 @@ const worker = new Worker(new URL('../lib/filterWorker.js', import.meta.url), { 
 
 export default function CollectionPage() {
   const { user } = useAuth()
-  const { price_source, display_currency, default_sort, grid_density, show_price, cache_ttl_h, loaded: settingsLoaded } = useSettings()
+  const { price_source, default_sort, grid_density, show_price, cache_ttl_h, loaded: settingsLoaded } = useSettings()
 
   const ttlMsRef = useRef(cache_ttl_h * 3600000)
   useEffect(() => { ttlMsRef.current = cache_ttl_h * 3600000 }, [cache_ttl_h])
@@ -91,6 +91,16 @@ export default function CollectionPage() {
     }
 
     if (allCards.length) {
+      // Prune IDB entries that no longer exist in Supabase (deleted cards)
+      // This prevents the brief "doubling" on refresh when IDB is stale
+      if (localCards.length) {
+        const sbIds = new Set(allCards.map(c => c.id))
+        const orphans = localCards.filter(c => !sbIds.has(c.id))
+        if (orphans.length) {
+          console.log(`[Collection] Pruning ${orphans.length} orphaned IDB cards`)
+          for (const c of orphans) await deleteCard(c.id)
+        }
+      }
       // Persist to IDB for next offline load
       await putCards(allCards)
       await setMeta(`cards_synced_${user.id}`, Date.now())
@@ -237,14 +247,16 @@ export default function CollectionPage() {
     if (!parsed.length) { setError('No cards found.'); return }
     setImporting(true)
 
-    const listFolderNames = new Set(Object.values(folders).filter(f => f.type === 'list').map(f => f.name))
-    const ownedCards   = parsed.filter(c => !listFolderNames.has(c._binderName))
-    const listCards    = parsed.filter(c => listFolderNames.has(c._binderName))
-    const totalFolders = Object.keys(folders).length
+    const listFolderNames  = new Set(Object.values(folders).filter(f => f.type === 'list').map(f => f.name))
+    const ownedCards       = parsed.filter(c => !listFolderNames.has(c._binderName))
+    const listCards        = parsed.filter(c =>  listFolderNames.has(c._binderName))
+    const folderList       = Object.values(folders)
 
-    setProgLabel(`Parsed ${ownedCards.length} owned + ${listCards.length} wishlist across ${totalFolders} folders`)
+    setProgLabel(`Parsed ${ownedCards.length} owned + ${listCards.length} wishlist cards across ${folderList.length} folders`)
     await new Promise(r => setTimeout(r, 300))
 
+    // ── Step 1: Upsert all owned cards to Supabase ──────────────────────────
+    // Deduplicate by natural key so each physical card is one DB row
     const deduped = {}
     for (const c of ownedCards) {
       if (deduped[c._localId]) deduped[c._localId].qty += c.qty
@@ -252,40 +264,53 @@ export default function CollectionPage() {
     }
     const dedupedCards = Object.values(deduped)
 
-    const BATCH = 200
-    for (let i = 0; i < dedupedCards.length; i += BATCH) {
-      const batch = dedupedCards.slice(i, i + BATCH).map(c => {
+    const CARD_BATCH = 200
+    for (let i = 0; i < dedupedCards.length; i += CARD_BATCH) {
+      const batch = dedupedCards.slice(i, i + CARD_BATCH).map(c => {
         const c2 = { ...c, user_id: user.id }
         delete c2._localId; delete c2._binderName; return c2
       })
       const { error: err } = await sb.from('cards')
         .upsert(batch, { onConflict: 'user_id,set_code,collector_number,foil,language,condition', ignoreDuplicates: false })
       if (err) { setError(`Import error: ${err.message}`); setImporting(false); return }
-      setProgLabel(`Saving cards… (${Math.min(i + BATCH, dedupedCards.length)} / ${dedupedCards.length})`)
+      setProgLabel(`Saving cards… (${Math.min(i + CARD_BATCH, dedupedCards.length)} / ${dedupedCards.length})`)
     }
 
-    setProgLabel('Mapping cards to folders…')
-    let allDbCards = [], fcFrom = 0
+    // ── Step 2: Fetch all DB cards to build a lookup map (set-col-foil-lang-cond → id) ─
+    setProgLabel('Building card index…')
+    let allDbCards = [], dbFrom = 0
     while (true) {
       const { data: page } = await sb.from('cards')
         .select('id,set_code,collector_number,foil,language,condition')
-        .eq('user_id', user.id).range(fcFrom, fcFrom + 999)
+        .eq('user_id', user.id).range(dbFrom, dbFrom + 999)
       if (page?.length) allDbCards = [...allDbCards, ...page]
       if (!page || page.length < 1000) break
-      fcFrom += 1000
+      dbFrom += 1000
     }
+    // Key: "set_code-collector_number-foil-language-condition" (foil is boolean → "true"/"false")
     const cardKeyMap = {}
-    allDbCards.forEach(c => { cardKeyMap[`${c.set_code}-${c.collector_number}-${c.foil}-${c.language}-${c.condition}`] = c.id })
+    for (const c of allDbCards) {
+      cardKeyMap[`${c.set_code}-${c.collector_number}-${c.foil}-${c.language}-${c.condition}`] = c.id
+    }
 
-    let folderOk = 0, folderFail = 0
-    for (let fi = 0; fi < Object.values(folders).length; fi++) {
-      const folder = Object.values(folders)[fi]
-      setProgLabel(`Creating ${folder.type}s… (${fi + 1}/${Object.values(folders).length}) — ${folder.name}`)
+    // ── Step 3: Create folders and link their cards ──────────────────────────
+    let folderOk = 0, folderFail = 0, totalMissed = 0
+
+    for (let fi = 0; fi < folderList.length; fi++) {
+      const folder = folderList[fi]
+      setProgLabel(`Linking ${folder.type}s… (${fi + 1}/${folderList.length}) — ${folder.name}`)
+
+      // Upsert folder row (create if missing, return id either way)
       const { data: folderData, error: fe } = await sb.from('folders')
         .upsert({ user_id: user.id, name: folder.name, type: folder.type }, { onConflict: 'user_id,name,type' })
         .select('id').single()
-      if (fe || !folderData) { console.error(`Folder upsert failed: ${fe?.message}`); folderFail++; continue }
+      if (fe || !folderData) {
+        console.error(`[Import] Folder upsert failed for "${folder.name}":`, fe?.message)
+        folderFail++
+        continue
+      }
 
+      // ── Wishlist ────────────────────────────────────────────────────────────
       if (folder.type === 'list') {
         const items = folder.cards.map(c => ({
           folder_id: folderData.id, user_id: user.id,
@@ -297,24 +322,66 @@ export default function CollectionPage() {
         if (items.length) {
           const { error: lie } = await sb.from('list_items')
             .upsert(items, { onConflict: 'folder_id,set_code,collector_number,foil', ignoreDuplicates: false })
-          if (!lie) folderOk++
+          if (lie) { console.error(`[Import] list_items failed for "${folder.name}":`, lie.message); folderFail++ }
+          else folderOk++
         }
-      } else {
-        const folderCards = folder.cards.map(c => {
-          const cid = cardKeyMap[`${c.set_code}-${c.collector_number}-${c.foil}-${c.language}-${c.condition}`]
-          return cid ? { folder_id: folderData.id, card_id: cid, qty: c.qty } : null
-        }).filter(Boolean)
-        if (folderCards.length) {
-          const { error: fce } = await sb.from('folder_cards')
-            .upsert(folderCards, { onConflict: 'folder_id,card_id', ignoreDuplicates: false })
-          if (!fce) folderOk++
+        continue
+      }
+
+      // ── Binder / Deck ───────────────────────────────────────────────────────
+      // Map each CSV card to its DB id; deduplicate within this folder by card_id
+      const qtyByCardId = {}
+      let missed = 0
+      for (const c of folder.cards) {
+        const key = `${c.set_code}-${c.collector_number}-${c.foil}-${c.language}-${c.condition}`
+        const cid = cardKeyMap[key]
+        if (!cid) {
+          console.warn(`[Import] No DB row for "${c.name}" (${key}) in "${folder.name}"`)
+          missed++
+          continue
+        }
+        qtyByCardId[cid] = (qtyByCardId[cid] ?? 0) + c.qty
+      }
+      totalMissed += missed
+
+      const newLinks = Object.entries(qtyByCardId).map(([cid, qty]) => ({
+        id:        crypto.randomUUID(),
+        folder_id: folderData.id,
+        card_id:   cid,
+        qty,
+      }))
+
+      if (!newLinks.length) {
+        console.warn(`[Import] 0 cards could be mapped for "${folder.name}" (${missed} missed)`)
+        folderFail++
+        continue
+      }
+
+      // Delete old links then re-insert fresh — avoids any constraint ambiguity
+      // and makes re-imports idempotent for this folder.
+      const { error: delErr } = await sb.from('folder_cards').delete().eq('folder_id', folderData.id)
+      if (delErr) console.warn(`[Import] Could not clear old cards for "${folder.name}":`, delErr.message)
+
+      // Batch the inserts (Supabase/PostgREST limit ~1 MB per request)
+      const FC_BATCH = 500
+      let batchOk = true
+      for (let bi = 0; bi < newLinks.length; bi += FC_BATCH) {
+        const { error: fce } = await sb.from('folder_cards').insert(newLinks.slice(bi, bi + FC_BATCH))
+        if (fce) {
+          console.error(`[Import] folder_cards insert failed for "${folder.name}" batch ${bi}:`, fce.message)
+          batchOk = false; break
         }
       }
+      if (batchOk) folderOk++
+      else folderFail++
     }
 
-    if (folderFail > 0) setError(`Import done but ${folderFail} folder(s) failed — check console.`)
-    setProgLabel(`Done — ${dedupedCards.length} cards, ${folderOk} folders`)
-    setTimeout(() => setProgLabel(''), 4000)
+    // ── Done ────────────────────────────────────────────────────────────────
+    let msg = `Done — ${dedupedCards.length} cards, ${folderOk}/${folderList.length} folders linked`
+    if (totalMissed > 0) msg += ` (${totalMissed} card rows not matched)`
+    if (folderFail > 0) setError(`${folderFail} folder(s) failed to link — check the browser console for details.`)
+    setProgLabel(msg)
+    setTimeout(() => setProgLabel(''), 8000)
     setImporting(false)
     await loadCards()
   }, [user.id, loadCards])
@@ -460,7 +527,7 @@ export default function CollectionPage() {
                 </button>
               </span>
             )}
-            {!enriching && <span>Value: <strong style={{ color: 'var(--green)' }}>{formatPrice(totalValue, price_source, display_currency)}</strong></span>}
+            {!enriching && <span>Value: <strong style={{ color: 'var(--green)' }}>{formatPrice(totalValue, price_source)}</strong></span>}
           </span>
         </div>
 
@@ -479,8 +546,8 @@ export default function CollectionPage() {
           cards={displayCards} sfMap={sfMap} loading={enriching}
           onSelect={c => setDetailCardId(c.id)}
           selectMode={selectMode} selected={selected} onToggleSelect={toggleSelect}
+          onEnterSelectMode={() => { setSelectMode(true) }}
           priceSource={price_source}
-          displayCurrency={display_currency}
           showPrice={show_price} density={grid_density}
           cardFolders={cardFolderMap}
         />
@@ -494,7 +561,6 @@ export default function CollectionPage() {
           folders={cardFolderMap[selectedCard.id]}
           allFolders={folders}
           priceSource={price_source}
-          displayCurrency={display_currency}
           onClose={() => setDetailCardId(null)}
           onDelete={() => handleDelete(selectedCard)}
           onSave={handleCardSave}

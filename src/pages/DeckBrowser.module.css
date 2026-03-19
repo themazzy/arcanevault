@@ -2,20 +2,60 @@
 .deckBrowser { display: flex; flex-direction: column; gap: 0; }
 
 /* Header */
-.header { margin-bottom: 12px; }
+.header { position: relative; margin-bottom: 12px; overflow: hidden; border-radius: 8px; padding: 4px 0; }
+.headerBg {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center 20%;
+  opacity: 0.15;
+  pointer-events: none;
+  z-index: 0;
+  transition: opacity 0.3s;
+}
+.header:hover .headerBg { opacity: 0.22; }
 .backBtn {
+  position: relative; z-index: 1;
   background: none; border: none; color: var(--text-dim); cursor: pointer;
   font-family: var(--font-display); font-size: 0.74rem; letter-spacing: 0.06em;
   padding: 0 0 12px; transition: color 0.2s;
 }
 .backBtn:hover { color: var(--gold); }
-.titleRow { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.titleRow { position: relative; z-index: 1; display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .deckName {
   font-family: var(--font-display); font-size: 1.4rem; font-weight: 600;
   color: var(--gold); letter-spacing: 0.04em; margin: 0;
 }
-.headerMeta { display: flex; align-items: center; gap: 12px; color: var(--text-dim); font-size: 0.85rem; }
+.headerMeta { display: flex; align-items: center; gap: 12px; color: var(--text-dim); font-size: 0.85rem; flex-wrap: wrap; }
 .deckValue { color: var(--green); font-family: var(--font-display); font-size: 1rem; font-weight: 600; }
+.addCardsBtn {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 4px;
+  padding: 5px 12px;
+  color: var(--text-dim);
+  font-family: var(--font-display);
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.addCardsBtn:hover { background: rgba(201,168,76,0.1); border-color: rgba(201,168,76,0.35); color: var(--gold); }
+.editInBuilderBtn {
+  background: rgba(201,168,76,0.1);
+  border: 1px solid rgba(201,168,76,0.3);
+  border-radius: 4px;
+  padding: 5px 12px;
+  color: var(--gold);
+  font-family: var(--font-display);
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.editInBuilderBtn:hover { background: rgba(201,168,76,0.2); border-color: rgba(201,168,76,0.5); }
 
 /* Stats toggle */
 .statsToggle {
@@ -303,6 +343,19 @@
 }
 .deckRow:last-child { border-bottom: none; }
 .deckRow:hover { background: rgba(201,168,76,0.06); }
+.deckRowSelected { background: rgba(201,168,76,0.08) !important; }
+
+/* ── Select mode ─────────────────────────────────────────────────────────────── */
+.rowCheckbox {
+  width: 18px; height: 18px; flex-shrink: 0;
+  border: 2px solid rgba(201,168,76,0.5); border-radius: 3px;
+  background: rgba(10,8,20,0.8);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.68rem; color: var(--gold); pointer-events: none;
+}
+.rowCheckboxChecked { background: rgba(201,168,76,0.25); border-color: var(--gold); }
+.gridCardSelected .gridImgWrap { outline: 2px solid var(--gold); outline-offset: 2px; }
+.stackCardSelected { outline: 2px solid var(--gold); outline-offset: 2px; border-radius: 8px; }
 
 .deckRowQty {
   font-family: var(--font-display); font-size: 0.75rem;
@@ -312,7 +365,8 @@
 .deckRowMana { display: flex; align-items: center; justify-content: flex-end; gap: 2px; flex-shrink: 0; }
 .deckRowType { font-size: 0.72rem; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .deckRowPrice { text-align: right; font-family: var(--font-display); font-size: 0.78rem; color: var(--green); }
-.foilPrice { color: var(--purple); }
+.foilPrice { color: var(--green); }
+.priceFallback { color: var(--text-dim) !important; }
 
 /* ── Grid View ───────────────────────────────────────────────────────────── */
 .cardGrid {
@@ -351,7 +405,10 @@
 }
 .gridInfo { padding: 6px 3px 3px; }
 .gridName { font-size: 0.67rem; color: var(--gold); font-family: var(--font-display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gridSetRow { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
 .gridSet { font-size: 0.64rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em; }
+.gridPrice { font-size: 0.64rem; color: var(--green); font-family: var(--font-display); flex-shrink: 0; }
+.gridPriceFallback { font-size: 0.64rem; color: var(--text-dim); font-family: var(--font-display); flex-shrink: 0; }
 
 /* ── Color Stack Bar (Archidekt-style) ───────────────────────────────────── */
 .stackBarWrap { display: flex; flex-direction: column; gap: 4px; }
@@ -478,6 +535,14 @@
   font-size: 0.6rem; color: var(--text-dim); text-align: center; padding: 3px 2px 0;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.stackPrice {
+  font-size: 0.62rem; color: var(--green); font-family: var(--font-display);
+  text-align: center; padding: 1px 2px 2px; line-height: 1;
+}
+.stackPriceFallback {
+  font-size: 0.62rem; color: var(--text-dim); font-family: var(--font-display);
+  text-align: center; padding: 1px 2px 2px; line-height: 1;
+}
 
 /* ── Control Bar Extensions ──────────────────────────────────────────────── */
 .controlLeft { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -490,6 +555,19 @@
 }
 .groupByBtn:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
 .groupByActive { color: var(--gold) !important; border-color: rgba(201,168,76,0.35) !important; background: rgba(201,168,76,0.07) !important; }
+
+/* ── Floating card preview ───────────────────────────────────────────────── */
+.floatingPreview {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9999;
+  filter: drop-shadow(0 20px 60px rgba(0,0,0,0.9)) drop-shadow(0 0 20px rgba(201,168,76,0.15));
+}
+.floatingImg {
+  width: 220px;
+  border-radius: 10px;
+  display: block;
+}
 
 /* ── Responsive ──────────────────────────────────────────────────────────── */
 @media (max-width: 900px) {

@@ -2,19 +2,18 @@
  * ArcaneVault local IndexedDB layer
  *
  * Stores:
- *   scryfall  — Scryfall card data (prices, types, images, etc.)
- *               keyed by "set_code-collector_number"
- *   cards     — Mirror of Supabase cards table, for offline use
- *   folders   — Mirror of Supabase folders + folder_cards
- *   meta      — Key/value store for sync timestamps, cache versions, etc.
- *
- * All operations are async. The DB opens lazily on first use.
+ *   scryfall    — Scryfall card data (prices, types, images, etc.)
+ *   cards       — Mirror of Supabase cards table, for offline use
+ *   folders     — Mirror of Supabase folders
+ *   folder_cards— Links between folders and owned collection cards
+ *   deck_cards  — Cards in builder decks (not necessarily owned)
+ *   meta        — Key/value store for sync timestamps, cache versions, etc.
  */
 
 import { openDB } from 'idb'
 
 const DB_NAME    = 'arcanevault'
-const DB_VERSION = 1
+const DB_VERSION = 2
 
 let _db = null
 
@@ -36,14 +35,14 @@ async function getDb() {
         c.createIndex('updated_at',      'updated_at')
       }
 
-      // folder_cards store — links between folders and cards
+      // folder_cards store — links between folders and owned collection cards
       if (!db.objectStoreNames.contains('folder_cards')) {
         const fc = db.createObjectStore('folder_cards', { keyPath: 'id' })
         fc.createIndex('folder_id', 'folder_id')
         fc.createIndex('card_id',   'card_id')
       }
 
-      // folders store — binders, decks, wishlists
+      // folders store — binders, decks, wishlists, builder decks
       if (!db.objectStoreNames.contains('folders')) {
         const f = db.createObjectStore('folders', { keyPath: 'id' })
         f.createIndex('user_id', 'user_id')
@@ -53,6 +52,15 @@ async function getDb() {
       // meta store — sync timestamps, settings, cache info
       if (!db.objectStoreNames.contains('meta')) {
         db.createObjectStore('meta', { keyPath: 'key' })
+      }
+
+      // deck_cards store (v2) — cards in builder decks, independent of collection
+      if (oldVersion < 2) {
+        if (!db.objectStoreNames.contains('deck_cards')) {
+          const dc = db.createObjectStore('deck_cards', { keyPath: 'id' })
+          dc.createIndex('deck_id', 'deck_id')
+          dc.createIndex('user_id', 'user_id')
+        }
       }
     }
   })
@@ -73,9 +81,6 @@ export async function setMeta(key, value) {
 }
 
 // ── Scryfall data ─────────────────────────────────────────────────────────────
-// Each entry: { key, set_code, collector_number, prices, type_line, ... }
-// Prices have a `prices_updated_at` timestamp for TTL checking.
-// Images (image_uris) never expire.
 
 export async function getScryfallEntry(key) {
   const db = await getDb()
@@ -161,7 +166,6 @@ export async function putFolders(folders) {
 export async function deleteFolder(id) {
   const db = await getDb()
   await db.delete('folders', id)
-  // Also clean up folder_cards
   const db2 = await getDb()
   const fcs = await db2.getAllFromIndex('folder_cards', 'folder_id', id)
   const tx = db2.transaction('folder_cards', 'readwrite')
@@ -188,16 +192,43 @@ export async function putFolderCards(rows) {
   await Promise.all([...rows.map(r => tx.store.put(r)), tx.done])
 }
 
+// ── Deck Cards (builder) ──────────────────────────────────────────────────────
+
+export async function getDeckCards(deckId) {
+  const db = await getDb()
+  return db.getAllFromIndex('deck_cards', 'deck_id', deckId)
+}
+
+export async function putDeckCards(rows) {
+  if (!rows?.length) return
+  const db = await getDb()
+  const tx = db.transaction('deck_cards', 'readwrite')
+  await Promise.all([...rows.map(r => tx.store.put(r)), tx.done])
+}
+
+export async function deleteDeckCardLocal(id) {
+  const db = await getDb()
+  await db.delete('deck_cards', id)
+}
+
+export async function deleteAllDeckCardsLocal(deckId) {
+  const db = await getDb()
+  const all = await db.getAllFromIndex('deck_cards', 'deck_id', deckId)
+  const tx = db.transaction('deck_cards', 'readwrite')
+  await Promise.all([...all.map(r => tx.store.delete(r.id)), tx.done])
+}
+
 // ── Diagnostics ───────────────────────────────────────────────────────────────
 
 export async function getDbStats() {
   const db = await getDb()
-  const [cards, folders, folderCards, scryfall] = await Promise.all([
+  const [cards, folders, folderCards, scryfall, deckCards] = await Promise.all([
     db.count('cards'),
     db.count('folders'),
     db.count('folder_cards'),
     db.count('scryfall'),
+    db.count('deck_cards'),
   ])
   const sfInfo = await getScryfallCacheInfo()
-  return { cards, folders, folderCards, scryfall, sfUpdatedAt: sfInfo.updatedAt }
+  return { cards, folders, folderCards, scryfall, deckCards, sfUpdatedAt: sfInfo.updatedAt }
 }

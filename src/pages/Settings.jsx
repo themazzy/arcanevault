@@ -202,31 +202,11 @@ export default function SettingsPage() {
                 </div>
               </label>
             ))}
-            <div style={{ fontSize: '0.72rem', color: 'var(--text-faint)', fontStyle: 'italic', marginTop: 4, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-              Cardmarket Low, Avg, and 7/30-day averages require direct Cardmarket API access (planned future feature).
-            </div>
           </div>
         </SettingRow>
 
         <SettingRow label="Show Price on Cards" description="Display price label in the card grid">
           <Toggle value={settings.show_price} onChange={v => set('show_price', v)} />
-        </SettingRow>
-
-        <SettingRow label="Display Currency" description="All prices shown in this currency (converted if needed)">
-          <div className={styles.chips} style={{ gap: 8 }}>
-            {[['EUR', '€ EUR'], ['USD', '$ USD']].map(([v, l]) => (
-              <label key={v} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                <input type="radio" name="display_currency" value={v}
-                  checked={settings.display_currency === v}
-                  onChange={() => set('display_currency', v)}
-                  style={{ accentColor: 'var(--gold)' }} />
-                <span style={{ color: settings.display_currency === v ? 'var(--gold)' : 'var(--text-dim)', fontSize: '0.9rem' }}>{l}</span>
-              </label>
-            ))}
-          </div>
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-faint)', marginTop: 6, fontStyle: 'italic' }}>
-            Prices not available in your selected currency are converted using live ECB rates (updated every 6h). Converted prices are marked with *.
-          </div>
         </SettingRow>
       </div>
 

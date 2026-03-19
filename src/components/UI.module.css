@@ -2,7 +2,7 @@
   font-family: var(--font-display);
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  border-radius: 3px;
+  border-radius: 4px;
   cursor: pointer;
   transition: all 0.2s;
   border: 1px solid;
@@ -20,50 +20,54 @@
 
 /* variants */
 .default { color: var(--gold); border-color: rgba(201,168,76,0.3); background: rgba(201,168,76,0.08); }
-.default:hover:not(:disabled) { background: rgba(201,168,76,0.18); border-color: rgba(201,168,76,0.5); }
+.default:hover:not(:disabled) {
+  background: rgba(201,168,76,0.18);
+  border-color: rgba(201,168,76,0.5);
+  box-shadow: 0 4px 16px rgba(201,168,76,0.12);
+}
 
 .danger { color: var(--red); border-color: rgba(196,96,96,0.3); background: rgba(196,96,96,0.06); }
-.danger:hover:not(:disabled) { background: rgba(196,96,96,0.14); }
+.danger:hover:not(:disabled) { background: rgba(196,96,96,0.14); box-shadow: 0 4px 14px rgba(196,96,96,0.1); }
 
 .purple { color: var(--purple); border-color: rgba(138,111,196,0.3); background: rgba(138,111,196,0.06); }
-.purple:hover:not(:disabled) { background: rgba(138,111,196,0.14); }
+.purple:hover:not(:disabled) { background: rgba(138,111,196,0.14); box-shadow: 0 4px 14px rgba(138,111,196,0.1); }
 
 .ghost { color: var(--text-dim); border-color: rgba(255,255,255,0.08); background: none; }
 .ghost:hover:not(:disabled) { color: var(--gold-dim); background: rgba(255,255,255,0.04); }
 
 .green { color: var(--green); border-color: rgba(138,184,122,0.3); background: rgba(138,184,122,0.06); }
-.green:hover:not(:disabled) { background: rgba(138,184,122,0.14); }
+.green:hover:not(:disabled) { background: rgba(138,184,122,0.14); box-shadow: 0 4px 14px rgba(138,184,122,0.1); }
 
 /* Input */
 .input {
   background: rgba(255,255,255,0.04);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: 4px;
   padding: 9px 14px;
   color: var(--text);
   font-family: var(--font-serif);
   font-size: 0.95rem;
   outline: none;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
   width: 100%;
 }
-.input:focus { border-color: var(--border-hi); }
+.input:focus { border-color: var(--border-hi); box-shadow: var(--input-focus); }
 .input::placeholder { color: var(--text-faint); }
 
 /* Select */
 .select {
   background: rgba(255,255,255,0.04);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: 4px;
   padding: 9px 12px;
   color: var(--text);
   font-family: var(--font-serif);
   font-size: 0.9rem;
   outline: none;
   cursor: pointer;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
-.select:focus { border-color: var(--border-hi); }
+.select:focus { border-color: var(--border-hi); box-shadow: var(--input-focus); }
 .select option { background: var(--bg3); }
 
 /* Progress */
@@ -71,10 +75,15 @@
   margin: 12px 0;
   background: rgba(255,255,255,0.04);
   border: 1px solid rgba(180,140,60,0.12);
-  border-radius: 3px;
+  border-radius: 4px;
   overflow: hidden;
 }
-.progressBar { height: 3px; background: linear-gradient(90deg, var(--purple), var(--gold)); transition: width 0.3s; }
+.progressBar {
+  height: 4px;
+  background: linear-gradient(90deg, var(--purple), var(--gold));
+  box-shadow: 0 0 8px rgba(201,168,76,0.3);
+  transition: width 0.3s;
+}
 .progressLabel { padding: 8px 14px; font-size: 0.82rem; color: var(--text-dim); font-style: italic; }
 
 /* Error */
@@ -96,6 +105,14 @@
   font-style: italic;
   font-size: 1rem;
   line-height: 1.8;
+}
+.empty::before {
+  content: '⟡';
+  display: block;
+  font-size: 1.6rem;
+  margin-bottom: 12px;
+  opacity: 0.3;
+  font-style: normal;
 }
 
 /* Drop zone */
@@ -120,8 +137,8 @@
 /* Modal */
 .overlay {
   position: fixed; inset: 0;
-  background: rgba(0,0,0,0.72);
-  backdrop-filter: blur(5px);
+  background: rgba(0,0,0,0.76);
+  backdrop-filter: blur(7px);
   z-index: 200;
   display: flex; align-items: flex-start; justify-content: center;
   padding: 16px;
@@ -130,12 +147,15 @@
 .modal {
   background: var(--bg3);
   border: 1px solid rgba(180,140,60,0.3);
-  border-radius: 6px;
+  border-radius: 8px;
   max-width: 860px; width: 100%;
   max-height: none;
   padding: 22px;
   position: relative;
   margin: auto;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.03) inset;
+  /* Subtle gold top-accent */
+  background-image: linear-gradient(to bottom, rgba(201,168,76,0.04) 0px, transparent 60px);
 }
 @media (min-width: 601px) {
   .overlay { align-items: center; padding: 20px; }

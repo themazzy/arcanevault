@@ -41,9 +41,9 @@ const CustomTooltip = ({ active, payload, label, sym }) => {
 
 export default function StatsPage() {
   const { user } = useAuth()
-  const { price_source, display_currency } = useSettings()
-  const sym = display_currency === 'USD' ? '$' : '€'
-  const fmt = v => formatPrice(v, price_source, display_currency)
+  const { price_source } = useSettings()
+  const sym = price_source === 'tcgplayer_market' ? '$' : '€'
+  const fmt = v => formatPrice(v, price_source)
 
   const [cards, setCards]         = useState([])
   const [sfMap, setSfMap]         = useState({})
@@ -172,7 +172,7 @@ export default function StatsPage() {
       uniqueSets: Object.keys(bySet).length,
       rarityData, topSets, typeData, snapshotData, topCards
     }
-  }, [cards, sfMap, snapshots, price_source, display_currency])
+  }, [cards, sfMap, snapshots, price_source])
 
   const tt = (p) => <CustomTooltip {...p} sym={sym} />
 

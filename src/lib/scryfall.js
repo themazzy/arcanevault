@@ -271,25 +271,6 @@ export const PRICE_SOURCES = [
     field:       'usd',
     foilField:   'usd_foil',
   },
-  {
-    id:          'tcgplayer_etched',
-    label:       'TCGPlayer — Etched Foil',
-    description: 'TCGPlayer etched foil market price',
-    currency:    'USD',
-    symbol:      '$',
-    field:       'usd_etched',
-    foilField:   'usd_etched',
-  },
-  {
-    id:          'mtgo_tix',
-    label:       'MTGO — Tickets',
-    description: 'Magic Online ticket price',
-    currency:    'TIX',
-    symbol:      '',
-    field:       'tix',
-    foilField:   'tix',
-    suffix:      ' tix',
-  },
 ]
 
 export function getPriceSource(priceSourceId = 'cardmarket_trend') {
@@ -359,51 +340,17 @@ export function getPrice(sfCard, foil, { price_source = 'cardmarket_trend', card
   return getPriceWithMeta(sfCard, foil, { price_source })?.value ?? null
 }
 
-/**
- * Format a price value using the display currency.
- * If the price is in a different currency, convert it using live FX rates.
- */
-export function formatPrice(value, priceSourceId = 'cardmarket_trend', displayCurrency = 'EUR') {
+/** Format a price value in its native price source currency. */
+export function formatPrice(value, priceSourceId = 'cardmarket_trend') {
   if (value == null) return '—'
   const source = getPriceSource(priceSourceId)
-  const nativeCurrency = source.currency || (source.symbol === '€' ? 'EUR' : 'USD')
-  return formatInCurrency(value, nativeCurrency, displayCurrency)
+  return `${source.symbol}${value.toFixed(2)}`
 }
 
-/**
- * Format a PriceWithMeta object, converting to display currency.
- */
-export function formatPriceMeta(meta, displayCurrency = 'EUR') {
+/** Format a PriceWithMeta object in its native currency. */
+export function formatPriceMeta(meta) {
   if (!meta) return '—'
-  if (meta.currency === 'TIX') return `${meta.value.toFixed(2)} tix`
-  return formatInCurrency(meta.value, meta.currency, displayCurrency)
-}
-
-// FX converter — injected at app startup to avoid circular imports
-let _convertCurrency = (value, from, to) => {
-  // Default passthrough until fx.js injects the real converter
-  return value
-}
-let _fxReady = false
-
-export function injectFxConverter(convertFn) {
-  _convertCurrency = convertFn
-  _fxReady = true
-}
-
-// Convert a raw numeric value between currencies
-export function convertCurrency(value, from, to) {
-  if (value == null) return null
-  if (from === to) return value
-  return _convertCurrency(value, from, to) ?? value
-}
-
-function formatInCurrency(value, fromCurrency, toCurrency) {
-  if (fromCurrency === 'TIX' || toCurrency === 'TIX') return `${value.toFixed(2)} tix`
-  const converted = _convertCurrency(value, fromCurrency, toCurrency)
-  if (converted == null) return '—'
-  const sym = toCurrency === 'EUR' ? '€' : '$'
-  return `${sym}${converted.toFixed(2)}`
+  return `${meta.symbol}${meta.value.toFixed(2)}`
 }
 
 export function getImageUri(sfCard, size = 'normal') {

@@ -1,0 +1,1166 @@
+/* ── Page layout ── */
+.page {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  height: calc(100vh - 64px);
+  overflow: hidden;
+}
+
+/* ── Left panel ── */
+.left {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: rgba(0,0,0,0.2);
+  overflow: hidden;
+}
+
+.leftTop {
+  flex-shrink: 0;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.formatRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.formatLabel {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.formatSelect {
+  flex: 1;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 0.85rem;
+  padding: 5px 8px;
+  outline: none;
+}
+
+.formatSelect:focus { border-color: var(--gold, #c9a84c); }
+
+/* Commander picker */
+.cmdSection {
+  position: relative;
+}
+
+.cmdLabel {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+
+.cmdSelected {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: rgba(201,168,76,0.08);
+  border: 1px solid rgba(201,168,76,0.25);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.cmdSelected:hover { background: rgba(201,168,76,0.14); }
+
+.cmdImg {
+  width: 28px;
+  height: 20px;
+  object-fit: cover;
+  border-radius: 2px;
+}
+
+.cmdName {
+  font-size: 0.85rem;
+  color: var(--gold, #c9a84c);
+  flex: 1;
+}
+
+.cmdChange {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+}
+
+.cmdInput {
+  width: 100%;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 0.88rem;
+  padding: 7px 10px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.cmdInput:focus { border-color: var(--gold, #c9a84c); }
+
+.cmdDropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--bg-card, #1a1a1a);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  z-index: 200;
+  max-height: 260px;
+  overflow-y: auto;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+
+.cmdResult {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  transition: background 0.1s;
+}
+
+.cmdResult:hover { background: rgba(255,255,255,0.07); }
+
+.cmdResultImg {
+  width: 32px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.cmdResultName {
+  font-size: 0.85rem;
+  color: var(--text);
+  flex: 1;
+}
+
+.cmdResultType {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+}
+
+/* ── Tabs ── */
+.tabBar {
+  display: flex;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  flex: 1;
+  padding: 9px 0;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.tab:hover { color: var(--text); }
+
+.tabActive {
+  color: var(--gold, #c9a84c);
+  border-bottom-color: var(--gold, #c9a84c);
+}
+
+/* ── Search panel ── */
+.searchPanel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  padding: 10px;
+  gap: 8px;
+}
+
+.searchInputRow {
+  display: flex;
+  gap: 6px;
+}
+
+.searchInput {
+  flex: 1;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 0.88rem;
+  padding: 7px 10px;
+  outline: none;
+}
+
+.searchInput:focus { border-color: rgba(255,255,255,0.25); }
+
+.searchBtn {
+  background: rgba(201,168,76,0.12);
+  border: 1px solid rgba(201,168,76,0.3);
+  border-radius: 4px;
+  color: var(--gold, #c9a84c);
+  font-size: 0.82rem;
+  padding: 0 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.searchBtn:hover { background: rgba(201,168,76,0.22); }
+
+.typeFilters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.typePill {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  color: var(--text-dim);
+  font-size: 0.72rem;
+  padding: 3px 9px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.typePill:hover { border-color: rgba(255,255,255,0.25); color: var(--text); }
+
+.typePillActive {
+  background: rgba(201,168,76,0.15);
+  border-color: rgba(201,168,76,0.5);
+  color: var(--gold, #c9a84c);
+}
+
+.cmcRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--text-faint);
+}
+
+.cmcInput {
+  width: 48px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text);
+  font-size: 0.82rem;
+  padding: 4px 6px;
+  text-align: center;
+  outline: none;
+}
+
+.searchResults {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.searchEmpty {
+  color: var(--text-faint);
+  font-size: 0.82rem;
+  text-align: center;
+  padding: 24px 0;
+}
+
+.searchRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  transition: background 0.1s;
+  border-radius: 3px;
+  cursor: default;
+}
+
+.searchRow:hover { background: rgba(255,255,255,0.04); }
+
+.searchThumb {
+  width: 32px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.searchThumbPlaceholder {
+  width: 32px;
+  height: 44px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.searchInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.searchName {
+  font-size: 0.84rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.searchType {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.searchMeta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.ownedBadge {
+  font-size: 0.68rem;
+  color: var(--green, #4a9a5a);
+  white-space: nowrap;
+}
+
+.addBtn {
+  background: rgba(201,168,76,0.12);
+  border: 1px solid rgba(201,168,76,0.3);
+  border-radius: 3px;
+  color: var(--gold, #c9a84c);
+  font-size: 1rem;
+  line-height: 1;
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.addBtn:hover { background: rgba(201,168,76,0.25); }
+
+.loadMore {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 7px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.12s;
+}
+
+.loadMore:hover { background: rgba(255,255,255,0.08); }
+
+/* ── Recommendations panel ── */
+.recsPanel {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.recsCategoryBar {
+  flex-shrink: 0;
+  display: flex;
+  overflow-x: auto;
+  gap: 4px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: none;
+}
+
+.recsCategoryBar::-webkit-scrollbar { display: none; }
+
+.catPill {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  color: var(--text-dim);
+  font-size: 0.72rem;
+  padding: 3px 9px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.12s;
+}
+
+.catPill:hover { border-color: rgba(255,255,255,0.25); color: var(--text); }
+
+.catPillActive {
+  background: rgba(201,168,76,0.15);
+  border-color: rgba(201,168,76,0.5);
+  color: var(--gold, #c9a84c);
+}
+
+.recsList {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 10px;
+}
+
+.recsLoading, .recsError, .recsEmpty {
+  color: var(--text-faint);
+  font-size: 0.82rem;
+  text-align: center;
+  padding: 24px 12px;
+}
+
+.recRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  border-radius: 3px;
+  transition: background 0.1s;
+}
+
+.recRow:hover { background: rgba(255,255,255,0.04); }
+
+.recThumb {
+  width: 32px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.recThumbPlaceholder {
+  width: 32px;
+  height: 44px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.recInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.recName {
+  font-size: 0.84rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recStats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.inclusionBar {
+  height: 3px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 2px;
+  flex: 1;
+  overflow: hidden;
+}
+
+.inclusionFill {
+  height: 100%;
+  background: var(--green, #4a9a5a);
+  border-radius: 2px;
+}
+
+.inclusionPct {
+  font-size: 0.7rem;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.synergyPos { font-size: 0.7rem; color: var(--green, #4a9a5a); }
+.synergyNeg { font-size: 0.7rem; color: #e07070; }
+
+/* ── Right panel ── */
+.right {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.deckHeader {
+  flex-shrink: 0;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.deckNameInput {
+  flex: 1;
+  background: none;
+  border: none;
+  border-bottom: 1px solid transparent;
+  color: var(--gold, #c9a84c);
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  outline: none;
+  padding: 2px 0;
+  transition: border-color 0.15s;
+}
+
+.deckNameInput:focus { border-bottom-color: var(--gold, #c9a84c); }
+
+.deckMeta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.cardCount {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.cardCountOver { color: #e07070; }
+
+.importBtn {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  padding: 4px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.importBtn:hover {
+  background: rgba(255,255,255,0.1);
+  color: var(--text);
+}
+
+.savingDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--gold, #c9a84c);
+  opacity: 0.7;
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+/* Commander art display */
+.cmdArt {
+  flex-shrink: 0;
+  width: 100%;
+  max-height: 140px;
+  overflow: hidden;
+  position: relative;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+}
+
+.cmdArtImg {
+  width: 100%;
+  height: 140px;
+  object-fit: cover;
+  object-position: center 20%;
+  display: block;
+  flex: 1;
+}
+
+.cmdArtOverlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 20px 14px 8px;
+  background: linear-gradient(transparent, rgba(0,0,0,0.85));
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.cmdArtName {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  color: #fff;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+  flex: 1;
+}
+
+.cmdColorPips {
+  display: flex;
+  gap: 3px;
+}
+
+.colorPip {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.3);
+  font-size: 0.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+}
+
+/* Deck list */
+.deckList {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px;
+}
+
+.deckGroup {
+  margin-bottom: 4px;
+}
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 4px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 3px;
+  transition: background 0.1s;
+}
+
+.groupHeader:hover { background: rgba(255,255,255,0.04); }
+
+.groupArrow {
+  font-size: 0.65rem;
+  color: var(--text-faint);
+  transition: transform 0.15s;
+}
+
+.groupArrowCollapsed { transform: rotate(-90deg); }
+
+.groupName {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  flex: 1;
+}
+
+.groupCount {
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  background: rgba(255,255,255,0.07);
+  border-radius: 10px;
+  padding: 1px 8px;
+}
+
+.deckCardRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 4px 4px 12px;
+  border-radius: 3px;
+  transition: background 0.1s;
+}
+
+.deckCardRow:hover { background: rgba(255,255,255,0.04); }
+
+.deckThumb {
+  width: 26px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.deckThumbPlaceholder {
+  width: 26px;
+  height: 36px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.deckCardName {
+  flex: 1;
+  font-size: 0.83rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.ownedDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green, #4a9a5a);
+  flex-shrink: 0;
+}
+
+.ownedDotAlt {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(201,168,76,0.7);
+  flex-shrink: 0;
+}
+
+.ownedDotInDeck {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #e07020;
+  flex-shrink: 0;
+}
+
+.deckCardLeft {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  cursor: default;
+}
+
+.shareBtn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 3px 8px;
+  color: var(--text-faint);
+  font-size: 0.74rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.shareBtn:hover { color: var(--text); border-color: var(--border-hi); }
+
+.editBtn {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+.deckCardRow:hover .editBtn,
+.compactRow:hover .editBtn { opacity: 1; }
+.editBtn:hover { color: var(--gold); background: rgba(255,255,255,0.06); }
+
+.editMenuPopover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  background: var(--bg2, #1a1a1a);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 4px 0;
+  min-width: 160px;
+  z-index: 200;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+}
+
+.editMenuItem {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  padding: 8px 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+  white-space: nowrap;
+}
+.editMenuItem:hover { background: rgba(255,255,255,0.07); color: var(--text); }
+
+.qtyControls {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.qtyBtn {
+  background: rgba(255,255,255,0.07);
+  border: none;
+  border-radius: 2px;
+  color: var(--text-dim);
+  width: 18px;
+  height: 18px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.1s;
+}
+
+.qtyBtn:hover { background: rgba(255,255,255,0.15); color: var(--text); }
+
+.qtyVal {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  min-width: 16px;
+  text-align: center;
+}
+
+.removeBtn {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 2px;
+  transition: color 0.1s, background 0.1s;
+  flex-shrink: 0;
+}
+
+.removeBtn:hover { color: #e07070; background: rgba(224,112,112,0.1); }
+
+/* ── Footer ── */
+.deckFooter {
+  flex-shrink: 0;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  background: rgba(0,0,0,0.15);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.ownProgress {
+  flex: 1;
+}
+
+.ownBar {
+  height: 4px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+
+.ownFill {
+  height: 100%;
+  background: var(--green, #4a9a5a);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.ownLabel {
+  font-size: 0.75rem;
+  color: var(--text-faint);
+}
+
+.convertBtn {
+  background: rgba(74,154,90,0.15);
+  border: 1px solid rgba(74,154,90,0.4);
+  border-radius: 4px;
+  color: var(--green, #4a9a5a);
+  font-size: 0.82rem;
+  padding: 7px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.convertBtn:hover:not(:disabled) {
+  background: rgba(74,154,90,0.25);
+  border-color: rgba(74,154,90,0.6);
+}
+
+.convertBtn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.convertDone {
+  font-size: 0.82rem;
+  color: var(--green, #4a9a5a);
+}
+
+/* ── Floating preview ── */
+.floatingPreview {
+  position: fixed;
+  z-index: 500;
+  pointer-events: none;
+  filter: drop-shadow(0 12px 40px rgba(0,0,0,0.85));
+}
+
+.floatingImg {
+  width: 300px;
+  border-radius: 12px;
+  display: block;
+}
+
+/* ── Responsive ── */
+@media (max-width: 900px) {
+  .page { grid-template-columns: 1fr; }
+  .right { display: none; }
+  .page.showRight .left { display: none; }
+  .page.showRight .right { display: flex; }
+}
+
+.mobilePanelToggle {
+  display: none;
+  width: 100%;
+  background: rgba(201,168,76,0.08);
+  border: 1px solid rgba(201,168,76,0.25);
+  border-radius: 4px;
+  color: var(--gold);
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  padding: 8px;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+.mobilePanelToggle:hover { background: rgba(201,168,76,0.15); }
+
+@media (max-width: 900px) {
+  .mobilePanelToggle { display: block; }
+}
+
+/* ── Deck view/sort toolbar ─────────────────────────────────────────── */
+.deckToolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+}
+
+.toolbarGroup {
+  display: flex;
+  gap: 3px;
+}
+
+.viewBtn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 3px 7px;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.viewBtn:hover { color: var(--text); }
+
+.viewBtnActive {
+  background: rgba(201,168,76,0.12);
+  border-color: rgba(201,168,76,0.45);
+  color: var(--gold);
+}
+
+.sortPill {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.sortPill:hover { color: var(--text); }
+
+.sortPillActive {
+  background: rgba(201,168,76,0.12);
+  border-color: rgba(201,168,76,0.45);
+  color: var(--gold);
+}
+
+/* ── Compact list view ──────────────────────────────────────────────── */
+.compactList {
+  display: flex;
+  flex-direction: column;
+}
+
+.compactRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px;
+  border-radius: 3px;
+  transition: background 0.12s;
+}
+
+.compactRow:hover { background: rgba(255,255,255,0.04); }
+
+.compactQty {
+  font-size: 0.78rem;
+  color: var(--gold);
+  min-width: 18px;
+  text-align: right;
+}
+
+.compactName {
+  flex: 1;
+  font-size: 0.82rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Visual grid view ───────────────────────────────────────────────── */
+.visualGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.visualCard {
+  position: relative;
+  border-radius: 5px;
+  overflow: hidden;
+  aspect-ratio: 5/7;
+  cursor: pointer;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  transition: transform 0.15s, border-color 0.15s;
+}
+
+.visualCard:hover {
+  transform: scale(1.04);
+  border-color: rgba(201,168,76,0.5);
+  z-index: 2;
+}
+
+.visualCardImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.visualCardPlaceholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+  color: var(--text-faint);
+  padding: 4px;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.visualCardQty {
+  position: absolute;
+  bottom: 3px;
+  right: 4px;
+  font-size: 0.68rem;
+  background: rgba(0,0,0,0.75);
+  color: var(--gold);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.visualCardFoil {
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  font-size: 0.65rem;
+  color: rgba(201,168,76,0.9);
+  text-shadow: 0 0 6px rgba(201,168,76,0.6);
+}
+
+/* ── Group toggle ────────────────────────────────────────────── */
+.groupToggle {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 0.72rem;
+  padding: 2px 9px;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.groupToggle:hover { color: var(--text); }
+.groupToggleActive {
+  background: rgba(201,168,76,0.12);
+  border-color: rgba(201,168,76,0.45);
+  color: var(--gold);
+}
+
+/* ── Foil badge / button ─────────────────────────────────────── */
+.foilBadge {
+  font-size: 0.68rem;
+  color: rgba(201,168,76,0.85);
+  flex-shrink: 0;
+}
+
+
+/* ── Commander row highlight ─────────────────────────────────── */
+.isCommander {
+  background: rgba(201,168,76,0.06) !important;
+  border-left: 2px solid rgba(201,168,76,0.5);
+}
+
+/* ── Partner commander art (side-by-side) ────────────────────── */
+.cmdArtDuo {
+  display: flex;
+}
+.cmdArtPane {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+}
+.cmdArtPane:first-child { border-right: 1px solid var(--border); }
+.cmdArtImgPlaceholder {
+  width: 100%;
+  height: 140px;
+  background: rgba(255,255,255,0.04);
+}

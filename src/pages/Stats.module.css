@@ -8,8 +8,13 @@
 .statCard {
   background: rgba(255,255,255,0.03);
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: 7px;
   padding: 18px 20px;
+  transition: border-color 0.18s, background 0.18s;
+}
+.statCard:hover {
+  border-color: rgba(201,168,76,0.3);
+  background: rgba(201,168,76,0.025);
 }
 
 .statValue {
@@ -36,9 +41,14 @@
 .chartBox {
   background: rgba(255,255,255,0.02);
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: 7px;
   padding: 20px;
   margin-bottom: 16px;
+  transition: border-color 0.18s, box-shadow 0.18s;
+}
+.chartBox:hover {
+  border-color: rgba(180,140,60,0.25);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
 }
 
 .chartTitle {
@@ -59,11 +69,12 @@
 
 .tooltip {
   background: var(--bg3);
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  border: 1px solid rgba(180,140,60,0.3);
+  border-radius: 6px;
   padding: 10px 14px;
   font-size: 0.85rem;
   line-height: 1.6;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.55);
 }
 
 .tooltipLabel {

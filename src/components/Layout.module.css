@@ -7,11 +7,12 @@
 }
 
 .header {
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid rgba(180,140,60,0.15);
   padding: 0 40px;
-  background: rgba(10,8,20,0.92);
-  backdrop-filter: blur(10px);
+  background: rgba(8,6,16,0.94);
+  backdrop-filter: blur(14px);
   position: sticky; top: 0; z-index: 100;
+  box-shadow: 0 1px 0 rgba(201,168,76,0.06), 0 4px 24px rgba(0,0,0,0.4);
 }
 
 .headerTop {
@@ -23,9 +24,9 @@
   font-family: var(--font-display);
   font-size: 1.4rem; font-weight: 700;
   letter-spacing: 0.08em; color: var(--gold);
-  text-shadow: 0 0 20px rgba(201,168,76,0.25);
+  text-shadow: 0 0 28px rgba(201,168,76,0.3), 0 1px 3px rgba(0,0,0,0.5);
 }
-.logo span { color: var(--purple); }
+.logo span { color: var(--purple); text-shadow: 0 0 22px rgba(138,111,196,0.35); }
 
 .userBar { display: flex; align-items: center; gap: 14px; }
 .userName { font-size: 0.82rem; color: var(--text-dim); font-style: italic; }
@@ -45,11 +46,15 @@
   padding: 11px 22px; text-decoration: none;
   color: var(--text-faint);
   border-bottom: 2px solid transparent;
-  transition: color 0.2s, border-color 0.2s;
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
   position: relative; top: 1px;
 }
-.tab:hover { color: var(--gold-dim); text-decoration: none; }
-.active { color: var(--gold) !important; border-bottom-color: var(--gold) !important; }
+.tab:hover { color: var(--gold-dim); text-decoration: none; background: rgba(201,168,76,0.03); }
+.active {
+  color: var(--gold) !important;
+  border-bottom-color: var(--gold) !important;
+  text-shadow: 0 0 14px rgba(201,168,76,0.25);
+}
 
 .main { padding: 28px 40px; max-width: 1600px; margin: 0 auto; }
 
