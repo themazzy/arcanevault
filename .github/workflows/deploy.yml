@@ -2,7 +2,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: "main" # Change this to "master" if that is your main branch name
+    branches: "main" # Change to "master" if your default branch is master
 
 permissions:
   contents: read
@@ -26,12 +26,15 @@ jobs:
         run: npm install
 
       - name: Build
+        # This section injects your Supabase keys into the build process
         run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Upload Artifacts
         uses: actions/upload-pages-artifact@v3
         with:
-          # This must match your Vite build output directory
           path: './dist'
 
   deploy:
