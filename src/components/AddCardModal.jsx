@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { sb } from '../lib/supabase'
 import { Modal, Button, ErrorBox } from './UI'
 import { useSettings } from './SettingsContext'
-import { getPrice, formatPrice, getPriceSource } from '../lib/scryfall'
+import { getPrice, formatPrice, getPriceSource, sfGet } from '../lib/scryfall'
 import { initScanner, ocrCardName, getFrameArtHash, filterPrintingsByArt } from '../lib/scanner'
 import styles from './AddCardModal.module.css'
 
@@ -122,21 +122,19 @@ function ScanView({ onScanned, onManual }) {
 
       try {
         // Fuzzy name match
-        const nameRes = await fetch(
+        const card = await sfGet(
           `https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(result.text)}`
         )
-        if (!nameRes.ok) throw new Error('no match')
-        const card = await nameRes.json()
+        if (!card) throw new Error('no match')
 
         setStatusText(`Found "${card.name}" — matching set from art…`)
         setDebugInfo(d => ({ ...d, matchedName: card.name, step: 'Printings' }))
 
         // Fetch all printings
-        const printsRes = await fetch(
+        const printsData = await sfGet(
           `https://api.scryfall.com/cards/search?q=!"${encodeURIComponent(card.name)}"&unique=prints&order=released&dir=desc`
         )
-        const printsData = await printsRes.json()
-        const allPrintings = printsData.data || []
+        const allPrintings = printsData?.data || []
 
         setDebugInfo(d => ({ ...d, printingCount: allPrintings.length, step: 'Art hash' }))
 
@@ -395,11 +393,10 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
     }
     searchDebounce.current = setTimeout(async () => {
       try {
-        const res = await fetch(
+        const data = await sfGet(
           `https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}&unique=cards&order=name&limit=8`
         )
-        const data = await res.json()
-        const cards = data.data?.slice(0, 8) || []
+        const cards = data?.data?.slice(0, 8) || []
         setSuggestions(cards)
         setSuggestOpen(cards.length > 0)
       } catch {}
@@ -434,11 +431,10 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
     setPrintings([]); setAllPrintings([]); setShowAllPrintings(false)
     setView('configure')
     try {
-      const res = await fetch(
+      const data = await sfGet(
         `https://api.scryfall.com/cards/search?q=!"${encodeURIComponent(name)}"&unique=prints&order=released&dir=desc`
       )
-      const data = await res.json()
-      const prints = data.data || []
+      const prints = data?.data || []
       setPrintings(prints)     // manual: show all (no art filtering)
       setAllPrintings(prints)
       if (prints.length > 0) {

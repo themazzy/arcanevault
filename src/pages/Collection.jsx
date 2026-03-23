@@ -386,11 +386,21 @@ export default function CollectionPage() {
     await loadCards()
   }, [user.id, loadCards])
 
+  // Map selected display keys → unique real card IDs
+  const selectedRealIds = () => {
+    const ids = new Set()
+    for (const key of selected) {
+      const card = displayCards.find(c => (c._displayKey || c.id) === key)
+      if (card) ids.add(card.id)
+    }
+    return [...ids]
+  }
+
   // ── Bulk delete ──────────────────────────────────────────────────────────────
   const handleBulkDelete = async () => {
     const count = selected.size
     if (!window.confirm(`Delete ${count} card${count !== 1 ? 's' : ''}? This cannot be undone.`)) return
-    const ids = [...selected]
+    const ids = selectedRealIds()
 
     if (ids.length === cards.length) {
       await sb.from('cards').delete().eq('user_id', user.id)
@@ -404,12 +414,14 @@ export default function CollectionPage() {
       await sb.from('cards').delete().in('id', batch)
       for (const id of batch) await deleteCard(id)
     }
-    setCards(prev => prev.filter(c => !selected.has(c.id)))
+    const idSet = new Set(ids)
+    setCards(prev => prev.filter(c => !idSet.has(c.id)))
     setSelected(new Set()); setSelectMode(false)
   }
 
   const handleMoveToFolder = async (folder) => {
-    const folderCards = [...selected].map(id => ({ folder_id: folder.id, card_id: id, qty: 1 }))
+    const ids = selectedRealIds()
+    const folderCards = ids.map(id => ({ folder_id: folder.id, card_id: id, qty: 1 }))
     await sb.from('folder_cards').upsert(folderCards, { onConflict: 'folder_id,card_id', ignoreDuplicates: true })
     setSelected(new Set()); setSelectMode(false)
   }
@@ -465,9 +477,9 @@ export default function CollectionPage() {
     for (const card of filtered) {
       const folders = cardFolderMap[card.id]
       if (folders && folders.length > 1) {
-        // One tile per folder membership
+        // One tile per folder membership — badge hidden, each tile is independently selectable
         folders.forEach((f, i) => {
-          result.push({ ...card, _displayKey: `${card.id}_${i}`, _displayFolder: f })
+          result.push({ ...card, _displayKey: `${card.id}_${i}`, _displayFolder: f, _multiFolder: true })
         })
       } else {
         result.push({ ...card, _displayKey: card.id, _displayFolder: folders?.[0] || null })
@@ -534,7 +546,7 @@ export default function CollectionPage() {
         {selectMode && selected.size > 0 && (
           <BulkActionBar
             selected={selected} total={filtered.length}
-            onSelectAll={() => setSelected(new Set(filtered.map(c => c.id)))}
+            onSelectAll={() => setSelected(new Set(displayCards.map(c => c._displayKey || c.id)))}
             onDeselectAll={() => setSelected(new Set())}
             onDelete={handleBulkDelete}
             onMoveToFolder={handleMoveToFolder}

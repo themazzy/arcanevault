@@ -17,6 +17,20 @@ const BATCH_SIZE = 75
 const DELAY_MS   = 120
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000
 
+// ── Shared Scryfall fetch helper ───────────────────────────────────────────────
+// Enforces 100ms minimum between requests and adds required Accept header.
+// User-Agent cannot be set from browser JS (forbidden header) — browser sends its own.
+const SF_HEADERS = { 'Accept': 'application/json' }
+let _lastSfCall = 0
+export async function sfGet(url) {
+  const wait = Math.max(0, 100 - (Date.now() - _lastSfCall))
+  if (wait) await new Promise(r => setTimeout(r, wait))
+  _lastSfCall = Date.now()
+  const res = await fetch(url, { headers: SF_HEADERS })
+  if (!res.ok) return null
+  return res.json()
+}
+
 // Clear old localStorage keys
 ;['arcanevault_sfcache','arcanevault_sfcache_v2',
   'arcanevault_prices_v1','arcanevault_prices_v2','arcanevault_prices_v3',
@@ -105,9 +119,12 @@ export async function getInstantCache(cacheTtlMs = DEFAULT_TTL_MS) {
 
 export async function fetchScryfallBatch(identifiers) {
   try {
+    const wait = Math.max(0, 100 - (Date.now() - _lastSfCall))
+    if (wait) await new Promise(r => setTimeout(r, wait))
+    _lastSfCall = Date.now()
     const res = await fetch('https://api.scryfall.com/cards/collection', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify({ identifiers })
     })
     if (!res.ok) return []

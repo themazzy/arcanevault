@@ -50,7 +50,7 @@ function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, onTo
     : (cardFolders?.[card.id] || [])
 
   const handleClick = () => {
-    if (selectMode) onToggleSelect?.(card.id)
+    if (selectMode) onToggleSelect?.(card._displayKey || card.id)
     else onClick?.(card)
   }
 
@@ -76,7 +76,7 @@ function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, onTo
           : <div className={styles.imgPlaceholder}>{card.name}</div>
         }
         {card.foil && <div style={{ position: 'absolute', top: 5, left: 5 }}><Badge variant="foil">Foil</Badge></div>}
-        {card.qty > 1 && !card._displayFolder && <div className={styles.qty}>×{card.qty}</div>}
+        {card.qty > 1 && !card._multiFolder && <div className={styles.qty}>×{card.qty}</div>}
       </div>
 
       <div className={styles.cardInfo}>
@@ -165,7 +165,7 @@ export default function VirtualCardGrid({
                   loading={loading}
                   onClick={onSelect}
                   selectMode={selectMode}
-                  isSelected={selectMode && selected?.has(card.id)}
+                  isSelected={selectMode && selected?.has(card._displayKey || card.id)}
                   onToggleSelect={onToggleSelect}
                   onEnterSelectMode={onEnterSelectMode}
                   priceSource={priceSource}
