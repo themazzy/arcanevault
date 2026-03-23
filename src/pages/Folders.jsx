@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { sb } from '../lib/supabase'
-import { enrichCards, getInstantCache, getScryfallKey, getPrice, getPriceSource, formatPrice } from '../lib/scryfall'
+import { enrichCards, getInstantCache, getScryfallKey, getPrice, getPriceSource, formatPrice, sfGet } from '../lib/scryfall'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { CardGrid, CardDetail, FilterBar, BulkActionBar, applyFilterSort, EMPTY_FILTERS } from '../components/CardComponents'
@@ -87,9 +87,8 @@ function CardArtPicker({ onSelect, onClose }) {
     if (!query.trim()) return
     setLoading(true)
     try {
-      const r = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}&unique=art&order=name`)
-      const data = await r.json()
-      setResults((data.data || []).filter(c => c.image_uris?.art_crop).slice(0, 20))
+      const data = await sfGet(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}&unique=art&order=name`)
+      setResults((data?.data || []).filter(c => c.image_uris?.art_crop).slice(0, 20))
     } catch { setResults([]) }
     setLoading(false)
   }
@@ -561,7 +560,8 @@ function ShareModal({ folder, onClose }) {
     load()
   }, [folder.id])
 
-  const url = token ? `${window.location.origin}/share/${token}` : ''
+  const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '')
+  const url = token ? `${window.location.origin}${base}/share/${token}` : ''
 
   return (
     <Modal onClose={onClose}>
