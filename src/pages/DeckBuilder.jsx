@@ -1260,7 +1260,7 @@ export default function DeckBuilderPage() {
           <button
             className={styles.shareBtn}
             onClick={() => {
-              navigator.clipboard.writeText(window.location.origin + '/d/' + deckId)
+              navigator.clipboard.writeText(window.location.origin + (import.meta.env.BASE_URL || '/').replace(/\/$/, '') + '/d/' + deckId)
               setShareCopied(true)
               setTimeout(() => setShareCopied(false), 2000)
             }}
