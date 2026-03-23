@@ -39,7 +39,10 @@ export function LoginPage() {
     if (mode === 'register') {
       if (password !== password2) { setError('Passwords do not match.'); setLoading(false); return }
       if (password.length < 6) { setError('Password must be at least 6 characters.'); setLoading(false); return }
-      const { error: err } = await sb.auth.signUp({ email, password })
+      const { error: err } = await sb.auth.signUp({
+        email, password,
+        options: { emailRedirectTo: 'https://themazzy.github.io/arcanevault/' },
+      })
       if (err) setError(err.message)
       else setSuccess('Account created! Check your email to confirm, then sign in.')
     } else {

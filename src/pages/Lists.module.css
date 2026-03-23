@@ -94,3 +94,15 @@
   transition: color 0.2s;
 }
 .itemDelete:hover { color: #e05252; }
+
+/* ── Select mode ─────────────────────────────────────────────────────────── */
+.itemSelectMode { cursor: pointer; }
+.itemSelected { background: rgba(201,168,76,0.08) !important; border-color: rgba(201,168,76,0.3) !important; }
+.itemCheckbox {
+  width: 18px; height: 18px; flex-shrink: 0;
+  border: 2px solid rgba(201,168,76,0.5); border-radius: 3px;
+  background: rgba(10,8,20,0.8);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.68rem; color: var(--gold); pointer-events: none;
+}
+.itemCheckboxChecked { background: rgba(201,168,76,0.25); border-color: var(--gold); }

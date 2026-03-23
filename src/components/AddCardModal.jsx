@@ -342,7 +342,7 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
   const [queue, setQueue] = useState([])
 
   // Destination
-  const [destTab, setDestTab]           = useState(folderMode ? (defaultFolderType || 'binder') : 'collection')
+  const [destTab, setDestTab]           = useState(folderMode ? (defaultFolderType || 'binder') : 'binder')
   const [folders, setFolders]           = useState([])
   const [selectedFolder, setSelectedFolder] = useState(defaultFolderId || null)
 
@@ -481,6 +481,9 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
   }
 
   const removeFromQueue = (id) => setQueue(q => q.filter(item => item.id !== id))
+  const updateQueueQty = (id, delta) => setQueue(q => q.map(item =>
+    item.id === id ? { ...item, qty: Math.max(1, item.qty + delta) } : item
+  ))
 
   const destFolders = folders.filter(f => f.type === destTab)
 
@@ -510,11 +513,7 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
     }
   }
 
-  const canSave = queue.length > 0 && (
-    folderMode
-      ? selectedFolder != null
-      : (destTab === 'collection' || !destFolders.length || selectedFolder)
-  )
+  const canSave = queue.length > 0 && selectedFolder != null
 
   const saveAll = async () => {
     if (!queue.length) return
@@ -795,12 +794,17 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
                 <div className={styles.queueInfo}>
                   <span className={styles.queueName}>{item.printing.name}</span>
                   <span className={styles.queueMeta}>
-                    {item.printing.set?.toUpperCase()} · {item.qty}× ·{' '}
+                    {item.printing.set?.toUpperCase()} ·{' '}
                     {item.foil ? '✦ Foil' : 'Non-foil'} ·{' '}
                     {CONDITIONS.find(([v]) => v === item.condition)?.[1] || item.condition} ·{' '}
                     {LANGUAGES.find(([v]) => v === item.language)?.[1] || item.language}
                     {item.purchasePrice > 0 && ` · €${item.purchasePrice.toFixed(2)}`}
                   </span>
+                </div>
+                <div className={styles.queueQtyRow}>
+                  <button className={styles.queueQtyBtn} onClick={() => updateQueueQty(item.id, -1)}>−</button>
+                  <span className={styles.queueQty}>{item.qty}</span>
+                  <button className={styles.queueQtyBtn} onClick={() => updateQueueQty(item.id, +1)}>+</button>
                 </div>
                 <button className={styles.queueRemove} onClick={() => removeFromQueue(item.id)}>×</button>
               </div>
@@ -869,10 +873,10 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
                 )}
               </>
             ) : (
-              /* ── Collection mode: original tabs + button grid ── */
+              /* ── Collection mode: tabs + button grid ── */
               <>
                 <div className={styles.destTabs}>
-                  {[['collection','Collection'],['deck','Deck'],['binder','Binder'],['list','Wishlist']].map(([key,label]) => (
+                  {[['deck','Deck'],['binder','Binder'],['list','Wishlist']].map(([key,label]) => (
                     <button key={key}
                       className={`${styles.destTab} ${destTab===key ? styles.destTabActive : ''}`}
                       onClick={() => { setDestTab(key); setSelectedFolder(null) }}>
@@ -880,21 +884,20 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
                     </button>
                   ))}
                 </div>
-                {destTab !== 'collection' && (
-                  destFolders.length > 0
-                    ? (
-                      <div className={styles.folderGrid}>
-                        {destFolders.map(f => (
-                          <button key={f.id}
-                            className={`${styles.folderBtn} ${selectedFolder === f.id ? styles.folderBtnActive : ''}`}
-                            onClick={() => setSelectedFolder(f.id)}>
-                            {f.name}
-                          </button>
-                        ))}
-                      </div>
-                    )
-                    : <div className={styles.noFolders}>No {destTab}s yet — cards will be saved to collection only</div>
-                )}
+                {destFolders.length > 0
+                  ? (
+                    <div className={styles.folderGrid}>
+                      {destFolders.map(f => (
+                        <button key={f.id}
+                          className={`${styles.folderBtn} ${selectedFolder === f.id ? styles.folderBtnActive : ''}`}
+                          onClick={() => setSelectedFolder(f.id)}>
+                          {f.name}
+                        </button>
+                      ))}
+                    </div>
+                  )
+                  : <div className={styles.noFolders}>No {destTab === 'list' ? 'wishlists' : `${destTab}s`} yet — create one first</div>
+                }
               </>
             )}
           </div>

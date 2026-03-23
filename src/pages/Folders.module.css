@@ -522,6 +522,22 @@
 .newGroupBtn:hover:not(:disabled) { background: rgba(201,168,76,0.12); }
 .newGroupBtn:disabled { opacity: 0.35; cursor: not-allowed; }
 
+.newFolderBtn {
+  background: rgba(201,168,76,0.1); border: 1px solid rgba(201,168,76,0.35);
+  border-radius: 4px; color: var(--gold); font-family: var(--font-display);
+  font-size: 0.72rem; letter-spacing: 0.04em; padding: 5px 12px;
+  cursor: pointer; transition: background 0.15s; white-space: nowrap;
+}
+.newFolderBtn:hover { background: rgba(201,168,76,0.2); }
+
+.importBtn {
+  background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+  border-radius: 4px; color: var(--text-dim); font-family: var(--font-display);
+  font-size: 0.72rem; letter-spacing: 0.04em; padding: 5px 12px;
+  cursor: pointer; transition: all 0.15s; white-space: nowrap;
+}
+.importBtn:hover { background: rgba(255,255,255,0.08); color: var(--text); border-color: var(--border-hi); }
+
 .newGroupInput {
   flex: 1;
   background: rgba(255,255,255,0.06);

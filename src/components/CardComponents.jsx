@@ -95,7 +95,7 @@ export function CardGrid({ cards, sfMap, loading, onSelect, selectMode, selected
 }
 
 // ── BulkActionBar ─────────────────────────────────────────────────────────────
-export function BulkActionBar({ selected, total, onSelectAll, onDeselectAll, onDelete, onMoveToFolder, folders, onCreateFolder }) {
+export function BulkActionBar({ selected, total, onSelectAll, onDeselectAll, onDelete, onMoveToFolder, folders, onCreateFolder, selectedQty }) {
   const [showMove, setShowMove] = useState(false)
   const [creating, setCreating] = useState(false)
   const [createType, setCreateType] = useState('binder')
@@ -119,7 +119,7 @@ export function BulkActionBar({ selected, total, onSelectAll, onDeselectAll, onD
   return (
     <div className={styles.bulkBar}>
       <div className={styles.bulkLeft}>
-        <span className={styles.bulkCount}>{count} selected</span>
+        <span className={styles.bulkCount}>{count} {count === 1 ? 'card' : 'cards'}{selectedQty != null && selectedQty !== count ? ` (${selectedQty} copies)` : ''} selected</span>
         <button className={styles.bulkLink} onClick={onSelectAll}>Select all {total}</button>
         <button className={styles.bulkLink} onClick={onDeselectAll}>Deselect all</button>
       </div>
@@ -329,6 +329,13 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
 
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('collection')
+
+  // Prevent body scroll while detail panel is open
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
   const [fullCard, setFullCard]   = useState(null)
   const [rulings, setRulings]     = useState(null) // null = not loaded yet
   const [loadingFull, setLoadingFull] = useState(false)
