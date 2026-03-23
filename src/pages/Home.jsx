@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { sb } from '../lib/supabase'
-import { getInstantCache, getPrice, formatPrice, getImageUri } from '../lib/scryfall'
+import { getInstantCache, getPrice, formatPrice, getImageUri, sfGet } from '../lib/scryfall'
 import { getLocalCards, getLocalFolders, getAllLocalFolderCards } from '../lib/db'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
@@ -91,51 +91,31 @@ async function loadCollectionData(userId) {
 
 // ── Scryfall API helpers ──────────────────────────────────────────────────────
 async function fetchRandom() {
-  try {
-    const res = await fetch('https://api.scryfall.com/cards/random')
-    if (!res.ok) return null
-    return await res.json()
-  } catch { return null }
+  return sfGet('https://api.scryfall.com/cards/random')
 }
 // Returns card objects (with images) for the autocomplete dropdown
 async function fetchAutocomplete(q) {
-  try {
-    const res = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(q)}&unique=names&order=name`)
-    if (!res.ok) return []
-    return ((await res.json()).data || []).slice(0, 9)
-  } catch { return [] }
+  const data = await sfGet(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(q)}&unique=names&order=name`)
+  return (data?.data || []).slice(0, 9)
 }
 async function fetchByName(name) {
-  try {
-    const res = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}`)
-    if (!res.ok) return null
-    return await res.json()
-  } catch { return null }
+  return sfGet(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}`)
 }
 async function fetchPrintings(cardName) {
-  try {
-    const q = `!"${cardName}"`
-    const res = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(q)}&unique=prints&order=released`)
-    if (!res.ok) return []
-    return (await res.json()).data || []
-  } catch { return [] }
+  const q = `!"${cardName}"`
+  const data = await sfGet(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(q)}&unique=prints&order=released`)
+  return data?.data || []
 }
 async function fetchSearchResults(q, nextPageUrl = null) {
-  try {
-    const url = nextPageUrl || `https://api.scryfall.com/cards/search?q=${encodeURIComponent(q)}&order=name&unique=cards`
-    const res = await fetch(url)
-    if (!res.ok) return { data: [], nextPage: null, total: 0 }
-    const json = await res.json()
-    return { data: json.data || [], nextPage: json.next_page || null, total: json.total_cards || 0 }
-  } catch { return { data: [], nextPage: null, total: 0 } }
+  const url = nextPageUrl || `https://api.scryfall.com/cards/search?q=${encodeURIComponent(q)}&order=name&unique=cards`
+  const json = await sfGet(url)
+  if (!json) return { data: [], nextPage: null, total: 0 }
+  return { data: json.data || [], nextPage: json.next_page || null, total: json.total_cards || 0 }
 }
 async function fetchRulings(card) {
-  try {
-    const url = card.rulings_uri || `https://api.scryfall.com/cards/${card.set}/${card.collector_number}/rulings`
-    const res = await fetch(url)
-    if (!res.ok) return []
-    return (await res.json()).data || []
-  } catch { return [] }
+  const url = card.rulings_uri || `https://api.scryfall.com/cards/${card.set}/${card.collector_number}/rulings`
+  const data = await sfGet(url)
+  return data?.data || []
 }
 // Verified working feeds (2026-03-18):
 //   MTGGoldfish → Atom format  (entries, link[href] attribute)
@@ -223,17 +203,14 @@ async function fetchMTGNews() {
 }
 
 async function fetchUpcomingSets() {
-  try {
-    const res = await fetch('https://api.scryfall.com/sets')
-    if (!res.ok) return []
-    const { data } = await res.json()
-    const today = new Date().toISOString().slice(0, 10)
-    const interesting = new Set(['expansion', 'core', 'masters', 'draft_innovation', 'commander', 'starter_deck'])
-    return (data || [])
-      .filter(s => s.released_at > today && interesting.has(s.set_type))
-      .sort((a, b) => a.released_at.localeCompare(b.released_at))
-      .slice(0, 8)
-  } catch { return [] }
+  const json = await sfGet('https://api.scryfall.com/sets')
+  if (!json) return []
+  const today = new Date().toISOString().slice(0, 10)
+  const interesting = new Set(['expansion', 'core', 'masters', 'draft_innovation', 'commander', 'starter_deck'])
+  return (json.data || [])
+    .filter(s => s.released_at > today && interesting.has(s.set_type))
+    .sort((a, b) => a.released_at.localeCompare(b.released_at))
+    .slice(0, 8)
 }
 
 // ── Advanced search helpers ───────────────────────────────────────────────────
@@ -1196,8 +1173,7 @@ export default function HomePage() {
     try {
       let card = null
       if (scryfallId) {
-        const res = await fetch(`https://api.scryfall.com/cards/${scryfallId}`)
-        if (res.ok) card = await res.json()
+        card = await sfGet(`https://api.scryfall.com/cards/${scryfallId}`)
       }
       if (!card && fallbackName) card = await fetchByName(fallbackName)
       if (card) { setModalCard(card); addRecentlyViewed(card) }

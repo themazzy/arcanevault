@@ -23,8 +23,8 @@ function PrivateApp() {
         <Routes>
           <Route path="/"            element={<HomePage />} />
           <Route path="/collection"  element={<CollectionPage />} />
-          <Route path="/decks"       element={<FoldersPage type="deck" />} />
-          <Route path="/binders"     element={<FoldersPage type="binder" />} />
+          <Route path="/decks"       element={<FoldersPage key="decks"   type="deck" />} />
+          <Route path="/binders"     element={<FoldersPage key="binders" type="binder" />} />
           <Route path="/lists"       element={<ListsPage />} />
           <Route path="/stats"       element={<StatsPage />} />
           <Route path="/life"        element={<LifeTrackerPage />} />
