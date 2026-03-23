@@ -20,7 +20,29 @@ export default function DeckViewPage() {
       setDeck(folder)
       setDeckMeta(parseDeckMeta(folder.description))
 
-      const { data: deckCards } = await sb.from('deck_cards').select('*').eq('deck_id', id).order('is_commander', { ascending: false })
+      const { data: deckCards, error: dcErr } = await sb.from('deck_cards').select('*').eq('deck_id', id).order('is_commander', { ascending: false })
+      if (dcErr) console.error('[DeckView] deck_cards error:', dcErr)
+
+      // Fallback: regular collection decks store cards in folder_cards, not deck_cards
+      if ((!deckCards || deckCards.length === 0) && folder.type === 'deck') {
+        const { data: fc } = await sb.from('folder_cards').select('*, cards(*)').eq('folder_id', id)
+        if (fc?.length) {
+          const mapped = fc.map(r => ({
+            id:               r.id,
+            deck_id:          id,
+            name:             r.cards?.name || '',
+            qty:              r.qty || 1,
+            foil:             r.cards?.foil || false,
+            is_commander:     false,
+            type_line:        null,
+            image_uri:        null,
+          }))
+          setCards(mapped)
+          setLoading(false)
+          return
+        }
+      }
+
       setCards(deckCards || [])
       setLoading(false)
     })()
