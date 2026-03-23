@@ -6,6 +6,8 @@
  * - Recommander.cards: experimental co-occurrence recommendations
  */
 
+import { sfGet } from './scryfall'
+
 const SF = 'https://api.scryfall.com'
 const EDHREC = 'https://json.edhrec.com'
 const RECOMMANDER = 'https://recommander.cards'
@@ -88,16 +90,8 @@ export function nameToSlug(name) {
 }
 
 // ── Scryfall helpers ──────────────────────────────────────────────────────────
-
-let _lastSf = 0
-async function sfFetch(url) {
-  const wait = Math.max(0, 100 - (Date.now() - _lastSf))
-  if (wait) await new Promise(r => setTimeout(r, wait))
-  _lastSf = Date.now()
-  const res = await fetch(url)
-  if (!res.ok) return null
-  return res.json()
-}
+// sfGet (rate-limited, with Accept header) is imported from scryfall.js
+const sfFetch = sfGet
 
 /** Search cards with optional format + color identity filter */
 export async function searchCards({ query = '', format, colorIdentity, cardType, cmcMin, cmcMax, page = 1 } = {}) {
@@ -141,7 +135,7 @@ export async function fetchCardsByNames(names) {
     try {
       const res = await fetch(`${SF}/cards/collection`, {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body:    JSON.stringify({ identifiers: batch }),
       })
       if (res.ok) {
