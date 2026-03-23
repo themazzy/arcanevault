@@ -264,9 +264,9 @@ function TableView({ cards, sfMap, priceSource, onSelect }) {
 
 // ── View: Stacks ──────────────────────────────────────────────────────────────
 
-function StackCard({ card, sf, idx, priceSource, selectMode, isSelected, onSelect, onToggleSelect, onHover, onHoverEnd, onEnterSelectMode }) {
+function StackCard({ card, sf, idx, priceSource, selectMode, isSelected, isSplitRem, baseId, totalQty, onSelect, onToggleSelect, onIncrementSplit, onHover, onHoverEnd, onEnterSelectMode }) {
   const img = sf?.image_uris?.normal || sf?.card_faces?.[0]?.image_uris?.normal
-  const qty = card._folder_qty || card.qty || 1
+  const qty = card._render_qty ?? card._folder_qty ?? card.qty ?? 1
   const scryfallPrice = getPrice(sf, card.foil, { price_source: priceSource })
   const price = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
   const isBuyFallback = scryfallPrice == null && price != null
@@ -274,14 +274,18 @@ function StackCard({ card, sf, idx, priceSource, selectMode, isSelected, onSelec
   const { onMouseLeave: lpLeave, ...lpRest } = longPress
   return (
     <div
-      className={`${styles.stackCard} ${isSelected ? styles.stackCardSelected : ''}`}
+      className={`${styles.stackCard} ${isSelected ? styles.stackCardSelected : ''} ${isSplitRem ? styles.stackCardSplitRem : ''}`}
       style={{ zIndex: idx }}
-      onClick={() => selectMode ? onToggleSelect(card.id) : onSelect(card)}
+      onClick={() => {
+        if (!selectMode) return onSelect(card)
+        if (isSplitRem) { onIncrementSplit?.(baseId, totalQty); return }
+        onToggleSelect(baseId || card.id, totalQty)
+      }}
       onMouseEnter={() => !selectMode && img && onHover?.(img)}
       onMouseLeave={e => { if (!selectMode) onHoverEnd?.(); lpLeave?.(e) }}
       title={card.name}
       {...lpRest}>
-      {selectMode && (
+      {selectMode && !isSplitRem && (
         <div className={`${styles.rowCheckbox} ${isSelected ? styles.rowCheckboxChecked : ''}`}
           style={{ position: 'absolute', top: 4, left: 4, zIndex: 10 }}>
           {isSelected && '✓'}
@@ -303,12 +307,23 @@ function StackCard({ card, sf, idx, priceSource, selectMode, isSelected, onSelec
   )
 }
 
-function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, onHover, onHoverEnd, selectMode, selectedCards, onToggleSelect, onEnterSelectMode }) {
+function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, onHover, onHoverEnd, selectMode, selectedCards, onToggleSelect, onIncrementSplit, splitState, onEnterSelectMode }) {
   return (
     <div className={styles.stacksWrap}>
       {groupOrder.filter(g => groups[g]?.length).map(group => {
         const cards = groups[group]
         const total = cards.reduce((s,c) => s+(c._folder_qty||c.qty||1), 0)
+        const displayRows = []
+        for (const card of cards) {
+          const totalQty = card._folder_qty || card.qty || 1
+          const splitQty = splitState?.get(card.id)
+          if (splitQty != null && splitQty > 0 && splitQty < totalQty) {
+            displayRows.push({ ...card, _render_qty: splitQty, _is_split_selected: true, _totalQty: totalQty })
+            displayRows.push({ ...card, id: card.id + '__rem', _render_qty: totalQty - splitQty, _is_split_rem: true, _base_id: card.id, _totalQty: totalQty })
+          } else {
+            displayRows.push({ ...card, _totalQty: totalQty })
+          }
+        }
         return (
           <div key={group} className={styles.stackGroup}>
             <div className={styles.stackGroupHeader}>
@@ -316,8 +331,9 @@ function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, onHover,
               <span className={styles.stackGroupCount}>{total}</span>
             </div>
             <div className={styles.stackCards}>
-              {cards.map((card, idx) => {
-                const sf = sfMap[getScryfallKey(card)]
+              {displayRows.map((card, idx) => {
+                const baseId = card._base_id || card.id
+                const sf = sfMap[getScryfallKey({ ...card, id: baseId })]
                 return (
                   <StackCard
                     key={card.id}
@@ -326,12 +342,16 @@ function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, onHover,
                     idx={idx}
                     priceSource={priceSource}
                     selectMode={selectMode}
-                    isSelected={selectedCards?.has(card.id)}
+                    isSelected={!card._is_split_rem && selectedCards?.has(baseId)}
+                    isSplitRem={card._is_split_rem}
+                    baseId={baseId}
+                    totalQty={card._totalQty}
                     onSelect={onSelect}
                     onToggleSelect={onToggleSelect}
+                    onIncrementSplit={onIncrementSplit}
                     onHover={onHover}
                     onHoverEnd={onHoverEnd}
-                    onEnterSelectMode={onEnterSelectMode}
+                    onEnterSelectMode={!card._is_split_rem && !card._is_split_selected ? onEnterSelectMode : undefined}
                   />
                 )
               })}
@@ -345,18 +365,18 @@ function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, onHover,
 
 // ── Deck List (grouped rows, existing) ────────────────────────────────────────
 
-function DeckListRow({ card, sfCard, priceSource, onClick, onHover, onHoverEnd, selectMode, isSelected, onEnterSelectMode }) {
+function DeckListRow({ card, sfCard, priceSource, onClick, onHover, onHoverEnd, selectMode, isSelected, isSplitRem, onEnterSelectMode }) {
   const scryfallPrice = getPrice(sfCard, card.foil, { price_source: priceSource })
   const price = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
   const isBuyFallback = scryfallPrice == null && price != null
   const typeLine = sfCard?.type_line || sfCard?.card_faces?.[0]?.type_line || ''
   const mc = sfCard?.mana_cost || sfCard?.card_faces?.[0]?.mana_cost || ''
-  const qty = card._folder_qty || card.qty || 1
+  const qty = card._render_qty ?? card._folder_qty ?? card.qty ?? 1
   const img = sfCard?.image_uris?.normal || sfCard?.card_faces?.[0]?.image_uris?.normal || null
-  const longPress = useLongPress(() => { if (!selectMode) onEnterSelectMode?.() }, { delay: 500 })
+  const longPress = useLongPress(() => { if (!selectMode && !isSplitRem) onEnterSelectMode?.() }, { delay: 500 })
   const { onMouseLeave: lpLeave, ...lpRest } = longPress
   return (
-    <div className={`${styles.deckRow} ${isSelected ? styles.deckRowSelected : ''} ${selectMode ? styles.deckRowSelectMode : ''}`}
+    <div className={`${styles.deckRow} ${isSelected ? styles.deckRowSelected : ''} ${selectMode ? styles.deckRowSelectMode : ''} ${isSplitRem ? styles.deckRowSplitRem : ''}`}
       onClick={onClick}
       onMouseEnter={() => !selectMode && img && onHover?.(img)}
       onMouseLeave={e => { if (!selectMode) onHoverEnd?.(); lpLeave?.(e) }}
@@ -368,7 +388,7 @@ function DeckListRow({ card, sfCard, priceSource, onClick, onHover, onHoverEnd, 
       }
       <span className={styles.deckRowName}>
         {card.name}
-        {selectMode && isSelected && qty > 1 && <span className={styles.deckRowSelectedQty}> ×{qty}</span>}
+        {isSplitRem && <span className={styles.deckRowRemLabel}> (remaining)</span>}
       </span>
       <span className={styles.deckRowMana}><InlineMana cost={mc} size={13} /></span>
       <span className={styles.deckRowType}>{typeLine.split('—')[0].trim()}</span>
@@ -379,9 +399,26 @@ function DeckListRow({ card, sfCard, priceSource, onClick, onHover, onHoverEnd, 
   )
 }
 
-function DeckListGroup({ groupName, cards, sfMap, priceSource, onSelect, color, onHover, onHoverEnd, selectMode, selectedCards, onToggleSelect, onEnterSelectMode }) {
+function DeckListGroup({ groupName, cards, sfMap, priceSource, onSelect, color, onHover, onHoverEnd, selectMode, selectedCards, onToggleSelect, onIncrementSplit, splitState, onEnterSelectMode }) {
   const [collapsed, setCollapsed] = useState(false)
   const total = cards.reduce((s,c) => s+(c._folder_qty||c.qty||1), 0)
+
+  // Expand multi-copy cards into selected + remainder rows when split
+  const displayRows = useMemo(() => {
+    const result = []
+    for (const card of cards) {
+      const totalQty = card._folder_qty || card.qty || 1
+      const splitQty = splitState?.get(card.id)
+      if (splitQty != null && splitQty > 0 && splitQty < totalQty) {
+        result.push({ ...card, _render_qty: splitQty, _is_split_selected: true })
+        result.push({ ...card, id: card.id + '__rem', _render_qty: totalQty - splitQty, _is_split_rem: true, _base_id: card.id })
+      } else {
+        result.push(card)
+      }
+    }
+    return result
+  }, [cards, splitState])
+
   return (
     <div className={styles.listGroup}>
       <button className={styles.groupHeader} onClick={() => setCollapsed(v => !v)}>
@@ -394,17 +431,27 @@ function DeckListGroup({ groupName, cards, sfMap, priceSource, onSelect, color, 
       </button>
       {!collapsed && (
         <div className={styles.groupRows}>
-          {cards.map(card => (
-            <DeckListRow key={card.id} card={card}
-              sfCard={sfMap[getScryfallKey(card)]}
-              priceSource={priceSource}
-              onClick={() => selectMode ? onToggleSelect(card.id) : onSelect(card)}
-              onHover={onHover}
-              onHoverEnd={onHoverEnd}
-              selectMode={selectMode}
-              isSelected={selectedCards?.has(card.id)}
-              onEnterSelectMode={onEnterSelectMode} />
-          ))}
+          {displayRows.map(card => {
+            const baseId = card._base_id || card.id
+            const baseCard = card._is_split_rem ? cards.find(c => c.id === baseId) : card
+            const totalQty = baseCard?._folder_qty || baseCard?.qty || 1
+            return (
+              <DeckListRow key={card.id} card={card}
+                sfCard={sfMap[getScryfallKey({ ...card, id: baseId, set_code: card.set_code, collector_number: card.collector_number })]}
+                priceSource={priceSource}
+                onClick={() => {
+                  if (!selectMode) { onSelect({ ...card, id: baseId }); return }
+                  if (card._is_split_rem) onIncrementSplit(baseId, totalQty)
+                  else onToggleSelect(baseId, totalQty)
+                }}
+                onHover={onHover}
+                onHoverEnd={onHoverEnd}
+                selectMode={selectMode}
+                isSelected={!card._is_split_rem && selectedCards?.has(baseId)}
+                isSplitRem={card._is_split_rem}
+                onEnterSelectMode={!card._is_split_rem && !card._is_split_selected ? onEnterSelectMode : undefined} />
+            )
+          })}
         </div>
       )}
     </div>
@@ -413,9 +460,9 @@ function DeckListGroup({ groupName, cards, sfMap, priceSource, onSelect, color, 
 
 // ── Card Grid (compact) ───────────────────────────────────────────────────────
 
-function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onToggleSelect, onHover, onHoverEnd, onEnterSelectMode }) {
+function GridCard({ card, sf, priceSource, selectMode, isSelected, isSplitRem, baseId, totalQty, onSelect, onToggleSelect, onIncrementSplit, onHover, onHoverEnd, onEnterSelectMode }) {
   const img = sf?.image_uris?.normal || sf?.card_faces?.[0]?.image_uris?.normal
-  const qty = card._folder_qty || card.qty || 1
+  const qty = card._render_qty ?? card._folder_qty ?? card.qty ?? 1
   const scryfallPrice = getPrice(sf, card.foil, { price_source: priceSource })
   const price = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
   const isBuyFallback = scryfallPrice == null && price != null
@@ -423,12 +470,16 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onT
   const { onMouseLeave: lpLeave, ...lpRest } = longPress
   return (
     <div
-      className={`${styles.gridCard} ${isSelected ? styles.gridCardSelected : ''}`}
-      onClick={() => selectMode ? onToggleSelect(card.id) : onSelect(card)}
+      className={`${styles.gridCard} ${isSelected ? styles.gridCardSelected : ''} ${isSplitRem ? styles.gridCardSplitRem : ''}`}
+      onClick={() => {
+        if (!selectMode) return onSelect(card)
+        if (isSplitRem) { onIncrementSplit?.(baseId, totalQty); return }
+        onToggleSelect(baseId || card.id, totalQty)
+      }}
       onMouseEnter={() => !selectMode && img && onHover?.(img)}
       onMouseLeave={e => { if (!selectMode) onHoverEnd?.(); lpLeave?.(e) }}
       {...lpRest}>
-      {selectMode && (
+      {selectMode && !isSplitRem && (
         <div className={`${styles.rowCheckbox} ${isSelected ? styles.rowCheckboxChecked : ''}`}
           style={{ position: 'absolute', top: 6, left: 6, zIndex: 10 }}>
           {isSelected && '✓'}
@@ -441,7 +492,7 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onT
         {card.foil && <div className={styles.gridFoil}>✦</div>}
       </div>
       <div className={styles.gridInfo}>
-        <div className={styles.gridName}>{card.name}</div>
+        <div className={styles.gridName}>{card.name}{isSplitRem && <span className={styles.gridRemLabel}> (rem.)</span>}</div>
         <div className={styles.gridSetRow}>
           <span className={styles.gridSet}>{(card.set_code||'').toUpperCase()}</span>
           {price != null && (
@@ -455,11 +506,27 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onT
   )
 }
 
-function DeckCardGrid({ cards, sfMap, priceSource, onSelect, onHover, onHoverEnd, selectMode, selectedCards, onToggleSelect, onEnterSelectMode }) {
+function DeckCardGrid({ cards, sfMap, priceSource, onSelect, onHover, onHoverEnd, selectMode, selectedCards, onToggleSelect, onIncrementSplit, splitState, onEnterSelectMode }) {
+  const displayRows = useMemo(() => {
+    const result = []
+    for (const card of cards) {
+      const totalQty = card._folder_qty || card.qty || 1
+      const splitQty = splitState?.get(card.id)
+      if (splitQty != null && splitQty > 0 && splitQty < totalQty) {
+        result.push({ ...card, _render_qty: splitQty, _is_split_selected: true, _totalQty: totalQty })
+        result.push({ ...card, id: card.id + '__rem', _render_qty: totalQty - splitQty, _is_split_rem: true, _base_id: card.id, _totalQty: totalQty })
+      } else {
+        result.push({ ...card, _totalQty: totalQty })
+      }
+    }
+    return result
+  }, [cards, splitState])
+
   return (
     <div className={styles.cardGrid}>
-      {cards.map(card => {
-        const sf = sfMap[getScryfallKey(card)]
+      {displayRows.map(card => {
+        const baseId = card._base_id || card.id
+        const sf = sfMap[getScryfallKey({ ...card, id: baseId })]
         return (
           <GridCard
             key={card.id}
@@ -467,12 +534,16 @@ function DeckCardGrid({ cards, sfMap, priceSource, onSelect, onHover, onHoverEnd
             sf={sf}
             priceSource={priceSource}
             selectMode={selectMode}
-            isSelected={selectedCards?.has(card.id)}
+            isSelected={!card._is_split_rem && selectedCards?.has(baseId)}
+            isSplitRem={card._is_split_rem}
+            baseId={baseId}
+            totalQty={card._totalQty}
             onSelect={onSelect}
             onToggleSelect={onToggleSelect}
+            onIncrementSplit={onIncrementSplit}
             onHover={onHover}
             onHoverEnd={onHoverEnd}
-            onEnterSelectMode={onEnterSelectMode}
+            onEnterSelectMode={!card._is_split_rem && !card._is_split_selected ? onEnterSelectMode : undefined}
           />
         )
       })}
@@ -500,6 +571,7 @@ export default function DeckBrowser({ folder, onBack }) {
   // Select mode
   const [selectMode, setSelectMode]       = useState(false)
   const [selectedCards, setSelectedCards] = useState(new Set())
+  const [splitState, setSplitState]       = useState(new Map()) // Map<cardId, selectedQty>
   // Hover preview
   const [showAddCard, setShowAddCard] = useState(false)
   const [hoverImg, setHoverImg] = useState(null)
@@ -528,26 +600,92 @@ export default function DeckBrowser({ folder, onBack }) {
     sb.from('folders').select('id, name, type').then(({ data }) => setAllFolders(data || []))
   }, [])
 
-  const toggleSelectMode = () => { setSelectMode(v => !v); setSelectedCards(new Set()) }
-  const onToggleSelect = useCallback(id => setSelectedCards(prev => {
-    const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next
-  }), [])
+  const clearSelect = () => { setSelectedCards(new Set()); setSplitState(new Map()); setSelectMode(false) }
+  const toggleSelectMode = () => { setSelectMode(v => { if (v) clearSelect(); return !v }) }
+
+  const onToggleSelect = useCallback((id, totalQty) => {
+    setSelectedCards(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+        setSplitState(s => { const n = new Map(s); n.delete(id); return n })
+      } else if (totalQty > 1) {
+        next.add(id)
+        setSplitState(s => new Map(s).set(id, 1))
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }, [])
+
+  const onIncrementSplit = useCallback((id, totalQty) => {
+    setSplitState(prev => {
+      const current = prev.get(id) || 0
+      const newQty = current + 1
+      const next = new Map(prev)
+      if (newQty >= totalQty) next.delete(id)
+      else next.set(id, newQty)
+      return next
+    })
+  }, [])
 
   const handleBulkDelete = async () => {
-    const ids = [...selectedCards]
-    await sb.from('folder_cards').delete().eq('folder_id', folder.id).in('card_id', ids)
-    setCards(prev => prev.filter(c => !selectedCards.has(c.id)))
-    setSelectedCards(new Set()); setSelectMode(false)
+    const toDelete = [], toUpdate = []
+    for (const id of selectedCards) {
+      const card = cards.find(c => c.id === id)
+      const totalQty = card?._folder_qty || card?.qty || 1
+      const selQty = splitState.get(id) ?? totalQty
+      const remaining = totalQty - selQty
+      remaining > 0 ? toUpdate.push({ id, remaining }) : toDelete.push(id)
+    }
+    if (toDelete.length) await sb.from('folder_cards').delete().eq('folder_id', folder.id).in('card_id', toDelete)
+    for (const { id, remaining } of toUpdate) {
+      await sb.from('folder_cards').update({ qty: remaining }).eq('folder_id', folder.id).eq('card_id', id)
+    }
+    setCards(prev => prev.map(c => {
+      if (!selectedCards.has(c.id)) return c
+      const totalQty = c._folder_qty || c.qty || 1
+      const selQty = splitState.get(c.id) ?? totalQty
+      const remaining = totalQty - selQty
+      return remaining > 0 ? { ...c, _folder_qty: remaining } : null
+    }).filter(Boolean))
+    clearSelect()
   }
 
   const handleMoveToFolder = async (targetFolder) => {
-    const ids = [...selectedCards]
-    const rows = ids.map(id => ({ folder_id: targetFolder.id, card_id: id, qty: 1 }))
-    await sb.from('folder_cards').upsert(rows, { onConflict: 'folder_id,card_id', ignoreDuplicates: true })
-    await sb.from('folder_cards').delete().eq('folder_id', folder.id).in('card_id', ids)
-    setCards(prev => prev.filter(c => !selectedCards.has(c.id)))
-    setSelectedCards(new Set()); setSelectMode(false)
+    const toDelete = [], toUpdate = []
+    const insertRows = []
+    for (const id of selectedCards) {
+      const card = cards.find(c => c.id === id)
+      const totalQty = card?._folder_qty || card?.qty || 1
+      const selQty = splitState.get(id) ?? totalQty
+      const remaining = totalQty - selQty
+      insertRows.push({ folder_id: targetFolder.id, card_id: id, qty: selQty })
+      remaining > 0 ? toUpdate.push({ id, remaining }) : toDelete.push(id)
+    }
+    await sb.from('folder_cards').upsert(insertRows, { onConflict: 'folder_id,card_id', ignoreDuplicates: true })
+    if (toDelete.length) await sb.from('folder_cards').delete().eq('folder_id', folder.id).in('card_id', toDelete)
+    for (const { id, remaining } of toUpdate) {
+      await sb.from('folder_cards').update({ qty: remaining }).eq('folder_id', folder.id).eq('card_id', id)
+    }
+    setCards(prev => prev.map(c => {
+      if (!selectedCards.has(c.id)) return c
+      const totalQty = c._folder_qty || c.qty || 1
+      const selQty = splitState.get(c.id) ?? totalQty
+      const remaining = totalQty - selQty
+      return remaining > 0 ? { ...c, _folder_qty: remaining } : null
+    }).filter(Boolean))
+    clearSelect()
   }
+
+  const selectedQty = useMemo(() =>
+    [...selectedCards].reduce((sum, id) => {
+      const c = cards.find(c => c.id === id)
+      const totalQty = c?._folder_qty || c?.qty || 1
+      return sum + (splitState.get(id) ?? totalQty)
+    }, 0)
+  , [selectedCards, cards, splitState])
 
   const { totalValue, totalQty } = useMemo(() => {
     let v=0, q=0
@@ -654,6 +792,7 @@ export default function DeckBrowser({ folder, onBack }) {
       {selectMode && selectedCards.size > 0 && (
         <BulkActionBar
           selected={selectedCards}
+          selectedQty={selectedQty}
           total={filtered.length}
           onSelectAll={() => setSelectedCards(new Set(filtered.map(c => c.id)))}
           onDeselectAll={() => setSelectedCards(new Set())}
@@ -682,10 +821,11 @@ export default function DeckBrowser({ folder, onBack }) {
           {groupOrder.filter(g => groups[g]?.length).map(g => (
             <DeckListGroup key={g} groupName={g} cards={groups[g]}
               sfMap={sfMap} priceSource={price_source}
-              onSelect={c => setDetailCardId(c.id)}
+              onSelect={c => { handleHoverEnd(); setDetailCardId(c.id) }}
               color={groupBy==='category' ? CAT_COLORS[g] : undefined}
               onHover={handleHover} onHoverEnd={handleHoverEnd}
               selectMode={selectMode} selectedCards={selectedCards} onToggleSelect={onToggleSelect}
+              splitState={splitState} onIncrementSplit={onIncrementSplit}
               onEnterSelectMode={() => setSelectMode(true)} />
           ))}
         </div>
@@ -693,9 +833,10 @@ export default function DeckBrowser({ folder, onBack }) {
 
       {viewMode === 'stacks' && filtered.length > 0 && (
         <StacksView groups={groups} groupOrder={groupOrder} sfMap={sfMap} priceSource={price_source}
-          onSelect={c => setDetailCardId(c.id)}
+          onSelect={c => { handleHoverEnd(); setDetailCardId(c.id) }}
           onHover={handleHover} onHoverEnd={handleHoverEnd}
           selectMode={selectMode} selectedCards={selectedCards} onToggleSelect={onToggleSelect}
+          splitState={splitState} onIncrementSplit={onIncrementSplit}
           onEnterSelectMode={() => setSelectMode(true)} />
       )}
 
@@ -704,16 +845,17 @@ export default function DeckBrowser({ folder, onBack }) {
       )}
 
       {viewMode === 'grid' && filtered.length > 0 && (
-        <DeckCardGrid cards={filtered} sfMap={sfMap} priceSource={price_source} onSelect={c => setDetailCardId(c.id)}
+        <DeckCardGrid cards={filtered} sfMap={sfMap} priceSource={price_source} onSelect={c => { handleHoverEnd(); setDetailCardId(c.id) }}
           onHover={handleHover} onHoverEnd={handleHoverEnd}
           selectMode={selectMode} selectedCards={selectedCards} onToggleSelect={onToggleSelect}
+          onIncrementSplit={onIncrementSplit} splitState={splitState}
           onEnterSelectMode={() => { setSelectMode(true) }} />
       )}
 
       {viewMode === 'table' && filtered.length > 0 && (
         <TableView cards={filtered} sfMap={sfMap}
           priceSource={price_source}
-          onSelect={c => setDetailCardId(c.id)} />
+          onSelect={c => { handleHoverEnd(); setDetailCardId(c.id) }} />
       )}
 
       {selectedCard && (

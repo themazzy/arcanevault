@@ -1214,13 +1214,13 @@ export default function HomePage() {
 
       {user && <CollectionSnapshot data={collData} loading={collLoading} priceSource={price_source} />}
       <CardLookupSection />
+      <RecentlyViewedSection onCardClick={openCard} />
       <RandomCardSection />
       {user && <TopValuedCards    data={collData} loading={collLoading} priceSource={price_source} onCardClick={openCard} />}
       {user && <RecentlyAdded     data={collData} loading={collLoading} onCardClick={openCard} />}
       {user && <TopValuedDecks    data={collData} loading={collLoading} priceSource={price_source} />}
       <MTGNewsSection />
       <UpcomingSetsSection />
-      <RecentlyViewedSection onCardClick={openCard} />
 
       {/* ── Shared card detail modal ───────────────────────────────────── */}
       {(modalLoading || modalCard) && (

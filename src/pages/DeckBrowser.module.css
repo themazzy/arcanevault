@@ -344,6 +344,8 @@
 .deckRow:last-child { border-bottom: none; }
 .deckRow:hover { background: rgba(201,168,76,0.06); }
 .deckRowSelected { background: rgba(201,168,76,0.08) !important; }
+.deckRowSelectMode { cursor: pointer; }
+.deckRowSelectMode:hover { background: rgba(201,168,76,0.04); }
 
 /* ── Select mode ─────────────────────────────────────────────────────────────── */
 .rowCheckbox {
@@ -354,8 +356,17 @@
   font-size: 0.68rem; color: var(--gold); pointer-events: none;
 }
 .rowCheckboxChecked { background: rgba(201,168,76,0.25); border-color: var(--gold); }
+.deckRowSelectedQty { font-size: 0.72rem; color: var(--gold); opacity: 0.8; margin-left: 2px; }
+.deckRowSplitRem { opacity: 0.55; border-left: 2px solid rgba(201,168,76,0.2); }
+.deckRowSplitRem:hover { opacity: 0.75; cursor: pointer; }
+.deckRowRemLabel { font-size: 0.68rem; color: var(--text-faint); font-style: italic; }
 .gridCardSelected .gridImgWrap { outline: 2px solid var(--gold); outline-offset: 2px; }
+.gridCardSplitRem { opacity: 0.5; }
+.gridCardSplitRem:hover { opacity: 0.75; cursor: pointer; }
+.gridRemLabel { font-size: 0.6rem; color: var(--text-faint); font-style: italic; }
 .stackCardSelected { outline: 2px solid var(--gold); outline-offset: 2px; border-radius: 8px; }
+.stackCardSplitRem { opacity: 0.5; }
+.stackCardSplitRem:hover { opacity: 0.75; cursor: pointer; }
 
 .deckRowQty {
   font-family: var(--font-display); font-size: 0.75rem;

@@ -7,6 +7,7 @@ import { useSettings } from '../components/SettingsContext'
 import { CardGrid, CardDetail, FilterBar, BulkActionBar, applyFilterSort, EMPTY_FILTERS } from '../components/CardComponents'
 import { EmptyState, SectionHeader, Button, Modal } from '../components/UI'
 import AddCardModal from '../components/AddCardModal'
+import ImportModal from '../components/ImportModal'
 import DeckBrowser from './DeckBrowser'
 import styles from './Folders.module.css'
 import { useLongPress } from '../hooks/useLongPress'
@@ -822,6 +823,9 @@ export default function FoldersPage({ type }) {
   const [showBulkMoveGroup, setShowBulkMoveGroup] = useState(false)
   const [newGroupName, setNewGroupName] = useState('')
   const [showNewGroup, setShowNewGroup] = useState(false)
+  const [showNewFolder, setShowNewFolder] = useState(false)
+  const [newFolderName, setNewFolderName] = useState('')
+  const [showImport, setShowImport] = useState(false)
 
   const noun = type === 'deck' ? 'Deck' : type === 'list' ? 'List' : 'Binder'
 
@@ -966,6 +970,14 @@ export default function FoldersPage({ type }) {
     if (data) setFolders(prev => [...prev, data])
   }
 
+  const createFolder = async () => {
+    if (!newFolderName.trim()) return
+    const { data } = await sb.from('folders').insert({
+      user_id: user.id, type, name: newFolderName.trim(),
+    }).select().single()
+    if (data) { setFolders(prev => [...prev, data]); setShowNewFolder(false); setNewFolderName('') }
+  }
+
   const reorderGroup = async (group, direction) => {
     const idx = groups.findIndex(g => g.id === group.id)
     const swapIdx = direction === 'up' ? idx - 1 : idx + 1
@@ -1084,6 +1096,8 @@ export default function FoldersPage({ type }) {
                 <button className={styles.newGroupBtn} onClick={() => setShowNewGroup(true)}>
                   + New Group
                 </button>
+                <button className={styles.importBtn} onClick={() => setShowImport(true)}>↑ Import</button>
+                <button className={styles.newFolderBtn} onClick={() => setShowNewFolder(true)}>+ New {noun}</button>
                 <button className={styles.selectModeBtn} onClick={() => setSelectMode(true)}>Select</button>
                 <SortDropdown value={sort} onChange={handleSortChange} options={SORT_OPTIONS} />
               </>
@@ -1255,6 +1269,45 @@ export default function FoldersPage({ type }) {
             setBgTarget(null)
           }}
           onClose={() => setBgTarget(null)}
+        />
+      )}
+
+      {/* New Folder modal */}
+      {showNewFolder && (
+        <Modal onClose={() => { setShowNewFolder(false); setNewFolderName('') }}>
+          <h2 style={{ fontFamily: 'var(--font-display)', color: 'var(--gold)', marginBottom: 14, fontSize: '1rem' }}>
+            New {noun}
+          </h2>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              autoFocus
+              className={styles.newGroupInput}
+              value={newFolderName}
+              onChange={e => setNewFolderName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') createFolder(); if (e.key === 'Escape') setShowNewFolder(false) }}
+              placeholder={`${noun} name…`}
+            />
+            <button className={styles.newGroupSaveBtn} disabled={!newFolderName.trim()} onClick={createFolder}>
+              Create
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Import modal */}
+      {showImport && user && (
+        <ImportModal
+          userId={user.id}
+          folderType={type}
+          folders={regularFolders}
+          onClose={() => setShowImport(false)}
+          onSaved={(fid) => {
+            setShowImport(false)
+            // Reload folders to show new counts
+            sb.from('folders').select('*').eq('user_id', user.id).eq('type', type).then(({ data }) => {
+              if (data) setFolders(data)
+            })
+          }}
         />
       )}
     </div>

@@ -4,9 +4,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
+## ⚠️ Handling Ambiguous Instructions — READ THIS FIRST
+
+**This is the highest-priority rule in this file.**
+
+When a prompt contains requirements that could be interpreted in more than one meaningful way, **stop immediately and ask the user to choose** before writing any code. Present the ambiguous points as a numbered list with brief trade-off notes for each option.
+
+**Do not:**
+- Guess or pick the "most likely" interpretation
+- Start coding and ask mid-way through
+- Assume you understand scope without confirming
+
+**Do:**
+- Ask upfront, before any code is written
+- Present concrete options (not open-ended questions)
+- Include trade-offs so the user can make an informed choice
+
+The cost of a 30-second clarification is always lower than building the wrong thing. When in doubt, ask.
+
+---
+
 ## Project Overview
 
-**ArcaneVault** is a personal Magic: The Gathering collection tracker. Users catalog owned cards, organise them into binders/decks/wishlists, track prices and P&L, build decks, scan cards with camera OCR, and view collection analytics. The stack is **React 18 + Vite + Supabase + IndexedDB**.
+**ArcaneVault** is a personal Magic: The Gathering collection tracker hosted at **https://themazzy.github.io/arcanevault/**. Users catalog owned cards, organise them into binders/decks/wishlists, track prices and P&L, build decks, scan cards with camera OCR, and view collection analytics.
+
+**Stack:** React 18 + Vite + Supabase + IndexedDB
 
 ---
 
@@ -32,6 +54,26 @@ VITE_SUPABASE_ANON_KEY=your-anon-key
 ```
 
 Both variables are required at startup; the app will fail silently without them.
+
+---
+
+## Deployment — GitHub Pages
+
+The app is deployed to **https://themazzy.github.io/arcanevault/** via GitHub Actions (`.github/workflows/deploy.yml`).
+
+### Critical GitHub Pages files — do not remove or modify without care:
+
+| File | Purpose |
+|---|---|
+| `public/404.html` | Catches 404s from direct URL access; encodes the path as a query param and redirects to `index.html` |
+| `index.html` (redirect script) | Decodes the query param from `404.html` and restores the correct route via `history.replaceState` |
+| `src/App.jsx` | `BrowserRouter` has `basename="/arcanevault"` — required for all routes to resolve correctly under the GitHub Pages subdirectory |
+
+This is the standard `spa-github-pages` pattern. If you touch routing, always verify it still works at `https://themazzy.github.io/arcanevault/`.
+
+### Email links
+
+`src/components/Auth.jsx` passes `emailRedirectTo: 'https://themazzy.github.io/arcanevault/'` in `signUp()` to ensure Supabase confirmation emails link to prod, not localhost. Also configure **Site URL** and **Redirect URLs** in the Supabase Dashboard → Auth → URL Configuration to match.
 
 ---
 
@@ -87,7 +129,7 @@ The same filter logic is duplicated in `CardComponents.jsx` for the non-worker p
 
 ### Routing
 
-React Router v6. Public routes: `/login`, `/share/:token`. All other routes require auth and are wrapped in `PrivateApp` inside `App.jsx`. Auth state comes from `useAuth()` (from `src/components/Auth.jsx`).
+React Router v6. `BrowserRouter` in `src/App.jsx` uses `basename="/arcanevault"` for GitHub Pages compatibility. Public routes: `/login`, `/share/:token`. All other routes require auth and are wrapped in `PrivateApp`.
 
 ### Vite Proxies (dev only)
 
@@ -98,7 +140,7 @@ React Router v6. Public routes: `/login`, `/share/:token`. All other routes requ
 /api/goldfish  → mtggoldfish.com
 ```
 
-These are only active during `npm run dev`. Production deploys need a separate reverse proxy or serverless functions for CORS-restricted APIs.
+These are only active during `npm run dev`. Production deploys on GitHub Pages cannot use these — CORS-restricted APIs will fail in prod.
 
 ---
 
@@ -113,13 +155,17 @@ These are only active during `npm run dev`. Production deploys need a separate r
 | `src/lib/fx.js` | EUR↔USD conversion via frankfurter.app (6 h IDB cache) |
 | `src/lib/deckBuilderApi.js` | Deck builder helpers + external API calls |
 | `src/lib/csvParser.js` | Manabox CSV → cards + folders |
-| `src/components/CardComponents.jsx` | `FilterBar`, `CardDetail`, `CardGrid`, `EMPTY_FILTERS`, `applyFilterSort` |
+| `src/components/CardComponents.jsx` | `FilterBar`, `CardDetail`, `CardGrid`, `EMPTY_FILTERS`, `applyFilterSort`, `BulkActionBar` |
 | `src/components/VirtualCardGrid.jsx` | Virtualised card grid (@tanstack/react-virtual) |
-| `src/components/AddCardModal.jsx` | Add card modal: scan (OCR) or manual search |
+| `src/components/AddCardModal.jsx` | Add card modal: scan (OCR) or manual search + queue |
+| `src/components/ImportModal.jsx` | Bulk import wizard: CSV / txt / paste, for binders/decks/wishlists |
 | `src/components/SettingsContext.jsx` | `SettingsProvider` + `useSettings()` |
 | `src/components/Auth.jsx` | `AuthProvider` + `useAuth()` + `LoginPage` |
 | `src/pages/Collection.jsx` | Main collection browser (IDB-first, worker filter) |
-| `src/pages/Home.jsx` | Dashboard — collection snapshot, news, card lookup |
+| `src/pages/Home.jsx` | Dashboard — collection snapshot, card lookup, recently viewed, news |
+| `src/pages/Folders.jsx` | Binders and Decks list + folder browser (DeckBrowser) |
+| `src/pages/Lists.jsx` | Wishlists list + list browser with FilterBar/BulkActionBar parity |
+| `src/pages/DeckBrowser.jsx` | Card browser inside a binder/deck — list/stacks/grid/text/table views |
 
 ---
 
@@ -148,6 +194,43 @@ var(--text-faint)  /* placeholder / disabled text */
 - Horizontal scroll strips use `.hScroll` with `overflow-x: auto` + thin scrollbars.
 - All monetary displays go through `formatPrice()` — never format manually.
 - `addRecentlyViewed(card)` in `Home.jsx` persists to localStorage and fires `window.dispatchEvent(new CustomEvent('av:viewed'))` for live updates.
+- `CardDetail` locks `document.body.style.overflow = 'hidden'` while open and restores it on unmount — do not add a second scroll lock elsewhere.
+
+### Add Card Modal (`AddCardModal.jsx`)
+
+- Cards must always be saved to a **deck, binder, or wishlist** — the "Collection" destination tab has been removed. `canSave` requires `selectedFolder != null`.
+- The queue supports per-item qty adjustment via `+`/`−` buttons (`updateQueueQty`).
+- `folderMode=true` (used from Folders/DeckBrowser) pre-selects folder type and uses a searchable dropdown. `folderMode=false` (used from Collection) shows tab buttons for deck/binder/wishlist.
+
+### Import Modal (`ImportModal.jsx`)
+
+- Unified bulk import for all folder types. Props: `{ userId, folderType, folders, defaultFolderId, onClose, onSaved }`.
+- Auto-detects format: if first line contains a comma and matches `/\bname\b/i` → Manabox CSV; otherwise → plain decklist (`4 Lightning Bolt`).
+- Uses `parseTextDecklist` + `parseManaboxCSV` + `fetchCardsByNames` (Scryfall batch lookup).
+- For `list` type: upserts into `list_items` with conflict on `folder_id,set_code,collector_number,foil`.
+- For binder/deck: upserts into `cards` then `folder_cards`.
+
+### Select Mode & Visual Split (DeckBrowser)
+
+Cards in a binder/deck can be selected for bulk move/delete. Multi-copy cards (e.g. ×4 Forest) split visually on first click:
+
+- `splitState: Map<cardId, selectedQty>` tracks how many copies of each card are "virtually selected"
+- First click on an unselected multi-copy card → selects 1, shows remainder as a dimmed row/card
+- Clicking the dimmed remainder → increments selected qty
+- No DB write until bulk action (`handleBulkDelete` / `handleMoveToFolder`) — those use `splitState` to determine actual qty to move/delete
+- This split logic is implemented in: `DeckListGroup` (list view), `StacksView` (stacks view), `DeckCardGrid` (grid view)
+- `BulkActionBar` receives `selectedQty` (sum of copies, not row count) to show accurate copy count
+
+### useLongPress Hook
+
+Long-press (500 ms) on any card in select-capable views enters select mode. **Always** destructure `onMouseLeave` from the hook result and merge manually — never spread `{...longPress}` after an explicit `onMouseLeave`:
+
+```jsx
+const { onMouseLeave: lpLeave, ...lpRest } = longPress
+// then in JSX:
+onMouseLeave={e => { myOwnLeaveHandler(); lpLeave?.(e) }}
+{...lpRest}
+```
 
 ### Scryfall Queries
 
@@ -172,6 +255,7 @@ Use Scryfall syntax when building search queries:
 - `cards` — user's owned cards, RLS by `user_id`
 - `folders` — type is `'binder' | 'deck' | 'list' | 'builder_deck'`
 - `folder_cards` — links `folder_id` + `card_id` + `qty`
+- `list_items` — wishlist items: `folder_id, name, set_code, collector_number, scryfall_id, foil, qty`
 - `deck_cards` — builder deck cards (separate from collection ownership)
 - `user_settings` — single row per user, upserted via `SettingsContext`
 - `price_snapshots` — historical price points for Stats page
@@ -185,7 +269,7 @@ Use Scryfall syntax when building search queries:
 | Scryfall | Card data, search, autocomplete, catalog | Rate-limited: 75 cards/batch, 120 ms delay |
 | Supabase | Auth, cloud sync | RLS enforced; never bypass with service key |
 | frankfurter.app | EUR↔USD rates | Cached 6 h in IDB |
-| EDHRec | Commander recommendations | Via Vite proxy `/api/edhrec` |
+| EDHRec | Commander recommendations | Via Vite proxy `/api/edhrec` (dev only) |
 | codetabs.com proxy | MTG RSS feeds | `api.codetabs.com/v1/proxy?quest=<url>` returns raw XML |
 
 ### RSS Feed Parsing

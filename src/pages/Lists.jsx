@@ -4,8 +4,10 @@ import { enrichCards, getInstantCache, getPrice, formatPrice, getScryfallKey } f
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { EmptyState, SectionHeader, Modal } from '../components/UI'
+import { FilterBar, BulkActionBar, applyFilterSort, EMPTY_FILTERS } from '../components/CardComponents'
 import { useLongPress } from '../hooks/useLongPress'
 import AddCardModal from '../components/AddCardModal'
+import ImportModal from '../components/ImportModal'
 import styles from './Folders.module.css'
 import listStyles from './Lists.module.css'
 
@@ -153,12 +155,20 @@ function CardArtPicker({ onSelect, onClose }) {
 }
 
 // ── WishlistItem ──────────────────────────────────────────────────────────────
-function WishlistItem({ item, sfCard, priceSource, onDelete }) {
+function WishlistItem({ item, sfCard, priceSource, onDelete, selectMode, selected, onToggleSelect }) {
   const price = getPrice(sfCard, item.foil, { price_source: priceSource })
   const img = sfCard?.image_uris?.small
 
   return (
-    <div className={listStyles.item}>
+    <div
+      className={`${listStyles.item}${selectMode ? ` ${listStyles.itemSelectMode}` : ''}${selected ? ` ${listStyles.itemSelected}` : ''}`}
+      onClick={selectMode ? onToggleSelect : undefined}
+    >
+      {selectMode && (
+        <div className={`${listStyles.itemCheckbox}${selected ? ` ${listStyles.itemCheckboxChecked}` : ''}`}>
+          {selected && '✓'}
+        </div>
+      )}
       {img && <img className={listStyles.itemImg} src={img} alt={item.name} loading="lazy" />}
       <div className={listStyles.itemBody}>
         <div className={listStyles.itemName}>
@@ -173,55 +183,69 @@ function WishlistItem({ item, sfCard, priceSource, onDelete }) {
         </div>
         {item.qty > 1 && <div className={listStyles.itemQty}>×{item.qty}</div>}
       </div>
-      <button className={listStyles.itemDelete} onClick={() => onDelete(item.id)}>✕</button>
+      {!selectMode && <button className={listStyles.itemDelete} onClick={() => onDelete(item.id)}>✕</button>}
     </div>
   )
 }
 
-// ── ListBrowser (inner view — unchanged data model) ───────────────────────────
+// ── ListBrowser ───────────────────────────────────────────────────────────────
 function ListBrowser({ folder, onBack }) {
-  const { price_source } = useSettings()
+  const { price_source, default_sort } = useSettings()
   const { user } = useAuth()
-  const [items, setItems]     = useState([])
-  const [sfMap, setSfMap]     = useState({})
-  const [loading, setLoading] = useState(true)
-  const [search, setSearch]   = useState('')
-  const [showAddCard, setShowAddCard] = useState(false)
+  const [items, setItems]       = useState([])
+  const [sfMap, setSfMap]       = useState({})
+  const [loading, setLoading]   = useState(true)
+  const [search, setSearch]     = useState('')
+  const [sort, setSort]         = useState(default_sort || 'name')
+  const [filters, setFilters]   = useState({ ...EMPTY_FILTERS })
+  const [selectMode, setSelectMode]       = useState(false)
+  const [selectedItems, setSelectedItems] = useState(new Set())
+  const [showAddCard, setShowAddCard]     = useState(false)
 
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true)
-      const { data } = await sb.from('list_items').select('*').eq('folder_id', folder.id).order('name')
-      if (data) {
-        setItems(data)
-        const map = await enrichCards(data, null)
-        if (map) setSfMap({ ...map })
-      }
-      setLoading(false)
+  const reload = useCallback(async () => {
+    setLoading(true)
+    const { data } = await sb.from('list_items').select('*').eq('folder_id', folder.id).order('name')
+    if (data) {
+      setItems(data)
+      const map = await enrichCards(data, null)
+      if (map) setSfMap({ ...map })
     }
-    load()
+    setLoading(false)
   }, [folder.id])
 
-  const filtered = useMemo(() => {
-    if (!search) return items
-    const q = search.toLowerCase()
-    return items.filter(i => i.name.toLowerCase().includes(q) || (i.set_code || '').toLowerCase().includes(q))
-  }, [items, search])
+  useEffect(() => { reload() }, [reload])
+
+  const filtered = useMemo(
+    () => applyFilterSort(items, sfMap, search, sort, filters),
+    [items, sfMap, search, sort, filters]
+  )
 
   const { totalValue, totalQty } = useMemo(() => {
     let v = 0, q = 0
     for (const item of items) {
       const sf = sfMap[`${item.set_code}-${item.collector_number}`]
-      const p  = getPrice(sf, item.foil, { price_source })
+      const p  = getPrice(sf, item.foil, { price_source }) ?? (parseFloat(item.purchase_price) || null)
       if (p != null) v += p * item.qty
       q += item.qty
     }
     return { totalValue: v, totalQty: q }
   }, [items, sfMap, price_source])
 
+  const toggleSelectMode = () => { setSelectMode(v => !v); setSelectedItems(new Set()) }
+  const onToggleSelect = useCallback(id => setSelectedItems(prev => {
+    const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next
+  }), [])
+
   const handleDelete = async (id) => {
     await sb.from('list_items').delete().eq('id', id)
     setItems(prev => prev.filter(i => i.id !== id))
+  }
+
+  const handleBulkDelete = async () => {
+    const ids = [...selectedItems]
+    await sb.from('list_items').delete().in('id', ids)
+    setItems(prev => prev.filter(i => !selectedItems.has(i.id)))
+    setSelectedItems(new Set()); setSelectMode(false)
   }
 
   if (loading) return <EmptyState>Loading…</EmptyState>
@@ -248,18 +272,28 @@ function ListBrowser({ folder, onBack }) {
           </div>
         }
       />
-      <div className={listStyles.searchWrap}>
-        <input
-          className={listStyles.search}
-          placeholder="Search cards…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
+
+      <FilterBar
+        search={search} setSearch={setSearch}
+        sort={sort} setSort={setSort}
+        filters={filters} setFilters={setFilters}
+        selectMode={selectMode}
+        onToggleSelectMode={toggleSelectMode}
+      />
+
+      {selectMode && selectedItems.size > 0 && (
+        <BulkActionBar
+          selected={selectedItems}
+          total={filtered.length}
+          onSelectAll={() => setSelectedItems(new Set(filtered.map(i => i.id)))}
+          onDeselectAll={() => setSelectedItems(new Set())}
+          onDelete={handleBulkDelete}
+          folders={[]}
         />
-        <span style={{ color: 'var(--text-faint)', fontSize: '0.8rem' }}>
-          {filtered.length} of {items.length} cards
-        </span>
-      </div>
+      )}
+
       {filtered.length === 0 && <EmptyState>No cards match.</EmptyState>}
+
       <div className={listStyles.list}>
         {filtered.map(item => (
           <WishlistItem
@@ -267,10 +301,14 @@ function ListBrowser({ folder, onBack }) {
             item={item}
             sfCard={sfMap[`${item.set_code}-${item.collector_number}`]}
             priceSource={price_source}
+            selectMode={selectMode}
+            selected={selectedItems.has(item.id)}
+            onToggleSelect={() => onToggleSelect(item.id)}
             onDelete={handleDelete}
           />
         ))}
       </div>
+
       {showAddCard && user && (
         <AddCardModal
           userId={user.id}
@@ -278,15 +316,7 @@ function ListBrowser({ folder, onBack }) {
           defaultFolderType="list"
           defaultFolderId={folder.id}
           onClose={() => setShowAddCard(false)}
-          onSaved={async () => {
-            setShowAddCard(false)
-            const { data } = await sb.from('list_items').select('*').eq('folder_id', folder.id).order('name')
-            if (data) {
-              setItems(data)
-              const map = await enrichCards(data, null)
-              if (map) setSfMap({ ...map })
-            }
-          }}
+          onSaved={async () => { setShowAddCard(false); await reload() }}
         />
       )}
     </div>
@@ -511,6 +541,9 @@ export default function ListsPage() {
   const [showBulkMoveGroup, setShowBulkMoveGroup] = useState(false)
   const [newGroupName, setNewGroupName] = useState('')
   const [showNewGroup, setShowNewGroup] = useState(false)
+  const [showNewFolder, setShowNewFolder] = useState(false)
+  const [newFolderName, setNewFolderName] = useState('')
+  const [showImport, setShowImport] = useState(false)
 
   const handleSortChange = (val) => {
     setSort(val)
@@ -620,6 +653,14 @@ export default function ListsPage() {
     if (data) setFolders(prev => [...prev, data])
   }
 
+  const createFolder = async () => {
+    if (!newFolderName.trim()) return
+    const { data } = await sb.from('folders').insert({
+      user_id: user.id, type: 'list', name: newFolderName.trim(),
+    }).select().single()
+    if (data) { setFolders(prev => [...prev, data]); setShowNewFolder(false); setNewFolderName('') }
+  }
+
   const deleteGroup = async (group) => {
     const members = folders.filter(f => parseFolderDesc(f.description).groupId === group.id)
     for (const f of members) {
@@ -721,6 +762,8 @@ export default function ListsPage() {
                 <button className={styles.newGroupBtn} onClick={() => setShowNewGroup(true)}>
                   + New Group
                 </button>
+                <button className={styles.importBtn} onClick={() => setShowImport(true)}>↑ Import</button>
+                <button className={styles.newFolderBtn} onClick={() => setShowNewFolder(true)}>+ New Wishlist</button>
                 <button className={styles.selectModeBtn} onClick={() => setSelectMode(true)}>Select</button>
                 <SortDropdown value={sort} onChange={handleSortChange} options={SORT_OPTIONS} />
               </>
@@ -852,6 +895,39 @@ export default function ListsPage() {
         <CardArtPicker
           onSelect={async (url) => { await saveFolderBg(bgTarget, url); setBgTarget(null) }}
           onClose={() => setBgTarget(null)}
+        />
+      )}
+
+      {/* New Wishlist modal */}
+      {showNewFolder && (
+        <Modal onClose={() => { setShowNewFolder(false); setNewFolderName('') }}>
+          <h2 style={{ fontFamily: 'var(--font-display)', color: 'var(--gold)', marginBottom: 14, fontSize: '1rem' }}>
+            New Wishlist
+          </h2>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              autoFocus
+              className={styles.newGroupInput}
+              value={newFolderName}
+              onChange={e => setNewFolderName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') createFolder(); if (e.key === 'Escape') setShowNewFolder(false) }}
+              placeholder="Wishlist name…"
+            />
+            <button className={styles.newGroupSaveBtn} disabled={!newFolderName.trim()} onClick={createFolder}>
+              Create
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Import modal */}
+      {showImport && user && (
+        <ImportModal
+          userId={user.id}
+          folderType="list"
+          folders={regularFolders}
+          onClose={() => setShowImport(false)}
+          onSaved={() => { setShowImport(false); loadFolders() }}
         />
       )}
     </div>
