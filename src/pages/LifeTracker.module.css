@@ -1043,8 +1043,11 @@
 
   /* Hide colour picker row — saves ~14 px; colours can be set pre-game */
   .colorRow { display: none; }
-  /* Hide ±5/±10 quick adjusts — saves ~28 px */
+  /* Hide ±5/±10 quick adjusts in non-fullscreen landscape — saves ~28 px */
   .quickRow { display: none; }
+  /* In fullscreen landscape each row has ~206 px — enough to show everything */
+  .pageFullscreen .quickRow { display: flex !important; }
+  .pageFullscreen .colorRow { display: flex !important; }
 
   /* Squeeze everything else down */
   .playerPanel   { padding: 4px 6px 5px; gap: 2px; min-height: 0; }
