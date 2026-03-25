@@ -129,7 +129,7 @@ The same filter logic is duplicated in `CardComponents.jsx` for the non-worker p
 
 ### Routing
 
-React Router v6. `BrowserRouter` in `src/App.jsx` uses `basename="/arcanevault"` for GitHub Pages compatibility. Public routes: `/login`, `/share/:token`. All other routes require auth and are wrapped in `PrivateApp`.
+React Router v6. `BrowserRouter` in `src/App.jsx` uses `basename="/arcanevault"` for GitHub Pages compatibility. Public routes: `/login`, `/share/:token`, `/join/:code`. All other routes require auth and are wrapped in `PrivateApp`.
 
 ### Vite Proxies (dev only)
 
@@ -169,6 +169,10 @@ These are only active during `npm run dev`. Production deploys on GitHub Pages c
 | `src/pages/DeckView.jsx` | Shared deck view page (collection decks + builder decks) — sticky topbar, ManaText, card detail |
 | `src/pages/DeckView.module.css` | Styles for DeckView — dot-grid page, sticky header, mana symbol colours |
 | `src/pages/Stats.jsx` | Collection analytics — value distribution, format legality, gainers/losers, age spread |
+| `src/pages/LifeTracker.jsx` | Multiplayer life tracker — pre-game setup, game screen, lobby, JoinGame route |
+| `src/pages/LifeTracker.module.css` | Styles for LifeTracker — grid layouts, rotations, fullscreen, lobby, landscape breakpoints |
+| `src/pages/JoinGame.jsx` | Public route `/join/:code` — join a multiplayer lobby, pick deck/name/colour |
+| `src/pages/JoinGame.module.css` | Styles for JoinGame page |
 
 ---
 
@@ -291,6 +295,87 @@ Redesigned analytics page. Sections include:
 - **Collection Age Spread** — cards grouped by release year
 - All sections use the dot-grid `.page` wrapper and gold top-border stat cards
 
+### Life Tracker (`LifeTracker.jsx`)
+
+A full-screen multiplayer life counter supporting Standard, Commander, and custom modes.
+
+#### Layouts
+
+`LAYOUTS[playerCount]` is an array of layout objects. Each object has:
+- `id` — unique string
+- `cols` — CSS grid column count
+- `label` — display name
+- `rotations` — `{ [playerIndex]: degrees }` — 0 (default), 90, −90, or 180
+
+Current layouts for 4 players: `4-2x2` (2×2 grid, bottom players rotated 180°), `4-sides` (2×2 grid, all players rotated ±90° to face the sides), `4-row` (single row).
+
+#### Grid & Rotation
+
+Each player is wrapped in a `.gridCell` (`position: relative; overflow: hidden`). Rotated panels use `position: absolute; inset: 0` so they fill their cell before rotating — the cell clips any overflow. Without the `gridCell` wrapper, rotated panels bleed into adjacent cells.
+
+`.grid` requires an explicit `height` for `grid-auto-rows: 1fr` to distribute rows equally.
+
+#### Fullscreen Mode
+
+`isFullscreen` state adds `.pageFullscreen` to the page root:
+- `.pageFullscreen .topBar { display: none }` — hides the topbar entirely
+- `.pageFullscreen .grid { height: 100dvh !important }` — grid fills the whole screen
+- A floating `.fsControls` pill (`position: fixed; top: 8px; right: 8px; z-index: 910`) overlays exit, gear, and end-game buttons without consuming layout space
+
+Use `100dvh` (dynamic viewport height) in fullscreen — not `100svh` — so Android Chrome's collapsing address bar is tracked correctly.
+
+**Gear menu ref gotcha:** The topbar and `fsControls` each render a gear wrap. Use **two separate refs** (`gearMenuRef` for the topbar, `gearMenuFsRef` for fsControls) and check both in the `pointerdown` outside-click handler. If both share one ref, React nullifies it when `fsControls` unmounts, causing the menu to close instantly after exiting fullscreen.
+
+#### Landscape phone breakpoints
+
+- `@media (max-width: 900px)` — rotations and grid height applied (`calc(100svh - 192px)`)
+- `@media (max-height: 500px)` — landscape phone (e.g. Pixel 7, S24 at 412px height); hides `.colorRow` and `.quickRow`, shrinks all panel elements so content fits within ~106px per row; does **not** override fullscreen grid height (already `100dvh`)
+
+#### Multiplayer Lobby (shared-device, Option A)
+
+Host creates a session → others visit `/join/:code` on their own device to pick name/colour/deck → host starts game on the host device.
+
+- `game_sessions` table: `id, code, status ('waiting'|'playing'), config, host_user_id, created_at`
+- `game_players` table: `id, session_id, slot_index, user_id, display_name, color, deck_name`
+- 6-char join code uses `CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'` (no ambiguous chars)
+- Join URL built with `import.meta.env.BASE_URL` for correct dev/prod paths
+- Realtime via Supabase `postgres_changes` subscriptions on both tables
+- `JoinGame.jsx` is a **public route** (outside `PrivateApp`) at `/join/:code`
+
+#### Supabase tables required
+
+```sql
+-- Run once in Supabase SQL editor
+create table game_sessions (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique,
+  status text not null default 'waiting',
+  config jsonb,
+  host_user_id uuid references auth.users,
+  created_at timestamptz default now()
+);
+create table game_players (
+  id uuid primary key default gen_random_uuid(),
+  session_id uuid references game_sessions on delete cascade,
+  slot_index int not null,
+  user_id uuid references auth.users,
+  display_name text,
+  color text,
+  deck_name text
+);
+-- Enable RLS + policies (select/insert/update by authenticated users)
+alter table game_sessions enable row level security;
+alter table game_players  enable row level security;
+create policy "read sessions"  on game_sessions for select using (true);
+create policy "insert sessions" on game_sessions for insert with check (auth.uid() = host_user_id);
+create policy "update sessions" on game_sessions for update using (auth.uid() = host_user_id);
+create policy "read players"   on game_players  for select using (true);
+create policy "insert players" on game_players  for insert with check (auth.role() = 'authenticated');
+create policy "claim slot"     on game_players  for update using (user_id is null or user_id = auth.uid());
+```
+
+Also enable Realtime on both tables: Supabase Dashboard → Database → Replication → `supabase_realtime` publication → toggle on `game_sessions` and `game_players`.
+
 ### Select Mode & Visual Split (DeckBrowser)
 
 Cards in a binder/deck can be selected for bulk move/delete. Multi-copy cards (e.g. ×4 Forest) split visually on first click:
@@ -340,6 +425,8 @@ Use Scryfall syntax when building search queries:
 - `deck_cards` — builder deck cards (separate from collection ownership)
 - `user_settings` — single row per user, upserted via `SettingsContext`
 - `price_snapshots` — historical price points for Stats page
+- `game_sessions` — multiplayer life tracker sessions; `status`: `'waiting' | 'playing'`
+- `game_players` — player slots per session; `user_id` is null until a player claims the slot
 
 ---
 
