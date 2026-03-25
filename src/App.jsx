@@ -8,6 +8,7 @@ import FoldersPage from './pages/Folders'
 import ListsPage from './pages/Lists'
 import StatsPage from './pages/Stats'
 import SharePage from './pages/Share'
+import JoinGamePage from './pages/JoinGame'
 import SettingsPage from './pages/Settings'
 import LifeTrackerPage from './pages/LifeTracker'
 import BuilderPage from './pages/Builder'
@@ -49,6 +50,7 @@ export default function App() {
         <Routes>
           <Route path="/share/:token" element={<SharePage />} />
           <Route path="/d/:id" element={<DeckViewPage />} />
+          <Route path="/join/:code" element={<JoinGamePage />} />
           <Route path="/*" element={<PrivateApp />} />
         </Routes>
       </AuthProvider>
