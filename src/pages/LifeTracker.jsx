@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Modal, Button } from '../components/UI'
 import { useAuth } from '../components/Auth'
 import { sb } from '../lib/supabase'
@@ -635,6 +636,7 @@ function HistoryEntry({ game }) {
 
 // ── Pre-game Setup Screen ──────────────────────────────────────────────────────
 function PreGameSetup({ onStart, onCreateLobby, decks, history }) {
+  const navigate = useNavigate()
   const [mode,        setMode]        = useState('commander')
   const [playerCount, setPlayerCount] = useState(MODES.commander.defaultPlayers)
   const [customLife,  setCustomLife]  = useState(40)
@@ -644,7 +646,10 @@ function PreGameSetup({ onStart, onCreateLobby, decks, history }) {
       name: PLAYER_NAMES[i], color: PLAYER_COLORS[i], deckId: null, deckName: null,
     }))
   )
-  const [showHistory, setShowHistory] = useState(false)
+  const [showHistory,  setShowHistory]  = useState(false)
+  const [showJoinBox,  setShowJoinBox]  = useState(false)
+  const [joinCode,     setJoinCode]     = useState('')
+  const joinInputRef = useRef(null)
 
   const updateConfig = (i, patch) =>
     setConfigs(prev => prev.map((c, idx) => idx === i ? { ...c, ...patch } : c))
@@ -671,6 +676,20 @@ function PreGameSetup({ onStart, onCreateLobby, decks, history }) {
   const handleCreateLobby = () => {
     const finalLayout = layout || defaultLayout(playerCount)
     onCreateLobby?.({ playerCount, mode, customLife, layout: finalLayout, playerConfigs: configs })
+  }
+
+  const handleToggleJoin = () => {
+    setShowJoinBox(v => {
+      if (!v) setTimeout(() => joinInputRef.current?.focus(), 50)
+      return !v
+    })
+    setJoinCode('')
+  }
+
+  const handleJoin = () => {
+    const code = joinCode.trim().toUpperCase()
+    if (code.length < 4) return
+    navigate(`/join/${code}`)
   }
 
   return (
@@ -765,9 +784,35 @@ function PreGameSetup({ onStart, onCreateLobby, decks, history }) {
 
       <div className={styles.setupFooter}>
         <button className={styles.startBtn} onClick={handleStart}>⚔ Start Game</button>
-        <button className={styles.lobbyBtn} onClick={handleCreateLobby}>
-          👥 Create Multiplayer Lobby
-        </button>
+        <div className={styles.lobbyRow}>
+          <button className={styles.lobbyBtn} onClick={handleCreateLobby}>
+            👥 Create Lobby
+          </button>
+          <button
+            className={`${styles.lobbyBtn} ${showJoinBox ? styles.lobbyBtnActive : ''}`}
+            onClick={handleToggleJoin}>
+            🔑 Join Lobby
+          </button>
+        </div>
+        {showJoinBox && (
+          <div className={styles.joinBox}>
+            <input
+              ref={joinInputRef}
+              className={styles.joinInput}
+              placeholder="Enter code (e.g. AX7K2P)"
+              value={joinCode}
+              maxLength={8}
+              onChange={e => setJoinCode(e.target.value.toUpperCase())}
+              onKeyDown={e => e.key === 'Enter' && handleJoin()}
+            />
+            <button
+              className={styles.joinGoBtn}
+              onClick={handleJoin}
+              disabled={joinCode.trim().length < 4}>
+              Join →
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
