@@ -884,6 +884,7 @@ export default function LifeTrackerPage() {
   const [showGameMenu, setShowGameMenu] = useState(false)
   const [decks,        setDecks]        = useState([])
   const [history,      setHistory]      = useState(() => loadHistory())
+  const [isFullscreen, setIsFullscreen] = useState(false)
   const gearMenuRef = useRef(null)
 
   useEffect(() => {
@@ -892,6 +893,14 @@ export default function LifeTrackerPage() {
     document.addEventListener('pointerdown', handler)
     return () => document.removeEventListener('pointerdown', handler)
   }, [showGameMenu])
+
+  // Escape key exits fullscreen
+  useEffect(() => {
+    if (!isFullscreen) return
+    const handler = e => { if (e.key === 'Escape') setIsFullscreen(false) }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [isFullscreen])
 
   useEffect(() => {
     if (!user) return
@@ -994,13 +1003,19 @@ export default function LifeTrackerPage() {
   const getRotation = idx => layout.rotations?.[idx] || 0
 
   return (
-    <div className={styles.page}>
+    <div className={`${styles.page} ${isFullscreen ? styles.pageFullscreen : ''}`}>
       <div className={styles.topBar}>
         <div className={styles.topLeft}>
           <span className={styles.pageTitle}>♥ Life Tracker</span>
           <span className={styles.modeLabel}>{modeConf.label}</span>
         </div>
         <div className={styles.topRight}>
+          <button
+            className={styles.fullscreenBtn}
+            onClick={() => setIsFullscreen(v => !v)}
+            title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}>
+            {isFullscreen ? '⊡' : '⛶'}
+          </button>
           <div className={styles.gearWrap} ref={gearMenuRef}>
             <button
               className={`${styles.gearBtn} ${showGameMenu ? styles.gearBtnActive : ''}`}

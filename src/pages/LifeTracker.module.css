@@ -113,6 +113,7 @@
   min-height: 190px;
   height: 100%;           /* fill gridCell so grid-auto-rows: 1fr works */
   box-sizing: border-box;
+  overflow: hidden;       /* clip any child overflow to panel bounds */
 }
 .playerDead { opacity: 0.42; filter: grayscale(0.4); }
 /* Rotation classes — desktop: no rotation; tablet+phone: see media query below */
@@ -964,9 +965,9 @@
    ══════════════════════════════════════════════════════════════════════════════ */
 
 @media (max-width: 900px) {
-  /* ── Grid gets a fixed height so grid-auto-rows: 1fr can measure cells ── */
+  /* Grid height: svh minus nav (130px) + topbar (52px) + page gap (10px) */
   .grid {
-    height: calc(100svh - 180px); /* svh = stable viewport height (excludes browser chrome) */
+    height: calc(100svh - 192px);
   }
 
   /* 180° — simple in-place rotation, no layout change needed */
@@ -982,7 +983,7 @@
     width: 100%;
     height: 100%;
     min-height: unset;
-    border-radius: 0;        /* gridCell already rounds the clip edge */
+    border-radius: 0;
     transform-origin: center center;
   }
   .playerRotate90  { transform: rotate(90deg);  }
@@ -992,26 +993,70 @@
   .modeGrid  { grid-template-columns: repeat(3, 1fr); }
 }
 
+/* ── Phone (≤ 600 px): shrink panel internals to fit 2-col cells (~165 px wide) ── */
 @media (max-width: 600px) {
-  .lifeTotal     { font-size: 2.8rem; }
-  .lifeBtn       { width: 40px; height: 46px; font-size: 1.3rem; }
-  .lifeTotalWrap { width: 82px; }
-  .playerPanel   { min-height: 176px; padding: 7px 8px 9px; gap: 5px; }
-  .quickBtn      { padding: 4px 6px; font-size: 0.72rem; }
-  .cmdBadgeVal   { font-size: 0.72rem; }
+  /* Layout math: padding(6×2) + btn(34×2) + gap(5×2) + wrap(70) = 160 px ✓  */
+  .playerPanel   { padding: 6px 6px 8px; gap: 4px; min-height: 160px; }
+  .lifeArea      { gap: 5px; }
+  .lifeBtn       { width: 34px; height: 40px; font-size: 1.15rem; }
+  .lifeTotalWrap { width: 70px; }
+  .lifeTotal     { font-size: 2.4rem; }
+
+  .colorRow      { gap: 3px; }
+  .colorDot      { width: 11px; height: 11px; }
+  .nameBtn       { font-size: 0.66rem; }
+
+  .quickRow      { gap: 2px; }
+  .quickBtn      { padding: 3px 4px; font-size: 0.66rem; }
+
+  .poisonRow     { padding: 3px 6px; }
+  .poisonLabel   { font-size: 0.66rem; }
+  .counterBtn    { width: 22px; height: 22px; font-size: 0.76rem; }
+  .counterVal    { font-size: 0.86rem; min-width: 16px; }
+
+  .cmdBar        { padding: 3px 5px; min-height: 26px; gap: 3px; }
+  .cmdBadgeVal   { font-size: 0.68rem; }
   .cmdBarHint    { display: none; }
+  .cmdBarIcon    { font-size: 0.7rem; }
 
-  .modeGrid  { grid-template-columns: repeat(2, 1fr); }
-  .modeLabel { display: none; }
-  .endDialog { padding: 16px; }
-  .endActions { flex-direction: column; }
-  .diceTypes  { grid-template-columns: repeat(4, 1fr); }
-  .layoutPicker { gap: 6px; }
-  .layoutSeat   { height: 12px; }
-  .layoutGrid   { gap: 2px; grid-template-columns: repeat(var(--lcols, 2), 14px); }
+  .modeGrid      { grid-template-columns: repeat(2, 1fr); }
+  .modeLabel     { display: none; }
+  .endDialog     { padding: 16px; }
+  .endActions    { flex-direction: column; }
+  .diceTypes     { grid-template-columns: repeat(4, 1fr); }
+  .layoutPicker  { gap: 6px; }
+  .layoutSeat    { height: 12px; }
+  .layoutGrid    { gap: 2px; grid-template-columns: repeat(var(--lcols, 2), 14px); }
 }
 
-@media (max-width: 400px) {
-  .lifeTotal { font-size: 3.2rem; }
-  .lifeBtn   { width: 50px; height: 54px; font-size: 1.5rem; }
+/* ══════════════════════════════════════════════════════════════════════════════
+   FULLSCREEN MODE
+   ══════════════════════════════════════════════════════════════════════════════ */
+.pageFullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  background: var(--bg);
+  overflow: hidden;
+  /* Override min-height and height set by default .page and media queries */
+  min-height: unset !important;
+  padding: 8px 10px 10px;
 }
+
+/* In fullscreen the nav is covered; grid fills everything below the topbar */
+.pageFullscreen .grid {
+  height: calc(100svh - 62px) !important; /* topbar(~52px) + gap(10px) */
+}
+
+.fullscreenBtn {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 1rem; line-height: 1;
+  width: 34px; height: 34px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: all 0.15s;
+  padding: 0;
+}
+.fullscreenBtn:hover { color: var(--gold); border-color: rgba(201,168,76,0.3); }
