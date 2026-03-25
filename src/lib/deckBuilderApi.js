@@ -10,7 +10,6 @@ import { sfGet } from './scryfall'
 
 const SF = 'https://api.scryfall.com'
 const EDHREC = 'https://json.edhrec.com'
-const RECOMMANDER = 'https://recommander.cards'
 
 // ── Formats ───────────────────────────────────────────────────────────────────
 
@@ -157,11 +156,11 @@ const _edhCache = {}
  * Returns { categories: [{ header, tag, cards: [{name, inclusion, synergy, cmc, type}] }] }
  * Returns null on failure.
  */
-// EDHRec blocks direct browser requests (Cloudflare 403).
-// Route through Vite dev-server proxy at /api/edhrec → json.edhrec.com
+// EDHRec: the /pages/ path allows direct browser requests (no CORS block).
+// The old /commanders/ path was blocked by Cloudflare; /pages/commanders/ is not.
 async function edhrecFetch(path) {
   try {
-    const res = await fetch(`/api/edhrec/${path}`)
+    const res = await fetch(`${EDHREC}/pages/${path}`)
     if (!res.ok) return null
     return await res.json()
   } catch {
@@ -205,31 +204,6 @@ export async function fetchEdhrecCommander(commanderName) {
   }
 }
 
-// ── Recommander.cards (experimental) ─────────────────────────────────────────
-
-/**
- * Fetch co-occurrence recommendations from recommander.cards.
- * Fully experimental — returns [] silently on any error.
- */
-export async function fetchRecommander(cardNames) {
-  if (!cardNames?.length) return []
-  try {
-    const res = await fetch(`${RECOMMANDER}/api/recommendations`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ cards: cardNames.slice(0, 20) }),
-      signal:  AbortSignal.timeout(6000),
-    })
-    if (!res.ok) return []
-    const data = await res.json()
-    return (data.recommendations || data.cards || []).map(r => ({
-      name:  r.name || r.card_name || r.card,
-      score: r.score ?? r.similarity ?? 0,
-    })).filter(r => r.name)
-  } catch {
-    return []
-  }
-}
 
 // ── Deck import ───────────────────────────────────────────────────────────────
 

@@ -38,10 +38,12 @@ function DeckArtBackground({ meta, deckType }) {
 
 function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSelect, onEnterSelectMode, onDelete, navigate }) {
   const longPress = useLongPress(() => { if (!selectMode) onEnterSelectMode?.() }, { delay: 500 })
+  // If a collection deck has a linked builder deck, open the builder version instead
+  const effectiveId = (deck.type === 'deck' && meta.linked_builder_id) ? meta.linked_builder_id : deck.id
   return (
     <div
       className={`${styles.card}${isSelected ? ' ' + styles.cardSelected : ''}`}
-      onClick={() => selectMode ? onToggleSelect(deck.id) : navigate(`/builder/${deck.id}`)}
+      onClick={() => selectMode ? onToggleSelect(deck.id) : navigate(`/builder/${effectiveId}`)}
       {...longPress}>
       <DeckArtBackground meta={meta} deckType={deck.type} />
       <div className={styles.cardContent}>
@@ -59,6 +61,9 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
             {deck.type === 'deck' && fmt && (
               <span className={styles.formatBadge}>{fmt.label}</span>
             )}
+            {(meta.linked_deck_id || meta.linked_builder_id) && (
+              <span className={styles.formatBadge} style={{ opacity: 0.7 }}>↔</span>
+            )}
           </div>
           <div className={styles.cardName}>{deck.name}</div>
           {meta.commanderName && (
@@ -74,7 +79,7 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
         </div>
         {!selectMode && (
           <div className={styles.cardActions}>
-            <Link to={`/builder/${deck.id}`} className={styles.editLink}>Edit Deck →</Link>
+            <Link to={`/builder/${effectiveId}`} className={styles.editLink}>Edit Deck →</Link>
             <button className={styles.deleteBtn} onClick={e => { e.stopPropagation(); onDelete(deck.id) }}>✕</button>
           </div>
         )}
@@ -92,6 +97,11 @@ export default function BuilderPage() {
   const [newName, setNewName]     = useState('')
   const [newFormat, setNewFormat] = useState('commander')
   const [creating, setCreating]   = useState(false)
+
+  // Styled confirm dialog
+  const [confirmState, setConfirmState] = useState(null) // { message, resolve }
+  const confirmAsync = (message) => new Promise(resolve => setConfirmState({ message, resolve }))
+  const handleConfirm = (result) => { confirmState?.resolve(result); setConfirmState(null) }
 
   // Filter/sort state
   const [search, setSearch]       = useState('')
@@ -111,9 +121,12 @@ export default function BuilderPage() {
       .eq('user_id', user.id)
       .in('type', ['builder', 'deck'])
       .order('updated_at', { ascending: false })
-    // Exclude group folders (deck-type folders with isGroup:true in description JSON)
+    // Exclude group folders and collection decks hidden from builder
     const nonGroupDecks = (data || []).filter(f => {
-      try { return !JSON.parse(f.description || '{}').isGroup } catch { return true }
+      try {
+        const m = JSON.parse(f.description || '{}')
+        return !m.isGroup && !m.hideFromBuilder
+      } catch { return true }
     })
     setDecks(nonGroupDecks)
     setLoading(false)
@@ -138,9 +151,22 @@ export default function BuilderPage() {
   }
 
   async function deleteDeck(id) {
-    if (!confirm('Delete this builder deck?')) return
-    setDecks(d => d.filter(x => x.id !== id))
-    await sb.from('folders').delete().eq('id', id).eq('user_id', user.id)
+    const deck = decks.find(d => d.id === id)
+    const isCollection = deck?.type === 'deck'
+    if (isCollection) {
+      const ok = await confirmAsync('Hide this deck from the builder list?\n\nThis is a collection deck, so it cannot be deleted here — only hidden. Your deck and cards are kept safe and can be restored any time by clicking "Edit in Builder" from the Decks page.')
+      if (!ok) return
+      setDecks(d => d.filter(x => x.id !== id))
+      let meta = {}
+      try { meta = JSON.parse(deck.description || '{}') } catch {}
+      meta.hideFromBuilder = true
+      await sb.from('folders').update({ description: JSON.stringify(meta) }).eq('id', id).eq('user_id', user.id)
+    } else {
+      if (!await confirmAsync('Delete this builder deck? This cannot be undone.')) return
+      setDecks(d => d.filter(x => x.id !== id))
+      await sb.from('deck_cards').delete().eq('deck_id', id)
+      await sb.from('folders').delete().eq('id', id).eq('user_id', user.id)
+    }
   }
 
   function toggleSelectMode() {
@@ -158,10 +184,23 @@ export default function BuilderPage() {
 
   async function bulkDelete() {
     if (!selectedIds.size) return
-    if (!confirm(`Delete ${selectedIds.size} deck(s)?`)) return
     const ids = [...selectedIds]
+    const collectionIds = ids.filter(id => decks.find(d => d.id === id)?.type === 'deck')
+    const builderIds    = ids.filter(id => decks.find(d => d.id === id)?.type !== 'deck')
+    const msg = collectionIds.length
+      ? `Delete ${builderIds.length} builder deck(s) and hide ${collectionIds.length} collection deck(s) from the builder?`
+      : `Delete ${ids.length} builder deck(s)?`
+    if (!await confirmAsync(msg)) return
     setDecks(d => d.filter(x => !ids.includes(x.id)))
-    for (const id of ids) {
+    for (const id of collectionIds) {
+      const deck = decks.find(d => d.id === id)
+      let meta = {}
+      try { meta = JSON.parse(deck?.description || '{}') } catch {}
+      meta.hideFromBuilder = true
+      await sb.from('folders').update({ description: JSON.stringify(meta) }).eq('id', id).eq('user_id', user.id)
+    }
+    for (const id of builderIds) {
+      await sb.from('deck_cards').delete().eq('deck_id', id)
       await sb.from('folders').delete().eq('id', id).eq('user_id', user.id)
     }
     toggleSelectMode()
@@ -274,6 +313,20 @@ export default function BuilderPage() {
               />
             )
           })}
+        </div>
+      )}
+
+      {confirmState && (
+        <div className={styles.confirmOverlay} onClick={() => handleConfirm(false)}>
+          <div className={styles.confirmDialog} onClick={e => e.stopPropagation()}>
+            <div className={styles.confirmMsg}>
+              {confirmState.message.split('\n\n').map((p, i) => <p key={i}>{p}</p>)}
+            </div>
+            <div className={styles.confirmActions}>
+              <button className={styles.confirmCancel} onClick={() => handleConfirm(false)}>Cancel</button>
+              <button className={styles.confirmOk} onClick={() => handleConfirm(true)}>Confirm</button>
+            </div>
+          </div>
         </div>
       )}
 

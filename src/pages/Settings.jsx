@@ -231,6 +231,54 @@ export default function SettingsPage() {
         </SettingRow>
       </div>
 
+      {/* Typography */}
+      <div className={styles.section}>
+        <div className={styles.sectionTitle}>Typography</div>
+        <SettingRow label="Font Weight" description="How thick the body text appears — increase if text looks too thin on your screen">
+          <div className={styles.fontWeightOptions}>
+            {[
+              { value: 300, label: 'Thin' },
+              { value: 400, label: 'Regular' },
+              { value: 420, label: 'Medium' },
+              { value: 500, label: 'Bold' },
+            ].map(({ value, label }) => (
+              <button
+                key={value}
+                className={`${styles.fontOption} ${settings.font_weight === value ? styles.fontOptionActive : ''}`}
+                style={{ fontWeight: value }}
+                onClick={() => set('font_weight', value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </SettingRow>
+        <SettingRow label="Font Size" description="Base text size used throughout the app">
+          <div className={styles.fontWeightOptions}>
+            {[
+              { value: 14, label: 'Small' },
+              { value: 16, label: 'Default' },
+              { value: 18, label: 'Large' },
+              { value: 20, label: 'X-Large' },
+            ].map(({ value, label }) => (
+              <button
+                key={value}
+                className={`${styles.fontOption} ${settings.font_size === value ? styles.fontOptionActive : ''}`}
+                style={{ fontSize: value }}
+                onClick={() => set('font_size', value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </SettingRow>
+        <SettingRow label="Preview">
+          <div className={styles.fontPreview}>
+            The quick brown fox jumps over the lazy dog. <em>Italics.</em>
+          </div>
+        </SettingRow>
+      </div>
+
       {/* Cache */}
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Price Cache</div>

@@ -246,6 +246,7 @@ function BracketBadge({ bracket, autobracket, gameChangers, onOverride }) {
   const meta = BRACKET_META[bracket] || BRACKET_META[1]
   const [open, setOpen] = useState(false)
   const isOverridden = bracket !== autobracket
+  const canOverride = typeof onOverride === 'function'
 
   return (
     <div style={{ position: 'relative' }}>
@@ -253,11 +254,11 @@ function BracketBadge({ bracket, autobracket, gameChangers, onOverride }) {
         style={{
           display: 'flex', alignItems: 'center', gap: 8,
           background: 'rgba(255,255,255,0.04)', border: `1px solid ${meta.color}55`,
-          borderRadius: 4, padding: '7px 14px', cursor: 'pointer',
+          borderRadius: 4, padding: '7px 14px', cursor: canOverride ? 'pointer' : 'default',
           fontFamily: 'var(--font-display)', fontSize: '0.8rem', letterSpacing: '0.04em',
           color: meta.color, transition: 'background 0.15s',
         }}
-        onClick={() => setOpen(v => !v)}
+        onClick={() => canOverride && setOpen(v => !v)}
       >
         <span style={{
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -271,7 +272,7 @@ function BracketBadge({ bracket, autobracket, gameChangers, onOverride }) {
         <span style={{ fontSize: '0.65rem', opacity: 0.7 }}>{open ? '▴' : '▾'}</span>
       </button>
 
-      {open && (
+      {open && canOverride && (
         <div style={{
           position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 20,
           background: '#1a1620', border: '1px solid var(--border)',
@@ -297,7 +298,7 @@ function BracketBadge({ bracket, autobracket, gameChangers, onOverride }) {
                     color: n === bracket ? '#0a0a0f' : m.color,
                     background: n === bracket ? m.color : 'transparent',
                   }}
-                  onClick={() => { onOverride(n); setOpen(false) }}
+                  onClick={() => { onOverride?.(n); setOpen(false) }}
                 >
                   {n}
                 </button>
@@ -312,7 +313,7 @@ function BracketBadge({ bracket, autobracket, gameChangers, onOverride }) {
                   fontFamily: 'var(--font-display)', cursor: 'pointer',
                   transition: 'all 0.15s', alignSelf: 'center',
                 }}
-                onClick={() => { onOverride(null); setOpen(false) }}
+                onClick={() => { onOverride?.(null); setOpen(false) }}
               >
                 Reset
               </button>

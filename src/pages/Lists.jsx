@@ -188,6 +188,48 @@ function WishlistItem({ item, sfCard, priceSource, onDelete, selectMode, selecte
   )
 }
 
+// ── Wishlist grid view ────────────────────────────────────────────────────────
+function WishlistGrid({ items, sfMap, priceSource, selectMode, selectedItems, onToggleSelect, onDelete }) {
+  return (
+    <div className={listStyles.gridView}>
+      {items.map(item => {
+        const sf       = sfMap[`${item.set_code}-${item.collector_number}`]
+        const price    = getPrice(sf, item.foil, { price_source: priceSource })
+        const img      = sf?.image_uris?.normal || sf?.image_uris?.small || sf?.card_faces?.[0]?.image_uris?.normal
+        const selected = selectedItems.has(item.id)
+        return (
+          <div
+            key={item.id}
+            className={`${listStyles.gridItem}${selectMode ? ` ${listStyles.gridItemSelectMode}` : ''}${selected ? ` ${listStyles.gridItemSelected}` : ''}`}
+            onClick={selectMode ? () => onToggleSelect(item.id) : undefined}
+          >
+            {selectMode && (
+              <div className={`${listStyles.gridCheckbox}${selected ? ` ${listStyles.gridCheckboxChecked}` : ''}`} />
+            )}
+            {item.qty > 1 && <div className={listStyles.gridQty}>×{item.qty}</div>}
+            {img
+              ? <img src={img} className={listStyles.gridImg} alt={item.name} loading="lazy" />
+              : <div className={listStyles.gridImgPlaceholder}>{item.name}</div>
+            }
+            <div className={listStyles.gridFooter}>
+              <span className={listStyles.gridName}>
+                {item.name}
+                {item.foil && <span className={listStyles.gridFoilBadge}>✦</span>}
+              </span>
+              <span className={listStyles.gridPrice} style={{ color: price != null ? 'var(--green)' : 'var(--text-faint)' }}>
+                {price != null ? formatPrice(price, priceSource) : '—'}
+              </span>
+            </div>
+            {!selectMode && (
+              <button className={listStyles.gridDelete} onClick={e => { e.stopPropagation(); onDelete(item.id) }}>✕</button>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── ListBrowser ───────────────────────────────────────────────────────────────
 function ListBrowser({ folder, onBack }) {
   const { price_source, default_sort } = useSettings()
@@ -201,6 +243,7 @@ function ListBrowser({ folder, onBack }) {
   const [selectMode, setSelectMode]       = useState(false)
   const [selectedItems, setSelectedItems] = useState(new Set())
   const [showAddCard, setShowAddCard]     = useState(false)
+  const [view, setView]                   = useState('list')   // 'list' | 'grid'
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -252,26 +295,18 @@ function ListBrowser({ folder, onBack }) {
 
   return (
     <div>
-      <button className={styles.backBtn} onClick={onBack}>← Back</button>
-      <SectionHeader
-        title={folder.name}
-        action={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <button
-              onClick={() => setShowAddCard(true)}
-              style={{
-                background: 'rgba(201,168,76,0.1)', border: '1px solid rgba(201,168,76,0.35)',
-                borderRadius: 5, color: 'var(--gold)', padding: '5px 13px', cursor: 'pointer',
-                fontSize: '0.8rem', fontFamily: 'var(--font-display)', letterSpacing: '0.04em',
-              }}>
-              + Add Cards
-            </button>
-            <span style={{ color: 'var(--text-dim)', fontSize: '0.82rem' }}>
-              {totalQty} cards · <strong style={{ color: 'var(--green)' }}>{formatPrice(totalValue, price_source)}</strong>
-            </span>
+      {/* ── Wishlist header ── */}
+      <div className={styles.binderHeader}>
+        <button className={styles.backBtn} onClick={onBack}>← Back to Wishlists</button>
+        <div className={styles.binderTitleRow}>
+          <h2 className={styles.binderTitle}>{folder.name}</h2>
+          <div className={styles.binderMeta}>
+            <span>{totalQty} wants</span>
+            <span className={styles.binderValue}>{formatPrice(totalValue, price_source)}</span>
+            <button className={styles.addCardsBtn} onClick={() => setShowAddCard(true)}>+ Add Cards</button>
           </div>
-        }
-      />
+        </div>
+      </div>
 
       <FilterBar
         search={search} setSearch={setSearch}
@@ -280,6 +315,21 @@ function ListBrowser({ folder, onBack }) {
         selectMode={selectMode}
         onToggleSelectMode={toggleSelectMode}
       />
+
+      {/* ── Control bar ── */}
+      <div className={styles.binderControlBar}>
+        <span className={styles.binderCount}>
+          {filtered.length < items.length
+            ? `${filtered.length} of ${items.length} cards`
+            : `${items.length} cards`} · {totalQty} total
+        </span>
+        <div className={styles.viewToggle}>
+          <button className={`${styles.viewBtn} ${view === 'list' ? styles.viewActive : ''}`}
+            onClick={() => setView('list')}>≡ List</button>
+          <button className={`${styles.viewBtn} ${view === 'grid' ? styles.viewActive : ''}`}
+            onClick={() => setView('grid')}>⊞ Grid</button>
+        </div>
+      </div>
 
       {selectMode && selectedItems.size > 0 && (
         <BulkActionBar
@@ -294,20 +344,34 @@ function ListBrowser({ folder, onBack }) {
 
       {filtered.length === 0 && <EmptyState>No cards match.</EmptyState>}
 
-      <div className={listStyles.list}>
-        {filtered.map(item => (
-          <WishlistItem
-            key={item.id}
-            item={item}
-            sfCard={sfMap[`${item.set_code}-${item.collector_number}`]}
-            priceSource={price_source}
-            selectMode={selectMode}
-            selected={selectedItems.has(item.id)}
-            onToggleSelect={() => onToggleSelect(item.id)}
-            onDelete={handleDelete}
-          />
-        ))}
-      </div>
+      {view === 'list' && filtered.length > 0 && (
+        <div className={listStyles.list}>
+          {filtered.map(item => (
+            <WishlistItem
+              key={item.id}
+              item={item}
+              sfCard={sfMap[`${item.set_code}-${item.collector_number}`]}
+              priceSource={price_source}
+              selectMode={selectMode}
+              selected={selectedItems.has(item.id)}
+              onToggleSelect={() => onToggleSelect(item.id)}
+              onDelete={handleDelete}
+            />
+          ))}
+        </div>
+      )}
+
+      {view === 'grid' && filtered.length > 0 && (
+        <WishlistGrid
+          items={filtered}
+          sfMap={sfMap}
+          priceSource={price_source}
+          selectMode={selectMode}
+          selectedItems={selectedItems}
+          onToggleSelect={onToggleSelect}
+          onDelete={handleDelete}
+        />
+      )}
 
       {showAddCard && user && (
         <AddCardModal
@@ -738,7 +802,7 @@ export default function ListsPage() {
   if (loading) return <EmptyState>Loading wishlists…</EmptyState>
 
   return (
-    <div>
+    <div className={styles.page}>
       <SectionHeader
         title="Wishlists"
         action={

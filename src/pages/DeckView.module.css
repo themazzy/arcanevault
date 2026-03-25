@@ -1,0 +1,723 @@
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* DeckView.module.css                                                         */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+/* ── Page wrapper ──────────────────────────────────────────────────────────── */
+.page {
+  min-height: 100vh;
+  background: var(--bg, #0a0814);
+  color: var(--text, #e8e0d0);
+  font-family: var(--font-serif, Georgia, serif);
+  /* Subtle dot grid for depth */
+  background-image: radial-gradient(circle, rgba(201,168,76,0.045) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+/* ── Top navigation bar ────────────────────────────────────────────────────── */
+.topBar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: rgba(8, 6, 18, 0.88);
+  border-bottom: 1px solid rgba(201,168,76,0.1);
+  padding: 0 32px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.logo {
+  font-family: var(--font-display, 'Cinzel', serif);
+  color: var(--gold, #c9a84c);
+  font-size: 1rem;
+  text-decoration: none;
+  letter-spacing: 0.14em;
+  font-weight: 600;
+}
+.logo span { color: var(--text, #e8e0d0); }
+
+.topActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.topLink {
+  color: var(--text-dim, #9a8870);
+  font-size: 0.82rem;
+  text-decoration: none;
+  padding: 5px 10px;
+  transition: color 0.15s;
+}
+.topLink:hover { color: var(--text, #e8e0d0); }
+
+.actionBtn,
+.actionLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(201,168,76,0.09);
+  border: 1px solid rgba(201,168,76,0.28);
+  border-radius: 4px;
+  padding: 6px 14px;
+  color: var(--gold, #c9a84c);
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 0.76rem;
+  letter-spacing: 0.05em;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+  white-space: nowrap;
+}
+.actionBtn:hover:not(:disabled),
+.actionLink:hover {
+  background: rgba(201,168,76,0.16);
+  border-color: rgba(201,168,76,0.48);
+  box-shadow: 0 0 12px rgba(201,168,76,0.08);
+}
+.actionBtn:disabled { opacity: 0.55; cursor: default; }
+
+.actionBtnDone {
+  background: rgba(74,154,90,0.12);
+  border-color: rgba(74,154,90,0.38);
+  color: #5dba70;
+}
+
+.signInBtn {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 4px;
+  padding: 6px 13px;
+  color: var(--text-dim, #9a8870);
+  font-size: 0.8rem;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+.signInBtn:hover { background: rgba(255,255,255,0.08); }
+
+/* ── Deck header ───────────────────────────────────────────────────────────── */
+.deckHeader {
+  padding: 32px 40px 26px;
+  position: relative;
+}
+
+/* Gold glow behind the title */
+.deckHeader::before {
+  content: '';
+  position: absolute;
+  top: 20px;
+  left: 30px;
+  width: 340px;
+  height: 80px;
+  background: radial-gradient(ellipse at 30% 50%, rgba(201,168,76,0.07), transparent 70%);
+  pointer-events: none;
+}
+
+/* Decorative separator */
+.deckHeader::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 40px;
+  right: 40px;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(201,168,76,0.25) 0%, rgba(201,168,76,0.06) 40%, transparent 100%);
+}
+
+.deckTitle {
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 1.85rem;
+  color: var(--gold, #c9a84c);
+  letter-spacing: 0.03em;
+  margin: 0 0 10px;
+  line-height: 1.15;
+  font-weight: 700;
+}
+
+.deckMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.81rem;
+  color: var(--text-dim, #9a8870);
+}
+
+.metaDot { opacity: 0.35; }
+
+.formatBadge {
+  font-size: 0.75rem;
+  color: var(--text-dim, #9a8870);
+}
+
+.commanderBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(201,168,76,0.07);
+  border: 1px solid rgba(201,168,76,0.18);
+  border-radius: 3px;
+  padding: 2px 9px;
+  color: var(--gold, #c9a84c);
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+}
+
+/* ── Body / grid ───────────────────────────────────────────────────────────── */
+.body {
+  padding: 28px 40px 80px;
+  display: grid;
+  /* Deck list dominates: takes ~60%, sidebar gets the rest (min 280px, max 460px) */
+  grid-template-columns: minmax(0, 1.6fr) minmax(280px, 460px);
+  gap: 40px;
+  align-items: start;
+}
+
+@media (max-width: 700px) {
+  .body {
+    grid-template-columns: 1fr;
+    padding: 20px 20px 60px;
+    gap: 32px;
+  }
+}
+
+/* ── Left panel: deck list ─────────────────────────────────────────────────── */
+.deckListPanel {
+  position: sticky;
+  top: 60px;
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(201,168,76,0.18) transparent;
+  padding-right: 4px;
+}
+.deckListPanel::-webkit-scrollbar { width: 3px; }
+.deckListPanel::-webkit-scrollbar-track { background: transparent; }
+.deckListPanel::-webkit-scrollbar-thumb {
+  background: rgba(201,168,76,0.2);
+  border-radius: 2px;
+}
+
+/* ── 2-column printed decklist layout ─────────────────────────────────────── */
+.listTwoCol {
+  columns: 2;
+  column-gap: 24px;
+}
+/* Prevent a group from splitting across columns */
+.listTwoCol .cardGroup {
+  break-inside: avoid;
+}
+
+/* ── Section label ─────────────────────────────────────────────────────────── */
+.sectionLabel {
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 0.6rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint, #6a6058);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sectionLabel::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(255,255,255,0.05);
+}
+
+/* ── List header row ───────────────────────────────────────────────────────── */
+.listHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.listLabel {
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 0.6rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint, #6a6058);
+}
+
+/* ── View toggle pill ──────────────────────────────────────────────────────── */
+.viewToggles {
+  display: flex;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 5px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.vBtn {
+  background: none;
+  border: none;
+  border-radius: 3px;
+  color: var(--text-faint, #6a6058);
+  cursor: pointer;
+  font-size: 0.88rem;
+  line-height: 1;
+  padding: 4px 8px;
+  transition: background 0.12s, color 0.12s;
+}
+.vBtn:hover { color: var(--text-dim, #9a8870); }
+.vBtnActive {
+  background: rgba(201,168,76,0.12);
+  color: var(--gold, #c9a84c) !important;
+}
+
+/* ── Card group ────────────────────────────────────────────────────────────── */
+.cardGroup { margin-bottom: 18px; }
+
+.groupHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 0.58rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint, #6a6058);
+  margin-bottom: 3px;
+  padding: 0 6px 5px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.groupCount {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Card row ──────────────────────────────────────────────────────────────── */
+.cardRow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 3px 6px 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.1s;
+  position: relative;
+  border-left: 2px solid transparent;
+}
+.cardRow:hover {
+  background: rgba(255,255,255,0.045);
+  border-left-color: rgba(201,168,76,0.4);
+}
+
+.cardThumb {
+  width: 26px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 2px;
+  flex-shrink: 0;
+  box-shadow: 0 1px 5px rgba(0,0,0,0.45);
+}
+.cardThumbPh {
+  width: 26px;
+  height: 36px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.cardName {
+  flex: 1;
+  font-size: 0.82rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text, #e8e0d0);
+}
+.cmdIcon { font-size: 0.58rem; color: var(--gold, #c9a84c); flex-shrink: 0; }
+.foilIcon { font-size: 0.58rem; color: #c8a0ff; flex-shrink: 0; }
+.cardQty {
+  font-size: 0.77rem;
+  color: var(--text-dim, #9a8870);
+  flex-shrink: 0;
+  min-width: 22px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Grid view ─────────────────────────────────────────────────────────────── */
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.gridCard {
+  position: relative;
+  cursor: pointer;
+  border-radius: 5px;
+  overflow: hidden;
+}
+.gridCard img {
+  width: 100%;
+  display: block;
+  border-radius: 5px;
+  transition: transform 0.14s, box-shadow 0.14s;
+}
+.gridCard:hover img {
+  transform: scale(1.04);
+  box-shadow: 0 6px 22px rgba(0,0,0,0.65);
+}
+.gridQtyBadge {
+  position: absolute;
+  bottom: 4px; right: 4px;
+  background: rgba(0,0,0,0.8);
+  color: var(--gold, #c9a84c);
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 0.65rem;
+  border-radius: 3px;
+  padding: 1px 5px;
+  pointer-events: none;
+}
+.gridCmdBadge {
+  position: absolute;
+  top: 4px; left: 4px;
+  background: rgba(0,0,0,0.8);
+  color: var(--gold, #c9a84c);
+  font-size: 0.58rem;
+  border-radius: 3px;
+  padding: 1px 5px;
+  pointer-events: none;
+}
+
+.emptyDeck {
+  color: var(--text-faint, #6a6058);
+  font-size: 0.85rem;
+  padding: 40px 0;
+  text-align: center;
+  font-style: italic;
+}
+
+/* ── Right sidebar: stats + combos stacked ─────────────────────────────────── */
+.sidebar {
+  position: sticky;
+  top: 60px;
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  min-width: 0;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(201,168,76,0.12) transparent;
+}
+.sidebar::-webkit-scrollbar { width: 3px; }
+.sidebar::-webkit-scrollbar-track { background: transparent; }
+.sidebar::-webkit-scrollbar-thumb {
+  background: rgba(201,168,76,0.15);
+  border-radius: 2px;
+}
+
+@media (max-width: 700px) {
+  .sidebar { position: static; max-height: none; overflow-y: visible; }
+  .deckListPanel { position: static; max-height: none; overflow-y: visible; }
+}
+
+/* ── Combos panel ──────────────────────────────────────────────────────────── */
+.combosPanel { }
+
+.combosLoading {
+  color: var(--text-faint, #6a6058);
+  font-size: 0.84rem;
+  padding: 24px 0;
+  font-style: italic;
+}
+
+.combosEmpty {
+  color: var(--text-faint, #6a6058);
+  font-size: 0.84rem;
+  padding: 24px 0;
+  font-style: italic;
+}
+
+.comboSubLabel {
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+  margin-top: 20px;
+  color: var(--gold, #c9a84c);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.comboSubLabel:first-child { margin-top: 0; }
+.comboSubLabel::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(201,168,76,0.12);
+}
+.comboSubLabelDim {
+  color: var(--text-dim, #9a8870);
+}
+.comboSubLabelDim::after {
+  background: rgba(255,255,255,0.05);
+}
+
+.comboCount {
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 0.7rem;
+  background: rgba(201,168,76,0.1);
+  border: 1px solid rgba(201,168,76,0.2);
+  border-radius: 10px;
+  padding: 0 7px;
+  color: var(--gold, #c9a84c);
+  line-height: 1.6;
+  letter-spacing: 0;
+}
+.comboCountDim {
+  background: rgba(255,255,255,0.04);
+  border-color: rgba(255,255,255,0.08);
+  color: var(--text-dim, #9a8870);
+}
+
+.comboCard {
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.065);
+  border-radius: 6px;
+  padding: 10px 13px;
+  margin-bottom: 7px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.comboCard:hover {
+  border-color: rgba(201,168,76,0.18);
+  background: rgba(201,168,76,0.025);
+}
+.comboCardDim { opacity: 0.65; }
+
+.comboPieces {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 7px;
+}
+.comboPiece {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 3px;
+  padding: 2px 8px;
+  font-size: 0.76rem;
+  color: var(--text, #e8e0d0);
+  transition: border-color 0.12s;
+}
+.comboCard:hover .comboPiece {
+  border-color: rgba(201,168,76,0.2);
+}
+
+.comboResults {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 8px;
+  font-size: 0.72rem;
+  color: var(--text-dim, #9a8870);
+  line-height: 1.6;
+}
+.comboResult::before { content: '◆ '; font-size: 0.55rem; opacity: 0.5; }
+
+/* ── Card detail modal ─────────────────────────────────────────────────────── */
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0,0,0,0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.modalBox {
+  background: rgba(11,9,22,0.98);
+  border: 1px solid rgba(201,168,76,0.22);
+  border-radius: 12px;
+  box-shadow: 0 32px 80px rgba(0,0,0,0.78), 0 0 0 1px rgba(255,255,255,0.025);
+  padding: 22px 26px;
+  max-width: 680px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.modalLoading {
+  text-align: center;
+  padding: 48px 0;
+  color: var(--text-faint, #6a6058);
+  font-style: italic;
+}
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.modalCardName {
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 1.05rem;
+  color: var(--gold, #c9a84c);
+  letter-spacing: 0.04em;
+  margin-bottom: 3px;
+}
+.modalTypeLine {
+  font-size: 0.79rem;
+  color: var(--text-dim, #9a8870);
+}
+.modalHeaderRight {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.modalManaCost {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  line-height: 1;
+}
+.modalClose {
+  background: none;
+  border: none;
+  color: var(--text-faint, #6a6058);
+  cursor: pointer;
+  font-size: 1.25rem;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.12s;
+}
+.modalClose:hover { color: var(--text, #e8e0d0); }
+.modalBody {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.modalImages {
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.modalImages img {
+  width: 180px;
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.55);
+}
+.modalDetails {
+  flex: 1;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.modalOracleText {
+  font-size: 0.84rem;
+  color: var(--text, #e8e0d0);
+  line-height: 1.7;
+  white-space: pre-line;
+}
+.modalOracleText img {
+  /* keep symbol baseline aligned with surrounding text */
+  vertical-align: -0.15em;
+}
+.modalOracleText2 {
+  font-size: 0.84rem;
+  color: var(--text, #e8e0d0);
+  line-height: 1.7;
+  white-space: pre-line;
+  border-top: 1px solid rgba(255,255,255,0.07);
+  padding-top: 10px;
+}
+.modalOracleText2 img {
+  vertical-align: -0.15em;
+}
+.modalTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.modalTag {
+  font-size: 0.71rem;
+  color: var(--text-faint, #6a6058);
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 3px;
+  padding: 2px 8px;
+  text-transform: capitalize;
+}
+.modalFlavor {
+  font-size: 0.76rem;
+  color: var(--text-faint, #6a6058);
+  font-style: italic;
+  line-height: 1.55;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding-top: 8px;
+}
+.modalError {
+  text-align: center;
+  padding: 40px 0;
+  color: var(--text-faint, #6a6058);
+  font-style: italic;
+}
+
+/* ── Sign-in splash page ───────────────────────────────────────────────────── */
+.signinPage {
+  min-height: 100vh;
+  background: var(--bg, #0a0814);
+  background-image: radial-gradient(circle, rgba(201,168,76,0.04) 1px, transparent 1px);
+  background-size: 28px 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+}
+.signinLogo {
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 1.4rem;
+  color: var(--gold, #c9a84c);
+  letter-spacing: 0.12em;
+}
+.signinLogo span { color: var(--text, #e8e0d0); }
+.signinMsg {
+  color: var(--text-dim, #9a8870);
+  font-size: 0.9rem;
+}
+.signinLink {
+  background: rgba(201,168,76,0.11);
+  border: 1px solid rgba(201,168,76,0.33);
+  border-radius: 4px;
+  padding: 9px 24px;
+  color: var(--gold, #c9a84c);
+  font-size: 0.88rem;
+  text-decoration: none;
+  transition: background 0.15s, border-color 0.15s;
+}
+.signinLink:hover {
+  background: rgba(201,168,76,0.18);
+  border-color: rgba(201,168,76,0.5);
+}
+
+/* ── Hover card preview ────────────────────────────────────────────────────── */
+.hoverPreview {
+  position: fixed;
+  width: 200px;
+  border-radius: 10px;
+  box-shadow: 0 14px 48px rgba(0,0,0,0.82), 0 0 0 1px rgba(201,168,76,0.1);
+  z-index: 500;
+  pointer-events: none;
+  transition: opacity 0.1s;
+}

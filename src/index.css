@@ -9,9 +9,9 @@
   --purple:    #8a6fc4;
   --green:     #8ab87a;
   --red:       #c46060;
-  --text:      #d4c5a9;
-  --text-dim:  #9a8870;
-  --text-faint:#7a6e5c;
+  --text:      #ddd0b8;
+  --text-dim:  #a89878;
+  --text-faint:#857868;
   --font-serif: 'Crimson Pro', Georgia, serif;
   --font-display: 'Cinzel', Georgia, serif;
 
@@ -21,12 +21,48 @@
   --shadow-lg:   0 20px 60px rgba(0,0,0,0.65);
   --gold-glow:   0 0 18px rgba(201,168,76,0.18);
   --input-focus: 0 0 0 3px rgba(201,168,76,0.12);
+
+  /* Design tokens — radius scale */
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 16px;
+
+  /* Design tokens — spacing scale (8px grid) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Design tokens — transitions */
+  --transition-fast: 0.15s;
+  --transition-base: 0.25s;
+
+  /* Design tokens — type scale */
+  --font-xs:   0.68rem;
+  --font-sm:   0.78rem;
+  --font-md:   0.88rem;
+  --font-base: 0.95rem;
+  --font-lg:   1.05rem;
+  --font-xl:   1.2rem;
+  --font-2xl:  1.5rem;
+  --font-3xl:  2rem;
+
+  /* Responsive breakpoints (reference only, use in @media) */
+  /* --bp-sm: 480px  --bp-md: 768px  --bp-lg: 1024px  --bp-xl: 1280px */
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body, #root {
   height: 100%;
+}
+
+html {
+  font-size: var(--user-font-size, 16px);
 }
 
 body {
@@ -36,7 +72,8 @@ body {
     radial-gradient(ellipse at 88% 92%, rgba(80,60,120,0.075) 0%, transparent 52%);
   color: var(--text);
   font-family: var(--font-serif);
-  font-size: 16px;
+  font-size: inherit;
+  font-weight: var(--user-font-weight, 420);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
 }
