@@ -1017,13 +1017,18 @@ export default function LifeTrackerPage() {
   const [decks,        setDecks]        = useState([])
   const [history,      setHistory]      = useState(() => loadHistory())
   const [isFullscreen, setIsFullscreen] = useState(false)
-  const gearMenuRef = useRef(null)
+  const gearMenuRef   = useRef(null)
+  const gearMenuFsRef = useRef(null)
   const [session,     setSession]     = useState(null)
   const [lobbyConfig, setLobbyConfig] = useState(null)
 
   useEffect(() => {
     if (!showGameMenu) return
-    const handler = e => { if (!gearMenuRef.current?.contains(e.target)) setShowGameMenu(false) }
+    const handler = e => {
+      const inNormal = gearMenuRef.current?.contains(e.target)
+      const inFs     = gearMenuFsRef.current?.contains(e.target)
+      if (!inNormal && !inFs) setShowGameMenu(false)
+    }
     document.addEventListener('pointerdown', handler)
     return () => document.removeEventListener('pointerdown', handler)
   }, [showGameMenu])
@@ -1265,7 +1270,7 @@ export default function LifeTrackerPage() {
             title="Exit fullscreen (Esc)">
             ⊡
           </button>
-          <div className={styles.gearWrap} ref={gearMenuRef}>
+          <div className={styles.gearWrap} ref={gearMenuFsRef}>
             <button
               className={`${styles.gearBtn} ${showGameMenu ? styles.gearBtnActive : ''}`}
               onClick={() => setShowGameMenu(v => !v)}
