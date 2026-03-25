@@ -103,8 +103,8 @@
   min-height: 200px;
 }
 .playerDead { opacity: 0.42; filter: grayscale(0.4); }
-/* Inverted panels — desktop: no rotation; tablet+phone: rotate for table play */
-.playerInverted { /* set in media query below */ }
+/* Rotation classes — desktop: no rotation; tablet+phone: see media query below */
+.playerRotate180, .playerRotate90, .playerRotate90n { /* set in media query below */ }
 
 /* Art-picker ⚙ button */
 .artPickerBtn {
@@ -729,6 +729,15 @@
   border-top-color: transparent !important;
   border-bottom: 2px solid rgba(138,111,196,0.6);
 }
+/* Side-rotated seats (90° / -90°) — show indicator on left or right edge */
+.layoutSeat90 {
+  border-top-color: transparent !important;
+  border-right: 2px solid rgba(96,184,196,0.6);
+}
+.layoutSeat90n {
+  border-top-color: transparent !important;
+  border-left: 2px solid rgba(96,184,196,0.6);
+}
 .layoutOptActive .layoutSeat { background: rgba(201,168,76,0.1); }
 .layoutOptLabel {
   font-family: var(--font-display); font-size: 0.6rem;
@@ -943,8 +952,22 @@
    ══════════════════════════════════════════════════════════════════════════════ */
 
 @media (max-width: 900px) {
-  /* Rotate bottom-half players 180° for table/tablet mode */
-  .playerInverted { transform: rotate(180deg); }
+  /* Rotate player panels for table/tablet mode */
+  .playerRotate180 { transform: rotate(180deg); }
+  .playerRotate90  { transform: rotate(90deg);  }
+  .playerRotate90n { transform: rotate(-90deg); }
+
+  /* Panels rotated 90° need overflow management so they don't break layout */
+  .playerRotate90, .playerRotate90n {
+    /* Use a square-ish cell via aspect-ratio so the rotated panel fits */
+    align-self: center;
+    justify-self: center;
+    /* Visual swap: the panel's height becomes its displayed width and vice versa.
+       We cap the panel width so after rotation it doesn't exceed the cell height. */
+    width: min(100%, 90vmin / 2);
+    aspect-ratio: 1 / 1.3;
+  }
+
   .lifeTotal { font-size: 3rem; }
   .modeGrid  { grid-template-columns: repeat(3, 1fr); }
 }

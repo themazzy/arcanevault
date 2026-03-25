@@ -23,28 +23,28 @@ const MODES = {
 }
 
 // ── Layout definitions ─────────────────────────────────────────────────────────
-// cols = grid columns. invertedIndices = which player slots rotate 180° (table-facing)
+// cols = grid columns. rotations = { [playerIndex]: degrees } — applied on tablet/phone only
 const LAYOUTS = {
   2: [
-    { id: '2-portrait',  cols: 1, label: 'Portrait',      invertedIndices: [1] },
-    { id: '2-landscape', cols: 2, label: 'Side by Side',  invertedIndices: [] },
+    { id: '2-portrait',  cols: 1, label: 'Portrait',     rotations: { 1: 180 } },
+    { id: '2-landscape', cols: 2, label: 'Side by Side', rotations: {} },
   ],
   3: [
-    { id: '3-2+1', cols: 2, label: '2 + 1', invertedIndices: [2] },
-    { id: '3-row', cols: 3, label: 'Row',    invertedIndices: [] },
+    { id: '3-2+1', cols: 2, label: '2 + 1', rotations: { 2: 180 } },
+    { id: '3-row', cols: 3, label: 'Row',    rotations: {} },
   ],
   4: [
-    { id: '4-2x2',   cols: 2, label: '2 × 2', invertedIndices: [2, 3] },
-    { id: '4-sides', cols: 2, label: 'Sides',  invertedIndices: [1, 3] },
-    { id: '4-row',   cols: 4, label: 'Row',    invertedIndices: [] },
+    { id: '4-2x2',   cols: 2, label: '2 × 2', rotations: { 2: 180, 3: 180 } },
+    { id: '4-sides', cols: 2, label: 'Sides',  rotations: { 0: -90, 1: 90, 2: -90, 3: 90 } },
+    { id: '4-row',   cols: 4, label: 'Row',    rotations: {} },
   ],
   5: [
-    { id: '5-3+2', cols: 3, label: '3 + 2', invertedIndices: [3, 4] },
-    { id: '5-2+3', cols: 3, label: '2 + 3', invertedIndices: [2, 3, 4] },
+    { id: '5-3+2', cols: 3, label: '3 + 2', rotations: { 3: 180, 4: 180 } },
+    { id: '5-2+3', cols: 3, label: '2 + 3', rotations: { 2: 180, 3: 180, 4: 180 } },
   ],
   6: [
-    { id: '6-3x2', cols: 3, label: '3 × 2', invertedIndices: [3, 4, 5] },
-    { id: '6-2x3', cols: 2, label: '2 × 3', invertedIndices: [2, 3, 4, 5] },
+    { id: '6-3x2', cols: 3, label: '3 × 2', rotations: { 3: 180, 4: 180, 5: 180 } },
+    { id: '6-2x3', cols: 2, label: '2 × 3', rotations: { 2: 180, 3: 180, 4: 180, 5: 180 } },
   ],
 }
 
@@ -95,10 +95,16 @@ function LayoutPicker({ playerCount, value, onChange }) {
             className={`${styles.layoutOpt} ${active ? styles.layoutOptActive : ''}`}
             onClick={() => onChange(opt)}>
             <div className={styles.layoutGrid} style={{ '--lcols': opt.cols }}>
-              {Array.from({ length: playerCount }, (_, i) => (
-                <div key={i}
-                  className={`${styles.layoutSeat} ${opt.invertedIndices.includes(i) ? styles.layoutSeatFlip : ''}`} />
-              ))}
+              {Array.from({ length: playerCount }, (_, i) => {
+                const rot = opt.rotations?.[i] || 0
+                return (
+                  <div key={i} className={`${styles.layoutSeat} ${
+                    rot === 180 ? styles.layoutSeatFlip :
+                    rot ===  90 ? styles.layoutSeat90  :
+                    rot === -90 ? styles.layoutSeat90n : ''
+                  }`} />
+                )
+              })}
             </div>
             <span className={styles.layoutOptLabel}>{opt.label}</span>
           </button>
@@ -710,7 +716,7 @@ function PlayerPanel({
   player, opponents,
   onLifeChange, onPoisonChange, onCmdDmgChange, onNameChange, onColorChange,
   onRequestArtPicker, onRequestCmdDmgOverlay,
-  showCommander, showPoison, inverted,
+  showCommander, showPoison, rotation = 0,
 }) {
   const [editingName, setEditingName] = useState(false)
   const [nameInput,   setNameInput]   = useState(player.name)
@@ -750,7 +756,11 @@ function PlayerPanel({
 
   return (
     <div
-      className={`${styles.playerPanel} ${isDead ? styles.playerDead : ''} ${inverted ? styles.playerInverted : ''}`}
+      className={`${styles.playerPanel} ${isDead ? styles.playerDead : ''} ${
+        rotation === 180 ? styles.playerRotate180 :
+        rotation ===  90 ? styles.playerRotate90  :
+        rotation === -90 ? styles.playerRotate90n : ''
+      }`}
       style={{
         '--player-color': player.color,
         ...(player.artCropUrl ? {
@@ -981,7 +991,7 @@ export default function LifeTrackerPage() {
   const modeConf  = MODES[gameConfig?.mode] || MODES.commander
   const count     = players.length
   const layout    = gameConfig?.layout || defaultLayout(count)
-  const isInverted = idx => layout.invertedIndices.includes(idx)
+  const getRotation = idx => layout.rotations?.[idx] || 0
 
   return (
     <div className={styles.page}>
@@ -1038,7 +1048,7 @@ export default function LifeTrackerPage() {
             onRequestCmdDmgOverlay={modeConf.commander ? setCmdDmgPlayer : null}
             showCommander={modeConf.commander}
             showPoison={modeConf.poison}
-            inverted={isInverted(idx)}
+            rotation={getRotation(idx)}
           />
         ))}
       </div>
