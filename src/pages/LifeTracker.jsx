@@ -1256,6 +1256,46 @@ export default function LifeTrackerPage() {
         </div>
       </div>
 
+      {/* Floating controls shown only in fullscreen — replaces topbar to reclaim space */}
+      {isFullscreen && (
+        <div className={styles.fsControls}>
+          <button
+            className={styles.fsExitBtn}
+            onClick={() => setIsFullscreen(false)}
+            title="Exit fullscreen (Esc)">
+            ⊡
+          </button>
+          <div className={styles.gearWrap} ref={gearMenuRef}>
+            <button
+              className={`${styles.gearBtn} ${showGameMenu ? styles.gearBtnActive : ''}`}
+              onClick={() => setShowGameMenu(v => !v)}
+              title="Game options">
+              ⚙
+            </button>
+            {showGameMenu && (
+              <div className={`${styles.gearMenu} ${styles.gearMenuFs}`}>
+                <button className={styles.gearMenuItem} onClick={() => { setShowDice(true); setShowGameMenu(false) }}>
+                  🎲 Dice Roller
+                </button>
+                <button className={styles.gearMenuItem} onClick={() => { setShowPicker(true); setShowGameMenu(false) }}>
+                  🎯 Random Player
+                </button>
+                <div className={styles.gearMenuDiv} />
+                <button className={styles.gearMenuItem} onClick={resetGame}>
+                  ↺ Reset Totals
+                </button>
+                <button className={`${styles.gearMenuItem} ${styles.gearMenuItemDanger}`} onClick={handleNewGame}>
+                  ✕ New Setup
+                </button>
+              </div>
+            )}
+          </div>
+          <button className={styles.fsEndBtn} onClick={() => setShowEndDialog(true)}>
+            🏆
+          </button>
+        </div>
+      )}
+
       {/* Grid: columns driven by layout choice */}
       <div className={styles.grid} style={{ '--gcols': layout.cols }}>
         {players.map((player, idx) => {

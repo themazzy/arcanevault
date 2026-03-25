@@ -1064,8 +1064,7 @@
   .cmdBarIcon { font-size: 0.6rem; }
   .cmdBarHint { display: none; }
 
-  /* Fullscreen in landscape: nav covered, subtract only topbar + gap */
-  .pageFullscreen .grid { height: calc(100dvh - 62px) !important; }
+  /* Fullscreen in landscape: topbar is hidden, grid is already 100dvh — no override needed */
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -1082,11 +1081,50 @@
   padding: 8px 10px 10px;
 }
 
-/* In fullscreen the nav is covered; grid fills everything below the topbar.
-   Use dvh (dynamic viewport height) so Android Chrome's collapsing address
-   bar is accounted for correctly — svh stays fixed at the smallest size. */
+/* In fullscreen: hide the topbar entirely — the grid fills 100dvh.
+   Floating fsControls overlay replaces topbar without consuming layout space. */
+.pageFullscreen .topBar { display: none; }
 .pageFullscreen .grid {
-  height: calc(100dvh - 62px) !important;
+  height: 100dvh !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+}
+
+/* Floating controls pill — sits on top of the grid in fullscreen */
+.fsControls {
+  position: fixed;
+  top: 8px;
+  right: 8px;
+  z-index: 910;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(10, 10, 18, 0.75);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 8px;
+  padding: 4px 6px;
+}
+
+.fsExitBtn, .fsEndBtn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 1rem;
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; border-radius: 5px;
+  transition: color 0.15s, background 0.15s;
+  padding: 0;
+}
+.fsExitBtn:hover { color: var(--gold); background: rgba(201,168,76,0.12); }
+.fsEndBtn:hover  { color: #e8c063;    background: rgba(201,168,76,0.12); }
+
+/* Gear menu in fullscreen: open downward on the left side */
+.gearMenuFs {
+  top: calc(100% + 6px) !important;
+  right: 0 !important;
+  left: auto !important;
 }
 
 .fullscreenBtn {
