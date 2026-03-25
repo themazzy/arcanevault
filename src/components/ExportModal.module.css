@@ -1,0 +1,204 @@
+/* ── ExportModal ─────────────────────────────────────────────────────────────── */
+
+.overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.72);
+  backdrop-filter: blur(6px);
+  z-index: 300;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+}
+
+.modal {
+  background: var(--bg3);
+  border: 1px solid rgba(180,140,60,0.28);
+  border-radius: 10px;
+  width: 100%; max-width: 520px;
+  padding: 24px;
+  position: relative;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.03) inset;
+  background-image: linear-gradient(to bottom, rgba(201,168,76,0.04) 0px, transparent 60px);
+}
+
+.closeBtn {
+  position: absolute; top: 14px; right: 14px;
+  background: none; border: none;
+  color: var(--text-faint); font-size: 1.1rem;
+  cursor: pointer; transition: color 0.2s; line-height: 1; padding: 2px 6px;
+}
+.closeBtn:hover { color: var(--gold); }
+
+/* ── Header ── */
+.head {
+  display: flex; align-items: center; gap: 14px;
+  margin-bottom: 20px;
+}
+.headIcon {
+  width: 36px; height: 36px;
+  background: rgba(201,168,76,0.12);
+  border: 1px solid rgba(201,168,76,0.25);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.1rem; color: var(--gold); flex-shrink: 0;
+}
+.headTitle {
+  font-family: var(--font-display);
+  font-size: 1rem; color: var(--gold);
+  letter-spacing: 0.08em; text-transform: uppercase;
+}
+.headSub {
+  font-size: 0.82rem; color: var(--text-dim); margin-top: 2px;
+}
+.cardCount { color: var(--text-faint); }
+
+/* ── Loading ── */
+.loadingWrap {
+  display: flex; align-items: center; justify-content: center;
+  gap: 12px; padding: 40px 0;
+  color: var(--text-dim); font-size: 0.88rem; font-style: italic;
+}
+.spinner {
+  width: 20px; height: 20px;
+  border: 2px solid rgba(201,168,76,0.2);
+  border-top-color: var(--gold);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Format tabs ── */
+.tabs {
+  display: flex; align-items: center; gap: 4px;
+  margin-bottom: 12px;
+}
+.tab {
+  background: var(--s-subtle); border: 1px solid var(--s-border2);
+  border-radius: 5px; padding: 5px 14px;
+  font-family: var(--font-display); font-size: 0.72rem;
+  letter-spacing: 0.06em; color: var(--text-dim);
+  cursor: pointer; transition: all 0.15s;
+}
+.tab:hover { color: var(--text); border-color: rgba(201,168,76,0.2); }
+.tabActive {
+  background: rgba(201,168,76,0.12) !important;
+  border-color: rgba(201,168,76,0.4) !important;
+  color: var(--gold) !important;
+}
+.tabHint {
+  margin-left: auto;
+  font-size: 0.7rem; color: var(--text-faint); font-style: italic;
+}
+
+/* ── Preview ── */
+.previewWrap {
+  background: var(--s-card);
+  border: 1px solid var(--s-border);
+  border-radius: 5px;
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+.preview {
+  font-family: 'Courier New', monospace;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--text-dim);
+  padding: 12px 14px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.overflow {
+  padding: 6px 14px;
+  font-size: 0.72rem; color: var(--text-faint); font-style: italic;
+  border-top: 1px solid var(--s-border);
+  background: var(--s-subtle);
+}
+
+/* ── Primary actions ── */
+.actions {
+  display: flex; gap: 8px; margin-bottom: 10px;
+}
+.btn {
+  flex: 1; padding: 9px 12px;
+  font-family: var(--font-display); font-size: 0.72rem;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  border-radius: 5px; cursor: pointer;
+  transition: all 0.15s; border: 1px solid;
+  white-space: nowrap;
+}
+.btnCopy {
+  color: var(--text-dim);
+  background: var(--s-subtle);
+  border-color: var(--s-border2);
+}
+.btnCopy:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
+.btnCopied {
+  color: var(--green) !important;
+  background: rgba(93,186,112,0.1) !important;
+  border-color: rgba(93,186,112,0.35) !important;
+}
+.btnDownload {
+  color: var(--gold);
+  background: rgba(201,168,76,0.08);
+  border-color: rgba(201,168,76,0.3);
+}
+.btnDownload:hover {
+  background: rgba(201,168,76,0.16);
+  border-color: rgba(201,168,76,0.5);
+  box-shadow: 0 2px 12px rgba(201,168,76,0.1);
+}
+.btnShare {
+  color: var(--purple);
+  background: rgba(138,111,196,0.08);
+  border-color: rgba(138,111,196,0.3);
+}
+.btnShare:hover {
+  background: rgba(138,111,196,0.16);
+  border-color: rgba(138,111,196,0.5);
+}
+
+/* ── Alt actions row ── */
+.altRow {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 10px;
+}
+.altLabel {
+  font-size: 0.7rem; color: var(--text-faint);
+  font-style: italic; flex-shrink: 0;
+}
+.altBtn {
+  background: none;
+  border: 1px solid var(--s-border2);
+  border-radius: 4px; padding: 3px 10px;
+  font-family: var(--font-display); font-size: 0.67rem;
+  letter-spacing: 0.05em; color: var(--text-dim);
+  cursor: pointer; transition: all 0.15s;
+}
+.altBtn:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
+
+/* ── Share status ── */
+.shareMsg {
+  text-align: center;
+  font-size: 0.8rem; font-style: italic;
+  color: var(--green);
+  padding: 6px 0 2px;
+  animation: fadeIn 0.2s ease;
+}
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+/* ── Phone hint ── */
+.phoneHint {
+  font-size: 0.72rem; color: var(--text-faint); font-style: italic;
+  text-align: center; padding-top: 8px;
+  border-top: 1px solid var(--s-border);
+  margin-top: 6px;
+}
+
+@media (max-width: 480px) {
+  .modal { padding: 16px; border-radius: 6px; }
+  .actions { flex-direction: column; }
+  .tabHint { display: none; }
+  .altRow { flex-wrap: wrap; }
+}

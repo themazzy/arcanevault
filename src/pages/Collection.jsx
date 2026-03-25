@@ -9,6 +9,7 @@ import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../componen
 import VirtualCardGrid from '../components/VirtualCardGrid'
 import { DropZone, ProgressBar, ErrorBox, EmptyState, SectionHeader, Button } from '../components/UI'
 import AddCardModal from '../components/AddCardModal'
+import ExportModal from '../components/ExportModal'
 import styles from './Collection.module.css'
 
 const DEBOUNCE_MS = 300
@@ -37,6 +38,7 @@ export default function CollectionPage() {
   const [filters, setFilters] = useState(EMPTY_FILTERS)
   const [detailCardId, setDetailCardId] = useState(null)
   const [showAdd, setShowAdd] = useState(false)
+  const [showExport, setShowExport] = useState(false)
   const [importing, setImporting] = useState(false)
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState(new Set())
@@ -514,11 +516,14 @@ export default function CollectionPage() {
           selectMode={selectMode} onToggleSelectMode={toggleSelectMode}
           sets={availableSets} languages={availableLanguages}
           extra={
-            <label className={styles.importBtn}>
-              Import CSV
-              <input type="file" accept=".csv" style={{ display: 'none' }}
-                onChange={e => e.target.files[0] && handleImport(e.target.files[0])} />
-            </label>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <label className={styles.importBtn}>
+                Import CSV
+                <input type="file" accept=".csv" style={{ display: 'none' }}
+                  onChange={e => e.target.files[0] && handleImport(e.target.files[0])} />
+              </label>
+              <button className={styles.importBtn} onClick={() => setShowExport(true)}>↓ Export</button>
+            </div>
           }
         />
       )}
@@ -585,6 +590,16 @@ export default function CollectionPage() {
         <AddCardModal userId={user.id}
           onClose={() => setShowAdd(false)}
           onSaved={() => { setShowAdd(false); loadCards() }}
+        />
+      )}
+
+      {showExport && (
+        <ExportModal
+          cards={cards}
+          sfMap={sfMap}
+          title="Collection"
+          folderType="collection"
+          onClose={() => setShowExport(false)}
         />
       )}
     </div>
