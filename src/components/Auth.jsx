@@ -25,7 +25,7 @@ export function AuthProvider({ children }) {
   )
 }
 
-// ── Card art hook ──────────────────────────────────────────────────────────────
+// ── Art crop hook ─────────────────────────────────────────────────────────
 function useCardArts(cardNames) {
   const [arts, setArts] = useState([])
   useEffect(() => {
@@ -37,15 +37,34 @@ function useCardArts(cardNames) {
           .then(d => d.image_uris?.art_crop || d.card_faces?.[0]?.image_uris?.art_crop || null)
           .catch(() => null)
       )
-    ).then(results => {
-      if (!cancelled) setArts(results.filter(Boolean))
-    })
+    ).then(results => { if (!cancelled) setArts(results.filter(Boolean)) })
     return () => { cancelled = true }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, []) // eslint-disable-line
   return arts
 }
 
-// ── Constants ─────────────────────────────────────────────────────────────────
+// ── Full card image hook (normal format) ──────────────────────────────────
+function useCardImages(cardNames) {
+  const [images, setImages] = useState([])
+  useEffect(() => {
+    let cancelled = false
+    Promise.all(
+      cardNames.map(name =>
+        fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=json`)
+          .then(r => r.json())
+          .then(d => ({
+            name: d.name,
+            src: d.image_uris?.normal || d.card_faces?.[0]?.image_uris?.normal || null,
+          }))
+          .catch(() => null)
+      )
+    ).then(results => { if (!cancelled) setImages(results.filter(r => r?.src)) })
+    return () => { cancelled = true }
+  }, []) // eslint-disable-line
+  return images
+}
+
+// ── Constants ─────────────────────────────────────────────────────────────
 const BG_CARDS = [
   'Urborg, Tomb of Yawgmoth',
   'Emrakul, the Promised End',
@@ -55,6 +74,21 @@ const BG_CARDS = [
   'Force of Will',
 ]
 
+const GALLERY_CARDS = [
+  'Yawgmoth, Thran Physician',
+  'Elesh Norn, Grand Cenobite',
+  'Ugin, the Spirit Dragon',
+  'Kozilek, Butcher of Truth',
+  'Griselbrand',
+  'Avacyn, Angel of Hope',
+  'The One Ring',
+  'Ragavan, Nimble Pilferer',
+  'Wrenn and Six',
+  'Mox Diamond',
+  'Bitterblossom',
+  'Nicol Bolas, Planeswalker',
+]
+
 const COLLECTION_CARDS = ['Lightning Bolt', 'Sol Ring', 'Mana Crypt', 'Force of Will', 'Cyclonic Rift', 'Rhystic Study']
 const BUILDER_CARDS    = ["Atraxa, Praetors' Voice", 'Doubling Season', 'Demonic Tutor', 'The One Ring', 'Sylvan Library', 'Vampiric Tutor']
 
@@ -62,65 +96,100 @@ const FEATURES = [
   {
     icon: '◈',
     title: 'Collection Tracking',
-    desc: 'Catalog every card you own. Search, filter, and value your full collection in seconds.',
+    desc: 'Catalog every card you own. Search and filter by name, set, colour, type, rarity or price. Your complete inventory is always one search away.',
+    stat: '30,000+ cards in the database',
   },
   {
     icon: '⚔',
     title: 'Deck Builder',
-    desc: 'Plan Commander, Modern and more. EDHRec synergy recommendations and combo detection built in.',
+    desc: 'Build Commander, Modern, Legacy and Pioneer decks with EDHRec synergy recommendations and combo detection. From idea to finished decklist in minutes.',
+    stat: '12 formats supported',
   },
   {
     icon: '◉',
-    title: 'Price Analytics',
-    desc: 'Live EUR & USD market values across your entire collection with P&L tracking.',
+    title: 'Profit and Loss',
+    desc: 'Live EUR and USD market values, refreshed daily from Scryfall. Historical price snapshots reveal exactly how your collection grows over time.',
+    stat: 'EUR & USD live pricing',
   },
   {
     icon: '◎',
     title: 'Card Scanner',
-    desc: 'Point your camera at any card. OCR and perceptual hashing identify it instantly.',
+    desc: 'Point your camera at any card. OCR text recognition plus perceptual image hashing identify it instantly — no barcode, no typing required.',
+    stat: 'Works completely offline',
+  },
+  {
+    icon: '⬡',
+    title: 'Binder Organisation',
+    desc: 'Group cards into named binders, decks, and wishlists. Bulk-import from Manabox CSV. View everything in grid or table view with full filtering.',
+    stat: 'Unlimited binders and decks',
+  },
+  {
+    icon: '✦',
+    title: 'Wishlist Tracking',
+    desc: 'Track exact printings and foil finishes you are hunting. See live market prices for every item on your list so you can buy at the right moment.',
+    stat: 'Track any printing or foil',
   },
 ]
 
-// ── App screenshot mockup ──────────────────────────────────────────────────────
-function AppMockup({ title, subtitle, cards, arts, urlSlug }) {
+const STEPS = [
+  {
+    number: '01',
+    title: 'Scan or Search',
+    desc: 'Use your phone camera to scan cards straight into your vault — or search Scryfall\'s database of 30,000+ cards by name, set, or collector number.',
+    cards: COLLECTION_CARDS.slice(0, 3),
+  },
+  {
+    number: '02',
+    title: 'Organise Everything',
+    desc: 'Sort cards into binders, assemble decks, and build wishlists. Move cards with bulk actions or import an entire collection from a Manabox CSV export.',
+    cards: BUILDER_CARDS.slice(0, 3),
+  },
+  {
+    number: '03',
+    title: 'Track Profit and Loss',
+    desc: 'Market prices update daily. Historical snapshots chart how your collection appreciates. Know your profit and loss on every card and every deck you own.',
+    cards: COLLECTION_CARDS.slice(3, 6),
+  },
+]
+
+// ── App panel (no browser chrome) ─────────────────────────────────────────
+function AppPanel({ title, subtitle, icon, cards, arts }) {
   return (
-    <div className={styles.mockFrame}>
-      <div className={styles.mockBar}>
-        <div className={styles.mockDots}><span /><span /><span /></div>
-        <div className={styles.mockUrl}>arcanevault.app / {urlSlug}</div>
+    <div className={styles.panel}>
+      <div className={styles.panelHeader}>
+        <div className={styles.panelTitleRow}>
+          <span className={styles.panelIcon}>{icon}</span>
+          <span className={styles.panelTitle}>{title}</span>
+        </div>
+        <span className={styles.panelSub}>{subtitle}</span>
       </div>
-      <div className={styles.mockContent}>
-        <div className={styles.mockHeader}>
-          <span className={styles.mockTitle}>{title}</span>
-          <span className={styles.mockMeta}>{subtitle}</span>
-        </div>
-        <div className={styles.mockGrid}>
-          {cards.map((name, i) => (
-            <div key={name} className={styles.mockCard}>
-              {arts[i]
-                ? <img src={arts[i]} alt="" className={styles.mockCardImg} loading="lazy" />
-                : <div className={styles.mockCardPh} />
-              }
-              <div className={styles.mockCardName}>{name}</div>
-            </div>
-          ))}
-        </div>
+      <div className={styles.panelGrid}>
+        {cards.map((name, i) => (
+          <div key={name} className={styles.panelCard}>
+            {arts[i]
+              ? <img src={arts[i]} alt="" className={styles.panelCardImg} loading="lazy" />
+              : <div className={styles.panelCardPh} />
+            }
+            <div className={styles.panelCardName}>{name}</div>
+          </div>
+        ))}
       </div>
     </div>
   )
 }
 
-// ── Login page ─────────────────────────────────────────────────────────────────
+// ── Login page ─────────────────────────────────────────────────────────────
 export function LoginPage() {
-  const [mode, setMode]       = useState('login')
-  const [email, setEmail]     = useState('')
+  const [mode, setMode]         = useState('login')
+  const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
   const [password2, setPassword2] = useState('')
-  const [error, setError]     = useState('')
-  const [success, setSuccess] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [error, setError]       = useState('')
+  const [success, setSuccess]   = useState('')
+  const [loading, setLoading]   = useState(false)
 
   const bgArts         = useCardArts(BG_CARDS)
+  const galleryImages  = useCardImages(GALLERY_CARDS)
   const collectionArts = useCardArts(COLLECTION_CARDS)
   const builderArts    = useCardArts(BUILDER_CARDS)
 
@@ -159,16 +228,16 @@ export function LoginPage() {
         <div className={styles.artOverlay} />
       </div>
 
-      {/* ── Hero: tagline + form ── */}
+      {/* ── Hero ── */}
       <section className={styles.hero}>
         <div className={styles.heroLeft}>
           <div className={styles.heroLogo}>ARCANE<span>VAULT</span></div>
           <h1 className={styles.tagline}>
-            The vault for<br />every card you own.
+            Your Magic collection,<br />finally organised.
           </h1>
           <p className={styles.taglineSub}>
-            Track your collection, build powerful decks,<br />
-            monitor prices, and scan cards with your camera.
+            Scan cards with your camera, build decks, track market values in EUR and USD,
+            and monitor your profit and loss — all in one place.
           </p>
 
           <div className={styles.featurePills}>
@@ -180,32 +249,25 @@ export function LoginPage() {
             ))}
           </div>
 
-          <div className={styles.storeBadges}>
-            {/* Apple App Store */}
-            <div className={styles.badge}>
-              <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
-                <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z" />
-              </svg>
-              <div>
-                <div className={styles.badgeLabel}>Download on the</div>
-                <div className={styles.badgeStore}>App Store</div>
-              </div>
+          <div className={styles.heroStats}>
+            <div className={styles.heroStat}>
+              <span className={styles.heroStatNum}>30K+</span>
+              <span className={styles.heroStatLabel}>Cards in database</span>
             </div>
-
-            {/* Google Play */}
-            <div className={styles.badge}>
-              <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
-                <path d="M3 20.5v-17c0-.83.94-1.3 1.6-.8l14 8.5c.6.37.6 1.23 0 1.6l-14 8.5c-.66.5-1.6.03-1.6-.8z" />
-              </svg>
-              <div>
-                <div className={styles.badgeLabel}>Get it on</div>
-                <div className={styles.badgeStore}>Google Play</div>
-              </div>
+            <div className={styles.heroStatDivider} />
+            <div className={styles.heroStat}>
+              <span className={styles.heroStatNum}>EUR & USD</span>
+              <span className={styles.heroStatLabel}>Live market prices</span>
+            </div>
+            <div className={styles.heroStatDivider} />
+            <div className={styles.heroStat}>
+              <span className={styles.heroStatNum}>Free</span>
+              <span className={styles.heroStatLabel}>No subscription</span>
             </div>
           </div>
         </div>
 
-        {/* Form */}
+        {/* ── Auth form ── */}
         <div className={styles.heroRight}>
           <div className={styles.formCard}>
             <div className={styles.formHeading}>
@@ -215,8 +277,14 @@ export function LoginPage() {
               {mode === 'login' ? 'Sign in to your vault' : 'Start cataloguing your collection today'}
             </div>
             <div className={styles.tabs}>
-              <button className={`${styles.tab}${mode === 'login' ? ' ' + styles.active : ''}`} onClick={() => switchMode('login')}>Sign In</button>
-              <button className={`${styles.tab}${mode === 'register' ? ' ' + styles.active : ''}`} onClick={() => switchMode('register')}>Create Account</button>
+              <button
+                className={`${styles.tab}${mode === 'login' ? ' ' + styles.active : ''}`}
+                onClick={() => switchMode('login')}
+              >Sign In</button>
+              <button
+                className={`${styles.tab}${mode === 'register' ? ' ' + styles.active : ''}`}
+                onClick={() => switchMode('register')}
+              >Create Account</button>
             </div>
             <input
               className={styles.input}
@@ -254,41 +322,143 @@ export function LoginPage() {
             </button>
             {error   && <div className={styles.error}>{error}</div>}
             {success && <div className={styles.success}>{success}</div>}
+
+            <div className={styles.formNote}>
+              Free forever. No credit card required.
+            </div>
           </div>
         </div>
       </section>
 
-      {/* ── Feature cards ── */}
-      <section className={styles.features}>
-        {FEATURES.map(f => (
-          <div key={f.title} className={styles.featureCard}>
-            <div className={styles.featureIcon}>{f.icon}</div>
-            <div className={styles.featureTitle}>{f.title}</div>
-            <div className={styles.featureDesc}>{f.desc}</div>
+      {/* ── Card gallery strip ── */}
+      {galleryImages.length > 0 && (
+        <div className={styles.galleryOuter}>
+          <div className={styles.galleryStrip}>
+            {/* Double the array for a seamless loop feel */}
+            {[...galleryImages, ...galleryImages].map((img, i) => (
+              <div
+                key={i}
+                className={styles.galleryCard}
+                style={{ '--rot': `${((i % 5) - 2) * 2.2}deg`, '--delay': `${(i % galleryImages.length) * 0.07}s` }}
+              >
+                <img src={img.src} alt={img.name} className={styles.galleryCardImg} loading="lazy" />
+              </div>
+            ))}
           </div>
-        ))}
+          <div className={styles.galleryFadeLeft} />
+          <div className={styles.galleryFadeRight} />
+        </div>
+      )}
+
+      {/* ── Feature grid ── */}
+      <section className={styles.features}>
+        <div className={styles.sectionHeader}>
+          <div className={styles.sectionLabel}>Everything you need</div>
+          <h2 className={styles.sectionTitle}>Built for serious collectors</h2>
+          <p className={styles.sectionDesc}>
+            ArcaneVault brings together every tool a Magic: The Gathering player needs
+            — from first scan to deck tournament-ready.
+          </p>
+        </div>
+        <div className={styles.featureGrid}>
+          {FEATURES.map(f => (
+            <div key={f.title} className={styles.featureCard}>
+              <div className={styles.featureIconWrap}>
+                <span className={styles.featureIcon}>{f.icon}</span>
+              </div>
+              <div className={styles.featureTitle}>{f.title}</div>
+              <div className={styles.featureDesc}>{f.desc}</div>
+              <div className={styles.featureStat}>{f.stat}</div>
+            </div>
+          ))}
+        </div>
       </section>
 
-      {/* ── App screenshots ── */}
+      {/* ── How it works ── */}
+      <section className={styles.howItWorks}>
+        <div className={styles.sectionLabel} style={{ justifyContent: 'center' }}>How it works</div>
+        <h2 className={styles.sectionTitle} style={{ textAlign: 'center' }}>From unboxed to organised in minutes</h2>
+        <div className={styles.steps}>
+          {STEPS.map((step, si) => (
+            <div key={step.number} className={styles.step}>
+              <div className={styles.stepNumber}>{step.number}</div>
+              <div className={styles.stepContent}>
+                <div className={styles.stepTitle}>{step.title}</div>
+                <div className={styles.stepDesc}>{step.desc}</div>
+              </div>
+              <div className={styles.stepCards}>
+                {step.cards.map((name, i) => (
+                  <div
+                    key={name}
+                    className={styles.stepCardPh}
+                    style={{ '--si': i }}
+                  >
+                    {(si === 0 ? collectionArts : si === 1 ? builderArts : collectionArts.slice(3))[i]
+                      ? <img
+                          src={(si === 0 ? collectionArts : si === 1 ? builderArts : collectionArts)[i]}
+                          alt=""
+                          className={styles.stepCardImg}
+                          loading="lazy"
+                        />
+                      : null
+                    }
+                    <div className={styles.stepCardName}>{name}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── App panels ── */}
       <section className={styles.screenshots}>
-        <div className={styles.screenshotsLabel}>Everything in one place</div>
-        <div className={styles.mockRow}>
-          <AppMockup
+        <div className={styles.sectionLabel} style={{ justifyContent: 'center' }}>See it in action</div>
+        <h2 className={styles.sectionTitle} style={{ textAlign: 'center' }}>Everything in one place</h2>
+        <p className={styles.sectionDesc} style={{ textAlign: 'center', maxWidth: 520, margin: '0 auto 48px' }}>
+          A clean, fast interface built for the way collectors actually work —
+          binders, decks, wishlists and price tracking all within arm's reach.
+        </p>
+        <div className={styles.panelRow}>
+          <AppPanel
+            icon="◈"
             title="COLLECTION"
-            subtitle="18,300 cards · €10,767"
+            subtitle="18,300 cards · €10,767 total value"
             cards={COLLECTION_CARDS}
             arts={collectionArts}
-            urlSlug="collection"
           />
-          <AppMockup
+          <AppPanel
+            icon="⚔"
             title="DECK BUILDER"
             subtitle="12 decks · Commander / EDH"
             cards={BUILDER_CARDS}
             arts={builderArts}
-            urlSlug="builder"
           />
         </div>
       </section>
+
+      {/* ── Stats bar ── */}
+      <div className={styles.statsBar}>
+        <div className={styles.statsBarItem}>
+          <span className={styles.statsBarNum}>30,000+</span>
+          <span className={styles.statsBarLabel}>Cards in Scryfall database</span>
+        </div>
+        <div className={styles.statsBarDot} />
+        <div className={styles.statsBarItem}>
+          <span className={styles.statsBarNum}>EUR & USD</span>
+          <span className={styles.statsBarLabel}>Live prices, updated daily</span>
+        </div>
+        <div className={styles.statsBarDot} />
+        <div className={styles.statsBarItem}>
+          <span className={styles.statsBarNum}>Offline</span>
+          <span className={styles.statsBarLabel}>Works without internet</span>
+        </div>
+        <div className={styles.statsBarDot} />
+        <div className={styles.statsBarItem}>
+          <span className={styles.statsBarNum}>Free</span>
+          <span className={styles.statsBarLabel}>No subscription, ever</span>
+        </div>
+      </div>
 
       {/* ── Footer CTA ── */}
       <footer className={styles.footerCta}>
@@ -298,8 +468,9 @@ export function LoginPage() {
           className={styles.footerBtn}
           onClick={() => { switchMode('register'); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
         >
-          Get Started Free
+          Get Started — It's Free
         </button>
+        <p className={styles.footerSmall}>No credit card required. Works in your browser.</p>
       </footer>
 
     </div>
