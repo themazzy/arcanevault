@@ -338,22 +338,28 @@ export function SettingsProvider({ children }) {
     setSettings(next)
     saveLocal(next)
 
+    if (!user) return   // not logged in — local save only
+
     clearTimeout(syncTimeout.current)
     syncTimeout.current = setTimeout(async () => {
-      const {
-        price_source, default_sort, grid_density, show_price, cache_ttl_h,
-        binder_sort, deck_sort, list_sort, font_weight, font_size, theme,
-      } = next
-      const { error } = await sb.from('user_settings').upsert(
-        {
-          user_id: user.id,
+      try {
+        const {
           price_source, default_sort, grid_density, show_price, cache_ttl_h,
           binder_sort, deck_sort, list_sort, font_weight, font_size, theme,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'user_id' }
-      )
-      if (error) console.warn('Settings sync failed:', error.message)
+        } = next
+        const { error } = await sb.from('user_settings').upsert(
+          {
+            user_id: user.id,
+            price_source, default_sort, grid_density, show_price, cache_ttl_h,
+            binder_sort, deck_sort, list_sort, font_weight, font_size, theme,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'user_id' }
+        )
+        if (error) console.error('[Settings] Supabase upsert failed:', error)
+      } catch (err) {
+        console.error('[Settings] Unexpected error syncing settings:', err)
+      }
     }, 800)
   }, [settings, user])
 
