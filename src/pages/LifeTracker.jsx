@@ -449,17 +449,22 @@ function LobbyScreen({ session, gameConfig, onStart, onCancel }) {
       if (active && data) setPlayers(data)
     }
     load()
-    // No filter on the subscription — filtered postgres_changes can silently
-    // miss UPDATE events. Check session_id in the callback instead.
+
+    // Realtime: postgres_changes UPDATE events only carry the primary key in
+    // payload.new (Postgres default replica identity), so session_id is absent.
+    // Always call load() on any game_players change — the query already filters
+    // by session_id so we only render our own players.
     const ch = sb.channel(`lobby-host:${session.id}`)
       .on('postgres_changes', {
         event: '*', schema: 'public', table: 'game_players',
-      }, payload => {
-        const row = payload.new || payload.old
-        if (row?.session_id === session.id) load()
-      })
+      }, () => load())
       .subscribe()
-    return () => { active = false; sb.removeChannel(ch) }
+
+    // Polling fallback: re-fetch every 3 s in case realtime is delayed or the
+    // supabase_realtime publication isn't fully configured yet.
+    const poll = setInterval(load, 3000)
+
+    return () => { active = false; sb.removeChannel(ch); clearInterval(poll) }
   }, [session.id])
 
   const copyLink = () => {
