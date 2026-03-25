@@ -1034,23 +1034,27 @@ export default function LifeTrackerPage() {
 
       {/* Grid: columns driven by layout choice */}
       <div className={styles.grid} style={{ '--gcols': layout.cols }}>
-        {players.map((player, idx) => (
-          <PlayerPanel
-            key={player.id}
-            player={player}
-            opponents={players.filter(p => p.id !== player.id)}
-            onLifeChange={onLifeChange}
-            onPoisonChange={onPoisonChange}
-            onCmdDmgChange={onCmdDmgChange}
-            onNameChange={onNameChange}
-            onColorChange={onColorChange}
-            onRequestArtPicker={setArtPickerPlayer}
-            onRequestCmdDmgOverlay={modeConf.commander ? setCmdDmgPlayer : null}
-            showCommander={modeConf.commander}
-            showPoison={modeConf.poison}
-            rotation={getRotation(idx)}
-          />
-        ))}
+        {players.map((player, idx) => {
+          const rotation = getRotation(idx)
+          return (
+            <div key={player.id} className={styles.gridCell}>
+              <PlayerPanel
+                player={player}
+                opponents={players.filter(p => p.id !== player.id)}
+                onLifeChange={onLifeChange}
+                onPoisonChange={onPoisonChange}
+                onCmdDmgChange={onCmdDmgChange}
+                onNameChange={onNameChange}
+                onColorChange={onColorChange}
+                onRequestArtPicker={setArtPickerPlayer}
+                onRequestCmdDmgOverlay={modeConf.commander ? setCmdDmgPlayer : null}
+                showCommander={modeConf.commander}
+                showPoison={modeConf.poison}
+                rotation={rotation}
+              />
+            </div>
+          )
+        })}
       </div>
 
       {artPickerPlayer !== null && (
