@@ -33,7 +33,7 @@
   border-radius: 6px;
   color: var(--text-dim);
   font-size: 1.1rem; line-height: 1;
-  width: 34px; height: 34px;
+  width: 40px; height: 40px;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; transition: all 0.15s;
   padding: 0;
@@ -123,8 +123,8 @@
 .artPickerBtn {
   background: none; border: none;
   color: var(--text-faint); font-size: 0.88rem; line-height: 1;
-  cursor: pointer; padding: 0 2px; transition: color 0.15s, transform 0.2s;
-  flex-shrink: 0;
+  cursor: pointer; padding: 4px 6px; transition: color 0.15s, transform 0.2s;
+  flex-shrink: 0; min-width: 32px; min-height: 32px;
 }
 .artPickerBtn:hover { color: var(--gold); transform: rotate(45deg); }
 
@@ -238,7 +238,7 @@
 .counterBtn {
   background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
   border-radius: 4px; color: var(--text-dim);
-  font-size: 0.9rem; width: 26px; height: 26px;
+  font-size: 0.9rem; width: 32px; height: 32px;
   cursor: pointer; display: flex; align-items: center; justify-content: center;
   transition: all 0.12s; padding: 0; touch-action: manipulation;
 }
@@ -308,7 +308,7 @@
 .cmdBadgeBtn {
   background: none; border: none;
   color: var(--text-faint); font-size: 0.75rem; line-height: 1;
-  width: 16px; height: 16px;
+  width: 24px; height: 24px;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; padding: 0; border-radius: 2px;
   touch-action: manipulation; transition: color 0.12s;
