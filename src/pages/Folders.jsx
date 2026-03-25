@@ -8,6 +8,7 @@ import { CardGrid, CardDetail, FilterBar, BulkActionBar, applyFilterSort, EMPTY_
 import { EmptyState, SectionHeader, Button, Modal } from '../components/UI'
 import AddCardModal from '../components/AddCardModal'
 import ImportModal from '../components/ImportModal'
+import ExportModal from '../components/ExportModal'
 import DeckBrowser from './DeckBrowser'
 import styles from './Folders.module.css'
 import { useLongPress } from '../hooks/useLongPress'
@@ -444,6 +445,7 @@ function FolderBrowser({ folder, allFolders = [], onBack }) {
   const [selectMode, setSelectMode]   = useState(false)
   const [selectedCards, setSelectedCards] = useState(new Set())
   const [showAddCard, setShowAddCard] = useState(false)
+  const [showExport, setShowExport]   = useState(false)
   const [view, setView]               = useState('grid')   // 'grid' | 'list'
 
   useEffect(() => {
@@ -519,6 +521,7 @@ function FolderBrowser({ folder, allFolders = [], onBack }) {
           <div className={styles.binderMeta}>
             <span>{totalQty} cards</span>
             <span className={styles.binderValue}>{formatPrice(totalValue, price_source)}</span>
+            <button className={styles.addCardsBtn} onClick={() => setShowExport(true)}>↓ Export</button>
             <button className={styles.addCardsBtn} onClick={() => setShowAddCard(true)}>+ Add Cards</button>
           </div>
         </div>
@@ -597,6 +600,15 @@ function FolderBrowser({ folder, allFolders = [], onBack }) {
               if (map) setSfMap({ ...map })
             }
           }}
+        />
+      )}
+      {showExport && (
+        <ExportModal
+          cards={cards}
+          sfMap={sfMap}
+          title={folder.name}
+          folderType={folder.type || 'binder'}
+          onClose={() => setShowExport(false)}
         />
       )}
     </div>
@@ -885,6 +897,10 @@ export default function FoldersPage({ type }) {
   const [showNewFolder, setShowNewFolder] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
   const [showImport, setShowImport] = useState(false)
+  const [showExportAll, setShowExportAll]     = useState(false)
+  const [exportAllCards, setExportAllCards]   = useState([])
+  const [exportAllSfMap, setExportAllSfMap]   = useState({})
+  const [exportAllLoading, setExportAllLoading] = useState(false)
 
   const noun = type === 'deck' ? 'Deck' : type === 'list' ? 'List' : 'Binder'
 
@@ -892,6 +908,36 @@ export default function FoldersPage({ type }) {
     setSort(val)
     saveSettings({ [sortSettingKey]: val })
   }
+
+  // ── Export all folders of this type ──────────────────────────────────────────
+  const handleExportAll = useCallback(async () => {
+    setExportAllLoading(true)
+    setShowExportAll(true)
+    try {
+      const folderIds = folders.map(f => f.id)
+      if (!folderIds.length) { setExportAllLoading(false); return }
+      let allFc = [], from = 0
+      while (true) {
+        const { data: page } = await sb
+          .from('folder_cards')
+          .select('folder_id, qty, cards(name, set_code, collector_number, foil, condition, language, purchase_price)')
+          .in('folder_id', folderIds)
+          .range(from, from + 999)
+        if (page?.length) allFc = [...allFc, ...page]
+        if (!page || page.length < 1000) break
+        from += 1000
+      }
+      const sfMap = await getInstantCache() || {}
+      const cards = allFc.map(fc => {
+        const folder = folders.find(f => f.id === fc.folder_id)
+        return { ...fc.cards, _folder_qty: fc.qty, _folderName: folder?.name || '', _folderType: folder?.type || type }
+      })
+      setExportAllCards(cards)
+      setExportAllSfMap(sfMap)
+    } finally {
+      setExportAllLoading(false)
+    }
+  }, [folders, type])
 
   // ── Supabase bg helper (merges bg_url into existing description JSON) ────────
   const saveFolderBg = useCallback(async (folder, url) => {
@@ -1156,6 +1202,7 @@ export default function FoldersPage({ type }) {
                   + New Group
                 </button>
                 <button className={styles.importBtn} onClick={() => setShowImport(true)}>↑ Import</button>
+                <button className={styles.importBtn} onClick={handleExportAll}>↓ Export</button>
                 <button className={styles.newFolderBtn} onClick={() => setShowNewFolder(true)}>+ New {noun}</button>
                 <button className={styles.selectModeBtn} onClick={() => setSelectMode(true)}>Select</button>
                 <SortDropdown value={sort} onChange={handleSortChange} options={SORT_OPTIONS} />
@@ -1367,6 +1414,18 @@ export default function FoldersPage({ type }) {
               if (data) setFolders(data)
             })
           }}
+        />
+      )}
+
+      {/* Export all modal */}
+      {showExportAll && (
+        <ExportModal
+          cards={exportAllCards}
+          sfMap={exportAllSfMap}
+          title={`All ${noun}s`}
+          folderType={type}
+          loading={exportAllLoading}
+          onClose={() => { setShowExportAll(false); setExportAllCards([]) }}
         />
       )}
     </div>

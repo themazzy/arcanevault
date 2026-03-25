@@ -8,6 +8,7 @@ import { FilterBar, BulkActionBar, applyFilterSort, EMPTY_FILTERS } from '../com
 import { useLongPress } from '../hooks/useLongPress'
 import AddCardModal from '../components/AddCardModal'
 import ImportModal from '../components/ImportModal'
+import ExportModal from '../components/ExportModal'
 import styles from './Folders.module.css'
 import listStyles from './Lists.module.css'
 
@@ -243,6 +244,7 @@ function ListBrowser({ folder, onBack }) {
   const [selectMode, setSelectMode]       = useState(false)
   const [selectedItems, setSelectedItems] = useState(new Set())
   const [showAddCard, setShowAddCard]     = useState(false)
+  const [showExport, setShowExport]       = useState(false)
   const [view, setView]                   = useState('list')   // 'list' | 'grid'
 
   const reload = useCallback(async () => {
@@ -303,6 +305,7 @@ function ListBrowser({ folder, onBack }) {
           <div className={styles.binderMeta}>
             <span>{totalQty} wants</span>
             <span className={styles.binderValue}>{formatPrice(totalValue, price_source)}</span>
+            <button className={styles.addCardsBtn} onClick={() => setShowExport(true)}>↓ Export</button>
             <button className={styles.addCardsBtn} onClick={() => setShowAddCard(true)}>+ Add Cards</button>
           </div>
         </div>
@@ -381,6 +384,15 @@ function ListBrowser({ folder, onBack }) {
           defaultFolderId={folder.id}
           onClose={() => setShowAddCard(false)}
           onSaved={async () => { setShowAddCard(false); await reload() }}
+        />
+      )}
+      {showExport && (
+        <ExportModal
+          cards={items}
+          sfMap={sfMap}
+          title={folder.name}
+          folderType="list"
+          onClose={() => setShowExport(false)}
         />
       )}
     </div>
@@ -608,11 +620,44 @@ export default function ListsPage() {
   const [showNewFolder, setShowNewFolder] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
   const [showImport, setShowImport] = useState(false)
+  const [showExportAll, setShowExportAll]     = useState(false)
+  const [exportAllCards, setExportAllCards]   = useState([])
+  const [exportAllSfMap, setExportAllSfMap]   = useState({})
+  const [exportAllLoading, setExportAllLoading] = useState(false)
 
   const handleSortChange = (val) => {
     setSort(val)
     saveSettings({ list_sort: val })
   }
+
+  const handleExportAll = useCallback(async () => {
+    setExportAllLoading(true)
+    setShowExportAll(true)
+    try {
+      const folderIds = folders.map(f => f.id)
+      if (!folderIds.length) { setExportAllLoading(false); return }
+      let allItems = [], from = 0
+      while (true) {
+        const { data: page } = await sb
+          .from('list_items')
+          .select('*')
+          .in('folder_id', folderIds)
+          .range(from, from + 999)
+        if (page?.length) allItems = [...allItems, ...page]
+        if (!page || page.length < 1000) break
+        from += 1000
+      }
+      const sfMap = await getInstantCache() || {}
+      const cards = allItems.map(item => {
+        const folder = folders.find(f => f.id === item.folder_id)
+        return { ...item, _folder_qty: item.qty, _folderName: folder?.name || '', _folderType: 'list' }
+      })
+      setExportAllCards(cards)
+      setExportAllSfMap(sfMap)
+    } finally {
+      setExportAllLoading(false)
+    }
+  }, [folders])
 
   const saveFolderBg = useCallback(async (folder, url) => {
     let desc = {}
@@ -827,6 +872,7 @@ export default function ListsPage() {
                   + New Group
                 </button>
                 <button className={styles.importBtn} onClick={() => setShowImport(true)}>↑ Import</button>
+                <button className={styles.importBtn} onClick={handleExportAll}>↓ Export</button>
                 <button className={styles.newFolderBtn} onClick={() => setShowNewFolder(true)}>+ New Wishlist</button>
                 <button className={styles.selectModeBtn} onClick={() => setSelectMode(true)}>Select</button>
                 <SortDropdown value={sort} onChange={handleSortChange} options={SORT_OPTIONS} />
@@ -992,6 +1038,18 @@ export default function ListsPage() {
           folders={regularFolders}
           onClose={() => setShowImport(false)}
           onSaved={() => { setShowImport(false); loadFolders() }}
+        />
+      )}
+
+      {/* Export all wishlists modal */}
+      {showExportAll && (
+        <ExportModal
+          cards={exportAllCards}
+          sfMap={exportAllSfMap}
+          title="All Wishlists"
+          folderType="list"
+          loading={exportAllLoading}
+          onClose={() => { setShowExportAll(false); setExportAllCards([]) }}
         />
       )}
     </div>

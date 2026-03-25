@@ -7,6 +7,7 @@ import { useAuth } from '../components/Auth'
 import { CardDetail, FilterBar, BulkActionBar, applyFilterSort, EMPTY_FILTERS } from '../components/CardComponents'
 import { EmptyState } from '../components/UI'
 import AddCardModal from '../components/AddCardModal'
+import ExportModal from '../components/ExportModal'
 import styles from './DeckBrowser.module.css'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
 import { useLongPress } from '../hooks/useLongPress'
@@ -627,6 +628,7 @@ export default function DeckBrowser({ folder, onBack }) {
   const [splitState, setSplitState]       = useState(new Map()) // Map<cardId, selectedQty>
   // Hover preview
   const [showAddCard, setShowAddCard] = useState(false)
+  const [showExport, setShowExport]   = useState(false)
   const [hoverImg, setHoverImg] = useState(null)
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 })
   const handleHover    = useCallback((img) => setHoverImg(img), [])
@@ -802,6 +804,9 @@ export default function DeckBrowser({ folder, onBack }) {
           <div className={styles.headerMeta}>
             <span>{totalQty} cards</span>
             <span className={styles.deckValue}>{formatPrice(totalValue, price_source)}</span>
+            <button className={styles.addCardsBtn} onClick={() => setShowExport(true)}>
+              ↓ Export
+            </button>
             <button className={styles.addCardsBtn} onClick={() => setShowAddCard(true)}>
               + Add Cards
             </button>
@@ -952,6 +957,15 @@ export default function DeckBrowser({ folder, onBack }) {
               if (map) setSfMap({ ...map })
             }
           }}
+        />
+      )}
+      {showExport && (
+        <ExportModal
+          cards={cards}
+          sfMap={sfMap}
+          title={folder.name}
+          folderType="deck"
+          onClose={() => setShowExport(false)}
         />
       )}
     </div>
