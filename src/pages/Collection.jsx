@@ -491,7 +491,7 @@ export default function CollectionPage() {
   if (loading && !cards.length) return <EmptyState>Loading your collection…</EmptyState>
 
   return (
-    <div>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <SectionHeader
         title={`Collection${cards.length ? ` · ${cards.length} cards` : ''}`}
         action={
@@ -554,15 +554,17 @@ export default function CollectionPage() {
           />
         )}
 
-        <VirtualCardGrid
-          cards={displayCards} sfMap={sfMap} loading={enriching}
-          onSelect={c => setDetailCardId(c.id)}
-          selectMode={selectMode} selected={selected} onToggleSelect={toggleSelect}
-          onEnterSelectMode={() => { setSelectMode(true) }}
-          priceSource={price_source}
-          showPrice={show_price} density={grid_density}
-          cardFolders={cardFolderMap}
-        />
+        <div style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
+          <VirtualCardGrid
+            cards={displayCards} sfMap={sfMap} loading={enriching}
+            onSelect={c => setDetailCardId(c.id)}
+            selectMode={selectMode} selected={selected} onToggleSelect={toggleSelect}
+            onEnterSelectMode={() => { setSelectMode(true) }}
+            priceSource={price_source}
+            showPrice={show_price} density={grid_density}
+            cardFolders={cardFolderMap}
+          />
+        </div>
 
         {displayCards.length === 0 && !enriching && <EmptyState>No cards match your filters.</EmptyState>}
       </>}

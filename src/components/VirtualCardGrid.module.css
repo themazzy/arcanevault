@@ -1,6 +1,6 @@
 .scroll {
-  height: calc(100vh - 280px);
-  min-height: 400px;
+  height: 100%;
+  min-height: 120px;
   overflow-y: auto;
   overflow-x: hidden;
   padding-top: 18px; /* prevents top-row cards being clipped by header on hover */
@@ -8,7 +8,6 @@
 
 @media (max-width: 768px) {
   .scroll {
-    height: calc(100vh - 210px);
     padding-top: 12px;
   }
 }

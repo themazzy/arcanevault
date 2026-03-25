@@ -212,3 +212,46 @@
   display: flex;
   justify-content: flex-end;
 }
+
+/* ── Typography controls ─────────────────────────────────────────────────── */
+.fontWeightOptions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.fontOption {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-family: var(--font-serif);
+  font-size: 0.88rem;
+  padding: 5px 14px;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.fontOption:hover {
+  color: var(--text);
+  border-color: rgba(180,140,60,0.3);
+}
+
+.fontOptionActive {
+  background: rgba(201,168,76,0.1);
+  border-color: rgba(201,168,76,0.45);
+  color: var(--gold);
+}
+
+.fontPreview {
+  font-family: var(--font-serif);
+  font-size: var(--user-font-size, 16px);
+  font-weight: var(--user-font-weight, 420);
+  color: var(--text);
+  line-height: 1.6;
+  padding: 10px 14px;
+  background: rgba(0,0,0,0.15);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 5px;
+  min-width: 260px;
+}

@@ -163,7 +163,28 @@ function TypeIcon({ type, size = 14, style }) {
 
 // ── View: Text ────────────────────────────────────────────────────────────────
 
-function TextView({ groups, groupOrder, getKey }) {
+function TextRow({ card, selectMode, isSelected, onToggleSelect, onEnterSelectMode }) {
+  const longPress = useLongPress(() => { if (!selectMode) onEnterSelectMode?.() }, { delay: 500 })
+  const { onMouseLeave: lpLeave, ...lpRest } = longPress
+  return (
+    <div
+      className={`${styles.textRow}${isSelected ? ' '+styles.textRowSelected : ''}${selectMode ? ' '+styles.textRowSelectable : ''}`}
+      onClick={() => selectMode ? onToggleSelect(card.id, card._folder_qty||card.qty||1) : undefined}
+      onMouseLeave={e => { lpLeave?.(e) }}
+      {...lpRest}>
+      {selectMode && (
+        <div className={`${styles.textCheckbox}${isSelected ? ' '+styles.textCheckboxChecked : ''}`}>
+          {isSelected && '✓'}
+        </div>
+      )}
+      <span className={styles.textQty}>{card._folder_qty||card.qty||1}x</span>
+      <span className={styles.textName}>{card.name}</span>
+      {card.foil && <span className={styles.textFoil}>✦</span>}
+    </div>
+  )
+}
+
+function TextView({ groups, groupOrder, selectMode, selectedCards, onToggleSelect, onEnterSelectMode, hideHeaders }) {
   return (
     <div className={styles.textView}>
       {groupOrder.filter(g => groups[g]?.length).map(group => {
@@ -171,19 +192,21 @@ function TextView({ groups, groupOrder, getKey }) {
         const total = cards.reduce((s,c) => s+(c._folder_qty||c.qty||1), 0)
         return (
           <div key={group} className={styles.textGroup}>
-            <div className={styles.textGroupHeader}>
-              <span style={{ color: CAT_COLORS[group] || 'var(--gold-dim)' }}>{group}</span>
-              <span className={styles.textGroupCount}>{total}</span>
-            </div>
+            {!hideHeaders && (
+              <div className={styles.textGroupHeader}>
+                <span style={{ color: CAT_COLORS[group] || 'var(--gold-dim)' }}>{group}</span>
+                <span className={styles.textGroupCount}>{total}</span>
+              </div>
+            )}
             {cards
               .slice()
               .sort((a,b) => a.name.localeCompare(b.name))
               .map(c => (
-                <div key={c.id} className={styles.textRow}>
-                  <span className={styles.textQty}>{c._folder_qty||c.qty||1}x</span>
-                  <span className={styles.textName}>{c.name}</span>
-                  {c.foil && <span className={styles.textFoil}>✦</span>}
-                </div>
+                <TextRow key={c.id} card={c}
+                  selectMode={selectMode}
+                  isSelected={selectedCards?.has(c.id)}
+                  onToggleSelect={onToggleSelect}
+                  onEnterSelectMode={onEnterSelectMode} />
               ))}
           </div>
         )
@@ -194,7 +217,7 @@ function TextView({ groups, groupOrder, getKey }) {
 
 // ── View: Table ───────────────────────────────────────────────────────────────
 
-function TableView({ cards, sfMap, priceSource, onSelect }) {
+function TableView({ cards, sfMap, priceSource, onSelect, selectMode, selectedCards, onToggleSelect, onEnterSelectMode }) {
   const [sortCol, setSortCol] = useState('name')
   const [sortDir, setSortDir] = useState(1)
 
@@ -222,6 +245,7 @@ function TableView({ cards, sfMap, priceSource, onSelect }) {
       <table className={styles.table}>
         <thead>
           <tr>
+            {selectMode && <th className={styles.th} style={{ width: 32 }} />}
             {[['qty','Qty'],['name','Name'],['cmc','CMC'],['type','Type'],['price','Price']].map(([k,l]) => (
               <th key={k} className={styles.th} onClick={() => thClick(k)}>
                 {l} <span className={styles.thArrow}>{arrow(k)}</span>
@@ -235,30 +259,55 @@ function TableView({ cards, sfMap, priceSource, onSelect }) {
             const scryfallPrice = getPrice(sf, card.foil, { price_source: priceSource })
             const price = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
             const mc = sf?.mana_cost || sf?.card_faces?.[0]?.mana_cost || ''
+            const isSelected = selectedCards?.has(card.id)
+            const handleClick = () => selectMode
+              ? onToggleSelect(card.id, card._folder_qty||card.qty||1)
+              : onSelect(card)
             return (
-              <tr key={card.id} className={styles.tr} onClick={() => onSelect(card)}>
-                <td className={styles.td} style={{ textAlign:'center', color:'var(--text-faint)' }}>
-                  {card._folder_qty||card.qty||1}
-                </td>
-                <td className={styles.td}>
-                  <span className={styles.tableName}>{card.name}</span>
-                  {card.foil && <span className={styles.tableFoil}>✦</span>}
-                </td>
-                <td className={styles.td} style={{ textAlign:'center', color:'var(--text-dim)' }}>
-                  <InlineMana cost={mc} size={13} />
-                </td>
-                <td className={styles.td} style={{ color:'var(--text-faint)', fontSize:'0.76rem' }}>
-                  {(sf?.type_line||'—').split('—')[0].trim()}
-                </td>
-                <td className={styles.td} style={{ textAlign:'right', fontFamily:'var(--font-display)', fontSize:'0.8rem', color: (scryfallPrice == null && price != null) ? 'var(--text-dim)' : 'var(--green)' }}>
-                  {price != null ? formatPrice(price,priceSource) : '—'}
-                </td>
-              </tr>
+              <TableRow key={card.id} card={card} sf={sf} mc={mc} price={price} scryfallPrice={scryfallPrice}
+                priceSource={priceSource} isSelected={isSelected} selectMode={selectMode}
+                onClick={handleClick} onEnterSelectMode={onEnterSelectMode} />
             )
           })}
         </tbody>
       </table>
     </div>
+  )
+}
+
+function TableRow({ card, sf, mc, price, scryfallPrice, priceSource, isSelected, selectMode, onClick, onEnterSelectMode }) {
+  const longPress = useLongPress(() => { if (!selectMode) onEnterSelectMode?.() }, { delay: 500 })
+  const { onMouseLeave: lpLeave, ...lpRest } = longPress
+  return (
+    <tr
+      className={`${styles.tr}${isSelected ? ' '+styles.trSelected : ''}`}
+      onClick={onClick}
+      onMouseLeave={e => { lpLeave?.(e) }}
+      {...lpRest}>
+      {selectMode && (
+        <td className={styles.td} style={{ textAlign: 'center', paddingRight: 0 }}>
+          <div className={`${styles.tableCheckbox}${isSelected ? ' '+styles.tableCheckboxChecked : ''}`}>
+            {isSelected && '✓'}
+          </div>
+        </td>
+      )}
+      <td className={styles.td} style={{ textAlign:'center', color:'var(--text-faint)' }}>
+        {card._folder_qty||card.qty||1}
+      </td>
+      <td className={styles.td}>
+        <span className={styles.tableName}>{card.name}</span>
+        {card.foil && <span className={styles.tableFoil}>✦</span>}
+      </td>
+      <td className={styles.td} style={{ textAlign:'center', color:'var(--text-dim)' }}>
+        <InlineMana cost={mc} size={13} />
+      </td>
+      <td className={styles.td} style={{ color:'var(--text-faint)', fontSize:'0.76rem' }}>
+        {(sf?.type_line||'—').split('—')[0].trim()}
+      </td>
+      <td className={styles.td} style={{ textAlign:'right', fontFamily:'var(--font-display)', fontSize:'0.8rem', color: (scryfallPrice == null && price != null) ? 'var(--text-dim)' : 'var(--green)' }}>
+        {price != null ? formatPrice(price,priceSource) : '—'}
+      </td>
+    </tr>
   )
 }
 
@@ -307,7 +356,7 @@ function StackCard({ card, sf, idx, priceSource, selectMode, isSelected, isSplit
   )
 }
 
-function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, onHover, onHoverEnd, selectMode, selectedCards, onToggleSelect, onIncrementSplit, splitState, onEnterSelectMode }) {
+function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, onHover, onHoverEnd, selectMode, selectedCards, onToggleSelect, onIncrementSplit, splitState, onEnterSelectMode, hideHeaders }) {
   return (
     <div className={styles.stacksWrap}>
       {groupOrder.filter(g => groups[g]?.length).map(group => {
@@ -326,10 +375,12 @@ function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, onHover,
         }
         return (
           <div key={group} className={styles.stackGroup}>
-            <div className={styles.stackGroupHeader}>
-              <span style={{ color: CAT_COLORS[group] || 'var(--gold-dim)' }}>{group}</span>
-              <span className={styles.stackGroupCount}>{total}</span>
-            </div>
+            {!hideHeaders && (
+              <div className={styles.stackGroupHeader}>
+                <span style={{ color: CAT_COLORS[group] || 'var(--gold-dim)' }}>{group}</span>
+                <span className={styles.stackGroupCount}>{total}</span>
+              </div>
+            )}
             <div className={styles.stackCards}>
               {displayRows.map((card, idx) => {
                 const baseId = card._base_id || card.id
@@ -399,7 +450,7 @@ function DeckListRow({ card, sfCard, priceSource, onClick, onHover, onHoverEnd, 
   )
 }
 
-function DeckListGroup({ groupName, cards, sfMap, priceSource, onSelect, color, onHover, onHoverEnd, selectMode, selectedCards, onToggleSelect, onIncrementSplit, splitState, onEnterSelectMode }) {
+function DeckListGroup({ groupName, cards, sfMap, priceSource, onSelect, color, onHover, onHoverEnd, selectMode, selectedCards, onToggleSelect, onIncrementSplit, splitState, onEnterSelectMode, hideHeader }) {
   const [collapsed, setCollapsed] = useState(false)
   const total = cards.reduce((s,c) => s+(c._folder_qty||c.qty||1), 0)
 
@@ -421,15 +472,17 @@ function DeckListGroup({ groupName, cards, sfMap, priceSource, onSelect, color, 
 
   return (
     <div className={styles.listGroup}>
-      <button className={styles.groupHeader} onClick={() => setCollapsed(v => !v)}>
-        <span className={styles.groupIcon} style={{ color: color||'var(--gold-dim)' }}>
-          <TypeIcon type={groupName} size={13} style={{ verticalAlign:'middle' }} />
-        </span>
-        <span className={styles.groupName}>{groupName}</span>
-        <span className={styles.groupCount}>{total}</span>
-        <span className={styles.groupToggle}>{collapsed ? '▸' : '▾'}</span>
-      </button>
-      {!collapsed && (
+      {!hideHeader && (
+        <button className={styles.groupHeader} onClick={() => setCollapsed(v => !v)}>
+          <span className={styles.groupIcon} style={{ color: color||'var(--gold-dim)' }}>
+            <TypeIcon type={groupName} size={13} style={{ verticalAlign:'middle' }} />
+          </span>
+          <span className={styles.groupName}>{groupName}</span>
+          <span className={styles.groupCount}>{total}</span>
+          <span className={styles.groupToggle}>{collapsed ? '▸' : '▾'}</span>
+        </button>
+      )}
+      {(!collapsed || hideHeader) && (
         <div className={styles.groupRows}>
           {displayRows.map(card => {
             const baseId = card._base_id || card.id
@@ -706,6 +759,7 @@ export default function DeckBrowser({ folder, onBack }) {
 
   // Build groups based on groupBy mode
   const { groups, groupOrder } = useMemo(() => {
+    if (groupBy === 'none') return { groups: { 'All': filtered }, groupOrder: ['All'] }
     const g = {}
     const order = groupBy === 'category' ? CAT_ORDER : TYPE_ORDER
 
@@ -775,6 +829,8 @@ export default function DeckBrowser({ folder, onBack }) {
               onClick={() => setGroupBy('type')}>By Type</button>
             <button className={`${styles.groupByBtn} ${groupBy==='category' ? styles.groupByActive : ''}`}
               onClick={() => setGroupBy('category')}>By Function</button>
+            <button className={`${styles.groupByBtn} ${groupBy==='none' ? styles.groupByActive : ''}`}
+              onClick={() => setGroupBy('none')}>Ungrouped</button>
           </div>
         </div>
         {/* View mode */}
@@ -826,7 +882,8 @@ export default function DeckBrowser({ folder, onBack }) {
               onHover={handleHover} onHoverEnd={handleHoverEnd}
               selectMode={selectMode} selectedCards={selectedCards} onToggleSelect={onToggleSelect}
               splitState={splitState} onIncrementSplit={onIncrementSplit}
-              onEnterSelectMode={() => setSelectMode(true)} />
+              onEnterSelectMode={() => setSelectMode(true)}
+              hideHeader={groupBy==='none'} />
           ))}
         </div>
       )}
@@ -837,11 +894,15 @@ export default function DeckBrowser({ folder, onBack }) {
           onHover={handleHover} onHoverEnd={handleHoverEnd}
           selectMode={selectMode} selectedCards={selectedCards} onToggleSelect={onToggleSelect}
           splitState={splitState} onIncrementSplit={onIncrementSplit}
-          onEnterSelectMode={() => setSelectMode(true)} />
+          onEnterSelectMode={() => setSelectMode(true)}
+          hideHeaders={groupBy==='none'} />
       )}
 
       {viewMode === 'text' && filtered.length > 0 && (
-        <TextView groups={groups} groupOrder={groupOrder} sfMap={sfMap} />
+        <TextView groups={groups} groupOrder={groupOrder}
+          selectMode={selectMode} selectedCards={selectedCards} onToggleSelect={onToggleSelect}
+          onEnterSelectMode={() => setSelectMode(true)}
+          hideHeaders={groupBy==='none'} />
       )}
 
       {viewMode === 'grid' && filtered.length > 0 && (
@@ -855,7 +916,9 @@ export default function DeckBrowser({ folder, onBack }) {
       {viewMode === 'table' && filtered.length > 0 && (
         <TableView cards={filtered} sfMap={sfMap}
           priceSource={price_source}
-          onSelect={c => { handleHoverEnd(); setDetailCardId(c.id) }} />
+          onSelect={c => { handleHoverEnd(); setDetailCardId(c.id) }}
+          selectMode={selectMode} selectedCards={selectedCards} onToggleSelect={onToggleSelect}
+          onEnterSelectMode={() => setSelectMode(true)} />
       )}
 
       {selectedCard && (

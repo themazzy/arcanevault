@@ -182,6 +182,13 @@
   letter-spacing: 0.08em; text-transform: uppercase;
 }
 
+@media (max-width: 480px) {
+  .sectionHeader { flex-wrap: wrap; gap: 8px; }
+  .sectionTitle { font-size: 0.88rem; }
+  .empty { padding: 40px 16px; }
+  .dropZone { padding: 32px 20px; }
+}
+
 /* Badge */
 .badge {
   display: inline-block;

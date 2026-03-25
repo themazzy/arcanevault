@@ -13,6 +13,8 @@ const DEFAULTS = {
   binder_sort: 'name',
   deck_sort: 'name',
   list_sort: 'name',
+  font_weight: 420,
+  font_size: 16,
 }
 
 function loadLocal() {
@@ -54,6 +56,13 @@ export function SettingsProvider({ children }) {
       })
   }, [user])
 
+  // Apply font settings as CSS variables whenever they change
+  useEffect(() => {
+    const root = document.documentElement
+    root.style.setProperty('--user-font-weight', String(settings.font_weight ?? 420))
+    root.style.setProperty('--user-font-size', `${settings.font_size ?? 16}px`)
+  }, [settings.font_weight, settings.font_size])
+
   const save = useCallback(async (patch) => {
     const next = { ...settings, ...patch }
     setSettings(next)
@@ -63,10 +72,11 @@ export function SettingsProvider({ children }) {
     clearTimeout(syncTimeout.current)
     syncTimeout.current = setTimeout(async () => {
       const { price_source, default_sort, grid_density, show_price, cache_ttl_h,
-              binder_sort, deck_sort, list_sort } = next
+              binder_sort, deck_sort, list_sort, font_weight, font_size } = next
       const { error } = await sb.from('user_settings').upsert(
         { user_id: user.id, price_source, default_sort, grid_density, show_price, cache_ttl_h,
-          binder_sort, deck_sort, list_sort, updated_at: new Date().toISOString() },
+          binder_sort, deck_sort, list_sort, font_weight, font_size,
+          updated_at: new Date().toISOString() },
         { onConflict: 'user_id' }
       )
       if (error) console.warn('Settings sync failed (table may not exist yet):', error.message)

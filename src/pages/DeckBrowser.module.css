@@ -297,15 +297,33 @@
   margin: 10px 0 12px; gap: 12px; flex-wrap: wrap;
 }
 .countInfo { font-size: 0.8rem; color: var(--text-dim); }
-.viewToggle { display: flex; gap: 4px; }
-.viewBtn {
-  background: rgba(255,255,255,0.04); border: 1px solid var(--border);
-  border-radius: 3px; padding: 5px 12px; color: var(--text-dim);
-  font-size: 0.75rem; font-family: var(--font-display); letter-spacing: 0.04em;
-  cursor: pointer; transition: all 0.15s;
+.viewToggle {
+  display: flex;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 5px;
+  padding: 2px;
+  gap: 1px;
 }
-.viewBtn:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
-.viewActive { color: var(--gold) !important; border-color: rgba(201,168,76,0.4) !important; background: rgba(201,168,76,0.08) !important; }
+.viewBtn {
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  padding: 4px 11px;
+  color: var(--text-faint);
+  font-size: 0.72rem;
+  font-family: var(--font-display);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.viewBtn:hover { color: var(--text-dim); background: rgba(255,255,255,0.04); }
+.viewActive {
+  color: var(--gold) !important;
+  background: rgba(201,168,76,0.1) !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+}
 
 /* ── Deck List View ──────────────────────────────────────────────────────── */
 .deckList { display: flex; flex-direction: column; gap: 10px; }
@@ -474,6 +492,16 @@
   transition: background 0.1s;
 }
 .textRow:hover { background: rgba(255,255,255,0.04); }
+.textRowSelectable { cursor: pointer; }
+.textRowSelected { background: rgba(201,168,76,0.1) !important; outline: 1px solid rgba(201,168,76,0.3); }
+.textCheckbox {
+  width: 14px; height: 14px; flex-shrink: 0;
+  border: 1.5px solid rgba(201,168,76,0.5); border-radius: 3px;
+  background: rgba(10,8,20,0.7);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.6rem; color: var(--gold);
+}
+.textCheckboxChecked { background: rgba(201,168,76,0.2); border-color: var(--gold); }
 .textQty { font-family: var(--font-display); font-size: 0.76rem; color: var(--text-faint); width: 26px; text-align: right; flex-shrink: 0; }
 .textName { font-size: 0.86rem; color: var(--text); }
 .textFoil { font-size: 0.7rem; color: var(--purple); }
@@ -494,9 +522,19 @@
 .tr { border-bottom: 1px solid rgba(255,255,255,0.04); cursor: pointer; transition: background 0.12s; }
 .tr:last-child { border-bottom: none; }
 .tr:hover { background: rgba(201,168,76,0.06); }
+.trSelected { background: rgba(201,168,76,0.1) !important; }
+.trSelected:hover { background: rgba(201,168,76,0.14) !important; }
 .td { padding: 7px 12px; vertical-align: middle; }
 .tableName { color: var(--text); }
 .tableFoil { font-size: 0.72rem; color: var(--purple); margin-left: 5px; }
+.tableCheckbox {
+  width: 14px; height: 14px; margin: 0 auto;
+  border: 1.5px solid rgba(201,168,76,0.5); border-radius: 3px;
+  background: rgba(10,8,20,0.7);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.6rem; color: var(--gold);
+}
+.tableCheckboxChecked { background: rgba(201,168,76,0.2); border-color: var(--gold); }
 
 /* ── Stacks View ─────────────────────────────────────────────────────────── */
 .stacksWrap { display: flex; flex-direction: column; gap: 20px; }

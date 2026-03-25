@@ -4,6 +4,75 @@
   margin: 0 auto;
 }
 
+/* ── Confirm dialog ─────────────────────────────────────────────────── */
+.confirmOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.65);
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.confirmDialog {
+  background: var(--bg3);
+  border: 1px solid var(--border-hi);
+  border-radius: 8px;
+  box-shadow: var(--shadow-lg);
+  padding: 24px 28px;
+  width: 360px;
+  max-width: 92vw;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.confirmMsg {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.confirmMsg p { margin: 0; }
+.confirmMsg p:first-child { font-weight: 500; }
+.confirmMsg p:not(:first-child) { color: var(--text-dim); font-size: 0.83rem; }
+
+.confirmActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.confirmCancel {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 5px;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-family: var(--font-serif);
+  font-size: 0.88rem;
+  padding: 7px 18px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.confirmCancel:hover { background: rgba(255,255,255,0.09); border-color: rgba(255,255,255,0.22); }
+
+.confirmOk {
+  background: rgba(201,168,76,0.15);
+  border: 1px solid rgba(201,168,76,0.45);
+  border-radius: 5px;
+  color: var(--gold);
+  cursor: pointer;
+  font-family: var(--font-serif);
+  font-size: 0.88rem;
+  padding: 7px 18px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.confirmOk:hover { background: rgba(201,168,76,0.25); border-color: rgba(201,168,76,0.65); }
+
 /* ── Filter bar ─────────────────────────────────────────────────────── */
 .filterBar {
   display: flex;
@@ -14,18 +83,23 @@
 }
 
 .filterInput {
-  background: rgba(255,255,255,0.05);
-  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.035);
+  border: 1px solid rgba(180,140,60,0.18);
   border-radius: 6px;
-  padding: 6px 12px;
+  padding: 6px 14px;
   color: var(--text);
   font-size: 0.85rem;
   outline: none;
   width: 200px;
-  transition: border-color 0.15s;
+  transition: border-color 0.18s, box-shadow 0.18s, background 0.18s;
 }
-
-.filterInput:focus { border-color: rgba(201,168,76,0.5); }
+.filterInput::placeholder { color: var(--text-faint); font-style: italic; }
+.filterInput:hover { background: rgba(255,255,255,0.05); border-color: rgba(180,140,60,0.28); }
+.filterInput:focus {
+  background: rgba(255,255,255,0.05);
+  border-color: rgba(201,168,76,0.5);
+  box-shadow: 0 0 0 3px rgba(201,168,76,0.1), 0 2px 8px rgba(0,0,0,0.3);
+}
 
 .filterGroup {
   display: flex;
@@ -264,4 +338,22 @@
 .bulkDelete:hover {
   background: rgba(200,60,60,0.22) !important;
   border-color: rgba(200,60,60,0.5) !important;
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .page { padding: 16px; }
+  .filterBar { gap: 6px; }
+  .filterInput { width: 100%; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+}
+
+@media (max-width: 480px) {
+  .page { padding: 12px; }
+  .filterBar { flex-direction: column; align-items: stretch; }
+  .filterGroup { flex-wrap: wrap; }
+  .grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .card { min-height: 120px; }
+  .cardName { font-size: 0.88rem; }
+  .bulkBar { flex-wrap: wrap; gap: 6px; }
 }

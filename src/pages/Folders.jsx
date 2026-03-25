@@ -385,6 +385,51 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
   )
 }
 
+// ── Binder list view ─────────────────────────────────────────────────────────
+function BinderListView({ cards, sfMap, priceSource }) {
+  return (
+    <div className={styles.listTable}>
+      <div className={styles.listHeader}>
+        <span>Card</span>
+        <span>Set</span>
+        <span className={styles.lhCenter}>Qty</span>
+        <span className={styles.lhRight}>Price</span>
+        <span className={styles.lhRight}>Total</span>
+      </div>
+      {cards.map(card => {
+        const sf    = sfMap[getScryfallKey(card)]
+        const qty   = card._folder_qty || card.qty || 1
+        const price = getPrice(sf, card.foil, { price_source: priceSource })
+        const img   = sf?.image_uris?.small || sf?.card_faces?.[0]?.image_uris?.small
+        return (
+          <div key={card.id} className={styles.listRow}>
+            <div className={styles.lrCard}>
+              {img
+                ? <img src={img} className={styles.lrThumb} alt="" loading="lazy" />
+                : <div className={styles.lrThumbEmpty} />
+              }
+              <div className={styles.lrNameWrap}>
+                <span className={styles.lrName}>
+                  {sf?.name || `${card.set_code?.toUpperCase()}-${card.collector_number}`}
+                </span>
+                {card.foil && <span className={styles.lrFoil}>FOIL</span>}
+              </div>
+            </div>
+            <span className={styles.lrSet}>{sf?.set_name || (card.set_code || '').toUpperCase()}</span>
+            <span className={styles.lrQty}>×{qty}</span>
+            <span className={styles.lrPrice} style={{ color: price != null ? 'var(--green, #5dba70)' : 'var(--text-faint)' }}>
+              {price != null ? formatPrice(price, priceSource) : '—'}
+            </span>
+            <span className={styles.lrTotal}>
+              {price != null ? formatPrice(price * qty, priceSource) : '—'}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── FolderBrowser ─────────────────────────────────────────────────────────────
 function FolderBrowser({ folder, allFolders = [], onBack }) {
   const { price_source, default_sort } = useSettings()
@@ -399,6 +444,7 @@ function FolderBrowser({ folder, allFolders = [], onBack }) {
   const [selectMode, setSelectMode]   = useState(false)
   const [selectedCards, setSelectedCards] = useState(new Set())
   const [showAddCard, setShowAddCard] = useState(false)
+  const [view, setView]               = useState('grid')   // 'grid' | 'list'
 
   useEffect(() => {
     const load = async () => {
@@ -465,26 +511,18 @@ function FolderBrowser({ folder, allFolders = [], onBack }) {
 
   return (
     <div>
-      <button className={styles.backBtn} onClick={onBack}>← Back</button>
-      <SectionHeader
-        title={folder.name}
-        action={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <button
-              onClick={() => setShowAddCard(true)}
-              style={{
-                background: 'rgba(201,168,76,0.1)', border: '1px solid rgba(201,168,76,0.35)',
-                borderRadius: 5, color: 'var(--gold)', padding: '5px 13px', cursor: 'pointer',
-                fontSize: '0.8rem', fontFamily: 'var(--font-display)', letterSpacing: '0.04em',
-              }}>
-              + Add Cards
-            </button>
-            <span style={{ color: 'var(--text-dim)', fontSize: '0.82rem' }}>
-              {totalQty} cards · <strong style={{ color: 'var(--green)' }}>{formatPrice(totalValue, price_source)}</strong>
-            </span>
+      {/* ── Binder header ── */}
+      <div className={styles.binderHeader}>
+        <button className={styles.backBtn} onClick={onBack}>← Back to Binders</button>
+        <div className={styles.binderTitleRow}>
+          <h2 className={styles.binderTitle}>{folder.name}</h2>
+          <div className={styles.binderMeta}>
+            <span>{totalQty} cards</span>
+            <span className={styles.binderValue}>{formatPrice(totalValue, price_source)}</span>
+            <button className={styles.addCardsBtn} onClick={() => setShowAddCard(true)}>+ Add Cards</button>
           </div>
-        }
-      />
+        </div>
+      </div>
 
       <FilterBar
         search={search} setSearch={setSearch}
@@ -493,6 +531,22 @@ function FolderBrowser({ folder, allFolders = [], onBack }) {
         selectMode={selectMode}
         onToggleSelectMode={toggleSelectMode}
       />
+
+      {/* ── Control bar ── */}
+      <div className={styles.binderControlBar}>
+        <span className={styles.binderCount}>
+          {filtered.length < cards.length
+            ? `${filtered.length} of ${cards.length} unique`
+            : `${cards.length} unique`} · {totalQty} total
+        </span>
+        <div className={styles.viewToggle}>
+          <button className={`${styles.viewBtn} ${view === 'grid' ? styles.viewActive : ''}`}
+            onClick={() => setView('grid')}>⊞ Grid</button>
+          <button className={`${styles.viewBtn} ${view === 'list' ? styles.viewActive : ''}`}
+            onClick={() => setView('list')}>≡ List</button>
+        </div>
+      </div>
+
       {selectMode && selectedCards.size > 0 && (
         <BulkActionBar
           selected={selectedCards}
@@ -504,22 +558,27 @@ function FolderBrowser({ folder, allFolders = [], onBack }) {
           folders={allFolders.filter(f => f.id !== folder.id && !isGroupFolder(f))}
         />
       )}
-      <div className={styles.gridHeader}>
-        <span>Showing {filtered.length} of {cards.length} unique · {totalQty} total</span>
-        <span>Value: <strong style={{ color: 'var(--green)' }}>{formatPrice(totalValue, price_source)}</strong></span>
-      </div>
-      <CardGrid
-        cards={filtered} sfMap={sfMap}
-        onSelect={c => setSelected(c.id)}
-        selectMode={selectMode}
-        selected={selectedCards}
-        onToggleSelect={id => setSelectedCards(prev => {
-          const next = new Set(prev)
-          next.has(id) ? next.delete(id) : next.add(id)
-          return next
-        })}
-      />
+
       {filtered.length === 0 && <EmptyState>No cards match your search.</EmptyState>}
+
+      {view === 'grid' && filtered.length > 0 && (
+        <CardGrid
+          cards={filtered} sfMap={sfMap}
+          onSelect={c => setSelected(c.id)}
+          selectMode={selectMode}
+          selected={selectedCards}
+          onToggleSelect={id => setSelectedCards(prev => {
+            const next = new Set(prev)
+            next.has(id) ? next.delete(id) : next.add(id)
+            return next
+          })}
+        />
+      )}
+
+      {view === 'list' && filtered.length > 0 && (
+        <BinderListView cards={filtered} sfMap={sfMap} priceSource={price_source} />
+      )}
+
       {selectedCard && <CardDetail card={selectedCard} sfCard={selectedSf} priceSource={price_source} onClose={() => setSelected(null)} />}
       {showAddCard && user && (
         <AddCardModal
@@ -1065,7 +1124,7 @@ export default function FoldersPage({ type }) {
   if (loading) return <EmptyState>Loading {noun.toLowerCase()}s…</EmptyState>
 
   return (
-    <div>
+    <div className={styles.page}>
       <SectionHeader
         title={`${noun}s`}
         action={

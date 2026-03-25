@@ -6,7 +6,7 @@ import {
   FORMATS, TYPE_GROUPS, classifyCardType,
   parseDeckMeta, serializeDeckMeta, getCardImageUri, nameToSlug,
   searchCards, searchCommanders, fetchCardsByNames,
-  fetchEdhrecCommander, fetchRecommander, makeDebouncer,
+  fetchEdhrecCommander, makeDebouncer,
   importDeckFromUrl, parseTextDecklist,
 } from '../lib/deckBuilderApi'
 import {
@@ -20,6 +20,12 @@ import DeckStats, { normalizeDeckBuilderCards } from '../components/DeckStats'
 function toLargeImg(uri) {
   if (!uri) return uri
   return uri.replace(/\/(small|art_crop|normal|png)\//, '/large/')
+}
+
+// Convert any Scryfall image URI to art_crop format (used for background panels)
+function toArtCropImg(uri) {
+  if (!uri) return uri
+  return uri.replace(/\/(small|normal|large|png|border_crop)\//, '/art_crop/')
 }
 
 // ── Color identity helpers ────────────────────────────────────────────────────
@@ -67,16 +73,27 @@ function SearchResultRow({ card, ownedQty, onAdd }) {
 }
 
 // ── Single card row in EDHRec recommendations ─────────────────────────────────
-function RecRow({ rec, imageUri, ownedQty, onAdd }) {
+function RecRow({ rec, imageUri, ownedQty, onAdd, onHoverEnter, onHoverLeave, onHoverMove }) {
   const synergyPct = Math.round((rec.synergy ?? 0) * 100)
+  // Scryfall CDN URLs have the size in the path — swap small → normal for hover preview
+  const largeUri = imageUri ? imageUri.replace('/small/', '/normal/') : null
   return (
-    <div className={styles.recRow}>
+    <div
+      className={styles.recRow}
+      onMouseEnter={e => largeUri && onHoverEnter?.(largeUri, e)}
+      onMouseMove={e => onHoverMove?.(e)}
+      onMouseLeave={() => onHoverLeave?.()}
+    >
       {imageUri
         ? <img className={styles.recThumb} src={imageUri} alt="" loading="lazy" />
         : <div className={styles.recThumbPlaceholder} />
       }
       <div className={styles.recInfo}>
         <div className={styles.recName}>{rec.name}</div>
+        <div className={styles.recMeta}>
+          {rec.type && <span className={styles.recType}>{rec.type}</span>}
+          {rec.cmc != null && rec.cmc > 0 && <span className={styles.recCmc}>{rec.cmc} CMC</span>}
+        </div>
         <div className={styles.recStats}>
           <div className={styles.inclusionBar}>
             <div className={styles.inclusionFill} style={{ width: `${rec.inclusion ?? 0}%` }} />
@@ -246,59 +263,363 @@ function ComboResultCard({ combo, highlight, deckCardNames, deckImages }) {
 // ── Basic lands set ───────────────────────────────────────────────────────────
 const BASIC_LANDS = new Set(['Island', 'Plains', 'Forest', 'Mountain', 'Swamp', 'Wastes'])
 
-// ── Create Collection Deck modal ──────────────────────────────────────────────
-function CreateCollectionModal({ deckCards, ownedMap, ownedNameMap, inOtherDeckSet, onConfirm, onClose }) {
-  const [skipBasicLands, setSkipBasicLands] = useState(true)
-  const [skipInOtherDecks, setSkipInOtherDecks] = useState(false)
+// ── Make Deck row ─────────────────────────────────────────────────────────────
+function MakeDeckRow({ item }) {
+  const { dc, neededQty, addExact, addOther, totalAdd, missingQty } = item
+  const img = dc.image_uri
+  let statusColor, statusIcon, statusDetail
+  if (totalAdd === 0) {
+    statusColor = '#e07070'; statusIcon = '✗'; statusDetail = 'not owned'
+  } else if (missingQty === 0 && addOther === 0) {
+    statusColor = 'var(--green, #4a9a5a)'; statusIcon = '✓'; statusDetail = `${totalAdd}× exact`
+  } else {
+    statusColor = '#c9a84c'; statusIcon = '↔'
+    const parts = []
+    if (addExact > 0) parts.push(`${addExact}× exact`)
+    if (addOther > 0) parts.push(`${addOther}× other print`)
+    if (missingQty > 0) parts.push(`${missingQty}× missing`)
+    statusDetail = parts.join(', ')
+  }
+  return (
+    <div style={{ display:'flex', alignItems:'center', padding:'5px 20px', borderBottom:'1px solid rgba(255,255,255,0.04)', gap:10, minHeight:36 }}>
+      {img
+        ? <img src={img} alt="" style={{ width:26, height:18, objectFit:'cover', borderRadius:2, flexShrink:0 }} />
+        : <div style={{ width:26, height:18, background:'rgba(255,255,255,0.06)', borderRadius:2, flexShrink:0 }} />
+      }
+      <div style={{ flex:1, minWidth:0 }}>
+        <span style={{ fontSize:'0.84rem', color:'var(--text)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', display:'block' }}>
+          {neededQty > 1 ? `${neededQty}× ` : ''}{dc.name}
+        </span>
+      </div>
+      <div style={{ fontSize:'0.79rem', color:statusColor, flexShrink:0, display:'flex', alignItems:'center', gap:4 }}>
+        <span>{statusIcon}</span><span>{statusDetail}</span>
+      </div>
+    </div>
+  )
+}
 
-  const eligible = deckCards.filter(dc => {
-    if (skipBasicLands && BASIC_LANDS.has(dc.name)) return false
-    const hasExact = (ownedMap.get(dc.scryfall_id) ?? 0) > 0
-    const hasAny   = (ownedNameMap.get((dc.name || '').toLowerCase()) ?? 0) > 0
-    if (!hasExact && !hasAny) return false
-    if (skipInOtherDecks && inOtherDeckSet.has(dc.scryfall_id)) return false
-    return true
-  })
+// ── Make Deck modal ────────────────────────────────────────────────────────────
+function MakeDeckModal({ deckCards, userId, inOtherDeckSet, onConfirm, onClose }) {
+  const [loading, setLoading] = useState(true)
+  const [previewItems, setPreviewItems] = useState([])
+  const [skipBasicLands, setSkipBasicLands] = useState(true)
+  const [exactVersionOnly, setExactVersionOnly] = useState(true)
+  const [pullFromOtherDecks, setPullFromOtherDecks] = useState(false)
+  const [wishlists, setWishlists] = useState([])
+  const [selectedWishlistId, setSelectedWishlistId] = useState('')
+  const [newWishlistName, setNewWishlistName] = useState('')
+
+  useEffect(() => {
+    async function load() {
+      // Use IDB (same source as the green bar) so counts are consistent
+      const collCards = await getLocalCards(userId)
+      const sfIdMap = new Map()   // scryfall_id → { cardId, qty }
+      const nameQtyMap = new Map() // name_lower → { cardId, qty }
+      for (const c of collCards || []) {
+        const qty = c.qty || 1
+        if (c.scryfall_id) {
+          if (!sfIdMap.has(c.scryfall_id)) sfIdMap.set(c.scryfall_id, { cardId: c.id, qty })
+          else sfIdMap.get(c.scryfall_id).qty += qty
+        }
+        const n = (c.name || '').toLowerCase()
+        if (n) {
+          if (!nameQtyMap.has(n)) nameQtyMap.set(n, { cardId: c.id, qty })
+          else nameQtyMap.get(n).qty += qty
+        }
+      }
+      const items = []
+      for (const dc of deckCards) {
+        if (dc.is_commander) continue
+        const nameLower = (dc.name || '').toLowerCase()
+        const exactEntry = sfIdMap.get(dc.scryfall_id)
+        const anyEntry   = nameQtyMap.get(nameLower)
+        const exactQty   = exactEntry?.qty ?? 0
+        const totalQty   = anyEntry?.qty ?? 0
+        const otherQty   = Math.max(0, totalQty - exactQty)
+        const needed     = dc.qty
+        const addExact   = Math.min(exactQty, needed)
+        const remaining  = needed - addExact
+        const addOther   = Math.min(otherQty, remaining)
+        const totalAdd   = addExact + addOther
+        const missingQty = needed - totalAdd
+        const cardId     = addExact > 0 ? exactEntry.cardId : (addOther > 0 ? anyEntry.cardId : null)
+        items.push({ dc, neededQty: needed, addExact, addOther, totalAdd, missingQty, cardId })
+      }
+      const { data: wls } = await sb.from('folders').select('id, name').eq('user_id', userId).eq('type', 'list').order('name')
+      setPreviewItems(items)
+      setWishlists(wls || [])
+      setLoading(false)
+    }
+    load()
+  }, [])
+
+  const filtered = previewItems
+    .filter(i => !skipBasicLands || !BASIC_LANDS.has(i.dc.name))
+    .filter(i => pullFromOtherDecks || !inOtherDeckSet?.has(i.dc.scryfall_id))
+    .map(i => {
+      const effectiveOther = exactVersionOnly ? 0 : i.addOther
+      const totalAdd   = i.addExact + effectiveOther
+      const missingQty = i.neededQty - totalAdd
+      return { ...i, addOther: effectiveOther, totalAdd, missingQty }
+    })
+  const addItems      = filtered.filter(i => i.totalAdd > 0)
+  const missingItems  = filtered.filter(i => i.missingQty > 0)
+  const exactCount    = filtered.filter(i => i.missingQty === 0 && i.addOther === 0 && i.totalAdd > 0).length
+  const fallbackCount = filtered.filter(i => i.addOther > 0).length
+  const missingCount  = missingItems.length
+  const wishlistReady = missingCount === 0 || !selectedWishlistId ? true : selectedWishlistId === 'new' ? !!newWishlistName.trim() : true
+  const canConfirm    = addItems.length > 0 && wishlistReady
 
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', zIndex:700, display:'flex', alignItems:'center', justifyContent:'center' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div style={{ background:'var(--bg-card,#1e1e1e)', border:'1px solid var(--border)', borderRadius:8, padding:24, width:440, maxWidth:'95vw', display:'flex', flexDirection:'column', gap:16 }}>
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-          <span style={{ fontFamily:'var(--font-display)', color:'var(--gold)', fontSize:'1rem' }}>Create Collection Deck</span>
-          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.1rem', cursor:'pointer' }}>✕</button>
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:700, display:'flex', alignItems:'center', justifyContent:'center' }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, width:560, maxWidth:'95vw', maxHeight:'90vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
+        <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <span style={{ fontFamily:'var(--font-display)', color:'var(--gold)', fontSize:'1rem' }}>Make Collection Deck</span>
+          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.2rem', cursor:'pointer' }}>✕</button>
         </div>
-        <div style={{ fontSize:'0.82rem', color:'var(--text-dim)', lineHeight:1.6 }}>
-          This links your owned cards to a collection deck so you can track them in Decks.
+        {loading ? (
+          <div style={{ padding:40, textAlign:'center', color:'var(--text-faint)', fontSize:'0.85rem' }}>Checking your collection…</div>
+        ) : (
+          <>
+            <div style={{ padding:'10px 20px', borderBottom:'1px solid var(--border)', display:'flex', flexDirection:'column', gap:8 }}>
+              {[
+                [skipBasicLands,    setSkipBasicLands,    'Skip basic lands',                          'Island, Plains, Forest, Mountain, Swamp'],
+                [exactVersionOnly,  setExactVersionOnly,  'Use specified version only',                'Won\'t substitute a different printing'],
+                [!pullFromOtherDecks, v => setPullFromOtherDecks(!v), 'Skip cards already in another deck', 'Avoids pulling the same copy into two decks'],
+              ].map(([val, set, label, sub]) => (
+                <label key={label} style={{ display:'flex', alignItems:'flex-start', gap:8, cursor:'pointer' }}>
+                  <input type="checkbox" checked={val} onChange={e => set(e.target.checked)} style={{ accentColor:'var(--gold)', marginTop:2, flexShrink:0 }} />
+                  <span>
+                    <div style={{ fontSize:'0.84rem', color:'var(--text-dim)' }}>{label}</div>
+                    <div style={{ fontSize:'0.75rem', color:'var(--text-faint)' }}>{sub}</div>
+                  </span>
+                </label>
+              ))}
+            </div>
+            <div style={{ padding:'8px 20px', background:'rgba(255,255,255,0.03)', borderBottom:'1px solid var(--border)', display:'flex', gap:16, fontSize:'0.81rem', flexWrap:'wrap' }}>
+              <span style={{ color:'var(--green, #4a9a5a)' }}>✓ {exactCount} exact</span>
+              {fallbackCount > 0 && <span style={{ color:'#c9a84c' }}>↔ {fallbackCount} different printing</span>}
+              {missingCount > 0 && <span style={{ color:'#e07070' }}>✗ {missingCount} missing</span>}
+            </div>
+            <div style={{ flex:1, overflowY:'auto', minHeight:0 }}>
+              {filtered.length === 0
+                ? <div style={{ padding:40, textAlign:'center', color:'var(--text-faint)', fontSize:'0.85rem' }}>No cards to add.</div>
+                : filtered.map(item => <MakeDeckRow key={item.dc.id} item={item} />)
+              }
+            </div>
+            {missingCount > 0 && (
+              <div style={{ padding:'12px 20px', borderTop:'1px solid var(--border)' }}>
+                <div style={{ fontSize:'0.82rem', color:'var(--text-dim)', marginBottom:8 }}>
+                  Add {missingItems.reduce((s, i) => s + i.missingQty, 0)} missing card{missingCount !== 1 ? 's' : ''} to wishlist:
+                </div>
+                <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                  <select value={selectedWishlistId} onChange={e => setSelectedWishlistId(e.target.value)}
+                    style={{ background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:4, padding:'6px 10px', color:'var(--text)', fontSize:'0.84rem', flex:1, minWidth:0 }}>
+                    <option value="">— Skip missing —</option>
+                    {wishlists.map(wl => <option key={wl.id} value={wl.id}>{wl.name}</option>)}
+                    <option value="new">+ Create new wishlist…</option>
+                  </select>
+                  {selectedWishlistId === 'new' && (
+                    <input autoFocus placeholder="Wishlist name…" value={newWishlistName} onChange={e => setNewWishlistName(e.target.value)}
+                      style={{ background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:4, padding:'6px 10px', color:'var(--text)', fontSize:'0.84rem', flex:1 }} />
+                  )}
+                </div>
+              </div>
+            )}
+            <div style={{ padding:'12px 20px', borderTop:'1px solid var(--border)', display:'flex', gap:8, justifyContent:'flex-end' }}>
+              <button onClick={onClose} style={{ background:'none', border:'1px solid var(--border)', borderRadius:4, padding:'7px 16px', color:'var(--text-dim)', fontSize:'0.83rem', cursor:'pointer' }}>Cancel</button>
+              <button
+                onClick={() => onConfirm({ addItems, missingItems, wishlistId: selectedWishlistId === 'new' ? null : (selectedWishlistId || null), wishlistName: selectedWishlistId === 'new' ? newWishlistName.trim() : null })}
+                disabled={!canConfirm}
+                style={{ background:'rgba(74,154,90,0.15)', border:'1px solid rgba(74,154,90,0.4)', borderRadius:4, padding:'7px 16px', color:'var(--green, #4a9a5a)', fontSize:'0.83rem', cursor:'pointer', opacity:canConfirm ? 1 : 0.45 }}>
+                Create Deck ({addItems.reduce((s, i) => s + i.totalAdd, 0)} cards)
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Sync modal ────────────────────────────────────────────────────────────────
+function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onConfirm, onClose }) {
+  const [loading, setLoading] = useState(true)
+  const [diff, setDiff] = useState(null)
+  const [folders, setFolders] = useState([])
+  const [wishlists, setWishlists] = useState([])
+  const [moveDestinations, setMoveDestinations] = useState({})
+  const [globalDest, setGlobalDest] = useState('')
+  const [wishlistId, setWishlistId] = useState('')
+  const [newWishlistName, setNewWishlistName] = useState('')
+
+  useEffect(() => {
+    async function load() {
+      const targetFolderId = isCollectionDeck ? deckId : deckMeta.linked_deck_id
+      if (!targetFolderId) { setLoading(false); return }
+      const [{ data: fc }, { data: collCards }, { data: foldersData }, { data: wls }] = await Promise.all([
+        sb.from('folder_cards').select('id, card_id, qty, cards(id, scryfall_id, name)').eq('folder_id', targetFolderId),
+        sb.from('cards').select('id, scryfall_id, name').eq('user_id', userId),
+        sb.from('folders').select('id, name, type').eq('user_id', userId).in('type', ['deck', 'binder']).neq('id', targetFolderId).order('name'),
+        sb.from('folders').select('id, name').eq('user_id', userId).eq('type', 'list').order('name'),
+      ])
+      const sfIdToCardId = new Map()
+      const nameToCardId = new Map()
+      for (const c of collCards || []) {
+        if (c.scryfall_id && !sfIdToCardId.has(c.scryfall_id)) sfIdToCardId.set(c.scryfall_id, c.id)
+        const n = (c.name || '').toLowerCase()
+        if (n && !nameToCardId.has(n)) nameToCardId.set(n, c.id)
+      }
+      const collMap = new Map()
+      for (const row of fc || []) collMap.set(row.card_id, row)
+      const builderCards = deckCards.filter(dc => !dc.is_commander && !BASIC_LANDS.has(dc.name))
+      const added = [], changed = []
+      const builderCardIds = new Set()
+      for (const dc of builderCards) {
+        const cardId = sfIdToCardId.get(dc.scryfall_id) ?? nameToCardId.get((dc.name || '').toLowerCase())
+        if (!cardId) { added.push({ dc, cardId: null, owned: false }); continue }
+        builderCardIds.add(cardId)
+        const existing = collMap.get(cardId)
+        if (!existing) added.push({ dc, cardId, owned: true })
+        else if (existing.qty !== dc.qty) changed.push({ dc, cardId, fcRow: existing, oldQty: existing.qty, newQty: dc.qty })
+      }
+      const removed = []
+      for (const [cardId, fcRow] of collMap) {
+        if (!builderCardIds.has(cardId)) removed.push({ cardId, fcRow, name: fcRow.cards?.name || '?' })
+      }
+      setDiff({ added, changed, removed, targetFolderId })
+      setFolders(foldersData || [])
+      setWishlists(wls || [])
+      setLoading(false)
+    }
+    load()
+  }, [])
+
+  useEffect(() => {
+    if (!globalDest || !diff?.removed.length) return
+    const updates = {}
+    for (const r of diff.removed) updates[r.fcRow.id] = globalDest
+    setMoveDestinations(updates)
+  }, [globalDest, diff])
+
+  const overlay = { position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:700, display:'flex', alignItems:'center', justifyContent:'center' }
+  const s = { background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:4, padding:'5px 8px', color:'var(--text)', fontSize:'0.83rem' }
+  const secLabel = { fontSize:'0.74rem', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em', color:'var(--text-faint)', marginBottom:6 }
+
+  if (loading) return (
+    <div style={overlay}>
+      <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, padding:32, color:'var(--text-faint)', fontSize:'0.9rem' }}>
+        Comparing deck with collection…
+      </div>
+    </div>
+  )
+
+  const { added = [], changed = [], removed = [] } = diff || {}
+  const ownedAdded   = added.filter(i => i.owned)
+  const unownedAdded = added.filter(i => !i.owned)
+  const hasChanges   = ownedAdded.length || removed.length || changed.length || unownedAdded.length
+
+  if (!hasChanges) return (
+    <div style={overlay} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, padding:32, width:380, display:'flex', flexDirection:'column', gap:16 }}>
+        <span style={{ fontFamily:'var(--font-display)', color:'var(--gold)' }}>Sync to Collection</span>
+        <p style={{ color:'var(--text-dim)', fontSize:'0.85rem', margin:0 }}>No changes — your collection deck is up to date.</p>
+        <div style={{ display:'flex', justifyContent:'flex-end' }}>
+          <button onClick={onClose} style={{ background:'none', border:'1px solid var(--border)', borderRadius:4, padding:'7px 16px', color:'var(--text-dim)', fontSize:'0.83rem', cursor:'pointer' }}>Close</button>
         </div>
-        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-          {[
-            [skipBasicLands, setSkipBasicLands, 'Skip basic lands', 'Island, Plains, Forest, Mountain, Swamp'],
-            [skipInOtherDecks, setSkipInOtherDecks, 'Skip cards already in another deck', 'Keeps those decks intact'],
-          ].map(([val, set, label, sub]) => (
-            <label key={label} style={{ display:'flex', alignItems:'flex-start', gap:10, cursor:'pointer' }}>
-              <input type="checkbox" checked={val} onChange={e => set(e.target.checked)}
-                style={{ marginTop:3, accentColor:'var(--gold)', width:14, height:14, flexShrink:0 }} />
-              <span>
-                <div style={{ fontSize:'0.85rem', color:'var(--text)' }}>{label}</div>
-                <div style={{ fontSize:'0.75rem', color:'var(--text-faint)' }}>{sub}</div>
-              </span>
-            </label>
-          ))}
+      </div>
+    </div>
+  )
+
+  const allRemovesMapped = !removed.length || removed.every(r => moveDestinations[r.fcRow.id])
+  const canConfirm = allRemovesMapped
+
+  return (
+    <div style={overlay} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, width:560, maxWidth:'95vw', maxHeight:'90vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
+        <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <span style={{ fontFamily:'var(--font-display)', color:'var(--gold)', fontSize:'1rem' }}>Sync to Collection</span>
+          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.2rem', cursor:'pointer' }}>✕</button>
         </div>
-        <div style={{ background:'rgba(255,255,255,0.04)', borderRadius:4, padding:'10px 14px', fontSize:'0.82rem', color:'var(--text-dim)' }}>
-          <strong style={{ color:'var(--gold)' }}>{eligible.length}</strong> card{eligible.length !== 1 ? 's' : ''} will be linked
-          {skipBasicLands && deckCards.some(dc => BASIC_LANDS.has(dc.name)) && (
-            <span style={{ color:'var(--text-faint)' }}> (basic lands excluded)</span>
+        <div style={{ flex:1, overflowY:'auto', minHeight:0, padding:'16px 20px', display:'flex', flexDirection:'column', gap:16 }}>
+          {ownedAdded.length > 0 && (
+            <div>
+              <div style={secLabel}>Adding to collection deck ({ownedAdded.length})</div>
+              {ownedAdded.map(i => (
+                <div key={i.dc.id} style={{ display:'flex', justifyContent:'space-between', padding:'3px 0', fontSize:'0.84rem', color:'var(--text)' }}>
+                  <span>{i.dc.qty > 1 ? `${i.dc.qty}× ` : ''}{i.dc.name}</span>
+                  <span style={{ color:'var(--green, #4a9a5a)', fontSize:'0.78rem' }}>✓ owned</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {changed.length > 0 && (
+            <div>
+              <div style={secLabel}>Quantity changes ({changed.length})</div>
+              {changed.map(i => (
+                <div key={i.dc.id} style={{ display:'flex', justifyContent:'space-between', padding:'3px 0', fontSize:'0.84rem', color:'var(--text)' }}>
+                  <span>{i.dc.name}</span>
+                  <span style={{ color:'var(--text-dim)', fontSize:'0.78rem' }}>{i.oldQty} → {i.newQty}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {removed.length > 0 && (
+            <div>
+              <div style={secLabel}>Removed — choose destination ({removed.length})</div>
+              <div style={{ marginBottom:8, display:'flex', gap:8, alignItems:'center' }}>
+                <span style={{ fontSize:'0.79rem', color:'var(--text-faint)', whiteSpace:'nowrap' }}>All to:</span>
+                <select value={globalDest} onChange={e => setGlobalDest(e.target.value)} style={{ ...s, flex:1 }}>
+                  <option value="">— Pick individually —</option>
+                  {folders.map(f => <option key={f.id} value={f.id}>{f.name} ({f.type})</option>)}
+                </select>
+              </div>
+              {removed.map(r => (
+                <div key={r.fcRow.id} style={{ display:'flex', gap:8, alignItems:'center', marginBottom:4 }}>
+                  <span style={{ flex:1, fontSize:'0.84rem', color:'var(--text)' }}>{r.name}</span>
+                  <select
+                    value={moveDestinations[r.fcRow.id] || ''}
+                    onChange={e => setMoveDestinations(prev => ({ ...prev, [r.fcRow.id]: e.target.value }))}
+                    style={{ ...s, minWidth:160 }}>
+                    <option value="">— Required —</option>
+                    {folders.map(f => <option key={f.id} value={f.id}>{f.name} ({f.type})</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+          )}
+          {unownedAdded.length > 0 && (
+            <div>
+              <div style={secLabel}>Not owned — add to wishlist? ({unownedAdded.length})</div>
+              <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                <select value={wishlistId} onChange={e => setWishlistId(e.target.value)} style={{ ...s, flex:1 }}>
+                  <option value="">— Skip —</option>
+                  {wishlists.map(wl => <option key={wl.id} value={wl.id}>{wl.name}</option>)}
+                  <option value="new">+ Create new wishlist…</option>
+                </select>
+                {wishlistId === 'new' && (
+                  <input autoFocus value={newWishlistName} onChange={e => setNewWishlistName(e.target.value)}
+                    placeholder="Wishlist name…"
+                    style={{ background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:4, padding:'5px 8px', color:'var(--text)', fontSize:'0.83rem', flex:1 }} />
+                )}
+              </div>
+            </div>
           )}
         </div>
-        <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
-          <button onClick={onClose} style={{ background:'none', border:'1px solid var(--border)', borderRadius:4, padding:'7px 16px', color:'var(--text-dim)', fontSize:'0.83rem', cursor:'pointer' }}>Cancel</button>
-          <button onClick={() => onConfirm({ skipBasicLands, skipInOtherDecks })}
-            disabled={eligible.length === 0}
-            style={{ background:'rgba(74,154,90,0.15)', border:'1px solid rgba(74,154,90,0.4)', borderRadius:4, padding:'7px 16px', color:'var(--green)', fontSize:'0.83rem', cursor:'pointer', opacity: eligible.length === 0 ? 0.45 : 1 }}>
-            Create ({eligible.length})
-          </button>
+        <div style={{ padding:'12px 20px', borderTop:'1px solid var(--border)', display:'flex', gap:8, justifyContent:'space-between', alignItems:'center' }}>
+          <span style={{ fontSize:'0.79rem', color:'#e07070' }}>
+            {!allRemovesMapped && removed.length > 0 ? '⚠ All removed cards need a destination' : ''}
+          </span>
+          <div style={{ display:'flex', gap:8 }}>
+            <button onClick={onClose} style={{ background:'none', border:'1px solid var(--border)', borderRadius:4, padding:'7px 16px', color:'var(--text-dim)', fontSize:'0.83rem', cursor:'pointer' }}>Cancel</button>
+            <button
+              disabled={!canConfirm}
+              onClick={() => canConfirm && onConfirm({ diff, moveDestinations, wishlistId: wishlistId === 'new' ? null : (wishlistId || null), wishlistName: wishlistId === 'new' ? newWishlistName.trim() : null })}
+              style={{ background:'rgba(74,154,90,0.15)', border:'1px solid rgba(74,154,90,0.4)', borderRadius:4, padding:'7px 16px', color:'var(--green, #4a9a5a)', fontSize:'0.83rem', cursor:canConfirm ? 'pointer' : 'not-allowed', opacity:canConfirm ? 1 : 0.45 }}>
+              Apply Sync
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -402,9 +723,6 @@ export default function DeckBuilderPage() {
 
   // Search
   const [searchQuery,   setSearchQuery]   = useState('')
-  const [typeFilter,    setTypeFilter]    = useState(null)
-  const [cmcMin,        setCmcMin]        = useState('')
-  const [cmcMax,        setCmcMax]        = useState('')
   const [searchResults, setSearchResults] = useState([])
   const [searchLoading, setSearchLoading] = useState(false)
   const [searchHasMore, setSearchHasMore] = useState(false)
@@ -415,7 +733,7 @@ export default function DeckBuilderPage() {
   const [recImages,    setRecImages]    = useState({}) // name -> image_uri
   const [recsLoading,  setRecsLoading]  = useState(false)
   const [recsError,    setRecsError]    = useState(null)
-  const [activeCat,    setActiveCat]    = useState('all')
+  const [collapsedCats, setCollapsedCats] = useState(new Set())
 
   // Collection
   const [ownedMap,       setOwnedMap]       = useState(new Map())
@@ -423,8 +741,6 @@ export default function DeckBuilderPage() {
   const [inOtherDeckSet, setInOtherDeckSet] = useState(new Set())
   // Version picker
   const [versionPickCard, setVersionPickCard] = useState(null)
-  // Create collection deck modal
-  const [showCreateDeck, setShowCreateDeck] = useState(false)
   // Share button
   const [shareCopied, setShareCopied] = useState(false)
 
@@ -437,8 +753,9 @@ export default function DeckBuilderPage() {
   const [statsBracketOverride, setStatsBracketOverride] = useState(null)
   const [deckView,    setDeckView]    = useState('list')   // 'list' | 'compact' | 'visual'
   const [showRight, setShowRight] = useState(false)
-  const [deckSort,    setDeckSort]    = useState('name')   // 'name' | 'cmc' | 'color' | 'type'
+  const [deckSort,    setDeckSort]    = useState('type')   // 'name' | 'cmc' | 'color' | 'type'
   const [groupByType, setGroupByType] = useState(true)
+  const [collapsedGroups, setCollapsedGroups] = useState(new Set())
 
   // Combos (Commander Spellbook)
   const [combosIncluded, setCombosIncluded] = useState([])
@@ -455,9 +772,20 @@ export default function DeckBuilderPage() {
   const [importError,   setImportError]   = useState(null)
   const [importDone,    setImportDone]    = useState(null)  // summary string
 
-  const [converting,  setConverting]  = useState(false)
-  const [convertDone, setConvertDone] = useState(false)
-  const [convertMsg,  setConvertMsg]  = useState('')
+  // Make Deck / Sync
+  const [showMakeDeck,    setShowMakeDeck]    = useState(false)
+  const [showSync,        setShowSync]        = useState(false)
+  const [makeDeckDone,    setMakeDeckDone]    = useState(false)
+  const [makeDeckMsg,     setMakeDeckMsg]     = useState('')
+  const [makeDeckRunning, setMakeDeckRunning] = useState(false)
+  const [syncRunning,     setSyncRunning]     = useState(false)
+  const [syncDone,        setSyncDone]        = useState(false)
+  const [syncMsg,         setSyncMsg]         = useState('')
+
+  // Description & tags
+  const [cmdDescription, setCmdDescription] = useState('')
+  const [cmdTags,        setCmdTags]        = useState([])
+  const [newTagInput,    setNewTagInput]    = useState('')
 
   // Refs
   const deckCardsRef    = useRef(deckCards)
@@ -484,19 +812,30 @@ export default function DeckBuilderPage() {
         if (folder.type === 'deck' && !meta.format) {
           meta.format = 'commander'
         }
+        // Re-show in builder list if user navigated here directly (e.g. "Edit in Builder")
+        if (meta.hideFromBuilder) {
+          delete meta.hideFromBuilder
+          sb.from('folders').update({ description: serializeDeckMeta(meta) }).eq('id', deckId)
+        }
         setDeck(folder)
         setDeckMeta(meta)
         setDeckName(folder.name)
+        setCmdDescription(meta.deckDescription || '')
+        setCmdTags(meta.tags || [])
 
         // Load deck cards from Supabase
         const { data: cards } = await sb.from('deck_cards').select('*').eq('deck_id', deckId).order('is_commander', { ascending: false })
         let cardList = cards || []
 
-        // If this is a collection deck (type='deck') with no deck_cards yet,
-        // import from folder_cards (IDB) so it's viewable/editable in the builder
-        if (cardList.length === 0 && folder.type === 'deck') {
+        // For collection decks (type='deck'), migrate folder_cards → deck_cards when needed.
+        // This runs when: (a) deck_cards is empty (first open), or (b) folder_cards has more
+        // non-commander cards than deck_cards (corrupted state after a partial commander save).
+        if (folder.type === 'deck') {
           const fcRows = await getLocalFolderCards(deckId)
-          if (fcRows?.length) {
+          // Only migrate when folder_cards has more entries than ALL deck_cards (including
+          // commanders). Comparing against non-commander count caused re-migration every
+          // time a card was promoted to commander, duplicating the entire deck.
+          if (fcRows?.length && fcRows.length > cardList.length) {
             const ownedAll = await getLocalCards(user.id)
             const cardById = new Map(ownedAll.map(c => [c.id, c]))
             const now = new Date().toISOString()
@@ -530,7 +869,13 @@ export default function DeckBuilderPage() {
               })
             )
             const newRows = built.filter(Boolean)
-            if (newRows.length) cardList = newRows
+            if (newRows.length) {
+              // Combine with any existing deck_cards (e.g. a commander already saved)
+              // then persist to Supabase so the migration survives reloads
+              cardList = [...cardList.filter(dc => dc.is_commander), ...newRows]
+              sb.from('deck_cards').upsert(newRows, { onConflict: 'id' })
+                .then(({ error }) => { if (error) console.error('[DeckBuilder] folder_cards migration failed:', error) })
+            }
           }
         }
 
@@ -608,16 +953,15 @@ export default function DeckBuilderPage() {
     return map
   }, [deckCards, recImages])
 
-  const recCategories = useMemo(() => {
-    if (!recs?.categories) return []
-    return [{ header: 'All', tag: 'all' }, ...recs.categories.map(c => ({ header: c.header, tag: c.tag }))]
-  }, [recs])
+  const deckNameSet = useMemo(() => new Set(deckCards.map(dc => dc.name.toLowerCase())), [deckCards])
 
-  const filteredRecs = useMemo(() => {
+  const recCategoriesFiltered = useMemo(() => {
     if (!recs?.categories) return []
-    if (activeCat === 'all') return recs.categories.flatMap(c => c.cards)
-    return recs.categories.find(c => c.tag === activeCat)?.cards ?? []
-  }, [recs, activeCat])
+    return recs.categories.map(c => ({
+      ...c,
+      cards: c.cards.filter(r => !deckNameSet.has(r.name.toLowerCase())),
+    })).filter(c => c.cards.length > 0)
+  }, [recs, deckNameSet])
 
   // ── Format change ─────────────────────────────────────────────────────────
   async function handleFormatChange(fmtId) {
@@ -636,6 +980,31 @@ export default function DeckBuilderPage() {
     saveMetaTimer.current = setTimeout(async () => {
       await sb.from('folders').update({ description: serializeDeckMeta(meta) }).eq('id', deckId)
     }, 600)
+  }
+
+  function saveDescription(val) {
+    const newMeta = { ...deckMeta, deckDescription: val }
+    setDeckMeta(newMeta)
+    saveMeta(newMeta)
+  }
+
+  function addTag(raw) {
+    const tag = raw.trim()
+    if (!tag || cmdTags.includes(tag)) return
+    const next = [...cmdTags, tag]
+    setCmdTags(next)
+    setNewTagInput('')
+    const newMeta = { ...deckMeta, tags: next }
+    setDeckMeta(newMeta)
+    saveMeta(newMeta)
+  }
+
+  function removeTag(tag) {
+    const next = cmdTags.filter(t => t !== tag)
+    setCmdTags(next)
+    const newMeta = { ...deckMeta, tags: next }
+    setDeckMeta(newMeta)
+    saveMeta(newMeta)
   }
 
   async function saveNameBlur() {
@@ -672,8 +1041,8 @@ export default function DeckBuilderPage() {
     }
     setDeckMeta(newMeta)
 
-    // Remove any existing commander
-    const existingCmd = deckCards.find(dc => dc.is_commander)
+    // Remove any existing commander — use ref to avoid stale closure
+    const existingCmd = deckCardsRef.current.find(dc => dc.is_commander)
     if (existingCmd) {
       await removeCardFromDeck(existingCmd.id)
     }
@@ -700,17 +1069,19 @@ export default function DeckBuilderPage() {
       updated_at:       new Date().toISOString(),
     }
 
-    setDeckCards(prev => [cmdRow, ...prev.filter(dc => !dc.is_commander)])
-    await sb.from('deck_cards').insert(cmdRow)
-    putDeckCards([cmdRow]).catch(() => {})
+    // Update state and persist — read ref again for current non-commander cards
+    const nonCmdCards = deckCardsRef.current.filter(dc => !dc.is_commander)
+    setDeckCards([cmdRow, ...nonCmdCards])
+    // Upsert all rows: this handles collection decks where non-commander cards came from the
+    // folder_cards fallback and were never saved to deck_cards in Supabase. Without this,
+    // a reload after picking a commander would show only 1 card (just the commander).
+    await sb.from('deck_cards').upsert([cmdRow, ...nonCmdCards], { onConflict: 'id' })
+    putDeckCards([cmdRow, ...nonCmdCards]).catch(() => {})
 
-    // Save meta
-    await saveMeta(newMeta)
+    // Save meta immediately (not debounced) so navigation away won't lose the commander
+    clearTimeout(saveMetaTimer.current)
+    await sb.from('folders').update({ description: serializeDeckMeta(newMeta) }).eq('id', deckId)
 
-    // Load recommendations
-    if (isEDH || FORMATS.find(f => f.id === newMeta.format)?.isEDH) {
-      loadRecs(sfCard.name)
-    }
   }
 
   // ── Card search ───────────────────────────────────────────────────────────
@@ -721,16 +1092,13 @@ export default function DeckBuilderPage() {
       query: q,
       format: deckMeta.format,
       colorIdentity: isEDH && colorIdentity.length ? colorIdentity : undefined,
-      cardType: typeFilter || undefined,
-      cmcMin: cmcMin !== '' ? Number(cmcMin) : undefined,
-      cmcMax: cmcMax !== '' ? Number(cmcMax) : undefined,
       page,
     })
     if (page === 1) setSearchResults(cards)
     else setSearchResults(prev => [...prev, ...cards])
     setSearchHasMore(hasMore)
     setSearchLoading(false)
-  }, [deckMeta.format, isEDH, colorIdentity, typeFilter, cmcMin, cmcMax])
+  }, [deckMeta.format, isEDH, colorIdentity])
 
   function handleSearchInput(q) {
     setSearchQuery(q)
@@ -850,10 +1218,11 @@ export default function DeckBuilderPage() {
   }
 
   async function setCardAsCommander(dc) {
-    const alreadyHasCmd = commanderCards.length > 0
+    const alreadyHasCmd = deckCardsRef.current.some(c => c.is_commander)
     const updated = { ...dc, is_commander: true }
     setDeckCards(prev => prev.map(c => c.id === dc.id ? updated : c))
-    await sb.from('deck_cards').update({ is_commander: true }).eq('id', dc.id)
+    putDeckCards([updated]).catch(() => {})
+    await sb.from('deck_cards').update({ is_commander: true, updated_at: new Date().toISOString() }).eq('id', dc.id)
     // Update deck meta
     const newMeta = alreadyHasCmd
       ? { ...deckMeta, partnerName: dc.name, partnerScryfallId: dc.scryfall_id }
@@ -865,8 +1234,10 @@ export default function DeckBuilderPage() {
           commanderColorIdentity: dc.color_identity ?? [],
         }
     setDeckMeta(newMeta)
-    await saveMeta(newMeta)
-    if (!alreadyHasCmd && isEDH) loadRecs(dc.name)
+    // Save meta immediately (not debounced) — navigating away quickly would lose the commander name otherwise
+    clearTimeout(saveMetaTimer.current)
+    await sb.from('folders').update({ description: serializeDeckMeta(newMeta) }).eq('id', deckId)
+    // Recs are loaded lazily when the Recommendations tab is opened
   }
 
   async function unsetCommander(deckCardId) {
@@ -880,7 +1251,7 @@ export default function DeckBuilderPage() {
     setRecsError(null)
     setRecs([])
     setRecImages({})
-    setActiveCat('all')
+    setCollapsedCats(new Set())
 
     const data = await fetchEdhrecCommander(commanderName)
     if (!data) { setRecsError('unavailable'); setRecsLoading(false); return }
@@ -1016,39 +1387,99 @@ export default function DeckBuilderPage() {
     setVersionPickCard(null)
   }
 
-  async function convertToDeck({ skipBasicLands = false, skipInOtherDecks = false } = {}) {
-    if (converting) return
-    setConverting(true)
-    setShowCreateDeck(false)
+  async function handleMakeDeck({ addItems, missingItems, wishlistId, wishlistName }) {
+    if (makeDeckRunning) return
+    setMakeDeckRunning(true)
+    setShowMakeDeck(false)
     try {
-      const { data: collCards } = await sb.from('cards').select('id, scryfall_id, name').eq('user_id', user.id)
-      const sfIdToCardId = new Map()
-      const nameToCardId = new Map()
-      for (const c of collCards || []) {
-        if (c.scryfall_id) sfIdToCardId.set(c.scryfall_id, c.id)
-        const n = (c.name || '').toLowerCase()
-        if (n && !nameToCardId.has(n)) nameToCardId.set(n, c.id)
+      const collMeta = {
+        format: deckMeta.format,
+        commanderName: deckMeta.commanderName,
+        commanderScryfallId: deckMeta.commanderScryfallId,
+        commanderColorIdentity: deckMeta.commanderColorIdentity,
+        coverArtUri: deckMeta.coverArtUri,
+        linked_builder_id: deckId,
+      }
+      const { data: newDeck, error: deckErr } = await sb.from('folders').insert({
+        user_id: user.id, type: 'deck', name: deck.name,
+        description: serializeDeckMeta(collMeta),
+      }).select().single()
+      if (deckErr || !newDeck) throw deckErr || new Error('Failed to create deck')
+
+      if (addItems.length > 0) {
+        const inserts = addItems.map(i => ({ id: crypto.randomUUID(), folder_id: newDeck.id, card_id: i.cardId, qty: i.totalAdd, foil: i.dc.foil ?? false }))
+        const { error: fcErr } = await sb.from('folder_cards').insert(inserts)
+        if (fcErr) throw fcErr
       }
 
-      const inserts = []
-      for (const dc of deckCards) {
-        if (dc.is_commander) continue
-        if (skipBasicLands && BASIC_LANDS.has(dc.name)) continue
-        if (skipInOtherDecks && inOtherDeckSet.has(dc.scryfall_id)) continue
-        const cardId = sfIdToCardId.get(dc.scryfall_id) ?? nameToCardId.get((dc.name || '').toLowerCase())
-        if (!cardId) continue
-        inserts.push({ id: crypto.randomUUID(), folder_id: deckId, card_id: cardId, qty: dc.qty, foil: dc.foil })
+      let targetWishlistId = wishlistId
+      if (!targetWishlistId && wishlistName) {
+        const { data: wl, error: wlErr } = await sb.from('folders').insert({ user_id: user.id, type: 'list', name: wishlistName, description: '{}' }).select().single()
+        if (wlErr) throw wlErr
+        targetWishlistId = wl?.id
+      }
+      if (targetWishlistId && missingItems.length > 0) {
+        const listInserts = missingItems.map(i => ({ id: crypto.randomUUID(), folder_id: targetWishlistId, name: i.dc.name, scryfall_id: i.dc.scryfall_id || null, set_code: i.dc.set_code || null, collector_number: i.dc.collector_number || null, foil: i.dc.foil ?? false, qty: i.missingQty }))
+        await sb.from('list_items').insert(listInserts)
       }
 
-      if (inserts.length > 0) await sb.from('folder_cards').insert(inserts)
-      await sb.from('folders').update({ type: 'deck' }).eq('id', deckId)
-      setConvertMsg(`${inserts.length} card${inserts.length !== 1 ? 's' : ''} linked from your collection`)
-      setConvertDone(true)
+      const updatedMeta = { ...deckMeta, linked_deck_id: newDeck.id }
+      setDeckMeta(updatedMeta)
+      await sb.from('folders').update({ description: serializeDeckMeta(updatedMeta) }).eq('id', deckId)
+
+      const addCount = addItems.reduce((s, i) => s + i.totalAdd, 0)
+      const misCount = missingItems.reduce((s, i) => s + i.missingQty, 0)
+      let msg = `${addCount} card${addCount !== 1 ? 's' : ''} added to collection deck`
+      if (targetWishlistId && misCount > 0) msg += `, ${misCount} added to wishlist`
+      setMakeDeckMsg(msg)
+      setMakeDeckDone(true)
     } catch (err) {
-      console.error('[Convert]', err)
-      setConvertMsg('Conversion failed. Try again.')
+      console.error('[MakeDeck]', err)
+      setMakeDeckMsg('Failed to create deck. Try again.')
+      setMakeDeckDone(true)
     }
-    setConverting(false)
+    setMakeDeckRunning(false)
+  }
+
+  async function handleSync({ diff, moveDestinations, wishlistId, wishlistName }) {
+    if (syncRunning) return
+    setSyncRunning(true)
+    setShowSync(false)
+    try {
+      const { added, changed, removed, targetFolderId } = diff
+      const ownedAdded   = added.filter(i => i.owned)
+      const unownedAdded = added.filter(i => !i.owned)
+
+      if (ownedAdded.length > 0) {
+        const inserts = ownedAdded.map(i => ({ id: crypto.randomUUID(), folder_id: targetFolderId, card_id: i.cardId, qty: i.dc.qty, foil: i.dc.foil ?? false }))
+        await sb.from('folder_cards').insert(inserts)
+      }
+      for (const c of changed) {
+        await sb.from('folder_cards').update({ qty: c.newQty }).eq('id', c.fcRow.id)
+      }
+      for (const r of removed) {
+        const destId = moveDestinations[r.fcRow.id]
+        if (destId) await sb.from('folder_cards').update({ folder_id: destId }).eq('id', r.fcRow.id)
+      }
+
+      let targetWishlistId = wishlistId
+      if (!targetWishlistId && wishlistName) {
+        const { data: wl } = await sb.from('folders').insert({ user_id: user.id, type: 'list', name: wishlistName, description: '{}' }).select().single()
+        targetWishlistId = wl?.id
+      }
+      if (targetWishlistId && unownedAdded.length > 0) {
+        const listInserts = unownedAdded.map(i => ({ id: crypto.randomUUID(), folder_id: targetWishlistId, name: i.dc.name, scryfall_id: i.dc.scryfall_id || null, set_code: i.dc.set_code || null, collector_number: i.dc.collector_number || null, foil: i.dc.foil ?? false, qty: i.dc.qty }))
+        await sb.from('list_items').insert(listInserts)
+      }
+
+      setSyncMsg('Sync complete')
+      setSyncDone(true)
+    } catch (err) {
+      console.error('[Sync]', err)
+      setSyncMsg('Sync failed. Try again.')
+      setSyncDone(true)
+    }
+    setSyncRunning(false)
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -1156,25 +1587,6 @@ export default function DeckBuilderPage() {
               <button className={styles.searchBtn} onClick={() => doSearch(searchQuery, 1)}>→</button>
             </div>
 
-            <div className={styles.typeFilters}>
-              {['Creature','Instant','Sorcery','Artifact','Enchantment','Planeswalker','Land'].map(t => (
-                <button
-                  key={t}
-                  className={`${styles.typePill}${typeFilter === t ? ' ' + styles.typePillActive : ''}`}
-                  onClick={() => { setTypeFilter(typeFilter === t ? null : t); searchDebounce.current(() => doSearch(searchQuery, 1)) }}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
-
-            <div className={styles.cmcRow}>
-              CMC
-              <input className={styles.cmcInput} type="number" min="0" max="20" value={cmcMin} onChange={e => setCmcMin(e.target.value)} placeholder="min" />
-              –
-              <input className={styles.cmcInput} type="number" min="0" max="20" value={cmcMax} onChange={e => setCmcMax(e.target.value)} placeholder="max" />
-            </div>
-
             <div className={styles.searchResults}>
               {searchLoading && searchPage === 1 && <div className={styles.searchEmpty}>Searching…</div>}
               {!searchLoading && searchResults.length === 0 && searchQuery && (
@@ -1210,30 +1622,42 @@ export default function DeckBuilderPage() {
                 {recsLoading && <div className={styles.recsLoading}>Loading recommendations…</div>}
                 {recsError && <div className={styles.recsError}>Recommendations unavailable for this commander.</div>}
                 {!recsLoading && !recsError && recs?.categories && (
-                  <>
-                    <div className={styles.recsCategoryBar}>
-                      {recCategories.map(c => (
-                        <button
-                          key={c.tag}
-                          className={`${styles.catPill}${activeCat === c.tag ? ' ' + styles.catPillActive : ''}`}
-                          onClick={() => setActiveCat(c.tag)}
-                        >
-                          {c.header}
-                        </button>
-                      ))}
-                    </div>
-                    <div className={styles.recsList}>
-                      {filteredRecs.map(rec => (
-                        <RecRow
-                          key={rec.name}
-                          rec={rec}
-                          imageUri={recImages[rec.name] || null}
-                          ownedQty={ownedMap.get(rec.slug) ?? 0}
-                          onAdd={addCardToDeck}
-                        />
-                      ))}
-                    </div>
-                  </>
+                  <div className={styles.recsList}>
+                    {recCategoriesFiltered.length === 0 && (
+                      <div className={styles.recsEmpty}>All recommended cards are already in your deck.</div>
+                    )}
+                    {recCategoriesFiltered.map(cat => {
+                      const collapsed = collapsedCats.has(cat.tag)
+                      return (
+                        <div key={cat.tag} className={styles.recsCatSection}>
+                          <button
+                            className={styles.recsCatHeader}
+                            onClick={() => setCollapsedCats(prev => {
+                              const next = new Set(prev)
+                              next.has(cat.tag) ? next.delete(cat.tag) : next.add(cat.tag)
+                              return next
+                            })}
+                          >
+                            <span className={`${styles.groupArrow}${collapsed ? ' ' + styles.groupArrowCollapsed : ''}`}>▾</span>
+                            <span className={styles.recsCatName}>{cat.header}</span>
+                            <span className={styles.recsCatCount}>{cat.cards.length}</span>
+                          </button>
+                          {!collapsed && cat.cards.map(rec => (
+                            <RecRow
+                              key={rec.name}
+                              rec={rec}
+                              imageUri={recImages[rec.name] || null}
+                              ownedQty={ownedMap.get(rec.slug) ?? 0}
+                              onAdd={addCardToDeck}
+                              onHoverEnter={(uri, e) => { setHoverImg(uri); setHoverPos({ x: e.clientX, y: e.clientY }) }}
+                              onHoverMove={e => setHoverPos({ x: e.clientX, y: e.clientY })}
+                              onHoverLeave={() => setHoverImg(null)}
+                            />
+                          ))}
+                        </div>
+                      )
+                    })}
+                  </div>
                 )}
               </>
             )}
@@ -1268,6 +1692,11 @@ export default function DeckBuilderPage() {
           >
             {shareCopied ? '✓ Copied' : '⧉ Share'}
           </button>
+          {!isCollectionDeck && !deckMeta.linked_deck_id && (
+            <button className={styles.importBtn} onClick={() => setShowMakeDeck(true)} disabled={makeDeckRunning}>
+              {makeDeckRunning ? 'Creating…' : '⊕ Create Collection Deck'}
+            </button>
+          )}
           <Link to="/builder" style={{ fontSize: '0.8rem', color: 'var(--text-faint)', textDecoration: 'none' }}>
             ← Decks
           </Link>
@@ -1275,25 +1704,66 @@ export default function DeckBuilderPage() {
 
         {/* Commander art display — supports partners */}
         {commanderCards.length > 0 && (
-          <div className={`${styles.cmdArt}${commanderCards.length > 1 ? ' ' + styles.cmdArtDuo : ''}`}>
-            {commanderCards.map((card, i) => (
+          <div className={styles.cmdArt}>
+            {/* Blurred background layer */}
+            <div className={styles.cmdArtBg}
+              style={{ backgroundImage: `url(${toArtCropImg(commanderCards[0].image_uri)})` }} />
+            {/* Art thumbnails */}
+            {commanderCards.map(card => (
               <div key={card.id} className={styles.cmdArtPane}
                 onClick={() => unsetCommander(card.id)} title="Click to remove commander status">
                 {card.image_uri
-                  ? <img className={styles.cmdArtImg} src={card.image_uri} alt={card.name} />
+                  ? <img className={styles.cmdArtImg} src={toArtCropImg(card.image_uri)} alt={card.name} />
                   : <div className={styles.cmdArtImgPlaceholder} />
                 }
-                <div className={styles.cmdArtOverlay}>
-                  <span className={styles.cmdArtName}>{card.name}</span>
-                  {i === 0 && colorIdentity.length > 0 && (
-                    <div className={styles.cmdColorPips}>
-                      {colorIdentity.map(c => <ColorPip key={c} color={c} />)}
-                    </div>
-                  )}
-                  {i === 1 && <span style={{ fontSize: '0.65rem', color: 'var(--text-faint)' }}>Partner</span>}
-                </div>
               </div>
             ))}
+            {/* Info panel */}
+            <div className={styles.cmdArtOverlay}>
+              <span className={styles.cmdArtName}>
+                {commanderCards.map(c => c.name).join(' & ')}
+              </span>
+              <div className={styles.cmdArtMeta}>
+                {format && <span>{format.label}</span>}
+                {format && <span>·</span>}
+                <span style={{ color: totalCards > deckSize ? '#e07070' : 'var(--text-dim)' }}>
+                  {totalCards}/{deckSize} cards
+                </span>
+              </div>
+            </div>
+            {/* Description + Tags */}
+            <div className={styles.cmdArtDetails}>
+              <textarea
+                className={styles.cmdDescInput}
+                value={cmdDescription}
+                onChange={e => setCmdDescription(e.target.value)}
+                onBlur={e => saveDescription(e.target.value)}
+                placeholder="Add description…"
+                rows={2}
+              />
+              <div className={styles.cmdTagRow}>
+                {cmdTags.map(tag => (
+                  <span key={tag} className={styles.cmdTag}>
+                    {tag}
+                    <button className={styles.cmdTagRemove} onClick={() => removeTag(tag)}>×</button>
+                  </span>
+                ))}
+                <input
+                  className={styles.cmdTagInput}
+                  value={newTagInput}
+                  onChange={e => setNewTagInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(newTagInput) } }}
+                  onBlur={() => { if (newTagInput.trim()) addTag(newTagInput) }}
+                  placeholder={cmdTags.length === 0 ? 'Add tags…' : '+'}
+                />
+              </div>
+            </div>
+            {/* Color pips */}
+            {colorIdentity.length > 0 && (
+              <div className={styles.cmdColorPips}>
+                {colorIdentity.map(c => <ColorPip key={c} color={c} />)}
+              </div>
+            )}
           </div>
         )}
 
@@ -1301,7 +1771,7 @@ export default function DeckBuilderPage() {
         <div className={styles.tabBar}>
           {[
             { id: 'deck',   label: 'Deck',   badge: `${totalCards}/${deckSize}`, over: totalCards > deckSize },
-            !isCollectionDeck && { id: 'stats',  label: 'Stats',  badge: null },
+            { id: 'stats',  label: 'Stats',  badge: null },
             !isCollectionDeck && { id: 'combos', label: 'Combos', badge: combosFetched ? String(combosIncluded.length) : null },
           ].filter(Boolean).map(({ id, label, badge, over }) => (
             <button
@@ -1429,17 +1899,26 @@ export default function DeckBuilderPage() {
                   const cards = groupMap.get(group)
                   if (!cards?.length) return null
                   const groupQty = cards.reduce((s, dc) => s + dc.qty, 0)
+                  const collapsed = collapsedGroups.has(group)
                   return (
                     <div key={group} className={styles.deckGroup}>
-                      <div className={styles.groupHeader}>
-                        <span className={styles.groupArrow}>▾</span>
+                      <div
+                        className={styles.groupHeader}
+                        onClick={() => setCollapsedGroups(prev => {
+                          const next = new Set(prev)
+                          next.has(group) ? next.delete(group) : next.add(group)
+                          return next
+                        })}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <span className={`${styles.groupArrow}${collapsed ? ' ' + styles.groupArrowCollapsed : ''}`}>▾</span>
                         <span className={styles.groupName}>{group}</span>
                         <span className={styles.groupCount}>{groupQty}</span>
                       </div>
-                      {deckView === 'visual'
+                      {!collapsed && (deckView === 'visual'
                         ? <div className={styles.visualGrid}>{cards.map(dc => renderCard(dc))}</div>
                         : cards.map(dc => renderCard(dc))
-                      }
+                      )}
                     </div>
                   )
                 })
@@ -1531,46 +2010,51 @@ export default function DeckBuilderPage() {
 
         {/* Footer */}
         <div className={styles.deckFooter}>
-          {convertDone ? (
+          {makeDeckDone || syncDone ? (
             <>
-              <div className={styles.convertDone}>✓ {convertMsg}</div>
-              <Link to="/decks" style={{ fontSize: '0.82rem', color: 'var(--gold)', textDecoration: 'none' }}>
-                View in Decks →
-              </Link>
+              <div className={styles.convertDone}>✓ {makeDeckDone ? makeDeckMsg : syncMsg}</div>
+              {makeDeckDone && (
+                <Link to="/decks" style={{ fontSize:'0.82rem', color:'var(--gold)', textDecoration:'none' }}>
+                  View in Decks →
+                </Link>
+              )}
             </>
           ) : (
             <>
-              <div className={styles.ownProgress}>
-                <div className={styles.ownBar}>
-                  <div
-                    className={styles.ownFill}
-                    style={{ width: deckCards.length ? `${(ownedCount / deckCards.length) * 100}%` : '0%' }}
-                  />
-                </div>
-                <div className={styles.ownLabel}>
-                  You own {ownedCount}/{deckCards.length} cards
-                  {ownedCount > 0 && ` (${Math.round((ownedCount / deckCards.length) * 100)}%)`}
-                </div>
-              </div>
-              {!isCollectionDeck && (
-                <button className={styles.convertBtn} onClick={() => setShowCreateDeck(true)} disabled={ownedCount === 0}>
-                  Create Collection Deck
+              {(isCollectionDeck || deckMeta.linked_deck_id) && (
+                <button className={styles.convertBtn} onClick={() => setShowSync(true)} disabled={syncRunning}>
+                  {syncRunning ? 'Syncing…' : 'Sync →'}
                 </button>
+              )}
+              {!isCollectionDeck && deckMeta.linked_deck_id && (
+                <div style={{ fontSize:'0.74rem', color:'var(--text-faint)', textAlign:'center', marginTop:2 }}>↔ linked to collection deck</div>
               )}
             </>
           )}
         </div>
       </div>
 
-      {/* Create collection deck modal */}
-      {showCreateDeck && (
-        <CreateCollectionModal
+      {/* Make Deck modal */}
+      {showMakeDeck && (
+        <MakeDeckModal
           deckCards={deckCards}
-          ownedMap={ownedMap}
-          ownedNameMap={ownedNameMap}
+          userId={user.id}
           inOtherDeckSet={inOtherDeckSet}
-          onConfirm={convertToDeck}
-          onClose={() => setShowCreateDeck(false)}
+          onConfirm={handleMakeDeck}
+          onClose={() => setShowMakeDeck(false)}
+        />
+      )}
+
+      {/* Sync modal */}
+      {showSync && (
+        <SyncModal
+          deckId={deckId}
+          deckCards={deckCards}
+          deckMeta={deckMeta}
+          userId={user.id}
+          isCollectionDeck={isCollectionDeck}
+          onConfirm={handleSync}
+          onClose={() => setShowSync(false)}
         />
       )}
 

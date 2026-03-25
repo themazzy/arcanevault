@@ -106,3 +106,121 @@
   font-size: 0.68rem; color: var(--gold); pointer-events: none;
 }
 .itemCheckboxChecked { background: rgba(201,168,76,0.25); border-color: var(--gold); }
+
+/* ── Wishlist grid view ───────────────────────────────────────────────────── */
+.gridView {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+  margin-top: 4px;
+}
+.gridItem {
+  position: relative;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-top: 2px solid rgba(201,168,76,0.3);
+  border-radius: 5px;
+  overflow: hidden;
+  background: rgba(255,255,255,0.02);
+  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+}
+.gridItem:hover {
+  border-top-color: rgba(201,168,76,0.6);
+  border-color: rgba(201,168,76,0.2);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+}
+.gridItemSelectMode { cursor: pointer; }
+.gridItemSelected {
+  border-color: rgba(201,168,76,0.45) !important;
+  border-top-color: rgba(201,168,76,0.7) !important;
+  background: rgba(201,168,76,0.07) !important;
+}
+.gridCheckbox {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid rgba(201,168,76,0.5);
+  border-radius: 3px;
+  background: rgba(10,8,20,0.75);
+  z-index: 2;
+  transition: all 0.15s;
+}
+.gridCheckboxChecked {
+  background: rgba(201,168,76,0.25);
+  border-color: var(--gold, #c9a84c);
+}
+.gridImg {
+  width: 100%;
+  aspect-ratio: 5/7;
+  object-fit: cover;
+  display: block;
+}
+.gridImgPlaceholder {
+  width: 100%;
+  aspect-ratio: 5/7;
+  background: rgba(255,255,255,0.04);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 0.68rem;
+  color: var(--text-faint, #6a6058);
+  padding: 8px;
+  text-align: center;
+  line-height: 1.4;
+}
+.gridFooter {
+  padding: 7px 8px 8px;
+  background: rgba(0,0,0,0.4);
+}
+.gridName {
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 0.68rem;
+  color: var(--gold, #c9a84c);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  margin-bottom: 2px;
+}
+.gridFoilBadge {
+  color: #c8a0ff;
+  margin-left: 4px;
+}
+.gridPrice {
+  font-size: 0.7rem;
+  font-weight: 600;
+  display: block;
+}
+.gridQty {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: rgba(10,8,20,0.8);
+  border: 1px solid rgba(201,168,76,0.3);
+  border-radius: 10px;
+  padding: 1px 6px;
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 0.6rem;
+  color: var(--gold-dim, #a8893a);
+  z-index: 2;
+}
+.gridDelete {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  background: rgba(10,8,20,0.7);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 3px;
+  color: var(--text-faint, #6a6058);
+  cursor: pointer;
+  font-size: 0.65rem;
+  padding: 2px 5px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+  z-index: 2;
+}
+.gridItem:hover .gridDelete { opacity: 1; }
+.gridDelete:hover { color: #e05252; }

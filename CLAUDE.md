@@ -163,9 +163,12 @@ These are only active during `npm run dev`. Production deploys on GitHub Pages c
 | `src/components/Auth.jsx` | `AuthProvider` + `useAuth()` + `LoginPage` |
 | `src/pages/Collection.jsx` | Main collection browser (IDB-first, worker filter) |
 | `src/pages/Home.jsx` | Dashboard — collection snapshot, card lookup, recently viewed, news |
-| `src/pages/Folders.jsx` | Binders and Decks list + folder browser (DeckBrowser) |
-| `src/pages/Lists.jsx` | Wishlists list + list browser with FilterBar/BulkActionBar parity |
-| `src/pages/DeckBrowser.jsx` | Card browser inside a binder/deck — list/stacks/grid/text/table views |
+| `src/pages/Folders.jsx` | Binders index + `FolderBrowser` (inline grid/list view toggle, `BinderListView`) |
+| `src/pages/Lists.jsx` | Wishlists index + `ListBrowser` (inline list/grid view toggle, `WishlistGrid`) |
+| `src/pages/DeckBrowser.jsx` | Card browser inside a deck — list/stacks/grid/text/table views |
+| `src/pages/DeckView.jsx` | Shared deck view page (collection decks + builder decks) — sticky topbar, ManaText, card detail |
+| `src/pages/DeckView.module.css` | Styles for DeckView — dot-grid page, sticky header, mana symbol colours |
+| `src/pages/Stats.jsx` | Collection analytics — value distribution, format legality, gainers/losers, age spread |
 
 ---
 
@@ -176,15 +179,53 @@ These are only active during `npm run dev`. Production deploys on GitHub Pages c
 Every page and major component has a paired `.module.css`. Use CSS variables for theming:
 
 ```css
-var(--gold)        /* #c9a84c — primary accent */
-var(--bg)          /* page background */
-var(--bg2)         /* card/panel background */
-var(--bg3)         /* nested elements */
-var(--border)      /* subtle border */
-var(--border-hi)   /* highlighted border */
-var(--text)        /* primary text */
-var(--text-dim)    /* secondary text */
-var(--text-faint)  /* placeholder / disabled text */
+var(--gold)          /* #c9a84c — primary accent */
+var(--bg)            /* page background */
+var(--bg2)           /* card/panel background */
+var(--bg3)           /* nested elements */
+var(--border)        /* subtle border */
+var(--border-hi)     /* highlighted border */
+var(--text)          /* primary text */
+var(--text-dim)      /* secondary text */
+var(--text-faint)    /* placeholder / disabled text */
+var(--green)         /* #5dba70 — positive/price colour */
+var(--font-display)  /* Cinzel — headings, titles, fantasy flavour */
+```
+
+#### Recurring visual patterns
+
+**Dot-grid page background** — applied via `.page` on the root wrapper of index/browser pages:
+```css
+.page {
+  background-image: radial-gradient(circle, rgba(201,168,76,0.04) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+```
+
+**Gold top-border card** — used on folder cards, stat cards, and list items:
+```css
+border-top: 2px solid rgba(201,168,76,0.35);
+/* hover: */
+border-top-color: rgba(201,168,76,0.65);
+```
+
+**View toggle pill** — grid/list switcher pattern used in `FolderBrowser`, `ListBrowser`, and `DeckView`:
+```jsx
+<div className={styles.viewToggle}>
+  <button className={`${styles.viewBtn} ${view==='grid' ? styles.viewActive : ''}`} onClick={() => setView('grid')}>⊞ Grid</button>
+  <button className={`${styles.viewBtn} ${view==='list' ? styles.viewActive : ''}`} onClick={() => setView('list')}>≡ List</button>
+</div>
+```
+```css
+.viewToggle { display:flex; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:6px; overflow:hidden; }
+.viewBtn    { padding:5px 14px; background:none; border:none; color:var(--text-dim); cursor:pointer; font-size:.8rem; }
+.viewActive { background:rgba(201,168,76,0.15); color:var(--gold); }
+```
+
+**Section label with extending rule** — used for "BINDERS", "WISHLISTS", stat section headers:
+```css
+.sectionLabel { display:flex; align-items:center; gap:10px; font-family:var(--font-display); font-size:.65rem; letter-spacing:.12em; color:var(--text-faint); text-transform:uppercase; }
+.sectionLabel::after { content:''; flex:1; height:1px; background:rgba(255,255,255,0.05); }
 ```
 
 ### Component Conventions
@@ -195,6 +236,7 @@ var(--text-faint)  /* placeholder / disabled text */
 - All monetary displays go through `formatPrice()` — never format manually.
 - `addRecentlyViewed(card)` in `Home.jsx` persists to localStorage and fires `window.dispatchEvent(new CustomEvent('av:viewed'))` for live updates.
 - `CardDetail` locks `document.body.style.overflow = 'hidden'` while open and restores it on unmount — do not add a second scroll lock elsewhere.
+- All top-level page wrappers use `<div className={styles.page}>` with the dot-grid background (see CSS Modules → Recurring visual patterns above).
 
 ### Add Card Modal (`AddCardModal.jsx`)
 
@@ -209,6 +251,45 @@ var(--text-faint)  /* placeholder / disabled text */
 - Uses `parseTextDecklist` + `parseManaboxCSV` + `fetchCardsByNames` (Scryfall batch lookup).
 - For `list` type: upserts into `list_items` with conflict on `folder_id,set_code,collector_number,foil`.
 - For binder/deck: upserts into `cards` then `folder_cards`.
+
+### Folder Browser (Binders — `Folders.jsx`)
+
+`FolderBrowser` is the inline binder card viewer (rendered below the binders list when a binder is selected). It supports:
+- **Grid view** — uses `CardGrid` from `CardComponents.jsx`
+- **List view** — uses `BinderListView` (defined in `Folders.jsx`), a 5-column table (`1fr 180px 48px 78px 78px`): thumbnail + name/foil, set name, qty, unit price, total price
+- View is toggled via the `.viewToggle` pill; default is `'grid'`
+- `FilterBar` and `BulkActionBar` are always rendered regardless of view
+- Header row shows binder name, total card count, total value, and an "+ Add Cards" button
+
+`FoldersPage` wraps in `<div className={styles.page}>` for the dot-grid background.
+
+### List Browser (Wishlists — `Lists.jsx`)
+
+`ListBrowser` is the inline wishlist viewer. It supports:
+- **List view** — tabular rows with checkbox select, qty, name, set, foil badge, price, delete button
+- **Grid view** — uses `WishlistGrid` (defined in `Lists.jsx`), card-image tiles with `aspect-ratio: 5/7`, qty badge top-right, foil badge (✦), hover-reveal delete button, and gold top-border
+- View is toggled via the `.viewToggle` pill (imported from `Folders.module.css` via shared `styles`); default is `'list'`
+- `WishlistGrid` uses `sf?.image_uris?.normal || sf?.image_uris?.small || sf?.card_faces?.[0]?.image_uris?.normal` for images
+
+`ListsPage` wraps in `<div className={styles.page}>` for the dot-grid background.
+
+### DeckView (`DeckView.jsx`)
+
+Shared deck-view page for both collection decks and builder decks. Key features:
+- Sticky topbar with deck name (Cinzel), format badge, card count, total value, and action buttons
+- ManaText renderer that converts `{W}{U}{B}{R}{G}{C}` symbols to coloured inline spans
+- Card detail modal (click any card to open)
+- Imports styles from `DeckView.module.css` (new file — do not confuse with `DeckBuilder.module.css`)
+
+### Stats Page (`Stats.jsx`)
+
+Redesigned analytics page. Sections include:
+- **Value Over Time** — line chart of `price_snapshots`
+- **Value Distribution** — histogram buckets (< $1, $1–5, $5–20, $20–50, $50+)
+- **Format Legality** — bar chart of how many cards are legal in Standard, Pioneer, Modern, Legacy, Commander
+- **Biggest Gainers / Losers** — top movers by % change since last snapshot
+- **Collection Age Spread** — cards grouped by release year
+- All sections use the dot-grid `.page` wrapper and gold top-border stat cards
 
 ### Select Mode & Visual Split (DeckBrowser)
 

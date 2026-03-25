@@ -1,5 +1,8 @@
 .app {
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   background: var(--bg);
   background-image:
     radial-gradient(ellipse at 15% 15%, rgba(139,90,43,0.05) 0%, transparent 55%),
@@ -56,14 +59,23 @@
   text-shadow: 0 0 14px rgba(201,168,76,0.25);
 }
 
-.main { padding: 28px 40px; max-width: 1600px; margin: 0 auto; }
+.main {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 28px 40px;
+  max-width: 1600px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
 
 @media (max-width: 768px) {
   .header { padding: 0 12px; }
   .main { padding: 12px 10px; }
-  .tab { padding: 10px 11px; font-size: 0.65rem; flex-shrink: 0; }
+  .tab { padding: 8px 10px; font-size: 0.65rem; flex-shrink: 0; }
   .userName { display: none; }
-  .headerTop { padding: 10px 0 8px; }
+  .headerTop { padding: 8px 0 6px; }
   .logo { font-size: 1.1rem; }
 }
 
@@ -72,10 +84,10 @@
   .main { padding: 8px; }
   .tabs { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
   .tabs::-webkit-scrollbar { display: none; }
-  .tab { padding: 9px 9px; font-size: 0.6rem; letter-spacing: 0.06em; }
+  .tab { padding: 7px 8px; font-size: 0.6rem; letter-spacing: 0.06em; }
   .signOut { display: none; }
-  .logo { font-size: 1rem; }
-  .headerTop { padding: 8px 0 6px; }
+  .logo { font-size: 0.95rem; }
+  .headerTop { padding: 6px 0 4px; }
 }
 
 .settingsLink {
