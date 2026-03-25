@@ -1029,6 +1029,42 @@
   .layoutGrid    { gap: 2px; grid-template-columns: repeat(var(--lcols, 2), 14px); }
 }
 
+/* ── Landscape phones (height ≤ 500 px) ─────────────────────────────────────
+   In landscape the viewport is only ~400-430 px tall. Hiding the quickRow
+   saves ~30 px per panel and makes everything fit comfortably.             */
+@media (max-height: 500px) {
+  /* Grid: use dvh so Android Chrome's collapsing address bar is included */
+  .grid { height: calc(100dvh - 192px); }
+
+  /* Hide the ±5/±10 shortcuts — reclaim ~30 px; they're accessible via
+     the +/− hold interaction anyway */
+  .quickRow { display: none; }
+
+  /* More aggressive vertical compression */
+  .playerPanel   { padding: 5px 6px 6px; gap: 3px; min-height: 0; }
+  .lifeArea      { gap: 4px; }
+  .lifeBtn       { width: 32px; height: 34px; font-size: 1rem; }
+  .lifeTotalWrap { width: 62px; }
+  .lifeTotal     { font-size: 2rem; }
+
+  .colorRow   { gap: 2px; }
+  .colorDot   { width: 10px; height: 10px; }
+  .nameBtn    { font-size: 0.6rem; }
+
+  .poisonRow  { padding: 2px 5px; }
+  .poisonLabel{ font-size: 0.6rem; }
+  .counterBtn { width: 20px; height: 20px; font-size: 0.72rem; }
+  .counterVal { font-size: 0.78rem; min-width: 14px; }
+
+  .cmdBar     { padding: 2px 4px; min-height: 22px; gap: 2px; }
+  .cmdBadgeVal{ font-size: 0.62rem; }
+  .cmdBarIcon { font-size: 0.62rem; }
+  .cmdBarHint { display: none; }
+
+  /* Fullscreen in landscape: nav is hidden so subtract only topbar + gap */
+  .pageFullscreen .grid { height: calc(100dvh - 62px) !important; }
+}
+
 /* ══════════════════════════════════════════════════════════════════════════════
    FULLSCREEN MODE
    ══════════════════════════════════════════════════════════════════════════════ */
@@ -1043,9 +1079,11 @@
   padding: 8px 10px 10px;
 }
 
-/* In fullscreen the nav is covered; grid fills everything below the topbar */
+/* In fullscreen the nav is covered; grid fills everything below the topbar.
+   Use dvh (dynamic viewport height) so Android Chrome's collapsing address
+   bar is accounted for correctly — svh stays fixed at the smallest size. */
 .pageFullscreen .grid {
-  height: calc(100svh - 62px) !important; /* topbar(~52px) + gap(10px) */
+  height: calc(100dvh - 62px) !important;
 }
 
 .fullscreenBtn {
