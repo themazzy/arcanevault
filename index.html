@@ -1,6 +1,30 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
+    <script>
+  // Apply saved theme instantly before React boots to prevent flash of wrong theme.
+  // Reads the vars cache written by applyTheme() in SettingsContext.jsx.
+  (function() {
+    try {
+      var cached = localStorage.getItem('arcanevault_theme_cache');
+      if (cached) {
+        var t = JSON.parse(cached);
+        var root = document.documentElement;
+        var vars = t.vars;
+        if (vars) {
+          for (var k in vars) {
+            if (Object.prototype.hasOwnProperty.call(vars, k)) {
+              root.style.setProperty(k, vars[k]);
+            }
+          }
+        }
+        if (t.mode === 'light') {
+          root.setAttribute('data-theme-mode', 'light');
+        }
+      }
+    } catch(e) {}
+  })();
+</script>
     <script type="text/javascript">
   // This script checks if we were redirected from the 404 page
   (function(l) {
