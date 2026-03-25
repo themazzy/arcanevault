@@ -213,6 +213,172 @@
   justify-content: flex-end;
 }
 
+/* ── Theme picker ────────────────────────────────────────────────────────── */
+.themeRow {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.themeLabel { margin-bottom: 4px; }
+
+.themeGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.themeSwatch {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 9px;
+  overflow: hidden;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  text-align: left;
+}
+.themeSwatch:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255,255,255,0.14);
+  box-shadow: 0 8px 28px rgba(0,0,0,0.4);
+}
+.themeSwatchActive {
+  border-color: var(--swatch-accent, var(--gold)) !important;
+  box-shadow:
+    0 0 0 1px var(--swatch-accent, var(--gold)),
+    0 8px 28px rgba(0,0,0,0.5),
+    0 0 24px color-mix(in srgb, var(--swatch-accent, var(--gold)) 20%, transparent) !important;
+}
+
+/* Miniature app preview inside the swatch */
+.swatchPreview {
+  position: relative;
+  aspect-ratio: 4 / 2.8;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.swatchNav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 8px;
+  border-bottom: 1px solid;
+  background: rgba(0,0,0,0.18);
+}
+
+.swatchLogo {
+  font-family: var(--font-display);
+  font-size: 0.52rem;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+}
+
+.swatchNavDots {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.swatchDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+}
+
+.swatchDotGrid {
+  position: absolute;
+  inset: 0;
+  top: 22px;   /* below nav */
+  pointer-events: none;
+}
+
+.swatchCards {
+  position: absolute;
+  inset: 26px 8px 6px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+
+.swatchCard {
+  border-radius: 3px;
+  border: 1px solid;
+  border-top-width: 2px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px;
+}
+
+.swatchCardBar {
+  height: 18px;
+  border-radius: 2px;
+  margin-bottom: 2px;
+}
+
+.swatchCardLine {
+  height: 3px;
+  border-radius: 1px;
+  width: 100%;
+}
+
+.swatchActiveCheck {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  opacity: 0.9;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+}
+
+/* Label beneath the preview */
+.swatchLabel {
+  padding: 8px 10px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.swatchName {
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.07em;
+  transition: color 0.2s;
+}
+
+.swatchLore {
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Accent color bar at the bottom */
+.swatchColorBar {
+  display: flex;
+  height: 3px;
+  width: 100%;
+  gap: 1px;
+}
+
+@media (max-width: 640px) {
+  .themeGrid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 400px) {
+  .themeGrid { grid-template-columns: 1fr; }
+}
+
 /* ── Typography controls ─────────────────────────────────────────────────── */
 .fontWeightOptions {
   display: flex;

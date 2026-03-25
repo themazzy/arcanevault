@@ -2,14 +2,12 @@ import { useState, useEffect } from 'react'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
-import { clearScryfallCache, clearAllScryfallCache, PRICE_SOURCES, getPriceSource } from '../lib/scryfall'
+import { THEMES } from '../components/SettingsContext'
+import { clearScryfallCache, clearAllScryfallCache, PRICE_SOURCES } from '../lib/scryfall'
 import { getDbStats } from '../lib/db'
 import { SectionHeader, Button } from '../components/UI'
 import styles from './Settings.module.css'
 import CacheDebug from '../components/CacheDebug'
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-// Cache info now comes from IndexedDB via getDbStats()
 
 function formatAge(ms) {
   if (ms < 60000) return 'just now'
@@ -50,8 +48,88 @@ function Toggle({ value, onChange }) {
   )
 }
 
+// ── Theme picker ──────────────────────────────────────────────────────────────
+function ThemePicker({ value, onChange }) {
+  return (
+    <div className={styles.themeGrid}>
+      {Object.entries(THEMES).map(([id, theme]) => {
+        const active = value === id
+        const { bg, accent, hi, text } = theme.preview
+        return (
+          <button
+            key={id}
+            className={`${styles.themeSwatch}${active ? ' ' + styles.themeSwatchActive : ''}`}
+            style={{ '--swatch-bg': bg, '--swatch-accent': accent, '--swatch-hi': hi }}
+            onClick={() => onChange(id)}
+            title={theme.name}
+          >
+            {/* Miniature app preview */}
+            <div className={styles.swatchPreview} style={{ background: bg }}>
+              {/* Nav bar */}
+              <div className={styles.swatchNav} style={{ borderColor: `${accent}30` }}>
+                <div className={styles.swatchLogo} style={{ color: accent }}>AV</div>
+                <div className={styles.swatchNavDots}>
+                  <div className={styles.swatchDot} style={{ background: accent }} />
+                  <div className={styles.swatchDot} style={{ background: `${hi}88` }} />
+                  <div className={styles.swatchDot} style={{ background: `${accent}44` }} />
+                </div>
+              </div>
+              {/* Dot grid */}
+              <div
+                className={styles.swatchDotGrid}
+                style={{
+                  backgroundImage: `radial-gradient(circle, ${accent}18 1px, transparent 1px)`,
+                  backgroundSize: '8px 8px',
+                }}
+              />
+              {/* Mini cards */}
+              <div className={styles.swatchCards}>
+                {[0,1,2,3].map(i => (
+                  <div
+                    key={i}
+                    className={styles.swatchCard}
+                    style={{
+                      background: `${bg}`,
+                      borderColor: `${accent}28`,
+                      borderTopColor: `${accent}60`,
+                    }}
+                  >
+                    <div className={styles.swatchCardBar} style={{ background: `${accent}30` }} />
+                    <div className={styles.swatchCardLine} style={{ background: `${text}28` }} />
+                    <div className={styles.swatchCardLine} style={{ background: `${text}18`, width: '70%' }} />
+                  </div>
+                ))}
+              </div>
+              {/* Active indicator */}
+              {active && (
+                <div className={styles.swatchActiveCheck} style={{ color: accent }}>✓</div>
+              )}
+            </div>
+            {/* Label */}
+            <div className={styles.swatchLabel}>
+              <div className={styles.swatchName} style={{ color: active ? accent : text }}>
+                {theme.name}
+              </div>
+              <div className={styles.swatchLore} style={{ color: `${text}88` }}>
+                {theme.lore}
+              </div>
+            </div>
+            {/* Color bar */}
+            <div className={styles.swatchColorBar}>
+              <div style={{ flex: 2, background: accent, borderRadius: '2px 0 0 2px' }} />
+              <div style={{ flex: 1, background: hi }} />
+              <div style={{ flex: 1, background: `${text}60`, borderRadius: '0 2px 2px 0' }} />
+            </div>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Cache status ──────────────────────────────────────────────────────────────
 function CacheStatus({ ttlH, onClear }) {
-  const [info, setInfo] = useState(null)
+  const [info, setInfo]     = useState(null)
   const [cleared, setCleared] = useState(false)
 
   const loadInfo = async () => {
@@ -68,14 +146,13 @@ function CacheStatus({ ttlH, onClear }) {
 
   const handleClear = async () => {
     await clearScryfallCache()
-    setInfo(null)
-    setCleared(true)
+    setInfo(null); setCleared(true)
     setTimeout(() => setCleared(false), 2500)
     onClear?.()
   }
 
-  const ttlMs = ttlH * 3600000
-  const pct = info ? Math.min(100, Math.round((info.ageMs / ttlMs) * 100)) : 0
+  const ttlMs     = ttlH * 3600000
+  const pct       = info ? Math.min(100, Math.round((info.ageMs / ttlMs) * 100)) : 0
   const isExpired = info ? info.ageMs > ttlMs : false
   const expiresIn = info && !isExpired
     ? formatAge(ttlMs - info.ageMs).replace(' ago', '')
@@ -108,7 +185,6 @@ function CacheStatus({ ttlH, onClear }) {
               <span className={styles.cacheStatLabel}>expires</span>
             </div>
           </div>
-
           <div className={styles.cacheBarWrap}>
             <div
               className={`${styles.cacheBar} ${isExpired ? styles.cacheBarExpired : ''}`}
@@ -153,12 +229,12 @@ function CacheStatus({ ttlH, onClear }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function SettingsPage() {
-  const { user } = useAuth()
-  const settings = useSettings()
-  const [pwNew, setPwNew] = useState('')
-  const [pwMsg, setPwMsg] = useState('')
+  const { user }   = useAuth()
+  const settings   = useSettings()
+  const [pwNew, setPwNew]     = useState('')
+  const [pwMsg, setPwMsg]     = useState('')
   const [pwError, setPwError] = useState('')
-  const [saving, setSaving] = useState(false)
+  const [saving, setSaving]   = useState(false)
 
   const set = async (key, value) => {
     setSaving(true)
@@ -178,60 +254,20 @@ export default function SettingsPage() {
     <div className={styles.page}>
       <SectionHeader title="Settings" />
 
-      {/* Prices */}
+      {/* ── Appearance / Theme ── */}
       <div className={styles.section}>
-        <div className={styles.sectionTitle}>Prices</div>
+        <div className={styles.sectionTitle}>Appearance</div>
 
-        <SettingRow label="Price Source" description="Marketplace and price type used throughout the app">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 260 }}>
-            {PRICE_SOURCES.map(src => (
-              <label key={src.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
-                <input
-                  type="radio"
-                  name="price_source"
-                  value={src.id}
-                  checked={settings.price_source === src.id}
-                  onChange={() => set('price_source', src.id)}
-                  style={{ marginTop: 3, accentColor: 'var(--gold)' }}
-                />
-                <div>
-                  <div style={{ fontSize: '0.88rem', color: settings.price_source === src.id ? 'var(--gold)' : 'var(--text)' }}>
-                    {src.label}
-                  </div>
-                  <div style={{ fontSize: '0.74rem', color: 'var(--text-faint)', marginTop: 1 }}>{src.description}</div>
-                </div>
-              </label>
-            ))}
+        <div className={styles.themeRow}>
+          <div className={styles.themeLabel}>
+            <div className={styles.rowTitle}>Colour Theme</div>
+            <div className={styles.rowDesc}>Choose the colour palette for the entire app. Saved to your account and synced across devices.</div>
           </div>
-        </SettingRow>
-
-        <SettingRow label="Show Price on Cards" description="Display price label in the card grid">
-          <Toggle value={settings.show_price} onChange={v => set('show_price', v)} />
-        </SettingRow>
+          <ThemePicker value={settings.theme || 'shadow'} onChange={v => set('theme', v)} />
+        </div>
       </div>
 
-      {/* Display */}
-      <div className={styles.section}>
-        <div className={styles.sectionTitle}>Display</div>
-        <SettingRow label="Default Sort" description="How cards are sorted when opening the collection">
-          <Select value={settings.default_sort} onChange={v => set('default_sort', v)}
-            options={[
-              ['name', 'Name'], ['price_desc', 'Price (high → low)'],
-              ['price_asc', 'Price (low → high)'], ['qty', 'Quantity'],
-              ['set', 'Set'], ['added', 'Recently Added'],
-            ]} />
-        </SettingRow>
-        <SettingRow label="Grid Density" description="How many cards to show per row">
-          <Select value={settings.grid_density} onChange={v => set('grid_density', v)}
-            options={[
-              ['cozy', 'Cozy (fewer, larger)'],
-              ['comfortable', 'Comfortable (default)'],
-              ['compact', 'Compact (more, smaller)'],
-            ]} />
-        </SettingRow>
-      </div>
-
-      {/* Typography */}
+      {/* ── Typography ── */}
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Typography</div>
         <SettingRow label="Font Weight" description="How thick the body text appears — increase if text looks too thin on your screen">
@@ -279,7 +315,60 @@ export default function SettingsPage() {
         </SettingRow>
       </div>
 
-      {/* Cache */}
+      {/* ── Prices ── */}
+      <div className={styles.section}>
+        <div className={styles.sectionTitle}>Prices</div>
+
+        <SettingRow label="Price Source" description="Marketplace and price type used throughout the app">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 260 }}>
+            {PRICE_SOURCES.map(src => (
+              <label key={src.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+                <input
+                  type="radio"
+                  name="price_source"
+                  value={src.id}
+                  checked={settings.price_source === src.id}
+                  onChange={() => set('price_source', src.id)}
+                  style={{ marginTop: 3, accentColor: 'var(--gold)' }}
+                />
+                <div>
+                  <div style={{ fontSize: '0.88rem', color: settings.price_source === src.id ? 'var(--gold)' : 'var(--text)' }}>
+                    {src.label}
+                  </div>
+                  <div style={{ fontSize: '0.74rem', color: 'var(--text-faint)', marginTop: 1 }}>{src.description}</div>
+                </div>
+              </label>
+            ))}
+          </div>
+        </SettingRow>
+
+        <SettingRow label="Show Price on Cards" description="Display price label in the card grid">
+          <Toggle value={settings.show_price} onChange={v => set('show_price', v)} />
+        </SettingRow>
+      </div>
+
+      {/* ── Display ── */}
+      <div className={styles.section}>
+        <div className={styles.sectionTitle}>Display</div>
+        <SettingRow label="Default Sort" description="How cards are sorted when opening the collection">
+          <Select value={settings.default_sort} onChange={v => set('default_sort', v)}
+            options={[
+              ['name', 'Name'], ['price_desc', 'Price (high → low)'],
+              ['price_asc', 'Price (low → high)'], ['qty', 'Quantity'],
+              ['set', 'Set'], ['added', 'Recently Added'],
+            ]} />
+        </SettingRow>
+        <SettingRow label="Grid Density" description="How many cards to show per row">
+          <Select value={settings.grid_density} onChange={v => set('grid_density', v)}
+            options={[
+              ['cozy', 'Cozy (fewer, larger)'],
+              ['comfortable', 'Comfortable (default)'],
+              ['compact', 'Compact (more, smaller)'],
+            ]} />
+        </SettingRow>
+      </div>
+
+      {/* ── Cache ── */}
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Price Cache</div>
         <SettingRow label="Cache Duration" description="How long Scryfall prices are stored locally">
@@ -292,7 +381,7 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Account */}
+      {/* ── Account ── */}
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Account</div>
         <SettingRow label="Email">
@@ -305,7 +394,7 @@ export default function SettingsPage() {
             <Button size="sm" onClick={handleChangePassword} disabled={!pwNew}>Update</Button>
           </div>
           {pwError && <div className={styles.pwError}>{pwError}</div>}
-          {pwMsg && <div className={styles.pwMsg}>{pwMsg}</div>}
+          {pwMsg   && <div className={styles.pwMsg}>{pwMsg}</div>}
         </SettingRow>
         <SettingRow label="Sign Out Everywhere" description="Signs out all sessions on all devices">
           <Button variant="danger" size="sm" onClick={() => sb.auth.signOut({ scope: 'global' })}>
