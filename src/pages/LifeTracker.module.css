@@ -88,12 +88,8 @@
   display: grid;
   gap: 8px;
   flex: 1;
+  grid-template-columns: repeat(var(--gcols, 2), 1fr);
 }
-.grid2 { grid-template-columns: 1fr 1fr; }
-.grid3 { grid-template-columns: repeat(3, 1fr); }
-.grid4 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
-.grid5 { grid-template-columns: repeat(3, 1fr); }
-.grid6 { grid-template-columns: repeat(3, 1fr); }
 
 /* ── Player Panel ──────────────────────────────────────────────────────────── */
 .playerPanel {
@@ -107,11 +103,20 @@
   min-height: 200px;
 }
 .playerDead { opacity: 0.42; filter: grayscale(0.4); }
-/* Rotate bottom-half panels on mobile (table mode) */
-.playerInverted { /* desktop: no rotation */ }
+/* Inverted panels — desktop: no rotation; tablet+phone: rotate for table play */
+.playerInverted { /* set in media query below */ }
+
+/* Art-picker ⚙ button */
+.artPickerBtn {
+  background: none; border: none;
+  color: var(--text-faint); font-size: 0.88rem; line-height: 1;
+  cursor: pointer; padding: 0 2px; transition: color 0.15s, transform 0.2s;
+  flex-shrink: 0;
+}
+.artPickerBtn:hover { color: var(--gold); transform: rotate(45deg); }
 
 /* Color dots */
-.colorRow { display: flex; gap: 5px; justify-content: flex-end; }
+.colorRow { display: flex; gap: 5px; justify-content: flex-end; align-items: center; }
 .colorDot {
   width: 14px; height: 14px; border-radius: 50%;
   border: 2px solid transparent; cursor: pointer; padding: 0; flex-shrink: 0;
@@ -245,6 +250,13 @@
 .cmdBar::-webkit-scrollbar { height: 2px; }
 .cmdBar::-webkit-scrollbar-thumb { background: rgba(201,168,76,0.2); border-radius: 1px; }
 
+.cmdBarIcon {
+  font-size: 0.78rem; color: var(--text-faint); flex-shrink: 0; opacity: 0.7;
+}
+.cmdBarHint {
+  font-size: 0.62rem; color: var(--text-faint); font-style: italic;
+  margin-left: auto; flex-shrink: 0; opacity: 0.6; white-space: nowrap;
+}
 .cmdBarLabel {
   background: none; border: none;
   color: var(--text-faint); font-size: 0.78rem;
@@ -687,6 +699,46 @@
   border-color: rgba(201,168,76,0.45) !important; color: var(--gold) !important;
 }
 
+/* ── Layout Picker ──────────────────────────────────────────────────────────── */
+.layoutPicker {
+  display: flex; gap: 8px; flex-wrap: wrap;
+}
+.layoutOpt {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 7px; padding: 8px 10px;
+  cursor: pointer; transition: all 0.15s;
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+}
+.layoutOpt:hover { border-color: rgba(201,168,76,0.25); background: rgba(255,255,255,0.05); }
+.layoutOptActive {
+  background: rgba(201,168,76,0.1) !important;
+  border-color: rgba(201,168,76,0.45) !important;
+}
+.layoutGrid {
+  display: grid;
+  grid-template-columns: repeat(var(--lcols, 2), 18px);
+  gap: 3px;
+}
+.layoutSeat {
+  height: 14px; border-radius: 2px;
+  background: rgba(255,255,255,0.1);
+  border-top: 2px solid rgba(201,168,76,0.5);
+}
+.layoutSeatFlip {
+  border-top-color: transparent !important;
+  border-bottom: 2px solid rgba(138,111,196,0.6);
+}
+.layoutOptActive .layoutSeat { background: rgba(201,168,76,0.1); }
+.layoutOptLabel {
+  font-family: var(--font-display); font-size: 0.6rem;
+  letter-spacing: 0.06em; color: var(--text-faint); white-space: nowrap;
+}
+.layoutOptActive .layoutOptLabel { color: var(--gold); }
+.layoutOnlyOne {
+  font-size: 0.74rem; color: var(--text-faint); font-style: italic; margin: 2px 0 0;
+}
+
 /* Player config rows */
 .playerConfigList { display: flex; flex-direction: column; gap: 5px; }
 .playerConfig {
@@ -891,39 +943,32 @@
    ══════════════════════════════════════════════════════════════════════════════ */
 
 @media (max-width: 900px) {
-  .grid4 { grid-template-columns: 1fr 1fr; }
-  .grid5 { grid-template-columns: 1fr 1fr; }
-  .grid6 { grid-template-columns: 1fr 1fr; }
+  /* Rotate bottom-half players 180° for table/tablet mode */
+  .playerInverted { transform: rotate(180deg); }
   .lifeTotal { font-size: 3rem; }
   .modeGrid  { grid-template-columns: repeat(3, 1fr); }
 }
 
 @media (max-width: 600px) {
-  /* 2-player stacks for table mode; others stay 2-col */
-  .grid2 { grid-template-columns: 1fr; grid-template-rows: auto auto; }
-  .grid3, .grid4 { grid-template-columns: 1fr 1fr; }
-  .grid5, .grid6 { grid-template-columns: 1fr 1fr; }
-
-  /* Rotate bottom-half players 180° for table mode */
-  .playerInverted { transform: rotate(180deg); }
-
   .lifeTotal     { font-size: 2.8rem; }
   .lifeBtn       { width: 40px; height: 46px; font-size: 1.3rem; }
   .lifeTotalWrap { width: 82px; }
   .playerPanel   { min-height: 176px; padding: 7px 8px 9px; gap: 5px; }
   .quickBtn      { padding: 4px 6px; font-size: 0.72rem; }
   .cmdBadgeVal   { font-size: 0.72rem; }
+  .cmdBarHint    { display: none; }
 
   .modeGrid  { grid-template-columns: repeat(2, 1fr); }
   .modeLabel { display: none; }
   .endDialog { padding: 16px; }
   .endActions { flex-direction: column; }
   .diceTypes  { grid-template-columns: repeat(4, 1fr); }
+  .layoutPicker { gap: 6px; }
+  .layoutSeat   { height: 12px; }
+  .layoutGrid   { gap: 2px; grid-template-columns: repeat(var(--lcols, 2), 14px); }
 }
 
 @media (max-width: 400px) {
-  .grid2, .grid3, .grid4 { grid-template-columns: 1fr; }
-  .grid5, .grid6 { grid-template-columns: 1fr 1fr; }
   .lifeTotal { font-size: 3.2rem; }
   .lifeBtn   { width: 50px; height: 54px; font-size: 1.5rem; }
 }
