@@ -11,14 +11,15 @@ const MAX_HISTORY = 50
 
 const PLAYER_COLORS = ['#c46060', '#6080c4', '#60a860', '#c4a040', '#9060c4', '#60b8c4']
 const PLAYER_NAMES  = ['Player 1', 'Player 2', 'Player 3', 'Player 4', 'Player 5', 'Player 6']
+const DICE_TYPES    = [2, 4, 6, 8, 10, 12, 20, 100]
 
 const MODES = {
-  standard:    { label: 'Standard',     life: 20, commander: false, poison: false },
-  commander:   { label: 'Commander',    life: 40, commander: true,  poison: true  },
-  brawl:       { label: 'Brawl',        life: 25, commander: true,  poison: false },
-  oathbreaker: { label: 'Oathbreaker',  life: 20, commander: true,  poison: false },
-  planechase:  { label: 'Planechase',   life: 20, commander: false, poison: false },
-  custom:      { label: 'Custom',       life: 20, commander: false, poison: false },
+  standard:    { label: 'Standard',    life: 20, commander: false, poison: false },
+  commander:   { label: 'Commander',   life: 40, commander: true,  poison: true  },
+  brawl:       { label: 'Brawl',       life: 25, commander: true,  poison: false },
+  oathbreaker: { label: 'Oathbreaker', life: 20, commander: true,  poison: false },
+  planechase:  { label: 'Planechase',  life: 20, commander: false, poison: false },
+  custom:      { label: 'Custom',      life: 20, commander: false, poison: false },
 }
 
 // ── Persistence helpers ────────────────────────────────────────────────────────
@@ -53,7 +54,48 @@ function makePlayer(i, life, seed = {}) {
   }
 }
 
-// ── Art Picker (page-level, outside rotated panels) ────────────────────────────
+// ── Custom Deck Dropdown (fully styled, no native select weirdness) ─────────────
+function DeckDropdown({ value, valueName, options, onChange }) {
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = e => { if (!wrapRef.current?.contains(e.target)) setOpen(false) }
+    document.addEventListener('pointerdown', handler)
+    return () => document.removeEventListener('pointerdown', handler)
+  }, [open])
+
+  return (
+    <div className={styles.deckDrop} ref={wrapRef}>
+      <button
+        className={`${styles.deckDropBtn} ${open ? styles.deckDropBtnOpen : ''}`}
+        onClick={() => setOpen(v => !v)}>
+        <span className={styles.deckDropValue}>{valueName || '— No deck —'}</span>
+        <span className={styles.deckDropArrow}>{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className={styles.deckDropMenu}>
+          <button
+            className={`${styles.deckDropItem} ${!value ? styles.deckDropItemActive : ''}`}
+            onClick={() => { onChange(null, null); setOpen(false) }}>
+            — No deck selected —
+          </button>
+          {options.map(d => (
+            <button key={d.id}
+              className={`${styles.deckDropItem} ${value === d.id ? styles.deckDropItemActive : ''}`}
+              onClick={() => { onChange(d.id, d.name); setOpen(false) }}>
+              <span>{d.name}</span>
+              {d.type === 'builder_deck' && <span className={styles.deckDropTypeBadge}>builder</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Art Picker (page-level so transform:rotate doesn't break position:fixed) ──
 function ArtPicker({ onSelect, onClear, onClose }) {
   const [query, setQuery]     = useState('')
   const [results, setResults] = useState([])
@@ -113,6 +155,215 @@ function ArtPicker({ onSelect, onClear, onClose }) {
   )
 }
 
+// ── Commander Damage Overlay (page-level) ──────────────────────────────────────
+function CmdDmgOverlay({ player, opponents, onCmdDmgChange, onClose }) {
+  if (!player || !opponents?.length) return null
+
+  return (
+    <div className={styles.cmdOverlay} onClick={onClose}>
+      <div className={styles.cmdOverlayPanel} onClick={e => e.stopPropagation()}>
+        <div className={styles.cmdOverlayHead}>
+          <div>
+            <div className={styles.cmdOverlayTitle}>⚔ Commander Damage</div>
+            <div className={styles.cmdOverlaySub} style={{ color: player.color }}>
+              {player.name} received…
+            </div>
+          </div>
+          <button className={styles.cmdOverlayClose} onClick={onClose}>×</button>
+        </div>
+
+        <div className={styles.cmdOverlayList}>
+          {opponents.map(opp => {
+            const dmg = player.cmdDmg?.[opp.id] || 0
+            return (
+              <div key={opp.id}
+                className={`${styles.cmdOverlayRow} ${dmg >= 21 ? styles.cmdOverlayLethal : ''}`}
+                style={{ '--opc': opp.color }}>
+                <div className={styles.cmdOverlayOpp}>
+                  <span className={styles.cmdOverlayDot} />
+                  <span className={styles.cmdOverlayOppName}>{opp.name}</span>
+                  {dmg >= 21 && <span className={styles.cmdLethalBadge}>LETHAL</span>}
+                </div>
+                <div className={styles.cmdOverlayCtrl}>
+                  <button className={styles.cmdOverlayBtn}
+                    onPointerDown={e => { e.preventDefault(); onCmdDmgChange(player.id, opp.id, -5) }}>−5</button>
+                  <button className={styles.cmdOverlayBtn}
+                    onPointerDown={e => { e.preventDefault(); onCmdDmgChange(player.id, opp.id, -1) }}>−</button>
+                  <span className={`${styles.cmdOverlayVal} ${dmg >= 21 ? styles.cmdOverlayValLethal : ''}`}>
+                    {dmg}
+                  </span>
+                  <button className={styles.cmdOverlayBtn}
+                    onPointerDown={e => { e.preventDefault(); onCmdDmgChange(player.id, opp.id, +1) }}>+</button>
+                  <button className={styles.cmdOverlayBtn}
+                    onPointerDown={e => { e.preventDefault(); onCmdDmgChange(player.id, opp.id, +5) }}>+5</button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <p className={styles.cmdOverlayHint}>Adjustments also update life total · tap outside to close</p>
+      </div>
+    </div>
+  )
+}
+
+// ── Dice Roller ───────────────────────────────────────────────────────────────
+function DiceRoller({ onClose }) {
+  const [dieType,  setDieType]  = useState(20)
+  const [numDice,  setNumDice]  = useState(1)
+  const [results,  setResults]  = useState([])
+  const [dispVals, setDispVals] = useState([])
+  const [rolling,  setRolling]  = useState(false)
+  const frameRef = useRef(null)
+
+  useEffect(() => () => clearTimeout(frameRef.current), [])
+
+  const roll = () => {
+    if (rolling) return
+    setRolling(true)
+    const finals = Array.from({ length: numDice }, () => Math.floor(Math.random() * dieType) + 1)
+    let frame = 0
+    const total = 18
+    const animate = () => {
+      frame++
+      const vals = Array.from({ length: numDice }, () => Math.floor(Math.random() * dieType) + 1)
+      setDispVals(vals)
+      if (frame < total) {
+        frameRef.current = setTimeout(animate, 25 + frame * 6)
+      } else {
+        setResults(finals)
+        setDispVals(finals)
+        setRolling(false)
+      }
+    }
+    setDispVals(Array.from({ length: numDice }, () => Math.floor(Math.random() * dieType) + 1))
+    frameRef.current = setTimeout(animate, 25)
+  }
+
+  const shown = rolling ? dispVals : results
+  const total = results.reduce((s, v) => s + v, 0)
+
+  return (
+    <div className={styles.diceOverlay} onClick={onClose}>
+      <div className={styles.dicePanel} onClick={e => e.stopPropagation()}>
+        <div className={styles.diceHead}>
+          <span className={styles.diceTitle}>🎲 Dice Roller</span>
+          <button className={styles.diceClose} onClick={onClose}>×</button>
+        </div>
+
+        <div className={styles.diceTypes}>
+          {DICE_TYPES.map(d => (
+            <button key={d}
+              className={`${styles.diceTypeBtn} ${dieType === d ? styles.diceTypeBtnActive : ''}`}
+              onClick={() => setDieType(d)}>
+              d{d}
+            </button>
+          ))}
+        </div>
+
+        <div className={styles.diceCount}>
+          <span className={styles.diceCountLabel}>Number of dice</span>
+          <div className={styles.diceCountCtrl}>
+            <button className={styles.diceCountBtn} onClick={() => setNumDice(n => Math.max(1, n - 1))}>−</button>
+            <span className={styles.diceCountVal}>{numDice}</span>
+            <button className={styles.diceCountBtn} onClick={() => setNumDice(n => Math.min(10, n + 1))}>+</button>
+          </div>
+        </div>
+
+        <div className={styles.diceResults}>
+          {shown.length > 0 ? (
+            <>
+              <div className={styles.diceResultRow}>
+                {shown.map((v, i) => (
+                  <div key={i}
+                    className={`${styles.dieFace} ${rolling ? styles.dieFaceRolling : styles.dieFaceSettled} ${!rolling && v === dieType ? styles.dieFaceMax : ''} ${!rolling && v === 1 ? styles.dieFaceMin : ''}`}>
+                    {v}
+                  </div>
+                ))}
+              </div>
+              {!rolling && numDice > 1 && (
+                <div className={styles.diceTotal}>
+                  Total: <strong>{total}</strong>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className={styles.dicePrompt}>Press Roll to see results</div>
+          )}
+        </div>
+
+        <button className={styles.diceRollBtn} onClick={roll} disabled={rolling}>
+          {rolling ? 'Rolling…' : `Roll ${numDice}d${dieType}`}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Random Player Picker ──────────────────────────────────────────────────────
+function RandomPicker({ players, onClose }) {
+  const [picking, setPicking] = useState(false)
+  const [current, setCurrent] = useState(null)
+  const [winner,  setWinner]  = useState(null)
+  const timerRef = useRef(null)
+
+  useEffect(() => () => clearTimeout(timerRef.current), [])
+
+  const pick = () => {
+    if (picking || players.length === 0) return
+    setPicking(true)
+    setWinner(null)
+    const duration  = 2400
+    const startTime = Date.now()
+
+    const step = () => {
+      const elapsed  = Date.now() - startTime
+      if (elapsed >= duration) {
+        const chosen = players[Math.floor(Math.random() * players.length)]
+        setCurrent(chosen)
+        setWinner(chosen)
+        setPicking(false)
+        return
+      }
+      setCurrent(players[Math.floor(Math.random() * players.length)])
+      const progress = elapsed / duration
+      timerRef.current = setTimeout(step, 55 + progress * progress * 500)
+    }
+    step()
+  }
+
+  return (
+    <div className={styles.pickerOverlay} onClick={onClose}>
+      <div className={styles.pickerPanel} onClick={e => e.stopPropagation()}>
+        <div className={styles.pickerHead}>
+          <span className={styles.pickerTitle}>🎯 Random Player</span>
+          <button className={styles.pickerClose} onClick={onClose}>×</button>
+        </div>
+
+        <div
+          className={`${styles.pickerDisplay} ${winner ? styles.pickerDisplayWin : ''} ${picking ? styles.pickerDisplayPicking : ''}`}
+          style={current ? { '--pc': current.color } : {}}>
+          {current ? (
+            <>
+              <div className={styles.pickerDot} style={{ background: current.color }} />
+              <div className={styles.pickerName} style={{ color: current.color }}>
+                {current.name}
+              </div>
+              {winner && <div className={styles.pickerGoesFirst}>Goes First! 🎉</div>}
+            </>
+          ) : (
+            <div className={styles.pickerEmpty}>Press Pick!</div>
+          )}
+        </div>
+
+        <button className={styles.pickerBtn} onClick={pick} disabled={picking}>
+          {picking ? '🎲 Picking…' : winner ? '🎲 Pick Again' : '🎲 Pick!'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Pre-game: Player Config Row ────────────────────────────────────────────────
 function PlayerConfig({ index, config, decks, history, onChange }) {
   const [editing, setEditing] = useState(false)
@@ -151,17 +402,12 @@ function PlayerConfig({ index, config, decks, history, onChange }) {
         </div>
         {decks.length > 0 && (
           <div className={styles.pcDeckRow}>
-            <select className={styles.pcDeckSelect}
-              value={config.deckId || ''}
-              onChange={e => {
-                const deck = decks.find(d => d.id === e.target.value)
-                onChange({ deckId: deck?.id || null, deckName: deck?.name || null })
-              }}>
-              <option value="">— No deck selected —</option>
-              {decks.map(d => (
-                <option key={d.id} value={d.id}>{d.name}</option>
-              ))}
-            </select>
+            <DeckDropdown
+              value={config.deckId}
+              valueName={config.deckName}
+              options={decks}
+              onChange={(id, name) => onChange({ deckId: id, deckName: name })}
+            />
             {deckStats && deckStats.total > 0 && (
               <span className={styles.pcDeckStats}>
                 {deckStats.wins}W–{deckStats.total - deckStats.wins}L
@@ -177,7 +423,7 @@ function PlayerConfig({ index, config, decks, history, onChange }) {
 // ── Pre-game: History entry ────────────────────────────────────────────────────
 function HistoryEntry({ game }) {
   const sorted = [...game.players].sort((a, b) => a.placement - b.placement)
-  const mins = Math.round((game.duration || 0) / 60000)
+  const mins   = Math.round((game.duration || 0) / 60000)
   return (
     <div className={styles.histEntry}>
       <div className={styles.histEntryHead}>
@@ -204,8 +450,8 @@ function HistoryEntry({ game }) {
 // ── Pre-game Setup Screen ──────────────────────────────────────────────────────
 function PreGameSetup({ onStart, decks, history }) {
   const [playerCount, setPlayerCount] = useState(4)
-  const [mode, setMode]               = useState('commander')
-  const [customLife, setCustomLife]   = useState(40)
+  const [mode,        setMode]        = useState('commander')
+  const [customLife,  setCustomLife]  = useState(40)
   const [configs, setConfigs] = useState(
     Array.from({ length: 6 }, (_, i) => ({
       name: PLAYER_NAMES[i], color: PLAYER_COLORS[i], deckId: null, deckName: null,
@@ -218,9 +464,7 @@ function PreGameSetup({ onStart, decks, history }) {
 
   const handleStart = () => {
     const life = mode === 'custom' ? customLife : MODES[mode].life
-    const players = Array.from({ length: playerCount }, (_, i) =>
-      makePlayer(i, life, configs[i])
-    )
+    const players = Array.from({ length: playerCount }, (_, i) => makePlayer(i, life, configs[i]))
     onStart({ playerCount, mode, customLife, players, startedAt: Date.now() })
   }
 
@@ -232,7 +476,6 @@ function PreGameSetup({ onStart, decks, history }) {
         <p className={styles.setupSub}>Configure your game</p>
       </div>
 
-      {/* Game mode */}
       <section className={styles.setupBlock}>
         <div className={styles.setupLabel}>Game Mode</div>
         <div className={styles.modeGrid}>
@@ -241,9 +484,7 @@ function PreGameSetup({ onStart, decks, history }) {
               className={`${styles.modeCard} ${mode === key ? styles.modeCardActive : ''}`}
               onClick={() => setMode(key)}>
               <span className={styles.modeCardName}>{conf.label}</span>
-              <span className={styles.modeCardLife}>
-                {key === 'custom' ? '? life' : `${conf.life} life`}
-              </span>
+              <span className={styles.modeCardLife}>{key === 'custom' ? '? life' : `${conf.life} life`}</span>
             </button>
           ))}
         </div>
@@ -265,7 +506,6 @@ function PreGameSetup({ onStart, decks, history }) {
         )}
       </section>
 
-      {/* Player count */}
       <section className={styles.setupBlock}>
         <div className={styles.setupLabel}>Number of Players</div>
         <div className={styles.countRow}>
@@ -277,7 +517,6 @@ function PreGameSetup({ onStart, decks, history }) {
         </div>
       </section>
 
-      {/* Player config */}
       <section className={styles.setupBlock}>
         <div className={styles.setupLabel}>Players</div>
         <div className={styles.playerConfigList}>
@@ -289,11 +528,9 @@ function PreGameSetup({ onStart, decks, history }) {
         </div>
       </section>
 
-      {/* History */}
       {history.length > 0 && (
         <section className={styles.setupBlock}>
-          <button className={styles.histToggle}
-            onClick={() => setShowHistory(v => !v)}>
+          <button className={styles.histToggle} onClick={() => setShowHistory(v => !v)}>
             📜 Recent Games ({history.length}) {showHistory ? '▲' : '▼'}
           </button>
           {showHistory && (
@@ -305,9 +542,7 @@ function PreGameSetup({ onStart, decks, history }) {
       )}
 
       <div className={styles.setupFooter}>
-        <button className={styles.startBtn} onClick={handleStart}>
-          ⚔ Start Game
-        </button>
+        <button className={styles.startBtn} onClick={handleStart}>⚔ Start Game</button>
       </div>
     </div>
   )
@@ -316,8 +551,6 @@ function PreGameSetup({ onStart, decks, history }) {
 // ── End Game Dialog ────────────────────────────────────────────────────────────
 function EndGameDialog({ players, onSave, onCancel }) {
   const count = players.length
-
-  // Auto-rank by current life total (descending)
   const [placements, setPlacements] = useState(() => {
     const sorted = [...players].sort((a, b) => b.life - a.life)
     return Object.fromEntries(sorted.map((p, i) => [p.id, i + 1]))
@@ -334,7 +567,7 @@ function EndGameDialog({ players, onSave, onCancel }) {
     })
   }
 
-  const placeLbl = n => ['1st 🥇', '2nd 🥈', '3rd 🥉', '4th', '5th', '6th'][n - 1] || `${n}th`
+  const lbl = n => ['1st 🥇', '2nd 🥈', '3rd 🥉', '4th', '5th', '6th'][n - 1] || `${n}th`
 
   return (
     <div className={styles.endOverlay}>
@@ -361,7 +594,7 @@ function EndGameDialog({ players, onSave, onCancel }) {
                   <button key={n}
                     className={`${styles.endPlaceBtn} ${placements[p.id] === n ? styles.endPlaceBtnActive : ''} ${n === 1 ? styles.endPlaceFirst : ''}`}
                     onClick={() => setPlacement(p.id, n)}>
-                    {placeLbl(n)}
+                    {lbl(n)}
                   </button>
                 ))}
               </div>
@@ -372,16 +605,13 @@ function EndGameDialog({ players, onSave, onCancel }) {
         <div className={styles.endNotesWrap}>
           <label className={styles.endNotesLabel}>Post-game Notes</label>
           <textarea className={styles.endNotesArea}
-            value={notes}
-            onChange={e => setNotes(e.target.value)}
+            value={notes} onChange={e => setNotes(e.target.value)}
             placeholder="What happened? What would you do differently next time?"
             rows={3} />
         </div>
 
         <div className={styles.endActions}>
-          <button className={styles.endContinueBtn} onClick={onCancel}>
-            ← Continue Playing
-          </button>
+          <button className={styles.endContinueBtn} onClick={onCancel}>← Continue Playing</button>
           <button className={styles.endSaveBtn} onClick={() => onSave({ placements, notes })}>
             💾 Save & New Game
           </button>
@@ -392,27 +622,48 @@ function EndGameDialog({ players, onSave, onCancel }) {
 }
 
 // ── Player Panel ───────────────────────────────────────────────────────────────
-function PlayerPanel({ player, opponents, onLifeChange, onPoisonChange, onCmdDmgChange, onNameChange, onColorChange, onRequestArtPicker, showCommander, showPoison, inverted }) {
+function PlayerPanel({
+  player, opponents,
+  onLifeChange, onPoisonChange, onCmdDmgChange, onNameChange, onColorChange,
+  onRequestArtPicker, onRequestCmdDmgOverlay,
+  showCommander, showPoison, inverted,
+}) {
   const [editingName, setEditingName] = useState(false)
-  const [nameInput, setNameInput]     = useState(player.name)
-  const [showCmdDmg, setShowCmdDmg]  = useState(false)
-  const [lastDelta, setLastDelta]     = useState(null)
-  const deltaTimer = useRef(null)
-  const prevLife   = useRef(player.life)
+  const [nameInput,   setNameInput]   = useState(player.name)
+  const [lastDelta,   setLastDelta]   = useState(null)
+  const deltaTimerRef = useRef(null)
+  const holdTimerRef  = useRef(null)
+  const prevLife      = useRef(player.life)
 
+  // Life delta animation
   useEffect(() => {
     const d = player.life - prevLife.current
     if (d !== 0) {
       setLastDelta(d)
-      clearTimeout(deltaTimer.current)
-      deltaTimer.current = setTimeout(() => setLastDelta(null), 1600)
+      clearTimeout(deltaTimerRef.current)
+      deltaTimerRef.current = setTimeout(() => setLastDelta(null), 1600)
     }
     prevLife.current = player.life
   }, [player.life])
-  useEffect(() => () => clearTimeout(deltaTimer.current), [])
+
+  useEffect(() => () => {
+    clearTimeout(deltaTimerRef.current)
+    clearTimeout(holdTimerRef.current)
+  }, [])
+
+  // Long-hold on life total → commander damage overlay
+  const handleLifeHoldStart = () => {
+    if (!showCommander || !opponents.length || !onRequestCmdDmgOverlay) return
+    holdTimerRef.current = setTimeout(() => onRequestCmdDmgOverlay(player.id), 550)
+  }
+  const handleLifeHoldEnd = () => clearTimeout(holdTimerRef.current)
 
   const adjust = delta => onLifeChange(player.id, delta)
-  const handleNameSubmit = () => { setEditingName(false); onNameChange(player.id, nameInput.trim() || player.name) }
+  const handleNameSubmit = () => {
+    setEditingName(false)
+    onNameChange(player.id, nameInput.trim() || player.name)
+  }
+
   const cmdTotal = Object.values(player.cmdDmg || {}).reduce((s, v) => s + v, 0)
   const isDead   = player.life <= 0 || player.poison >= 10
 
@@ -423,19 +674,18 @@ function PlayerPanel({ player, opponents, onLifeChange, onPoisonChange, onCmdDmg
         '--player-color': player.color,
         ...(player.artCropUrl ? {
           backgroundImage: `linear-gradient(rgba(10,10,18,0.55) 0%, rgba(10,10,18,0.80) 100%), url(${player.artCropUrl})`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
+          backgroundSize: 'cover', backgroundPosition: 'center',
         } : {}),
       }}>
-      {/* Color row + art picker trigger */}
+
+      {/* Color row */}
       <div className={styles.colorRow}>
         {PLAYER_COLORS.map(c => (
           <button key={c}
             className={`${styles.colorDot} ${c === player.color ? styles.colorDotActive : ''}`}
             style={{ background: c }} onClick={() => onColorChange(player.id, c)} />
         ))}
-        <button onClick={() => onRequestArtPicker(player.id)}
-          title="Set art background"
+        <button onClick={() => onRequestArtPicker(player.id)} title="Set art background"
           style={{ background: 'none', border: 'none', color: player.artCropUrl ? 'var(--gold)' : 'var(--text-faint)', cursor: 'pointer', fontSize: '0.85rem', padding: '0 2px', opacity: 0.8 }}>
           🖼
         </button>
@@ -455,18 +705,25 @@ function PlayerPanel({ player, opponents, onLifeChange, onPoisonChange, onCmdDmg
               {player.name}
             </button>
         }
-        {player.deckName && (
-          <span className={styles.panelDeckBadge}>{player.deckName}</span>
-        )}
+        {player.deckName && <span className={styles.panelDeckBadge}>{player.deckName}</span>}
       </div>
 
       {/* Life total */}
       <div className={styles.lifeArea}>
         <button className={styles.lifeBtn} onPointerDown={e => { e.preventDefault(); adjust(-1) }}>−</button>
-        <div className={styles.lifeTotalWrap}>
+
+        <div className={styles.lifeTotalWrap}
+          onPointerDown={handleLifeHoldStart}
+          onPointerUp={handleLifeHoldEnd}
+          onPointerLeave={handleLifeHoldEnd}
+          onContextMenu={e => { if (showCommander) e.preventDefault() }}
+          title={showCommander && opponents.length ? 'Hold for commander damage' : undefined}>
           <span className={`${styles.lifeTotal} ${player.life <= 5 ? styles.lifeLow : ''} ${player.life <= 0 ? styles.lifeDead : ''}`}>
             {player.life}
           </span>
+          {showCommander && opponents.length > 0 && cmdTotal > 0 && (
+            <span className={styles.cmdTotalBadge} title={`${cmdTotal} total cmd dmg`}>⚔{cmdTotal}</span>
+          )}
           {lastDelta != null && (
             <span key={`${lastDelta}-${Date.now()}`}
               className={`${styles.lifeDelta} ${lastDelta > 0 ? styles.lifeDeltaUp : styles.lifeDeltaDown}`}>
@@ -474,6 +731,7 @@ function PlayerPanel({ player, opponents, onLifeChange, onPoisonChange, onCmdDmg
             </span>
           )}
         </div>
+
         <button className={styles.lifeBtn} onPointerDown={e => { e.preventDefault(); adjust(+1) }}>+</button>
       </div>
 
@@ -497,28 +755,32 @@ function PlayerPanel({ player, opponents, onLifeChange, onPoisonChange, onCmdDmg
         </div>
       )}
 
-      {/* Commander damage */}
+      {/* Commander damage — always visible, compact */}
       {showCommander && opponents.length > 0 && (
-        <div className={styles.cmdSection}>
-          <button className={styles.cmdToggle} onClick={() => setShowCmdDmg(v => !v)}>
-            ⚔ Cmdr dmg ({cmdTotal}) {showCmdDmg ? '▲' : '▼'}
+        <div className={styles.cmdBar}>
+          <button
+            className={styles.cmdBarLabel}
+            onClick={() => onRequestCmdDmgOverlay?.(player.id)}
+            title="Open commander damage editor">
+            ⚔
           </button>
-          {showCmdDmg && (
-            <div className={styles.cmdList}>
-              {opponents.map(opp => (
-                <div key={opp.id} className={styles.cmdRow}>
-                  <span className={styles.cmdOppName} style={{ color: opp.color }}>{opp.name}</span>
-                  <div className={styles.counterRow}>
-                    <button className={styles.counterBtn} onPointerDown={e => { e.preventDefault(); onCmdDmgChange(player.id, opp.id, -1) }}>−</button>
-                    <span className={`${styles.counterVal} ${(player.cmdDmg?.[opp.id] || 0) >= 21 ? styles.counterDead : ''}`}>
-                      {player.cmdDmg?.[opp.id] || 0}
-                    </span>
-                    <button className={styles.counterBtn} onPointerDown={e => { e.preventDefault(); onCmdDmgChange(player.id, opp.id, +1) }}>+</button>
-                  </div>
+          <div className={styles.cmdBadges}>
+            {opponents.map(opp => {
+              const dmg = player.cmdDmg?.[opp.id] || 0
+              return (
+                <div key={opp.id}
+                  className={`${styles.cmdBadge} ${dmg > 0 ? styles.cmdBadgeHit : ''} ${dmg >= 21 ? styles.cmdBadgeLethal : ''}`}
+                  style={{ '--opc': opp.color }}>
+                  <span className={styles.cmdBadgeDot} title={opp.name} />
+                  <button className={styles.cmdBadgeBtn}
+                    onPointerDown={e => { e.preventDefault(); onCmdDmgChange(player.id, opp.id, -1) }}>−</button>
+                  <span className={styles.cmdBadgeVal}>{dmg}</span>
+                  <button className={styles.cmdBadgeBtn}
+                    onPointerDown={e => { e.preventDefault(); onCmdDmgChange(player.id, opp.id, +1) }}>+</button>
                 </div>
-              ))}
-            </div>
-          )}
+              )
+            })}
+          </div>
         </div>
       )}
     </div>
@@ -529,16 +791,29 @@ function PlayerPanel({ player, opponents, onLifeChange, onPoisonChange, onCmdDmg
 export default function LifeTrackerPage() {
   const { user } = useAuth()
 
-  const [screen, setScreen]               = useState('setup')
-  const [gameConfig, setGameConfig]       = useState(null)
-  const [players, setPlayers]             = useState([])
-  const [startedAt, setStartedAt]         = useState(null)
-  const [showEndDialog, setShowEndDialog] = useState(false)
-  const [artPickerPlayer, setArtPickerPlayer] = useState(null) // playerId | null
-  const [decks, setDecks]                 = useState([])
-  const [history, setHistory]             = useState(() => loadHistory())
+  const [screen,       setScreen]       = useState('setup')
+  const [gameConfig,   setGameConfig]   = useState(null)
+  const [players,      setPlayers]      = useState([])
+  const [startedAt,    setStartedAt]    = useState(null)
+  const [showEndDialog,    setShowEndDialog]    = useState(false)
+  const [artPickerPlayer,  setArtPickerPlayer]  = useState(null)
+  const [cmdDmgPlayer,     setCmdDmgPlayer]     = useState(null)
+  const [showDice,     setShowDice]     = useState(false)
+  const [showPicker,   setShowPicker]   = useState(false)
+  const [showGameMenu, setShowGameMenu] = useState(false)
+  const [decks,        setDecks]        = useState([])
+  const [history,      setHistory]      = useState(() => loadHistory())
+  const gearMenuRef = useRef(null)
 
-  // Load user's decks from Supabase
+  // Close gear menu on outside click
+  useEffect(() => {
+    if (!showGameMenu) return
+    const handler = e => { if (!gearMenuRef.current?.contains(e.target)) setShowGameMenu(false) }
+    document.addEventListener('pointerdown', handler)
+    return () => document.removeEventListener('pointerdown', handler)
+  }, [showGameMenu])
+
+  // Load decks — filter client-side as well in case Supabase filter doesn't match
   useEffect(() => {
     if (!user) return
     sb.from('folders')
@@ -546,10 +821,12 @@ export default function LifeTrackerPage() {
       .eq('user_id', user.id)
       .in('type', ['deck', 'builder_deck'])
       .order('name')
-      .then(({ data }) => setDecks(data || []))
+      .then(({ data }) => setDecks(
+        (data || []).filter(d => d.type === 'deck' || d.type === 'builder_deck')
+      ))
   }, [user])
 
-  // Restore session on mount (persists across navigations within the tab)
+  // Restore session on mount
   useEffect(() => {
     const saved = loadSession()
     if (saved?.screen === 'playing' && saved.players?.length) {
@@ -560,14 +837,14 @@ export default function LifeTrackerPage() {
     }
   }, [])
 
-  // Persist active game state to sessionStorage whenever it changes
+  // Persist active game state
   useEffect(() => {
     if (screen === 'playing') {
       saveSession({ screen, config: gameConfig, players, startedAt })
     }
   }, [screen, gameConfig, players, startedAt])
 
-  // ── Handlers ──
+  // ── Game handlers ──
   const handleStart = (config) => {
     setGameConfig(config)
     setPlayers(config.players)
@@ -581,24 +858,19 @@ export default function LifeTrackerPage() {
     setGameConfig(null)
     setPlayers([])
     setShowEndDialog(false)
+    setShowGameMenu(false)
   }
 
   const handleSaveGame = ({ placements, notes }) => {
-    const endedAt  = Date.now()
+    const endedAt = Date.now()
     const game = {
-      id: endedAt,
-      mode: gameConfig.mode,
-      startedAt,
-      endedAt,
+      id: endedAt, mode: gameConfig.mode, startedAt, endedAt,
       duration: endedAt - (startedAt || endedAt),
       notes,
       players: players.map(p => ({
-        name: p.name,
-        color: p.color,
-        deckId: p.deckId,
-        deckName: p.deckName,
-        placement: placements[p.id],
-        finalLife: p.life,
+        name: p.name, color: p.color,
+        deckId: p.deckId, deckName: p.deckName,
+        placement: placements[p.id], finalLife: p.life,
       })),
     }
     const newHistory = [game, ...history]
@@ -616,18 +888,25 @@ export default function LifeTrackerPage() {
         life, poison: 0, cmdDmg: {},
       }))
     )
+    setShowGameMenu(false)
   }
 
+  // ── Player state handlers ──
   const onLifeChange   = (id, delta) => setPlayers(ps => ps.map(p => p.id === id ? { ...p, life: p.life + delta } : p))
   const onPoisonChange = (id, delta) => setPlayers(ps => ps.map(p => p.id === id ? { ...p, poison: Math.max(0, p.poison + delta) } : p))
+
+  // Commander damage also adjusts life total directly
   const onCmdDmgChange = (pid, fid, delta) => setPlayers(ps => ps.map(p => {
     if (p.id !== pid) return p
-    const cur = p.cmdDmg?.[fid] || 0
-    return { ...p, cmdDmg: { ...p.cmdDmg, [fid]: Math.max(0, cur + delta) } }
+    const cur      = p.cmdDmg?.[fid] || 0
+    const newVal   = Math.max(0, cur + delta)
+    const applied  = newVal - cur               // actual change (respects clamp to 0)
+    return { ...p, life: p.life - applied, cmdDmg: { ...p.cmdDmg, [fid]: newVal } }
   }))
-  const onNameChange   = (id, name)  => setPlayers(ps => ps.map(p => p.id === id ? { ...p, name } : p))
-  const onColorChange  = (id, color) => setPlayers(ps => ps.map(p => p.id === id ? { ...p, color } : p))
-  const onArtChange    = (id, url)   => setPlayers(ps => ps.map(p => p.id === id ? { ...p, artCropUrl: url } : p))
+
+  const onNameChange  = (id, name)  => setPlayers(ps => ps.map(p => p.id === id ? { ...p, name } : p))
+  const onColorChange = (id, color) => setPlayers(ps => ps.map(p => p.id === id ? { ...p, color } : p))
+  const onArtChange   = (id, url)   => setPlayers(ps => ps.map(p => p.id === id ? { ...p, artCropUrl: url } : p))
 
   // ── Setup screen ──
   if (screen === 'setup') {
@@ -639,37 +918,54 @@ export default function LifeTrackerPage() {
   }
 
   // ── Active game ──
-  const modeConf = MODES[gameConfig?.mode] || MODES.commander
-  const count = players.length
-  const gridClass = {
-    2: styles.grid2, 3: styles.grid3, 4: styles.grid4, 5: styles.grid5, 6: styles.grid6,
-  }[count] || styles.grid4
-
-  // Bottom half of table gets inverted on mobile
+  const modeConf  = MODES[gameConfig?.mode] || MODES.commander
+  const count     = players.length
+  const gridClass = { 2: styles.grid2, 3: styles.grid3, 4: styles.grid4, 5: styles.grid5, 6: styles.grid6 }[count] || styles.grid4
   const halfPoint = Math.ceil(count / 2)
 
   return (
     <div className={styles.page}>
-      {/* Top bar */}
+      {/* ── Top bar ── */}
       <div className={styles.topBar}>
         <div className={styles.topLeft}>
           <span className={styles.pageTitle}>♥ Life Tracker</span>
           <span className={styles.modeLabel}>{modeConf.label}</span>
         </div>
         <div className={styles.topRight}>
-          <button className={styles.topBtn} onClick={resetGame} title="Reset life totals">
-            ↺ Reset
-          </button>
+          {/* Gear menu */}
+          <div className={styles.gearWrap} ref={gearMenuRef}>
+            <button
+              className={`${styles.gearBtn} ${showGameMenu ? styles.gearBtnActive : ''}`}
+              onClick={() => setShowGameMenu(v => !v)}
+              title="Game options">
+              ⚙
+            </button>
+            {showGameMenu && (
+              <div className={styles.gearMenu}>
+                <button className={styles.gearMenuItem} onClick={() => { setShowDice(true); setShowGameMenu(false) }}>
+                  🎲 Dice Roller
+                </button>
+                <button className={styles.gearMenuItem} onClick={() => { setShowPicker(true); setShowGameMenu(false) }}>
+                  🎯 Random Player
+                </button>
+                <div className={styles.gearMenuDiv} />
+                <button className={styles.gearMenuItem} onClick={resetGame}>
+                  ↺ Reset Totals
+                </button>
+                <button className={`${styles.gearMenuItem} ${styles.gearMenuItemDanger}`} onClick={handleNewGame}>
+                  ✕ New Setup
+                </button>
+              </div>
+            )}
+          </div>
+
           <button className={styles.endBtn} onClick={() => setShowEndDialog(true)}>
             🏆 End Game
-          </button>
-          <button className={styles.newGameBtn} onClick={handleNewGame} title="Abandon game and go to setup">
-            ✕ New
           </button>
         </div>
       </div>
 
-      {/* Player grid */}
+      {/* ── Player grid ── */}
       <div className={`${styles.grid} ${gridClass}`}>
         {players.map((player, idx) => (
           <PlayerPanel
@@ -682,6 +978,7 @@ export default function LifeTrackerPage() {
             onNameChange={onNameChange}
             onColorChange={onColorChange}
             onRequestArtPicker={setArtPickerPlayer}
+            onRequestCmdDmgOverlay={modeConf.commander ? setCmdDmgPlayer : null}
             showCommander={modeConf.commander}
             showPoison={modeConf.poison}
             inverted={idx >= halfPoint}
@@ -689,7 +986,7 @@ export default function LifeTrackerPage() {
         ))}
       </div>
 
-      {/* Art picker — rendered at page level so transform: rotate() doesn't break it */}
+      {/* ── Page-level overlays (safe from transform:rotate) ── */}
       {artPickerPlayer !== null && (
         <ArtPicker
           onSelect={url => { onArtChange(artPickerPlayer, url); setArtPickerPlayer(null) }}
@@ -697,7 +994,20 @@ export default function LifeTrackerPage() {
           onClose={() => setArtPickerPlayer(null)} />
       )}
 
-      {/* End game dialog */}
+      {cmdDmgPlayer !== null && (
+        <CmdDmgOverlay
+          player={players.find(p => p.id === cmdDmgPlayer)}
+          opponents={players.filter(p => p.id !== cmdDmgPlayer)}
+          onCmdDmgChange={onCmdDmgChange}
+          onClose={() => setCmdDmgPlayer(null)} />
+      )}
+
+      {showDice && <DiceRoller onClose={() => setShowDice(false)} />}
+
+      {showPicker && (
+        <RandomPicker players={players} onClose={() => setShowPicker(false)} />
+      )}
+
       {showEndDialog && (
         <EndGameDialog
           players={players}
