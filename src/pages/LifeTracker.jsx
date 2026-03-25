@@ -41,7 +41,7 @@ const LAYOUTS = {
   ],
   4: [
     { id: '4-2x2',   cols: 2, label: '2 × 2', rotations: { 2: 180, 3: 180 } },
-    { id: '4-sides', cols: 2, label: 'Sides',  rotations: { 0: -90, 1: 90, 2: -90, 3: 90 } },
+    { id: '4-sides', cols: 2, label: 'Sides',  rotations: { 0: 90, 1: -90, 2: 90, 3: -90 } },
     { id: '4-row',   cols: 4, label: 'Row',    rotations: {} },
   ],
   5: [
@@ -449,11 +449,15 @@ function LobbyScreen({ session, gameConfig, onStart, onCancel }) {
       if (active && data) setPlayers(data)
     }
     load()
+    // No filter on the subscription — filtered postgres_changes can silently
+    // miss UPDATE events. Check session_id in the callback instead.
     const ch = sb.channel(`lobby-host:${session.id}`)
       .on('postgres_changes', {
         event: '*', schema: 'public', table: 'game_players',
-        filter: `session_id=eq.${session.id}`,
-      }, load)
+      }, payload => {
+        const row = payload.new || payload.old
+        if (row?.session_id === session.id) load()
+      })
       .subscribe()
     return () => { active = false; sb.removeChannel(ch) }
   }, [session.id])
@@ -467,10 +471,16 @@ function LobbyScreen({ session, gameConfig, onStart, onCancel }) {
   const handleStart = async () => {
     setStarting(true)
     try {
+      // Always do a fresh fetch right before start so we have the latest
+      // player names/decks even if the realtime update arrived late.
+      const { data: freshRows } = await sb.from('game_players')
+        .select('*').eq('session_id', session.id).order('slot_index')
+      const rows = freshRows || players
+
       await sb.from('game_sessions')
         .update({ status: 'playing', started_at: new Date().toISOString() })
         .eq('id', session.id)
-      const gamePlayers = players.map((lp, i) =>
+      const gamePlayers = rows.map((lp, i) =>
         makePlayer(i, life, {
           name: lp.player_name, color: lp.color,
           deckId: lp.deck_id, deckName: lp.deck_name,
@@ -1078,12 +1088,57 @@ export default function LifeTrackerPage() {
     return () => document.removeEventListener('pointerdown', handler)
   }, [showGameMenu])
 
-  // Escape key exits fullscreen
+  // Sync CSS isFullscreen state with the browser's native fullscreen state
+  useEffect(() => {
+    const handler = () => {
+      const nativeFs = !!(document.fullscreenElement || document.webkitFullscreenElement)
+      setIsFullscreen(nativeFs)
+    }
+    document.addEventListener('fullscreenchange', handler)
+    document.addEventListener('webkitfullscreenchange', handler)
+    return () => {
+      document.removeEventListener('fullscreenchange', handler)
+      document.removeEventListener('webkitfullscreenchange', handler)
+    }
+  }, [])
+
+  // Escape key exits CSS-only fullscreen (native fullscreen already handles Escape)
   useEffect(() => {
     if (!isFullscreen) return
-    const handler = e => { if (e.key === 'Escape') setIsFullscreen(false) }
+    const handler = e => {
+      if (e.key === 'Escape' && !document.fullscreenElement) setIsFullscreen(false)
+    }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
+  }, [isFullscreen])
+
+  const handleFullscreenToggle = useCallback(async () => {
+    if (!isFullscreen) {
+      try {
+        const el = document.documentElement
+        if (el.requestFullscreen) {
+          await el.requestFullscreen()
+          // isFullscreen will be set by the fullscreenchange listener
+          return
+        } else if (el.webkitRequestFullscreen) {
+          el.webkitRequestFullscreen()
+          return
+        }
+      } catch {}
+      // Fallback: CSS-only (iOS Safari, embedded views)
+      setIsFullscreen(true)
+    } else {
+      try {
+        if (document.fullscreenElement && document.exitFullscreen) {
+          await document.exitFullscreen()
+          return
+        } else if (document.webkitFullscreenElement && document.webkitExitFullscreen) {
+          document.webkitExitFullscreen()
+          return
+        }
+      } catch {}
+      setIsFullscreen(false)
+    }
   }, [isFullscreen])
 
   const handleCreateLobby = useCallback(async (config) => {
@@ -1271,7 +1326,7 @@ export default function LifeTrackerPage() {
         <div className={styles.topRight}>
           <button
             className={styles.fullscreenBtn}
-            onClick={() => setIsFullscreen(v => !v)}
+            onClick={handleFullscreenToggle}
             title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}>
             {isFullscreen ? '⊡' : '⛶'}
           </button>
@@ -1311,7 +1366,7 @@ export default function LifeTrackerPage() {
         <div className={styles.fsControls}>
           <button
             className={styles.fsExitBtn}
-            onClick={() => setIsFullscreen(false)}
+            onClick={handleFullscreenToggle}
             title="Exit fullscreen (Esc)">
             ⊡
           </button>
