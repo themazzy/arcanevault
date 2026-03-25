@@ -78,27 +78,43 @@ export default function JoinGamePage() {
       .then(({ data }) => setDecks(data || []))
   }, [user])
 
-  // Realtime subscription
+  // Realtime subscription + polling fallback
   useEffect(() => {
     if (!session) return
     const sid = session.id
+    let active = true
+
+    const reloadPlayers = async () => {
+      const { data } = await sb.from('game_players')
+        .select('*').eq('session_id', sid).order('slot_index')
+      if (active && data) setSlots(data)
+    }
+
+    const reloadSession = async () => {
+      const { data } = await sb.from('game_sessions')
+        .select('status').eq('id', sid).single()
+      if (active && data?.status === 'playing') setStatus('started')
+    }
+
     const ch = sb.channel(`join:${sid}`)
+      // payload.new only has primary key on UPDATE (default replica identity),
+      // so just re-fetch the full list on any change.
       .on('postgres_changes', {
         event: '*', schema: 'public', table: 'game_players',
-        filter: `session_id=eq.${sid}`,
-      }, async () => {
-        const { data } = await sb.from('game_players')
-          .select('*').eq('session_id', sid).order('slot_index')
-        if (data) setSlots(data)
-      })
+      }, reloadPlayers)
       .on('postgres_changes', {
         event: 'UPDATE', schema: 'public', table: 'game_sessions',
-        filter: `id=eq.${sid}`,
       }, payload => {
-        if (payload.new.status === 'playing') setStatus('started')
+        // payload.new may only have id; fall back to explicit fetch
+        if (payload.new?.status === 'playing') setStatus('started')
+        else reloadSession()
       })
       .subscribe()
-    return () => sb.removeChannel(ch)
+
+    // Poll every 3 s as fallback for realtime gaps
+    const poll = setInterval(() => { reloadPlayers(); reloadSession() }, 3000)
+
+    return () => { active = false; sb.removeChannel(ch); clearInterval(poll) }
   }, [session?.id])
 
   const openClaim = slot => {
