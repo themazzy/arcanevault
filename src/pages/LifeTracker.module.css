@@ -1030,38 +1030,41 @@
 }
 
 /* ── Landscape phones (height ≤ 500 px) ─────────────────────────────────────
-   In landscape the viewport is only ~400-430 px tall. Hiding the quickRow
-   saves ~30 px per panel and makes everything fit comfortably.             */
+   Target cell budget per row (2-row grid, ~220 px total):
+     grid height  = 100dvh − 192px  ≈ 220 px
+     cell height  = (220 − 8px gap) / 2  ≈ 106 px
+
+   Content breakdown to fit in 106 px (padding included):
+     padding 4+5px = 9 | name ~14 | life ~30 | poison ~18 | cmd ~18 | gaps ~8
+     total ≈ 97 px  ✓  (colorRow hidden saves the extra 14 px)               */
 @media (max-height: 500px) {
-  /* Grid: use dvh so Android Chrome's collapsing address bar is included */
+  /* Grid: dvh tracks Chrome's collapsing address bar accurately */
   .grid { height: calc(100dvh - 192px); }
 
-  /* Hide the ±5/±10 shortcuts — reclaim ~30 px; they're accessible via
-     the +/− hold interaction anyway */
+  /* Hide colour picker row — saves ~14 px; colours can be set pre-game */
+  .colorRow { display: none; }
+  /* Hide ±5/±10 quick adjusts — saves ~28 px */
   .quickRow { display: none; }
 
-  /* More aggressive vertical compression */
-  .playerPanel   { padding: 5px 6px 6px; gap: 3px; min-height: 0; }
+  /* Squeeze everything else down */
+  .playerPanel   { padding: 4px 6px 5px; gap: 2px; min-height: 0; }
   .lifeArea      { gap: 4px; }
-  .lifeBtn       { width: 32px; height: 34px; font-size: 1rem; }
-  .lifeTotalWrap { width: 62px; }
-  .lifeTotal     { font-size: 2rem; }
-
-  .colorRow   { gap: 2px; }
-  .colorDot   { width: 10px; height: 10px; }
-  .nameBtn    { font-size: 0.6rem; }
+  .lifeBtn       { width: 32px; height: 30px; font-size: 0.95rem; }
+  .lifeTotalWrap { width: 60px; }
+  .lifeTotal     { font-size: 1.85rem; }
+  .nameBtn       { font-size: 0.6rem; padding: 1px 4px; }
 
   .poisonRow  { padding: 2px 5px; }
   .poisonLabel{ font-size: 0.6rem; }
   .counterBtn { width: 20px; height: 20px; font-size: 0.72rem; }
   .counterVal { font-size: 0.78rem; min-width: 14px; }
 
-  .cmdBar     { padding: 2px 4px; min-height: 22px; gap: 2px; }
-  .cmdBadgeVal{ font-size: 0.62rem; }
-  .cmdBarIcon { font-size: 0.62rem; }
+  .cmdBar     { padding: 2px 4px; min-height: 18px; gap: 2px; }
+  .cmdBadgeVal{ font-size: 0.6rem; }
+  .cmdBarIcon { font-size: 0.6rem; }
   .cmdBarHint { display: none; }
 
-  /* Fullscreen in landscape: nav is hidden so subtract only topbar + gap */
+  /* Fullscreen in landscape: nav covered, subtract only topbar + gap */
   .pageFullscreen .grid { height: calc(100dvh - 62px) !important; }
 }
 
