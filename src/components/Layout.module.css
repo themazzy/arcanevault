@@ -12,7 +12,7 @@
 .header {
   border-bottom: 1px solid rgba(180,140,60,0.15);
   padding: 0 40px;
-  background: rgba(8,6,16,0.94);
+  background: var(--nav-bg);
   backdrop-filter: blur(14px);
   position: sticky; top: 0; z-index: 100;
   box-shadow: 0 1px 0 rgba(201,168,76,0.06), 0 4px 24px rgba(0,0,0,0.4);
@@ -34,7 +34,7 @@
 .userBar { display: flex; align-items: center; gap: 14px; }
 .userName { font-size: 0.82rem; color: var(--text-dim); font-style: italic; }
 .signOut {
-  background: none; border: 1px solid rgba(255,255,255,0.08);
+  background: none; border: 1px solid var(--s-border2);
   border-radius: 3px; padding: 5px 10px;
   color: var(--text-dim); font-family: var(--font-display);
   font-size: 0.68rem; letter-spacing: 0.06em;

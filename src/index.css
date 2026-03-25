@@ -61,6 +61,10 @@
   --s-border:  rgba(255,255,255,0.07);
   --s-border2: rgba(255,255,255,0.12);
   --overlay:   rgba(0,0,0,0.20);
+
+  /* Navigation & popup backgrounds */
+  --nav-bg:    rgba(8,6,16,0.94);
+  --popup-bg:  var(--bg3);
 }
 
 /* ── Light theme overrides ───────────────────────────────────────────────── */
@@ -71,6 +75,8 @@
   --s-border:  rgba(0,0,0,0.10);
   --s-border2: rgba(0,0,0,0.18);
   --overlay:   rgba(0,0,0,0.07);
+  --nav-bg:    rgba(255,255,255,0.88);
+  --popup-bg:  var(--bg2);
   color-scheme: light;
 }
 

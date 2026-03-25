@@ -18,7 +18,7 @@
   position: sticky;
   top: 0;
   z-index: 20;
-  background: rgba(8, 6, 18, 0.88);
+  background: var(--nav-bg);
   border-bottom: 1px solid rgba(201,168,76,0.1);
   padding: 0 32px;
   height: 52px;
@@ -88,8 +88,8 @@
 }
 
 .signInBtn {
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.1);
+  background: var(--s-subtle);
+  border: 1px solid var(--s-border2);
   border-radius: 4px;
   padding: 6px 13px;
   color: var(--text-dim, #9a8870);
@@ -97,7 +97,7 @@
   text-decoration: none;
   transition: background 0.15s;
 }
-.signInBtn:hover { background: rgba(255,255,255,0.08); }
+.signInBtn:hover { background: var(--s-medium); }
 
 /* ── Deck header ───────────────────────────────────────────────────────────── */
 .deckHeader {
