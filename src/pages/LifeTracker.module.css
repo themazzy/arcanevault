@@ -872,8 +872,8 @@
 .histPlayerWin { color: var(--gold) !important; }
 .histNotes { font-size: 0.72rem; color: var(--text-faint); font-style: italic; margin: 0; }
 
-/* Start button */
-.setupFooter { padding-top: 6px; }
+/* Start button + lobby footer */
+.setupFooter { padding-top: 6px; display: flex; flex-direction: column; gap: 10px; }
 .startBtn {
   width: 100%;
   background: linear-gradient(135deg, rgba(201,168,76,0.18), rgba(201,168,76,0.08));
@@ -1254,9 +1254,14 @@
 }
 .lobbyStartBtn:disabled { opacity: 0.45; cursor: not-allowed; }
 
-/* "Create Multiplayer Lobby" button in setup footer */
+/* Lobby row: Create + Join side by side */
+.lobbyRow {
+  display: flex; gap: 8px;
+}
+
+/* "Create / Join Lobby" buttons in setup footer */
 .lobbyBtn {
-  width: 100%; margin-top: 8px;
+  flex: 1;
   background: rgba(255,255,255,0.03);
   border: 1px solid rgba(255,255,255,0.09); border-radius: 7px;
   color: var(--text-dim);
@@ -1267,3 +1272,37 @@
   color: var(--gold); border-color: rgba(201,168,76,0.3);
   background: rgba(201,168,76,0.04);
 }
+.lobbyBtnActive {
+  color: var(--gold); border-color: rgba(201,168,76,0.4);
+  background: rgba(201,168,76,0.07);
+}
+
+/* Join code input row */
+.joinBox {
+  display: flex; gap: 8px; align-items: center;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(201,168,76,0.25);
+  border-radius: 8px; padding: 10px 12px;
+  animation: fadeSlideIn 0.15s ease;
+}
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.joinInput {
+  flex: 1; background: none; border: none; outline: none;
+  color: var(--text); font-family: var(--font-display);
+  font-size: 1.1rem; letter-spacing: 0.2em; text-transform: uppercase;
+  caret-color: var(--gold);
+}
+.joinInput::placeholder { color: var(--text-faint); font-size: 0.78rem; letter-spacing: 0.05em; text-transform: none; font-family: inherit; }
+.joinGoBtn {
+  background: rgba(201,168,76,0.14);
+  border: 1px solid rgba(201,168,76,0.35); border-radius: 6px;
+  color: var(--gold); font-size: 0.85rem; padding: 6px 14px;
+  cursor: pointer; transition: all 0.15s; white-space: nowrap;
+}
+.joinGoBtn:hover:not(:disabled) {
+  background: rgba(201,168,76,0.24); border-color: rgba(201,168,76,0.55);
+}
+.joinGoBtn:disabled { opacity: 0.35; cursor: not-allowed; }
