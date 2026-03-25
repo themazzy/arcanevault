@@ -14,13 +14,41 @@ const PLAYER_NAMES  = ['Player 1', 'Player 2', 'Player 3', 'Player 4', 'Player 5
 const DICE_TYPES    = [2, 4, 6, 8, 10, 12, 20, 100]
 
 const MODES = {
-  standard:    { label: 'Standard',    life: 20, commander: false, poison: false },
-  commander:   { label: 'Commander',   life: 40, commander: true,  poison: true  },
-  brawl:       { label: 'Brawl',       life: 25, commander: true,  poison: false },
-  oathbreaker: { label: 'Oathbreaker', life: 20, commander: true,  poison: false },
-  planechase:  { label: 'Planechase',  life: 20, commander: false, poison: false },
-  custom:      { label: 'Custom',      life: 20, commander: false, poison: false },
+  standard:    { label: 'Standard',    life: 20, commander: false, poison: false, defaultPlayers: 2 },
+  commander:   { label: 'Commander',   life: 40, commander: true,  poison: true,  defaultPlayers: 4 },
+  brawl:       { label: 'Brawl',       life: 25, commander: true,  poison: false, defaultPlayers: 2 },
+  oathbreaker: { label: 'Oathbreaker', life: 20, commander: true,  poison: false, defaultPlayers: 2 },
+  planechase:  { label: 'Planechase',  life: 20, commander: false, poison: false, defaultPlayers: 4 },
+  custom:      { label: 'Custom',      life: 20, commander: false, poison: false, defaultPlayers: 4 },
 }
+
+// ── Layout definitions ─────────────────────────────────────────────────────────
+// cols = grid columns. invertedIndices = which player slots rotate 180° (table-facing)
+const LAYOUTS = {
+  2: [
+    { id: '2-portrait',  cols: 1, label: 'Portrait',      invertedIndices: [1] },
+    { id: '2-landscape', cols: 2, label: 'Side by Side',  invertedIndices: [] },
+  ],
+  3: [
+    { id: '3-2+1', cols: 2, label: '2 + 1', invertedIndices: [2] },
+    { id: '3-row', cols: 3, label: 'Row',    invertedIndices: [] },
+  ],
+  4: [
+    { id: '4-2x2',   cols: 2, label: '2 × 2', invertedIndices: [2, 3] },
+    { id: '4-sides', cols: 2, label: 'Sides',  invertedIndices: [1, 3] },
+    { id: '4-row',   cols: 4, label: 'Row',    invertedIndices: [] },
+  ],
+  5: [
+    { id: '5-3+2', cols: 3, label: '3 + 2', invertedIndices: [3, 4] },
+    { id: '5-2+3', cols: 3, label: '2 + 3', invertedIndices: [2, 3, 4] },
+  ],
+  6: [
+    { id: '6-3x2', cols: 3, label: '3 × 2', invertedIndices: [3, 4, 5] },
+    { id: '6-2x3', cols: 2, label: '2 × 3', invertedIndices: [2, 3, 4, 5] },
+  ],
+}
+
+const defaultLayout = (count) => LAYOUTS[count]?.[0] ?? LAYOUTS[4][0]
 
 // ── Persistence helpers ────────────────────────────────────────────────────────
 function loadSession() {
@@ -54,7 +82,33 @@ function makePlayer(i, life, seed = {}) {
   }
 }
 
-// ── Custom Deck Dropdown (fully styled, no native select weirdness) ─────────────
+// ── Layout Picker ──────────────────────────────────────────────────────────────
+function LayoutPicker({ playerCount, value, onChange }) {
+  const options = LAYOUTS[playerCount]
+  if (!options || options.length <= 1) return null
+  return (
+    <div className={styles.layoutPicker}>
+      {options.map(opt => {
+        const active = value?.id === opt.id
+        return (
+          <button key={opt.id}
+            className={`${styles.layoutOpt} ${active ? styles.layoutOptActive : ''}`}
+            onClick={() => onChange(opt)}>
+            <div className={styles.layoutGrid} style={{ '--lcols': opt.cols }}>
+              {Array.from({ length: playerCount }, (_, i) => (
+                <div key={i}
+                  className={`${styles.layoutSeat} ${opt.invertedIndices.includes(i) ? styles.layoutSeatFlip : ''}`} />
+              ))}
+            </div>
+            <span className={styles.layoutOptLabel}>{opt.label}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Custom Deck Dropdown ───────────────────────────────────────────────────────
 function DeckDropdown({ value, valueName, options, onChange }) {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef(null)
@@ -158,7 +212,6 @@ function ArtPicker({ onSelect, onClear, onClose }) {
 // ── Commander Damage Overlay (page-level) ──────────────────────────────────────
 function CmdDmgOverlay({ player, opponents, onCmdDmgChange, onClose }) {
   if (!player || !opponents?.length) return null
-
   return (
     <div className={styles.cmdOverlay} onClick={onClose}>
       <div className={styles.cmdOverlayPanel} onClick={e => e.stopPropagation()}>
@@ -171,7 +224,6 @@ function CmdDmgOverlay({ player, opponents, onCmdDmgChange, onClose }) {
           </div>
           <button className={styles.cmdOverlayClose} onClick={onClose}>×</button>
         </div>
-
         <div className={styles.cmdOverlayList}>
           {opponents.map(opp => {
             const dmg = player.cmdDmg?.[opp.id] || 0
@@ -201,13 +253,13 @@ function CmdDmgOverlay({ player, opponents, onCmdDmgChange, onClose }) {
             )
           })}
         </div>
-        <p className={styles.cmdOverlayHint}>Adjustments also update life total · tap outside to close</p>
+        <p className={styles.cmdOverlayHint}>Changes also update life total · tap outside to close</p>
       </div>
     </div>
   )
 }
 
-// ── Dice Roller ───────────────────────────────────────────────────────────────
+// ── Dice Roller ────────────────────────────────────────────────────────────────
 function DiceRoller({ onClose }) {
   const [dieType,  setDieType]  = useState(20)
   const [numDice,  setNumDice]  = useState(1)
@@ -240,8 +292,12 @@ function DiceRoller({ onClose }) {
     frameRef.current = setTimeout(animate, 25)
   }
 
-  const shown = rolling ? dispVals : results
-  const total = results.reduce((s, v) => s + v, 0)
+  const shown    = rolling ? dispVals : results
+  const total    = results.reduce((s, v) => s + v, 0)
+  // Highlight max/min only when rolling more than 3 dice and animation has settled
+  const showHL   = numDice > 3 && !rolling && results.length > 0
+  const maxVal   = showHL ? Math.max(...results) : null
+  const minVal   = showHL && Math.min(...results) !== Math.max(...results) ? Math.min(...results) : null
 
   return (
     <div className={styles.diceOverlay} onClick={onClose}>
@@ -276,7 +332,12 @@ function DiceRoller({ onClose }) {
               <div className={styles.diceResultRow}>
                 {shown.map((v, i) => (
                   <div key={i}
-                    className={`${styles.dieFace} ${rolling ? styles.dieFaceRolling : styles.dieFaceSettled} ${!rolling && v === dieType ? styles.dieFaceMax : ''} ${!rolling && v === 1 ? styles.dieFaceMin : ''}`}>
+                    className={[
+                      styles.dieFace,
+                      rolling ? styles.dieFaceRolling : styles.dieFaceSettled,
+                      showHL && v === maxVal ? styles.dieFaceMax : '',
+                      showHL && minVal !== null && v === minVal ? styles.dieFaceMin : '',
+                    ].filter(Boolean).join(' ')}>
                     {v}
                   </div>
                 ))}
@@ -300,7 +361,7 @@ function DiceRoller({ onClose }) {
   )
 }
 
-// ── Random Player Picker ──────────────────────────────────────────────────────
+// ── Random Player Picker ───────────────────────────────────────────────────────
 function RandomPicker({ players, onClose }) {
   const [picking, setPicking] = useState(false)
   const [current, setCurrent] = useState(null)
@@ -315,7 +376,6 @@ function RandomPicker({ players, onClose }) {
     setWinner(null)
     const duration  = 2400
     const startTime = Date.now()
-
     const step = () => {
       const elapsed  = Date.now() - startTime
       if (elapsed >= duration) {
@@ -339,23 +399,19 @@ function RandomPicker({ players, onClose }) {
           <span className={styles.pickerTitle}>🎯 Random Player</span>
           <button className={styles.pickerClose} onClick={onClose}>×</button>
         </div>
-
         <div
           className={`${styles.pickerDisplay} ${winner ? styles.pickerDisplayWin : ''} ${picking ? styles.pickerDisplayPicking : ''}`}
           style={current ? { '--pc': current.color } : {}}>
           {current ? (
             <>
               <div className={styles.pickerDot} style={{ background: current.color }} />
-              <div className={styles.pickerName} style={{ color: current.color }}>
-                {current.name}
-              </div>
+              <div className={styles.pickerName} style={{ color: current.color }}>{current.name}</div>
               {winner && <div className={styles.pickerGoesFirst}>Goes First! 🎉</div>}
             </>
           ) : (
             <div className={styles.pickerEmpty}>Press Pick!</div>
           )}
         </div>
-
         <button className={styles.pickerBtn} onClick={pick} disabled={picking}>
           {picking ? '🎲 Picking…' : winner ? '🎲 Pick Again' : '🎲 Pick!'}
         </button>
@@ -449,9 +505,10 @@ function HistoryEntry({ game }) {
 
 // ── Pre-game Setup Screen ──────────────────────────────────────────────────────
 function PreGameSetup({ onStart, decks, history }) {
-  const [playerCount, setPlayerCount] = useState(4)
   const [mode,        setMode]        = useState('commander')
+  const [playerCount, setPlayerCount] = useState(MODES.commander.defaultPlayers)
   const [customLife,  setCustomLife]  = useState(40)
+  const [layout,      setLayout]      = useState(() => defaultLayout(MODES.commander.defaultPlayers))
   const [configs, setConfigs] = useState(
     Array.from({ length: 6 }, (_, i) => ({
       name: PLAYER_NAMES[i], color: PLAYER_COLORS[i], deckId: null, deckName: null,
@@ -462,10 +519,23 @@ function PreGameSetup({ onStart, decks, history }) {
   const updateConfig = (i, patch) =>
     setConfigs(prev => prev.map((c, idx) => idx === i ? { ...c, ...patch } : c))
 
+  const handleModeChange = (m) => {
+    setMode(m)
+    const defCount = MODES[m].defaultPlayers
+    setPlayerCount(defCount)
+    setLayout(defaultLayout(defCount))
+  }
+
+  const handleCountChange = (n) => {
+    setPlayerCount(n)
+    setLayout(defaultLayout(n))
+  }
+
   const handleStart = () => {
     const life = mode === 'custom' ? customLife : MODES[mode].life
     const players = Array.from({ length: playerCount }, (_, i) => makePlayer(i, life, configs[i]))
-    onStart({ playerCount, mode, customLife, players, startedAt: Date.now() })
+    const finalLayout = layout || defaultLayout(playerCount)
+    onStart({ playerCount, mode, customLife, players, startedAt: Date.now(), layout: finalLayout })
   }
 
   return (
@@ -476,13 +546,14 @@ function PreGameSetup({ onStart, decks, history }) {
         <p className={styles.setupSub}>Configure your game</p>
       </div>
 
+      {/* Game mode */}
       <section className={styles.setupBlock}>
         <div className={styles.setupLabel}>Game Mode</div>
         <div className={styles.modeGrid}>
           {Object.entries(MODES).map(([key, conf]) => (
             <button key={key}
               className={`${styles.modeCard} ${mode === key ? styles.modeCardActive : ''}`}
-              onClick={() => setMode(key)}>
+              onClick={() => handleModeChange(key)}>
               <span className={styles.modeCardName}>{conf.label}</span>
               <span className={styles.modeCardLife}>{key === 'custom' ? '? life' : `${conf.life} life`}</span>
             </button>
@@ -506,17 +577,32 @@ function PreGameSetup({ onStart, decks, history }) {
         )}
       </section>
 
+      {/* Player count */}
       <section className={styles.setupBlock}>
-        <div className={styles.setupLabel}>Number of Players</div>
+        <div className={styles.setupLabel}>Players</div>
         <div className={styles.countRow}>
           {[2, 3, 4, 5, 6].map(n => (
             <button key={n}
               className={`${styles.countChip} ${playerCount === n ? styles.countChipActive : ''}`}
-              onClick={() => setPlayerCount(n)}>{n}</button>
+              onClick={() => handleCountChange(n)}>{n}</button>
           ))}
         </div>
       </section>
 
+      {/* Layout picker */}
+      <section className={styles.setupBlock}>
+        <div className={styles.setupLabel}>Table Layout</div>
+        <LayoutPicker
+          playerCount={playerCount}
+          value={layout}
+          onChange={setLayout}
+        />
+        {(!LAYOUTS[playerCount] || LAYOUTS[playerCount].length <= 1) && (
+          <p className={styles.layoutOnlyOne}>Only one layout available for {playerCount} players.</p>
+        )}
+      </section>
+
+      {/* Player config */}
       <section className={styles.setupBlock}>
         <div className={styles.setupLabel}>Players</div>
         <div className={styles.playerConfigList}>
@@ -528,6 +614,7 @@ function PreGameSetup({ onStart, decks, history }) {
         </div>
       </section>
 
+      {/* History */}
       {history.length > 0 && (
         <section className={styles.setupBlock}>
           <button className={styles.histToggle} onClick={() => setShowHistory(v => !v)}>
@@ -577,7 +664,6 @@ function EndGameDialog({ players, onSave, onCancel }) {
           <h2 className={styles.endTitle}>Game Over</h2>
           <p className={styles.endSub}>Set final standings and add notes</p>
         </div>
-
         <div className={styles.endPlayerList}>
           {players.map(p => (
             <div key={p.id} className={styles.endPlayerRow} style={{ '--pc': p.color }}>
@@ -601,7 +687,6 @@ function EndGameDialog({ players, onSave, onCancel }) {
             </div>
           ))}
         </div>
-
         <div className={styles.endNotesWrap}>
           <label className={styles.endNotesLabel}>Post-game Notes</label>
           <textarea className={styles.endNotesArea}
@@ -609,7 +694,6 @@ function EndGameDialog({ players, onSave, onCancel }) {
             placeholder="What happened? What would you do differently next time?"
             rows={3} />
         </div>
-
         <div className={styles.endActions}>
           <button className={styles.endContinueBtn} onClick={onCancel}>← Continue Playing</button>
           <button className={styles.endSaveBtn} onClick={() => onSave({ placements, notes })}>
@@ -635,7 +719,6 @@ function PlayerPanel({
   const holdTimerRef  = useRef(null)
   const prevLife      = useRef(player.life)
 
-  // Life delta animation
   useEffect(() => {
     const d = player.life - prevLife.current
     if (d !== 0) {
@@ -651,7 +734,6 @@ function PlayerPanel({
     clearTimeout(holdTimerRef.current)
   }, [])
 
-  // Long-hold on life total → commander damage overlay
   const handleLifeHoldStart = () => {
     if (!showCommander || !opponents.length || !onRequestCmdDmgOverlay) return
     holdTimerRef.current = setTimeout(() => onRequestCmdDmgOverlay(player.id), 550)
@@ -664,8 +746,7 @@ function PlayerPanel({
     onNameChange(player.id, nameInput.trim() || player.name)
   }
 
-  const cmdTotal = Object.values(player.cmdDmg || {}).reduce((s, v) => s + v, 0)
-  const isDead   = player.life <= 0 || player.poison >= 10
+  const isDead = player.life <= 0 || player.poison >= 10
 
   return (
     <div
@@ -678,16 +759,17 @@ function PlayerPanel({
         } : {}),
       }}>
 
-      {/* Color row */}
+      {/* Color + art-picker row */}
       <div className={styles.colorRow}>
         {PLAYER_COLORS.map(c => (
           <button key={c}
             className={`${styles.colorDot} ${c === player.color ? styles.colorDotActive : ''}`}
             style={{ background: c }} onClick={() => onColorChange(player.id, c)} />
         ))}
-        <button onClick={() => onRequestArtPicker(player.id)} title="Set art background"
-          style={{ background: 'none', border: 'none', color: player.artCropUrl ? 'var(--gold)' : 'var(--text-faint)', cursor: 'pointer', fontSize: '0.85rem', padding: '0 2px', opacity: 0.8 }}>
-          🖼
+        {/* ⚙ opens art picker */}
+        <button onClick={() => onRequestArtPicker(player.id)} title="Set background art"
+          className={styles.artPickerBtn}>
+          ⚙
         </button>
       </div>
 
@@ -721,9 +803,6 @@ function PlayerPanel({
           <span className={`${styles.lifeTotal} ${player.life <= 5 ? styles.lifeLow : ''} ${player.life <= 0 ? styles.lifeDead : ''}`}>
             {player.life}
           </span>
-          {showCommander && opponents.length > 0 && cmdTotal > 0 && (
-            <span className={styles.cmdTotalBadge} title={`${cmdTotal} total cmd dmg`}>⚔{cmdTotal}</span>
-          )}
           {lastDelta != null && (
             <span key={`${lastDelta}-${Date.now()}`}
               className={`${styles.lifeDelta} ${lastDelta > 0 ? styles.lifeDeltaUp : styles.lifeDeltaDown}`}>
@@ -755,15 +834,10 @@ function PlayerPanel({
         </div>
       )}
 
-      {/* Commander damage — always visible, compact */}
+      {/* Commander damage bar — display-only pills, tap to open overlay */}
       {showCommander && opponents.length > 0 && (
-        <div className={styles.cmdBar}>
-          <button
-            className={styles.cmdBarLabel}
-            onClick={() => onRequestCmdDmgOverlay?.(player.id)}
-            title="Open commander damage editor">
-            ⚔
-          </button>
+        <div className={styles.cmdBar} onClick={() => onRequestCmdDmgOverlay?.(player.id)}>
+          <span className={styles.cmdBarIcon}>⚔</span>
           <div className={styles.cmdBadges}>
             {opponents.map(opp => {
               const dmg = player.cmdDmg?.[opp.id] || 0
@@ -772,15 +846,12 @@ function PlayerPanel({
                   className={`${styles.cmdBadge} ${dmg > 0 ? styles.cmdBadgeHit : ''} ${dmg >= 21 ? styles.cmdBadgeLethal : ''}`}
                   style={{ '--opc': opp.color }}>
                   <span className={styles.cmdBadgeDot} title={opp.name} />
-                  <button className={styles.cmdBadgeBtn}
-                    onPointerDown={e => { e.preventDefault(); onCmdDmgChange(player.id, opp.id, -1) }}>−</button>
                   <span className={styles.cmdBadgeVal}>{dmg}</span>
-                  <button className={styles.cmdBadgeBtn}
-                    onPointerDown={e => { e.preventDefault(); onCmdDmgChange(player.id, opp.id, +1) }}>+</button>
                 </div>
               )
             })}
           </div>
+          <span className={styles.cmdBarHint}>hold life or tap</span>
         </div>
       )}
     </div>
@@ -805,7 +876,6 @@ export default function LifeTrackerPage() {
   const [history,      setHistory]      = useState(() => loadHistory())
   const gearMenuRef = useRef(null)
 
-  // Close gear menu on outside click
   useEffect(() => {
     if (!showGameMenu) return
     const handler = e => { if (!gearMenuRef.current?.contains(e.target)) setShowGameMenu(false) }
@@ -813,7 +883,6 @@ export default function LifeTrackerPage() {
     return () => document.removeEventListener('pointerdown', handler)
   }, [showGameMenu])
 
-  // Load decks — filter client-side as well in case Supabase filter doesn't match
   useEffect(() => {
     if (!user) return
     sb.from('folders')
@@ -826,7 +895,6 @@ export default function LifeTrackerPage() {
       ))
   }, [user])
 
-  // Restore session on mount
   useEffect(() => {
     const saved = loadSession()
     if (saved?.screen === 'playing' && saved.players?.length) {
@@ -837,14 +905,12 @@ export default function LifeTrackerPage() {
     }
   }, [])
 
-  // Persist active game state
   useEffect(() => {
     if (screen === 'playing') {
       saveSession({ screen, config: gameConfig, players, startedAt })
     }
   }, [screen, gameConfig, players, startedAt])
 
-  // ── Game handlers ──
   const handleStart = (config) => {
     setGameConfig(config)
     setPlayers(config.players)
@@ -891,24 +957,19 @@ export default function LifeTrackerPage() {
     setShowGameMenu(false)
   }
 
-  // ── Player state handlers ──
   const onLifeChange   = (id, delta) => setPlayers(ps => ps.map(p => p.id === id ? { ...p, life: p.life + delta } : p))
   const onPoisonChange = (id, delta) => setPlayers(ps => ps.map(p => p.id === id ? { ...p, poison: Math.max(0, p.poison + delta) } : p))
-
-  // Commander damage also adjusts life total directly
   const onCmdDmgChange = (pid, fid, delta) => setPlayers(ps => ps.map(p => {
     if (p.id !== pid) return p
-    const cur      = p.cmdDmg?.[fid] || 0
-    const newVal   = Math.max(0, cur + delta)
-    const applied  = newVal - cur               // actual change (respects clamp to 0)
+    const cur     = p.cmdDmg?.[fid] || 0
+    const newVal  = Math.max(0, cur + delta)
+    const applied = newVal - cur
     return { ...p, life: p.life - applied, cmdDmg: { ...p.cmdDmg, [fid]: newVal } }
   }))
-
   const onNameChange  = (id, name)  => setPlayers(ps => ps.map(p => p.id === id ? { ...p, name } : p))
   const onColorChange = (id, color) => setPlayers(ps => ps.map(p => p.id === id ? { ...p, color } : p))
   const onArtChange   = (id, url)   => setPlayers(ps => ps.map(p => p.id === id ? { ...p, artCropUrl: url } : p))
 
-  // ── Setup screen ──
   if (screen === 'setup') {
     return (
       <div className={styles.page}>
@@ -917,22 +978,19 @@ export default function LifeTrackerPage() {
     )
   }
 
-  // ── Active game ──
   const modeConf  = MODES[gameConfig?.mode] || MODES.commander
   const count     = players.length
-  const gridClass = { 2: styles.grid2, 3: styles.grid3, 4: styles.grid4, 5: styles.grid5, 6: styles.grid6 }[count] || styles.grid4
-  const halfPoint = Math.ceil(count / 2)
+  const layout    = gameConfig?.layout || defaultLayout(count)
+  const isInverted = idx => layout.invertedIndices.includes(idx)
 
   return (
     <div className={styles.page}>
-      {/* ── Top bar ── */}
       <div className={styles.topBar}>
         <div className={styles.topLeft}>
           <span className={styles.pageTitle}>♥ Life Tracker</span>
           <span className={styles.modeLabel}>{modeConf.label}</span>
         </div>
         <div className={styles.topRight}>
-          {/* Gear menu */}
           <div className={styles.gearWrap} ref={gearMenuRef}>
             <button
               className={`${styles.gearBtn} ${showGameMenu ? styles.gearBtnActive : ''}`}
@@ -958,15 +1016,14 @@ export default function LifeTrackerPage() {
               </div>
             )}
           </div>
-
           <button className={styles.endBtn} onClick={() => setShowEndDialog(true)}>
             🏆 End Game
           </button>
         </div>
       </div>
 
-      {/* ── Player grid ── */}
-      <div className={`${styles.grid} ${gridClass}`}>
+      {/* Grid: columns driven by layout choice */}
+      <div className={styles.grid} style={{ '--gcols': layout.cols }}>
         {players.map((player, idx) => (
           <PlayerPanel
             key={player.id}
@@ -981,12 +1038,11 @@ export default function LifeTrackerPage() {
             onRequestCmdDmgOverlay={modeConf.commander ? setCmdDmgPlayer : null}
             showCommander={modeConf.commander}
             showPoison={modeConf.poison}
-            inverted={idx >= halfPoint}
+            inverted={isInverted(idx)}
           />
         ))}
       </div>
 
-      {/* ── Page-level overlays (safe from transform:rotate) ── */}
       {artPickerPlayer !== null && (
         <ArtPicker
           onSelect={url => { onArtChange(artPickerPlayer, url); setArtPickerPlayer(null) }}
@@ -1002,12 +1058,8 @@ export default function LifeTrackerPage() {
           onClose={() => setCmdDmgPlayer(null)} />
       )}
 
-      {showDice && <DiceRoller onClose={() => setShowDice(false)} />}
-
-      {showPicker && (
-        <RandomPicker players={players} onClose={() => setShowPicker(false)} />
-      )}
-
+      {showDice   && <DiceRoller onClose={() => setShowDice(false)} />}
+      {showPicker && <RandomPicker players={players} onClose={() => setShowPicker(false)} />}
       {showEndDialog && (
         <EndGameDialog
           players={players}
