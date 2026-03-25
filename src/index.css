@@ -53,6 +53,38 @@
 
   /* Responsive breakpoints (reference only, use in @media) */
   /* --bp-sm: 480px  --bp-md: 768px  --bp-lg: 1024px  --bp-xl: 1280px */
+
+  /* Surface overlays — inverted per theme for light/dark mode */
+  --s-card:    rgba(255,255,255,0.025);
+  --s-subtle:  rgba(255,255,255,0.04);
+  --s-medium:  rgba(255,255,255,0.07);
+  --s-border:  rgba(255,255,255,0.07);
+  --s-border2: rgba(255,255,255,0.12);
+  --overlay:   rgba(0,0,0,0.20);
+}
+
+/* ── Light theme overrides ───────────────────────────────────────────────── */
+[data-theme-mode="light"] {
+  --s-card:    rgba(0,0,0,0.04);
+  --s-subtle:  rgba(0,0,0,0.065);
+  --s-medium:  rgba(0,0,0,0.09);
+  --s-border:  rgba(0,0,0,0.10);
+  --s-border2: rgba(0,0,0,0.18);
+  --overlay:   rgba(0,0,0,0.07);
+  color-scheme: light;
+}
+
+[data-theme-mode="light"] body {
+  background-image:
+    radial-gradient(ellipse at 12% 8%,  rgba(200,160,80,0.07) 0%, transparent 52%),
+    radial-gradient(ellipse at 88% 92%, rgba(100,80,180,0.05) 0%, transparent 52%);
+}
+
+[data-theme-mode="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.18);
+}
+[data-theme-mode="light"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0,0,0,0.32);
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

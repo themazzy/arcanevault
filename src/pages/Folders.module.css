@@ -6,8 +6,8 @@
 }
 
 .folderCard {
-  background: rgba(255,255,255,0.025);
-  border: 1px solid rgba(255,255,255,0.07);
+  background: var(--s-card);
+  border: 1px solid var(--s-border);
   border-top: 2px solid rgba(201,168,76,0.35);
   border-radius: 7px;
   padding: 20px;
@@ -364,7 +364,7 @@
 }
 
 .importBox {
-  background: rgba(255,255,255,0.02);
+  background: var(--s-card);
   border: 1px solid var(--border);
   border-radius: 5px;
   padding: 20px;
@@ -373,7 +373,7 @@
 
 .nameInput {
   flex: 1;
-  background: rgba(255,255,255,0.04);
+  background: var(--s-subtle);
   border: 1px solid var(--border);
   border-radius: 3px;
   padding: 9px 14px;
@@ -404,7 +404,7 @@
 .deleteModeOpts { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
 .deleteModeBtn {
   display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px;
-  background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+  background: var(--s-card); border: 1px solid var(--border);
   border-radius: 4px; cursor: pointer; text-align: left; color: var(--text-dim);
   font-size: 0.84rem; transition: all 0.15s; width: 100%;
 }
@@ -419,7 +419,7 @@
   display: flex; align-items: center;
 }
 .deleteTargetSelect {
-  width: 100%; background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+  width: 100%; background: var(--s-subtle); border: 1px solid var(--border);
   border-radius: 3px; padding: 8px 12px; color: var(--text); font-size: 0.85rem;
   outline: none; cursor: pointer; margin-bottom: 4px;
 }

@@ -138,6 +138,97 @@ export const THEMES = {
       '--input-focus': '0 0 0 3px rgba(96,168,232,0.12)',
     },
   },
+
+  // ── Light themes ────────────────────────────────────────────────────────────
+  parchment: {
+    name: 'Parchment',
+    lore: 'Plains · Vintage · Scroll',
+    mode: 'light',
+    preview: { bg: '#f5f0e2', accent: '#8c6020', hi: '#604890', text: '#1c1408' },
+    vars: {
+      '--bg':          '#f5f0e2',
+      '--bg2':         '#ece6d4',
+      '--bg3':         '#e4dcc8',
+      '--border':      'rgba(100,70,20,0.20)',
+      '--border-hi':   'rgba(140,96,32,0.50)',
+      '--gold':        '#8c6020',
+      '--gold-dim':    '#6a4818',
+      '--purple':      '#604890',
+      '--green':       '#3a7848',
+      '--red':         '#a03030',
+      '--text':        '#1c1408',
+      '--text-dim':    '#5c4830',
+      '--text-faint':  '#8c7858',
+      '--gold-glow':   '0 0 18px rgba(140,96,32,0.22)',
+      '--input-focus': '0 0 0 3px rgba(140,96,32,0.14)',
+      '--s-card':      'rgba(0,0,0,0.04)',
+      '--s-subtle':    'rgba(0,0,0,0.065)',
+      '--s-medium':    'rgba(0,0,0,0.09)',
+      '--s-border':    'rgba(0,0,0,0.10)',
+      '--s-border2':   'rgba(0,0,0,0.18)',
+      '--overlay':     'rgba(0,0,0,0.07)',
+    },
+  },
+
+  daybreak: {
+    name: 'Daybreak',
+    lore: 'Island · Dawn · Azorius',
+    mode: 'light',
+    preview: { bg: '#f0f4f8', accent: '#2a5fa0', hi: '#4a6080', text: '#0a1422' },
+    vars: {
+      '--bg':          '#f0f4f8',
+      '--bg2':         '#e4eaf4',
+      '--bg3':         '#d8e0ef',
+      '--border':      'rgba(30,70,150,0.16)',
+      '--border-hi':   'rgba(42,95,160,0.45)',
+      '--gold':        '#2a5fa0',
+      '--gold-dim':    '#204880',
+      '--purple':      '#4a6080',
+      '--green':       '#2a7840',
+      '--red':         '#a03030',
+      '--text':        '#0a1422',
+      '--text-dim':    '#3a4860',
+      '--text-faint':  '#687090',
+      '--gold-glow':   '0 0 18px rgba(42,95,160,0.20)',
+      '--input-focus': '0 0 0 3px rgba(42,95,160,0.14)',
+      '--s-card':      'rgba(0,0,0,0.04)',
+      '--s-subtle':    'rgba(0,0,0,0.065)',
+      '--s-medium':    'rgba(0,0,0,0.09)',
+      '--s-border':    'rgba(0,0,0,0.10)',
+      '--s-border2':   'rgba(0,0,0,0.18)',
+      '--overlay':     'rgba(0,0,0,0.07)',
+    },
+  },
+
+  bloom: {
+    name: 'Bloom',
+    lore: 'Forest · Spring · Selesnya',
+    mode: 'light',
+    preview: { bg: '#f9f0ee', accent: '#b04060', hi: '#406840', text: '#1a0810' },
+    vars: {
+      '--bg':          '#f9f0ee',
+      '--bg2':         '#f0e4e0',
+      '--bg3':         '#e8d8d4',
+      '--border':      'rgba(150,40,70,0.18)',
+      '--border-hi':   'rgba(176,64,96,0.45)',
+      '--gold':        '#b04060',
+      '--gold-dim':    '#8c3050',
+      '--purple':      '#406840',
+      '--green':       '#3a7848',
+      '--red':         '#c03030',
+      '--text':        '#1a0810',
+      '--text-dim':    '#583040',
+      '--text-faint':  '#885060',
+      '--gold-glow':   '0 0 18px rgba(176,64,96,0.20)',
+      '--input-focus': '0 0 0 3px rgba(176,64,96,0.14)',
+      '--s-card':      'rgba(0,0,0,0.04)',
+      '--s-subtle':    'rgba(0,0,0,0.065)',
+      '--s-medium':    'rgba(0,0,0,0.09)',
+      '--s-border':    'rgba(0,0,0,0.10)',
+      '--s-border2':   'rgba(0,0,0,0.18)',
+      '--overlay':     'rgba(0,0,0,0.07)',
+    },
+  },
 }
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
@@ -177,6 +268,12 @@ export function applyTheme(themeId) {
   Object.entries(theme.vars).forEach(([key, value]) => {
     root.style.setProperty(key, value)
   })
+  // Set light-mode attribute so global CSS can override surface patterns
+  if (theme.mode === 'light') {
+    root.setAttribute('data-theme-mode', 'light')
+  } else {
+    root.removeAttribute('data-theme-mode')
+  }
 }
 
 // ── Context ───────────────────────────────────────────────────────────────────
