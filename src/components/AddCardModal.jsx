@@ -811,91 +811,73 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
           <div className={styles.destination}>
             <div className={styles.destLabel}>Save to</div>
 
-            {folderMode ? (
-              /* ── Folder mode: type tabs + searchable dropdown ── */
-              <>
-                <div className={styles.destTabs}>
-                  {[['deck','Deck'],['binder','Binder'],['list','Wishlist']].map(([key,label]) => (
-                    <button key={key}
-                      className={`${styles.destTab} ${destTab===key ? styles.destTabActive : ''}`}
-                      onClick={() => { setDestTab(key); setSelectedFolder(null); setFolderSearch(''); setCreatingFolder(false) }}>
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <div ref={folderDropRef} className={styles.folderSearchWrap}>
+            {/* ── Destination: type tabs + searchable dropdown + create new ── */}
+            <>
+              <div className={styles.destTabs}>
+                {[['deck','Deck'],['binder','Binder'],['list','Wishlist']].map(([key,label]) => (
+                  <button key={key}
+                    className={`${styles.destTab} ${destTab===key ? styles.destTabActive : ''}`}
+                    onClick={() => { setDestTab(key); setSelectedFolder(null); setFolderSearch(''); setCreatingFolder(false) }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div ref={folderDropRef} className={styles.folderSearchWrap}>
+                <div className={styles.folderSearchInner}>
                   <input
                     className={styles.folderSearchInput}
                     value={selectedFolder ? (folders.find(f => f.id === selectedFolder)?.name || folderSearch) : folderSearch}
                     onChange={e => { setFolderSearch(e.target.value); setSelectedFolder(null); setFolderDropOpen(true) }}
                     onFocus={() => setFolderDropOpen(true)}
-                    placeholder={`Search ${destTab === 'list' ? 'wishlists' : destTab + 's'}…`}
+                    placeholder={`Choose ${destTab === 'list' ? 'a wishlist' : `a ${destTab}`}…`}
                   />
-                  {folderDropOpen && (
-                    <div className={styles.folderDropdown}>
-                      {filteredFoldersByType.map(f => (
-                        <button key={f.id}
-                          className={`${styles.folderDropItem} ${selectedFolder === f.id ? styles.folderDropItemActive : ''}`}
-                          onMouseDown={() => { setSelectedFolder(f.id); setFolderSearch(f.name); setFolderDropOpen(false) }}>
-                          {f.name}
-                        </button>
-                      ))}
-                      {filteredFoldersByType.length === 0 && folderSearch && (
-                        <div className={styles.folderDropEmpty}>No {destTab === 'list' ? 'wishlists' : destTab + 's'} found</div>
-                      )}
-                      <button className={styles.folderDropCreate}
-                        onMouseDown={() => { setCreatingFolder(true); setFolderDropOpen(false) }}>
-                        + Create new {destTab === 'list' ? 'wishlist' : destTab}
-                      </button>
-                    </div>
-                  )}
+                  <button className={styles.folderSearchChevron} tabIndex={-1}
+                    onMouseDown={e => { e.preventDefault(); setFolderDropOpen(v => !v) }}>
+                    {folderDropOpen ? '▲' : '▼'}
+                  </button>
                 </div>
-                {creatingFolder && (
-                  <div className={styles.newFolderRow}>
-                    <input
-                      className={`${styles.input} ${styles.newFolderInput}`}
-                      value={newFolderName}
-                      onChange={e => setNewFolderName(e.target.value)}
-                      placeholder={`New ${destTab === 'list' ? 'wishlist' : destTab} name…`}
-                      autoFocus
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') createNewFolder()
-                        if (e.key === 'Escape') setCreatingFolder(false)
-                      }}
-                    />
-                    <button className={styles.marketBtn} onClick={createNewFolder} title="Create">✓</button>
-                    <button className={styles.clearBtn} onClick={() => { setCreatingFolder(false); setNewFolderName('') }}>×</button>
+                {folderDropOpen && (
+                  <div className={styles.folderDropdown}>
+                    {filteredFoldersByType.length > 0
+                      ? filteredFoldersByType.map(f => (
+                          <button key={f.id}
+                            className={`${styles.folderDropItem} ${selectedFolder === f.id ? styles.folderDropItemActive : ''}`}
+                            onMouseDown={() => { setSelectedFolder(f.id); setFolderSearch(f.name); setFolderDropOpen(false) }}>
+                            {f.name}
+                          </button>
+                        ))
+                      : <div className={styles.folderDropEmpty}>
+                          {folderSearch
+                            ? `No ${destTab === 'list' ? 'wishlists' : destTab + 's'} match "${folderSearch}"`
+                            : `No ${destTab === 'list' ? 'wishlists' : destTab + 's'} yet`}
+                        </div>
+                    }
+                    <div className={styles.folderDropDivider} />
+                    <button className={styles.folderDropCreate}
+                      onMouseDown={() => { setCreatingFolder(true); setFolderDropOpen(false) }}>
+                      + Create new {destTab === 'list' ? 'wishlist' : destTab}
+                    </button>
                   </div>
                 )}
-              </>
-            ) : (
-              /* ── Collection mode: tabs + button grid ── */
-              <>
-                <div className={styles.destTabs}>
-                  {[['deck','Deck'],['binder','Binder'],['list','Wishlist']].map(([key,label]) => (
-                    <button key={key}
-                      className={`${styles.destTab} ${destTab===key ? styles.destTabActive : ''}`}
-                      onClick={() => { setDestTab(key); setSelectedFolder(null) }}>
-                      {label}
-                    </button>
-                  ))}
+              </div>
+              {creatingFolder && (
+                <div className={styles.newFolderRow}>
+                  <input
+                    className={`${styles.input} ${styles.newFolderInput}`}
+                    value={newFolderName}
+                    onChange={e => setNewFolderName(e.target.value)}
+                    placeholder={`New ${destTab === 'list' ? 'wishlist' : destTab} name…`}
+                    autoFocus
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') createNewFolder()
+                      if (e.key === 'Escape') { setCreatingFolder(false); setNewFolderName('') }
+                    }}
+                  />
+                  <button className={styles.marketBtn} onClick={createNewFolder} title="Create">✓</button>
+                  <button className={styles.clearBtn} onClick={() => { setCreatingFolder(false); setNewFolderName('') }}>×</button>
                 </div>
-                {destFolders.length > 0
-                  ? (
-                    <div className={styles.folderGrid}>
-                      {destFolders.map(f => (
-                        <button key={f.id}
-                          className={`${styles.folderBtn} ${selectedFolder === f.id ? styles.folderBtnActive : ''}`}
-                          onClick={() => setSelectedFolder(f.id)}>
-                          {f.name}
-                        </button>
-                      ))}
-                    </div>
-                  )
-                  : <div className={styles.noFolders}>No {destTab === 'list' ? 'wishlists' : `${destTab}s`} yet — create one first</div>
-                }
-              </>
-            )}
+              )}
+            </>
           </div>
         </div>
       )}
