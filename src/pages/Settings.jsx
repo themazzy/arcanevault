@@ -17,9 +17,9 @@ function formatAge(ms) {
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
-function SettingRow({ label, description, children }) {
+function SettingRow({ label, description, children, onRowClick }) {
   return (
-    <div className={styles.row}>
+    <div className={styles.row} onClick={onRowClick} style={onRowClick ? { cursor: 'pointer' } : undefined}>
       <div className={styles.rowLabel}>
         <div className={styles.rowTitle}>{label}</div>
         {description && <div className={styles.rowDesc}>{description}</div>}
@@ -320,7 +320,18 @@ export default function SettingsPage() {
         <div className={styles.sectionTitle}>Prices</div>
 
         <SettingRow label="Price Source" description="Marketplace and price type used throughout the app">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 260 }}>
+          {/* Mobile: select dropdown */}
+          <select
+            className={styles.priceSourceSelect}
+            value={settings.price_source}
+            onChange={e => set('price_source', e.target.value)}
+          >
+            {PRICE_SOURCES.map(src => (
+              <option key={src.id} value={src.id}>{src.label}</option>
+            ))}
+          </select>
+          {/* Desktop: radio buttons */}
+          <div className={styles.priceSourceRadios}>
             {PRICE_SOURCES.map(src => (
               <label key={src.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
                 <input
@@ -342,7 +353,8 @@ export default function SettingsPage() {
           </div>
         </SettingRow>
 
-        <SettingRow label="Show Price on Cards" description="Display price label in the card grid">
+        <SettingRow label="Show Price on Cards" description="Display price label in the card grid"
+          onRowClick={() => set('show_price', !settings.show_price)}>
           <Toggle value={settings.show_price} onChange={v => set('show_price', v)} />
         </SettingRow>
       </div>

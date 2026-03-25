@@ -56,16 +56,17 @@
 .select:focus { border-color: var(--border-hi); box-shadow: var(--input-focus); }
 .select option { background: var(--bg3); }
 
-/* Toggle */
+/* Toggle — the whole .row acts as tap target on mobile */
 .toggle {
-  width: 44px; height: 24px;
+  width: 44px; height: 26px;
   background: rgba(255,255,255,0.1);
   border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 12px;
+  border-radius: 13px;
   cursor: pointer;
   position: relative;
   transition: all 0.25s;
   padding: 0;
+  flex-shrink: 0;
 }
 .toggleOn {
   background: rgba(138,111,196,0.4);
@@ -118,9 +119,38 @@
   letter-spacing: 0.06em;
 }
 
+/* Price source select — shown on mobile, hidden on desktop */
+.priceSourceSelect {
+  display: none;
+  background: var(--s-subtle);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 12px;
+  color: var(--text);
+  font-size: 0.9rem;
+  width: 100%;
+  outline: none;
+  cursor: pointer;
+}
+.priceSourceSelect:focus { border-color: var(--border-hi); }
+/* Radio group — hidden on mobile */
+.priceSourceRadios { display: flex; flex-direction: column; gap: 8px; min-width: 260px; }
+
 @media (max-width: 600px) {
-  .row { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .row {
+    flex-direction: column; align-items: flex-start; gap: 10px;
+    /* Tappable row for toggle rows */
+    cursor: pointer; min-height: 60px;
+  }
+  .row:active { background: rgba(255,255,255,0.03); }
+  .rowControl { width: 100%; }
   .select { min-width: unset; width: 100%; }
+  .priceSourceSelect { display: block; }
+  .priceSourceRadios { display: none; }
+  .fontWeightOptions { width: 100%; }
+  .fontOption { flex: 1; padding: 10px 8px; }
+  .input { width: 100%; box-sizing: border-box; }
+  .pwForm { flex-wrap: wrap; }
 }
 
 /* ── Cache panel ──────────────────────────────────────────────────────────── */

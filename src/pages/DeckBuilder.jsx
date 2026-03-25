@@ -1493,15 +1493,21 @@ export default function DeckBuilderPage() {
 
   return (
     <div className={`${styles.page}${showRight ? ' ' + styles.showRight : ''}`}>
+      {/* Mobile two-tab toggle */}
+      <div className={styles.mobilePanelToggle}>
+        <button
+          className={`${styles.mobilePanelBtn} ${!showRight ? styles.mobilePanelBtnActive : ''}`}
+          onClick={() => setShowRight(false)}
+        >🔍 Search</button>
+        <button
+          className={`${styles.mobilePanelBtn} ${showRight ? styles.mobilePanelBtnActive : ''}`}
+          onClick={() => setShowRight(true)}
+        >📋 Deck</button>
+      </div>
+
       {/* ── LEFT PANEL ─────────────────────────────────────────── */}
       <div className={styles.left}>
-        {/* Mobile panel toggle */}
-        <button
-          className={styles.mobilePanelToggle}
-          onClick={() => setShowRight(v => !v)}
-        >
-          {showRight ? '← Search' : 'Deck →'}
-        </button>
+        {/* Mobile panel toggle — rendered outside the left panel so it stays visible */}
         <div className={styles.leftTop}>
           {/* Format selector */}
           <div className={styles.formatRow}>
