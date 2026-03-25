@@ -261,6 +261,18 @@ function saveLocal(settings) {
   } catch {}
 }
 
+// Cache just the theme vars so index.html inline script can apply them
+// before React boots (prevents flash of wrong theme on hard refresh).
+function cacheThemeVars(themeId) {
+  try {
+    const theme = THEMES[themeId] || THEMES.shadow
+    localStorage.setItem('arcanevault_theme_cache', JSON.stringify({
+      vars: theme.vars,
+      mode: theme.mode || null,
+    }))
+  } catch {}
+}
+
 // ── Apply theme CSS vars to :root ─────────────────────────────────────────────
 export function applyTheme(themeId) {
   const theme = THEMES[themeId] || THEMES.shadow
@@ -274,6 +286,8 @@ export function applyTheme(themeId) {
   } else {
     root.removeAttribute('data-theme-mode')
   }
+  // Persist theme vars for instant application on next page load
+  cacheThemeVars(themeId)
 }
 
 // ── Context ───────────────────────────────────────────────────────────────────
@@ -294,6 +308,12 @@ export function SettingsProvider({ children }) {
         if (data) {
           const { user_id, updated_at, ...rest } = data
           const merged = { ...DEFAULTS, ...rest }
+          // If the DB row doesn't have a theme column yet, keep whatever
+          // the user last set locally rather than resetting to the default.
+          if (!Object.prototype.hasOwnProperty.call(rest, 'theme')) {
+            const local = loadLocal()
+            if (local?.theme) merged.theme = local.theme
+          }
           setSettings(merged)
           saveLocal(merged)
         }
