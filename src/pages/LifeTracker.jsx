@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { Modal, Button } from '../components/UI'
 import { useAuth } from '../components/Auth'
 import { sb } from '../lib/supabase'
@@ -12,6 +12,11 @@ const MAX_HISTORY = 50
 const PLAYER_COLORS = ['#c46060', '#6080c4', '#60a860', '#c4a040', '#9060c4', '#60b8c4']
 const PLAYER_NAMES  = ['Player 1', 'Player 2', 'Player 3', 'Player 4', 'Player 5', 'Player 6']
 const DICE_TYPES    = [2, 4, 6, 8, 10, 12, 20, 100]
+
+// ── Multiplayer lobby helpers ──────────────────────────────────────────────────
+const CODE_CHARS  = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+const generateCode = () =>
+  Array.from({ length: 6 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('')
 
 const MODES = {
   standard:    { label: 'Standard',    life: 20, commander: false, poison: false, defaultPlayers: 2 },
@@ -426,6 +431,125 @@ function RandomPicker({ players, onClose }) {
   )
 }
 
+// ── Multiplayer Lobby Screen ───────────────────────────────────────────────────
+function LobbyScreen({ session, gameConfig, onStart, onCancel }) {
+  const [players,  setPlayers]  = useState([])
+  const [starting, setStarting] = useState(false)
+  const [copied,   setCopied]   = useState(false)
+  const modeConf = MODES[gameConfig?.mode] || MODES.commander
+  const life     = gameConfig?.customLife || modeConf.life
+  const joinUrl  = `${window.location.origin}${import.meta.env.BASE_URL}join/${session.code}`
+
+  useEffect(() => {
+    let active = true
+    const load = async () => {
+      const { data } = await sb.from('game_players')
+        .select('*').eq('session_id', session.id).order('slot_index')
+      if (active && data) setPlayers(data)
+    }
+    load()
+    const ch = sb.channel(`lobby-host:${session.id}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'game_players',
+        filter: `session_id=eq.${session.id}`,
+      }, load)
+      .subscribe()
+    return () => { active = false; sb.removeChannel(ch) }
+  }, [session.id])
+
+  const copyLink = () => {
+    navigator.clipboard.writeText(joinUrl).then(() => {
+      setCopied(true); setTimeout(() => setCopied(false), 2200)
+    })
+  }
+
+  const handleStart = async () => {
+    setStarting(true)
+    try {
+      await sb.from('game_sessions')
+        .update({ status: 'playing', started_at: new Date().toISOString() })
+        .eq('id', session.id)
+      const gamePlayers = players.map((lp, i) =>
+        makePlayer(i, life, {
+          name: lp.player_name, color: lp.color,
+          deckId: lp.deck_id, deckName: lp.deck_name,
+          artCropUrl: lp.art_crop_url,
+        })
+      )
+      onStart({ gamePlayers, layout: gameConfig.layout })
+    } catch { setStarting(false) }
+  }
+
+  const claimedCount = players.filter(p => p.user_id).length
+
+  return (
+    <div className={styles.lobbyScreen}>
+      <div className={styles.lobbyHero}>
+        <span className={styles.lobbyHeroGlyph}>⚔</span>
+        <h1 className={styles.lobbyTitle}>Multiplayer Lobby</h1>
+        <p className={styles.lobbySub}>
+          {modeConf.label} · {gameConfig?.playerCount} players · {life} life
+        </p>
+      </div>
+
+      {/* Join code block */}
+      <div className={styles.lobbyCodeBlock}>
+        <div className={styles.lobbyCodeLabel}>Join Code</div>
+        <div className={styles.lobbyCode}>
+          {session.code.split('').map((c, i) => (
+            <span key={i} className={styles.lobbyCodeChar}>{c}</span>
+          ))}
+        </div>
+        <button className={styles.lobbyCopyBtn} onClick={copyLink}>
+          {copied ? '✓ Copied!' : '⎘ Copy Join Link'}
+        </button>
+        <div className={styles.lobbyJoinUrl}>{joinUrl}</div>
+      </div>
+
+      {/* Player slots */}
+      <div className={styles.lobbySlots}>
+        {players.map(p => (
+          <div key={p.id}
+            className={`${styles.lobbySlot} ${p.user_id ? styles.lobbySlotClaimed : styles.lobbySlotEmpty}`}
+            style={{ '--pc': p.color }}>
+            <div className={styles.lobbySlotNum}>{p.slot_index + 1}</div>
+            <span className={styles.lobbySlotDot} style={{ background: p.color }} />
+            <div className={styles.lobbySlotInfo}>
+              <div className={styles.lobbySlotName}>{p.player_name}</div>
+              <div className={styles.lobbySlotSub}>
+                {p.deck_name ? `🃏 ${p.deck_name}`
+                  : p.user_id ? 'No deck selected'
+                  : 'Waiting to join…'}
+              </div>
+            </div>
+            {p.user_id && <span className={styles.lobbySlotCheck}>✓</span>}
+          </div>
+        ))}
+      </div>
+
+      <p className={styles.lobbyCount}>
+        {claimedCount} / {gameConfig?.playerCount} joined
+      </p>
+
+      <div className={styles.lobbyFooter}>
+        <button className={styles.lobbyCancelBtn} onClick={onCancel}>
+          ✕ Cancel Lobby
+        </button>
+        <button
+          className={styles.lobbyStartBtn}
+          onClick={handleStart}
+          disabled={starting || claimedCount < 1}>
+          {starting ? '…' : '⚔ Start Game'}
+        </button>
+      </div>
+
+      <p className={styles.lobbyHint}>
+        Share the code or link — other players open it on their own phone to pick their deck.
+      </p>
+    </div>
+  )
+}
+
 // ── Pre-game: Player Config Row ────────────────────────────────────────────────
 function PlayerConfig({ index, config, decks, history, onChange }) {
   const [editing, setEditing] = useState(false)
@@ -510,7 +634,7 @@ function HistoryEntry({ game }) {
 }
 
 // ── Pre-game Setup Screen ──────────────────────────────────────────────────────
-function PreGameSetup({ onStart, decks, history }) {
+function PreGameSetup({ onStart, onCreateLobby, decks, history }) {
   const [mode,        setMode]        = useState('commander')
   const [playerCount, setPlayerCount] = useState(MODES.commander.defaultPlayers)
   const [customLife,  setCustomLife]  = useState(40)
@@ -542,6 +666,11 @@ function PreGameSetup({ onStart, decks, history }) {
     const players = Array.from({ length: playerCount }, (_, i) => makePlayer(i, life, configs[i]))
     const finalLayout = layout || defaultLayout(playerCount)
     onStart({ playerCount, mode, customLife, players, startedAt: Date.now(), layout: finalLayout })
+  }
+
+  const handleCreateLobby = () => {
+    const finalLayout = layout || defaultLayout(playerCount)
+    onCreateLobby?.({ playerCount, mode, customLife, layout: finalLayout, playerConfigs: configs })
   }
 
   return (
@@ -636,6 +765,9 @@ function PreGameSetup({ onStart, decks, history }) {
 
       <div className={styles.setupFooter}>
         <button className={styles.startBtn} onClick={handleStart}>⚔ Start Game</button>
+        <button className={styles.lobbyBtn} onClick={handleCreateLobby}>
+          👥 Create Multiplayer Lobby
+        </button>
       </div>
     </div>
   )
@@ -886,6 +1018,8 @@ export default function LifeTrackerPage() {
   const [history,      setHistory]      = useState(() => loadHistory())
   const [isFullscreen, setIsFullscreen] = useState(false)
   const gearMenuRef = useRef(null)
+  const [session,     setSession]     = useState(null)
+  const [lobbyConfig, setLobbyConfig] = useState(null)
 
   useEffect(() => {
     if (!showGameMenu) return
@@ -901,6 +1035,63 @@ export default function LifeTrackerPage() {
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
   }, [isFullscreen])
+
+  const handleCreateLobby = useCallback(async (config) => {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const code = generateCode()
+      const { data: sess, error } = await sb.from('game_sessions').insert({
+        code,
+        host_user_id: user.id,
+        mode:         config.mode,
+        custom_life:  config.customLife,
+        player_count: config.playerCount,
+        status:       'lobby',
+      }).select().single()
+      if (error?.code === '23505') continue   // code collision — retry
+      if (error) { console.error('lobby create:', error); return }
+
+      // Create all player slots
+      const slots = Array.from({ length: config.playerCount }, (_, i) => ({
+        session_id:  sess.id,
+        slot_index:  i,
+        player_name: config.playerConfigs[i]?.name  || PLAYER_NAMES[i],
+        color:       config.playerConfigs[i]?.color || PLAYER_COLORS[i],
+      }))
+      await sb.from('game_players').insert(slots)
+
+      // Host auto-claims slot 0
+      const hc = config.playerConfigs[0]
+      await sb.from('game_players').update({
+        user_id:     user.id,
+        player_name: hc.name,
+        color:       hc.color,
+        deck_id:     hc.deckId   || null,
+        deck_name:   hc.deckName || null,
+        claimed_at:  new Date().toISOString(),
+      }).eq('session_id', sess.id).eq('slot_index', 0)
+
+      setSession(sess)
+      setLobbyConfig(config)
+      setScreen('lobby')
+      return
+    }
+  }, [user])
+
+  const handleCancelLobby = useCallback(async () => {
+    if (session) await sb.from('game_sessions').delete().eq('id', session.id)
+    setSession(null)
+    setLobbyConfig(null)
+    setScreen('setup')
+  }, [session])
+
+  const handleLobbyStart = useCallback(({ gamePlayers, layout }) => {
+    setPlayers(gamePlayers)
+    setGameConfig({ ...lobbyConfig, layout })
+    setStartedAt(Date.now())
+    setScreen('playing')
+    setSession(null)
+    setLobbyConfig(null)
+  }, [lobbyConfig])
 
   useEffect(() => {
     if (!user) return
@@ -992,7 +1183,25 @@ export default function LifeTrackerPage() {
   if (screen === 'setup') {
     return (
       <div className={styles.page}>
-        <PreGameSetup onStart={handleStart} decks={decks} history={history} />
+        <PreGameSetup
+          onStart={handleStart}
+          onCreateLobby={handleCreateLobby}
+          decks={decks}
+          history={history}
+        />
+      </div>
+    )
+  }
+
+  if (screen === 'lobby') {
+    return (
+      <div className={styles.page}>
+        <LobbyScreen
+          session={session}
+          gameConfig={lobbyConfig}
+          onStart={handleLobbyStart}
+          onCancel={handleCancelLobby}
+        />
       </div>
     )
   }
