@@ -256,7 +256,7 @@
   align-items: stretch;
   gap: 0;
   background: transparent;
-  border: 1px solid rgba(255,255,255,0.12);
+  border: 1px solid var(--s-border2);
   border-radius: 4px;
   padding: 0 0 0 13px;
   color: var(--text-dim);
@@ -274,9 +274,9 @@
   padding-right: 8px;
 }
 .sortDropdownBtn:hover {
-  background: rgba(255,255,255,0.05);
+  background: var(--s-subtle);
   color: var(--text);
-  border-color: rgba(255,255,255,0.2);
+  border-color: var(--s-medium);
 }
 .sortArrow {
   flex-shrink: 0;
@@ -285,7 +285,7 @@
   padding: 0 9px;
   opacity: 0.5;
   transition: transform 0.18s, opacity 0.15s;
-  border-left: 1px solid rgba(255,255,255,0.1);
+  border-left: 1px solid var(--s-border2);
   margin-left: 4px;
 }
 .sortDropdownBtn:hover .sortArrow { opacity: 0.85; }
@@ -297,7 +297,7 @@
   top: calc(100% + 5px);
   right: 0;
   min-width: 180px;
-  background: #15131f;
+  background: var(--popup-bg);
   border: 1px solid rgba(180,140,60,0.22);
   border-radius: 6px;
   box-shadow: 0 12px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.03) inset;
