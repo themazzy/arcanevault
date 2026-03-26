@@ -79,7 +79,7 @@
 }
 .searchInput::placeholder { color: var(--text-faint); font-style: italic; }
 .filterSelect {
-  background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+  background: var(--s2); border: 1px solid var(--border);
   border-radius: 4px; padding: 9px 12px; color: var(--text);
   font-family: var(--font-serif); font-size: 0.9rem;
   outline: none; cursor: pointer; transition: border-color 0.2s, box-shadow 0.2s;
@@ -100,7 +100,7 @@
   width: 210px; flex-shrink: 0;
   border-radius: 10px; overflow: hidden;
   box-shadow: 0 8px 28px rgba(0,0,0,0.65), 0 0 0 1px rgba(180,140,60,0.1);
-  background: rgba(255,255,255,0.04);
+  background: var(--s2);
   aspect-ratio: 63/88;
   position: relative;
 }
@@ -110,7 +110,7 @@
 .detailSet { color: var(--text-dim); font-size: 0.88rem; margin-bottom: 14px; font-style: italic; }
 
 .priceGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
-.priceBlock { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 4px; padding: 9px 12px; }
+.priceBlock { background: var(--s1); border: 1px solid rgba(255,255,255,0.07); border-radius: 4px; padding: 9px 12px; }
 .priceLabel { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 3px; }
 .priceVal { font-family: var(--font-display); font-size: 1.05rem; color: var(--green); }
 
@@ -149,7 +149,7 @@
 .qtyEditor { display: flex; align-items: center; gap: 0; }
 .qtyBtn {
   width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
-  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+  background: var(--s3); border: 1px solid rgba(255,255,255,0.12);
   color: var(--text); font-size: 1rem; cursor: pointer; transition: background 0.15s;
   border-radius: 3px 0 0 3px;
 }
@@ -157,7 +157,7 @@
 .qtyBtn:hover { background: rgba(255,255,255,0.12); }
 .qtyInput {
   width: 46px; height: 28px; text-align: center;
-  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
+  background: var(--s2); border: 1px solid rgba(255,255,255,0.1);
   border-left: none; border-right: none;
   color: var(--text); font-size: 0.9rem; outline: none;
 }
@@ -171,13 +171,13 @@
 }
 .foilToggleOff {
   padding: 5px 12px; border-radius: 3px; cursor: pointer;
-  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
+  background: var(--s2); border: 1px solid rgba(255,255,255,0.1);
   color: var(--text-dim); font-size: 0.82rem; transition: all 0.15s;
 }
 .foilToggleOn:hover, .foilToggleOff:hover { border-color: rgba(200,160,255,0.5); color: var(--purple); }
 
 .editSelect {
-  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.12);
+  background: var(--s2); border: 1px solid rgba(255,255,255,0.12);
   border-radius: 3px; padding: 5px 8px; color: var(--text); font-size: 0.85rem;
   outline: none; cursor: pointer;
 }
@@ -249,7 +249,7 @@
 .selectModeBtn {
   font-family: var(--font-display); font-size: 0.75rem;
   letter-spacing: 0.06em; padding: 9px 14px; border-radius: 3px;
-  cursor: pointer; background: rgba(255,255,255,0.04);
+  cursor: pointer; background: var(--s2);
   border: 1px solid rgba(255,255,255,0.1);
   color: var(--text-dim); transition: all 0.2s; white-space: nowrap;
 }
@@ -321,7 +321,7 @@
 .filterWrap { margin-bottom: 14px; }
 
 .filterToggle {
-  background: rgba(255,255,255,0.04);
+  background: var(--s2);
   border: 1px solid var(--border);
   color: var(--text-dim);
   border-radius: 4px;
@@ -337,7 +337,7 @@
 
 .filterPanel {
   margin-top: 8px;
-  background: rgba(255,255,255,0.02);
+  background: var(--s1);
   border: 1px solid rgba(180,140,60,0.18);
   border-radius: 6px;
   padding: 14px 18px;
@@ -366,7 +366,7 @@
 .chips { display: flex; flex-wrap: wrap; gap: 5px; }
 
 .chip {
-  background: rgba(255,255,255,0.04);
+  background: var(--s2);
   border: 1px solid rgba(255,255,255,0.1);
   color: var(--text-dim);
   border-radius: 4px;
@@ -377,7 +377,7 @@
   transition: all 0.15s;
   white-space: nowrap;
 }
-.chip:hover { border-color: rgba(255,255,255,0.22); color: var(--text); background: rgba(255,255,255,0.07); }
+.chip:hover { border-color: rgba(255,255,255,0.22); color: var(--text); background: var(--s3); }
 .chipActive {
   background: rgba(201,168,76,0.14);
   border-color: rgba(201,168,76,0.45);
@@ -422,7 +422,7 @@
 .rangeLabel { font-size: 0.75rem; color: var(--text-faint); white-space: nowrap; }
 .rangeInput {
   width: 80px;
-  background: rgba(255,255,255,0.04);
+  background: var(--s2);
   border: 1px solid var(--border);
   border-radius: 3px;
   padding: 5px 8px;
@@ -435,7 +435,7 @@
 
 .setSearchInput {
   width: 100%;
-  background: rgba(255,255,255,0.04);
+  background: var(--s2);
   border: 1px solid var(--border);
   border-radius: 3px;
   padding: 5px 10px;
@@ -544,7 +544,7 @@
   border-bottom: 1px solid rgba(255,255,255,0.04);
 }
 .setDropItem:last-child { border-bottom: none; }
-.setDropItem:hover { background: rgba(255,255,255,0.05); }
+.setDropItem:hover { background: var(--s2); }
 .setDropItemActive { background: rgba(201,168,76,0.08); }
 
 .setDropCode {
@@ -575,7 +575,7 @@
 /* ── Text filter input ───────────────────────────────────────────────────── */
 .textFilter {
   width: 100%;
-  background: rgba(255,255,255,0.04);
+  background: var(--s2);
   border: 1px solid var(--border);
   border-radius: 3px;
   padding: 7px 10px;
@@ -610,7 +610,7 @@
 
 /* ── Mini select (number of colors) ─────────────────────────────────────── */
 .miniSelect {
-  background: rgba(255,255,255,0.05);
+  background: var(--s2);
   border: 1px solid var(--border);
   border-radius: 3px;
   padding: 4px 8px;
@@ -695,7 +695,7 @@
   gap: 10px;
 }
 .priceDetailBlock {
-  background: rgba(255,255,255,0.03);
+  background: var(--s1);
   border: 1px solid rgba(255,255,255,0.07);
   border-radius: 4px;
   padding: 10px 12px;
@@ -705,7 +705,7 @@
 
 /* Rulings */
 .ruling {
-  background: rgba(255,255,255,0.02);
+  background: var(--s1);
   border: 1px solid rgba(255,255,255,0.06);
   border-radius: 4px;
   padding: 10px 14px;
@@ -736,7 +736,7 @@
   border-bottom: 1px solid var(--border);
 }
 .moveCreateSelect {
-  background: rgba(255,255,255,0.06);
+  background: var(--s3);
   border: 1px solid var(--border);
   border-radius: 3px;
   color: var(--text);
@@ -745,7 +745,7 @@
   outline: none;
 }
 .moveCreateInput {
-  background: rgba(255,255,255,0.06);
+  background: var(--s3);
   border: 1px solid var(--border);
   border-radius: 3px;
   color: var(--text);

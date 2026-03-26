@@ -48,7 +48,7 @@
 }
 
 .confirmCancel {
-  background: rgba(255,255,255,0.05);
+  background: var(--s2);
   border: 1px solid rgba(255,255,255,0.12);
   border-radius: 5px;
   color: var(--text-dim);
@@ -58,7 +58,7 @@
   padding: 7px 18px;
   transition: background 0.15s, border-color 0.15s;
 }
-.confirmCancel:hover { background: rgba(255,255,255,0.09); border-color: rgba(255,255,255,0.22); }
+.confirmCancel:hover { background: var(--s4); border-color: rgba(255,255,255,0.22); }
 
 .confirmOk {
   background: rgba(201,168,76,0.15);
@@ -94,9 +94,9 @@
   transition: border-color 0.18s, box-shadow 0.18s, background 0.18s;
 }
 .filterInput::placeholder { color: var(--text-faint); font-style: italic; }
-.filterInput:hover { background: rgba(255,255,255,0.05); border-color: rgba(180,140,60,0.28); }
+.filterInput:hover { background: var(--s2); border-color: rgba(180,140,60,0.28); }
 .filterInput:focus {
-  background: rgba(255,255,255,0.05);
+  background: var(--s2);
   border-color: rgba(201,168,76,0.5);
   box-shadow: 0 0 0 3px rgba(201,168,76,0.1), 0 2px 8px rgba(0,0,0,0.3);
 }
@@ -146,7 +146,7 @@
 .sortPill:hover { color: var(--text); }
 
 .sortPillActive {
-  background: rgba(255,255,255,0.06);
+  background: var(--s3);
   border-color: var(--border);
   color: var(--text);
 }
@@ -221,7 +221,7 @@
   display: inline-block;
   font-size: 0.68rem;
   color: var(--text-dim);
-  background: rgba(255,255,255,0.07);
+  background: var(--s3);
   border: 1px solid var(--border);
   border-radius: 3px;
   padding: 1px 6px;
@@ -313,7 +313,7 @@
 }
 
 .bulkBar button {
-  background: rgba(255,255,255,0.05);
+  background: var(--s2);
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text-dim);
@@ -323,7 +323,7 @@
   transition: all 0.15s;
 }
 
-.bulkBar button:hover { background: rgba(255,255,255,0.09); color: var(--text); }
+.bulkBar button:hover { background: var(--s4); color: var(--text); }
 
 .bulkDelete {
   background: rgba(200,60,60,0.12) !important;

@@ -61,7 +61,7 @@
   margin-top: 14px;
 }
 .snapshotTile {
-  background: rgba(255,255,255,0.03);
+  background: var(--s1);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 14px 16px;
@@ -150,7 +150,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255,255,255,0.03);
+  background: var(--s1);
   font-size: 0.6rem;
   color: var(--text-faint);
   text-align: center;
@@ -190,7 +190,7 @@
   align-items: center;
   gap: 12px;
   padding: 10px 14px;
-  background: rgba(255,255,255,0.02);
+  background: var(--s1);
   border: 1px solid var(--border);
   border-radius: 5px;
   cursor: pointer;
@@ -218,7 +218,7 @@
 }
 .deckBarWrap {
   height: 3px;
-  background: rgba(255,255,255,0.06);
+  background: var(--s3);
   border-radius: 2px;
   overflow: hidden;
 }
@@ -260,7 +260,7 @@
 
 .newsCard {
   display: flex; flex-direction: column;
-  background: rgba(255,255,255,0.02); border: 1px solid var(--border);
+  background: var(--s1); border: 1px solid var(--border);
   border-radius: 5px; overflow: hidden; text-decoration: none;
   transition: border-color 0.18s, background 0.18s, transform 0.18s;
 }
@@ -272,7 +272,7 @@
 
 .newsCardImg {
   position: relative; width: 100%; aspect-ratio: 16/7; overflow: hidden;
-  background: rgba(255,255,255,0.03);
+  background: var(--s1);
 }
 .newsCardImg img {
   width: 100%; height: 100%; object-fit: cover; display: block;
@@ -283,7 +283,7 @@
   width: 100%; height: 100%;
   display: flex; align-items: center; justify-content: center;
   font-size: 1.6rem; color: var(--text-faint);
-  background: rgba(255,255,255,0.02);
+  background: var(--s1);
 }
 .newsCardBadge {
   position: absolute; top: 8px; left: 8px;
@@ -332,7 +332,7 @@
   align-items: center;
   gap: 7px;
   padding: 16px 10px 14px;
-  background: rgba(255,255,255,0.02);
+  background: var(--s1);
   border: 1px solid var(--border);
   border-radius: 5px;
   text-decoration: none;
@@ -387,7 +387,7 @@
 
 .cvClose {
   position: absolute; top: 0; right: 0;
-  background: rgba(255,255,255,0.05);
+  background: var(--s2);
   border: 1px solid var(--border); border-radius: 50%;
   width: 28px; height: 28px; font-size: 0.72rem;
   color: var(--text-faint); cursor: pointer;
@@ -415,7 +415,7 @@
 .cvArtWrap {
   border-radius: 10px; overflow: hidden;
   box-shadow: 0 8px 28px rgba(0,0,0,0.6), 0 0 0 1px rgba(180,140,60,0.08);
-  background: rgba(255,255,255,0.04);
+  background: var(--s2);
   aspect-ratio: 63/88;
 }
 .cvImg { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -427,7 +427,7 @@
   text-align: center; padding: 12px;
 }
 .cvFlipBtn {
-  background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+  background: var(--s2); border: 1px solid var(--border);
   border-radius: 3px; color: var(--text-dim); font-size: 0.76rem;
   padding: 5px 12px; cursor: pointer; transition: all 0.15s;
   align-self: flex-start;
@@ -460,7 +460,7 @@
 .cvType { font-size: 0.82rem; color: var(--text-dim); font-style: italic; }
 .cvStats { display: flex; gap: 8px; }
 .cvStatBadge {
-  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+  background: var(--s3); border: 1px solid rgba(255,255,255,0.1);
   border-radius: 4px; padding: 3px 10px;
   font-family: var(--font-display); font-size: 0.85rem; color: var(--text);
 }
@@ -506,7 +506,7 @@
 /* Prices tab */
 .pricesGrid { display: flex; flex-wrap: wrap; gap: 8px; }
 .priceBlock {
-  background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+  background: var(--s2); border: 1px solid var(--border);
   border-radius: 4px; padding: 8px 14px; min-width: 100px;
   display: flex; flex-direction: column; gap: 3px;
 }
@@ -542,7 +542,7 @@
 .searchWrap { flex: 1; position: relative; }
 .searchInput {
   width: 100%;
-  background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+  background: var(--s2); border: 1px solid var(--border);
   border-radius: 4px; padding: 11px 14px;
   color: var(--text); font-size: 0.92rem; font-family: var(--font-serif);
   outline: none; box-sizing: border-box; transition: border-color 0.2s, box-shadow 0.2s;
@@ -603,12 +603,12 @@
 
 /* ── Advanced search toggle button ──────────────────────────────────────────── */
 .advToggleBtn {
-  background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+  background: var(--s2); border: 1px solid var(--border);
   border-radius: 3px; padding: 5px 12px; color: var(--text-dim);
   font-size: 0.76rem; font-family: var(--font-display); letter-spacing: 0.04em;
   cursor: pointer; transition: all 0.15s; white-space: nowrap;
 }
-.advToggleBtn:hover { color: var(--text); border-color: var(--border-hi); background: rgba(255,255,255,0.07); }
+.advToggleBtn:hover { color: var(--text); border-color: var(--border-hi); background: var(--s3); }
 .advToggleBtnActive {
   color: var(--gold) !important;
   border-color: rgba(201,168,76,0.4) !important;
@@ -617,7 +617,7 @@
 
 /* ── Advanced search panel ───────────────────────────────────────────────────── */
 .advPanel {
-  background: rgba(255,255,255,0.02);
+  background: var(--s1);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 14px 16px;
@@ -642,7 +642,7 @@
   min-width: 36px;
 }
 .advInput {
-  background: rgba(255,255,255,0.05);
+  background: var(--s2);
   border: 1px solid var(--border);
   border-radius: 3px;
   padding: 6px 10px;
@@ -655,7 +655,7 @@
 .advInput:focus { border-color: var(--border-hi); }
 .advInput::placeholder { color: var(--text-faint); }
 .advSelect {
-  background: rgba(255,255,255,0.05);
+  background: var(--s2);
   border: 1px solid var(--border);
   border-radius: 3px;
   padding: 6px 8px;
@@ -670,7 +670,7 @@
 .advColorBtn {
   width: 30px; height: 30px;
   border-radius: 50%;
-  background: rgba(255,255,255,0.05);
+  background: var(--s2);
   border: 1.5px solid rgba(255,255,255,0.15);
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; transition: all 0.13s;
@@ -684,7 +684,7 @@
 }
 .advChips { display: flex; gap: 4px; flex-wrap: wrap; }
 .advChip {
-  background: rgba(255,255,255,0.04);
+  background: var(--s2);
   border: 1px solid var(--border);
   border-radius: 3px;
   padding: 4px 10px;
@@ -693,7 +693,7 @@
   cursor: pointer;
   transition: all 0.13s;
 }
-.advChip:hover { color: var(--text); border-color: var(--border-hi); background: rgba(255,255,255,0.08); }
+.advChip:hover { color: var(--text); border-color: var(--border-hi); background: var(--s4); }
 .advChipActive {
   color: var(--gold) !important;
   border-color: rgba(201,168,76,0.5) !important;
@@ -722,7 +722,7 @@
 .resultImg { width: 100%; aspect-ratio: 5/7; object-fit: cover; display: block; }
 .resultImgPlaceholder {
   aspect-ratio: 5/7; display: flex; align-items: center; justify-content: center;
-  background: rgba(255,255,255,0.04); font-size: 0.7rem; color: var(--text-faint);
+  background: var(--s2); font-size: 0.7rem; color: var(--text-faint);
   text-align: center; padding: 8px;
 }
 .resultName { font-size: 0.71rem; color: var(--text); padding: 5px 6px 2px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

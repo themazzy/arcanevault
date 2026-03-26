@@ -49,7 +49,7 @@
 /* Gear button + menu */
 .gearWrap { position: relative; }
 .gearBtn {
-  background: rgba(255,255,255,0.04);
+  background: var(--s2);
   border: 1px solid rgba(255,255,255,0.09);
   border-radius: 6px;
   color: var(--text-dim);
@@ -85,12 +85,12 @@
   padding: 8px 12px; cursor: pointer; transition: all 0.12s;
   display: block;
 }
-.gearMenuItem:hover    { background: rgba(255,255,255,0.05); color: var(--text); }
+.gearMenuItem:hover    { background: var(--s2); color: var(--text); }
 .gearMenuItemDanger    { color: #c08080; }
 .gearMenuItemDanger:hover { background: rgba(196,96,96,0.08); color: #e09090; }
 .gearMenuDiv {
   height: 1px;
-  background: rgba(255,255,255,0.06);
+  background: var(--s3);
   margin: 4px 0;
 }
 
@@ -181,16 +181,16 @@
   font-family: var(--font-display); font-size: 0.76rem; letter-spacing: 0.06em;
   cursor: pointer; padding: 2px 6px; border-radius: 3px; transition: background 0.15s;
 }
-.nameBtn:hover { background: rgba(255,255,255,0.06); }
+.nameBtn:hover { background: var(--s3); }
 .nameInput {
-  background: rgba(255,255,255,0.06); border: 1px solid var(--border-hi);
+  background: var(--s3); border: 1px solid var(--border-hi);
   border-radius: 3px; color: var(--player-color, var(--gold));
   font-family: var(--font-display); font-size: 0.76rem; letter-spacing: 0.06em;
   padding: 2px 8px; text-align: center; outline: none; width: 120px;
 }
 .panelDeckBadge {
   font-size: 0.62rem; color: var(--text-faint);
-  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+  background: var(--s2); border: 1px solid rgba(255,255,255,0.08);
   border-radius: 3px; padding: 1px 6px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px;
 }
@@ -200,7 +200,7 @@
   display: flex; align-items: center; justify-content: center; gap: 12px; flex: 1;
 }
 .lifeBtn {
-  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+  background: var(--s3); border: 1px solid rgba(255,255,255,0.1);
   border-radius: 6px; color: var(--text-dim);
   font-size: 1.5rem; line-height: 1; width: 46px; height: 52px;
   cursor: pointer; transition: all 0.12s;
@@ -250,13 +250,13 @@
 /* Quick ±5/10 */
 .quickRow { display: flex; justify-content: center; gap: 4px; }
 .quickBtn {
-  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07);
+  background: var(--s2); border: 1px solid rgba(255,255,255,0.07);
   border-radius: 4px; color: var(--text-faint);
   font-family: var(--font-serif); font-size: 0.76rem;
   padding: 4px 8px; cursor: pointer; transition: all 0.12s;
   touch-action: manipulation; user-select: none; -webkit-user-select: none;
 }
-.quickBtn:hover  { background: rgba(255,255,255,0.09); color: var(--player-color, var(--gold)); }
+.quickBtn:hover  { background: var(--s4); color: var(--player-color, var(--gold)); }
 .quickBtn:active { transform: scale(0.94); }
 
 /* Poison */
@@ -270,7 +270,7 @@
 /* Shared counter */
 .counterRow { display: flex; align-items: center; gap: 6px; }
 .counterBtn {
-  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+  background: var(--s3); border: 1px solid rgba(255,255,255,0.1);
   border-radius: 4px; color: var(--text-dim);
   font-size: 0.9rem; width: 32px; height: 32px;
   cursor: pointer; display: flex; align-items: center; justify-content: center;
@@ -317,7 +317,7 @@
 }
 .cmdBadge {
   display: flex; align-items: center; gap: 3px;
-  background: rgba(255,255,255,0.03);
+  background: var(--s1);
   border: 1px solid rgba(255,255,255,0.07);
   border-radius: 4px;
   padding: 2px 4px;
@@ -392,7 +392,7 @@
 .cmdOverlayList { display: flex; flex-direction: column; gap: 8px; }
 .cmdOverlayRow {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  background: rgba(255,255,255,0.02);
+  background: var(--s1);
   border: 1px solid rgba(255,255,255,0.07);
   border-left: 3px solid var(--opc, rgba(255,255,255,0.2));
   border-radius: 5px; padding: 9px 12px;
@@ -416,7 +416,7 @@
 }
 .cmdOverlayCtrl { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 .cmdOverlayBtn {
-  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+  background: var(--s3); border: 1px solid rgba(255,255,255,0.1);
   border-radius: 4px; color: var(--text-dim);
   font-size: 0.82rem; padding: 4px 8px; cursor: pointer;
   touch-action: manipulation; transition: all 0.12s;
@@ -469,7 +469,7 @@
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px;
 }
 .diceTypeBtn {
-  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+  background: var(--s2); border: 1px solid rgba(255,255,255,0.08);
   border-radius: 5px; color: var(--text-dim);
   font-family: var(--font-display); font-size: 0.75rem; letter-spacing: 0.04em;
   padding: 7px 4px; cursor: pointer; transition: all 0.15s; text-align: center;
@@ -488,7 +488,7 @@
 .diceCountLabel { font-size: 0.78rem; color: var(--text-dim); }
 .diceCountCtrl  { display: flex; align-items: center; gap: 8px; }
 .diceCountBtn {
-  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+  background: var(--s3); border: 1px solid rgba(255,255,255,0.1);
   border-radius: 5px; color: var(--text-dim);
   font-size: 1rem; width: 32px; height: 32px;
   display: flex; align-items: center; justify-content: center;
@@ -510,7 +510,7 @@
   display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
 }
 .dieFace {
-  background: rgba(255,255,255,0.06);
+  background: var(--s3);
   border: 1px solid rgba(255,255,255,0.12);
   border-radius: 8px;
   width: 52px; height: 52px;
@@ -693,11 +693,11 @@
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-bottom: 10px;
 }
 .modeCard {
-  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
+  background: var(--s1); border: 1px solid rgba(255,255,255,0.07);
   border-radius: 6px; padding: 10px 8px; cursor: pointer; transition: all 0.15s;
   display: flex; flex-direction: column; gap: 3px; align-items: center;
 }
-.modeCard:hover { background: rgba(255,255,255,0.06); border-color: rgba(201,168,76,0.2); }
+.modeCard:hover { background: var(--s3); border-color: rgba(201,168,76,0.2); }
 .modeCardActive {
   background: rgba(201,168,76,0.1) !important;
   border-color: rgba(201,168,76,0.45) !important;
@@ -717,7 +717,7 @@
 .customLifeLabel { font-size: 0.76rem; color: var(--text-dim); white-space: nowrap; }
 .customLifePresets { display: flex; gap: 4px; flex-wrap: wrap; }
 .presetChip {
-  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+  background: var(--s2); border: 1px solid rgba(255,255,255,0.08);
   border-radius: 4px; color: var(--text-dim); font-family: var(--font-serif); font-size: 0.82rem;
   padding: 3px 10px; cursor: pointer; transition: all 0.15s;
 }
@@ -727,7 +727,7 @@
   border-color: rgba(201,168,76,0.4) !important; color: var(--gold) !important;
 }
 .customLifeInput {
-  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+  background: var(--s3); border: 1px solid rgba(255,255,255,0.1);
   border-radius: 4px; color: var(--text); font-family: var(--font-serif); font-size: 0.86rem;
   padding: 3px 8px; outline: none; width: 58px; text-align: center;
 }
@@ -735,7 +735,7 @@
 /* Player count */
 .countRow { display: flex; gap: 7px; }
 .countChip {
-  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+  background: var(--s2); border: 1px solid rgba(255,255,255,0.08);
   border-radius: 6px; color: var(--text-dim);
   font-family: var(--font-display); font-size: 1.1rem;
   padding: 8px 18px; cursor: pointer; transition: all 0.15s;
@@ -751,13 +751,13 @@
   display: flex; gap: 8px; flex-wrap: wrap;
 }
 .layoutOpt {
-  background: rgba(255,255,255,0.03);
+  background: var(--s1);
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 7px; padding: 8px 10px;
   cursor: pointer; transition: all 0.15s;
   display: flex; flex-direction: column; align-items: center; gap: 5px;
 }
-.layoutOpt:hover { border-color: rgba(201,168,76,0.25); background: rgba(255,255,255,0.05); }
+.layoutOpt:hover { border-color: rgba(201,168,76,0.25); background: var(--s2); }
 .layoutOptActive {
   background: rgba(201,168,76,0.1) !important;
   border-color: rgba(201,168,76,0.45) !important;
@@ -799,7 +799,7 @@
 .playerConfigList { display: flex; flex-direction: column; gap: 5px; }
 .playerConfig {
   display: flex; align-items: flex-start; gap: 9px;
-  background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
+  background: var(--s1); border: 1px solid rgba(255,255,255,0.06);
   border-left: 3px solid var(--pc, var(--gold));
   border-radius: 6px; padding: 9px 11px; transition: border-color 0.2s;
 }
@@ -814,10 +814,10 @@
   font-size: 0.82rem; letter-spacing: 0.05em; color: var(--text); cursor: pointer;
   padding: 1px 4px; border-radius: 3px; transition: background 0.15s;
 }
-.pcName:hover { background: rgba(255,255,255,0.06); }
+.pcName:hover { background: var(--s3); }
 .pcEditHint { font-size: 0.64rem; color: var(--text-faint); }
 .pcNameInput {
-  background: rgba(255,255,255,0.06); border: 1px solid var(--border-hi);
+  background: var(--s3); border: 1px solid var(--border-hi);
   border-radius: 3px; color: var(--text); font-family: var(--font-display); font-size: 0.82rem;
   padding: 2px 8px; outline: none; width: 140px;
 }
@@ -833,7 +833,7 @@
 }
 .pcDeckStats {
   font-size: 0.68rem; color: var(--text-faint); white-space: nowrap;
-  font-style: italic; background: rgba(255,255,255,0.04); border-radius: 3px; padding: 2px 7px;
+  font-style: italic; background: var(--s2); border-radius: 3px; padding: 2px 7px;
   flex-shrink: 0;
 }
 
@@ -842,7 +842,7 @@
 .deckDropBtn {
   width: 100%;
   display: flex; align-items: center; justify-content: space-between; gap: 6px;
-  background: rgba(255,255,255,0.05);
+  background: var(--s2);
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 5px; padding: 6px 10px;
   color: var(--text-dim); font-size: 0.78rem; cursor: pointer;
@@ -868,17 +868,17 @@
   padding: 7px 10px; cursor: pointer; transition: all 0.12s;
   display: flex; align-items: center; justify-content: space-between; gap: 6px;
 }
-.deckDropItem:hover      { background: rgba(255,255,255,0.05); color: var(--text); }
+.deckDropItem:hover      { background: var(--s2); color: var(--text); }
 .deckDropItemActive      { color: var(--gold) !important; background: rgba(201,168,76,0.1) !important; }
 .deckDropTypeBadge {
   font-size: 0.62rem; color: var(--text-faint);
-  background: rgba(255,255,255,0.06); border-radius: 3px; padding: 1px 5px;
+  background: var(--s3); border-radius: 3px; padding: 1px 5px;
   flex-shrink: 0;
 }
 
 /* History */
 .histToggle {
-  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
+  background: var(--s1); border: 1px solid rgba(255,255,255,0.07);
   border-radius: 5px; color: var(--text-dim);
   font-family: var(--font-display); font-size: 0.72rem; letter-spacing: 0.05em;
   padding: 8px 14px; cursor: pointer; width: 100%; text-align: left; transition: all 0.15s;
@@ -886,7 +886,7 @@
 .histToggle:hover { color: var(--gold); border-color: rgba(201,168,76,0.2); }
 .histList  { display: flex; flex-direction: column; gap: 5px; margin-top: 7px; }
 .histEntry {
-  background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05);
+  background: var(--s1); border: 1px solid rgba(255,255,255,0.05);
   border-radius: 5px; padding: 9px 11px; display: flex; flex-direction: column; gap: 5px;
 }
 .histEntryHead { display: flex; align-items: center; gap: 10px; }
@@ -899,7 +899,7 @@
 .histPlayers { display: flex; flex-wrap: wrap; gap: 4px; }
 .histPlayer {
   font-size: 0.73rem; color: var(--text-dim);
-  background: rgba(255,255,255,0.03);
+  background: var(--s1);
   border-left: 2px solid var(--pc, rgba(255,255,255,0.15));
   border-radius: 2px; padding: 1px 7px;
 }
@@ -948,7 +948,7 @@
 
 .endPlayerList { display: flex; flex-direction: column; gap: 7px; }
 .endPlayerRow {
-  background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
+  background: var(--s1); border: 1px solid rgba(255,255,255,0.06);
   border-left: 3px solid var(--pc, rgba(255,255,255,0.2));
   border-radius: 6px; padding: 9px 11px; display: flex; flex-direction: column; gap: 8px;
 }
@@ -956,11 +956,11 @@
 .endPlayerDot  { width: 10px; height: 10px; border-radius: 50%; background: var(--pc, var(--gold)); flex-shrink: 0; }
 .endPlayerName { font-family: var(--font-display); font-size: 0.82rem; color: var(--text); flex: 1; }
 .endDeckName   { font-size: 0.7rem; color: var(--text-faint); font-style: italic; }
-.endLifeBadge  { font-family: var(--font-display); font-size: 0.75rem; color: var(--text-dim); background: rgba(255,255,255,0.05); border-radius: 3px; padding: 2px 8px; }
+.endLifeBadge  { font-family: var(--font-display); font-size: 0.75rem; color: var(--text-dim); background: var(--s2); border-radius: 3px; padding: 2px 8px; }
 
 .endPlacements { display: flex; gap: 5px; flex-wrap: wrap; }
 .endPlaceBtn {
-  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+  background: var(--s2); border: 1px solid rgba(255,255,255,0.08);
   border-radius: 4px; color: var(--text-dim); font-family: var(--font-display); font-size: 0.68rem;
   padding: 4px 10px; cursor: pointer; transition: all 0.15s;
 }
@@ -973,7 +973,7 @@
 .endNotesWrap  { display: flex; flex-direction: column; gap: 5px; }
 .endNotesLabel { font-family: var(--font-display); font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); }
 .endNotesArea  {
-  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09);
+  background: var(--s2); border: 1px solid rgba(255,255,255,0.09);
   border-radius: 5px; color: var(--text); font-family: var(--font-serif); font-size: 0.85rem;
   line-height: 1.5; padding: 10px 12px; resize: vertical; outline: none; width: 100%; box-sizing: border-box;
 }
@@ -982,7 +982,7 @@
 
 .endActions { display: flex; gap: 8px; }
 .endContinueBtn {
-  flex: 1; padding: 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09);
+  flex: 1; padding: 10px; background: var(--s2); border: 1px solid rgba(255,255,255,0.09);
   border-radius: 6px; color: var(--text-dim); font-family: var(--font-display); font-size: 0.72rem;
   letter-spacing: 0.05em; cursor: pointer; transition: all 0.15s;
 }
@@ -1174,7 +1174,7 @@
 }
 
 .fullscreenBtn {
-  background: rgba(255,255,255,0.04);
+  background: var(--s2);
   border: 1px solid rgba(255,255,255,0.09);
   border-radius: 6px;
   color: var(--text-dim);
@@ -1229,7 +1229,7 @@
   text-shadow: 0 0 20px rgba(201,168,76,0.3);
 }
 .lobbyCopyBtn {
-  background: rgba(255,255,255,0.05);
+  background: var(--s2);
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 6px; color: var(--text-dim);
   font-family: var(--font-display); font-size: 0.72rem;
@@ -1248,7 +1248,7 @@
 .lobbySlot {
   display: flex; align-items: center; gap: 10px;
   padding: 10px 14px;
-  background: rgba(255,255,255,0.02);
+  background: var(--s1);
   border: 1px solid rgba(255,255,255,0.07);
   border-left: 3px solid var(--pc, rgba(255,255,255,0.15));
   border-radius: 7px; transition: border-color 0.2s;
@@ -1280,7 +1280,7 @@
 .lobbyFooter { display: flex; gap: 8px; width: 100%; }
 .lobbyCancelBtn {
   flex: 1; padding: 11px;
-  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09);
+  background: var(--s2); border: 1px solid rgba(255,255,255,0.09);
   border-radius: 7px; color: var(--text-dim);
   font-family: var(--font-display); font-size: 0.74rem; letter-spacing: 0.04em;
   cursor: pointer; transition: all 0.15s;
@@ -1308,7 +1308,7 @@
 /* "Create / Join Lobby" buttons in setup footer */
 .lobbyBtn {
   flex: 1;
-  background: rgba(255,255,255,0.03);
+  background: var(--s1);
   border: 1px solid rgba(255,255,255,0.09); border-radius: 7px;
   color: var(--text-dim);
   font-family: var(--font-display); font-size: 0.78rem; letter-spacing: 0.05em;
@@ -1326,7 +1326,7 @@
 /* Join code input row */
 .joinBox {
   display: flex; gap: 8px; align-items: center;
-  background: rgba(255,255,255,0.03);
+  background: var(--s1);
   border: 1px solid rgba(201,168,76,0.25);
   border-radius: 8px; padding: 10px 12px;
   animation: fadeSlideIn 0.15s ease;

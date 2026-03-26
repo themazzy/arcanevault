@@ -69,7 +69,7 @@
 
 /* ── Chart boxes ────────────────────────────────────────────────────────────── */
 .chartBox {
-  background: rgba(255,255,255,0.02);
+  background: var(--s1);
   border: 1px solid rgba(255,255,255,0.065);
   border-radius: 8px;
   padding: 20px 22px;
@@ -131,7 +131,7 @@
 .legalityTrack {
   flex: 1;
   height: 6px;
-  background: rgba(255,255,255,0.05);
+  background: var(--s2);
   border-radius: 3px;
   overflow: hidden;
 }
@@ -166,7 +166,7 @@
   transition: background 0.1s;
 }
 .moverRow:last-child { border-bottom: none; }
-.moverRow:hover { background: rgba(255,255,255,0.03); }
+.moverRow:hover { background: var(--s1); }
 .moverName {
   flex: 1;
   font-size: 0.82rem;
@@ -224,7 +224,7 @@
   border-bottom: 1px solid rgba(255,255,255,0.04);
   transition: background 0.1s;
 }
-.tr:hover { background: rgba(255,255,255,0.03); }
+.tr:hover { background: var(--s1); }
 .tr:last-child { border-bottom: none; }
 
 .tdRank {

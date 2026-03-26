@@ -127,3 +127,25 @@ a:hover { text-decoration: underline; }
 
 /* Utility */
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+
+/* ── Surface tint variables ─────────────────────────────────────────────────
+   Panel/card backgrounds use these vars instead of hardcoded rgba(255,255,255).
+   In OLED mode all surfaces go pitch black so no pixels emit in dark regions. */
+:root {
+  --s1: rgba(255,255,255,0.02);
+  --s2: rgba(255,255,255,0.04);
+  --s3: rgba(255,255,255,0.06);
+  --s4: rgba(255,255,255,0.08);
+}
+
+/* ── OLED mode ───────────────────────────────────────────────────────────────
+   [data-oled="true"] is set on <html> by applyTheme() in SettingsContext. */
+[data-oled="true"] {
+  --bg:  #000000;
+  --bg2: #000000;
+  --bg3: #000000;
+  --s1:  #000000;
+  --s2:  #000000;
+  --s3:  #000000;
+  --s4:  #000000;
+}
