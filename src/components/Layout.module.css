@@ -166,3 +166,14 @@
   display: flex; align-items: center; justify-content: center;
 }
 .settingsLink:hover, .settingsActive { color: var(--gold); }
+
+.feedbackBtn {
+  background: none; border: none;
+  font-size: 1rem; line-height: 1;
+  cursor: pointer; opacity: 0.6;
+  padding: 6px 8px;
+  min-width: 36px; min-height: 36px;
+  display: flex; align-items: center; justify-content: center;
+  transition: opacity 0.2s;
+}
+.feedbackBtn:hover { opacity: 1; }

@@ -404,6 +404,21 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {/* ── Profile ── */}
+      <div className={styles.section}>
+        <div className={styles.sectionTitle}>Profile</div>
+        <SettingRow label="Preferred Nickname" description="Auto-fills as your name when creating a game lobby">
+          <input
+            className={styles.input}
+            type="text"
+            placeholder="Your in-game name"
+            value={settings.nickname ?? ''}
+            onChange={e => set('nickname', e.target.value)}
+            maxLength={24}
+          />
+        </SettingRow>
+      </div>
+
       {/* ── Account ── */}
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Account</div>

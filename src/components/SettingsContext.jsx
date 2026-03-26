@@ -245,6 +245,7 @@ const DEFAULTS = {
   font_size: 16,
   theme: 'shadow',
   oled_mode: false,
+  nickname: '',
 }
 
 // OLED overrides — pure black backgrounds so dark-theme pixels are fully off
@@ -372,13 +373,13 @@ export function SettingsProvider({ children }) {
       try {
         const {
           price_source, default_sort, grid_density, show_price, cache_ttl_h,
-          binder_sort, deck_sort, list_sort, font_weight, font_size, theme, oled_mode,
+          binder_sort, deck_sort, list_sort, font_weight, font_size, theme, oled_mode, nickname,
         } = next
         const { error } = await sb.from('user_settings').upsert(
           {
             user_id: user.id,
             price_source, default_sort, grid_density, show_price, cache_ttl_h,
-            binder_sort, deck_sort, list_sort, font_weight, font_size, theme, oled_mode,
+            binder_sort, deck_sort, list_sort, font_weight, font_size, theme, oled_mode, nickname,
             updated_at: new Date().toISOString(),
           },
           { onConflict: 'user_id' }

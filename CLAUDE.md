@@ -173,6 +173,8 @@ These are only active during `npm run dev`. Production deploys on GitHub Pages c
 | `src/pages/LifeTracker.module.css` | Styles for LifeTracker — grid layouts, rotations, fullscreen, lobby, landscape breakpoints |
 | `src/pages/JoinGame.jsx` | Public route `/join/:code` — join a multiplayer lobby, pick deck/name/colour |
 | `src/pages/JoinGame.module.css` | Styles for JoinGame page |
+| `src/components/FeedbackModal.jsx` | Bug report / feature request modal — type toggle, description, optional Discord/email contact |
+| `src/components/FeedbackModal.module.css` | Styles for FeedbackModal |
 
 ---
 
@@ -331,6 +333,26 @@ Use `100dvh` (dynamic viewport height) in fullscreen — not `100svh` — so And
 - `@media (max-width: 900px)` — rotations and grid height applied (`calc(100svh - 192px)`)
 - `@media (max-height: 500px)` — landscape phone (e.g. Pixel 7, S24 at 412px height); hides `.colorRow` and `.quickRow`, shrinks all panel elements so content fits within ~106px per row; does **not** override fullscreen grid height (already `100dvh`)
 
+#### Seat Selection (`SeatLayoutGrid`)
+
+Tap-to-swap component used in both `PreGameSetup` (local) and `LobbyScreen` (shared). Mirrors the actual game grid — same `position: absolute; inset: 0; transform: rotate()` within `overflow: hidden` cells. Selected seat highlighted with gold border; tapping two seats swaps them. In local lobby uses `swapConfigs(i,j)`; in lobby uses `seatOrder` array applied at game start.
+
+#### Host Setup Screen (`HostSetupScreen`)
+
+After creating a shared lobby, host is taken to `HostSetupScreen` (screen `'host-setup'`) before the lobby is visible. Same name/color/deck/art form as JoinGame — writes to Supabase `game_players` slot 0 with `claimed_at`. On submit → `setScreen('lobby')`.
+
+#### Deck Win/Loss Stats
+
+`deckStatsMap: { [deck_id]: { wins, losses, games, win_pct } }` — fetched from `game_results` table on mount, refreshed after each `handleSaveGame`. Passed to `PlayerConfig` which renders e.g. `3W–1L (75%)` next to the deck dropdown. Only ArcaneVault decks (with a `deck_id`) are tracked. For shared lobbies, host inserts results for all players.
+
+#### Preferred Nickname
+
+`useSettings().nickname` — saved in `DEFAULTS`, synced to Supabase `user_settings`. Passed as prop to `PreGameSetup` (fills `configs[0].name`) and `HostSetupScreen` (fills default name input). Editable in Settings → Profile section.
+
+#### Local Lobby Deck Selection
+
+`PlayerConfig` receives `decks={i === 0 ? decks : []}` — deck dropdown only shown for Player 1 (the logged-in user). Other local players have no deck tracking since we don't know their account.
+
 #### Multiplayer Lobby (shared-device, Option A)
 
 Host creates a session → others visit `/join/:code` on their own device to pick name/colour/deck → host starts game on the host device.
@@ -375,6 +397,44 @@ create policy "claim slot"     on game_players  for update using (user_id is nul
 ```
 
 Also enable Realtime on both tables: Supabase Dashboard → Database → Replication → `supabase_realtime` publication → toggle on `game_sessions` and `game_players`.
+
+```sql
+-- Game results (deck win/loss tracking)
+create table game_results (
+  id uuid primary key default gen_random_uuid(),
+  session_id uuid references game_sessions,
+  user_id uuid references auth.users,
+  deck_id uuid references folders,
+  deck_name text,
+  format text,
+  player_count int,
+  placement int,
+  played_at timestamptz default now()
+);
+alter table game_results enable row level security;
+create policy "read own results" on game_results for select using (auth.uid() = user_id);
+create policy "insert results" on game_results for insert with check (
+  auth.uid() = user_id
+  or exists (select 1 from game_sessions where id = session_id and host_user_id = auth.uid())
+);
+
+-- Feedback (bug reports & feature requests)
+create table feedback (
+  id uuid primary key default gen_random_uuid(),
+  type text not null check (type in ('bug', 'feature')),
+  description text not null,
+  contact text,
+  user_id uuid references auth.users,
+  user_email text,
+  created_at timestamptz default now()
+);
+alter table feedback enable row level security;
+create policy "insert feedback" on feedback for insert with check (true);
+create policy "read own feedback" on feedback for select using (auth.uid() = user_id);
+
+-- Nickname column on user_settings
+alter table user_settings add column if not exists nickname text default '';
+```
 
 ### Select Mode & Visual Split (DeckBrowser)
 
@@ -427,6 +487,9 @@ Use Scryfall syntax when building search queries:
 - `price_snapshots` — historical price points for Stats page
 - `game_sessions` — multiplayer life tracker sessions; `status`: `'waiting' | 'playing'`
 - `game_players` — player slots per session; `user_id` is null until a player claims the slot
+- `game_results` — deck win/loss history: `session_id, user_id, deck_id, deck_name, format, player_count, placement, played_at`
+- `feedback` — user bug reports & feature requests: `type ('bug'|'feature'), description, contact, user_id, user_email, created_at`
+- `user_settings` — includes `nickname text default ''` (added); synced via `useSettings()`
 
 ---
 
