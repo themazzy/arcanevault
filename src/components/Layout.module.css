@@ -4,6 +4,7 @@
   display: flex;
   flex-direction: column;
   background: var(--bg);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   background-image:
     radial-gradient(ellipse at 15% 15%, rgba(139,90,43,0.05) 0%, transparent 55%),
     radial-gradient(ellipse at 85% 85%, rgba(80,60,120,0.07) 0%, transparent 55%);
@@ -12,6 +13,7 @@
 .header {
   border-bottom: 1px solid rgba(180,140,60,0.15);
   padding: 0 40px;
+  padding-top: env(safe-area-inset-top, 0px);
   background: var(--nav-bg);
   backdrop-filter: blur(14px);
   position: sticky; top: 0; z-index: 100;
@@ -104,7 +106,7 @@
   font-family: var(--font-display);
   font-size: 1.1rem; font-weight: 700;
   letter-spacing: 0.08em; color: var(--gold);
-  padding: 22px 20px 16px;
+  padding: calc(22px + env(safe-area-inset-top, 0px)) 20px 16px;
   border-bottom: 1px solid rgba(201,168,76,0.12);
   flex-shrink: 0;
 }
