@@ -1147,6 +1147,75 @@ function RecentlyViewedSection({ onCardClick }) {
   )
 }
 
+// ── Changelog / WIP panel ────────────────────────────────────────────────────
+const CHANGELOG = [
+  {
+    version: '2026-03-26',
+    label: 'Latest',
+    updates: [
+      '🎨 Aggressive OLED mode — all panel surfaces now pitch black',
+      '🖼 Background art picker when joining a life tracker lobby',
+      '⛶ Fullscreen life tracker fits screen correctly on Android',
+      '🕹 Draggable fullscreen controls badge (center-top by default)',
+      '📜 Long-press to select no longer triggers while scrolling cards',
+      '⚙ Deck builder: Make Collection Deck transforms in-place, cards moved not copied',
+      '◆ Owned card indicator in deck builder',
+      '🃏 Double-faced / adventure / split card imports now parse front face correctly',
+    ],
+  },
+  {
+    version: 'WIP',
+    label: 'In Progress',
+    wip: true,
+    updates: [
+      '🃏 Scanner improvements — better OCR accuracy on foil cards',
+      '📊 Price history chart per card in card detail view',
+      '🔔 Price alert system — notify when a card crosses a threshold',
+    ],
+  },
+]
+
+function ChangelogPanel() {
+  const [open, setOpen] = useState(() => {
+    try { return localStorage.getItem('av_changelog_open') !== 'false' } catch { return true }
+  })
+
+  const toggle = () => {
+    setOpen(v => {
+      try { localStorage.setItem('av_changelog_open', String(!v)) } catch {}
+      return !v
+    })
+  }
+
+  return (
+    <div className={styles.changelog}>
+      <button className={styles.changelogHeader} onClick={toggle}>
+        <span className={styles.changelogTitle}>📋 Updates &amp; Roadmap</span>
+        <span className={styles.changelogChevron}>{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className={styles.changelogBody}>
+          {CHANGELOG.map(section => (
+            <div key={section.version} className={styles.changelogSection}>
+              <div className={styles.changelogSectionHead}>
+                <span className={`${styles.changelogBadge} ${section.wip ? styles.changelogBadgeWip : styles.changelogBadgeLatest}`}>
+                  {section.label}
+                </span>
+                <span className={styles.changelogDate}>{section.version}</span>
+              </div>
+              <ul className={styles.changelogList}>
+                {section.updates.map((item, i) => (
+                  <li key={i} className={styles.changelogItem}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function HomePage() {
   const { user }               = useAuth()
@@ -1188,6 +1257,7 @@ export default function HomePage() {
         <div className={styles.heroSub}>Your Magic: The Gathering collection manager</div>
       </div>
 
+      <ChangelogPanel />
       {user && <CollectionSnapshot data={collData} loading={collLoading} priceSource={price_source} />}
       <CardLookupSection />
       <RecentlyViewedSection onCardClick={openCard} />
