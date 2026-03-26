@@ -159,7 +159,7 @@ function EditMenu({ dc, isEDH, onSetCommander, onToggleFoil, onPickVersion }) {
 }
 
 // ── Deck card row in right panel ──────────────────────────────────────────────
-function DeckCardRow({ dc, ownedQty, ownedAlt, ownedInDeck, onChangeQty, onRemove, onMouseEnter, onMouseLeave, onMouseMove, onPickVersion, onToggleFoil, onSetCommander, isEDH }) {
+function DeckCardRow({ dc, ownedQty, ownedAlt, ownedInDeck, inCollDeck, onChangeQty, onRemove, onMouseEnter, onMouseLeave, onMouseMove, onPickVersion, onToggleFoil, onSetCommander, isEDH }) {
   return (
     <div className={`${styles.deckCardRow}${dc.is_commander ? ' ' + styles.isCommander : ''}`}>
       <div className={styles.deckCardLeft} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove}>
@@ -169,6 +169,7 @@ function DeckCardRow({ dc, ownedQty, ownedAlt, ownedInDeck, onChangeQty, onRemov
         }
         <span className={styles.deckCardName}>{dc.name}</span>
         {dc.foil && <span className={styles.foilBadge} title="Foil">✦</span>}
+        {inCollDeck && <span className={styles.collDeckBadge} title="In your collection deck">◆</span>}
       </div>
       {/* 3-state ownership dot */}
       {ownedQty > 0 && !ownedInDeck
@@ -738,7 +739,8 @@ export default function DeckBuilderPage() {
   // Collection
   const [ownedMap,       setOwnedMap]       = useState(new Map())
   const [ownedNameMap,   setOwnedNameMap]   = useState(new Map())
-  const [inOtherDeckSet, setInOtherDeckSet] = useState(new Set())
+  const [inOtherDeckSet,  setInOtherDeckSet]  = useState(new Set())
+  const [collDeckSfSet,   setCollDeckSfSet]   = useState(new Set())
   // Version picker
   const [versionPickCard, setVersionPickCard] = useState(null)
   // Share button
@@ -894,15 +896,23 @@ export default function DeckBuilderPage() {
         setOwnedMap(map)
         setOwnedNameMap(nameMap)
 
-        // Find scryfall_ids of cards already assigned to other collection decks
+        // Build a set of scryfall_ids in THIS deck's folder_cards (for owned indicator)
+        if (folder.type === 'deck') {
+          const thisFcRows = await getLocalFolderCards(deckId)
+          if (thisFcRows?.length) {
+            const thisCardIds = new Set(thisFcRows.map(r => r.card_id))
+            setCollDeckSfSet(new Set(owned.filter(c => thisCardIds.has(c.id)).map(c => c.scryfall_id).filter(Boolean)))
+          }
+        }
+
+        // Find scryfall_ids of cards already assigned to other collection decks (use IDB to avoid large GET)
         const { data: deckFolders } = await sb.from('folders').select('id').eq('user_id', user.id).eq('type', 'deck')
         if (deckFolders?.length) {
           const dIds = deckFolders.map(d => d.id)
-          const { data: fcRows } = await sb.from('folder_cards').select('card_id').in('folder_id', dIds)
+          const { data: fcRows } = await sb.from('folder_cards').select('card_id').in('folder_id', dIds.filter(id => id !== deckId))
           if (fcRows?.length) {
-            const cIds = [...new Set(fcRows.map(r => r.card_id))]
-            const { data: cRows } = await sb.from('cards').select('id, scryfall_id').in('id', cIds)
-            setInOtherDeckSet(new Set((cRows || []).map(c => c.scryfall_id).filter(Boolean)))
+            const cardIdSet = new Set(fcRows.map(r => r.card_id))
+            setInOtherDeckSet(new Set(owned.filter(c => cardIdSet.has(c.id)).map(c => c.scryfall_id).filter(Boolean)))
           }
         }
       } catch (err) {
@@ -1392,23 +1402,50 @@ export default function DeckBuilderPage() {
     setMakeDeckRunning(true)
     setShowMakeDeck(false)
     try {
-      const collMeta = {
-        format: deckMeta.format,
-        commanderName: deckMeta.commanderName,
-        commanderScryfallId: deckMeta.commanderScryfallId,
-        commanderColorIdentity: deckMeta.commanderColorIdentity,
-        coverArtUri: deckMeta.coverArtUri,
-        linked_builder_id: deckId,
-      }
-      const { data: newDeck, error: deckErr } = await sb.from('folders').insert({
-        user_id: user.id, type: 'deck', name: deck.name,
-        description: serializeDeckMeta(collMeta),
-      }).select().single()
-      if (deckErr || !newDeck) throw deckErr || new Error('Failed to create deck')
+      // Transform this builder deck into a collection deck in-place (no new folder)
+      const { error: typeErr } = await sb.from('folders').update({ type: 'deck' }).eq('id', deckId)
+      if (typeErr) throw typeErr
 
       if (addItems.length > 0) {
-        const inserts = addItems.map(i => ({ id: crypto.randomUUID(), folder_id: newDeck.id, card_id: i.cardId, qty: i.totalAdd, foil: i.dc.foil ?? false }))
-        const { error: fcErr } = await sb.from('folder_cards').insert(inserts)
+        // Move cards from their source folders into this deck (don't copy)
+        const cardIds = addItems.map(i => i.cardId).filter(Boolean)
+        const { data: sourceRows } = await sb.from('folder_cards')
+          .select('id, card_id, qty')
+          .in('card_id', cardIds)
+          .neq('folder_id', deckId)
+
+        const sourceByCardId = new Map()
+        for (const row of sourceRows || []) {
+          if (!sourceByCardId.has(row.card_id)) sourceByCardId.set(row.card_id, [])
+          sourceByCardId.get(row.card_id).push(row)
+        }
+
+        const toDelete = []
+        const toUpdate = [] // { id, qty }
+        const toInsert = []
+
+        for (const item of addItems) {
+          if (!item.cardId) continue
+          const rows = sourceByCardId.get(item.cardId) || []
+          let remaining = item.totalAdd
+          for (const row of rows) {
+            if (remaining <= 0) break
+            const take = Math.min(row.qty, remaining)
+            remaining -= take
+            if (take >= row.qty) toDelete.push(row.id)
+            else toUpdate.push({ id: row.id, qty: row.qty - take })
+          }
+          toInsert.push({ id: crypto.randomUUID(), folder_id: deckId, card_id: item.cardId, qty: item.totalAdd })
+        }
+
+        if (toDelete.length) {
+          const { error: delErr } = await sb.from('folder_cards').delete().in('id', toDelete)
+          if (delErr) throw delErr
+        }
+        for (const u of toUpdate) {
+          await sb.from('folder_cards').update({ qty: u.qty }).eq('id', u.id)
+        }
+        const { error: fcErr } = await sb.from('folder_cards').insert(toInsert)
         if (fcErr) throw fcErr
       }
 
@@ -1423,9 +1460,10 @@ export default function DeckBuilderPage() {
         await sb.from('list_items').insert(listInserts)
       }
 
-      const updatedMeta = { ...deckMeta, linked_deck_id: newDeck.id }
-      setDeckMeta(updatedMeta)
-      await sb.from('folders').update({ description: serializeDeckMeta(updatedMeta) }).eq('id', deckId)
+      // Update local deck state to reflect it's now a collection deck
+      setDeck(prev => ({ ...prev, type: 'deck' }))
+      // Update owned indicator — mark added cards as in-collection-deck
+      setCollDeckSfSet(new Set(addItems.map(i => i.dc.scryfall_id).filter(Boolean)))
 
       const addCount = addItems.reduce((s, i) => s + i.totalAdd, 0)
       const misCount = missingItems.reduce((s, i) => s + i.missingQty, 0)
@@ -1435,7 +1473,7 @@ export default function DeckBuilderPage() {
       setMakeDeckDone(true)
     } catch (err) {
       console.error('[MakeDeck]', err)
-      setMakeDeckMsg('Failed to create deck. Try again.')
+      setMakeDeckMsg('Failed to make collection deck. Try again.')
       setMakeDeckDone(true)
     }
     setMakeDeckRunning(false)
@@ -1451,7 +1489,7 @@ export default function DeckBuilderPage() {
       const unownedAdded = added.filter(i => !i.owned)
 
       if (ownedAdded.length > 0) {
-        const inserts = ownedAdded.map(i => ({ id: crypto.randomUUID(), folder_id: targetFolderId, card_id: i.cardId, qty: i.dc.qty, foil: i.dc.foil ?? false }))
+        const inserts = ownedAdded.map(i => ({ id: crypto.randomUUID(), folder_id: targetFolderId, card_id: i.cardId, qty: i.dc.qty }))
         await sb.from('folder_cards').insert(inserts)
       }
       for (const c of changed) {
@@ -1700,7 +1738,7 @@ export default function DeckBuilderPage() {
           </button>
           {!isCollectionDeck && !deckMeta.linked_deck_id && (
             <button className={styles.importBtn} onClick={() => setShowMakeDeck(true)} disabled={makeDeckRunning}>
-              {makeDeckRunning ? 'Creating…' : '⊕ Create Collection Deck'}
+              {makeDeckRunning ? 'Creating…' : '⊕ Make Collection Deck'}
             </button>
           )}
           <Link to="/builder" style={{ fontSize: '0.8rem', color: 'var(--text-faint)', textDecoration: 'none' }}>
@@ -1843,9 +1881,10 @@ export default function DeckBuilderPage() {
             {deckCards.length > 0 && (() => {
               const deckRowProps = (dc) => ({
                 dc,
-                ownedQty:   ownedMap.get(dc.scryfall_id) ?? 0,
-                ownedAlt:   ownedNameMap.get((dc.name || '').toLowerCase()) ?? 0,
+                ownedQty:    ownedMap.get(dc.scryfall_id) ?? 0,
+                ownedAlt:    ownedNameMap.get((dc.name || '').toLowerCase()) ?? 0,
                 ownedInDeck: inOtherDeckSet.has(dc.scryfall_id),
+                inCollDeck:  collDeckSfSet.has(dc.scryfall_id),
                 onChangeQty: changeQty,
                 onRemove:    removeCardFromDeck,
                 onMouseEnter: () => setHoverImg(toLargeImg(dc.image_uri)),
@@ -1874,6 +1913,7 @@ export default function DeckBuilderPage() {
                   <div key={dc.id} className={`${styles.compactRow}${dc.is_commander ? ' '+styles.isCommander : ''}`}>
                     <span className={styles.compactQty}>{dc.qty}</span>
                     {dc.foil && <span className={styles.foilBadge} title="Foil">✦</span>}
+                    {collDeckSfSet.has(dc.scryfall_id) && <span className={styles.collDeckBadge} title="In your collection deck">◆</span>}
                     <span className={styles.compactName}
                       onMouseEnter={() => setHoverImg(toLargeImg(dc.image_uri))}
                       onMouseLeave={() => setHoverImg(null)}

@@ -251,7 +251,11 @@ export function parseTextDecklist(text) {
     if (!match) continue
 
     const qty  = parseInt(match[1], 10)
-    const name = match[2].trim().replace(/\s*\(.*?\)\s*\d*/g, '').trim() // strip (SET) 123 suffixes
+    const name = match[2]
+      .trim()
+      .replace(/\s*\(.*?\)\s*\d*/g, '') // strip (SET) 123 suffixes
+      .replace(/\s*\/\/.*$/, '')         // strip back-face: "Front // Back" → "Front"
+      .trim()
 
     if (!name || qty < 1) continue
     cards.push({ name, qty, isCommander: inCommander, board })

@@ -360,13 +360,13 @@ export function SettingsProvider({ children }) {
       try {
         const {
           price_source, default_sort, grid_density, show_price, cache_ttl_h,
-          binder_sort, deck_sort, list_sort, font_weight, font_size, theme,
+          binder_sort, deck_sort, list_sort, font_weight, font_size, theme, oled_mode,
         } = next
         const { error } = await sb.from('user_settings').upsert(
           {
             user_id: user.id,
             price_source, default_sort, grid_density, show_price, cache_ttl_h,
-            binder_sort, deck_sort, list_sort, font_weight, font_size, theme,
+            binder_sort, deck_sort, list_sort, font_weight, font_size, theme, oled_mode,
             updated_at: new Date().toISOString(),
           },
           { onConflict: 'user_id' }
