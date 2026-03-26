@@ -214,6 +214,11 @@
   .detail { flex-direction: column; }
   .detailImg { width: 100%; max-width: 220px; margin: 0 auto; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+
+  /* Compact filter bar so more cards are visible */
+  .filterBar { gap: 6px; margin: 10px 0; }
+  .searchInput { padding: 7px 10px; font-size: 0.85rem; min-width: 0; }
+  .filterSelect { padding: 7px 8px; font-size: 0.8rem; }
 }
 
 /* ── Selection mode ─────────────────────────────────────────────────────────── */

@@ -119,14 +119,26 @@
 /* Rotation classes — desktop: no rotation; tablet+phone: see media query below */
 .playerRotate180, .playerRotate90, .playerRotate90n { /* set in media query below */ }
 
-/* Art-picker ⚙ button */
+/* Per-player settings cog button */
+.playerSettingsBtn {
+  background: none; border: none;
+  color: var(--text-faint); font-size: 0.82rem; line-height: 1;
+  cursor: pointer; padding: 3px 5px; transition: color 0.15s;
+  flex-shrink: 0; min-width: 28px; min-height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 4px; margin-left: auto;
+}
+.playerSettingsBtn:hover   { color: var(--gold); background: rgba(201,168,76,0.08); }
+.playerSettingsBtnOpen     { color: var(--gold) !important; background: rgba(201,168,76,0.12) !important; }
+
+/* Art-picker button (inside the color row) */
 .artPickerBtn {
   background: none; border: none;
   color: var(--text-faint); font-size: 0.88rem; line-height: 1;
-  cursor: pointer; padding: 4px 6px; transition: color 0.15s, transform 0.2s;
+  cursor: pointer; padding: 4px 6px; transition: color 0.15s;
   flex-shrink: 0; min-width: 32px; min-height: 32px;
 }
-.artPickerBtn:hover { color: var(--gold); transform: rotate(45deg); }
+.artPickerBtn:hover { color: var(--gold); }
 
 /* Color dots */
 .colorRow { display: flex; gap: 5px; justify-content: flex-end; align-items: center; }
@@ -140,7 +152,8 @@
 
 /* Name */
 .nameRow {
-  display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap;
+  display: flex; align-items: center; justify-content: center; gap: 4px; flex-wrap: nowrap;
+  min-height: 28px;
 }
 .nameBtn {
   background: none; border: none; color: var(--player-color, var(--gold));
@@ -1097,7 +1110,7 @@
 .fsControls {
   position: fixed;
   top: 8px;
-  right: 8px;
+  left: 8px;
   z-index: 910;
   display: flex;
   align-items: center;
@@ -1123,11 +1136,11 @@
 .fsExitBtn:hover { color: var(--gold); background: rgba(201,168,76,0.12); }
 .fsEndBtn:hover  { color: #e8c063;    background: rgba(201,168,76,0.12); }
 
-/* Gear menu in fullscreen: open downward on the left side */
+/* Gear menu in fullscreen: open downward from the left-side fsControls */
 .gearMenuFs {
   top: calc(100% + 6px) !important;
-  right: 0 !important;
-  left: auto !important;
+  left: 0 !important;
+  right: auto !important;
 }
 
 .fullscreenBtn {

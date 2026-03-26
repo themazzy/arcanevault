@@ -295,4 +295,8 @@
   .statGrid { grid-template-columns: 1fr 1fr; gap: 8px; }
   .statCard { padding: 12px 14px; }
   .statValue { font-size: 1.25rem; }
+  /* Prevent pie/bar chart labels from overflowing the card box */
+  .chartBox { overflow: hidden; }
+  /* Tighten the bar chart axis labels */
+  .chartBox text { font-size: 9px !important; }
 }

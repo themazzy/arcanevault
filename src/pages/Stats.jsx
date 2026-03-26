@@ -481,8 +481,12 @@ export default function StatsPage() {
               <PieChart>
                 <Pie
                   data={stats.typeData} dataKey="value" nameKey="name"
-                  cx="50%" cy="50%" outerRadius={78} paddingAngle={2}
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  cx="50%" cy="50%"
+                  outerRadius={window.innerWidth < 480 ? 60 : 78}
+                  paddingAngle={2}
+                  label={window.innerWidth < 480
+                    ? ({ percent }) => `${(percent * 100).toFixed(0)}%`
+                    : ({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                   labelLine={false}
                 >
                   {stats.typeData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}

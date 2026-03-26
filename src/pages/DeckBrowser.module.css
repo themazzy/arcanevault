@@ -628,4 +628,10 @@
   .deckRowType { display: none; }
   .cardGrid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
   .bracketDetail { min-width: 220px; }
+
+  /* Header: stack name + meta vertically, shrink buttons */
+  .deckName { font-size: 1.1rem; }
+  .headerMeta { gap: 6px; }
+  .addCardsBtn { font-size: 0.68rem; padding: 4px 8px; }
+  .editInBuilderBtn { font-size: 0.68rem; padding: 4px 8px; }
 }
