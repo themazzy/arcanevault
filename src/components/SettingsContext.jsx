@@ -298,6 +298,8 @@ export function applyTheme(themeId, oledMode) {
     Object.entries(OLED_VARS).forEach(([key, value]) => {
       root.style.setProperty(key, value)
     })
+  } else {
+    Object.keys(OLED_VARS).forEach(key => root.style.removeProperty(key))
   }
   // Set light-mode attribute so global CSS can override surface patterns
   if (theme.mode === 'light') {
