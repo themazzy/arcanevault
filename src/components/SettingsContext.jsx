@@ -244,6 +244,14 @@ const DEFAULTS = {
   font_weight: 420,
   font_size: 16,
   theme: 'shadow',
+  oled_mode: false,
+}
+
+// OLED overrides — pure black backgrounds so dark-theme pixels are fully off
+const OLED_VARS = {
+  '--bg':  '#000000',
+  '--bg2': '#060606',
+  '--bg3': '#0d0d0d',
 }
 
 // ── Persistence helpers ───────────────────────────────────────────────────────
@@ -263,23 +271,30 @@ function saveLocal(settings) {
 
 // Cache just the theme vars so index.html inline script can apply them
 // before React boots (prevents flash of wrong theme on hard refresh).
-function cacheThemeVars(themeId) {
+function cacheThemeVars(themeId, oledMode) {
   try {
     const theme = THEMES[themeId] || THEMES.shadow
     localStorage.setItem('arcanevault_theme_cache', JSON.stringify({
       vars: theme.vars,
       mode: theme.mode || null,
+      oled: !!(oledMode && theme.mode !== 'light'),
     }))
   } catch {}
 }
 
 // ── Apply theme CSS vars to :root ─────────────────────────────────────────────
-export function applyTheme(themeId) {
+export function applyTheme(themeId, oledMode) {
   const theme = THEMES[themeId] || THEMES.shadow
   const root = document.documentElement
   Object.entries(theme.vars).forEach(([key, value]) => {
     root.style.setProperty(key, value)
   })
+  // Overlay OLED vars on dark themes — pure black so pixels are fully off
+  if (oledMode && theme.mode !== 'light') {
+    Object.entries(OLED_VARS).forEach(([key, value]) => {
+      root.style.setProperty(key, value)
+    })
+  }
   // Set light-mode attribute so global CSS can override surface patterns
   if (theme.mode === 'light') {
     root.setAttribute('data-theme-mode', 'light')
@@ -287,7 +302,7 @@ export function applyTheme(themeId) {
     root.removeAttribute('data-theme-mode')
   }
   // Persist theme vars for instant application on next page load
-  cacheThemeVars(themeId)
+  cacheThemeVars(themeId, oledMode)
 }
 
 // ── Context ───────────────────────────────────────────────────────────────────
@@ -328,10 +343,10 @@ export function SettingsProvider({ children }) {
     root.style.setProperty('--user-font-size', `${settings.font_size ?? 16}px`)
   }, [settings.font_weight, settings.font_size])
 
-  // Apply theme CSS variables
+  // Apply theme CSS variables (re-run when theme or oled_mode changes)
   useEffect(() => {
-    applyTheme(settings.theme)
-  }, [settings.theme])
+    applyTheme(settings.theme, settings.oled_mode)
+  }, [settings.theme, settings.oled_mode])
 
   const save = useCallback(async (patch) => {
     const next = { ...settings, ...patch }

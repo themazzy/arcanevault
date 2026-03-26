@@ -265,6 +265,17 @@ export default function SettingsPage() {
           </div>
           <ThemePicker value={settings.theme || 'shadow'} onChange={v => set('theme', v)} />
         </div>
+
+        {/* OLED mode — only meaningful on dark themes */}
+        {THEMES[settings.theme || 'shadow']?.mode !== 'light' && (
+          <SettingRow
+            label="OLED Black Mode"
+            description="Sets backgrounds to pure black so OLED pixels are fully off, saving power and deepening contrast."
+            onRowClick={() => set('oled_mode', !settings.oled_mode)}
+          >
+            <Toggle value={!!settings.oled_mode} onChange={v => set('oled_mode', v)} />
+          </SettingRow>
+        )}
       </div>
 
       {/* ── Typography ── */}

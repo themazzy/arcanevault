@@ -21,6 +21,10 @@
         if (t.mode === 'light') {
           root.setAttribute('data-theme-mode', 'light');
         }
+        if (t.oled) {
+          var oled = {'--bg':'#000000','--bg2':'#060606','--bg3':'#0d0d0d'};
+          for (var ok in oled) root.style.setProperty(ok, oled[ok]);
+        }
       }
     } catch(e) {}
   })();
