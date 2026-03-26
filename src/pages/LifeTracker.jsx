@@ -81,6 +81,7 @@ function makePlayer(i, life, seed = {}) {
     deckId: seed.deckId ?? null,
     deckName: seed.deckName ?? null,
     artCropUrl: seed.artCropUrl ?? null,
+    userId: seed.userId ?? null,
     life,
     poison: 0,
     cmdDmg: {},
@@ -433,9 +434,10 @@ function RandomPicker({ players, onClose }) {
 
 // ── Multiplayer Lobby Screen ───────────────────────────────────────────────────
 function LobbyScreen({ session, gameConfig, onStart, onCancel }) {
-  const [players,  setPlayers]  = useState([])
-  const [starting, setStarting] = useState(false)
-  const [copied,   setCopied]   = useState(false)
+  const [players,   setPlayers]   = useState([])
+  const [seatOrder, setSeatOrder] = useState([])   // display order (indices into players[])
+  const [starting,  setStarting]  = useState(false)
+  const [copied,    setCopied]    = useState(false)
   const modeConf = MODES[gameConfig?.mode] || MODES.commander
   const life     = gameConfig?.customLife || modeConf.life
   const joinUrl  = `${window.location.origin}${import.meta.env.BASE_URL}join/${session.code}`
@@ -445,26 +447,30 @@ function LobbyScreen({ session, gameConfig, onStart, onCancel }) {
     const load = async () => {
       const { data } = await sb.from('game_players')
         .select('*').eq('session_id', session.id).order('slot_index')
-      if (active && data) setPlayers(data)
+      if (active && data) {
+        setPlayers(data)
+        setSeatOrder(prev => prev.length === data.length ? prev : data.map((_, i) => i))
+      }
     }
     load()
 
-    // Realtime: postgres_changes UPDATE events only carry the primary key in
-    // payload.new (Postgres default replica identity), so session_id is absent.
-    // Always call load() on any game_players change — the query already filters
-    // by session_id so we only render our own players.
     const ch = sb.channel(`lobby-host:${session.id}`)
-      .on('postgres_changes', {
-        event: '*', schema: 'public', table: 'game_players',
-      }, () => load())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'game_players' }, () => load())
       .subscribe()
-
-    // Polling fallback: re-fetch every 3 s in case realtime is delayed or the
-    // supabase_realtime publication isn't fully configured yet.
     const poll = setInterval(load, 3000)
 
     return () => { active = false; sb.removeChannel(ch); clearInterval(poll) }
   }, [session.id])
+
+  const movePlayer = (pos, dir) => {
+    setSeatOrder(prev => {
+      const next = [...prev]
+      const j = pos + dir
+      if (j < 0 || j >= next.length) return prev
+      ;[next[pos], next[j]] = [next[j], next[pos]]
+      return next
+    })
+  }
 
   const copyLink = () => {
     navigator.clipboard.writeText(joinUrl).then(() => {
@@ -475,27 +481,33 @@ function LobbyScreen({ session, gameConfig, onStart, onCancel }) {
   const handleStart = async () => {
     setStarting(true)
     try {
-      // Always do a fresh fetch right before start so we have the latest
-      // player names/decks even if the realtime update arrived late.
       const { data: freshRows } = await sb.from('game_players')
         .select('*').eq('session_id', session.id).order('slot_index')
       const rows = freshRows || players
+      // Apply seat order so physical seating matches panel positions
+      const ordered = seatOrder.length === rows.length
+        ? seatOrder.map(i => rows[i])
+        : rows
 
       await sb.from('game_sessions')
         .update({ status: 'playing', started_at: new Date().toISOString() })
         .eq('id', session.id)
-      const gamePlayers = rows.map((lp, i) =>
+
+      const gamePlayers = ordered.map((lp, i) =>
         makePlayer(i, life, {
           name: lp.player_name, color: lp.color,
           deckId: lp.deck_id, deckName: lp.deck_name,
-          artCropUrl: lp.art_crop_url,
+          artCropUrl: lp.art_crop_url, userId: lp.user_id,
         })
       )
-      onStart({ gamePlayers, layout: gameConfig.layout })
+      onStart({ gamePlayers, layout: gameConfig.layout, sessionId: session.id })
     } catch { setStarting(false) }
   }
 
   const claimedCount = players.filter(p => p.user_id).length
+  const orderedPlayers = seatOrder.length === players.length
+    ? seatOrder.map(i => players[i])
+    : players
 
   return (
     <div className={styles.lobbyScreen}>
@@ -521,13 +533,13 @@ function LobbyScreen({ session, gameConfig, onStart, onCancel }) {
         <div className={styles.lobbyJoinUrl}>{joinUrl}</div>
       </div>
 
-      {/* Player slots */}
+      {/* Player slots with seat reordering */}
       <div className={styles.lobbySlots}>
-        {players.map(p => (
+        {orderedPlayers.map((p, pos) => (
           <div key={p.id}
             className={`${styles.lobbySlot} ${p.user_id ? styles.lobbySlotClaimed : styles.lobbySlotEmpty}`}
             style={{ '--pc': p.color }}>
-            <div className={styles.lobbySlotNum}>{p.slot_index + 1}</div>
+            <div className={styles.lobbySlotNum}>{pos + 1}</div>
             <span className={styles.lobbySlotDot} style={{ background: p.color }} />
             <div className={styles.lobbySlotInfo}>
               <div className={styles.lobbySlotName}>{p.player_name}</div>
@@ -538,6 +550,10 @@ function LobbyScreen({ session, gameConfig, onStart, onCancel }) {
               </div>
             </div>
             {p.user_id && <span className={styles.lobbySlotCheck}>✓</span>}
+            <div className={styles.lobbyMoveButtons}>
+              <button className={styles.lobbyMoveBtn} onClick={() => movePlayer(pos, -1)} disabled={pos === 0}>↑</button>
+              <button className={styles.lobbyMoveBtn} onClick={() => movePlayer(pos, 1)}  disabled={pos === orderedPlayers.length - 1}>↓</button>
+            </div>
           </div>
         ))}
       </div>
@@ -560,21 +576,150 @@ function LobbyScreen({ session, gameConfig, onStart, onCancel }) {
 
       <p className={styles.lobbyHint}>
         Share the code or link — other players open it on their own phone to pick their deck.
+        Use ↑↓ to match physical seating order.
       </p>
     </div>
   )
 }
 
+// ── Host Setup Screen (claim slot 0 after creating a shared lobby) ─────────────
+function HostSetupScreen({ session, config, decks, onSubmit, onCancel }) {
+  const { user } = useAuth()
+  const init = config?.playerConfigs?.[0] || {}
+  const [name,        setName]        = useState(init.name  || PLAYER_NAMES[0])
+  const [color,       setColor]       = useState(init.color || PLAYER_COLORS[0])
+  const [deckId,      setDeckId]      = useState(init.deckId   || null)
+  const [deckName,    setDeckName]    = useState(init.deckName || null)
+  const [artUrl,      setArtUrl]      = useState(null)
+  const [artOpen,     setArtOpen]     = useState(false)
+  const [artQuery,    setArtQuery]    = useState('')
+  const [artResults,  setArtResults]  = useState([])
+  const [artLoading,  setArtLoading]  = useState(false)
+  const [submitting,  setSubmitting]  = useState(false)
+
+  const searchArt = async () => {
+    if (!artQuery.trim()) return
+    setArtLoading(true)
+    try {
+      const r = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(artQuery)}&unique=art&order=name`)
+      const data = await r.json()
+      setArtResults((data.data || []).filter(c => c.image_uris?.art_crop).slice(0, 20))
+    } catch { setArtResults([]) }
+    setArtLoading(false)
+  }
+
+  const handleSubmit = async () => {
+    if (!user) return
+    setSubmitting(true)
+    try {
+      await sb.from('game_players').update({
+        user_id:      user.id,
+        player_name:  name.trim() || PLAYER_NAMES[0],
+        color,
+        deck_id:      deckId   || null,
+        deck_name:    deckName || null,
+        art_crop_url: artUrl   || null,
+        claimed_at:   new Date().toISOString(),
+      }).eq('session_id', session.id).eq('slot_index', 0)
+      onSubmit()
+    } catch { setSubmitting(false) }
+  }
+
+  return (
+    <div className={styles.setupScreen}>
+      <div className={styles.setupHero}>
+        <div className={styles.setupHeroGlyph}>⚔</div>
+        <h1 className={styles.setupTitle}>Your Setup</h1>
+        <p className={styles.setupSub}>Configure your slot before others join</p>
+      </div>
+
+      <div className={styles.setupBlock}>
+        <div className={styles.setupLabel}>Your Name</div>
+        <input className={styles.hostInput}
+          value={name}
+          onChange={e => setName(e.target.value)}
+          maxLength={24}
+          autoFocus />
+      </div>
+
+      <div className={styles.setupBlock}>
+        <div className={styles.setupLabel}>Color</div>
+        <div className={styles.hostColorRow}>
+          {PLAYER_COLORS.map(c => (
+            <button key={c}
+              className={`${styles.hostColorDot} ${color === c ? styles.hostColorDotActive : ''}`}
+              style={{ background: c }}
+              onClick={() => setColor(c)} />
+          ))}
+        </div>
+      </div>
+
+      {decks.length > 0 && (
+        <div className={styles.setupBlock}>
+          <div className={styles.setupLabel}>Deck <span className={styles.hostOptional}>(optional)</span></div>
+          <DeckDropdown
+            value={deckId}
+            valueName={deckName}
+            options={decks}
+            onChange={(id, n) => { setDeckId(id); setDeckName(n) }}
+          />
+        </div>
+      )}
+
+      <div className={styles.setupBlock}>
+        <div className={styles.setupLabel}>Background Art <span className={styles.hostOptional}>(optional)</span></div>
+        {artUrl && (
+          <div className={styles.hostArtPreviewRow}>
+            <img src={artUrl} className={styles.hostArtThumb} alt="bg art" />
+            <button className={styles.hostArtClear} onClick={() => setArtUrl(null)}>✕</button>
+          </div>
+        )}
+        <button className={styles.hostArtToggle} onClick={() => setArtOpen(v => !v)}>
+          {artOpen ? '▲ Hide search' : '🖼 Search card art'}
+        </button>
+        {artOpen && (
+          <div className={styles.hostArtBox}>
+            <div className={styles.hostArtRow}>
+              <input className={styles.hostArtInput}
+                placeholder="Card name…"
+                value={artQuery}
+                onChange={e => setArtQuery(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && searchArt()} />
+              <button className={styles.hostArtBtn} onClick={searchArt} disabled={artLoading}>
+                {artLoading ? '…' : '→'}
+              </button>
+            </div>
+            {artResults.length > 0 && (
+              <div className={styles.hostArtGrid}>
+                {artResults.map(c => (
+                  <button key={c.id}
+                    className={`${styles.hostArtItem} ${artUrl === c.image_uris.art_crop ? styles.hostArtItemActive : ''}`}
+                    onClick={() => { setArtUrl(c.image_uris.art_crop); setArtOpen(false) }}>
+                    <img src={c.image_uris.art_crop} alt={c.name} />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className={styles.hostFooter}>
+        <button className={styles.hostCancelBtn} onClick={onCancel}>✕ Cancel</button>
+        <button className={styles.hostSubmitBtn} onClick={handleSubmit} disabled={submitting || !name.trim()}>
+          {submitting ? 'Saving…' : 'Continue to Lobby →'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Pre-game: Player Config Row ────────────────────────────────────────────────
-function PlayerConfig({ index, config, decks, history, onChange }) {
+function PlayerConfig({ index, config, decks, deckStatsMap, onChange, onMoveUp, onMoveDown, isFirst, isLast }) {
   const [editing, setEditing] = useState(false)
   const [nameVal, setNameVal] = useState(config.name)
 
-  const deckStats = config.deckId ? (() => {
-    const games = history.filter(g => g.players.some(p => p.deckId === config.deckId))
-    const wins  = games.filter(g => g.players.find(p => p.deckId === config.deckId)?.placement === 1).length
-    return { total: games.length, wins }
-  })() : null
+  const deckStats = config.deckId ? deckStatsMap?.[config.deckId] : null
 
   return (
     <div className={styles.playerConfig} style={{ '--pc': config.color }}>
@@ -600,6 +745,12 @@ function PlayerConfig({ index, config, decks, history, onChange }) {
                 onClick={() => onChange({ color: c })} />
             ))}
           </div>
+          {(!isFirst || !isLast) && (
+            <div className={styles.pcMoveButtons}>
+              <button className={styles.pcMoveBtn} onClick={onMoveUp}  disabled={isFirst} title="Move up">↑</button>
+              <button className={styles.pcMoveBtn} onClick={onMoveDown} disabled={isLast}  title="Move down">↓</button>
+            </div>
+          )}
         </div>
         {decks.length > 0 && (
           <div className={styles.pcDeckRow}>
@@ -609,9 +760,9 @@ function PlayerConfig({ index, config, decks, history, onChange }) {
               options={decks}
               onChange={(id, name) => onChange({ deckId: id, deckName: name })}
             />
-            {deckStats && deckStats.total > 0 && (
+            {deckStats && deckStats.games > 0 && (
               <span className={styles.pcDeckStats}>
-                {deckStats.wins}W–{deckStats.total - deckStats.wins}L
+                {deckStats.wins}W–{deckStats.losses}L ({deckStats.win_pct}%)
               </span>
             )}
           </div>
@@ -649,7 +800,7 @@ function HistoryEntry({ game }) {
 }
 
 // ── Pre-game Setup Screen ──────────────────────────────────────────────────────
-function PreGameSetup({ onStart, onCreateLobby, decks, history }) {
+function PreGameSetup({ onStart, onCreateLobby, decks, history, deckStatsMap }) {
   const navigate = useNavigate()
   const [mode,        setMode]        = useState('commander')
   const [playerCount, setPlayerCount] = useState(MODES.commander.defaultPlayers)
@@ -667,6 +818,16 @@ function PreGameSetup({ onStart, onCreateLobby, decks, history }) {
 
   const updateConfig = (i, patch) =>
     setConfigs(prev => prev.map((c, idx) => idx === i ? { ...c, ...patch } : c))
+
+  const moveConfig = (i, dir) => {
+    setConfigs(prev => {
+      const next = [...prev]
+      const j = i + dir
+      if (j < 0 || j >= playerCount) return prev
+      ;[next[i], next[j]] = [next[j], next[i]]
+      return next
+    })
+  }
 
   const handleModeChange = (m) => {
     setMode(m)
@@ -776,8 +937,12 @@ function PreGameSetup({ onStart, onCreateLobby, decks, history }) {
         <div className={styles.playerConfigList}>
           {Array.from({ length: playerCount }, (_, i) => (
             <PlayerConfig key={i} index={i} config={configs[i]}
-              decks={decks} history={history}
-              onChange={patch => updateConfig(i, patch)} />
+              decks={decks} deckStatsMap={deckStatsMap}
+              onChange={patch => updateConfig(i, patch)}
+              onMoveUp={() => moveConfig(i, -1)}
+              onMoveDown={() => moveConfig(i, 1)}
+              isFirst={i === 0}
+              isLast={i === playerCount - 1} />
           ))}
         </div>
       </section>
@@ -1085,8 +1250,10 @@ export default function LifeTrackerPage() {
   const fsControlsRef = useRef(null)
   const gearMenuRef   = useRef(null)
   const gearMenuFsRef = useRef(null)
-  const [session,     setSession]     = useState(null)
-  const [lobbyConfig, setLobbyConfig] = useState(null)
+  const [session,        setSession]        = useState(null)
+  const [lobbyConfig,    setLobbyConfig]    = useState(null)
+  const [gameSessionId,  setGameSessionId]  = useState(null)
+  const [deckStatsMap,   setDeckStatsMap]   = useState({})
 
   useEffect(() => {
     if (!showGameMenu) return
@@ -1194,7 +1361,7 @@ export default function LifeTrackerPage() {
       if (error?.code === '23505') continue   // code collision — retry
       if (error) { console.error('lobby create:', error); return }
 
-      // Create all player slots
+      // Create all player slots (unclaimed — host will claim slot 0 on next screen)
       const slots = Array.from({ length: config.playerCount }, (_, i) => ({
         session_id:  sess.id,
         slot_index:  i,
@@ -1203,20 +1370,9 @@ export default function LifeTrackerPage() {
       }))
       await sb.from('game_players').insert(slots)
 
-      // Host auto-claims slot 0
-      const hc = config.playerConfigs[0]
-      await sb.from('game_players').update({
-        user_id:     user.id,
-        player_name: hc.name,
-        color:       hc.color,
-        deck_id:     hc.deckId   || null,
-        deck_name:   hc.deckName || null,
-        claimed_at:  new Date().toISOString(),
-      }).eq('session_id', sess.id).eq('slot_index', 0)
-
       setSession(sess)
       setLobbyConfig(config)
-      setScreen('lobby')
+      setScreen('host-setup')  // host fills their slot before showing lobby
       return
     }
   }, [user])
@@ -1228,10 +1384,11 @@ export default function LifeTrackerPage() {
     setScreen('setup')
   }, [session])
 
-  const handleLobbyStart = useCallback(({ gamePlayers, layout }) => {
+  const handleLobbyStart = useCallback(({ gamePlayers, layout, sessionId }) => {
     setPlayers(gamePlayers)
     setGameConfig({ ...lobbyConfig, layout })
     setStartedAt(Date.now())
+    setGameSessionId(sessionId || null)
     setScreen('playing')
     setSession(null)
     setLobbyConfig(null)
@@ -1247,6 +1404,28 @@ export default function LifeTrackerPage() {
       .then(({ data }) => setDecks(
         (data || []).filter(d => d.type === 'deck' || d.type === 'builder_deck')
       ))
+  }, [user])
+
+  useEffect(() => {
+    if (!user) return
+    sb.from('game_results')
+      .select('deck_id,placement')
+      .eq('user_id', user.id)
+      .then(({ data }) => {
+        if (!data) return
+        const map = {}
+        data.forEach(r => {
+          if (!r.deck_id) return
+          if (!map[r.deck_id]) map[r.deck_id] = { wins: 0, losses: 0, games: 0 }
+          map[r.deck_id].games++
+          if (r.placement === 1) map[r.deck_id].wins++
+          else map[r.deck_id].losses++
+        })
+        Object.values(map).forEach(s => {
+          s.win_pct = s.games > 0 ? Math.round(100 * s.wins / s.games) : 0
+        })
+        setDeckStatsMap(map)
+      })
   }, [user])
 
   useEffect(() => {
@@ -1281,7 +1460,7 @@ export default function LifeTrackerPage() {
     setShowGameMenu(false)
   }
 
-  const handleSaveGame = ({ placements, notes }) => {
+  const handleSaveGame = async ({ placements, notes }) => {
     const endedAt = Date.now()
     const game = {
       id: endedAt, mode: gameConfig.mode, startedAt, endedAt,
@@ -1296,6 +1475,47 @@ export default function LifeTrackerPage() {
     const newHistory = [game, ...history]
     setHistory(newHistory)
     saveHistory(newHistory)
+
+    // Persist results to Supabase for any player with an ArcaneVault deck ID
+    if (user) {
+      const isShared = !!gameSessionId
+      const now = new Date().toISOString()
+      const results = players
+        .filter(p => p.deckId && (isShared ? p.userId : true))
+        .map(p => ({
+          session_id:   gameSessionId || null,
+          user_id:      isShared ? p.userId : user.id,
+          deck_id:      p.deckId,
+          deck_name:    p.deckName,
+          format:       gameConfig.mode,
+          player_count: players.length,
+          placement:    placements[p.id],
+          played_at:    now,
+        }))
+      if (results.length > 0) {
+        try {
+          await sb.from('game_results').insert(results)
+          // Refresh local stats map after save
+          const { data } = await sb.from('game_results')
+            .select('deck_id,placement').eq('user_id', user.id)
+          if (data) {
+            const map = {}
+            data.forEach(r => {
+              if (!r.deck_id) return
+              if (!map[r.deck_id]) map[r.deck_id] = { wins: 0, losses: 0, games: 0 }
+              map[r.deck_id].games++
+              if (r.placement === 1) map[r.deck_id].wins++
+              else map[r.deck_id].losses++
+            })
+            Object.values(map).forEach(s => {
+              s.win_pct = s.games > 0 ? Math.round(100 * s.wins / s.games) : 0
+            })
+            setDeckStatsMap(map)
+          }
+        } catch (e) { console.error('game_results insert:', e) }
+      }
+    }
+    setGameSessionId(null)
     handleNewGame()
   }
 
@@ -1332,6 +1552,21 @@ export default function LifeTrackerPage() {
           onCreateLobby={handleCreateLobby}
           decks={decks}
           history={history}
+          deckStatsMap={deckStatsMap}
+        />
+      </div>
+    )
+  }
+
+  if (screen === 'host-setup') {
+    return (
+      <div className={styles.page}>
+        <HostSetupScreen
+          session={session}
+          config={lobbyConfig}
+          decks={decks}
+          onSubmit={() => setScreen('lobby')}
+          onCancel={handleCancelLobby}
         />
       </div>
     )
