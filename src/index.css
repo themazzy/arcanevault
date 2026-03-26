@@ -149,3 +149,7 @@ a:hover { text-decoration: underline; }
   --s3:  #000000;
   --s4:  #000000;
 }
+[data-oled="true"] body {
+  background-image: none;
+  background-color: #000000;
+}
