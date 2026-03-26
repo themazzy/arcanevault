@@ -247,7 +247,7 @@
 .input {
   width: 100%;
   padding: 12px 15px;
-  background: rgba(255,255,255,0.045);
+  background: var(--s2);
   border: 1px solid rgba(201,168,76,0.16);
   border-radius: 6px;
   color: var(--text);

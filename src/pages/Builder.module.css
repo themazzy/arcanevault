@@ -83,7 +83,7 @@
 }
 
 .filterInput {
-  background: rgba(255,255,255,0.035);
+  background: var(--s1);
   border: 1px solid rgba(180,140,60,0.18);
   border-radius: 6px;
   padding: 6px 14px;

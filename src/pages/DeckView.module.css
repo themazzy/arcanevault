@@ -307,7 +307,7 @@
   border-left: 2px solid transparent;
 }
 .cardRow:hover {
-  background: rgba(255,255,255,0.045);
+  background: var(--s2);
   border-left-color: rgba(201,168,76,0.4);
 }
 

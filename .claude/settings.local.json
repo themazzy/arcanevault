@@ -31,7 +31,8 @@
       "Bash(git fetch:*)",
       "WebFetch(domain:recommander.cards)",
       "Bash(npm run:*)",
-      "Bash(npx cap:*)"
+      "Bash(npx cap:*)",
+      "Bash(gh workflow:*)"
     ]
   }
 }
