@@ -783,7 +783,7 @@
   border-radius: 3px;
   transition: background 0.1s;
 }
-.listRow:hover { background: rgba(255,255,255,0.028); }
+.listRow:hover { background: var(--s1); }
 .listRow:last-child { border-bottom: none; }
 .lrCard {
   display: flex;
