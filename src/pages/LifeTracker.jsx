@@ -40,9 +40,8 @@ const LAYOUTS = {
     { id: '3-row', cols: 3, label: 'Row',    rotations: {} },
   ],
   4: [
-    { id: '4-2x2',   cols: 2, label: '2 × 2', rotations: { 2: 180, 3: 180 } },
-    { id: '4-sides', cols: 2, label: 'Sides',  rotations: { 0: 90, 1: -90, 2: 90, 3: -90 } },
-    { id: '4-row',   cols: 4, label: 'Row',    rotations: {} },
+    { id: '4-2x2', cols: 2, label: '2 × 2', rotations: { 2: 180, 3: 180 } },
+    { id: '4-row', cols: 4, label: 'Row',    rotations: {} },
   ],
   5: [
     { id: '5-3+2', cols: 3, label: '3 + 2', rotations: { 3: 180, 4: 180 } },
@@ -910,9 +909,10 @@ function PlayerPanel({
   onRequestArtPicker, onRequestCmdDmgOverlay,
   showCommander, showPoison, rotation = 0,
 }) {
-  const [editingName, setEditingName] = useState(false)
-  const [nameInput,   setNameInput]   = useState(player.name)
-  const [lastDelta,   setLastDelta]   = useState(null)
+  const [editingName,        setEditingName]        = useState(false)
+  const [nameInput,          setNameInput]          = useState(player.name)
+  const [showPlayerSettings, setShowPlayerSettings] = useState(false)
+  const [lastDelta,          setLastDelta]          = useState(null)
   const deltaTimerRef = useRef(null)
   const holdTimerRef  = useRef(null)
   const prevLife      = useRef(player.life)
@@ -961,21 +961,7 @@ function PlayerPanel({
         } : {}),
       }}>
 
-      {/* Color + art-picker row */}
-      <div className={styles.colorRow}>
-        {PLAYER_COLORS.map(c => (
-          <button key={c}
-            className={`${styles.colorDot} ${c === player.color ? styles.colorDotActive : ''}`}
-            style={{ background: c }} onClick={() => onColorChange(player.id, c)} />
-        ))}
-        {/* ⚙ opens art picker */}
-        <button onClick={() => onRequestArtPicker(player.id)} title="Set background art"
-          className={styles.artPickerBtn}>
-          ⚙
-        </button>
-      </div>
-
-      {/* Name + deck badge */}
+      {/* Name + deck badge + settings cog */}
       <div className={styles.nameRow}>
         {editingName
           ? <input className={styles.nameInput}
@@ -990,7 +976,24 @@ function PlayerPanel({
             </button>
         }
         {player.deckName && <span className={styles.panelDeckBadge}>{player.deckName}</span>}
+        <button
+          className={`${styles.playerSettingsBtn} ${showPlayerSettings ? styles.playerSettingsBtnOpen : ''}`}
+          onClick={() => setShowPlayerSettings(v => !v)}
+          title="Player settings">⚙</button>
       </div>
+
+      {/* Color + art-picker row — hidden by default, toggled by cog */}
+      {showPlayerSettings && (
+        <div className={styles.colorRow}>
+          {PLAYER_COLORS.map(c => (
+            <button key={c}
+              className={`${styles.colorDot} ${c === player.color ? styles.colorDotActive : ''}`}
+              style={{ background: c }} onClick={() => onColorChange(player.id, c)} />
+          ))}
+          <button onClick={() => { onRequestArtPicker(player.id); setShowPlayerSettings(false) }}
+            className={styles.artPickerBtn} title="Set background art">🖼</button>
+        </div>
+      )}
 
       {/* Life total */}
       <div className={styles.lifeArea}>

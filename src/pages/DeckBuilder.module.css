@@ -1056,12 +1056,15 @@
   color: var(--green, #4a9a5a);
 }
 
-/* ── Floating preview ── */
+/* ── Floating preview — desktop only (touch devices have no stable hover) ── */
 .floatingPreview {
   position: fixed;
   z-index: 500;
   pointer-events: none;
   filter: drop-shadow(0 12px 40px rgba(0,0,0,0.85));
+}
+@media (hover: none) {
+  .floatingPreview { display: none; }
 }
 
 .floatingImg {

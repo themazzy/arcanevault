@@ -26,7 +26,12 @@
       "WebFetch(domain:www.coolstuffinc.com)",
       "WebFetch(domain:api.rss2json.com)",
       "WebFetch(domain:api.codetabs.com)",
-      "WebFetch(domain:gist.github.com)"
+      "WebFetch(domain:gist.github.com)",
+      "WebFetch(domain:scryfall.com)",
+      "Bash(git fetch:*)",
+      "WebFetch(domain:recommander.cards)",
+      "Bash(npm run:*)",
+      "Bash(npx cap:*)"
     ]
   }
 }
