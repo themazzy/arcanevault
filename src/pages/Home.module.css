@@ -106,6 +106,11 @@
   letter-spacing: 0.08em; margin: 0;
   text-shadow: 0 0 18px rgba(201,168,76,0.2);
 }
+.sectionCount {
+  font-size: 0.7rem; color: var(--text-faint);
+  background: var(--s2); border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 10px; padding: 2px 8px;
+}
 .sectionDesc { color: var(--text-dim); font-size: 0.83rem; margin: 0 0 18px; }
 
 /* ── Collection Snapshot ─────────────────────────────────────────────────── */
@@ -147,6 +152,51 @@
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
 }
+/* ── Set Completion ──────────────────────────────────────────────────────── */
+.setList { display: flex; flex-direction: column; gap: 8px; }
+
+.setRow { display: flex; flex-direction: column; gap: 4px; }
+.setRowMeta {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+}
+.setRowName {
+  font-size: 0.82rem; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.setRowCount { font-size: 0.7rem; color: var(--text-faint); flex-shrink: 0; }
+.setRowTrack {
+  height: 4px; border-radius: 2px; background: var(--s2);
+  overflow: hidden;
+}
+.setRowFill {
+  height: 100%; border-radius: 2px;
+  background: linear-gradient(90deg, rgba(201,168,76,0.5), var(--gold));
+  transition: width 0.4s ease;
+  min-width: 2px;
+}
+
+.setSkeletons { display: flex; flex-direction: column; gap: 10px; }
+.setSkeleton {
+  height: 36px; border-radius: 5px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.07) 50%, rgba(255,255,255,0.03) 75%);
+  background-size: 200% 100%; animation: shimmer 1.5s infinite;
+}
+
+.setDropdown { margin-top: 6px; }
+.setDropdownToggle {
+  background: none; border: none; color: var(--text-faint);
+  font-size: 0.74rem; cursor: pointer; padding: 4px 0;
+  transition: color 0.15s;
+}
+.setDropdownToggle:hover { color: var(--gold); }
+.setDropdownList {
+  margin-top: 8px; display: flex; flex-direction: column; gap: 8px;
+  max-height: 320px; overflow-y: auto;
+  padding-right: 4px;
+}
+.setDropdownList::-webkit-scrollbar { width: 4px; }
+.setDropdownList::-webkit-scrollbar-thumb { background: rgba(201,168,76,0.2); border-radius: 2px; }
+
 .snapshotTopCard {
   display: flex;
   align-items: center;
