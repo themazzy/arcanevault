@@ -40,7 +40,7 @@ const LAYOUTS = {
     { id: '3-row', cols: 3, label: 'Row',    rotations: {} },
   ],
   4: [
-    { id: '4-2x2', cols: 2, label: '2 × 2', rotations: { 2: 180, 3: 180 } },
+    { id: '4-2x2', cols: 2, label: '2 × 2', rotations: { 0: 180, 1: 180 } },
     { id: '4-row', cols: 4, label: 'Row',    rotations: {} },
   ],
   5: [
