@@ -40,7 +40,7 @@
 
 .formatSelect {
   flex: 1;
-  background: rgba(255,255,255,0.06);
+  background: var(--s3);
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text);
@@ -98,7 +98,7 @@
 
 .cmdInput {
   width: 100%;
-  background: rgba(255,255,255,0.06);
+  background: var(--s3);
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text);
@@ -134,7 +134,7 @@
   transition: background 0.1s;
 }
 
-.cmdResult:hover { background: rgba(255,255,255,0.07); }
+.cmdResult:hover { background: var(--s3); }
 
 .cmdResultImg {
   width: 32px;
@@ -200,7 +200,7 @@
 
 .searchInput {
   flex: 1;
-  background: rgba(255,255,255,0.06);
+  background: var(--s3);
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text);
@@ -231,7 +231,7 @@
 }
 
 .typePill {
-  background: rgba(255,255,255,0.05);
+  background: var(--s2);
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 12px;
   color: var(--text-dim);
@@ -259,7 +259,7 @@
 
 .cmcInput {
   width: 48px;
-  background: rgba(255,255,255,0.06);
+  background: var(--s3);
   border: 1px solid var(--border);
   border-radius: 3px;
   color: var(--text);
@@ -292,7 +292,7 @@
   cursor: default;
 }
 
-.searchRow:hover { background: rgba(255,255,255,0.04); }
+.searchRow:hover { background: var(--s2); }
 
 .searchThumb {
   width: 32px;
@@ -305,7 +305,7 @@
 .searchThumbPlaceholder {
   width: 32px;
   height: 44px;
-  background: rgba(255,255,255,0.06);
+  background: var(--s3);
   border-radius: 2px;
   flex-shrink: 0;
 }
@@ -369,7 +369,7 @@
   width: 100%;
   margin-top: 8px;
   padding: 7px;
-  background: rgba(255,255,255,0.04);
+  background: var(--s2);
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text-dim);
@@ -379,7 +379,7 @@
   transition: background 0.12s;
 }
 
-.loadMore:hover { background: rgba(255,255,255,0.08); }
+.loadMore:hover { background: var(--s4); }
 
 /* ── Recommendations panel ── */
 .recsPanel {
@@ -411,7 +411,7 @@
   text-align: left;
   transition: background 0.1s;
 }
-.recsCatHeader:hover { background: rgba(255,255,255,0.03); }
+.recsCatHeader:hover { background: var(--s1); }
 
 .recsCatName {
   flex: 1;
@@ -425,7 +425,7 @@
 .recsCatCount {
   font-size: 0.7rem;
   color: var(--text-faint);
-  background: rgba(255,255,255,0.06);
+  background: var(--s3);
   border-radius: 8px;
   padding: 1px 6px;
 }
@@ -447,7 +447,7 @@
   transition: background 0.1s;
 }
 
-.recRow:hover { background: rgba(255,255,255,0.04); }
+.recRow:hover { background: var(--s2); }
 
 .recThumb {
   width: 32px;
@@ -460,7 +460,7 @@
 .recThumbPlaceholder {
   width: 32px;
   height: 44px;
-  background: rgba(255,255,255,0.06);
+  background: var(--s3);
   border-radius: 2px;
   flex-shrink: 0;
 }
@@ -588,7 +588,7 @@
 }
 
 .importBtn:hover {
-  background: rgba(255,255,255,0.05);
+  background: var(--s2);
   border-color: rgba(255,255,255,0.2);
   color: var(--text);
 }
@@ -653,7 +653,7 @@
 .cmdArtImgPlaceholder {
   width: 100%;
   height: 100%;
-  background: rgba(255,255,255,0.05);
+  background: var(--s2);
 }
 
 /* Info section */
@@ -799,7 +799,7 @@
   transition: background 0.1s;
 }
 
-.groupHeader:hover { background: rgba(255,255,255,0.04); }
+.groupHeader:hover { background: var(--s2); }
 
 .groupArrow {
   font-size: 0.65rem;
@@ -820,7 +820,7 @@
 .groupCount {
   font-size: 0.75rem;
   color: var(--text-faint);
-  background: rgba(255,255,255,0.07);
+  background: var(--s3);
   border-radius: 10px;
   padding: 1px 8px;
 }
@@ -834,7 +834,7 @@
   transition: background 0.1s;
 }
 
-.deckCardRow:hover { background: rgba(255,255,255,0.04); }
+.deckCardRow:hover { background: var(--s2); }
 
 .deckThumb {
   width: 26px;
@@ -847,7 +847,7 @@
 .deckThumbPlaceholder {
   width: 26px;
   height: 36px;
-  background: rgba(255,255,255,0.06);
+  background: var(--s3);
   border-radius: 2px;
   flex-shrink: 0;
 }
@@ -930,7 +930,7 @@
 }
 .deckCardRow:hover .editBtn,
 .compactRow:hover .editBtn { opacity: 1; }
-.editBtn:hover { color: var(--gold); background: rgba(255,255,255,0.06); }
+.editBtn:hover { color: var(--gold); background: var(--s3); }
 
 .editMenuPopover {
   position: absolute;
@@ -958,7 +958,7 @@
   transition: background 0.1s, color 0.1s;
   white-space: nowrap;
 }
-.editMenuItem:hover { background: rgba(255,255,255,0.07); color: var(--text); }
+.editMenuItem:hover { background: var(--s3); color: var(--text); }
 
 .qtyControls {
   display: flex;
@@ -968,7 +968,7 @@
 }
 
 .qtyBtn {
-  background: rgba(255,255,255,0.07);
+  background: var(--s3);
   border: none;
   border-radius: 2px;
   color: var(--text-dim);
@@ -1100,7 +1100,7 @@
   display: none;
   flex-shrink: 0;
   margin: 8px 10px 0;
-  background: rgba(255,255,255,0.04);
+  background: var(--s2);
   border: 1px solid rgba(255,255,255,0.09);
   border-radius: 7px;
   overflow: hidden;
@@ -1192,7 +1192,7 @@
   transition: background 0.12s;
 }
 
-.compactRow:hover { background: rgba(255,255,255,0.04); }
+.compactRow:hover { background: var(--s2); }
 
 .compactQty {
   font-size: 0.78rem;
@@ -1224,7 +1224,7 @@
   overflow: hidden;
   aspect-ratio: 5/7;
   cursor: pointer;
-  background: rgba(255,255,255,0.04);
+  background: var(--s2);
   border: 1px solid var(--border);
   transition: transform 0.15s, border-color 0.15s;
 }

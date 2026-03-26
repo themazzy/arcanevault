@@ -13,7 +13,7 @@
   display: flex; flex-direction: column; align-items: center; gap: 12px;
   text-align: center; max-width: 380px; width: 100%;
   padding: 36px 28px;
-  background: rgba(255,255,255,0.02);
+  background: var(--s1);
   border: 1px solid rgba(255,255,255,0.07);
   border-radius: 12px;
   margin-top: 40px;
@@ -64,7 +64,7 @@
   display: flex; flex-direction: column; align-items: center; gap: 14px;
   max-width: 400px; width: 100%; margin-top: 40px;
   padding: 28px 22px;
-  background: rgba(255,255,255,0.02);
+  background: var(--s1);
   border: 1px solid rgba(255,255,255,0.07);
   border-radius: 12px; text-align: center;
 }
@@ -74,7 +74,7 @@
 .waitSlot {
   display: flex; align-items: center; gap: 9px;
   padding: 8px 12px;
-  background: rgba(255,255,255,0.02);
+  background: var(--s1);
   border: 1px solid rgba(255,255,255,0.06);
   border-left: 3px solid var(--pc, rgba(255,255,255,0.15));
   border-radius: 5px;
@@ -96,7 +96,7 @@
   display: flex; flex-direction: column; gap: 10px;
   max-width: 400px; width: 100%; margin-top: 32px;
   padding: 28px 22px;
-  background: rgba(255,255,255,0.02);
+  background: var(--s1);
   border: 1px solid rgba(255,255,255,0.08);
   border-top: 2px solid rgba(201,168,76,0.35);
   border-radius: 12px;
@@ -123,7 +123,7 @@
 .claimOptional { color: var(--text-faint); font-size: 0.58rem; font-style: italic; }
 
 .claimInput {
-  background: rgba(255,255,255,0.05);
+  background: var(--s2);
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 5px; color: var(--text);
   font-family: var(--font-display); font-size: 0.9rem;
@@ -145,7 +145,7 @@
 .claimDeckWrap { position: relative; }
 .claimDeckBtn {
   width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 6px;
-  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+  background: var(--s2); border: 1px solid rgba(255,255,255,0.1);
   border-radius: 5px; padding: 8px 12px; cursor: pointer;
   color: var(--text-dim); font-size: 0.82rem; transition: all 0.15s; text-align: left;
 }
@@ -168,11 +168,11 @@
   cursor: pointer; transition: all 0.12s;
   display: flex; align-items: center; justify-content: space-between; gap: 6px;
 }
-.claimDeckItem:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+.claimDeckItem:hover { background: var(--s2); color: var(--text); }
 .claimDeckItemActive { color: var(--gold) !important; background: rgba(201,168,76,0.1) !important; }
 .claimDeckBadge {
   font-size: 0.6rem; color: var(--text-faint);
-  background: rgba(255,255,255,0.06); border-radius: 3px; padding: 1px 5px; flex-shrink: 0;
+  background: var(--s3); border-radius: 3px; padding: 1px 5px; flex-shrink: 0;
 }
 
 /* Art picker */
@@ -190,7 +190,7 @@
 .artClearBtn:hover { color: var(--text); }
 
 .artSearchToggle {
-  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
+  background: var(--s2); border: 1px solid rgba(255,255,255,0.1);
   border-radius: 5px; color: var(--text-dim); font-size: 0.78rem;
   padding: 7px 12px; cursor: pointer; text-align: left;
   transition: all 0.15s;
@@ -203,7 +203,7 @@
 }
 .artSearchRow { display: flex; gap: 6px; }
 .artSearchInput {
-  flex: 1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+  flex: 1; background: var(--s2); border: 1px solid rgba(255,255,255,0.1);
   border-radius: 5px; color: var(--text); font-size: 0.82rem;
   padding: 7px 10px; outline: none;
   transition: border-color 0.15s;
@@ -232,7 +232,7 @@
 
 .claimActions { display: flex; gap: 8px; margin-top: 6px; }
 .claimCancelBtn {
-  flex: 1; padding: 10px; background: rgba(255,255,255,0.04);
+  flex: 1; padding: 10px; background: var(--s2);
   border: 1px solid rgba(255,255,255,0.09); border-radius: 6px;
   color: var(--text-dim); font-family: var(--font-display); font-size: 0.74rem;
   letter-spacing: 0.04em; cursor: pointer; transition: all 0.15s;
@@ -288,7 +288,7 @@
 .lobbySlot {
   width: 100%; display: flex; align-items: center; gap: 11px;
   padding: 12px 14px;
-  background: rgba(255,255,255,0.02);
+  background: var(--s1);
   border: 1px solid rgba(255,255,255,0.07);
   border-left: 3px solid var(--pc, rgba(255,255,255,0.15));
   border-radius: 8px;
@@ -296,7 +296,7 @@
 }
 .lobbySlotOpen {
   cursor: pointer;
-  background: rgba(255,255,255,0.03) !important;
+  background: var(--s1) !important;
 }
 .lobbySlotOpen:hover {
   background: rgba(201,168,76,0.06) !important;

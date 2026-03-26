@@ -3,7 +3,7 @@
 .hint { font-size: 0.82rem; color: var(--text-dim); margin: 0; }
 
 .textarea {
-  width: 100%; background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+  width: 100%; background: var(--s1); border: 1px solid var(--border);
   border-radius: 4px; padding: 10px 12px; color: var(--text); font-family: var(--font-mono, monospace);
   font-size: 0.82rem; resize: vertical; outline: none; transition: border-color 0.2s;
   min-height: 160px;
@@ -13,12 +13,12 @@
 
 .inputRow { display: flex; gap: 8px; align-items: center; }
 .fileBtn {
-  background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+  background: var(--s2); border: 1px solid var(--border);
   border-radius: 4px; padding: 7px 14px; color: var(--text-dim);
   font-family: var(--font-display); font-size: 0.78rem; cursor: pointer;
   transition: all 0.15s;
 }
-.fileBtn:hover { background: rgba(255,255,255,0.07); border-color: var(--border-hi); color: var(--text); }
+.fileBtn:hover { background: var(--s3); border-color: var(--border-hi); color: var(--text); }
 
 .parseBtn {
   background: rgba(201,168,76,0.12); border: 1px solid rgba(201,168,76,0.4);
@@ -32,7 +32,7 @@
 /* Folder picker */
 .pickerRow { display: flex; gap: 8px; align-items: center; }
 .folderSelect {
-  flex: 1; background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+  flex: 1; background: var(--s2); border: 1px solid var(--border);
   border-radius: 4px; padding: 7px 10px; color: var(--text); font-size: 0.85rem; outline: none;
   cursor: pointer;
 }
@@ -44,14 +44,14 @@
 }
 .createBtn:hover { background: rgba(201,168,76,0.08); }
 .newInput {
-  flex: 1; background: rgba(255,255,255,0.04); border: 1px solid var(--border-hi);
+  flex: 1; background: var(--s2); border: 1px solid var(--border-hi);
   border-radius: 4px; padding: 7px 10px; color: var(--text); font-size: 0.85rem; outline: none;
 }
 
 /* Preview */
 .previewList {
   max-height: 220px; overflow-y: auto; border: 1px solid var(--border);
-  border-radius: 4px; background: rgba(255,255,255,0.02);
+  border-radius: 4px; background: var(--s1);
 }
 .previewRow {
   display: flex; align-items: center; gap: 8px; padding: 5px 10px;
@@ -68,12 +68,12 @@
 /* Progress */
 .progressWrap { display: flex; flex-direction: column; gap: 10px; padding: 20px 0; }
 .progressLabel { font-size: 0.85rem; color: var(--text-dim); text-align: center; }
-.progressBar { width: 100%; height: 6px; background: rgba(255,255,255,0.07); border-radius: 3px; overflow: hidden; }
+.progressBar { width: 100%; height: 6px; background: var(--s3); border-radius: 3px; overflow: hidden; }
 .progressFill { height: 100%; background: var(--gold); border-radius: 3px; transition: width 0.1s; }
 
 /* Done */
 .doneMsg { font-size: 0.88rem; }
 .success { color: #6acc8a; font-weight: 600; }
-.missedList { max-height: 120px; overflow-y: auto; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; }
+.missedList { max-height: 120px; overflow-y: auto; background: var(--s1); border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; }
 .missedItem { font-size: 0.8rem; color: var(--text-dim); padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.03); }
 .missedItem:last-child { border-bottom: none; }

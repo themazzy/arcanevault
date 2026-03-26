@@ -34,7 +34,7 @@
   position: relative;
 }
 .item:hover {
-  background: rgba(255,255,255,0.04);
+  background: var(--s2);
   border-color: rgba(201,168,76,0.2);
 }
 
@@ -120,7 +120,7 @@
   border-top: 2px solid rgba(201,168,76,0.3);
   border-radius: 5px;
   overflow: hidden;
-  background: rgba(255,255,255,0.02);
+  background: var(--s1);
   transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
 }
 .gridItem:hover {
@@ -160,7 +160,7 @@
 .gridImgPlaceholder {
   width: 100%;
   aspect-ratio: 5/7;
-  background: rgba(255,255,255,0.04);
+  background: var(--s2);
   display: flex;
   align-items: center;
   justify-content: center;

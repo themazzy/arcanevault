@@ -250,8 +250,12 @@ const DEFAULTS = {
 // OLED overrides — pure black backgrounds so dark-theme pixels are fully off
 const OLED_VARS = {
   '--bg':  '#000000',
-  '--bg2': '#060606',
-  '--bg3': '#0d0d0d',
+  '--bg2': '#000000',
+  '--bg3': '#000000',
+  '--s1':  '#000000',
+  '--s2':  '#000000',
+  '--s3':  '#000000',
+  '--s4':  '#000000',
 }
 
 // ── Persistence helpers ───────────────────────────────────────────────────────
@@ -300,6 +304,12 @@ export function applyTheme(themeId, oledMode) {
     root.setAttribute('data-theme-mode', 'light')
   } else {
     root.removeAttribute('data-theme-mode')
+  }
+  // Set OLED attribute so global CSS can zero out hardcoded rgba backgrounds
+  if (oledMode && theme.mode !== 'light') {
+    root.setAttribute('data-oled', 'true')
+  } else {
+    root.removeAttribute('data-oled')
   }
   // Persist theme vars for instant application on next page load
   cacheThemeVars(themeId, oledMode)

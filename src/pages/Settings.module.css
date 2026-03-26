@@ -142,7 +142,7 @@
     /* Tappable row for toggle rows */
     cursor: pointer; min-height: 60px;
   }
-  .row:active { background: rgba(255,255,255,0.03); }
+  .row:active { background: var(--s1); }
   .rowControl { width: 100%; }
   .select { min-width: unset; width: 100%; }
   .priceSourceSelect { display: block; }
@@ -200,13 +200,13 @@
 .cacheDivider {
   width: 1px;
   height: 32px;
-  background: rgba(255,255,255,0.07);
+  background: var(--s3);
   flex-shrink: 0;
 }
 
 .cacheBarWrap {
   height: 4px;
-  background: rgba(255,255,255,0.07);
+  background: var(--s3);
   border-radius: 2px;
   overflow: hidden;
 }
