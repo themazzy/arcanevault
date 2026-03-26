@@ -1,6 +1,61 @@
 /* ── Layout ──────────────────────────────────────────────────────────────── */
 .home { max-width: 1100px; margin: 0 auto; }
 
+/* ── Changelog / WIP panel ───────────────────────────────────────────────── */
+.changelog {
+  margin: 0 16px 16px;
+  border: 1px solid rgba(201,168,76,0.2);
+  border-top: 2px solid rgba(201,168,76,0.4);
+  border-radius: 8px;
+  background: var(--s1);
+  overflow: hidden;
+}
+.changelogHeader {
+  width: 100%; display: flex; align-items: center; justify-content: space-between;
+  background: none; border: none; padding: 10px 14px;
+  cursor: pointer; gap: 8px;
+  transition: background 0.15s;
+}
+.changelogHeader:hover { background: rgba(201,168,76,0.04); }
+.changelogTitle {
+  font-family: var(--font-display); font-size: 0.72rem;
+  letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--gold);
+}
+.changelogChevron { font-size: 0.6rem; color: var(--text-faint); }
+
+.changelogBody {
+  padding: 4px 14px 14px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.changelogSection { display: flex; flex-direction: column; gap: 6px; }
+.changelogSectionHead { display: flex; align-items: center; gap: 8px; }
+.changelogBadge {
+  font-family: var(--font-display); font-size: 0.58rem;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 3px;
+}
+.changelogBadgeLatest {
+  background: rgba(93,186,112,0.12); border: 1px solid rgba(93,186,112,0.3);
+  color: var(--green);
+}
+.changelogBadgeWip {
+  background: rgba(201,168,76,0.1); border: 1px solid rgba(201,168,76,0.3);
+  color: var(--gold);
+}
+.changelogDate { font-size: 0.68rem; color: var(--text-faint); }
+
+.changelogList {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.changelogItem {
+  font-size: 0.78rem; color: var(--text-dim);
+  padding: 2px 0 2px 10px;
+  border-left: 2px solid rgba(255,255,255,0.06);
+  line-height: 1.4;
+}
+
 .hero {
   text-align: center;
   padding: 36px 20px 24px;
