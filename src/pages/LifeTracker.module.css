@@ -1352,3 +1352,98 @@
   background: rgba(201,168,76,0.24); border-color: rgba(201,168,76,0.55);
 }
 .joinGoBtn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* ── PlayerConfig move buttons ──────────────────────────────────────────────── */
+.pcMoveButtons { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; margin-left: 4px; }
+.pcMoveBtn {
+  background: var(--s2); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 3px; color: var(--text-faint); font-size: 0.7rem;
+  width: 22px; height: 18px; display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: all 0.12s; padding: 0; line-height: 1;
+}
+.pcMoveBtn:hover:not(:disabled) { color: var(--gold); border-color: rgba(201,168,76,0.3); background: var(--s3); }
+.pcMoveBtn:disabled { opacity: 0.22; cursor: not-allowed; }
+
+/* ── Lobby seat reorder buttons ──────────────────────────────────────────────── */
+.lobbyMoveButtons { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
+.lobbyMoveBtn {
+  background: var(--s2); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 3px; color: var(--text-faint); font-size: 0.7rem;
+  width: 22px; height: 18px; display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: all 0.12s; padding: 0;
+}
+.lobbyMoveBtn:hover:not(:disabled) { color: var(--gold); border-color: rgba(201,168,76,0.3); background: var(--s3); }
+.lobbyMoveBtn:disabled { opacity: 0.22; cursor: not-allowed; }
+
+/* ── Host Setup Screen ───────────────────────────────────────────────────────── */
+.hostInput {
+  width: 100%; background: var(--s2); border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px; padding: 10px 12px; color: var(--text);
+  font-size: 0.9rem; outline: none; box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+.hostInput:focus { border-color: rgba(201,168,76,0.4); }
+.hostOptional { font-size: 0.68rem; color: var(--text-faint); font-style: italic; margin-left: 4px; }
+.hostColorRow { display: flex; gap: 10px; flex-wrap: wrap; padding: 4px 0; }
+.hostColorDot {
+  width: 28px; height: 28px; border-radius: 50%; border: 2px solid transparent;
+  cursor: pointer; transition: transform 0.15s, border-color 0.15s;
+}
+.hostColorDot:hover { transform: scale(1.2); }
+.hostColorDotActive { border-color: rgba(255,255,255,0.75) !important; transform: scale(1.15); }
+.hostArtPreviewRow { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.hostArtThumb { width: 80px; height: 60px; object-fit: cover; border-radius: 5px; border: 1px solid var(--border); }
+.hostArtClear {
+  background: none; border: 1px solid rgba(200,70,60,0.3); border-radius: 4px;
+  color: #e08878; font-size: 0.76rem; padding: 3px 9px; cursor: pointer;
+}
+.hostArtToggle {
+  background: var(--s2); border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 6px; color: var(--text-dim); font-size: 0.82rem;
+  padding: 8px 14px; cursor: pointer; width: 100%; text-align: left; transition: all 0.15s;
+}
+.hostArtToggle:hover { color: var(--gold); border-color: rgba(201,168,76,0.3); }
+.hostArtBox { margin-top: 8px; }
+.hostArtRow { display: flex; gap: 8px; margin-bottom: 8px; }
+.hostArtInput {
+  flex: 1; background: var(--s2); border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 5px; padding: 8px 10px; color: var(--text); font-size: 0.82rem; outline: none;
+}
+.hostArtBtn {
+  background: rgba(201,168,76,0.12); border: 1px solid rgba(201,168,76,0.35);
+  border-radius: 5px; color: var(--gold); font-size: 0.88rem;
+  padding: 0 14px; cursor: pointer; transition: all 0.15s;
+}
+.hostArtBtn:hover:not(:disabled) { background: rgba(201,168,76,0.22); }
+.hostArtGrid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 6px; max-height: 280px; overflow-y: auto;
+}
+.hostArtItem {
+  background: none; border: 2px solid transparent; border-radius: 5px;
+  padding: 0; cursor: pointer; overflow: hidden; transition: border-color 0.12s;
+}
+.hostArtItem img { width: 100%; display: block; aspect-ratio: 4/3; object-fit: cover; }
+.hostArtItem:hover { border-color: rgba(201,168,76,0.4); }
+.hostArtItemActive { border-color: var(--gold) !important; }
+.hostFooter { display: flex; gap: 8px; padding-top: 8px; }
+.hostCancelBtn {
+  flex: 1; padding: 11px;
+  background: var(--s2); border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 7px; color: var(--text-dim);
+  font-family: var(--font-display); font-size: 0.74rem; letter-spacing: 0.04em;
+  cursor: pointer; transition: all 0.15s;
+}
+.hostCancelBtn:hover { color: var(--text); border-color: rgba(255,255,255,0.18); }
+.hostSubmitBtn {
+  flex: 2; padding: 11px;
+  background: linear-gradient(135deg, rgba(201,168,76,0.18), rgba(201,168,76,0.08));
+  border: 1px solid rgba(201,168,76,0.45); border-radius: 7px; color: var(--gold);
+  font-family: var(--font-display); font-size: 0.82rem; letter-spacing: 0.07em;
+  text-transform: uppercase; cursor: pointer; transition: all 0.15s;
+}
+.hostSubmitBtn:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(201,168,76,0.28), rgba(201,168,76,0.14));
+  border-color: rgba(201,168,76,0.65); box-shadow: 0 0 16px rgba(201,168,76,0.12);
+}
+.hostSubmitBtn:disabled { opacity: 0.4; cursor: not-allowed; }
