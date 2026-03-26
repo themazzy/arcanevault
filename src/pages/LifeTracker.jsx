@@ -432,6 +432,53 @@ function RandomPicker({ players, onClose }) {
   )
 }
 
+// ── Seat Layout Grid — tap-to-swap interactive seating arrangement ─────────────
+function SeatLayoutGrid({ players, layout, onSwap }) {
+  const [selected, setSelected] = useState(null)
+
+  const handleClick = (idx) => {
+    if (selected === null) {
+      setSelected(idx)
+    } else if (selected === idx) {
+      setSelected(null)
+    } else {
+      onSwap(selected, idx)
+      setSelected(null)
+    }
+  }
+
+  return (
+    <div className={styles.seatLayoutWrap}>
+      <p className={styles.seatHint}>
+        {selected !== null ? `Seat ${selected + 1} selected — tap another to swap` : 'Tap a seat, then another to swap'}
+      </p>
+      <div className={styles.seatLayoutGrid} style={{ '--gcols': layout?.cols ?? 2 }}>
+        {players.map((p, idx) => {
+          const rot = layout?.rotations?.[idx] || 0
+          const isSel = selected === idx
+          return (
+            <div key={idx} className={styles.seatCell} onClick={() => handleClick(idx)}>
+              <div
+                className={`${styles.seatPanel} ${isSel ? styles.seatPanelSel : ''} ${p.claimed === false ? styles.seatPanelEmpty : ''}`}
+                style={{ '--pc': p.color || 'rgba(255,255,255,0.2)', transform: `rotate(${rot}deg)` }}>
+                <span className={styles.seatIdx}>{idx + 1}</span>
+                <span className={styles.seatDot} style={{ background: p.color || 'rgba(255,255,255,0.3)' }} />
+                <span className={styles.seatName}>{p.name || `Player ${idx + 1}`}</span>
+                {p.deckName && <span className={styles.seatDeck}>{p.deckName}</span>}
+                {p.claimed !== undefined && (
+                  <span className={p.claimed ? styles.seatClaimed : styles.seatWaiting}>
+                    {p.claimed ? '✓' : '…'}
+                  </span>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ── Multiplayer Lobby Screen ───────────────────────────────────────────────────
 function LobbyScreen({ session, gameConfig, onStart, onCancel }) {
   const [players,   setPlayers]   = useState([])
@@ -462,12 +509,10 @@ function LobbyScreen({ session, gameConfig, onStart, onCancel }) {
     return () => { active = false; sb.removeChannel(ch); clearInterval(poll) }
   }, [session.id])
 
-  const movePlayer = (pos, dir) => {
+  const swapSeats = (i, j) => {
     setSeatOrder(prev => {
       const next = [...prev]
-      const j = pos + dir
-      if (j < 0 || j >= next.length) return prev
-      ;[next[pos], next[j]] = [next[j], next[pos]]
+      ;[next[i], next[j]] = [next[j], next[i]]
       return next
     })
   }
@@ -533,30 +578,17 @@ function LobbyScreen({ session, gameConfig, onStart, onCancel }) {
         <div className={styles.lobbyJoinUrl}>{joinUrl}</div>
       </div>
 
-      {/* Player slots with seat reordering */}
-      <div className={styles.lobbySlots}>
-        {orderedPlayers.map((p, pos) => (
-          <div key={p.id}
-            className={`${styles.lobbySlot} ${p.user_id ? styles.lobbySlotClaimed : styles.lobbySlotEmpty}`}
-            style={{ '--pc': p.color }}>
-            <div className={styles.lobbySlotNum}>{pos + 1}</div>
-            <span className={styles.lobbySlotDot} style={{ background: p.color }} />
-            <div className={styles.lobbySlotInfo}>
-              <div className={styles.lobbySlotName}>{p.player_name}</div>
-              <div className={styles.lobbySlotSub}>
-                {p.deck_name ? `🃏 ${p.deck_name}`
-                  : p.user_id ? 'No deck selected'
-                  : 'Waiting to join…'}
-              </div>
-            </div>
-            {p.user_id && <span className={styles.lobbySlotCheck}>✓</span>}
-            <div className={styles.lobbyMoveButtons}>
-              <button className={styles.lobbyMoveBtn} onClick={() => movePlayer(pos, -1)} disabled={pos === 0}>↑</button>
-              <button className={styles.lobbyMoveBtn} onClick={() => movePlayer(pos, 1)}  disabled={pos === orderedPlayers.length - 1}>↓</button>
-            </div>
-          </div>
-        ))}
-      </div>
+      {/* Seat layout grid — tap to swap */}
+      <SeatLayoutGrid
+        players={orderedPlayers.map(p => ({
+          name:     p.player_name,
+          color:    p.color,
+          deckName: p.deck_name,
+          claimed:  !!p.user_id,
+        }))}
+        layout={gameConfig?.layout || defaultLayout(orderedPlayers.length)}
+        onSwap={swapSeats}
+      />
 
       <p className={styles.lobbyCount}>
         {claimedCount} / {gameConfig?.playerCount} joined
@@ -576,7 +608,7 @@ function LobbyScreen({ session, gameConfig, onStart, onCancel }) {
 
       <p className={styles.lobbyHint}>
         Share the code or link — other players open it on their own phone to pick their deck.
-        Use ↑↓ to match physical seating order.
+        Tap two seats to swap their positions.
       </p>
     </div>
   )
@@ -715,7 +747,7 @@ function HostSetupScreen({ session, config, decks, onSubmit, onCancel }) {
 }
 
 // ── Pre-game: Player Config Row ────────────────────────────────────────────────
-function PlayerConfig({ index, config, decks, deckStatsMap, onChange, onMoveUp, onMoveDown, isFirst, isLast }) {
+function PlayerConfig({ index, config, decks, deckStatsMap, onChange }) {
   const [editing, setEditing] = useState(false)
   const [nameVal, setNameVal] = useState(config.name)
 
@@ -745,12 +777,6 @@ function PlayerConfig({ index, config, decks, deckStatsMap, onChange, onMoveUp, 
                 onClick={() => onChange({ color: c })} />
             ))}
           </div>
-          {(!isFirst || !isLast) && (
-            <div className={styles.pcMoveButtons}>
-              <button className={styles.pcMoveBtn} onClick={onMoveUp}  disabled={isFirst} title="Move up">↑</button>
-              <button className={styles.pcMoveBtn} onClick={onMoveDown} disabled={isLast}  title="Move down">↓</button>
-            </div>
-          )}
         </div>
         {decks.length > 0 && (
           <div className={styles.pcDeckRow}>
@@ -819,11 +845,9 @@ function PreGameSetup({ onStart, onCreateLobby, decks, history, deckStatsMap }) 
   const updateConfig = (i, patch) =>
     setConfigs(prev => prev.map((c, idx) => idx === i ? { ...c, ...patch } : c))
 
-  const moveConfig = (i, dir) => {
+  const swapConfigs = (i, j) => {
     setConfigs(prev => {
       const next = [...prev]
-      const j = i + dir
-      if (j < 0 || j >= playerCount) return prev
       ;[next[i], next[j]] = [next[j], next[i]]
       return next
     })
@@ -918,17 +942,23 @@ function PreGameSetup({ onStart, onCreateLobby, decks, history, deckStatsMap }) 
         </div>
       </section>
 
-      {/* Layout picker */}
+      {/* Layout + Seating combined */}
       <section className={styles.setupBlock}>
-        <div className={styles.setupLabel}>Table Layout</div>
+        <div className={styles.setupLabel}>Table Layout &amp; Seating</div>
         <LayoutPicker
           playerCount={playerCount}
           value={layout}
           onChange={setLayout}
         />
-        {(!LAYOUTS[playerCount] || LAYOUTS[playerCount].length <= 1) && (
-          <p className={styles.layoutOnlyOne}>Only one layout available for {playerCount} players.</p>
-        )}
+        <SeatLayoutGrid
+          players={Array.from({ length: playerCount }, (_, i) => ({
+            name: configs[i]?.name || PLAYER_NAMES[i],
+            color: configs[i]?.color || PLAYER_COLORS[i],
+            deckName: configs[i]?.deckName || null,
+          }))}
+          layout={layout || defaultLayout(playerCount)}
+          onSwap={swapConfigs}
+        />
       </section>
 
       {/* Player config */}
@@ -938,11 +968,7 @@ function PreGameSetup({ onStart, onCreateLobby, decks, history, deckStatsMap }) 
           {Array.from({ length: playerCount }, (_, i) => (
             <PlayerConfig key={i} index={i} config={configs[i]}
               decks={decks} deckStatsMap={deckStatsMap}
-              onChange={patch => updateConfig(i, patch)}
-              onMoveUp={() => moveConfig(i, -1)}
-              onMoveDown={() => moveConfig(i, 1)}
-              isFirst={i === 0}
-              isLast={i === playerCount - 1} />
+              onChange={patch => updateConfig(i, patch)} />
           ))}
         </div>
       </section>
