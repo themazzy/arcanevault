@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from './Auth'
+import FeedbackModal from './FeedbackModal'
 import styles from './Layout.module.css'
 
 const TABS = [
@@ -19,7 +20,8 @@ export default function Layout({ children }) {
   const { user } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  const [menuOpen, setMenuOpen] = useState(false)
+  const [menuOpen,    setMenuOpen]    = useState(false)
+  const [showFeedback, setShowFeedback] = useState(false)
 
   // Close menu on navigation
   useEffect(() => { setMenuOpen(false) }, [location.pathname])
@@ -44,6 +46,13 @@ export default function Layout({ children }) {
           {/* Desktop user bar */}
           <div className={styles.userBar}>
             <span className={styles.userName}>{user?.email}</span>
+            <button
+              className={styles.feedbackBtn}
+              onClick={() => setShowFeedback(true)}
+              title="Report a bug or request a feature"
+            >
+              🐛
+            </button>
             <NavLink
               to="/settings"
               className={({ isActive }) => `${styles.settingsLink}${isActive ? ' ' + styles.settingsActive : ''}`}
@@ -104,6 +113,13 @@ export default function Layout({ children }) {
           >
             ⚙ Settings
           </NavLink>
+          <button
+            className={styles.mobileNavLink}
+            onClick={() => { setMenuOpen(false); setShowFeedback(true) }}
+            style={{ background: 'none', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer' }}
+          >
+            🐛 Bug / Feature Request
+          </button>
           <button className={styles.mobileSignOut} onClick={signOut}>Sign out</button>
         </div>
       </div>
@@ -111,6 +127,8 @@ export default function Layout({ children }) {
       <main className={styles.main}>
         {children}
       </main>
+
+      {showFeedback && <FeedbackModal onClose={() => setShowFeedback(false)} />}
     </div>
   )
 }

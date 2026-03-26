@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Modal, Button } from '../components/UI'
 import { useAuth } from '../components/Auth'
+import { useSettings } from '../components/SettingsContext'
 import { sb } from '../lib/supabase'
 import styles from './LifeTracker.module.css'
 
@@ -615,10 +616,10 @@ function LobbyScreen({ session, gameConfig, onStart, onCancel }) {
 }
 
 // ── Host Setup Screen (claim slot 0 after creating a shared lobby) ─────────────
-function HostSetupScreen({ session, config, decks, onSubmit, onCancel }) {
+function HostSetupScreen({ session, config, decks, onSubmit, onCancel, nickname }) {
   const { user } = useAuth()
   const init = config?.playerConfigs?.[0] || {}
-  const [name,        setName]        = useState(init.name  || PLAYER_NAMES[0])
+  const [name,        setName]        = useState(init.name || nickname || PLAYER_NAMES[0])
   const [color,       setColor]       = useState(init.color || PLAYER_COLORS[0])
   const [deckId,      setDeckId]      = useState(init.deckId   || null)
   const [deckName,    setDeckName]    = useState(init.deckName || null)
@@ -826,7 +827,7 @@ function HistoryEntry({ game }) {
 }
 
 // ── Pre-game Setup Screen ──────────────────────────────────────────────────────
-function PreGameSetup({ onStart, onCreateLobby, decks, history, deckStatsMap }) {
+function PreGameSetup({ onStart, onCreateLobby, decks, history, deckStatsMap, nickname }) {
   const navigate = useNavigate()
   const [mode,        setMode]        = useState('commander')
   const [playerCount, setPlayerCount] = useState(MODES.commander.defaultPlayers)
@@ -834,7 +835,8 @@ function PreGameSetup({ onStart, onCreateLobby, decks, history, deckStatsMap }) 
   const [layout,      setLayout]      = useState(() => defaultLayout(MODES.commander.defaultPlayers))
   const [configs, setConfigs] = useState(
     Array.from({ length: 6 }, (_, i) => ({
-      name: PLAYER_NAMES[i], color: PLAYER_COLORS[i], deckId: null, deckName: null,
+      name: i === 0 && nickname ? nickname : PLAYER_NAMES[i],
+      color: PLAYER_COLORS[i], deckId: null, deckName: null,
     }))
   )
   const [showHistory,  setShowHistory]  = useState(false)
@@ -967,7 +969,7 @@ function PreGameSetup({ onStart, onCreateLobby, decks, history, deckStatsMap }) 
         <div className={styles.playerConfigList}>
           {Array.from({ length: playerCount }, (_, i) => (
             <PlayerConfig key={i} index={i} config={configs[i]}
-              decks={decks} deckStatsMap={deckStatsMap}
+              decks={i === 0 ? decks : []} deckStatsMap={deckStatsMap}
               onChange={patch => updateConfig(i, patch)} />
           ))}
         </div>
@@ -1256,7 +1258,8 @@ function PlayerPanel({
 
 // ── Main Page ──────────────────────────────────────────────────────────────────
 export default function LifeTrackerPage() {
-  const { user } = useAuth()
+  const { user }     = useAuth()
+  const { nickname } = useSettings()
 
   const [screen,       setScreen]       = useState('setup')
   const [gameConfig,   setGameConfig]   = useState(null)
@@ -1579,6 +1582,7 @@ export default function LifeTrackerPage() {
           decks={decks}
           history={history}
           deckStatsMap={deckStatsMap}
+          nickname={nickname}
         />
       </div>
     )
@@ -1593,6 +1597,7 @@ export default function LifeTrackerPage() {
           decks={decks}
           onSubmit={() => setScreen('lobby')}
           onCancel={handleCancelLobby}
+          nickname={nickname}
         />
       </div>
     )
