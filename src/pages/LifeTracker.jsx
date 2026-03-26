@@ -1080,6 +1080,9 @@ export default function LifeTrackerPage() {
   const [decks,        setDecks]        = useState([])
   const [history,      setHistory]      = useState(() => loadHistory())
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [fsPos,        setFsPos]        = useState(null) // null = CSS default (centered)
+  const fsDragRef     = useRef(null)
+  const fsControlsRef = useRef(null)
   const gearMenuRef   = useRef(null)
   const gearMenuFsRef = useRef(null)
   const [session,     setSession]     = useState(null)
@@ -1148,6 +1151,34 @@ export default function LifeTrackerPage() {
       setIsFullscreen(false)
     }
   }, [isFullscreen])
+
+  const handleFsDragStart = useCallback((e) => {
+    if (e.target.closest('button')) return // don't start drag on button clicks
+    e.preventDefault()
+    const rect = fsControlsRef.current?.getBoundingClientRect()
+    const origX = rect ? rect.left : window.innerWidth / 2 - 50
+    const origY = rect ? rect.top  : 8
+    fsDragRef.current = { startX: e.clientX, startY: e.clientY, origX, origY, moved: false }
+
+    const onMove = (e2) => {
+      if (!fsDragRef.current) return
+      const dx = e2.clientX - fsDragRef.current.startX
+      const dy = e2.clientY - fsDragRef.current.startY
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) fsDragRef.current.moved = true
+      if (!fsDragRef.current.moved) return
+      setFsPos({
+        x: Math.max(0, Math.min(window.innerWidth  - 120, fsDragRef.current.origX + dx)),
+        y: Math.max(0, Math.min(window.innerHeight -  44, fsDragRef.current.origY + dy)),
+      })
+    }
+    const onUp = () => {
+      fsDragRef.current = null
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }, [])
 
   const handleCreateLobby = useCallback(async (config) => {
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -1325,7 +1356,7 @@ export default function LifeTrackerPage() {
   const getRotation = idx => layout.rotations?.[idx] || 0
 
   return (
-    <div className={`${styles.page} ${isFullscreen ? styles.pageFullscreen : ''}`}>
+    <div className={`${styles.pageGame} ${isFullscreen ? styles.pageFullscreen : ''}`}>
       <div className={styles.topBar}>
         <div className={styles.topLeft}>
           <span className={styles.pageTitle}>♥ Life Tracker</span>
@@ -1371,7 +1402,12 @@ export default function LifeTrackerPage() {
 
       {/* Floating controls shown only in fullscreen — replaces topbar to reclaim space */}
       {isFullscreen && (
-        <div className={styles.fsControls}>
+        <div
+          className={styles.fsControls}
+          ref={fsControlsRef}
+          onPointerDown={handleFsDragStart}
+          style={fsPos ? { left: fsPos.x, top: fsPos.y, transform: 'none' } : undefined}
+        >
           <button
             className={styles.fsExitBtn}
             onClick={handleFullscreenToggle}

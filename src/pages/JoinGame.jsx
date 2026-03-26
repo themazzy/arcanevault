@@ -25,7 +25,12 @@ export default function JoinGamePage() {
   const [claimColor,    setClaimColor]    = useState(PLAYER_COLORS[0])
   const [claimDeckId,   setClaimDeckId]   = useState(null)
   const [claimDeckName, setClaimDeckName] = useState(null)
+  const [claimArtUrl,   setClaimArtUrl]   = useState(null)
   const [deckOpen,      setDeckOpen]      = useState(false)
+  const [showArtPicker, setShowArtPicker] = useState(false)
+  const [artQuery,      setArtQuery]      = useState('')
+  const [artResults,    setArtResults]    = useState([])
+  const [artLoading,    setArtLoading]    = useState(false)
   const [submitting,    setSubmitting]    = useState(false)
   const deckRef = useRef(null)
 
@@ -123,7 +128,19 @@ export default function JoinGamePage() {
     setClaimColor(slot.color)
     setClaimDeckId(null)
     setClaimDeckName(null)
+    setClaimArtUrl(null)
     setStatus('claiming')
+  }
+
+  const searchArt = async () => {
+    if (!artQuery.trim()) return
+    setArtLoading(true)
+    try {
+      const r = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(artQuery)}&unique=art&order=name`)
+      const data = await r.json()
+      setArtResults((data.data || []).filter(c => c.image_uris?.art_crop).slice(0, 20))
+    } catch { setArtResults([]) }
+    setArtLoading(false)
   }
 
   const submitClaim = async () => {
@@ -135,6 +152,7 @@ export default function JoinGamePage() {
       color: claimColor,
       deck_id: claimDeckId,
       deck_name: claimDeckName,
+      art_crop_url: claimArtUrl || null,
       claimed_at: new Date().toISOString(),
     }).eq('id', claimSlot.id).is('user_id', null)
 
@@ -265,6 +283,47 @@ export default function JoinGamePage() {
             </div>
           </>
         )}
+
+        <label className={styles.claimLabel}>
+          Background Art <span className={styles.claimOptional}>(optional)</span>
+        </label>
+        <div className={styles.artPickerWrap}>
+          {claimArtUrl && (
+            <div className={styles.artPreviewRow}>
+              <img src={claimArtUrl} className={styles.artPreviewThumb} alt="bg art" />
+              <button className={styles.artClearBtn} onClick={() => setClaimArtUrl(null)}>✕</button>
+            </div>
+          )}
+          <button className={styles.artSearchToggle} onClick={() => setShowArtPicker(v => !v)}>
+            {showArtPicker ? '▲ Hide search' : '🖼 Search card art'}
+          </button>
+          {showArtPicker && (
+            <div className={styles.artSearchBox}>
+              <div className={styles.artSearchRow}>
+                <input
+                  className={styles.artSearchInput}
+                  placeholder="Card name…"
+                  value={artQuery}
+                  onChange={e => setArtQuery(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && searchArt()}
+                />
+                <button className={styles.artSearchBtn} onClick={searchArt} disabled={artLoading}>
+                  {artLoading ? '…' : '→'}
+                </button>
+              </div>
+              {artResults.length > 0 && (
+                <div className={styles.artGrid}>
+                  {artResults.map(c => (
+                    <button key={c.id} className={`${styles.artItem} ${claimArtUrl === c.image_uris.art_crop ? styles.artItemActive : ''}`}
+                      onClick={() => { setClaimArtUrl(c.image_uris.art_crop); setShowArtPicker(false) }}>
+                      <img src={c.image_uris.art_crop} alt={c.name} />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         <div className={styles.claimActions}>
           <button className={styles.claimCancelBtn} onClick={() => setStatus('lobby')}>Back</button>
