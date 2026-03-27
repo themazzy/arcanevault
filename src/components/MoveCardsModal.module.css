@@ -1,0 +1,184 @@
+/* ── MoveCardsModal Styles ── */
+
+.modalContent {
+  padding: 0;
+  min-height: 250px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  gap: 12px;
+}
+
+.typeGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  padding: 16px;
+}
+
+.typeBtn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  min-height: 110px;
+}
+
+.typeBtn:hover {
+  background: var(--bg-hover);
+  border-color: var(--gold);
+}
+
+.typeBtnActive {
+  background: var(--gold) 0.15;
+  border-color: var(--gold);
+}
+
+.typeBtn svg {
+  width: 42px;
+  height: 42px;
+}
+
+.typeBtn span {
+  text-align: center;
+}
+
+.typeBtn .count {
+  font-size: 11px;
+  color: var(--gold-dim);
+  margin-top: 4px;
+}
+
+.createBtn {
+  width: 100%;
+  padding: 12px;
+  background: var(--bg-mute);
+  border: none;
+  border-top: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.createForm {
+  padding: 0 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.createSelect {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+}
+
+.createInput {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  outline: none;
+}
+
+.createInput:focus {
+  border-color: var(--gold);
+}
+
+.createActions {
+  display: flex;
+  gap: 8px;
+}
+
+.createCancel {
+  padding: 8px 16px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  font-family: var(--font-sans);
+}
+
+.folderList {
+  padding: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.folderItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  margin: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  cursor: pointer;
+  transition: all 0.1s ease;
+}
+
+.folderItem:hover {
+  background: var(--bg-hover);
+  border-color: var(--gold);
+}
+
+.folderItem input[type="checkbox"] {
+  display: none;
+}
+
+.folderIcon {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+  background: var(--bg-mute);
+  color: var(--text);
+}
+
+.folderInfo {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.folderName {
+  font-family: var(--font-display);
+  font-size: 14px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.folderCount {
+  font-size: 12px;
+  color: var(--text-dim);
+}
