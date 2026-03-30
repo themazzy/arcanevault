@@ -42,6 +42,7 @@ export default function CollectionPage() {
   const [importing, setImporting] = useState(false)
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState(new Set())
+  const [splitState, setSplitState] = useState(new Map())
   const [folders, setFolders] = useState([])
   const [cardFolderMap, setCardFolderMap] = useState({})
   const [isOnline, setIsOnline] = useState(navigator.onLine)
@@ -400,32 +401,60 @@ export default function CollectionPage() {
 
   // ── Bulk delete ──────────────────────────────────────────────────────────────
   const handleBulkDelete = async () => {
-    const count = selected.size
+    const toDelete = [], toUpdate = []
+    const seenIds = new Set()
+    for (const key of selected) {
+      const card = displayCards.find(c => (c._displayKey || c.id) === key)
+      if (!card || seenIds.has(card.id)) continue
+      seenIds.add(card.id)
+      const totalQty = card.qty || 1
+      const selQty = splitState.get(card.id) ?? 1
+      const remaining = totalQty - selQty
+      if (remaining > 0) toUpdate.push({ id: card.id, remaining })
+      else toDelete.push(card.id)
+    }
+    const count = toDelete.length + toUpdate.length
     if (!window.confirm(`Delete ${count} card${count !== 1 ? 's' : ''}? This cannot be undone.`)) return
-    const ids = selectedRealIds()
 
-    if (ids.length === cards.length) {
+    if (toDelete.length === cards.length && !toUpdate.length) {
       await sb.from('cards').delete().eq('user_id', user.id)
       await deleteAllCards(user.id)
-      setCards([]); setSelected(new Set()); setSelectMode(false); return
+      setCards([]); setSelected(new Set()); setSplitState(new Map()); setSelectMode(false); return
     }
 
     const BATCH = 100
-    for (let i = 0; i < ids.length; i += BATCH) {
-      const batch = ids.slice(i, i + BATCH)
+    for (let i = 0; i < toDelete.length; i += BATCH) {
+      const batch = toDelete.slice(i, i + BATCH)
       await sb.from('cards').delete().in('id', batch)
       for (const id of batch) await deleteCard(id)
     }
-    const idSet = new Set(ids)
-    setCards(prev => prev.filter(c => !idSet.has(c.id)))
-    setSelected(new Set()); setSelectMode(false)
+    for (const { id, remaining } of toUpdate) {
+      await sb.from('cards').update({ qty: remaining }).eq('id', id)
+      const card = cards.find(c => c.id === id)
+      if (card) await putCards([{ ...card, qty: remaining }])
+    }
+    const toDeleteSet = new Set(toDelete)
+    setCards(prev => prev.map(c => {
+      if (toDeleteSet.has(c.id)) return null
+      const upd = toUpdate.find(u => u.id === c.id)
+      return upd ? { ...c, qty: upd.remaining } : c
+    }).filter(Boolean))
+    setSelected(new Set()); setSplitState(new Map()); setSelectMode(false)
   }
 
   const handleMoveToFolder = async (folder) => {
-    const ids = selectedRealIds()
-    const folderCards = ids.map(id => ({ folder_id: folder.id, card_id: id, qty: 1 }))
+    const folderCards = []
+    const seenIds = new Set()
+    for (const key of selected) {
+      const card = displayCards.find(c => (c._displayKey || c.id) === key)
+      if (!card || seenIds.has(card.id)) continue
+      seenIds.add(card.id)
+      const totalQty = card.qty || 1
+      const selQty = splitState.get(card.id) ?? 1
+      folderCards.push({ folder_id: folder.id, card_id: card.id, qty: selQty })
+    }
     await sb.from('folder_cards').upsert(folderCards, { onConflict: 'folder_id,card_id', ignoreDuplicates: true })
-    setSelected(new Set()); setSelectMode(false)
+    setSelected(new Set()); setSplitState(new Map()); setSelectMode(false)
   }
 
   const handleDelete = async (card) => {
@@ -442,10 +471,43 @@ export default function CollectionPage() {
     await putCards([updatedCard])
   }, [])
 
-  const toggleSelectMode = () => { setSelectMode(v => !v); setSelected(new Set()) }
-  const toggleSelect = (id) => setSelected(prev => {
-    const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next
-  })
+  const displayCardsRef = useRef([])
+
+  const toggleSelectMode = () => { setSelectMode(v => !v); setSelected(new Set()); setSplitState(new Map()) }
+  const toggleSelect = useCallback((id, totalQty) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+        const card = displayCardsRef.current.find(c => (c._displayKey || c.id) === id)
+        if (card) setSplitState(s => { const n = new Map(s); n.delete(card.id); return n })
+      } else {
+        next.add(id)
+        if (totalQty > 1) {
+          const card = displayCardsRef.current.find(c => (c._displayKey || c.id) === id)
+          if (card) setSplitState(s => new Map(s).set(card.id, 1))
+        }
+      }
+      return next
+    })
+  }, [])
+
+  const onAdjustQty = useCallback((id, delta, totalQty) => {
+    setSplitState(prev => {
+      const current = prev.get(id) ?? 1
+      const next = Math.max(1, Math.min(totalQty, current + delta))
+      return new Map(prev).set(id, next)
+    })
+  }, [])
+
+  const selectedQty = useMemo(() =>
+    [...selected].reduce((sum, key) => {
+      const card = displayCardsRef.current.find(c => (c._displayKey || c.id) === key)
+      if (!card) return sum
+      const totalQty = card.qty || 1
+      return sum + (splitState.get(card.id) ?? 1)
+    }, 0)
+  , [selected, splitState])
 
   const totalValue = useMemo(() => cards.reduce((s, c) => {
     const p = getPrice(sfMap[getScryfallKey(c)], c.foil, { price_source })
@@ -487,6 +549,7 @@ export default function CollectionPage() {
         result.push({ ...card, _displayKey: card.id, _displayFolder: folders?.[0] || null })
       }
     }
+    displayCardsRef.current = result
     return result
   }, [filtered, cardFolderMap])
 
@@ -550,12 +613,20 @@ export default function CollectionPage() {
 
         {selectMode && selected.size > 0 && (
           <BulkActionBar
-            selected={selected} total={filtered.length}
+            selected={selected} selectedQty={selectedQty} total={filtered.length}
             onSelectAll={() => setSelected(new Set(displayCards.map(c => c._displayKey || c.id)))}
-            onDeselectAll={() => setSelected(new Set())}
+            onDeselectAll={() => { setSelected(new Set()); setSplitState(new Map()) }}
             onDelete={handleBulkDelete}
             onMoveToFolder={handleMoveToFolder}
             folders={folders}
+            onCreateFolder={async (type, name) => {
+              const { data: newFolder } = await sb.from('folders')
+                .insert({ name, type, user_id: user.id }).select().single()
+              if (newFolder) {
+                setFolders(prev => [...prev, newFolder])
+                await handleMoveToFolder(newFolder)
+              }
+            }}
           />
         )}
 
@@ -565,6 +636,7 @@ export default function CollectionPage() {
             onSelect={c => setDetailCardId(c.id)}
             selectMode={selectMode} selected={selected} onToggleSelect={toggleSelect}
             onEnterSelectMode={() => { setSelectMode(true) }}
+            splitState={splitState} onAdjustQty={onAdjustQty}
             priceSource={price_source}
             showPrice={show_price} density={grid_density}
             cardFolders={cardFolderMap}

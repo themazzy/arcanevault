@@ -444,6 +444,7 @@ function FolderBrowser({ folder, allFolders = [], onBack }) {
   const [filters, setFilters]         = useState({ ...EMPTY_FILTERS })
   const [selectMode, setSelectMode]   = useState(false)
   const [selectedCards, setSelectedCards] = useState(new Set())
+  const [splitState, setSplitState]   = useState(new Map())
   const [showAddCard, setShowAddCard] = useState(false)
   const [showExport, setShowExport]   = useState(false)
   const [view, setView]               = useState('grid')   // 'grid' | 'list'
@@ -486,27 +487,88 @@ function FolderBrowser({ folder, allFolders = [], onBack }) {
   const selectedCard = selected ? cards.find(c => c.id === selected) : null
   const selectedSf   = selectedCard ? sfMap[getScryfallKey(selectedCard)] : null
 
-  const toggleSelectMode = () => {
-    setSelectMode(v => !v)
-    setSelectedCards(new Set())
-  }
+  const clearSelect = () => { setSelectedCards(new Set()); setSplitState(new Map()); setSelectMode(false) }
+  const toggleSelectMode = () => { setSelectMode(v => { if (v) clearSelect(); return !v }) }
+
+  const onToggleSelect = useCallback((id, totalQty) => {
+    setSelectedCards(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+        setSplitState(s => { const n = new Map(s); n.delete(id); return n })
+      } else if (totalQty > 1) {
+        next.add(id)
+        setSplitState(s => new Map(s).set(id, 1))
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }, [])
+
+  const onAdjustQty = useCallback((id, delta, totalQty) => {
+    setSplitState(prev => {
+      const current = prev.get(id) ?? 1
+      const next = Math.max(1, Math.min(totalQty, current + delta))
+      return new Map(prev).set(id, next)
+    })
+  }, [])
+
+  const selectedQty = useMemo(() =>
+    [...selectedCards].reduce((sum, id) => {
+      const c = cards.find(c => c.id === id)
+      const totalQty = c?._folder_qty || c?.qty || 1
+      return sum + (splitState.get(id) ?? 1)
+    }, 0)
+  , [selectedCards, cards, splitState])
 
   const handleBulkDelete = async () => {
-    const ids = [...selectedCards]
-    await sb.from('folder_cards').delete().eq('folder_id', folder.id).in('card_id', ids)
-    setCards(prev => prev.filter(c => !selectedCards.has(c.id)))
-    setSelectedCards(new Set())
-    setSelectMode(false)
+    const toDelete = [], toUpdate = []
+    for (const id of selectedCards) {
+      const card = cards.find(c => c.id === id)
+      const totalQty = card?._folder_qty || card?.qty || 1
+      const selQty = splitState.get(id) ?? 1
+      const remaining = totalQty - selQty
+      remaining > 0 ? toUpdate.push({ id, remaining }) : toDelete.push(id)
+    }
+    if (toDelete.length) await sb.from('folder_cards').delete().eq('folder_id', folder.id).in('card_id', toDelete)
+    for (const { id, remaining } of toUpdate) {
+      await sb.from('folder_cards').update({ qty: remaining }).eq('folder_id', folder.id).eq('card_id', id)
+    }
+    setCards(prev => prev.map(c => {
+      if (!selectedCards.has(c.id)) return c
+      const totalQty = c._folder_qty || c.qty || 1
+      const selQty = splitState.get(c.id) ?? 1
+      const remaining = totalQty - selQty
+      return remaining > 0 ? { ...c, _folder_qty: remaining } : null
+    }).filter(Boolean))
+    clearSelect()
   }
 
   const handleMoveToFolder = async (targetFolder) => {
-    const ids = [...selectedCards]
-    const rows = ids.map(id => ({ folder_id: targetFolder.id, card_id: id, qty: 1 }))
-    await sb.from('folder_cards').upsert(rows, { onConflict: 'folder_id,card_id', ignoreDuplicates: true })
-    await sb.from('folder_cards').delete().eq('folder_id', folder.id).in('card_id', ids)
-    setCards(prev => prev.filter(c => !selectedCards.has(c.id)))
-    setSelectedCards(new Set())
-    setSelectMode(false)
+    const toDelete = [], toUpdate = []
+    const insertRows = []
+    for (const id of selectedCards) {
+      const card = cards.find(c => c.id === id)
+      const totalQty = card?._folder_qty || card?.qty || 1
+      const selQty = splitState.get(id) ?? 1
+      const remaining = totalQty - selQty
+      insertRows.push({ folder_id: targetFolder.id, card_id: id, qty: selQty })
+      remaining > 0 ? toUpdate.push({ id, remaining }) : toDelete.push(id)
+    }
+    await sb.from('folder_cards').upsert(insertRows, { onConflict: 'folder_id,card_id', ignoreDuplicates: true })
+    if (toDelete.length) await sb.from('folder_cards').delete().eq('folder_id', folder.id).in('card_id', toDelete)
+    for (const { id, remaining } of toUpdate) {
+      await sb.from('folder_cards').update({ qty: remaining }).eq('folder_id', folder.id).eq('card_id', id)
+    }
+    setCards(prev => prev.map(c => {
+      if (!selectedCards.has(c.id)) return c
+      const totalQty = c._folder_qty || c.qty || 1
+      const selQty = splitState.get(c.id) ?? 1
+      const remaining = totalQty - selQty
+      return remaining > 0 ? { ...c, _folder_qty: remaining } : null
+    }).filter(Boolean))
+    clearSelect()
   }
 
   if (loading) return <EmptyState>Loading…</EmptyState>
@@ -553,12 +615,18 @@ function FolderBrowser({ folder, allFolders = [], onBack }) {
       {selectMode && selectedCards.size > 0 && (
         <BulkActionBar
           selected={selectedCards}
+          selectedQty={selectedQty}
           total={filtered.length}
           onSelectAll={() => setSelectedCards(new Set(filtered.map(c => c.id)))}
-          onDeselectAll={() => setSelectedCards(new Set())}
+          onDeselectAll={() => { setSelectedCards(new Set()); setSplitState(new Map()) }}
           onDelete={handleBulkDelete}
           onMoveToFolder={handleMoveToFolder}
           folders={allFolders.filter(f => f.id !== folder.id && !isGroupFolder(f))}
+          onCreateFolder={async (type, name) => {
+            const { data: newFolder } = await sb.from('folders')
+              .insert({ name, type, user_id: user.id }).select().single()
+            if (newFolder) await handleMoveToFolder(newFolder)
+          }}
         />
       )}
 
@@ -570,11 +638,10 @@ function FolderBrowser({ folder, allFolders = [], onBack }) {
           onSelect={c => setSelected(c.id)}
           selectMode={selectMode}
           selected={selectedCards}
-          onToggleSelect={id => setSelectedCards(prev => {
-            const next = new Set(prev)
-            next.has(id) ? next.delete(id) : next.add(id)
-            return next
-          })}
+          onToggleSelect={onToggleSelect}
+          onEnterSelectMode={() => setSelectMode(true)}
+          splitState={splitState}
+          onAdjustQty={onAdjustQty}
         />
       )}
 

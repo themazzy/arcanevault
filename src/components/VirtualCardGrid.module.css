@@ -135,3 +135,43 @@
   opacity: 0.75;
   font-style: italic;
 }
+
+/* Selection */
+.cardSelected .imgContainer { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+/* Qty adjuster overlay — shown when card is selected and qty > 1 */
+.qtyOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: rgba(0,0,0,0.55);
+  border-radius: 7px;
+  z-index: 5;
+  overflow: hidden;
+}
+.qtyBtn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: rgba(255,255,255,0.85);
+  cursor: pointer;
+  background: none;
+  border: none;
+  line-height: 1;
+  transition: background 0.15s;
+}
+.qtyBtn:hover { background: rgba(255,255,255,0.12); }
+.qtyDisplay {
+  padding: 3px 0;
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--gold);
+  font-family: var(--font-display);
+  letter-spacing: 0.05em;
+  background: rgba(0,0,0,0.35);
+  pointer-events: none;
+}

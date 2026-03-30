@@ -4,6 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
+## ⚠️ Do Not Use Subagents
+
+**Never** spawn subagents (Agent tool) for any task in this project. Perform all research, searches, and edits directly in the main conversation. Subagents waste tokens.
+
+---
+
 ## ⚠️ Handling Ambiguous Instructions — READ THIS FIRST
 
 **This is the highest-priority rule in this file.**
@@ -436,16 +442,27 @@ create policy "read own feedback" on feedback for select using (auth.uid() = use
 alter table user_settings add column if not exists nickname text default '';
 ```
 
-### Select Mode & Visual Split (DeckBrowser)
+### Select Mode & Qty Adjuster
 
-Cards in a binder/deck can be selected for bulk move/delete. Multi-copy cards (e.g. ×4 Forest) split visually on first click:
+Cards in Collection, Binders, Decks, and Wishlists can be selected for bulk move/delete. Multi-copy cards show an in-card quantity adjuster when selected:
 
-- `splitState: Map<cardId, selectedQty>` tracks how many copies of each card are "virtually selected"
-- First click on an unselected multi-copy card → selects 1, shows remainder as a dimmed row/card
-- Clicking the dimmed remainder → increments selected qty
-- No DB write until bulk action (`handleBulkDelete` / `handleMoveToFolder`) — those use `splitState` to determine actual qty to move/delete
-- This split logic is implemented in: `DeckListGroup` (list view), `StacksView` (stacks view), `DeckCardGrid` (grid view)
-- `BulkActionBar` receives `selectedQty` (sum of copies, not row count) to show accurate copy count
+- `splitState: Map<cardId, selectedQty>` tracks how many copies of each card are selected
+- First click on a multi-copy card → selects it with qty **1** (not all copies)
+- When selected and `qty > 1`: a `+`/`−` overlay appears on the card image with `N of M` label — `+` at top, `−` at bottom
+- `onAdjustQty(id, delta, totalQty)` increments/decrements, clamped to `[1, totalQty]`
+- No DB write until bulk action (`handleBulkDelete` / `handleMoveToFolder`) — those use `splitState.get(id) ?? 1`
+- Grid/stacks views: full-image overlay with `+`/`−` buttons. List view (DeckBrowser): inline `−`/`N/M`/`+` buttons in the qty column
+- `BulkActionBar` receives `selectedQty` (sum of selected copies) to show accurate copy count
+- Implemented consistently across: `VirtualCardGrid` (Collection), `CardGrid` (Binders), `DeckCardGrid`/`StacksView`/`DeckListGroup` (Decks), `WishlistGrid` (Wishlists)
+
+### Move To Dialog
+
+`BulkActionBar` has a "Move to…" button that opens `MoveToDialog` (defined in `CardComponents.jsx`):
+- Uses `Modal` from `UI.jsx`
+- Toggle between Binder / Deck destination types
+- Searchable list of existing folders
+- "Create new" inline form that calls `onCreateFolder(type, name)` and moves immediately
+- Works from Collection, DeckBrowser, and FolderBrowser (Binders)
 
 ### useLongPress Hook
 
