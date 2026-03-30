@@ -15,6 +15,7 @@ import LifeTrackerPage from './pages/LifeTracker'
 import BuilderPage from './pages/Builder'
 import DeckBuilderPage from './pages/DeckBuilder'
 import DeckViewPage from './pages/DeckView'
+import TradingPage from './pages/Trading'
 import TournamentsPage from './pages/Tournaments'
 
 function PrivateApp() {
@@ -29,6 +30,7 @@ function PrivateApp() {
           <Route path="/decks"       element={<FoldersPage key="decks"   type="deck" />} />
           <Route path="/binders"     element={<FoldersPage key="binders" type="binder" />} />
           <Route path="/lists"       element={<ListsPage />} />
+          <Route path="/trading"     element={<TradingPage />} />
           <Route path="/stats"       element={<StatsPage />} />
           <Route path="/life"        element={<LifeTrackerPage />} />
           <Route path="/tournaments" element={<TournamentsPage />} />

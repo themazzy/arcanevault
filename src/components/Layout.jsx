@@ -12,6 +12,7 @@ const TABS = [
   { to: '/builder',     label: '⚔ Builder' },
   { to: '/binders',     label: 'Binders' },
   { to: '/lists',       label: 'Wishlists' },
+  { to: '/trading',     label: 'Trading' },
   { to: '/stats',       label: 'Stats' },
   { to: '/life',        label: '♥ Life' },
   { to: '/tournaments', label: 'Tournaments' },
