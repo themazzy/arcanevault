@@ -47,14 +47,20 @@ jobs:
 
       - name: Build iOS simulator app
         run: |
-          xcodebuild \
-            -workspace ios/App/App.xcworkspace \
+          if [ -d ios/App/CapApp-SPM ]; then
+            XCODE_CONTAINER_ARGS="-project ios/App/App.xcodeproj"
+          else
+            XCODE_CONTAINER_ARGS="-workspace ios/App/App.xcworkspace"
+          fi
+
+          xcodebuild $XCODE_CONTAINER_ARGS \
             -scheme App \
             -configuration Debug \
             -sdk iphonesimulator \
-            -destination 'generic/platform=iOS Simulator' \
+            -destination 'platform=iOS Simulator,name=iPhone 16' \
             -derivedDataPath ios/build \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO \
+            build
 
       - name: Package simulator app
         run: |
