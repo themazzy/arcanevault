@@ -22,7 +22,15 @@
           root.setAttribute('data-theme-mode', 'light');
         }
         if (t.oled) {
-          var oled = {'--bg':'#000000','--bg2':'#060606','--bg3':'#0d0d0d'};
+          var oled = {
+            '--bg':'#000000',
+            '--bg2':'#000000',
+            '--bg3':'#000000',
+            '--s1':'#000000',
+            '--s2':'#000000',
+            '--s3':'#000000',
+            '--s4':'#000000'
+          };
           for (var ok in oled) root.style.setProperty(ok, oled[ok]);
         }
       }
@@ -52,5 +60,7 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <!-- OpenCV.js — loaded async; scanner checks window.cv before use -->
+    <script async src="https://docs.opencv.org/4.8.0/opencv.js" id="opencv-script"></script>
   </body>
 </html>

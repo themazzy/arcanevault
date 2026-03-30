@@ -12,7 +12,7 @@
   display: flex; align-items: center; gap: 20px;
   padding: 16px 40px;
   border-bottom: 1px solid var(--border);
-  background: rgba(10,8,20,0.92);
+  background: var(--nav-bg);
 }
 
 .logo {

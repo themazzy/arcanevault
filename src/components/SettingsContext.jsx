@@ -4,234 +4,305 @@ import { useAuth } from './Auth'
 
 const SETTINGS_KEY = 'arcanevault_settings'
 
-// ── Themes ────────────────────────────────────────────────────────────────────
-export const THEMES = {
-  shadow: {
-    name: 'Shadow',
-    lore: 'Swamp · Dimir · Orzhov',
-    preview: { bg: '#0a0a0f', accent: '#c9a84c', hi: '#8a6fc4', text: '#ddd0b8' },
-    vars: {
-      '--bg':          '#0a0a0f',
-      '--bg2':         '#0e0c1a',
-      '--bg3':         '#12101e',
-      '--border':      'rgba(180,140,60,0.20)',
-      '--border-hi':   'rgba(201,168,76,0.50)',
-      '--gold':        '#c9a84c',
-      '--gold-dim':    '#a08848',
-      '--purple':      '#8a6fc4',
-      '--green':       '#8ab87a',
-      '--red':         '#c46060',
-      '--text':        '#ddd0b8',
-      '--text-dim':    '#a89878',
-      '--text-faint':  '#857868',
-      '--gold-glow':   '0 0 18px rgba(201,168,76,0.18)',
-      '--input-focus': '0 0 0 3px rgba(201,168,76,0.12)',
-    },
-  },
-  abyssal: {
-    name: 'Abyssal',
-    lore: 'Ocean · Simic · Merfolk',
-    preview: { bg: '#080e14', accent: '#4cc4c9', hi: '#4c78c4', text: '#c8dce0' },
-    vars: {
-      '--bg':          '#080e14',
-      '--bg2':         '#0b1420',
-      '--bg3':         '#0f1c2c',
-      '--border':      'rgba(60,160,180,0.20)',
-      '--border-hi':   'rgba(76,196,201,0.50)',
-      '--gold':        '#4cc4c9',
-      '--gold-dim':    '#3aa0a8',
-      '--purple':      '#4c78c4',
-      '--green':       '#7abf8a',
-      '--red':         '#c46060',
-      '--text':        '#c8dce0',
-      '--text-dim':    '#7aa8b8',
-      '--text-faint':  '#527888',
-      '--gold-glow':   '0 0 18px rgba(76,196,201,0.18)',
-      '--input-focus': '0 0 0 3px rgba(76,196,201,0.12)',
-    },
-  },
-  ember: {
-    name: 'Ember',
-    lore: 'Volcano · Rakdos · Boros',
-    preview: { bg: '#0f0605', accent: '#e87040', hi: '#c44040', text: '#e4c8b8' },
-    vars: {
-      '--bg':          '#0f0605',
-      '--bg2':         '#180a06',
-      '--bg3':         '#200e08',
-      '--border':      'rgba(200,100,60,0.20)',
-      '--border-hi':   'rgba(232,112,64,0.50)',
-      '--gold':        '#e87040',
-      '--gold-dim':    '#c05830',
-      '--purple':      '#c44040',
-      '--green':       '#8ab87a',
-      '--red':         '#e04040',
-      '--text':        '#e4c8b8',
-      '--text-dim':    '#b08870',
-      '--text-faint':  '#886050',
-      '--gold-glow':   '0 0 18px rgba(232,112,64,0.18)',
-      '--input-focus': '0 0 0 3px rgba(232,112,64,0.12)',
-    },
-  },
-  grove: {
-    name: 'Grove',
-    lore: 'Ancient Forest · Selesnya · Elf',
-    preview: { bg: '#050f08', accent: '#6abf7a', hi: '#4c8a6f', text: '#c4e0c8' },
-    vars: {
-      '--bg':          '#050f08',
-      '--bg2':         '#081508',
-      '--bg3':         '#0c1c0c',
-      '--border':      'rgba(60,160,90,0.20)',
-      '--border-hi':   'rgba(106,191,122,0.50)',
-      '--gold':        '#6abf7a',
-      '--gold-dim':    '#508f60',
-      '--purple':      '#4c8a6f',
-      '--green':       '#8abf7a',
-      '--red':         '#c46060',
-      '--text':        '#c4e0c8',
-      '--text-dim':    '#7aa888',
-      '--text-faint':  '#527858',
-      '--gold-glow':   '0 0 18px rgba(106,191,122,0.18)',
-      '--input-focus': '0 0 0 3px rgba(106,191,122,0.12)',
-    },
-  },
-  void: {
-    name: 'Void',
-    lore: 'Aether · Dimir · Eldrazi',
-    preview: { bg: '#08050f', accent: '#b46cc4', hi: '#6c4cc4', text: '#d8c8e8' },
-    vars: {
-      '--bg':          '#08050f',
-      '--bg2':         '#0e0818',
-      '--bg3':         '#140c20',
-      '--border':      'rgba(140,80,180,0.20)',
-      '--border-hi':   'rgba(180,108,196,0.50)',
-      '--gold':        '#b46cc4',
-      '--gold-dim':    '#8a50a0',
-      '--purple':      '#6c4cc4',
-      '--green':       '#8ab87a',
-      '--red':         '#c46060',
-      '--text':        '#d8c8e8',
-      '--text-dim':    '#9880b8',
-      '--text-faint':  '#705888',
-      '--gold-glow':   '0 0 18px rgba(180,108,196,0.18)',
-      '--input-focus': '0 0 0 3px rgba(180,108,196,0.12)',
-    },
-  },
-  storm: {
-    name: 'Storm',
-    lore: 'Lightning · Izzet · Wizard',
-    preview: { bg: '#060a14', accent: '#60a8e8', hi: '#4060c4', text: '#c8d8e8' },
-    vars: {
-      '--bg':          '#060a14',
-      '--bg2':         '#0a1020',
-      '--bg3':         '#0e1628',
-      '--border':      'rgba(60,120,200,0.20)',
-      '--border-hi':   'rgba(96,168,232,0.50)',
-      '--gold':        '#60a8e8',
-      '--gold-dim':    '#4880c0',
-      '--purple':      '#4060c4',
-      '--green':       '#8ab87a',
-      '--red':         '#c46060',
-      '--text':        '#c8d8e8',
-      '--text-dim':    '#7898b8',
-      '--text-faint':  '#507080',
-      '--gold-glow':   '0 0 18px rgba(96,168,232,0.18)',
-      '--input-focus': '0 0 0 3px rgba(96,168,232,0.12)',
-    },
-  },
-
-  // ── Light themes ────────────────────────────────────────────────────────────
-  parchment: {
-    name: 'Parchment',
-    lore: 'Plains · Vintage · Scroll',
-    mode: 'light',
-    preview: { bg: '#f5f0e2', accent: '#8c6020', hi: '#604890', text: '#1c1408' },
-    vars: {
-      '--bg':          '#f5f0e2',
-      '--bg2':         '#ece6d4',
-      '--bg3':         '#e4dcc8',
-      '--border':      'rgba(100,70,20,0.20)',
-      '--border-hi':   'rgba(140,96,32,0.50)',
-      '--gold':        '#8c6020',
-      '--gold-dim':    '#6a4818',
-      '--purple':      '#604890',
-      '--green':       '#3a7848',
-      '--red':         '#a03030',
-      '--text':        '#1c1408',
-      '--text-dim':    '#5c4830',
-      '--text-faint':  '#8c7858',
-      '--gold-glow':   '0 0 18px rgba(140,96,32,0.22)',
-      '--input-focus': '0 0 0 3px rgba(140,96,32,0.14)',
-      '--s-card':      'rgba(0,0,0,0.04)',
-      '--s-subtle':    'rgba(0,0,0,0.065)',
-      '--s-medium':    'rgba(0,0,0,0.09)',
-      '--s-border':    'rgba(0,0,0,0.10)',
-      '--s-border2':   'rgba(0,0,0,0.18)',
-      '--overlay':     'rgba(0,0,0,0.07)',
-    },
-  },
-
-  daybreak: {
-    name: 'Daybreak',
-    lore: 'Island · Dawn · Azorius',
-    mode: 'light',
-    preview: { bg: '#f0f4f8', accent: '#2a5fa0', hi: '#4a6080', text: '#0a1422' },
-    vars: {
-      '--bg':          '#f0f4f8',
-      '--bg2':         '#e4eaf4',
-      '--bg3':         '#d8e0ef',
-      '--border':      'rgba(30,70,150,0.16)',
-      '--border-hi':   'rgba(42,95,160,0.45)',
-      '--gold':        '#2a5fa0',
-      '--gold-dim':    '#204880',
-      '--purple':      '#4a6080',
-      '--green':       '#2a7840',
-      '--red':         '#a03030',
-      '--text':        '#0a1422',
-      '--text-dim':    '#3a4860',
-      '--text-faint':  '#687090',
-      '--gold-glow':   '0 0 18px rgba(42,95,160,0.20)',
-      '--input-focus': '0 0 0 3px rgba(42,95,160,0.14)',
-      '--s-card':      'rgba(0,0,0,0.04)',
-      '--s-subtle':    'rgba(0,0,0,0.065)',
-      '--s-medium':    'rgba(0,0,0,0.09)',
-      '--s-border':    'rgba(0,0,0,0.10)',
-      '--s-border2':   'rgba(0,0,0,0.18)',
-      '--overlay':     'rgba(0,0,0,0.07)',
-    },
-  },
-
-  bloom: {
-    name: 'Bloom',
-    lore: 'Forest · Spring · Selesnya',
-    mode: 'light',
-    preview: { bg: '#f9f0ee', accent: '#b04060', hi: '#406840', text: '#1a0810' },
-    vars: {
-      '--bg':          '#f9f0ee',
-      '--bg2':         '#f0e4e0',
-      '--bg3':         '#e8d8d4',
-      '--border':      'rgba(150,40,70,0.18)',
-      '--border-hi':   'rgba(176,64,96,0.45)',
-      '--gold':        '#b04060',
-      '--gold-dim':    '#8c3050',
-      '--purple':      '#406840',
-      '--green':       '#3a7848',
-      '--red':         '#c03030',
-      '--text':        '#1a0810',
-      '--text-dim':    '#583040',
-      '--text-faint':  '#885060',
-      '--gold-glow':   '0 0 18px rgba(176,64,96,0.20)',
-      '--input-focus': '0 0 0 3px rgba(176,64,96,0.14)',
-      '--s-card':      'rgba(0,0,0,0.04)',
-      '--s-subtle':    'rgba(0,0,0,0.065)',
-      '--s-medium':    'rgba(0,0,0,0.09)',
-      '--s-border':    'rgba(0,0,0,0.10)',
-      '--s-border2':   'rgba(0,0,0,0.18)',
-      '--overlay':     'rgba(0,0,0,0.07)',
-    },
-  },
+const LIGHT_SURFACE_VARS = {
+  '--s-card': 'rgba(0,0,0,0.04)',
+  '--s-subtle': 'rgba(0,0,0,0.065)',
+  '--s-medium': 'rgba(0,0,0,0.09)',
+  '--s-border': 'rgba(0,0,0,0.10)',
+  '--s-border2': 'rgba(0,0,0,0.18)',
+  '--overlay': 'rgba(0,0,0,0.07)',
+  '--s1': 'rgba(0,0,0,0.035)',
+  '--s2': 'rgba(0,0,0,0.06)',
+  '--s3': 'rgba(0,0,0,0.085)',
+  '--s4': 'rgba(0,0,0,0.11)',
+  '--nav-bg': 'rgba(255,255,255,0.88)',
+  '--popup-bg': 'var(--bg2)',
+  '--ambient-1': 'rgba(214,171,94,0.12)',
+  '--ambient-2': 'rgba(122,150,205,0.10)',
+  '--glass-strong': 'rgba(255,255,255,0.9)',
+  '--glass-medium': 'rgba(255,255,255,0.82)',
+  '--glass-soft': 'rgba(255,255,255,0.72)',
+  '--scrim-strong': 'rgba(233,238,245,0.82)',
+  '--scrim-medium': 'rgba(233,238,245,0.62)',
+  '--scrim-soft': 'rgba(233,238,245,0.42)',
 }
 
-// ── Defaults ──────────────────────────────────────────────────────────────────
+const DARK_SURFACE_VARS = {
+  '--s-card': 'rgba(255,255,255,0.025)',
+  '--s-subtle': 'rgba(255,255,255,0.04)',
+  '--s-medium': 'rgba(255,255,255,0.07)',
+  '--s-border': 'rgba(255,255,255,0.07)',
+  '--s-border2': 'rgba(255,255,255,0.12)',
+  '--overlay': 'rgba(0,0,0,0.20)',
+  '--s1': 'rgba(255,255,255,0.03)',
+  '--s2': 'rgba(255,255,255,0.05)',
+  '--s3': 'rgba(255,255,255,0.08)',
+  '--s4': 'rgba(255,255,255,0.12)',
+  '--nav-bg': 'rgba(8,6,16,0.94)',
+  '--popup-bg': 'var(--bg3)',
+  '--ambient-1': 'rgba(139,90,43,0.055)',
+  '--ambient-2': 'rgba(80,60,120,0.075)',
+  '--glass-strong': 'rgba(10,10,18,0.92)',
+  '--glass-medium': 'rgba(10,8,20,0.82)',
+  '--glass-soft': 'rgba(10,8,20,0.72)',
+  '--scrim-strong': 'rgba(0,0,0,0.78)',
+  '--scrim-medium': 'rgba(0,0,0,0.55)',
+  '--scrim-soft': 'rgba(0,0,0,0.35)',
+}
+
+function createTheme({
+  name,
+  lore,
+  mode,
+  bg,
+  bg2,
+  bg3,
+  accent,
+  accentDim,
+  hi,
+  green,
+  red,
+  text,
+  textDim,
+  textFaint,
+  border,
+  borderHi,
+  glow,
+  focus,
+}) {
+  return {
+    name,
+    lore,
+    ...(mode ? { mode } : {}),
+    preview: { bg, accent, hi, text },
+    vars: {
+      '--bg': bg,
+      '--bg2': bg2,
+      '--bg3': bg3,
+      '--border': border,
+      '--border-hi': borderHi,
+      '--gold': accent,
+      '--gold-dim': accentDim,
+      '--purple': hi,
+      '--green': green,
+      '--red': red,
+      '--text': text,
+      '--text-dim': textDim,
+      '--text-faint': textFaint,
+      '--gold-glow': glow,
+      '--input-focus': focus,
+      ...(mode === 'light' ? LIGHT_SURFACE_VARS : DARK_SURFACE_VARS),
+    },
+  }
+}
+
+function createDarkTheme(config) {
+  return createTheme({
+    green: '#8ab87a',
+    red: '#c46060',
+    ...config,
+  })
+}
+
+function createLightTheme(config) {
+  return createTheme({
+    mode: 'light',
+    green: '#3a7848',
+    red: '#a03030',
+    ...config,
+  })
+}
+
+export const THEMES = {
+  shadow: createDarkTheme({
+    name: 'Shadow',
+    lore: 'Original Arcane Vault gold and violet',
+    bg: '#0a0a0f',
+    bg2: '#0e0c1a',
+    bg3: '#12101e',
+    accent: '#c9a84c',
+    accentDim: '#a08848',
+    hi: '#8a6fc4',
+    text: '#ddd0b8',
+    textDim: '#a89878',
+    textFaint: '#857868',
+    border: 'rgba(180,140,60,0.20)',
+    borderHi: 'rgba(201,168,76,0.50)',
+    glow: '0 0 18px rgba(201,168,76,0.18)',
+    focus: '0 0 0 3px rgba(201,168,76,0.12)',
+  }),
+  azorius: createLightTheme({
+    name: 'Azorius',
+    lore: 'Law magic, marble halls, cold dawn skies',
+    bg: '#edf4fb',
+    bg2: '#e0ebf7',
+    bg3: '#d4e1f0',
+    accent: '#3c78c2',
+    accentDim: '#2d5d98',
+    hi: '#9db7d9',
+    text: '#102033',
+    textDim: '#4f6278',
+    textFaint: '#7c8ea6',
+    border: 'rgba(42,92,150,0.18)',
+    borderHi: 'rgba(60,120,194,0.44)',
+    glow: '0 0 18px rgba(60,120,194,0.20)',
+    focus: '0 0 0 3px rgba(60,120,194,0.14)',
+  }),
+  dimir: createDarkTheme({
+    name: 'Dimir',
+    lore: 'Midnight archives, secrets, and deep-water ink',
+    bg: '#071019',
+    bg2: '#0b1624',
+    bg3: '#101d2e',
+    accent: '#4e8ecf',
+    accentDim: '#3b6e9f',
+    hi: '#4e5fae',
+    text: '#ccdae8',
+    textDim: '#7f97b2',
+    textFaint: '#5a6e84',
+    border: 'rgba(60,110,180,0.20)',
+    borderHi: 'rgba(78,142,207,0.48)',
+    glow: '0 0 18px rgba(78,142,207,0.18)',
+    focus: '0 0 0 3px rgba(78,142,207,0.12)',
+  }),
+  rakdos: createDarkTheme({
+    name: 'Rakdos',
+    lore: 'Infernal carnival, brass sparks, and blood velvet',
+    bg: '#130708',
+    bg2: '#1b0b0d',
+    bg3: '#240f12',
+    accent: '#d84d4d',
+    accentDim: '#a83a3a',
+    hi: '#f07b3f',
+    text: '#ebcbc4',
+    textDim: '#bd8b81',
+    textFaint: '#91675e',
+    border: 'rgba(190,70,70,0.20)',
+    borderHi: 'rgba(216,77,77,0.48)',
+    glow: '0 0 18px rgba(216,77,77,0.18)',
+    focus: '0 0 0 3px rgba(216,77,77,0.12)',
+  }),
+  gruul: createDarkTheme({
+    name: 'Gruul',
+    lore: 'Ash, moss, and the riot of broken stone',
+    bg: '#0d0b07',
+    bg2: '#15110a',
+    bg3: '#1e160d',
+    accent: '#cf7c39',
+    accentDim: '#9f5f2c',
+    hi: '#6b8b3f',
+    text: '#e2d3bc',
+    textDim: '#af9976',
+    textFaint: '#837056',
+    border: 'rgba(170,100,50,0.20)',
+    borderHi: 'rgba(207,124,57,0.48)',
+    glow: '0 0 18px rgba(207,124,57,0.18)',
+    focus: '0 0 0 3px rgba(207,124,57,0.12)',
+  }),
+  selesnya: createLightTheme({
+    name: 'Selesnya',
+    lore: 'Sunlit gardens, polished ivory, and living canopies',
+    bg: '#f4f7ee',
+    bg2: '#e8efde',
+    bg3: '#dde7cf',
+    accent: '#5f9f52',
+    accentDim: '#497c3f',
+    hi: '#c3b77e',
+    text: '#182211',
+    textDim: '#53654a',
+    textFaint: '#819074',
+    border: 'rgba(70,110,50,0.18)',
+    borderHi: 'rgba(95,159,82,0.44)',
+    glow: '0 0 18px rgba(95,159,82,0.20)',
+    focus: '0 0 0 3px rgba(95,159,82,0.14)',
+  }),
+  orzhov: createLightTheme({
+    name: 'Orzhov',
+    lore: 'Cathedral gold, black silk, and ghostly ledgers',
+    bg: '#f5f1e8',
+    bg2: '#ebe3d5',
+    bg3: '#e1d6c4',
+    accent: '#b89548',
+    accentDim: '#8d7238',
+    hi: '#6b6179',
+    text: '#18130f',
+    textDim: '#5c4c3b',
+    textFaint: '#8c7b68',
+    border: 'rgba(110,85,40,0.18)',
+    borderHi: 'rgba(184,149,72,0.44)',
+    glow: '0 0 18px rgba(184,149,72,0.20)',
+    focus: '0 0 0 3px rgba(184,149,72,0.14)',
+  }),
+  izzet: createDarkTheme({
+    name: 'Izzet',
+    lore: 'Charged coils, bright copper, and stormglass blue',
+    bg: '#08101a',
+    bg2: '#0c1724',
+    bg3: '#102032',
+    accent: '#4a9fe7',
+    accentDim: '#377ab3',
+    hi: '#de6238',
+    text: '#d5e2ef',
+    textDim: '#8ea3bb',
+    textFaint: '#66788c',
+    border: 'rgba(70,140,210,0.20)',
+    borderHi: 'rgba(74,159,231,0.48)',
+    glow: '0 0 18px rgba(74,159,231,0.18)',
+    focus: '0 0 0 3px rgba(74,159,231,0.12)',
+  }),
+  golgari: createDarkTheme({
+    name: 'Golgari',
+    lore: 'Rot gardens, bioluminescent spores, and grave loam',
+    bg: '#070d09',
+    bg2: '#0c1510',
+    bg3: '#111d15',
+    accent: '#6ea046',
+    accentDim: '#557c36',
+    hi: '#7b5d9a',
+    text: '#d2ddca',
+    textDim: '#8fa082',
+    textFaint: '#68745f',
+    border: 'rgba(90,130,60,0.20)',
+    borderHi: 'rgba(110,160,70,0.48)',
+    glow: '0 0 18px rgba(110,160,70,0.18)',
+    focus: '0 0 0 3px rgba(110,160,70,0.12)',
+  }),
+  boros: createLightTheme({
+    name: 'Boros',
+    lore: 'Battle banners, white stone, and furnace-bright steel',
+    bg: '#f7f1ee',
+    bg2: '#efe5df',
+    bg3: '#e7d9d1',
+    accent: '#d45d3f',
+    accentDim: '#a84831',
+    hi: '#c3aa67',
+    text: '#21130f',
+    textDim: '#6e4d43',
+    textFaint: '#9a7568',
+    border: 'rgba(160,70,50,0.18)',
+    borderHi: 'rgba(212,93,63,0.44)',
+    glow: '0 0 18px rgba(212,93,63,0.20)',
+    focus: '0 0 0 3px rgba(212,93,63,0.14)',
+  }),
+  simic: createDarkTheme({
+    name: 'Simic',
+    lore: 'Laboratory reefs, sea-glass teal, and adaptive bloom',
+    bg: '#061117',
+    bg2: '#0a1820',
+    bg3: '#0e2029',
+    accent: '#44b8b0',
+    accentDim: '#358c87',
+    hi: '#6bc16f',
+    text: '#cde5e1',
+    textDim: '#81a79f',
+    textFaint: '#5a7f79',
+    border: 'rgba(50,140,150,0.20)',
+    borderHi: 'rgba(68,184,176,0.48)',
+    glow: '0 0 18px rgba(68,184,176,0.18)',
+    focus: '0 0 0 3px rgba(68,184,176,0.12)',
+  }),
+}
+
 const DEFAULTS = {
   price_source: 'cardmarket_trend',
   default_sort: 'name',
@@ -248,24 +319,24 @@ const DEFAULTS = {
   nickname: '',
 }
 
-// OLED overrides — pure black backgrounds so dark-theme pixels are fully off
 const OLED_VARS = {
-  '--bg':  '#000000',
+  '--bg': '#000000',
   '--bg2': '#000000',
   '--bg3': '#000000',
-  '--s1':  '#000000',
-  '--s2':  '#000000',
-  '--s3':  '#000000',
-  '--s4':  '#000000',
+  '--s1': '#000000',
+  '--s2': '#000000',
+  '--s3': '#000000',
+  '--s4': '#000000',
 }
 
-// ── Persistence helpers ───────────────────────────────────────────────────────
 function loadLocal() {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
     if (!raw) return null
     return { ...DEFAULTS, ...JSON.parse(raw) }
-  } catch { return null }
+  } catch {
+    return null
+  }
 }
 
 function saveLocal(settings) {
@@ -274,8 +345,6 @@ function saveLocal(settings) {
   } catch {}
 }
 
-// Cache just the theme vars so index.html inline script can apply them
-// before React boots (prevents flash of wrong theme on hard refresh).
 function cacheThemeVars(themeId, oledMode) {
   try {
     const theme = THEMES[themeId] || THEMES.shadow
@@ -287,14 +356,16 @@ function cacheThemeVars(themeId, oledMode) {
   } catch {}
 }
 
-// ── Apply theme CSS vars to :root ─────────────────────────────────────────────
 export function applyTheme(themeId, oledMode) {
   const theme = THEMES[themeId] || THEMES.shadow
   const root = document.documentElement
+
+  root.setAttribute('data-theme', themeId in THEMES ? themeId : 'shadow')
+
   Object.entries(theme.vars).forEach(([key, value]) => {
     root.style.setProperty(key, value)
   })
-  // Overlay OLED vars on dark themes — pure black so pixels are fully off
+
   if (oledMode && theme.mode !== 'light') {
     Object.entries(OLED_VARS).forEach(([key, value]) => {
       root.style.setProperty(key, value)
@@ -302,33 +373,31 @@ export function applyTheme(themeId, oledMode) {
   } else {
     Object.keys(OLED_VARS).forEach(key => root.style.removeProperty(key))
   }
-  // Set light-mode attribute so global CSS can override surface patterns
+
   if (theme.mode === 'light') {
     root.setAttribute('data-theme-mode', 'light')
   } else {
     root.removeAttribute('data-theme-mode')
   }
-  // Set OLED attribute so global CSS can zero out hardcoded rgba backgrounds
+
   if (oledMode && theme.mode !== 'light') {
     root.setAttribute('data-oled', 'true')
   } else {
     root.removeAttribute('data-oled')
   }
-  // Persist theme vars for instant application on next page load
+
   cacheThemeVars(themeId, oledMode)
 }
 
-// ── Context ───────────────────────────────────────────────────────────────────
 const SettingsContext = createContext({ ...DEFAULTS, save: () => {}, loaded: false })
 export const useSettings = () => useContext(SettingsContext)
 
 export function SettingsProvider({ children }) {
   const { user } = useAuth()
   const [settings, setSettings] = useState(() => loadLocal() || DEFAULTS)
-  const [loaded, setLoaded]     = useState(false)
-  const syncTimeout             = useRef(null)
+  const [loaded, setLoaded] = useState(false)
+  const syncTimeout = useRef(null)
 
-  // Pull from Supabase on mount — Supabase wins for cross-device sync
   useEffect(() => {
     if (!user) return
     sb.from('user_settings').select('*').eq('user_id', user.id).maybeSingle()
@@ -336,8 +405,6 @@ export function SettingsProvider({ children }) {
         if (data) {
           const { user_id, updated_at, ...rest } = data
           const merged = { ...DEFAULTS, ...rest }
-          // If the DB row doesn't have a theme column yet, keep whatever
-          // the user last set locally rather than resetting to the default.
           if (!Object.prototype.hasOwnProperty.call(rest, 'theme')) {
             const local = loadLocal()
             if (local?.theme) merged.theme = local.theme
@@ -349,14 +416,12 @@ export function SettingsProvider({ children }) {
       })
   }, [user])
 
-  // Apply font settings
   useEffect(() => {
     const root = document.documentElement
     root.style.setProperty('--user-font-weight', String(settings.font_weight ?? 420))
     root.style.setProperty('--user-font-size', `${settings.font_size ?? 16}px`)
   }, [settings.font_weight, settings.font_size])
 
-  // Apply theme CSS variables (re-run when theme or oled_mode changes)
   useEffect(() => {
     applyTheme(settings.theme, settings.oled_mode)
   }, [settings.theme, settings.oled_mode])
@@ -366,7 +431,7 @@ export function SettingsProvider({ children }) {
     setSettings(next)
     saveLocal(next)
 
-    if (!user) return   // not logged in — local save only
+    if (!user) return
 
     clearTimeout(syncTimeout.current)
     syncTimeout.current = setTimeout(async () => {

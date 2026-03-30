@@ -1382,9 +1382,8 @@ export default function HomePage() {
       </div>
 
       <ChangelogPanel />
-      {user && <CollectionSnapshot data={collData} loading={collLoading} priceSource={price_source} />}
-      {user && <SetCompletionSection data={collData} loading={collLoading} />}
       <CardLookupSection />
+      {user && <CollectionSnapshot data={collData} loading={collLoading} priceSource={price_source} />}
       <RecentlyViewedSection onCardClick={openCard} />
       <RandomCardSection />
       {user && <TopValuedCards    data={collData} loading={collLoading} priceSource={price_source} onCardClick={openCard} />}

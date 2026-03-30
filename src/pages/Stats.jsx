@@ -20,6 +20,27 @@ const FORMAT_COLORS = {
   Standard: '#c46030', Legacy: '#8a6fc4', Vintage: '#6a6a7a',
 }
 
+const SETS_CACHE_KEY = 'av_scryfall_sets'
+const SETS_CACHE_TTL = 24 * 60 * 60 * 1000
+
+async function fetchScryfallSetsMap() {
+  try {
+    const raw = localStorage.getItem(SETS_CACHE_KEY)
+    if (raw) {
+      const { ts, data } = JSON.parse(raw)
+      if (Date.now() - ts < SETS_CACHE_TTL) return data
+    }
+    const r = await fetch('https://api.scryfall.com/sets')
+    const json = await r.json()
+    const data = {}
+    for (const s of (json.data || [])) data[s.code] = { name: s.name, count: s.card_count }
+    localStorage.setItem(SETS_CACHE_KEY, JSON.stringify({ ts: Date.now(), data }))
+    return data
+  } catch {
+    return {}
+  }
+}
+
 // ── Sub-components ────────────────────────────────────────────────────────────
 function StatCard({ label, value, sub }) {
   return (
@@ -34,6 +55,98 @@ function StatCard({ label, value, sub }) {
 /** Section label — matches DeckView extending-rule style */
 function SLabel({ children }) {
   return <div className={styles.sectionLabel}>{children}</div>
+}
+
+function SetRow({ row }) {
+  const pct = row.pct ?? 0
+  return (
+    <div className={styles.setRow}>
+      <div className={styles.setRowMeta}>
+        <span className={styles.setRowName}>{row.name}</span>
+        <span className={styles.setRowCount}>
+          {row.owned}{row.total ? `/${row.total}` : ''}{row.pct != null ? ` · ${row.pct}%` : ''}
+        </span>
+      </div>
+      <div className={styles.setRowTrack}>
+        <div className={styles.setRowFill} style={{ width: `${Math.min(pct, 100)}%` }} />
+      </div>
+    </div>
+  )
+}
+
+function SetCompletionSection({ cards, sfMap, loading }) {
+  const [setsMap, setSetsMap] = useState(null)
+  const [expanded, setExpanded] = useState(false)
+
+  const ownedBySet = useMemo(() => {
+    if (!cards.length) return []
+    const map = {}
+    for (const card of cards) {
+      if (!card?.set_code || !card?.collector_number) continue
+      const sf = sfMap[`${card.set_code}-${card.collector_number}`]
+      if (!map[card.set_code]) {
+        map[card.set_code] = {
+          code: card.set_code,
+          name: sf?.set_name || card.set_code.toUpperCase(),
+          nums: new Set(),
+        }
+      }
+      map[card.set_code].nums.add(card.collector_number)
+    }
+    return Object.values(map)
+  }, [cards, sfMap])
+
+  useEffect(() => {
+    if (ownedBySet.length) fetchScryfallSetsMap().then(setSetsMap)
+  }, [ownedBySet.length])
+
+  const rows = useMemo(() => {
+    return ownedBySet.map(s => {
+      const total = setsMap?.[s.code]?.count || null
+      const pct = total ? Math.min(100, Math.round((s.nums.size / total) * 100)) : null
+      return { code: s.code, name: setsMap?.[s.code]?.name || s.name, owned: s.nums.size, total, pct }
+    }).sort((a, b) => {
+      if (a.pct != null && b.pct != null) return b.pct - a.pct
+      if (a.pct != null) return -1
+      if (b.pct != null) return 1
+      return b.owned - a.owned
+    })
+  }, [ownedBySet, setsMap])
+
+  if (!loading && rows.length === 0) return null
+
+  const top = rows.slice(0, 5)
+  const rest = rows.slice(5)
+
+  return (
+    <div className={styles.chartBox}>
+      <div className={styles.sectionHead}>
+        <SLabel>Set Completion</SLabel>
+        <span className={styles.sectionCount}>{rows.length} sets</span>
+      </div>
+      {loading ? (
+        <div className={styles.setSkeletons}>{[0, 1, 2].map(i => <div key={i} className={styles.setSkeleton} />)}</div>
+      ) : (
+        <>
+          <div className={styles.setList}>
+            {top.map(r => <SetRow key={r.code} row={r} />)}
+          </div>
+          {rest.length > 0 && (
+            <div className={styles.setDropdown}>
+              <button className={styles.setDropdownToggle} onClick={() => setExpanded(v => !v)}>
+                {expanded ? '▲ Show less' : `▼ Show all ${rows.length} sets`}
+              </button>
+              {expanded && (
+                <div className={styles.setDropdownList}>
+                  {rest.map(r => <SetRow key={r.code} row={r} />)}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
 }
 
 /** Card thumbnail with DFC support */
@@ -338,6 +451,8 @@ export default function StatsPage() {
         </div>
 
         {/* ── Collection value over time ── */}
+        <SetCompletionSection cards={cards} sfMap={sfMap} loading={loading} />
+
         {stats.snapshotData.length > 1 && (
           <div className={styles.chartBox}>
             <SLabel>Collection Value Over Time</SLabel>

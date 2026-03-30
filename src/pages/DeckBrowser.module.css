@@ -369,7 +369,7 @@
 .rowCheckbox {
   width: 18px; height: 18px; flex-shrink: 0;
   border: 2px solid rgba(201,168,76,0.5); border-radius: 3px;
-  background: rgba(10,8,20,0.8);
+  background: var(--glass-medium);
   display: flex; align-items: center; justify-content: center;
   font-size: 0.68rem; color: var(--gold); pointer-events: none;
 }
@@ -466,7 +466,7 @@
 }
 .gridQty {
   position: absolute; top: 5px; right: 5px;
-  background: rgba(10,8,20,0.85); border: 1px solid rgba(201,168,76,0.4);
+  background: var(--glass-medium); border: 1px solid rgba(201,168,76,0.4);
   color: var(--gold); font-family: var(--font-display); font-size: 0.66rem; font-weight: 700;
   padding: 2px 6px; border-radius: 10px;
 }
@@ -541,7 +541,7 @@
 .textCheckbox {
   width: 14px; height: 14px; flex-shrink: 0;
   border: 1.5px solid rgba(201,168,76,0.5); border-radius: 3px;
-  background: rgba(10,8,20,0.7);
+  background: var(--glass-soft);
   display: flex; align-items: center; justify-content: center;
   font-size: 0.6rem; color: var(--gold);
 }
@@ -574,7 +574,7 @@
 .tableCheckbox {
   width: 14px; height: 14px; margin: 0 auto;
   border: 1.5px solid rgba(201,168,76,0.5); border-radius: 3px;
-  background: rgba(10,8,20,0.7);
+  background: var(--glass-soft);
   display: flex; align-items: center; justify-content: center;
   font-size: 0.6rem; color: var(--gold);
 }
@@ -614,7 +614,7 @@
 }
 .stackQty {
   position: absolute; top: 3px; right: 3px;
-  background: rgba(10,8,20,0.85); border: 1px solid rgba(201,168,76,0.4);
+  background: var(--glass-medium); border: 1px solid rgba(201,168,76,0.4);
   color: var(--gold); font-family: var(--font-display); font-size: 0.6rem; font-weight: 700;
   padding: 1px 5px; border-radius: 8px;
 }
