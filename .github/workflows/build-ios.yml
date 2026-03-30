@@ -1,0 +1,70 @@
+name: Build iOS App
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - "src/**"
+      - "public/**"
+      - "capacitor.config.json"
+      - "package*.json"
+      - "vite.config.js"
+      - ".github/workflows/build-ios.yml"
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+
+      - name: Install Node dependencies
+        run: npm install
+
+      - name: Build web app
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_CAPACITOR: "true"
+
+      - name: Ensure iOS platform exists
+        run: |
+          if [ ! -d ios/App ]; then
+            npx cap add ios
+          fi
+
+      - name: Sync Capacitor (copy web assets into iOS project)
+        run: npx cap sync ios
+
+      - name: Build iOS simulator app
+        run: |
+          xcodebuild \
+            -workspace ios/App/App.xcworkspace \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath ios/build \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Package simulator app
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            ios/build/Build/Products/Debug-iphonesimulator/App.app \
+            arcanevault-ios-simulator-app.zip
+
+      - name: Upload iOS app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: arcanevault-ios-simulator-${{ github.run_number }}
+          path: arcanevault-ios-simulator-app.zip
+          retention-days: 30
