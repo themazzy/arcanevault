@@ -14,6 +14,7 @@ const TABS = [
   { to: '/lists',       label: 'Wishlists' },
   { to: '/stats',       label: 'Stats' },
   { to: '/life',        label: '♥ Life' },
+  { to: '/tournaments', label: 'Tournaments' },
 ]
 
 export default function Layout({ children }) {

@@ -9,11 +9,13 @@ import ListsPage from './pages/Lists'
 import StatsPage from './pages/Stats'
 import SharePage from './pages/Share'
 import JoinGamePage from './pages/JoinGame'
+import JoinTournamentPage from './pages/JoinTournament'
 import SettingsPage from './pages/Settings'
 import LifeTrackerPage from './pages/LifeTracker'
 import BuilderPage from './pages/Builder'
 import DeckBuilderPage from './pages/DeckBuilder'
 import DeckViewPage from './pages/DeckView'
+import TournamentsPage from './pages/Tournaments'
 
 function PrivateApp() {
   const { user } = useAuth()
@@ -29,6 +31,7 @@ function PrivateApp() {
           <Route path="/lists"       element={<ListsPage />} />
           <Route path="/stats"       element={<StatsPage />} />
           <Route path="/life"        element={<LifeTrackerPage />} />
+          <Route path="/tournaments" element={<TournamentsPage />} />
           <Route path="/settings"    element={<SettingsPage />} />
           <Route path="/builder"     element={<BuilderPage />} />
           <Route path="/builder/:id" element={<DeckBuilderPage />} />
@@ -50,6 +53,7 @@ export default function App() {
           <Route path="/share/:token" element={<SharePage />} />
           <Route path="/d/:id" element={<DeckViewPage />} />
           <Route path="/join/:code" element={<JoinGamePage />} />
+          <Route path="/join-tournament/:code" element={<JoinTournamentPage />} />
           <Route path="/*" element={<PrivateApp />} />
         </Routes>
       </AuthProvider>

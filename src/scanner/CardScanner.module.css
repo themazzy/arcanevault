@@ -1,0 +1,317 @@
+/* src/scanner/CardScanner.module.css */
+
+/* ── Root — full-screen fixed overlay ───────────────────────────────────── */
+.root {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: #000;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Web camera video element ────────────────────────────────────────────── */
+.video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Off-screen canvas used for frame extraction — never shown */
+.hiddenCanvas {
+  display: none;
+}
+
+/* ── Overlay (sits above camera) ─────────────────────────────────────────── */
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Semi-transparent dark layer for web (native is transparent so camera shows through) */
+  background: rgba(0, 0, 0, 0.35);
+}
+
+/* On native the WebView background is transparent — remove overlay tint */
+.overlayNative {
+  background: transparent;
+}
+
+/* ── Close button ────────────────────────────────────────────────────────── */
+.closeBtn {
+  position: absolute;
+  top: max(16px, env(safe-area-inset-top, 16px));
+  right: 16px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--gold, #c9a84c);
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  transition: background 0.15s;
+}
+
+.closeBtn:hover {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+/* ── Status bar ──────────────────────────────────────────────────────────── */
+.statusBar {
+  margin-top: max(72px, calc(env(safe-area-inset-top, 16px) + 56px));
+  padding: 8px 18px;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 20px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  text-align: center;
+}
+
+.statusText {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.9);
+  font-family: var(--font-display, 'Cinzel', serif);
+  letter-spacing: 0.04em;
+}
+
+.warn {
+  color: #f0b429;
+}
+
+.scanning {
+  color: var(--gold, #c9a84c);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.matchStatus {
+  color: var(--green, #5dba70);
+}
+
+.err {
+  color: #e05c5c;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.55; }
+}
+
+/* ── Targeting frame ─────────────────────────────────────────────────────── */
+/* Scaled from 500×700 card dimensions — 56% = 280×392 px */
+.targetFrame {
+  position: relative;
+  width: 280px;
+  height: 392px;
+  margin: auto;   /* centers vertically in the flex column */
+  flex-shrink: 0;
+}
+
+/* L-shaped corner brackets */
+.corner {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border-color: var(--gold, #c9a84c);
+  border-style: solid;
+  border-width: 0;
+}
+
+.cornerTL {
+  top: 0;
+  left: 0;
+  border-top-width: 3px;
+  border-left-width: 3px;
+  border-top-left-radius: 4px;
+}
+
+.cornerTR {
+  top: 0;
+  right: 0;
+  border-top-width: 3px;
+  border-right-width: 3px;
+  border-top-right-radius: 4px;
+}
+
+.cornerBR {
+  bottom: 0;
+  right: 0;
+  border-bottom-width: 3px;
+  border-right-width: 3px;
+  border-bottom-right-radius: 4px;
+}
+
+.cornerBL {
+  bottom: 0;
+  left: 0;
+  border-bottom-width: 3px;
+  border-left-width: 3px;
+  border-bottom-left-radius: 4px;
+}
+
+/* Animated horizontal scan line */
+.scanLine {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--gold, #c9a84c) 30%,
+    rgba(201, 168, 76, 0.9) 50%,
+    var(--gold, #c9a84c) 70%,
+    transparent 100%
+  );
+  border-radius: 1px;
+  animation: scanDown 2s ease-in-out infinite;
+  box-shadow: 0 0 8px 2px rgba(201, 168, 76, 0.35);
+}
+
+@keyframes scanDown {
+  0%   { top: 4px;   opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { top: calc(100% - 6px); opacity: 0; }
+}
+
+/* ── Action buttons ──────────────────────────────────────────────────────── */
+.actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: max(24px, env(safe-area-inset-bottom, 24px));
+  margin-top: 0;  /* auto margin on targetFrame pushes actions to bottom */
+  width: 100%;
+}
+
+/* Shared button base */
+.scanBtn,
+.syncBtn,
+.stopBtn,
+.scanAgainBtn {
+  padding: 12px 28px;
+  border-radius: 8px;
+  border: 1px solid rgba(201, 168, 76, 0.4);
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 0.85rem;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+  min-width: 200px;
+  text-align: center;
+}
+
+.scanBtn {
+  background: rgba(201, 168, 76, 0.18);
+  color: var(--gold, #c9a84c);
+}
+
+.scanBtn:hover {
+  background: rgba(201, 168, 76, 0.28);
+  border-color: rgba(201, 168, 76, 0.7);
+}
+
+.syncBtn {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.syncBtn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.syncBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.stopBtn {
+  background: rgba(224, 92, 92, 0.16);
+  color: #e05c5c;
+  border-color: rgba(224, 92, 92, 0.35);
+}
+
+.stopBtn:hover {
+  background: rgba(224, 92, 92, 0.26);
+  border-color: rgba(224, 92, 92, 0.6);
+}
+
+/* ── Match result panel ──────────────────────────────────────────────────── */
+.matchPanel {
+  position: absolute;
+  bottom: max(24px, env(safe-area-inset-bottom, 24px));
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(340px, calc(100vw - 32px));
+  background: rgba(10, 10, 14, 0.92);
+  border: 1px solid rgba(201, 168, 76, 0.35);
+  border-top: 2px solid rgba(201, 168, 76, 0.6);
+  border-radius: 12px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+  from { transform: translateX(-50%) translateY(24px); opacity: 0; }
+  to   { transform: translateX(-50%) translateY(0);   opacity: 1; }
+}
+
+.matchImg {
+  width: 120px;
+  border-radius: 6px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(201, 168, 76, 0.2);
+}
+
+.matchInfo {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.matchName {
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 1rem;
+  color: #fff;
+  font-weight: 600;
+}
+
+.matchMeta {
+  font-size: 0.78rem;
+  color: var(--text-dim, rgba(255, 255, 255, 0.55));
+  letter-spacing: 0.04em;
+}
+
+.matchDist {
+  font-size: 0.75rem;
+  color: var(--green, #5dba70);
+}
+
+.scanAgainBtn {
+  background: rgba(201, 168, 76, 0.18);
+  color: var(--gold, #c9a84c);
+  min-width: 160px;
+}
+
+.scanAgainBtn:hover {
+  background: rgba(201, 168, 76, 0.28);
+  border-color: rgba(201, 168, 76, 0.7);
+}
