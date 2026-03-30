@@ -143,7 +143,7 @@
 /* Per-player settings cog button */
 .playerSettingsBtn {
   background: none; border: none;
-  color: var(--text-faint); font-size: 0.82rem; line-height: 1;
+  color: var(--text-faint); font-size: 1.5rem; line-height: 1;
   cursor: pointer; padding: 3px 5px; transition: color 0.15s;
   flex-shrink: 0; min-width: 28px; min-height: 28px;
   display: flex; align-items: center; justify-content: center;
@@ -202,7 +202,7 @@
 .lifeBtn {
   background: var(--s3); border: 1px solid rgba(255,255,255,0.1);
   border-radius: 6px; color: var(--text-dim);
-  font-size: 1.5rem; line-height: 1; width: 46px; height: 52px;
+  font-size: 3rem; line-height: 1; width: 10rem; height: 10rem;
   cursor: pointer; transition: all 0.12s;
   display: flex; align-items: center; justify-content: center;
   user-select: none; -webkit-user-select: none; touch-action: manipulation;
@@ -253,7 +253,7 @@
   background: var(--s2); border: 1px solid rgba(255,255,255,0.07);
   border-radius: 4px; color: var(--text-faint);
   font-family: var(--font-serif); font-size: 0.76rem;
-  padding: 4px 8px; cursor: pointer; transition: all 0.12s;
+  padding: 2rem 2rem; cursor: pointer; transition: all 0.12s;
   touch-action: manipulation; user-select: none; -webkit-user-select: none;
 }
 .quickBtn:hover  { background: var(--s4); color: var(--player-color, var(--gold)); }
@@ -313,14 +313,14 @@
 .cmdBarLabel:hover { opacity: 1; color: var(--gold); }
 
 .cmdBadges {
-  display: flex; gap: 4px; align-items: center; flex: 1;
+  display: flex; gap: 10px; align-items: center; flex: 1;
 }
 .cmdBadge {
   display: flex; align-items: center; gap: 3px;
   background: var(--s1);
   border: 1px solid rgba(255,255,255,0.07);
   border-radius: 4px;
-  padding: 2px 4px;
+  padding: 0.5rem 1.5rem;
   flex-shrink: 0;
   transition: border-color 0.15s;
 }

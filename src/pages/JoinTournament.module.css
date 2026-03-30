@@ -1,0 +1,97 @@
+.page {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+}
+
+.card {
+  width: min(720px, 100%);
+  border: 1px solid var(--border);
+  border-top: 2px solid rgba(201,168,76,0.35);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015));
+  padding: 24px;
+}
+
+.kicker {
+  color: var(--text-faint);
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.68rem;
+  margin-bottom: 10px;
+}
+
+.title {
+  font-family: var(--font-display);
+  color: var(--gold);
+  margin-bottom: 8px;
+}
+
+.sub,
+.slotMeta,
+.backLink,
+.mine {
+  color: var(--text-dim);
+}
+
+.slotList {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.slotRow,
+.claimBox {
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.03);
+  padding: 12px;
+}
+
+.slotRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.slotName,
+.claimTitle {
+  color: var(--text);
+}
+
+.claimBox {
+  margin-top: 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.claimActions {
+  display: flex;
+  gap: 8px;
+}
+
+.startedBox {
+  margin: 18px 0;
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.03);
+  padding: 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.startedRow {
+  color: var(--text-dim);
+}
+
+.startedAssign {
+  color: var(--gold);
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+}
+
+.startedNames {
+  color: var(--text);
+}

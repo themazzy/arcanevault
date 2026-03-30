@@ -32,7 +32,8 @@
       "WebFetch(domain:recommander.cards)",
       "Bash(npm run:*)",
       "Bash(npx cap:*)",
-      "Bash(gh workflow:*)"
+      "Bash(gh workflow:*)",
+      "Bash(grep -n \"CardGrid\\\\|VirtualCardGrid\" /c/Users/Jan/Desktop/arcanevault/arcanevault/src/pages/*.jsx)"
     ]
   }
 }
