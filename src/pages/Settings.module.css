@@ -255,7 +255,7 @@
 
 .themeGrid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 12px;
 }
 
@@ -399,6 +399,10 @@
   height: 3px;
   width: 100%;
   gap: 1px;
+}
+
+@media (max-width: 900px) {
+  .themeGrid { grid-template-columns: repeat(3, 1fr); }
 }
 
 @media (max-width: 640px) {

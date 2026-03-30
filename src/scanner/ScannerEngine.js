@@ -1,46 +1,61 @@
-// src/scanner/ScannerEngine.js
-// OpenCV.js is loaded globally via <script> in index.html.
-// Check window.cv before calling any function here.
+/**
+ * ScannerEngine — OpenCV.js computer vision pipeline
+ *
+ * OpenCV is loaded as a global <script> tag in index.html.
+ * All public functions check isOpenCVReady() before using window.cv.
+ * Every cv.Mat is .delete()-ed in finally blocks to prevent memory leaks.
+ *
+ * Pipeline:
+ *   1. detectCardCorners(imageData, w, h)  → 4 ordered {x,y} points | null
+ *   2. warpCard(imageData, corners)        → 500×700 ImageData (perspective-corrected)
+ *   3. cropArtRegion(cardImageData)        → 450×275 ImageData (artwork strip)
+ *   4. computePHash256(artImageData)       → { p1,p2,p3,p4 } BigInt (256-bit DCT hash)
+ */
+
+// ── OpenCV readiness ──────────────────────────────────────────────────────────
 
 export function isOpenCVReady() {
-  return (
-    typeof window !== 'undefined' &&
-    typeof window.cv !== 'undefined' &&
-    window.cv.Mat !== undefined
-  )
+  return typeof window !== 'undefined' &&
+         typeof window.cv !== 'undefined' &&
+         typeof window.cv.Mat !== 'undefined'
 }
 
-export function waitForOpenCV(timeoutMs = 15000) {
+export function waitForOpenCV(timeoutMs = 20000) {
   return new Promise((resolve, reject) => {
     if (isOpenCVReady()) return resolve()
-    const start = Date.now()
-    const check = setInterval(() => {
-      if (isOpenCVReady()) {
+    const start  = Date.now()
+    const check  = setInterval(() => {
+      if (isOpenCVReady()) { clearInterval(check); resolve() }
+      else if (Date.now() - start > timeoutMs) {
         clearInterval(check)
-        resolve()
-      } else if (Date.now() - start > timeoutMs) {
-        clearInterval(check)
-        reject(new Error('OpenCV failed to load'))
+        reject(new Error('OpenCV.js failed to load within timeout'))
       }
-    }, 100)
+    }, 150)
   })
 }
 
-// Order 4 points: [topLeft, topRight, bottomRight, bottomLeft]
+// ── Geometry helpers ──────────────────────────────────────────────────────────
+
+// Sort 4 points into [topLeft, topRight, bottomRight, bottomLeft]
 function orderPoints(pts) {
-  const center = pts.reduce(
-    (a, p) => ({ x: a.x + p.x / 4, y: a.y + p.y / 4 }),
-    { x: 0, y: 0 }
-  )
-  const tl = pts.find(p => p.x <= center.x && p.y <= center.y) || pts[0]
-  const tr = pts.find(p => p.x >  center.x && p.y <= center.y) || pts[1]
-  const br = pts.find(p => p.x >  center.x && p.y >  center.y) || pts[2]
-  const bl = pts.find(p => p.x <= center.x && p.y >  center.y) || pts[3]
-  return [tl, tr, br, bl]
+  const cx = pts.reduce((s, p) => s + p.x, 0) / 4
+  const cy = pts.reduce((s, p) => s + p.y, 0) / 4
+  const tl = pts.filter(p => p.x <= cx && p.y <= cy).sort((a, b) => a.x - b.x)[0]
+  const tr = pts.filter(p => p.x >  cx && p.y <= cy).sort((a, b) => b.x - a.x)[0]
+  const br = pts.filter(p => p.x >  cx && p.y >  cy).sort((a, b) => b.x - a.x)[0]
+  const bl = pts.filter(p => p.x <= cx && p.y >  cy).sort((a, b) => a.x - b.x)[0]
+  // Fall back to index order if a quadrant is empty
+  return [
+    tl ?? pts[0], tr ?? pts[1], br ?? pts[2], bl ?? pts[3],
+  ]
 }
 
-// Detect the best card-shaped quadrilateral in imageData.
-// Returns array of 4 {x, y} points or null.
+// ── 1. Card corner detection ──────────────────────────────────────────────────
+
+/**
+ * Find the best card-shaped quadrilateral in the given ImageData frame.
+ * Returns an array of 4 ordered {x,y} points, or null if none found.
+ */
 export function detectCardCorners(imageData, width, height) {
   if (!isOpenCVReady()) return null
   const cv = window.cv
@@ -50,21 +65,24 @@ export function detectCardCorners(imageData, width, height) {
   const blurred  = new cv.Mat()
   const edges    = new cv.Mat()
   const dilated  = new cv.Mat()
-  const contours  = new cv.MatVector()
-  const hierarchy = new cv.Mat()
+  const contours = new cv.MatVector()
+  const hier     = new cv.Mat()
 
   try {
     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY)
     cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0)
     cv.Canny(blurred, edges, 40, 120)
 
+    // Dilate to close small gaps in card border
     const kernel = cv.Mat.ones(3, 3, cv.CV_8U)
     cv.dilate(edges, dilated, kernel)
     kernel.delete()
 
-    cv.findContours(dilated, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    cv.findContours(dilated, contours, hier, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
 
-    const minArea = width * height * 0.08  // card must cover at least 8% of frame
+    // Card must cover at least 8% of the frame
+    const minArea = width * height * 0.08
+
     let bestPts  = null
     let bestArea = 0
 
@@ -78,16 +96,16 @@ export function detectCardCorners(imageData, width, height) {
       cv.approxPolyDP(cnt, approx, 0.02 * peri, true)
 
       if (approx.rows === 4) {
-        // Extract corners
         const pts = []
         for (let j = 0; j < 4; j++) {
           pts.push({ x: approx.data32S[j * 2], y: approx.data32S[j * 2 + 1] })
         }
-        // Check aspect ratio (MTG card = 0.716, allow landscape too)
+        // MTG card aspect ratio: 63×88mm ≈ 0.716 (portrait) or 1.397 (landscape)
         const ordered = orderPoints(pts)
         const w = Math.hypot(ordered[1].x - ordered[0].x, ordered[1].y - ordered[0].y)
         const h = Math.hypot(ordered[3].x - ordered[0].x, ordered[3].y - ordered[0].y)
         const ratio = Math.min(w, h) / Math.max(w, h)
+
         if (ratio >= 0.60 && ratio <= 0.80 && area > bestArea) {
           bestArea = area
           bestPts  = ordered
@@ -98,23 +116,24 @@ export function detectCardCorners(imageData, width, height) {
 
     return bestPts
   } finally {
-    src.delete()
-    gray.delete()
-    blurred.delete()
-    edges.delete()
-    dilated.delete()
-    contours.delete()
-    hierarchy.delete()
+    src.delete(); gray.delete(); blurred.delete()
+    edges.delete(); dilated.delete()
+    contours.delete(); hier.delete()
   }
 }
 
-// Warp detected card to a standard 500×700 canvas.
-// Returns ImageData or null.
-export function warpCard(imageData, corners) {
-  if (!isOpenCVReady() || !corners) return null
-  const cv = window.cv
-  const W = 500, H = 700
+// ── 2. Perspective warp → 500×700 ────────────────────────────────────────────
 
+const CARD_W = 500
+const CARD_H = 700
+
+/**
+ * Warp a detected card to a standard 500×700 rectangle.
+ * Returns ImageData or null on failure.
+ */
+export function warpCard(imageData, corners) {
+  if (!isOpenCVReady() || !corners || corners.length !== 4) return null
+  const cv  = window.cv
   const src = cv.matFromImageData(imageData)
   const dst = new cv.Mat()
 
@@ -126,57 +145,68 @@ export function warpCard(imageData, corners) {
       corners[3].x, corners[3].y,
     ])
     const dstPts = cv.matFromArray(4, 1, cv.CV_32FC2, [
-      0, 0,
-      W, 0,
-      W, H,
-      0, H,
+      0, 0,  CARD_W, 0,  CARD_W, CARD_H,  0, CARD_H,
     ])
-
     const M = cv.getPerspectiveTransform(srcPts, dstPts)
-    cv.warpPerspective(src, dst, M, new cv.Size(W, H))
-    srcPts.delete()
-    dstPts.delete()
-    M.delete()
+    cv.warpPerspective(src, dst, M, new cv.Size(CARD_W, CARD_H))
+    srcPts.delete(); dstPts.delete(); M.delete()
 
-    // Convert to ImageData
     const canvas = document.createElement('canvas')
-    canvas.width  = W
-    canvas.height = H
+    canvas.width = CARD_W; canvas.height = CARD_H
     cv.imshow(canvas, dst)
-    return canvas.getContext('2d').getImageData(0, 0, W, H)
+    return canvas.getContext('2d').getImageData(0, 0, CARD_W, CARD_H)
   } finally {
-    src.delete()
-    dst.delete()
+    src.delete(); dst.delete()
   }
 }
 
-// Crop the art region from a 500×700 warped card image.
-// Art box on a standard card: x=[25,475], y=[55,330]
+// ── 3. Crop art region ────────────────────────────────────────────────────────
+
+// On a standard 500×700 card:
+//   Name bar: y 0–55     (top strip)
+//   Art box:  y 55–330   x 25–475   (450×275)
+//   Text box: y 330–700  (bottom half)
+const ART_X = 25, ART_Y = 55, ART_W = 450, ART_H = 275
+
+/**
+ * Crop the artwork region from a 500×700 warped card ImageData.
+ * Returns 450×275 ImageData or null.
+ */
 export function cropArtRegion(cardImageData) {
   if (!isOpenCVReady()) return null
   const cv  = window.cv
   const src = cv.matFromImageData(cardImageData)
 
   try {
-    const rect = new cv.Rect(25, 55, 450, 275)  // x, y, w, h
-    const roi  = src.roi(rect)
+    const rect   = new cv.Rect(ART_X, ART_Y, ART_W, ART_H)
+    const roi    = src.roi(rect)
     const canvas = document.createElement('canvas')
-    canvas.width  = 450
-    canvas.height = 275
+    canvas.width = ART_W; canvas.height = ART_H
     cv.imshow(canvas, roi)
     roi.delete()
-    return canvas.getContext('2d').getImageData(0, 0, 450, 275)
+    return canvas.getContext('2d').getImageData(0, 0, ART_W, ART_H)
   } finally {
     src.delete()
   }
 }
 
-// Compute 256-bit perceptual hash using DCT.
-// Returns { p1, p2, p3, p4 } as BigInt (each 64 bits), or null on failure.
+// ── 4. 256-bit perceptual hash (DCT) ─────────────────────────────────────────
+
+/**
+ * Compute a 256-bit pHash of artwork ImageData using OpenCV's DCT.
+ *
+ * Algorithm:
+ *   1. Grayscale + resize to 32×32
+ *   2. 2D DCT  → 32×32 frequency matrix
+ *   3. Take top-left 16×16 (256 low-frequency coefficients)
+ *   4. Each coeff > mean(coeff[1..255]) → bit 1, else 0
+ *   5. Pack 256 bits into 4 unsigned BigInt64
+ *
+ * Returns { p1, p2, p3, p4 } as BigInt, or null on failure.
+ */
 export function computePHash256(artImageData) {
   if (!isOpenCVReady()) return null
-  const cv = window.cv
-
+  const cv      = window.cv
   const src     = cv.matFromImageData(artImageData)
   const gray    = new cv.Mat()
   const resized = new cv.Mat()
@@ -189,18 +219,19 @@ export function computePHash256(artImageData) {
     resized.convertTo(floated, cv.CV_32F)
     cv.dct(floated, dctMat)
 
-    // Extract top-left 16×16 (256 values)
-    const dctRect = new cv.Rect(0, 0, 16, 16)
-    const roi     = dctMat.roi(dctRect)
-    const values  = Array.from(roi.data32F)  // 256 floats
+    // Extract top-left 16×16
+    const roi    = dctMat.roi(new cv.Rect(0, 0, 16, 16))
+    const values = Array.from(roi.data32F)   // 256 floats
     roi.delete()
 
-    // Mean — skip DC component at index 0 for better discrimination
+    // Mean of indices 1..255 (skip DC component at index 0)
     const mean = values.slice(1).reduce((a, b) => a + b, 0) / 255
 
-    // Pack into 4 × 64-bit BigInts
+    // Bit array: 1 if value > mean
     const bits = values.map(v => v > mean ? 1 : 0)
-    const pack = (start) => {
+
+    // Pack 64 bits into one unsigned BigInt
+    const pack64 = (start) => {
       let r = 0n
       for (let i = 0; i < 64; i++) {
         if (bits[start + i]) r |= (1n << BigInt(i))
@@ -209,21 +240,20 @@ export function computePHash256(artImageData) {
     }
 
     return {
-      p1: pack(0),
-      p2: pack(64),
-      p3: pack(128),
-      p4: pack(192),
+      p1: pack64(0),
+      p2: pack64(64),
+      p3: pack64(128),
+      p4: pack64(192),
     }
-  } finally {
-    src.delete()
-    gray.delete()
-    resized.delete()
-    floated.delete()
-    dctMat.delete()
+  } catch { return null }
+  finally {
+    src.delete(); gray.delete(); resized.delete(); floated.delete(); dctMat.delete()
   }
 }
 
-// Convert a hash {p1, p2, p3, p4} BigInts to a 64-char hex string.
+// ── Utility ───────────────────────────────────────────────────────────────────
+
+/** Convert { p1,p2,p3,p4 } BigInt hash to 64-char hex string */
 export function hashToHex({ p1, p2, p3, p4 }) {
   return [p1, p2, p3, p4]
     .map(n => n.toString(16).padStart(16, '0'))

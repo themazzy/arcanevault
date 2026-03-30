@@ -50,13 +50,13 @@
   z-index: 1;
   background:
     linear-gradient(to bottom,
-      rgba(10,10,15,0.78) 0%,
-      rgba(10,10,15,0.52) 30%,
-      rgba(10,10,15,0.68) 65%,
-      rgba(10,10,15,0.97) 100%
+      var(--scrim-strong) 0%,
+      var(--scrim-medium) 30%,
+      color-mix(in srgb, var(--scrim-strong) 84%, transparent) 65%,
+      color-mix(in srgb, var(--scrim-strong) 100%, transparent) 100%
     ),
-    radial-gradient(ellipse at 15% 20%, rgba(139,90,43,0.16) 0%, transparent 50%),
-    radial-gradient(ellipse at 85% 80%, rgba(80,60,140,0.20) 0%, transparent 50%);
+    radial-gradient(ellipse at 15% 20%, var(--ambient-1) 0%, transparent 50%),
+    radial-gradient(ellipse at 85% 80%, var(--ambient-2) 0%, transparent 50%);
   pointer-events: none;
 }
 
@@ -192,7 +192,7 @@
 }
 
 .formCard {
-  background: rgba(10,10,18,0.94);
+  background: var(--glass-strong);
   border: 1px solid rgba(201,168,76,0.25);
   border-top: 2px solid rgba(201,168,76,0.45);
   border-radius: 12px;
@@ -594,7 +594,7 @@
 
 /* Panel — replaces macOS chrome mockup */
 .panel {
-  background: rgba(10,10,18,0.85);
+  background: var(--glass-medium);
   border: 1px solid rgba(255,255,255,0.08);
   border-top: 2px solid rgba(201,168,76,0.4);
   border-radius: 10px;

@@ -1,17 +1,14 @@
-/* src/scanner/CardScanner.module.css */
-
-/* ── Root — full-screen fixed overlay ───────────────────────────────────── */
+/* ── Root — full-screen overlay ── */
 .root {
   position: fixed;
   inset: 0;
   z-index: 1000;
   background: #000;
-  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 
-/* ── Web camera video element ────────────────────────────────────────────── */
+/* Web: live video feed fills the frame */
 .video {
   position: absolute;
   inset: 0;
@@ -19,299 +16,244 @@
   height: 100%;
   object-fit: cover;
 }
+.hiddenCanvas { display: none; }
 
-/* Off-screen canvas used for frame extraction — never shown */
-.hiddenCanvas {
-  display: none;
-}
-
-/* ── Overlay (sits above camera) ─────────────────────────────────────────── */
+/* Overlay rendered on top of camera (transparent on native, dim on web) */
 .overlay {
   position: absolute;
   inset: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  /* Semi-transparent dark layer for web (native is transparent so camera shows through) */
-  background: rgba(0, 0, 0, 0.35);
+  justify-content: space-between;
+  background: linear-gradient(
+    to bottom,
+    rgba(0,0,0,0.55) 0%,
+    transparent 28%,
+    transparent 62%,
+    rgba(0,0,0,0.70) 100%
+  );
 }
-
-/* On native the WebView background is transparent — remove overlay tint */
+/* On native the WebView background is transparent — let the camera show through */
 .overlayNative {
-  background: transparent;
+  background: linear-gradient(
+    to bottom,
+    rgba(0,0,0,0.55) 0%,
+    transparent 25%,
+    transparent 65%,
+    rgba(0,0,0,0.72) 100%
+  );
 }
 
-/* ── Close button ────────────────────────────────────────────────────────── */
-.closeBtn {
-  position: absolute;
-  top: max(16px, env(safe-area-inset-top, 16px));
-  right: 16px;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: none;
-  background: rgba(0, 0, 0, 0.55);
-  color: var(--gold, #c9a84c);
-  font-size: 1.1rem;
-  cursor: pointer;
+/* ── Top bar ── */
+.topBar {
   display: flex;
   align-items: center;
-  justify-content: center;
-  z-index: 10;
+  justify-content: space-between;
+  padding: 16px 16px;
+  padding-top: calc(16px + env(safe-area-inset-top, 0px));
+}
+
+.statusPill {
+  flex: 1;
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.92);
+  background: rgba(0,0,0,0.45);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 20px;
+  padding: 6px 14px;
+  margin-right: 10px;
+}
+
+.closeBtn {
+  background: rgba(0,0,0,0.55);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 50%;
+  color: #fff;
+  font-size: 1rem;
+  width: 38px; height: 38px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
   transition: background 0.15s;
 }
+.closeBtn:hover { background: rgba(255,255,255,0.15); }
 
-.closeBtn:hover {
-  background: rgba(0, 0, 0, 0.75);
-}
-
-/* ── Status bar ──────────────────────────────────────────────────────────── */
-.statusBar {
-  margin-top: max(72px, calc(env(safe-area-inset-top, 16px) + 56px));
-  padding: 8px 18px;
-  background: rgba(0, 0, 0, 0.6);
-  border-radius: 20px;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  text-align: center;
-}
-
-.statusText {
-  font-size: 0.85rem;
-  color: rgba(255, 255, 255, 0.9);
-  font-family: var(--font-display, 'Cinzel', serif);
-  letter-spacing: 0.04em;
-}
-
-.warn {
-  color: #f0b429;
-}
-
-.scanning {
-  color: var(--gold, #c9a84c);
-  animation: pulse 1.4s ease-in-out infinite;
-}
-
-.matchStatus {
-  color: var(--green, #5dba70);
-}
-
-.err {
-  color: #e05c5c;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.55; }
-}
-
-/* ── Targeting frame ─────────────────────────────────────────────────────── */
-/* Scaled from 500×700 card dimensions — 56% = 280×392 px */
+/* ── Targeting reticle ── */
 .targetFrame {
-  position: relative;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -52%);
   width: 280px;
-  height: 392px;
-  margin: auto;   /* centers vertically in the flex column */
-  flex-shrink: 0;
+  height: 392px;   /* 280 × 1.4 = 392 (≈ MTG card 500×700) */
+  pointer-events: none;
+  overflow: hidden;
 }
 
-/* L-shaped corner brackets */
+/* Corner brackets */
 .corner {
   position: absolute;
   width: 28px;
   height: 28px;
-  border-color: var(--gold, #c9a84c);
+  border-color: rgba(201,168,76,0.85);
   border-style: solid;
-  border-width: 0;
+  transition: border-color 0.2s;
 }
+.targetLit .corner { border-color: rgba(93,186,112,0.95); }
 
-.cornerTL {
-  top: 0;
-  left: 0;
-  border-top-width: 3px;
-  border-left-width: 3px;
-  border-top-left-radius: 4px;
-}
+.tl { top: 0; left: 0;  border-width: 3px 0 0 3px; border-radius: 3px 0 0 3px; }
+.tr { top: 0; right: 0; border-width: 3px 3px 0 0; border-radius: 0 3px 0 0; }
+.br { bottom: 0; right: 0; border-width: 0 3px 3px 0; border-radius: 0 0 3px 0; }
+.bl { bottom: 0; left: 0;  border-width: 0 0 3px 3px; border-radius: 0 0 0 3px; }
 
-.cornerTR {
-  top: 0;
-  right: 0;
-  border-top-width: 3px;
-  border-right-width: 3px;
-  border-top-right-radius: 4px;
-}
-
-.cornerBR {
-  bottom: 0;
-  right: 0;
-  border-bottom-width: 3px;
-  border-right-width: 3px;
-  border-bottom-right-radius: 4px;
-}
-
-.cornerBL {
-  bottom: 0;
-  left: 0;
-  border-bottom-width: 3px;
-  border-left-width: 3px;
-  border-bottom-left-radius: 4px;
-}
-
-/* Animated horizontal scan line */
+/* Animated scan line */
 .scanLine {
   position: absolute;
-  left: 4px;
-  right: 4px;
+  left: 8px; right: 8px;
   height: 2px;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    var(--gold, #c9a84c) 30%,
-    rgba(201, 168, 76, 0.9) 50%,
-    var(--gold, #c9a84c) 70%,
-    transparent 100%
-  );
+  background: linear-gradient(90deg, transparent, rgba(201,168,76,0.9), transparent);
   border-radius: 1px;
-  animation: scanDown 2s ease-in-out infinite;
-  box-shadow: 0 0 8px 2px rgba(201, 168, 76, 0.35);
+  animation: scanSwipe 1.8s ease-in-out infinite;
 }
-
-@keyframes scanDown {
-  0%   { top: 4px;   opacity: 0; }
+@keyframes scanSwipe {
+  0%   { top: 10%;   opacity: 0; }
   10%  { opacity: 1; }
   90%  { opacity: 1; }
-  100% { top: calc(100% - 6px); opacity: 0; }
+  100% { top: 90%;  opacity: 0; }
 }
 
-/* ── Action buttons ──────────────────────────────────────────────────────── */
-.actions {
+/* ── Bottom bar ── */
+.bottomBar {
+  padding: 20px 20px;
+  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
-  align-items: center;
+  gap: 12px;
+}
+
+.btnRow {
+  display: flex;
   gap: 10px;
-  padding-bottom: max(24px, env(safe-area-inset-bottom, 24px));
-  margin-top: 0;  /* auto margin on targetFrame pushes actions to bottom */
-  width: 100%;
 }
 
-/* Shared button base */
-.scanBtn,
-.syncBtn,
-.stopBtn,
-.scanAgainBtn {
-  padding: 12px 28px;
+.primaryBtn {
+  flex: 1;
+  background: rgba(201,168,76,0.18);
+  border: 1px solid rgba(201,168,76,0.5);
   border-radius: 8px;
-  border: 1px solid rgba(201, 168, 76, 0.4);
-  font-family: var(--font-display, 'Cinzel', serif);
-  font-size: 0.85rem;
-  letter-spacing: 0.06em;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
-  min-width: 200px;
-  text-align: center;
-}
-
-.scanBtn {
-  background: rgba(201, 168, 76, 0.18);
   color: var(--gold, #c9a84c);
+  font-family: var(--font-display);
+  font-size: 0.82rem;
+  letter-spacing: 0.07em;
+  padding: 13px 20px;
+  cursor: pointer;
+  transition: all 0.15s;
 }
+.primaryBtn:hover:not(:disabled) {
+  background: rgba(201,168,76,0.28);
+  border-color: rgba(201,168,76,0.75);
+}
+.primaryBtn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.scanBtn:hover {
-  background: rgba(201, 168, 76, 0.28);
-  border-color: rgba(201, 168, 76, 0.7);
+.secondaryBtn {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 8px;
+  color: rgba(255,255,255,0.7);
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  padding: 13px 16px;
+  cursor: pointer;
+  transition: all 0.15s;
 }
-
-.syncBtn {
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.75);
-}
-
-.syncBtn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-}
-
-.syncBtn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
+.secondaryBtn:hover:not(:disabled) { background: rgba(255,255,255,0.14); }
+.secondaryBtn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .stopBtn {
-  background: rgba(224, 92, 92, 0.16);
-  color: #e05c5c;
-  border-color: rgba(224, 92, 92, 0.35);
+  background: rgba(200,70,60,0.18);
+  border: 1px solid rgba(200,70,60,0.45);
+  border-radius: 8px;
+  color: #e08878;
+  font-family: var(--font-display);
+  font-size: 0.82rem;
+  letter-spacing: 0.07em;
+  padding: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
 }
+.stopBtn:hover { background: rgba(200,70,60,0.28); }
 
-.stopBtn:hover {
-  background: rgba(224, 92, 92, 0.26);
-  border-color: rgba(224, 92, 92, 0.6);
-}
-
-/* ── Match result panel ──────────────────────────────────────────────────── */
-.matchPanel {
-  position: absolute;
-  bottom: max(24px, env(safe-area-inset-bottom, 24px));
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(340px, calc(100vw - 32px));
-  background: rgba(10, 10, 14, 0.92);
-  border: 1px solid rgba(201, 168, 76, 0.35);
-  border-top: 2px solid rgba(201, 168, 76, 0.6);
-  border-radius: 12px;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+/* ── Match result card ── */
+.matchCard {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 12px;
-  padding: 16px;
-  animation: slideUp 0.3s ease-out;
-}
-
-@keyframes slideUp {
-  from { transform: translateX(-50%) translateY(24px); opacity: 0; }
-  to   { transform: translateX(-50%) translateY(0);   opacity: 1; }
+  gap: 14px;
+  background: rgba(10,10,15,0.88);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(201,168,76,0.35);
+  border-top: 2px solid rgba(201,168,76,0.55);
+  border-radius: 10px;
+  padding: 14px;
 }
 
 .matchImg {
-  width: 120px;
-  border-radius: 6px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
-  border: 1px solid rgba(201, 168, 76, 0.2);
+  width: 58px;
+  border-radius: 5px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.6);
 }
 
 .matchInfo {
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  flex: 1;
+  min-width: 0;
 }
 
 .matchName {
-  font-family: var(--font-display, 'Cinzel', serif);
+  font-family: var(--font-display);
   font-size: 1rem;
   color: #fff;
-  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .matchMeta {
-  font-size: 0.78rem;
-  color: var(--text-dim, rgba(255, 255, 255, 0.55));
-  letter-spacing: 0.04em;
+  font-size: 0.75rem;
+  color: rgba(255,255,255,0.55);
+  margin-top: 2px;
 }
 
-.matchDist {
-  font-size: 0.75rem;
-  color: var(--green, #5dba70);
+.matchConf {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: rgba(255,255,255,0.6);
+  margin-top: 5px;
+}
+.confDot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .scanAgainBtn {
-  background: rgba(201, 168, 76, 0.18);
+  background: rgba(201,168,76,0.15);
+  border: 1px solid rgba(201,168,76,0.4);
+  border-radius: 6px;
   color: var(--gold, #c9a84c);
-  min-width: 160px;
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  padding: 8px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.15s;
 }
-
-.scanAgainBtn:hover {
-  background: rgba(201, 168, 76, 0.28);
-  border-color: rgba(201, 168, 76, 0.7);
-}
+.scanAgainBtn:hover { background: rgba(201,168,76,0.25); }
