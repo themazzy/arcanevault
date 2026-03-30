@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getImageUri, getPrice, formatPrice, getPriceSource } from '../lib/scryfall'
 import { Modal, Badge } from './UI'
@@ -21,20 +21,27 @@ function scryfallLargeUrl(scryfallId) {
 }
 
 // ── CardGrid ──────────────────────────────────────────────────────────────────
-function CardItem({ card, sfCard, selectMode, isSelected, onSelect, onToggleSelect, onEnterSelectMode, loading }) {
+function CardItem({ card, sfCard, selectMode, isSelected, totalQty, onSelect, onToggleSelect, onEnterSelectMode, onAdjustQty, splitState, loading }) {
   const img = getImageUri(sfCard, 'normal')
   const scryfallPrice = getPrice(sfCard, card.foil)
   const price = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
   const isBuyFallback = scryfallPrice == null && price != null
   const priceClass = price == null ? styles.priceNa : isBuyFallback ? styles.priceFallback : ''
 
+  const selQty = splitState?.get(card.id) ?? 1
+
   const longPress = useLongPress(() => {
     if (!selectMode) onEnterSelectMode?.()
   }, { delay: 500 })
 
+  const { onMouseLeave: lpLeave, ...lpRest } = longPress
+
   const handleClick = () => {
-    if (selectMode) onToggleSelect?.(card.id)
-    else onSelect?.(card)
+    if (selectMode) {
+      onToggleSelect?.(card.id, totalQty)
+    } else {
+      onSelect?.(card)
+    }
   }
 
   return (
@@ -42,7 +49,8 @@ function CardItem({ card, sfCard, selectMode, isSelected, onSelect, onToggleSele
       key={card.id || card._localId}
       className={`${styles.cardWrap}${isSelected ? ' ' + styles.cardSelected : ''}`}
       onClick={handleClick}
-      {...longPress}
+      onMouseLeave={lpLeave}
+      {...lpRest}
     >
       {selectMode && (
         <div className={`${styles.checkbox}${isSelected ? ' ' + styles.checkboxChecked : ''}`}>
@@ -54,8 +62,15 @@ function CardItem({ card, sfCard, selectMode, isSelected, onSelect, onToggleSele
           ? <img className={styles.img} src={img} alt={card.name} loading="lazy" />
           : <div className={styles.imgPlaceholder}>{card.name}</div>
         }
-        {card.qty > 1 && <div className={styles.qty}>×{card.qty}</div>}
+        {(card._folder_qty || card.qty) > 1 && <div className={styles.qty}>×{card._folder_qty || card.qty}</div>}
         {card.foil && <Badge variant="foil">Foil</Badge>}
+        {selectMode && isSelected && totalQty > 1 && (
+          <div className={styles.qtyOverlay}>
+            <button className={styles.qtyOverlayBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(card.id, +1, totalQty) }}>+</button>
+            <div className={styles.qtyOverlayDisplay}>{selQty} of {totalQty}</div>
+            <button className={styles.qtyOverlayBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(card.id, -1, totalQty) }}>−</button>
+          </div>
+        )}
       </div>
       <div className={styles.cardInfo}>
         <div className={styles.cardName}>{card.name}</div>
@@ -70,10 +85,14 @@ function CardItem({ card, sfCard, selectMode, isSelected, onSelect, onToggleSele
   )
 }
 
-export function CardGrid({ cards, sfMap, loading, onSelect, selectMode, selected, onToggleSelect, onEnterSelectMode }) {
+export function CardGrid({ cards, sfMap, loading, onSelect, selectMode, selected, onToggleSelect, onEnterSelectMode, splitState, onAdjustQty }) {
+  const cardsWithQty = useMemo(() =>
+    cards.map(card => ({ ...card, _totalQty: card._folder_qty || card.qty || 1 }))
+  , [cards])
+
   return (
     <div className={styles.grid}>
-      {cards.map(card => {
+      {cardsWithQty.map(card => {
         const sfCard = sfMap?.[`${card.set_code}-${card.collector_number}`]
         const isSelected = selectMode && selected?.has(card.id)
         return (
@@ -83,9 +102,12 @@ export function CardGrid({ cards, sfMap, loading, onSelect, selectMode, selected
             sfCard={sfCard}
             selectMode={selectMode}
             isSelected={isSelected}
+            totalQty={card._totalQty}
             onSelect={onSelect}
             onToggleSelect={onToggleSelect}
             onEnterSelectMode={onEnterSelectMode}
+            onAdjustQty={onAdjustQty}
+            splitState={splitState}
             loading={loading}
           />
         )
@@ -94,27 +116,115 @@ export function CardGrid({ cards, sfMap, loading, onSelect, selectMode, selected
   )
 }
 
-// ── BulkActionBar ─────────────────────────────────────────────────────────────
-export function BulkActionBar({ selected, total, onSelectAll, onDeselectAll, onDelete, onMoveToFolder, folders, onCreateFolder, selectedQty }) {
-  const [showMove, setShowMove] = useState(false)
+// ── MoveToDialog ──────────────────────────────────────────────────────────────
+function MoveToDialog({ folders, onMoveToFolder, onCreateFolder, onClose }) {
+  const [destType, setDestType] = useState('binder')
+  const [search, setSearch] = useState('')
   const [creating, setCreating] = useState(false)
-  const [createType, setCreateType] = useState('binder')
   const [createName, setCreateName] = useState('')
-  const [createSaving, setCreateSaving] = useState(false)
-  const count = selected.size
+  const [saving, setSaving] = useState(false)
+  const searchRef = useRef(null)
+  const createRef = useRef(null)
+
+  useEffect(() => { searchRef.current?.focus() }, [])
+  useEffect(() => { if (creating) createRef.current?.focus() }, [creating])
+
+  const visible = useMemo(() =>
+    (folders || [])
+      .filter(f => f.type === destType)
+      .filter(f => !search.trim() || f.name.toLowerCase().includes(search.toLowerCase().trim()))
+  , [folders, destType, search])
+
+  const switchType = (type) => { setDestType(type); setSearch(''); setCreating(false); setCreateName('') }
+
+  const handleMove = (f) => { onMoveToFolder(f); onClose() }
 
   const handleCreate = async () => {
-    if (!createName.trim()) return
-    setCreateSaving(true)
+    if (!createName.trim() || saving) return
+    setSaving(true)
     try {
-      await onCreateFolder?.(createType, createName.trim())
-      setCreating(false)
-      setCreateName('')
-      setShowMove(false)
+      await onCreateFolder?.(destType, createName.trim())
     } finally {
-      setCreateSaving(false)
+      setSaving(false)
     }
   }
+
+  return (
+    <Modal onClose={onClose}>
+      <div style={{ maxWidth: 440, width: '100%', margin: '0 auto' }}>
+      <h2 className={styles.moveDialogTitle}>Move to</h2>
+
+      <div className={styles.moveDialogTypeRow}>
+        <button
+          className={`${styles.moveDialogTypeBtn} ${destType === 'binder' ? styles.moveDialogTypeActive : ''}`}
+          onClick={() => switchType('binder')}
+        >Binders</button>
+        <button
+          className={`${styles.moveDialogTypeBtn} ${destType === 'deck' ? styles.moveDialogTypeActive : ''}`}
+          onClick={() => switchType('deck')}
+        >Decks</button>
+      </div>
+
+      <input
+        ref={searchRef}
+        className={styles.moveDialogSearch}
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        placeholder={`Search ${destType}s…`}
+      />
+
+      <div className={styles.moveDialogList}>
+        {visible.map(f => (
+          <button key={f.id} className={styles.moveDialogItem} onClick={() => handleMove(f)}>
+            {f.name}
+          </button>
+        ))}
+        {!visible.length && (
+          <div className={styles.moveDialogEmpty}>
+            {search.trim() ? `No ${destType}s match "${search.trim()}"` : `No ${destType}s yet`}
+          </div>
+        )}
+      </div>
+
+      <div className={styles.moveDialogCreate}>
+        {!creating ? (
+          <button className={styles.moveDialogCreateBtn} onClick={() => setCreating(true)}>
+            ＋ Create new {destType}
+          </button>
+        ) : (
+          <div className={styles.moveDialogCreateForm}>
+            <input
+              ref={createRef}
+              className={styles.moveDialogCreateInput}
+              value={createName}
+              onChange={e => setCreateName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') handleCreate()
+                if (e.key === 'Escape') { setCreating(false); setCreateName('') }
+              }}
+              placeholder={`New ${destType} name…`}
+            />
+            <button
+              className={styles.moveDialogCreateSave}
+              onClick={handleCreate}
+              disabled={saving || !createName.trim()}
+            >{saving ? '…' : 'Create & Move'}</button>
+            <button
+              className={styles.moveDialogCreateCancel}
+              onClick={() => { setCreating(false); setCreateName('') }}
+            >✕</button>
+          </div>
+        )}
+      </div>
+      </div>
+    </Modal>
+  )
+}
+
+// ── BulkActionBar ─────────────────────────────────────────────────────────────
+export function BulkActionBar({ selected, total, onSelectAll, onDeselectAll, onDelete, onMoveToFolder, folders, onCreateFolder, selectedQty }) {
+  const [showMoveDialog, setShowMoveDialog] = useState(false)
+  const count = selected.size
 
   return (
     <div className={styles.bulkBar}>
@@ -124,66 +234,19 @@ export function BulkActionBar({ selected, total, onSelectAll, onDeselectAll, onD
         <button className={styles.bulkLink} onClick={onDeselectAll}>Deselect all</button>
       </div>
       <div className={styles.bulkActions}>
-        <div className={styles.moveWrap}>
-          <button className={styles.bulkBtn} onClick={() => { setShowMove(v => !v); setCreating(false) }}>Move to… ▾</button>
-          {showMove && (
-            <div className={styles.moveDropdown}>
-              {/* Create new option */}
-              {!creating ? (
-                <button className={styles.moveCreate} onClick={() => setCreating(true)}>
-                  ＋ Create New Binder/Deck
-                </button>
-              ) : (
-                <div className={styles.moveCreateForm}>
-                  <select
-                    className={styles.moveCreateSelect}
-                    value={createType}
-                    onChange={e => setCreateType(e.target.value)}
-                  >
-                    <option value="binder">Binder</option>
-                    <option value="deck">Deck</option>
-                    <option value="list">Wishlist</option>
-                  </select>
-                  <input
-                    autoFocus
-                    className={styles.moveCreateInput}
-                    value={createName}
-                    onChange={e => setCreateName(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') handleCreate(); if (e.key === 'Escape') setCreating(false) }}
-                    placeholder="Name…"
-                  />
-                  <div className={styles.moveCreateActions}>
-                    <button className={styles.moveCreateSave} onClick={handleCreate} disabled={createSaving || !createName.trim()}>
-                      {createSaving ? '…' : 'Create & Move'}
-                    </button>
-                    <button className={styles.moveCreateCancel} onClick={() => { setCreating(false); setCreateName('') }}>✕</button>
-                  </div>
-                </div>
-              )}
-              <div className={styles.moveDivider} />
-              {['binder', 'deck', 'list'].map(type => {
-                const typeFolders = folders.filter(f => f.type === type)
-                if (!typeFolders.length) return null
-                return (
-                  <div key={type}>
-                    <div className={styles.moveGroup}>{type === 'list' ? 'Wishlists' : type.charAt(0).toUpperCase() + type.slice(1) + 's'}</div>
-                    {typeFolders.map(f => (
-                      <button key={f.id} className={styles.moveItem}
-                        onClick={() => { onMoveToFolder(f); setShowMove(false) }}>
-                        {f.name}
-                      </button>
-                    ))}
-                  </div>
-                )
-              })}
-              {!folders.length && !creating && <div className={styles.moveEmpty}>No folders yet</div>}
-            </div>
-          )}
-        </div>
+        <button className={styles.bulkBtn} onClick={() => setShowMoveDialog(true)}>Move to…</button>
         <button className={`${styles.bulkBtn} ${styles.bulkDelete}`} onClick={onDelete}>
           Delete {count}
         </button>
       </div>
+      {showMoveDialog && (
+        <MoveToDialog
+          folders={folders || []}
+          onMoveToFolder={onMoveToFolder}
+          onCreateFolder={onCreateFolder}
+          onClose={() => setShowMoveDialog(false)}
+        />
+      )}
     </div>
   )
 }

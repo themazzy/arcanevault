@@ -190,7 +190,7 @@ function WishlistItem({ item, sfCard, priceSource, onDelete, selectMode, selecte
 }
 
 // ── Wishlist grid view ────────────────────────────────────────────────────────
-function WishlistGrid({ items, sfMap, priceSource, selectMode, selectedItems, onToggleSelect, onDelete }) {
+function WishlistGrid({ items, sfMap, priceSource, selectMode, selectedItems, onToggleSelect, onDelete, splitState, onAdjustQty }) {
   return (
     <div className={listStyles.gridView}>
       {items.map(item => {
@@ -198,20 +198,29 @@ function WishlistGrid({ items, sfMap, priceSource, selectMode, selectedItems, on
         const price    = getPrice(sf, item.foil, { price_source: priceSource })
         const img      = sf?.image_uris?.normal || sf?.image_uris?.small || sf?.card_faces?.[0]?.image_uris?.normal
         const selected = selectedItems.has(item.id)
+        const totalQty = item.qty || 1
+        const selQty   = splitState?.get(item.id) ?? 1
         return (
           <div
             key={item.id}
             className={`${listStyles.gridItem}${selectMode ? ` ${listStyles.gridItemSelectMode}` : ''}${selected ? ` ${listStyles.gridItemSelected}` : ''}`}
-            onClick={selectMode ? () => onToggleSelect(item.id) : undefined}
+            onClick={selectMode ? () => onToggleSelect(item.id, totalQty) : undefined}
           >
             {selectMode && (
               <div className={`${listStyles.gridCheckbox}${selected ? ` ${listStyles.gridCheckboxChecked}` : ''}`} />
             )}
-            {item.qty > 1 && <div className={listStyles.gridQty}>×{item.qty}</div>}
+            {item.qty > 1 && !selected && <div className={listStyles.gridQty}>×{item.qty}</div>}
             {img
               ? <img src={img} className={listStyles.gridImg} alt={item.name} loading="lazy" />
               : <div className={listStyles.gridImgPlaceholder}>{item.name}</div>
             }
+            {selectMode && selected && totalQty > 1 && (
+              <div className={listStyles.qtyOverlay}>
+                <button className={listStyles.qtyOverlayBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(item.id, +1, totalQty) }}>+</button>
+                <div className={listStyles.qtyOverlayDisplay}>{selQty} of {totalQty}</div>
+                <button className={listStyles.qtyOverlayBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(item.id, -1, totalQty) }}>−</button>
+              </div>
+            )}
             <div className={listStyles.gridFooter}>
               <span className={listStyles.gridName}>
                 {item.name}
@@ -243,6 +252,7 @@ function ListBrowser({ folder, onBack }) {
   const [filters, setFilters]   = useState({ ...EMPTY_FILTERS })
   const [selectMode, setSelectMode]       = useState(false)
   const [selectedItems, setSelectedItems] = useState(new Set())
+  const [splitState, setSplitState]       = useState(new Map())
   const [showAddCard, setShowAddCard]     = useState(false)
   const [showExport, setShowExport]       = useState(false)
   const [view, setView]                   = useState('list')   // 'list' | 'grid'
@@ -276,10 +286,28 @@ function ListBrowser({ folder, onBack }) {
     return { totalValue: v, totalQty: q }
   }, [items, sfMap, price_source])
 
-  const toggleSelectMode = () => { setSelectMode(v => !v); setSelectedItems(new Set()) }
-  const onToggleSelect = useCallback(id => setSelectedItems(prev => {
-    const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next
-  }), [])
+  const toggleSelectMode = () => { setSelectMode(v => !v); setSelectedItems(new Set()); setSplitState(new Map()) }
+  const onToggleSelect = useCallback((id, totalQty) => {
+    setSelectedItems(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+        setSplitState(s => { const n = new Map(s); n.delete(id); return n })
+      } else {
+        next.add(id)
+        if (totalQty > 1) setSplitState(s => new Map(s).set(id, 1))
+      }
+      return next
+    })
+  }, [])
+
+  const onAdjustQty = useCallback((id, delta, totalQty) => {
+    setSplitState(prev => {
+      const current = prev.get(id) ?? 1
+      const next = Math.max(1, Math.min(totalQty, current + delta))
+      return new Map(prev).set(id, next)
+    })
+  }, [])
 
   const handleDelete = async (id) => {
     await sb.from('list_items').delete().eq('id', id)
@@ -287,10 +315,24 @@ function ListBrowser({ folder, onBack }) {
   }
 
   const handleBulkDelete = async () => {
-    const ids = [...selectedItems]
-    await sb.from('list_items').delete().in('id', ids)
-    setItems(prev => prev.filter(i => !selectedItems.has(i.id)))
-    setSelectedItems(new Set()); setSelectMode(false)
+    const toDelete = [], toUpdate = []
+    for (const id of selectedItems) {
+      const item = items.find(i => i.id === id)
+      const totalQty = item?.qty || 1
+      const selQty = splitState.get(id) ?? 1
+      const remaining = totalQty - selQty
+      remaining > 0 ? toUpdate.push({ id, remaining }) : toDelete.push(id)
+    }
+    if (toDelete.length) await sb.from('list_items').delete().in('id', toDelete)
+    for (const { id, remaining } of toUpdate) {
+      await sb.from('list_items').update({ qty: remaining }).eq('id', id)
+    }
+    setItems(prev => prev.map(i => {
+      if (toDelete.includes(i.id)) return null
+      const upd = toUpdate.find(u => u.id === i.id)
+      return upd ? { ...i, qty: upd.remaining } : i
+    }).filter(Boolean))
+    setSelectedItems(new Set()); setSplitState(new Map()); setSelectMode(false)
   }
 
   if (loading) return <EmptyState>Loading…</EmptyState>
@@ -357,7 +399,7 @@ function ListBrowser({ folder, onBack }) {
               priceSource={price_source}
               selectMode={selectMode}
               selected={selectedItems.has(item.id)}
-              onToggleSelect={() => onToggleSelect(item.id)}
+              onToggleSelect={() => onToggleSelect(item.id, item.qty || 1)}
               onDelete={handleDelete}
             />
           ))}
@@ -373,6 +415,8 @@ function ListBrowser({ folder, onBack }) {
           selectedItems={selectedItems}
           onToggleSelect={onToggleSelect}
           onDelete={handleDelete}
+          splitState={splitState}
+          onAdjustQty={onAdjustQty}
         />
       )}
 

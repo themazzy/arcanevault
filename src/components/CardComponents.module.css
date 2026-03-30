@@ -246,6 +246,43 @@
   border-color: var(--gold);
 }
 
+/* Qty adjuster overlay — shown when card is selected and qty > 1 */
+.qtyOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: rgba(0,0,0,0.55);
+  border-radius: 7px;
+  z-index: 5;
+  overflow: hidden;
+}
+.qtyOverlayBtn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: rgba(255,255,255,0.85);
+  cursor: pointer;
+  background: none;
+  border: none;
+  line-height: 1;
+  transition: background 0.15s;
+}
+.qtyOverlayBtn:hover { background: rgba(255,255,255,0.12); }
+.qtyOverlayDisplay {
+  padding: 3px 0;
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--gold);
+  font-family: var(--font-display);
+  letter-spacing: 0.05em;
+  background: rgba(0,0,0,0.35);
+  pointer-events: none;
+}
+
 .selectModeBtn {
   font-family: var(--font-display); font-size: 0.75rem;
   letter-spacing: 0.06em; padding: 9px 14px; border-radius: 3px;
@@ -295,27 +332,83 @@
 }
 .bulkDelete:hover { background: rgba(196,96,96,0.18) !important; }
 
-.moveWrap { position: relative; }
-.moveDropdown {
-  position: absolute; top: calc(100% + 6px); right: 0;
-  background: var(--bg3); border: 1px solid var(--border);
-  border-radius: 4px; min-width: 200px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-  z-index: 50; overflow: hidden;
+/* ── Move To Dialog ──────────────────────────────────────────────────── */
+.moveDialogTitle {
+  font-family: var(--font-display); font-size: 1rem;
+  color: var(--gold); margin: 0 0 18px; letter-spacing: 0.05em;
 }
-.moveGroup {
-  font-family: var(--font-display); font-size: 0.65rem;
-  letter-spacing: 0.1em; text-transform: uppercase;
-  color: var(--text-faint); padding: 10px 14px 4px;
+.moveDialogTypeRow {
+  display: flex; background: var(--s2);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px; overflow: hidden; margin-bottom: 14px;
 }
-.moveItem {
+.moveDialogTypeBtn {
+  flex: 1; padding: 9px 14px; background: none; border: none;
+  color: var(--text-dim); cursor: pointer;
+  font-family: var(--font-display); font-size: 0.78rem; letter-spacing: 0.06em;
+  transition: all 0.18s;
+}
+.moveDialogTypeBtn:hover { color: var(--text); background: var(--s2); }
+.moveDialogTypeActive { background: rgba(201,168,76,0.15) !important; color: var(--gold) !important; }
+.moveDialogSearch {
+  width: 100%; box-sizing: border-box;
+  background: var(--s2); border: 1px solid var(--border);
+  border-radius: 4px; padding: 8px 12px;
+  color: var(--text); font-size: 0.88rem; outline: none;
+  margin-bottom: 10px; transition: border-color 0.18s;
+}
+.moveDialogSearch:focus { border-color: var(--border-hi); }
+.moveDialogSearch::placeholder { color: var(--text-faint); font-style: italic; }
+.moveDialogList {
+  max-height: 260px; overflow-y: auto; margin-bottom: 14px;
+  border: 1px solid var(--border); border-radius: 4px;
+}
+.moveDialogList::-webkit-scrollbar { width: 5px; }
+.moveDialogList::-webkit-scrollbar-track { background: transparent; }
+.moveDialogList::-webkit-scrollbar-thumb { background: rgba(180,140,60,0.25); border-radius: 3px; }
+.moveDialogItem {
   display: block; width: 100%; text-align: left;
-  background: none; border: none; cursor: pointer;
-  padding: 8px 14px; font-size: 0.88rem; color: var(--text);
-  transition: background 0.15s;
+  background: none; border: none;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  cursor: pointer; padding: 11px 16px;
+  font-size: 0.88rem; color: var(--text); transition: background 0.15s, color 0.15s;
 }
-.moveItem:hover { background: rgba(201,168,76,0.08); color: var(--gold); }
-.moveEmpty { padding: 12px 14px; color: var(--text-faint); font-size: 0.85rem; font-style: italic; }
+.moveDialogItem:last-child { border-bottom: none; }
+.moveDialogItem:hover { background: rgba(201,168,76,0.08); color: var(--gold); }
+.moveDialogEmpty {
+  padding: 18px 16px; color: var(--text-faint);
+  font-size: 0.85rem; font-style: italic; text-align: center;
+}
+.moveDialogCreate { border-top: 1px solid var(--border); padding-top: 14px; }
+.moveDialogCreateBtn {
+  background: none; border: 1px dashed rgba(201,168,76,0.3);
+  border-radius: 4px; width: 100%; padding: 9px 14px;
+  cursor: pointer; color: var(--text-dim); font-size: 0.85rem;
+  transition: all 0.18s; text-align: center;
+}
+.moveDialogCreateBtn:hover { border-color: rgba(201,168,76,0.6); color: var(--gold); }
+.moveDialogCreateForm { display: flex; gap: 7px; align-items: center; }
+.moveDialogCreateInput {
+  flex: 1; background: var(--s2); border: 1px solid var(--border);
+  border-radius: 4px; padding: 7px 10px; color: var(--text);
+  font-size: 0.85rem; outline: none; transition: border-color 0.18s;
+}
+.moveDialogCreateInput:focus { border-color: var(--border-hi); }
+.moveDialogCreateInput::placeholder { color: var(--text-faint); }
+.moveDialogCreateSave {
+  font-family: var(--font-display); font-size: 0.72rem; letter-spacing: 0.04em;
+  padding: 7px 12px; border-radius: 3px; cursor: pointer; white-space: nowrap;
+  background: rgba(201,168,76,0.15); border: 1px solid rgba(201,168,76,0.4);
+  color: var(--gold); transition: all 0.18s;
+}
+.moveDialogCreateSave:hover:not(:disabled) { background: rgba(201,168,76,0.25); }
+.moveDialogCreateSave:disabled { opacity: 0.4; cursor: not-allowed; }
+.moveDialogCreateCancel {
+  background: none; border: 1px solid rgba(255,255,255,0.1);
+  color: var(--text-faint); border-radius: 3px; padding: 7px 9px;
+  cursor: pointer; font-size: 0.82rem; transition: all 0.18s;
+}
+.moveDialogCreateCancel:hover { border-color: rgba(196,96,96,0.4); color: var(--red); }
 
 /* ── Rich filter panel ─────────────────────────────────────────────────────── */
 .filterWrap { margin-bottom: 14px; }
@@ -712,88 +805,12 @@
 }
 .rulingDate { font-size: 0.72rem; color: var(--text-faint); margin-bottom: 6px; }
 
-/* ── BulkActionBar move dropdown extras ──────────────────────────────── */
-.moveCreate {
-  display: block;
-  width: 100%;
-  background: rgba(201,168,76,0.06);
-  border: none;
-  border-bottom: 1px solid var(--border);
-  color: var(--gold);
-  font-size: 0.82rem;
-  padding: 9px 14px;
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.1s;
-}
-.moveCreate:hover { background: rgba(201,168,76,0.12); }
-
-.moveCreateForm {
-  padding: 8px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  border-bottom: 1px solid var(--border);
-}
-.moveCreateSelect {
-  background: var(--s3);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  color: var(--text);
-  font-size: 0.78rem;
-  padding: 4px 6px;
-  outline: none;
-}
-.moveCreateInput {
-  background: var(--s3);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  color: var(--text);
-  font-size: 0.82rem;
-  padding: 5px 8px;
-  outline: none;
-}
-.moveCreateInput:focus { border-color: var(--gold); }
-.moveCreateActions { display: flex; gap: 6px; }
-.moveCreateSave {
-  flex: 1;
-  background: rgba(201,168,76,0.12);
-  border: 1px solid rgba(201,168,76,0.35);
-  border-radius: 3px;
-  color: var(--gold);
-  font-size: 0.78rem;
-  padding: 5px;
-  cursor: pointer;
-  transition: background 0.1s;
-}
-.moveCreateSave:hover:not(:disabled) { background: rgba(201,168,76,0.2); }
-.moveCreateSave:disabled { opacity: 0.5; cursor: default; }
-.moveCreateCancel {
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  color: var(--text-faint);
-  font-size: 0.78rem;
-  padding: 5px 8px;
-  cursor: pointer;
-}
-.moveDivider { height: 1px; background: var(--border); margin: 2px 0; }
-
-/* Mobile bottom sheet for move dropdown */
+/* Mobile bottom sheet — modal handles mobile natively via UI.module.css */
 @media (max-width: 640px) {
   .moveWrap { position: static; }
-  .moveDropdown {
+  .fakeDropdown {
     position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    top: auto;
-    max-height: 60vh;
-    overflow-y: auto;
-    border-radius: 12px 12px 0 0;
-    border-left: none;
-    border-right: none;
-    border-bottom: none;
+    bottom: 0; left: 0; right: 0; top: auto;
     box-shadow: 0 -8px 32px rgba(0,0,0,0.6);
     z-index: 500;
   }

@@ -224,3 +224,39 @@
 }
 .gridItem:hover .gridDelete { opacity: 1; }
 .gridDelete:hover { color: #e05252; }
+
+/* Qty overlay for wishlist grid */
+.qtyOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: rgba(0,0,0,0.55);
+  z-index: 5;
+  overflow: hidden;
+}
+.qtyOverlayBtn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: rgba(255,255,255,0.85);
+  cursor: pointer;
+  background: none;
+  border: none;
+  line-height: 1;
+  transition: background 0.15s;
+}
+.qtyOverlayBtn:hover { background: rgba(255,255,255,0.12); }
+.qtyOverlayDisplay {
+  padding: 3px 0;
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--gold, #c9a84c);
+  font-family: var(--font-display);
+  letter-spacing: 0.05em;
+  background: rgba(0,0,0,0.35);
+  pointer-events: none;
+}

@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect } from 'react'
+import { useRef, useCallback, useEffect, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { getImageUri, getPriceWithMeta, formatPriceMeta } from '../lib/scryfall'
 import { Badge } from './UI'
@@ -33,15 +33,16 @@ function FolderTags({ folders }) {
   )
 }
 
-function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, onToggleSelect, onEnterSelectMode, priceSource, showPrice, density, cardFolders }) {
-  const imgSize = density === 'cozy' ? 'normal' : 'small'
-  const img     = getImageUri(sfCard, imgSize)
+function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, totalQty, onToggleSelect, onEnterSelectMode, onAdjustQty, splitState, priceSource, showPrice, density, cardFolders }) {
+  const img     = getImageUri(sfCard, 'normal')
   const priceMeta = getPriceWithMeta(sfCard, card.foil, { price_source: priceSource })
   const buyPrice = parseFloat(card.purchase_price) || null
   const isBuyFallback = priceMeta == null && buyPrice != null
   const plPct = (card.purchase_price > 0 && priceMeta?.value)
     ? ((priceMeta.value - card.purchase_price) / card.purchase_price) * 100
     : null
+
+  const selQty = splitState?.get(card.id) ?? 1
 
   // If card has a _displayFolder it's an expanded entry — show only that folder
   // Otherwise show all folders from cardFolderMap
@@ -50,19 +51,25 @@ function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, onTo
     : (cardFolders?.[card.id] || [])
 
   const handleClick = () => {
-    if (selectMode) onToggleSelect?.(card._displayKey || card.id)
-    else onClick?.(card)
+    if (selectMode) {
+      onToggleSelect?.(card._displayKey || card.id, totalQty)
+    } else {
+      onClick?.(card)
+    }
   }
 
   const longPress = useLongPress(() => {
     if (!selectMode) onEnterSelectMode?.()
   }, { delay: 500 })
 
+  const { onMouseLeave: lpLeave, ...lpRest } = longPress
+
   return (
     <div
       className={`${styles.cardWrap}${isSelected ? ' ' + styles.cardSelected : ''}`}
       onClick={handleClick}
-      {...longPress}
+      onMouseLeave={lpLeave}
+      {...lpRest}
     >
       {selectMode && (
         <div className={`${styles.checkbox}${isSelected ? ' ' + styles.checkboxChecked : ''}`}>
@@ -77,6 +84,13 @@ function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, onTo
         }
         {card.foil && <div style={{ position: 'absolute', top: 5, left: 5 }}><Badge variant="foil">Foil</Badge></div>}
         {card.qty > 1 && !card._multiFolder && <div className={styles.qty}>×{card.qty}</div>}
+        {selectMode && isSelected && totalQty > 1 && (
+          <div className={styles.qtyOverlay}>
+            <button className={styles.qtyBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(card.id, +1, totalQty) }}>+</button>
+            <div className={styles.qtyDisplay}>{selQty} of {totalQty}</div>
+            <button className={styles.qtyBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(card.id, -1, totalQty) }}>−</button>
+          </div>
+        )}
       </div>
 
       <div className={styles.cardInfo}>
@@ -105,6 +119,7 @@ function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, onTo
 export default function VirtualCardGrid({
   cards, sfMap, loading, onSelect,
   selectMode, selected, onToggleSelect, onEnterSelectMode,
+  splitState, onAdjustQty,
   priceSource = 'cardmarket_trend',
   showPrice = true, density = 'comfortable',
   cardFolders,
@@ -128,8 +143,13 @@ export default function VirtualCardGrid({
     return () => ro.disconnect()
   }, [measureCols])
 
+  // Attach _totalQty to each card so CardItem knows the full qty for the adjuster
+  const cardsWithQty = useMemo(() =>
+    cards.map(card => ({ ...card, _totalQty: card.qty || 1 }))
+  , [cards])
+
   const cols    = colsRef.current
-  const rowCount = Math.ceil(cards.length / cols)
+  const rowCount = Math.ceil(cardsWithQty.length / cols)
 
   const virtualizer = useVirtualizer({
     count: rowCount,
@@ -143,7 +163,7 @@ export default function VirtualCardGrid({
       <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
         {virtualizer.getVirtualItems().map(vRow => {
           const startIdx = vRow.index * cols
-          const rowCards = cards.slice(startIdx, startIdx + cols)
+          const rowCards = cardsWithQty.slice(startIdx, startIdx + cols)
           return (
             <div
               key={vRow.key}
@@ -157,23 +177,29 @@ export default function VirtualCardGrid({
                 gap: 14,
               }}
             >
-              {rowCards.map(card => (
-                <CardItem
-                  key={card._displayKey || card.id}
-                  card={card}
-                  sfCard={sfMap?.[`${card.set_code}-${card.collector_number}`]}
-                  loading={loading}
-                  onClick={onSelect}
-                  selectMode={selectMode}
-                  isSelected={selectMode && selected?.has(card._displayKey || card.id)}
-                  onToggleSelect={onToggleSelect}
-                  onEnterSelectMode={onEnterSelectMode}
-                  priceSource={priceSource}
-                  showPrice={showPrice}
-                  density={density}
-                  cardFolders={cardFolders}
-                />
-              ))}
+              {rowCards.map(card => {
+                const displayKey = card._displayKey || card.id
+                return (
+                  <CardItem
+                    key={displayKey}
+                    card={card}
+                    sfCard={sfMap?.[`${card.set_code}-${card.collector_number}`]}
+                    loading={loading}
+                    onClick={onSelect}
+                    selectMode={selectMode}
+                    isSelected={selectMode && selected?.has(card._displayKey || card.id)}
+                    totalQty={card._totalQty}
+                    onToggleSelect={onToggleSelect}
+                    onEnterSelectMode={onEnterSelectMode}
+                    onAdjustQty={onAdjustQty}
+                    splitState={splitState}
+                    priceSource={priceSource}
+                    showPrice={showPrice}
+                    density={density}
+                    cardFolders={cardFolders}
+                  />
+                )
+              })}
             </div>
           )
         })}
