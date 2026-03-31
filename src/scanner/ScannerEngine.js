@@ -239,7 +239,7 @@ function dct2d(matrix, N) {
  * Compute a 256-bit pHash of artwork ImageData.
  *
  * Uses the same pure-JS DCT as the seed script so hashes are byte-identical.
- * OpenCV is used only for the grayscale + resize step (fast, no dct needed).
+ * OpenCV handles blur, resize, and CLAHE; DCT is pure JS to guarantee identical output.
  *
  * Returns { p1, p2, p3, p4 } as BigInt, or null on failure.
  */
@@ -248,16 +248,21 @@ export function computePHash256(artImageData) {
   const cv       = window.cv
   const src      = cv.matFromImageData(artImageData)
   if (!src || src.empty()) throw new Error('matFromImageData failed')
+  const blurred  = new cv.Mat()
   const resized  = new cv.Mat()
   const gray     = new cv.Mat()
   const equalized = new cv.Mat()
 
   try {
-    // 1. Resize RGBA to 32×32 with Lanczos (matches sharp's default for downscaling)
-    cv.resize(src, resized, new cv.Size(32, 32), 0, 0, cv.INTER_LANCZOS4)
+    // 1. Gaussian blur on art crop — reduces camera sensor noise before downsampling.
+    //    σ=1.0 matches sharp's .blur(1.0) used in the seed script.
+    cv.GaussianBlur(src, blurred, new cv.Size(5, 5), 1.0)
+
+    // 2. Resize blurred RGBA to 32×32 with Lanczos (matches sharp's default for downscaling)
+    cv.resize(blurred, resized, new cv.Size(32, 32), 0, 0, cv.INTER_LANCZOS4)
     if (resized.empty()) throw new Error('resize to 32×32 failed')
 
-    // 2. Convert to grayscale using BT.709 (Rec.709) to match sharp's .grayscale() default.
+    // 3. Convert to grayscale using BT.709 (Rec.709) to match sharp's .grayscale() default.
     //    OpenCV COLOR_RGBA2GRAY uses BT.601 which gives different values for saturated colours.
     const rgba = resized.data  // Uint8Array RGBA, 32*32*4 = 4096 bytes
     if (!rgba || rgba.length < 4096) throw new Error(`resized.data invalid (len=${rgba?.length})`)
@@ -266,15 +271,18 @@ export function computePHash256(artImageData) {
       grayU8[i] = Math.round(0.2126 * rgba[i*4] + 0.7152 * rgba[i*4+1] + 0.0722 * rgba[i*4+2])
     }
 
-    // 3. Histogram equalization — normalises exposure/contrast so the same card
-    //    photographed in different lighting conditions produces the same hash.
+    // 4. CLAHE — local contrast normalisation; handles uneven lighting better than
+    //    global equalizeHist. tileGridSize=(4,4) → 8×8-pixel tiles on 32×32.
+    //    clipLimit=40 → actualClip = floor(40 * 64 / 256) = 10 counts per bin.
     //    The seed script (generate-card-hashes.js) must apply the same step.
     gray.create(32, 32, cv.CV_8UC1)
     gray.data.set(grayU8)
-    cv.equalizeHist(gray, equalized)
-    if (equalized.empty()) throw new Error('equalizeHist failed')
+    const clahe = cv.createCLAHE(40.0, new cv.Size(4, 4))
+    clahe.apply(gray, equalized)
+    clahe.delete()
+    if (equalized.empty()) throw new Error('CLAHE failed')
 
-    // 4. Read equalised pixels into Float64Array for the pure-JS DCT
+    // 5. Read equalised pixels into Float64Array for the pure-JS DCT
     const pixels = new Float64Array(32 * 32)
     const eq8    = equalized.data
     if (!eq8 || eq8.length < 1024) throw new Error(`equalized.data invalid (len=${eq8?.length})`)
@@ -309,7 +317,7 @@ export function computePHash256(artImageData) {
       p4: pack64(192),
     }
   } finally {
-    src.delete(); resized.delete(); gray.delete(); equalized.delete()
+    src.delete(); blurred.delete(); resized.delete(); gray.delete(); equalized.delete()
   }
 }
 

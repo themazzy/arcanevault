@@ -88,42 +88,83 @@ function dct2d(matrix, N) {
   return out
 }
 
-// ── Histogram equalisation (pure JS, matches cv.equalizeHist exactly) ────────
-function equalizeHistogram(u8, N) {
-  // Build histogram
-  const hist = new Int32Array(256)
-  for (let i = 0; i < N; i++) hist[u8[i]]++
+// ── CLAHE (pure JS, matches cv.createCLAHE(40.0, Size(4,4)) on a 32×32 image) ──
+// tileGridX/Y: number of tiles per dimension.
+// clipLimit: matches OpenCV's actualClip = max(1, floor(clipLimit * tileArea / 256)).
+function applyCLAHE(u8, width, height, tileGridX = 4, tileGridY = 4, clipLimit = 40.0) {
+  const tileW    = Math.floor(width / tileGridX)
+  const tileH    = Math.floor(height / tileGridY)
+  const tileArea = tileW * tileH
+  const clip     = Math.max(1, Math.floor(clipLimit * tileArea / 256))
 
-  // Cumulative distribution function
-  const cdf = new Int32Array(256)
-  cdf[0] = hist[0]
-  for (let i = 1; i < 256; i++) cdf[i] = cdf[i-1] + hist[i]
+  // Build equalised LUT for each tile
+  const luts = []
+  for (let ty = 0; ty < tileGridY; ty++) {
+    for (let tx = 0; tx < tileGridX; tx++) {
+      const hist = new Int32Array(256)
+      for (let y = ty * tileH; y < (ty + 1) * tileH; y++)
+        for (let x = tx * tileW; x < (tx + 1) * tileW; x++)
+          hist[u8[y * width + x]]++
 
-  // Find first non-zero CDF value
-  let cdfMin = 0
-  for (let i = 0; i < 256; i++) { if (cdf[i] > 0) { cdfMin = cdf[i]; break } }
+      // Clip and redistribute excess evenly across all bins
+      let excess = 0
+      for (let i = 0; i < 256; i++) {
+        if (hist[i] > clip) { excess += hist[i] - clip; hist[i] = clip }
+      }
+      const add  = Math.floor(excess / 256)
+      let   rem  = excess % 256
+      const step = rem > 0 ? Math.floor(256 / rem) : 256
+      for (let i = 0; i < 256; i++) {
+        hist[i] += add
+        if (rem > 0 && i % step === 0) { hist[i]++; rem-- }
+      }
 
-  // Map each pixel: equalised = round((cdf[v] - cdfMin) / (N - cdfMin) * 255)
-  const out = new Uint8Array(N)
-  const denom = N - cdfMin
-  for (let i = 0; i < N; i++) {
-    out[i] = denom > 0 ? Math.round((cdf[u8[i]] - cdfMin) / denom * 255) : 0
+      // CDF → LUT  (OpenCV formula: lut[i] = round(cdf * 255 / tileArea))
+      const lut = new Uint8Array(256)
+      let cdf = 0
+      for (let i = 0; i < 256; i++) {
+        cdf    += hist[i]
+        lut[i]  = Math.min(255, Math.round(cdf * 255.0 / tileArea))
+      }
+      luts.push(lut)
+    }
+  }
+
+  // Bilinear interpolation: blend the 4 surrounding tile LUTs for every pixel
+  const out = new Uint8Array(width * height)
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const v  = u8[y * width + x]
+      const gx = (x + 0.5) / tileW - 0.5
+      const gy = (y + 0.5) / tileH - 0.5
+      const tx0 = Math.max(0, Math.min(tileGridX - 2, Math.floor(gx)))
+      const ty0 = Math.max(0, Math.min(tileGridY - 2, Math.floor(gy)))
+      const ax  = Math.max(0, Math.min(1, gx - tx0))
+      const ay  = Math.max(0, Math.min(1, gy - ty0))
+      out[y * width + x] = Math.round(
+        luts[ ty0      * tileGridX + tx0     ][v] * (1 - ax) * (1 - ay) +
+        luts[ ty0      * tileGridX + tx0 + 1 ][v] * ax       * (1 - ay) +
+        luts[(ty0 + 1) * tileGridX + tx0     ][v] * (1 - ax) * ay       +
+        luts[(ty0 + 1) * tileGridX + tx0 + 1 ][v] * ax       * ay
+      )
+    }
   }
   return out
 }
 
 // ── pHash: returns 64-char hex string ────────────────────────────────────────
 async function computePHashHex(imageBuffer) {
-  // 1. Resize to 32×32 with Lanczos (sharp default), then grayscale with BT.709
+  // 1. Gaussian blur (σ=1.0) then resize to 32×32 with Lanczos, then BT.709 grayscale.
+  //    Blur matches cv.GaussianBlur(src, dst, Size(5,5), 1.0) used in the client scanner.
   const { data } = await sharp(imageBuffer)
+    .blur(1.0)
     .resize(DCT_SIZE, DCT_SIZE, { fit: 'fill' })
     .grayscale()   // sharp uses BT.709 (Rec.709) by default
     .raw()
     .toBuffer({ resolveWithObject: true })
 
-  // 2. Histogram equalisation — normalises exposure so the same card in
-  //    different lighting conditions hashes similarly (must match client)
-  const equalized = equalizeHistogram(data, DCT_SIZE * DCT_SIZE)
+  // 2. CLAHE — local contrast normalisation (must match client scanner's cv.createCLAHE)
+  const equalized = applyCLAHE(data, DCT_SIZE, DCT_SIZE)
 
   // 3. 2D DCT on equalised pixels
   const pixels = new Float64Array(DCT_SIZE * DCT_SIZE)
