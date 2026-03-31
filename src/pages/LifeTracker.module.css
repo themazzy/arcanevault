@@ -125,7 +125,7 @@
 /* ── Player Panel ──────────────────────────────────────────────────────────── */
 .playerPanel {
   background: var(--s2);
-  border: 1px solid rgba(255,255,255,0.07);
+  border: 1px solid var(--s-border);
   border-top: 3px solid var(--player-color, var(--gold));
   border-radius: 8px;
   padding: 9px 11px 11px;
@@ -137,6 +137,47 @@
   overflow: hidden;       /* clip any child overflow to panel bounds */
 }
 .playerDead { opacity: 0.42; filter: grayscale(0.4); }
+
+/* Low-life ambient animations */
+.playerLifeLow {
+  animation: lifeLowPulse 2.8s ease-in-out infinite;
+}
+.playerLifeCrit {
+  animation: lifeCritPulse 1.3s ease-in-out infinite;
+}
+@keyframes lifeLowPulse {
+  0%, 100% { box-shadow: none; border-top-color: var(--player-color, var(--gold)); }
+  50%       { box-shadow: 0 0 22px rgba(220,128,48,0.22); border-top-color: #e08040; }
+}
+@keyframes lifeCritPulse {
+  0%, 100% { box-shadow: none; border-top-color: var(--player-color, var(--gold)); }
+  50%       { box-shadow: 0 0 32px rgba(196,72,72,0.38); border-top-color: #c84848; }
+}
+
+/* Death overlay */
+.deathOverlay {
+  position: absolute; inset: 0; z-index: 10;
+  background: rgba(0,0,0,0.68);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; border-radius: 7px;
+  animation: deathFadeIn 0.65s ease;
+  pointer-events: none;
+}
+@keyframes deathFadeIn {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.deathIcon {
+  font-size: 2.2rem;
+  filter: drop-shadow(0 0 14px rgba(196,96,96,0.55));
+}
+.deathText {
+  font-family: var(--font-display); font-size: 0.72rem;
+  color: #e0a0a0; text-align: center; letter-spacing: 0.05em;
+  padding: 0 18px; line-height: 1.55;
+  text-shadow: 0 1px 10px rgba(0,0,0,0.9);
+}
+
 /* Rotation classes — desktop: no rotation; tablet+phone: see media query below */
 .playerRotate180, .playerRotate90, .playerRotate90n { /* set in media query below */ }
 
@@ -197,23 +238,25 @@
 
 /* Life total */
 .lifeArea {
-  display: flex; align-items: center; justify-content: center; gap: 12px; flex: 1;
+  display: flex; align-items: stretch; justify-content: center; gap: 12px; flex: 1;
 }
 .lifeBtn {
-  background: var(--s3); border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 6px; color: var(--text-dim);
-  font-size: 3rem; line-height: 1; width: 10rem; height: 10rem;
+  background: var(--s3); border: 1px solid var(--s-border2);
+  border-radius: 8px; color: var(--text);
+  font-size: 3rem; font-weight: 600; line-height: 1;
+  flex: 1; min-width: 44px; max-width: 140px;
   cursor: pointer; transition: all 0.12s;
   display: flex; align-items: center; justify-content: center;
   user-select: none; -webkit-user-select: none; touch-action: manipulation;
 }
-.lifeBtn:hover  { background: rgba(255,255,255,0.12); color: var(--player-color, var(--gold)); }
-.lifeBtn:active { transform: scale(0.93); }
+.lifeBtn:hover  { background: var(--s-medium); color: var(--player-color, var(--gold)); border-color: rgba(201,168,76,0.35); }
+.lifeBtn:active { transform: scale(0.93); background: var(--s-subtle); }
 
 .lifeTotalWrap {
   position: relative;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   width: 100px;
+  align-self: center;
   cursor: default;
   user-select: none; -webkit-user-select: none;
 }
@@ -234,13 +277,17 @@
 }
 
 .lifeDelta {
-  position: absolute; right: -30px; top: 0;
-  font-family: var(--font-display); font-size: 1.1rem; font-weight: 700;
+  position: absolute; right: -34px; top: 0;
+  font-family: var(--font-display); font-size: 1.15rem; font-weight: 700;
   pointer-events: none;
-  animation: deltaFade 1.6s ease-out forwards;
+  transition: none;
 }
 .lifeDeltaUp   { color: var(--green); }
 .lifeDeltaDown { color: #c46060; }
+/* Applied only after the 1 s accumulation window closes */
+.lifeDeltaFade {
+  animation: deltaFade 1.6s ease-out forwards;
+}
 @keyframes deltaFade {
   0%   { opacity: 1; transform: translateY(0); }
   60%  { opacity: 0.9; transform: translateY(-14px); }
@@ -250,7 +297,7 @@
 /* Quick ±5/10 */
 .quickRow { display: flex; justify-content: center; gap: 4px; }
 .quickBtn {
-  background: var(--s2); border: 1px solid rgba(255,255,255,0.07);
+  background: var(--s2); border: 1px solid var(--s-border);
   border-radius: 4px; color: var(--text-faint);
   font-family: var(--font-serif); font-size: 0.76rem;
   padding: 2rem 2rem; cursor: pointer; transition: all 0.12s;
@@ -259,29 +306,127 @@
 .quickBtn:hover  { background: var(--s4); color: var(--player-color, var(--gold)); }
 .quickBtn:active { transform: scale(0.94); }
 
-/* Poison */
-.poisonRow {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 5px 8px; background: rgba(0,0,0,0.2);
-  border-radius: 5px; border: 1px solid rgba(255,255,255,0.05);
+/* History button (in nameRow) */
+.historyBtn {
+  background: none; border: none;
+  color: var(--text-faint); font-size: 0.88rem; line-height: 1;
+  cursor: pointer; padding: 3px 4px; transition: color 0.15s;
+  flex-shrink: 0; border-radius: 4px;
 }
-.poisonLabel { font-family: var(--font-serif); font-size: 0.74rem; color: #90c090; }
+.historyBtn:hover { color: var(--gold); background: rgba(201,168,76,0.08); }
 
-/* Shared counter */
-.counterRow { display: flex; align-items: center; gap: 6px; }
-.counterBtn {
-  background: var(--s3); border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 4px; color: var(--text-dim);
-  font-size: 0.9rem; width: 32px; height: 32px;
+/* ── Counter tab switcher ───────────────────────────────────────────────────── */
+.counterSection {
+  display: flex; flex-direction: column; gap: 3px;
+  background: var(--s2);
+  border: 1px solid var(--s-border);
+  border-radius: 5px; padding: 4px 5px;
+  flex-shrink: 0;
+}
+.counterTabs { display: flex; gap: 3px; }
+.counterTab {
+  flex: 1;
+  background: none; border: 1px solid var(--s-border);
+  border-radius: 4px; padding: 4px 2px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  cursor: pointer; transition: all 0.12s;
+  color: var(--text-faint); touch-action: manipulation;
+}
+.counterTab:hover { background: var(--s-subtle); color: var(--text-dim); }
+.counterTabActive {
+  background: var(--s-medium) !important;
+  border-color: var(--s-border2) !important;
+  color: var(--text) !important;
+}
+.counterTabLethal {
+  border-color: rgba(196,96,96,0.45) !important;
+  background: rgba(196,96,96,0.06) !important;
+  animation: lethalPulse 1.4s ease-in-out infinite;
+}
+.counterTabIcon { font-size: 0.9rem; line-height: 1; }
+.counterTabLabel {
+  font-size: 0.5rem; letter-spacing: 0.05em; text-transform: uppercase;
+  line-height: 1; color: inherit;
+}
+.counterTabBadge {
+  font-family: var(--font-display); font-size: 0.6rem; font-weight: 700;
+  color: var(--text); line-height: 1;
+}
+.counterControls {
+  display: flex; align-items: stretch; gap: 4px;
+}
+.counterCtrlBtn {
+  flex: 1; max-width: 60px;
+  background: var(--s3); border: 1px solid var(--s-border2);
+  border-radius: 4px; color: var(--text);
+  font-size: 1.4rem; font-weight: 600; min-height: 36px;
   cursor: pointer; display: flex; align-items: center; justify-content: center;
   transition: all 0.12s; padding: 0; touch-action: manipulation;
 }
-.counterBtn:hover { background: rgba(255,255,255,0.12); }
-.counterVal {
-  font-family: var(--font-display); font-size: 1rem;
-  color: var(--text); min-width: 22px; text-align: center;
+.counterCtrlBtn:hover { background: var(--s-medium); }
+.counterCtrlBtn:active { transform: scale(0.93); }
+.counterCtrlMid {
+  flex: 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 1px; min-width: 0;
+}
+.counterCtrlIcon { font-size: 0.8rem; line-height: 1; }
+.counterCtrlVal {
+  font-family: var(--font-display); font-size: 1.4rem; font-weight: 700;
+  color: var(--text); line-height: 1;
+}
+.counterCtrlLethal {
+  font-family: var(--font-display); font-size: 0.52rem; letter-spacing: 0.08em;
+  color: #c46060; text-transform: uppercase;
 }
 .counterDead { color: #c46060 !important; }
+
+/* ── Partner toggle button (in player settings row) ─────────────────────────── */
+.partnerToggleBtn {
+  width: 100%; text-align: center;
+  background: none; border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 4px; color: var(--text-faint);
+  font-family: var(--font-display); font-size: 0.6rem; letter-spacing: 0.07em;
+  text-transform: uppercase; padding: 4px 8px;
+  cursor: pointer; transition: all 0.15s; touch-action: manipulation;
+}
+.partnerToggleBtn:hover { color: var(--text-dim); border-color: rgba(255,255,255,0.14); }
+.partnerToggleBtnActive {
+  background: rgba(160,144,208,0.1) !important;
+  border-color: rgba(160,144,208,0.4) !important;
+  color: #b8a8e0 !important;
+}
+
+/* History event overlay */
+.histEvtList {
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: 340px; overflow-y: auto;
+}
+.histEvtList::-webkit-scrollbar { width: 3px; }
+.histEvtList::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+.histEvtRow {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--s1); border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 4px; padding: 6px 10px;
+}
+.histEvtIcon { font-size: 0.82rem; flex-shrink: 0; width: 18px; text-align: center; color: var(--text-faint); }
+.histEvtPlayer { font-family: var(--font-display); font-size: 0.72rem; font-weight: 700; }
+.histEvtDesc {
+  flex: 1; font-size: 0.8rem; color: var(--text-dim); min-width: 0;
+  font-family: var(--font-serif);
+}
+.histEvtDesc strong { color: var(--text); font-weight: 700; }
+.histEvtDesc em { color: var(--text-dim); font-style: italic; }
+.histEvtPos { color: var(--green); font-weight: 700; }
+.histEvtNeg { color: #c46060; font-weight: 700; }
+.histEvtTime {
+  font-size: 0.66rem; color: var(--text-faint); flex-shrink: 0;
+  font-style: italic; white-space: nowrap;
+}
+.histEvtEmpty {
+  font-size: 0.82rem; color: var(--text-faint); font-style: italic;
+  text-align: center; padding: 16px 0; margin: 0;
+}
 
 /* ── Commander Damage Bar (always visible, compact) ─────────────────────────── */
 .cmdBar {
@@ -391,12 +536,25 @@
 .cmdOverlayClose:hover { color: var(--text); }
 .cmdOverlayList { display: flex; flex-direction: column; gap: 8px; }
 .cmdOverlayRow {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
   background: var(--s1);
   border: 1px solid rgba(255,255,255,0.07);
   border-left: 3px solid var(--opc, rgba(255,255,255,0.2));
-  border-radius: 5px; padding: 9px 12px;
+  border-radius: 5px; padding: 8px 12px;
+  display: flex; flex-direction: column; gap: 6px;
 }
+.cmdOverlayDmgRow {
+  display: flex; align-items: center; gap: 6px;
+}
+.cmdPartnerLabel {
+  font-family: var(--font-display); font-size: 0.72rem;
+  color: var(--text-faint); min-width: 16px; flex-shrink: 0; text-align: center;
+}
+.cmdPartnerBadge {
+  font-size: 0.58rem; letter-spacing: 0.07em; text-transform: uppercase;
+  color: #a090d0; background: rgba(160,144,208,0.12);
+  border-radius: 3px; padding: 1px 5px; flex-shrink: 0;
+}
+.cmdBadgeSep { color: var(--text-faint); font-size: 0.6rem; margin: 0 1px; }
 .cmdOverlayLethal { background: rgba(196,96,96,0.06) !important; border-left-color: #c46060 !important; }
 .cmdOverlayOpp {
   display: flex; align-items: center; gap: 7px; flex: 1; min-width: 0;
@@ -1029,10 +1187,9 @@
 
 /* ── Phone (≤ 600 px): shrink panel internals to fit 2-col cells (~165 px wide) ── */
 @media (max-width: 600px) {
-  /* Layout math: padding(6×2) + btn(34×2) + gap(5×2) + wrap(70) = 160 px ✓  */
   .playerPanel   { padding: 6px 6px 8px; gap: 4px; min-height: 160px; }
   .lifeArea      { gap: 5px; }
-  .lifeBtn       { width: 34px; height: 40px; font-size: 1.15rem; }
+  .lifeBtn       { font-size: 2rem; max-width: 80px; border-radius: 6px; }
   .lifeTotalWrap { width: 70px; }
   .lifeTotal     { font-size: 2.4rem; }
 
@@ -1043,10 +1200,11 @@
   .quickRow      { gap: 2px; }
   .quickBtn      { padding: 3px 4px; font-size: 0.66rem; }
 
-  .poisonRow     { padding: 3px 6px; }
-  .poisonLabel   { font-size: 0.66rem; }
-  .counterBtn    { width: 22px; height: 22px; font-size: 0.76rem; }
-  .counterVal    { font-size: 0.86rem; min-width: 16px; }
+  .counterSection { padding: 3px 4px; gap: 2px; }
+  .counterTab     { font-size: 0.74rem; padding: 2px; }
+  .counterCtrlBtn { font-size: 1.1rem; min-height: 28px; }
+  .counterCtrlVal { font-size: 1.1rem; }
+  .counterCtrlIcon { font-size: 0.72rem; }
 
   .cmdBar        { padding: 3px 5px; min-height: 26px; gap: 3px; }
   .cmdBadgeVal   { font-size: 0.68rem; }
@@ -1086,15 +1244,16 @@
   /* Squeeze everything else down */
   .playerPanel   { padding: 4px 6px 5px; gap: 2px; min-height: 0; }
   .lifeArea      { gap: 4px; }
-  .lifeBtn       { width: 32px; height: 30px; font-size: 0.95rem; }
+  .lifeBtn       { font-size: 1.4rem; max-width: 70px; border-radius: 5px; }
   .lifeTotalWrap { width: 60px; }
   .lifeTotal     { font-size: 1.85rem; }
   .nameBtn       { font-size: 0.6rem; padding: 1px 4px; }
 
-  .poisonRow  { padding: 2px 5px; }
-  .poisonLabel{ font-size: 0.6rem; }
-  .counterBtn { width: 20px; height: 20px; font-size: 0.72rem; }
-  .counterVal { font-size: 0.78rem; min-width: 14px; }
+  .counterSection { padding: 2px 3px; gap: 2px; }
+  .counterTab     { font-size: 0.68rem; padding: 2px; }
+  .counterCtrlBtn { font-size: 0.9rem; min-height: 22px; }
+  .counterCtrlVal { font-size: 0.9rem; }
+  .counterCtrlIcon { font-size: 0.64rem; }
 
   .cmdBar     { padding: 2px 4px; min-height: 18px; gap: 2px; }
   .cmdBadgeVal{ font-size: 0.6rem; }

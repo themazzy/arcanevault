@@ -522,6 +522,9 @@ export default function StatsPage() {
                     <span className={styles.moverPct} style={{ color: 'var(--green, #5dba70)' }}>
                       +{c._plPct.toFixed(0)}%
                     </span>
+                    <span className={styles.moverPrice} style={{ color: 'var(--green, #5dba70)' }}>
+                      {fmt(c._price)}
+                    </span>
                     <span className={styles.moverVal} style={{ color: 'var(--green, #5dba70)' }}>
                       +{fmt(c._pl)}
                     </span>
@@ -543,6 +546,9 @@ export default function StatsPage() {
                     </span>
                     <span className={styles.moverPct} style={{ color: '#e05252' }}>
                       {c._plPct.toFixed(0)}%
+                    </span>
+                    <span className={styles.moverPrice} style={{ color: '#e05252' }}>
+                      {fmt(c._price)}
                     </span>
                     <span className={styles.moverVal} style={{ color: '#e05252' }}>
                       {fmt(c._pl)}
