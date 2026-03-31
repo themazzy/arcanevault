@@ -152,6 +152,24 @@
   100% { top: 90%;  opacity: 0; }
 }
 
+/* ── Debug panel ── */
+.debugPanel {
+  position: absolute;
+  top: calc(60px + env(safe-area-inset-top, 0px));
+  left: 12px;
+  right: 12px;
+  background: rgba(0,0,0,0.75);
+  color: #0f0;
+  font-family: monospace;
+  font-size: 0.72rem;
+  line-height: 1.7;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(0,255,0,0.25);
+  pointer-events: none;
+}
+.debugPanel b { color: #ff0; }
+
 /* ── Latest match toast (floats above bottom bar) ── */
 .latestToast {
   position: absolute;

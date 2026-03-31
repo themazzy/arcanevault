@@ -24,6 +24,7 @@ const SCAN_MS          = 280   // ~3.5 FPS
 const MATCH_THRESHOLD  = 35    // max Hamming distance out of 256
 const STABILITY_FRAMES = 2     // consecutive matches before confirming
 const MATCH_COOLDOWN   = 5000  // ms before same card can re-enter history
+const DEBUG            = true  // set false to hide debug overlay
 
 export default function CardScanner({ onMatch, onClose }) {
   const isNative = Capacitor.isNativePlatform()
@@ -45,6 +46,7 @@ export default function CardScanner({ onMatch, onClose }) {
   const [detecting,   setDetecting]   = useState(false)
   const [scanHistory, setScanHistory] = useState([])
   const [latestMatch, setLatestMatch] = useState(null)
+  const [debugInfo,   setDebugInfo]   = useState(null)   // { dist, name, stability, hashes }
 
   const isReady = cvReady && dbReady
 
@@ -145,13 +147,31 @@ export default function CardScanner({ onMatch, onClose }) {
 
     const corners = detectCardCorners(imageData, w, h)
     if (mountedRef.current) setDetecting(!!corners)
-    if (!corners) { stabilityRef.current = { id: null, count: 0 }; return }
+    if (!corners) {
+      stabilityRef.current = { id: null, count: 0 }
+      if (DEBUG && mountedRef.current) setDebugInfo(d => d ? { ...d, stage: 'no corners' } : null)
+      return
+    }
 
-    const warped  = warpCard(imageData, corners);  if (!warped)  return
-    const artCrop = cropArtRegion(warped);          if (!artCrop) return
-    const hash    = computePHash256(artCrop);       if (!hash)    return
+    const warped  = warpCard(imageData, corners)
+    if (!warped)  { if (DEBUG && mountedRef.current) setDebugInfo(d => ({ ...d, stage: 'warp failed' })); return }
+    const artCrop = cropArtRegion(warped)
+    if (!artCrop) { if (DEBUG && mountedRef.current) setDebugInfo(d => ({ ...d, stage: 'crop failed' })); return }
+    const hash    = computePHash256(artCrop)
+    if (!hash)    { if (DEBUG && mountedRef.current) setDebugInfo(d => ({ ...d, stage: 'hash failed' })); return }
 
-    const match = databaseService.findMatch(hash, MATCH_THRESHOLD)
+    const best  = databaseService.findBest(hash)
+    const match = best && best.distance <= MATCH_THRESHOLD ? best : null
+
+    if (DEBUG && mountedRef.current) {
+      setDebugInfo({
+        stage:     match ? `MATCHED (dist ${best.distance})` : `no match — best dist: ${best?.distance ?? '?'}`,
+        bestName:  best?.name ?? '—',
+        stability: stabilityRef.current.count,
+        hashes:    databaseService.cardCount,
+      })
+    }
+
     if (!match) { stabilityRef.current = { id: null, count: 0 }; return }
 
     const stab = stabilityRef.current
@@ -224,6 +244,20 @@ export default function CardScanner({ onMatch, onClose }) {
           {paused && <div className={styles.pausedLabel}>Paused</div>}
           {preparing && !errorMsg && <div className={styles.preparingSpinner}>⟳</div>}
         </div>
+
+        {/* Debug overlay */}
+        {DEBUG && (
+          <div className={styles.debugPanel}>
+            <div><b>Hashes loaded:</b> {databaseService.cardCount.toLocaleString()}</div>
+            <div><b>CV ready:</b> {cvReady ? 'yes' : 'no'} &nbsp; <b>DB ready:</b> {dbReady ? 'yes' : 'no'}</div>
+            {debugInfo && <>
+              <div><b>Stage:</b> {debugInfo.stage}</div>
+              <div><b>Best card:</b> {debugInfo.bestName}</div>
+              <div><b>Stability:</b> {debugInfo.stability} / {STABILITY_FRAMES}</div>
+            </>}
+            {!debugInfo && detecting && <div>Computing hash…</div>}
+          </div>
+        )}
 
         {/* Latest match toast */}
         {latestMatch && (
