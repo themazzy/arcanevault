@@ -535,21 +535,27 @@ Use Scryfall syntax when building search queries:
 
 Replaced the old OCR pipeline with a **pHash + OpenCV** approach. New pipeline:
 
-1. **Camera capture** — `@capacitor-community/camera-preview` (native, renders behind transparent WebView) or `getUserMedia` (web fallback).
-2. **Card detection** — `ScannerEngine.detectCardCorners()`: grayscale → GaussianBlur → Canny → dilate → findContours → approxPolyDP (4 vertices) → aspect ratio filter (0.60–0.80) → largest area.
+1. **Camera capture** — `@capacitor-community/camera-preview` (native, renders behind transparent WebView) or `getUserMedia` (web fallback). Camera starts immediately on mount, no button required. Web fallback applies continuous autofocus/exposure via `applyConstraints`.
+2. **Card detection** — `ScannerEngine.detectCardCorners()`: grayscale → GaussianBlur → adaptive Canny (thresholds derived from image median brightness) → dilate → findContours → approxPolyDP (4 vertices) → aspect ratio filter (0.65–0.77, tight MTG card window) → largest area.
 3. **Perspective warp** — `warpCard()`: normalise card to 500×700 ImageData.
-4. **Art crop** — `cropArtRegion()`: ROI `{x:25, y:55, w:450, h:275}` on warped card.
-5. **256-bit pHash** — `computePHash256()`: resize to 32×32 grayscale → 2D DCT → top-left 16×16 coefficients → compare each to mean → 256 bits packed as 4 × BigInt64 → 64-char hex string.
-6. **DB lookup** — `DatabaseService.findMatch()`: XOR each BigInt part + popcount, sum → Hamming distance; threshold < 20 = match.
-7. **Stability buffer** — requires 2 consecutive frames with same card ID before confirming; haptic feedback on confirm.
+4. **Art crop** — `cropArtRegion(cardImageData, yOffset)`: ROI `{x:25, y:55, w:450, h:275}` on warped card. Accepts `yOffset` for multi-crop hashing.
+5. **Multi-crop hashing** — 3 y-offsets `[0, -10, 10]` tried per frame; best result (lowest distance) used to compensate for warp residuals.
+6. **256-bit pHash** — `computePHash256()`: resize to 32×32 with `INTER_LANCZOS4` → manual BT.709 grayscale (`0.2126R+0.7152G+0.0722B`, matches sharp) → `cv.equalizeHist` (normalises exposure) → pure-JS 2D DCT (identical to seed script) → top-left 16×16 coefficients → 256 bits packed as 4 × BigInt64.
+7. **DB lookup + gap check** — `DatabaseService.findBestTwo()`: XOR + popcount Hamming distance on all hashes; match confirmed only if `best.distance ≤ MATCH_THRESHOLD (110)` AND `gap = second.distance − best.distance ≥ MIN_GAP (15)`.
+8. **Stability buffer** — requires 2 consecutive frames with same card ID before confirming; haptic feedback on confirm.
+9. **Scan history + add flow** — confirmed matches accumulate in a horizontal history strip; tap any card to open an overlay with "+ Add to Collection" → opens `AddCardModal` pre-filled with the card name.
 
 #### Key implementation notes
 
 - **BigInt precision**: Supabase BIGINT returned as JS Number loses bits >53. Store `phash_hex TEXT` (64 hex chars) and read that column exclusively; parse with `BigInt('0x' + chunk)`.
+- **Hash algorithm must match exactly**: Client (`ScannerEngine.computePHash256`) and seed script (`generate-card-hashes.js`) must use identical: Lanczos resize, BT.709 grayscale, histogram equalization, pure-JS `dct2d()`. If either changes, **truncate `card_hashes` and re-seed**.
 - **OpenCV.js**: Loaded via async CDN `<script>` tag (not bundled). Check `window.cv` readiness via polling (`waitForOpenCV()`).
-- **SQLite web fallback**: `@capacitor-community/sqlite` doesn't work in browsers. Web path fetches from Supabase directly (up to 10k rows).
+- **DB loading**: PostgREST caps `.range()` at 1000 rows per request. Web path loads page 0 synchronously (so scanner works immediately), then continues in background 8 pages at a time in parallel (`_continueWebLoad`). 100k+ cards take ~5–10 s to fully load.
+- **SQLite web fallback**: `@capacitor-community/sqlite` doesn't work in browsers. Web path fetches from Supabase directly.
+- **`AddCardModal` `initialCardName` prop**: Pass a card name to auto-trigger `selectCard()` on mount, jumping straight to the configure view. Used by `Scanner.jsx` when user taps "+ Add to Collection".
 - **Transparent WebView**: `this.bridge.getWebView().setBackgroundColor(Color.TRANSPARENT)` in `MainActivity.java` makes the native camera visible behind the overlay.
 - **Android back button**: `onBackPressed()` in `MainActivity.java` calls `webView.goBack()` when `canGoBack()` is true (React Router's pushState history). When at the root (no history), requires a **double-tap within 2 s** to exit — first tap shows a `Toast` ("Press back again to exit"), second tap within the window calls `super.onBackPressed()`. Do not install `@capacitor/app` just for this — the WebView history approach is sufficient for a SPA.
+- **DEBUG flag**: `CardScanner.jsx` has `const DEBUG = true` at the top — set to `false` once scanner accuracy is confirmed. Shows live hash count, CV/DB ready, stage, best candidate name, and stability counter.
 
 #### Supabase `card_hashes` table (run once)
 

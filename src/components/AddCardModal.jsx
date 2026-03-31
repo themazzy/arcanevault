@@ -288,20 +288,22 @@ function EditForm({ card, onClose, onSaved }) {
 export default function AddCardModal({
   userId, onClose, onSaved, prefillCard = null,
   folderMode = false, defaultFolderType = 'binder', defaultFolderId = null,
+  initialCardName = null,
 }) {
   return (
     <Modal onClose={onClose}>
       {prefillCard?.id
         ? <EditForm card={prefillCard} onClose={onClose} onSaved={onSaved} />
         : <AddFlow userId={userId} onClose={onClose} onSaved={onSaved}
-            folderMode={folderMode} defaultFolderType={defaultFolderType} defaultFolderId={defaultFolderId} />
+            folderMode={folderMode} defaultFolderType={defaultFolderType} defaultFolderId={defaultFolderId}
+            initialCardName={initialCardName} />
       }
     </Modal>
   )
 }
 
 // ── Add flow ──────────────────────────────────────────────────────────────────
-function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderType = 'binder', defaultFolderId = null }) {
+function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderType = 'binder', defaultFolderId = null, initialCardName = null }) {
   const { price_source } = useSettings()
 
   // Format a printing's non-foil price using the user's price source
@@ -367,6 +369,12 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
     const f = folders.find(fl => fl.id === defaultFolderId)
     if (f) setFolderSearch(f.name)
   }, [folderMode, defaultFolderId, folders])
+
+  // Pre-fill card from scanner: auto-search on mount
+  useEffect(() => {
+    if (initialCardName) selectCard(initialCardName)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Close folder dropdown on outside click
   useEffect(() => {

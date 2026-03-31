@@ -225,16 +225,30 @@ class DatabaseService {
   }
 
   // Like findMatch but always returns the closest card (no threshold cutoff).
-  // Used for debug output so we can see the actual best distance.
   findBest(hash) {
-    if (!this._hashes.length) return null
-    let best     = null
-    let bestDist = Infinity
+    const [best] = this.findBestTwo(hash)
+    return best
+  }
+
+  // Returns the two closest cards. Used for gap-check: a match is only
+  // confirmed when best is significantly closer than second-best.
+  findBestTwo(hash) {
+    if (!this._hashes.length) return [null, null]
+    let best = null, second = null
+    let bestDist = Infinity, secondDist = Infinity
     for (const card of this._hashes) {
       const d = hammingDistance(hash, card)
-      if (d < bestDist) { bestDist = d; best = card }
+      if (d < bestDist) {
+        second = best; secondDist = bestDist
+        best = card;   bestDist   = d
+      } else if (d < secondDist) {
+        second = card; secondDist = d
+      }
     }
-    return best ? { ...best, distance: bestDist } : null
+    return [
+      best   ? { ...best,   distance: bestDist   } : null,
+      second ? { ...second, distance: secondDist } : null,
+    ]
   }
 
   get cardCount()   { return this._hashes.length }
