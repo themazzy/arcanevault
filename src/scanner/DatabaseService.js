@@ -211,6 +211,14 @@ class DatabaseService {
   // ── Match ──────────────────────────────────────────────────────────────────
 
   findMatch(hash, threshold = 20) {
+    const best = this.findBest(hash)
+    if (!best) return null
+    return best.distance <= threshold ? best : null
+  }
+
+  // Like findMatch but always returns the closest card (no threshold cutoff).
+  // Used for debug output so we can see the actual best distance.
+  findBest(hash) {
     if (!this._hashes.length) return null
     let best     = null
     let bestDist = Infinity
@@ -218,7 +226,7 @@ class DatabaseService {
       const d = hammingDistance(hash, card)
       if (d < bestDist) { bestDist = d; best = card }
     }
-    return bestDist <= threshold ? { ...best, distance: bestDist } : null
+    return best ? { ...best, distance: bestDist } : null
   }
 
   get cardCount()   { return this._hashes.length }
