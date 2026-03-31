@@ -22,11 +22,13 @@ import styles from './CardScanner.module.css'
 
 const SCAN_MS          = 280   // ~3.5 FPS
 const MATCH_THRESHOLD  = 110   // camera pHash vs clean Scryfall art_crop; real-world offset ~90-100
-const STABILITY_FRAMES = 2     // consecutive matches before confirming
+const MIN_GAP          = 15    // second-best must be ≥ this many bits worse than best
+const STABILITY_FRAMES = 2     // consecutive matches required before confirming
 const MATCH_COOLDOWN   = 5000  // ms before same card can re-enter history
+const CROP_OFFSETS     = [0, -10, 10]  // y-offsets for multi-crop hashing
 const DEBUG            = true  // set false to hide debug overlay
 
-export default function CardScanner({ onMatch, onClose }) {
+export default function CardScanner({ onMatch, onAddCard, onClose }) {
   const isNative = Capacitor.isNativePlatform()
 
   const videoRef            = useRef(null)
@@ -44,10 +46,11 @@ export default function CardScanner({ onMatch, onClose }) {
   const [errorMsg,    setErrorMsg]    = useState(null)
   const [paused,      setPaused]      = useState(false)
   const [detecting,   setDetecting]   = useState(false)
-  const [cardCount,   setCardCount]   = useState(0)
-  const [scanHistory, setScanHistory] = useState([])
-  const [latestMatch, setLatestMatch] = useState(null)
-  const [debugInfo,   setDebugInfo]   = useState(null)
+  const [cardCount,          setCardCount]          = useState(0)
+  const [scanHistory,        setScanHistory]        = useState([])
+  const [latestMatch,        setLatestMatch]        = useState(null)
+  const [selectedCard,       setSelectedCard]       = useState(null)  // history tap overlay
+  const [debugInfo,          setDebugInfo]          = useState(null)
 
   const isReady = cvReady && dbReady
 
@@ -179,24 +182,38 @@ export default function CardScanner({ onMatch, onClose }) {
       return
     }
 
-    const warped  = warpCard(imageData, corners)
-    if (!warped)  { if (DEBUG && mountedRef.current) setDebugInfo(d => ({ ...d, stage: 'warp failed' })); return }
-    const artCrop = cropArtRegion(warped)
-    if (!artCrop) { if (DEBUG && mountedRef.current) setDebugInfo(d => ({ ...d, stage: 'crop failed' })); return }
-    let hash = null
-    try { hash = computePHash256(artCrop) } catch (e) {
-      if (DEBUG && mountedRef.current) setDebugInfo(d => ({ ...d, stage: `hash error: ${e.message}` }))
-      return
-    }
-    if (!hash) { if (DEBUG && mountedRef.current) setDebugInfo(d => ({ ...d, stage: 'hash returned null' })); return }
+    const warped = warpCard(imageData, corners)
+    if (!warped) { if (DEBUG && mountedRef.current) setDebugInfo(d => ({ ...d, stage: 'warp failed' })); return }
 
-    const best  = databaseService.findBest(hash)
-    const match = best && best.distance <= MATCH_THRESHOLD ? best : null
+    // Multi-crop: try CROP_OFFSETS y-shifts, keep the result with the lowest distance.
+    // This compensates for perspective warp residuals that shift the art region slightly.
+    let best = null, second = null
+    for (const yOff of CROP_OFFSETS) {
+      const artCrop = cropArtRegion(warped, yOff)
+      if (!artCrop) continue
+      let hash = null
+      try { hash = computePHash256(artCrop) } catch (e) {
+        if (DEBUG && mountedRef.current) setDebugInfo(d => ({ ...d, stage: `hash error: ${e.message}` }))
+        return
+      }
+      if (!hash) continue
+      const [b, s] = databaseService.findBestTwo(hash)
+      if (b && (!best || b.distance < best.distance)) { best = b; second = s }
+    }
+
+    if (!best) { if (DEBUG && mountedRef.current) setDebugInfo(d => ({ ...d, stage: 'hash returned null' })); return }
+
+    // Gap check: only accept if best is significantly better than second-best.
+    // Prevents false positives when many cards cluster near the threshold.
+    const gap   = second ? second.distance - best.distance : 256
+    const match = best.distance <= MATCH_THRESHOLD && gap >= MIN_GAP ? best : null
 
     if (DEBUG && mountedRef.current) {
       setDebugInfo({
-        stage:     match ? `MATCHED (dist ${best.distance})` : `no match — best dist: ${best?.distance ?? '?'}`,
-        bestName:  best?.name ?? '—',
+        stage:     match
+          ? `MATCHED (dist ${best.distance}, gap ${gap})`
+          : `no match — dist ${best.distance}, gap ${gap}`,
+        bestName:  best.name,
         stability: stabilityRef.current.count,
         hashes:    databaseService.cardCount,
       })
@@ -308,13 +325,44 @@ export default function CardScanner({ onMatch, onClose }) {
           </div>
         )}
 
+        {/* Selected card overlay — tapped from history */}
+        {selectedCard && (
+          <div className={styles.cardOverlay} onClick={() => setSelectedCard(null)}>
+            <div className={styles.cardOverlayInner} onClick={e => e.stopPropagation()}>
+              {selectedCard.imageUri && (
+                <img src={selectedCard.imageUri} className={styles.cardOverlayImg} alt={selectedCard.name} />
+              )}
+              <div className={styles.cardOverlayName}>{selectedCard.name}</div>
+              <div className={styles.cardOverlayMeta}>
+                {selectedCard.setCode?.toUpperCase()}
+                {selectedCard.collNum ? ` · #${selectedCard.collNum}` : ''}
+              </div>
+              <div className={styles.cardOverlayActions}>
+                <button
+                  className={styles.primaryBtn}
+                  onClick={() => { onAddCard?.(selectedCard); setSelectedCard(null) }}
+                >
+                  + Add to Collection
+                </button>
+                <button className={styles.secondaryBtn} onClick={() => setSelectedCard(null)}>
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Bottom bar */}
         <div className={styles.bottomBar}>
           {/* Scan history strip */}
           {scanHistory.length > 0 && (
             <div className={styles.historyStrip}>
               {scanHistory.map(card => (
-                <div key={`${card.id}-${card.timestamp}`} className={styles.historyItem}>
+                <div
+                  key={`${card.id}-${card.timestamp}`}
+                  className={styles.historyItem}
+                  onClick={() => setSelectedCard(card)}
+                >
                   {card.imageUri
                     ? <img src={card.imageUri} className={styles.historyImg} alt={card.name} />
                     : <div className={styles.historyImgPlaceholder}>{card.name[0]}</div>

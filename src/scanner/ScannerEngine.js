@@ -71,7 +71,17 @@ export function detectCardCorners(imageData, width, height) {
   try {
     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY)
     cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0)
-    cv.Canny(blurred, edges, 40, 120)
+
+    // Adaptive Canny: scale thresholds from the image median so the detector
+    // works in both dim indoor light and bright sunlight.
+    const gdata  = blurred.data
+    const hist   = new Int32Array(256)
+    for (let i = 0; i < gdata.length; i++) hist[gdata[i]]++
+    let cumul = 0, median = 127
+    for (let v = 0; v < 256; v++) { cumul += hist[v]; if (cumul >= gdata.length / 2) { median = v; break } }
+    const lo = Math.max(10,  Math.round(median * 0.5))
+    const hi = Math.min(240, Math.round(median * 1.5))
+    cv.Canny(blurred, edges, lo, hi)
 
     // Dilate to close small gaps in card border
     const kernel = cv.Mat.ones(3, 3, cv.CV_8U)
@@ -82,6 +92,8 @@ export function detectCardCorners(imageData, width, height) {
 
     // Card must cover at least 8% of the frame
     const minArea = width * height * 0.08
+
+
 
     let bestPts  = null
     let bestArea = 0
@@ -100,13 +112,14 @@ export function detectCardCorners(imageData, width, height) {
         for (let j = 0; j < 4; j++) {
           pts.push({ x: approx.data32S[j * 2], y: approx.data32S[j * 2 + 1] })
         }
-        // MTG card aspect ratio: 63×88mm ≈ 0.716 (portrait) or 1.397 (landscape)
+        // MTG card is exactly 63×88mm = 0.716 aspect ratio.
+        // Tight window (0.65–0.77) rejects most non-card rectangles.
         const ordered = orderPoints(pts)
         const w = Math.hypot(ordered[1].x - ordered[0].x, ordered[1].y - ordered[0].y)
         const h = Math.hypot(ordered[3].x - ordered[0].x, ordered[3].y - ordered[0].y)
         const ratio = Math.min(w, h) / Math.max(w, h)
 
-        if (ratio >= 0.60 && ratio <= 0.80 && area > bestArea) {
+        if (ratio >= 0.65 && ratio <= 0.77 && area > bestArea) {
           bestArea = area
           bestPts  = ordered
         }
@@ -170,15 +183,17 @@ const ART_X = 25, ART_Y = 55, ART_W = 450, ART_H = 275
 
 /**
  * Crop the artwork region from a 500×700 warped card ImageData.
- * Returns 450×275 ImageData or null.
+ * yOffset shifts the crop window up/down to compensate for slight warp residuals.
+ * Returns ART_W×ART_H ImageData or null.
  */
-export function cropArtRegion(cardImageData) {
+export function cropArtRegion(cardImageData, yOffset = 0) {
   if (!isOpenCVReady()) return null
   const cv  = window.cv
   const src = cv.matFromImageData(cardImageData)
+  const y   = Math.max(0, Math.min(CARD_H - ART_H, ART_Y + yOffset))
 
   try {
-    const rect   = new cv.Rect(ART_X, ART_Y, ART_W, ART_H)
+    const rect   = new cv.Rect(ART_X, y, ART_W, ART_H)
     const roi    = src.roi(rect)
     const canvas = document.createElement('canvas')
     canvas.width = ART_W; canvas.height = ART_H
