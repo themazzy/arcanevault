@@ -115,8 +115,8 @@ export function CardGrid({ cards, sfMap, loading, onSelect, selectMode, selected
 }
 
 // ── MoveToDialog ──────────────────────────────────────────────────────────────
-function MoveToDialog({ folders, onMoveToFolder, onCreateFolder, onClose }) {
-  const [destType, setDestType] = useState('binder')
+function MoveToDialog({ folders, onMoveToFolder, onCreateFolder, onClose, allowedFolderTypes = ['binder', 'deck'] }) {
+  const [destType, setDestType] = useState(allowedFolderTypes[0] || 'binder')
   const [search, setSearch] = useState('')
   const [creating, setCreating] = useState(false)
   const [createName, setCreateName] = useState('')
@@ -152,16 +152,28 @@ function MoveToDialog({ folders, onMoveToFolder, onCreateFolder, onClose }) {
       <div style={{ maxWidth: 440, width: '100%', margin: '0 auto' }}>
       <h2 className={styles.moveDialogTitle}>Move to</h2>
 
-      <div className={styles.moveDialogTypeRow}>
-        <button
-          className={`${styles.moveDialogTypeBtn} ${destType === 'binder' ? styles.moveDialogTypeActive : ''}`}
-          onClick={() => switchType('binder')}
-        >Binders</button>
-        <button
-          className={`${styles.moveDialogTypeBtn} ${destType === 'deck' ? styles.moveDialogTypeActive : ''}`}
-          onClick={() => switchType('deck')}
-        >Decks</button>
-      </div>
+      {allowedFolderTypes.length > 1 && (
+        <div className={styles.moveDialogTypeRow}>
+          {allowedFolderTypes.includes('binder') && (
+            <button
+              className={`${styles.moveDialogTypeBtn} ${destType === 'binder' ? styles.moveDialogTypeActive : ''}`}
+              onClick={() => switchType('binder')}
+            >Binders</button>
+          )}
+          {allowedFolderTypes.includes('deck') && (
+            <button
+              className={`${styles.moveDialogTypeBtn} ${destType === 'deck' ? styles.moveDialogTypeActive : ''}`}
+              onClick={() => switchType('deck')}
+            >Decks</button>
+          )}
+          {allowedFolderTypes.includes('list') && (
+            <button
+              className={`${styles.moveDialogTypeBtn} ${destType === 'list' ? styles.moveDialogTypeActive : ''}`}
+              onClick={() => switchType('list')}
+            >Wishlists</button>
+          )}
+        </div>
+      )}
 
       <input
         ref={searchRef}
@@ -220,7 +232,7 @@ function MoveToDialog({ folders, onMoveToFolder, onCreateFolder, onClose }) {
 }
 
 // ── BulkActionBar ─────────────────────────────────────────────────────────────
-export function BulkActionBar({ selected, total, onSelectAll, onDeselectAll, onDelete, onMoveToFolder, folders, onCreateFolder, selectedQty }) {
+export function BulkActionBar({ selected, total, onSelectAll, onDeselectAll, onDelete, onMoveToFolder, folders, onCreateFolder, selectedQty, allowedFolderTypes = ['binder', 'deck'] }) {
   const [showMoveDialog, setShowMoveDialog] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const count = selectedQty ?? selected.size
@@ -243,6 +255,7 @@ export function BulkActionBar({ selected, total, onSelectAll, onDeselectAll, onD
           folders={folders || []}
           onMoveToFolder={onMoveToFolder}
           onCreateFolder={onCreateFolder}
+          allowedFolderTypes={allowedFolderTypes}
           onClose={() => setShowMoveDialog(false)}
         />
       )}

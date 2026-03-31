@@ -1278,18 +1278,38 @@
 @media (max-height: 500px) {
   /* Grid: dvh tracks Chrome's collapsing address bar accurately */
   .grid { height: calc(100dvh - 192px); }
+  .gridCell { min-height: 0; }
+
+  .pageGame {
+    padding-top: calc(4px + env(safe-area-inset-top, 0px));
+    padding-right: 6px;
+    padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px));
+    padding-left: 6px;
+  }
+  .pageGame .grid { gap: 6px; }
+  .topBar { min-height: 34px; }
+  .topLeft { gap: 6px; }
+  .topRight { gap: 3px; }
+  .pageTitle { font-size: 0.8rem; }
+  .modeLabel { font-size: 0.66rem; }
+  .gearBtn, .fullscreenBtn { width: 32px; height: 32px; font-size: 0.95rem; }
+  .endBtn { padding: 4px 9px; font-size: 0.62rem; }
 
   /* Hide colour picker row — saves ~14 px; colours can be set pre-game */
   .colorRow { display: none; }
-  /* Keep quick row visible with commander damage controls on all breakpoints */
-  .quickRow { display: flex !important; }
 
   /* Squeeze everything else down */
   .playerPanel   { padding: 4px 6px 5px; gap: 2px; min-height: 0; }
+  .nameRow       { min-height: 22px; gap: 3px; }
+  .nameBtn,
+  .nameInput     { font-size: 0.64rem; letter-spacing: 0.04em; }
+  .panelDeckBadge { font-size: 0.54rem; padding: 1px 4px; max-width: 74px; }
+  .playerSettingsBtn { min-width: 24px; min-height: 24px; font-size: 1.1rem; padding: 2px 4px; }
   .lifeArea      { gap: 3px; }
   .lifeBtn       { font-size: 1.25rem; max-width: 60px; border-radius: 4px; }
   .lifeTotalWrap { width: 55px; }
   .lifeTotal     { font-size: 1.65rem; }
+  .lifeDelta     { right: -22px; font-size: 0.9rem; }
 
   /* Hide counter tabs on landscape — only show via toggle */
   .counterSection { padding: 2px 3px; gap: 2px; }
@@ -1300,12 +1320,6 @@
 
   /* Hide quick row in landscape mode to save space */
   .quickRow       { display: none; }
-
-  /* Landscape mode (height ≤ 500px): hide counter tabs and quick row */
-  @media (max-height: 500px) {
-    .counterTab { display: none; }
-    .counterCtrlBtn { display: none; }
-  }
 
   /* Commander damage overlay always visible on landscape phones */
   .cmdBar        { padding: 2px 3px; min-height: 16px; gap: 2px; display: none; }
@@ -1325,7 +1339,6 @@
     .grid { height: calc(100dvh - 192px); }
 
     .colorRow      { display: none; }
-    .quickRow      { display: flex !important; } /* Always visible with commander damage */
 
     .playerPanel   { padding: 4px 6px 5px; gap: 2px; min-height: 0; }
     .lifeArea      { gap: 4px; }
@@ -1340,10 +1353,45 @@
     .counterCtrlIcon { font-size: 0.64rem; flex-shrink: 0; }
 
     /* Quick row: compact padding to fit commander damage controls */
-    .quickRow      { gap: 2px; }
+    .quickRow      { gap: 2px; display: none; }
     .quickBtn      { padding: 0.55rem 0.85rem; }
 
     /* Commander damage bar hidden - use overlay only */
+  }
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .pageFullscreen {
+    padding-top: calc(2px + env(safe-area-inset-top, 0px));
+    padding-right: 4px;
+    padding-bottom: calc(2px + env(safe-area-inset-bottom, 0px));
+    padding-left: 4px;
+  }
+  .pageFullscreen .grid { gap: 4px; }
+  .pageFullscreen .gridCell { min-height: 0; }
+  .pageFullscreen .playerPanel { padding: 3px 5px 4px; gap: 2px; }
+  .pageFullscreen .nameRow { min-height: 20px; }
+  .pageFullscreen .nameBtn,
+  .pageFullscreen .nameInput { font-size: 0.6rem; }
+  .pageFullscreen .panelDeckBadge { font-size: 0.5rem; max-width: 64px; }
+  .pageFullscreen .lifeArea { gap: 2px; }
+  .pageFullscreen .lifeBtn { font-size: 1.1rem; min-width: 38px; max-width: 52px; }
+  .pageFullscreen .lifeTotalWrap { width: 48px; }
+  .pageFullscreen .lifeTotal { font-size: 1.45rem; }
+  .pageFullscreen .counterSection { padding: 2px; }
+  .pageFullscreen .counterCtrlBtn { min-height: 20px; font-size: 0.82rem; }
+  .pageFullscreen .counterCtrlVal { font-size: 0.82rem; }
+  .pageFullscreen .fsControls {
+    padding: 4px 6px;
+    gap: 2px;
+    border-radius: 7px;
+  }
+  .pageFullscreen .fsExitBtn,
+  .pageFullscreen .fsEndBtn,
+  .pageFullscreen .gearBtn {
+    width: 24px;
+    height: 24px;
+    font-size: 0.85rem;
   }
 }
 

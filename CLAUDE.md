@@ -96,20 +96,20 @@ User action
   → all reads come from IDB (instant, offline-capable)
 ```
 
-- `src/lib/db.js` — All IndexedDB access. Use `getLocalCards(userId)`, `getLocalFolders(userId)`, `getAllLocalFolderCards(folderIds)` for reads. Never bypass IDB for performance-critical pages.
+- `src/lib/db.js` — All IndexedDB access. Use `getLocalCards(userId)`, `getLocalFolders(userId)`, `getAllLocalFolderCards(folderIds)` for reads. `replaceLocalFolderCards(folderIds, rows)` is the bulk-reconcile helper for collection folder membership sync. Never bypass IDB for performance-critical pages.
 - `src/lib/supabase.js` — Exports the `sb` singleton. Used for auth + cloud sync fallback only.
 - `src/lib/scryfall.js` — Scryfall data fetched in batches of 75, merged into IDB. `getInstantCache()` returns in-memory map (null if cold); always guard with `sfMap || {}`.
 
 **Key gotcha:** Never use Supabase's nested `select('folder_cards(cards(*))')` — it requires FK relationships configured in PostgREST and silently returns empty. Always do flat queries and join in memory.
 
-### IDB Schema (v2)
+### IDB Schema (v3)
 
 | Store | Key | Description |
 |---|---|---|
 | `scryfall` | `${set_code}-${collector_number}` | Card metadata + prices |
 | `cards` | `id` | User's owned cards |
 | `folders` | `id` | Binders, decks, wishlists, builder decks |
-| `folder_cards` | `id` | Cards ↔ folders join |
+| `folder_cards` | `id` | Cards ↔ folders join (`qty`, `updated_at` used for incremental sync) |
 | `deck_cards` | `id` | Deck builder cards (independent of collection) |
 | `meta` | string key | Sync timestamps, cache versions |
 
@@ -132,6 +132,48 @@ Heavy filtering runs in a **Web Worker** (`src/lib/filterWorker.js`) off the mai
 The same filter logic is duplicated in `CardComponents.jsx` for the non-worker path — keep both in sync when changing filter operators.
 
 `EMPTY_FILTERS` is exported from `CardComponents.jsx` — always spread it as defaults.
+
+### Collection Folder Membership Sync
+
+`src/pages/Collection.jsx` loads binder/deck membership in two phases:
+
+1. Read `folders` + `folder_cards` from IDB first and build `cardFolderMap` immediately.
+2. Sync `folders` from Supabase on every online load.
+3. Sync `folder_cards` incrementally using `folder_cards.updated_at`.
+4. Run a full `folder_cards` reconcile every 10 minutes to catch remote deletes that delta sync cannot see.
+
+Delta sync state is stored in IDB `meta` with:
+- `folder_cards_full_sync_<userId>`
+- `folder_cards_delta_sync_<userId>`
+
+Required DB pieces:
+- `folder_cards.updated_at`
+- index `folder_cards_updated_at_idx`
+- trigger `folder_cards_updated_at` using `update_updated_at()`
+
+If you change folder membership writes, preserve `updated_at` behavior or collection load performance will regress. Remote folder deletions are handled by syncing `folders` every load and pruning missing local folders; remote `folder_cards` deletions are caught on the periodic full reconcile.
+
+### Collection Ownership Rules
+
+Owned collection cards cannot exist without at least one binder or collection-deck placement.
+
+- `src/lib/collectionOwnership.js` holds the cleanup helpers for this rule.
+- When removing cards from binders or collection decks, only delete the underlying `cards` row if no `folder_cards` placement remains anywhere else.
+- Deleting a non-empty binder or deck must offer transfer options so cards can be moved instead of being implicitly deleted.
+
+### Wishlist Rules
+
+Wishlists are not part of owned collection inventory.
+
+- Wishlist browsing should match binder/deck browsing for view toggles, selection styling, and bulk actions.
+- Wishlist bulk move must only allow destinations of type `list`.
+- Wishlist grid rendering should use the shared binder-style `CardGrid`, not a separate wishlist-only grid implementation.
+
+### Selection And Quantity Semantics
+
+- Bulk selection counts should use selected copy count when `selectedQty` is available, not just distinct card rows.
+- In quantity adjusters, pressing `-` at `1 of N` should deselect that card entirely.
+- In collection, expanded per-folder tiles must use folder-specific quantity from `folder_cards.qty` for badges and selection totals instead of merged collection quantity.
 
 ### Routing
 
@@ -296,12 +338,20 @@ border-top-color: rgba(201,168,76,0.65);
 ### List Browser (Wishlists — `Lists.jsx`)
 
 `ListBrowser` is the inline wishlist viewer. It supports:
-- **List view** — tabular rows with checkbox select, qty, name, set, foil badge, price, delete button
-- **Grid view** — uses `WishlistGrid` (defined in `Lists.jsx`), card-image tiles with `aspect-ratio: 5/7`, qty badge top-right, foil badge (✦), hover-reveal delete button, and gold top-border
-- View is toggled via the `.viewToggle` pill (imported from `Folders.module.css` via shared `styles`); default is `'list'`
-- `WishlistGrid` uses `sf?.image_uris?.normal || sf?.image_uris?.small || sf?.card_faces?.[0]?.image_uris?.normal` for images
+- **List view** — tabular rows with qty, name, set, foil badge, price, delete button
+- **Grid view** — uses the shared `CardGrid` / binder-style grid, not a custom wishlist grid
+- View is toggled via the `.viewToggle` pill (imported from `Folders.module.css` via shared `styles`); default is `'grid'`
+- Bulk move is supported, but wishlist cards may only move to other wishlists
 
 `ListsPage` wraps in `<div className={styles.page}>` for the dot-grid background.
+
+### Life Tracker Compact Landscape
+
+`src/pages/LifeTracker.module.css` includes a compact profile for short phone-height active games.
+
+- Treat `max-height: 500px` as the tight-phone breakpoint.
+- Do not rely on large fixed `min-height` values for active-game player cells in that mode.
+- Fullscreen landscape uses an extra-dense variant with reduced page padding, smaller player controls, and a tighter floating controls pill.
 
 ### DeckView (`DeckView.jsx`)
 

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { sb } from '../lib/supabase'
 import { enrichCards, getScryfallKey, getPrice, formatPrice, clearScryfallCache, clearAllScryfallCache, getCacheAge, getMemoryMap, getInstantCache } from '../lib/scryfall'
-import { getLocalCards, putCards, deleteCard, deleteAllCards, getAllLocalFolderCards, putFolderCards, getLocalFolders, putFolders, setMeta } from '../lib/db'
+import { getLocalCards, putCards, deleteCard, deleteAllCards, getAllLocalFolderCards, putFolderCards, getLocalFolders, putFolders, setMeta, getMeta, deleteFolder as deleteLocalFolder, replaceLocalFolderCards } from '../lib/db'
 import { parseManaboxCSV } from '../lib/csvParser'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
@@ -14,6 +14,8 @@ import styles from './Collection.module.css'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
 
 const DEBOUNCE_MS = 300
+const FOLDER_CARDS_FULL_SYNC_MS = 10 * 60 * 1000
+const FOLDER_CARDS_DELTA_OVERLAP_MS = 30 * 1000
 
 const worker = new Worker(new URL('../lib/filterWorker.js', import.meta.url), { type: 'module' })
 
@@ -134,54 +136,94 @@ export default function CollectionPage() {
   // ── Load folder membership ───────────────────────────────────────────────────
   useEffect(() => {
     const loadFolderMembership = async () => {
+      const buildCardFolderMap = (folderRows, linkRows) => {
+        const folderById = Object.fromEntries(folderRows.map(f => [f.id, f]))
+        const map = {}
+        for (const row of linkRows) {
+          const folder = folderById[row.folder_id]
+          if (!folder) continue
+          if (!map[row.card_id]) map[row.card_id] = []
+          map[row.card_id].push({ id: folder.id, name: folder.name, type: folder.type, qty: row.qty || 1 })
+        }
+        return map
+      }
+
       // IDB first
       const localFolders = await getLocalFolders(user.id)
       if (localFolders.length) {
         const ids = localFolders.map(f => f.id)
         const allFc = await getAllLocalFolderCards(ids)
-        const folderById = Object.fromEntries(localFolders.map(f => [f.id, f]))
-        const map = {}
-        for (const row of allFc) {
-          const folder = folderById[row.folder_id]
-          if (!folder) continue
-          if (!map[row.card_id]) map[row.card_id] = []
-          map[row.card_id].push({ id: folder.id, name: folder.name, type: folder.type })
-        }
         setFolders(localFolders)
-        setCardFolderMap(map)
+        setCardFolderMap(buildCardFolderMap(localFolders, allFc))
       }
 
       if (!navigator.onLine) return
 
       // Sync folders from Supabase
       const { data: foldersData } = await sb.from('folders')
-        .select('id,name,type').eq('user_id', user.id).order('name')
-      if (!foldersData?.length) return
+        .select('id,name,type,updated_at').eq('user_id', user.id).order('name')
+      if (!foldersData?.length) {
+        if (localFolders.length) {
+          await Promise.all(localFolders.map(folder => deleteLocalFolder(folder.id)))
+        }
+        setFolders([])
+        setCardFolderMap({})
+        return
+      }
+
+      const remoteFolderIds = new Set(foldersData.map(f => f.id))
+      const removedFolderIds = localFolders.map(f => f.id).filter(id => !remoteFolderIds.has(id))
+      if (removedFolderIds.length) {
+        await Promise.all(removedFolderIds.map(id => deleteLocalFolder(id)))
+      }
 
       setFolders(foldersData)
       await putFolders(foldersData)
 
-      const ids = foldersData.map(f => f.id)
-      let allFc = [], fcFrom = 0
-      while (true) {
-        const { data: page } = await sb.from('folder_cards')
-          .select('id,card_id,folder_id,qty')
-          .in('folder_id', ids).range(fcFrom, fcFrom + 999)
-        if (page?.length) allFc = [...allFc, ...page]
-        if (!page || page.length < 1000) break
-        fcFrom += 1000
-      }
-      await putFolderCards(allFc)
+      const folderIds = foldersData.map(f => f.id)
+      const fullSyncKey = `folder_cards_full_sync_${user.id}`
+      const deltaSyncKey = `folder_cards_delta_sync_${user.id}`
+      const lastFullSync = await getMeta(fullSyncKey)
+      const lastDeltaSync = await getMeta(deltaSyncKey)
+      const shouldFullSync = !lastFullSync || (Date.now() - new Date(lastFullSync).getTime() > FOLDER_CARDS_FULL_SYNC_MS)
 
-      const folderById = Object.fromEntries(foldersData.map(f => [f.id, f]))
-      const map = {}
-      for (const row of allFc) {
-        const folder = folderById[row.folder_id]
-        if (!folder) continue
-        if (!map[row.card_id]) map[row.card_id] = []
-        map[row.card_id].push({ id: folder.id, name: folder.name, type: folder.type })
+      if (shouldFullSync) {
+        let allFc = [], fcFrom = 0
+        while (true) {
+          const { data: page } = await sb.from('folder_cards')
+            .select('id,card_id,folder_id,qty,updated_at')
+            .in('folder_id', folderIds).range(fcFrom, fcFrom + 999)
+          if (page?.length) allFc = [...allFc, ...page]
+          if (!page || page.length < 1000) break
+          fcFrom += 1000
+        }
+        await replaceLocalFolderCards(folderIds, allFc)
+        const syncedAt = new Date().toISOString()
+        await setMeta(fullSyncKey, syncedAt)
+        await setMeta(deltaSyncKey, new Date(Date.now() - FOLDER_CARDS_DELTA_OVERLAP_MS).toISOString())
+        setCardFolderMap(buildCardFolderMap(foldersData, allFc))
+        return
       }
-      setCardFolderMap(map)
+
+      if (lastDeltaSync) {
+        let changedRows = [], fcFrom = 0
+        while (true) {
+          const { data: page } = await sb.from('folder_cards')
+            .select('id,card_id,folder_id,qty,updated_at')
+            .in('folder_id', folderIds)
+            .gt('updated_at', lastDeltaSync)
+            .order('updated_at', { ascending: true })
+            .range(fcFrom, fcFrom + 999)
+          if (page?.length) changedRows = [...changedRows, ...page]
+          if (!page || page.length < 1000) break
+          fcFrom += 1000
+        }
+        if (changedRows.length) await putFolderCards(changedRows)
+      }
+
+      await setMeta(deltaSyncKey, new Date(Date.now() - FOLDER_CARDS_DELTA_OVERLAP_MS).toISOString())
+      const localAllFc = await getAllLocalFolderCards(folderIds)
+      setCardFolderMap(buildCardFolderMap(foldersData, localAllFc))
     }
     loadFolderMembership()
   }, [user.id])
@@ -561,10 +603,10 @@ export default function CollectionPage() {
       if (folders && folders.length > 1) {
         // One tile per folder membership — badge hidden, each tile is independently selectable
         folders.forEach((f, i) => {
-          result.push({ ...card, _displayKey: `${card.id}_${i}`, _displayFolder: f, _multiFolder: true })
+          result.push({ ...card, _displayKey: `${card.id}_${i}`, _displayFolder: f, _folder_qty: f.qty || 1, _multiFolder: true })
         })
       } else {
-        result.push({ ...card, _displayKey: card.id, _displayFolder: folders?.[0] || null })
+        result.push({ ...card, _displayKey: card.id, _displayFolder: folders?.[0] || null, _folder_qty: folders?.[0]?.qty || card.qty })
       }
     }
     displayCardsRef.current = result
