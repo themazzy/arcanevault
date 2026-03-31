@@ -229,19 +229,25 @@ function dct2d(matrix, N) {
  * Returns { p1, p2, p3, p4 } as BigInt, or null on failure.
  */
 export function computePHash256(artImageData) {
-  if (!isOpenCVReady()) return null
+  if (!isOpenCVReady()) throw new Error('OpenCV not ready')
   const cv      = window.cv
   const src     = cv.matFromImageData(artImageData)
+  if (!src || src.empty()) throw new Error('matFromImageData failed')
   const gray    = new cv.Mat()
   const resized = new cv.Mat()
 
   try {
     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY)
+    if (gray.empty()) throw new Error('cvtColor → gray failed')
+
     cv.resize(gray, resized, new cv.Size(32, 32), 0, 0, cv.INTER_AREA)
+    if (resized.empty()) throw new Error('resize to 32×32 failed')
 
     // Copy pixel data into a plain Float64Array for the pure-JS DCT
     const pixels = new Float64Array(32 * 32)
-    for (let i = 0; i < pixels.length; i++) pixels[i] = resized.data[i]
+    const src8   = resized.data   // Uint8Array for CV_8UC1
+    if (!src8 || src8.length < 1024) throw new Error(`resized.data invalid (len=${src8?.length})`)
+    for (let i = 0; i < pixels.length; i++) pixels[i] = src8[i]
 
     const dct = dct2d(pixels, 32)
 
