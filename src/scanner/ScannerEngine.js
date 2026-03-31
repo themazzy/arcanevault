@@ -230,24 +230,40 @@ function dct2d(matrix, N) {
  */
 export function computePHash256(artImageData) {
   if (!isOpenCVReady()) throw new Error('OpenCV not ready')
-  const cv      = window.cv
-  const src     = cv.matFromImageData(artImageData)
+  const cv       = window.cv
+  const src      = cv.matFromImageData(artImageData)
   if (!src || src.empty()) throw new Error('matFromImageData failed')
-  const gray    = new cv.Mat()
-  const resized = new cv.Mat()
+  const resized  = new cv.Mat()
+  const gray     = new cv.Mat()
+  const equalized = new cv.Mat()
 
   try {
-    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY)
-    if (gray.empty()) throw new Error('cvtColor → gray failed')
-
-    cv.resize(gray, resized, new cv.Size(32, 32), 0, 0, cv.INTER_AREA)
+    // 1. Resize RGBA to 32×32 with Lanczos (matches sharp's default for downscaling)
+    cv.resize(src, resized, new cv.Size(32, 32), 0, 0, cv.INTER_LANCZOS4)
     if (resized.empty()) throw new Error('resize to 32×32 failed')
 
-    // Copy pixel data into a plain Float64Array for the pure-JS DCT
+    // 2. Convert to grayscale using BT.709 (Rec.709) to match sharp's .grayscale() default.
+    //    OpenCV COLOR_RGBA2GRAY uses BT.601 which gives different values for saturated colours.
+    const rgba = resized.data  // Uint8Array RGBA, 32*32*4 = 4096 bytes
+    if (!rgba || rgba.length < 4096) throw new Error(`resized.data invalid (len=${rgba?.length})`)
+    const grayU8 = new Uint8Array(32 * 32)
+    for (let i = 0; i < 32 * 32; i++) {
+      grayU8[i] = Math.round(0.2126 * rgba[i*4] + 0.7152 * rgba[i*4+1] + 0.0722 * rgba[i*4+2])
+    }
+
+    // 3. Histogram equalization — normalises exposure/contrast so the same card
+    //    photographed in different lighting conditions produces the same hash.
+    //    The seed script (generate-card-hashes.js) must apply the same step.
+    gray.create(32, 32, cv.CV_8UC1)
+    gray.data.set(grayU8)
+    cv.equalizeHist(gray, equalized)
+    if (equalized.empty()) throw new Error('equalizeHist failed')
+
+    // 4. Read equalised pixels into Float64Array for the pure-JS DCT
     const pixels = new Float64Array(32 * 32)
-    const src8   = resized.data   // Uint8Array for CV_8UC1
-    if (!src8 || src8.length < 1024) throw new Error(`resized.data invalid (len=${src8?.length})`)
-    for (let i = 0; i < pixels.length; i++) pixels[i] = src8[i]
+    const eq8    = equalized.data
+    if (!eq8 || eq8.length < 1024) throw new Error(`equalized.data invalid (len=${eq8?.length})`)
+    for (let i = 0; i < pixels.length; i++) pixels[i] = eq8[i]
 
     const dct = dct2d(pixels, 32)
 
@@ -278,7 +294,7 @@ export function computePHash256(artImageData) {
       p4: pack64(192),
     }
   } finally {
-    src.delete(); gray.delete(); resized.delete()
+    src.delete(); resized.delete(); gray.delete(); equalized.delete()
   }
 }
 
