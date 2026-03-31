@@ -17,6 +17,7 @@ import DeckBuilderPage from './pages/DeckBuilder'
 import DeckViewPage from './pages/DeckView'
 import TradingPage from './pages/Trading'
 import TournamentsPage from './pages/Tournaments'
+import ScannerPage from './pages/Scanner'
 
 function PrivateApp() {
   const { user } = useAuth()
@@ -37,6 +38,7 @@ function PrivateApp() {
           <Route path="/settings"    element={<SettingsPage />} />
           <Route path="/builder"     element={<BuilderPage />} />
           <Route path="/builder/:id" element={<DeckBuilderPage />} />
+          <Route path="/scanner"     element={<ScannerPage />} />
           <Route path="*"            element={<Navigate to="/" />} />
         </Routes>
       </Layout>

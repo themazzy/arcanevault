@@ -1262,8 +1262,17 @@ function RecentlyViewedSection({ onCardClick }) {
 // ── Changelog / WIP panel ────────────────────────────────────────────────────
 const CHANGELOG = [
   {
-    version: '2026-03-26',
+    version: '2026-03-31',
     label: 'Latest',
+    updates: [
+      '📷 Card Scanner — point your camera at any MTG card to instantly identify it using perceptual hashing (OpenCV + pHash). Works on Android; web preview via browser camera',
+      '⊙ Scanner tab added to navigation — accessible from any page',
+      '🗄 On-device card database — 30k+ card hashes synced to your device for offline scanning',
+    ],
+  },
+  {
+    version: '2026-03-26',
+    label: 'Previous',
     updates: [
       '🏟 Seat selection — tap two seats in the layout to swap order before the game starts',
       '🎯 Host setup screen — when creating a shared lobby you now pick your name, colour, deck & art before others join',
@@ -1275,26 +1284,13 @@ const CHANGELOG = [
     ],
   },
   {
-    version: '2026-03-25',
-    label: 'Previous',
-    updates: [
-      '🖼 Background art picker when joining a life tracker lobby',
-      '⛶ Fullscreen life tracker fits screen correctly on Android',
-      '🕹 Draggable fullscreen controls badge',
-      '📜 Long-press to select no longer triggers while scrolling cards',
-      '⚙ Deck builder: Make Collection Deck transforms in-place',
-      '◆ Owned card indicator in deck builder',
-      '🃏 Double-faced / adventure / split card imports now parse front face correctly',
-    ],
-  },
-  {
     version: 'WIP',
     label: 'In Progress',
     wip: true,
     updates: [
-      '🃏 Scanner improvements — better OCR accuracy on foil cards',
       '📊 Price history chart per card in card detail view',
       '🔔 Price alert system — notify when a card crosses a threshold',
+      '🃏 Scanner: add-to-collection flow directly from a scan result',
     ],
   },
 ]
