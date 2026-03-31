@@ -6,7 +6,7 @@
  * - Recommander.cards: experimental co-occurrence recommendations
  */
 
-import { sfGet } from './scryfall'
+import { sfGet, sfUrl } from './scryfall'
 
 const SF = 'https://api.scryfall.com'
 const EDHREC = 'https://json.edhrec.com'
@@ -132,7 +132,7 @@ export async function fetchCardsByNames(names) {
   for (let i = 0; i < names.length; i += 75) {
     const batch = names.slice(i, i + 75).map(name => ({ name }))
     try {
-      const res = await fetch(`${SF}/cards/collection`, {
+      const res = await fetch(sfUrl(`${SF}/cards/collection`), {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body:    JSON.stringify({ identifiers: batch }),

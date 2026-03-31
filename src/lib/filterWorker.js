@@ -68,7 +68,7 @@ self.onmessage = (e) => {
     colors = [], colorMode = 'identity',
     colorCountMin = 0, colorCountMax = 5,
     rarity = [],
-    typeLine = [], oracleText = '', artist = '',
+    typeLine = [], oracleText = '', artist = '', folderName = '',
     conditions = [], languages = [], sets = [],
     formats = [],
     cmcOp = 'any', cmcMin = '', cmcMax = '',
@@ -96,6 +96,13 @@ self.onmessage = (e) => {
 
   if (location === 'binder') r = r.filter(c => (cardFolderMap[c.id] || []).some(f => f.type === 'binder'))
   if (location === 'deck')   r = r.filter(c => (cardFolderMap[c.id] || []).some(f => f.type === 'deck'))
+  if (folderName.trim()) {
+    const q = folderName.trim().toLowerCase()
+    r = r.filter(c => (cardFolderMap[c.id] || []).some(f =>
+      (f.type === 'binder' || f.type === 'deck') &&
+      (f.name || '').toLowerCase().includes(q)
+    ))
+  }
 
   const typeLineArr = Array.isArray(typeLine) ? typeLine : (typeLine ? typeLine.split(/\s+/) : [])
   if (typeLineArr.length > 0) {
