@@ -156,14 +156,18 @@ function CardArtPicker({ onSelect, onClose }) {
 }
 
 // ── WishlistItem ──────────────────────────────────────────────────────────────
-function WishlistItem({ item, sfCard, priceSource, onDelete, selectMode, selected, onToggleSelect }) {
-  const price = getPrice(sfCard, item.foil, { price_source: priceSource })
-  const img = sfCard?.image_uris?.small
+function WishlistItem({ item, sfCard, priceSource, onDelete, selectMode, selected, onToggleSelect, onEnterSelectMode }) {
+  const price    = getPrice(sfCard, item.foil, { price_source: priceSource })
+  const img      = sfCard?.image_uris?.small
+  const longPress = useLongPress(() => { if (!selectMode) onEnterSelectMode?.() }, { delay: 500 })
+  const { onMouseLeave: lpLeave, ...lpRest } = longPress
 
   return (
     <div
       className={`${listStyles.item}${selectMode ? ` ${listStyles.itemSelectMode}` : ''}${selected ? ` ${listStyles.itemSelected}` : ''}`}
       onClick={selectMode ? onToggleSelect : undefined}
+      onMouseLeave={lpLeave}
+      {...lpRest}
     >
       {selectMode && (
         <div className={`${listStyles.itemCheckbox}${selected ? ` ${listStyles.itemCheckboxChecked}` : ''}`}>
@@ -190,52 +194,70 @@ function WishlistItem({ item, sfCard, priceSource, onDelete, selectMode, selecte
 }
 
 // ── Wishlist grid view ────────────────────────────────────────────────────────
-function WishlistGrid({ items, sfMap, priceSource, selectMode, selectedItems, onToggleSelect, onDelete, splitState, onAdjustQty }) {
+function WishlistGridItem({ item, sf, priceSource, selectMode, selected, onToggleSelect, onEnterSelectMode, onDelete, splitState, onAdjustQty }) {
+  const longPress = useLongPress(() => { if (!selectMode) onEnterSelectMode?.() }, { delay: 500 })
+  const { onMouseLeave: lpLeave, ...lpRest } = longPress
+  const price    = getPrice(sf, item.foil, { price_source: priceSource })
+  const img      = sf?.image_uris?.normal || sf?.image_uris?.small || sf?.card_faces?.[0]?.image_uris?.normal
+  const totalQty = item.qty || 1
+  const selQty   = splitState?.get(item.id) ?? 1
+
+  return (
+    <div
+      className={`${listStyles.gridItem}${selectMode ? ` ${listStyles.gridItemSelectMode}` : ''}${selected ? ` ${listStyles.gridItemSelected}` : ''}`}
+      onClick={selectMode ? () => onToggleSelect(item.id, totalQty) : undefined}
+      onMouseLeave={lpLeave}
+      {...lpRest}
+    >
+      {selectMode && (
+        <div className={`${listStyles.gridCheckbox}${selected ? ` ${listStyles.gridCheckboxChecked}` : ''}`} />
+      )}
+      {item.qty > 1 && !selected && <div className={listStyles.gridQty}>×{item.qty}</div>}
+      {img
+        ? <img src={img} className={listStyles.gridImg} alt={item.name} loading="lazy" />
+        : <div className={listStyles.gridImgPlaceholder}>{item.name}</div>
+      }
+      {selectMode && selected && totalQty > 1 && (
+        <div className={listStyles.qtyOverlay}>
+          <button className={listStyles.qtyOverlayBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(item.id, +1, totalQty) }}>+</button>
+          <div className={listStyles.qtyOverlayDisplay}>{selQty} of {totalQty}</div>
+          <button className={listStyles.qtyOverlayBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(item.id, -1, totalQty) }}>−</button>
+        </div>
+      )}
+      <div className={listStyles.gridFooter}>
+        <span className={listStyles.gridName}>
+          {item.name}
+          {item.foil && <span className={listStyles.gridFoilBadge}>✦</span>}
+        </span>
+        <span className={listStyles.gridPrice} style={{ color: price != null ? 'var(--green)' : 'var(--text-faint)' }}>
+          {price != null ? formatPrice(price, priceSource) : '—'}
+        </span>
+      </div>
+      {!selectMode && (
+        <button className={listStyles.gridDelete} onClick={e => { e.stopPropagation(); onDelete(item.id) }}>✕</button>
+      )}
+    </div>
+  )
+}
+
+function WishlistGrid({ items, sfMap, priceSource, selectMode, selectedItems, onToggleSelect, onEnterSelectMode, onDelete, splitState, onAdjustQty }) {
   return (
     <div className={listStyles.gridView}>
-      {items.map(item => {
-        const sf       = sfMap[`${item.set_code}-${item.collector_number}`]
-        const price    = getPrice(sf, item.foil, { price_source: priceSource })
-        const img      = sf?.image_uris?.normal || sf?.image_uris?.small || sf?.card_faces?.[0]?.image_uris?.normal
-        const selected = selectedItems.has(item.id)
-        const totalQty = item.qty || 1
-        const selQty   = splitState?.get(item.id) ?? 1
-        return (
-          <div
-            key={item.id}
-            className={`${listStyles.gridItem}${selectMode ? ` ${listStyles.gridItemSelectMode}` : ''}${selected ? ` ${listStyles.gridItemSelected}` : ''}`}
-            onClick={selectMode ? () => onToggleSelect(item.id, totalQty) : undefined}
-          >
-            {selectMode && (
-              <div className={`${listStyles.gridCheckbox}${selected ? ` ${listStyles.gridCheckboxChecked}` : ''}`} />
-            )}
-            {item.qty > 1 && !selected && <div className={listStyles.gridQty}>×{item.qty}</div>}
-            {img
-              ? <img src={img} className={listStyles.gridImg} alt={item.name} loading="lazy" />
-              : <div className={listStyles.gridImgPlaceholder}>{item.name}</div>
-            }
-            {selectMode && selected && totalQty > 1 && (
-              <div className={listStyles.qtyOverlay}>
-                <button className={listStyles.qtyOverlayBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(item.id, +1, totalQty) }}>+</button>
-                <div className={listStyles.qtyOverlayDisplay}>{selQty} of {totalQty}</div>
-                <button className={listStyles.qtyOverlayBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(item.id, -1, totalQty) }}>−</button>
-              </div>
-            )}
-            <div className={listStyles.gridFooter}>
-              <span className={listStyles.gridName}>
-                {item.name}
-                {item.foil && <span className={listStyles.gridFoilBadge}>✦</span>}
-              </span>
-              <span className={listStyles.gridPrice} style={{ color: price != null ? 'var(--green)' : 'var(--text-faint)' }}>
-                {price != null ? formatPrice(price, priceSource) : '—'}
-              </span>
-            </div>
-            {!selectMode && (
-              <button className={listStyles.gridDelete} onClick={e => { e.stopPropagation(); onDelete(item.id) }}>✕</button>
-            )}
-          </div>
-        )
-      })}
+      {items.map(item => (
+        <WishlistGridItem
+          key={item.id}
+          item={item}
+          sf={sfMap[`${item.set_code}-${item.collector_number}`]}
+          priceSource={priceSource}
+          selectMode={selectMode}
+          selected={selectedItems.has(item.id)}
+          onToggleSelect={onToggleSelect}
+          onEnterSelectMode={onEnterSelectMode}
+          onDelete={onDelete}
+          splitState={splitState}
+          onAdjustQty={onAdjustQty}
+        />
+      ))}
     </div>
   )
 }
@@ -286,7 +308,8 @@ function ListBrowser({ folder, onBack }) {
     return { totalValue: v, totalQty: q }
   }, [items, sfMap, price_source])
 
-  const toggleSelectMode = () => { setSelectMode(v => !v); setSelectedItems(new Set()); setSplitState(new Map()) }
+  const toggleSelectMode  = () => { setSelectMode(v => !v); setSelectedItems(new Set()); setSplitState(new Map()) }
+  const enterSelectMode   = useCallback(() => setSelectMode(true), [])
   const onToggleSelect = useCallback((id, totalQty) => {
     setSelectedItems(prev => {
       const next = new Set(prev)
@@ -304,7 +327,17 @@ function ListBrowser({ folder, onBack }) {
   const onAdjustQty = useCallback((id, delta, totalQty) => {
     setSplitState(prev => {
       const current = prev.get(id) ?? 1
-      const next = Math.max(1, Math.min(totalQty, current + delta))
+      const next = Math.min(totalQty, current + delta)
+      if (next <= 0) {
+        setSelectedItems(sel => {
+          const updated = new Set(sel)
+          updated.delete(id)
+          return updated
+        })
+        const updated = new Map(prev)
+        updated.delete(id)
+        return updated
+      }
       return new Map(prev).set(id, next)
     })
   }, [])
@@ -379,6 +412,7 @@ function ListBrowser({ folder, onBack }) {
       {selectMode && selectedItems.size > 0 && (
         <BulkActionBar
           selected={selectedItems}
+          selectedQty={[...selectedItems].reduce((sum, id) => sum + (splitState.get(id) ?? 1), 0)}
           total={filtered.length}
           onSelectAll={() => setSelectedItems(new Set(filtered.map(i => i.id)))}
           onDeselectAll={() => setSelectedItems(new Set())}
@@ -401,6 +435,7 @@ function ListBrowser({ folder, onBack }) {
               selected={selectedItems.has(item.id)}
               onToggleSelect={() => onToggleSelect(item.id, item.qty || 1)}
               onDelete={handleDelete}
+              onEnterSelectMode={enterSelectMode}
             />
           ))}
         </div>
@@ -414,6 +449,7 @@ function ListBrowser({ folder, onBack }) {
           selectMode={selectMode}
           selectedItems={selectedItems}
           onToggleSelect={onToggleSelect}
+          onEnterSelectMode={enterSelectMode}
           onDelete={handleDelete}
           splitState={splitState}
           onAdjustQty={onAdjustQty}
