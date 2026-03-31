@@ -157,7 +157,12 @@ These are only active during `npm run dev`. Production deploys on GitHub Pages c
 | `src/lib/db.js` | IDB layer — all local reads/writes |
 | `src/lib/scryfall.js` | Scryfall API client + price cache |
 | `src/lib/filterWorker.js` | Web Worker: filter + sort logic |
-| `src/lib/scanner.js` | Camera OCR pipeline (Tesseract + dHash) |
+| `src/lib/scanner.js` | Legacy OCR pipeline (Tesseract + dHash) — superseded by `src/scanner/` |
+| `src/scanner/DatabaseService.js` | pHash DB: SQLite (native) + Supabase fallback (web); sync + in-memory search |
+| `src/scanner/ScannerEngine.js` | OpenCV.js card detection, perspective warp, art crop, 256-bit pHash |
+| `src/scanner/CardScanner.jsx` | Full-screen scanner UI: camera, targeting reticle, stability buffer, match panel |
+| `src/pages/Scanner.jsx` | Route wrapper for `CardScanner` at `/scanner` |
+| `scripts/generate-card-hashes.js` | Node.js seed script: downloads Scryfall art crops, computes pHashes, uploads to Supabase |
 | `src/lib/fx.js` | EUR↔USD conversion via frankfurter.app (6 h IDB cache) |
 | `src/lib/deckBuilderApi.js` | Deck builder helpers + external API calls |
 | `src/lib/csvParser.js` | Manabox CSV → cards + folders |
@@ -485,13 +490,52 @@ Use Scryfall syntax when building search queries:
 - Oracle: `o:"draw a card"`
 - Format: `f:commander`, `f:modern`
 
-### Card Scanner
+### Card Scanner (`src/scanner/`)
 
-`src/lib/scanner.js` pipeline:
-1. `getCardRect(videoEl)` — accounts for `object-fit: cover` cropping (portrait phone ≠ full stream dimensions). Uses `videoEl.clientWidth/clientHeight`, not `videoWidth/videoHeight`.
-2. `preprocessNameStrip()` — Otsu adaptive thresholding → binarise → invert if dark background.
-3. Tesseract OCR (single-line PSM) → stability buffer (2 consecutive matches required).
-4. dHash of art region → compare against all printings → filter by hash distance ≤ 8.
+Replaced the old OCR pipeline with a **pHash + OpenCV** approach. New pipeline:
+
+1. **Camera capture** — `@capacitor-community/camera-preview` (native, renders behind transparent WebView) or `getUserMedia` (web fallback).
+2. **Card detection** — `ScannerEngine.detectCardCorners()`: grayscale → GaussianBlur → Canny → dilate → findContours → approxPolyDP (4 vertices) → aspect ratio filter (0.60–0.80) → largest area.
+3. **Perspective warp** — `warpCard()`: normalise card to 500×700 ImageData.
+4. **Art crop** — `cropArtRegion()`: ROI `{x:25, y:55, w:450, h:275}` on warped card.
+5. **256-bit pHash** — `computePHash256()`: resize to 32×32 grayscale → 2D DCT → top-left 16×16 coefficients → compare each to mean → 256 bits packed as 4 × BigInt64 → 64-char hex string.
+6. **DB lookup** — `DatabaseService.findMatch()`: XOR each BigInt part + popcount, sum → Hamming distance; threshold < 20 = match.
+7. **Stability buffer** — requires 2 consecutive frames with same card ID before confirming; haptic feedback on confirm.
+
+#### Key implementation notes
+
+- **BigInt precision**: Supabase BIGINT returned as JS Number loses bits >53. Store `phash_hex TEXT` (64 hex chars) and read that column exclusively; parse with `BigInt('0x' + chunk)`.
+- **OpenCV.js**: Loaded via async CDN `<script>` tag (not bundled). Check `window.cv` readiness via polling (`waitForOpenCV()`).
+- **SQLite web fallback**: `@capacitor-community/sqlite` doesn't work in browsers. Web path fetches from Supabase directly (up to 10k rows).
+- **Transparent WebView**: `this.bridge.getWebView().setBackgroundColor(Color.TRANSPARENT)` in `MainActivity.java` makes the native camera visible behind the overlay.
+
+#### Supabase `card_hashes` table (run once)
+
+```sql
+create table card_hashes (
+  id            uuid primary key default gen_random_uuid(),
+  scryfall_id   text not null unique,
+  name          text,
+  set_code      text,
+  collector_number text,
+  image_uri     text,
+  hash_part_1   bigint, hash_part_2 bigint, hash_part_3 bigint, hash_part_4 bigint,
+  phash_hex     text,
+  updated_at    timestamptz default now()
+);
+alter table card_hashes enable row level security;
+create policy "read card_hashes" on card_hashes for select using (true);
+```
+
+#### Seeding hashes
+
+```bash
+cd scripts
+npm install node-fetch sharp @supabase/supabase-js dotenv
+SUPABASE_URL=... SUPABASE_SERVICE_KEY=... node generate-card-hashes.js
+```
+
+Processes ~30k+ cards. Downloads `art_crop` images from Scryfall, skips rows already in DB. Run once after creating the table.
 
 ### Supabase Table Notes
 
@@ -506,6 +550,7 @@ Use Scryfall syntax when building search queries:
 - `game_players` — player slots per session; `user_id` is null until a player claims the slot
 - `game_results` — deck win/loss history: `session_id, user_id, deck_id, deck_name, format, player_count, placement, played_at`
 - `feedback` — user bug reports & feature requests: `type ('bug'|'feature'), description, contact, user_id, user_email, created_at`
+- `card_hashes` — pHash records for scanner: `scryfall_id, name, set_code, collector_number, image_uri, hash_part_1..4 (bigint), phash_hex (text)`; read-only RLS for all users
 - `user_settings` — includes `nickname text default ''` (added); synced via `useSettings()`
 
 ---

@@ -12,9 +12,12 @@
     "sync:ios": "npm run build && npx cap sync ios"
   },
   "dependencies": {
+    "@capacitor-community/camera-preview": "^8.0.0",
+    "@capacitor-community/sqlite": "^8.1.0",
     "@capacitor/android": "8.3.0",
     "@capacitor/cli": "8.3.0",
     "@capacitor/core": "8.3.0",
+    "@capacitor/haptics": "^8.0.2",
     "@capacitor/ios": "8.3.0",
     "@supabase/supabase-js": "^2.39.3",
     "@tanstack/react-virtual": "^3.13.22",
