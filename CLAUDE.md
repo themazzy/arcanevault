@@ -222,8 +222,8 @@ These are only active during `npm run dev`. Production deploys on GitHub Pages c
 | `src/pages/DeckView.jsx` | Shared deck view page (collection decks + builder decks) — sticky topbar, ManaText, card detail |
 | `src/pages/DeckView.module.css` | Styles for DeckView — dot-grid page, sticky header, mana symbol colours |
 | `src/pages/Stats.jsx` | Collection analytics — value distribution, format legality, gainers/losers, age spread |
-| `src/pages/LifeTracker.jsx` | Multiplayer life tracker — pre-game setup, game screen, lobby, JoinGame route |
-| `src/pages/LifeTracker.module.css` | Styles for LifeTracker — grid layouts, rotations, fullscreen, lobby, landscape breakpoints |
+| `src/pages/LifeTracker.jsx` | Multiplayer life tracker — pre-game setup, game screen, player-settings overlay, commander damage, lobby, JoinGame route |
+| `src/pages/LifeTracker.module.css` | Styles for LifeTracker — grid layouts, rotations, fullscreen, compact active-game controls, player-settings overlay, lobby breakpoints |
 | `src/pages/JoinGame.jsx` | Public route `/join/:code` — join a multiplayer lobby, pick deck/name/colour |
 | `src/pages/JoinGame.module.css` | Styles for JoinGame page |
 | `src/components/FeedbackModal.jsx` | Bug report / feature request modal — type toggle, description, optional Discord/email contact |
@@ -352,6 +352,9 @@ border-top-color: rgba(201,168,76,0.65);
 - Treat `max-height: 500px` as the tight-phone breakpoint.
 - Do not rely on large fixed `min-height` values for active-game player cells in that mode.
 - Fullscreen landscape uses an extra-dense variant with reduced page padding, smaller player controls, and a tighter floating controls pill.
+- Keep the quick life row visible in compact active-game layouts; use four dense buttons (`-10`, `-5`, `+5`, `+10`) instead of hiding the row.
+- Keep commander damage status visible in compact layouts by tightening and wrapping `.cmdBar` badges rather than switching to overlay-only access.
+- Player-specific color / art / partner controls now belong in a page-level settings overlay instead of expanding inline inside the player panel.
 
 ### DeckView (`DeckView.jsx`)
 
@@ -405,7 +408,13 @@ Use `100dvh` (dynamic viewport height) in fullscreen — not `100svh` — so And
 #### Landscape phone breakpoints
 
 - `@media (max-width: 900px)` — rotations and grid height applied (`calc(100svh - 192px)`)
-- `@media (max-height: 500px)` — landscape phone (e.g. Pixel 7, S24 at 412px height); hides `.colorRow` and `.quickRow`, shrinks all panel elements so content fits within ~106px per row; does **not** override fullscreen grid height (already `100dvh`)
+- `@media (max-height: 500px)` — compact phone-height active game mode; shrinks panel elements aggressively but keeps the quick life row and commander damage bar visible so core actions are still available on small displays.
+
+#### Active Player Controls
+
+- `PlayerPanel` keeps the central life total narrow and lets the large side `-` / `+` buttons expand toward the panel edges, increasing tap area on small screens.
+- The quick life row is intentionally limited to `-10`, `-5`, `+5`, `+10`; the single-step `-` / `+` actions belong only on the large side buttons.
+- Player settings open a page-level `PlayerSettingsOverlay` from the cog button; that overlay owns color selection, background art, and the partner-commanders toggle.
 
 #### Seat Selection (`SeatLayoutGrid`)
 

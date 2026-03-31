@@ -238,18 +238,22 @@
 
 /* Life total */
 .lifeArea {
-  display: flex; align-items: stretch; justify-content: center; gap: 5px; flex: 1;
+  display: flex; align-items: stretch; justify-content: center; gap: 4px; flex: 1;
+  width: calc(100% + 16px);
+  margin: 0 -8px;
 }
 .lifeBtn {
   background: var(--s3); border: 1px solid var(--s-border2);
   border-radius: 8px; color: var(--text);
   font-size: 3rem; font-weight: 600; line-height: 1;
-  flex: 1 1 48px; min-width: 48px; max-width: 140px;
+  flex: 1 1 0; min-width: 52px; max-width: none;
   cursor: pointer; transition: all 0.12s;
   display: flex; align-items: center; justify-content: center;
   user-select: none; -webkit-user-select: none; touch-action: manipulation;
   white-space: nowrap; overflow: hidden;
 }
+.lifeBtn:first-child { border-radius: 8px 0 0 8px; }
+.lifeBtn:last-child  { border-radius: 0 8px 8px 0; }
 .lifeBtn:hover  { background: var(--s-medium); color: var(--player-color, var(--gold)); border-color: rgba(201,168,76,0.35); }
 .lifeBtn:active { transform: scale(0.93); background: var(--s-subtle); }
 
@@ -298,14 +302,18 @@
 }
 
 /* Quick life change buttons */
-.quickRow { display: flex; justify-content: center; gap: 3px; flex-wrap: wrap; }
+.quickRow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 3px;
+}
 .quickBtn {
   background: var(--s2); border: 1px solid var(--s-border);
   border-radius: 3px; color: var(--text-faint);
   font-family: var(--font-serif); font-size: 0.72rem;
-  padding: 0.65rem 0.9rem; cursor: pointer; transition: all 0.12s;
+  padding: 0.55rem 0.4rem; cursor: pointer; transition: all 0.12s;
   touch-action: manipulation; user-select: none; -webkit-user-select: none;
-  white-space: nowrap; flex-shrink: 0;
+  white-space: nowrap; min-width: 0;
 }
 .quickBtn:hover  { background: var(--s4); color: var(--player-color, var(--gold)); }
 .quickBtn:active { transform: scale(0.94); }
@@ -488,8 +496,8 @@
   border: 1px solid rgba(255,255,255,0.05);
   border-radius: 5px;
   min-height: 34px;
-  max-height: 34px;
-  overflow-x: auto;
+  max-height: none;
+  overflow: hidden;
   -webkit-overflow-scrolling: touch;
 }
 .cmdBar::-webkit-scrollbar { height: 2px; }
@@ -511,15 +519,17 @@
 .cmdBarLabel:hover { opacity: 1; color: var(--gold); }
 
 .cmdBadges {
-  display: flex; gap: 10px; align-items: center; flex: 1;
+  display: flex; gap: 6px; align-items: center; flex: 1;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 .cmdBadge {
   display: flex; align-items: center; gap: 3px;
   background: var(--s1);
   border: 1px solid rgba(255,255,255,0.07);
   border-radius: 4px;
-  padding: 0.5rem 1.5rem;
-  flex-shrink: 0;
+  padding: 0.32rem 0.45rem;
+  flex: 0 1 auto;
   transition: border-color 0.15s;
 }
 .cmdBadgeHit    { border-color: rgba(var(--opc), 0.3); }
@@ -549,7 +559,126 @@
 .cmdBadgeBtn:active { transform: scale(0.88); }
 .cmdBadgeVal {
   font-family: var(--font-display); font-size: 0.76rem;
-  color: var(--text-dim); min-width: 14px; text-align: center;
+  color: var(--text-dim); min-width: 10px; text-align: center;
+}
+
+.settingsOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.76);
+  backdrop-filter: blur(8px);
+  z-index: 360;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.settingsPanel {
+  width: min(420px, 100%);
+  background: var(--bg3);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.65);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: slideUp 0.18s ease;
+}
+
+.settingsHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settingsTitle {
+  font-family: var(--font-display);
+  font-size: 0.88rem;
+  color: var(--gold);
+  letter-spacing: 0.06em;
+}
+
+.settingsSub {
+  font-size: 0.78rem;
+  font-style: italic;
+  margin-top: 2px;
+}
+
+.settingsClose {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.settingsSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settingsLabel {
+  font-family: var(--font-display);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.settingsColorGrid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.settingsColorDot {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  cursor: pointer;
+}
+
+.settingsColorDotActive {
+  border-color: rgba(255,255,255,0.82) !important;
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.08);
+}
+
+.settingsActions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settingsActionBtn {
+  width: 100%;
+  background: var(--s2);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.settingsActionBtn:hover {
+  color: var(--text);
+  border-color: rgba(255,255,255,0.16);
+}
+
+.settingsActionBtnActive {
+  background: rgba(160,144,208,0.12) !important;
+  border-color: rgba(160,144,208,0.36) !important;
+  color: #c6bdf0 !important;
 }
 
 /* ── Commander Damage Overlay (page-level) ──────────────────────────────────── */
@@ -1242,7 +1371,7 @@
 @media (max-width: 600px) {
   .playerPanel   { padding: 5px 5px 6px; gap: 4px; min-height: 160px; }
   .lifeArea      { gap: 4px; }
-  .lifeBtn       { font-size: 1.8rem; max-width: 70px; border-radius: 5px; white-space: nowrap; overflow: hidden; }
+  .lifeBtn       { font-size: 1.8rem; min-width: 42px; border-radius: 5px; white-space: nowrap; overflow: hidden; }
   .lifeTotalWrap { width: 65px; }
   .lifeTotal     { font-size: 2.2rem; }
 
@@ -1250,8 +1379,8 @@
   .colorDot      { width: 11px; height: 11px; }
   .nameBtn       { font-size: 0.66rem; }
 
-  .quickRow      { gap: 2px; flex-wrap: wrap; justify-content: center; }
-  .quickBtn      { padding: 0.55rem 0.8rem; font-size: 0.62rem; min-width: 24px; }
+  .quickRow      { gap: 2px; }
+  .quickBtn      { padding: 0.5rem 0.2rem; font-size: 0.62rem; min-width: 0; }
 
   .counterSection { padding: 3px 4px; gap: 2px; }
   .counterTab     { font-size: 0.74rem; padding: 2px; min-width: 90px; }
@@ -1259,7 +1388,7 @@
   .counterCtrlVal { font-size: 1.1rem; }
   .counterCtrlIcon { font-size: 0.72rem; }
 
-  .cmdBar        { padding: 3px 4px; min-height: 24px; gap: 2px; }
+  .cmdBar        { padding: 3px 4px; min-height: 24px; gap: 3px; }
   .cmdBadgeVal   { font-size: 0.66rem; }
   .cmdBarHint    { display: none; }
   .cmdBarIcon    { font-size: 0.68rem; }
@@ -1296,8 +1425,6 @@
   .endBtn { padding: 4px 9px; font-size: 0.62rem; }
 
   /* Hide colour picker row — saves ~14 px; colours can be set pre-game */
-  .colorRow { display: none; }
-
   /* Squeeze everything else down */
   .playerPanel   { padding: 4px 6px 5px; gap: 2px; min-height: 0; }
   .nameRow       { min-height: 22px; gap: 3px; }
@@ -1306,7 +1433,7 @@
   .panelDeckBadge { font-size: 0.54rem; padding: 1px 4px; max-width: 74px; }
   .playerSettingsBtn { min-width: 24px; min-height: 24px; font-size: 1.1rem; padding: 2px 4px; }
   .lifeArea      { gap: 3px; }
-  .lifeBtn       { font-size: 1.25rem; max-width: 60px; border-radius: 4px; }
+  .lifeBtn       { font-size: 1.25rem; min-width: 34px; border-radius: 4px; }
   .lifeTotalWrap { width: 55px; }
   .lifeTotal     { font-size: 1.65rem; }
   .lifeDelta     { right: -22px; font-size: 0.9rem; }
@@ -1319,10 +1446,11 @@
   .counterCtrlIcon { font-size: 0.64rem; }
 
   /* Hide quick row in landscape mode to save space */
-  .quickRow       { display: none; }
+  .quickRow       { display: grid; gap: 2px; }
+  .quickBtn       { padding: 0.36rem 0.12rem; font-size: 0.55rem; }
 
   /* Commander damage overlay always visible on landscape phones */
-  .cmdBar        { padding: 2px 3px; min-height: 16px; gap: 2px; display: none; }
+  .cmdBar        { padding: 2px 3px; min-height: 18px; gap: 2px; display: flex; }
   .cmdBadgeVal   { font-size: 0.58rem; }
   .cmdBarIcon    { font-size: 0.58rem; }
   .cmdBarHint    { display: none; }
@@ -1338,11 +1466,9 @@
   @media (max-width: 550px) and (orientation: landscape) {
     .grid { height: calc(100dvh - 192px); }
 
-    .colorRow      { display: none; }
-
     .playerPanel   { padding: 4px 6px 5px; gap: 2px; min-height: 0; }
     .lifeArea      { gap: 4px; }
-    .lifeBtn       { font-size: 1.4rem; max-width: 70px; border-radius: 5px; white-space: nowrap; overflow: hidden; }
+    .lifeBtn       { font-size: 1.4rem; min-width: 38px; border-radius: 5px; white-space: nowrap; overflow: hidden; }
     .lifeTotalWrap { width: 60px; }
     .lifeTotal     { font-size: 1.85rem; }
 
@@ -1352,11 +1478,8 @@
     .counterCtrlVal { font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .counterCtrlIcon { font-size: 0.64rem; flex-shrink: 0; }
 
-    /* Quick row: compact padding to fit commander damage controls */
-    .quickRow      { gap: 2px; display: none; }
-    .quickBtn      { padding: 0.55rem 0.85rem; }
-
-    /* Commander damage bar hidden - use overlay only */
+    .quickRow      { gap: 2px; display: grid; }
+    .quickBtn      { padding: 0.4rem 0.12rem; font-size: 0.56rem; }
   }
 }
 
@@ -1375,9 +1498,12 @@
   .pageFullscreen .nameInput { font-size: 0.6rem; }
   .pageFullscreen .panelDeckBadge { font-size: 0.5rem; max-width: 64px; }
   .pageFullscreen .lifeArea { gap: 2px; }
-  .pageFullscreen .lifeBtn { font-size: 1.1rem; min-width: 38px; max-width: 52px; }
+  .pageFullscreen .lifeBtn { font-size: 1.1rem; min-width: 34px; max-width: none; }
   .pageFullscreen .lifeTotalWrap { width: 48px; }
   .pageFullscreen .lifeTotal { font-size: 1.45rem; }
+  .pageFullscreen .quickRow { gap: 2px; }
+  .pageFullscreen .quickBtn { padding: 0.34rem 0.12rem; font-size: 0.52rem; }
+  .pageFullscreen .cmdBar { padding: 2px 3px; min-height: 18px; gap: 2px; }
   .pageFullscreen .counterSection { padding: 2px; }
   .pageFullscreen .counterCtrlBtn { min-height: 20px; font-size: 0.82rem; }
   .pageFullscreen .counterCtrlVal { font-size: 0.82rem; }
