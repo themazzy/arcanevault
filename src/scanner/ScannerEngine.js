@@ -192,15 +192,39 @@ export function cropArtRegion(cardImageData) {
 
 // ── 4. 256-bit perceptual hash (DCT) ─────────────────────────────────────────
 
+// Pure-JS 2D DCT — identical to the seed script (generate-card-hashes.js).
+// Used as the primary path so client hashes always match DB hashes exactly.
+function dct2d(matrix, N) {
+  const out = new Float64Array(N * N)
+  for (let y = 0; y < N; y++) {
+    for (let u = 0; u < N; u++) {
+      let sum = 0
+      for (let x = 0; x < N; x++) {
+        sum += matrix[y * N + x] * Math.cos((2 * x + 1) * u * Math.PI / (2 * N))
+      }
+      const cu = u === 0 ? 1 / Math.sqrt(2) : 1
+      out[y * N + u] = (2 / N) * cu * sum / 2
+    }
+  }
+  const tmp = out.slice()
+  for (let x = 0; x < N; x++) {
+    for (let v = 0; v < N; v++) {
+      let sum = 0
+      for (let y = 0; y < N; y++) {
+        sum += tmp[y * N + x] * Math.cos((2 * y + 1) * v * Math.PI / (2 * N))
+      }
+      const cv2 = v === 0 ? 1 / Math.sqrt(2) : 1
+      out[v * N + x] = (2 / N) * cv2 * sum / 2
+    }
+  }
+  return out
+}
+
 /**
- * Compute a 256-bit pHash of artwork ImageData using OpenCV's DCT.
+ * Compute a 256-bit pHash of artwork ImageData.
  *
- * Algorithm:
- *   1. Grayscale + resize to 32×32
- *   2. 2D DCT  → 32×32 frequency matrix
- *   3. Take top-left 16×16 (256 low-frequency coefficients)
- *   4. Each coeff > mean(coeff[1..255]) → bit 1, else 0
- *   5. Pack 256 bits into 4 unsigned BigInt64
+ * Uses the same pure-JS DCT as the seed script so hashes are byte-identical.
+ * OpenCV is used only for the grayscale + resize step (fast, no dct needed).
  *
  * Returns { p1, p2, p3, p4 } as BigInt, or null on failure.
  */
@@ -210,27 +234,29 @@ export function computePHash256(artImageData) {
   const src     = cv.matFromImageData(artImageData)
   const gray    = new cv.Mat()
   const resized = new cv.Mat()
-  const floated = new cv.Mat()
-  const dctMat  = new cv.Mat()
 
   try {
     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY)
     cv.resize(gray, resized, new cv.Size(32, 32), 0, 0, cv.INTER_AREA)
-    resized.convertTo(floated, cv.CV_32F)
-    cv.dct(floated, dctMat)
 
-    // Extract top-left 16×16
-    const roi    = dctMat.roi(new cv.Rect(0, 0, 16, 16))
-    const values = Array.from(roi.data32F)   // 256 floats
-    roi.delete()
+    // Copy pixel data into a plain Float64Array for the pure-JS DCT
+    const pixels = new Float64Array(32 * 32)
+    for (let i = 0; i < pixels.length; i++) pixels[i] = resized.data[i]
 
-    // Mean of indices 1..255 (skip DC component at index 0)
-    const mean = values.slice(1).reduce((a, b) => a + b, 0) / 255
+    const dct = dct2d(pixels, 32)
 
-    // Bit array: 1 if value > mean
-    const bits = values.map(v => v > mean ? 1 : 0)
+    // Extract top-left 16×16 coefficients (256 values)
+    const coeffs = []
+    for (let y = 0; y < 16; y++) {
+      for (let x = 0; x < 16; x++) {
+        coeffs.push(dct[y * 32 + x])
+      }
+    }
 
-    // Pack 64 bits into one unsigned BigInt
+    // Mean of AC components (skip DC at index 0)
+    const mean = coeffs.slice(1).reduce((a, b) => a + b, 0) / 255
+    const bits = coeffs.map(v => v > mean ? 1 : 0)
+
     const pack64 = (start) => {
       let r = 0n
       for (let i = 0; i < 64; i++) {
@@ -245,9 +271,8 @@ export function computePHash256(artImageData) {
       p3: pack64(128),
       p4: pack64(192),
     }
-  } catch { return null }
-  finally {
-    src.delete(); gray.delete(); resized.delete(); floated.delete(); dctMat.delete()
+  } finally {
+    src.delete(); gray.delete(); resized.delete()
   }
 }
 

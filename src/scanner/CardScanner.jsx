@@ -157,8 +157,12 @@ export default function CardScanner({ onMatch, onClose }) {
     if (!warped)  { if (DEBUG && mountedRef.current) setDebugInfo(d => ({ ...d, stage: 'warp failed' })); return }
     const artCrop = cropArtRegion(warped)
     if (!artCrop) { if (DEBUG && mountedRef.current) setDebugInfo(d => ({ ...d, stage: 'crop failed' })); return }
-    const hash    = computePHash256(artCrop)
-    if (!hash)    { if (DEBUG && mountedRef.current) setDebugInfo(d => ({ ...d, stage: 'hash failed' })); return }
+    let hash = null
+    try { hash = computePHash256(artCrop) } catch (e) {
+      if (DEBUG && mountedRef.current) setDebugInfo(d => ({ ...d, stage: `hash error: ${e.message}` }))
+      return
+    }
+    if (!hash) { if (DEBUG && mountedRef.current) setDebugInfo(d => ({ ...d, stage: 'hash returned null' })); return }
 
     const best  = databaseService.findBest(hash)
     const match = best && best.distance <= MATCH_THRESHOLD ? best : null
