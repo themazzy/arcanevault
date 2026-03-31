@@ -235,23 +235,80 @@ function dct2d(matrix, N) {
   return out
 }
 
+// Pure-JS CLAHE — identical to seed script (generate-card-hashes.js).
+// Matches cv.createCLAHE(40.0, Size(4,4)) parameters without requiring OpenCV support.
+function applyCLAHE(u8, width, height, tileGridX = 4, tileGridY = 4, clipLimit = 40.0) {
+  const tileW    = Math.floor(width / tileGridX)
+  const tileH    = Math.floor(height / tileGridY)
+  const tileArea = tileW * tileH
+  const clip     = Math.max(1, Math.floor(clipLimit * tileArea / 256))
+
+  const luts = []
+  for (let ty = 0; ty < tileGridY; ty++) {
+    for (let tx = 0; tx < tileGridX; tx++) {
+      const hist = new Int32Array(256)
+      for (let y = ty * tileH; y < (ty + 1) * tileH; y++)
+        for (let x = tx * tileW; x < (tx + 1) * tileW; x++)
+          hist[u8[y * width + x]]++
+
+      let excess = 0
+      for (let i = 0; i < 256; i++) {
+        if (hist[i] > clip) { excess += hist[i] - clip; hist[i] = clip }
+      }
+      const add  = Math.floor(excess / 256)
+      let   rem  = excess % 256
+      const step = rem > 0 ? Math.floor(256 / rem) : 256
+      for (let i = 0; i < 256; i++) {
+        hist[i] += add
+        if (rem > 0 && i % step === 0) { hist[i]++; rem-- }
+      }
+
+      const lut = new Uint8Array(256)
+      let cdf = 0
+      for (let i = 0; i < 256; i++) {
+        cdf    += hist[i]
+        lut[i]  = Math.min(255, Math.round(cdf * 255.0 / tileArea))
+      }
+      luts.push(lut)
+    }
+  }
+
+  const out = new Uint8Array(width * height)
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const v  = u8[y * width + x]
+      const gx = (x + 0.5) / tileW - 0.5
+      const gy = (y + 0.5) / tileH - 0.5
+      const tx0 = Math.max(0, Math.min(tileGridX - 2, Math.floor(gx)))
+      const ty0 = Math.max(0, Math.min(tileGridY - 2, Math.floor(gy)))
+      const ax  = Math.max(0, Math.min(1, gx - tx0))
+      const ay  = Math.max(0, Math.min(1, gy - ty0))
+      out[y * width + x] = Math.round(
+        luts[ ty0      * tileGridX + tx0     ][v] * (1 - ax) * (1 - ay) +
+        luts[ ty0      * tileGridX + tx0 + 1 ][v] * ax       * (1 - ay) +
+        luts[(ty0 + 1) * tileGridX + tx0     ][v] * (1 - ax) * ay       +
+        luts[(ty0 + 1) * tileGridX + tx0 + 1 ][v] * ax       * ay
+      )
+    }
+  }
+  return out
+}
+
 /**
  * Compute a 256-bit pHash of artwork ImageData.
  *
- * Uses the same pure-JS DCT as the seed script so hashes are byte-identical.
- * OpenCV handles blur, resize, and CLAHE; DCT is pure JS to guarantee identical output.
+ * OpenCV handles blur and resize only. Grayscale, CLAHE, and DCT are pure JS,
+ * identical to the seed script so hashes are byte-identical.
  *
  * Returns { p1, p2, p3, p4 } as BigInt, or null on failure.
  */
 export function computePHash256(artImageData) {
   if (!isOpenCVReady()) throw new Error('OpenCV not ready')
-  const cv       = window.cv
-  const src      = cv.matFromImageData(artImageData)
+  const cv      = window.cv
+  const src     = cv.matFromImageData(artImageData)
   if (!src || src.empty()) throw new Error('matFromImageData failed')
-  const blurred  = new cv.Mat()
-  const resized  = new cv.Mat()
-  const gray     = new cv.Mat()
-  const equalized = new cv.Mat()
+  const blurred = new cv.Mat()
+  const resized = new cv.Mat()
 
   try {
     // 1. Gaussian blur on art crop — reduces camera sensor noise before downsampling.
@@ -262,43 +319,29 @@ export function computePHash256(artImageData) {
     cv.resize(blurred, resized, new cv.Size(32, 32), 0, 0, cv.INTER_LANCZOS4)
     if (resized.empty()) throw new Error('resize to 32×32 failed')
 
-    // 3. Convert to grayscale using BT.709 (Rec.709) to match sharp's .grayscale() default.
-    //    OpenCV COLOR_RGBA2GRAY uses BT.601 which gives different values for saturated colours.
-    const rgba = resized.data  // Uint8Array RGBA, 32*32*4 = 4096 bytes
+    // 3. BT.709 grayscale — matches sharp's .grayscale() default.
+    //    OpenCV COLOR_RGBA2GRAY uses BT.601 which differs for saturated colours.
+    const rgba = resized.data
     if (!rgba || rgba.length < 4096) throw new Error(`resized.data invalid (len=${rgba?.length})`)
     const grayU8 = new Uint8Array(32 * 32)
     for (let i = 0; i < 32 * 32; i++) {
       grayU8[i] = Math.round(0.2126 * rgba[i*4] + 0.7152 * rgba[i*4+1] + 0.0722 * rgba[i*4+2])
     }
 
-    // 4. CLAHE — local contrast normalisation; handles uneven lighting better than
-    //    global equalizeHist. tileGridSize=(4,4) → 8×8-pixel tiles on 32×32.
-    //    clipLimit=40 → actualClip = floor(40 * 64 / 256) = 10 counts per bin.
-    //    The seed script (generate-card-hashes.js) must apply the same step.
-    gray.create(32, 32, cv.CV_8UC1)
-    gray.data.set(grayU8)
-    const clahe = cv.createCLAHE(40.0, new cv.Size(4, 4))
-    clahe.apply(gray, equalized)
-    clahe.delete()
-    if (equalized.empty()) throw new Error('CLAHE failed')
+    // 4. CLAHE — pure JS, identical to seed script. Handles uneven lighting better
+    //    than global equalizeHist. tileGrid=4×4, clipLimit=40 → actualClip=10/bin.
+    const eq8 = applyCLAHE(grayU8, 32, 32)
 
-    // 5. Read equalised pixels into Float64Array for the pure-JS DCT
+    // 5. DCT → hash
     const pixels = new Float64Array(32 * 32)
-    const eq8    = equalized.data
-    if (!eq8 || eq8.length < 1024) throw new Error(`equalized.data invalid (len=${eq8?.length})`)
     for (let i = 0; i < pixels.length; i++) pixels[i] = eq8[i]
-
     const dct = dct2d(pixels, 32)
 
-    // Extract top-left 16×16 coefficients (256 values)
     const coeffs = []
-    for (let y = 0; y < 16; y++) {
-      for (let x = 0; x < 16; x++) {
+    for (let y = 0; y < 16; y++)
+      for (let x = 0; x < 16; x++)
         coeffs.push(dct[y * 32 + x])
-      }
-    }
 
-    // Mean of AC components (skip DC at index 0)
     const mean = coeffs.slice(1).reduce((a, b) => a + b, 0) / 255
     const bits = coeffs.map(v => v > mean ? 1 : 0)
 
@@ -310,14 +353,9 @@ export function computePHash256(artImageData) {
       return r
     }
 
-    return {
-      p1: pack64(0),
-      p2: pack64(64),
-      p3: pack64(128),
-      p4: pack64(192),
-    }
+    return { p1: pack64(0), p2: pack64(64), p3: pack64(128), p4: pack64(192) }
   } finally {
-    src.delete(); blurred.delete(); resized.delete(); gray.delete(); equalized.delete()
+    src.delete(); blurred.delete(); resized.delete()
   }
 }
 
