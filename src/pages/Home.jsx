@@ -1341,7 +1341,7 @@ function ChangelogPanel() {
       {open && (
         <div className={styles.changelogBody}>
           {CHANGELOG.map(section => (
-            <div key={section.version} className={styles.changelogSection}>
+            <div key={`${section.version}-${section.label}`} className={styles.changelogSection}>
               <div className={styles.changelogSectionHead}>
                 <span className={`${styles.changelogBadge} ${section.wip ? styles.changelogBadgeWip : styles.changelogBadgeLatest}`}>
                   {section.label}
