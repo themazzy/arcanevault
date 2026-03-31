@@ -437,6 +437,65 @@ function CmdDmgOverlay({ player, opponents, onCmdDmgChange, onClose }) {
   )
 }
 
+
+function PlayerSettingsOverlay({
+  player,
+  showCommander,
+  onColorChange,
+  onRequestArtPicker,
+  onTogglePartner,
+  onClose,
+}) {
+  if (!player) return null
+
+  return (
+    <div className={styles.settingsOverlay} onClick={onClose}>
+      <div className={styles.settingsPanel} onClick={e => e.stopPropagation()}>
+        <div className={styles.settingsHead}>
+          <div>
+            <div className={styles.settingsTitle}>Player Settings</div>
+            <div className={styles.settingsSub} style={{ color: player.color }}>
+              {player.name}
+            </div>
+          </div>
+          <button className={styles.settingsClose} onClick={onClose}>×</button>
+        </div>
+
+        <div className={styles.settingsSection}>
+          <div className={styles.settingsLabel}>Color</div>
+          <div className={styles.settingsColorGrid}>
+            {PLAYER_COLORS.map(c => (
+              <button
+                key={c}
+                className={`${styles.settingsColorDot} ${c === player.color ? styles.settingsColorDotActive : ''}`}
+                style={{ background: c }}
+                onClick={() => onColorChange(player.id, c)}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className={styles.settingsActions}>
+          <button
+            className={styles.settingsActionBtn}
+            onClick={() => {
+              onRequestArtPicker(player.id)
+              onClose()
+            }}>
+            Background Art
+          </button>
+          {showCommander && (
+            <button
+              className={`${styles.settingsActionBtn} ${player.hasPartner ? styles.settingsActionBtnActive : ''}`}
+              onClick={() => onTogglePartner?.(player.id)}>
+              {player.hasPartner ? 'Partner Commanders On' : 'Partner Commanders Off'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
 // ── Dice Roller ────────────────────────────────────────────────────────────────
 function DiceRoller({ onClose }) {
   const [dieType,  setDieType]  = useState(20)
@@ -1263,22 +1322,21 @@ function EndGameDialog({ players, onSave, onCancel }) {
 // ── Player Panel ───────────────────────────────────────────────────────────────
 function PlayerPanel({
   player, opponents,
-  onLifeChange, onCounterChange, onCmdDmgChange, onNameChange, onColorChange,
-  onRequestArtPicker, onRequestCmdDmgOverlay, onTogglePartner,
+  onLifeChange, onCounterChange, onCmdDmgChange, onNameChange,
+  onRequestPlayerSettings, onRequestCmdDmgOverlay,
   showCommander, rotation = 0,
 }) {
-  const [editingName,        setEditingName]        = useState(false)
-  const [nameInput,          setNameInput]          = useState(player.name)
-  const [showPlayerSettings, setShowPlayerSettings] = useState(false)
-  const [displayDelta,       setDisplayDelta]       = useState(null)
-  const [deltaFading,        setDeltaFading]        = useState(false)
-  const [deathText,          setDeathText]          = useState(null)
+  const [editingName,        setEditingName]  = useState(false)
+  const [nameInput,          setNameInput]    = useState(player.name)
+  const [displayDelta,       setDisplayDelta] = useState(null)
+  const [deltaFading,        setDeltaFading]  = useState(false)
+  const [deathText,          setDeathText]    = useState(null)
 
-  const accumRef            = useRef(0)
-  const deltaTimerRef       = useRef(null)
-  const fadeTimerRef        = useRef(null)
-  const holdTimerRef        = useRef(null)
-  const prevLife            = useRef(player.life)
+  const accumRef      = useRef(0)
+  const deltaTimerRef = useRef(null)
+  const fadeTimerRef  = useRef(null)
+  const holdTimerRef  = useRef(null)
+  const prevLife      = useRef(player.life)
 
   useEffect(() => {
     const d = player.life - prevLife.current
@@ -1350,7 +1408,6 @@ function PlayerPanel({
         } : {}),
       }}>
 
-      {/* Name + deck badge + settings cog */}
       <div className={styles.nameRow}>
         {editingName
           ? <input className={styles.nameInput}
@@ -1366,36 +1423,13 @@ function PlayerPanel({
         }
         {player.deckName && <span className={styles.panelDeckBadge}>{player.deckName}</span>}
         <button
-          className={`${styles.playerSettingsBtn} ${showPlayerSettings ? styles.playerSettingsBtnOpen : ''}`}
-          onClick={() => setShowPlayerSettings(v => !v)}
+          className={styles.playerSettingsBtn}
+          onClick={() => onRequestPlayerSettings?.(player.id)}
           title="Player settings">⚙</button>
       </div>
 
-      {/* Color + art-picker row — hidden by default, toggled by cog */}
-      {showPlayerSettings && (
-        <>
-          <div className={styles.colorRow}>
-            {PLAYER_COLORS.map(c => (
-              <button key={c}
-                className={`${styles.colorDot} ${c === player.color ? styles.colorDotActive : ''}`}
-                style={{ background: c }} onClick={() => onColorChange(player.id, c)} />
-            ))}
-            <button onClick={() => { onRequestArtPicker(player.id); setShowPlayerSettings(false) }}
-              className={styles.artPickerBtn} title="Set background art">🖼</button>
-          </div>
-          {showCommander && (
-            <button
-              className={`${styles.partnerToggleBtn} ${player.hasPartner ? styles.partnerToggleBtnActive : ''}`}
-              onClick={() => onTogglePartner?.(player.id)}>
-              {player.hasPartner ? '⚔⚔ Partner Commanders (on)' : '⚔ Partner Commanders'}
-            </button>
-          )}
-        </>
-      )}
-
-      {/* Life total */}
       <div className={styles.lifeArea}>
-        <button className={styles.lifeBtn} onPointerDown={e => { e.preventDefault(); adjust(-1) }}>−</button>
+        <button className={styles.lifeBtn} onPointerDown={e => { e.preventDefault(); adjust(-1) }}>-</button>
 
         <div className={styles.lifeTotalWrap}
           onPointerDown={handleLifeHoldStart}
@@ -1417,17 +1451,13 @@ function PlayerPanel({
         <button className={styles.lifeBtn} onPointerDown={e => { e.preventDefault(); adjust(+1) }}>+</button>
       </div>
 
-      {/* Quick life change buttons */}
       <div className={styles.quickRow}>
-        <button className={styles.quickBtn} onPointerDown={e => { e.preventDefault(); adjust(-10) }}>−10</button>
-        <button className={styles.quickBtn} onPointerDown={e => { e.preventDefault(); adjust(-5) }}>−5</button>
-        <button className={styles.quickBtn} onPointerDown={e => { e.preventDefault(); adjust(-1) }}>−</button>
-        <button className={styles.quickBtn} onPointerDown={e => { e.preventDefault(); adjust(+1) }}>+</button>
+        <button className={styles.quickBtn} onPointerDown={e => { e.preventDefault(); adjust(-10) }}>-10</button>
+        <button className={styles.quickBtn} onPointerDown={e => { e.preventDefault(); adjust(-5) }}>-5</button>
         <button className={styles.quickBtn} onPointerDown={e => { e.preventDefault(); adjust(+5) }}>+5</button>
         <button className={styles.quickBtn} onPointerDown={e => { e.preventDefault(); adjust(+10) }}>+10</button>
       </div>
 
-      {/* Commander damage bar - tap to open overlay */}
       {showCommander && opponents.length > 0 && (
         <div className={styles.cmdBar} onClick={() => onRequestCmdDmgOverlay?.(player.id)}>
           <span className={styles.cmdBarIcon}>⚔</span>
@@ -1453,17 +1483,15 @@ function PlayerPanel({
         </div>
       )}
 
-      {/* Death overlay */}
       {isDead && deathText && (
         <div className={styles.deathOverlay}>
-          <div className={styles.deathIcon}>💀</div>
+          <div className={styles.deathIcon}>☠</div>
           <div className={styles.deathText}>{deathText}</div>
         </div>
       )}
     </div>
   )
 }
-
 // ── Main Page ──────────────────────────────────────────────────────────────────
 export default function LifeTrackerPage() {
   const { user }     = useAuth()
@@ -1476,6 +1504,7 @@ export default function LifeTrackerPage() {
   const [showEndDialog,    setShowEndDialog]    = useState(false)
   const [artPickerPlayer,  setArtPickerPlayer]  = useState(null)
   const [cmdDmgPlayer,     setCmdDmgPlayer]     = useState(null)
+  const [playerSettingsPlayer, setPlayerSettingsPlayer] = useState(null)
   const [showDice,     setShowDice]     = useState(false)
   const [showPicker,   setShowPicker]   = useState(false)
   const [showGameMenu, setShowGameMenu] = useState(false)
@@ -1978,10 +2007,8 @@ export default function LifeTrackerPage() {
                 onCounterChange={onCounterChange}
                 onCmdDmgChange={onCmdDmgChange}
                 onNameChange={onNameChange}
-                onColorChange={onColorChange}
-                onRequestArtPicker={setArtPickerPlayer}
+                onRequestPlayerSettings={setPlayerSettingsPlayer}
                 onRequestCmdDmgOverlay={modeConf.commander ? setCmdDmgPlayer : null}
-                onTogglePartner={onTogglePartner}
                 showCommander={modeConf.commander}
                 rotation={rotation}
               />
@@ -1989,6 +2016,17 @@ export default function LifeTrackerPage() {
           )
         })}
       </div>
+
+      {playerSettingsPlayer !== null && (
+        <PlayerSettingsOverlay
+          player={players.find(p => p.id === playerSettingsPlayer)}
+          showCommander={modeConf.commander}
+          onColorChange={onColorChange}
+          onRequestArtPicker={setArtPickerPlayer}
+          onTogglePartner={onTogglePartner}
+          onClose={() => setPlayerSettingsPlayer(null)}
+        />
+      )}
 
       {artPickerPlayer !== null && (
         <ArtPicker
