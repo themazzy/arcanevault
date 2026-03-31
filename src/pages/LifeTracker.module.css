@@ -32,18 +32,18 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 0;
+  padding: 2px 0;
   flex-shrink: 0;
 }
-.topLeft  { display: flex; align-items: center; gap: 12px; }
-.topRight { display: flex; align-items: center; gap: 6px; }
+.topLeft  { display: flex; align-items: center; gap: 8px; }
+.topRight { display: flex; align-items: center; gap: 4px; }
 
 .pageTitle {
   font-family: var(--font-display);
-  font-size: 1rem; color: var(--gold); letter-spacing: 0.08em;
+  font-size: 0.92rem; color: var(--gold); letter-spacing: 0.08em;
 }
 .modeLabel {
-  font-size: 0.78rem; color: var(--text-faint); font-style: italic;
+  font-size: 0.74rem; color: var(--text-faint); font-style: italic;
 }
 
 /* Gear button + menu */
@@ -54,7 +54,7 @@
   border-radius: 6px;
   color: var(--text-dim);
   font-size: 1.1rem; line-height: 1;
-  width: 40px; height: 40px;
+  width: 36px; height: 36px;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; transition: all 0.15s;
   padding: 0;
@@ -67,7 +67,7 @@
   background: var(--bg3);
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 8px;
-  min-width: 170px;
+  min-width: 150px;
   padding: 5px;
   box-shadow: 0 12px 40px rgba(0,0,0,0.6);
   z-index: 200;
@@ -81,8 +81,8 @@
   width: 100%; text-align: left;
   background: none; border: none; border-radius: 5px;
   color: var(--text-dim);
-  font-family: var(--font-serif); font-size: 0.84rem;
-  padding: 8px 12px; cursor: pointer; transition: all 0.12s;
+  font-family: var(--font-serif); font-size: 0.82rem;
+  padding: 7px 10px; cursor: pointer; transition: all 0.12s;
   display: block;
 }
 .gearMenuItem:hover    { background: var(--s2); color: var(--text); }
@@ -100,7 +100,7 @@
   border-radius: 6px; color: var(--gold);
   font-family: var(--font-display); font-size: 0.7rem;
   letter-spacing: 0.05em; text-transform: uppercase;
-  padding: 6px 14px; cursor: pointer; transition: all 0.15s;
+  padding: 5px 12px; cursor: pointer; transition: all 0.15s;
 }
 .endBtn:hover { background: rgba(201,168,76,0.16); border-color: rgba(201,168,76,0.45); }
 
@@ -128,10 +128,10 @@
   border: 1px solid var(--s-border);
   border-top: 3px solid var(--player-color, var(--gold));
   border-radius: 8px;
-  padding: 9px 11px 11px;
-  display: flex; flex-direction: column; gap: 7px;
+  padding: 6px 8px 8px;
+  display: flex; flex-direction: column; gap: 5px;
   position: relative; transition: opacity 0.3s;
-  min-height: 190px;
+  min-height: 180px;
   height: 100%;           /* fill gridCell so grid-auto-rows: 1fr works */
   box-sizing: border-box;
   overflow: hidden;       /* clip any child overflow to panel bounds */
@@ -238,16 +238,17 @@
 
 /* Life total */
 .lifeArea {
-  display: flex; align-items: stretch; justify-content: center; gap: 12px; flex: 1;
+  display: flex; align-items: stretch; justify-content: center; gap: 5px; flex: 1;
 }
 .lifeBtn {
   background: var(--s3); border: 1px solid var(--s-border2);
   border-radius: 8px; color: var(--text);
   font-size: 3rem; font-weight: 600; line-height: 1;
-  flex: 1; min-width: 44px; max-width: 140px;
+  flex: 1 1 48px; min-width: 48px; max-width: 140px;
   cursor: pointer; transition: all 0.12s;
   display: flex; align-items: center; justify-content: center;
   user-select: none; -webkit-user-select: none; touch-action: manipulation;
+  white-space: nowrap; overflow: hidden;
 }
 .lifeBtn:hover  { background: var(--s-medium); color: var(--player-color, var(--gold)); border-color: rgba(201,168,76,0.35); }
 .lifeBtn:active { transform: scale(0.93); background: var(--s-subtle); }
@@ -255,17 +256,18 @@
 .lifeTotalWrap {
   position: relative;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  width: 100px;
+  width: 85px;
   align-self: center;
   cursor: default;
   user-select: none; -webkit-user-select: none;
 }
 .lifeTotal {
   font-family: var(--font-display);
-  font-size: 3.6rem; font-weight: 700;
+  font-size: 3.2rem; font-weight: 700;
   color: var(--player-color, var(--gold)); line-height: 1;
-  text-shadow: 0 0 30px color-mix(in srgb, var(--player-color, var(--gold)) 30%, transparent);
+  text-shadow: 0 0 24px color-mix(in srgb, var(--player-color, var(--gold)) 25%, transparent);
   transition: color 0.2s;
+  word-break: break-all;
 }
 .lifeLow  { color: #e08040 !important; }
 .lifeDead { color: #c46060 !important; }
@@ -274,6 +276,7 @@
   font-family: var(--font-display); font-size: 0.6rem;
   color: #c09050; opacity: 0.8; letter-spacing: 0.04em;
   margin-top: 1px;
+  flex-shrink: 0;
 }
 
 .lifeDelta {
@@ -294,14 +297,15 @@
   100% { opacity: 0; transform: translateY(-28px); }
 }
 
-/* Quick ±5/10 */
-.quickRow { display: flex; justify-content: center; gap: 4px; }
+/* Quick life change buttons */
+.quickRow { display: flex; justify-content: center; gap: 3px; flex-wrap: wrap; }
 .quickBtn {
   background: var(--s2); border: 1px solid var(--s-border);
-  border-radius: 4px; color: var(--text-faint);
-  font-family: var(--font-serif); font-size: 0.76rem;
-  padding: 2rem 2rem; cursor: pointer; transition: all 0.12s;
+  border-radius: 3px; color: var(--text-faint);
+  font-family: var(--font-serif); font-size: 0.72rem;
+  padding: 0.65rem 0.9rem; cursor: pointer; transition: all 0.12s;
   touch-action: manipulation; user-select: none; -webkit-user-select: none;
+  white-space: nowrap; flex-shrink: 0;
 }
 .quickBtn:hover  { background: var(--s4); color: var(--player-color, var(--gold)); }
 .quickBtn:active { transform: scale(0.94); }
@@ -320,19 +324,60 @@
   display: flex; flex-direction: column; gap: 3px;
   background: var(--s2);
   border: 1px solid var(--s-border);
-  border-radius: 5px; padding: 4px 5px;
+  border-radius: 5px; padding: 4px 5px 4px;
   flex-shrink: 0;
 }
-.counterTabs { display: flex; gap: 3px; }
+
+/* ── Counter toggle (chevron) ────────────────────────────────────── */
+.counterToggleWrap {
+  display: flex; align-items: center; justify-content: center; gap: 0;
+  padding: 2px; margin: -3px -2px 0 -2px;
+}
+.counterToggleBtn {
+  background: none; border: none;
+  color: var(--text-faint); font-size: 0.65rem;
+  cursor: pointer; padding: 3px 8px;
+  border-radius: 3px; transition: all 0.12s;
+  touch-action: manipulation; line-height: 1;
+}
+.counterToggleBtn:hover {
+  background: var(--s3); color: var(--text);
+}
+.counterToggleBtn:focus-visible {
+  outline: 1px dashed var(--gold);
+  outline-offset: 2px;
+}
+.counterTabs { display: flex; gap: 2px; flex-wrap: wrap; }
+
+/* Collapsed counter tabs (when toggled off) */
+.counterTabsCollapsed {
+  display: flex; align-items: center; justify-content: center; gap: 0;
+  padding: 4px 8px;
+  background: var(--s1);
+  border-radius: 4px;
+}
+.counterCollapsedLabel {
+  font-size: 0.65rem; color: var(--text-faint);
+  font-style: italic; letter-spacing: 0.05em;
+}
+
+/* Hide counter tabs on small screens (≤ 600px) */
+.counterTabs { display: none; }
+
 .counterTab {
-  flex: 1;
+  flex: 1 1 130px; min-width: 110px;
   background: none; border: 1px solid var(--s-border);
-  border-radius: 4px; padding: 4px 2px;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  border-radius: 4px; padding: 4px 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
   cursor: pointer; transition: all 0.12s;
   color: var(--text-faint); touch-action: manipulation;
 }
 .counterTab:hover { background: var(--s-subtle); color: var(--text-dim); }
+
+/* Show counter tabs on larger screens */
+@media (min-width: 601px) {
+  .counterTabs { display: flex; }
+}
 .counterTabActive {
   background: var(--s-medium) !important;
   border-color: var(--s-border2) !important;
@@ -353,31 +398,38 @@
   color: var(--text); line-height: 1;
 }
 .counterControls {
-  display: flex; align-items: stretch; gap: 4px;
+  display: flex; align-items: stretch; gap: 3px;
 }
+
+/* Hide counter controls when tabs are collapsed */
+.counterTabsCollapsed + .counterControls {
+  display: none;
+}
+
 .counterCtrlBtn {
-  flex: 1; max-width: 60px;
+  flex: 1 1 46px; max-width: 50px;
   background: var(--s3); border: 1px solid var(--s-border2);
   border-radius: 4px; color: var(--text);
   font-size: 1.4rem; font-weight: 600; min-height: 36px;
   cursor: pointer; display: flex; align-items: center; justify-content: center;
   transition: all 0.12s; padding: 0; touch-action: manipulation;
+  overflow: hidden; white-space: nowrap;
 }
 .counterCtrlBtn:hover { background: var(--s-medium); }
 .counterCtrlBtn:active { transform: scale(0.93); }
 .counterCtrlMid {
-  flex: 1;
+  flex: 1 0 auto;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 1px; min-width: 0;
 }
-.counterCtrlIcon { font-size: 0.8rem; line-height: 1; }
+.counterCtrlIcon { font-size: 0.8rem; line-height: 1; flex-shrink: 0; }
 .counterCtrlVal {
   font-family: var(--font-display); font-size: 1.4rem; font-weight: 700;
-  color: var(--text); line-height: 1;
+  color: var(--text); line-height: 1; overflow: hidden; text-overflow: ellipsis;
 }
 .counterCtrlLethal {
   font-family: var(--font-display); font-size: 0.52rem; letter-spacing: 0.08em;
-  color: #c46060; text-transform: uppercase;
+  color: #c46060; text-transform: uppercase; white-space: nowrap;
 }
 .counterDead { color: #c46060 !important; }
 
@@ -428,7 +480,7 @@
   text-align: center; padding: 16px 0; margin: 0;
 }
 
-/* ── Commander Damage Bar (always visible, compact) ─────────────────────────── */
+/* ── Commander Damage Bar (compact, always visible, single-line) ─────────────────────────── */
 .cmdBar {
   display: flex; align-items: center; gap: 5px;
   padding: 5px 6px;
@@ -436,6 +488,7 @@
   border: 1px solid rgba(255,255,255,0.05);
   border-radius: 5px;
   min-height: 34px;
+  max-height: 34px;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
@@ -446,7 +499,7 @@
   font-size: 0.78rem; color: var(--text-faint); flex-shrink: 0; opacity: 0.7;
 }
 .cmdBarHint {
-  font-size: 0.62rem; color: var(--text-faint); font-style: italic;
+  font-size: 0.58rem; color: var(--text-faint); font-style: italic;
   margin-left: auto; flex-shrink: 0; opacity: 0.6; white-space: nowrap;
 }
 .cmdBarLabel {
@@ -587,7 +640,7 @@
 }
 .cmdOverlayValLethal { color: #c46060 !important; }
 .cmdOverlayHint {
-  font-size: 0.7rem; color: var(--text-faint); font-style: italic;
+  font-size: 0.68rem; color: var(--text-faint); font-style: italic;
   text-align: center; margin: 0;
 }
 
@@ -1187,29 +1240,29 @@
 
 /* ── Phone (≤ 600 px): shrink panel internals to fit 2-col cells (~165 px wide) ── */
 @media (max-width: 600px) {
-  .playerPanel   { padding: 6px 6px 8px; gap: 4px; min-height: 160px; }
-  .lifeArea      { gap: 5px; }
-  .lifeBtn       { font-size: 2rem; max-width: 80px; border-radius: 6px; }
-  .lifeTotalWrap { width: 70px; }
-  .lifeTotal     { font-size: 2.4rem; }
+  .playerPanel   { padding: 5px 5px 6px; gap: 4px; min-height: 160px; }
+  .lifeArea      { gap: 4px; }
+  .lifeBtn       { font-size: 1.8rem; max-width: 70px; border-radius: 5px; white-space: nowrap; overflow: hidden; }
+  .lifeTotalWrap { width: 65px; }
+  .lifeTotal     { font-size: 2.2rem; }
 
   .colorRow      { gap: 3px; }
   .colorDot      { width: 11px; height: 11px; }
   .nameBtn       { font-size: 0.66rem; }
 
-  .quickRow      { gap: 2px; }
-  .quickBtn      { padding: 3px 4px; font-size: 0.66rem; }
+  .quickRow      { gap: 2px; flex-wrap: wrap; justify-content: center; }
+  .quickBtn      { padding: 0.55rem 0.8rem; font-size: 0.62rem; min-width: 24px; }
 
   .counterSection { padding: 3px 4px; gap: 2px; }
-  .counterTab     { font-size: 0.74rem; padding: 2px; }
+  .counterTab     { font-size: 0.74rem; padding: 2px; min-width: 90px; }
   .counterCtrlBtn { font-size: 1.1rem; min-height: 28px; }
   .counterCtrlVal { font-size: 1.1rem; }
   .counterCtrlIcon { font-size: 0.72rem; }
 
-  .cmdBar        { padding: 3px 5px; min-height: 26px; gap: 3px; }
-  .cmdBadgeVal   { font-size: 0.68rem; }
+  .cmdBar        { padding: 3px 4px; min-height: 24px; gap: 2px; }
+  .cmdBadgeVal   { font-size: 0.66rem; }
   .cmdBarHint    { display: none; }
-  .cmdBarIcon    { font-size: 0.7rem; }
+  .cmdBarIcon    { font-size: 0.68rem; }
 
   .modeGrid      { grid-template-columns: repeat(2, 1fr); }
   .modeLabel     { display: none; }
@@ -1221,79 +1274,85 @@
   .layoutGrid    { gap: 2px; grid-template-columns: repeat(var(--lcols, 2), 14px); }
 }
 
-/* ── Landscape phones (height ≤ 500 px) ─────────────────────────────────────
-   Target cell budget per row (2-row grid, ~220 px total):
-     grid height  = 100dvh − 192px  ≈ 220 px
-     cell height  = (220 − 8px gap) / 2  ≈ 106 px
-
-   Content breakdown to fit in 106 px (padding included):
-     padding 4+5px = 9 | name ~14 | life ~30 | poison ~18 | cmd ~18 | gaps ~8
-     total ≈ 97 px  ✓  (colorRow hidden saves the extra 14 px)               */
+/* ── Landscape phones (height ≤ 500 px): Samsung S24 portrait mode ── */
 @media (max-height: 500px) {
   /* Grid: dvh tracks Chrome's collapsing address bar accurately */
   .grid { height: calc(100dvh - 192px); }
 
   /* Hide colour picker row — saves ~14 px; colours can be set pre-game */
   .colorRow { display: none; }
-  /* Hide ±5/±10 quick adjusts in non-fullscreen landscape — saves ~28 px */
-  .quickRow { display: none; }
-  /* In fullscreen landscape each row has ~206 px — enough to show everything */
-  .pageFullscreen .quickRow { display: flex !important; }
-  .pageFullscreen .colorRow { display: flex !important; }
+  /* Keep quick row visible with commander damage controls on all breakpoints */
+  .quickRow { display: flex !important; }
 
   /* Squeeze everything else down */
   .playerPanel   { padding: 4px 6px 5px; gap: 2px; min-height: 0; }
-  .lifeArea      { gap: 4px; }
-  .lifeBtn       { font-size: 1.4rem; max-width: 70px; border-radius: 5px; }
-  .lifeTotalWrap { width: 60px; }
-  .lifeTotal     { font-size: 1.85rem; }
-  .nameBtn       { font-size: 0.6rem; padding: 1px 4px; }
+  .lifeArea      { gap: 3px; }
+  .lifeBtn       { font-size: 1.25rem; max-width: 60px; border-radius: 4px; }
+  .lifeTotalWrap { width: 55px; }
+  .lifeTotal     { font-size: 1.65rem; }
 
+  /* Hide counter tabs on landscape — only show via toggle */
   .counterSection { padding: 2px 3px; gap: 2px; }
-  .counterTab     { font-size: 0.68rem; padding: 2px; }
+  .counterTab     { display: none; }
   .counterCtrlBtn { font-size: 0.9rem; min-height: 22px; }
   .counterCtrlVal { font-size: 0.9rem; }
   .counterCtrlIcon { font-size: 0.64rem; }
 
-  .cmdBar     { padding: 2px 4px; min-height: 18px; gap: 2px; }
-  .cmdBadgeVal{ font-size: 0.6rem; }
-  .cmdBarIcon { font-size: 0.6rem; }
-  .cmdBarHint { display: none; }
+  /* Hide quick row in landscape mode to save space */
+  .quickRow       { display: none; }
 
-  /* Fullscreen in landscape: topbar is hidden, grid is already 100dvh — no override needed */
+  /* Landscape mode (height ≤ 500px): hide counter tabs and quick row */
+  @media (max-height: 500px) {
+    .counterTab { display: none; }
+    .counterCtrlBtn { display: none; }
+  }
+
+  /* Commander damage overlay always visible on landscape phones */
+  .cmdBar        { padding: 2px 3px; min-height: 16px; gap: 2px; display: none; }
+  .cmdBadgeVal   { font-size: 0.58rem; }
+  .cmdBarIcon    { font-size: 0.58rem; }
+  .cmdBarHint    { display: none; }
+
+  /* ── Landscape phones (width ≤ 550 px): Samsung S24 landscape mode ── */
+  /* Target cell budget per row (2-row grid, ~220 px total):
+      grid height  = 100dvh − 192px  ≈ 220 px
+      cell height  = (220 − 8px gap) / 2  ≈ 106 px
+
+      Content breakdown to fit in 106 px (padding included):
+        padding 4+5px = 9 | name ~14 | life ~30 | poison ~18 | cmd ~18 | gaps ~8
+        total ≈ 97 px  ✓  (colorRow hidden saves the extra 14 px)        */
+  @media (max-width: 550px) and (orientation: landscape) {
+    .grid { height: calc(100dvh - 192px); }
+
+    .colorRow      { display: none; }
+    .quickRow      { display: flex !important; } /* Always visible with commander damage */
+
+    .playerPanel   { padding: 4px 6px 5px; gap: 2px; min-height: 0; }
+    .lifeArea      { gap: 4px; }
+    .lifeBtn       { font-size: 1.4rem; max-width: 70px; border-radius: 5px; white-space: nowrap; overflow: hidden; }
+    .lifeTotalWrap { width: 60px; }
+    .lifeTotal     { font-size: 1.85rem; }
+
+    .counterSection { padding: 2px 3px; gap: 2px; }
+    .counterTab     { font-size: 0.68rem; padding: 2px; min-width: 95px; }
+    .counterCtrlBtn { font-size: 0.9rem; min-height: 24px; }
+    .counterCtrlVal { font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .counterCtrlIcon { font-size: 0.64rem; flex-shrink: 0; }
+
+    /* Quick row: compact padding to fit commander damage controls */
+    .quickRow      { gap: 2px; }
+    .quickBtn      { padding: 0.55rem 0.85rem; }
+
+    /* Commander damage bar hidden - use overlay only */
+  }
 }
 
-/* ══════════════════════════════════════════════════════════════════════════════
-   FULLSCREEN MODE
-   ══════════════════════════════════════════════════════════════════════════════ */
-.pageFullscreen {
-  position: fixed;
-  inset: 0;
-  z-index: 900;
-  background: var(--bg);
-  overflow: hidden;
-  /* Override min-height and height set by default .page and media queries */
-  min-height: unset !important;
-  padding: 8px 10px 10px;
-}
-
-/* In fullscreen: hide the topbar entirely — the grid fills 100dvh.
-   Floating fsControls overlay replaces topbar without consuming layout space.
-   Padding must be 0 so the grid (height:100dvh) doesn't overflow the container. */
-.pageFullscreen .topBar { display: none; }
-.pageFullscreen { padding: 0 !important; }
-.pageFullscreen .grid {
-  height: 100dvh !important;
-  margin: 0 !important;
-  border-radius: 0 !important;
-}
-
-/* Floating controls pill — sits on top of the grid in fullscreen, centered by default */
+/* Floating controls pill — sits between players in fullscreen mode */
 .fsControls {
   position: fixed;
-  top: 8px;
+  top: 50%;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translate(-50%, -50%);
   z-index: 910;
   display: flex;
   align-items: center;
@@ -1302,11 +1361,23 @@
   backdrop-filter: blur(6px);
   border: 1px solid rgba(255,255,255,0.10);
   border-radius: 8px;
-  padding: 4px 6px;
+  padding: 6px 8px;
   cursor: grab;
   touch-action: none;
   user-select: none;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.45);
 }
+
+/* Hide the floating controls pill in non-fullscreen mode */
+.pageGame:not(.pageFullscreen) .fsControls {
+  display: none;
+}
+
+/* Hide the top bar in fullscreen mode to reclaim space */
+.pageFullscreen .topBar {
+  display: none;
+}
+
 .fsControls:active { cursor: grabbing; }
 .fsControlsDragging { cursor: grabbing !important; }
 

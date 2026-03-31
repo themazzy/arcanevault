@@ -15,12 +15,7 @@ const PLAYER_COLORS = ['#c46060', '#6080c4', '#60a860', '#c4a040', '#9060c4', '#
 const PLAYER_NAMES  = ['Player 1', 'Player 2', 'Player 3', 'Player 4', 'Player 5', 'Player 6']
 const DICE_TYPES    = [2, 4, 6, 8, 10, 12, 20, 100]
 
-const COUNTERS = [
-  { key: 'poison',     icon: '☠',  label: 'Poison',     color: '#4a9e4a', deadAt: 10 },
-  { key: 'energy',     icon: '⚡', label: 'Energy',     color: '#a08828' },
-  { key: 'experience', icon: '✦',  label: 'Experience', color: '#7040a0' },
-  { key: 'radiation',  icon: '☢',  label: 'Radiation',  color: '#3d8a3d' },
-]
+const COUNTERS = []
 
 const DEATH_TEXTS = [
   'Split in half by Garruk',
@@ -150,7 +145,7 @@ function makePlayer(i, life, seed = {}) {
     userId: seed.userId ?? null,
     life,
     hasPartner: seed.hasPartner ?? false,
-    counters: seed.counters ?? { poison: 0, energy: 0, experience: 0, radiation: 0 },
+    counters: seed.counters ?? {},
     cmdDmg: {},
     cmdDmg2: {},
   }
@@ -160,7 +155,7 @@ function migratePlayer(p) {
   return {
     ...p,
     hasPartner: p.hasPartner ?? false,
-    counters: p.counters ?? { poison: p.poison || 0, energy: 0, experience: 0, radiation: 0 },
+    counters: p.counters ?? {},
     cmdDmg2:  p.cmdDmg2  ?? {},
   }
 }
@@ -1275,15 +1270,15 @@ function PlayerPanel({
   const [editingName,        setEditingName]        = useState(false)
   const [nameInput,          setNameInput]          = useState(player.name)
   const [showPlayerSettings, setShowPlayerSettings] = useState(false)
-  const [activeCounter,      setActiveCounter]      = useState('poison')
-  const [displayDelta, setDisplayDelta] = useState(null)
-  const [deltaFading,  setDeltaFading]  = useState(false)
-  const [deathText,    setDeathText]    = useState(null)
-  const accumRef      = useRef(0)
-  const deltaTimerRef = useRef(null)
-  const fadeTimerRef  = useRef(null)
-  const holdTimerRef  = useRef(null)
-  const prevLife      = useRef(player.life)
+  const [displayDelta,       setDisplayDelta]       = useState(null)
+  const [deltaFading,        setDeltaFading]        = useState(false)
+  const [deathText,          setDeathText]          = useState(null)
+
+  const accumRef            = useRef(0)
+  const deltaTimerRef       = useRef(null)
+  const fadeTimerRef        = useRef(null)
+  const holdTimerRef        = useRef(null)
+  const prevLife            = useRef(player.life)
 
   useEffect(() => {
     const d = player.life - prevLife.current
@@ -1309,10 +1304,9 @@ function PlayerPanel({
   useEffect(() => () => {
     clearTimeout(deltaTimerRef.current)
     clearTimeout(fadeTimerRef.current)
-    clearTimeout(holdTimerRef.current)
   }, [])
 
-  const isDead = player.life <= 0 || (player.counters?.poison ?? 0) >= 10
+  const isDead = player.life <= 0
 
   useEffect(() => {
     if (isDead && !deathText) {
@@ -1423,53 +1417,17 @@ function PlayerPanel({
         <button className={styles.lifeBtn} onPointerDown={e => { e.preventDefault(); adjust(+1) }}>+</button>
       </div>
 
-      {/* Quick ±5/10 */}
+      {/* Quick life change buttons */}
       <div className={styles.quickRow}>
-        <button className={styles.quickBtn} onPointerDown={e => { e.preventDefault(); adjust(-5) }}>−5</button>
         <button className={styles.quickBtn} onPointerDown={e => { e.preventDefault(); adjust(-10) }}>−10</button>
+        <button className={styles.quickBtn} onPointerDown={e => { e.preventDefault(); adjust(-5) }}>−5</button>
+        <button className={styles.quickBtn} onPointerDown={e => { e.preventDefault(); adjust(-1) }}>−</button>
+        <button className={styles.quickBtn} onPointerDown={e => { e.preventDefault(); adjust(+1) }}>+</button>
         <button className={styles.quickBtn} onPointerDown={e => { e.preventDefault(); adjust(+5) }}>+5</button>
         <button className={styles.quickBtn} onPointerDown={e => { e.preventDefault(); adjust(+10) }}>+10</button>
       </div>
 
-      {/* Counter switcher — tab to select, controls below */}
-      {(() => {
-        const ct  = COUNTERS.find(c => c.key === activeCounter)
-        const val = player.counters?.[activeCounter] ?? 0
-        const isLethal = ct?.deadAt && val >= ct.deadAt
-        return (
-          <div className={styles.counterSection}>
-            <div className={styles.counterTabs}>
-              {COUNTERS.map(tab => {
-                const tv = player.counters?.[tab.key] ?? 0
-                const tl = tab.deadAt && tv >= tab.deadAt
-                return (
-                  <button key={tab.key}
-                    className={`${styles.counterTab} ${activeCounter === tab.key ? styles.counterTabActive : ''} ${tl ? styles.counterTabLethal : ''}`}
-                    onClick={() => setActiveCounter(tab.key)}
-                    title={tab.label}>
-                    <span className={styles.counterTabIcon} style={{ color: tl ? '#c46060' : (activeCounter === tab.key ? tab.color : undefined) }}>{tab.icon}</span>
-                    <span className={styles.counterTabLabel}>{tab.label}</span>
-                    {tv > 0 && <span className={styles.counterTabBadge}>{tv}</span>}
-                  </button>
-                )
-              })}
-            </div>
-            <div className={styles.counterControls}>
-              <button className={styles.counterCtrlBtn}
-                onPointerDown={e => { e.preventDefault(); onCounterChange(player.id, activeCounter, -1) }}>−</button>
-              <div className={styles.counterCtrlMid}>
-                <span className={styles.counterCtrlIcon} style={{ color: isLethal ? '#c46060' : ct?.color }}>{ct?.icon}</span>
-                <span className={`${styles.counterCtrlVal} ${isLethal ? styles.counterDead : ''}`}>{val}</span>
-                {isLethal && <span className={styles.counterCtrlLethal}>LETHAL</span>}
-              </div>
-              <button className={styles.counterCtrlBtn}
-                onPointerDown={e => { e.preventDefault(); onCounterChange(player.id, activeCounter, +1) }}>+</button>
-            </div>
-          </div>
-        )
-      })()}
-
-      {/* Commander damage bar — display-only pills, tap to open overlay */}
+      {/* Commander damage bar - tap to open overlay */}
       {showCommander && opponents.length > 0 && (
         <div className={styles.cmdBar} onClick={() => onRequestCmdDmgOverlay?.(player.id)}>
           <span className={styles.cmdBarIcon}>⚔</span>
@@ -1491,7 +1449,7 @@ function PlayerPanel({
               )
             })}
           </div>
-          <span className={styles.cmdBarHint}>hold life or tap</span>
+          <span className={styles.cmdBarHint}>tap to edit</span>
         </div>
       )}
 
@@ -2044,7 +2002,7 @@ export default function LifeTrackerPage() {
           player={players.find(p => p.id === cmdDmgPlayer)}
           opponents={players.filter(p => p.id !== cmdDmgPlayer)}
           onCmdDmgChange={onCmdDmgChange}
-          onClose={() => setCmdDmgPlayer(null)} />
+          onClose={() => { setCmdDmgPlayer(null); pendingLogRef.current = null }} />
       )}
 
       {showGameLog && (
