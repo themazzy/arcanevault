@@ -1,8 +1,12 @@
 /**
- * CardScanner — full-screen MTG card scanner component
+ * CardScanner — full-screen MTG card scanner
  *
  * Native: @capacitor-community/camera-preview renders behind the transparent WebView
  * Web:    getUserMedia() feeds a <video> element
+ *
+ * Camera starts immediately on mount. The hash DB loads in the background.
+ * Scanning begins as soon as both OpenCV and the DB are ready — no buttons needed.
+ * Matched cards accumulate in a session history strip at the bottom.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react'
@@ -11,60 +15,72 @@ import { CameraPreview } from '@capacitor-community/camera-preview'
 import { Haptics, ImpactStyle } from '@capacitor/haptics'
 import { databaseService } from './DatabaseService'
 import {
-  isOpenCVReady, waitForOpenCV,
+  waitForOpenCV,
   detectCardCorners, warpCard, cropArtRegion, computePHash256,
 } from './ScannerEngine'
 import styles from './CardScanner.module.css'
 
 const SCAN_MS          = 280   // ~3.5 FPS
-const MATCH_THRESHOLD  = 20    // max Hamming distance out of 256
-const STABILITY_FRAMES = 2     // consecutive matches required
+const MATCH_THRESHOLD  = 35    // max Hamming distance out of 256
+const STABILITY_FRAMES = 2     // consecutive matches before confirming
+const MATCH_COOLDOWN   = 5000  // ms before same card can re-enter history
 
 export default function CardScanner({ onMatch, onClose }) {
   const isNative = Capacitor.isNativePlatform()
 
-  const videoRef     = useRef(null)
-  const canvasRef    = useRef(null)
-  const loopRef      = useRef(null)
-  const mountedRef   = useRef(true)
-  const stabilityRef = useRef({ id: null, count: 0 })
+  const videoRef            = useRef(null)
+  const canvasRef           = useRef(null)
+  const loopRef             = useRef(null)
+  const mountedRef          = useRef(true)
+  const stabilityRef        = useRef({ id: null, count: 0 })
+  const lastMatchRef        = useRef({ id: null, time: 0 })
+  const latestMatchTimerRef = useRef(null)
 
-  const [status,      setStatus]      = useState('initializing')
+  // Internal readiness — not shown as status labels to user
   const [cvReady,     setCvReady]     = useState(false)
   const [dbReady,     setDbReady]     = useState(false)
-  const [cardCount,   setCardCount]   = useState(0)
-  const [syncing,     setSyncing]     = useState(false)
-  const [syncCount,   setSyncCount]   = useState(0)
-  const [matchedCard, setMatchedCard] = useState(null)
+  const [preparing,   setPreparing]   = useState(true)   // true while loading
   const [errorMsg,    setErrorMsg]    = useState(null)
+  const [paused,      setPaused]      = useState(false)
   const [detecting,   setDetecting]   = useState(false)
+  const [scanHistory, setScanHistory] = useState([])
+  const [latestMatch, setLatestMatch] = useState(null)
 
-  // ── Init OpenCV + DB ──────────────────────────────────────────────────────
+  const isReady = cvReady && dbReady
+
+  // ── Init: camera + DB + OpenCV all start in parallel ─────────────────────
   useEffect(() => {
     mountedRef.current = true
+
     ;(async () => {
       try {
+        // DB init — hashes load in background pages after the first resolves
         await databaseService.init()
         if (!mountedRef.current) return
         setDbReady(true)
-        setCardCount(databaseService.cardCount)
+
+        // If native and no local hashes, auto-sync from Supabase silently
+        if (databaseService.cardCount === 0) {
+          await databaseService.sync()
+        }
 
         await waitForOpenCV()
         if (!mountedRef.current) return
         setCvReady(true)
-        setStatus(databaseService.cardCount > 0 ? 'ready' : 'needs-sync')
+        setPreparing(false)
       } catch (e) {
-        if (mountedRef.current) { setErrorMsg(e.message); setStatus('error') }
+        if (mountedRef.current) setErrorMsg(e.message)
       }
     })()
-    return () => { mountedRef.current = false }
+
+    return () => {
+      mountedRef.current = false
+      clearTimeout(latestMatchTimerRef.current)
+    }
   }, [])
 
-  // ── Camera start / stop ───────────────────────────────────────────────────
-  const cameraActive = status === 'ready' || status === 'scanning'
-
+  // ── Camera: start immediately on mount, stop on unmount ──────────────────
   useEffect(() => {
-    if (!cameraActive) return
     let started = false
 
     ;(async () => {
@@ -88,7 +104,7 @@ export default function CardScanner({ onMatch, onClose }) {
         }
         started = true
       } catch (e) {
-        if (mountedRef.current) { setErrorMsg('Camera: ' + e.message); setStatus('error') }
+        if (mountedRef.current) setErrorMsg('Camera: ' + e.message)
       }
     })()
 
@@ -97,7 +113,7 @@ export default function CardScanner({ onMatch, onClose }) {
       if (isNative) { CameraPreview.stop().catch(() => {}) }
       else { videoRef.current?.srcObject?.getTracks().forEach(t => t.stop()) }
     }
-  }, [cameraActive, isNative])
+  }, [isNative])
 
   // ── Frame processor ───────────────────────────────────────────────────────
   const processFrame = useCallback(async () => {
@@ -142,11 +158,24 @@ export default function CardScanner({ onMatch, onClose }) {
     if (stab.id === match.id) {
       stab.count++
       if (stab.count >= STABILITY_FRAMES) {
-        clearInterval(loopRef.current)
-        if (!mountedRef.current) return
-        setMatchedCard(match)
-        setStatus('matched')
-        setDetecting(false)
+        stabilityRef.current = { id: null, count: 0 }
+
+        const now  = Date.now()
+        const last = lastMatchRef.current
+        if (last.id === match.id && now - last.time < MATCH_COOLDOWN) return
+
+        lastMatchRef.current = { id: match.id, time: now }
+        const entry = { ...match, timestamp: now }
+
+        if (mountedRef.current) {
+          setScanHistory(h => [entry, ...h.slice(0, 49)])
+          setLatestMatch(entry)
+          clearTimeout(latestMatchTimerRef.current)
+          latestMatchTimerRef.current = setTimeout(() => {
+            if (mountedRef.current) setLatestMatch(null)
+          }, 3000)
+        }
+
         try { await Haptics.impact({ style: ImpactStyle.Medium }) } catch {}
         onMatch?.(match)
       }
@@ -155,34 +184,13 @@ export default function CardScanner({ onMatch, onClose }) {
     }
   }, [cvReady, dbReady, isNative, onMatch])
 
-  // ── Scan loop ─────────────────────────────────────────────────────────────
+  // ── Scan loop — runs whenever ready and not paused ───────────────────────
   useEffect(() => {
-    if (status !== 'scanning') { clearInterval(loopRef.current); return }
+    if (!isReady || paused) { clearInterval(loopRef.current); return }
     stabilityRef.current = { id: null, count: 0 }
     loopRef.current = setInterval(processFrame, SCAN_MS)
     return () => clearInterval(loopRef.current)
-  }, [status, processFrame])
-
-  // ── Sync ──────────────────────────────────────────────────────────────────
-  const handleSync = async () => {
-    setSyncing(true); setSyncCount(0)
-    try {
-      await databaseService.sync(n => setSyncCount(n))
-      setCardCount(databaseService.cardCount)
-      setStatus('ready')
-    } catch (e) { setErrorMsg('Sync failed: ' + e.message) }
-    setSyncing(false)
-  }
-
-  const handleScanAgain = () => {
-    setMatchedCard(null)
-    stabilityRef.current = { id: null, count: 0 }
-    setStatus('scanning')
-  }
-
-  const confidence = matchedCard
-    ? Math.round((1 - matchedCard.distance / 256) * 100)
-    : 0
+  }, [isReady, paused, processFrame])
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -196,77 +204,69 @@ export default function CardScanner({ onMatch, onClose }) {
 
       <div className={`${styles.overlay} ${isNative ? styles.overlayNative : ''}`}>
 
-        {/* Top bar */}
+        {/* Top bar — only close button + error/loading indicator if needed */}
         <div className={styles.topBar}>
-          <div className={styles.statusPill}>
-            {status === 'initializing' && '⟳ Initializing…'}
-            {status === 'needs-sync'   && '⚠ No card database — sync required'}
-            {status === 'ready'        && `${cardCount.toLocaleString()} cards ready`}
-            {status === 'scanning'     && (detecting ? '▣ Card detected!' : '◎ Point at a card…')}
-            {status === 'matched'      && '✓ Match found!'}
-            {status === 'error'        && `✕ ${errorMsg}`}
-          </div>
+          {(preparing || errorMsg) && (
+            <div className={styles.statusPill}>
+              {errorMsg  ? `✕ ${errorMsg}` : '⟳ Starting…'}
+            </div>
+          )}
           <button className={styles.closeBtn} onClick={onClose}>✕</button>
         </div>
 
-        {/* Targeting reticle */}
-        {(status === 'scanning' || status === 'ready') && (
-          <div className={`${styles.targetFrame} ${detecting ? styles.targetLit : ''}`}>
-            <span className={`${styles.corner} ${styles.tl}`} />
-            <span className={`${styles.corner} ${styles.tr}`} />
-            <span className={`${styles.corner} ${styles.br}`} />
-            <span className={`${styles.corner} ${styles.bl}`} />
-            {status === 'scanning' && <div className={styles.scanLine} />}
+        {/* Targeting reticle — always visible */}
+        <div className={`${styles.targetFrame} ${detecting ? styles.targetLit : ''} ${paused ? styles.targetPaused : ''}`}>
+          <span className={`${styles.corner} ${styles.tl}`} />
+          <span className={`${styles.corner} ${styles.tr}`} />
+          <span className={`${styles.corner} ${styles.br}`} />
+          <span className={`${styles.corner} ${styles.bl}`} />
+          {isReady && !paused && <div className={styles.scanLine} />}
+          {paused && <div className={styles.pausedLabel}>Paused</div>}
+          {preparing && !errorMsg && <div className={styles.preparingSpinner}>⟳</div>}
+        </div>
+
+        {/* Latest match toast */}
+        {latestMatch && (
+          <div className={styles.latestToast}>
+            {latestMatch.imageUri && (
+              <img src={latestMatch.imageUri} className={styles.latestToastImg} alt={latestMatch.name} />
+            )}
+            <div className={styles.latestToastInfo}>
+              <div className={styles.latestToastName}>{latestMatch.name}</div>
+              <div className={styles.latestToastMeta}>
+                {latestMatch.setCode?.toUpperCase()}
+                {latestMatch.collNum ? ` · #${latestMatch.collNum}` : ''}
+              </div>
+            </div>
+            <div className={styles.latestToastCheck}>✓</div>
           </div>
         )}
 
-        {/* Bottom controls */}
+        {/* Bottom bar */}
         <div className={styles.bottomBar}>
-          {status === 'needs-sync' && (
-            <button className={styles.primaryBtn} onClick={handleSync} disabled={syncing}>
-              {syncing
-                ? `⬇ Syncing… ${syncCount.toLocaleString()} cards`
-                : '⬇ Download Card Database'}
-            </button>
-          )}
-
-          {status === 'ready' && (
-            <div className={styles.btnRow}>
-              <button className={styles.primaryBtn} onClick={() => setStatus('scanning')}>
-                ⊙ Start Scanning
-              </button>
-              <button className={styles.secondaryBtn} onClick={handleSync} disabled={syncing}>
-                {syncing ? `${syncCount.toLocaleString()}…` : '⟳ Re-sync'}
-              </button>
+          {/* Scan history strip */}
+          {scanHistory.length > 0 && (
+            <div className={styles.historyStrip}>
+              {scanHistory.map(card => (
+                <div key={`${card.id}-${card.timestamp}`} className={styles.historyItem}>
+                  {card.imageUri
+                    ? <img src={card.imageUri} className={styles.historyImg} alt={card.name} />
+                    : <div className={styles.historyImgPlaceholder}>{card.name[0]}</div>
+                  }
+                  <div className={styles.historyName}>{card.name}</div>
+                </div>
+              ))}
             </div>
           )}
 
-          {status === 'scanning' && (
-            <button className={styles.stopBtn} onClick={() => setStatus('ready')}>
-              ◼ Stop
-            </button>
-          )}
-
-          {status === 'matched' && matchedCard && (
-            <div className={styles.matchCard}>
-              {matchedCard.imageUri && (
-                <img src={matchedCard.imageUri} className={styles.matchImg} alt={matchedCard.name} />
-              )}
-              <div className={styles.matchInfo}>
-                <div className={styles.matchName}>{matchedCard.name}</div>
-                <div className={styles.matchMeta}>
-                  {matchedCard.setCode?.toUpperCase()}
-                  {matchedCard.collNum ? ` · #${matchedCard.collNum}` : ''}
-                </div>
-                <div className={styles.matchConf}>
-                  <span className={styles.confDot} style={{
-                    background: confidence >= 90 ? 'var(--green)' : confidence >= 75 ? '#c4a040' : 'var(--red)'
-                  }} />
-                  {confidence}% match
-                </div>
-              </div>
-              <button className={styles.scanAgainBtn} onClick={handleScanAgain}>
-                ⊙ Scan Again
+          {/* Pause / resume */}
+          {isReady && (
+            <div className={styles.btnRow}>
+              <button
+                className={paused ? styles.primaryBtn : styles.stopBtn}
+                onClick={() => setPaused(p => !p)}
+              >
+                {paused ? '▶ Resume' : '◼ Pause'}
               </button>
             </div>
           )}
