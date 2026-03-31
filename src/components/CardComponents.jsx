@@ -14,10 +14,8 @@ const fmt = (v, currency = 'EUR') => {
 }
 
 // Build full-size Scryfall image URL directly from scryfall_id
-function scryfallLargeUrl(scryfallId) {
-  if (!scryfallId) return null
-  const id = scryfallId.toLowerCase()
-  return `https://cards.scryfall.io/large/front/${id[0]}/${id[1]}/${id}.jpg`
+function scryfallLargeUrl() {
+  return null
 }
 
 // ── CardGrid ──────────────────────────────────────────────────────────────────
@@ -224,18 +222,19 @@ function MoveToDialog({ folders, onMoveToFolder, onCreateFolder, onClose }) {
 // ── BulkActionBar ─────────────────────────────────────────────────────────────
 export function BulkActionBar({ selected, total, onSelectAll, onDeselectAll, onDelete, onMoveToFolder, folders, onCreateFolder, selectedQty }) {
   const [showMoveDialog, setShowMoveDialog] = useState(false)
-  const count = selected.size
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const count = selectedQty ?? selected.size
 
   return (
     <div className={styles.bulkBar}>
       <div className={styles.bulkLeft}>
-        <span className={styles.bulkCount}>{count} {count === 1 ? 'card' : 'cards'}{selectedQty != null && selectedQty !== count ? ` (${selectedQty} copies)` : ''} selected</span>
+        <span className={styles.bulkCount}>{count} {count === 1 ? 'card' : 'cards'} selected</span>
         <button className={styles.bulkLink} onClick={onSelectAll}>Select all {total}</button>
         <button className={styles.bulkLink} onClick={onDeselectAll}>Deselect all</button>
       </div>
       <div className={styles.bulkActions}>
         <button className={styles.bulkBtn} onClick={() => setShowMoveDialog(true)}>Move to…</button>
-        <button className={`${styles.bulkBtn} ${styles.bulkDelete}`} onClick={onDelete}>
+        <button className={`${styles.bulkBtn} ${styles.bulkDelete}`} onClick={() => setShowDeleteDialog(true)}>
           Delete {count}
         </button>
       </div>
@@ -246,6 +245,29 @@ export function BulkActionBar({ selected, total, onSelectAll, onDeselectAll, onD
           onCreateFolder={onCreateFolder}
           onClose={() => setShowMoveDialog(false)}
         />
+      )}
+      {showDeleteDialog && (
+        <Modal onClose={() => setShowDeleteDialog(false)}>
+          <div style={{ maxWidth: 420, width: '100%', margin: '0 auto' }}>
+            <h2 className={styles.moveDialogTitle}>Delete {count} {count === 1 ? 'card' : 'cards'}?</h2>
+            <p style={{ color: 'var(--text-dim)', fontSize: '0.88rem', margin: '10px 0 18px' }}>
+              This cannot be undone.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button className={styles.moveDialogCreateCancel} onClick={() => setShowDeleteDialog(false)}>
+                Cancel
+              </button>
+              <button
+                className={`${styles.bulkBtn} ${styles.bulkDelete}`}
+                onClick={async () => {
+                  await onDelete?.()
+                  setShowDeleteDialog(false)
+                }}>
+                Delete {count}
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   )
@@ -416,11 +438,11 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
   const [saveError,      setSaveError]      = useState('')
 
   const cachedImg = getImageUri(sfCard, 'normal')
-  const fullImg   = scryfallLargeUrl(card.scryfall_id)
+  const fullImg   = getImageUri(fullCard, 'large') || getImageUri(fullCard, 'normal') || scryfallLargeUrl(card.scryfall_id)
   const [img, setImg]             = useState(cachedImg)
   const [imgLoaded, setImgLoaded] = useState(false)
 
-  // Upgrade to large image
+  // Upgrade to Scryfall's returned large image URL once full card data loads.
   useEffect(() => {
     setImg(cachedImg)
     setImgLoaded(false)
@@ -428,7 +450,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
     const image = new Image()
     image.onload = () => { setImg(fullImg); setImgLoaded(true) }
     image.src = fullImg
-  }, [card.scryfall_id])
+  }, [cachedImg, fullImg])
 
   // Fetch full card data on mount — by scryfall_id or fallback to set+collector_number
   useEffect(() => {
@@ -1049,6 +1071,7 @@ export const EMPTY_FILTERS = {
   typeLine:   [],       // type/subtype tags (autocomplete from Scryfall catalog)
   oracleText: '',       // free text
   artist:     '',       // free text
+  folderName: '',
   conditions: [],
   languages:  [],
   sets:       [],
@@ -1075,6 +1098,7 @@ function countActive(f) {
     (Array.isArray(f.typeLine) ? f.typeLine.length : (f.typeLine ? 1 : 0)),
     f.oracleText ? 1 : 0,
     f.artist     ? 1 : 0,
+    f.folderName ? 1 : 0,
     f.conditions.length,
     f.languages.length,
     f.sets.length,
@@ -1562,6 +1586,10 @@ export function FilterBar({
                   <Chip key={v} active={filters.location === v} onClick={() => set('location', v)}>{l}</Chip>
                 ))}
               </div>
+              <div style={{ marginTop: 10 }}>
+                <TextFilter value={filters.folderName} onChange={v => set('folderName', v)}
+                  placeholder="Binder or deck name…" />
+              </div>
             </FilterSection>
 
             {/* Special */}
@@ -1624,7 +1652,7 @@ export function applyFilterSort(cards, sfMap, search, sort, filters = {}, cardFo
     colors = [], colorMode = 'identity',
     colorCountMin = 0, colorCountMax = 5,
     rarity = [],
-    typeLine = [], oracleText = '', artist = '',
+    typeLine = [], oracleText = '', artist = '', folderName = '',
     conditions = [], languages = [], sets = [],
     formats = [],
     cmcOp = 'any', cmcMin = '', cmcMax = '',
@@ -1665,6 +1693,13 @@ export function applyFilterSort(cards, sfMap, search, sort, filters = {}, cardFo
   // Location
   if (location === 'binder') r = r.filter(c => (cardFolderMap[c.id] || []).some(f => f.type === 'binder'))
   if (location === 'deck')   r = r.filter(c => (cardFolderMap[c.id] || []).some(f => f.type === 'deck'))
+  if (folderName.trim()) {
+    const q = folderName.trim().toLowerCase()
+    r = r.filter(c => (cardFolderMap[c.id] || []).some(f =>
+      (f.type === 'binder' || f.type === 'deck') &&
+      (f.name || '').toLowerCase().includes(q)
+    ))
+  }
 
   // Type line — all selected tags must appear in type_line
   const typeLineArr = Array.isArray(typeLine) ? typeLine : (typeLine ? typeLine.split(/\s+/) : [])

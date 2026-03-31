@@ -18,6 +18,15 @@ export default defineConfig({
           'Referer': 'https://edhrec.com/',
         },
       },
+      '/api/scryfall': {
+        target: 'https://api.scryfall.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/scryfall/, ''),
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'ArcaneVault/1.0',
+        },
+      },
       '/api/archidekt': {
         target: 'https://archidekt.com',
         changeOrigin: true,

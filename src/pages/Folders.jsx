@@ -12,6 +12,7 @@ import ExportModal from '../components/ExportModal'
 import DeckBrowser from './DeckBrowser'
 import styles from './Folders.module.css'
 import { useLongPress } from '../hooks/useLongPress'
+import { pruneUnplacedCards } from '../lib/collectionOwnership'
 
 // ── SVG Icons ─────────────────────────────────────────────────────────────────
 function TrashIcon({ size = 14 }) {
@@ -452,42 +453,16 @@ function FolderBrowser({ folder, allFolders = [], onBack }) {
   useEffect(() => {
     const load = async () => {
       setLoading(true)
-      // Flat query: get folder_cards with qty and card_id
-      const { data: folderCardsData } = await sb
+      const { data } = await sb
         .from('folder_cards')
-        .select('id, folder_id, qty, card_id')
+        .select('qty, cards(*)')
         .eq('folder_id', folder.id)
-
-      let cards = []
-      let sfMap = {}
-
-      if (folderCardsData?.length) {
-        const cardIds = folderCardsData.map(r => r.card_id)
-        // Fetch cards data separately to join with folder_cards
-        const { data: cardDetails } = await sb
-          .from('cards')
-          .select('id, set_code, collector_number, foil, name, scryfall_id, condition, language, purchase_price')
-          .in('id', cardIds)
-
-        if (cardDetails?.length) {
-          // Create a map for quick lookup
-          const cardMap = new Map(cardDetails.map(c => [c.id, c]))
-
-          // Join folder_cards with cards data
-          cards = folderCardsData.map(fcRow => {
-            const card = cardMap.get(fcRow.card_id)
-            return card ? { ...card, _folder_qty: fcRow.qty } : null
-          }).filter(Boolean)
-
-          const map = await enrichCards(cards, null)
-          if (map) sfMap = { ...map }
-        }
-        // If no card details were found, cards remains empty - this is expected
-        // if cards haven't been synced to Supabase yet
+      if (data) {
+        const cardList = data.map(row => ({ ...row.cards, _folder_qty: row.qty }))
+        setCards(cardList)
+        const map = await enrichCards(cardList, null)
+        if (map) setSfMap({ ...map })
       }
-
-      setCards(cards)
-      setSfMap(sfMap)
       setLoading(false)
     }
     load()
@@ -501,10 +476,9 @@ function FolderBrowser({ folder, allFolders = [], onBack }) {
   const { totalValue, totalQty } = useMemo(() => {
     let v = 0, q = 0
     for (const c of cards) {
-      // Use _folder_qty which is always set during data loading
-      const qty = c._folder_qty || 1
       const sf  = sfMap[getScryfallKey(c)]
       const p   = getPrice(sf, c.foil, { price_source }) ?? (parseFloat(c.purchase_price) || null)
+      const qty = c._folder_qty || c.qty
       if (p != null) v += p * qty
       q += qty
     }
@@ -536,7 +510,17 @@ function FolderBrowser({ folder, allFolders = [], onBack }) {
   const onAdjustQty = useCallback((id, delta, totalQty) => {
     setSplitState(prev => {
       const current = prev.get(id) ?? 1
-      const next = Math.max(1, Math.min(totalQty, current + delta))
+      const next = Math.min(totalQty, current + delta)
+      if (next <= 0) {
+        setSelectedCards(sel => {
+          const updated = new Set(sel)
+          updated.delete(id)
+          return updated
+        })
+        const updated = new Map(prev)
+        updated.delete(id)
+        return updated
+      }
       return new Map(prev).set(id, next)
     })
   }, [])
@@ -558,21 +542,11 @@ function FolderBrowser({ folder, allFolders = [], onBack }) {
       const remaining = totalQty - selQty
       remaining > 0 ? toUpdate.push({ id, remaining }) : toDelete.push(id)
     }
-
-    // Hard delete: remove from both folder_cards and cards stores
-    if (toDelete.length) {
-      // Delete from folder_cards (the relationship in this folder)
-      await sb.from('folder_cards').delete().eq('folder_id', folder.id).in('card_id', toDelete)
-      // Also delete from cards store (the instance) for hard deletion
-      if (sb) {
-        await sb.from('cards').delete().in('id', toDelete)
-      }
-    }
-
+    if (toDelete.length) await sb.from('folder_cards').delete().eq('folder_id', folder.id).in('card_id', toDelete)
     for (const { id, remaining } of toUpdate) {
       await sb.from('folder_cards').update({ qty: remaining }).eq('folder_id', folder.id).eq('card_id', id)
     }
-
+    if (toDelete.length) await pruneUnplacedCards(toDelete)
     setCards(prev => prev.map(c => {
       if (!selectedCards.has(c.id)) return c
       const totalQty = c._folder_qty || c.qty || 1
@@ -697,26 +671,13 @@ function FolderBrowser({ folder, allFolders = [], onBack }) {
           onClose={() => setShowAddCard(false)}
           onSaved={async () => {
             setShowAddCard(false)
-            // Flat query: get folder_cards with qty
-            const { data: folderCardsData } = await sb.from('folder_cards').select('qty, card_id').eq('folder_id', folder.id)
-            let cards = []
-            let sfMap = {}
-            if (folderCardsData?.length) {
-              const cardIds = folderCardsData.map(r => r.card_id)
-              const { data: cardDetails } = await sb.from('cards').select('id, set_code, collector_number, foil, name, scryfall_id, condition, language, purchase_price').in('id', cardIds)
-              if (cardDetails?.length) {
-                const cardMap = new Map(cardDetails.map(c => [c.id, c]))
-                cards = folderCardsData.map(fcRow => {
-                  const card = cardMap.get(fcRow.card_id)
-                  return card ? { ...card, _folder_qty: fcRow.qty } : null
-                }).filter(Boolean)
-
-                const map = await enrichCards(cards, null)
-                if (map) sfMap = { ...map }
-              }
+            const { data } = await sb.from('folder_cards').select('qty, cards(*)').eq('folder_id', folder.id)
+            if (data) {
+              const cardList = data.map(row => ({ ...row.cards, _folder_qty: row.qty }))
+              setCards(cardList)
+              const map = await enrichCards(cardList, null)
+              if (map) setSfMap({ ...map })
             }
-            setCards(cards)
-            setSfMap(sfMap)
           }}
         />
       )}
@@ -780,6 +741,7 @@ function DeleteFolderModal({ folder, onDone, onCancel }) {
   const [mode, setMode]         = useState(null)   // 'binder' | 'deck' | 'delete'
   const [targetId, setTargetId] = useState('')
   const [allFolders, setAllFolders] = useState([])
+  const [createName, setCreateName] = useState('')
   const [busy, setBusy]         = useState(false)
   const [loaded, setLoaded]     = useState(false)
 
@@ -799,6 +761,22 @@ function DeleteFolderModal({ folder, onDone, onCancel }) {
 
   const canConfirm = mode === 'delete' || ((mode === 'binder' || mode === 'deck') && targetId)
 
+  const handleCreateTarget = async () => {
+    if (!(mode === 'binder' || mode === 'deck')) return
+    const name = createName.trim()
+    if (!name || busy) return
+    setBusy(true)
+    const { data, error } = await sb.from('folders')
+      .insert({ user_id: folder.user_id, name, type: mode })
+      .select('id, name, type')
+      .single()
+    setBusy(false)
+    if (error || !data) return
+    setAllFolders(prev => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)))
+    setTargetId(data.id)
+    setCreateName('')
+  }
+
   const handleConfirm = async () => {
     setBusy(true)
     if (mode === 'binder' || mode === 'deck') {
@@ -815,7 +793,10 @@ function DeleteFolderModal({ folder, onDone, onCancel }) {
     } else if (mode === 'delete') {
       const { data: fc } = await sb.from('folder_cards').select('card_id').eq('folder_id', folder.id)
       const ids = (fc || []).map(r => r.card_id)
-      if (ids.length) await sb.from('cards').delete().in('id', ids)
+      await sb.from('folders').delete().eq('id', folder.id)
+      if (ids.length) await pruneUnplacedCards(ids)
+      onDone()
+      return
     }
     await sb.from('folders').delete().eq('id', folder.id)
     onDone()
@@ -843,7 +824,7 @@ function DeleteFolderModal({ folder, onDone, onCancel }) {
             {opts.map(o => (
               <button key={o.key}
                 className={`${styles.deleteModeBtn} ${mode === o.key ? styles.deleteModeBtnActive : ''}`}
-                onClick={() => { setMode(o.key); setTargetId('') }}>
+                onClick={() => { setMode(o.key); setTargetId(''); setCreateName('') }}>
                 <span className={styles.deleteModeIcon}>
                   {o.key === 'delete' ? <TrashIcon size={16} /> : o.icon}
                 </span>
@@ -856,13 +837,32 @@ function DeleteFolderModal({ folder, onDone, onCancel }) {
           </div>
 
           {(mode === 'binder' || mode === 'deck') && (
-            <select className={styles.deleteTargetSelect}
-              value={targetId} onChange={e => setTargetId(e.target.value)}>
-              <option value="">— Select {mode} —</option>
-              {targets.length === 0
-                ? <option disabled>No {mode}s available</option>
-                : targets.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-            </select>
+            <>
+              <select className={styles.deleteTargetSelect}
+                value={targetId} onChange={e => setTargetId(e.target.value)}>
+                <option value="">— Select {mode} —</option>
+                {targets.length === 0
+                  ? <option disabled>No {mode}s available</option>
+                  : targets.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <input
+                  className={styles.newGroupInput}
+                  value={createName}
+                  onChange={e => setCreateName(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') handleCreateTarget()
+                  }}
+                  placeholder={`Create new ${mode}…`}
+                />
+                <button
+                  className={styles.newGroupSaveBtn}
+                  disabled={busy || !createName.trim()}
+                  onClick={handleCreateTarget}>
+                  Create
+                </button>
+              </div>
+            </>
           )}
 
           <button className={styles.deleteConfirmBtn}
@@ -881,6 +881,7 @@ function BulkDeleteModal({ nonEmpty, empty, onDone, onCancel }) {
   const [mode, setMode]         = useState(null)
   const [targetId, setTargetId] = useState('')
   const [allFolders, setAllFolders] = useState([])
+  const [createName, setCreateName] = useState('')
   const [busy, setBusy]         = useState(false)
   const [loaded, setLoaded]     = useState(false)
 
@@ -902,6 +903,23 @@ function BulkDeleteModal({ nonEmpty, empty, onDone, onCancel }) {
 
   const canConfirm = mode === 'delete' || ((mode === 'binder' || mode === 'deck') && targetId)
 
+  const handleCreateTarget = async () => {
+    if (!(mode === 'binder' || mode === 'deck')) return
+    const ownerId = nonEmpty[0]?.user_id || empty[0]?.user_id
+    const name = createName.trim()
+    if (!ownerId || !name || busy) return
+    setBusy(true)
+    const { data, error } = await sb.from('folders')
+      .insert({ user_id: ownerId, name, type: mode })
+      .select('id, name, type')
+      .single()
+    setBusy(false)
+    if (error || !data) return
+    setAllFolders(prev => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)))
+    setTargetId(data.id)
+    setCreateName('')
+  }
+
   const handleConfirm = async () => {
     setBusy(true)
     for (const folder of nonEmpty) {
@@ -918,12 +936,15 @@ function BulkDeleteModal({ nonEmpty, empty, onDone, onCancel }) {
         }
       } else if (mode === 'delete') {
         const { data: fc } = await sb.from('folder_cards').select('card_id').eq('folder_id', folder.id)
-        const ids = (fc || []).map(r => r.card_id)
-        if (ids.length) await sb.from('cards').delete().in('id', ids)
+        folder._deleteCardIds = (fc || []).map(r => r.card_id)
       }
     }
     for (const folder of [...nonEmpty, ...empty]) {
       await sb.from('folders').delete().eq('id', folder.id)
+    }
+    if (mode === 'delete') {
+      const ids = nonEmpty.flatMap(folder => folder._deleteCardIds || [])
+      if (ids.length) await pruneUnplacedCards(ids)
     }
     onDone([...allSelectedIds])
   }
@@ -956,7 +977,7 @@ function BulkDeleteModal({ nonEmpty, empty, onDone, onCancel }) {
             {opts.map(o => (
               <button key={o.key}
                 className={`${styles.deleteModeBtn} ${mode === o.key ? styles.deleteModeBtnActive : ''}`}
-                onClick={() => { setMode(o.key); setTargetId('') }}>
+                onClick={() => { setMode(o.key); setTargetId(''); setCreateName('') }}>
                 <span className={styles.deleteModeIcon}>
                   {o.key === 'delete' ? <TrashIcon size={16} /> : o.icon}
                 </span>
@@ -969,13 +990,32 @@ function BulkDeleteModal({ nonEmpty, empty, onDone, onCancel }) {
           </div>
 
           {(mode === 'binder' || mode === 'deck') && (
-            <select className={styles.deleteTargetSelect}
-              value={targetId} onChange={e => setTargetId(e.target.value)}>
-              <option value="">— Select {mode} —</option>
-              {targets.length === 0
-                ? <option disabled>No {mode}s available</option>
-                : targets.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-            </select>
+            <>
+              <select className={styles.deleteTargetSelect}
+                value={targetId} onChange={e => setTargetId(e.target.value)}>
+                <option value="">— Select {mode} —</option>
+                {targets.length === 0
+                  ? <option disabled>No {mode}s available</option>
+                  : targets.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <input
+                  className={styles.newGroupInput}
+                  value={createName}
+                  onChange={e => setCreateName(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') handleCreateTarget()
+                  }}
+                  placeholder={`Create new ${mode}…`}
+                />
+                <button
+                  className={styles.newGroupSaveBtn}
+                  disabled={busy || !createName.trim()}
+                  onClick={handleCreateTarget}>
+                  Create
+                </button>
+              </div>
+            </>
           )}
 
           <button className={styles.deleteConfirmBtn}
@@ -1038,25 +1078,10 @@ export default function FoldersPage({ type }) {
       while (true) {
         const { data: page } = await sb
           .from('folder_cards')
-          .select('folder_id, qty, card_id')
+          .select('folder_id, qty, cards(name, set_code, collector_number, foil, condition, language, purchase_price)')
           .in('folder_id', folderIds)
           .range(from, from + 999)
-        if (page?.length) {
-          // Fetch card details separately for each page
-          const cardIds = page.map(p => p.card_id)
-          if (cardIds.length > 0) {
-            const { data: cardDetails } = await sb
-              .from('cards')
-              .select('id, name, set_code, collector_number, foil, condition, language, purchase_price')
-              .in('id', cardIds)
-            if (cardDetails?.length) {
-              allFc = allFc.concat(page.map(fcRow => {
-                const card = cardDetails.find(c => c.id === fcRow.card_id)
-                return card ? { ...fcRow, ...card } : fcRow
-              }))
-            }
-          }
-        }
+        if (page?.length) allFc = [...allFc, ...page]
         if (!page || page.length < 1000) break
         from += 1000
       }
@@ -1093,32 +1118,14 @@ export default function FoldersPage({ type }) {
     setFolders(foldersData)
 
     const ids = foldersData.map(f => f.id)
-    // Fetch folder_cards with qty from Supabase
     let allFc = [], fcFrom = 0
     while (true) {
       const { data: page } = await sb
         .from('folder_cards')
-        .select('folder_id, qty, card_id')
+        .select('folder_id, qty, cards(set_code, collector_number, foil)')
         .in('folder_id', ids)
         .range(fcFrom, fcFrom + 999)
-      if (page?.length) {
-        const cardIds = page.map(p => p.card_id)
-        if (cardIds.length > 0) {
-          // Fetch card details from Supabase for display
-          const { data: cardDetails } = await sb
-            .from('cards')
-            .select('id, set_code, collector_number, foil, condition, language, purchase_price, name')
-            .in('id', cardIds)
-          if (cardDetails?.length) {
-            // Use Map for O(1) lookup
-            const cardMap = new Map(cardDetails.map(c => [c.id, c]))
-            allFc = allFc.concat(page.map(fcRow => {
-              const card = cardMap.get(fcRow.card_id)
-              return card ? { ...fcRow, ...card } : fcRow
-            }))
-          }
-        }
-      }
+      if (page?.length) allFc = [...allFc, ...page]
       if (!page || page.length < 1000) break
       fcFrom += 1000
     }
@@ -1127,18 +1134,17 @@ export default function FoldersPage({ type }) {
     const meta  = {}
     for (const f of foldersData) meta[f.id] = { count: 0, totalQty: 0, value: 0 }
 
-    // Calculate totals from folder_cards data
     for (const row of allFc) {
       const m = meta[row.folder_id]
       if (!m) continue
-      // Count unique cards in this folder
-      m.count += 1
-      // Add quantity
+      m.count++
       m.totalQty += row.qty || 1
-      // Calculate value - use Scryfall price if available, else purchase_price
-      const sf = sfMap[getScryfallKey(row)]
-      const price = getPrice(sf, row.foil, { price_source }) ?? (parseFloat(row.purchase_price) || null)
-      if (price != null) m.value += price * (row.qty || 1)
+      const card = row.cards
+      if (card) {
+        const sf = sfMap[`${card.set_code}-${card.collector_number}`]
+        const p  = getPrice(sf, card.foil, { price_source }) ?? (parseFloat(card.purchase_price) || null)
+        if (p != null) m.value += p * (row.qty || 1)
+      }
     }
 
     setFolderMeta(meta)
@@ -1159,10 +1165,7 @@ export default function FoldersPage({ type }) {
   }, [folders, searchParams])
 
   const deleteFolder = async (id) => {
-    // Delete the folder and all its folder_card links
-    // Note: We do NOT delete from cards store - only the folder relationship is removed
     await sb.from('folders').delete().eq('id', id)
-    await sb.from('folder_cards').delete().eq('folder_id', id)
     setFolders(prev => prev.filter(f => f.id !== id))
   }
 

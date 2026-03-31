@@ -11,6 +11,7 @@ import ExportModal from '../components/ExportModal'
 import styles from './DeckBrowser.module.css'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
 import { useLongPress } from '../hooks/useLongPress'
+import { pruneUnplacedCards } from '../lib/collectionOwnership'
 
 // ── Constants (kept for grouping/categorization used in views below) ──────────
 
@@ -653,7 +654,17 @@ export default function DeckBrowser({ folder, onBack }) {
   const onAdjustQty = useCallback((id, delta, totalQty) => {
     setSplitState(prev => {
       const current = prev.get(id) ?? 1
-      const next = Math.max(1, Math.min(totalQty, current + delta))
+      const next = Math.min(totalQty, current + delta)
+      if (next <= 0) {
+        setSelectedCards(sel => {
+          const updated = new Set(sel)
+          updated.delete(id)
+          return updated
+        })
+        const updated = new Map(prev)
+        updated.delete(id)
+        return updated
+      }
       return new Map(prev).set(id, next)
     })
   }, [])
@@ -671,6 +682,7 @@ export default function DeckBrowser({ folder, onBack }) {
     for (const { id, remaining } of toUpdate) {
       await sb.from('folder_cards').update({ qty: remaining }).eq('folder_id', folder.id).eq('card_id', id)
     }
+    if (toDelete.length) await pruneUnplacedCards(toDelete)
     setCards(prev => prev.map(c => {
       if (!selectedCards.has(c.id)) return c
       const totalQty = c._folder_qty || c.qty || 1

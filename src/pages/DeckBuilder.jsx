@@ -15,6 +15,7 @@ import {
 } from '../lib/db'
 import styles from './DeckBuilder.module.css'
 import DeckStats, { normalizeDeckBuilderCards } from '../components/DeckStats'
+import { pruneUnplacedCards } from '../lib/collectionOwnership'
 
 // Upgrade a Scryfall CDN image to large quality regardless of stored size variant
 function toLargeImg(uri) {
@@ -1447,6 +1448,7 @@ export default function DeckBuilderPage() {
         }
         const { error: fcErr } = await sb.from('folder_cards').insert(toInsert)
         if (fcErr) throw fcErr
+        await pruneUnplacedCards(addItems.map(i => i.cardId).filter(Boolean))
       }
 
       let targetWishlistId = wishlistId

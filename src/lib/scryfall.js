@@ -16,6 +16,15 @@ import {
 const BATCH_SIZE = 75
 const DELAY_MS   = 120
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000
+const SF_API_ORIGIN = 'https://api.scryfall.com'
+const SF_DEV_PROXY_PREFIX = '/api/scryfall'
+
+export function sfUrl(url) {
+  if (!import.meta.env.DEV) return url
+  return url.startsWith(SF_API_ORIGIN)
+    ? `${SF_DEV_PROXY_PREFIX}${url.slice(SF_API_ORIGIN.length)}`
+    : url
+}
 
 // ── Shared Scryfall fetch helper ───────────────────────────────────────────────
 // Enforces 100ms minimum between requests and adds required Accept header.
@@ -26,7 +35,7 @@ export async function sfGet(url) {
   const wait = Math.max(0, 100 - (Date.now() - _lastSfCall))
   if (wait) await new Promise(r => setTimeout(r, wait))
   _lastSfCall = Date.now()
-  const res = await fetch(url, { headers: SF_HEADERS })
+  const res = await fetch(sfUrl(url), { headers: SF_HEADERS })
   if (!res.ok) return null
   return res.json()
 }
@@ -122,7 +131,7 @@ export async function fetchScryfallBatch(identifiers) {
     const wait = Math.max(0, 100 - (Date.now() - _lastSfCall))
     if (wait) await new Promise(r => setTimeout(r, wait))
     _lastSfCall = Date.now()
-    const res = await fetch('https://api.scryfall.com/cards/collection', {
+    const res = await fetch(sfUrl(`${SF_API_ORIGIN}/cards/collection`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify({ identifiers })

@@ -71,12 +71,6 @@ function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, tota
       onMouseLeave={lpLeave}
       {...lpRest}
     >
-      {selectMode && (
-        <div className={`${styles.checkbox}${isSelected ? ' ' + styles.checkboxChecked : ''}`}>
-          {isSelected && '✓'}
-        </div>
-      )}
-
       <div className={`${styles.imgContainer}${isSelected ? ' ' + styles.imgSelected : ''}`}>
         {img
           ? <img className={styles.img} src={img} alt={card.name} loading="lazy" decoding="async" />

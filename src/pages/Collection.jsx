@@ -11,6 +11,7 @@ import { DropZone, ProgressBar, ErrorBox, EmptyState, SectionHeader, Button } fr
 import AddCardModal from '../components/AddCardModal'
 import ExportModal from '../components/ExportModal'
 import styles from './Collection.module.css'
+import { pruneUnplacedCards } from '../lib/collectionOwnership'
 
 const DEBOUNCE_MS = 300
 
@@ -362,6 +363,7 @@ export default function CollectionPage() {
 
       // Delete old links then re-insert fresh — avoids any constraint ambiguity
       // and makes re-imports idempotent for this folder.
+      const { data: oldLinks } = await sb.from('folder_cards').select('card_id').eq('folder_id', folderData.id)
       const { error: delErr } = await sb.from('folder_cards').delete().eq('folder_id', folderData.id)
       if (delErr) console.warn(`[Import] Could not clear old cards for "${folder.name}":`, delErr.message)
 
@@ -374,6 +376,11 @@ export default function CollectionPage() {
           console.error(`[Import] folder_cards insert failed for "${folder.name}" batch ${bi}:`, fce.message)
           batchOk = false; break
         }
+      }
+      try {
+        await pruneUnplacedCards((oldLinks || []).map(row => row.card_id))
+      } catch (err) {
+        console.warn(`[Import] Could not prune orphaned cards for "${folder.name}":`, err.message)
       }
       if (batchOk) folderOk++
       else folderFail++
@@ -413,8 +420,6 @@ export default function CollectionPage() {
       if (remaining > 0) toUpdate.push({ id: card.id, remaining })
       else toDelete.push(card.id)
     }
-    const count = toDelete.length + toUpdate.length
-    if (!window.confirm(`Delete ${count} card${count !== 1 ? 's' : ''}? This cannot be undone.`)) return
 
     if (toDelete.length === cards.length && !toUpdate.length) {
       await sb.from('cards').delete().eq('user_id', user.id)
@@ -495,7 +500,20 @@ export default function CollectionPage() {
   const onAdjustQty = useCallback((id, delta, totalQty) => {
     setSplitState(prev => {
       const current = prev.get(id) ?? 1
-      const next = Math.max(1, Math.min(totalQty, current + delta))
+      const next = Math.min(totalQty, current + delta)
+      if (next <= 0) {
+        setSelected(prevSelected => {
+          const updated = new Set(prevSelected)
+          for (const key of updated) {
+            const card = displayCardsRef.current.find(c => (c._displayKey || c.id) === key)
+            if (card?.id === id) updated.delete(key)
+          }
+          return updated
+        })
+        const updated = new Map(prev)
+        updated.delete(id)
+        return updated
+      }
       return new Map(prev).set(id, next)
     })
   }, [])
