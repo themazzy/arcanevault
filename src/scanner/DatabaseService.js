@@ -44,6 +44,21 @@ export function hammingDistance(a, b) {
          popcount64(a.p4 ^ b.p4)
 }
 
+// ── Row → in-memory hash object ───────────────────────────────────────────────
+
+function rowToHash(r) {
+  const parts = hexToHashParts(r.phash_hex)
+  if (!parts) return null
+  return {
+    id:       r.scryfall_id,
+    name:     r.name,
+    setCode:  r.set_code,
+    collNum:  r.collector_number,
+    imageUri: r.image_uri,
+    ...parts,
+  }
+}
+
 // ── Service ───────────────────────────────────────────────────────────────────
 
 class DatabaseService {
@@ -54,10 +69,10 @@ class DatabaseService {
   _initialized = false
   _syncing     = false
 
-  async init() {
+  async init(onProgress) {
     this._isNative = Capacitor.isNativePlatform()
     if (this._isNative) await this._initSQLite()
-    await this._loadCache()
+    await this._loadCache(onProgress)
     this._initialized = true
     return this
   }
@@ -144,37 +159,53 @@ class DatabaseService {
 
   // ── Load into memory ───────────────────────────────────────────────────────
 
-  async _loadCache() {
-    let rows = []
+  async _loadCache(onProgress) {
+    this._hashes = []
     if (this._isNative && this._db) {
       const res = await this._db.query(
         'SELECT scryfall_id,name,set_code,collector_number,phash_hex,image_uri FROM card_hashes WHERE phash_hex IS NOT NULL'
       )
-      rows = res.values ?? []
+      this._hashes = (res.values ?? []).map(rowToHash).filter(Boolean)
     } else {
-      // Web fallback — query Supabase directly
-      const { data } = await sb
-        .from('card_hashes')
-        .select('scryfall_id,name,set_code,collector_number,phash_hex,image_uri')
-        .not('phash_hex', 'is', null)
-        .limit(10000)
-      rows = data ?? []
-    }
+      // Web fallback — PostgREST caps at 1000 rows per request regardless of .limit().
+      // Load the first page synchronously so init() resolves quickly, then paginate
+      // the remaining pages in the background so the scanner is usable immediately.
+      const firstPage = await this._fetchWebPage(0)
+      this._hashes = firstPage.map(rowToHash).filter(Boolean)
+      onProgress?.(this._hashes.length)
 
-    this._hashes = rows
-      .map(r => {
-        const parts = hexToHashParts(r.phash_hex)
-        if (!parts) return null
-        return {
-          id:      r.scryfall_id,
-          name:    r.name,
-          setCode: r.set_code,
-          collNum: r.collector_number,
-          imageUri: r.image_uri,
-          ...parts,
-        }
-      })
-      .filter(Boolean)
+      if (firstPage.length === PAGE_SIZE) {
+        // More pages exist — continue loading without blocking init()
+        this._continueWebLoad(1, onProgress)
+      }
+    }
+  }
+
+  async _fetchWebPage(page) {
+    const from = page * PAGE_SIZE
+    const to   = from + PAGE_SIZE - 1
+    const { data } = await sb
+      .from('card_hashes')
+      .select('scryfall_id,name,set_code,collector_number,phash_hex,image_uri')
+      .not('phash_hex', 'is', null)
+      .range(from, to)
+    return data ?? []
+  }
+
+  async _continueWebLoad(startPage, onProgress) {
+    let page = startPage
+    while (true) {
+      try {
+        const data = await this._fetchWebPage(page)
+        if (!data.length) break
+        this._hashes.push(...data.map(rowToHash).filter(Boolean))
+        onProgress?.(this._hashes.length)
+        if (data.length < PAGE_SIZE) break
+        page++
+      } catch {
+        break
+      }
+    }
   }
 
   // ── Match ──────────────────────────────────────────────────────────────────
