@@ -99,14 +99,33 @@ export default function CardScanner({ onMatch, onClose }) {
             position: 'rear', toBack: true,
             width: window.screen.width, height: window.screen.height,
             disableAudio: true,
+            enableHighResolution: true,
           })
         } else {
           const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+            video: {
+              facingMode: { ideal: 'environment' },
+              width:  { ideal: 1920 },
+              height: { ideal: 1080 },
+            },
           })
           if (videoRef.current && mountedRef.current) {
             videoRef.current.srcObject = stream
             await videoRef.current.play()
+
+            // Apply continuous autofocus + auto-exposure if the device supports it.
+            // applyConstraints is best-effort — silently ignored on unsupported browsers.
+            const track = stream.getVideoTracks()[0]
+            if (track) {
+              const caps = track.getCapabilities?.() ?? {}
+              const adv = {}
+              if (caps.focusMode?.includes('continuous'))        adv.focusMode        = 'continuous'
+              if (caps.exposureMode?.includes('continuous'))     adv.exposureMode     = 'continuous'
+              if (caps.whiteBalanceMode?.includes('continuous')) adv.whiteBalanceMode = 'continuous'
+              if (Object.keys(adv).length) {
+                track.applyConstraints({ advanced: [adv] }).catch(() => {})
+              }
+            }
           } else {
             stream.getTracks().forEach(t => t.stop()); return
           }
@@ -131,7 +150,7 @@ export default function CardScanner({ onMatch, onClose }) {
     let imageData, w, h
     try {
       if (isNative) {
-        const { value } = await CameraPreview.capture({ quality: 80 })
+        const { value } = await CameraPreview.capture({ quality: 95 })
         const img = await new Promise((res, rej) => {
           const i = new Image(); i.onload = () => res(i); i.onerror = rej
           i.src = 'data:image/jpeg;base64,' + value
