@@ -549,30 +549,48 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
         set_code: item.printing.set,
         collector_number: item.printing.collector_number,
         scryfall_id: item.printing.id || null,
-        foil: item.foil, qty: item.qty,
-        condition: item.condition, language: item.language,
+        foil: item.foil,
+        condition: item.condition,
+        language: item.language,
         purchase_price: item.purchasePrice,
         currency: 'EUR',
       }))
+
+      // Upsert cards into the cards table (without qty - qty is tracked in folder_cards)
       const { error: err } = await sb.from('cards')
         .upsert(cards, { onConflict: 'user_id,set_code,collector_number,foil,language,condition' })
       if (err) { setError(err.message); setSaving(false); return }
 
+      // Get the unique card IDs (one per unique printing in the queue)
+      const uniqueCards = [...new Map(queue.map(item => ({
+        key: `${item.printing.id || item.printing.set}-${item.printing.collector_number}-${item.foil}`,
+        value: item,
+      })))]
+
       const folderTarget = folderMode ? selectedFolder : (destTab !== 'collection' ? selectedFolder : null)
       if (folderTarget) {
-        const setCodes = [...new Set(cards.map(c => c.set_code))]
+        const setCodes = [...new Set(queue.map(item => item.printing.set))]
         const { data: saved } = await sb.from('cards')
-          .select('id,set_code,collector_number,foil,language,condition')
+          .select('id,set_code,collector_number,foil,condition,language,purchase_price')
           .eq('user_id', userId).in('set_code', setCodes)
+
         if (saved?.length) {
-          const links = saved
-            .filter(c => cards.some(qc =>
-              qc.set_code === c.set_code && qc.collector_number === c.collector_number &&
-              qc.foil === c.foil && qc.language === c.language && qc.condition === c.condition
-            ))
-            .map(c => ({ folder_id: folderTarget, card_id: c.id }))
-          if (links.length) {
-            await sb.from('folder_cards').upsert(links, { onConflict: 'folder_id,card_id' })
+          // Create folder_cards links for each unique card, aggregating total qty
+          const cardLinks = []
+          for (const card of saved) {
+            const matchingQueueItems = uniqueCards.filter(qc =>
+              qc.set_code === card.set_code && qc.collector_number === card.collector_number &&
+              qc.foil === card.foil && qc.language === card.language && qc.condition === card.condition
+            )
+            const totalQty = matchingQueueItems.reduce((sum, item) => sum + item.qty, 0)
+            if (totalQty > 0) {
+              cardLinks.push({ folder_id: folderTarget, card_id: card.id, qty: totalQty })
+            }
+          }
+          if (cardLinks.length > 0) {
+            // Upsert folder_cards links with aggregated qty
+            await sb.from('folder_cards')
+              .upsert(cardLinks, { onConflict: 'folder_id,card_id', column: 'qty' })
           }
         }
       }
