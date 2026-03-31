@@ -193,18 +193,26 @@ class DatabaseService {
   }
 
   async _continueWebLoad(startPage, onProgress) {
+    const BATCH = 8   // fetch 8 pages in parallel — ~8× faster than sequential
     let page = startPage
+
     while (true) {
-      try {
-        const data = await this._fetchWebPage(page)
-        if (!data.length) break
+      const results = await Promise.all(
+        Array.from({ length: BATCH }, (_, i) =>
+          this._fetchWebPage(page + i).catch(() => [])
+        )
+      )
+
+      let reachedEnd = false
+      for (const data of results) {
+        if (!data.length) { reachedEnd = true; break }
         this._hashes.push(...data.map(rowToHash).filter(Boolean))
-        onProgress?.(this._hashes.length)
-        if (data.length < PAGE_SIZE) break
-        page++
-      } catch {
-        break
+        if (data.length < PAGE_SIZE) { reachedEnd = true; break }
       }
+
+      onProgress?.(this._hashes.length)
+      if (reachedEnd) break
+      page += BATCH
     }
   }
 

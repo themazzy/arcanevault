@@ -21,7 +21,7 @@ import {
 import styles from './CardScanner.module.css'
 
 const SCAN_MS          = 280   // ~3.5 FPS
-const MATCH_THRESHOLD  = 35    // max Hamming distance out of 256
+const MATCH_THRESHOLD  = 110   // camera pHash vs clean Scryfall art_crop; real-world offset ~90-100
 const STABILITY_FRAMES = 2     // consecutive matches before confirming
 const MATCH_COOLDOWN   = 5000  // ms before same card can re-enter history
 const DEBUG            = true  // set false to hide debug overlay
