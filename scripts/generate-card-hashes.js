@@ -88,18 +88,46 @@ function dct2d(matrix, N) {
   return out
 }
 
+// ── Histogram equalisation (pure JS, matches cv.equalizeHist exactly) ────────
+function equalizeHistogram(u8, N) {
+  // Build histogram
+  const hist = new Int32Array(256)
+  for (let i = 0; i < N; i++) hist[u8[i]]++
+
+  // Cumulative distribution function
+  const cdf = new Int32Array(256)
+  cdf[0] = hist[0]
+  for (let i = 1; i < 256; i++) cdf[i] = cdf[i-1] + hist[i]
+
+  // Find first non-zero CDF value
+  let cdfMin = 0
+  for (let i = 0; i < 256; i++) { if (cdf[i] > 0) { cdfMin = cdf[i]; break } }
+
+  // Map each pixel: equalised = round((cdf[v] - cdfMin) / (N - cdfMin) * 255)
+  const out = new Uint8Array(N)
+  const denom = N - cdfMin
+  for (let i = 0; i < N; i++) {
+    out[i] = denom > 0 ? Math.round((cdf[u8[i]] - cdfMin) / denom * 255) : 0
+  }
+  return out
+}
+
 // ── pHash: returns 64-char hex string ────────────────────────────────────────
 async function computePHashHex(imageBuffer) {
-  // 1. Resize + grayscale to 32×32
+  // 1. Resize to 32×32 with Lanczos (sharp default), then grayscale with BT.709
   const { data } = await sharp(imageBuffer)
     .resize(DCT_SIZE, DCT_SIZE, { fit: 'fill' })
-    .grayscale()
+    .grayscale()   // sharp uses BT.709 (Rec.709) by default
     .raw()
     .toBuffer({ resolveWithObject: true })
 
-  // 2. 2D DCT
+  // 2. Histogram equalisation — normalises exposure so the same card in
+  //    different lighting conditions hashes similarly (must match client)
+  const equalized = equalizeHistogram(data, DCT_SIZE * DCT_SIZE)
+
+  // 3. 2D DCT on equalised pixels
   const pixels = new Float64Array(DCT_SIZE * DCT_SIZE)
-  for (let i = 0; i < pixels.length; i++) pixels[i] = data[i]
+  for (let i = 0; i < pixels.length; i++) pixels[i] = equalized[i]
   const dct = dct2d(pixels, DCT_SIZE)
 
   // 3. Extract top-left HASH_BANDS × HASH_BANDS (256 values)
