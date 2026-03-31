@@ -44,9 +44,10 @@ export default function CardScanner({ onMatch, onClose }) {
   const [errorMsg,    setErrorMsg]    = useState(null)
   const [paused,      setPaused]      = useState(false)
   const [detecting,   setDetecting]   = useState(false)
+  const [cardCount,   setCardCount]   = useState(0)
   const [scanHistory, setScanHistory] = useState([])
   const [latestMatch, setLatestMatch] = useState(null)
-  const [debugInfo,   setDebugInfo]   = useState(null)   // { dist, name, stability, hashes }
+  const [debugInfo,   setDebugInfo]   = useState(null)
 
   const isReady = cvReady && dbReady
 
@@ -56,14 +57,20 @@ export default function CardScanner({ onMatch, onClose }) {
 
     ;(async () => {
       try {
-        // DB init — hashes load in background pages after the first resolves
-        await databaseService.init()
+        // DB init — first page resolves quickly; remaining pages load in background.
+        // Progress callback keeps cardCount state in sync so debug panel updates live.
+        await databaseService.init(n => {
+          if (mountedRef.current) setCardCount(n)
+        })
         if (!mountedRef.current) return
         setDbReady(true)
+        setCardCount(databaseService.cardCount)
 
         // If native and no local hashes, auto-sync from Supabase silently
         if (databaseService.cardCount === 0) {
-          await databaseService.sync()
+          await databaseService.sync(n => {
+            if (mountedRef.current) setCardCount(n)
+          })
         }
 
         await waitForOpenCV()
@@ -252,14 +259,16 @@ export default function CardScanner({ onMatch, onClose }) {
         {/* Debug overlay */}
         {DEBUG && (
           <div className={styles.debugPanel}>
-            <div><b>Hashes loaded:</b> {databaseService.cardCount.toLocaleString()}</div>
-            <div><b>CV ready:</b> {cvReady ? 'yes' : 'no'} &nbsp; <b>DB ready:</b> {dbReady ? 'yes' : 'no'}</div>
-            {debugInfo && <>
-              <div><b>Stage:</b> {debugInfo.stage}</div>
-              <div><b>Best card:</b> {debugInfo.bestName}</div>
-              <div><b>Stability:</b> {debugInfo.stability} / {STABILITY_FRAMES}</div>
-            </>}
-            {!debugInfo && detecting && <div>Computing hash…</div>}
+            <div><b>Hashes:</b> {cardCount.toLocaleString()} {cardCount < 5000 ? '⟳ loading…' : cardCount < 50000 ? '⟳ still loading…' : '✓'}</div>
+            <div><b>CV:</b> {cvReady ? '✓' : '…'} &nbsp;<b>DB:</b> {dbReady ? '✓' : '…'}</div>
+            {debugInfo
+              ? <>
+                  <div><b>Stage:</b> {debugInfo.stage}</div>
+                  <div><b>Best:</b> {debugInfo.bestName}</div>
+                  <div><b>Stability:</b> {debugInfo.stability}/{STABILITY_FRAMES}</div>
+                </>
+              : detecting && <div>⟳ computing…</div>
+            }
           </div>
         )}
 
