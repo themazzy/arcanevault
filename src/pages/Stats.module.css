@@ -278,7 +278,7 @@
 .moverRow {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 5px;
   padding: 5px 4px;
   border-radius: 4px;
   border-bottom: 1px solid rgba(255,255,255,0.04);
@@ -300,6 +300,14 @@
   letter-spacing: 0.04em;
   flex-shrink: 0;
   min-width: 46px;
+  text-align: right;
+}
+.moverPrice {
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+  min-width: 68px;
   text-align: right;
 }
 .moverVal {

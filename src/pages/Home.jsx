@@ -1265,6 +1265,19 @@ const CHANGELOG = [
     version: '2026-03-31',
     label: 'Latest',
     updates: [
+      '📜 Life Tracker: unified game log — all events in one timeline, accessible from the ⚙ menu',
+      '💀 Life Tracker: 55 MTG-flavoured death messages shown randomly when a player is eliminated',
+      '⚠️ Life Tracker: low-life animations — amber pulse at ≤10, red pulse at ≤5',
+      '🏷 Life Tracker: counter tabs now show icon + name for clarity (Poison, Energy, Experience, Radiation)',
+      '🎨 Light theme: text, gold, green, red, purple all fixed for legibility on pale backgrounds',
+      '🔲 Life Tracker: button borders now visible on all themes',
+      '⬅️ Android: back button navigates within the app; double-tap to exit at the home screen',
+    ],
+  },
+  {
+    version: '2026-03-31',
+    label: 'Previous',
+    updates: [
       '📷 Card Scanner — point your camera at any MTG card to instantly identify it using perceptual hashing (OpenCV + pHash). Works on Android; web preview via browser camera',
       '⊙ Scanner tab added to navigation — accessible from any page',
       '🗄 On-device card database — 30k+ card hashes synced to your device for offline scanning',
@@ -1272,7 +1285,7 @@ const CHANGELOG = [
   },
   {
     version: '2026-03-26',
-    label: 'Previous',
+    label: 'Older',
     updates: [
       '🏟 Seat selection — tap two seats in the layout to swap order before the game starts',
       '🎯 Host setup screen — when creating a shared lobby you now pick your name, colour, deck & art before others join',

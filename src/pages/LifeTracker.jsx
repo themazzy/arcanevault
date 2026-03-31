@@ -15,6 +15,71 @@ const PLAYER_COLORS = ['#c46060', '#6080c4', '#60a860', '#c4a040', '#9060c4', '#
 const PLAYER_NAMES  = ['Player 1', 'Player 2', 'Player 3', 'Player 4', 'Player 5', 'Player 6']
 const DICE_TYPES    = [2, 4, 6, 8, 10, 12, 20, 100]
 
+const COUNTERS = [
+  { key: 'poison',     icon: '☠',  label: 'Poison',     color: '#4a9e4a', deadAt: 10 },
+  { key: 'energy',     icon: '⚡', label: 'Energy',     color: '#a08828' },
+  { key: 'experience', icon: '✦',  label: 'Experience', color: '#7040a0' },
+  { key: 'radiation',  icon: '☢',  label: 'Radiation',  color: '#3d8a3d' },
+]
+
+const DEATH_TEXTS = [
+  'Split in half by Garruk',
+  'Burned to a crisp by Chandra',
+  'Devoured by the Eldrazi Titans',
+  'Turned to stone by a Basilisk',
+  'Banished to the Blind Eternities',
+  'Wrapped in webs by Ishkanah',
+  'Swallowed whole by a Leviathan',
+  'Crushed beneath Darksteel Colossus',
+  'Phyrexian Compleatified',
+  'Targeted by 3 Lightning Bolts',
+  'Mill\'d out of existence',
+  'Exiled by Teferi himself',
+  'Caught in a Wrath of God',
+  'Trampled by 50 angry Saprolings',
+  'Struck by Bolt… and Bolt… and Bolt',
+  'Gored by a bear with trample',
+  'Forgot to pay Echo',
+  'Misread the stack and lost',
+  'Decked themselves with cantrips',
+  'Hit for 21 commander damage',
+  'Sacrificed to a Demon by their own hand',
+  'Consumed by Emrakul\'s tentacles',
+  'Lost a mana duel to a Llanowar Elf',
+  'Ran headfirst into a Storm count of 20',
+  'Napping during the draw step',
+  'Mauled by a 0/1 Thopter token',
+  'Tapped out at exactly the wrong moment',
+  'Topdecked a land — needed gas',
+  'Detonated by Goblin Grenade',
+  'Infected by 10 poison',
+  'Torn apart by an angry Elder Dragon',
+  'Mulliganned into the shadow realm',
+  'Killed by their own Earthquake',
+  'Died waiting for a counterspell',
+  'Obliterated — the real kind, no rebuild',
+  'Annihilated by Ulamog',
+  'Never resolved that crucial spell',
+  'Mana-screwed into the void',
+  'Eaten alive by a Wurm',
+  'Executed by Teysa\'s spirit tokens',
+  'Drained dry by a Vampire',
+  'Petrified by a Gorgon\'s gaze',
+  'Dissolved by Red Sun\'s Zenith',
+  'Zombified and then killed again',
+  'Bogged down in infinite combo purgatory',
+  'Hit by a Fireball, a Fireball, and another Fireball',
+  'Stifled their own crucial trigger',
+  'Dissolved by corrupted black mana',
+  'Converted into a Food token',
+  'Claimed by The Abyss',
+  'Returned to hand — permanently',
+  'Flung as a last desperate act',
+  'Crypt Incursion\'d at instant speed',
+  'Died to their own Howling Mine draw',
+  'Exploded in a storm of instants',
+]
+
 // ── Multiplayer lobby helpers ──────────────────────────────────────────────────
 const CODE_CHARS  = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const generateCode = () =>
@@ -84,8 +149,19 @@ function makePlayer(i, life, seed = {}) {
     artCropUrl: seed.artCropUrl ?? null,
     userId: seed.userId ?? null,
     life,
-    poison: 0,
+    hasPartner: seed.hasPartner ?? false,
+    counters: seed.counters ?? { poison: 0, energy: 0, experience: 0, radiation: 0 },
     cmdDmg: {},
+    cmdDmg2: {},
+  }
+}
+
+function migratePlayer(p) {
+  return {
+    ...p,
+    hasPartner: p.hasPartner ?? false,
+    counters: p.counters ?? { poison: p.poison || 0, energy: 0, experience: 0, radiation: 0 },
+    cmdDmg2:  p.cmdDmg2  ?? {},
   }
 }
 
@@ -222,9 +298,98 @@ function ArtPicker({ onSelect, onClear, onClose }) {
   )
 }
 
+// ── Unified Game Log Overlay ───────────────────────────────────────────────────
+function GameLogOverlay({ events, onClose }) {
+  const now = Date.now()
+  const fmtTime = (ts) => {
+    const s = Math.floor((now - ts) / 1000)
+    if (s < 5)  return 'just now'
+    if (s < 60) return `${s}s ago`
+    const m = Math.floor(s / 60)
+    if (m < 60) return `${m}m ago`
+    return `${Math.floor(m / 60)}h ago`
+  }
+  const fmtDelta = (d) => d > 0 ? `+${d}` : `${d}`
+
+  return (
+    <div className={styles.cmdOverlay} onClick={onClose}>
+      <div className={styles.cmdOverlayPanel} onClick={e => e.stopPropagation()}>
+        <div className={styles.cmdOverlayHead}>
+          <div>
+            <div className={styles.cmdOverlayTitle}>📜 Game Log</div>
+            <div className={styles.cmdOverlaySub}>All events this game</div>
+          </div>
+          <button className={styles.cmdOverlayClose} onClick={onClose}>×</button>
+        </div>
+        {(!events || events.length === 0) ? (
+          <p className={styles.histEvtEmpty}>No events recorded yet this game.</p>
+        ) : (
+          <div className={styles.histEvtList}>
+            {events.map((ev, i) => {
+              const ct = ev.type === 'counter' ? COUNTERS.find(c => c.key === ev.key) : null
+              return (
+                <div key={i} className={styles.histEvtRow}>
+                  <span className={styles.histEvtIcon}>
+                    {ev.type === 'life'    ? '♥'
+                     : ev.type === 'cmdDmg' ? '⚔'
+                     : ct?.icon || '○'}
+                  </span>
+                  <div className={styles.histEvtDesc}>
+                    <span className={styles.histEvtPlayer} style={{ color: ev.playerColor }}>
+                      {ev.playerName}
+                    </span>
+                    {' '}
+                    {ev.type === 'life' && (
+                      <span>
+                        <span className={ev.delta > 0 ? styles.histEvtPos : styles.histEvtNeg}>
+                          {fmtDelta(ev.delta)}
+                        </span>
+                        {' '}life → <strong>{ev.total}</strong>
+                      </span>
+                    )}
+                    {ev.type === 'cmdDmg' && (
+                      <span>
+                        <span className={styles.histEvtNeg}>{fmtDelta(ev.delta)}</span>
+                        {' '}from <em>{ev.fromName}</em> → <strong>{ev.total}</strong> life
+                      </span>
+                    )}
+                    {ev.type === 'counter' && (
+                      <span>
+                        <span className={ev.delta > 0 ? styles.histEvtPos : styles.histEvtNeg}>
+                          {fmtDelta(ev.delta)}
+                        </span>
+                        {' '}{ct?.label || ev.key} → <strong>{ev.total}</strong>
+                      </span>
+                    )}
+                  </div>
+                  <span className={styles.histEvtTime}>{fmtTime(ev.ts)}</span>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Commander Damage Overlay (page-level) ──────────────────────────────────────
 function CmdDmgOverlay({ player, opponents, onCmdDmgChange, onClose }) {
   if (!player || !opponents?.length) return null
+
+  function CtrlRow({ dmg, isLethal, pid, oid, isPartner2 }) {
+    const call = (d) => onCmdDmgChange(pid, oid, d, isPartner2)
+    return (
+      <div className={styles.cmdOverlayCtrl}>
+        <button className={styles.cmdOverlayBtn} onPointerDown={e => { e.preventDefault(); call(-5) }}>−5</button>
+        <button className={styles.cmdOverlayBtn} onPointerDown={e => { e.preventDefault(); call(-1) }}>−</button>
+        <span className={`${styles.cmdOverlayVal} ${isLethal ? styles.cmdOverlayValLethal : ''}`}>{dmg}</span>
+        <button className={styles.cmdOverlayBtn} onPointerDown={e => { e.preventDefault(); call(+1) }}>+</button>
+        <button className={styles.cmdOverlayBtn} onPointerDown={e => { e.preventDefault(); call(+5) }}>+5</button>
+      </div>
+    )
+  }
+
   return (
     <div className={styles.cmdOverlay} onClick={onClose}>
       <div className={styles.cmdOverlayPanel} onClick={e => e.stopPropagation()}>
@@ -239,29 +404,34 @@ function CmdDmgOverlay({ player, opponents, onCmdDmgChange, onClose }) {
         </div>
         <div className={styles.cmdOverlayList}>
           {opponents.map(opp => {
-            const dmg = player.cmdDmg?.[opp.id] || 0
+            const dmg   = player.cmdDmg?.[opp.id]  || 0
+            const dmg2  = player.cmdDmg2?.[opp.id] || 0
+            const l1    = dmg >= 21
+            const l2    = opp.hasPartner && dmg2 >= 21
             return (
               <div key={opp.id}
-                className={`${styles.cmdOverlayRow} ${dmg >= 21 ? styles.cmdOverlayLethal : ''}`}
+                className={`${styles.cmdOverlayRow} ${(l1 || l2) ? styles.cmdOverlayLethal : ''}`}
                 style={{ '--opc': opp.color }}>
                 <div className={styles.cmdOverlayOpp}>
                   <span className={styles.cmdOverlayDot} />
                   <span className={styles.cmdOverlayOppName}>{opp.name}</span>
-                  {dmg >= 21 && <span className={styles.cmdLethalBadge}>LETHAL</span>}
+                  {(l1 || l2) && <span className={styles.cmdLethalBadge}>LETHAL</span>}
+                  {opp.hasPartner && <span className={styles.cmdPartnerBadge}>partner</span>}
                 </div>
-                <div className={styles.cmdOverlayCtrl}>
-                  <button className={styles.cmdOverlayBtn}
-                    onPointerDown={e => { e.preventDefault(); onCmdDmgChange(player.id, opp.id, -5) }}>−5</button>
-                  <button className={styles.cmdOverlayBtn}
-                    onPointerDown={e => { e.preventDefault(); onCmdDmgChange(player.id, opp.id, -1) }}>−</button>
-                  <span className={`${styles.cmdOverlayVal} ${dmg >= 21 ? styles.cmdOverlayValLethal : ''}`}>
-                    {dmg}
-                  </span>
-                  <button className={styles.cmdOverlayBtn}
-                    onPointerDown={e => { e.preventDefault(); onCmdDmgChange(player.id, opp.id, +1) }}>+</button>
-                  <button className={styles.cmdOverlayBtn}
-                    onPointerDown={e => { e.preventDefault(); onCmdDmgChange(player.id, opp.id, +5) }}>+5</button>
-                </div>
+                {opp.hasPartner ? (
+                  <>
+                    <div className={styles.cmdOverlayDmgRow}>
+                      <span className={styles.cmdPartnerLabel}>①</span>
+                      <CtrlRow dmg={dmg} isLethal={l1} pid={player.id} oid={opp.id} isPartner2={false} />
+                    </div>
+                    <div className={styles.cmdOverlayDmgRow}>
+                      <span className={styles.cmdPartnerLabel}>②</span>
+                      <CtrlRow dmg={dmg2} isLethal={l2} pid={player.id} oid={opp.id} isPartner2={true} />
+                    </div>
+                  </>
+                ) : (
+                  <CtrlRow dmg={dmg} isLethal={l1} pid={player.id} oid={opp.id} isPartner2={false} />
+                )}
               </div>
             )
           })}
@@ -1098,32 +1268,59 @@ function EndGameDialog({ players, onSave, onCancel }) {
 // ── Player Panel ───────────────────────────────────────────────────────────────
 function PlayerPanel({
   player, opponents,
-  onLifeChange, onPoisonChange, onCmdDmgChange, onNameChange, onColorChange,
-  onRequestArtPicker, onRequestCmdDmgOverlay,
-  showCommander, showPoison, rotation = 0,
+  onLifeChange, onCounterChange, onCmdDmgChange, onNameChange, onColorChange,
+  onRequestArtPicker, onRequestCmdDmgOverlay, onTogglePartner,
+  showCommander, rotation = 0,
 }) {
   const [editingName,        setEditingName]        = useState(false)
   const [nameInput,          setNameInput]          = useState(player.name)
   const [showPlayerSettings, setShowPlayerSettings] = useState(false)
-  const [lastDelta,          setLastDelta]          = useState(null)
+  const [activeCounter,      setActiveCounter]      = useState('poison')
+  const [displayDelta, setDisplayDelta] = useState(null)
+  const [deltaFading,  setDeltaFading]  = useState(false)
+  const [deathText,    setDeathText]    = useState(null)
+  const accumRef      = useRef(0)
   const deltaTimerRef = useRef(null)
+  const fadeTimerRef  = useRef(null)
   const holdTimerRef  = useRef(null)
   const prevLife      = useRef(player.life)
 
   useEffect(() => {
     const d = player.life - prevLife.current
     if (d !== 0) {
-      setLastDelta(d)
+      accumRef.current += d
+      setDisplayDelta(accumRef.current)
+      setDeltaFading(false)
       clearTimeout(deltaTimerRef.current)
-      deltaTimerRef.current = setTimeout(() => setLastDelta(null), 1600)
+      clearTimeout(fadeTimerRef.current)
+      // After 1 s of no further changes, begin the fade-out
+      deltaTimerRef.current = setTimeout(() => {
+        setDeltaFading(true)
+        fadeTimerRef.current = setTimeout(() => {
+          setDisplayDelta(null)
+          setDeltaFading(false)
+          accumRef.current = 0
+        }, 1600)
+      }, 1000)
     }
     prevLife.current = player.life
   }, [player.life])
 
   useEffect(() => () => {
     clearTimeout(deltaTimerRef.current)
+    clearTimeout(fadeTimerRef.current)
     clearTimeout(holdTimerRef.current)
   }, [])
+
+  const isDead = player.life <= 0 || (player.counters?.poison ?? 0) >= 10
+
+  useEffect(() => {
+    if (isDead && !deathText) {
+      setDeathText(DEATH_TEXTS[Math.floor(Math.random() * DEATH_TEXTS.length)])
+    } else if (!isDead) {
+      setDeathText(null)
+    }
+  }, [isDead]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLifeHoldStart = () => {
     if (!showCommander || !opponents.length || !onRequestCmdDmgOverlay) return
@@ -1137,15 +1334,20 @@ function PlayerPanel({
     onNameChange(player.id, nameInput.trim() || player.name)
   }
 
-  const isDead = player.life <= 0 || player.poison >= 10
+  const isLow  = !isDead && player.life <= 10 && player.life > 5
+  const isCrit = !isDead && player.life <= 5  && player.life > 0
 
   return (
     <div
-      className={`${styles.playerPanel} ${isDead ? styles.playerDead : ''} ${
+      className={[
+        styles.playerPanel,
+        isDead  ? styles.playerDead     : '',
+        isLow   ? styles.playerLifeLow  : '',
+        isCrit  ? styles.playerLifeCrit : '',
         rotation === 180 ? styles.playerRotate180 :
         rotation ===  90 ? styles.playerRotate90  :
-        rotation === -90 ? styles.playerRotate90n : ''
-      }`}
+        rotation === -90 ? styles.playerRotate90n : '',
+      ].filter(Boolean).join(' ')}
       style={{
         '--player-color': player.color,
         ...(player.artCropUrl ? {
@@ -1177,15 +1379,24 @@ function PlayerPanel({
 
       {/* Color + art-picker row — hidden by default, toggled by cog */}
       {showPlayerSettings && (
-        <div className={styles.colorRow}>
-          {PLAYER_COLORS.map(c => (
-            <button key={c}
-              className={`${styles.colorDot} ${c === player.color ? styles.colorDotActive : ''}`}
-              style={{ background: c }} onClick={() => onColorChange(player.id, c)} />
-          ))}
-          <button onClick={() => { onRequestArtPicker(player.id); setShowPlayerSettings(false) }}
-            className={styles.artPickerBtn} title="Set background art">🖼</button>
-        </div>
+        <>
+          <div className={styles.colorRow}>
+            {PLAYER_COLORS.map(c => (
+              <button key={c}
+                className={`${styles.colorDot} ${c === player.color ? styles.colorDotActive : ''}`}
+                style={{ background: c }} onClick={() => onColorChange(player.id, c)} />
+            ))}
+            <button onClick={() => { onRequestArtPicker(player.id); setShowPlayerSettings(false) }}
+              className={styles.artPickerBtn} title="Set background art">🖼</button>
+          </div>
+          {showCommander && (
+            <button
+              className={`${styles.partnerToggleBtn} ${player.hasPartner ? styles.partnerToggleBtnActive : ''}`}
+              onClick={() => onTogglePartner?.(player.id)}>
+              {player.hasPartner ? '⚔⚔ Partner Commanders (on)' : '⚔ Partner Commanders'}
+            </button>
+          )}
+        </>
       )}
 
       {/* Life total */}
@@ -1201,10 +1412,10 @@ function PlayerPanel({
           <span className={`${styles.lifeTotal} ${player.life <= 5 ? styles.lifeLow : ''} ${player.life <= 0 ? styles.lifeDead : ''}`}>
             {player.life}
           </span>
-          {lastDelta != null && (
-            <span key={`${lastDelta}-${Date.now()}`}
-              className={`${styles.lifeDelta} ${lastDelta > 0 ? styles.lifeDeltaUp : styles.lifeDeltaDown}`}>
-              {lastDelta > 0 ? `+${lastDelta}` : lastDelta}
+          {displayDelta != null && (
+            <span
+              className={`${styles.lifeDelta} ${displayDelta > 0 ? styles.lifeDeltaUp : styles.lifeDeltaDown} ${deltaFading ? styles.lifeDeltaFade : ''}`}>
+              {displayDelta > 0 ? `+${displayDelta}` : displayDelta}
             </span>
           )}
         </div>
@@ -1220,17 +1431,43 @@ function PlayerPanel({
         <button className={styles.quickBtn} onPointerDown={e => { e.preventDefault(); adjust(+10) }}>+10</button>
       </div>
 
-      {/* Poison */}
-      {showPoison && (
-        <div className={styles.poisonRow}>
-          <span className={styles.poisonLabel}>☠ Poison</span>
-          <div className={styles.counterRow}>
-            <button className={styles.counterBtn} onPointerDown={e => { e.preventDefault(); onPoisonChange(player.id, -1) }}>−</button>
-            <span className={`${styles.counterVal} ${player.poison >= 10 ? styles.counterDead : ''}`}>{player.poison}</span>
-            <button className={styles.counterBtn} onPointerDown={e => { e.preventDefault(); onPoisonChange(player.id, +1) }}>+</button>
+      {/* Counter switcher — tab to select, controls below */}
+      {(() => {
+        const ct  = COUNTERS.find(c => c.key === activeCounter)
+        const val = player.counters?.[activeCounter] ?? 0
+        const isLethal = ct?.deadAt && val >= ct.deadAt
+        return (
+          <div className={styles.counterSection}>
+            <div className={styles.counterTabs}>
+              {COUNTERS.map(tab => {
+                const tv = player.counters?.[tab.key] ?? 0
+                const tl = tab.deadAt && tv >= tab.deadAt
+                return (
+                  <button key={tab.key}
+                    className={`${styles.counterTab} ${activeCounter === tab.key ? styles.counterTabActive : ''} ${tl ? styles.counterTabLethal : ''}`}
+                    onClick={() => setActiveCounter(tab.key)}
+                    title={tab.label}>
+                    <span className={styles.counterTabIcon} style={{ color: tl ? '#c46060' : (activeCounter === tab.key ? tab.color : undefined) }}>{tab.icon}</span>
+                    <span className={styles.counterTabLabel}>{tab.label}</span>
+                    {tv > 0 && <span className={styles.counterTabBadge}>{tv}</span>}
+                  </button>
+                )
+              })}
+            </div>
+            <div className={styles.counterControls}>
+              <button className={styles.counterCtrlBtn}
+                onPointerDown={e => { e.preventDefault(); onCounterChange(player.id, activeCounter, -1) }}>−</button>
+              <div className={styles.counterCtrlMid}>
+                <span className={styles.counterCtrlIcon} style={{ color: isLethal ? '#c46060' : ct?.color }}>{ct?.icon}</span>
+                <span className={`${styles.counterCtrlVal} ${isLethal ? styles.counterDead : ''}`}>{val}</span>
+                {isLethal && <span className={styles.counterCtrlLethal}>LETHAL</span>}
+              </div>
+              <button className={styles.counterCtrlBtn}
+                onPointerDown={e => { e.preventDefault(); onCounterChange(player.id, activeCounter, +1) }}>+</button>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Commander damage bar — display-only pills, tap to open overlay */}
       {showCommander && opponents.length > 0 && (
@@ -1238,18 +1475,31 @@ function PlayerPanel({
           <span className={styles.cmdBarIcon}>⚔</span>
           <div className={styles.cmdBadges}>
             {opponents.map(opp => {
-              const dmg = player.cmdDmg?.[opp.id] || 0
+              const dmg  = player.cmdDmg?.[opp.id]  || 0
+              const dmg2 = player.cmdDmg2?.[opp.id] || 0
+              const isLethal = dmg >= 21 || (opp.hasPartner && dmg2 >= 21)
+              const hasAnyDmg = dmg > 0 || (opp.hasPartner && dmg2 > 0)
               return (
                 <div key={opp.id}
-                  className={`${styles.cmdBadge} ${dmg > 0 ? styles.cmdBadgeHit : ''} ${dmg >= 21 ? styles.cmdBadgeLethal : ''}`}
+                  className={`${styles.cmdBadge} ${hasAnyDmg ? styles.cmdBadgeHit : ''} ${isLethal ? styles.cmdBadgeLethal : ''}`}
                   style={{ '--opc': opp.color }}>
                   <span className={styles.cmdBadgeDot} title={opp.name} />
-                  <span className={styles.cmdBadgeVal}>{dmg}</span>
+                  {opp.hasPartner
+                    ? <span className={styles.cmdBadgeVal}>{dmg}<span className={styles.cmdBadgeSep}>/</span>{dmg2}</span>
+                    : <span className={styles.cmdBadgeVal}>{dmg}</span>}
                 </div>
               )
             })}
           </div>
           <span className={styles.cmdBarHint}>hold life or tap</span>
+        </div>
+      )}
+
+      {/* Death overlay */}
+      {isDead && deathText && (
+        <div className={styles.deathOverlay}>
+          <div className={styles.deathIcon}>💀</div>
+          <div className={styles.deathText}>{deathText}</div>
         </div>
       )}
     </div>
@@ -1282,7 +1532,13 @@ export default function LifeTrackerPage() {
   const [session,        setSession]        = useState(null)
   const [lobbyConfig,    setLobbyConfig]    = useState(null)
   const [gameSessionId,  setGameSessionId]  = useState(null)
-  const [deckStatsMap,   setDeckStatsMap]   = useState({})
+  const [deckStatsMap, setDeckStatsMap] = useState({})
+  const [gameLog,      setGameLog]      = useState([])   // flat [{ts, type, playerName, playerColor, ...}]
+  const [showGameLog,  setShowGameLog]  = useState(false)
+
+  const addGameLogEvent = useCallback((event) => {
+    setGameLog(prev => [event, ...prev].slice(0, 120))
+  }, [])
 
   useEffect(() => {
     if (!showGameMenu) return
@@ -1462,7 +1718,7 @@ export default function LifeTrackerPage() {
     if (saved?.screen === 'playing' && saved.players?.length) {
       setScreen('playing')
       setGameConfig(saved.config)
-      setPlayers(saved.players)
+      setPlayers(saved.players.map(migratePlayer))
       setStartedAt(saved.startedAt)
     }
   }, [])
@@ -1485,6 +1741,8 @@ export default function LifeTrackerPage() {
     setScreen('setup')
     setGameConfig(null)
     setPlayers([])
+    setGameLog([])
+    setShowGameLog(false)
     setShowEndDialog(false)
     setShowGameMenu(false)
   }
@@ -1554,24 +1812,56 @@ export default function LifeTrackerPage() {
     setPlayers(prev =>
       Array.from({ length: gameConfig.playerCount }, (_, i) => ({
         ...makePlayer(i, life, prev[i]),
-        life, poison: 0, cmdDmg: {},
+        life,
+        counters: { poison: 0, energy: 0, experience: 0, radiation: 0 },
+        cmdDmg: {}, cmdDmg2: {},
       }))
     )
+    setGameLog([])
     setShowGameMenu(false)
   }
 
-  const onLifeChange   = (id, delta) => setPlayers(ps => ps.map(p => p.id === id ? { ...p, life: p.life + delta } : p))
-  const onPoisonChange = (id, delta) => setPlayers(ps => ps.map(p => p.id === id ? { ...p, poison: Math.max(0, p.poison + delta) } : p))
-  const onCmdDmgChange = (pid, fid, delta) => setPlayers(ps => ps.map(p => {
-    if (p.id !== pid) return p
-    const cur     = p.cmdDmg?.[fid] || 0
+  const onLifeChange = (id, delta) => {
+    const player  = players.find(p => p.id === id)
+    const newLife = (player?.life ?? 0) + delta
+    setPlayers(ps => ps.map(p => p.id === id ? { ...p, life: p.life + delta } : p))
+    addGameLogEvent({ ts: Date.now(), type: 'life', delta, total: newLife, playerName: player?.name, playerColor: player?.color })
+  }
+  const onCounterChange = (id, key, delta) => {
+    const player = players.find(p => p.id === id)
+    const cur    = player?.counters?.[key] ?? 0
+    const newVal = Math.max(0, cur + delta)
+    const applied = newVal - cur
+    setPlayers(ps => ps.map(p => {
+      if (p.id !== id) return p
+      return { ...p, counters: { ...p.counters, [key]: newVal } }
+    }))
+    if (applied !== 0) {
+      const player = players.find(p => p.id === id)
+      addGameLogEvent({ ts: Date.now(), type: 'counter', key, delta: applied, total: newVal, playerName: player?.name, playerColor: player?.color })
+    }
+  }
+  const onCmdDmgChange = (pid, fid, delta, isPartner2 = false) => {
+    const player  = players.find(p => p.id === pid)
+    const opp     = players.find(p => p.id === fid)
+    const field   = isPartner2 ? 'cmdDmg2' : 'cmdDmg'
+    const cur     = player?.[field]?.[fid] || 0
     const newVal  = Math.max(0, cur + delta)
     const applied = newVal - cur
-    return { ...p, life: p.life - applied, cmdDmg: { ...p.cmdDmg, [fid]: newVal } }
-  }))
-  const onNameChange  = (id, name)  => setPlayers(ps => ps.map(p => p.id === id ? { ...p, name } : p))
-  const onColorChange = (id, color) => setPlayers(ps => ps.map(p => p.id === id ? { ...p, color } : p))
-  const onArtChange   = (id, url)   => setPlayers(ps => ps.map(p => p.id === id ? { ...p, artCropUrl: url } : p))
+    setPlayers(ps => ps.map(p => {
+      if (p.id !== pid) return p
+      return { ...p, life: p.life - applied, [field]: { ...p[field], [fid]: newVal } }
+    }))
+    if (applied !== 0) {
+      const newLife = (player?.life ?? 0) - applied
+      const label   = isPartner2 ? `${opp?.name || '?'} ②` : (opp?.name || '?')
+      addGameLogEvent({ ts: Date.now(), type: 'cmdDmg', delta: -applied, total: newLife, fromName: label, playerName: player?.name, playerColor: player?.color })
+    }
+  }
+  const onTogglePartner = (id) => setPlayers(ps => ps.map(p => p.id === id ? { ...p, hasPartner: !p.hasPartner } : p))
+  const onNameChange    = (id, name)  => setPlayers(ps => ps.map(p => p.id === id ? { ...p, name } : p))
+  const onColorChange   = (id, color) => setPlayers(ps => ps.map(p => p.id === id ? { ...p, color } : p))
+  const onArtChange     = (id, url)   => setPlayers(ps => ps.map(p => p.id === id ? { ...p, artCropUrl: url } : p))
 
   if (screen === 'setup') {
     return (
@@ -1644,6 +1934,9 @@ export default function LifeTrackerPage() {
             </button>
             {showGameMenu && (
               <div className={styles.gearMenu}>
+                <button className={styles.gearMenuItem} onClick={() => { setShowGameLog(true); setShowGameMenu(false) }}>
+                  📜 Game Log
+                </button>
                 <button className={styles.gearMenuItem} onClick={() => { setShowDice(true); setShowGameMenu(false) }}>
                   🎲 Dice Roller
                 </button>
@@ -1689,6 +1982,9 @@ export default function LifeTrackerPage() {
             </button>
             {showGameMenu && (
               <div className={`${styles.gearMenu} ${styles.gearMenuFs}`}>
+                <button className={styles.gearMenuItem} onClick={() => { setShowGameLog(true); setShowGameMenu(false) }}>
+                  📜 Game Log
+                </button>
                 <button className={styles.gearMenuItem} onClick={() => { setShowDice(true); setShowGameMenu(false) }}>
                   🎲 Dice Roller
                 </button>
@@ -1721,14 +2017,14 @@ export default function LifeTrackerPage() {
                 player={player}
                 opponents={players.filter(p => p.id !== player.id)}
                 onLifeChange={onLifeChange}
-                onPoisonChange={onPoisonChange}
+                onCounterChange={onCounterChange}
                 onCmdDmgChange={onCmdDmgChange}
                 onNameChange={onNameChange}
                 onColorChange={onColorChange}
                 onRequestArtPicker={setArtPickerPlayer}
                 onRequestCmdDmgOverlay={modeConf.commander ? setCmdDmgPlayer : null}
+                onTogglePartner={onTogglePartner}
                 showCommander={modeConf.commander}
-                showPoison={modeConf.poison}
                 rotation={rotation}
               />
             </div>
@@ -1749,6 +2045,12 @@ export default function LifeTrackerPage() {
           opponents={players.filter(p => p.id !== cmdDmgPlayer)}
           onCmdDmgChange={onCmdDmgChange}
           onClose={() => setCmdDmgPlayer(null)} />
+      )}
+
+      {showGameLog && (
+        <GameLogOverlay
+          events={gameLog}
+          onClose={() => setShowGameLog(false)} />
       )}
 
       {showDice   && <DiceRoller onClose={() => setShowDice(false)} />}

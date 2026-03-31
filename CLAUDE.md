@@ -207,7 +207,20 @@ var(--text-dim)      /* secondary text */
 var(--text-faint)    /* placeholder / disabled text */
 var(--green)         /* #5dba70 — positive/price colour */
 var(--font-display)  /* Cinzel — headings, titles, fantasy flavour */
+
+/* Surface overlay vars — auto-adapt dark ↔ light (prefer these over hardcoded rgba(255,255,255,...)) */
+var(--s1)            /* lightest surface tint */
+var(--s2)            /* card/panel background fill */
+var(--s3)            /* interactive element fill (buttons) */
+var(--s4)            /* hover/pressed fill */
+var(--s-card)        /* card surface */
+var(--s-subtle)      /* very subtle tint */
+var(--s-medium)      /* medium tint — use for button hover backgrounds */
+var(--s-border)      /* subtle border — use instead of rgba(255,255,255,0.07) */
+var(--s-border2)     /* stronger border — use for interactive button outlines */
 ```
+
+**Light theme critical rule:** Never use hardcoded `rgba(255,255,255,0.X)` for borders or backgrounds on interactive elements — they are invisible on light themes. Use `var(--s-border)` / `var(--s-border2)` / `var(--s-medium)` etc. instead. The `[data-theme-mode="light"]` block in `index.css` now also overrides `--text`, `--text-dim`, `--text-faint`, `--gold`, `--gold-dim`, `--green`, `--red`, `--purple`, `--border`, `--border-hi` to dark values for WCAG contrast on near-white backgrounds.
 
 #### Recurring visual patterns
 
@@ -351,6 +364,34 @@ Tap-to-swap component used in both `PreGameSetup` (local) and `LobbyScreen` (sha
 #### Host Setup Screen (`HostSetupScreen`)
 
 After creating a shared lobby, host is taken to `HostSetupScreen` (screen `'host-setup'`) before the lobby is visible. Same name/color/deck/art form as JoinGame — writes to Supabase `game_players` slot 0 with `claimed_at`. On submit → `setScreen('lobby')`.
+
+#### Unified Game Log
+
+`gameLog: [{ts, type, playerName, playerColor, delta, total, key?, fromName?}]` — flat array (newest first, max 120 entries) replacing the old per-player `playerHistory` keyed object. Updated via `addGameLogEvent(event)` from `onLifeChange`, `onCounterChange`, and `onCmdDmgChange`. Each event carries `playerName`/`playerColor` at the call site (not inside the callback) so there's no stale-closure issue.
+
+`GameLogOverlay` — renders the flat log in a `.cmdOverlayPanel` modal. Accessed via ⚙ gear menu → "📜 Game Log" (appears in both topbar and fsControls menus). State: `showGameLog` boolean. Cleared in `handleNewGame` and `resetGame`.
+
+**Removed:** `PlayerHistoryOverlay` (per-player log), per-player 📜 button in `nameRow`, `playerHistory`/`historyPlayerId` state, `addHistoryEvent`. If you see any of these names they are stale.
+
+#### Low-life Animations
+
+Applied to `PlayerPanel` based on `player.life` (not applied when `isDead`):
+- `isLow = !isDead && life <= 10 && life > 5` → `.playerLifeLow` — slow amber border pulse (`lifeLowPulse`, 2.8 s)
+- `isCrit = !isDead && life <= 5 && life > 0` → `.playerLifeCrit` — fast red border pulse (`lifeCritPulse`, 1.3 s)
+
+Both animate `border-top-color` and `box-shadow` only, leaving layout/opacity untouched.
+
+#### Death Messages
+
+`DEATH_TEXTS` — constant array of 55+ MTG-flavoured death strings (e.g. "Phyrexian Compleatified", "Mulliganned into the shadow realm"). `PlayerPanel` holds `deathText` state: set to a random entry when `isDead` first becomes `true`, cleared when the player is revived. Rendered as an `position: absolute; inset: 0` overlay (`.deathOverlay`) with a 💀 icon + text — only visible when both `isDead && deathText` are truthy. `pointer-events: none` so the panel remains interactive underneath.
+
+#### Counter Tab UI
+
+Tabs are now **column flex** (icon stacked above text label). New classes:
+- `.counterTabIcon` — `font-size: 0.9rem`
+- `.counterTabLabel` — `font-size: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em`
+
+Counter section background uses `var(--s2)` (not hardcoded `rgba(0,0,0,0.22)`) so it renders correctly on light themes.
 
 #### Deck Win/Loss Stats
 
@@ -508,6 +549,7 @@ Replaced the old OCR pipeline with a **pHash + OpenCV** approach. New pipeline:
 - **OpenCV.js**: Loaded via async CDN `<script>` tag (not bundled). Check `window.cv` readiness via polling (`waitForOpenCV()`).
 - **SQLite web fallback**: `@capacitor-community/sqlite` doesn't work in browsers. Web path fetches from Supabase directly (up to 10k rows).
 - **Transparent WebView**: `this.bridge.getWebView().setBackgroundColor(Color.TRANSPARENT)` in `MainActivity.java` makes the native camera visible behind the overlay.
+- **Android back button**: `onBackPressed()` in `MainActivity.java` calls `webView.goBack()` when `canGoBack()` is true (React Router's pushState history). When at the root (no history), requires a **double-tap within 2 s** to exit — first tap shows a `Toast` ("Press back again to exit"), second tap within the window calls `super.onBackPressed()`. Do not install `@capacitor/app` just for this — the WebView history approach is sufficient for a SPA.
 
 #### Supabase `card_hashes` table (run once)
 

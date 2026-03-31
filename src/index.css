@@ -163,6 +163,17 @@
   --scrim-strong: rgba(233,238,245,0.82);
   --scrim-medium: rgba(233,238,245,0.62);
   --scrim-soft: rgba(233,238,245,0.42);
+  /* Text & accents — dark values for WCAG legibility on near-white backgrounds */
+  --text:       #1e1810;
+  --text-dim:   #3c3020;
+  --text-faint: #5a4834;
+  --gold:       #7a5810;
+  --gold-dim:   #5a4008;
+  --green:      #245a20;
+  --red:        #901818;
+  --purple:     #4a3494;
+  --border:     rgba(100,70,20,0.25);
+  --border-hi:  rgba(100,70,20,0.50);
   color-scheme: light;
 }
 
