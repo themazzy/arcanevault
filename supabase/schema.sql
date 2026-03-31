@@ -52,6 +52,7 @@ create table folder_cards (
   folder_id uuid references folders on delete cascade not null,
   card_id   uuid references cards on delete cascade not null,
   qty       integer default 1 check (qty >= 1),
+  updated_at timestamptz default now(),
   unique (folder_id, card_id)
 );
 
@@ -79,6 +80,7 @@ create index cards_added_at_idx          on cards(added_at);
 create index folders_user_id_idx         on folders(user_id);
 create index folder_cards_folder_id_idx  on folder_cards(folder_id);
 create index folder_cards_card_id_idx    on folder_cards(card_id);
+create index folder_cards_updated_at_idx on folder_cards(updated_at);
 create index price_snapshots_user_id_idx on price_snapshots(user_id);
 create index price_snapshots_taken_at_idx on price_snapshots(taken_at);
 
@@ -117,6 +119,7 @@ $$ language plpgsql;
 
 create trigger cards_updated_at   before update on cards   for each row execute function update_updated_at();
 create trigger folders_updated_at before update on folders for each row execute function update_updated_at();
+create trigger folder_cards_updated_at before update on folder_cards for each row execute function update_updated_at();
 
 -- ── USER SETTINGS ─────────────────────────────────────────────────────────────
 create table if not exists user_settings (

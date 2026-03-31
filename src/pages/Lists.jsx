@@ -4,7 +4,7 @@ import { enrichCards, getInstantCache, getPrice, formatPrice, getScryfallKey } f
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { EmptyState, SectionHeader, Modal } from '../components/UI'
-import { FilterBar, BulkActionBar, applyFilterSort, EMPTY_FILTERS } from '../components/CardComponents'
+import { CardGrid, FilterBar, BulkActionBar, applyFilterSort, EMPTY_FILTERS } from '../components/CardComponents'
 import { useLongPress } from '../hooks/useLongPress'
 import AddCardModal from '../components/AddCardModal'
 import ImportModal from '../components/ImportModal'
@@ -193,81 +193,13 @@ function WishlistItem({ item, sfCard, priceSource, onDelete, selectMode, selecte
   )
 }
 
-// ── Wishlist grid view ────────────────────────────────────────────────────────
-function WishlistGridItem({ item, sf, priceSource, selectMode, selected, onToggleSelect, onEnterSelectMode, onDelete, splitState, onAdjustQty }) {
-  const longPress = useLongPress(() => { if (!selectMode) onEnterSelectMode?.() }, { delay: 500 })
-  const { onMouseLeave: lpLeave, ...lpRest } = longPress
-  const price    = getPrice(sf, item.foil, { price_source: priceSource })
-  const img      = sf?.image_uris?.normal || sf?.image_uris?.small || sf?.card_faces?.[0]?.image_uris?.normal
-  const totalQty = item.qty || 1
-  const selQty   = splitState?.get(item.id) ?? 1
-
-  return (
-    <div
-      className={`${listStyles.gridItem}${selectMode ? ` ${listStyles.gridItemSelectMode}` : ''}${selected ? ` ${listStyles.gridItemSelected}` : ''}`}
-      onClick={selectMode ? () => onToggleSelect(item.id, totalQty) : undefined}
-      onMouseLeave={lpLeave}
-      {...lpRest}
-    >
-      {selectMode && (
-        <div className={`${listStyles.gridCheckbox}${selected ? ` ${listStyles.gridCheckboxChecked}` : ''}`} />
-      )}
-      {item.qty > 1 && !selected && <div className={listStyles.gridQty}>×{item.qty}</div>}
-      {img
-        ? <img src={img} className={listStyles.gridImg} alt={item.name} loading="lazy" />
-        : <div className={listStyles.gridImgPlaceholder}>{item.name}</div>
-      }
-      {selectMode && selected && totalQty > 1 && (
-        <div className={listStyles.qtyOverlay}>
-          <button className={listStyles.qtyOverlayBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(item.id, +1, totalQty) }}>+</button>
-          <div className={listStyles.qtyOverlayDisplay}>{selQty} of {totalQty}</div>
-          <button className={listStyles.qtyOverlayBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(item.id, -1, totalQty) }}>−</button>
-        </div>
-      )}
-      <div className={listStyles.gridFooter}>
-        <span className={listStyles.gridName}>
-          {item.name}
-          {item.foil && <span className={listStyles.gridFoilBadge}>✦</span>}
-        </span>
-        <span className={listStyles.gridPrice} style={{ color: price != null ? 'var(--green)' : 'var(--text-faint)' }}>
-          {price != null ? formatPrice(price, priceSource) : '—'}
-        </span>
-      </div>
-      {!selectMode && (
-        <button className={listStyles.gridDelete} onClick={e => { e.stopPropagation(); onDelete(item.id) }}>✕</button>
-      )}
-    </div>
-  )
-}
-
-function WishlistGrid({ items, sfMap, priceSource, selectMode, selectedItems, onToggleSelect, onEnterSelectMode, onDelete, splitState, onAdjustQty }) {
-  return (
-    <div className={listStyles.gridView}>
-      {items.map(item => (
-        <WishlistGridItem
-          key={item.id}
-          item={item}
-          sf={sfMap[`${item.set_code}-${item.collector_number}`]}
-          priceSource={priceSource}
-          selectMode={selectMode}
-          selected={selectedItems.has(item.id)}
-          onToggleSelect={onToggleSelect}
-          onEnterSelectMode={onEnterSelectMode}
-          onDelete={onDelete}
-          splitState={splitState}
-          onAdjustQty={onAdjustQty}
-        />
-      ))}
-    </div>
-  )
-}
-
 // ── ListBrowser ───────────────────────────────────────────────────────────────
 function ListBrowser({ folder, onBack }) {
   const { price_source, default_sort } = useSettings()
   const { user } = useAuth()
   const [items, setItems]       = useState([])
   const [sfMap, setSfMap]       = useState({})
+  const [allFolders, setAllFolders] = useState([])
   const [loading, setLoading]   = useState(true)
   const [search, setSearch]     = useState('')
   const [sort, setSort]         = useState(default_sort || 'name')
@@ -277,7 +209,7 @@ function ListBrowser({ folder, onBack }) {
   const [splitState, setSplitState]       = useState(new Map())
   const [showAddCard, setShowAddCard]     = useState(false)
   const [showExport, setShowExport]       = useState(false)
-  const [view, setView]                   = useState('list')   // 'list' | 'grid'
+  const [view, setView]                   = useState('grid')   // 'list' | 'grid'
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -291,6 +223,12 @@ function ListBrowser({ folder, onBack }) {
   }, [folder.id])
 
   useEffect(() => { reload() }, [reload])
+
+  useEffect(() => {
+    sb.from('folders').select('id, name, type').eq('user_id', user.id).eq('type', 'list').then(({ data }) => {
+      setAllFolders((data || []).filter(f => f.id !== folder.id))
+    })
+  }, [user.id, folder.id])
 
   const filtered = useMemo(
     () => applyFilterSort(items, sfMap, search, sort, filters),
@@ -368,6 +306,53 @@ function ListBrowser({ folder, onBack }) {
     setSelectedItems(new Set()); setSplitState(new Map()); setSelectMode(false)
   }
 
+  const handleMoveToWishlist = async (targetFolder) => {
+    const toDelete = []
+    const toUpdate = []
+    const upserts = []
+
+    for (const id of selectedItems) {
+      const item = items.find(i => i.id === id)
+      if (!item) continue
+      const totalQty = item.qty || 1
+      const selQty = splitState.get(id) ?? 1
+      const remaining = totalQty - selQty
+
+      upserts.push({
+        folder_id: targetFolder.id,
+        user_id: user.id,
+        name: item.name,
+        set_code: item.set_code || null,
+        collector_number: item.collector_number || null,
+        scryfall_id: item.scryfall_id || null,
+        foil: item.foil ?? false,
+        qty: selQty,
+      })
+
+      if (remaining > 0) toUpdate.push({ id, remaining })
+      else toDelete.push(id)
+    }
+
+    if (upserts.length) {
+      const { error } = await sb.from('list_items')
+        .upsert(upserts, { onConflict: 'folder_id,set_code,collector_number,foil' })
+      if (error) return
+    }
+    if (toDelete.length) await sb.from('list_items').delete().in('id', toDelete)
+    for (const { id, remaining } of toUpdate) {
+      await sb.from('list_items').update({ qty: remaining }).eq('id', id)
+    }
+
+    setItems(prev => prev.map(i => {
+      if (toDelete.includes(i.id)) return null
+      const upd = toUpdate.find(u => u.id === i.id)
+      return upd ? { ...i, qty: upd.remaining } : i
+    }).filter(Boolean))
+    setSelectedItems(new Set())
+    setSplitState(new Map())
+    setSelectMode(false)
+  }
+
   if (loading) return <EmptyState>Loading…</EmptyState>
 
   return (
@@ -417,7 +402,19 @@ function ListBrowser({ folder, onBack }) {
           onSelectAll={() => setSelectedItems(new Set(filtered.map(i => i.id)))}
           onDeselectAll={() => setSelectedItems(new Set())}
           onDelete={handleBulkDelete}
-          folders={[]}
+          onMoveToFolder={handleMoveToWishlist}
+          folders={allFolders}
+          allowedFolderTypes={['list']}
+          onCreateFolder={async (_type, name) => {
+            const { data: newFolder } = await sb.from('folders')
+              .insert({ user_id: user.id, type: 'list', name })
+              .select('id, name, type')
+              .single()
+            if (newFolder) {
+              setAllFolders(prev => [...prev, newFolder])
+              await handleMoveToWishlist(newFolder)
+            }
+          }}
         />
       )}
 
@@ -442,15 +439,14 @@ function ListBrowser({ folder, onBack }) {
       )}
 
       {view === 'grid' && filtered.length > 0 && (
-        <WishlistGrid
-          items={filtered}
+        <CardGrid
+          cards={filtered}
           sfMap={sfMap}
-          priceSource={price_source}
+          onSelect={() => {}}
           selectMode={selectMode}
-          selectedItems={selectedItems}
+          selected={selectedItems}
           onToggleSelect={onToggleSelect}
           onEnterSelectMode={enterSelectMode}
-          onDelete={handleDelete}
           splitState={splitState}
           onAdjustQty={onAdjustQty}
         />

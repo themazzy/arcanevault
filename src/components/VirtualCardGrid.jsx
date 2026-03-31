@@ -10,7 +10,6 @@ const DENSITY_MIN_WIDTH   = { cozy: 210, comfortable: 168, compact: 128 }
 const DENSITY_CARD_HEIGHT = { cozy: 375, comfortable: 325, compact: 260 }
 const OVERSCAN = 3
 
-
 const TYPE_COLOR  = { binder: 'rgba(201,168,76,0.18)', deck: 'rgba(138,111,196,0.18)', list: 'rgba(100,180,100,0.15)' }
 const TYPE_BORDER = { binder: 'rgba(201,168,76,0.35)', deck: 'rgba(138,111,196,0.35)', list: 'rgba(100,180,100,0.3)' }
 
@@ -43,9 +42,10 @@ function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, tota
     : null
 
   const selQty = splitState?.get(card.id) ?? 1
+  const displayQty = card._folder_qty ?? card.qty ?? 1
 
-  // If card has a _displayFolder it's an expanded entry — show only that folder
-  // Otherwise show all folders from cardFolderMap
+  // If card has a _displayFolder it's an expanded entry; show only that folder.
+  // Otherwise show all folders from cardFolderMap.
   const folders = card._displayFolder
     ? [card._displayFolder]
     : (cardFolders?.[card.id] || [])
@@ -77,12 +77,12 @@ function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, tota
           : <div className={styles.imgPlaceholder}>{card.name}</div>
         }
         {card.foil && <div style={{ position: 'absolute', top: 5, left: 5 }}><Badge variant="foil">Foil</Badge></div>}
-        {card.qty > 1 && !card._multiFolder && <div className={styles.qty}>×{card.qty}</div>}
+        {displayQty > 1 && <div className={styles.qty}>x{displayQty}</div>}
         {selectMode && isSelected && totalQty > 1 && (
           <div className={styles.qtyOverlay}>
             <button className={styles.qtyBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(card.id, +1, totalQty) }}>+</button>
             <div className={styles.qtyDisplay}>{selQty} of {totalQty}</div>
-            <button className={styles.qtyBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(card.id, -1, totalQty) }}>−</button>
+            <button className={styles.qtyBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(card.id, -1, totalQty) }}>-</button>
           </div>
         )}
       </div>
@@ -94,7 +94,7 @@ function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, tota
           {showPrice && (
             <span className={styles.priceWrap}>
               <span className={`${styles.price}${(priceMeta == null && !isBuyFallback) ? ' ' + styles.priceNa : (priceMeta?.isFallback || isBuyFallback ? ' ' + styles.priceFallback : '')}`}>
-                {priceMeta ? formatPriceMeta(priceMeta) : isBuyFallback ? `${priceSource === 'tcgplayer_market' ? '$' : '€'}${buyPrice.toFixed(2)}` : loading ? '…' : '—'}
+                {priceMeta ? formatPriceMeta(priceMeta) : isBuyFallback ? `${priceSource === 'tcgplayer_market' ? '$' : 'EUR '}${buyPrice.toFixed(2)}` : loading ? '...' : '-'}
               </span>
               {plPct != null && (
                 <span className={`${styles.pricePct} ${plPct >= 0 ? styles.pricePctUp : styles.pricePctDown}`}>
@@ -137,9 +137,9 @@ export default function VirtualCardGrid({
     return () => ro.disconnect()
   }, [measureCols])
 
-  // Attach _totalQty to each card so CardItem knows the full qty for the adjuster
+  // Attach _totalQty to each card so CardItem knows the full qty for the adjuster.
   const cardsWithQty = useMemo(() =>
-    cards.map(card => ({ ...card, _totalQty: card.qty || 1 }))
+    cards.map(card => ({ ...card, _totalQty: card._folder_qty ?? card.qty ?? 1 }))
   , [cards])
 
   const cols    = colsRef.current

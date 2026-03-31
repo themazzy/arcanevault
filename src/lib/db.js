@@ -13,14 +13,14 @@
 import { openDB } from 'idb'
 
 const DB_NAME    = 'arcanevault'
-const DB_VERSION = 2
+const DB_VERSION = 3
 
 let _db = null
 
 async function getDb() {
   if (_db) return _db
   _db = await openDB(DB_NAME, DB_VERSION, {
-    upgrade(db, oldVersion) {
+    upgrade(db, oldVersion, _newVersion, transaction) {
       // scryfall store — card data from Scryfall API
       if (!db.objectStoreNames.contains('scryfall')) {
         const sf = db.createObjectStore('scryfall', { keyPath: 'key' })
@@ -40,6 +40,10 @@ async function getDb() {
         const fc = db.createObjectStore('folder_cards', { keyPath: 'id' })
         fc.createIndex('folder_id', 'folder_id')
         fc.createIndex('card_id',   'card_id')
+        fc.createIndex('updated_at', 'updated_at')
+      } else if (oldVersion < 3) {
+        const fc = transaction.objectStore('folder_cards')
+        if (!fc.indexNames.contains('updated_at')) fc.createIndex('updated_at', 'updated_at')
       }
 
       // folders store — binders, decks, wishlists, builder decks
@@ -190,6 +194,18 @@ export async function putFolderCards(rows) {
   const db = await getDb()
   const tx = db.transaction('folder_cards', 'readwrite')
   await Promise.all([...rows.map(r => tx.store.put(r)), tx.done])
+}
+
+export async function replaceLocalFolderCards(folderIds, rows) {
+  const ids = [...new Set((folderIds || []).filter(Boolean))]
+  const db = await getDb()
+  const tx = db.transaction('folder_cards', 'readwrite')
+  for (const folderId of ids) {
+    const existing = await tx.store.index('folder_id').getAll(folderId)
+    for (const row of existing) await tx.store.delete(row.id)
+  }
+  for (const row of rows || []) await tx.store.put(row)
+  await tx.done
 }
 
 // ── Deck Cards (builder) ──────────────────────────────────────────────────────
