@@ -3,7 +3,6 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { Readable } from 'node:stream'
 import { createClient } from '@supabase/supabase-js'
-import { parser } from 'stream-json'
 import { streamArray } from 'stream-json/streamers/stream-array.js'
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
@@ -81,8 +80,7 @@ async function processBulkFile(snapshotDate) {
 
   const pipeline = fs
     .createReadStream(BULK_DOWNLOAD_PATH)
-    .pipe(parser())
-    .pipe(streamArray())
+    .pipe(streamArray.withParserAsStream())
 
   for await (const { value: card } of pipeline) {
     if (!card?.id || !card?.set || !card?.collector_number) {
