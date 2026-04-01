@@ -3,7 +3,6 @@ import { sb } from '../lib/supabase'
 import { Modal, Button, ErrorBox } from './UI'
 import { useSettings } from './SettingsContext'
 import { getPrice, formatPrice, getPriceSource, sfGet } from '../lib/scryfall'
-import { initScanner, ocrCardName, getFrameArtHash, filterPrintingsByArt } from '../lib/scanner'
 import styles from './AddCardModal.module.css'
 
 const CONDITIONS = [
@@ -38,201 +37,7 @@ function getOwnedCardKey(card) {
   ].join('|')
 }
 
-// Returns market price in the native price_source currency as a string for the purchase price input.
-function getMarketPrice(printing, isFoil, price_source = 'cardmarket_trend') {
-  const v = getPrice(printing, isFoil, { price_source })
-  return v ? v.toFixed(2) : ''
-}
-
-// ── Camera / scan view ────────────────────────────────────────────────────────
-
-function ScanView({ onScanned, onManual }) {
-  const videoRef    = useRef(null)
-  const activeRef   = useRef(true)   // set to false on unmount to stop loop
-  const ocrBufRef   = useRef([])     // stability buffer — need 2 consecutive matches
-  const [camReady, setCamReady]     = useState(false)
-  const [camError, setCamError]     = useState(false)
-  const [statusText, setStatusText] = useState('Starting camera…')
-  const [showDebug, setShowDebug]   = useState(false)
-  const [debugInfo, setDebugInfo]   = useState({})
-
-  // Start camera + Tesseract in parallel
-  useEffect(() => {
-    let stream = null
-    activeRef.current = true
-
-    const start = async () => {
-      setStatusText('Initializing scanner…')
-      try {
-        const [, s] = await Promise.all([
-          initScanner(),
-          navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } },
-          }),
-        ])
-        if (!activeRef.current) { s.getTracks().forEach(t => t.stop()); return }
-        stream = s
-        videoRef.current.srcObject = s
-        await videoRef.current.play()
-        setCamReady(true)
-        setStatusText('Hold card still…')
-      } catch {
-        setCamError(true)
-        setStatusText('Camera unavailable — use manual search')
-      }
-    }
-
-    start()
-    return () => {
-      activeRef.current = false
-      stream?.getTracks().forEach(t => t.stop())
-    }
-  }, [])
-
-  // Scanning loop — runs after camera is ready
-  useEffect(() => {
-    if (!camReady) return
-    let timeout
-
-    const scan = async () => {
-      if (!activeRef.current) return
-
-      const result = await ocrCardName(videoRef.current)
-      if (!activeRef.current) return
-
-      setDebugInfo(d => ({ ...d,
-        ocrText: result?.text || '—',
-        ocrConf: result ? `${result.confidence.toFixed(0)}%` : '—',
-        step: 'OCR',
-      }))
-
-      if (!result || result.confidence < 52 || result.text.length < 3) {
-        ocrBufRef.current = []  // reset stability buffer on failed read
-        setStatusText(`Hold card still inside the frame${result?.text ? ` — "${result.text}" (${result.confidence.toFixed(0)}%)` : ''}`)
-        if (activeRef.current) timeout = setTimeout(scan, 700)
-        return
-      }
-
-      // Stability buffer: require the same text twice in a row to avoid misreads
-      const buf = ocrBufRef.current
-      buf.push(result.text)
-      if (buf.length > 2) buf.shift()
-
-      setStatusText(`Scanning… "${result.text}" (${result.confidence.toFixed(0)}%)`)
-      setDebugInfo(d => ({ ...d, step: 'Stabilising' }))
-
-      if (buf.length < 2 || buf[0] !== buf[1]) {
-        if (activeRef.current) timeout = setTimeout(scan, 700)
-        return
-      }
-
-      // Got a stable read — proceed
-      ocrBufRef.current = []
-      setDebugInfo(d => ({ ...d, step: 'Name lookup' }))
-
-      try {
-        // Fuzzy name match
-        const card = await sfGet(
-          `https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(result.text)}`
-        )
-        if (!card) throw new Error('no match')
-
-        setStatusText(`Found "${card.name}" — matching set from art…`)
-        setDebugInfo(d => ({ ...d, matchedName: card.name, step: 'Printings' }))
-
-        // Fetch all printings
-        const printsData = await sfGet(
-          `https://api.scryfall.com/cards/search?q=!"${encodeURIComponent(card.name)}"&unique=prints&order=released&dir=desc`
-        )
-        const allPrintings = printsData?.data || []
-
-        setDebugInfo(d => ({ ...d, printingCount: allPrintings.length, step: 'Art hash' }))
-
-        // Art hash comparison
-        const frameHash = getFrameArtHash(videoRef.current)
-        const matchedPrintings = await filterPrintingsByArt(allPrintings, frameHash, scores => {
-          setDebugInfo(d => ({ ...d,
-            artScores: scores.slice(0, 5).map(s => `${s.p.set?.toUpperCase()} ${s.score}`).join('  '),
-          }))
-        })
-
-        if (!activeRef.current) return
-        activeRef.current = false  // stop loop — success
-
-        setDebugInfo(d => ({ ...d, step: 'Done', artMatches: matchedPrintings.length }))
-        setStatusText(`Matched! ${matchedPrintings.length} set(s)`)
-        onScanned(card.name, matchedPrintings, allPrintings)
-      } catch (e) {
-        setDebugInfo(d => ({ ...d, step: 'Error', error: e.message }))
-        setStatusText('Not recognized — try repositioning the card')
-        ocrBufRef.current = []
-        if (activeRef.current) timeout = setTimeout(scan, 700)
-      }
-    }
-
-    timeout = setTimeout(scan, 1000)  // brief delay before first attempt
-    return () => clearTimeout(timeout)
-  }, [camReady])
-
-  return (
-    <div className={styles.scanView}>
-      <div className={styles.cameraWrap}>
-        <video
-          ref={videoRef}
-          autoPlay playsInline muted
-          className={styles.videoEl}
-        />
-
-        {/* Targeting overlay — dark mask with card-shaped cutout */}
-        <div className={styles.scanMask}>
-          <div className={styles.cardTarget}>
-            {/* Name strip indicator */}
-            <div className={styles.nameZone} />
-            {/* Art area indicator */}
-            <div className={styles.artZone} />
-          </div>
-        </div>
-
-        {/* Scan status */}
-        <div className={`${styles.scanStatusBar} ${camError ? styles.scanStatusError : ''}`}>
-          <span className={!camError && camReady ? styles.scanDot : ''} />
-          {statusText}
-        </div>
-      </div>
-
-      <div className={styles.scanFooter}>
-        <span className={styles.scanHint}>
-          {camError
-            ? 'Grant camera permission and reload to scan'
-            : 'Hold the card in the frame, name side up'}
-        </span>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <button className={styles.debugToggle} onClick={() => setShowDebug(v => !v)}>
-            {showDebug ? 'Hide debug' : 'Debug'}
-          </button>
-          <button className={styles.manualLink} onClick={onManual}>
-            Type instead →
-          </button>
-        </div>
-      </div>
-
-      {showDebug && (
-        <div className={styles.debugPanel}>
-          <div className={styles.debugRow}><span>Step</span><span>{debugInfo.step || '—'}</span></div>
-          <div className={styles.debugRow}><span>OCR text</span><span>{debugInfo.ocrText || '—'}</span></div>
-          <div className={styles.debugRow}><span>OCR conf</span><span>{debugInfo.ocrConf || '—'}</span></div>
-          {debugInfo.matchedName && <div className={styles.debugRow}><span>Card name</span><span>{debugInfo.matchedName}</span></div>}
-          {debugInfo.printingCount != null && <div className={styles.debugRow}><span>Printings</span><span>{debugInfo.printingCount}</span></div>}
-          {debugInfo.artScores && <div className={styles.debugRow}><span>Art scores</span><span className={styles.debugSmall}>{debugInfo.artScores}</span></div>}
-          {debugInfo.artMatches != null && <div className={styles.debugRow}><span>Art matches</span><span>{debugInfo.artMatches}</span></div>}
-          {debugInfo.error && <div className={styles.debugRow} style={{ color: 'var(--red)' }}><span>Error</span><span>{debugInfo.error}</span></div>}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── Edit mode (simple form) ────────────────────────────────────────────────────
+// Edit mode (simple form) ────────────────────────────────────────────────────
 function EditForm({ card, onClose, onSaved }) {
   const [qty, setQty]                   = useState(card.qty || 1)
   const [condition, setCondition]       = useState(card.condition || 'near_mint')
@@ -323,8 +128,8 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
     return v != null ? formatPrice(v, price_source) : '—'
   }
 
-  // View state: 'scan' | 'search' | 'configure'
-  const [view, setView] = useState('scan')
+  // View state: 'search' | 'configure'
+  const [view, setView] = useState(initialCardName ? 'configure' : 'search')
 
   // Search
   const [query, setQuery]               = useState('')
@@ -380,7 +185,7 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
     if (f) setFolderSearch(f.name)
   }, [folderMode, defaultFolderId, folders])
 
-  // Pre-fill card from scanner: auto-search on mount
+  // Pre-fill card from the standalone scanner: auto-search on mount
   useEffect(() => {
     if (initialCardName) selectCard(initialCardName)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -424,22 +229,7 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
 
   // ── Callbacks ────────────────────────────────────────────────────────────────
 
-  // Called by ScanView when scan succeeds: matchedPrintings = art-filtered, allPrints = full list
-  const handleScanned = (name, matchedPrintings, allPrints) => {
-    setSelectedName(name)
-    setQuery(name)
-    setPrintings(matchedPrintings)
-    setAllPrintings(allPrints)
-    setShowAllPrintings(false)
-    if (matchedPrintings.length > 0) {
-      setSelectedPrinting(matchedPrintings[0])
-      setFoil(false)
-      setPurchasePrice(getMarketPrice(matchedPrintings[0], false, price_source))
-    }
-    setView('configure')
-  }
-
-  // Called when user manually types and picks a card name
+  // Called when user types and picks a card name
   const selectCard = async (name) => {
     setSelectedName(name)
     setQuery(name)
@@ -491,7 +281,7 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
       purchasePrice: parseFloat(purchasePrice) || 0,
     }])
     resetSearch()
-    setView('scan')
+    setView('search')
   }
 
   const removeFromQueue = (id) => setQueue(q => q.filter(item => item.id !== id))
@@ -655,30 +445,7 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
     <>
       <div className={styles.modalHeader}>
         <h2 className={styles.title}>Add Cards</h2>
-        {/* Tab row: Scan | Type */}
-        <div className={styles.modeTabs}>
-          <button
-            className={`${styles.modeTab} ${view === 'scan' ? styles.modeTabActive : ''}`}
-            onClick={() => { resetSearch(); setView('scan') }}
-          >
-            ⌖ Scan
-          </button>
-          <button
-            className={`${styles.modeTab} ${view !== 'scan' ? styles.modeTabActive : ''}`}
-            onClick={() => setView(selectedName ? 'configure' : 'search')}
-          >
-            ⌨ Type
-          </button>
-        </div>
       </div>
-
-      {/* ── Scan view ── */}
-      {view === 'scan' && (
-        <ScanView
-          onScanned={handleScanned}
-          onManual={() => { resetSearch(); setView('search') }}
-        />
-      )}
 
       {/* ── Manual search ── */}
       {view === 'search' && (
@@ -960,3 +727,4 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
     </>
   )
 }
+
