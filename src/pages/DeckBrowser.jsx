@@ -594,7 +594,7 @@ function DeckCardGrid({ cards, sfMap, priceSource, onSelect, onHover, onHoverEnd
 
 export default function DeckBrowser({ folder, onBack }) {
   const navigate = useNavigate()
-  const { price_source, default_sort } = useSettings()
+  const { price_source, default_sort, default_grouping } = useSettings()
   const { user } = useAuth()
   const [cards, setCards]           = useState([])
   const [sfMap, setSfMap]           = useState({})
@@ -602,7 +602,7 @@ export default function DeckBrowser({ folder, onBack }) {
   const [detailCardId, setDetailCardId] = useState(null)
   const [allFolders, setAllFolders] = useState([])
   const [viewMode, setViewMode]     = useState('grid')
-  const [groupBy, setGroupBy]       = useState('type')
+  const [groupBy, setGroupBy]       = useState(default_grouping || 'type')
   const [bracketOverride, setBracketOverride] = useState(null)
   const [search, setSearch]     = useState('')
   const [sort, setSort]         = useState('cmc_asc')

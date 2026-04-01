@@ -43,6 +43,7 @@
   border-radius: 4px;
   overflow: hidden;
   box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  max-width: 100%;
 }
 .suggestion {
   display: flex;
@@ -629,5 +630,37 @@
   padding-top: 12px;
   margin-top: 4px;
   border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+@media (max-width: 430px) {
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+  .queueHeader {
+    flex-wrap: wrap;
+    gap: 4px 10px;
+  }
+  .queueItem {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .queueInfo {
+    min-width: calc(100% - 42px);
+  }
+  .queueQtyRow {
+    margin-left: 42px;
+  }
+  .newFolderRow,
+  .actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .newFolderRow > *,
+  .actions > * {
+    width: 100%;
+  }
+  .folderDropdown {
+    max-height: min(220px, 40vh);
+  }
 }
 

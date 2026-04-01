@@ -1,13 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
-import { useSettings } from '../components/SettingsContext'
-import { THEMES } from '../components/SettingsContext'
-import { clearScryfallCache, clearAllScryfallCache, PRICE_SOURCES } from '../lib/scryfall'
+import { maskEmailAddress, THEMES, useSettings } from '../components/SettingsContext'
+import { clearAllScryfallCache, clearScryfallCache, PRICE_SOURCES } from '../lib/scryfall'
 import { getDbStats } from '../lib/db'
-import { SectionHeader, Button } from '../components/UI'
-import styles from './Settings.module.css'
+import { Button, SectionHeader } from '../components/UI'
 import CacheDebug from '../components/CacheDebug'
+import styles from './Settings.module.css'
 
 function formatAge(ms) {
   if (ms < 60000) return 'just now'
@@ -16,7 +15,6 @@ function formatAge(ms) {
   return `${Math.round(ms / 86400000)}d ago`
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
 function SettingRow({ label, description, children, onRowClick }) {
   return (
     <div className={styles.row} onClick={onRowClick} style={onRowClick ? { cursor: 'pointer' } : undefined}>
@@ -48,7 +46,6 @@ function Toggle({ value, onChange }) {
   )
 }
 
-// ── Theme picker ──────────────────────────────────────────────────────────────
 function ThemePicker({ value, onChange }) {
   return (
     <div className={styles.themeGrid}>
@@ -63,9 +60,7 @@ function ThemePicker({ value, onChange }) {
             onClick={() => onChange(id)}
             title={theme.name}
           >
-            {/* Miniature app preview */}
             <div className={styles.swatchPreview} style={{ background: bg }}>
-              {/* Nav bar */}
               <div className={styles.swatchNav} style={{ borderColor: `${accent}30` }}>
                 <div className={styles.swatchLogo} style={{ color: accent }}>AV</div>
                 <div className={styles.swatchNavDots}>
@@ -74,7 +69,6 @@ function ThemePicker({ value, onChange }) {
                   <div className={styles.swatchDot} style={{ background: `${accent}44` }} />
                 </div>
               </div>
-              {/* Dot grid */}
               <div
                 className={styles.swatchDotGrid}
                 style={{
@@ -82,9 +76,8 @@ function ThemePicker({ value, onChange }) {
                   backgroundSize: '8px 8px',
                 }}
               />
-              {/* Mini cards */}
               <div className={styles.swatchCards}>
-                {[0,1,2,3].map(i => (
+                {[0, 1, 2, 3].map(i => (
                   <div
                     key={i}
                     className={styles.swatchCard}
@@ -100,12 +93,8 @@ function ThemePicker({ value, onChange }) {
                   </div>
                 ))}
               </div>
-              {/* Active indicator */}
-              {active && (
-                <div className={styles.swatchActiveCheck} style={{ color: accent }}>✓</div>
-              )}
+              {active && <div className={styles.swatchActiveCheck} style={{ color: accent }}>✓</div>}
             </div>
-            {/* Label */}
             <div className={styles.swatchLabel}>
               <div className={styles.swatchName} style={{ color: active ? accent : text }}>
                 {theme.name}
@@ -114,7 +103,6 @@ function ThemePicker({ value, onChange }) {
                 {theme.lore}
               </div>
             </div>
-            {/* Color bar */}
             <div className={styles.swatchColorBar}>
               <div style={{ flex: 2, background: accent, borderRadius: '2px 0 0 2px' }} />
               <div style={{ flex: 1, background: hi }} />
@@ -127,15 +115,22 @@ function ThemePicker({ value, onChange }) {
   )
 }
 
-// ── Cache status ──────────────────────────────────────────────────────────────
 function CacheStatus({ ttlH, onClear }) {
-  const [info, setInfo]     = useState(null)
+  const [info, setInfo] = useState(null)
   const [cleared, setCleared] = useState(false)
 
   const loadInfo = async () => {
     const stats = await getDbStats()
-    if (!stats.sfUpdatedAt) { setInfo(null); return }
-    setInfo({ cardCount: stats.scryfall, ageMs: Date.now() - stats.sfUpdatedAt, ts: stats.sfUpdatedAt, sizeKB: 0 })
+    if (!stats.sfUpdatedAt) {
+      setInfo(null)
+      return
+    }
+    setInfo({
+      cardCount: stats.scryfall,
+      ageMs: Date.now() - stats.sfUpdatedAt,
+      ts: stats.sfUpdatedAt,
+      sizeKB: 0,
+    })
   }
 
   useEffect(() => { loadInfo() }, [])
@@ -146,13 +141,14 @@ function CacheStatus({ ttlH, onClear }) {
 
   const handleClear = async () => {
     await clearScryfallCache()
-    setInfo(null); setCleared(true)
+    setInfo(null)
+    setCleared(true)
     setTimeout(() => setCleared(false), 2500)
     onClear?.()
   }
 
-  const ttlMs     = ttlH * 3600000
-  const pct       = info ? Math.min(100, Math.round((info.ageMs / ttlMs) * 100)) : 0
+  const ttlMs = ttlH * 3600000
+  const pct = info ? Math.min(100, Math.round((info.ageMs / ttlMs) * 100)) : 0
   const isExpired = info ? info.ageMs > ttlMs : false
   const expiresIn = info && !isExpired
     ? formatAge(ttlMs - info.ageMs).replace(' ago', '')
@@ -193,14 +189,14 @@ function CacheStatus({ ttlH, onClear }) {
           </div>
           <div className={styles.cacheBarLabels}>
             <span>Fresh</span>
-            <span>{isExpired ? 'Expired — will refresh on next visit' : `${ttlH}h TTL`}</span>
+            <span>{isExpired ? 'Expired - will refresh on next visit' : `${ttlH}h TTL`}</span>
           </div>
         </>
       ) : (
         <div className={styles.cacheEmpty}>
           {cleared
-            ? '✓ Cache cleared — prices will be fetched on next visit'
-            : 'No cache — prices will be fetched on next collection visit'}
+            ? '✓ Cache cleared - prices will be fetched on next visit'
+            : 'No cache - prices will be fetched on next collection visit'}
         </div>
       )}
 
@@ -216,7 +212,13 @@ function CacheStatus({ ttlH, onClear }) {
         <Button
           variant="danger"
           size="sm"
-          onClick={() => { clearAllScryfallCache(); setInfo(null); setCleared(true); setTimeout(() => setCleared(false), 2500); onClear?.() }}
+          onClick={() => {
+            clearAllScryfallCache()
+            setInfo(null)
+            setCleared(true)
+            setTimeout(() => setCleared(false), 2500)
+            onClear?.()
+          }}
           disabled={!info}
           style={{ marginLeft: 8 }}
         >
@@ -227,14 +229,17 @@ function CacheStatus({ ttlH, onClear }) {
   )
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
 export default function SettingsPage() {
-  const { user }   = useAuth()
-  const settings   = useSettings()
-  const [pwNew, setPwNew]     = useState('')
-  const [pwMsg, setPwMsg]     = useState('')
+  const { user } = useAuth()
+  const settings = useSettings()
+  const [pwNew, setPwNew] = useState('')
+  const [pwMsg, setPwMsg] = useState('')
   const [pwError, setPwError] = useState('')
-  const [saving, setSaving]   = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  const lastSyncAge = settings.lastSyncedAt
+    ? formatAge(Date.now() - new Date(settings.lastSyncedAt).getTime())
+    : null
 
   const set = async (key, value) => {
     setSaving(true)
@@ -242,19 +247,31 @@ export default function SettingsPage() {
     setSaving(false)
   }
 
+  const handleManualSync = async () => {
+    setSaving(true)
+    await settings.syncNow()
+    setSaving(false)
+  }
+
   const handleChangePassword = async () => {
-    setPwMsg(''); setPwError('')
-    if (pwNew.length < 6) { setPwError('New password must be at least 6 characters.'); return }
+    setPwMsg('')
+    setPwError('')
+    if (pwNew.length < 6) {
+      setPwError('New password must be at least 6 characters.')
+      return
+    }
     const { error } = await sb.auth.updateUser({ password: pwNew })
     if (error) setPwError(error.message)
-    else { setPwMsg('Password updated.'); setPwNew('') }
+    else {
+      setPwMsg('Password updated.')
+      setPwNew('')
+    }
   }
 
   return (
     <div className={styles.page}>
       <SectionHeader title="Settings" />
 
-      {/* ── Appearance / Theme ── */}
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Appearance</div>
 
@@ -266,7 +283,6 @@ export default function SettingsPage() {
           <ThemePicker value={settings.theme || 'shadow'} onChange={v => set('theme', v)} />
         </div>
 
-        {/* OLED mode — only meaningful on dark themes */}
         {THEMES[settings.theme || 'shadow']?.mode !== 'light' && (
           <SettingRow
             label="OLED Black Mode"
@@ -276,12 +292,18 @@ export default function SettingsPage() {
             <Toggle value={!!settings.oled_mode} onChange={v => set('oled_mode', v)} />
           </SettingRow>
         )}
+        <SettingRow
+          label="Higher Contrast"
+          description="Strengthens text, borders, and separation without overriding OLED black backgrounds."
+          onRowClick={() => set('higher_contrast', !settings.higher_contrast)}
+        >
+          <Toggle value={!!settings.higher_contrast} onChange={v => set('higher_contrast', v)} />
+        </SettingRow>
       </div>
 
-      {/* ── Typography ── */}
       <div className={styles.section}>
-        <div className={styles.sectionTitle}>Typography</div>
-        <SettingRow label="Font Weight" description="How thick the body text appears — increase if text looks too thin on your screen">
+        <div className={styles.sectionTitle}>Accessibility</div>
+        <SettingRow label="Font Weight" description="How thick the body text appears - increase if text looks too thin on your screen">
           <div className={styles.fontWeightOptions}>
             {[
               { value: 300, label: 'Thin' },
@@ -319,19 +341,57 @@ export default function SettingsPage() {
             ))}
           </div>
         </SettingRow>
-        <SettingRow label="Preview">
+        <SettingRow label="Text Preview">
           <div className={styles.fontPreview}>
             The quick brown fox jumps over the lazy dog. <em>Italics.</em>
           </div>
         </SettingRow>
+        <SettingRow label="Card Name Size" description="Adjust card title size in grids, stacks, and list views.">
+          <div className={styles.fontWeightOptions}>
+            {[
+              { value: 'compact', label: 'Compact' },
+              { value: 'default', label: 'Default' },
+              { value: 'large', label: 'Large' },
+            ].map(({ value, label }) => (
+              <button
+                key={value}
+                className={`${styles.fontOption} ${settings.card_name_size === value ? styles.fontOptionActive : ''}`}
+                onClick={() => set('card_name_size', value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </SettingRow>
+        <SettingRow label="Card Name Preview">
+          <div className={styles.cardNamePreviewCard}>
+            <span
+              className={styles.cardNamePreview}
+              style={{
+                fontSize:
+                  settings.card_name_size === 'compact' ? '0.62rem'
+                  : settings.card_name_size === 'large' ? '0.76rem'
+                  : '0.68rem',
+              }}
+            >
+              Atraxa, Praetors&apos; Voice
+            </span>
+            <span className={styles.cardNamePreviewMeta}>Foil showcase card title preview</span>
+          </div>
+        </SettingRow>
+        <SettingRow
+          label="Reduced Motion"
+          description="Tones down hover lifts, transitions, and animation across the app."
+          onRowClick={() => set('reduce_motion', !settings.reduce_motion)}
+        >
+          <Toggle value={!!settings.reduce_motion} onChange={v => set('reduce_motion', v)} />
+        </SettingRow>
       </div>
 
-      {/* ── Prices ── */}
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Prices</div>
 
         <SettingRow label="Price Source" description="Marketplace and price type used throughout the app">
-          {/* Mobile: select dropdown */}
           <select
             className={styles.priceSourceSelect}
             value={settings.price_source}
@@ -341,7 +401,6 @@ export default function SettingsPage() {
               <option key={src.id} value={src.id}>{src.label}</option>
             ))}
           </select>
-          {/* Desktop: radio buttons */}
           <div className={styles.priceSourceRadios}>
             {PRICE_SOURCES.map(src => (
               <label key={src.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
@@ -364,21 +423,26 @@ export default function SettingsPage() {
           </div>
         </SettingRow>
 
-        <SettingRow label="Show Price on Cards" description="Display price label in the card grid"
-          onRowClick={() => set('show_price', !settings.show_price)}>
+        <SettingRow
+          label="Show Price on Cards"
+          description="Display price label in the card grid"
+          onRowClick={() => set('show_price', !settings.show_price)}
+        >
           <Toggle value={settings.show_price} onChange={v => set('show_price', v)} />
         </SettingRow>
       </div>
 
-      {/* ── Display ── */}
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Display</div>
         <SettingRow label="Default Sort" description="How cards are sorted when opening the collection">
           <Select value={settings.default_sort} onChange={v => set('default_sort', v)}
             options={[
-              ['name', 'Name'], ['price_desc', 'Price (high → low)'],
-              ['price_asc', 'Price (low → high)'], ['qty', 'Quantity'],
-              ['set', 'Set'], ['added', 'Recently Added'],
+              ['name', 'Name'],
+              ['price_desc', 'Price (high -> low)'],
+              ['price_asc', 'Price (low -> high)'],
+              ['qty', 'Quantity'],
+              ['set', 'Set'],
+              ['added', 'Recently Added'],
             ]} />
         </SettingRow>
         <SettingRow label="Grid Density" description="How many cards to show per row">
@@ -389,9 +453,16 @@ export default function SettingsPage() {
               ['compact', 'Compact (more, smaller)'],
             ]} />
         </SettingRow>
+        <SettingRow label="Default Grouping" description="Initial grouping mode for deck-style card browsers.">
+          <Select value={settings.default_grouping} onChange={v => set('default_grouping', v)}
+            options={[
+              ['type', 'By Type'],
+              ['category', 'By Function'],
+              ['none', 'Ungrouped'],
+            ]} />
+        </SettingRow>
       </div>
 
-      {/* ── Cache ── */}
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Price Cache</div>
         <SettingRow label="Cache Duration" description="How long Scryfall prices are stored locally">
@@ -404,7 +475,6 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* ── Profile ── */}
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Profile</div>
         <SettingRow label="Preferred Nickname" description="Auto-fills as your name when creating a game lobby">
@@ -417,22 +487,75 @@ export default function SettingsPage() {
             maxLength={24}
           />
         </SettingRow>
+        <SettingRow
+          label="Hide Email"
+          description="Mask part of your email address anywhere the signed-in email is shown in the app."
+          onRowClick={() => set('anonymize_email', !settings.anonymize_email)}
+        >
+          <Toggle value={!!settings.anonymize_email} onChange={v => set('anonymize_email', v)} />
+        </SettingRow>
       </div>
 
-      {/* ── Account ── */}
+      <div className={styles.section}>
+        <div className={styles.sectionTitle}>App</div>
+        <SettingRow
+          label="Keep Screen Awake"
+          description="Requests a wake lock so the screen does not dim or sleep while the app is open."
+          onRowClick={() => set('keep_screen_awake', !settings.keep_screen_awake)}
+        >
+          <Toggle value={!!settings.keep_screen_awake} onChange={v => set('keep_screen_awake', v)} />
+        </SettingRow>
+      </div>
+
+      <div className={styles.section}>
+        <div className={styles.sectionTitle}>Settings Sync</div>
+        <SettingRow
+          label="Settings Sync Status"
+          description={lastSyncAge ? `Last successful settings sync ${lastSyncAge}.` : 'No successful settings sync yet in this session.'}
+        >
+          <div className={styles.syncStatusWrap}>
+            <span className={`${styles.syncStatus} ${styles[`syncStatus_${settings.syncState}`] || ''}`}>
+              {settings.syncState === 'syncing' ? 'Syncing...'
+                : settings.syncState === 'saved' ? 'Synced'
+                : settings.syncState === 'error' ? 'Sync Error'
+                : settings.syncState === 'pending' ? 'Pending'
+                : 'Idle'}
+            </span>
+            <Button size="sm" onClick={handleManualSync} disabled={settings.syncState === 'syncing' || !user}>
+              {settings.syncState === 'syncing' ? 'Syncing...' : 'Sync Settings Now'}
+            </Button>
+          </div>
+        </SettingRow>
+        <SettingRow
+          label="Show Settings Sync Errors"
+          description="Display the last settings sync failure message on this page."
+          onRowClick={() => set('show_sync_errors', !settings.show_sync_errors)}
+        >
+          <Toggle value={!!settings.show_sync_errors} onChange={v => set('show_sync_errors', v)} />
+        </SettingRow>
+        {settings.show_sync_errors && settings.syncError && (
+          <div className={styles.syncErrorBox}>{settings.syncError}</div>
+        )}
+      </div>
+
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Account</div>
         <SettingRow label="Email">
-          <span className={styles.email}>{user?.email}</span>
+          <span className={styles.email}>{maskEmailAddress(user?.email, settings.anonymize_email)}</span>
         </SettingRow>
         <SettingRow label="Change Password">
           <div className={styles.pwForm}>
-            <input className={styles.input} type="password" placeholder="New password"
-              value={pwNew} onChange={e => setPwNew(e.target.value)} />
+            <input
+              className={styles.input}
+              type="password"
+              placeholder="New password"
+              value={pwNew}
+              onChange={e => setPwNew(e.target.value)}
+            />
             <Button size="sm" onClick={handleChangePassword} disabled={!pwNew}>Update</Button>
           </div>
           {pwError && <div className={styles.pwError}>{pwError}</div>}
-          {pwMsg   && <div className={styles.pwMsg}>{pwMsg}</div>}
+          {pwMsg && <div className={styles.pwMsg}>{pwMsg}</div>}
         </SettingRow>
         <SettingRow label="Sign Out Everywhere" description="Signs out all sessions on all devices">
           <Button variant="danger" size="sm" onClick={() => sb.auth.signOut({ scope: 'global' })}>
@@ -441,7 +564,7 @@ export default function SettingsPage() {
         </SettingRow>
       </div>
 
-      {saving && <div className={styles.savingIndicator}>Saving…</div>}
+      {saving && <div className={styles.savingIndicator}>Saving...</div>}
     </div>
   )
 }

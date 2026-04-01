@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import styles from './UI.module.css'
 
 export function Button({ children, variant = 'default', size = 'md', onClick, disabled, type = 'button', className = '' }) {
@@ -88,6 +88,48 @@ export function SectionHeader({ title, action }) {
     <div className={styles.sectionHeader}>
       <h2 className={styles.sectionTitle}>{title}</h2>
       {action}
+    </div>
+  )
+}
+
+export function ResponsiveHeaderActions({ primary = null, children, menuLabel = 'More actions' }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    const close = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+
+  return (
+    <div className={styles.headerActionShell} ref={ref}>
+      <div className={styles.headerActionDesktop}>
+        {primary}
+        {children}
+      </div>
+
+      <div className={styles.headerActionMobile}>
+        {primary}
+        <button
+          className={styles.headerMenuBtn}
+          onClick={() => setOpen(v => !v)}
+          aria-label={menuLabel}
+          aria-expanded={open}
+        >
+          <span />
+          <span />
+          <span />
+        </button>
+        {open && (
+          <div className={styles.headerMenuPanel}>
+            {children}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

@@ -5,26 +5,26 @@ import { useAuth } from './Auth'
 const SETTINGS_KEY = 'arcanevault_settings'
 
 const LIGHT_SURFACE_VARS = {
-  '--s-card': 'rgba(0,0,0,0.04)',
-  '--s-subtle': 'rgba(0,0,0,0.065)',
-  '--s-medium': 'rgba(0,0,0,0.09)',
-  '--s-border': 'rgba(0,0,0,0.10)',
-  '--s-border2': 'rgba(0,0,0,0.18)',
-  '--overlay': 'rgba(0,0,0,0.07)',
-  '--s1': 'rgba(0,0,0,0.035)',
-  '--s2': 'rgba(0,0,0,0.06)',
-  '--s3': 'rgba(0,0,0,0.085)',
-  '--s4': 'rgba(0,0,0,0.11)',
-  '--nav-bg': 'rgba(255,255,255,0.88)',
-  '--popup-bg': 'var(--bg2)',
-  '--ambient-1': 'rgba(214,171,94,0.12)',
-  '--ambient-2': 'rgba(122,150,205,0.10)',
-  '--glass-strong': 'rgba(255,255,255,0.9)',
-  '--glass-medium': 'rgba(255,255,255,0.82)',
-  '--glass-soft': 'rgba(255,255,255,0.72)',
-  '--scrim-strong': 'rgba(233,238,245,0.82)',
-  '--scrim-medium': 'rgba(233,238,245,0.62)',
-  '--scrim-soft': 'rgba(233,238,245,0.42)',
+  '--s-card': 'rgba(255,252,246,0.78)',
+  '--s-subtle': 'rgba(255,255,255,0.88)',
+  '--s-medium': 'rgba(188,152,83,0.18)',
+  '--s-border': 'rgba(102,74,26,0.14)',
+  '--s-border2': 'rgba(102,74,26,0.26)',
+  '--overlay': 'rgba(244,238,228,0.34)',
+  '--s1': 'rgba(255,253,248,0.62)',
+  '--s2': 'rgba(255,255,255,0.82)',
+  '--s3': 'rgba(215,191,143,0.24)',
+  '--s4': 'rgba(188,152,83,0.32)',
+  '--nav-bg': 'rgba(255,251,245,0.94)',
+  '--popup-bg': 'rgba(255,251,245,0.98)',
+  '--ambient-1': 'rgba(232,183,79,0.19)',
+  '--ambient-2': 'rgba(112,154,222,0.16)',
+  '--glass-strong': 'rgba(255,252,247,0.96)',
+  '--glass-medium': 'rgba(255,252,247,0.88)',
+  '--glass-soft': 'rgba(255,252,247,0.78)',
+  '--scrim-strong': 'rgba(238,231,220,0.9)',
+  '--scrim-medium': 'rgba(238,231,220,0.74)',
+  '--scrim-soft': 'rgba(238,231,220,0.52)',
 }
 
 const DARK_SURFACE_VARS = {
@@ -317,6 +317,13 @@ const DEFAULTS = {
   theme: 'shadow',
   oled_mode: false,
   nickname: '',
+  anonymize_email: false,
+  reduce_motion: false,
+  higher_contrast: false,
+  card_name_size: 'default',
+  default_grouping: 'type',
+  keep_screen_awake: false,
+  show_sync_errors: false,
 }
 
 const OLED_VARS = {
@@ -327,6 +334,28 @@ const OLED_VARS = {
   '--s2': '#000000',
   '--s3': '#000000',
   '--s4': '#000000',
+}
+
+const DARK_CONTRAST_VARS = {
+  '--text': '#f4ecde',
+  '--text-dim': '#e0d0b0',
+  '--text-faint': '#c4b18e',
+  '--border': 'rgba(201,168,76,0.38)',
+  '--border-hi': 'rgba(201,168,76,0.72)',
+  '--s-border': 'rgba(255,255,255,0.16)',
+  '--s-border2': 'rgba(255,255,255,0.26)',
+  '--overlay': 'rgba(0,0,0,0.28)',
+}
+
+const LIGHT_CONTRAST_VARS = {
+  '--text': '#120d08',
+  '--text-dim': '#24180f',
+  '--text-faint': '#43311f',
+  '--border': 'rgba(116,82,24,0.34)',
+  '--border-hi': 'rgba(141,93,0,0.62)',
+  '--s-border': 'rgba(102,74,26,0.22)',
+  '--s-border2': 'rgba(102,74,26,0.32)',
+  '--overlay': 'rgba(250,242,230,0.72)',
 }
 
 function loadLocal() {
@@ -389,19 +418,49 @@ export function applyTheme(themeId, oledMode) {
   cacheThemeVars(themeId, oledMode)
 }
 
-const SettingsContext = createContext({ ...DEFAULTS, save: () => {}, loaded: false })
+export function maskEmailAddress(email, hidden) {
+  if (!email || !hidden) return email || ''
+  const [localPart, domainPart = ''] = email.split('@')
+  if (!localPart || !domainPart) return email
+  const visibleLocal = localPart.length <= 2
+    ? `${localPart[0] || ''}*`
+    : `${localPart.slice(0, 2)}${'*'.repeat(Math.max(2, localPart.length - 2))}`
+  return `${visibleLocal}@${domainPart}`
+}
+
+const SettingsContext = createContext({
+  ...DEFAULTS,
+  save: () => {},
+  loaded: false,
+  syncNow: async () => ({ ok: false }),
+  syncState: 'idle',
+  syncError: '',
+  lastSyncedAt: null,
+})
 export const useSettings = () => useContext(SettingsContext)
 
 export function SettingsProvider({ children }) {
   const { user } = useAuth()
   const [settings, setSettings] = useState(() => loadLocal() || DEFAULTS)
   const [loaded, setLoaded] = useState(false)
+  const [syncState, setSyncState] = useState('idle')
+  const [syncError, setSyncError] = useState('')
+  const [lastSyncedAt, setLastSyncedAt] = useState(null)
   const syncTimeout = useRef(null)
+  const settingsRef = useRef(settings)
 
   useEffect(() => {
-    if (!user) return
+    settingsRef.current = settings
+  }, [settings])
+
+  useEffect(() => {
+    if (!user) {
+      setLoaded(true)
+      return
+    }
     sb.from('user_settings').select('*').eq('user_id', user.id).maybeSingle()
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) console.error('[Settings] Failed to load settings:', error)
         if (data) {
           const { user_id, updated_at, ...rest } = data
           const merged = { ...DEFAULTS, ...rest }
@@ -423,8 +482,77 @@ export function SettingsProvider({ children }) {
   }, [settings.font_weight, settings.font_size])
 
   useEffect(() => {
+    const root = document.documentElement
+    const sizes = {
+      compact: { base: '0.62rem', tight: '0.56rem', list: '0.82rem' },
+      default: { base: '0.68rem', tight: '0.60rem', list: '0.88rem' },
+      large:   { base: '0.76rem', tight: '0.68rem', list: '0.96rem' },
+    }
+    const next = sizes[settings.card_name_size] || sizes.default
+    root.style.setProperty('--card-name-size', next.base)
+    root.style.setProperty('--card-name-size-tight', next.tight)
+    root.style.setProperty('--card-name-size-list', next.list)
+  }, [settings.card_name_size])
+
+  useEffect(() => {
     applyTheme(settings.theme, settings.oled_mode)
-  }, [settings.theme, settings.oled_mode])
+
+    if (settings.higher_contrast) {
+      const root = document.documentElement
+      const theme = THEMES[settings.theme] || THEMES.shadow
+      const contrastVars = theme.mode === 'light' ? LIGHT_CONTRAST_VARS : DARK_CONTRAST_VARS
+      Object.entries(contrastVars).forEach(([key, value]) => {
+        root.style.setProperty(key, value)
+      })
+    }
+  }, [settings.theme, settings.oled_mode, settings.higher_contrast])
+
+  useEffect(() => {
+    const root = document.documentElement
+    if (settings.reduce_motion) root.setAttribute('data-reduce-motion', 'true')
+    else root.removeAttribute('data-reduce-motion')
+  }, [settings.reduce_motion])
+
+  useEffect(() => {
+    const root = document.documentElement
+    if (settings.higher_contrast) root.setAttribute('data-high-contrast', 'true')
+    else root.removeAttribute('data-high-contrast')
+  }, [settings.higher_contrast])
+
+  const performSync = useCallback(async (next) => {
+    if (!user) return { ok: false, skipped: true }
+    setSyncState('syncing')
+    setSyncError('')
+    try {
+      const {
+        price_source, default_sort, grid_density, show_price, cache_ttl_h,
+        binder_sort, deck_sort, list_sort, font_weight, font_size, theme, oled_mode, nickname,
+        anonymize_email, reduce_motion, higher_contrast, card_name_size, default_grouping,
+        keep_screen_awake, show_sync_errors,
+      } = next
+      const { error } = await sb.from('user_settings').upsert(
+        {
+          user_id: user.id,
+          price_source, default_sort, grid_density, show_price, cache_ttl_h,
+          binder_sort, deck_sort, list_sort, font_weight, font_size, theme, oled_mode, nickname,
+          anonymize_email, reduce_motion, higher_contrast, card_name_size, default_grouping,
+          keep_screen_awake, show_sync_errors,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id' }
+      )
+      if (error) throw error
+      setSyncState('saved')
+      setLastSyncedAt(new Date().toISOString())
+      return { ok: true }
+    } catch (err) {
+      const message = err?.message || 'Could not sync settings.'
+      setSyncState('error')
+      setSyncError(message)
+      console.error('[Settings] Unexpected error syncing settings:', err)
+      return { ok: false, error: message }
+    }
+  }, [user])
 
   const save = useCallback(async (patch) => {
     const next = { ...settings, ...patch }
@@ -434,30 +562,27 @@ export function SettingsProvider({ children }) {
     if (!user) return
 
     clearTimeout(syncTimeout.current)
+    setSyncState('pending')
     syncTimeout.current = setTimeout(async () => {
-      try {
-        const {
-          price_source, default_sort, grid_density, show_price, cache_ttl_h,
-          binder_sort, deck_sort, list_sort, font_weight, font_size, theme, oled_mode, nickname,
-        } = next
-        const { error } = await sb.from('user_settings').upsert(
-          {
-            user_id: user.id,
-            price_source, default_sort, grid_density, show_price, cache_ttl_h,
-            binder_sort, deck_sort, list_sort, font_weight, font_size, theme, oled_mode, nickname,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'user_id' }
-        )
-        if (error) console.error('[Settings] Supabase upsert failed:', error)
-      } catch (err) {
-        console.error('[Settings] Unexpected error syncing settings:', err)
-      }
+      await performSync(next)
     }, 800)
-  }, [settings, user])
+  }, [settings, user, performSync])
+
+  const syncNow = useCallback(async () => {
+    clearTimeout(syncTimeout.current)
+    return performSync(settingsRef.current)
+  }, [performSync])
 
   return (
-    <SettingsContext.Provider value={{ ...settings, save, loaded }}>
+    <SettingsContext.Provider value={{
+      ...settings,
+      save,
+      loaded,
+      syncNow,
+      syncState,
+      syncError,
+      lastSyncedAt,
+    }}>
       {children}
     </SettingsContext.Provider>
   )

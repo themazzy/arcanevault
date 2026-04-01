@@ -20,13 +20,14 @@ function scryfallLargeUrl() {
 
 // ── CardGrid ──────────────────────────────────────────────────────────────────
 function CardItem({ card, sfCard, selectMode, isSelected, totalQty, onSelect, onToggleSelect, onEnterSelectMode, onAdjustQty, splitState, loading }) {
+  const displayKey = card._displayKey || card.id
   const img = getImageUri(sfCard, 'normal')
   const scryfallPrice = getPrice(sfCard, card.foil)
   const price = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
   const isBuyFallback = scryfallPrice == null && price != null
   const priceClass = price == null ? styles.priceNa : isBuyFallback ? styles.priceFallback : ''
 
-  const selQty = splitState?.get(card.id) ?? 1
+  const selQty = splitState?.get(displayKey) ?? 1
 
   const longPress = useLongPress(() => {
     if (!selectMode) onEnterSelectMode?.()
@@ -36,7 +37,7 @@ function CardItem({ card, sfCard, selectMode, isSelected, totalQty, onSelect, on
 
   const handleClick = () => {
     if (selectMode) {
-      onToggleSelect?.(card.id, totalQty)
+      onToggleSelect?.(displayKey, totalQty)
     } else {
       onSelect?.(card)
     }
@@ -64,9 +65,9 @@ function CardItem({ card, sfCard, selectMode, isSelected, totalQty, onSelect, on
         {card.foil && <Badge variant="foil">Foil</Badge>}
         {selectMode && isSelected && totalQty > 1 && (
           <div className={styles.qtyOverlay}>
-            <button className={styles.qtyOverlayBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(card.id, +1, totalQty) }}>+</button>
+            <button className={styles.qtyOverlayBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(displayKey, +1, totalQty) }}>+</button>
             <div className={styles.qtyOverlayDisplay}>{selQty} of {totalQty}</div>
-            <button className={styles.qtyOverlayBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(card.id, -1, totalQty) }}>−</button>
+            <button className={styles.qtyOverlayBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(displayKey, -1, totalQty) }}>−</button>
           </div>
         )}
       </div>
@@ -81,6 +82,7 @@ function CardItem({ card, sfCard, selectMode, isSelected, totalQty, onSelect, on
             {price != null ? fmt(price) : loading ? '…' : '—'}
           </span>
         </div>
+        {card._folderName && <div className={styles.folderName}>{card._folderName}</div>}
       </div>
     </div>
   )
@@ -95,7 +97,8 @@ export function CardGrid({ cards, sfMap, loading, onSelect, selectMode, selected
     <div className={styles.grid}>
       {cardsWithQty.map(card => {
         const sfCard = sfMap?.[`${card.set_code}-${card.collector_number}`]
-        const isSelected = selectMode && selected?.has(card.id)
+        const displayKey = card._displayKey || card.id
+        const isSelected = selectMode && selected?.has(displayKey)
         return (
           <CardItem
             key={card.id || card._localId}

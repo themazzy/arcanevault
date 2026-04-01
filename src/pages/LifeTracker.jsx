@@ -304,7 +304,7 @@ function ArtPicker({ onSelect, onClear, onClose, rotation = 0 }) {
                 title={card.name}>
                 <img src={card.image_uris.art_crop} alt={card.name}
                   style={{ width: '100%', display: 'block', aspectRatio: '4/3', objectFit: 'cover' }} />
-                <div style={{ padding: '4px 6px', fontSize: '0.68rem', color: 'var(--text-dim)', background: 'rgba(0,0,0,0.6)', textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div style={{ padding: '4px 6px', fontSize: '0.68rem', color: 'var(--text)', background: 'var(--glass-medium)', borderTop: '1px solid var(--s-border)', textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {card.name}
                 </div>
               </button>
@@ -546,6 +546,46 @@ function PlayerSettingsOverlay({
               {player.hasPartner ? 'Partner Commanders On' : 'Partner Commanders Off'}
             </button>
           )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function FullscreenGameMenuOverlay({
+  onClose,
+  onExitFullscreen,
+  onShowGameLog,
+  onShowDice,
+  onShowPicker,
+  onShowCoin,
+  onShowEndGame,
+  onResetTotals,
+  onNewSetup,
+}) {
+  return (
+    <div className={styles.settingsOverlay} onClick={onClose}>
+        <div
+          className={styles.fsMenuOverlayPanel}
+          onClick={e => e.stopPropagation()}>
+          <div className={styles.cmdOverlayHead}>
+          <div className={styles.cmdOverlayTitle}>Game Menu</div>
+          <button className={styles.cmdOverlayClose} onClick={onClose}>×</button>
+        </div>
+
+        <div className={styles.fsMenuActionList}>
+          <button className={styles.fsMenuActionBtn} onClick={onExitFullscreen}>⊡ Exit Fullscreen</button>
+          <button className={styles.fsMenuActionBtn} onClick={onShowGameLog}>📜 Game Log</button>
+          <button className={styles.fsMenuActionBtn} onClick={onShowDice}>🎲 Dice Roller</button>
+          <button className={styles.fsMenuActionBtn} onClick={onShowPicker}>🎯 Random Player</button>
+          <button className={styles.fsMenuActionBtn} onClick={onShowCoin}>🪙 Coin Flipper</button>
+          <button className={styles.fsMenuActionBtn} onClick={onShowEndGame}>🏆 End Game</button>
+          <button className={styles.fsMenuActionBtn} onClick={onResetTotals}>↺ Reset Totals</button>
+          <button
+            className={`${styles.fsMenuActionBtn} ${styles.fsMenuActionBtnDanger}`}
+            onClick={onNewSetup}>
+            ✕ New Setup
+          </button>
         </div>
       </div>
     </div>
@@ -1752,15 +1792,15 @@ export default function LifeTrackerPage() {
   const [cmdDmgPlayer,     setCmdDmgPlayer]     = useState(null)
   const [countersPlayer,   setCountersPlayer]   = useState(null)
   const [playerSettingsPlayer, setPlayerSettingsPlayer] = useState(null)
-  const [showDice,     setShowDice]     = useState(false)
-  const [showPicker,   setShowPicker]   = useState(false)
-  const [showCoin,     setShowCoin]     = useState(false)
-  const [showGameMenu, setShowGameMenu] = useState(false)
-  const [decks,        setDecks]        = useState([])
+    const [showDice,     setShowDice]     = useState(false)
+    const [showPicker,   setShowPicker]   = useState(false)
+    const [showCoin,     setShowCoin]     = useState(false)
+    const [showGameMenu, setShowGameMenu] = useState(false)
+    const [decks,        setDecks]        = useState([])
   const [history,      setHistory]      = useState(() => loadHistory())
   const [isFullscreen, setIsFullscreen] = useState(false)
-  const gearMenuRef   = useRef(null)
-  const gearMenuFsRef = useRef(null)
+    const gearMenuRef   = useRef(null)
+    const gearMenuFsRef = useRef(null)
   const [session,        setSession]        = useState(null)
   const [lobbyConfig,    setLobbyConfig]    = useState(null)
   const [gameSessionId,  setGameSessionId]  = useState(null)
@@ -1776,12 +1816,38 @@ export default function LifeTrackerPage() {
     if (!showGameMenu) return
     const handler = e => {
       const inNormal = gearMenuRef.current?.contains(e.target)
-      const inFs     = gearMenuFsRef.current?.contains(e.target)
+      const inFs     = isFullscreen ? true : gearMenuFsRef.current?.contains(e.target)
       if (!inNormal && !inFs) setShowGameMenu(false)
     }
     document.addEventListener('pointerdown', handler)
     return () => document.removeEventListener('pointerdown', handler)
-  }, [showGameMenu])
+  }, [showGameMenu, isFullscreen])
+
+  useEffect(() => {
+    if (
+      artPickerPlayer !== null ||
+      cmdDmgPlayer !== null ||
+      countersPlayer !== null ||
+      playerSettingsPlayer !== null ||
+      showDice ||
+      showPicker ||
+      showCoin ||
+      showGameLog ||
+      showEndDialog
+    ) {
+      setShowGameMenu(false)
+    }
+  }, [
+    artPickerPlayer,
+    cmdDmgPlayer,
+    countersPlayer,
+    playerSettingsPlayer,
+    showDice,
+    showPicker,
+    showCoin,
+    showGameLog,
+    showEndDialog,
+  ])
 
   // Sync CSS isFullscreen state with the browser's native fullscreen state
   useEffect(() => {
@@ -2180,46 +2246,16 @@ export default function LifeTrackerPage() {
       </div>
 
       {/* Fullscreen menu button replaces the topbar to reclaim space */}
-      {isFullscreen && (
-        <div className={styles.fsMenuWrap} ref={gearMenuFsRef}>
-          <button
-            className={`${styles.fsMenuBtn} ${showGameMenu ? styles.gearBtnActive : ''}`}
-            onClick={() => setShowGameMenu(v => !v)}
-            title="Game options">
-            ⚙
-          </button>
-          {showGameMenu && (
-            <div className={`${styles.gearMenu} ${styles.gearMenuFs}`}>
-              <button className={styles.gearMenuItem} onClick={() => { handleFullscreenToggle(); setShowGameMenu(false) }}>
-                ⊡ Exit Fullscreen
-              </button>
-              <div className={styles.gearMenuDiv} />
-              <button className={styles.gearMenuItem} onClick={() => { setShowGameLog(true); setShowGameMenu(false) }}>
-                📜 Game Log
-              </button>
-              <button className={styles.gearMenuItem} onClick={() => { setShowDice(true); setShowGameMenu(false) }}>
-                🎲 Dice Roller
-              </button>
-              <button className={styles.gearMenuItem} onClick={() => { setShowPicker(true); setShowGameMenu(false) }}>
-                🎯 Random Player
-              </button>
-              <button className={styles.gearMenuItem} onClick={() => { setShowCoin(true); setShowGameMenu(false) }}>
-                🪙 Coin Flipper
-              </button>
-              <div className={styles.gearMenuDiv} />
-              <button className={styles.gearMenuItem} onClick={() => { setShowEndDialog(true); setShowGameMenu(false) }}>
-                🏆 End Game
-              </button>
-              <button className={styles.gearMenuItem} onClick={() => { resetGame(); setShowGameMenu(false) }}>
-                ↺ Reset Totals
-              </button>
-              <button className={`${styles.gearMenuItem} ${styles.gearMenuItemDanger}`} onClick={() => { handleNewGame(); setShowGameMenu(false) }}>
-                ✕ New Setup
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+        {isFullscreen && (
+          <div className={styles.fsMenuWrap} ref={gearMenuFsRef}>
+            <button
+              className={`${styles.fsMenuBtn} ${showGameMenu ? styles.gearBtnActive : ''}`}
+              onClick={() => setShowGameMenu(v => !v)}
+              title="Game options">
+              ⚙
+            </button>
+          </div>
+        )}
 
       {/* Grid: columns driven by layout choice */}
       <div className={styles.grid} style={{ '--gcols': layout.cols }}>
@@ -2255,6 +2291,20 @@ export default function LifeTrackerPage() {
           onRequestArtPicker={setArtPickerPlayer}
           onTogglePartner={onTogglePartner}
           onClose={() => setPlayerSettingsPlayer(null)}
+        />
+      )}
+
+      {isFullscreen && showGameMenu && (
+        <FullscreenGameMenuOverlay
+          onClose={() => setShowGameMenu(false)}
+          onExitFullscreen={() => { handleFullscreenToggle(); setShowGameMenu(false) }}
+          onShowGameLog={() => { setShowGameLog(true); setShowGameMenu(false) }}
+          onShowDice={() => { setShowDice(true); setShowGameMenu(false) }}
+          onShowPicker={() => { setShowPicker(true); setShowGameMenu(false) }}
+          onShowCoin={() => { setShowCoin(true); setShowGameMenu(false) }}
+          onShowEndGame={() => { setShowEndDialog(true); setShowGameMenu(false) }}
+          onResetTotals={() => { resetGame(); setShowGameMenu(false) }}
+          onNewSetup={() => { handleNewGame(); setShowGameMenu(false) }}
         />
       )}
 

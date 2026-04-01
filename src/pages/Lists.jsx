@@ -3,7 +3,7 @@ import { sb } from '../lib/supabase'
 import { enrichCards, getInstantCache, getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
-import { EmptyState, SectionHeader, Modal } from '../components/UI'
+import { EmptyState, SectionHeader, Modal, ResponsiveHeaderActions } from '../components/UI'
 import { CardGrid, FilterBar, BulkActionBar, applyFilterSort, EMPTY_FILTERS } from '../components/CardComponents'
 import { useLongPress } from '../hooks/useLongPress'
 import AddCardModal from '../components/AddCardModal'
@@ -156,7 +156,7 @@ function CardArtPicker({ onSelect, onClose }) {
 }
 
 // ── WishlistItem ──────────────────────────────────────────────────────────────
-function WishlistItem({ item, sfCard, priceSource, onDelete, selectMode, selected, onToggleSelect, onEnterSelectMode }) {
+function WishlistItem({ item, sfCard, priceSource, onDelete, selectMode, selected, onToggleSelect, onEnterSelectMode, folderName = '' }) {
   const price    = getPrice(sfCard, item.foil, { price_source: priceSource })
   const img      = sfCard?.image_uris?.small
   const longPress = useLongPress(() => { if (!selectMode) onEnterSelectMode?.() }, { delay: 500 })
@@ -186,6 +186,7 @@ function WishlistItem({ item, sfCard, priceSource, onDelete, selectMode, selecte
             {price != null ? formatPrice(price, priceSource) : '—'}
           </span>
         </div>
+        {folderName && <div className={listStyles.itemFolder}>{folderName}</div>}
         {item.qty > 1 && <div className={listStyles.itemQty}>×{item.qty}</div>}
       </div>
       {!selectMode && <button className={listStyles.itemDelete} onClick={() => onDelete(item.id)}>✕</button>}
@@ -194,7 +195,7 @@ function WishlistItem({ item, sfCard, priceSource, onDelete, selectMode, selecte
 }
 
 // ── ListBrowser ───────────────────────────────────────────────────────────────
-function ListBrowser({ folder, onBack }) {
+function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
   const { price_source, default_sort } = useSettings()
   const { user } = useAuth()
   const [items, setItems]       = useState([])
@@ -210,25 +211,60 @@ function ListBrowser({ folder, onBack }) {
   const [showAddCard, setShowAddCard]     = useState(false)
   const [showExport, setShowExport]       = useState(false)
   const [view, setView]                   = useState('grid')   // 'list' | 'grid'
+  const isAllView = !folder
+  const browserTitle = title || folder?.name || 'All Wishlist Cards'
+  const folderIds = useMemo(() => folders.map(f => f.id), [folders])
+  const folderNameById = useMemo(
+    () => Object.fromEntries((folders || []).map(f => [f.id, f.name])),
+    [folders]
+  )
 
   const reload = useCallback(async () => {
     setLoading(true)
-    const { data } = await sb.from('list_items').select('*').eq('folder_id', folder.id).order('name')
-    if (data) {
-      setItems(data)
-      const map = await enrichCards(data, null)
+    let rows = []
+    if (isAllView) {
+      if (folderIds.length) {
+        let from = 0
+        while (true) {
+          const { data } = await sb.from('list_items')
+            .select('*')
+            .in('folder_id', folderIds)
+            .order('name')
+            .range(from, from + 999)
+          if (data?.length) rows = [...rows, ...data]
+          if (!data || data.length < 1000) break
+          from += 1000
+        }
+      }
+    } else {
+      const { data } = await sb.from('list_items').select('*').eq('folder_id', folder.id).order('name')
+      if (data?.length) rows = data
+    }
+    setItems(rows)
+    if (rows.length) {
+      const map = await enrichCards(rows, null)
       if (map) setSfMap({ ...map })
+    } else {
+      setSfMap({})
     }
     setLoading(false)
-  }, [folder.id])
+  }, [folder?.id, folderIds, isAllView])
 
   useEffect(() => { reload() }, [reload])
 
   useEffect(() => {
+    if (folders.length) {
+      setAllFolders(
+        isAllView
+          ? folders
+          : folders.filter(f => f.id !== folder.id)
+      )
+      return
+    }
     sb.from('folders').select('id, name, type').eq('user_id', user.id).eq('type', 'list').then(({ data }) => {
-      setAllFolders((data || []).filter(f => f.id !== folder.id))
+      setAllFolders(isAllView ? (data || []) : (data || []).filter(f => f.id !== folder.id))
     })
-  }, [user.id, folder.id])
+  }, [user.id, folder?.id, folders, isAllView])
 
   const filtered = useMemo(
     () => applyFilterSort(items, sfMap, search, sort, filters),
@@ -314,6 +350,7 @@ function ListBrowser({ folder, onBack }) {
     for (const id of selectedItems) {
       const item = items.find(i => i.id === id)
       if (!item) continue
+      if (item.folder_id === targetFolder.id) continue
       const totalQty = item.qty || 1
       const selQty = splitState.get(id) ?? 1
       const remaining = totalQty - selQty
@@ -361,7 +398,7 @@ function ListBrowser({ folder, onBack }) {
       <div className={styles.binderHeader}>
         <button className={styles.backBtn} onClick={onBack}>← Back to Wishlists</button>
         <div className={styles.binderTitleRow}>
-          <h2 className={styles.binderTitle}>{folder.name}</h2>
+          <h2 className={styles.binderTitle}>{browserTitle}</h2>
           <div className={styles.binderMeta}>
             <span>{totalQty} wants</span>
             <span className={styles.binderValue}>{formatPrice(totalValue, price_source)}</span>
@@ -433,6 +470,7 @@ function ListBrowser({ folder, onBack }) {
               onToggleSelect={() => onToggleSelect(item.id, item.qty || 1)}
               onDelete={handleDelete}
               onEnterSelectMode={enterSelectMode}
+              folderName={isAllView ? folderNameById[item.folder_id] || '' : ''}
             />
           ))}
         </div>
@@ -457,16 +495,21 @@ function ListBrowser({ folder, onBack }) {
           userId={user.id}
           folderMode
           defaultFolderType="list"
-          defaultFolderId={folder.id}
+          defaultFolderId={folder?.id || null}
           onClose={() => setShowAddCard(false)}
           onSaved={async () => { setShowAddCard(false); await reload() }}
         />
       )}
       {showExport && (
         <ExportModal
-          cards={items}
+          cards={items.map(item => ({
+            ...item,
+            _folder_qty: item.qty,
+            _folderName: folderNameById[item.folder_id] || '',
+            _folderType: 'list',
+          }))}
           sfMap={sfMap}
-          title={folder.name}
+          title={browserTitle}
           folderType="list"
           onClose={() => setShowExport(false)}
         />
@@ -686,6 +729,7 @@ export default function ListsPage() {
   const [sort, setSort]                 = useState(list_sort || 'name')
   const [loading, setLoading]           = useState(true)
   const [activeFolder, setActiveFolder] = useState(null)
+  const [showAllCards, setShowAllCards] = useState(false)
   const [bgTarget, setBgTarget]         = useState(null)
   const [selectMode, setSelectMode]     = useState(false)
   const [selectedIds, setSelectedIds]   = useState(new Set())
@@ -917,7 +961,15 @@ export default function ListsPage() {
   )
 
   if (activeFolder) return (
-    <ListBrowser folder={activeFolder} onBack={() => { setActiveFolder(null); loadFolders() }} />
+    <ListBrowser folder={activeFolder} folders={regularFolders} onBack={() => { setActiveFolder(null); loadFolders() }} />
+  )
+
+  if (showAllCards) return (
+    <ListBrowser
+      folders={regularFolders}
+      title="All Wishlist Cards"
+      onBack={() => { setShowAllCards(false); loadFolders() }}
+    />
   )
 
   if (loading) return <EmptyState>Loading wishlists…</EmptyState>
@@ -927,9 +979,15 @@ export default function ListsPage() {
       <SectionHeader
         title="Wishlists"
         action={
-          <div className={styles.headerActions}>
-            {selectMode ? (
-              <>
+          <ResponsiveHeaderActions
+            primary={!selectMode ? (
+              <button className={styles.viewAllBtn} onClick={() => setShowAllCards(true)}>View All Cards</button>
+            ) : null}
+            menuLabel="Wishlist actions"
+          >
+            <div className={styles.headerActions}>
+              {selectMode ? (
+                <>
                 <button className={styles.cancelSelectBtn} onClick={exitSelectMode}>Cancel</button>
                 {groups.length > 0 && (
                   <button className={styles.newGroupBtn} disabled={selectedIds.size === 0}
@@ -941,9 +999,9 @@ export default function ListsPage() {
                   onClick={handleBulkDelete}>
                   <TrashIcon size={12} /> Delete ({selectedIds.size})
                 </button>
-              </>
-            ) : (
-              <>
+                </>
+              ) : (
+                <>
                 <button className={styles.newGroupBtn} onClick={() => setShowNewGroup(true)}>
                   + New Group
                 </button>
@@ -952,9 +1010,10 @@ export default function ListsPage() {
                 <button className={styles.newFolderBtn} onClick={() => setShowNewFolder(true)}>+ New Wishlist</button>
                 <button className={styles.selectModeBtn} onClick={() => setSelectMode(true)}>Select</button>
                 <SortDropdown value={sort} onChange={handleSortChange} options={SORT_OPTIONS} />
-              </>
-            )}
-          </div>
+                </>
+              )}
+            </div>
+          </ResponsiveHeaderActions>
         }
       />
 

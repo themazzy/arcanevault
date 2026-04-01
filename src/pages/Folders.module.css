@@ -188,6 +188,26 @@
   align-items: center;
   gap: 8px;
 }
+.viewAllBtn {
+  background: linear-gradient(180deg, rgba(201,168,76,0.28), rgba(201,168,76,0.14));
+  border: 1px solid rgba(201,168,76,0.5);
+  border-radius: 10px;
+  color: var(--gold);
+  font-family: var(--font-display);
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 9px 16px;
+  cursor: pointer;
+  transition: all 0.18s;
+  white-space: nowrap;
+  box-shadow: 0 10px 24px rgba(0,0,0,0.22), 0 0 0 1px rgba(201,168,76,0.08) inset;
+}
+.viewAllBtn:hover {
+  background: linear-gradient(180deg, rgba(201,168,76,0.38), rgba(201,168,76,0.18));
+  border-color: rgba(201,168,76,0.7);
+  transform: translateY(-1px);
+}
 .selectModeBtn {
   background: transparent;
   border: 1px solid rgba(255,255,255,0.1);
@@ -297,6 +317,8 @@
   top: calc(100% + 5px);
   right: 0;
   min-width: 180px;
+  width: max-content;
+  max-width: min(240px, calc(100vw - 20px));
   background: var(--popup-bg);
   border: 1px solid rgba(180,140,60,0.22);
   border-radius: 6px;
@@ -508,6 +530,7 @@
   border-radius: 5px;
   padding: 4px 0;
   min-width: 140px;
+  max-width: min(220px, calc(100vw - 20px));
   z-index: 50;
   box-shadow: 0 4px 16px rgba(0,0,0,0.5);
 }
@@ -856,6 +879,9 @@
   font-weight: 600;
   text-align: right;
 }
+.lrFolder {
+  display: none;
+}
 
 @media (max-width: 600px) {
   .listHeader { grid-template-columns: 1fr 52px 70px; }
@@ -863,4 +889,54 @@
   .listRow    { grid-template-columns: 1fr 52px 70px; }
   .listRow > span:nth-child(2), .listRow > span:nth-child(3) { display: none; }
   .binderTitleRow { flex-direction: column; gap: 8px; }
+  .lrFolder {
+    display: block;
+    grid-column: 1 / -1;
+    margin-top: 4px;
+    font-size: 0.68rem;
+    color: var(--gold-dim);
+    padding-left: 36px;
+  }
+}
+
+@media (max-width: 480px) {
+  .headerActions {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .headerActions > button,
+  .headerActions .sortDropdown,
+  .headerActions .sortDropdownBtn {
+    width: 100%;
+  }
+  .headerActions .sortDropdownBtn {
+    justify-content: space-between;
+  }
+  .sortDropdownMenu,
+  .groupCogMenu {
+    right: 0;
+    left: auto;
+    min-width: 0;
+    width: min(220px, calc(100vw - 20px));
+  }
+}
+
+@media (max-width: 820px) {
+  .binderTitleRow {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .binderMeta {
+    width: 100%;
+    gap: 8px 10px;
+  }
+  .binderControlBar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .viewToggle {
+    align-self: flex-start;
+  }
 }
