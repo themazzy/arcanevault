@@ -36,9 +36,9 @@ const CROP_VARIANTS = [
   { xOffset: 0, yOffset: 0, inset: 6 },
   { xOffset: 0, yOffset: 0, inset: -6 },
 ]
-const STABILITY_SAMPLES = 4
+const STABILITY_SAMPLES = 3
 const STABILITY_REQUIRED = 2
-const SAMPLE_DELAY_MS = 120
+const SAMPLE_DELAY_MS = 80
 const DEBUG = true
 const RETICLE_WIDTH = 280
 const RETICLE_HEIGHT = 392
@@ -152,6 +152,11 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
   }, [])
 
   useEffect(() => {
+    if (!cvReady || !dbReady) return
+    initScanner().catch(() => {})
+  }, [cvReady, dbReady])
+
+  useEffect(() => {
     let started = false
 
     ;(async () => {
@@ -164,6 +169,8 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
             height: window.screen.height,
             disableAudio: true,
             enableHighResolution: true,
+            enableZoom: true,
+            tapFocus: true,
           })
         } else {
           const stream = await navigator.mediaDevices.getUserMedia({
@@ -223,7 +230,7 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
     let imageData, w, h
 
     if (isNative) {
-      const { value } = await CameraPreview.capture({ quality: 95 })
+      const { value } = await CameraPreview.captureSample({ quality: 92 })
       const img = await new Promise((resolve, reject) => {
         const image = new Image()
         image.onload = () => resolve(image)
@@ -391,7 +398,15 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
         if (b.count !== a.count) return b.count - a.count
         return a.best.distance - b.best.distance
       })[0] ?? null
-      const ocrResult = bestObservedCardImage ? await recognizeCardName(bestObservedCardImage) : null
+      const preOcrAcceptance = shouldAcceptMatch({
+        best: stableVote?.best ?? bestObserved,
+        gap: bestObservedGap ?? 0,
+        stableCount: stableVote?.count ?? 0,
+        ocrSupport: 0,
+        ocrConfidence: 0,
+      })
+      const needsOcr = !preOcrAcceptance.accepted && !!bestObservedCardImage && !!bestObserved
+      const ocrResult = needsOcr ? await recognizeCardName(bestObservedCardImage) : null
       const ocrSupport = bestObserved ? nameSupportScore(ocrResult?.text, bestObserved.name) : 0
       const acceptance = shouldAcceptMatch({
         best: stableVote?.best ?? bestObserved,
@@ -417,9 +432,9 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
           frames: frameSummaries.join(' | '),
           source: bestObservedSource ?? '-',
           decision: acceptance.reason,
-          ocrText: ocrResult?.text || '-',
-          ocrConfidence: ocrResult ? `${ocrResult.confidence.toFixed(0)}%` : '-',
-          ocrSupport: `${Math.round(ocrSupport * 100)}%`,
+          ocrText: needsOcr ? (ocrResult?.text || '-') : '(skipped)',
+          ocrConfidence: needsOcr ? (ocrResult ? `${ocrResult.confidence.toFixed(0)}%` : '-') : '-',
+          ocrSupport: needsOcr ? `${Math.round(ocrSupport * 100)}%` : '-',
           variant: bestObservedVariant
             ? `x:${bestObservedVariant.xOffset ?? 0} y:${bestObservedVariant.yOffset ?? 0} i:${bestObservedVariant.inset ?? 0}`
             : '-',
