@@ -73,8 +73,8 @@ function scoreQuadCandidate(pts, minArea) {
   if (!pts || pts.length !== 4) return null
   const metrics = quadMetrics(pts)
   if (!Number.isFinite(metrics.ratio) || metrics.polyArea < minArea) return null
-  if (metrics.ratio < 0.6 || metrics.ratio > 0.8) return null
-  if (metrics.extent < 0.65) return null
+  if (metrics.ratio < 0.55 || metrics.ratio > 0.84) return null
+  if (metrics.extent < 0.58) return null
 
   const ratioScore = 1 - Math.min(1, Math.abs(metrics.ratio - 0.716) / 0.12)
   const areaScore = Math.min(1, metrics.polyArea / (minArea * 4))
@@ -143,7 +143,7 @@ export function detectCardCorners(imageData, width, height) {
 
     cv.findContours(dilated, contours, hier, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
 
-    const minArea = width * height * 0.08
+    const minArea = width * height * 0.05
     let bestCandidate = null
 
     for (let i = 0; i < contours.size(); i++) {
@@ -191,6 +191,52 @@ export function detectCardCorners(imageData, width, height) {
 
 const CARD_W = 500
 const CARD_H = 700
+
+export function cropCardFromReticle(
+  imageData,
+  frameWidth,
+  frameHeight,
+  viewportWidth,
+  viewportHeight,
+  {
+    reticleWidth = 280,
+    reticleHeight = 392,
+    centerYOffsetPx = -8,
+    inset = 0,
+  } = {},
+) {
+  const cropWidth = Math.max(80, reticleWidth - inset * 2)
+  const cropHeight = Math.max(120, reticleHeight - inset * 2)
+  const scale = Math.max(viewportWidth / frameWidth, viewportHeight / frameHeight)
+  const displayedWidth = frameWidth * scale
+  const displayedHeight = frameHeight * scale
+  const overflowX = Math.max(0, (displayedWidth - viewportWidth) / 2)
+  const overflowY = Math.max(0, (displayedHeight - viewportHeight) / 2)
+  const viewportLeft = (viewportWidth - cropWidth) / 2
+  const viewportTop = (viewportHeight - cropHeight) / 2 + centerYOffsetPx
+  const sourceX = Math.max(0, Math.min(frameWidth - 1, (viewportLeft + overflowX) / scale))
+  const sourceY = Math.max(0, Math.min(frameHeight - 1, (viewportTop + overflowY) / scale))
+  const sourceW = Math.max(40, Math.min(frameWidth - sourceX, cropWidth / scale))
+  const sourceH = Math.max(56, Math.min(frameHeight - sourceY, cropHeight / scale))
+
+  const srcCanvas = document.createElement('canvas')
+  srcCanvas.width = frameWidth
+  srcCanvas.height = frameHeight
+  const srcCtx = srcCanvas.getContext('2d')
+  srcCtx.putImageData(imageData, 0, 0)
+
+  const outCanvas = document.createElement('canvas')
+  outCanvas.width = CARD_W
+  outCanvas.height = CARD_H
+  const outCtx = outCanvas.getContext('2d')
+  outCtx.drawImage(
+    srcCanvas,
+    sourceX, sourceY, sourceW, sourceH,
+    0, 0, CARD_W, CARD_H,
+  )
+
+  return outCtx.getImageData(0, 0, CARD_W, CARD_H)
+}
 
 export function warpCard(imageData, corners) {
   if (!isOpenCVReady() || !corners || corners.length !== 4) return null
