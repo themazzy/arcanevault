@@ -5,7 +5,6 @@
 -- ── CLEANUP (drop old tables if migrating from v1) ───────────────────────────
 drop table if exists folder_cards cascade;
 drop table if exists shared_folders cascade;
-drop table if exists price_snapshots cascade;
 drop table if exists folders cascade;
 drop table if exists cards cascade;
 -- also drop old v1 tables
@@ -56,14 +55,6 @@ create table folder_cards (
   unique (folder_id, card_id)
 );
 
--- ── PRICE SNAPSHOTS ───────────────────────────────────────────────────────────
-create table price_snapshots (
-  id        uuid default gen_random_uuid() primary key,
-  user_id   uuid references auth.users on delete cascade not null,
-  value_eur numeric(10,2) not null,
-  taken_at  timestamptz default now()
-);
-
 create table if not exists card_prices (
   scryfall_id        text not null,
   set_code           text not null,
@@ -107,8 +98,6 @@ create index folders_user_id_idx         on folders(user_id);
 create index folder_cards_folder_id_idx  on folder_cards(folder_id);
 create index folder_cards_card_id_idx    on folder_cards(card_id);
 create index folder_cards_updated_at_idx on folder_cards(updated_at);
-create index price_snapshots_user_id_idx on price_snapshots(user_id);
-create index price_snapshots_taken_at_idx on price_snapshots(taken_at);
 create index card_prices_snapshot_date_idx on card_prices(snapshot_date);
 create index card_prices_set_collector_snapshot_idx on card_prices(set_code, collector_number, snapshot_date);
 create index card_prices_stage_snapshot_date_idx on card_prices_stage(snapshot_date);
@@ -118,14 +107,12 @@ create index card_prices_stage_set_collector_snapshot_idx on card_prices_stage(s
 alter table cards            enable row level security;
 alter table folders          enable row level security;
 alter table folder_cards     enable row level security;
-alter table price_snapshots  enable row level security;
 alter table card_prices      enable row level security;
 alter table shared_folders   enable row level security;
 
 -- cards: users own their cards
 create policy "own cards"   on cards           for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "own folders" on folders         for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
-create policy "own snapshots" on price_snapshots for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "public read card_prices" on card_prices for select using (true);
 
 -- folder_cards: access if you own the folder
@@ -140,7 +127,7 @@ create policy "public read shared_folders" on shared_folders for select
   using (true);
 
 -- ── GRANTS ────────────────────────────────────────────────────────────────────
-grant all on cards, folders, folder_cards, price_snapshots, shared_folders to authenticated;
+grant all on cards, folders, folder_cards, shared_folders to authenticated;
 grant select on shared_folders to anon;
 grant select on card_prices to authenticated, anon;
 
