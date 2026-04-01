@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { getInstantCache, getPrice, formatPrice, getImageUri, sfGet } from '../lib/scryfall'
+import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getLocalCards, getLocalFolders, getAllLocalFolderCards } from '../lib/db'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
@@ -39,7 +40,7 @@ async function loadCollectionData(userId) {
     getInstantCache(),
   ])
 
-  const safeSfMap = sfMap || {}
+  let safeSfMap = sfMap || {}
 
   // Prefer IDB folders; if IDB is cold, pull from Supabase
   let allFolders = idbFolders?.length ? idbFolders : []
@@ -85,6 +86,10 @@ async function loadCollectionData(userId) {
     .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
     .filter(c => seen.has(c.id) ? false : (seen.add(c.id), true))
     .slice(0, 14)
+
+  if (allCards.length) {
+    safeSfMap = await loadCardMapWithSharedPrices(allCards)
+  }
 
   return { folders: allFolders, cardRows, sfMap: safeSfMap, recentCards }
 }

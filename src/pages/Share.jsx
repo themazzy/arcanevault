@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
-import { enrichCards } from '../lib/scryfall'
+import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { CardGrid, CardDetail, FilterBar, applyFilterSort } from '../components/CardComponents'
 import { EmptyState, ProgressBar } from '../components/UI'
 import styles from './Share.module.css'
@@ -60,7 +60,7 @@ export default function SharePage() {
           const c = cardsData.map(card => ({ ...card, _folder_qty: qtyMap[card.id] ?? 1 }))
           setCards(c)
           setEnriching(true)
-          const map = await enrichCards(c, () => {})
+          const map = await loadCardMapWithSharedPrices(c)
           setSfMap(map)
           setEnriching(false)
         }

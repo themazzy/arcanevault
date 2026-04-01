@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { sb } from '../lib/supabase'
-import { enrichCards, getInstantCache, getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
+import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
+import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { EmptyState, SectionHeader, Modal, ResponsiveHeaderActions } from '../components/UI'
@@ -242,7 +243,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
     }
     setItems(rows)
     if (rows.length) {
-      const map = await enrichCards(rows, null)
+      const map = await loadCardMapWithSharedPrices(rows)
       if (map) setSfMap({ ...map })
     } else {
       setSfMap({})
@@ -767,11 +768,11 @@ export default function ListsPage() {
         if (!page || page.length < 1000) break
         from += 1000
       }
-      const sfMap = await getInstantCache() || {}
       const cards = allItems.map(item => {
         const folder = folders.find(f => f.id === item.folder_id)
         return { ...item, _folder_qty: item.qty, _folderName: folder?.name || '', _folderType: 'list' }
       })
+      const sfMap = cards.length ? await loadCardMapWithSharedPrices(cards) : {}
       setExportAllCards(cards)
       setExportAllSfMap(sfMap)
     } finally {
@@ -811,7 +812,7 @@ export default function ListsPage() {
       from += 1000
     }
 
-    const sfMap = await getInstantCache() || {}
+    const sfMap = allItems.length ? await loadCardMapWithSharedPrices(allItems) : {}
     const meta  = {}
     for (const f of foldersData) meta[f.id] = { count: 0, totalQty: 0, value: 0 }
     for (const row of allItems) {

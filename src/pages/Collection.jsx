@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { sb } from '../lib/supabase'
-import { enrichCards, getScryfallKey, getPrice, formatPrice, clearScryfallCache, clearAllScryfallCache, getCacheAge, getMemoryMap, getInstantCache } from '../lib/scryfall'
+import { getScryfallKey, getPrice, formatPrice } from '../lib/scryfall'
+import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getLocalCards, putCards, deleteCard, deleteAllCards, getAllLocalFolderCards, putFolderCards, getLocalFolders, putFolders, setMeta, getMeta, deleteFolder as deleteLocalFolder, replaceLocalFolderCards } from '../lib/db'
 import { parseManaboxCSV } from '../lib/csvParser'
 import { useAuth } from '../components/Auth'
@@ -27,7 +28,6 @@ export default function CollectionPage() {
   useEffect(() => { ttlMsRef.current = cache_ttl_h * 3600000 }, [cache_ttl_h])
 
   const [sfMap, setSfMap]   = useState({})
-  const [cacheAge, setCacheAge] = useState(null)
   const [cards, setCards]   = useState([])
   const [filtered, setFiltered] = useState([])
   const [loading, setLoading]   = useState(true)
@@ -120,9 +120,8 @@ export default function CollectionPage() {
         const newCards = allCards.filter(c => !localIds.has(c.id))
         if (newCards.length) {
           console.log(`[Collection] ${newCards.length} new cards synced from Supabase`)
-          enrichCards(newCards, null, ttlMsRef.current).then(map => {
+          loadCardMapWithSharedPrices(allCards, { cacheTtlMs: ttlMsRef.current }).then(map => {
             setSfMap({ ...map })
-            setCacheAge(getCacheAge())
           })
         }
       }
@@ -251,38 +250,20 @@ export default function CollectionPage() {
   }, [])
 
   // ── Scryfall enrichment ──────────────────────────────────────────────────────
-  const startEnrichment = useCallback(async (rawCards, forceRefresh = false) => {
+  const startEnrichment = useCallback(async (rawCards) => {
     if (enrichingRef.current) return
-    if (forceRefresh) await clearScryfallCache()
 
     // Check IDB first — may return instantly if all data cached
-    const cached = await getInstantCache(ttlMsRef.current)
-    if (cached && !forceRefresh) {
-      setSfMap(cached)
-      setCacheAge(await getCacheAge())
-      const missing = rawCards.filter(c => !cached[`${c.set_code}-${c.collector_number}`])
-      if (!missing.length) return
-      // Silently fetch only missing cards
-      enrichCards(missing, null, ttlMsRef.current).then(async map => {
-        setSfMap({ ...map })
-        setCacheAge(await getCacheAge())
-      })
-      return
-    }
-
     enrichingRef.current = true
     setEnriching(true); setProgress(0)
-    const map = await enrichCards(rawCards, (pct, lbl) => { setProgress(pct); setProgLabel(lbl) }, ttlMsRef.current)
+    const map = await loadCardMapWithSharedPrices(rawCards, {
+      onProgress: (pct, lbl) => { setProgress(pct); setProgLabel(lbl) },
+      cacheTtlMs: ttlMsRef.current,
+    })
     setSfMap(map)
     setEnriching(false); setProgLabel('')
-    setCacheAge(await getCacheAge())
     enrichingRef.current = false
   }, [])
-
-  const handleRefresh = useCallback(async () => {
-    enrichingRef.current = false
-    await startEnrichment(cards, true)
-  }, [cards, startEnrichment])
 
   // ── Import ───────────────────────────────────────────────────────────────────
   const handleImport = useCallback(async (file) => {
@@ -658,15 +639,6 @@ export default function CollectionPage() {
         <div className={styles.gridHeader}>
           <span>Showing {filtered.length} of {cards.length} unique · {totalQty} total cards</span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            {cacheAge != null && !enriching && (
-              <span style={{ color: 'var(--text-faint)', fontSize: '0.78rem' }}>
-                Prices cached {Math.round(cacheAge / 3600000)}h ago
-                <button onClick={handleRefresh}
-                  style={{ marginLeft: 8, background: 'none', border: 'none', color: 'var(--gold-dim)', cursor: 'pointer', fontSize: '0.78rem', textDecoration: 'underline' }}>
-                  Refresh
-                </button>
-              </span>
-            )}
             {!enriching && <span>Value: <strong style={{ color: 'var(--green)' }}>{formatPrice(totalValue, price_source)}</strong></span>}
           </span>
         </div>

@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { sb } from '../lib/supabase'
-import { enrichCards, getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
+import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
+import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { useSettings } from '../components/SettingsContext'
 import { useAuth } from '../components/Auth'
 import { CardDetail, FilterBar, BulkActionBar, applyFilterSort, EMPTY_FILTERS } from '../components/CardComponents'
@@ -627,7 +628,7 @@ export default function DeckBrowser({ folder, onBack }) {
       if (data) {
         const cardList = data.map(row => ({ ...row.cards, _folder_qty: row.qty }))
         setCards(cardList)
-        const map = await enrichCards(cardList, null)
+        const map = await loadCardMapWithSharedPrices(cardList)
         if (map) setSfMap({ ...map })
       }
       setLoading(false)
@@ -951,7 +952,7 @@ export default function DeckBrowser({ folder, onBack }) {
             if (data) {
               const cardList = data.map(row => ({ ...row.cards, _folder_qty: row.qty }))
               setCards(cardList)
-              const map = await enrichCards(cardList, null)
+              const map = await loadCardMapWithSharedPrices(cardList)
               if (map) setSfMap({ ...map })
             }
           }}

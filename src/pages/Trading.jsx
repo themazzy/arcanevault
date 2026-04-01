@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { sb } from '../lib/supabase'
-import { enrichCards, formatPrice, getImageUri, getInstantCache, getPrice, sfGet } from '../lib/scryfall'
+import { formatPrice, getImageUri, getPrice, sfGet } from '../lib/scryfall'
+import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { deleteCard, getLocalCards, putCards, putFolderCards, putFolders } from '../lib/db'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
@@ -102,15 +103,6 @@ export default function TradingPage() {
   const [tradeError, setTradeError] = useState('')
   const [tradeMessage, setTradeMessage] = useState('')
 
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      const cached = await getInstantCache()
-      if (!cancelled && cached) setSfMap(cached)
-    })()
-    return () => { cancelled = true }
-  }, [])
-
   const loadCollection = useCallback(async () => {
     if (collectionLoaded || collectionLoading) return
 
@@ -150,6 +142,8 @@ export default function TradingPage() {
       }
 
       setCards(allCards)
+      const map = allCards.length ? await loadCardMapWithSharedPrices(allCards) : {}
+      setSfMap(map)
       setCollectionLoaded(true)
       setProgress(100)
     } catch (err) {
@@ -202,22 +196,6 @@ export default function TradingPage() {
     })
   }, [cards, collectionLoaded, collectionQuery, sfMap])
 
-  const visibleCardsNeedingData = useMemo(
-    () => filteredCards
-      .slice(0, 30)
-      .filter(card => !sfMap[`${card.set_code}-${card.collector_number}`]),
-    [filteredCards, sfMap]
-  )
-
-  useEffect(() => {
-    if (!visibleCardsNeedingData.length) return
-    let cancelled = false
-    enrichCards(visibleCardsNeedingData, null).then(map => {
-      if (!cancelled && map) setSfMap({ ...map })
-    })
-    return () => { cancelled = true }
-  }, [visibleCardsNeedingData])
-
   const offerQtyById = useMemo(
     () => Object.fromEntries(offerItems.map(item => [item.id, item.qty])),
     [offerItems]
@@ -226,9 +204,9 @@ export default function TradingPage() {
   const ensureOfferCardData = useCallback(async (card) => {
     const key = `${card.set_code}-${card.collector_number}`
     if (sfMap[key]) return sfMap[key]
-    const map = await enrichCards([card], null)
+    const map = await loadCardMapWithSharedPrices([card])
     if (map) {
-      setSfMap({ ...map })
+      setSfMap(prev => ({ ...prev, ...map }))
       return map[key]
     }
     return null
