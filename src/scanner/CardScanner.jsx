@@ -152,6 +152,11 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
   const [latestMatch, setLatestMatch] = useState(null)
   const [selectedCard, setSelectedCard] = useState(null)
   const [debugInfo, setDebugInfo] = useState(null)
+  const [cameraPosition, setCameraPosition] = useState('rear')
+  const [flashModes, setFlashModes] = useState([])
+  const [flashMode, setFlashMode] = useState('off')
+  const [cameraStarted, setCameraStarted] = useState(false)
+  const [cameraRestartTick, setCameraRestartTick] = useState(0)
 
   const isReady = cvReady && dbReady
 
@@ -202,9 +207,13 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
 
     ;(async () => {
       try {
+        if (mountedRef.current) {
+          setErrorMsg(null)
+          setCameraStarted(false)
+        }
         if (isNative) {
           await CameraPreview.start({
-            position: 'rear',
+            position: cameraPosition,
             toBack: true,
             width: window.screen.width,
             height: window.screen.height,
@@ -213,10 +222,18 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
             enableZoom: true,
             tapFocus: true,
           })
+          const startedState = await CameraPreview.isCameraStarted().catch(() => ({ value: true }))
+          if (!mountedRef.current) return
+          setCameraStarted(!!startedState?.value)
+          const supported = await CameraPreview.getSupportedFlashModes().catch(() => ({ result: [] }))
+          if (!mountedRef.current) return
+          setFlashModes(Array.isArray(supported?.result) ? supported.result : [])
+          const desiredFlash = (supported?.result || []).includes(flashMode) ? flashMode : ((supported?.result || []).includes('off') ? 'off' : '')
+          if (desiredFlash && mountedRef.current) setFlashMode(desiredFlash)
         } else {
           const stream = await navigator.mediaDevices.getUserMedia({
             video: {
-              facingMode: { ideal: 'environment' },
+              facingMode: { ideal: cameraPosition === 'rear' ? 'environment' : 'user' },
               width: { ideal: 1920 },
               height: { ideal: 1080 },
             },
@@ -236,6 +253,7 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
                 track.applyConstraints({ advanced: [advanced] }).catch(() => {})
               }
             }
+            setCameraStarted(true)
           } else {
             stream.getTracks().forEach(t => t.stop())
             return
@@ -243,7 +261,10 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
         }
         started = true
       } catch (e) {
-        if (mountedRef.current) setErrorMsg('Camera: ' + e.message)
+        if (mountedRef.current) {
+          setErrorMsg('Camera: ' + e.message)
+          setCameraStarted(false)
+        }
       }
     })()
 
@@ -252,7 +273,33 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
       if (isNative) CameraPreview.stop().catch(() => {})
       else videoRef.current?.srcObject?.getTracks().forEach(t => t.stop())
     }
-  }, [isNative])
+  }, [cameraPosition, cameraRestartTick, isNative])
+
+  useEffect(() => {
+    if (!cameraStarted) return
+    if (isNative) {
+      CameraPreview.setFlashMode({ flashMode }).catch(() => {})
+      return
+    }
+    const track = videoRef.current?.srcObject?.getVideoTracks?.()?.[0]
+    if (track) {
+      track.applyConstraints({ advanced: [{ torch: flashMode === 'torch' || flashMode === 'on' }] }).catch(() => {})
+    }
+  }, [cameraStarted, flashMode, isNative])
+
+  const handleSwitchCamera = useCallback(() => {
+    setCameraPosition(prev => prev === 'rear' ? 'front' : 'rear')
+    setScanResult(null)
+  }, [])
+
+  const handleFlashMode = useCallback(async (nextMode) => {
+    setFlashMode(nextMode)
+  }, [])
+
+  const handleRestartCamera = useCallback(() => {
+    setCameraRestartTick(t => t + 1)
+    setScanResult(null)
+  }, [])
 
   const recognizeCardName = useCallback(async (cardImageData) => {
     try {
@@ -627,6 +674,30 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
         )}
 
         <div className={styles.bottomBar}>
+          <div className={styles.controlBar}>
+            <button className={styles.controlBtn} onClick={handleSwitchCamera}>
+              {cameraPosition === 'rear' ? 'Rear Camera' : 'Front Camera'}
+            </button>
+            <button className={styles.controlBtn} onClick={handleRestartCamera}>
+              Restart Camera
+            </button>
+            {flashModes.length > 0 && (
+              <select
+                className={styles.controlSelect}
+                value={flashMode}
+                onChange={e => handleFlashMode(e.target.value)}
+              >
+                {flashModes.map(mode => (
+                  <option key={mode} value={mode}>{`Flash: ${mode}`}</option>
+                ))}
+              </select>
+            )}
+          </div>
+          <div className={styles.controlHint}>
+            {isNative
+              ? `Camera ${cameraStarted ? 'active' : 'inactive'} · pinch preview to zoom · tap preview to focus`
+              : `Camera ${cameraStarted ? 'active' : 'inactive'} · browser camera controls are limited`}
+          </div>
           {scanHistory.length > 0 && (
             <div className={styles.historyStrip}>
               {scanHistory.map(card => (
