@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { sb } from '../lib/supabase'
-import { enrichCards, getInstantCache, getScryfallKey, getPrice, getPriceSource, formatPrice, sfGet } from '../lib/scryfall'
+import { getScryfallKey, getPrice, getPriceSource, formatPrice, sfGet } from '../lib/scryfall'
+import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { CardGrid, CardDetail, FilterBar, BulkActionBar, applyFilterSort, EMPTY_FILTERS } from '../components/CardComponents'
@@ -491,7 +492,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
       }
       setCards(cardList)
       if (cardList.length) {
-        const map = await enrichCards(cardList, null)
+        const map = await loadCardMapWithSharedPrices(cardList)
         if (map) setSfMap({ ...map })
       } else {
         setSfMap({})
@@ -1137,11 +1138,11 @@ export default function FoldersPage({ type }) {
         if (!page || page.length < 1000) break
         from += 1000
       }
-      const sfMap = await getInstantCache() || {}
       const cards = allFc.map(fc => {
         const folder = folders.find(f => f.id === fc.folder_id)
         return { ...fc.cards, _folder_qty: fc.qty, _folderName: folder?.name || '', _folderType: folder?.type || type }
       })
+      const sfMap = cards.length ? await loadCardMapWithSharedPrices(cards) : {}
       setExportAllCards(cards)
       setExportAllSfMap(sfMap)
     } finally {
@@ -1182,7 +1183,7 @@ export default function FoldersPage({ type }) {
       fcFrom += 1000
     }
 
-    const sfMap = await getInstantCache() || {}
+    const sfMap = allFc.length ? await loadCardMapWithSharedPrices(allFc.map(row => row.cards).filter(Boolean)) : {}
     const meta  = {}
     for (const f of foldersData) meta[f.id] = { count: 0, totalQty: 0, value: 0 }
 

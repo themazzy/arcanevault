@@ -64,6 +64,19 @@ create table price_snapshots (
   taken_at  timestamptz default now()
 );
 
+create table if not exists card_prices (
+  scryfall_id        text not null,
+  set_code           text not null,
+  collector_number   text not null,
+  snapshot_date      date not null,
+  price_regular_eur  numeric(10,2),
+  price_foil_eur     numeric(10,2),
+  price_regular_usd  numeric(10,2),
+  price_foil_usd     numeric(10,2),
+  updated_at         timestamptz not null default now(),
+  primary key (scryfall_id, snapshot_date)
+);
+
 -- ── SHARED FOLDERS (public read-only links) ───────────────────────────────────
 create table shared_folders (
   id           uuid default gen_random_uuid() primary key,
@@ -83,18 +96,22 @@ create index folder_cards_card_id_idx    on folder_cards(card_id);
 create index folder_cards_updated_at_idx on folder_cards(updated_at);
 create index price_snapshots_user_id_idx on price_snapshots(user_id);
 create index price_snapshots_taken_at_idx on price_snapshots(taken_at);
+create index card_prices_snapshot_date_idx on card_prices(snapshot_date);
+create index card_prices_set_collector_snapshot_idx on card_prices(set_code, collector_number, snapshot_date);
 
 -- ── ROW LEVEL SECURITY ────────────────────────────────────────────────────────
 alter table cards            enable row level security;
 alter table folders          enable row level security;
 alter table folder_cards     enable row level security;
 alter table price_snapshots  enable row level security;
+alter table card_prices      enable row level security;
 alter table shared_folders   enable row level security;
 
 -- cards: users own their cards
 create policy "own cards"   on cards           for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "own folders" on folders         for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "own snapshots" on price_snapshots for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "public read card_prices" on card_prices for select using (true);
 
 -- folder_cards: access if you own the folder
 create policy "own folder_cards" on folder_cards for all
@@ -110,6 +127,7 @@ create policy "public read shared_folders" on shared_folders for select
 -- ── GRANTS ────────────────────────────────────────────────────────────────────
 grant all on cards, folders, folder_cards, price_snapshots, shared_folders to authenticated;
 grant select on shared_folders to anon;
+grant select on card_prices to authenticated, anon;
 
 -- ── UPDATED_AT TRIGGER ────────────────────────────────────────────────────────
 create or replace function update_updated_at()

@@ -1,12 +1,13 @@
 import { useState, useEffect, useMemo } from 'react'
 import { sb } from '../lib/supabase'
-import { getInstantCache, enrichCards, getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
+import { getPrice, formatPrice, getScryfallKey, getPriceSource } from '../lib/scryfall'
+import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { CardDetail } from '../components/CardComponents'
 import { EmptyState, SectionHeader, ProgressBar } from '../components/UI'
 import {
-  LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
+  BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts'
 import styles from './Stats.module.css'
@@ -225,7 +226,6 @@ export default function StatsPage() {
 
   const [cards,        setCards]        = useState([])
   const [sfMap,        setSfMap]        = useState({})
-  const [snapshots,    setSnapshots]    = useState([])
   const [loading,      setLoading]      = useState(true)
   const [loadProgress, setLoadProgress] = useState(0)
   const [progLabel,    setProgLabel]    = useState('')
@@ -251,21 +251,17 @@ export default function StatsPage() {
         from += 1000
       }
 
-      const { data: snaps } = await sb.from('price_snapshots')
-        .select('*').eq('user_id', user.id).order('taken_at').limit(90)
-
       setCards(allCards)
 
-      let cached = await getInstantCache()
-      if (!cached && allCards.length) {
-        setProgLabel('Fetching card data…')
-        cached = await enrichCards(allCards, (pct, label) => {
-          setLoadProgress(40 + Math.round(pct * 0.6))
-          if (label) setProgLabel(label)
-        })
-      }
-      setSfMap(cached || {})
-      setSnapshots(snaps || [])
+      const map = allCards.length
+        ? await loadCardMapWithSharedPrices(allCards, {
+            onProgress: (pct, label) => {
+              setLoadProgress(40 + Math.round(pct * 0.6))
+              if (label) setProgLabel(label)
+            },
+          })
+        : {}
+      setSfMap(map)
       setLoadProgress(100)
       setLoading(false)
     }
@@ -278,7 +274,9 @@ export default function StatsPage() {
 
     let totalValue = 0, totalCost = 0, totalQty = 0
     let foilCount  = 0, foilValue = 0
+    let dayChange  = 0
     const byRarity = {}, bySet = {}, byType = {}
+    const priceSourceMeta = getPriceSource(price_source)
 
     // Value tiers
     const TIER_BOUNDS = [0, 1, 5, 20, 50, Infinity]
@@ -301,11 +299,14 @@ export default function StatsPage() {
       const sf    = sfMap[key]
       const price = getPrice(sf, c.foil, { price_source, cardId: c.id })
       const val   = price != null ? price * c.qty : 0
+      const prevField = c.foil ? priceSourceMeta.foilField : priceSourceMeta.field
+      const prevPrice = Number.parseFloat(sf?.prices_prev?.[prevField] || 0) || null
 
       totalValue += val
       totalCost  += (c.purchase_price || 0) * c.qty
       totalQty   += c.qty
       if (c.foil) { foilCount += c.qty; foilValue += val }
+      if (price != null && prevPrice != null) dayChange += (price - prevPrice) * c.qty
 
       // Rarity
       const rarity = sf?.rarity || 'unknown'
@@ -379,11 +380,6 @@ export default function StatsPage() {
       .sort((a, b) => b[1] - a[1])
       .map(([name, count]) => ({ name, value: count }))
 
-    const snapshotData = snapshots.map(s => ({
-      date: new Date(s.taken_at).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' }),
-      [`${sym} Value`]: parseFloat(s.value_eur),
-    }))
-
     // ── BUG FIX: name + image come from _sf, NOT c.name ────────────────────
     const topCards = [...cards]
       .map(c => {
@@ -412,19 +408,19 @@ export default function StatsPage() {
     const topLosers  = [...movingCards].sort((a, b) => a._pl - b._pl).slice(0, 5)
 
     return {
-      totalValue, totalCost, totalQty, foilCount, foilValue,
+      totalValue, totalCost, totalQty, foilCount, foilValue, dayChange,
       pl: totalValue - totalCost,
       uniqueCards: cards.length,
       uniqueSets:  Object.keys(bySet).length,
       avgCardValue: totalQty > 0 ? totalValue / totalQty : 0,
-      rarityData, topSets, typeData, snapshotData, topCards,
+      rarityData, topSets, typeData, topCards,
       valueTiers: valueTiers.filter(t => t.count > 0),
       legalityData, maxLegal,
       ageData,
       topGainers, topLosers,
       hasMoverData: movingCards.length > 0,
     }
-  }, [cards, sfMap, snapshots, price_source, sym])
+  }, [cards, sfMap, price_source, sym])
 
   const tt = (p) => <CustomTooltip {...p} fmt={fmt} />
   const selectedCard = detailCardId ? cards.find(c => c.id === detailCardId) : null
@@ -464,6 +460,15 @@ export default function StatsPage() {
             sub={`Cost basis: ${fmt(stats.totalCost)}`}
           />
           <StatCard
+            label="24h Change"
+            value={
+              <span style={{ color: stats.dayChange >= 0 ? 'var(--green)' : '#e05252' }}>
+                {stats.dayChange >= 0 ? '+' : ''}{fmt(stats.dayChange)}
+              </span>
+            }
+            sub="Today vs yesterday"
+          />
+          <StatCard
             label="Avg Card Value"
             value={fmt(stats.avgCardValue)}
             sub="per copy owned"
@@ -482,21 +487,6 @@ export default function StatsPage() {
 
         {/* ── Collection value over time ── */}
         <SetCompletionSection cards={cards} sfMap={sfMap} loading={loading} />
-
-        {stats.snapshotData.length > 1 && (
-          <div className={styles.chartBox}>
-            <SLabel>Collection Value Over Time</SLabel>
-            <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={stats.snapshotData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                <XAxis dataKey="date" tick={{ fill: 'var(--text-dim)', fontSize: 11 }} />
-                <YAxis tick={{ fill: 'var(--text-dim)', fontSize: 11 }} tickFormatter={v => fmt(v)} width={68} />
-                <Tooltip content={tt} />
-                <Line type="monotone" dataKey={`${sym} Value`} stroke="var(--gold)" strokeWidth={2} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        )}
 
         {/* ── Value distribution + Format legality ── */}
         <div className={stats.legalityData ? styles.chartRow : undefined}>
