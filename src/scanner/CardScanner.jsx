@@ -26,6 +26,7 @@ const MATCH_MIN_GAP = 12
 const MATCH_STRONG_THRESHOLD = 118
 const MATCH_STRONG_SINGLE = 96
 const MATCH_MIN_GAP_WITH_OCR = 8
+const MATCH_VERY_STRONG_DISTANCE = 48
 const MATCH_COOLDOWN = 3000
 const PRIMARY_CROP_VARIANTS = [
   { xOffset: 0, yOffset: 0 },
@@ -37,8 +38,7 @@ const STABILITY_SAMPLES = 3
 const STABILITY_REQUIRED = 2
 const SAMPLE_DELAY_MS = 80
 const DEBUG = true
-const NATIVE_BURST_FRAMES = 3
-const NATIVE_BURST_DELAY_MS = 70
+const NATIVE_CAPTURE_SETTLE_MS = 120
 const OCR_MIN_CONFIDENCE = 45
 
 const normalizeName = (value = '') =>
@@ -78,6 +78,9 @@ function shouldAcceptMatch({ best, gap, stableCount, ocrSupport, ocrConfidence }
   }
   if (ocrSupport >= 0.72 && ocrConfidence >= OCR_MIN_CONFIDENCE && best.distance <= MATCH_STRONG_THRESHOLD) {
     return { accepted: true, reason: 'ocr verified best match' }
+  }
+  if (best.distance <= MATCH_VERY_STRONG_DISTANCE && ocrSupport >= 0.58 && ocrConfidence >= OCR_MIN_CONFIDENCE) {
+    return { accepted: true, reason: 'very strong visual match with moderate ocr support' }
   }
   if (stableCount < STABILITY_REQUIRED) return { accepted: false, reason: 'insufficient stable votes' }
   if (best.distance > MATCH_STRONG_THRESHOLD) return { accepted: false, reason: `distance too high (${best.distance})` }
@@ -330,6 +333,8 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
     let imageData, w, h
 
     if (isNative) {
+      await sleep(NATIVE_CAPTURE_SETTLE_MS)
+
       const decodeSample = async (value) => {
         const img = await new Promise((resolve, reject) => {
           const image = new Image()
@@ -351,13 +356,8 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
         }
       }
 
-      const burst = []
-      for (let i = 0; i < NATIVE_BURST_FRAMES; i++) {
-        const { value } = await CameraPreview.captureSample({ quality: 92 })
-        burst.push(await decodeSample(value))
-        if (i < NATIVE_BURST_FRAMES - 1) await sleep(NATIVE_BURST_DELAY_MS)
-      }
-      const bestFrame = burst.sort((a, b) => b.quality - a.quality)[0]
+      const { value } = await CameraPreview.captureSample({ quality: 92 })
+      const bestFrame = await decodeSample(value)
       imageData = bestFrame.imageData
       w = bestFrame.w
       h = bestFrame.h
