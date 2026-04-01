@@ -88,10 +88,12 @@ export async function overlaySharedCardPrices(cards, baseMap = {}) {
 export async function loadCardMapWithSharedPrices(cards, { onProgress = null, cacheTtlMs } = {}) {
   if (!cards?.length) return {}
 
-  let map = await getInstantCache(cacheTtlMs) || {}
+  // Shared-price pages should not trigger Scryfall price TTL refreshes.
+  // We only need the cached metadata/art, plus fetches for cards missing locally.
+  let map = await getInstantCache(Number.MAX_SAFE_INTEGER) || {}
   const missing = cards.filter(card => !map[getCardKey(card)])
   if (missing.length) {
-    const enriched = await enrichCards(cards, onProgress, cacheTtlMs)
+    const enriched = await enrichCards(missing, onProgress, cacheTtlMs)
     if (enriched) map = enriched
   } else {
     onProgress?.(100, '')
