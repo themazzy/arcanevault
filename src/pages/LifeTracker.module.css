@@ -136,6 +136,36 @@
   box-sizing: border-box;
   overflow: hidden;       /* clip any child overflow to panel bounds */
 }
+
+.playerBgArt,
+.playerBgShade {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.playerBgArt {
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  transform: translateZ(0);
+}
+
+.playerBgShade {
+  z-index: 1;
+  background: linear-gradient(rgba(10,10,18,0.55) 0%, rgba(10,10,18,0.80) 100%);
+}
+
+.playerPanelContent {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-height: 100%;
+}
 .playerDead { opacity: 0.42; filter: grayscale(0.4); }
 
 /* Low-life ambient animations */
@@ -188,7 +218,11 @@
   cursor: pointer; padding: 3px 5px; transition: color 0.15s;
   flex-shrink: 0; min-width: 28px; min-height: 28px;
   display: flex; align-items: center; justify-content: center;
-  border-radius: 4px; margin-left: auto;
+  border-radius: 4px;
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
 }
 .playerSettingsBtn:hover   { color: var(--gold); background: rgba(201,168,76,0.08); }
 .playerSettingsBtnOpen     { color: var(--gold) !important; background: rgba(201,168,76,0.12) !important; }
@@ -216,18 +250,36 @@
 .nameRow {
   display: flex; align-items: center; justify-content: center; gap: 4px; flex-wrap: nowrap;
   min-height: 28px;
+  text-align: center;
+  position: relative;
+}
+.nameMain {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  min-width: 0;
+  max-width: calc(100% - 34px);
 }
 .nameBtn {
   background: none; border: none; color: var(--player-color, var(--gold));
-  font-family: var(--font-display); font-size: 0.76rem; letter-spacing: 0.06em;
+  font-family: var(--font-display); font-size: 0.92rem; letter-spacing: 0.06em;
   cursor: pointer; padding: 2px 6px; border-radius: 3px; transition: background 0.15s;
+  text-align: center;
+  min-width: 0;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .nameBtn:hover { background: var(--s3); }
 .nameInput {
   background: var(--s3); border: 1px solid var(--border-hi);
   border-radius: 3px; color: var(--player-color, var(--gold));
-  font-family: var(--font-display); font-size: 0.76rem; letter-spacing: 0.06em;
-  padding: 2px 8px; text-align: center; outline: none; width: 120px;
+  font-family: var(--font-display); font-size: 0.92rem; letter-spacing: 0.06em;
+  padding: 2px 8px; text-align: center; outline: none; width: min(120px, 100%);
+  min-width: 0;
 }
 .panelDeckBadge {
   font-size: 0.62rem; color: var(--text-faint);
@@ -236,11 +288,58 @@
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px;
 }
 
+.cmdTaxGroup {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+}
+
+.cmdTaxChip {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--s2);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 999px;
+  padding: 1px 4px;
+  min-width: 0;
+}
+
+.cmdTaxBtn {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  font-size: 0.72rem;
+  line-height: 1;
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  border-radius: 999px;
+}
+
+.cmdTaxBtn:hover {
+  color: var(--text);
+  background: rgba(255,255,255,0.08);
+}
+
+.cmdTaxVal {
+  font-family: var(--font-display);
+  font-size: 0.58rem;
+  color: var(--text-dim);
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
 /* Life total */
 .lifeArea {
   display: flex; align-items: stretch; justify-content: center; gap: 4px; flex: 1;
-  width: calc(100% + 16px);
-  margin: 0 -8px;
+  width: 100%;
+  min-width: 0;
 }
 .lifeBtn {
   background: var(--s3); border: 1px solid var(--s-border2);
@@ -252,8 +351,14 @@
   user-select: none; -webkit-user-select: none; touch-action: manipulation;
   white-space: nowrap; overflow: hidden;
 }
-.lifeBtn:first-child { border-radius: 8px 0 0 8px; }
-.lifeBtn:last-child  { border-radius: 0 8px 8px 0; }
+.lifeBtn:first-child {
+  border-left-color: var(--s-border);
+  border-right-color: var(--s-border2);
+}
+.lifeBtn:last-child  {
+  border-left-color: var(--s-border2);
+  border-right-color: var(--s-border);
+}
 .lifeBtn:hover  { background: var(--s-medium); color: var(--player-color, var(--gold)); border-color: rgba(201,168,76,0.35); }
 .lifeBtn:active { transform: scale(0.93); background: var(--s-subtle); }
 
@@ -317,6 +422,80 @@
 }
 .quickBtn:hover  { background: var(--s4); color: var(--player-color, var(--gold)); }
 .quickBtn:active { transform: scale(0.94); }
+
+.statusRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  min-width: 0;
+}
+
+.counterBar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 6px;
+  background: rgba(0,0,0,0.22);
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 5px;
+  min-height: 34px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.counterBarIcon {
+  font-size: 0.78rem;
+  color: var(--text-faint);
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.counterBadges {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+
+.counterBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  background: var(--s1);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 4px;
+  padding: 0.32rem 0.45rem;
+  overflow: hidden;
+}
+
+.counterBadgeActive {
+  border-color: rgba(201,168,76,0.18);
+}
+
+.counterBadgeLethal {
+  border-color: rgba(196,96,96,0.5) !important;
+  background: rgba(196,96,96,0.08) !important;
+  animation: lethalPulse 1.4s ease-in-out infinite;
+}
+
+.counterBadgeIcon {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  line-height: 1;
+}
+
+.counterBadgeVal {
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  flex-shrink: 0;
+  min-width: 10px;
+  text-align: center;
+}
 
 /* History button (in nameRow) */
 .historyBtn {
@@ -499,6 +678,7 @@
   max-height: none;
   overflow: hidden;
   -webkit-overflow-scrolling: touch;
+  min-width: 0;
 }
 .cmdBar::-webkit-scrollbar { height: 2px; }
 .cmdBar::-webkit-scrollbar-thumb { background: rgba(201,168,76,0.2); border-radius: 1px; }
@@ -507,8 +687,7 @@
   font-size: 0.78rem; color: var(--text-faint); flex-shrink: 0; opacity: 0.7;
 }
 .cmdBarHint {
-  font-size: 0.58rem; color: var(--text-faint); font-style: italic;
-  margin-left: auto; flex-shrink: 0; opacity: 0.6; white-space: nowrap;
+  display: none;
 }
 .cmdBarLabel {
   background: none; border: none;
@@ -519,17 +698,23 @@
 .cmdBarLabel:hover { opacity: 1; color: var(--gold); }
 
 .cmdBadges {
-  display: flex; gap: 6px; align-items: center; flex: 1;
-  flex-wrap: wrap;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex: 1;
   min-width: 0;
+  flex-wrap: nowrap;
+  overflow: hidden;
 }
 .cmdBadge {
   display: flex; align-items: center; gap: 3px;
   background: var(--s1);
   border: 1px solid rgba(255,255,255,0.07);
   border-radius: 4px;
-  padding: 0.32rem 0.45rem;
-  flex: 0 1 auto;
+  padding: 0.28rem 0.36rem;
+  min-width: 0;
+  flex: 1 1 0;
+  justify-content: center;
   transition: border-color 0.15s;
 }
 .cmdBadgeHit    { border-color: rgba(var(--opc), 0.3); }
@@ -559,7 +744,66 @@
 .cmdBadgeBtn:active { transform: scale(0.88); }
 .cmdBadgeVal {
   font-family: var(--font-display); font-size: 0.76rem;
-  color: var(--text-dim); min-width: 10px; text-align: center;
+  color: var(--text-dim); min-width: 0; text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.counterOverlayList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.counterOverlayRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--s1);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 5px;
+  padding: 10px 12px;
+}
+
+.counterOverlayRowLethal {
+  background: rgba(196,96,96,0.06) !important;
+  border-color: rgba(196,96,96,0.32) !important;
+}
+
+.counterOverlayMeta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.counterOverlayIcon {
+  font-size: 1rem;
+  line-height: 1;
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.counterOverlayLabel {
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  color: var(--text);
+}
+
+.counterOverlayHint {
+  font-size: 0.66rem;
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.counterOverlayCtrl {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
 }
 
 .settingsOverlay {
@@ -574,8 +818,14 @@
   padding: 16px;
 }
 
-.settingsPanel {
+.overlayRotatable {
   width: min(420px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  transform-origin: center center;
+}
+
+.settingsPanel {
   background: var(--bg3);
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 12px;
@@ -681,6 +931,59 @@
   color: #c6bdf0 !important;
 }
 
+.artPickerOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.76);
+  backdrop-filter: blur(8px);
+  z-index: 365;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.artPickerPanel {
+  width: min(680px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  background: var(--bg3);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.65);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: slideUp 0.18s ease;
+}
+
+.artPickerHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.artPickerTitle {
+  margin: 0;
+  font-family: var(--font-display);
+  color: var(--gold);
+  font-size: 1rem;
+}
+
+.artPickerClose {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.artPickerClose:hover { color: var(--text); }
+
 /* ── Commander Damage Overlay (page-level) ──────────────────────────────────── */
 .cmdOverlay {
   position: fixed; inset: 0;
@@ -693,7 +996,9 @@
   background: var(--bg3);
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 10px; padding: 20px;
-  width: 100%; max-width: 420px;
+  width: min(420px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
   box-shadow: 0 24px 60px rgba(0,0,0,0.65);
   display: flex; flex-direction: column; gap: 14px;
   animation: slideUp 0.18s ease;
@@ -785,22 +1090,24 @@
 .dicePanel {
   background: var(--bg3);
   border: 1px solid rgba(201,168,76,0.2);
-  border-radius: 12px; padding: 22px;
-  width: 100%; max-width: 400px;
+  border-radius: 12px; padding: 14px;
+  width: 100%; max-width: 312px;
+  height: min(360px, calc(100vh - 32px));
+  overflow: hidden;
   box-shadow: 0 28px 70px rgba(0,0,0,0.7);
-  display: flex; flex-direction: column; gap: 16px;
+  display: flex; flex-direction: column; gap: 10px;
   animation: slideUp 0.18s ease;
 }
 .diceHead {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; justify-content: flex-end;
+  min-height: 20px;
 }
 .diceTitle {
-  font-family: var(--font-display); font-size: 0.9rem;
-  color: var(--gold); letter-spacing: 0.07em;
+  display: none;
 }
 .diceClose {
   background: none; border: none; color: var(--text-faint);
-  font-size: 1.2rem; cursor: pointer; padding: 0 4px; line-height: 1;
+  font-size: 1rem; cursor: pointer; padding: 0 2px; line-height: 1;
   transition: color 0.15s;
 }
 .diceClose:hover { color: var(--text); }
@@ -823,40 +1130,51 @@
 
 .diceCount {
   display: flex; align-items: center; justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
 }
-.diceCountLabel { font-size: 0.78rem; color: var(--text-dim); }
+.diceCountLabel { font-size: 0.7rem; color: var(--text-dim); }
 .diceCountCtrl  { display: flex; align-items: center; gap: 8px; }
 .diceCountBtn {
   background: var(--s3); border: 1px solid rgba(255,255,255,0.1);
   border-radius: 5px; color: var(--text-dim);
-  font-size: 1rem; width: 32px; height: 32px;
+  font-size: 0.92rem; width: 28px; height: 28px;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; transition: all 0.12s; padding: 0;
 }
 .diceCountBtn:hover { background: rgba(255,255,255,0.12); color: var(--text); }
 .diceCountVal {
-  font-family: var(--font-display); font-size: 1.1rem; color: var(--text); min-width: 24px; text-align: center;
+  font-family: var(--font-display); font-size: 1rem; color: var(--text); min-width: 20px; text-align: center;
 }
 
 .diceResults {
-  min-height: 100px;
+  flex: 1;
+  min-height: 0;
   background: rgba(0,0,0,0.25);
   border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 8px; padding: 12px;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  border-radius: 8px; padding: 8px;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  align-items: stretch;
+  justify-items: center;
+  row-gap: 6px;
+  overflow: hidden;
 }
 .diceResultRow {
-  display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
+  display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; align-content: center;
+  max-width: 100%;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
 }
 .dieFace {
   background: var(--s3);
   border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 8px;
-  width: 52px; height: 52px;
+  border-radius: 6px;
+  width: 28px; height: 28px;
   display: flex; align-items: center; justify-content: center;
-  font-family: var(--font-display); font-size: 1.4rem; font-weight: 700;
+  font-family: var(--font-display); font-size: 0.82rem; font-weight: 700;
   color: var(--text);
+  flex: 0 0 auto;
 }
 .dieFaceRolling {
   animation: dieRoll 0.1s infinite alternate;
@@ -884,20 +1202,171 @@
   border-color: rgba(196,96,96,0.35) !important;
 }
 .diceTotal {
-  font-family: var(--font-display); font-size: 1rem; color: var(--text-dim);
+  font-family: var(--font-display); font-size: 0.82rem; color: var(--text-dim);
+  line-height: 1.2;
+  min-height: 1.2em;
+  display: flex;
+  align-items: center;
 }
 .diceTotal strong { color: var(--gold); }
 .dicePrompt {
-  font-size: 0.82rem; color: var(--text-faint); font-style: italic;
+  font-size: 0.74rem; color: var(--text-faint); font-style: italic;
+}
+
+.coinPanel {
+  max-width: 280px;
+  gap: 10px;
+}
+
+.coinCountRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.coinCountLabel {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.coinCountCtrl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.coinCountBtn {
+  background: var(--s2);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 5px;
+  color: var(--text-dim);
+  font-family: var(--font-display);
+  font-size: 0.86rem;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.coinCountBtn:hover { color: var(--text); border-color: rgba(255,255,255,0.15); }
+.coinCountBtn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.coinCountVal {
+  min-width: 22px;
+  text-align: center;
+  font-family: var(--font-display);
+  color: var(--gold);
+  font-size: 0.88rem;
+}
+
+.coinResults {
+  min-height: 116px;
+  max-height: 116px;
+  background: rgba(0,0,0,0.28);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.coinGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, 34px);
+  gap: 6px;
+  align-content: center;
+  justify-content: center;
+}
+
+.coinFace {
+  width: 34px;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.2), rgba(201,168,76,0.08));
+  border: 1px solid rgba(201,168,76,0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 1px 8px rgba(255,255,255,0.08);
+  min-width: 0;
+}
+
+.coinFaceFlipping {
+  animation: coinFlip 0.09s infinite alternate;
+}
+
+@keyframes coinFlip {
+  from { transform: rotateY(0deg) scale(0.98); }
+  to   { transform: rotateY(90deg) scale(1.01); }
+}
+
+.coinFaceInner {
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  color: var(--gold);
+}
+
+.coinPrompt {
+  font-size: 0.76rem;
+  color: var(--text-faint);
+  font-style: italic;
+  text-align: center;
+}
+
+.coinSummary {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+}
+
+.coinSummary strong { color: var(--text); }
+
+.coinActions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+
+.coinModeBtn {
+  background: var(--s2);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 7px;
+  color: var(--text-dim);
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.coinModeBtn:hover {
+  color: var(--text);
+  border-color: rgba(255,255,255,0.15);
 }
 
 .diceRollBtn {
   background: linear-gradient(135deg, rgba(201,168,76,0.16), rgba(201,168,76,0.08));
   border: 1px solid rgba(201,168,76,0.4);
   border-radius: 7px; color: var(--gold);
-  font-family: var(--font-display); font-size: 0.86rem;
+  font-family: var(--font-display); font-size: 0.76rem;
   letter-spacing: 0.07em; text-transform: uppercase;
-  padding: 12px; cursor: pointer; transition: all 0.15s;
+  padding: 9px; cursor: pointer; transition: all 0.15s;
 }
 .diceRollBtn:hover    { background: rgba(201,168,76,0.22); border-color: rgba(201,168,76,0.6); }
 .diceRollBtn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -916,6 +1385,8 @@
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 12px; padding: 24px;
   width: 100%; max-width: 340px;
+  max-height: calc(100vh - 32px);
+  overflow: auto;
   box-shadow: 0 28px 70px rgba(0,0,0,0.7);
   display: flex; flex-direction: column; gap: 16px;
   animation: slideUp 0.18s ease;
@@ -1344,6 +1815,15 @@
     height: calc(100svh - 192px);
   }
 
+  .overlayRotatable.playerRotate180 { transform: rotate(180deg); }
+  .overlayRotatable.playerRotate90,
+  .overlayRotatable.playerRotate90n {
+    width: min(420px, calc(100vh - 32px));
+    max-height: calc(100vw - 32px);
+  }
+  .overlayRotatable.playerRotate90  { transform: rotate(90deg); }
+  .overlayRotatable.playerRotate90n { transform: rotate(-90deg); }
+
   /* 180° — simple in-place rotation, no layout change needed */
   .playerRotate180 { transform: rotate(180deg); }
 
@@ -1369,6 +1849,34 @@
 
 /* ── Phone (≤ 600 px): shrink panel internals to fit 2-col cells (~165 px wide) ── */
 @media (max-width: 600px) {
+  .counterOverlayRow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .counterOverlayCtrl {
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .artPickerPanel,
+  .cmdOverlayPanel,
+  .dicePanel,
+  .pickerPanel,
+  .endDialog {
+    padding: 16px;
+  }
+  .dicePanel {
+    max-width: 296px;
+    height: min(334px, calc(100vh - 32px));
+    gap: 8px;
+  }
+  .diceResults {
+    row-gap: 5px;
+  }
+  .dieFace {
+    width: 24px;
+    height: 24px;
+    font-size: 0.76rem;
+  }
   .playerPanel   { padding: 5px 5px 6px; gap: 4px; min-height: 160px; }
   .lifeArea      { gap: 4px; }
   .lifeBtn       { font-size: 1.8rem; min-width: 42px; border-radius: 5px; white-space: nowrap; overflow: hidden; }
@@ -1378,6 +1886,9 @@
   .colorRow      { gap: 3px; }
   .colorDot      { width: 11px; height: 11px; }
   .nameBtn       { font-size: 0.66rem; }
+  .cmdTaxGroup   { gap: 2px; margin-left: 2px; }
+  .cmdTaxChip    { padding: 1px 2px; }
+  .cmdTaxVal     { font-size: 0.5rem; }
 
   .quickRow      { gap: 2px; }
   .quickBtn      { padding: 0.5rem 0.2rem; font-size: 0.62rem; min-width: 0; }
@@ -1431,6 +1942,8 @@
   .nameBtn,
   .nameInput     { font-size: 0.64rem; letter-spacing: 0.04em; }
   .panelDeckBadge { font-size: 0.54rem; padding: 1px 4px; max-width: 74px; }
+  .cmdTaxVal     { font-size: 0.48rem; }
+  .cmdTaxBtn     { width: 12px; height: 12px; font-size: 0.64rem; }
   .playerSettingsBtn { min-width: 24px; min-height: 24px; font-size: 1.1rem; padding: 2px 4px; }
   .lifeArea      { gap: 3px; }
   .lifeBtn       { font-size: 1.25rem; min-width: 34px; border-radius: 4px; }
@@ -1497,6 +2010,7 @@
   .pageFullscreen .nameBtn,
   .pageFullscreen .nameInput { font-size: 0.6rem; }
   .pageFullscreen .panelDeckBadge { font-size: 0.5rem; max-width: 64px; }
+  .pageFullscreen .cmdTaxVal { font-size: 0.46rem; }
   .pageFullscreen .lifeArea { gap: 2px; }
   .pageFullscreen .lifeBtn { font-size: 1.1rem; min-width: 34px; max-width: none; }
   .pageFullscreen .lifeTotalWrap { width: 48px; }
@@ -1507,43 +2021,71 @@
   .pageFullscreen .counterSection { padding: 2px; }
   .pageFullscreen .counterCtrlBtn { min-height: 20px; font-size: 0.82rem; }
   .pageFullscreen .counterCtrlVal { font-size: 0.82rem; }
-  .pageFullscreen .fsControls {
-    padding: 4px 6px;
-    gap: 2px;
-    border-radius: 7px;
+  .pageFullscreen .fsMenuBtn {
+    width: 34px;
+    height: 34px;
+    font-size: 0.72rem;
   }
-  .pageFullscreen .fsExitBtn,
-  .pageFullscreen .fsEndBtn,
-  .pageFullscreen .gearBtn {
-    width: 24px;
-    height: 24px;
-    font-size: 0.85rem;
+  .pageFullscreen .fsMenuWrap::before {
+    width: 34px;
+    height: 34px;
+    border-radius: 6px;
   }
 }
 
-/* Floating controls pill — sits between players in fullscreen mode */
-.fsControls {
+/* Single anchored fullscreen menu button */
+.fsMenuWrap {
   position: fixed;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   z-index: 910;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  background: rgba(10, 10, 18, 0.75);
-  backdrop-filter: blur(6px);
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 8px;
-  padding: 6px 8px;
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.45);
 }
 
-/* Hide the floating controls pill in non-fullscreen mode */
-.pageGame:not(.pageFullscreen) .fsControls {
+.fsMenuWrap::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 42px;
+  height: 42px;
+  transform: translate(-50%, -50%) rotate(45deg);
+  background: var(--bg);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 7px;
+  box-shadow: 0 8px 18px rgba(0,0,0,0.28);
+  pointer-events: none;
+  z-index: -1;
+}
+
+.fsMenuBtn {
+  background: rgba(10, 10, 18, 0.82);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 7px;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  width: 42px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.45);
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+  transform: rotate(45deg);
+  line-height: 1;
+}
+
+.fsMenuBtn:hover {
+  color: var(--gold);
+  border-color: rgba(201,168,76,0.3);
+  background: rgba(18, 18, 28, 0.9);
+}
+
+/* Hide the fullscreen menu button in non-fullscreen mode */
+.pageGame:not(.pageFullscreen) .fsMenuWrap {
   display: none;
 }
 
@@ -1552,24 +2094,7 @@
   display: none;
 }
 
-.fsControls:active { cursor: grabbing; }
-.fsControlsDragging { cursor: grabbing !important; }
-
-.fsExitBtn, .fsEndBtn {
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  font-size: 1rem;
-  width: 28px; height: 28px;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; border-radius: 5px;
-  transition: color 0.15s, background 0.15s;
-  padding: 0;
-}
-.fsExitBtn:hover { color: var(--gold); background: rgba(201,168,76,0.12); }
-.fsEndBtn:hover  { color: #e8c063;    background: rgba(201,168,76,0.12); }
-
-/* Gear menu in fullscreen: open downward from the fsControls pill */
+/* Gear menu in fullscreen: open downward from the anchored button */
 .gearMenuFs {
   top: calc(100% + 6px) !important;
   left: 50% !important;

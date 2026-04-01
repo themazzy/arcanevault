@@ -13,7 +13,7 @@
 import { openDB } from 'idb'
 
 const DB_NAME    = 'arcanevault'
-const DB_VERSION = 3
+const DB_VERSION = 4
 
 let _db = null
 
@@ -56,6 +56,11 @@ async function getDb() {
       // meta store — sync timestamps, settings, cache info
       if (!db.objectStoreNames.contains('meta')) {
         db.createObjectStore('meta', { keyPath: 'key' })
+      }
+
+      if (!db.objectStoreNames.contains('scanner_hashes')) {
+        const sh = db.createObjectStore('scanner_hashes', { keyPath: 'scryfall_id' })
+        sh.createIndex('name', 'name')
       }
 
       // deck_cards store (v2) — cards in builder decks, independent of collection
@@ -116,6 +121,31 @@ export async function getScryfallCacheInfo() {
   const count = await db.count('scryfall')
   const updatedAt = await getMeta('scryfall_prices_updated_at')
   return { count, updatedAt }
+}
+
+export async function getAllScannerHashEntries() {
+  const db = await getDb()
+  return db.getAll('scanner_hashes')
+}
+
+export async function putScannerHashEntries(entries) {
+  if (!entries?.length) return
+  const db = await getDb()
+  const tx = db.transaction('scanner_hashes', 'readwrite')
+  await Promise.all([
+    ...entries.map(entry => tx.store.put(entry)),
+    tx.done,
+  ])
+}
+
+export async function clearScannerHashEntries() {
+  const db = await getDb()
+  await db.clear('scanner_hashes')
+}
+
+export async function getScannerHashCount() {
+  const db = await getDb()
+  return db.count('scanner_hashes')
 }
 
 // ── Cards ─────────────────────────────────────────────────────────────────────

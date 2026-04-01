@@ -16,7 +16,6 @@ const TABS = [
   { to: '/trading', label: 'Trading' },
   { to: '/stats', label: 'Stats' },
   { to: '/life', label: 'Life' },
-  { to: '/tournaments', label: 'Tournaments' },
   { to: '/scanner', label: 'Scanner' },
 ]
 
@@ -26,6 +25,7 @@ export default function Layout({ children }) {
   const location = useLocation()
   const isNative = Capacitor.isNativePlatform()
   const isScannerRoute = location.pathname === '/scanner'
+  const isNativeScannerRoute = isNative && isScannerRoute
   const [menuOpen, setMenuOpen] = useState(false)
   const [showFeedback, setShowFeedback] = useState(false)
 
@@ -34,12 +34,12 @@ export default function Layout({ children }) {
   }, [location.pathname])
 
   useEffect(() => {
-    document.body.style.overflow = (menuOpen || isScannerRoute) ? 'hidden' : ''
+    document.body.style.overflow = (menuOpen || isNativeScannerRoute) ? 'hidden' : ''
     return () => { document.body.style.overflow = '' }
-  }, [menuOpen, isScannerRoute])
+  }, [menuOpen, isNativeScannerRoute])
 
   useEffect(() => {
-    if (!isNative || !isScannerRoute) return
+    if (!isNativeScannerRoute) return
 
     const html = document.documentElement
     const body = document.body
@@ -57,7 +57,7 @@ export default function Layout({ children }) {
       body.style.background = prevBodyBg
       if (root) root.style.background = prevRootBg
     }
-  }, [isNative, isScannerRoute])
+  }, [isNativeScannerRoute])
 
   const signOut = async () => {
     await sb.auth.signOut()
@@ -65,8 +65,8 @@ export default function Layout({ children }) {
   }
 
   return (
-    <div className={`${styles.app} ${isScannerRoute ? styles.appScanner : ''}`}>
-      {!isScannerRoute && (
+    <div className={`${styles.app} ${isNativeScannerRoute ? styles.appScanner : ''}`}>
+      {!isNativeScannerRoute && (
         <>
           <header className={styles.header}>
             <div className={styles.headerTop}>
@@ -150,11 +150,11 @@ export default function Layout({ children }) {
         </>
       )}
 
-      <main className={`${styles.main} ${isScannerRoute ? styles.mainScanner : ''}`}>
+      <main className={`${styles.main} ${isNativeScannerRoute ? styles.mainScanner : ''}`}>
         {children}
       </main>
 
-      {showFeedback && !isScannerRoute && <FeedbackModal onClose={() => setShowFeedback(false)} />}
+      {showFeedback && !isNativeScannerRoute && <FeedbackModal onClose={() => setShowFeedback(false)} />}
     </div>
   )
 }
