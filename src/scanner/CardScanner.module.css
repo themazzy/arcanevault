@@ -8,6 +8,10 @@
   flex-direction: column;
 }
 
+.rootNative {
+  background: transparent;
+}
+
 /* Web: live video feed fills the frame */
 .video {
   position: absolute;
