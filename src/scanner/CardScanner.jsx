@@ -17,7 +17,7 @@ import { initScanner } from '../lib/scanner'
 import { databaseService } from './DatabaseService'
 import {
   waitForOpenCV,
-  detectCardCorners, warpCard, cropArtRegion, computePHash256, cropCardFromReticle, createNameStripCanvas,
+  detectCardCorners, warpCard, cropArtRegion, computePHash256, createNameStripCanvas,
 } from './ScannerEngine'
 import styles from './CardScanner.module.css'
 
@@ -27,14 +27,11 @@ const MATCH_STRONG_THRESHOLD = 118
 const MATCH_STRONG_SINGLE = 96
 const MATCH_MIN_GAP_WITH_OCR = 8
 const MATCH_COOLDOWN = 3000
-const CROP_VARIANTS = [
+const PRIMARY_CROP_VARIANTS = [
   { xOffset: 0, yOffset: 0 },
   { xOffset: 0, yOffset: -10 },
   { xOffset: 0, yOffset: 10 },
-  { xOffset: -8, yOffset: 0 },
-  { xOffset: 8, yOffset: 0 },
   { xOffset: 0, yOffset: 0, inset: 6 },
-  { xOffset: 0, yOffset: 0, inset: -6 },
 ]
 const STABILITY_SAMPLES = 3
 const STABILITY_REQUIRED = 2
@@ -42,9 +39,6 @@ const SAMPLE_DELAY_MS = 80
 const DEBUG = true
 const NATIVE_BURST_FRAMES = 3
 const NATIVE_BURST_DELAY_MS = 70
-const RETICLE_WIDTH = 280
-const RETICLE_HEIGHT = 392
-const RETICLE_CENTER_Y_OFFSET = -8
 const OCR_MIN_CONFIDENCE = 45
 
 const normalizeName = (value = '') =>
@@ -89,6 +83,21 @@ function shouldAcceptMatch({ best, gap, stableCount, ocrSupport, ocrConfidence }
   if (best.distance > MATCH_STRONG_THRESHOLD) return { accepted: false, reason: `distance too high (${best.distance})` }
   if (gap < MATCH_MIN_GAP_WITH_OCR) return { accepted: false, reason: `gap too small (${gap})` }
   return { accepted: false, reason: 'best candidate not confident enough' }
+}
+
+function isDecisiveCandidate(best, gap) {
+  if (!best) return false
+  return (
+    (best.distance <= MATCH_THRESHOLD && gap >= MATCH_MIN_GAP) ||
+    (best.distance <= MATCH_STRONG_SINGLE && gap >= MATCH_MIN_GAP_WITH_OCR)
+  )
+}
+
+function getStableVote(votes) {
+  return [...votes.values()].sort((a, b) => {
+    if (b.count !== a.count) return b.count - a.count
+    return a.best.distance - b.best.distance
+  })[0] ?? null
 }
 
 function scoreFrameQuality(imageData, width, height) {
@@ -378,51 +387,39 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
     let second = null
     let bestStats = { candidateCount: 0, totalCount: databaseService.cardCount }
     let bestVariant = null
-    let bestSource = corners ? 'corners' : 'reticle'
+    let bestSource = corners ? 'corners' : 'no corners'
     let bestCardImage = null
+    let bestGap = 0
 
-    const tryMatchCardImage = (cardImageData, sourceLabel) => {
-      for (const variant of CROP_VARIANTS) {
+    const updateBestMatch = (candidate, runnerUp, candidateCount, totalCount, variant, sourceLabel, cardImageData) => {
+      if (!candidate) return false
+      const gap = runnerUp ? runnerUp.distance - candidate.distance : 256
+      if (!best || candidate.distance < best.distance) {
+        best = candidate
+        second = runnerUp
+        bestStats = { candidateCount, totalCount }
+        bestVariant = variant
+        bestSource = sourceLabel
+        bestCardImage = cardImageData
+        bestGap = gap
+      }
+      return isDecisiveCandidate(best, bestGap)
+    }
+
+    const tryMatchCardImage = (cardImageData, sourceLabel, variants) => {
+      for (const variant of variants) {
         const artCrop = cropArtRegion(cardImageData, variant)
         if (!artCrop) continue
         const hash = computePHash256(artCrop)
         if (!hash) continue
         const { best: candidate, second: runnerUp, candidateCount, totalCount } = databaseService.findBestTwoWithStats(hash)
-        if (candidate && (!best || candidate.distance < best.distance)) {
-          best = candidate
-          second = runnerUp
-          bestStats = { candidateCount, totalCount }
-          bestVariant = variant
-          bestSource = sourceLabel
-          bestCardImage = cardImageData
-        }
+        if (updateBestMatch(candidate, runnerUp, candidateCount, totalCount, variant, sourceLabel, cardImageData)) return
       }
     }
 
     if (corners) {
       const warped = warpCard(imageData, corners)
-      if (warped) tryMatchCardImage(warped, 'corners')
-    }
-
-    if (!best) {
-      const viewportWidth = window.innerWidth || window.screen.width || w
-      const viewportHeight = window.innerHeight || window.screen.height || h
-      for (const inset of [0, 10, 18, -8]) {
-        const reticleCard = cropCardFromReticle(
-          imageData,
-          w,
-          h,
-          viewportWidth,
-          viewportHeight,
-          {
-            reticleWidth: RETICLE_WIDTH,
-            reticleHeight: RETICLE_HEIGHT,
-            centerYOffsetPx: RETICLE_CENTER_Y_OFFSET,
-            inset,
-          },
-        )
-        tryMatchCardImage(reticleCard, corners ? 'reticle fallback' : 'reticle')
-      }
+      if (warped) tryMatchCardImage(warped, 'corners', PRIMARY_CROP_VARIANTS)
     }
 
     if (!best) {
@@ -493,19 +490,14 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
           })
         }
 
-        const stableVote = [...votes.values()].sort((a, b) => {
-          if (b.count !== a.count) return b.count - a.count
-          return a.best.distance - b.best.distance
-        })[0]
+        const stableVote = getStableVote(votes)
 
         if (stableVote?.count >= STABILITY_REQUIRED) break
+        if (isDecisiveCandidate(result.best, result.gap ?? 0)) break
         if (i < STABILITY_SAMPLES - 1) await sleep(SAMPLE_DELAY_MS)
       }
 
-      const stableVote = [...votes.values()].sort((a, b) => {
-        if (b.count !== a.count) return b.count - a.count
-        return a.best.distance - b.best.distance
-      })[0] ?? null
+      const stableVote = getStableVote(votes)
       const preOcrAcceptance = shouldAcceptMatch({
         best: stableVote?.best ?? bestObserved,
         gap: bestObservedGap ?? 0,
