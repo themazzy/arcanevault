@@ -27,7 +27,7 @@ export default function CacheDebug() {
 
   const handleClearPrices = async () => {
     await clearScryfallCache()
-    setMsg('✓ Prices cleared — images kept')
+    setMsg('✓ Metadata cleared — images kept')
     await refresh()
     setTimeout(() => setMsg(''), 3000)
   }
@@ -41,7 +41,7 @@ export default function CacheDebug() {
 
   const ageLabel = stats?.sfUpdatedAt
     ? `${(( Date.now() - stats.sfUpdatedAt) / 3600000).toFixed(1)}h ago`
-    : 'Never fetched'
+    : 'Never cached'
 
   return (
     <div className={styles.wrap}>
@@ -64,14 +64,14 @@ export default function CacheDebug() {
                 <Row label="Folders"        value={stats.folders} />
                 <Row label="Folder links"   value={stats.folderCards} />
                 <Row label="Scryfall cache" value={stats.scryfall}    ok={stats.scryfall > 0} />
-                <Row label="Prices last fetched" value={ageLabel} />
+                <Row label="Metadata last cached" value={ageLabel} />
               </div>
 
               <div className={styles.group}>
                 <div className={styles.groupTitle}>Actions</div>
                 <div style={{ display: 'flex', gap: 8, paddingTop: 4, flexWrap: 'wrap' }}>
                   <button className={styles.refreshBtn} onClick={handleClearPrices}>
-                    Clear prices (keep images)
+                    Clear metadata (keep images)
                   </button>
                   <button className={styles.refreshBtn} onClick={handleClearAll}
                     style={{ color: '#e05252', borderColor: 'rgba(224,82,82,0.3)' }}>
@@ -84,7 +84,7 @@ export default function CacheDebug() {
               {stats.scryfall === 0 && (
                 <div className={styles.errors}>
                   <div className={styles.groupTitle} style={{ color: '#e05252' }}>⚠ Issues</div>
-                  <div className={styles.error}>Scryfall cache is empty — prices will be fetched on next visit</div>
+                  <div className={styles.error}>Scryfall cache is empty — card metadata will be fetched on next visit</div>
                 </div>
               )}
               {stats.scryfall > 0 && stats.cards > 0 && (

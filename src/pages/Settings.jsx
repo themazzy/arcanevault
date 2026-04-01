@@ -171,7 +171,7 @@ function CacheStatus({ ttlH, onClear }) {
             <div className={styles.cacheDivider} />
             <div className={styles.cacheStat}>
               <span className={styles.cacheStatVal}>{formatAge(info.ageMs)}</span>
-              <span className={styles.cacheStatLabel}>last fetched</span>
+              <span className={styles.cacheStatLabel}>metadata cached</span>
             </div>
             <div className={styles.cacheDivider} />
             <div className={styles.cacheStat}>
@@ -189,14 +189,14 @@ function CacheStatus({ ttlH, onClear }) {
           </div>
           <div className={styles.cacheBarLabels}>
             <span>Fresh</span>
-            <span>{isExpired ? 'Expired - will refresh on next visit' : `${ttlH}h TTL`}</span>
+            <span>{isExpired ? 'Expired - missing card metadata will refresh on next visit' : `${ttlH}h TTL`}</span>
           </div>
         </>
       ) : (
         <div className={styles.cacheEmpty}>
           {cleared
-            ? '✓ Cache cleared - prices will be fetched on next visit'
-            : 'No cache - prices will be fetched on next collection visit'}
+            ? '✓ Cache cleared - card metadata will be fetched on next visit'
+            : 'No cache - card metadata will be fetched on next collection visit'}
         </div>
       )}
 
@@ -207,7 +207,7 @@ function CacheStatus({ ttlH, onClear }) {
           onClick={handleClear}
           disabled={!info && !cleared}
         >
-          {cleared ? '✓ Cleared' : 'Clear Prices'}
+          {cleared ? '✓ Cleared' : 'Clear Metadata'}
         </Button>
         <Button
           variant="danger"
@@ -464,8 +464,8 @@ export default function SettingsPage() {
       </div>
 
       <div className={styles.section}>
-        <div className={styles.sectionTitle}>Price Cache</div>
-        <SettingRow label="Cache Duration" description="How long Scryfall prices are stored locally">
+        <div className={styles.sectionTitle}>Card Cache</div>
+        <SettingRow label="Cache Duration" description="How long Scryfall card metadata is kept locally before missing entries are refreshed">
           <Select value={String(settings.cache_ttl_h)} onChange={v => set('cache_ttl_h', parseInt(v))}
             options={[['12', '12 hours'], ['24', '24 hours (default)'], ['48', '48 hours'], ['168', '1 week']]} />
         </SettingRow>
