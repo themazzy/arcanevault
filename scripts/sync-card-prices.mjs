@@ -160,7 +160,7 @@ async function upsertRows(rows) {
   for (let i = 0; i < rows.length; i += UPSERT_BATCH_SIZE) {
     const batch = rows.slice(i, i + UPSERT_BATCH_SIZE)
     const { error } = await sb
-      .from('card_prices')
+      .from('card_prices_stage')
       .upsert(batch, { onConflict: 'scryfall_id,snapshot_date' })
     if (error) throw error
   }
@@ -170,6 +170,13 @@ async function main() {
   const snapshotDate = isoDateUtc(0)
   const retentionCutoff = isoDateUtc(-1)
 
+  console.log(`[Price Sync] Clearing staging rows for ${snapshotDate}...`)
+  const { error: stageDeleteError } = await sb
+    .from('card_prices_stage')
+    .delete()
+    .eq('snapshot_date', snapshotDate)
+  if (stageDeleteError) throw stageDeleteError
+
   console.log(`[Price Sync] Fetching Scryfall ${BULK_DATA_TYPE} manifest...`)
   const downloadUrl = await getBulkDownloadUrl()
 
@@ -178,14 +185,14 @@ async function main() {
 
   console.log('[Price Sync] Streaming bulk card data...')
   const { processed, skipped } = await processBulkFile(snapshotDate)
-  console.log(`[Price Sync] Finished upserting ${processed.toLocaleString()} rows (${skipped.toLocaleString()} skipped).`)
+  console.log(`[Price Sync] Finished staging ${processed.toLocaleString()} rows (${skipped.toLocaleString()} skipped).`)
 
-  console.log(`[Price Sync] Deleting rows older than ${retentionCutoff}.`)
-  const { error: deleteError } = await sb
-    .from('card_prices')
-    .delete()
-    .lt('snapshot_date', retentionCutoff)
-  if (deleteError) throw deleteError
+  console.log(`[Price Sync] Publishing staged rows for ${snapshotDate}...`)
+  const { error: publishError } = await sb.rpc('publish_card_prices', {
+    p_snapshot_date: snapshotDate,
+    p_retention_cutoff: retentionCutoff,
+  })
+  if (publishError) throw publishError
 
   try {
     fs.rmSync(BULK_DOWNLOAD_PATH, { force: true })
