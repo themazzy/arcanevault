@@ -5,6 +5,11 @@ import { useSettings } from './SettingsContext'
 import { getPrice, formatPrice, getPriceSource, sfGet } from '../lib/scryfall'
 import styles from './AddCardModal.module.css'
 
+function getMarketPrice(printing, isFoil, priceSource = 'cardmarket_trend') {
+  const value = getPrice(printing, isFoil, { price_source: priceSource })
+  return value != null ? value.toFixed(2) : ''
+}
+
 const CONDITIONS = [
   ['near_mint', 'Near Mint'],
   ['lightly_played', 'Lightly Played'],
