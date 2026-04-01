@@ -152,13 +152,15 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
   const [latestMatch, setLatestMatch] = useState(null)
   const [selectedCard, setSelectedCard] = useState(null)
   const [debugInfo, setDebugInfo] = useState(null)
-  const [cameraPosition, setCameraPosition] = useState('rear')
   const [flashModes, setFlashModes] = useState([])
   const [flashMode, setFlashMode] = useState('off')
   const [cameraStarted, setCameraStarted] = useState(false)
   const [cameraRestartTick, setCameraRestartTick] = useState(0)
 
   const isReady = cvReady && dbReady
+  const availableFlashModes = flashModes.includes('torch')
+    ? flashModes.filter(mode => mode === 'off' || mode === 'torch')
+    : flashModes
 
   useEffect(() => {
     mountedRef.current = true
@@ -213,7 +215,7 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
         }
         if (isNative) {
           await CameraPreview.start({
-            position: cameraPosition,
+            position: 'rear',
             toBack: true,
             width: window.screen.width,
             height: window.screen.height,
@@ -233,7 +235,7 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
         } else {
           const stream = await navigator.mediaDevices.getUserMedia({
             video: {
-              facingMode: { ideal: cameraPosition === 'rear' ? 'environment' : 'user' },
+              facingMode: { ideal: 'environment' },
               width: { ideal: 1920 },
               height: { ideal: 1080 },
             },
@@ -273,7 +275,7 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
       if (isNative) CameraPreview.stop().catch(() => {})
       else videoRef.current?.srcObject?.getTracks().forEach(t => t.stop())
     }
-  }, [cameraPosition, cameraRestartTick, isNative])
+  }, [cameraRestartTick, isNative])
 
   useEffect(() => {
     if (!cameraStarted) return
@@ -287,19 +289,20 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
     }
   }, [cameraStarted, flashMode, isNative])
 
-  const handleSwitchCamera = useCallback(() => {
-    setCameraPosition(prev => prev === 'rear' ? 'front' : 'rear')
-    setScanResult(null)
-  }, [])
-
   const handleFlashMode = useCallback(async (nextMode) => {
     setFlashMode(nextMode)
   }, [])
 
-  const handleRestartCamera = useCallback(() => {
-    setCameraRestartTick(t => t + 1)
+  const handleRestartCamera = useCallback(async () => {
     setScanResult(null)
-  }, [])
+    if (isNative) {
+      try {
+        await CameraPreview.stop().catch(() => {})
+      } catch {}
+      await sleep(120)
+    }
+    setCameraRestartTick(t => t + 1)
+  }, [isNative])
 
   const recognizeCardName = useCallback(async (cardImageData) => {
     try {
@@ -582,7 +585,7 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
   }, [isReady, onMatch, recognizeCardName, scanSingleFrame, scanning])
 
   return (
-    <div className={styles.root}>
+    <div className={`${styles.root} ${isNative ? styles.rootNative : ''}`}>
       {!isNative && (
         <>
           <video ref={videoRef} className={styles.video} playsInline muted />
@@ -675,20 +678,19 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
 
         <div className={styles.bottomBar}>
           <div className={styles.controlBar}>
-            <button className={styles.controlBtn} onClick={handleSwitchCamera}>
-              {cameraPosition === 'rear' ? 'Rear Camera' : 'Front Camera'}
-            </button>
             <button className={styles.controlBtn} onClick={handleRestartCamera}>
               Restart Camera
             </button>
-            {flashModes.length > 0 && (
+            {availableFlashModes.length > 0 && (
               <select
                 className={styles.controlSelect}
                 value={flashMode}
                 onChange={e => handleFlashMode(e.target.value)}
               >
-                {flashModes.map(mode => (
-                  <option key={mode} value={mode}>{`Flash: ${mode}`}</option>
+                {availableFlashModes.map(mode => (
+                  <option key={mode} value={mode}>
+                    {mode === 'torch' ? 'Flash: on' : `Flash: ${mode}`}
+                  </option>
                 ))}
               </select>
             )}
