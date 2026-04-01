@@ -1,8 +1,10 @@
 # Price Sync Plan
 
+This plan has been implemented. It now documents the current price-sync architecture used by the app.
+
 ## Goal
 
-Replace the current per-user daily snapshot cron with a shared card-price sync that keeps only today's and yesterday's market prices.
+Use a shared card-price sync that keeps only today's and yesterday's market prices.
 
 This keeps the features the app actually needs:
 
@@ -16,13 +18,13 @@ This removes the parts we do not need right now:
 - multi-week or multi-month value charts
 - older market snapshots for every card
 
-## Why Change It
+## Why It Changed
 
-The current Supabase cron design is expensive in the wrong way:
+The old per-user snapshot design was expensive in the wrong way:
 
-- it loops through users instead of pricing cards globally
-- it refetches the same card prices many times when multiple users own the same printing
-- it stores per-user portfolio snapshots even though the app does not need long-term portfolio history
+- it looped through users instead of pricing cards globally
+- it refetched the same card prices many times when multiple users owned the same printing
+- it stored per-user portfolio snapshots even though the app does not need long-term portfolio history
 
 The app already stores each card's buy price in `cards.purchase_price`, and current P&L is derived from:
 
@@ -30,7 +32,7 @@ The app already stores each card's buy price in `cards.purchase_price`, and curr
 
 That means we do not need long-term market history to support P&L.
 
-## Target Design
+## Current Design
 
 Use one shared table for market prices instead of per-user daily snapshots.
 
@@ -42,11 +44,12 @@ Recommended shape:
 - `set_code text not null`
 - `collector_number text not null`
 - `snapshot_date date not null`
-- `price_regular numeric(10,2)`
-- `price_foil numeric(10,2)`
-- `currency text not null default 'EUR'`
+- `price_regular_eur numeric(10,2)`
+- `price_foil_eur numeric(10,2)`
+- `price_regular_usd numeric(10,2)`
+- `price_foil_usd numeric(10,2)`
 - `updated_at timestamptz not null default now()`
-- unique key on `scryfall_id, snapshot_date`
+- primary key on `scryfall_id, snapshot_date`
 
 Retention:
 
@@ -54,7 +57,11 @@ Retention:
 - keep only `yesterday`
 - delete anything older
 
-This can also be split into `current_card_prices` and `previous_card_prices`, but a single table with `snapshot_date` is simpler.
+Atomic publish:
+
+- the importer stages rows in `card_prices_stage`
+- after a full successful import, `publish_card_prices(snapshot_date, retention_cutoff)` replaces that day's live dataset in one publish step
+- this prevents stale same-day leftovers and avoids exposing partial `today` data during a run
 
 ## Data Source
 
@@ -85,10 +92,19 @@ Use a daily GitHub Actions workflow on a Linux runner.
 The workflow should:
 
 1. download the latest Scryfall bulk card data
-2. transform it to the compact pricing shape used by ArcaneVault
-3. write today's rows into `card_prices`
-4. keep yesterday's rows
-5. delete rows older than yesterday
+2. stream and filter it to the compact priced-paper dataset used by ArcaneVault
+3. write today's rows into `card_prices_stage`
+4. publish the staged rows into `card_prices`
+5. keep yesterday's rows
+6. delete rows older than yesterday
+
+Current workflow file:
+
+- `.github/workflows/card-price-sync.yml`
+
+Current schedule:
+
+- `20 3 * * *` (`03:20 UTC` daily)
 
 Expected cost:
 
@@ -97,7 +113,7 @@ Expected cost:
 
 ## App Changes
 
-Replace logic that depends on `price_snapshots` with shared price reads.
+The app now uses shared price reads instead of per-user snapshots.
 
 The app should compute:
 
@@ -105,7 +121,7 @@ The app should compute:
 - day-over-day change from today's vs yesterday's shared prices
 - P&L from today's shared price vs `cards.purchase_price`
 
-The app should no longer depend on long-term snapshot history.
+Long-term market history is no longer part of the active price architecture.
 
 ## Collection Tab Impact
 
@@ -113,9 +129,9 @@ Collection syncing should continue to work the same for user-owned cards, folder
 
 What changes:
 
-- the Collection tab should stop fetching live price data from Scryfall for valuation
+- the Collection tab no longer fetches live price data from Scryfall for valuation
 - prices should come from the shared Supabase `card_prices` table
-- the manual price refresh action on the Collection tab should be removed
+- the manual price refresh action on the Collection tab has been removed
 - client-side Scryfall cache should be treated as metadata and image cache, not the source of live pricing
 
 Expected result:
@@ -126,36 +142,30 @@ Expected result:
 
 ## Database Changes
 
-Planned changes:
+Implemented changes:
 
-- add new `card_prices` table
-- add indexes for lookup by `scryfall_id` and `snapshot_date`
-- stop using the current `price_snapshots` cron flow
-- remove or deprecate `supabase/cron.sql`
-- remove or deprecate `supabase/functions/daily-snapshot`
+- added `card_prices`
+- added `card_prices_stage`
+- added indexes for `snapshot_date` and `set_code + collector_number + snapshot_date`
+- added `publish_card_prices(...)`
+- removed the old `price_snapshots` flow
+- removed `supabase/cron.sql`
+- removed `supabase/functions/daily-snapshot`
 
-## Migration Path
+## Current Migration Set
 
-1. Add the new `card_prices` schema.
-2. Create the import script that reads Scryfall bulk data and upserts only needed fields.
-3. Add a GitHub Actions workflow to run the import once per day.
-4. Update app queries to use shared prices instead of `price_snapshots` where appropriate.
-5. Update the Collection tab so price display no longer depends on client-side Scryfall refreshes.
-6. Remove the manual Collection tab price refresh flow.
-7. Reduce the Stats page from long-term history to current value plus 24h movement.
-8. Disable the old Supabase cron-based snapshot flow.
+Applied migrations for this architecture:
 
-## Open Questions
+1. `20260401000003_card_prices_shared_daily.sql`
+2. `20260402000001_card_prices_atomic_publish.sql`
+3. `20260402000002_remove_legacy_price_snapshots.sql`
 
-- whether to key strictly by `scryfall_id` or keep `set_code + collector_number` as a secondary lookup path
-- whether to store only EUR prices or both EUR and USD
-- whether list items should also use shared day-over-day pricing in exactly the same way as owned cards
+## Result
 
-## Recommendation
+The project now uses:
 
-Proceed with:
-
-- one shared `card_prices` table
+- one shared `card_prices` table for live reads
+- one staging table for atomic publish
 - two-day retention only
 - GitHub Actions daily refresh
 - no per-user daily snapshot job

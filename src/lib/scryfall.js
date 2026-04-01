@@ -18,6 +18,20 @@ const DELAY_MS   = 120
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000
 const SF_API_ORIGIN = 'https://api.scryfall.com'
 const SF_DEV_PROXY_PREFIX = '/api/scryfall'
+const SCRYFALL_METADATA_UPDATED_AT_KEY = 'scryfall_metadata_updated_at'
+const LEGACY_SCRYFALL_PRICES_UPDATED_AT_KEY = 'scryfall_prices_updated_at'
+
+async function getMetadataUpdatedAt() {
+  const current = await getMeta(SCRYFALL_METADATA_UPDATED_AT_KEY)
+  if (current != null) return current
+
+  const legacy = await getMeta(LEGACY_SCRYFALL_PRICES_UPDATED_AT_KEY)
+  if (legacy != null) {
+    await setMeta(SCRYFALL_METADATA_UPDATED_AT_KEY, legacy)
+    return legacy
+  }
+  return null
+}
 
 export function sfUrl(url) {
   if (!import.meta.env.DEV) return url
@@ -57,11 +71,11 @@ function buildMapFromEntries(entries) {
 
 // ── Public cache management ───────────────────────────────────────────────────
 
-// Clears prices but keeps images
+// Clears fetched metadata while keeping cached images.
 export async function clearScryfallCache() {
   _sfMap = null
   const entries = await getAllScryfallEntries()
-  // Strip price fields, keep image fields
+  // Strip metadata fields that can be re-fetched, keep image fields.
   const stripped = entries.map(e => ({
     ...e,
     prices: null,
@@ -71,8 +85,9 @@ export async function clearScryfallCache() {
     artist: null, oracle_text: null, power: null, toughness: null,
   }))
   await putScryfallEntries(stripped)
-  await setMeta('scryfall_prices_updated_at', null)
-  console.log('[SF] price cache cleared (images kept)')
+  await setMeta(SCRYFALL_METADATA_UPDATED_AT_KEY, null)
+  await setMeta(LEGACY_SCRYFALL_PRICES_UPDATED_AT_KEY, null)
+  console.log('[SF] metadata cache cleared (images kept)')
 }
 
 // Clears everything
@@ -83,7 +98,7 @@ export async function clearAllScryfallCache() {
 }
 
 export async function getCacheAge() {
-  const ts = await getMeta('scryfall_prices_updated_at')
+  const ts = await getMetadataUpdatedAt()
   return ts ? Date.now() - ts : null
 }
 
@@ -104,11 +119,11 @@ export async function loadCacheFromIDB(cacheTtlMs = DEFAULT_TTL_MS) {
     return null
   }
 
-  // Check price freshness
-  const updatedAt = await getMeta('scryfall_prices_updated_at')
+  // Check metadata freshness
+  const updatedAt = await getMetadataUpdatedAt()
   const expired = !updatedAt || (Date.now() - updatedAt > cacheTtlMs)
 
-  console.log(`[SF IDB] loaded ${entries.length} cards — prices ${expired ? 'EXPIRED' : 'fresh'}`)
+  console.log(`[SF IDB] loaded ${entries.length} cards — metadata ${expired ? 'EXPIRED' : 'fresh'}`)
 
   _sfMap = buildMapFromEntries(entries)
   return { map: _sfMap, pricesExpired: expired }
@@ -147,7 +162,7 @@ export async function enrichCards(cards, onProgress, cacheTtlMs = DEFAULT_TTL_MS
     const result = await loadCacheFromIDB(cacheTtlMs)
     if (result) {
       _sfMap = result.map
-      // If prices expired, we fall through to fetch fresh prices below
+      // If metadata expired, we fall through to fetch fresh metadata below.
       if (!result.pricesExpired) {
         const missing = cards.filter(c => !_sfMap[`${c.set_code}-${c.collector_number}`])
         if (missing.length === 0) {
@@ -160,8 +175,8 @@ export async function enrichCards(cards, onProgress, cacheTtlMs = DEFAULT_TTL_MS
         await fetchAndMerge(missing, null)
         return _sfMap
       }
-      // Prices expired — need to re-fetch prices for all cards (images already there)
-      console.log(`[SF] prices expired, re-fetching for ${cards.length} cards`)
+      // Metadata expired — re-fetch metadata for the requested cards (images already there).
+      console.log(`[SF] metadata expired, re-fetching for ${cards.length} cards`)
       await fetchAndMerge(cards, onProgress)
       return _sfMap
     }
@@ -204,7 +219,7 @@ async function fetchAndMerge(cards, onProgress) {
         key,
         set_code:         r.set,
         collector_number: r.collector_number,
-        // Price fields (expire per TTL)
+        // Metadata fields (refreshed per TTL)
         name:             r.name,
         set_name:         r.set_name,
         type_line:        r.type_line,
@@ -252,7 +267,7 @@ async function fetchAndMerge(cards, onProgress) {
   // Persist to IDB
   if (newEntries.length) {
     await putScryfallEntries(newEntries)
-    await setMeta('scryfall_prices_updated_at', Date.now())
+    await setMeta(SCRYFALL_METADATA_UPDATED_AT_KEY, Date.now())
     console.log(`[SF IDB] saved ${newEntries.length} entries`)
   }
 }

@@ -98,7 +98,7 @@ User action
 
 - `src/lib/db.js` — All IndexedDB access. Use `getLocalCards(userId)`, `getLocalFolders(userId)`, `getAllLocalFolderCards(folderIds)` for reads. `replaceLocalFolderCards(folderIds, rows)` is the bulk-reconcile helper for collection folder membership sync. Never bypass IDB for performance-critical pages.
 - `src/lib/supabase.js` — Exports the `sb` singleton. Used for auth + cloud sync fallback only.
-- `src/lib/scryfall.js` — Scryfall data fetched in batches of 75, merged into IDB. `getInstantCache()` returns in-memory map (null if cold); always guard with `sfMap || {}`.
+- `src/lib/scryfall.js` — Scryfall metadata/art cache and batch lookup helpers. Shared collection pricing no longer comes from client-side Scryfall fetches; those pages read from Supabase `card_prices` and only use Scryfall for card metadata/images when missing from local cache. `getInstantCache()` returns in-memory map (null if cold); always guard with `sfMap || {}`.
 
 **Key gotcha:** Never use Supabase's nested `select('folder_cards(cards(*))')` — it requires FK relationships configured in PostgREST and silently returns empty. Always do flat queries and join in memory.
 
@@ -114,6 +114,10 @@ User action
 | `meta` | string key | Sync timestamps, cache versions |
 
 ### Pricing
+
+- Shared market prices live in Supabase `card_prices` with `today` + `yesterday` retention.
+- The daily refresh runs in GitHub Actions via `.github/workflows/card-price-sync.yml` and `scripts/sync-card-prices.mjs`.
+- Client pages that show collection values should load prices through `src/lib/sharedCardPrices.js`, which overlays shared Supabase prices onto the local Scryfall metadata cache.
 
 - `getPrice(sfCard, foil, { price_source })` → numeric value
 - `formatPrice(value, priceSourceId)` → `"€1.23"` or `"$1.23"`
@@ -207,7 +211,8 @@ These are only active during `npm run dev`. Production deploys on GitHub Pages c
 | File | Role |
 |---|---|
 | `src/lib/db.js` | IDB layer — all local reads/writes |
-| `src/lib/scryfall.js` | Scryfall API client + price cache |
+| `src/lib/scryfall.js` | Scryfall metadata/image cache + batch lookup helpers |
+| `src/lib/sharedCardPrices.js` | Overlays shared Supabase daily prices onto cached Scryfall card data |
 | `src/lib/filterWorker.js` | Web Worker: filter + sort logic |
 | `src/lib/scanner.js` | Legacy OCR pipeline (Tesseract + dHash) — superseded by `src/scanner/` |
 | `src/scanner/DatabaseService.js` | pHash DB: SQLite (native) + Supabase fallback (web); sync + in-memory search |
@@ -231,7 +236,7 @@ These are only active during `npm run dev`. Production deploys on GitHub Pages c
 | `src/pages/DeckBrowser.jsx` | Card browser inside a deck — list/stacks/grid/text/table views |
 | `src/pages/DeckView.jsx` | Shared deck view page (collection decks + builder decks) — sticky topbar, ManaText, card detail |
 | `src/pages/DeckView.module.css` | Styles for DeckView — dot-grid page, sticky header, mana symbol colours |
-| `src/pages/Stats.jsx` | Collection analytics — value distribution, format legality, gainers/losers, age spread |
+| `src/pages/Stats.jsx` | Collection analytics — value distribution, format legality, gainers/losers, age spread, 24h movement |
 | `src/pages/LifeTracker.jsx` | Multiplayer life tracker — pre-game setup, game screen, player-settings overlay, commander damage, lobby, JoinGame route |
 | `src/pages/LifeTracker.module.css` | Styles for LifeTracker — grid layouts, rotations, fullscreen, compact active-game controls, player-settings overlay, lobby breakpoints |
 | `src/pages/JoinGame.jsx` | Public route `/join/:code` — join a multiplayer lobby, pick deck/name/colour |
@@ -377,7 +382,7 @@ Shared deck-view page for both collection decks and builder decks. Key features:
 ### Stats Page (`Stats.jsx`)
 
 Redesigned analytics page. Sections include:
-- **Value Over Time** — line chart of `price_snapshots`
+- **24h Change** — today vs yesterday movement derived from shared `card_prices`
 - **Value Distribution** — histogram buckets (< $1, $1–5, $5–20, $20–50, $50+)
 - **Format Legality** — bar chart of how many cards are legal in Standard, Pioneer, Modern, Legacy, Commander
 - **Biggest Gainers / Losers** — top movers by % change since last snapshot
@@ -687,7 +692,7 @@ Processes ~30k+ cards. Downloads `art_crop` images from Scryfall, skips rows alr
 - `feedback_attachments` — optional screenshots linked to `feedback`; files live in the `assets` storage bucket
 - `deck_cards` — builder deck cards (separate from collection ownership)
 - `user_settings` — single row per user, upserted via `SettingsContext`
-- `price_snapshots` — historical price points for Stats page
+- `card_prices` — shared daily market prices keyed by `scryfall_id + snapshot_date`; app keeps only today and yesterday
 - `game_sessions` — multiplayer life tracker sessions; `status`: `'waiting' | 'playing'`
 - `game_players` — player slots per session; `user_id` is null until a player claims the slot
 - `game_results` — deck win/loss history: `session_id, user_id, deck_id, deck_name, format, player_count, placement, played_at`
