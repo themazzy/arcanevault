@@ -3,8 +3,10 @@ import { createClient } from '@supabase/supabase-js'
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
-const BULK_DATA_TYPE = 'all_cards'
 const UPSERT_BATCH_SIZE = 500
+const SCRYFALL_PAGE_DELAY_MS = 150
+const SCRYFALL_QUERY = 'game:paper'
+const SCRYFALL_ORDER = 'set'
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   console.error('Missing SUPABASE_URL and/or SUPABASE_SERVICE_ROLE_KEY.')
@@ -40,11 +42,23 @@ async function fetchJson(url) {
   return res.json()
 }
 
-async function getBulkDownloadUrl() {
-  const manifest = await fetchJson('https://api.scryfall.com/bulk-data')
-  const file = (manifest.data || []).find(item => item.type === BULK_DATA_TYPE)
-  if (!file?.download_uri) throw new Error(`Could not find Scryfall bulk data type "${BULK_DATA_TYPE}".`)
-  return file.download_uri
+async function wait(ms) {
+  await new Promise(resolve => setTimeout(resolve, ms))
+}
+
+async function* iterateScryfallCards() {
+  let nextUrl = `https://api.scryfall.com/cards/search?q=${encodeURIComponent(SCRYFALL_QUERY)}&unique=prints&order=${encodeURIComponent(SCRYFALL_ORDER)}`
+  let page = 0
+
+  while (nextUrl) {
+    page += 1
+    const json = await fetchJson(nextUrl)
+    const cards = json.data || []
+    console.log(`[Price Sync] Scryfall page ${page}: ${cards.length.toLocaleString()} cards`)
+    yield cards
+    nextUrl = json.has_more ? json.next_page : null
+    if (nextUrl) await wait(SCRYFALL_PAGE_DELAY_MS)
+  }
 }
 
 async function upsertRows(rows) {
@@ -60,42 +74,46 @@ async function upsertRows(rows) {
 async function main() {
   const snapshotDate = isoDateUtc(0)
   const retentionCutoff = isoDateUtc(-1)
-
-  console.log(`[Price Sync] Fetching Scryfall ${BULK_DATA_TYPE} manifest...`)
-  const downloadUrl = await getBulkDownloadUrl()
-
-  console.log('[Price Sync] Downloading bulk card data...')
-  const cards = await fetchJson(downloadUrl)
-  console.log(`[Price Sync] Received ${cards.length.toLocaleString()} bulk card rows.`)
-
-  const rows = []
+  const seen = new Set()
   let skipped = 0
+  let processed = 0
 
-  for (const card of cards) {
-    if (!card?.id || !card?.set || !card?.collector_number) {
-      skipped++
-      continue
-    }
-    if (Array.isArray(card.games) && !card.games.includes('paper')) {
-      skipped++
-      continue
+  console.log('[Price Sync] Fetching paginated Scryfall printings...')
+  for await (const cards of iterateScryfallCards()) {
+    const rows = []
+    for (const card of cards) {
+      if (!card?.id || !card?.set || !card?.collector_number) {
+        skipped++
+        continue
+      }
+      if (seen.has(card.id)) continue
+      seen.add(card.id)
+      if (Array.isArray(card.games) && !card.games.includes('paper')) {
+        skipped++
+        continue
+      }
+
+      rows.push({
+        scryfall_id: card.id,
+        set_code: card.set,
+        collector_number: card.collector_number,
+        snapshot_date: snapshotDate,
+        price_regular_eur: normalizePrice(card.prices?.eur),
+        price_foil_eur: normalizePrice(card.prices?.eur_foil),
+        price_regular_usd: normalizePrice(card.prices?.usd),
+        price_foil_usd: normalizePrice(card.prices?.usd_foil),
+        updated_at: new Date().toISOString(),
+      })
     }
 
-    rows.push({
-      scryfall_id: card.id,
-      set_code: card.set,
-      collector_number: card.collector_number,
-      snapshot_date: snapshotDate,
-      price_regular_eur: normalizePrice(card.prices?.eur),
-      price_foil_eur: normalizePrice(card.prices?.eur_foil),
-      price_regular_usd: normalizePrice(card.prices?.usd),
-      price_foil_usd: normalizePrice(card.prices?.usd_foil),
-      updated_at: new Date().toISOString(),
-    })
+    if (rows.length) {
+      await upsertRows(rows)
+      processed += rows.length
+      console.log(`[Price Sync] Upserted ${processed.toLocaleString()} rows so far.`)
+    }
   }
 
-  console.log(`[Price Sync] Upserting ${rows.length.toLocaleString()} card price rows (${skipped.toLocaleString()} skipped).`)
-  await upsertRows(rows)
+  console.log(`[Price Sync] Finished upserting ${processed.toLocaleString()} rows (${skipped.toLocaleString()} skipped).`)
 
   console.log(`[Price Sync] Deleting rows older than ${retentionCutoff}.`)
   const { error: deleteError } = await sb
