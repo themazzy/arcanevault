@@ -34,6 +34,45 @@ function normalizePrice(value) {
   return Number(parsed.toFixed(2))
 }
 
+function hasSupportedPrice(card) {
+  return [
+    card?.prices?.eur,
+    card?.prices?.eur_foil,
+    card?.prices?.usd,
+    card?.prices?.usd_foil,
+  ].some(value => normalizePrice(value) != null)
+}
+
+function shouldKeepCard(card) {
+  if (!card?.id || !card?.set || !card?.collector_number) return false
+  if (card.object !== 'card') return false
+  if (card.digital) return false
+  if (Array.isArray(card.games) && !card.games.includes('paper')) return false
+  if (!hasSupportedPrice(card)) return false
+
+  const excludedLayouts = new Set([
+    'token',
+    'double_faced_token',
+    'emblem',
+    'art_series',
+    'vanguard',
+    'scheme',
+    'planar',
+  ])
+  if (excludedLayouts.has(card.layout)) return false
+
+  const excludedSetTypes = new Set([
+    'token',
+    'memorabilia',
+    'minigame',
+    'treasure_chest',
+    'alchemy',
+  ])
+  if (excludedSetTypes.has(card.set_type)) return false
+
+  return true
+}
+
 async function fetchJson(url) {
   const res = await fetch(url, {
     headers: {
@@ -73,7 +112,6 @@ async function downloadBulkFile(url, destination) {
 }
 
 async function processBulkFile(snapshotDate) {
-  const seen = new Set()
   let skipped = 0
   let processed = 0
   let pendingRows = []
@@ -83,13 +121,7 @@ async function processBulkFile(snapshotDate) {
     .pipe(streamArray.withParserAsStream())
 
   for await (const { value: card } of pipeline) {
-    if (!card?.id || !card?.set || !card?.collector_number) {
-      skipped++
-      continue
-    }
-    if (seen.has(card.id)) continue
-    seen.add(card.id)
-    if (Array.isArray(card.games) && !card.games.includes('paper')) {
+    if (!shouldKeepCard(card)) {
       skipped++
       continue
     }
@@ -110,7 +142,7 @@ async function processBulkFile(snapshotDate) {
       await upsertRows(pendingRows)
       processed += pendingRows.length
       pendingRows = []
-      if (processed % 10000 === 0) {
+      if (processed % 5000 === 0) {
         console.log(`[Price Sync] Upserted ${processed.toLocaleString()} rows so far.`)
       }
     }
