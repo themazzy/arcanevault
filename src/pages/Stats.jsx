@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
 import { sb } from '../lib/supabase'
-import { getInstantCache, enrichCards, getPrice, formatPrice } from '../lib/scryfall'
+import { getInstantCache, enrichCards, getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
+import { CardDetail } from '../components/CardComponents'
 import { EmptyState, SectionHeader, ProgressBar } from '../components/UI'
 import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
@@ -172,6 +173,32 @@ function CardThumb({ sf, size = 28 }) {
   )
 }
 
+function MoverRow({ card, tone, onOpen, fmt }) {
+  const isPositive = tone === 'positive'
+  const accent = isPositive ? 'var(--green, #5dba70)' : '#e05252'
+  const pctText = `${isPositive ? '+' : ''}${card._plPct.toFixed(0)}%`
+  const deltaText = `${isPositive ? '+' : ''}${fmt(card._pl)}`
+
+  return (
+    <div className={styles.moverRow}>
+      <button
+        type="button"
+        className={`${styles.cardButton} ${styles.moverCardButton}`}
+        onClick={() => onOpen(card.id)}
+      >
+        <CardThumb sf={card._sf} size={26} />
+        <span className={styles.moverName}>
+          {card._sf?.name || `${card.set_code?.toUpperCase()}-${card.collector_number}`}
+        </span>
+        {card.foil && <span className={styles.foilTag}>FOIL</span>}
+      </button>
+      <span className={styles.moverPct} style={{ color: accent }}>{pctText}</span>
+      <span className={styles.moverPrice} style={{ color: accent }}>{fmt(card._price)}</span>
+      <span className={styles.moverVal} style={{ color: accent }}>{deltaText}</span>
+    </div>
+  )
+}
+
 const CustomTooltip = ({ active, payload, label, fmt }) => {
   if (!active || !payload?.length) return null
   return (
@@ -202,6 +229,7 @@ export default function StatsPage() {
   const [loading,      setLoading]      = useState(true)
   const [loadProgress, setLoadProgress] = useState(0)
   const [progLabel,    setProgLabel]    = useState('')
+  const [detailCardId, setDetailCardId] = useState(null)
 
   useEffect(() => {
     const load = async () => {
@@ -399,6 +427,8 @@ export default function StatsPage() {
   }, [cards, sfMap, snapshots, price_source, sym])
 
   const tt = (p) => <CustomTooltip {...p} fmt={fmt} />
+  const selectedCard = detailCardId ? cards.find(c => c.id === detailCardId) : null
+  const selectedSf   = selectedCard ? sfMap[getScryfallKey(selectedCard)] : null
 
   if (loading) return (
     <>
@@ -513,22 +543,16 @@ export default function StatsPage() {
             <div className={styles.chartBox}>
               <SLabel>Biggest Gainers</SLabel>
               <div className={styles.moverList}>
-                {stats.topGainers.map(c => (
-                  <div key={c.id} className={styles.moverRow}>
-                    <CardThumb sf={c._sf} size={26} />
-                    <span className={styles.moverName}>
-                      {c._sf?.name || `${c.set_code?.toUpperCase()}-${c.collector_number}`}
-                    </span>
-                    <span className={styles.moverPct} style={{ color: 'var(--green, #5dba70)' }}>
-                      +{c._plPct.toFixed(0)}%
-                    </span>
-                    <span className={styles.moverPrice} style={{ color: 'var(--green, #5dba70)' }}>
-                      {fmt(c._price)}
-                    </span>
-                    <span className={styles.moverVal} style={{ color: 'var(--green, #5dba70)' }}>
-                      +{fmt(c._pl)}
-                    </span>
+                {stats.topGainers.length > 0 && (
+                  <div className={styles.moverHead}>
+                    <span className={styles.moverHeadCard}>Card</span>
+                    <span className={styles.moverHeadStat}>Change</span>
+                    <span className={styles.moverHeadStat}>Price</span>
+                    <span className={styles.moverHeadStat}>P&amp;L</span>
                   </div>
+                )}
+                {stats.topGainers.map(c => (
+                  <MoverRow key={c.id} card={c} tone="positive" onOpen={setDetailCardId} fmt={fmt} />
                 ))}
                 {stats.topGainers.length === 0 && (
                   <div className={styles.moverEmpty}>No gainers tracked yet.</div>
@@ -538,22 +562,16 @@ export default function StatsPage() {
             <div className={styles.chartBox}>
               <SLabel>Biggest Losers</SLabel>
               <div className={styles.moverList}>
-                {stats.topLosers.map(c => (
-                  <div key={c.id} className={styles.moverRow}>
-                    <CardThumb sf={c._sf} size={26} />
-                    <span className={styles.moverName}>
-                      {c._sf?.name || `${c.set_code?.toUpperCase()}-${c.collector_number}`}
-                    </span>
-                    <span className={styles.moverPct} style={{ color: '#e05252' }}>
-                      {c._plPct.toFixed(0)}%
-                    </span>
-                    <span className={styles.moverPrice} style={{ color: '#e05252' }}>
-                      {fmt(c._price)}
-                    </span>
-                    <span className={styles.moverVal} style={{ color: '#e05252' }}>
-                      {fmt(c._pl)}
-                    </span>
+                {stats.topLosers.length > 0 && (
+                  <div className={styles.moverHead}>
+                    <span className={styles.moverHeadCard}>Card</span>
+                    <span className={styles.moverHeadStat}>Change</span>
+                    <span className={styles.moverHeadStat}>Price</span>
+                    <span className={styles.moverHeadStat}>P&amp;L</span>
                   </div>
+                )}
+                {stats.topLosers.map(c => (
+                  <MoverRow key={c.id} card={c} tone="negative" onOpen={setDetailCardId} fmt={fmt} />
                 ))}
                 {stats.topLosers.length === 0 && (
                   <div className={styles.moverEmpty}>No losers tracked yet.</div>
@@ -625,10 +643,10 @@ export default function StatsPage() {
             <table className={styles.table}>
               <thead>
                 <tr>
-                  {['#', 'Card', 'Set', 'Foil', 'Qty', 'Price', 'Total'].map(h => (
+                  {['#', 'Card', 'Set', 'Qty', 'Price', 'Total'].map(h => (
                     <th
                       key={h} className={styles.th}
-                      style={{ textAlign: ['#', 'Foil', 'Qty'].includes(h) ? 'center' : 'left' }}
+                      style={{ textAlign: ['#', 'Qty'].includes(h) ? 'center' : 'left' }}
                     >{h}</th>
                   ))}
                 </tr>
@@ -638,18 +656,19 @@ export default function StatsPage() {
                   <tr key={c.id} className={styles.tr}>
                     <td className={styles.tdRank}>{i + 1}</td>
                     <td className={styles.tdCard}>
-                      <div className={styles.tdCardInner}>
+                      <button
+                        type="button"
+                        className={styles.cardButton}
+                        onClick={() => setDetailCardId(c.id)}
+                      >
                         <CardThumb sf={c._sf} size={26} />
                         <span className={styles.tdCardName}>
                           {c._sf?.name || `${c.set_code?.toUpperCase()}-${c.collector_number}`}
                         </span>
                         {c.foil && <span className={styles.foilTag}>FOIL</span>}
-                      </div>
+                      </button>
                     </td>
                     <td className={styles.tdSet}>{c._sf?.set_name || (c.set_code || '').toUpperCase()}</td>
-                    <td className={styles.tdCenter} style={{ color: c.foil ? '#c8a0ff' : 'var(--text-faint)' }}>
-                      {c.foil ? '✦' : '—'}
-                    </td>
                     <td className={styles.tdCenter}>{c.qty}</td>
                     <td style={{ padding: '6px 10px', color: c.foil ? '#c8a0ff' : 'var(--green, #5dba70)' }}>
                       {fmt(c._price)}
@@ -679,6 +698,15 @@ export default function StatsPage() {
             </BarChart>
           </ResponsiveContainer>
         </div>
+
+        {selectedCard && (
+          <CardDetail
+            card={selectedCard}
+            sfCard={selectedSf}
+            priceSource={price_source}
+            onClose={() => setDetailCardId(null)}
+          />
+        )}
 
       </>}
     </div>

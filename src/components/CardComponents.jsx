@@ -71,7 +71,10 @@ function CardItem({ card, sfCard, selectMode, isSelected, totalQty, onSelect, on
         )}
       </div>
       <div className={styles.cardInfo}>
-        <div className={styles.cardName}>{card.name}</div>
+        <div className={styles.cardNameRow}>
+          <div className={styles.cardName}>{card.name}</div>
+          {card.foil && <span className={styles.foilMark}>✦</span>}
+        </div>
         <div className={styles.cardMeta}>
           <span className={styles.setCode}>{(card.set_code || '').toUpperCase()}</span>
           <span className={`${styles.price} ${priceClass}`}>
@@ -422,7 +425,7 @@ async function fetchRulings(scryfallId, setCode, collectorNumber) {
   } catch { return [] }
 }
 
-export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, allFolders = [], priceSource = 'cardmarket_trend', onSave }) {
+function LegacyCardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, allFolders = [], priceSource = 'cardmarket_trend', onSave }) {
   if (!card) return null
 
   const navigate = useNavigate()
@@ -1017,6 +1020,588 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
 
               {onDelete && (
                 <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <button className={styles.deleteBtn} onClick={onDelete}>Delete Card</button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+
+export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, allFolders = [], priceSource = 'cardmarket_trend', onSave, currentFolderId = null }) {
+  if (!card) return null
+
+  const navigate = useNavigate()
+  const [activeTab, setActiveTab] = useState('collection')
+  const [face, setFace] = useState(0)
+
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
+
+  const [fullCard, setFullCard] = useState(null)
+  const [rulings, setRulings] = useState(null)
+  const [loadingFull, setLoadingFull] = useState(false)
+
+  const [editQty, setEditQty] = useState(card.qty)
+  const [editFoil, setEditFoil] = useState(card.foil)
+  const [editCondition, setEditCondition] = useState(card.condition || 'near_mint')
+  const [editBuyPrice, setEditBuyPrice] = useState(parseFloat(card.purchase_price) || 0)
+  const [buyPriceEdit, setBuyPriceEdit] = useState(false)
+  const [buyPriceInput, setBuyPriceInput] = useState('')
+  const [moveFolderText, setMoveFolderText] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState('')
+
+  const cachedImg = getImageUri(sfCard, 'normal')
+  const fullImg = getImageUri(fullCard, 'large') || getImageUri(fullCard, 'normal') || scryfallLargeUrl(card.scryfall_id)
+  const [img, setImg] = useState(cachedImg)
+  const [imgLoaded, setImgLoaded] = useState(false)
+
+  useEffect(() => {
+    setImg(cachedImg)
+    setImgLoaded(false)
+    if (!fullImg) return
+    const image = new Image()
+    image.onload = () => { setImg(fullImg); setImgLoaded(true) }
+    image.src = fullImg
+  }, [cachedImg, fullImg])
+
+  useEffect(() => {
+    setFace(0)
+    setFullCard(null)
+    setRulings(null)
+    setLoadingFull(true)
+    fetchFullCard(card.scryfall_id, card.set_code, card.collector_number).then(data => {
+      setFullCard(data)
+      setLoadingFull(false)
+    })
+  }, [card.scryfall_id, card.set_code, card.collector_number])
+
+  useEffect(() => {
+    if (activeTab !== 'rulings' || rulings !== null) return
+    fetchRulings(card.scryfall_id, card.set_code, card.collector_number).then(setRulings)
+  }, [activeTab, card.scryfall_id, card.set_code, card.collector_number, rulings])
+
+  const fc = fullCard || sfCard || {}
+  const faces = fc.card_faces || null
+  const hasFaces = Array.isArray(faces) && faces.length > 1
+  const displayFace = hasFaces ? (faces[face] || fc) : fc
+  const displayName = displayFace.name || fc.name || card.name
+  const typeLine = displayFace.type_line || fc.type_line || sfCard?.type_line || ''
+  const manaCost = displayFace.mana_cost || (hasFaces ? faces.map(f => f.mana_cost).filter(Boolean).join(' // ') : fc.mana_cost)
+  const oracleText = displayFace.oracle_text || fc.oracle_text
+  const flavorText = displayFace.flavor_text || fc.flavor_text
+  const currentFolders = folders?.filter(Boolean) || []
+
+  const liveSfCard = fullCard ? { ...sfCard, prices: fullCard.prices } : sfCard
+  const pricesAreLive = !!fullCard
+  const scryPrice = getPrice(liveSfCard, card.foil, { price_source: priceSource })
+  const buyPrice = editBuyPrice > 0 ? editBuyPrice : (parseFloat(card.purchase_price) || null)
+  const price = scryPrice ?? buyPrice
+  const priceIsBuyFallback = scryPrice == null && buyPrice != null
+  const totalPrice = price != null ? price * card.qty : null
+  const fmtOwned = v => formatPrice(v, priceSource)
+
+  const eurLiveSfCard = fullCard ? { ...sfCard, prices: fullCard.prices } : sfCard
+  const eurPrice = getPrice(eurLiveSfCard, card.foil, { price_source: 'cardmarket_trend' })
+  const pl = eurPrice != null && editBuyPrice > 0 ? (eurPrice - editBuyPrice) * card.qty : null
+  const plPct = eurPrice != null && editBuyPrice > 0 ? ((eurPrice - editBuyPrice) / editBuyPrice) * 100 : null
+
+  const saveBuyPrice = async () => {
+    const parsed = parseFloat(buyPriceInput)
+    const val = !isNaN(parsed) && parsed >= 0 ? parsed : 0
+    setEditBuyPrice(val)
+    const { error } = await sb.from('cards').update({ purchase_price: val }).eq('id', card.id)
+    if (!error) {
+      const updatedCard = { ...card, purchase_price: val }
+      await putCards([updatedCard])
+      onSave?.(updatedCard)
+    }
+    setBuyPriceEdit(false)
+  }
+
+  const handleSave = async () => {
+    setSaving(true)
+    setSaveError('')
+    let folderQty = card._folder_qty
+
+    if (currentFolderId && card._folder_qty != null) {
+      const { error: folderError } = await sb.from('folder_cards')
+        .update({ qty: editQty })
+        .eq('folder_id', currentFolderId)
+        .eq('card_id', card.id)
+      if (folderError) {
+        setSaveError(folderError.message)
+        setSaving(false)
+        return
+      }
+      folderQty = editQty
+    } else {
+      const updates = { qty: editQty, foil: editFoil, condition: editCondition }
+      const { error } = await sb.from('cards').update(updates).eq('id', card.id)
+      if (error) {
+        setSaveError(error.message)
+        setSaving(false)
+        return
+      }
+    }
+
+    const updatedCard = {
+      ...card,
+      qty: currentFolderId && card._folder_qty != null ? card.qty : editQty,
+      foil: editFoil,
+      condition: editCondition,
+      ...(folderQty != null ? { _folder_qty: folderQty } : {}),
+    }
+    await putCards([updatedCard])
+    onSave?.(updatedCard)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2500)
+    setSaving(false)
+  }
+
+  const handleMoveToFolder = async () => {
+    const matched = allFolders.find(f => f.name.toLowerCase() === moveFolderText.toLowerCase() || f.id === moveFolderText)
+    if (!matched) return
+    const qty = editQty || 1
+    const { error } = await sb.from('folder_cards')
+      .upsert({ folder_id: matched.id, card_id: card.id, qty }, { onConflict: 'folder_id,card_id' })
+    if (!error) {
+      if (folders?.length) {
+        await sb.from('folder_cards').delete()
+          .eq('card_id', card.id)
+          .in('folder_id', folders.filter(f => f.id !== matched.id).map(f => f.id))
+      }
+      setMoveFolderText('')
+      onSave?.(card)
+    }
+  }
+
+  const tabs = [
+    { id: 'collection', label: 'Edit' },
+    { id: 'overview', label: 'Overview' },
+    { id: 'rules', label: 'Rules' },
+    { id: 'legality', label: 'Legality' },
+    { id: 'prices', label: 'Prices' },
+    { id: 'rulings', label: 'Rulings' },
+  ]
+
+  return (
+    <Modal onClose={onClose} wide>
+      <div className={styles.detailShell}>
+        <div className={styles.detailArtCol}>
+          <div className={styles.detailArtWrap}>
+            {img
+              ? <img className={styles.detailCardImg} src={img} alt={card.name} style={{ opacity: imgLoaded || img === cachedImg ? 1 : 0.7 }} />
+              : <div className={styles.imgPlaceholder}>{card.name}</div>}
+            {card.foil && <div className={styles.detailFoilBadge}><Badge variant="foil">Foil</Badge></div>}
+          </div>
+          {hasFaces && <button className={styles.detailFlipBtn} onClick={() => setFace(prev => (prev + 1) % faces.length)}>Flip Face</button>}
+          <div className={styles.detailArtMeta}>
+            {fc.rarity && <span style={{ textTransform: 'capitalize' }}>{fc.rarity}</span>}
+            <span>{fc.set_name || sfCard?.set_name || (card.set_code || '').toUpperCase()}</span>
+            <span>#{card.collector_number}</span>
+          </div>
+        </div>
+
+        <div className={styles.detailBody}>
+          <div className={styles.detailHeader}>
+            <div className={styles.detailName}>{displayName}</div>
+            {manaCost && <ManaSymbols cost={manaCost} />}
+          </div>
+          <div className={styles.detailType}>{typeLine}</div>
+
+          {(displayFace.power != null || displayFace.loyalty != null || displayFace.defense != null) && (
+            <div className={styles.detailStatRow}>
+              {displayFace.power != null && <span className={styles.detailStatBadge}>{displayFace.power}/{displayFace.toughness}</span>}
+              {displayFace.loyalty != null && <span className={styles.detailStatBadge}>Loyalty {displayFace.loyalty}</span>}
+              {displayFace.defense != null && <span className={styles.detailStatBadge}>Defense {displayFace.defense}</span>}
+            </div>
+          )}
+
+          <div className={styles.detailPriceRow}>
+            <div className={styles.detailPriceMain}>
+              {price != null ? fmtOwned(price) : '-'}
+              {card.qty > 1 && price != null && (
+                <span className={styles.detailPriceMeta}>x {card.qty} = {fmtOwned(totalPrice)}</span>
+              )}
+            </div>
+            {priceIsBuyFallback
+              ? <span className={styles.detailStatusPill}>Buy price</span>
+              : pricesAreLive
+                ? <span className={`${styles.detailStatusPill} ${styles.detailStatusLive}`}>Live price</span>
+                : loadingFull
+                  ? <span className={styles.detailLoadingNote}>Fetching live price...</span>
+                  : null}
+          </div>
+
+          <div className={styles.detailMetaLine}>
+            <span>{fc.set_name || sfCard?.set_name || (card.set_code || '').toUpperCase()}</span>
+            <span>. #{card.collector_number}</span>
+            {fc.artist && <span>. {fc.artist}</span>}
+          </div>
+
+          <div className={styles.detailTabs}>
+            {tabs.map(t => (
+              <button
+                key={t.id}
+                className={`${styles.detailTab}${activeTab === t.id ? ' ' + styles.detailTabActive : ''}`}
+                onClick={() => setActiveTab(t.id)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {loadingFull && activeTab !== 'collection' && (
+            <div className={styles.detailLoadingNote}>Loading card data...</div>
+          )}
+
+          {activeTab === 'overview' && (
+            <div className={`${styles.detailSection} ${styles.tabContentBox}`}>
+              {typeLine && (
+                <div className={styles.detailInfoRow}>
+                  <span className={styles.detailInfoLabel}>Type</span>
+                  <span className={styles.detailInfoVal}>{typeLine}</span>
+                </div>
+              )}
+              {fc.rarity && (
+                <div className={styles.detailInfoRow}>
+                  <span className={styles.detailInfoLabel}>Rarity</span>
+                  <span className={styles.detailInfoVal} style={{ textTransform: 'capitalize' }}>{fc.rarity}</span>
+                </div>
+              )}
+              {fc.cmc != null && (
+                <div className={styles.detailInfoRow}>
+                  <span className={styles.detailInfoLabel}>Mana Value</span>
+                  <span className={styles.detailInfoVal}>{fc.cmc}</span>
+                </div>
+              )}
+              {(fc.power != null || faces?.[0]?.power != null) && (
+                <div className={styles.detailInfoRow}>
+                  <span className={styles.detailInfoLabel}>Power / Toughness</span>
+                  <span className={styles.detailInfoVal}>
+                    {faces
+                      ? faces.map(f => f.power != null ? `${f.power}/${f.toughness}` : null).filter(Boolean).join(' // ')
+                      : `${fc.power}/${fc.toughness}`}
+                  </span>
+                </div>
+              )}
+              {fc.loyalty != null && (
+                <div className={styles.detailInfoRow}>
+                  <span className={styles.detailInfoLabel}>Loyalty</span>
+                  <span className={styles.detailInfoVal}>{fc.loyalty}</span>
+                </div>
+              )}
+              {fc.defense != null && (
+                <div className={styles.detailInfoRow}>
+                  <span className={styles.detailInfoLabel}>Defense</span>
+                  <span className={styles.detailInfoVal}>{fc.defense}</span>
+                </div>
+              )}
+              {fc.color_identity?.length > 0 && (
+                <div className={styles.detailInfoRow}>
+                  <span className={styles.detailInfoLabel}>Color Identity</span>
+                  <span className={styles.detailInfoVal}>{fc.color_identity.join(', ')}</span>
+                </div>
+              )}
+              {fc.keywords?.length > 0 && (
+                <div className={styles.detailInfoRow}>
+                  <span className={styles.detailInfoLabel}>Keywords</span>
+                  <span className={styles.detailInfoVal}>{fc.keywords.join(', ')}</span>
+                </div>
+              )}
+              {fc.artist && (
+                <div className={styles.detailInfoRow}>
+                  <span className={styles.detailInfoLabel}>Artist</span>
+                  <span className={styles.detailInfoVal}>{fc.artist}</span>
+                </div>
+              )}
+              {(fc.scryfall_uri || fc.purchase_uris || fc.related_uris) && (
+                <div className={styles.detailInfoRow}>
+                  <span className={styles.detailInfoLabel}>Links</span>
+                  <span className={`${styles.detailInfoVal} ${styles.detailLinks}`}>
+                    {fc.scryfall_uri && <a href={fc.scryfall_uri} target="_blank" rel="noreferrer" className={styles.detailLink}>Scryfall {'->'}</a>}
+                    {fc.related_uris?.gatherer && <a href={fc.related_uris.gatherer} target="_blank" rel="noreferrer" className={styles.detailLinkMuted}>Gatherer {'->'}</a>}
+                    {fc.purchase_uris?.tcgplayer && <a href={fc.purchase_uris.tcgplayer} target="_blank" rel="noreferrer" className={styles.detailLinkTcg}>TCGPlayer {'->'}</a>}
+                    {fc.purchase_uris?.cardmarket && <a href={fc.purchase_uris.cardmarket} target="_blank" rel="noreferrer" className={styles.detailLinkMarket}>Cardmarket {'->'}</a>}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'rules' && (
+            <div className={`${styles.detailSection} ${styles.tabContentBox}`}>
+              {faces ? (
+                faces.map((singleFace, i) => (
+                  <div key={i} className={styles.faceBlock}>
+                    {faces.length > 1 && <div className={styles.faceTitle}>{singleFace.name}</div>}
+                    {singleFace.type_line && <div className={styles.faceType}>{singleFace.type_line}</div>}
+                    <div className={styles.oracleBox}><OracleText text={singleFace.oracle_text} /></div>
+                    {singleFace.flavor_text && <p className={styles.flavorText}>{singleFace.flavor_text}</p>}
+                  </div>
+                ))
+              ) : (
+                <>
+                  <div className={styles.oracleBox}><OracleText text={oracleText} /></div>
+                  {flavorText && <p className={styles.flavorText}>{flavorText}</p>}
+                </>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'legality' && (
+            <div className={`${styles.detailSection} ${styles.tabContentBox}`}>
+              <div className={styles.legalityGrid}>
+                {LEGALITY_FORMATS_ORDERED.map(([fmtKey, label]) => {
+                  const status = fc.legalities?.[fmtKey]
+                  if (!status) return null
+                  const legal = status === 'legal'
+                  const restricted = status === 'restricted'
+                  const banned = status === 'banned'
+                  const color = legal ? '#4a9a5a' : restricted ? '#c9a84c' : '#6a6a7a'
+                  const bg = legal ? 'rgba(74,154,90,0.1)' : restricted ? 'rgba(201,168,76,0.1)' : 'rgba(255,255,255,0.03)'
+                  return (
+                    <div key={fmtKey} className={styles.legalityRow} style={{ background: bg, borderColor: `${color}44` }}>
+                      <span className={styles.legalityFormat}>{label}</span>
+                      <span className={styles.legalityStatus} style={{ color }}>
+                        {legal ? 'Legal' : restricted ? 'Restricted' : banned ? 'Banned' : 'Not legal'}
+                      </span>
+                    </div>
+                  )
+                }).filter(Boolean)}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'prices' && (
+            <div className={`${styles.detailSection} ${styles.tabContentBox}`}>
+              <div className={styles.priceSectionHead}>
+                <span className={styles.priceSectionLabel}>All prices</span>
+                {pricesAreLive && <span className={`${styles.detailStatusPill} ${styles.detailStatusLive}`}>Fetched live from Scryfall</span>}
+              </div>
+              <div className={styles.pricesGrid}>
+                {[
+                  ['EUR', fc.prices?.eur, 'Market (EUR)'],
+                  ['EUR', fc.prices?.eur_foil, 'Foil Market (EUR)'],
+                  ['USD', fc.prices?.usd, 'Market (USD)'],
+                  ['USD', fc.prices?.usd_foil, 'Foil Market (USD)'],
+                  ['TIX', fc.prices?.tix, 'MTGO (tix)'],
+                ].map(([cur, val, label]) => val ? (
+                  <div key={label} className={styles.priceDetailBlock}>
+                    <div className={styles.priceDetailLabel}>{label}</div>
+                    <div className={styles.priceDetailVal} style={{ color: 'var(--green)' }}>
+                      {cur === 'EUR' ? 'EUR ' : cur === 'USD' ? 'USD ' : ''}{parseFloat(val).toFixed(2)}{cur === 'TIX' ? ' tix' : ''}
+                    </div>
+                    {card.qty > 1 && cur !== 'TIX' && (
+                      <div className={styles.priceDetailSub}>
+                        x {card.qty} = {cur === 'EUR' ? 'EUR ' : 'USD '}{(parseFloat(val) * card.qty).toFixed(2)}
+                      </div>
+                    )}
+                  </div>
+                ) : null)}
+              </div>
+
+              {card.purchase_price > 0 && (
+                <div className={styles.detailSubsection}>
+                  <div className={styles.detailInfoRow}>
+                    <span className={styles.detailInfoLabel}>Purchase Price</span>
+                    <span className={styles.detailInfoVal}>
+                      EUR {parseFloat(card.purchase_price).toFixed(2)}
+                      {card.qty > 1 && ` x ${card.qty} = EUR ${(parseFloat(card.purchase_price) * card.qty).toFixed(2)}`}
+                    </span>
+                  </div>
+                  {pl != null && (
+                    <div className={styles.detailInfoRow}>
+                      <span className={styles.detailInfoLabel}>P&L</span>
+                      <span className={styles.detailInfoVal} style={{ color: pl >= 0 ? 'var(--green)' : '#e05252', fontWeight: 600 }}>
+                        {pl >= 0 ? '+' : ''}EUR {pl.toFixed(2)}
+                        {plPct != null && <span className={styles.inlineMuted}>({plPct >= 0 ? '+' : ''}{plPct.toFixed(1)}%)</span>}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {fc.purchase_uris && (
+                <div className={styles.detailSubsection}>
+                  <div className={styles.priceSectionLabel}>Buy from</div>
+                  <div className={styles.purchaseLinks}>
+                    {Object.entries(fc.purchase_uris).map(([store, url]) => (
+                      <a key={store} href={url} target="_blank" rel="noreferrer" className={styles.purchaseLink}>
+                        {store.replace(/_/g, ' ')}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'rulings' && (
+            <div className={`${styles.detailSection} ${styles.tabContentBox}`}>
+              {rulings === null ? (
+                <div className={styles.oracleEmpty}>Loading rulings...</div>
+              ) : rulings.length === 0 ? (
+                <div className={styles.oracleEmpty}>No rulings for this card.</div>
+              ) : (
+                <div className={styles.rulingsList}>
+                  {rulings.map((r, i) => (
+                    <div key={i} className={styles.ruling}>
+                      <div className={styles.rulingDate}>{new Date(r.published_at).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' })}</div>
+                      <div className={styles.rulingText}>{r.comment}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'collection' && (
+            <div className={`${styles.detailSection} ${styles.tabContentBox}`}>
+              <div className={styles.detailFormGrid}>
+                <div className={styles.editGroup}>
+                  <span className={styles.editLabel}>Quantity</span>
+                  <div className={styles.qtyEditor}>
+                    <button className={styles.qtyBtn} onClick={() => setEditQty(q => Math.max(1, q - 1))}>-</button>
+                    <input className={styles.qtyInput} type="number" min="1" value={editQty} onChange={e => setEditQty(Math.max(1, parseInt(e.target.value) || 1))} />
+                    <button className={styles.qtyBtn} onClick={() => setEditQty(q => q + 1)}>+</button>
+                  </div>
+                </div>
+
+                <div className={styles.editGroup}>
+                  <span className={styles.editLabel}>Foil</span>
+                  <button className={editFoil ? styles.foilToggleOn : styles.foilToggleOff} onClick={() => setEditFoil(v => !v)}>
+                    {editFoil ? 'Foil' : 'Non-foil'}
+                  </button>
+                </div>
+
+                <div className={styles.editGroup}>
+                  <span className={styles.editLabel}>Condition</span>
+                  <select className={styles.editSelect} value={editCondition} onChange={e => setEditCondition(e.target.value)}>
+                    {Object.entries(CONDITION_LABELS).map(([k, v]) => (
+                      <option key={k} value={k}>{v}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className={styles.editGroup}>
+                  <span className={styles.editLabel}>Buy Price</span>
+                  {!buyPriceEdit ? (
+                    <button className={styles.manualPriceBtn} onClick={() => { setBuyPriceEdit(true); setBuyPriceInput(editBuyPrice > 0 ? String(editBuyPrice) : '') }}>
+                      {editBuyPrice > 0 ? `Edit EUR ${editBuyPrice.toFixed(2)}` : '+ Set buy price'}
+                    </button>
+                  ) : (
+                    <div className={styles.inlineEditor}>
+                      <input
+                        autoFocus
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={buyPriceInput}
+                        className={styles.buyPriceInput}
+                        onChange={e => setBuyPriceInput(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') saveBuyPrice(); if (e.key === 'Escape') setBuyPriceEdit(false) }}
+                        placeholder="0.00"
+                      />
+                      <button className={styles.inlineActionBtn} onClick={saveBuyPrice}>Save</button>
+                      <button className={styles.inlineTextBtn} onClick={() => setBuyPriceEdit(false)}>Cancel</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className={styles.editSaveRow}>
+                <button className={styles.saveBtn} onClick={handleSave} disabled={saving || saved}>
+                  {saving ? 'Saving...' : saved ? 'Saved' : 'Save Changes'}
+                </button>
+                {saveError && <span className={styles.detailError}>{saveError}</span>}
+              </div>
+
+              {allFolders.length > 0 && (
+                <div className={`${styles.editGroup} ${styles.detailSubsection}`}>
+                  <span className={styles.editLabel}>Move to</span>
+                  <div className={styles.moveRow}>
+                    <input
+                      list="moveFolderList"
+                      className={styles.editSelect}
+                      style={{ flex: 1, minWidth: 140 }}
+                      value={moveFolderText}
+                      onChange={e => setMoveFolderText(e.target.value)}
+                      placeholder="Type or select deck / binder..."
+                    />
+                    <datalist id="moveFolderList">
+                      {allFolders.filter(f => f.type !== 'list').map(f => (
+                        <option key={f.id} value={f.name}>{f.name} ({f.type})</option>
+                      ))}
+                    </datalist>
+                    <button
+                      className={styles.addToFolderBtn}
+                      onClick={handleMoveToFolder}
+                      disabled={!moveFolderText || !allFolders.find(f => f.name.toLowerCase() === moveFolderText.toLowerCase())}
+                    >
+                      Move
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className={styles.detailSubsection}>
+                <div className={styles.detailInfoRow}>
+                  <span className={styles.detailInfoLabel}>Language</span>
+                  <span className={styles.detailInfoVal}>{LANG_NAMES_FULL[card.language] || (card.language || '').toUpperCase()}</span>
+                </div>
+                <div className={styles.detailInfoRow}>
+                  <span className={styles.detailInfoLabel}>Set</span>
+                  <span className={styles.detailInfoVal}>{(card.set_code || '').toUpperCase()} . #{card.collector_number}</span>
+                </div>
+                <div className={styles.detailInfoRow}>
+                  <span className={styles.detailInfoLabel}>Added</span>
+                  <span className={styles.detailInfoVal}>{card.added_at ? new Date(card.added_at).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' }) : '-'}</span>
+                </div>
+                {editBuyPrice > 0 && (
+                  <div className={styles.detailInfoRow}>
+                    <span className={styles.detailInfoLabel}>Buy Price</span>
+                    <span className={styles.detailInfoVal}>
+                      EUR {editBuyPrice.toFixed(2)}
+                      {pl != null && <span className={styles.inlineMuted}>{pl >= 0 ? '+' : ''}EUR {pl.toFixed(2)}</span>}
+                    </span>
+                  </div>
+                )}
+                {card.misprint && <div className={styles.detailInfoRow}><span className={styles.detailInfoLabel}>Misprint</span><span className={styles.detailInfoVal}>Yes</span></div>}
+                {card.altered && <div className={styles.detailInfoRow}><span className={styles.detailInfoLabel}>Altered</span><span className={styles.detailInfoVal}>Yes</span></div>}
+              </div>
+
+              {currentFolders.length > 0 && (
+                <div className={styles.detailSubsection}>
+                  <div className={styles.detailInfoRow} style={{ alignItems: 'flex-start' }}>
+                    <span className={styles.detailInfoLabel}>In</span>
+                    <div className={styles.folderPills}>
+                      {currentFolders.map((f, i) => {
+                        const path = f.type === 'deck' ? '/decks' : f.type === 'binder' ? '/binders' : '/lists'
+                        const dest = f.id ? `${path}?folder=${f.id}` : path
+                        return (
+                          <button key={i} onClick={() => { onClose?.(); navigate(dest) }} className={styles.folderChip}>
+                            <FolderTypeIcon type={f.type} size={11} />{f.name} {'->'}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {onDelete && (
+                <div className={styles.detailSubsection}>
                   <button className={styles.deleteBtn} onClick={onDelete}>Delete Card</button>
                 </div>
               )}

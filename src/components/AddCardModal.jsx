@@ -28,6 +28,16 @@ function getCardImage(printing, size = 'normal') {
   return null
 }
 
+function getOwnedCardKey(card) {
+  return [
+    card.set_code,
+    card.collector_number,
+    card.foil ? 1 : 0,
+    card.language || 'en',
+    card.condition || 'near_mint',
+  ].join('|')
+}
+
 // Returns market price in the native price_source currency as a string for the purchase price input.
 function getMarketPrice(printing, isFoil, price_source = 'cardmarket_trend') {
   const v = getPrice(printing, isFoil, { price_source })
@@ -543,54 +553,83 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
       }
 
       // Binder / Deck / Collection save
-      const cards = queue.map(item => ({
-        user_id: userId,
-        name: item.printing.name,
-        set_code: item.printing.set,
-        collector_number: item.printing.collector_number,
-        scryfall_id: item.printing.id || null,
-        foil: item.foil,
-        condition: item.condition,
-        language: item.language,
-        purchase_price: item.purchasePrice,
-        currency: 'EUR',
-      }))
+      const aggregated = Array.from(
+        queue.reduce((map, item) => {
+          const card = {
+            user_id: userId,
+            name: item.printing.name,
+            set_code: item.printing.set,
+            collector_number: item.printing.collector_number,
+            scryfall_id: item.printing.id || null,
+            foil: item.foil,
+            qty: item.qty,
+            condition: item.condition,
+            language: item.language,
+            purchase_price: item.purchasePrice,
+            currency: 'EUR',
+          }
+          const key = getOwnedCardKey(card)
+          const prev = map.get(key)
+          if (prev) {
+            prev.qty += card.qty
+            prev.purchase_price = card.purchase_price
+            prev.name = card.name
+            prev.scryfall_id = card.scryfall_id
+          } else {
+            map.set(key, { ...card })
+          }
+          return map
+        }, new Map()).values()
+      )
 
-      // Upsert cards into the cards table (without qty - qty is tracked in folder_cards)
+      const setCodes = [...new Set(aggregated.map(c => c.set_code))]
+      const { data: existingCards, error: existingCardsErr } = await sb.from('cards')
+        .select('id,user_id,name,set_code,collector_number,scryfall_id,foil,qty,condition,language,purchase_price,currency')
+        .eq('user_id', userId)
+        .in('set_code', setCodes)
+      if (existingCardsErr) { setError(existingCardsErr.message); setSaving(false); return }
+
+      const existingByKey = new Map((existingCards || []).map(card => [getOwnedCardKey(card), card]))
+      const cards = aggregated.map(card => {
+        const existing = existingByKey.get(getOwnedCardKey(card))
+        return existing
+          ? { ...existing, ...card, id: existing.id, qty: (existing.qty || 0) + card.qty }
+          : card
+      })
+
       const { error: err } = await sb.from('cards')
         .upsert(cards, { onConflict: 'user_id,set_code,collector_number,foil,language,condition' })
       if (err) { setError(err.message); setSaving(false); return }
 
-      // Get the unique card IDs (one per unique printing in the queue)
-      const uniqueCards = [...new Map(queue.map(item => ({
-        key: `${item.printing.id || item.printing.set}-${item.printing.collector_number}-${item.foil}`,
-        value: item,
-      })))]
-
       const folderTarget = folderMode ? selectedFolder : (destTab !== 'collection' ? selectedFolder : null)
       if (folderTarget) {
-        const setCodes = [...new Set(queue.map(item => item.printing.set))]
-        const { data: saved } = await sb.from('cards')
-          .select('id,set_code,collector_number,foil,condition,language,purchase_price')
+        const { data: saved, error: savedErr } = await sb.from('cards')
+          .select('id,set_code,collector_number,foil,language,condition')
           .eq('user_id', userId).in('set_code', setCodes)
-
+        if (savedErr) { setError(savedErr.message); setSaving(false); return }
         if (saved?.length) {
-          // Create folder_cards links for each unique card, aggregating total qty
-          const cardLinks = []
-          for (const card of saved) {
-            const matchingQueueItems = uniqueCards.filter(qc =>
-              qc.set_code === card.set_code && qc.collector_number === card.collector_number &&
-              qc.foil === card.foil && qc.language === card.language && qc.condition === card.condition
-            )
-            const totalQty = matchingQueueItems.reduce((sum, item) => sum + item.qty, 0)
-            if (totalQty > 0) {
-              cardLinks.push({ folder_id: folderTarget, card_id: card.id, qty: totalQty })
-            }
-          }
-          if (cardLinks.length > 0) {
-            // Upsert folder_cards links with aggregated qty
-            await sb.from('folder_cards')
-              .upsert(cardLinks, { onConflict: 'folder_id,card_id', column: 'qty' })
+          const savedByKey = new Map(saved.map(card => [getOwnedCardKey(card), card]))
+          const { data: existingLinks, error: linksErr } = await sb.from('folder_cards')
+            .select('card_id,qty')
+            .eq('folder_id', folderTarget)
+          if (linksErr) { setError(linksErr.message); setSaving(false); return }
+
+          const existingLinkQty = new Map((existingLinks || []).map(link => [link.card_id, link.qty || 1]))
+          const links = aggregated
+            .map(card => {
+              const savedCard = savedByKey.get(getOwnedCardKey(card))
+              if (!savedCard) return null
+              return {
+                folder_id: folderTarget,
+                card_id: savedCard.id,
+                qty: (existingLinkQty.get(savedCard.id) || 0) + card.qty,
+              }
+            })
+            .filter(Boolean)
+          if (links.length) {
+            const { error: linkSaveErr } = await sb.from('folder_cards')
+              .upsert(links, { onConflict: 'folder_id,card_id' })
+            if (linkSaveErr) { setError(linkSaveErr.message); setSaving(false); return }
           }
         }
       }

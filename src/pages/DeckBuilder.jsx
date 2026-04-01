@@ -754,7 +754,7 @@ export default function DeckBuilderPage() {
   // Right panel tabs: 'deck' | 'stats' | 'combos'
   const [rightTab,            setRightTab]            = useState('deck')
   const [statsBracketOverride, setStatsBracketOverride] = useState(null)
-  const [deckView,    setDeckView]    = useState('list')   // 'list' | 'compact' | 'visual'
+  const [deckView,    setDeckView]    = useState('visual')   // 'list' | 'compact' | 'visual'
   const [showRight, setShowRight] = useState(false)
   const [deckSort,    setDeckSort]    = useState('type')   // 'name' | 'cmc' | 'color' | 'type'
   const [groupByType, setGroupByType] = useState(true)

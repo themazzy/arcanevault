@@ -132,7 +132,7 @@ export default function DeckViewPage() {
   const [error, setError]       = useState(null)
 
   const [detailCard, setDetailCard] = useState(null)
-  const [deckView, setDeckView]     = useState('list')
+  const [deckView, setDeckView]     = useState('grid')
   const [hoverImg, setHoverImg]     = useState(null)
   const [hoverPos, setHoverPos]     = useState({ x: 0, y: 0 })
   const [copying, setCopying]       = useState(false)

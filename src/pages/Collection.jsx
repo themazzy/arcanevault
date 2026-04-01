@@ -690,7 +690,7 @@ export default function CollectionPage() {
           />
         )}
 
-        <div style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
+        <div className={styles.gridViewport}>
           <VirtualCardGrid
             cards={displayCards} sfMap={sfMap} loading={enriching}
             onSelect={c => setDetailCardId(c.id)}

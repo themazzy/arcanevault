@@ -275,6 +275,31 @@
   flex-direction: column;
   gap: 2px;
 }
+.moverHead {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 4px 6px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.moverHeadCard,
+.moverHeadStat {
+  color: var(--text-dim, #9a8870);
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 400;
+}
+.moverHeadCard {
+  flex: 1;
+  padding-left: 43px;
+}
+.moverHeadStat {
+  width: 72px;
+  text-align: right;
+  flex-shrink: 0;
+}
 .moverRow {
   display: flex;
   align-items: center;
@@ -286,10 +311,16 @@
 }
 .moverRow:last-child { border-bottom: none; }
 .moverRow:hover { background: var(--s1); }
+.moverCardButton {
+  flex: 1;
+  min-width: 0;
+}
 .moverName {
   flex: 1;
-  font-size: 0.82rem;
-  color: var(--text, #e8e0d0);
+  min-width: 0;
+  color: var(--gold, #c9a84c);
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 0.79rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -299,23 +330,28 @@
   font-size: 0.72rem;
   letter-spacing: 0.04em;
   flex-shrink: 0;
-  min-width: 46px;
+  width: 72px;
   text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .moverPrice {
   font-family: var(--font-display, 'Cinzel', serif);
   font-size: 0.72rem;
   letter-spacing: 0.04em;
   flex-shrink: 0;
-  min-width: 68px;
+  width: 72px;
   text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .moverVal {
-  font-size: 0.82rem;
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 0.72rem;
   font-weight: 600;
   flex-shrink: 0;
-  min-width: 56px;
+  width: 72px;
   text-align: right;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
 }
 .moverEmpty {
   font-size: 0.82rem;
@@ -366,10 +402,24 @@
   padding: 5px 10px;
   max-width: 260px;
 }
-.tdCardInner {
+.cardButton {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+.cardButton:hover .tdCardName { color: #e0bf66; }
+.cardButton:focus-visible {
+  outline: 1px solid rgba(201,168,76,0.6);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 .tdCardName {
   color: var(--gold, #c9a84c);
