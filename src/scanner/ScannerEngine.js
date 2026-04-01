@@ -192,6 +192,28 @@ export function detectCardCorners(imageData, width, height) {
 const CARD_W = 500
 const CARD_H = 700
 
+function percentileCap(u8, percentile = 0.985) {
+  const hist = new Int32Array(256)
+  for (let i = 0; i < u8.length; i++) hist[u8[i]]++
+  const target = Math.max(1, Math.floor(u8.length * percentile))
+  let seen = 0
+  let cap = 255
+  for (let v = 0; v < 256; v++) {
+    seen += hist[v]
+    if (seen >= target) {
+      cap = v
+      break
+    }
+  }
+  if (cap >= 250) return u8
+  const out = new Uint8Array(u8.length)
+  for (let i = 0; i < u8.length; i++) {
+    const val = u8[i]
+    out[i] = val > cap ? cap : val
+  }
+  return out
+}
+
 export function cropCardFromReticle(
   imageData,
   frameWidth,
@@ -294,6 +316,84 @@ export function cropArtRegion(cardImageData, { xOffset = 0, yOffset = 0, inset =
   } finally {
     src.delete()
   }
+}
+
+export function createNameStripCanvas(cardImageData) {
+  const srcCanvas = document.createElement('canvas')
+  srcCanvas.width = CARD_W
+  srcCanvas.height = CARD_H
+  const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true })
+  srcCtx.putImageData(cardImageData, 0, 0)
+
+  const nx = Math.round(CARD_W * 0.04)
+  const ny = Math.round(CARD_H * 0.03)
+  const nw = Math.round(CARD_W * 0.68)
+  const nh = Math.round(CARD_H * 0.10)
+
+  const base = document.createElement('canvas')
+  base.width = nw
+  base.height = nh
+  const baseCtx = base.getContext('2d', { willReadFrequently: true })
+  baseCtx.drawImage(srcCanvas, nx, ny, nw, nh, 0, 0, nw, nh)
+
+  const raw = baseCtx.getImageData(0, 0, nw, nh)
+  const data = raw.data
+  let meanBright = 0
+  for (let i = 0; i < data.length; i += 4) {
+    meanBright += (data[i] * 299 + data[i + 1] * 587 + data[i + 2] * 114) / 1000
+  }
+  meanBright /= Math.max(1, data.length / 4)
+  const darkBg = meanBright < 160
+
+  const scale = Math.max(3, Math.min(8, Math.ceil(60 / Math.max(nh, 1))))
+  const out = document.createElement('canvas')
+  out.width = nw * scale
+  out.height = nh * scale
+  const outCtx = out.getContext('2d', { willReadFrequently: true })
+  outCtx.drawImage(base, 0, 0, nw, nh, 0, 0, out.width, out.height)
+
+  const img = outCtx.getImageData(0, 0, out.width, out.height)
+  const px = img.data
+  const gray = new Uint8Array(px.length >> 2)
+  const hist = new Int32Array(256)
+  for (let i = 0; i < px.length; i += 4) {
+    const g = ((px[i] * 299 + px[i + 1] * 587 + px[i + 2] * 114) / 1000) | 0
+    gray[i >> 2] = g
+    hist[g]++
+  }
+
+  const total = gray.length
+  let sumAll = 0
+  for (let i = 0; i < 256; i++) sumAll += i * hist[i]
+  let sumB = 0
+  let wB = 0
+  let best = 0
+  let threshold = 128
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t]
+    if (!wB) continue
+    const wF = total - wB
+    if (!wF) break
+    sumB += t * hist[t]
+    const mB = sumB / wB
+    const mF = (sumAll - sumB) / wF
+    const sigma = wB * wF * (mB - mF) ** 2
+    if (sigma > best) {
+      best = sigma
+      threshold = t
+    }
+  }
+
+  for (let i = 0; i < px.length; i += 4) {
+    let v = gray[i >> 2] >= threshold ? 255 : 0
+    if (darkBg) v = 255 - v
+    px[i] = v
+    px[i + 1] = v
+    px[i + 2] = v
+    px[i + 3] = 255
+  }
+  outCtx.putImageData(img, 0, 0)
+  return out
 }
 
 function dct2d(matrix, N) {
@@ -407,7 +507,8 @@ export function computePHash256(artImageData) {
       grayU8[i] = Math.round(0.2126 * rgba[i * 4] + 0.7152 * rgba[i * 4 + 1] + 0.0722 * rgba[i * 4 + 2])
     }
 
-    const eq8 = applyCLAHE(grayU8, 32, 32)
+    const glareSuppressed = percentileCap(grayU8, 0.98)
+    const eq8 = applyCLAHE(glareSuppressed, 32, 32)
     const pixels = new Float64Array(32 * 32)
     for (let i = 0; i < pixels.length; i++) pixels[i] = eq8[i]
     const dct = dct2d(pixels, 32)

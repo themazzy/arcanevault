@@ -13,15 +13,19 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { CameraPreview } from '@capacitor-community/camera-preview'
 import { Haptics, ImpactStyle } from '@capacitor/haptics'
+import { initScanner } from '../lib/scanner'
 import { databaseService } from './DatabaseService'
 import {
   waitForOpenCV,
-  detectCardCorners, warpCard, cropArtRegion, computePHash256, cropCardFromReticle,
+  detectCardCorners, warpCard, cropArtRegion, computePHash256, cropCardFromReticle, createNameStripCanvas,
 } from './ScannerEngine'
 import styles from './CardScanner.module.css'
 
 const MATCH_THRESHOLD = 110
 const MATCH_MIN_GAP = 12
+const MATCH_STRONG_THRESHOLD = 118
+const MATCH_STRONG_SINGLE = 96
+const MATCH_MIN_GAP_WITH_OCR = 8
 const MATCH_COOLDOWN = 3000
 const CROP_VARIANTS = [
   { xOffset: 0, yOffset: 0 },
@@ -39,6 +43,51 @@ const DEBUG = true
 const RETICLE_WIDTH = 280
 const RETICLE_HEIGHT = 392
 const RETICLE_CENTER_Y_OFFSET = -8
+const OCR_MIN_CONFIDENCE = 45
+
+const normalizeName = (value = '') =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+function nameSupportScore(ocrText, candidateName) {
+  const ocr = normalizeName(ocrText)
+  const cand = normalizeName(candidateName)
+  if (!ocr || !cand) return 0
+  if (ocr === cand) return 1
+  if (cand.includes(ocr) || ocr.includes(cand)) return 0.92
+
+  const ocrWords = ocr.split(' ').filter(Boolean)
+  const candWords = cand.split(' ').filter(Boolean)
+  if (!ocrWords.length || !candWords.length) return 0
+  let hits = 0
+  for (const word of ocrWords) {
+    if (candWords.some(cw => cw === word || cw.startsWith(word) || word.startsWith(cw))) hits++
+  }
+  return hits / Math.max(ocrWords.length, candWords.length)
+}
+
+function shouldAcceptMatch({ best, gap, stableCount, ocrSupport, ocrConfidence }) {
+  if (!best) return { accepted: false, reason: 'no best candidate' }
+  if (stableCount >= STABILITY_REQUIRED && best.distance <= MATCH_THRESHOLD && gap >= MATCH_MIN_GAP) {
+    return { accepted: true, reason: 'stable threshold match' }
+  }
+  if (stableCount >= STABILITY_REQUIRED && best.distance <= MATCH_STRONG_THRESHOLD && gap >= MATCH_MIN_GAP_WITH_OCR) {
+    return { accepted: true, reason: 'stable relaxed match' }
+  }
+  if (stableCount >= 1 && best.distance <= MATCH_STRONG_SINGLE && gap >= MATCH_MIN_GAP_WITH_OCR) {
+    return { accepted: true, reason: 'single strong frame' }
+  }
+  if (ocrSupport >= 0.72 && ocrConfidence >= OCR_MIN_CONFIDENCE && best.distance <= MATCH_STRONG_THRESHOLD) {
+    return { accepted: true, reason: 'ocr verified best match' }
+  }
+  if (stableCount < STABILITY_REQUIRED) return { accepted: false, reason: 'insufficient stable votes' }
+  if (best.distance > MATCH_STRONG_THRESHOLD) return { accepted: false, reason: `distance too high (${best.distance})` }
+  if (gap < MATCH_MIN_GAP_WITH_OCR) return { accepted: false, reason: `gap too small (${gap})` }
+  return { accepted: false, reason: 'best candidate not confident enough' }
+}
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -157,6 +206,19 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
     }
   }, [isNative])
 
+  const recognizeCardName = useCallback(async (cardImageData) => {
+    try {
+      const worker = await initScanner()
+      if (!worker || !cardImageData) return null
+      const nameCanvas = createNameStripCanvas(cardImageData)
+      const { data } = await worker.recognize(nameCanvas)
+      const text = data.text?.trim()?.replace(/[^A-Za-z0-9 ',.\-’]/g, '') || ''
+      return { text, confidence: data.confidence ?? 0 }
+    } catch {
+      return null
+    }
+  }, [])
+
   const captureFrame = useCallback(async () => {
     let imageData, w, h
 
@@ -202,6 +264,7 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
     let bestStats = { candidateCount: 0, totalCount: databaseService.cardCount }
     let bestVariant = null
     let bestSource = corners ? 'corners' : 'reticle'
+    let bestCardImage = null
 
     const tryMatchCardImage = (cardImageData, sourceLabel) => {
       for (const variant of CROP_VARIANTS) {
@@ -216,6 +279,7 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
           bestStats = { candidateCount, totalCount }
           bestVariant = variant
           bestSource = sourceLabel
+          bestCardImage = cardImageData
         }
       }
     }
@@ -256,6 +320,7 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
         totalCount: bestStats.totalCount,
         variant: null,
         source: bestSource,
+        cardImageData: null,
       }
     }
 
@@ -270,6 +335,7 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
       totalCount: bestStats.totalCount,
       variant: bestVariant,
       source: bestSource,
+      cardImageData: bestCardImage,
     }
   }, [captureFrame])
 
@@ -285,6 +351,7 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
       let bestObservedCandidates = null
       let bestObservedVariant = null
       let bestObservedSource = null
+      let bestObservedCardImage = null
       const frameSummaries = []
 
       for (let i = 0; i < STABILITY_SAMPLES; i++) {
@@ -300,6 +367,7 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
           bestObservedCandidates = result.candidateCount
           bestObservedVariant = result.variant
           bestObservedSource = result.source
+          bestObservedCardImage = result.cardImageData
         }
 
         if (result.status === 'found' && result.best) {
@@ -323,12 +391,21 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
         if (b.count !== a.count) return b.count - a.count
         return a.best.distance - b.best.distance
       })[0] ?? null
-      const match = stableVote?.count >= STABILITY_REQUIRED ? stableVote.best : null
+      const ocrResult = bestObservedCardImage ? await recognizeCardName(bestObservedCardImage) : null
+      const ocrSupport = bestObserved ? nameSupportScore(ocrResult?.text, bestObserved.name) : 0
+      const acceptance = shouldAcceptMatch({
+        best: stableVote?.best ?? bestObserved,
+        gap: bestObservedGap ?? 0,
+        stableCount: stableVote?.count ?? 0,
+        ocrSupport,
+        ocrConfidence: ocrResult?.confidence ?? 0,
+      })
+      const match = acceptance.accepted ? (stableVote?.best ?? bestObserved) : null
 
       if (DEBUG && mountedRef.current) {
         setDebugInfo({
           stage: match
-            ? `MATCHED ${stableVote.count}/${STABILITY_SAMPLES} (${bestObservedGap ?? '?'})`
+            ? `MATCHED ${stableVote?.count ?? 0}/${STABILITY_SAMPLES} (${bestObservedGap ?? '?'})`
             : bestObserved
               ? `no match - ${bestObserved.distance}/${bestObservedGap ?? '?'}`
               : 'no match - no candidate',
@@ -339,6 +416,10 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
           votes: stableVote?.count ? `${stableVote.count}/${STABILITY_REQUIRED}` : `0/${STABILITY_REQUIRED}`,
           frames: frameSummaries.join(' | '),
           source: bestObservedSource ?? '-',
+          decision: acceptance.reason,
+          ocrText: ocrResult?.text || '-',
+          ocrConfidence: ocrResult ? `${ocrResult.confidence.toFixed(0)}%` : '-',
+          ocrSupport: `${Math.round(ocrSupport * 100)}%`,
           variant: bestObservedVariant
             ? `x:${bestObservedVariant.xOffset ?? 0} y:${bestObservedVariant.yOffset ?? 0} i:${bestObservedVariant.inset ?? 0}`
             : '-',
@@ -378,7 +459,7 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
     } finally {
       if (mountedRef.current) setScanning(false)
     }
-  }, [isReady, onMatch, scanSingleFrame, scanning])
+  }, [isReady, onMatch, recognizeCardName, scanSingleFrame, scanning])
 
   return (
     <div className={styles.root}>
@@ -419,6 +500,10 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
                 <div><b>Pool:</b> {debugInfo.candidates?.toLocaleString?.() ?? 0}/{debugInfo.total?.toLocaleString?.() ?? cardCount.toLocaleString()}</div>
                 <div><b>Votes:</b> {debugInfo.votes}</div>
                 <div><b>Source:</b> {debugInfo.source}</div>
+                <div><b>Decision:</b> {debugInfo.decision}</div>
+                <div><b>OCR:</b> {debugInfo.ocrText}</div>
+                <div><b>OCR Conf:</b> {debugInfo.ocrConfidence}</div>
+                <div><b>OCR Match:</b> {debugInfo.ocrSupport}</div>
                 <div><b>Crop:</b> {debugInfo.variant}</div>
                 <div><b>Frames:</b> {debugInfo.frames}</div>
               </>
