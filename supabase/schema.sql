@@ -77,6 +77,19 @@ create table if not exists card_prices (
   primary key (scryfall_id, snapshot_date)
 );
 
+create table if not exists card_prices_stage (
+  scryfall_id        text not null,
+  set_code           text not null,
+  collector_number   text not null,
+  snapshot_date      date not null,
+  price_regular_eur  numeric(10,2),
+  price_foil_eur     numeric(10,2),
+  price_regular_usd  numeric(10,2),
+  price_foil_usd     numeric(10,2),
+  updated_at         timestamptz not null default now(),
+  primary key (scryfall_id, snapshot_date)
+);
+
 -- ── SHARED FOLDERS (public read-only links) ───────────────────────────────────
 create table shared_folders (
   id           uuid default gen_random_uuid() primary key,
@@ -98,6 +111,8 @@ create index price_snapshots_user_id_idx on price_snapshots(user_id);
 create index price_snapshots_taken_at_idx on price_snapshots(taken_at);
 create index card_prices_snapshot_date_idx on card_prices(snapshot_date);
 create index card_prices_set_collector_snapshot_idx on card_prices(set_code, collector_number, snapshot_date);
+create index card_prices_stage_snapshot_date_idx on card_prices_stage(snapshot_date);
+create index card_prices_stage_set_collector_snapshot_idx on card_prices_stage(set_code, collector_number, snapshot_date);
 
 -- ── ROW LEVEL SECURITY ────────────────────────────────────────────────────────
 alter table cards            enable row level security;
@@ -128,6 +143,48 @@ create policy "public read shared_folders" on shared_folders for select
 grant all on cards, folders, folder_cards, price_snapshots, shared_folders to authenticated;
 grant select on shared_folders to anon;
 grant select on card_prices to authenticated, anon;
+
+create or replace function publish_card_prices(p_snapshot_date date, p_retention_cutoff date)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  delete from public.card_prices
+  where snapshot_date = p_snapshot_date;
+
+  insert into public.card_prices (
+    scryfall_id,
+    set_code,
+    collector_number,
+    snapshot_date,
+    price_regular_eur,
+    price_foil_eur,
+    price_regular_usd,
+    price_foil_usd,
+    updated_at
+  )
+  select
+    scryfall_id,
+    set_code,
+    collector_number,
+    snapshot_date,
+    price_regular_eur,
+    price_foil_eur,
+    price_regular_usd,
+    price_foil_usd,
+    updated_at
+  from public.card_prices_stage
+  where snapshot_date = p_snapshot_date;
+
+  delete from public.card_prices
+  where snapshot_date < p_retention_cutoff;
+
+  delete from public.card_prices_stage
+  where snapshot_date = p_snapshot_date;
+end;
+$$;
 
 -- ── UPDATED_AT TRIGGER ────────────────────────────────────────────────────────
 create or replace function update_updated_at()
