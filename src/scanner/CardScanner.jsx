@@ -40,6 +40,8 @@ const STABILITY_SAMPLES = 3
 const STABILITY_REQUIRED = 2
 const SAMPLE_DELAY_MS = 80
 const DEBUG = true
+const NATIVE_BURST_FRAMES = 3
+const NATIVE_BURST_DELAY_MS = 70
 const RETICLE_WIDTH = 280
 const RETICLE_HEIGHT = 392
 const RETICLE_CENTER_Y_OFFSET = -8
@@ -87,6 +89,45 @@ function shouldAcceptMatch({ best, gap, stableCount, ocrSupport, ocrConfidence }
   if (best.distance > MATCH_STRONG_THRESHOLD) return { accepted: false, reason: `distance too high (${best.distance})` }
   if (gap < MATCH_MIN_GAP_WITH_OCR) return { accepted: false, reason: `gap too small (${gap})` }
   return { accepted: false, reason: 'best candidate not confident enough' }
+}
+
+function scoreFrameQuality(imageData, width, height) {
+  const data = imageData.data
+  const stepX = Math.max(1, Math.floor(width / 96))
+  const stepY = Math.max(1, Math.floor(height / 96))
+  let prevRow = null
+  let laplaceEnergy = 0
+  let brightnessSum = 0
+  let brightnessSqSum = 0
+  let samples = 0
+
+  for (let y = 0; y < height; y += stepY) {
+    let prevGray = null
+    const row = []
+    for (let x = 0; x < width; x += stepX) {
+      const idx = (y * width + x) * 4
+      const gray = Math.round(0.2126 * data[idx] + 0.7152 * data[idx + 1] + 0.0722 * data[idx + 2])
+      row.push(gray)
+      brightnessSum += gray
+      brightnessSqSum += gray * gray
+      samples++
+
+      if (prevGray != null) {
+        laplaceEnergy += Math.abs(gray - prevGray)
+      }
+      if (prevRow && prevRow[row.length - 1] != null) {
+        laplaceEnergy += Math.abs(gray - prevRow[row.length - 1])
+      }
+      prevGray = gray
+    }
+    prevRow = row
+  }
+
+  const mean = brightnessSum / Math.max(1, samples)
+  const variance = brightnessSqSum / Math.max(1, samples) - mean * mean
+  const stdev = Math.sqrt(Math.max(0, variance))
+  const exposurePenalty = Math.abs(mean - 132) * 0.35
+  return laplaceEnergy + stdev * 18 - exposurePenalty
 }
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
@@ -230,20 +271,37 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
     let imageData, w, h
 
     if (isNative) {
-      const { value } = await CameraPreview.captureSample({ quality: 92 })
-      const img = await new Promise((resolve, reject) => {
-        const image = new Image()
-        image.onload = () => resolve(image)
-        image.onerror = reject
-        image.src = 'data:image/jpeg;base64,' + value
-      })
-      const canvas = document.createElement('canvas')
-      canvas.width = img.width
-      canvas.height = img.height
-      canvas.getContext('2d').drawImage(img, 0, 0)
-      imageData = canvas.getContext('2d').getImageData(0, 0, img.width, img.height)
-      w = img.width
-      h = img.height
+      const decodeSample = async (value) => {
+        const img = await new Promise((resolve, reject) => {
+          const image = new Image()
+          image.onload = () => resolve(image)
+          image.onerror = reject
+          image.src = 'data:image/jpeg;base64,' + value
+        })
+        const canvas = document.createElement('canvas')
+        canvas.width = img.width
+        canvas.height = img.height
+        const ctx = canvas.getContext('2d', { willReadFrequently: true })
+        ctx.drawImage(img, 0, 0)
+        const frameImageData = ctx.getImageData(0, 0, img.width, img.height)
+        return {
+          imageData: frameImageData,
+          w: img.width,
+          h: img.height,
+          quality: scoreFrameQuality(frameImageData, img.width, img.height),
+        }
+      }
+
+      const burst = []
+      for (let i = 0; i < NATIVE_BURST_FRAMES; i++) {
+        const { value } = await CameraPreview.captureSample({ quality: 92 })
+        burst.push(await decodeSample(value))
+        if (i < NATIVE_BURST_FRAMES - 1) await sleep(NATIVE_BURST_DELAY_MS)
+      }
+      const bestFrame = burst.sort((a, b) => b.quality - a.quality)[0]
+      imageData = bestFrame.imageData
+      w = bestFrame.w
+      h = bestFrame.h
     } else {
       const vid = videoRef.current
       if (!vid?.videoWidth) return null
