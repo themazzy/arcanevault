@@ -16,7 +16,7 @@ import { Haptics, ImpactStyle } from '@capacitor/haptics'
 import { databaseService } from './DatabaseService'
 import {
   waitForOpenCV,
-  detectCardCorners, warpCard, cropArtRegion, computePHash256,
+  detectCardCorners, warpCard, cropArtRegion, computePHash256, cropCardFromReticle,
 } from './ScannerEngine'
 import styles from './CardScanner.module.css'
 
@@ -36,6 +36,9 @@ const STABILITY_SAMPLES = 4
 const STABILITY_REQUIRED = 2
 const SAMPLE_DELAY_MS = 120
 const DEBUG = true
+const RETICLE_WIDTH = 280
+const RETICLE_HEIGHT = 392
+const RETICLE_CENTER_Y_OFFSET = -8
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -193,30 +196,68 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
 
     const { imageData, w, h } = frame
     const corners = detectCardCorners(imageData, w, h)
-    if (!corners) return { status: 'notfound', stage: 'no corners', best: null, second: null, candidateCount: 0, totalCount: databaseService.cardCount, variant: null }
-
-    const warped = warpCard(imageData, corners)
-    if (!warped) return { status: 'notfound', stage: 'warp failed', best: null, second: null, candidateCount: 0, totalCount: databaseService.cardCount, variant: null }
 
     let best = null
     let second = null
     let bestStats = { candidateCount: 0, totalCount: databaseService.cardCount }
     let bestVariant = null
-    for (const variant of CROP_VARIANTS) {
-      const artCrop = cropArtRegion(warped, variant)
-      if (!artCrop) continue
-      const hash = computePHash256(artCrop)
-      if (!hash) continue
-      const { best: candidate, second: runnerUp, candidateCount, totalCount } = databaseService.findBestTwoWithStats(hash)
-      if (candidate && (!best || candidate.distance < best.distance)) {
-        best = candidate
-        second = runnerUp
-        bestStats = { candidateCount, totalCount }
-        bestVariant = variant
+    let bestSource = corners ? 'corners' : 'reticle'
+
+    const tryMatchCardImage = (cardImageData, sourceLabel) => {
+      for (const variant of CROP_VARIANTS) {
+        const artCrop = cropArtRegion(cardImageData, variant)
+        if (!artCrop) continue
+        const hash = computePHash256(artCrop)
+        if (!hash) continue
+        const { best: candidate, second: runnerUp, candidateCount, totalCount } = databaseService.findBestTwoWithStats(hash)
+        if (candidate && (!best || candidate.distance < best.distance)) {
+          best = candidate
+          second = runnerUp
+          bestStats = { candidateCount, totalCount }
+          bestVariant = variant
+          bestSource = sourceLabel
+        }
       }
     }
 
-    if (!best) return { status: 'notfound', stage: 'no candidate', best: null, second: null, candidateCount: bestStats.candidateCount, totalCount: bestStats.totalCount, variant: bestVariant }
+    if (corners) {
+      const warped = warpCard(imageData, corners)
+      if (warped) tryMatchCardImage(warped, 'corners')
+    }
+
+    if (!best) {
+      const viewportWidth = window.innerWidth || window.screen.width || w
+      const viewportHeight = window.innerHeight || window.screen.height || h
+      for (const inset of [0, 10, 18, -8]) {
+        const reticleCard = cropCardFromReticle(
+          imageData,
+          w,
+          h,
+          viewportWidth,
+          viewportHeight,
+          {
+            reticleWidth: RETICLE_WIDTH,
+            reticleHeight: RETICLE_HEIGHT,
+            centerYOffsetPx: RETICLE_CENTER_Y_OFFSET,
+            inset,
+          },
+        )
+        tryMatchCardImage(reticleCard, corners ? 'reticle fallback' : 'reticle')
+      }
+    }
+
+    if (!best) {
+      return {
+        status: 'notfound',
+        stage: corners ? 'no candidate' : 'no corners',
+        best: null,
+        second: null,
+        candidateCount: bestStats.candidateCount,
+        totalCount: bestStats.totalCount,
+        variant: null,
+        source: bestSource,
+      }
+    }
 
     const gap = second ? second.distance - best.distance : 256
     return {
@@ -228,6 +269,7 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
       candidateCount: bestStats.candidateCount,
       totalCount: bestStats.totalCount,
       variant: bestVariant,
+      source: bestSource,
     }
   }, [captureFrame])
 
@@ -242,6 +284,7 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
       let bestObservedGap = null
       let bestObservedCandidates = null
       let bestObservedVariant = null
+      let bestObservedSource = null
       const frameSummaries = []
 
       for (let i = 0; i < STABILITY_SAMPLES; i++) {
@@ -256,6 +299,7 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
           bestObservedGap = result.second ? result.second.distance - result.best.distance : 256
           bestObservedCandidates = result.candidateCount
           bestObservedVariant = result.variant
+          bestObservedSource = result.source
         }
 
         if (result.status === 'found' && result.best) {
@@ -294,6 +338,7 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
           total: databaseService.cardCount,
           votes: stableVote?.count ? `${stableVote.count}/${STABILITY_REQUIRED}` : `0/${STABILITY_REQUIRED}`,
           frames: frameSummaries.join(' | '),
+          source: bestObservedSource ?? '-',
           variant: bestObservedVariant
             ? `x:${bestObservedVariant.xOffset ?? 0} y:${bestObservedVariant.yOffset ?? 0} i:${bestObservedVariant.inset ?? 0}`
             : '-',
@@ -373,6 +418,7 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
                 <div><b>Best:</b> {debugInfo.bestName}</div>
                 <div><b>Pool:</b> {debugInfo.candidates?.toLocaleString?.() ?? 0}/{debugInfo.total?.toLocaleString?.() ?? cardCount.toLocaleString()}</div>
                 <div><b>Votes:</b> {debugInfo.votes}</div>
+                <div><b>Source:</b> {debugInfo.source}</div>
                 <div><b>Crop:</b> {debugInfo.variant}</div>
                 <div><b>Frames:</b> {debugInfo.frames}</div>
               </>
