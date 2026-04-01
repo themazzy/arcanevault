@@ -79,16 +79,36 @@ class DatabaseService {
   _syncing     = false
   _fullyLoaded = false
   _loadPromise = Promise.resolve()
+  _initPromise = null
 
   async init(onProgress) {
-    this._isNative = Capacitor.isNativePlatform()
-    if (this._isNative) await this._initSQLite()
-    await this._loadCache(onProgress)
-    this._initialized = true
-    return this
+    if (this._initialized) {
+      onProgress?.(this._hashes.length)
+      return this
+    }
+    if (this._initPromise) {
+      await this._initPromise
+      onProgress?.(this._hashes.length)
+      return this
+    }
+
+    this._initPromise = (async () => {
+      this._isNative = Capacitor.isNativePlatform()
+      if (this._isNative) await this._initSQLite()
+      await this._loadCache(onProgress)
+      this._initialized = true
+      return this
+    })()
+
+    try {
+      return await this._initPromise
+    } finally {
+      this._initPromise = null
+    }
   }
 
   async _initSQLite() {
+    if (this._db) return
     this._sqlite = new SQLiteConnection(CapacitorSQLite)
     const isConn = (await this._sqlite.isConnection(DB_NAME, false)).result
     this._db = isConn
