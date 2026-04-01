@@ -318,17 +318,24 @@ export function cropArtRegion(cardImageData, { xOffset = 0, yOffset = 0, inset =
   }
 }
 
-export function createNameStripCanvas(cardImageData) {
+function buildNameStripCanvas(cardImageData, {
+  x = 0.04,
+  y = 0.028,
+  width = 0.74,
+  height = 0.11,
+  mode = 'otsu',
+  contrastBoost = 1,
+} = {}) {
   const srcCanvas = document.createElement('canvas')
   srcCanvas.width = CARD_W
   srcCanvas.height = CARD_H
   const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true })
   srcCtx.putImageData(cardImageData, 0, 0)
 
-  const nx = Math.round(CARD_W * 0.04)
-  const ny = Math.round(CARD_H * 0.03)
-  const nw = Math.round(CARD_W * 0.68)
-  const nh = Math.round(CARD_H * 0.10)
+  const nx = Math.round(CARD_W * x)
+  const ny = Math.round(CARD_H * y)
+  const nw = Math.round(CARD_W * width)
+  const nh = Math.round(CARD_H * height)
 
   const base = document.createElement('canvas')
   base.width = nw
@@ -357,7 +364,12 @@ export function createNameStripCanvas(cardImageData) {
   const gray = new Uint8Array(px.length >> 2)
   const hist = new Int32Array(256)
   for (let i = 0; i < px.length; i += 4) {
-    const g = ((px[i] * 299 + px[i + 1] * 587 + px[i + 2] * 114) / 1000) | 0
+    const r = px[i]
+    const g0 = px[i + 1]
+    const b = px[i + 2]
+    const baseGray = ((r * 299 + g0 * 587 + b * 114) / 1000) | 0
+    const boosted = Math.max(0, Math.min(255, Math.round((baseGray - 128) * contrastBoost + 128)))
+    const g = boosted
     gray[i >> 2] = g
     hist[g]++
   }
@@ -385,8 +397,16 @@ export function createNameStripCanvas(cardImageData) {
   }
 
   for (let i = 0; i < px.length; i += 4) {
-    let v = gray[i >> 2] >= threshold ? 255 : 0
-    if (darkBg) v = 255 - v
+    let v = gray[i >> 2]
+    if (mode === 'otsu') {
+      v = gray[i >> 2] >= threshold ? 255 : 0
+      if (darkBg) v = 255 - v
+    } else if (mode === 'gray-invert' && darkBg) {
+      v = 255 - v
+    } else if (mode === 'soft-threshold') {
+      const thresholded = gray[i >> 2] >= threshold ? 255 : 32
+      v = darkBg ? 255 - thresholded : thresholded
+    }
     px[i] = v
     px[i + 1] = v
     px[i + 2] = v
@@ -394,6 +414,48 @@ export function createNameStripCanvas(cardImageData) {
   }
   outCtx.putImageData(img, 0, 0)
   return out
+}
+
+export function createNameStripCanvases(cardImageData) {
+  return [
+    {
+      label: 'otsu-wide',
+      canvas: buildNameStripCanvas(cardImageData, {
+        x: 0.04,
+        y: 0.028,
+        width: 0.74,
+        height: 0.11,
+        mode: 'otsu',
+        contrastBoost: 1.1,
+      }),
+    },
+    {
+      label: 'gray-wide',
+      canvas: buildNameStripCanvas(cardImageData, {
+        x: 0.04,
+        y: 0.028,
+        width: 0.74,
+        height: 0.11,
+        mode: 'gray-invert',
+        contrastBoost: 1.3,
+      }),
+    },
+    {
+      label: 'otsu-tight',
+      canvas: buildNameStripCanvas(cardImageData, {
+        x: 0.055,
+        y: 0.03,
+        width: 0.69,
+        height: 0.095,
+        mode: 'soft-threshold',
+        contrastBoost: 1.15,
+      }),
+    },
+  ]
+}
+
+export function createNameStripCanvas(cardImageData) {
+  return createNameStripCanvases(cardImageData)[0]?.canvas ?? null
 }
 
 function dct2d(matrix, N) {
