@@ -244,7 +244,7 @@ async function fetchAndMerge(cards, onProgress) {
 
     onProgress?.(
       Math.round(((Math.floor(i / BATCH_SIZE) + 1) / total) * 100),
-      `Fetching prices… (${Math.min(i + BATCH_SIZE, cards.length)} / ${cards.length})`
+      `Fetching card data… (${Math.min(i + BATCH_SIZE, cards.length)} / ${cards.length})`
     )
     if (i + BATCH_SIZE < cards.length) await new Promise(r => setTimeout(r, DELAY_MS))
   }
