@@ -230,6 +230,46 @@
   gap: 10px;
 }
 
+.controlBar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.controlBtn,
+.controlSelect {
+  background: rgba(0,0,0,0.58);
+  border: 1px solid rgba(255,255,255,0.16);
+  border-radius: 8px;
+  color: rgba(255,255,255,0.86);
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  padding: 10px 12px;
+  min-height: 40px;
+}
+
+.controlBtn {
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.controlBtn:hover {
+  background: rgba(255,255,255,0.12);
+  border-color: rgba(255,255,255,0.24);
+}
+
+.controlSelect {
+  flex: 1;
+  min-width: 132px;
+}
+
+.controlHint {
+  font-size: 0.68rem;
+  color: rgba(255,255,255,0.62);
+  letter-spacing: 0.03em;
+}
+
 .btnRow {
   display: flex;
   gap: 10px;
