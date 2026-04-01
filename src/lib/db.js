@@ -14,6 +14,8 @@ import { openDB } from 'idb'
 
 const DB_NAME    = 'arcanevault'
 const DB_VERSION = 4
+const SCRYFALL_METADATA_UPDATED_AT_KEY = 'scryfall_metadata_updated_at'
+const LEGACY_SCRYFALL_PRICES_UPDATED_AT_KEY = 'scryfall_prices_updated_at'
 
 let _db = null
 
@@ -113,13 +115,26 @@ export async function putScryfallEntries(entries) {
 export async function clearScryfallStore() {
   const db = await getDb()
   await db.clear('scryfall')
-  await setMeta('scryfall_prices_updated_at', null)
+  await setMeta(SCRYFALL_METADATA_UPDATED_AT_KEY, null)
+  await setMeta(LEGACY_SCRYFALL_PRICES_UPDATED_AT_KEY, null)
+}
+
+async function getScryfallMetadataUpdatedAt() {
+  const current = await getMeta(SCRYFALL_METADATA_UPDATED_AT_KEY)
+  if (current != null) return current
+
+  const legacy = await getMeta(LEGACY_SCRYFALL_PRICES_UPDATED_AT_KEY)
+  if (legacy != null) {
+    await setMeta(SCRYFALL_METADATA_UPDATED_AT_KEY, legacy)
+    return legacy
+  }
+  return null
 }
 
 export async function getScryfallCacheInfo() {
   const db = await getDb()
   const count = await db.count('scryfall')
-  const updatedAt = await getMeta('scryfall_prices_updated_at')
+  const updatedAt = await getScryfallMetadataUpdatedAt()
   return { count, updatedAt }
 }
 
