@@ -12,6 +12,13 @@
 import { Capacitor } from '@capacitor/core'
 import { CapacitorSQLite, SQLiteConnection } from '@capacitor-community/sqlite'
 import { sb } from '../lib/supabase'
+import {
+  clearScannerHashEntries,
+  getAllScannerHashEntries,
+  getMeta,
+  putScannerHashEntries,
+  setMeta,
+} from '../lib/db'
 
 const DB_NAME   = 'arcanevault_hashes'
 const PAGE_SIZE = 1000
@@ -80,15 +87,42 @@ class DatabaseService {
   _fullyLoaded = false
   _loadPromise = Promise.resolve()
   _initPromise = null
+  _status = {
+    loadedCount: 0,
+    totalCount: 0,
+    progress: 0,
+    phase: 'idle',
+    source: 'none',
+  }
+
+  _emitProgress(onProgress, patch = {}) {
+    this._status = {
+      ...this._status,
+      ...patch,
+    }
+    const total = this._status.totalCount || this._status.loadedCount || 0
+    this._status.progress = total > 0
+      ? Math.max(0, Math.min(100, Math.round((this._status.loadedCount / total) * 100)))
+      : 0
+    onProgress?.({ ...this._status })
+  }
 
   async init(onProgress) {
     if (this._initialized) {
-      onProgress?.(this._hashes.length)
+      this._emitProgress(onProgress, {
+        loadedCount: this._hashes.length,
+        totalCount: this._status.totalCount || this._hashes.length,
+        phase: this._fullyLoaded ? 'ready' : this._status.phase,
+      })
       return this
     }
     if (this._initPromise) {
       await this._initPromise
-      onProgress?.(this._hashes.length)
+      this._emitProgress(onProgress, {
+        loadedCount: this._hashes.length,
+        totalCount: this._status.totalCount || this._hashes.length,
+        phase: this._fullyLoaded ? 'ready' : this._status.phase,
+      })
       return this
     }
 
@@ -201,24 +235,88 @@ class DatabaseService {
       this._hashes = (res.values ?? []).map(rowToHash).filter(Boolean)
       this._rebuildIndex()
       this._fullyLoaded = true
+      this._emitProgress(onProgress, {
+        loadedCount: this._hashes.length,
+        totalCount: this._hashes.length,
+        phase: 'ready',
+        source: 'sqlite',
+      })
       this._loadPromise = Promise.resolve(this._hashes.length)
     } else {
-      // Web fallback — PostgREST caps at 1000 rows per request regardless of .limit().
-      // Load the first page synchronously so init() resolves quickly, then paginate
-      // the remaining pages in the background so the scanner is usable immediately.
-      const firstPage = await this._fetchWebPage(0)
-      this._hashes = firstPage.map(rowToHash).filter(Boolean)
-      this._rebuildIndex()
-      onProgress?.(this._hashes.length)
+      await this._loadWebCache(onProgress)
+    }
+  }
 
-      if (firstPage.length === PAGE_SIZE) {
-        // More pages exist — continue loading without blocking init()
-        this._loadPromise = this._continueWebLoad(1, onProgress)
-          .finally(() => { this._fullyLoaded = true })
-      } else {
-        this._fullyLoaded = true
-        this._loadPromise = Promise.resolve(this._hashes.length)
-      }
+  async _loadWebCache(onProgress) {
+    this._emitProgress(onProgress, { phase: 'checking cache', source: 'idb', loadedCount: 0 })
+    const cachedRows = await getAllScannerHashEntries().catch(() => [])
+    const cachedTotal = Number(await getMeta('scanner_hash_total_count').catch(() => 0)) || 0
+    const remoteTotal = Number(await this._fetchTotalCount().catch(() => 0)) || 0
+    const expectedTotal = remoteTotal || cachedTotal
+    const hasCompleteCache = expectedTotal > 0 && cachedRows.length >= expectedTotal
+    const shouldRefreshCache = cachedRows.length > 0 && expectedTotal > 0 && cachedRows.length !== expectedTotal
+
+    if (cachedRows?.length && hasCompleteCache && !shouldRefreshCache) {
+      this._hashes = cachedRows.map(rowToHash).filter(Boolean)
+      this._rebuildIndex()
+      this._fullyLoaded = true
+      this._emitProgress(onProgress, {
+        loadedCount: this._hashes.length,
+        totalCount: expectedTotal,
+        phase: 'ready',
+        source: 'idb cache',
+      })
+      this._loadPromise = Promise.resolve(this._hashes.length)
+      return
+    }
+
+    if (cachedRows?.length && shouldRefreshCache) {
+      this._emitProgress(onProgress, {
+        loadedCount: cachedRows.length,
+        totalCount: expectedTotal,
+        phase: 'refreshing cache',
+        source: 'network',
+      })
+      await clearScannerHashEntries().catch(() => {})
+    }
+
+    // Web fallback — PostgREST caps at 1000 rows per request regardless of .limit().
+    // Load the first page synchronously so init() resolves quickly, then paginate
+    // the remaining pages in the background while persisting locally.
+    const totalCount = expectedTotal
+    this._emitProgress(onProgress, {
+      loadedCount: 0,
+      totalCount,
+      phase: 'downloading hashes',
+      source: 'network',
+    })
+
+    const firstPage = await this._fetchWebPage(0)
+    this._hashes = firstPage.map(rowToHash).filter(Boolean)
+    this._rebuildIndex()
+    if (firstPage.length) await putScannerHashEntries(firstPage).catch(() => {})
+    if (totalCount) await setMeta('scanner_hash_total_count', totalCount).catch(() => {})
+    this._emitProgress(onProgress, {
+      loadedCount: this._hashes.length,
+      totalCount: totalCount || this._hashes.length,
+      phase: firstPage.length === PAGE_SIZE ? 'downloading hashes' : 'ready',
+      source: 'network',
+    })
+
+    if (firstPage.length === PAGE_SIZE) {
+      this._loadPromise = this._continueWebLoad(1, onProgress, totalCount)
+        .finally(() => {
+          this._fullyLoaded = true
+          this._emitProgress(onProgress, {
+            loadedCount: this._hashes.length,
+            totalCount: totalCount || this._hashes.length,
+            phase: 'ready',
+            source: 'network',
+          })
+        })
+    } else {
+      this._fullyLoaded = true
+      this._loadPromise = Promise.resolve(this._hashes.length)
     }
   }
 
@@ -233,7 +331,15 @@ class DatabaseService {
     return data ?? []
   }
 
-  async _continueWebLoad(startPage, onProgress) {
+  async _fetchTotalCount() {
+    const { count } = await sb
+      .from('card_hashes')
+      .select('scryfall_id', { count: 'exact', head: true })
+      .not('phash_hex', 'is', null)
+    return count ?? 0
+  }
+
+  async _continueWebLoad(startPage, onProgress, totalCount = 0) {
     const BATCH = 8   // fetch 8 pages in parallel — ~8× faster than sequential
     let page = startPage
 
@@ -248,15 +354,22 @@ class DatabaseService {
       for (const data of results) {
         if (!data.length) { reachedEnd = true; break }
         this._hashes.push(...data.map(rowToHash).filter(Boolean))
+        await putScannerHashEntries(data).catch(() => {})
         if (data.length < PAGE_SIZE) { reachedEnd = true; break }
       }
 
       this._rebuildIndex()
-      onProgress?.(this._hashes.length)
+      this._emitProgress(onProgress, {
+        loadedCount: this._hashes.length,
+        totalCount: totalCount || this._hashes.length,
+        phase: reachedEnd ? 'finalizing cache' : 'downloading hashes',
+        source: 'network',
+      })
       if (reachedEnd) break
       page += BATCH
     }
 
+    await setMeta('scanner_hash_total_count', totalCount || this._hashes.length).catch(() => {})
     return this._hashes.length
   }
 
@@ -359,6 +472,7 @@ class DatabaseService {
   get isReady()     { return this._initialized }
   get isSyncing()   { return this._syncing }
   get isFullyLoaded() { return this._fullyLoaded }
+  get status()      { return this._status }
   waitUntilFullyLoaded() { return this._loadPromise }
 }
 

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Modal, Button } from '../components/UI'
+import { Button } from '../components/UI'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { sb } from '../lib/supabase'
@@ -15,7 +15,14 @@ const PLAYER_COLORS = ['#c46060', '#6080c4', '#60a860', '#c4a040', '#9060c4', '#
 const PLAYER_NAMES  = ['Player 1', 'Player 2', 'Player 3', 'Player 4', 'Player 5', 'Player 6']
 const DICE_TYPES    = [2, 4, 6, 8, 10, 12, 20, 100]
 
-const COUNTERS = []
+const COUNTERS = [
+  { key: 'poison', label: 'Poison', icon: '☣', lethalAt: 10 },
+  { key: 'energy', label: 'Energy', icon: '⚡' },
+  { key: 'experience', label: 'Experience', icon: '✦' },
+  { key: 'radiation', label: 'Radiation', icon: '☢' },
+]
+
+const DEFAULT_COUNTERS = Object.fromEntries(COUNTERS.map(counter => [counter.key, 0]))
 
 const DEATH_TEXTS = [
   'Split in half by Garruk',
@@ -145,9 +152,11 @@ function makePlayer(i, life, seed = {}) {
     userId: seed.userId ?? null,
     life,
     hasPartner: seed.hasPartner ?? false,
-    counters: seed.counters ?? {},
-    cmdDmg: {},
-    cmdDmg2: {},
+    cmdTax: seed.cmdTax ?? 0,
+    cmdTax2: seed.cmdTax2 ?? 0,
+    counters: { ...DEFAULT_COUNTERS, ...(seed.counters ?? {}) },
+    cmdDmg: { ...(seed.cmdDmg ?? {}) },
+    cmdDmg2: { ...(seed.cmdDmg2 ?? {}) },
   }
 }
 
@@ -155,9 +164,21 @@ function migratePlayer(p) {
   return {
     ...p,
     hasPartner: p.hasPartner ?? false,
-    counters: p.counters ?? {},
+    cmdTax: p.cmdTax ?? 0,
+    cmdTax2: p.cmdTax2 ?? 0,
+    counters: { ...DEFAULT_COUNTERS, ...(p.counters ?? {}) },
+    cmdDmg:   p.cmdDmg   ?? {},
     cmdDmg2:  p.cmdDmg2  ?? {},
   }
+}
+
+function isPlayerDead(player) {
+  if (!player) return false
+  if (player.life <= 0) return true
+  if ((player.counters?.poison ?? 0) >= 10) return true
+  if (Object.values(player.cmdDmg ?? {}).some(v => v >= 21)) return true
+  if (Object.values(player.cmdDmg2 ?? {}).some(v => v >= 21)) return true
+  return false
 }
 
 // ── Layout Picker ──────────────────────────────────────────────────────────────
@@ -234,7 +255,7 @@ function DeckDropdown({ value, valueName, options, onChange }) {
 }
 
 // ── Art Picker (page-level so transform:rotate doesn't break position:fixed) ──
-function ArtPicker({ onSelect, onClear, onClose }) {
+function ArtPicker({ onSelect, onClear, onClose, rotation = 0 }) {
   const [query, setQuery]     = useState('')
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
@@ -253,43 +274,48 @@ function ArtPicker({ onSelect, onClear, onClose }) {
   }
 
   return (
-    <Modal onClose={onClose}>
-      <h2 style={{ fontFamily: 'var(--font-display)', color: 'var(--gold)', marginBottom: 14, fontSize: '1rem' }}>
-        Player Background Art
-      </h2>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-        <input ref={inputRef}
-          value={query} onChange={e => setQuery(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && search()}
-          placeholder="Search card name…"
-          style={{ flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', borderRadius: 3, padding: '8px 12px', color: 'var(--text)', fontSize: '0.88rem', outline: 'none' }}
-        />
-        <Button onClick={search} disabled={loading}>{loading ? '…' : 'Search'}</Button>
-      </div>
-      <button onClick={onClear}
-        style={{ background: 'none', border: '1px solid rgba(200,70,60,0.3)', borderRadius: 3, padding: '4px 12px', color: '#e08878', fontSize: '0.76rem', cursor: 'pointer', marginBottom: 10 }}>
-        Remove art background
-      </button>
-      {results.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(130px,1fr))', gap: 8, maxHeight: 380, overflowY: 'auto' }}>
-          {results.map(card => (
-            <button key={card.id}
-              onClick={() => onSelect(card.image_uris.art_crop)}
-              style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 4, padding: 0, cursor: 'pointer', overflow: 'hidden' }}
-              title={card.name}>
-              <img src={card.image_uris.art_crop} alt={card.name}
-                style={{ width: '100%', display: 'block', aspectRatio: '4/3', objectFit: 'cover' }} />
-              <div style={{ padding: '4px 6px', fontSize: '0.68rem', color: 'var(--text-dim)', background: 'rgba(0,0,0,0.6)', textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {card.name}
-              </div>
-            </button>
-          ))}
+    <div className={styles.artPickerOverlay} onClick={onClose}>
+      <div
+        className={[styles.artPickerPanel, styles.overlayRotatable, getRotationClass(rotation)].filter(Boolean).join(' ')}
+        onClick={e => e.stopPropagation()}>
+        <div className={styles.artPickerHead}>
+          <h2 className={styles.artPickerTitle}>Player Background Art</h2>
+          <button className={styles.artPickerClose} onClick={onClose}>×</button>
         </div>
-      )}
-      {!loading && results.length === 0 && query && (
-        <p style={{ color: 'var(--text-faint)', fontSize: '0.85rem' }}>No results.</p>
-      )}
-    </Modal>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <input ref={inputRef}
+            value={query} onChange={e => setQuery(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && search()}
+            placeholder="Search card name…"
+            style={{ flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', borderRadius: 3, padding: '8px 12px', color: 'var(--text)', fontSize: '0.88rem', outline: 'none' }}
+          />
+          <Button onClick={search} disabled={loading}>{loading ? '…' : 'Search'}</Button>
+        </div>
+        <button onClick={onClear}
+          style={{ background: 'none', border: '1px solid rgba(200,70,60,0.3)', borderRadius: 3, padding: '4px 12px', color: '#e08878', fontSize: '0.76rem', cursor: 'pointer', marginBottom: 10 }}>
+          Remove art background
+        </button>
+        {results.length > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(130px,1fr))', gap: 8, maxHeight: 380, overflowY: 'auto' }}>
+            {results.map(card => (
+              <button key={card.id}
+                onClick={() => onSelect(card.image_uris.art_crop)}
+                style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 4, padding: 0, cursor: 'pointer', overflow: 'hidden' }}
+                title={card.name}>
+                <img src={card.image_uris.art_crop} alt={card.name}
+                  style={{ width: '100%', display: 'block', aspectRatio: '4/3', objectFit: 'cover' }} />
+                <div style={{ padding: '4px 6px', fontSize: '0.68rem', color: 'var(--text-dim)', background: 'rgba(0,0,0,0.6)', textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {card.name}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+        {!loading && results.length === 0 && query && (
+          <p style={{ color: 'var(--text-faint)', fontSize: '0.85rem' }}>No results.</p>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -305,6 +331,23 @@ function GameLogOverlay({ events, onClose }) {
     return `${Math.floor(m / 60)}h ago`
   }
   const fmtDelta = (d) => d > 0 ? `+${d}` : `${d}`
+  const groupedEvents = (events || []).reduce((acc, ev) => {
+    const prev = acc[acc.length - 1]
+    const sameCounter = ev.type === 'counter' ? prev?.key === ev.key : true
+    const sameCommanderSource = ev.type === 'cmdDmg' ? prev?.fromName === ev.fromName : true
+    if (
+      prev &&
+      prev.playerName === ev.playerName &&
+      prev.type === ev.type &&
+      sameCounter &&
+      sameCommanderSource
+    ) {
+      prev.delta += ev.delta
+      return acc
+    }
+    acc.push({ ...ev })
+    return acc
+  }, [])
 
   return (
     <div className={styles.cmdOverlay} onClick={onClose}>
@@ -320,7 +363,7 @@ function GameLogOverlay({ events, onClose }) {
           <p className={styles.histEvtEmpty}>No events recorded yet this game.</p>
         ) : (
           <div className={styles.histEvtList}>
-            {events.map((ev, i) => {
+            {groupedEvents.map((ev, i) => {
               const ct = ev.type === 'counter' ? COUNTERS.find(c => c.key === ev.key) : null
               return (
                 <div key={i} className={styles.histEvtRow}>
@@ -344,8 +387,8 @@ function GameLogOverlay({ events, onClose }) {
                     )}
                     {ev.type === 'cmdDmg' && (
                       <span>
-                        <span className={styles.histEvtNeg}>{fmtDelta(ev.delta)}</span>
-                        {' '}from <em>{ev.fromName}</em> → <strong>{ev.total}</strong> life
+                        <span className={ev.delta > 0 ? styles.histEvtPos : styles.histEvtNeg}>{fmtDelta(ev.delta)}</span>
+                        {' '}commander from <em>{ev.fromName}</em> → <strong>{ev.total}</strong> life
                       </span>
                     )}
                     {ev.type === 'counter' && (
@@ -368,8 +411,15 @@ function GameLogOverlay({ events, onClose }) {
   )
 }
 
+function getRotationClass(rotation = 0) {
+  if (rotation === 180) return styles.playerRotate180
+  if (rotation === 90) return styles.playerRotate90
+  if (rotation === -90) return styles.playerRotate90n
+  return ''
+}
+
 // ── Commander Damage Overlay (page-level) ──────────────────────────────────────
-function CmdDmgOverlay({ player, opponents, onCmdDmgChange, onClose }) {
+function CmdDmgOverlay({ player, opponents, onCmdDmgChange, onClose, rotation = 0 }) {
   if (!player || !opponents?.length) return null
 
   function CtrlRow({ dmg, isLethal, pid, oid, isPartner2 }) {
@@ -387,7 +437,9 @@ function CmdDmgOverlay({ player, opponents, onCmdDmgChange, onClose }) {
 
   return (
     <div className={styles.cmdOverlay} onClick={onClose}>
-      <div className={styles.cmdOverlayPanel} onClick={e => e.stopPropagation()}>
+      <div
+        className={[styles.cmdOverlayPanel, styles.overlayRotatable, getRotationClass(rotation)].filter(Boolean).join(' ')}
+        onClick={e => e.stopPropagation()}>
         <div className={styles.cmdOverlayHead}>
           <div>
             <div className={styles.cmdOverlayTitle}>⚔ Commander Damage</div>
@@ -445,12 +497,15 @@ function PlayerSettingsOverlay({
   onRequestArtPicker,
   onTogglePartner,
   onClose,
+  rotation = 0,
 }) {
   if (!player) return null
 
   return (
     <div className={styles.settingsOverlay} onClick={onClose}>
-      <div className={styles.settingsPanel} onClick={e => e.stopPropagation()}>
+      <div
+        className={[styles.settingsPanel, styles.overlayRotatable, getRotationClass(rotation)].filter(Boolean).join(' ')}
+        onClick={e => e.stopPropagation()}>
         <div className={styles.settingsHead}>
           <div>
             <div className={styles.settingsTitle}>Player Settings</div>
@@ -491,6 +546,157 @@ function PlayerSettingsOverlay({
               {player.hasPartner ? 'Partner Commanders On' : 'Partner Commanders Off'}
             </button>
           )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CountersOverlay({ player, onCounterChange, onClose, rotation = 0 }) {
+  if (!player) return null
+
+  return (
+    <div className={styles.settingsOverlay} onClick={onClose}>
+      <div
+        className={[styles.settingsPanel, styles.overlayRotatable, getRotationClass(rotation)].filter(Boolean).join(' ')}
+        onClick={e => e.stopPropagation()}>
+        <div className={styles.settingsHead}>
+          <div>
+            <div className={styles.settingsTitle}>Counters</div>
+            <div className={styles.settingsSub} style={{ color: player.color }}>
+              {player.name}
+            </div>
+          </div>
+          <button className={styles.settingsClose} onClick={onClose}>×</button>
+        </div>
+
+        <div className={styles.counterOverlayList}>
+          {COUNTERS.map(counter => {
+            const value = player.counters?.[counter.key] ?? 0
+            const isLethal = counter.lethalAt && value >= counter.lethalAt
+            return (
+              <div key={counter.key} className={`${styles.counterOverlayRow} ${isLethal ? styles.counterOverlayRowLethal : ''}`}>
+                <div className={styles.counterOverlayMeta}>
+                  <span className={styles.counterOverlayIcon}>{counter.icon}</span>
+                  <div>
+                    <div className={styles.counterOverlayLabel}>{counter.label}</div>
+                    {counter.lethalAt && <div className={styles.counterOverlayHint}>Lethal at {counter.lethalAt}</div>}
+                  </div>
+                </div>
+                <div className={styles.counterOverlayCtrl}>
+                  <button className={styles.cmdOverlayBtn} onPointerDown={e => { e.preventDefault(); onCounterChange(player.id, counter.key, -5) }}>−5</button>
+                  <button className={styles.cmdOverlayBtn} onPointerDown={e => { e.preventDefault(); onCounterChange(player.id, counter.key, -1) }}>−</button>
+                  <span className={`${styles.cmdOverlayVal} ${isLethal ? styles.cmdOverlayValLethal : ''}`}>{value}</span>
+                  <button className={styles.cmdOverlayBtn} onPointerDown={e => { e.preventDefault(); onCounterChange(player.id, counter.key, +1) }}>+</button>
+                  <button className={styles.cmdOverlayBtn} onPointerDown={e => { e.preventDefault(); onCounterChange(player.id, counter.key, +5) }}>+5</button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CoinFlipper({ onClose }) {
+  const [flipCount, setFlipCount] = useState(1)
+  const [flips, setFlips] = useState([])
+  const [displayFlips, setDisplayFlips] = useState([])
+  const [flipping, setFlipping] = useState(false)
+  const [flipMode, setFlipMode] = useState('count')
+  const timerRef = useRef(null)
+
+  useEffect(() => () => clearTimeout(timerRef.current), [])
+
+  const buildFinals = mode => {
+    if (mode === 'untilLose') {
+      const seq = []
+      do {
+        seq.push(Math.random() < 0.5 ? 'Heads' : 'Tails')
+      } while (seq[seq.length - 1] === 'Heads' && seq.length < 24)
+      return seq
+    }
+    return Array.from({ length: flipCount }, () => Math.random() < 0.5 ? 'Heads' : 'Tails')
+  }
+
+  const runFlip = (mode = flipMode) => {
+    if (flipping) return
+    clearTimeout(timerRef.current)
+    setFlipping(true)
+    setFlipMode(mode)
+    const finals = buildFinals(mode)
+    const shownCount = finals.length
+    let frame = 0
+    const totalFrames = 10
+    const animate = () => {
+      frame += 1
+      setDisplayFlips(Array.from({ length: shownCount }, () => Math.random() < 0.5 ? 'Heads' : 'Tails'))
+      if (frame < totalFrames) {
+        timerRef.current = setTimeout(animate, 18 + frame * 4)
+      } else {
+        setFlips(finals)
+        setDisplayFlips(finals)
+        setFlipping(false)
+      }
+    }
+    setDisplayFlips(Array.from({ length: shownCount }, () => Math.random() < 0.5 ? 'Heads' : 'Tails'))
+    timerRef.current = setTimeout(animate, 16)
+  }
+
+  const shown = flipping ? displayFlips : flips
+  const heads = flips.filter(v => v === 'Heads').length
+  const tails = flips.filter(v => v === 'Tails').length
+
+  return (
+    <div className={styles.pickerOverlay} onClick={onClose}>
+      <div className={`${styles.pickerPanel} ${styles.coinPanel}`} onClick={e => e.stopPropagation()}>
+        <div className={styles.pickerHead}>
+          <span className={styles.pickerTitle}>Coin Flipper</span>
+          <button className={styles.pickerClose} onClick={onClose}>×</button>
+        </div>
+        <div className={styles.coinCountRow}>
+          <span className={styles.coinCountLabel}>Coins</span>
+          <div className={styles.coinCountCtrl}>
+            <button
+              className={styles.coinCountBtn}
+              onClick={() => setFlipCount(n => Math.max(1, n - 1))}
+              disabled={flipping}>
+              -
+            </button>
+            <span className={styles.coinCountVal}>{flipCount}</span>
+            <button
+              className={styles.coinCountBtn}
+              onClick={() => setFlipCount(n => Math.min(12, n + 1))}
+              disabled={flipping}>
+              +
+            </button>
+          </div>
+        </div>
+        <div className={styles.coinResults}>
+          {shown.length > 0 ? (
+            <div className={styles.coinGrid}>
+              {shown.map((side, i) => (
+                <div key={i} className={`${styles.coinFace} ${flipping ? styles.coinFaceFlipping : ''}`}>
+                  <span className={styles.coinFaceInner}>{side === 'Heads' ? 'H' : 'T'}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className={styles.coinPrompt}>Flip to see the result</div>
+          )}
+          <div className={styles.coinSummary}>
+            <span>Heads: <strong>{heads}</strong></span>
+            <span>Tails: <strong>{tails}</strong></span>
+          </div>
+        </div>
+        <div className={styles.coinActions}>
+          <button className={styles.pickerBtn} onClick={() => runFlip('count')} disabled={flipping}>
+          {flipping ? 'Flipping…' : `Flip ${flipCount} Coin${flipCount > 1 ? 's' : ''}`}
+        </button>
+          <button className={styles.coinModeBtn} onClick={() => runFlip('untilLose')} disabled={flipping}>
+            {flipping && flipMode === 'untilLose' ? 'Flipping...' : 'Flip Until Lose'}
+          </button>
         </div>
       </div>
     </div>
@@ -540,7 +746,6 @@ function DiceRoller({ onClose }) {
     <div className={styles.diceOverlay} onClick={onClose}>
       <div className={styles.dicePanel} onClick={e => e.stopPropagation()}>
         <div className={styles.diceHead}>
-          <span className={styles.diceTitle}>🎲 Dice Roller</span>
           <button className={styles.diceClose} onClick={onClose}>×</button>
         </div>
 
@@ -1322,8 +1527,8 @@ function EndGameDialog({ players, onSave, onCancel }) {
 // ── Player Panel ───────────────────────────────────────────────────────────────
 function PlayerPanel({
   player, opponents,
-  onLifeChange, onCounterChange, onCmdDmgChange, onNameChange,
-  onRequestPlayerSettings, onRequestCmdDmgOverlay,
+  onLifeChange, onCounterChange, onCmdDmgChange, onNameChange, onCmdTaxChange,
+  onRequestPlayerSettings, onRequestCmdDmgOverlay, onRequestCountersOverlay,
   showCommander, rotation = 0,
 }) {
   const [editingName,        setEditingName]  = useState(false)
@@ -1364,7 +1569,8 @@ function PlayerPanel({
     clearTimeout(fadeTimerRef.current)
   }, [])
 
-  const isDead = player.life <= 0
+  const isDead = isPlayerDead(player)
+  const poison = player.counters?.poison ?? 0
 
   useEffect(() => {
     if (isDead && !deathText) {
@@ -1396,99 +1602,139 @@ function PlayerPanel({
         isDead  ? styles.playerDead     : '',
         isLow   ? styles.playerLifeLow  : '',
         isCrit  ? styles.playerLifeCrit : '',
-        rotation === 180 ? styles.playerRotate180 :
-        rotation ===  90 ? styles.playerRotate90  :
-        rotation === -90 ? styles.playerRotate90n : '',
+        getRotationClass(rotation),
       ].filter(Boolean).join(' ')}
       style={{
         '--player-color': player.color,
-        ...(player.artCropUrl ? {
-          backgroundImage: `linear-gradient(rgba(10,10,18,0.55) 0%, rgba(10,10,18,0.80) 100%), url(${player.artCropUrl})`,
-          backgroundSize: 'cover', backgroundPosition: 'center',
-        } : {}),
       }}>
+      {player.artCropUrl && (
+        <>
+          <img className={styles.playerBgArt} src={player.artCropUrl} alt="" aria-hidden="true" />
+          <div className={styles.playerBgShade} aria-hidden="true" />
+        </>
+      )}
 
-      <div className={styles.nameRow}>
-        {editingName
-          ? <input className={styles.nameInput}
-              value={nameInput}
-              onChange={e => setNameInput(e.target.value)}
-              onBlur={handleNameSubmit}
-              onKeyDown={e => e.key === 'Enter' && handleNameSubmit()}
-              autoFocus />
-          : <button className={styles.nameBtn}
-              onClick={() => { setEditingName(true); setNameInput(player.name) }}>
-              {player.name}
-            </button>
-        }
-        {player.deckName && <span className={styles.panelDeckBadge}>{player.deckName}</span>}
-        <button
-          className={styles.playerSettingsBtn}
-          onClick={() => onRequestPlayerSettings?.(player.id)}
-          title="Player settings">⚙</button>
-      </div>
-
-      <div className={styles.lifeArea}>
-        <button className={styles.lifeBtn} onPointerDown={e => { e.preventDefault(); adjust(-1) }}>-</button>
-
-        <div className={styles.lifeTotalWrap}
-          onPointerDown={handleLifeHoldStart}
-          onPointerUp={handleLifeHoldEnd}
-          onPointerLeave={handleLifeHoldEnd}
-          onContextMenu={e => { if (showCommander) e.preventDefault() }}
-          title={showCommander && opponents.length ? 'Hold for commander damage' : undefined}>
-          <span className={`${styles.lifeTotal} ${player.life <= 5 ? styles.lifeLow : ''} ${player.life <= 0 ? styles.lifeDead : ''}`}>
-            {player.life}
-          </span>
-          {displayDelta != null && (
-            <span
-              className={`${styles.lifeDelta} ${displayDelta > 0 ? styles.lifeDeltaUp : styles.lifeDeltaDown} ${deltaFading ? styles.lifeDeltaFade : ''}`}>
-              {displayDelta > 0 ? `+${displayDelta}` : displayDelta}
-            </span>
-          )}
-        </div>
-
-        <button className={styles.lifeBtn} onPointerDown={e => { e.preventDefault(); adjust(+1) }}>+</button>
-      </div>
-
-      <div className={styles.quickRow}>
-        <button className={styles.quickBtn} onPointerDown={e => { e.preventDefault(); adjust(-10) }}>-10</button>
-        <button className={styles.quickBtn} onPointerDown={e => { e.preventDefault(); adjust(-5) }}>-5</button>
-        <button className={styles.quickBtn} onPointerDown={e => { e.preventDefault(); adjust(+5) }}>+5</button>
-        <button className={styles.quickBtn} onPointerDown={e => { e.preventDefault(); adjust(+10) }}>+10</button>
-      </div>
-
-      {showCommander && opponents.length > 0 && (
-        <div className={styles.cmdBar} onClick={() => onRequestCmdDmgOverlay?.(player.id)}>
-          <span className={styles.cmdBarIcon}>⚔</span>
-          <div className={styles.cmdBadges}>
-            {opponents.map(opp => {
-              const dmg  = player.cmdDmg?.[opp.id]  || 0
-              const dmg2 = player.cmdDmg2?.[opp.id] || 0
-              const isLethal = dmg >= 21 || (opp.hasPartner && dmg2 >= 21)
-              const hasAnyDmg = dmg > 0 || (opp.hasPartner && dmg2 > 0)
-              return (
-                <div key={opp.id}
-                  className={`${styles.cmdBadge} ${hasAnyDmg ? styles.cmdBadgeHit : ''} ${isLethal ? styles.cmdBadgeLethal : ''}`}
-                  style={{ '--opc': opp.color }}>
-                  <span className={styles.cmdBadgeDot} title={opp.name} />
-                  {opp.hasPartner
-                    ? <span className={styles.cmdBadgeVal}>{dmg}<span className={styles.cmdBadgeSep}>/</span>{dmg2}</span>
-                    : <span className={styles.cmdBadgeVal}>{dmg}</span>}
+      <div className={styles.playerPanelContent}>
+        <div className={styles.nameRow}>
+          <div className={styles.nameMain}>
+          {editingName
+            ? <input className={styles.nameInput}
+                value={nameInput}
+                onChange={e => setNameInput(e.target.value)}
+                onBlur={handleNameSubmit}
+                onKeyDown={e => e.key === 'Enter' && handleNameSubmit()}
+                autoFocus />
+            : <button className={styles.nameBtn}
+                onClick={() => { setEditingName(true); setNameInput(player.name) }}>
+                {player.name}
+              </button>
+          }
+          {player.deckName && <span className={styles.panelDeckBadge}>{player.deckName}</span>}
+          {showCommander && (
+            <div className={styles.cmdTaxGroup}>
+              <div className={styles.cmdTaxChip}>
+                <button className={styles.cmdTaxBtn} onPointerDown={e => { e.preventDefault(); onCmdTaxChange(player.id, -2, false) }}>−</button>
+                <span className={styles.cmdTaxVal}>T {player.cmdTax || 0}</span>
+                <button className={styles.cmdTaxBtn} onPointerDown={e => { e.preventDefault(); onCmdTaxChange(player.id, +2, false) }}>+</button>
+              </div>
+              {player.hasPartner && (
+                <div className={styles.cmdTaxChip}>
+                  <button className={styles.cmdTaxBtn} onPointerDown={e => { e.preventDefault(); onCmdTaxChange(player.id, -2, true) }}>−</button>
+                  <span className={styles.cmdTaxVal}>T2 {player.cmdTax2 || 0}</span>
+                  <button className={styles.cmdTaxBtn} onPointerDown={e => { e.preventDefault(); onCmdTaxChange(player.id, +2, true) }}>+</button>
                 </div>
-              )
-            })}
+              )}
+            </div>
+          )}
           </div>
-          <span className={styles.cmdBarHint}>tap to edit</span>
+          <button
+            className={styles.playerSettingsBtn}
+            onClick={() => onRequestPlayerSettings?.(player.id)}
+            title="Player settings">⚙</button>
         </div>
-      )}
 
-      {isDead && deathText && (
-        <div className={styles.deathOverlay}>
-          <div className={styles.deathIcon}>☠</div>
-          <div className={styles.deathText}>{deathText}</div>
+        <div className={styles.lifeArea}>
+          <button className={styles.lifeBtn} onPointerDown={e => { e.preventDefault(); adjust(-1) }}>-</button>
+
+          <div className={styles.lifeTotalWrap}
+            onPointerDown={handleLifeHoldStart}
+            onPointerUp={handleLifeHoldEnd}
+            onPointerLeave={handleLifeHoldEnd}
+            onContextMenu={e => { if (showCommander) e.preventDefault() }}
+            title={showCommander && opponents.length ? 'Hold for commander damage' : undefined}>
+            <span className={`${styles.lifeTotal} ${player.life <= 5 ? styles.lifeLow : ''} ${player.life <= 0 ? styles.lifeDead : ''}`}>
+              {player.life}
+            </span>
+            {displayDelta != null && (
+              <span
+                className={`${styles.lifeDelta} ${displayDelta > 0 ? styles.lifeDeltaUp : styles.lifeDeltaDown} ${deltaFading ? styles.lifeDeltaFade : ''}`}>
+                {displayDelta > 0 ? `+${displayDelta}` : displayDelta}
+              </span>
+            )}
+          </div>
+
+          <button className={styles.lifeBtn} onPointerDown={e => { e.preventDefault(); adjust(+1) }}>+</button>
         </div>
-      )}
+
+        <div className={styles.quickRow}>
+          <button className={styles.quickBtn} onPointerDown={e => { e.preventDefault(); adjust(-10) }}>-10</button>
+          <button className={styles.quickBtn} onPointerDown={e => { e.preventDefault(); adjust(-5) }}>-5</button>
+          <button className={styles.quickBtn} onPointerDown={e => { e.preventDefault(); adjust(+5) }}>+5</button>
+          <button className={styles.quickBtn} onPointerDown={e => { e.preventDefault(); adjust(+10) }}>+10</button>
+        </div>
+
+        <div className={styles.statusRow}>
+          {showCommander && opponents.length > 0 && (
+            <div className={styles.cmdBar} onClick={() => onRequestCmdDmgOverlay?.(player.id)}>
+              <span className={styles.cmdBarIcon}>⚔</span>
+              <div className={styles.cmdBadges}>
+                {opponents.map(opp => {
+                  const dmg  = player.cmdDmg?.[opp.id]  || 0
+                  const dmg2 = player.cmdDmg2?.[opp.id] || 0
+                  const isLethal = dmg >= 21 || (opp.hasPartner && dmg2 >= 21)
+                  const hasAnyDmg = dmg > 0 || (opp.hasPartner && dmg2 > 0)
+                  return (
+                    <div key={opp.id}
+                      className={`${styles.cmdBadge} ${hasAnyDmg ? styles.cmdBadgeHit : ''} ${isLethal ? styles.cmdBadgeLethal : ''}`}
+                      style={{ '--opc': opp.color }}>
+                      <span className={styles.cmdBadgeDot} title={opp.name} />
+                      {opp.hasPartner
+                        ? <span className={styles.cmdBadgeVal}>{dmg}<span className={styles.cmdBadgeSep}>/</span>{dmg2}</span>
+                        : <span className={styles.cmdBadgeVal}>{dmg}</span>}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          <div className={styles.counterBar} onClick={() => onRequestCountersOverlay?.(player.id)}>
+            <span className={styles.counterBarIcon}>◌</span>
+            <div className={styles.counterBadges}>
+              {COUNTERS.map(counter => {
+                const value = player.counters?.[counter.key] ?? 0
+                const isLethal = counter.lethalAt && value >= counter.lethalAt
+                const isActive = value > 0
+                return (
+                  <div
+                    key={counter.key}
+                    className={`${styles.counterBadge} ${isActive ? styles.counterBadgeActive : ''} ${isLethal ? styles.counterBadgeLethal : ''}`}>
+                    <span className={styles.counterBadgeIcon}>{counter.icon}</span>
+                    <span className={`${styles.counterBadgeVal} ${counter.key === 'poison' && poison >= 10 ? styles.counterDead : ''}`}>{value}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+
+        {isDead && deathText && (
+          <div className={styles.deathOverlay}>
+            <div className={styles.deathIcon}>☠</div>
+            <div className={styles.deathText}>{deathText}</div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -1504,16 +1750,15 @@ export default function LifeTrackerPage() {
   const [showEndDialog,    setShowEndDialog]    = useState(false)
   const [artPickerPlayer,  setArtPickerPlayer]  = useState(null)
   const [cmdDmgPlayer,     setCmdDmgPlayer]     = useState(null)
+  const [countersPlayer,   setCountersPlayer]   = useState(null)
   const [playerSettingsPlayer, setPlayerSettingsPlayer] = useState(null)
   const [showDice,     setShowDice]     = useState(false)
   const [showPicker,   setShowPicker]   = useState(false)
+  const [showCoin,     setShowCoin]     = useState(false)
   const [showGameMenu, setShowGameMenu] = useState(false)
   const [decks,        setDecks]        = useState([])
   const [history,      setHistory]      = useState(() => loadHistory())
   const [isFullscreen, setIsFullscreen] = useState(false)
-  const [fsPos,        setFsPos]        = useState(null) // null = CSS default (centered)
-  const fsDragRef     = useRef(null)
-  const fsControlsRef = useRef(null)
   const gearMenuRef   = useRef(null)
   const gearMenuFsRef = useRef(null)
   const [session,        setSession]        = useState(null)
@@ -1590,34 +1835,6 @@ export default function LifeTrackerPage() {
       setIsFullscreen(false)
     }
   }, [isFullscreen])
-
-  const handleFsDragStart = useCallback((e) => {
-    if (e.target.closest('button')) return // don't start drag on button clicks
-    e.preventDefault()
-    const rect = fsControlsRef.current?.getBoundingClientRect()
-    const origX = rect ? rect.left : window.innerWidth / 2 - 50
-    const origY = rect ? rect.top  : 8
-    fsDragRef.current = { startX: e.clientX, startY: e.clientY, origX, origY, moved: false }
-
-    const onMove = (e2) => {
-      if (!fsDragRef.current) return
-      const dx = e2.clientX - fsDragRef.current.startX
-      const dy = e2.clientY - fsDragRef.current.startY
-      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) fsDragRef.current.moved = true
-      if (!fsDragRef.current.moved) return
-      setFsPos({
-        x: Math.max(0, Math.min(window.innerWidth  - 120, fsDragRef.current.origX + dx)),
-        y: Math.max(0, Math.min(window.innerHeight -  44, fsDragRef.current.origY + dy)),
-      })
-    }
-    const onUp = () => {
-      fsDragRef.current = null
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-    }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-  }, [])
 
   const handleCreateLobby = useCallback(async (config) => {
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -1800,6 +2017,8 @@ export default function LifeTrackerPage() {
       Array.from({ length: gameConfig.playerCount }, (_, i) => ({
         ...makePlayer(i, life, prev[i]),
         life,
+        cmdTax: 0,
+        cmdTax2: 0,
         counters: { poison: 0, energy: 0, experience: 0, radiation: 0 },
         cmdDmg: {}, cmdDmg2: {},
       }))
@@ -1846,6 +2065,13 @@ export default function LifeTrackerPage() {
     }
   }
   const onTogglePartner = (id) => setPlayers(ps => ps.map(p => p.id === id ? { ...p, hasPartner: !p.hasPartner } : p))
+  const onCmdTaxChange = (id, delta, isPartner2 = false) => {
+    const field = isPartner2 ? 'cmdTax2' : 'cmdTax'
+    setPlayers(ps => ps.map(p => {
+      if (p.id !== id) return p
+      return { ...p, [field]: Math.max(0, (p[field] ?? 0) + delta) }
+    }))
+  }
   const onNameChange    = (id, name)  => setPlayers(ps => ps.map(p => p.id === id ? { ...p, name } : p))
   const onColorChange   = (id, color) => setPlayers(ps => ps.map(p => p.id === id ? { ...p, color } : p))
   const onArtChange     = (id, url)   => setPlayers(ps => ps.map(p => p.id === id ? { ...p, artCropUrl: url } : p))
@@ -1897,6 +2123,10 @@ export default function LifeTrackerPage() {
   const count     = players.length
   const layout    = gameConfig?.layout || defaultLayout(count)
   const getRotation = idx => layout.rotations?.[idx] || 0
+  const getRotationForPlayer = playerId => {
+    const idx = players.findIndex(p => p.id === playerId)
+    return idx >= 0 ? getRotation(idx) : 0
+  }
 
   return (
     <div className={`${styles.pageGame} ${isFullscreen ? styles.pageFullscreen : ''}`}>
@@ -1930,6 +2160,9 @@ export default function LifeTrackerPage() {
                 <button className={styles.gearMenuItem} onClick={() => { setShowPicker(true); setShowGameMenu(false) }}>
                   🎯 Random Player
                 </button>
+                <button className={styles.gearMenuItem} onClick={() => { setShowCoin(true); setShowGameMenu(false) }}>
+                  🪙 Coin Flipper
+                </button>
                 <div className={styles.gearMenuDiv} />
                 <button className={styles.gearMenuItem} onClick={resetGame}>
                   ↺ Reset Totals
@@ -1946,51 +2179,45 @@ export default function LifeTrackerPage() {
         </div>
       </div>
 
-      {/* Floating controls shown only in fullscreen — replaces topbar to reclaim space */}
+      {/* Fullscreen menu button replaces the topbar to reclaim space */}
       {isFullscreen && (
-        <div
-          className={styles.fsControls}
-          ref={fsControlsRef}
-          onPointerDown={handleFsDragStart}
-          style={fsPos ? { left: fsPos.x, top: fsPos.y, transform: 'none' } : undefined}
-        >
+        <div className={styles.fsMenuWrap} ref={gearMenuFsRef}>
           <button
-            className={styles.fsExitBtn}
-            onClick={handleFullscreenToggle}
-            title="Exit fullscreen (Esc)">
-            ⊡
+            className={`${styles.fsMenuBtn} ${showGameMenu ? styles.gearBtnActive : ''}`}
+            onClick={() => setShowGameMenu(v => !v)}
+            title="Game options">
+            ⚙
           </button>
-          <div className={styles.gearWrap} ref={gearMenuFsRef}>
-            <button
-              className={`${styles.gearBtn} ${showGameMenu ? styles.gearBtnActive : ''}`}
-              onClick={() => setShowGameMenu(v => !v)}
-              title="Game options">
-              ⚙
-            </button>
-            {showGameMenu && (
-              <div className={`${styles.gearMenu} ${styles.gearMenuFs}`}>
-                <button className={styles.gearMenuItem} onClick={() => { setShowGameLog(true); setShowGameMenu(false) }}>
-                  📜 Game Log
-                </button>
-                <button className={styles.gearMenuItem} onClick={() => { setShowDice(true); setShowGameMenu(false) }}>
-                  🎲 Dice Roller
-                </button>
-                <button className={styles.gearMenuItem} onClick={() => { setShowPicker(true); setShowGameMenu(false) }}>
-                  🎯 Random Player
-                </button>
-                <div className={styles.gearMenuDiv} />
-                <button className={styles.gearMenuItem} onClick={resetGame}>
-                  ↺ Reset Totals
-                </button>
-                <button className={`${styles.gearMenuItem} ${styles.gearMenuItemDanger}`} onClick={handleNewGame}>
-                  ✕ New Setup
-                </button>
-              </div>
-            )}
-          </div>
-          <button className={styles.fsEndBtn} onClick={() => setShowEndDialog(true)}>
-            🏆
-          </button>
+          {showGameMenu && (
+            <div className={`${styles.gearMenu} ${styles.gearMenuFs}`}>
+              <button className={styles.gearMenuItem} onClick={() => { handleFullscreenToggle(); setShowGameMenu(false) }}>
+                ⊡ Exit Fullscreen
+              </button>
+              <div className={styles.gearMenuDiv} />
+              <button className={styles.gearMenuItem} onClick={() => { setShowGameLog(true); setShowGameMenu(false) }}>
+                📜 Game Log
+              </button>
+              <button className={styles.gearMenuItem} onClick={() => { setShowDice(true); setShowGameMenu(false) }}>
+                🎲 Dice Roller
+              </button>
+              <button className={styles.gearMenuItem} onClick={() => { setShowPicker(true); setShowGameMenu(false) }}>
+                🎯 Random Player
+              </button>
+              <button className={styles.gearMenuItem} onClick={() => { setShowCoin(true); setShowGameMenu(false) }}>
+                🪙 Coin Flipper
+              </button>
+              <div className={styles.gearMenuDiv} />
+              <button className={styles.gearMenuItem} onClick={() => { setShowEndDialog(true); setShowGameMenu(false) }}>
+                🏆 End Game
+              </button>
+              <button className={styles.gearMenuItem} onClick={() => { resetGame(); setShowGameMenu(false) }}>
+                ↺ Reset Totals
+              </button>
+              <button className={`${styles.gearMenuItem} ${styles.gearMenuItemDanger}`} onClick={() => { handleNewGame(); setShowGameMenu(false) }}>
+                ✕ New Setup
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -2006,9 +2233,11 @@ export default function LifeTrackerPage() {
                 onLifeChange={onLifeChange}
                 onCounterChange={onCounterChange}
                 onCmdDmgChange={onCmdDmgChange}
+                onCmdTaxChange={onCmdTaxChange}
                 onNameChange={onNameChange}
                 onRequestPlayerSettings={setPlayerSettingsPlayer}
                 onRequestCmdDmgOverlay={modeConf.commander ? setCmdDmgPlayer : null}
+                onRequestCountersOverlay={setCountersPlayer}
                 showCommander={modeConf.commander}
                 rotation={rotation}
               />
@@ -2020,6 +2249,7 @@ export default function LifeTrackerPage() {
       {playerSettingsPlayer !== null && (
         <PlayerSettingsOverlay
           player={players.find(p => p.id === playerSettingsPlayer)}
+          rotation={getRotationForPlayer(playerSettingsPlayer)}
           showCommander={modeConf.commander}
           onColorChange={onColorChange}
           onRequestArtPicker={setArtPickerPlayer}
@@ -2030,17 +2260,28 @@ export default function LifeTrackerPage() {
 
       {artPickerPlayer !== null && (
         <ArtPicker
+          rotation={getRotationForPlayer(artPickerPlayer)}
           onSelect={url => { onArtChange(artPickerPlayer, url); setArtPickerPlayer(null) }}
           onClear={() => { onArtChange(artPickerPlayer, null); setArtPickerPlayer(null) }}
           onClose={() => setArtPickerPlayer(null)} />
+      )}
+
+      {countersPlayer !== null && (
+        <CountersOverlay
+          player={players.find(p => p.id === countersPlayer)}
+          rotation={getRotationForPlayer(countersPlayer)}
+          onCounterChange={onCounterChange}
+          onClose={() => setCountersPlayer(null)}
+        />
       )}
 
       {cmdDmgPlayer !== null && (
         <CmdDmgOverlay
           player={players.find(p => p.id === cmdDmgPlayer)}
           opponents={players.filter(p => p.id !== cmdDmgPlayer)}
+          rotation={getRotationForPlayer(cmdDmgPlayer)}
           onCmdDmgChange={onCmdDmgChange}
-          onClose={() => { setCmdDmgPlayer(null); pendingLogRef.current = null }} />
+          onClose={() => setCmdDmgPlayer(null)} />
       )}
 
       {showGameLog && (
@@ -2051,6 +2292,7 @@ export default function LifeTrackerPage() {
 
       {showDice   && <DiceRoller onClose={() => setShowDice(false)} />}
       {showPicker && <RandomPicker players={players} onClose={() => setShowPicker(false)} />}
+      {showCoin   && <CoinFlipper onClose={() => setShowCoin(false)} />}
       {showEndDialog && (
         <EndGameDialog
           players={players}

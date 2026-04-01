@@ -89,7 +89,7 @@ export default function ImportModal({ userId, folderType, folders: initialFolder
           const sf = sfByName[c.name.toLowerCase()]
           if (!sf) { errs.push(c.name); setProgress(p => p + 1); continue }
           items.push({
-            folder_id: folderId, name: sf.name, set_code: sf.set,
+            folder_id: folderId, user_id: userId, name: sf.name, set_code: sf.set,
             collector_number: sf.collector_number, scryfall_id: sf.id,
             foil: c.foil, qty: c.qty,
           })

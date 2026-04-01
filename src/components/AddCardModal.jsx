@@ -332,6 +332,7 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
       if (folderMode && destTab === 'list' && selectedFolder) {
         const items = queue.map(item => ({
           folder_id: selectedFolder,
+          user_id: userId,
           name: item.printing.name,
           set_code: item.printing.set,
           collector_number: item.printing.collector_number,

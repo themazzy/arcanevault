@@ -22,12 +22,12 @@ import {
 } from './ScannerEngine'
 import styles from './CardScanner.module.css'
 
-const MATCH_THRESHOLD = 110
+const MATCH_THRESHOLD = 112
 const MATCH_MIN_GAP = 12
-const MATCH_STRONG_THRESHOLD = 118
+const MATCH_STRONG_THRESHOLD = 124
 const MATCH_STRONG_SINGLE = 96
-const MATCH_MIN_GAP_WITH_OCR = 8
-const MATCH_VERY_STRONG_DISTANCE = 48
+const MATCH_MIN_GAP_WITH_OCR = 6
+const MATCH_VERY_STRONG_DISTANCE = 56
 const MATCH_COOLDOWN = 3000
 const PRIMARY_CROP_VARIANTS = [
   { xOffset: 0, yOffset: 0 },
@@ -35,12 +35,13 @@ const PRIMARY_CROP_VARIANTS = [
   { xOffset: 0, yOffset: 10 },
   { xOffset: 0, yOffset: 0, inset: 6 },
 ]
+const FAST_PRIMARY_VARIANTS = [PRIMARY_CROP_VARIANTS[0]]
 const STABILITY_SAMPLES = 3
 const STABILITY_REQUIRED = 2
 const SAMPLE_DELAY_MS = 80
 const DEBUG = true
 const NATIVE_CAPTURE_SETTLE_MS = 120
-const OCR_MIN_CONFIDENCE = 45
+const OCR_MIN_CONFIDENCE = 32
 
 const normalizeName = (value = '') =>
   value
@@ -94,13 +95,19 @@ function nameSupportScore(ocrText, candidateName) {
   return Math.max(tokenScore, compactScore, wordSpaceScore * 0.95)
 }
 
-function shouldAcceptMatch({ best, gap, stableCount, ocrSupport, ocrConfidence }) {
+function shouldAcceptMatch({ best, gap, stableCount, ocrSupport, ocrConfidence, sameNameCluster = false }) {
   if (!best) return { accepted: false, reason: 'no best candidate' }
   if (stableCount >= STABILITY_REQUIRED && best.distance <= MATCH_THRESHOLD && gap >= MATCH_MIN_GAP) {
     return { accepted: true, reason: 'stable threshold match' }
   }
+  if (stableCount >= STABILITY_REQUIRED && sameNameCluster && best.distance <= MATCH_THRESHOLD) {
+    return { accepted: true, reason: 'stable same-name printing cluster' }
+  }
   if (stableCount >= STABILITY_REQUIRED && best.distance <= MATCH_STRONG_THRESHOLD && gap >= MATCH_MIN_GAP_WITH_OCR) {
     return { accepted: true, reason: 'stable relaxed match' }
+  }
+  if (stableCount >= 1 && sameNameCluster && best.distance <= MATCH_STRONG_THRESHOLD) {
+    return { accepted: true, reason: 'same-name printing cluster' }
   }
   if (stableCount >= 1 && best.distance <= MATCH_STRONG_SINGLE && gap >= MATCH_MIN_GAP_WITH_OCR) {
     return { accepted: true, reason: 'single strong frame' }
@@ -113,6 +120,7 @@ function shouldAcceptMatch({ best, gap, stableCount, ocrSupport, ocrConfidence }
   }
   if (stableCount < STABILITY_REQUIRED) return { accepted: false, reason: 'insufficient stable votes' }
   if (best.distance > MATCH_STRONG_THRESHOLD) return { accepted: false, reason: `distance too high (${best.distance})` }
+  if (sameNameCluster) return { accepted: false, reason: 'same-name cluster still too weak' }
   if (gap < MATCH_MIN_GAP_WITH_OCR) return { accepted: false, reason: `gap too small (${gap})` }
   return { accepted: false, reason: 'best candidate not confident enough' }
 }
@@ -193,6 +201,7 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
   const [latestMatch, setLatestMatch] = useState(null)
   const [selectedCard, setSelectedCard] = useState(null)
   const [debugInfo, setDebugInfo] = useState(null)
+  const [hashLoadInfo, setHashLoadInfo] = useState(databaseService.status)
   const [flashModes, setFlashModes] = useState([])
   const [flashMode, setFlashMode] = useState('off')
   const [cameraStarted, setCameraStarted] = useState(false)
@@ -202,30 +211,43 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
   const availableFlashModes = flashModes.includes('torch')
     ? flashModes.filter(mode => mode === 'off' || mode === 'torch')
     : flashModes
+  const hashProgressVisible = !!hashLoadInfo && (!databaseService.isFullyLoaded || preparing)
+  const hashProgressLabel = hashLoadInfo?.phase
+    ? `${hashLoadInfo.phase}${hashLoadInfo.totalCount ? ` ${hashLoadInfo.loadedCount?.toLocaleString?.() ?? 0}/${hashLoadInfo.totalCount.toLocaleString()}` : ''}`
+    : null
 
   useEffect(() => {
     mountedRef.current = true
 
     ;(async () => {
       try {
-        await databaseService.init(n => {
-          if (mountedRef.current) setCardCount(n)
+        await databaseService.init(status => {
+          if (!mountedRef.current) return
+          setHashLoadInfo(status)
+          setCardCount(status.loadedCount ?? 0)
         })
+        const cvPromise = waitForOpenCV()
+
         await databaseService.waitUntilFullyLoaded()
         if (!mountedRef.current) return
         setDbReady(true)
         setCardCount(databaseService.cardCount)
+        setHashLoadInfo(databaseService.status)
 
         if (databaseService.cardCount === 0) {
-          await databaseService.sync(n => {
-            if (mountedRef.current) setCardCount(n)
+          await databaseService.sync(status => {
+            if (!mountedRef.current) return
+            setHashLoadInfo(status)
+            setCardCount(status.loadedCount ?? 0)
           })
           await databaseService.waitUntilFullyLoaded()
           if (!mountedRef.current) return
           setCardCount(databaseService.cardCount)
+          setDbReady(true)
+          setHashLoadInfo(databaseService.status)
         }
 
-        await waitForOpenCV()
+        await cvPromise
         if (!mountedRef.current) return
         setCvReady(true)
         setPreparing(false)
@@ -374,7 +396,7 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
       if (!resolved?.name) return null
 
       const support = nameSupportScore(ocrText, resolved.name)
-      if (support < 0.58) return null
+      if (support < 0.42) return null
 
       const prints = await sfGet(
         `https://api.scryfall.com/cards/search?q=${encodeURIComponent(`!"${resolved.name}"`)}&unique=prints&order=released&dir=desc`
@@ -481,6 +503,13 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
       return isDecisiveCandidate(best, bestGap)
     }
 
+    const shouldExpandCropSearch = () => {
+      if (!best) return true
+      if (best.distance > MATCH_THRESHOLD) return true
+      if (bestGap < MATCH_MIN_GAP) return true
+      return false
+    }
+
     const tryMatchCardImage = (cardImageData, sourceLabel, variants) => {
       for (const variant of variants) {
         const artCrop = cropArtRegion(cardImageData, variant)
@@ -496,7 +525,10 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
       const warped = warpCard(imageData, corners)
       if (warped) {
         ocrCardImage = warped
-        tryMatchCardImage(warped, 'corners', PRIMARY_CROP_VARIANTS)
+        tryMatchCardImage(warped, 'corners', FAST_PRIMARY_VARIANTS)
+        if (shouldExpandCropSearch()) {
+          tryMatchCardImage(warped, 'corners', PRIMARY_CROP_VARIANTS.slice(1))
+        }
       }
     }
 
@@ -515,12 +547,14 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
     }
 
     const gap = second ? second.distance - best.distance : 256
+    const sameNameCluster = !!(best?.name && second?.name && normalizeName(best.name) === normalizeName(second.name))
     return {
-      status: best.distance <= MATCH_THRESHOLD && gap >= MATCH_MIN_GAP ? 'found' : 'notfound',
+      status: best.distance <= MATCH_THRESHOLD && (gap >= MATCH_MIN_GAP || sameNameCluster) ? 'found' : 'notfound',
       stage: `dist ${best.distance}, gap ${gap}`,
       best,
       second,
       gap,
+      sameNameCluster,
       candidateCount: bestStats.candidateCount,
       totalCount: bestStats.totalCount,
       variant: bestVariant,
@@ -542,6 +576,7 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
       let bestObservedVariant = null
       let bestObservedSource = null
       let bestObservedCardImage = null
+      let bestObservedSameNameCluster = false
       let ocrFallbackCardImage = null
       const frameSummaries = []
 
@@ -559,6 +594,7 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
           bestObservedVariant = result.variant
           bestObservedSource = result.source
           bestObservedCardImage = result.cardImageData
+          bestObservedSameNameCluster = !!result.sameNameCluster
         }
         if (!ocrFallbackCardImage && result.cardImageData) ocrFallbackCardImage = result.cardImageData
 
@@ -584,12 +620,13 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
         stableCount: stableVote?.count ?? 0,
         ocrSupport: 0,
         ocrConfidence: 0,
+        sameNameCluster: bestObservedSameNameCluster,
       })
       let match = visualAcceptance.accepted ? (stableVote?.best ?? bestObserved) : null
       const needsOcr = !match && !!(bestObservedCardImage || ocrFallbackCardImage)
       const ocrResult = needsOcr ? await recognizeCardName(bestObservedCardImage || ocrFallbackCardImage) : null
       const ocrSupport = bestObserved ? nameSupportScore(ocrResult?.text, bestObserved.name) : 0
-      const ocrMatch = needsOcr && (ocrResult?.confidence ?? 0) >= OCR_MIN_CONFIDENCE
+      const ocrMatch = needsOcr && !!ocrResult?.text
         ? await resolveNewestPrintingFromOcr(ocrResult.text)
         : null
       if (!match && ocrMatch) match = ocrMatch
@@ -601,17 +638,23 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
             : bestObserved
               ? `no match - ${bestObserved.distance}/${bestObservedGap ?? '?'}`
               : 'no match - no candidate',
-          bestName: match?.name ?? bestObserved?.name ?? '',
+          finalName: match?.name ?? '',
+          visualName: bestObserved?.name ?? '',
+          visualScore: bestObserved ? `${bestObserved.distance}/${bestObservedGap ?? '?'}` : '-',
           hashes: databaseService.cardCount,
           candidates: bestObservedCandidates,
           total: databaseService.cardCount,
           votes: stableVote?.count ? `${stableVote.count}/${STABILITY_REQUIRED}` : `0/${STABILITY_REQUIRED}`,
           frames: frameSummaries.join(' | '),
-          source: bestObservedSource ?? '-',
+          source: match?.source ?? bestObservedSource ?? '-',
+          visualSource: bestObservedSource ?? '-',
+          cluster: bestObservedSameNameCluster ? 'same-name printings' : '-',
           decision: match?.source === 'ocr' ? 'ocr fallback newest printing' : visualAcceptance.reason,
           ocrText: needsOcr ? (ocrResult?.text || '-') : '(skipped)',
           ocrConfidence: needsOcr ? (ocrResult ? `${ocrResult.confidence.toFixed(0)}%` : '-') : '-',
           ocrSupport: needsOcr ? `${Math.round(ocrSupport * 100)}%` : '-',
+          ocrVariant: needsOcr ? (ocrResult?.variant || '-') : '-',
+          ocrResolved: ocrMatch ? `${ocrMatch.name} ${ocrMatch.setCode?.toUpperCase?.() ? `(${ocrMatch.setCode.toUpperCase()})` : ''}`.trim() : '-',
           variant: bestObservedVariant
             ? `x:${bestObservedVariant.xOffset ?? 0} y:${bestObservedVariant.yOffset ?? 0} i:${bestObservedVariant.inset ?? 0}`
             : '-',
@@ -669,6 +712,24 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
               {errorMsg ? `X ${errorMsg}` : 'Starting...'}
             </div>
           )}
+          {hashProgressVisible && !errorMsg && (
+            <div className={styles.progressCard}>
+              <div className={styles.progressHead}>
+                <span>Hashes</span>
+                <span>{hashLoadInfo.progress ?? 0}%</span>
+              </div>
+              <div className={styles.progressBar}>
+                <div
+                  className={styles.progressFill}
+                  style={{ width: `${hashLoadInfo.progress ?? 0}%` }}
+                />
+              </div>
+              <div className={styles.progressMeta}>
+                {hashProgressLabel}
+                {hashLoadInfo?.source ? ` · ${hashLoadInfo.source}` : ''}
+              </div>
+            </div>
+          )}
           <button className={styles.closeBtn} onClick={onClose}>X</button>
         </div>
 
@@ -688,14 +749,20 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
             {debugInfo && (
               <>
                 <div><b>Stage:</b> {debugInfo.stage}</div>
-                <div><b>Best:</b> {debugInfo.bestName}</div>
-                <div><b>Pool:</b> {debugInfo.candidates?.toLocaleString?.() ?? 0}/{debugInfo.total?.toLocaleString?.() ?? cardCount.toLocaleString()}</div>
+                <div><b>Final:</b> {debugInfo.finalName || '-'}</div>
+                <div><b>Visual:</b> {debugInfo.visualName || '-'}</div>
+                <div><b>Dist/Gap:</b> {debugInfo.visualScore}</div>
                 <div><b>Votes:</b> {debugInfo.votes}</div>
                 <div><b>Source:</b> {debugInfo.source}</div>
+                <div><b>Visual Src:</b> {debugInfo.visualSource}</div>
+                <div><b>Cluster:</b> {debugInfo.cluster}</div>
                 <div><b>Decision:</b> {debugInfo.decision}</div>
+                <div><b>Pool:</b> {debugInfo.candidates?.toLocaleString?.() ?? 0}/{debugInfo.total?.toLocaleString?.() ?? cardCount.toLocaleString()}</div>
                 <div><b>OCR:</b> {debugInfo.ocrText}</div>
                 <div><b>OCR Conf:</b> {debugInfo.ocrConfidence}</div>
-                <div><b>OCR Match:</b> {debugInfo.ocrSupport}</div>
+                <div><b>OCR Support:</b> {debugInfo.ocrSupport}</div>
+                <div><b>OCR Variant:</b> {debugInfo.ocrVariant}</div>
+                <div><b>OCR Resolved:</b> {debugInfo.ocrResolved}</div>
                 <div><b>Crop:</b> {debugInfo.variant}</div>
                 <div><b>Frames:</b> {debugInfo.frames}</div>
               </>

@@ -1458,7 +1458,7 @@ export default function DeckBuilderPage() {
         targetWishlistId = wl?.id
       }
       if (targetWishlistId && missingItems.length > 0) {
-        const listInserts = missingItems.map(i => ({ id: crypto.randomUUID(), folder_id: targetWishlistId, name: i.dc.name, scryfall_id: i.dc.scryfall_id || null, set_code: i.dc.set_code || null, collector_number: i.dc.collector_number || null, foil: i.dc.foil ?? false, qty: i.missingQty }))
+        const listInserts = missingItems.map(i => ({ id: crypto.randomUUID(), folder_id: targetWishlistId, user_id: user.id, name: i.dc.name, scryfall_id: i.dc.scryfall_id || null, set_code: i.dc.set_code || null, collector_number: i.dc.collector_number || null, foil: i.dc.foil ?? false, qty: i.missingQty }))
         await sb.from('list_items').insert(listInserts)
       }
 
@@ -1508,7 +1508,7 @@ export default function DeckBuilderPage() {
         targetWishlistId = wl?.id
       }
       if (targetWishlistId && unownedAdded.length > 0) {
-        const listInserts = unownedAdded.map(i => ({ id: crypto.randomUUID(), folder_id: targetWishlistId, name: i.dc.name, scryfall_id: i.dc.scryfall_id || null, set_code: i.dc.set_code || null, collector_number: i.dc.collector_number || null, foil: i.dc.foil ?? false, qty: i.dc.qty }))
+        const listInserts = unownedAdded.map(i => ({ id: crypto.randomUUID(), folder_id: targetWishlistId, user_id: user.id, name: i.dc.name, scryfall_id: i.dc.scryfall_id || null, set_code: i.dc.set_code || null, collector_number: i.dc.collector_number || null, foil: i.dc.foil ?? false, qty: i.dc.qty }))
         await sb.from('list_items').insert(listInserts)
       }
 
