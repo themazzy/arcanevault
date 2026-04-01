@@ -2,6 +2,7 @@ package com.arcanevault.app;
 
 import android.graphics.Color;
 import android.os.Bundle;
+import android.webkit.ValueCallback;
 import android.widget.Toast;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -38,14 +39,53 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onBackPressed() {
-        // If the WebView has history (SPA navigated away from root), go back
-        if (this.bridge != null
-                && this.bridge.getWebView() != null
-                && this.bridge.getWebView().canGoBack()) {
-            this.bridge.getWebView().goBack();
+        if (this.bridge != null && this.bridge.getWebView() != null) {
+            // First prefer the native WebView back stack when it exists.
+            if (this.bridge.getWebView().canGoBack()) {
+                this.bridge.getWebView().goBack();
+                return;
+            }
+
+            // BrowserRouter uses pushState, which does not always register as WebView history.
+            // Query the current SPA route and use the browser history stack when we're not on root.
+            this.bridge.getWebView().evaluateJavascript(
+                "(function(){try{return window.location.pathname || '/';}catch(e){return '/';}})();",
+                new ValueCallback<String>() {
+                    @Override
+                    public void onReceiveValue(String value) {
+                        String path = normalizeJsString(value);
+                        if (shouldNavigateInApp(path)) {
+                            bridge.getWebView().evaluateJavascript("window.history.back();", null);
+                        } else {
+                            handleExitBackPress();
+                        }
+                    }
+                }
+            );
             return;
         }
 
+        handleExitBackPress();
+    }
+
+    private boolean shouldNavigateInApp(String path) {
+        if (path == null || path.isEmpty()) return false;
+        return !"/".equals(path)
+            && !"/arcanevault".equals(path)
+            && !"/arcanevault/".equals(path)
+            && !"/login".equals(path);
+    }
+
+    private String normalizeJsString(String value) {
+        if (value == null) return "/";
+        String trimmed = value.trim();
+        if (trimmed.length() >= 2 && trimmed.startsWith("\"") && trimmed.endsWith("\"")) {
+            trimmed = trimmed.substring(1, trimmed.length() - 1);
+        }
+        return trimmed.replace("\\/", "/");
+    }
+
+    private void handleExitBackPress() {
         // No history — require double-tap within 2 s to exit
         long now = System.currentTimeMillis();
         if (now - lastBackPressTime < 2000) {
