@@ -86,7 +86,7 @@ export default function Layout({ children }) {
                   className={({ isActive }) => `${styles.settingsLink}${isActive ? ' ' + styles.settingsActive : ''}`}
                   title="Settings"
                 >
-                  Settings
+                  ⚙
                 </NavLink>
                 <button className={styles.signOut} onClick={signOut}>Sign out</button>
               </div>
@@ -96,7 +96,7 @@ export default function Layout({ children }) {
                 onClick={() => setMenuOpen(v => !v)}
                 aria-label={menuOpen ? 'Close menu' : 'Open menu'}
               >
-                {menuOpen ? 'X' : 'Menu'}
+                {menuOpen ? '✕' : '☰'}
               </button>
             </div>
 
