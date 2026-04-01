@@ -5,7 +5,7 @@ import { enrichCards, getInstantCache, getScryfallKey, getPrice, getPriceSource,
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { CardGrid, CardDetail, FilterBar, BulkActionBar, applyFilterSort, EMPTY_FILTERS } from '../components/CardComponents'
-import { EmptyState, SectionHeader, Button, Modal } from '../components/UI'
+import { EmptyState, SectionHeader, Button, Modal, ResponsiveHeaderActions } from '../components/UI'
 import AddCardModal from '../components/AddCardModal'
 import ImportModal from '../components/ImportModal'
 import ExportModal from '../components/ExportModal'
@@ -425,6 +425,7 @@ function BinderListView({ cards, sfMap, priceSource }) {
             <span className={styles.lrTotal}>
               {price != null ? formatPrice(price * qty, priceSource) : '—'}
             </span>
+            {card._folderName && <span className={styles.lrFolder}>{card._folderName}</span>}
           </div>
         )
       })}
@@ -433,7 +434,7 @@ function BinderListView({ cards, sfMap, priceSource }) {
 }
 
 // ── FolderBrowser ─────────────────────────────────────────────────────────────
-function FolderBrowser({ folder, allFolders = [], onBack }) {
+function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder', onBack }) {
   const { price_source, default_sort } = useSettings()
   const { user } = useAuth()
   const [cards, setCards]             = useState([])
@@ -449,24 +450,56 @@ function FolderBrowser({ folder, allFolders = [], onBack }) {
   const [showAddCard, setShowAddCard] = useState(false)
   const [showExport, setShowExport]   = useState(false)
   const [view, setView]               = useState('grid')   // 'grid' | 'list'
+  const isAllView = !folder
+  const browserTitle = title || folder?.name || `All ${noun} Cards`
+  const folderIds = useMemo(() => folders.map(f => f.id), [folders])
+  const moveFolders = useMemo(() => isAllView ? folders : folders.filter(f => f.id !== folder.id && !isGroupFolder(f)), [folders, isAllView, folder?.id])
+  const getCardKey = useCallback((card) => card?._displayKey || card?.id, [])
 
   useEffect(() => {
     const load = async () => {
       setLoading(true)
-      const { data } = await sb
-        .from('folder_cards')
-        .select('qty, cards(*)')
-        .eq('folder_id', folder.id)
-      if (data) {
-        const cardList = data.map(row => ({ ...row.cards, _folder_qty: row.qty }))
-        setCards(cardList)
+      let cardList = []
+      if (isAllView) {
+        const folderNameById = Object.fromEntries(folders.map(f => [f.id, f.name]))
+        let allRows = [], from = 0
+        while (folderIds.length) {
+          const { data } = await sb
+            .from('folder_cards')
+            .select('folder_id, qty, cards(*)')
+            .in('folder_id', folderIds)
+            .range(from, from + 999)
+          if (data?.length) allRows = [...allRows, ...data]
+          if (!data || data.length < 1000) break
+          from += 1000
+        }
+        cardList = allRows
+          .filter(row => row.cards)
+          .map(row => ({
+            ...row.cards,
+            _folder_qty: row.qty,
+            _folderName: folderNameById[row.folder_id] || '',
+            _sourceFolderId: row.folder_id,
+            _displayKey: `${row.folder_id}:${row.cards.id}`,
+          }))
+      } else {
+        const { data } = await sb
+          .from('folder_cards')
+          .select('qty, cards(*)')
+          .eq('folder_id', folder.id)
+        if (data) cardList = data.filter(row => row.cards).map(row => ({ ...row.cards, _folder_qty: row.qty }))
+      }
+      setCards(cardList)
+      if (cardList.length) {
         const map = await enrichCards(cardList, null)
         if (map) setSfMap({ ...map })
+      } else {
+        setSfMap({})
       }
       setLoading(false)
     }
     load()
-  }, [folder.id])
+  }, [folder?.id, folderIds, folders, isAllView])
 
   const filtered = useMemo(
     () => applyFilterSort(cards, sfMap, search, sort, filters),
@@ -485,7 +518,7 @@ function FolderBrowser({ folder, allFolders = [], onBack }) {
     return { totalValue: v, totalQty: q }
   }, [cards, sfMap, price_source])
 
-  const selectedCard = selected ? cards.find(c => c.id === selected) : null
+  const selectedCard = !isAllView && selected ? cards.find(c => c.id === selected) : null
   const selectedSf   = selectedCard ? sfMap[getScryfallKey(selectedCard)] : null
   const handleCardSave = useCallback((updatedCard) => {
     setCards(prev => prev.map(c => c.id === updatedCard.id ? { ...c, ...updatedCard } : c))
@@ -530,30 +563,35 @@ function FolderBrowser({ folder, allFolders = [], onBack }) {
 
   const selectedQty = useMemo(() =>
     [...selectedCards].reduce((sum, id) => {
-      const c = cards.find(c => c.id === id)
+      const c = cards.find(c => getCardKey(c) === id)
       const totalQty = c?._folder_qty || c?.qty || 1
       return sum + (splitState.get(id) ?? 1)
     }, 0)
-  , [selectedCards, cards, splitState])
+  , [selectedCards, cards, splitState, getCardKey])
 
   const handleBulkDelete = async () => {
     const toDelete = [], toUpdate = []
     for (const id of selectedCards) {
-      const card = cards.find(c => c.id === id)
+      const card = cards.find(c => getCardKey(c) === id)
+      if (!card) continue
       const totalQty = card?._folder_qty || card?.qty || 1
       const selQty = splitState.get(id) ?? 1
       const remaining = totalQty - selQty
-      remaining > 0 ? toUpdate.push({ id, remaining }) : toDelete.push(id)
+      remaining > 0
+        ? toUpdate.push({ id: card.id, folderId: card._sourceFolderId || folder.id, remaining })
+        : toDelete.push({ id: card.id, folderId: card._sourceFolderId || folder.id })
     }
-    if (toDelete.length) await sb.from('folder_cards').delete().eq('folder_id', folder.id).in('card_id', toDelete)
-    for (const { id, remaining } of toUpdate) {
-      await sb.from('folder_cards').update({ qty: remaining }).eq('folder_id', folder.id).eq('card_id', id)
+    for (const row of toDelete) {
+      await sb.from('folder_cards').delete().eq('folder_id', row.folderId).eq('card_id', row.id)
     }
-    if (toDelete.length) await pruneUnplacedCards(toDelete)
+    for (const { id, folderId, remaining } of toUpdate) {
+      await sb.from('folder_cards').update({ qty: remaining }).eq('folder_id', folderId).eq('card_id', id)
+    }
+    if (toDelete.length) await pruneUnplacedCards([...new Set(toDelete.map(row => row.id))])
     setCards(prev => prev.map(c => {
-      if (!selectedCards.has(c.id)) return c
+      if (!selectedCards.has(getCardKey(c))) return c
       const totalQty = c._folder_qty || c.qty || 1
-      const selQty = splitState.get(c.id) ?? 1
+      const selQty = splitState.get(getCardKey(c)) ?? 1
       const remaining = totalQty - selQty
       return remaining > 0 ? { ...c, _folder_qty: remaining } : null
     }).filter(Boolean))
@@ -564,22 +602,29 @@ function FolderBrowser({ folder, allFolders = [], onBack }) {
     const toDelete = [], toUpdate = []
     const insertRows = []
     for (const id of selectedCards) {
-      const card = cards.find(c => c.id === id)
+      const card = cards.find(c => getCardKey(c) === id)
+      if (!card) continue
+      const sourceFolderId = card._sourceFolderId || folder.id
+      if (sourceFolderId === targetFolder.id) continue
       const totalQty = card?._folder_qty || card?.qty || 1
       const selQty = splitState.get(id) ?? 1
       const remaining = totalQty - selQty
-      insertRows.push({ folder_id: targetFolder.id, card_id: id, qty: selQty })
-      remaining > 0 ? toUpdate.push({ id, remaining }) : toDelete.push(id)
+      insertRows.push({ folder_id: targetFolder.id, card_id: card.id, qty: selQty })
+      remaining > 0
+        ? toUpdate.push({ id: card.id, folderId: sourceFolderId, remaining })
+        : toDelete.push({ id: card.id, folderId: sourceFolderId })
     }
-    await sb.from('folder_cards').upsert(insertRows, { onConflict: 'folder_id,card_id', ignoreDuplicates: true })
-    if (toDelete.length) await sb.from('folder_cards').delete().eq('folder_id', folder.id).in('card_id', toDelete)
-    for (const { id, remaining } of toUpdate) {
-      await sb.from('folder_cards').update({ qty: remaining }).eq('folder_id', folder.id).eq('card_id', id)
+    if (insertRows.length) await sb.from('folder_cards').upsert(insertRows, { onConflict: 'folder_id,card_id', ignoreDuplicates: true })
+    for (const row of toDelete) {
+      await sb.from('folder_cards').delete().eq('folder_id', row.folderId).eq('card_id', row.id)
+    }
+    for (const { id, folderId, remaining } of toUpdate) {
+      await sb.from('folder_cards').update({ qty: remaining }).eq('folder_id', folderId).eq('card_id', id)
     }
     setCards(prev => prev.map(c => {
-      if (!selectedCards.has(c.id)) return c
+      if (!selectedCards.has(getCardKey(c))) return c
       const totalQty = c._folder_qty || c.qty || 1
-      const selQty = splitState.get(c.id) ?? 1
+      const selQty = splitState.get(getCardKey(c)) ?? 1
       const remaining = totalQty - selQty
       return remaining > 0 ? { ...c, _folder_qty: remaining } : null
     }).filter(Boolean))
@@ -592,9 +637,9 @@ function FolderBrowser({ folder, allFolders = [], onBack }) {
     <div>
       {/* ── Binder header ── */}
       <div className={styles.binderHeader}>
-        <button className={styles.backBtn} onClick={onBack}>← Back to Binders</button>
+        <button className={styles.backBtn} onClick={onBack}>← Back to {noun}s</button>
         <div className={styles.binderTitleRow}>
-          <h2 className={styles.binderTitle}>{folder.name}</h2>
+          <h2 className={styles.binderTitle}>{browserTitle}</h2>
           <div className={styles.binderMeta}>
             <span>{totalQty} cards</span>
             <span className={styles.binderValue}>{formatPrice(totalValue, price_source)}</span>
@@ -632,11 +677,11 @@ function FolderBrowser({ folder, allFolders = [], onBack }) {
           selected={selectedCards}
           selectedQty={selectedQty}
           total={filtered.length}
-          onSelectAll={() => setSelectedCards(new Set(filtered.map(c => c.id)))}
+          onSelectAll={() => setSelectedCards(new Set(filtered.map(c => getCardKey(c))))}
           onDeselectAll={() => { setSelectedCards(new Set()); setSplitState(new Map()) }}
           onDelete={handleBulkDelete}
           onMoveToFolder={handleMoveToFolder}
-          folders={allFolders.filter(f => f.id !== folder.id && !isGroupFolder(f))}
+          folders={moveFolders}
           onCreateFolder={async (type, name) => {
             const { data: newFolder } = await sb.from('folders')
               .insert({ name, type, user_id: user.id }).select().single()
@@ -650,7 +695,7 @@ function FolderBrowser({ folder, allFolders = [], onBack }) {
       {view === 'grid' && filtered.length > 0 && (
         <CardGrid
           cards={filtered} sfMap={sfMap}
-          onSelect={c => setSelected(c.id)}
+          onSelect={isAllView ? () => {} : c => setSelected(c.id)}
           selectMode={selectMode}
           selected={selectedCards}
           onToggleSelect={onToggleSelect}
@@ -678,18 +723,12 @@ function FolderBrowser({ folder, allFolders = [], onBack }) {
         <AddCardModal
           userId={user.id}
           folderMode
-          defaultFolderType={folder.type || 'binder'}
-          defaultFolderId={folder.id}
+          defaultFolderType={folder?.type || folders[0]?.type || 'binder'}
+          defaultFolderId={folder?.id || null}
           onClose={() => setShowAddCard(false)}
           onSaved={async () => {
             setShowAddCard(false)
-            const { data } = await sb.from('folder_cards').select('qty, cards(*)').eq('folder_id', folder.id)
-            if (data) {
-              const cardList = data.map(row => ({ ...row.cards, _folder_qty: row.qty }))
-              setCards(cardList)
-              const map = await enrichCards(cardList, null)
-              if (map) setSfMap({ ...map })
-            }
+            window.location.reload()
           }}
         />
       )}
@@ -697,8 +736,8 @@ function FolderBrowser({ folder, allFolders = [], onBack }) {
         <ExportModal
           cards={cards}
           sfMap={sfMap}
-          title={folder.name}
-          folderType={folder.type || 'binder'}
+          title={browserTitle}
+          folderType={folder?.type || folders[0]?.type || 'binder'}
           onClose={() => setShowExport(false)}
         />
       )}
@@ -1054,6 +1093,7 @@ export default function FoldersPage({ type }) {
   const [sort, setSort]                 = useState(savedSort || default_sort || 'name')
   const [loading, setLoading]           = useState(true)
   const [activeFolder, setActiveFolder] = useState(null)
+  const [showAllCards, setShowAllCards] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [bulkDeleteData, setBulkDeleteData] = useState(null) // { nonEmpty, empty }
   const [shareFolder, setShareFolder]   = useState(null)
@@ -1331,8 +1371,20 @@ export default function FoldersPage({ type }) {
     return (
       <FolderBrowser
         folder={activeFolder}
-        allFolders={folders}
+        folders={folders}
+        noun={noun}
         onBack={() => { setActiveFolder(null); loadFolders() }}
+      />
+    )
+  }
+
+  if (showAllCards) {
+    return (
+      <FolderBrowser
+        folders={regularFolders}
+        title={`All ${noun} Cards`}
+        noun={noun}
+        onBack={() => { setShowAllCards(false); loadFolders() }}
       />
     )
   }
@@ -1344,9 +1396,17 @@ export default function FoldersPage({ type }) {
       <SectionHeader
         title={`${noun}s`}
         action={
-          <div className={styles.headerActions}>
-            {selectMode ? (
-              <>
+          <ResponsiveHeaderActions
+            primary={!selectMode ? (
+              <button className={styles.viewAllBtn} onClick={() => setShowAllCards(true)}>
+                View All Cards
+              </button>
+            ) : null}
+            menuLabel={`${noun}s actions`}
+          >
+            <div className={styles.headerActions}>
+              {selectMode ? (
+                <>
                 <button className={styles.cancelSelectBtn} onClick={exitSelectMode}>
                   Cancel
                 </button>
@@ -1365,9 +1425,9 @@ export default function FoldersPage({ type }) {
                   <TrashIcon size={12} />
                   Delete ({selectedIds.size})
                 </button>
-              </>
-            ) : (
-              <>
+                </>
+              ) : (
+                <>
                 <button className={styles.newGroupBtn} onClick={() => setShowNewGroup(true)}>
                   + New Group
                 </button>
@@ -1376,9 +1436,10 @@ export default function FoldersPage({ type }) {
                 <button className={styles.newFolderBtn} onClick={() => setShowNewFolder(true)}>+ New {noun}</button>
                 <button className={styles.selectModeBtn} onClick={() => setSelectMode(true)}>Select</button>
                 <SortDropdown value={sort} onChange={handleSortChange} options={SORT_OPTIONS} />
-              </>
-            )}
-          </div>
+                </>
+              )}
+            </div>
+          </ResponsiveHeaderActions>
         }
       />
 

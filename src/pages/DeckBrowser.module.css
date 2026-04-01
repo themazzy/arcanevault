@@ -484,7 +484,7 @@
 .gridName {
   flex: 1;
   min-width: 0;
-  font-size: 0.67rem;
+  font-size: var(--card-name-size, 0.67rem);
   color: var(--gold);
   font-family: var(--font-display);
   white-space: nowrap;
@@ -651,7 +651,7 @@
 .stackCardName {
   flex: 1;
   min-width: 0;
-  font-size: 0.6rem;
+  font-size: var(--card-name-size-tight, 0.6rem);
   color: var(--text-dim);
   text-align: center;
   white-space: nowrap;

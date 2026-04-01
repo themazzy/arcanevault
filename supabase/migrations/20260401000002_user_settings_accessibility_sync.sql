@@ -1,0 +1,17 @@
+alter table user_settings
+  add column if not exists price_source text default 'cardmarket_trend',
+  add column if not exists binder_sort text default 'name',
+  add column if not exists deck_sort text default 'name',
+  add column if not exists list_sort text default 'name',
+  add column if not exists font_weight integer default 420,
+  add column if not exists font_size integer default 16,
+  add column if not exists theme text default 'shadow',
+  add column if not exists oled_mode boolean default false,
+  add column if not exists nickname text default '',
+  add column if not exists anonymize_email boolean default false,
+  add column if not exists reduce_motion boolean default false,
+  add column if not exists higher_contrast boolean default false,
+  add column if not exists card_name_size text default 'default',
+  add column if not exists default_grouping text default 'type',
+  add column if not exists keep_screen_awake boolean default false,
+  add column if not exists show_sync_errors boolean default false;

@@ -123,7 +123,15 @@ User action
 
 ### Settings
 
-`useSettings()` returns all user preferences and a `save(patch)` function. Settings write to `localStorage` immediately and debounce a Supabase upsert (800 ms). Always use `useSettings()` for `price_source`, `grid_density`, `show_price`, `cache_ttl_h`.
+`useSettings()` returns all user preferences plus `save(patch)`, `syncNow()`, sync status, and the last sync error. Settings write to `localStorage` immediately and debounce a Supabase upsert (800 ms).
+
+Important settings now include:
+- display: `theme`, `oled_mode`, `higher_contrast`, `reduce_motion`
+- text/accessibility: `font_size`, `font_weight`, `card_name_size`
+- browsing: `price_source`, `grid_density`, `show_price`, `cache_ttl_h`, `default_grouping`
+- profile/app: `nickname`, `anonymize_email`, `keep_screen_awake`, `show_sync_errors`
+
+Always read these values from `useSettings()` instead of hardcoding defaults in feature code.
 
 ### Filtering & Sorting
 
@@ -168,6 +176,8 @@ Wishlists are not part of owned collection inventory.
 - Wishlist browsing should match binder/deck browsing for view toggles, selection styling, and bulk actions.
 - Wishlist bulk move must only allow destinations of type `list`.
 - Wishlist grid rendering should use the shared binder-style `CardGrid`, not a separate wishlist-only grid implementation.
+- "View All Cards" should behave like the binder/deck all-cards browser, including mixed-folder context labels where needed.
+- `list_items` access is folder-owned: inserts and policies should derive ownership from the parent folder, not rely on a caller-supplied `list_items.user_id`.
 
 ### Selection And Quantity Semantics
 
@@ -226,7 +236,7 @@ These are only active during `npm run dev`. Production deploys on GitHub Pages c
 | `src/pages/LifeTracker.module.css` | Styles for LifeTracker — grid layouts, rotations, fullscreen, compact active-game controls, player-settings overlay, lobby breakpoints |
 | `src/pages/JoinGame.jsx` | Public route `/join/:code` — join a multiplayer lobby, pick deck/name/colour |
 | `src/pages/JoinGame.module.css` | Styles for JoinGame page |
-| `src/components/FeedbackModal.jsx` | Bug report / feature request modal — type toggle, description, optional Discord/email contact |
+| `src/components/FeedbackModal.jsx` | Bug report / feature request modal — type toggle, description, optional contact, optional screenshot upload |
 | `src/components/FeedbackModal.module.css` | Styles for FeedbackModal |
 
 ---
@@ -399,7 +409,7 @@ Each player is wrapped in a `.gridCell` (`position: relative; overflow: hidden`)
 `isFullscreen` state adds `.pageFullscreen` to the page root:
 - `.pageFullscreen .topBar { display: none }` — hides the topbar entirely
 - `.pageFullscreen .grid { height: 100dvh !important }` — grid fills the whole screen
-- A floating `.fsControls` pill (`position: fixed; top: 8px; right: 8px; z-index: 910`) overlays exit, gear, and end-game buttons without consuming layout space
+- The central floating settings button remains visible, but its action list is now a modal action sheet instead of a small dropdown so it never overlaps commander/settings overlays
 
 Use `100dvh` (dynamic viewport height) in fullscreen — not `100svh` — so Android Chrome's collapsing address bar is tracked correctly.
 
@@ -429,6 +439,8 @@ After creating a shared lobby, host is taken to `HostSetupScreen` (screen `'host
 `gameLog: [{ts, type, playerName, playerColor, delta, total, key?, fromName?}]` — flat array (newest first, max 120 entries) replacing the old per-player `playerHistory` keyed object. Updated via `addGameLogEvent(event)` from `onLifeChange`, `onCounterChange`, and `onCmdDmgChange`. Each event carries `playerName`/`playerColor` at the call site (not inside the callback) so there's no stale-closure issue.
 
 `GameLogOverlay` — renders the flat log in a `.cmdOverlayPanel` modal. Accessed via ⚙ gear menu → "📜 Game Log" (appears in both topbar and fsControls menus). State: `showGameLog` boolean. Cleared in `handleNewGame` and `resetGame`.
+
+In fullscreen, the center ⚙ button opens a dedicated modal action sheet. Keep it below higher-priority overlays and close it whenever another life-tracker overlay opens.
 
 **Removed:** `PlayerHistoryOverlay` (per-player log), per-player 📜 button in `nameRow`, `playerHistory`/`historyPlayerId` state, `addHistoryEvent`. If you see any of these names they are stale.
 
@@ -543,8 +555,29 @@ alter table feedback enable row level security;
 create policy "insert feedback" on feedback for insert with check (true);
 create policy "read own feedback" on feedback for select using (auth.uid() = user_id);
 
--- Nickname column on user_settings
-alter table user_settings add column if not exists nickname text default '';
+-- Screenshot uploads for feedback
+create table feedback_attachments (
+  id uuid primary key default gen_random_uuid(),
+  feedback_id uuid not null references feedback(id) on delete cascade,
+  user_id uuid references auth.users(id) on delete set null,
+  user_email text,
+  file_key text not null,
+  file_name text,
+  mime_type text,
+  file_size bigint,
+  created_at timestamptz default now()
+);
+
+-- Newer user_settings columns
+alter table user_settings
+  add column if not exists nickname text default '',
+  add column if not exists anonymize_email boolean default false,
+  add column if not exists reduce_motion boolean default false,
+  add column if not exists higher_contrast boolean default false,
+  add column if not exists card_name_size text default 'default',
+  add column if not exists default_grouping text default 'type',
+  add column if not exists keep_screen_awake boolean default false,
+  add column if not exists show_sync_errors boolean default false;
 ```
 
 ### Select Mode & Qty Adjuster
@@ -612,6 +645,7 @@ Replaced the old OCR pipeline with a **pHash + OpenCV** approach. New pipeline:
 - **DB loading**: PostgREST caps `.range()` at 1000 rows per request. Web path loads page 0 synchronously (so scanner works immediately), then continues in background 8 pages at a time in parallel (`_continueWebLoad`). 100k+ cards take ~5–10 s to fully load.
 - **SQLite web fallback**: `@capacitor-community/sqlite` doesn't work in browsers. Web path fetches from Supabase directly.
 - **`AddCardModal` `initialCardName` prop**: Pass a card name to auto-trigger `selectCard()` on mount, jumping straight to the configure view. Used by `Scanner.jsx` when user taps "+ Add to Collection".
+- **Scanner route UX**: the scanner is a first-class nav destination (`/scanner`), not a hidden utility. Treat scan history and direct add-card flow as part of the primary collection workflow.
 - **Transparent WebView**: `this.bridge.getWebView().setBackgroundColor(Color.TRANSPARENT)` in `MainActivity.java` makes the native camera visible behind the overlay.
 - **Android back button**: `onBackPressed()` in `MainActivity.java` calls `webView.goBack()` when `canGoBack()` is true (React Router's pushState history). When at the root (no history), requires a **double-tap within 2 s** to exit — first tap shows a `Toast` ("Press back again to exit"), second tap within the window calls `super.onBackPressed()`. Do not install `@capacitor/app` just for this — the WebView history approach is sufficient for a SPA.
 - **DEBUG flag**: `CardScanner.jsx` has `const DEBUG = true` at the top — set to `false` once scanner accuracy is confirmed. Shows live hash count, CV/DB ready, stage, best candidate name, and stability counter.
@@ -650,6 +684,7 @@ Processes ~30k+ cards. Downloads `art_crop` images from Scryfall, skips rows alr
 - `folders` — type is `'binder' | 'deck' | 'list' | 'builder_deck'`
 - `folder_cards` — links `folder_id` + `card_id` + `qty`
 - `list_items` — wishlist items: `folder_id, name, set_code, collector_number, scryfall_id, foil, qty`
+- `feedback_attachments` — optional screenshots linked to `feedback`; files live in the `assets` storage bucket
 - `deck_cards` — builder deck cards (separate from collection ownership)
 - `user_settings` — single row per user, upserted via `SettingsContext`
 - `price_snapshots` — historical price points for Stats page
@@ -658,7 +693,7 @@ Processes ~30k+ cards. Downloads `art_crop` images from Scryfall, skips rows alr
 - `game_results` — deck win/loss history: `session_id, user_id, deck_id, deck_name, format, player_count, placement, played_at`
 - `feedback` — user bug reports & feature requests: `type ('bug'|'feature'), description, contact, user_id, user_email, created_at`
 - `card_hashes` — pHash records for scanner: `scryfall_id, name, set_code, collector_number, image_uri, hash_part_1..4 (bigint), phash_hex (text)`; read-only RLS for all users
-- `user_settings` — includes `nickname text default ''` (added); synced via `useSettings()`
+- `user_settings` — includes `nickname`, `anonymize_email`, `reduce_motion`, `higher_contrast`, `card_name_size`, `default_grouping`, `keep_screen_awake`, `show_sync_errors`; synced via `useSettings()`
 
 ---
 

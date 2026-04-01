@@ -50,6 +50,9 @@
   --font-xl:   1.2rem;
   --font-2xl:  1.5rem;
   --font-3xl:  2rem;
+  --card-name-size: 0.68rem;
+  --card-name-size-tight: 0.6rem;
+  --card-name-size-list: 0.88rem;
 
   /* Responsive breakpoints (reference only, use in @media) */
   /* --bp-sm: 480px  --bp-md: 768px  --bp-lg: 1024px  --bp-xl: 1280px */
@@ -143,37 +146,37 @@
 
 /* ── Light theme overrides ───────────────────────────────────────────────── */
 [data-theme-mode="light"] {
-  --s-card:    rgba(0,0,0,0.04);
-  --s-subtle:  rgba(0,0,0,0.065);
-  --s-medium:  rgba(0,0,0,0.09);
-  --s-border:  rgba(0,0,0,0.10);
-  --s-border2: rgba(0,0,0,0.18);
-  --overlay:   rgba(0,0,0,0.07);
-  --s1:        rgba(0,0,0,0.035);
-  --s2:        rgba(0,0,0,0.06);
-  --s3:        rgba(0,0,0,0.085);
-  --s4:        rgba(0,0,0,0.11);
-  --nav-bg:    rgba(255,255,255,0.88);
-  --popup-bg:  var(--bg2);
-  --ambient-1: rgba(214,171,94,0.12);
-  --ambient-2: rgba(122,150,205,0.10);
-  --glass-strong: rgba(255,255,255,0.9);
-  --glass-medium: rgba(255,255,255,0.82);
-  --glass-soft: rgba(255,255,255,0.72);
-  --scrim-strong: rgba(233,238,245,0.82);
-  --scrim-medium: rgba(233,238,245,0.62);
-  --scrim-soft: rgba(233,238,245,0.42);
+  --s-card:    rgba(255,252,246,0.78);
+  --s-subtle:  rgba(255,255,255,0.88);
+  --s-medium:  rgba(188,152,83,0.18);
+  --s-border:  rgba(102,74,26,0.14);
+  --s-border2: rgba(102,74,26,0.26);
+  --overlay:   rgba(244,238,228,0.34);
+  --s1:        rgba(255,253,248,0.62);
+  --s2:        rgba(255,255,255,0.82);
+  --s3:        rgba(215,191,143,0.24);
+  --s4:        rgba(188,152,83,0.32);
+  --nav-bg:    rgba(255,251,245,0.94);
+  --popup-bg:  rgba(255,251,245,0.98);
+  --ambient-1: rgba(232,183,79,0.19);
+  --ambient-2: rgba(112,154,222,0.16);
+  --glass-strong: rgba(255,252,247,0.96);
+  --glass-medium: rgba(255,252,247,0.88);
+  --glass-soft: rgba(255,252,247,0.78);
+  --scrim-strong: rgba(238,231,220,0.9);
+  --scrim-medium: rgba(238,231,220,0.74);
+  --scrim-soft: rgba(238,231,220,0.52);
   /* Text & accents — dark values for WCAG legibility on near-white backgrounds */
-  --text:       #1e1810;
-  --text-dim:   #3c3020;
-  --text-faint: #5a4834;
-  --gold:       #7a5810;
-  --gold-dim:   #5a4008;
-  --green:      #245a20;
-  --red:        #901818;
-  --purple:     #4a3494;
-  --border:     rgba(100,70,20,0.25);
-  --border-hi:  rgba(100,70,20,0.50);
+  --text:       #1a130c;
+  --text-dim:   #312316;
+  --text-faint: #54402c;
+  --gold:       #8d5d00;
+  --gold-dim:   #6a4500;
+  --green:      #1f6a36;
+  --red:        #9e2c26;
+  --purple:     #4d38ad;
+  --border:     rgba(116,82,24,0.24);
+  --border-hi:  rgba(141,93,0,0.46);
   color-scheme: light;
 }
 
@@ -182,6 +185,45 @@
 }
 [data-theme-mode="light"] ::-webkit-scrollbar-thumb:hover {
   background: rgba(0,0,0,0.32);
+}
+
+[data-theme-mode="light"] body {
+  background-image:
+    radial-gradient(circle at top left, var(--ambient-1), transparent 34%),
+    radial-gradient(circle at top right, var(--ambient-2), transparent 38%),
+    linear-gradient(180deg, rgba(255,255,255,0.28), transparent 42%);
+  background-attachment: fixed;
+}
+
+[data-high-contrast="true"] {
+  --text: #f4ecde;
+  --text-dim: #e0d0b0;
+  --text-faint: #c4b18e;
+  --border: rgba(201,168,76,0.38);
+  --border-hi: rgba(201,168,76,0.72);
+  --s-border: rgba(255,255,255,0.16);
+  --s-border2: rgba(255,255,255,0.26);
+  --overlay: rgba(0,0,0,0.28);
+}
+
+[data-theme-mode="light"][data-high-contrast="true"] {
+  --text: #120d08;
+  --text-dim: #24180f;
+  --text-faint: #43311f;
+  --border: rgba(116,82,24,0.34);
+  --border-hi: rgba(141,93,0,0.62);
+  --s-border: rgba(102,74,26,0.22);
+  --s-border2: rgba(102,74,26,0.32);
+  --overlay: rgba(250,242,230,0.72);
+}
+
+[data-reduce-motion="true"] *,
+[data-reduce-motion="true"] *::before,
+[data-reduce-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

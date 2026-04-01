@@ -2039,7 +2039,7 @@
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  z-index: 910;
+  z-index: 320;
 }
 
 .fsMenuWrap::before {
@@ -2094,12 +2094,72 @@
   display: none;
 }
 
-/* Gear menu in fullscreen: open downward from the anchored button */
-.gearMenuFs {
-  top: calc(100% + 6px) !important;
-  left: 50% !important;
-  right: auto !important;
-  transform: translateX(-50%) !important;
+.fsMenuOverlayPanel {
+  background: var(--bg3);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  width: min(440px, calc(100vw - 24px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  box-shadow: 0 28px 72px rgba(0,0,0,0.68);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: slideUp 0.18s ease;
+}
+
+.fsMenuActionList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fsMenuActionBtn {
+  width: 100%;
+  min-height: 60px;
+  text-align: center;
+  background: var(--s1);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  color: var(--text);
+  font-family: var(--font-serif);
+  font-size: 0.9rem;
+  line-height: 1.2;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease, transform 0.14s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fsMenuActionBtn:hover {
+  background: var(--s2);
+  border-color: rgba(201,168,76,0.28);
+  color: var(--gold);
+  transform: translateY(-1px);
+}
+
+.fsMenuActionBtnDanger {
+  color: #d08a8a;
+}
+
+.fsMenuActionBtnDanger:hover {
+  background: rgba(196,96,96,0.08);
+  border-color: rgba(196,96,96,0.28);
+  color: #f0a3a3;
+}
+
+@media (orientation: landscape) {
+  .fsMenuOverlayPanel {
+    width: min(640px, calc(100vw - 32px));
+  }
+
+  .fsMenuActionList {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .fullscreenBtn {

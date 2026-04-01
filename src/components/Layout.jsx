@@ -3,6 +3,7 @@ import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { Capacitor } from '@capacitor/core'
 import { sb } from '../lib/supabase'
 import { useAuth } from './Auth'
+import { maskEmailAddress, useSettings } from './SettingsContext'
 import FeedbackModal from './FeedbackModal'
 import styles from './Layout.module.css'
 
@@ -10,7 +11,7 @@ const TABS = [
   { to: '/', label: 'Home' },
   { to: '/collection', label: 'Collection' },
   { to: '/decks', label: 'Decks' },
-  { to: '/builder', label: 'Builder' },
+  { to: '/builder', label: 'Deckbuilder' },
   { to: '/binders', label: 'Binders' },
   { to: '/lists', label: 'Wishlists' },
   { to: '/trading', label: 'Trading' },
@@ -21,6 +22,7 @@ const TABS = [
 
 export default function Layout({ children }) {
   const { user } = useAuth()
+  const { anonymize_email, keep_screen_awake } = useSettings()
   const navigate = useNavigate()
   const location = useLocation()
   const isNative = Capacitor.isNativePlatform()
@@ -59,10 +61,42 @@ export default function Layout({ children }) {
     }
   }, [isNativeScannerRoute])
 
+  useEffect(() => {
+    if (!keep_screen_awake || !('wakeLock' in navigator)) return
+
+    let released = false
+    let wakeLock = null
+
+    const requestWakeLock = async () => {
+      if (released || document.visibilityState !== 'visible') return
+      try {
+        wakeLock = await navigator.wakeLock.request('screen')
+        wakeLock?.addEventListener?.('release', () => {
+          if (!released) wakeLock = null
+        })
+      } catch {}
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && !wakeLock) requestWakeLock()
+    }
+
+    requestWakeLock()
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      released = true
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      wakeLock?.release?.().catch(() => {})
+    }
+  }, [keep_screen_awake])
+
   const signOut = async () => {
     await sb.auth.signOut()
     navigate('/')
   }
+
+  const displayEmail = maskEmailAddress(user?.email, anonymize_email)
 
   return (
     <div className={`${styles.app} ${isNativeScannerRoute ? styles.appScanner : ''}`}>
@@ -73,13 +107,14 @@ export default function Layout({ children }) {
               <div className={styles.logo}>ARCANE<span>VAULT</span></div>
 
               <div className={styles.userBar}>
-                <span className={styles.userName}>{user?.email}</span>
+                <span className={styles.userName}>{displayEmail}</span>
                 <button
                   className={styles.feedbackBtn}
                   onClick={() => setShowFeedback(true)}
                   title="Report a bug or request a feature"
                 >
-                  Bug
+                  <span className={styles.feedbackIcon}>🐞</span>
+                  <span>Bug</span>
                 </button>
                 <NavLink
                   to="/settings"
@@ -142,7 +177,8 @@ export default function Layout({ children }) {
                 onClick={() => { setMenuOpen(false); setShowFeedback(true) }}
                 style={{ background: 'none', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer' }}
               >
-                Bug / Feature Request
+                <span className={styles.mobileNavIcon}>🐞</span>
+                <span>Bug / Feature Request</span>
               </button>
               <button className={styles.mobileSignOut} onClick={signOut}>Sign out</button>
             </div>
