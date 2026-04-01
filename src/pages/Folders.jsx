@@ -487,6 +487,9 @@ function FolderBrowser({ folder, allFolders = [], onBack }) {
 
   const selectedCard = selected ? cards.find(c => c.id === selected) : null
   const selectedSf   = selectedCard ? sfMap[getScryfallKey(selectedCard)] : null
+  const handleCardSave = useCallback((updatedCard) => {
+    setCards(prev => prev.map(c => c.id === updatedCard.id ? { ...c, ...updatedCard } : c))
+  }, [])
 
   const clearSelect = () => { setSelectedCards(new Set()); setSplitState(new Map()); setSelectMode(false) }
   const toggleSelectMode = () => { setSelectMode(v => { if (v) clearSelect(); return !v }) }
@@ -661,7 +664,16 @@ function FolderBrowser({ folder, allFolders = [], onBack }) {
         <BinderListView cards={filtered} sfMap={sfMap} priceSource={price_source} />
       )}
 
-      {selectedCard && <CardDetail card={selectedCard} sfCard={selectedSf} priceSource={price_source} onClose={() => setSelected(null)} />}
+      {selectedCard && (
+        <CardDetail
+          card={selectedCard}
+          sfCard={selectedSf}
+          priceSource={price_source}
+          currentFolderId={folder.id}
+          onSave={handleCardSave}
+          onClose={() => setSelected(null)}
+        />
+      )}
       {showAddCard && user && (
         <AddCardModal
           userId={user.id}

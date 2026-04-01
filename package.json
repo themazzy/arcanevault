@@ -19,7 +19,7 @@
     "@capacitor/core": "8.3.0",
     "@capacitor/haptics": "^8.0.2",
     "@capacitor/ios": "8.3.0",
-    "@supabase/supabase-js": "^2.101.0",
+    "@supabase/supabase-js": "^2.101.1",
     "@tanstack/react-virtual": "^3.13.22",
     "dotenv": "^17.3.1",
     "idb": "^8.0.3",

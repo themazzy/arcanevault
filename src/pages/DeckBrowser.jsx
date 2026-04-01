@@ -5,7 +5,7 @@ import { enrichCards, getPrice, formatPrice, getScryfallKey } from '../lib/scryf
 import { useSettings } from '../components/SettingsContext'
 import { useAuth } from '../components/Auth'
 import { CardDetail, FilterBar, BulkActionBar, applyFilterSort, EMPTY_FILTERS } from '../components/CardComponents'
-import { EmptyState } from '../components/UI'
+import { EmptyState, Badge } from '../components/UI'
 import AddCardModal from '../components/AddCardModal'
 import ExportModal from '../components/ExportModal'
 import styles from './DeckBrowser.module.css'
@@ -342,12 +342,13 @@ function StackCard({ card, sf, idx, priceSource, selectMode, isSelected, totalQt
           {isSelected && '✓'}
         </div>
       )}
+      <div className={styles.stackImgWrap}>
       {img
         ? <img src={img} alt={card.name} className={styles.stackCardImg} loading="lazy" />
         : <div className={styles.stackCardPlaceholder}>{card.name}</div>
       }
       {qty > 1 && !isSelected && <div className={styles.stackQty}>×{qty}</div>}
-      {card.foil && <div className={styles.stackFoil}>✦</div>}
+      {card.foil && <div className={styles.stackFoil}><Badge variant="foil">Foil</Badge></div>}
       {selectMode && isSelected && totalQty > 1 && (
         <div className={styles.qtyOverlay}>
           <button className={styles.qtyOverlayBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(card.id, +1, totalQty) }}>+</button>
@@ -355,7 +356,11 @@ function StackCard({ card, sf, idx, priceSource, selectMode, isSelected, totalQt
           <button className={styles.qtyOverlayBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(card.id, -1, totalQty) }}>−</button>
         </div>
       )}
-      <div className={styles.stackCardName}>{card.name}</div>
+      </div>
+      <div className={styles.stackNameRow}>
+        <div className={styles.stackCardName}>{card.name}</div>
+        {card.foil && <span className={styles.foilMark}>✦</span>}
+      </div>
       {price != null && (
         <div className={isBuyFallback ? styles.stackPriceFallback : styles.stackPrice}>
           {formatPrice(price, priceSource)}
@@ -529,7 +534,7 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, totalQty, onS
         {img ? <img src={img} alt={card.name} className={styles.gridImg} loading="lazy" />
              : <div className={styles.gridImgPlaceholder}>{card.name}</div>}
         {qty > 1 && !isSelected && <div className={styles.gridQty}>×{qty}</div>}
-        {card.foil && <div className={styles.gridFoil}>✦</div>}
+        {card.foil && <div className={styles.gridFoil}><Badge variant="foil">Foil</Badge></div>}
         {selectMode && isSelected && totalQty > 1 && (
           <div className={styles.qtyOverlay}>
             <button className={styles.qtyOverlayBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(card.id, +1, totalQty) }}>+</button>
@@ -538,11 +543,14 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, totalQty, onS
           </div>
         )}
       </div>
-      <div className={styles.gridInfo}>
-        <div className={styles.gridName}>{card.name}</div>
-        <div className={styles.gridSetRow}>
-          <span className={styles.gridSet}>{(card.set_code||'').toUpperCase()}</span>
-          {price != null && (
+        <div className={styles.gridInfo}>
+          <div className={styles.gridNameRow}>
+            <div className={styles.gridName}>{card.name}</div>
+            {card.foil && <span className={styles.foilMark}>✦</span>}
+          </div>
+          <div className={styles.gridSetRow}>
+            <span className={styles.gridSet}>{(card.set_code||'').toUpperCase()}</span>
+            {price != null && (
             <span className={isBuyFallback ? styles.gridPriceFallback : styles.gridPrice}>
               {formatPrice(price, priceSource)}
             </span>
@@ -593,7 +601,7 @@ export default function DeckBrowser({ folder, onBack }) {
   const [loading, setLoading]       = useState(true)
   const [detailCardId, setDetailCardId] = useState(null)
   const [allFolders, setAllFolders] = useState([])
-  const [viewMode, setViewMode]     = useState('list')
+  const [viewMode, setViewMode]     = useState('grid')
   const [groupBy, setGroupBy]       = useState('type')
   const [bracketOverride, setBracketOverride] = useState(null)
   const [search, setSearch]     = useState('')
@@ -763,6 +771,9 @@ export default function DeckBrowser({ folder, onBack }) {
 
   const selectedCard = detailCardId ? cards.find(c => c.id === detailCardId) : null
   const selectedSf   = selectedCard ? sfMap[getScryfallKey(selectedCard)] : null
+  const handleCardSave = useCallback((updatedCard) => {
+    setCards(prev => prev.map(c => c.id === updatedCard.id ? { ...c, ...updatedCard } : c))
+  }, [])
 
   if (loading) return <EmptyState>Loading deck…</EmptyState>
 
@@ -914,6 +925,8 @@ export default function DeckBrowser({ folder, onBack }) {
       {selectedCard && (
         <CardDetail card={selectedCard} sfCard={selectedSf}
           priceSource={price_source}
+          currentFolderId={folder.id}
+          onSave={handleCardSave}
           onClose={() => setDetailCardId(null)} />
       )}
 

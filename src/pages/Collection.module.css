@@ -3,6 +3,17 @@
   margin-bottom: 14px; color: var(--text-dim); font-size: 0.82rem;
 }
 
+.gridViewport {
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+  padding: 0 12px;
+}
+
+@media (max-width: 640px) {
+  .gridViewport { padding: 0 8px; }
+}
+
 .importBtn {
   font-family: var(--font-display);
   font-size: 0.75rem; letter-spacing: 0.06em;

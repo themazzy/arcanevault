@@ -1,14 +1,15 @@
 import { useRef, useCallback, useEffect, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { getImageUri, getPriceWithMeta, formatPriceMeta } from '../lib/scryfall'
-import { Badge } from './UI'
 import { FolderTypeIcon } from './Icons'
+import { Badge } from './UI'
 import styles from './VirtualCardGrid.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 
 const DENSITY_MIN_WIDTH   = { cozy: 210, comfortable: 168, compact: 128 }
 const DENSITY_CARD_HEIGHT = { cozy: 375, comfortable: 325, compact: 260 }
 const OVERSCAN = 3
+const ROW_SIDE_INSET = 10
 
 const TYPE_COLOR  = { binder: 'rgba(201,168,76,0.18)', deck: 'rgba(138,111,196,0.18)', list: 'rgba(100,180,100,0.15)' }
 const TYPE_BORDER = { binder: 'rgba(201,168,76,0.35)', deck: 'rgba(138,111,196,0.35)', list: 'rgba(100,180,100,0.3)' }
@@ -76,7 +77,7 @@ function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, tota
           ? <img className={styles.img} src={img} alt={card.name} loading="lazy" decoding="async" />
           : <div className={styles.imgPlaceholder}>{card.name}</div>
         }
-        {card.foil && <div style={{ position: 'absolute', top: 5, left: 5 }}><Badge variant="foil">Foil</Badge></div>}
+        {card.foil && <Badge variant="foil">Foil</Badge>}
         {displayQty > 1 && <div className={styles.qty}>x{displayQty}</div>}
         {selectMode && isSelected && totalQty > 1 && (
           <div className={styles.qtyOverlay}>
@@ -88,7 +89,10 @@ function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, tota
       </div>
 
       <div className={styles.cardInfo}>
-        <div className={styles.cardName}>{card.name}</div>
+        <div className={styles.cardNameRow}>
+          <div className={styles.cardName}>{card.name}</div>
+          {card.foil && <span className={styles.foilMark}>✦</span>}
+        </div>
         <div className={styles.cardMeta}>
           <span className={styles.setCode}>{(card.set_code || '').toUpperCase()}</span>
           {showPrice && (
@@ -164,7 +168,8 @@ export default function VirtualCardGrid({
               style={{
                 position: 'absolute',
                 top: vRow.start,
-                left: 0, right: 0,
+                left: ROW_SIDE_INSET,
+                right: ROW_SIDE_INSET,
                 height: cardH,
                 display: 'grid',
                 gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,

@@ -20,56 +20,68 @@ import {
 } from './ScannerEngine'
 import styles from './CardScanner.module.css'
 
-const MATCH_THRESHOLD  = 110   // camera pHash vs clean Scryfall art_crop; real-world offset ~85-95
-const MIN_GAP          = 5     // second-best must be ≥ this many bits worse than best
-const MATCH_COOLDOWN   = 3000  // ms before same card can re-enter history
-const CROP_OFFSETS     = [0, -10, 10]  // y-offsets for multi-crop hashing
-const DEBUG            = true  // set false to hide debug overlay
+const MATCH_THRESHOLD = 110
+const MATCH_MIN_GAP = 12
+const MATCH_COOLDOWN = 3000
+const CROP_VARIANTS = [
+  { xOffset: 0, yOffset: 0 },
+  { xOffset: 0, yOffset: -10 },
+  { xOffset: 0, yOffset: 10 },
+  { xOffset: -8, yOffset: 0 },
+  { xOffset: 8, yOffset: 0 },
+  { xOffset: 0, yOffset: 0, inset: 6 },
+  { xOffset: 0, yOffset: 0, inset: -6 },
+]
+const STABILITY_SAMPLES = 4
+const STABILITY_REQUIRED = 2
+const SAMPLE_DELAY_MS = 120
+const DEBUG = true
+
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
 export default function CardScanner({ onMatch, onAddCard, onClose }) {
   const isNative = Capacitor.isNativePlatform()
 
-  const videoRef            = useRef(null)
-  const canvasRef           = useRef(null)
-  const mountedRef          = useRef(true)
-  const lastMatchRef        = useRef({ id: null, time: 0 })
+  const videoRef = useRef(null)
+  const canvasRef = useRef(null)
+  const mountedRef = useRef(true)
+  const lastMatchRef = useRef({ id: null, time: 0 })
   const latestMatchTimerRef = useRef(null)
 
-  // Internal readiness — not shown as status labels to user
-  const [cvReady,     setCvReady]     = useState(false)
-  const [dbReady,     setDbReady]     = useState(false)
-  const [preparing,   setPreparing]   = useState(true)   // true while loading
-  const [errorMsg,    setErrorMsg]    = useState(null)
-  const [scanning,    setScanning]    = useState(false)  // true while processing a tap
-  const [scanResult,  setScanResult]  = useState(null)   // 'found' | 'notfound' | 'error'
-  const [cardCount,          setCardCount]          = useState(0)
-  const [scanHistory,        setScanHistory]        = useState([])
-  const [latestMatch,        setLatestMatch]        = useState(null)
-  const [selectedCard,       setSelectedCard]       = useState(null)  // history tap overlay
-  const [debugInfo,          setDebugInfo]          = useState(null)
+  const [cvReady, setCvReady] = useState(false)
+  const [dbReady, setDbReady] = useState(false)
+  const [preparing, setPreparing] = useState(true)
+  const [errorMsg, setErrorMsg] = useState(null)
+  const [scanning, setScanning] = useState(false)
+  const [scanResult, setScanResult] = useState(null)
+  const [cardCount, setCardCount] = useState(0)
+  const [scanHistory, setScanHistory] = useState([])
+  const [latestMatch, setLatestMatch] = useState(null)
+  const [selectedCard, setSelectedCard] = useState(null)
+  const [debugInfo, setDebugInfo] = useState(null)
 
   const isReady = cvReady && dbReady
 
-  // ── Init: camera + DB + OpenCV all start in parallel ─────────────────────
   useEffect(() => {
     mountedRef.current = true
 
     ;(async () => {
       try {
-        // DB init — first page resolves quickly; remaining pages load in background.
-        // Progress callback keeps cardCount state in sync so debug panel updates live.
         await databaseService.init(n => {
           if (mountedRef.current) setCardCount(n)
         })
+        await databaseService.waitUntilFullyLoaded()
         if (!mountedRef.current) return
         setDbReady(true)
         setCardCount(databaseService.cardCount)
 
-        // If native and no local hashes, auto-sync from Supabase silently
         if (databaseService.cardCount === 0) {
           await databaseService.sync(n => {
             if (mountedRef.current) setCardCount(n)
           })
+          await databaseService.waitUntilFullyLoaded()
+          if (!mountedRef.current) return
+          setCardCount(databaseService.cardCount)
         }
 
         await waitForOpenCV()
@@ -87,7 +99,6 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
     }
   }, [])
 
-  // ── Camera: start immediately on mount, stop on unmount ──────────────────
   useEffect(() => {
     let started = false
 
@@ -95,8 +106,10 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
       try {
         if (isNative) {
           await CameraPreview.start({
-            position: 'rear', toBack: true,
-            width: window.screen.width, height: window.screen.height,
+            position: 'rear',
+            toBack: true,
+            width: window.screen.width,
+            height: window.screen.height,
             disableAudio: true,
             enableHighResolution: true,
           })
@@ -104,7 +117,7 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
           const stream = await navigator.mediaDevices.getUserMedia({
             video: {
               facingMode: { ideal: 'environment' },
-              width:  { ideal: 1920 },
+              width: { ideal: 1920 },
               height: { ideal: 1080 },
             },
           })
@@ -112,21 +125,20 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
             videoRef.current.srcObject = stream
             await videoRef.current.play()
 
-            // Apply continuous autofocus + auto-exposure if the device supports it.
-            // applyConstraints is best-effort — silently ignored on unsupported browsers.
             const track = stream.getVideoTracks()[0]
             if (track) {
               const caps = track.getCapabilities?.() ?? {}
-              const adv = {}
-              if (caps.focusMode?.includes('continuous'))        adv.focusMode        = 'continuous'
-              if (caps.exposureMode?.includes('continuous'))     adv.exposureMode     = 'continuous'
-              if (caps.whiteBalanceMode?.includes('continuous')) adv.whiteBalanceMode = 'continuous'
-              if (Object.keys(adv).length) {
-                track.applyConstraints({ advanced: [adv] }).catch(() => {})
+              const advanced = {}
+              if (caps.focusMode?.includes('continuous')) advanced.focusMode = 'continuous'
+              if (caps.exposureMode?.includes('continuous')) advanced.exposureMode = 'continuous'
+              if (caps.whiteBalanceMode?.includes('continuous')) advanced.whiteBalanceMode = 'continuous'
+              if (Object.keys(advanced).length) {
+                track.applyConstraints({ advanced: [advanced] }).catch(() => {})
               }
             }
           } else {
-            stream.getTracks().forEach(t => t.stop()); return
+            stream.getTracks().forEach(t => t.stop())
+            return
           }
         }
         started = true
@@ -137,91 +149,165 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
 
     return () => {
       if (!started) return
-      if (isNative) { CameraPreview.stop().catch(() => {}) }
-      else { videoRef.current?.srcObject?.getTracks().forEach(t => t.stop()) }
+      if (isNative) CameraPreview.stop().catch(() => {})
+      else videoRef.current?.srcObject?.getTracks().forEach(t => t.stop())
     }
   }, [isNative])
 
-  // ── Tap-to-scan handler ───────────────────────────────────────────────────
+  const captureFrame = useCallback(async () => {
+    let imageData, w, h
+
+    if (isNative) {
+      const { value } = await CameraPreview.capture({ quality: 95 })
+      const img = await new Promise((resolve, reject) => {
+        const image = new Image()
+        image.onload = () => resolve(image)
+        image.onerror = reject
+        image.src = 'data:image/jpeg;base64,' + value
+      })
+      const canvas = document.createElement('canvas')
+      canvas.width = img.width
+      canvas.height = img.height
+      canvas.getContext('2d').drawImage(img, 0, 0)
+      imageData = canvas.getContext('2d').getImageData(0, 0, img.width, img.height)
+      w = img.width
+      h = img.height
+    } else {
+      const vid = videoRef.current
+      if (!vid?.videoWidth) return null
+      const canvas = canvasRef.current
+      canvas.width = vid.videoWidth
+      canvas.height = vid.videoHeight
+      canvas.getContext('2d').drawImage(vid, 0, 0)
+      w = canvas.width
+      h = canvas.height
+      imageData = canvas.getContext('2d').getImageData(0, 0, w, h)
+    }
+
+    return { imageData, w, h }
+  }, [isNative])
+
+  const scanSingleFrame = useCallback(async () => {
+    const frame = await captureFrame()
+    if (!frame) return { status: 'error', stage: 'no frame', best: null, second: null, candidateCount: 0, totalCount: 0, variant: null }
+
+    const { imageData, w, h } = frame
+    const corners = detectCardCorners(imageData, w, h)
+    if (!corners) return { status: 'notfound', stage: 'no corners', best: null, second: null, candidateCount: 0, totalCount: databaseService.cardCount, variant: null }
+
+    const warped = warpCard(imageData, corners)
+    if (!warped) return { status: 'notfound', stage: 'warp failed', best: null, second: null, candidateCount: 0, totalCount: databaseService.cardCount, variant: null }
+
+    let best = null
+    let second = null
+    let bestStats = { candidateCount: 0, totalCount: databaseService.cardCount }
+    let bestVariant = null
+    for (const variant of CROP_VARIANTS) {
+      const artCrop = cropArtRegion(warped, variant)
+      if (!artCrop) continue
+      const hash = computePHash256(artCrop)
+      if (!hash) continue
+      const { best: candidate, second: runnerUp, candidateCount, totalCount } = databaseService.findBestTwoWithStats(hash)
+      if (candidate && (!best || candidate.distance < best.distance)) {
+        best = candidate
+        second = runnerUp
+        bestStats = { candidateCount, totalCount }
+        bestVariant = variant
+      }
+    }
+
+    if (!best) return { status: 'notfound', stage: 'no candidate', best: null, second: null, candidateCount: bestStats.candidateCount, totalCount: bestStats.totalCount, variant: bestVariant }
+
+    const gap = second ? second.distance - best.distance : 256
+    return {
+      status: best.distance <= MATCH_THRESHOLD && gap >= MATCH_MIN_GAP ? 'found' : 'notfound',
+      stage: `dist ${best.distance}, gap ${gap}`,
+      best,
+      second,
+      gap,
+      candidateCount: bestStats.candidateCount,
+      totalCount: bestStats.totalCount,
+      variant: bestVariant,
+    }
+  }, [captureFrame])
+
   const handleScan = useCallback(async () => {
     if (!isReady || scanning || !mountedRef.current) return
     setScanning(true)
     setScanResult(null)
 
     try {
-      let imageData, w, h
-      if (isNative) {
-        const { value } = await CameraPreview.capture({ quality: 95 })
-        const img = await new Promise((res, rej) => {
-          const i = new Image(); i.onload = () => res(i); i.onerror = rej
-          i.src = 'data:image/jpeg;base64,' + value
-        })
-        const c = document.createElement('canvas')
-        c.width = img.width; c.height = img.height
-        c.getContext('2d').drawImage(img, 0, 0)
-        imageData = c.getContext('2d').getImageData(0, 0, img.width, img.height)
-        w = img.width; h = img.height
-      } else {
-        const vid = videoRef.current
-        if (!vid?.videoWidth) { setScanResult('error'); return }
-        const c = canvasRef.current
-        c.width = vid.videoWidth; c.height = vid.videoHeight
-        c.getContext('2d').drawImage(vid, 0, 0)
-        w = c.width; h = c.height
-        imageData = c.getContext('2d').getImageData(0, 0, w, h)
-      }
+      const votes = new Map()
+      let bestObserved = null
+      let bestObservedGap = null
+      let bestObservedCandidates = null
+      let bestObservedVariant = null
+      const frameSummaries = []
 
-      const corners = detectCardCorners(imageData, w, h)
-      if (!corners) {
-        if (DEBUG && mountedRef.current) setDebugInfo(d => ({ ...d, stage: 'no corners' }))
-        setScanResult('notfound')
-        return
-      }
-
-      const warped = warpCard(imageData, corners)
-      if (!warped) {
-        if (DEBUG && mountedRef.current) setDebugInfo(d => ({ ...d, stage: 'warp failed' }))
-        setScanResult('notfound')
-        return
-      }
-
-      // Multi-crop: try CROP_OFFSETS y-shifts, keep the result with the lowest distance.
-      let best = null, second = null
-      for (const yOff of CROP_OFFSETS) {
-        const artCrop = cropArtRegion(warped, yOff)
-        if (!artCrop) continue
-        let hash = null
-        try { hash = computePHash256(artCrop) } catch (e) {
-          if (DEBUG && mountedRef.current) setDebugInfo(d => ({ ...d, stage: `hash error: ${e.message}` }))
-          setScanResult('error')
-          return
+      for (let i = 0; i < STABILITY_SAMPLES; i++) {
+        const result = await scanSingleFrame()
+        frameSummaries.push(
+          result.best
+            ? `${i + 1}:${result.best.distance}/${result.gap ?? '?'}`
+            : `${i + 1}:${result.stage}`
+        )
+        if (result.best && (!bestObserved || result.best.distance < bestObserved.distance)) {
+          bestObserved = result.best
+          bestObservedGap = result.second ? result.second.distance - result.best.distance : 256
+          bestObservedCandidates = result.candidateCount
+          bestObservedVariant = result.variant
         }
-        if (!hash) continue
-        const [b, s] = databaseService.findBestTwo(hash)
-        if (b && (!best || b.distance < best.distance)) { best = b; second = s }
+
+        if (result.status === 'found' && result.best) {
+          const previous = votes.get(result.best.id) ?? { count: 0, best: result.best }
+          votes.set(result.best.id, {
+            count: previous.count + 1,
+            best: result.best.distance < previous.best.distance ? result.best : previous.best,
+          })
+        }
+
+        const stableVote = [...votes.values()].sort((a, b) => {
+          if (b.count !== a.count) return b.count - a.count
+          return a.best.distance - b.best.distance
+        })[0]
+
+        if (stableVote?.count >= STABILITY_REQUIRED) break
+        if (i < STABILITY_SAMPLES - 1) await sleep(SAMPLE_DELAY_MS)
       }
 
-      if (!best) { setScanResult('notfound'); return }
-
-      const gap   = second ? second.distance - best.distance : 256
-      const match = best.distance <= MATCH_THRESHOLD && gap >= MIN_GAP ? best : null
+      const stableVote = [...votes.values()].sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count
+        return a.best.distance - b.best.distance
+      })[0] ?? null
+      const match = stableVote?.count >= STABILITY_REQUIRED ? stableVote.best : null
 
       if (DEBUG && mountedRef.current) {
         setDebugInfo({
-          stage:    match
-            ? `MATCHED (dist ${best.distance}, gap ${gap})`
-            : `no match — dist ${best.distance}, gap ${gap}`,
-          bestName: best.name,
-          hashes:   databaseService.cardCount,
+          stage: match
+            ? `MATCHED ${stableVote.count}/${STABILITY_SAMPLES} (${bestObservedGap ?? '?'})`
+            : bestObserved
+              ? `no match - ${bestObserved.distance}/${bestObservedGap ?? '?'}`
+              : 'no match - no candidate',
+          bestName: match?.name ?? bestObserved?.name ?? '',
+          hashes: databaseService.cardCount,
+          candidates: bestObservedCandidates,
+          total: databaseService.cardCount,
+          votes: stableVote?.count ? `${stableVote.count}/${STABILITY_REQUIRED}` : `0/${STABILITY_REQUIRED}`,
+          frames: frameSummaries.join(' | '),
+          variant: bestObservedVariant
+            ? `x:${bestObservedVariant.xOffset ?? 0} y:${bestObservedVariant.yOffset ?? 0} i:${bestObservedVariant.inset ?? 0}`
+            : '-',
         })
       }
 
-      if (!match) { setScanResult('notfound'); return }
+      if (!match) {
+        setScanResult('notfound')
+        return
+      }
 
-      const now  = Date.now()
+      const now = Date.now()
       const last = lastMatchRef.current
       if (last.id === match.id && now - last.time < MATCH_COOLDOWN) {
-        // Same card scanned within cooldown — still show it as found
         setScanResult('found')
         return
       }
@@ -229,7 +315,7 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
       lastMatchRef.current = { id: match.id, time: now }
       const entry = { ...match, timestamp: now }
 
-      setScanHistory(h => [entry, ...h.slice(0, 49)])
+      setScanHistory(history => [entry, ...history.slice(0, 49)])
       setLatestMatch(entry)
       setScanResult('found')
       clearTimeout(latestMatchTimerRef.current)
@@ -237,7 +323,9 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
         if (mountedRef.current) setLatestMatch(null)
       }, 3000)
 
-      try { await Haptics.impact({ style: ImpactStyle.Medium }) } catch {}
+      try {
+        await Haptics.impact({ style: ImpactStyle.Medium })
+      } catch {}
       onMatch?.(match)
     } catch (e) {
       if (DEBUG && mountedRef.current) setDebugInfo(d => ({ ...d, stage: `error: ${e.message}` }))
@@ -245,9 +333,8 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
     } finally {
       if (mountedRef.current) setScanning(false)
     }
-  }, [isReady, scanning, isNative, onMatch])
+  }, [isReady, onMatch, scanSingleFrame, scanning])
 
-  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className={styles.root}>
       {!isNative && (
@@ -258,40 +345,41 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
       )}
 
       <div className={`${styles.overlay} ${isNative ? styles.overlayNative : ''}`}>
-
-        {/* Top bar — only close button + error/loading indicator if needed */}
         <div className={styles.topBar}>
           {(preparing || errorMsg) && (
             <div className={styles.statusPill}>
-              {errorMsg  ? `✕ ${errorMsg}` : '⟳ Starting…'}
+              {errorMsg ? `X ${errorMsg}` : 'Starting...'}
             </div>
           )}
-          <button className={styles.closeBtn} onClick={onClose}>✕</button>
+          <button className={styles.closeBtn} onClick={onClose}>X</button>
         </div>
 
-        {/* Targeting reticle — always visible */}
         <div className={`${styles.targetFrame} ${scanResult === 'found' ? styles.targetLit : ''} ${scanning ? styles.targetPaused : ''}`}>
           <span className={`${styles.corner} ${styles.tl}`} />
           <span className={`${styles.corner} ${styles.tr}`} />
           <span className={`${styles.corner} ${styles.br}`} />
           <span className={`${styles.corner} ${styles.bl}`} />
-          {preparing && !errorMsg && <div className={styles.preparingSpinner}>⟳</div>}
-          {scanning && <div className={styles.pausedLabel}>Scanning…</div>}
+          {preparing && !errorMsg && <div className={styles.preparingSpinner}>...</div>}
+          {scanning && <div className={styles.pausedLabel}>Scanning...</div>}
         </div>
 
-        {/* Debug overlay */}
         {DEBUG && (
           <div className={styles.debugPanel}>
-            <div><b>Hashes:</b> {cardCount.toLocaleString()} {cardCount < 5000 ? '⟳ loading…' : cardCount < 50000 ? '⟳ still loading…' : '✓'}</div>
-            <div><b>CV:</b> {cvReady ? '✓' : '…'} &nbsp;<b>DB:</b> {dbReady ? '✓' : '…'}</div>
-            {debugInfo && <>
-              <div><b>Stage:</b> {debugInfo.stage}</div>
-              <div><b>Best:</b> {debugInfo.bestName}</div>
-            </>}
+            <div><b>Hashes:</b> {cardCount.toLocaleString()} {databaseService.isFullyLoaded ? 'loaded' : 'loading...'}</div>
+            <div><b>CV:</b> {cvReady ? 'ready' : '...'} &nbsp;<b>DB:</b> {dbReady ? 'ready' : '...'}</div>
+            {debugInfo && (
+              <>
+                <div><b>Stage:</b> {debugInfo.stage}</div>
+                <div><b>Best:</b> {debugInfo.bestName}</div>
+                <div><b>Pool:</b> {debugInfo.candidates?.toLocaleString?.() ?? 0}/{debugInfo.total?.toLocaleString?.() ?? cardCount.toLocaleString()}</div>
+                <div><b>Votes:</b> {debugInfo.votes}</div>
+                <div><b>Crop:</b> {debugInfo.variant}</div>
+                <div><b>Frames:</b> {debugInfo.frames}</div>
+              </>
+            )}
           </div>
         )}
 
-        {/* Latest match toast */}
         {latestMatch && (
           <div className={styles.latestToast}>
             {latestMatch.imageUri && (
@@ -304,11 +392,10 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
                 {latestMatch.collNum ? ` · #${latestMatch.collNum}` : ''}
               </div>
             </div>
-            <div className={styles.latestToastCheck}>✓</div>
+            <div className={styles.latestToastCheck}>OK</div>
           </div>
         )}
 
-        {/* Selected card overlay — tapped from history */}
         {selectedCard && (
           <div className={styles.cardOverlay} onClick={() => setSelectedCard(null)}>
             <div className={styles.cardOverlayInner} onClick={e => e.stopPropagation()}>
@@ -335,9 +422,7 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
           </div>
         )}
 
-        {/* Bottom bar */}
         <div className={styles.bottomBar}>
-          {/* Scan history strip */}
           {scanHistory.length > 0 && (
             <div className={styles.historyStrip}>
               {scanHistory.map(card => (
@@ -356,7 +441,6 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
             </div>
           )}
 
-          {/* Scan button */}
           {isReady && (
             <div className={styles.btnRow}>
               <button
@@ -365,12 +449,12 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
                 disabled={scanning}
               >
                 {scanning
-                  ? '⟳ Scanning…'
+                  ? 'Scanning...'
                   : scanResult === 'found'
-                    ? '✓ Found — Scan Again'
+                    ? 'Found - Scan Again'
                     : scanResult === 'notfound'
-                      ? '✕ Not Found — Try Again'
-                      : '⊙ Scan Card'}
+                      ? 'Not Found - Try Again'
+                      : 'Scan Card'}
               </button>
             </div>
           )}
