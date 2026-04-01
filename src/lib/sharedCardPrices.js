@@ -15,6 +15,18 @@ function getCardKey(card) {
   return `${card.set_code}-${card.collector_number}`
 }
 
+function uniqueByCardKey(cards) {
+  const seen = new Set()
+  const unique = []
+  for (const card of cards) {
+    const key = getCardKey(card)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    unique.push(card)
+  }
+  return unique
+}
+
 function rowToPrices(row) {
   return {
     eur: row.price_regular_eur,
@@ -91,7 +103,7 @@ export async function loadCardMapWithSharedPrices(cards, { onProgress = null, ca
   // Shared-price pages should not trigger Scryfall price TTL refreshes.
   // We only need the cached metadata/art, plus fetches for cards missing locally.
   let map = await getInstantCache(Number.MAX_SAFE_INTEGER) || {}
-  const missing = cards.filter(card => !map[getCardKey(card)])
+  const missing = uniqueByCardKey(cards.filter(card => !map[getCardKey(card)]))
   if (missing.length) {
     const enriched = await enrichCards(missing, onProgress, cacheTtlMs)
     if (enriched) map = enriched
