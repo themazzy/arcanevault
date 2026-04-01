@@ -4,7 +4,7 @@ import path from 'node:path'
 import { Readable } from 'node:stream'
 import { createClient } from '@supabase/supabase-js'
 import { parser } from 'stream-json'
-import { streamArray } from 'stream-json/streamers/StreamArray'
+import { streamArray } from 'stream-json/streamers/StreamArray.js'
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
