@@ -134,8 +134,8 @@
   transition: color 0.15s, background 0.15s;
   min-height: 52px;
 }
-.mobileNavLink:hover { background: rgba(201,168,76,0.05); color: var(--text); }
-.mobileNavLinkActive { color: var(--gold) !important; background: rgba(201,168,76,0.08) !important; }
+.mobileNavLink:hover { background: rgba(201,168,76,0.05); color: var(--text); text-decoration: none; }
+.mobileNavLinkActive { color: var(--gold) !important; background: rgba(201,168,76,0.08) !important; text-decoration: none; }
 .mobileNavFooter {
   margin-top: auto; padding: 12px 0;
   border-top: 1px solid rgba(255,255,255,0.06);
@@ -197,7 +197,7 @@
   min-width: 36px; min-height: 36px;
   display: flex; align-items: center; justify-content: center;
 }
-.settingsLink:hover, .settingsActive { color: var(--gold); }
+.settingsLink:hover, .settingsActive { color: var(--gold); text-decoration: none; }
 
 .feedbackBtn {
   background: none; border: none;

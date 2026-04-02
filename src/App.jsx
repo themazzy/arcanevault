@@ -20,7 +20,8 @@ import TournamentsPage from './pages/Tournaments'
 import ScannerPage from './pages/Scanner'
 
 function PrivateApp() {
-  const { user } = useAuth()
+  const { user, authEvent } = useAuth()
+  if (authEvent === 'PASSWORD_RECOVERY') return <LoginPage forcedMode="recovery" />
   if (!user) return <LoginPage />
   return (
     <SettingsProvider>

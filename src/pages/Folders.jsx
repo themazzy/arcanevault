@@ -1143,9 +1143,9 @@ export default function FoldersPage({ type }) {
   const [folders, setFolders]           = useState([])
   const [folderMeta, setFolderMeta]     = useState({})
   const [sort, setSort]                 = useState(savedSort || default_sort || 'name')
+  const [folderSearch, setFolderSearch] = useState('')
   const [loading, setLoading]           = useState(true)
   const [activeFolder, setActiveFolder] = useState(null)
-  const [showAllCards, setShowAllCards] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [bulkDeleteData, setBulkDeleteData] = useState(null) // { nonEmpty, empty }
   const [shareFolder, setShareFolder]   = useState(null)
@@ -1427,6 +1427,33 @@ export default function FoldersPage({ type }) {
     () => regularFolders.filter(f => !parseFolderDesc(f.description).groupId),
     [regularFolders]
   )
+  const normalizedFolderSearch = folderSearch.trim().toLowerCase()
+  const filteredRegularFolders = useMemo(() => {
+    if (!normalizedFolderSearch) return regularFolders
+    return regularFolders.filter(f => f.name.toLowerCase().includes(normalizedFolderSearch))
+  }, [regularFolders, normalizedFolderSearch])
+  const filteredGroups = useMemo(() => {
+    if (!normalizedFolderSearch) return groups
+    const memberGroupIds = new Set(filteredRegularFolders.map(f => parseFolderDesc(f.description).groupId).filter(Boolean))
+    return groups.filter(group =>
+      group.name.toLowerCase().includes(normalizedFolderSearch) || memberGroupIds.has(group.id)
+    )
+  }, [groups, filteredRegularFolders, normalizedFolderSearch])
+  const filteredFoldersByGroup = useMemo(() => {
+    if (!normalizedFolderSearch) return foldersByGroup
+    const map = {}
+    for (const group of filteredGroups) {
+      const groupMatches = group.name.toLowerCase().includes(normalizedFolderSearch)
+      map[group.id] = groupMatches
+        ? (foldersByGroup[group.id] || [])
+        : filteredRegularFolders.filter(f => parseFolderDesc(f.description).groupId === group.id)
+    }
+    return map
+  }, [filteredGroups, filteredRegularFolders, foldersByGroup, normalizedFolderSearch])
+  const filteredUngroupedFolders = useMemo(
+    () => filteredRegularFolders.filter(f => !parseFolderDesc(f.description).groupId),
+    [filteredRegularFolders]
+  )
 
   if (activeFolder) {
     if (type === 'deck') return (
@@ -1442,16 +1469,6 @@ export default function FoldersPage({ type }) {
     )
   }
 
-  if (showAllCards) {
-    return (
-      <FolderBrowser
-        folders={regularFolders}
-        title={`All ${noun} Cards`}
-        noun={noun}
-        onBack={() => { setShowAllCards(false); loadFolders() }}
-      />
-    )
-  }
 
   if (loading) return <EmptyState>Loading {noun.toLowerCase()}s…</EmptyState>
 
@@ -1461,11 +1478,7 @@ export default function FoldersPage({ type }) {
         title={`${noun}s`}
         action={
           <ResponsiveHeaderActions
-            primary={!selectMode ? (
-              <button className={styles.viewAllBtn} onClick={() => setShowAllCards(true)}>
-                View All Cards
-              </button>
-            ) : null}
+            primary={null}
             menuLabel={`${noun}s actions`}
           >
             <div className={styles.headerActions}>
@@ -1499,6 +1512,12 @@ export default function FoldersPage({ type }) {
                 <button className={styles.importBtn} onClick={handleExportAll}>↓ Export</button>
                 <button className={styles.newFolderBtn} onClick={() => setShowNewFolder(true)}>+ New {noun}</button>
                 <button className={styles.selectModeBtn} onClick={() => setSelectMode(true)}>Select</button>
+                <input
+                  className={styles.folderSearch}
+                  value={folderSearch}
+                  onChange={e => setFolderSearch(e.target.value)}
+                  placeholder={`Search ${noun.toLowerCase()}s…`}
+                />
                 <SortDropdown value={sort} onChange={handleSortChange} options={SORT_OPTIONS} />
                 </>
               )}
@@ -1512,11 +1531,11 @@ export default function FoldersPage({ type }) {
       )}
 
       {/* Groups with their binders */}
-      {groups.map((group, idx) => (
+      {filteredGroups.map((group, idx) => (
         <GroupSection
           key={group.id}
           group={group}
-          folders={foldersByGroup[group.id] || []}
+          folders={filteredFoldersByGroup[group.id] || []}
           folderMeta={folderMeta}
           priceSource={price_source}
           selectMode={selectMode}
@@ -1533,16 +1552,16 @@ export default function FoldersPage({ type }) {
           onMoveUp={() => reorderGroup(group, 'up')}
           onMoveDown={() => reorderGroup(group, 'down')}
           isFirst={idx === 0}
-          isLast={idx === groups.length - 1}
+          isLast={idx === filteredGroups.length - 1}
         />
       ))}
 
       {/* Ungrouped binders */}
-      {ungroupedFolders.length > 0 && (
+      {filteredUngroupedFolders.length > 0 && (
         <>
-          {groups.length > 0 && <div className={styles.ungroupedHeader}>Ungrouped</div>}
+          {filteredGroups.length > 0 && <div className={styles.ungroupedHeader}>Ungrouped</div>}
           <div className={styles.folderGrid}>
-            {ungroupedFolders.map(folder => (
+            {filteredUngroupedFolders.map(folder => (
               <FolderCard
                 key={folder.id}
                 folder={folder}
@@ -1562,6 +1581,10 @@ export default function FoldersPage({ type }) {
             ))}
           </div>
         </>
+      )}
+
+      {folders.length > 0 && filteredGroups.length === 0 && filteredUngroupedFolders.length === 0 && (
+        <EmptyState>No {noun.toLowerCase()}s match "{folderSearch.trim()}".</EmptyState>
       )}
 
       {/* New Group modal */}

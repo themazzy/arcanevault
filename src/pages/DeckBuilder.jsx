@@ -11,13 +11,15 @@ import {
   importDeckFromUrl, parseTextDecklist,
 } from '../lib/deckBuilderApi'
 import {
-  getLocalCards, getDeckCards, putDeckCards, deleteDeckCardLocal,
+  getLocalCards, getDeckCards, putDeckCards, deleteDeckCardLocal, getMeta, setMeta, getScryfallEntry,
 } from '../lib/db'
 import styles from './DeckBuilder.module.css'
 import DeckStats, { normalizeDeckBuilderCards } from '../components/DeckStats'
+import ExportModal from '../components/ExportModal'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { fetchDeckAllocations, fetchDeckAllocationsForUser, fetchDeckCards, upsertDeckAllocations } from '../lib/deckData'
 import { planDeckAllocations } from '../lib/deckAllocationPlanner'
+import { formatPrice, getPrice } from '../lib/scryfall'
 
 // Upgrade a Scryfall CDN image to large quality regardless of stored size variant
 function toLargeImg(uri) {
@@ -38,6 +40,34 @@ function ColorPip({ color }) {
   return (
     <span className={styles.colorPip} style={{ background: PIP_COLORS[color] || '#666', color: '#000' }}>
       {color}
+    </span>
+  )
+}
+
+function manaSymbolUrl(sym) {
+  return `https://svgs.scryfall.io/card-symbols/${String(sym || '').replace(/[{}]/g, '').replace(/\//g, '').toUpperCase()}.svg`
+}
+
+function ManaCostInline({ cost, size = 14 }) {
+  if (!cost) return <span>&mdash;</span>
+  const sides = String(cost).split(' // ')
+  return (
+    <span className={styles.manaCostInline}>
+      {sides.map((side, sideIndex) => (
+        <span key={`${side}:${sideIndex}`} className={styles.manaCostInline}>
+          {sideIndex > 0 && <span className={styles.manaCostDivider}>//</span>}
+          {(side.match(/\{[^}]+\}/g) || []).map((sym, symIndex) => (
+            <img
+              key={`${sym}:${symIndex}`}
+              className={styles.manaSymbolInline}
+              src={manaSymbolUrl(sym)}
+              alt={sym}
+              loading="lazy"
+              style={{ width: size, height: size }}
+            />
+          ))}
+        </span>
+      ))}
     </span>
   )
 }
@@ -107,7 +137,7 @@ function SearchResultRow({ card, ownedQty, onAdd, addFeedback }) {
           )}
         </div>
         <div className={styles.searchType}>{card.type_line}</div>
-      </div>
+        </div>
       <div className={styles.searchMeta}>
         {ownedQty > 0 && <span className={styles.ownedBadge}>✓ {ownedQty}x</span>}
       </div>
@@ -177,7 +207,7 @@ function EditMenu({ dc, isEDH, onSetCommander, onToggleFoil, onPickVersion }) {
   }, [open])
 
   return (
-    <div ref={ref} style={{ position: 'relative', flexShrink: 0 }}>
+    <div ref={ref} className={styles.editMenuCell}>
       <button
         className={styles.editBtn}
         onClick={e => { e.stopPropagation(); setOpen(v => !v) }}
@@ -213,25 +243,72 @@ function EditMenu({ dc, isEDH, onSetCommander, onToggleFoil, onPickVersion }) {
 }
 
 // ── Deck card row in right panel ──────────────────────────────────────────────
-function DeckCardRow({ dc, ownedQty, ownedAlt, ownedInDeck, inCollDeck, onChangeQty, onRemove, onMouseEnter, onMouseLeave, onMouseMove, onPickVersion, onToggleFoil, onSetCommander, isEDH }) {
+function DeckCardRow({ dc, ownedQty, ownedAlt, ownedInDeck, inCollDeck, onChangeQty, onRemove, onMouseEnter, onMouseLeave, onMouseMove, onPickVersion, onToggleFoil, onSetCommander, isEDH, visibleColumns, listGridTemplate }) {
+  const setLabel = dc.set_code ? `${String(dc.set_code).toUpperCase()}${dc.collector_number ? ` #${dc.collector_number}` : ''}` : '—'
   return (
-    <div className={`${styles.deckCardRow}${dc.is_commander ? ' ' + styles.isCommander : ''}`}>
-      <div className={styles.deckCardLeft} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove}>
+    <div className={`${styles.deckCardRow}${dc.is_commander ? ' ' + styles.isCommander : ''}`} style={{ '--deck-list-columns': listGridTemplate }}>
+      <div className={styles.deckCardLeft}>
         {dc.image_uri
-          ? <img className={styles.deckThumb} src={dc.image_uri} alt="" loading="lazy" />
+          ? <img className={styles.deckThumb} src={dc.image_uri} alt="" loading="lazy" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove} />
           : <div className={styles.deckThumbPlaceholder} />
         }
-        <span className={styles.deckCardName}>{dc.name}</span>
+        <span className={styles.deckCardName} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove}>{dc.name}</span>
         {dc.foil && <span className={styles.foilBadge} title="Foil">✦</span>}
-        <OwnershipBadge ownedQty={ownedQty} ownedAlt={ownedAlt} ownedInDeck={ownedInDeck} inCollDeck={inCollDeck} />
       </div>
-      <EditMenu dc={dc} isEDH={isEDH} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} />
-      <div className={styles.qtyControls}>
-        <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, -1)}>−</button>
-        <span className={styles.qtyVal}>{dc.qty}</span>
-        <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, +1)}>+</button>
+      {visibleColumns.set && <div className={styles.deckCardSet}>{setLabel}</div>}
+      {visibleColumns.status && (
+        <div className={styles.deckCardStatus}>
+          <OwnershipBadge ownedQty={ownedQty} ownedAlt={ownedAlt} ownedInDeck={ownedInDeck} inCollDeck={inCollDeck} />
+        </div>
+      )}
+      {visibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} />}
+      {visibleColumns.qty && (
+        <div className={styles.qtyControls}>
+          <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, -1)}>−</button>
+          <span className={styles.qtyVal}>{dc.qty}</span>
+          <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, +1)}>+</button>
+        </div>
+      )}
+      {visibleColumns.remove && <button className={styles.removeBtn} onClick={() => onRemove(dc.id)}>✕</button>}
+    </div>
+  )
+}
+
+function DeckCardRowV2({
+  dc, ownedQty, ownedAlt, ownedInDeck, inCollDeck,
+  onChangeQty, onRemove, onMouseEnter, onMouseLeave, onMouseMove,
+  onPickVersion, onToggleFoil, onSetCommander, isEDH,
+  visibleColumns, listGridTemplate, priceLabel,
+}) {
+  const setLabel = dc.set_code ? `${String(dc.set_code).toUpperCase()}${dc.collector_number ? ` #${dc.collector_number}` : ''}` : '—'
+  return (
+    <div className={`${styles.deckCardRow}${dc.is_commander ? ' ' + styles.isCommander : ''}`} style={{ '--deck-list-columns': listGridTemplate }}>
+      <div className={styles.deckCardLeft}>
+        {dc.image_uri
+          ? <img className={styles.deckThumb} src={dc.image_uri} alt="" loading="lazy" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove} />
+          : <div className={styles.deckThumbPlaceholder} />
+        }
+        <span className={styles.deckCardName} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove}>{dc.name}</span>
+        {dc.foil && <span className={styles.foilBadge} title="Foil">✦</span>}
       </div>
-      <button className={styles.removeBtn} onClick={() => onRemove(dc.id)}>✕</button>
+      {visibleColumns.set && <div className={styles.deckCardSet}>{setLabel}</div>}
+      {visibleColumns.manaValue && <div className={styles.deckCardMetric}><ManaCostInline cost={dc.mana_cost} size={14} /></div>}
+      {visibleColumns.cmc && <div className={styles.deckCardMetric}>{dc.cmc ?? '—'}</div>}
+      {visibleColumns.price && <div className={styles.deckCardMetric}>{priceLabel}</div>}
+      {visibleColumns.status && (
+        <div className={styles.deckCardStatus}>
+          <OwnershipBadge ownedQty={ownedQty} ownedAlt={ownedAlt} ownedInDeck={ownedInDeck} inCollDeck={inCollDeck} />
+        </div>
+      )}
+      {visibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} />}
+      {visibleColumns.qty && (
+        <div className={styles.qtyControls}>
+          <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, -1)}>−</button>
+          <span className={styles.qtyVal}>{dc.qty}</span>
+          <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, +1)}>+</button>
+        </div>
+      )}
+      {visibleColumns.remove && <button className={styles.removeBtn} onClick={() => onRemove(dc.id)}>✕</button>}
     </div>
   )
 }
@@ -308,6 +385,26 @@ function ComboResultCard({ combo, highlight, deckCardNames, deckImages }) {
 
 // ── Basic lands set ───────────────────────────────────────────────────────────
 const BASIC_LANDS = new Set(['Island', 'Plains', 'Forest', 'Mountain', 'Swamp', 'Wastes'])
+const DEFAULT_LIST_COLUMNS = {
+  set: false,
+  manaValue: true,
+  cmc: false,
+  price: false,
+  status: true,
+  actions: true,
+  qty: true,
+  remove: true,
+}
+const DEFAULT_COMPACT_COLUMNS = {
+  set: false,
+  manaValue: false,
+  cmc: false,
+  price: false,
+  status: false,
+  actions: true,
+  qty: false,
+  remove: true,
+}
 
 // ── Make Deck row ─────────────────────────────────────────────────────────────
 function MakeDeckRow({ item }) {
@@ -1117,7 +1214,7 @@ function VersionPickerModal({ dc, ownedMap, onSelect, onClose }) {
 export default function DeckBuilderPage() {
   const { id: deckId } = useParams()
   const { user }       = useAuth()
-  const { grid_density } = useSettings()
+  const { grid_density, price_source } = useSettings()
   const navigate       = useNavigate()
 
   // Deck state
@@ -1174,6 +1271,10 @@ export default function DeckBuilderPage() {
   const [showRight, setShowRight] = useState(false)
   const [deckSort,    setDeckSort]    = useState('type')   // 'name' | 'cmc' | 'color' | 'type'
   const [groupByType, setGroupByType] = useState(true)
+  const [showColumnMenu, setShowColumnMenu] = useState(false)
+  const [visibleColumns, setVisibleColumns] = useState(DEFAULT_LIST_COLUMNS)
+  const [compactVisibleColumns, setCompactVisibleColumns] = useState(DEFAULT_COMPACT_COLUMNS)
+  const [builderSfMap, setBuilderSfMap] = useState({})
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
 
   // Combos (Commander Spellbook)
@@ -1184,6 +1285,7 @@ export default function DeckBuilderPage() {
 
   // Import
   const [showImport,    setShowImport]    = useState(false)
+  const [showExport,    setShowExport]    = useState(false)
   const [importUrl,     setImportUrl]     = useState('')
   const [importText,    setImportText]    = useState('')
   const [importTab,     setImportTab]     = useState('url') // 'url' | 'text'
@@ -1219,6 +1321,71 @@ export default function DeckBuilderPage() {
   const addFeedbackRef = useRef(null)
   const hoverPreviewKey = useRef(null)
   const hoverPreviewTimer = useRef(null)
+  const columnMenuRef = useRef(null)
+
+  useEffect(() => {
+    let ignore = false
+    getMeta('deckbuilder_visible_columns_v1')
+      .then(saved => {
+        if (ignore || !saved || typeof saved !== 'object') return
+        setVisibleColumns(prev => ({ ...prev, ...saved }))
+      })
+      .catch(() => {})
+    return () => { ignore = true }
+  }, [])
+
+  useEffect(() => {
+    let ignore = false
+    getMeta('deckbuilder_compact_visible_columns_v1')
+      .then(saved => {
+        if (ignore || !saved || typeof saved !== 'object') return
+        setCompactVisibleColumns(prev => ({ ...prev, ...saved }))
+      })
+      .catch(() => {})
+    return () => { ignore = true }
+  }, [])
+
+  useEffect(() => {
+    setMeta('deckbuilder_visible_columns_v1', visibleColumns).catch(() => {})
+  }, [visibleColumns])
+
+  useEffect(() => {
+    setMeta('deckbuilder_compact_visible_columns_v1', compactVisibleColumns).catch(() => {})
+  }, [compactVisibleColumns])
+
+  useEffect(() => {
+    const onDocMouseDown = (e) => {
+      if (columnMenuRef.current && !columnMenuRef.current.contains(e.target)) {
+        setShowColumnMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    return () => document.removeEventListener('mousedown', onDocMouseDown)
+  }, [])
+
+  useEffect(() => {
+    if (deckView !== 'list' && deckView !== 'compact') setShowColumnMenu(false)
+  }, [deckView])
+
+  useEffect(() => {
+    let cancelled = false
+    const keys = [...new Set(deckCards
+      .map(dc => (dc.set_code && dc.collector_number) ? `${dc.set_code}-${dc.collector_number}` : null)
+      .filter(Boolean))]
+    if (!keys.length) {
+      setBuilderSfMap({})
+      return
+    }
+    Promise.all(keys.map(async key => [key, await getScryfallEntry(key)]))
+      .then(entries => {
+        if (cancelled) return
+        setBuilderSfMap(Object.fromEntries(entries.filter(([, value]) => !!value)))
+      })
+      .catch(() => {
+        if (!cancelled) setBuilderSfMap({})
+      })
+    return () => { cancelled = true }
+  }, [deckCards])
 
   useEffect(() => { deckCardsRef.current = deckCards }, [deckCards])
 
@@ -1394,6 +1561,29 @@ export default function DeckBuilderPage() {
     (ownedMap.get(dc.scryfall_id) ?? 0) > 0 ||
     (ownedNameMap.get((dc.name || '').toLowerCase()) ?? 0) > 0
   ).length, [deckCards, ownedMap, ownedNameMap])
+  const listGridTemplate = useMemo(() => {
+    const cols = ['minmax(0, 1fr)']
+    if (visibleColumns.set) cols.push('88px')
+    if (visibleColumns.manaValue) cols.push('88px')
+    if (visibleColumns.cmc) cols.push('56px')
+    if (visibleColumns.price) cols.push('78px')
+    if (visibleColumns.status) cols.push('94px')
+    if (visibleColumns.actions) cols.push('64px')
+    if (visibleColumns.qty) cols.push('58px')
+    if (visibleColumns.remove) cols.push('56px')
+    return cols.join(' ')
+  }, [visibleColumns])
+
+  const activeColumns = deckView === 'compact' ? compactVisibleColumns : visibleColumns
+  const setActiveColumns = deckView === 'compact' ? setCompactVisibleColumns : setVisibleColumns
+
+  const getDeckCardPriceLabel = useCallback((dc) => {
+    if (!dc?.set_code || !dc?.collector_number) return '—'
+    const sf = builderSfMap[`${dc.set_code}-${dc.collector_number}`]
+    if (!sf) return '—'
+    const price = getPrice(sf, dc.foil, { price_source })
+    return price != null ? formatPrice(price, price_source) : '—'
+  }, [builderSfMap, price_source])
   const colorIdentity  = useMemo(() => {
     const cols = new Set()
     for (const c of commanderCards) for (const col of (c.color_identity || [])) cols.add(col)
@@ -2515,6 +2705,50 @@ export default function DeckBuilderPage() {
         >📋 Deck</button>
       </div>
 
+      <div className={styles.deckHeader}>
+        <input
+          className={styles.deckNameInput}
+          value={deckName}
+          onChange={e => setDeckName(e.target.value)}
+          onBlur={saveNameBlur}
+        />
+        <div className={styles.deckMeta}>
+          {saving && <span className={styles.savingDot} />}
+        </div>
+        <div className={styles.headerActions}>
+          {(isCollectionDeck || deckMeta.linked_deck_id) && (
+            <button className={styles.headerBtnPrimary} onClick={() => setShowSync(true)} disabled={syncRunning}>
+              {syncRunning ? 'Syncing...' : 'Sync'}
+            </button>
+          )}
+          <button className={styles.headerBtn} onClick={() => { setShowImport(true); setImportDone(null); setImportError(null) }}>
+            Import
+          </button>
+          <button className={styles.headerBtn} onClick={() => setShowExport(true)}>
+            Export
+          </button>
+          <button
+            className={styles.headerBtn}
+            onClick={() => {
+              navigator.clipboard.writeText(window.location.origin + (import.meta.env.BASE_URL || '/').replace(/\/$/, '') + '/d/' + deckId)
+              setShareCopied(true)
+              setTimeout(() => setShareCopied(false), 2000)
+            }}
+            title="Copy shareable link"
+          >
+            {shareCopied ? 'Copied' : 'Share'}
+          </button>
+          {!isCollectionDeck && !deckMeta.linked_deck_id && (
+            <button className={styles.headerBtnPrimary} onClick={() => setShowMakeDeck(true)} disabled={makeDeckRunning}>
+              {makeDeckRunning ? 'Creating...' : 'Make Collection Deck'}
+            </button>
+          )}
+          <Link className={styles.headerLink} to="/builder">
+            Back to Decks
+          </Link>
+        </div>
+      </div>
+
       {/* ── LEFT PANEL ─────────────────────────────────────────── */}
       <div className={styles.left}>
         {/* Mobile panel toggle — rendered outside the left panel so it stays visible */}
@@ -2683,41 +2917,6 @@ export default function DeckBuilderPage() {
 
       {/* ── RIGHT PANEL ────────────────────────────────────────── */}
       <div className={styles.right}>
-        {/* Deck header */}
-        <div className={styles.deckHeader}>
-          <input
-            className={styles.deckNameInput}
-            value={deckName}
-            onChange={e => setDeckName(e.target.value)}
-            onBlur={saveNameBlur}
-          />
-          <div className={styles.deckMeta}>
-            {saving && <span className={styles.savingDot} />}
-          </div>
-          <button className={styles.importBtn} onClick={() => { setShowImport(true); setImportDone(null); setImportError(null) }}>
-            ↓ Import
-          </button>
-          <button
-            className={styles.shareBtn}
-            onClick={() => {
-              navigator.clipboard.writeText(window.location.origin + (import.meta.env.BASE_URL || '/').replace(/\/$/, '') + '/d/' + deckId)
-              setShareCopied(true)
-              setTimeout(() => setShareCopied(false), 2000)
-            }}
-            title="Copy shareable link"
-          >
-            {shareCopied ? '✓ Copied' : '⧉ Share'}
-          </button>
-          {!isCollectionDeck && !deckMeta.linked_deck_id && (
-            <button className={styles.importBtn} onClick={() => setShowMakeDeck(true)} disabled={makeDeckRunning}>
-              {makeDeckRunning ? 'Creating…' : '⊕ Make Collection Deck'}
-            </button>
-          )}
-          <Link to="/builder" style={{ fontSize: '0.8rem', color: 'var(--text-faint)', textDecoration: 'none' }}>
-            ← Decks
-          </Link>
-        </div>
-
         {/* Commander art display — supports partners */}
         {commanderCards.length > 0 && (
           <div className={styles.cmdArt}>
@@ -2840,6 +3039,40 @@ export default function DeckBuilderPage() {
                   title="Toggle type grouping">
                   ≡ Grouped
                 </button>
+                {(deckView === 'list' || deckView === 'compact') && (
+                  <div className={styles.columnMenuWrap} ref={columnMenuRef}>
+                    <button
+                      className={styles.groupToggle}
+                      onClick={() => setShowColumnMenu(v => !v)}
+                      title="Choose visible columns"
+                    >
+                      Columns
+                    </button>
+                    {showColumnMenu && (
+                      <div className={styles.columnMenu}>
+                        {[
+                          ['set', 'Set'],
+                          ['manaValue', 'Mana Value'],
+                          ['cmc', 'CMC'],
+                          ['price', 'Price'],
+                          ['status', 'Status'],
+                          ['actions', 'Actions'],
+                          ['qty', 'Qty'],
+                          ['remove', 'Remove'],
+                        ].map(([key, label]) => (
+                          <label key={key} className={styles.columnMenuItem}>
+                            <input
+                              type="checkbox"
+                              checked={activeColumns[key]}
+                              onChange={() => setActiveColumns(prev => ({ ...prev, [key]: !prev[key] }))}
+                            />
+                            <span>{label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -2866,6 +3099,9 @@ export default function DeckBuilderPage() {
                 onToggleFoil:  toggleFoil,
                 onSetCommander: setCardAsCommander,
                 isEDH,
+                visibleColumns,
+                listGridTemplate,
+                priceLabel: getDeckCardPriceLabel(dc),
               })
 
               const renderCard = (dc) => {
@@ -2902,30 +3138,38 @@ export default function DeckBuilderPage() {
                 if (deckView === 'compact') return (
                   <div key={dc.id} className={`${styles.compactRow}${dc.is_commander ? ' '+styles.isCommander : ''}`}>
                     <span className={styles.compactQty}>{dc.qty}</span>
-                    {dc.foil && <span className={styles.foilBadge} title="Foil">✦</span>}
                     <span className={styles.compactName}
                       onMouseEnter={e => showHoverPreviewForDeckCard(dc, e)}
                       onMouseLeave={() => clearHoverPreview()}
                       onMouseMove={e => setHoverPos({ x: e.clientX, y: e.clientY })}>
                       {dc.name}
                     </span>
-                    <OwnershipBadge
-                      ownedQty={ownedMap.get(dc.scryfall_id) ?? 0}
-                      ownedAlt={ownedNameMap.get((dc.name || '').toLowerCase()) ?? 0}
-                      ownedInDeck={allocationSetHas(inOtherDeckSet, dc)}
-                      inCollDeck={allocationSetHas(collDeckSfSet, dc)}
-                    />
-                    <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} />
-                    <div className={styles.qtyControls}>
-                      <button className={styles.qtyBtn} onClick={() => changeQty(dc.id, -1)}>−</button>
-                      <span className={styles.qtyVal}>{dc.qty}</span>
-                      <button className={styles.qtyBtn} onClick={() => changeQty(dc.id, +1)}>+</button>
-                    </div>
-                    <button className={styles.removeBtn} onClick={() => removeCardFromDeck(dc.id)}>✕</button>
+                    {dc.foil && <span className={styles.foilBadge} title="Foil">✦</span>}
+                    {compactVisibleColumns.set && <span className={styles.compactMeta}>{dc.set_code ? `${String(dc.set_code).toUpperCase()}${dc.collector_number ? ` #${dc.collector_number}` : ''}` : '—'}</span>}
+                    {compactVisibleColumns.manaValue && <span className={styles.compactMeta}><ManaCostInline cost={dc.mana_cost} size={13} /></span>}
+                    {compactVisibleColumns.cmc && <span className={styles.compactMeta}>{dc.cmc ?? '—'}</span>}
+                    {compactVisibleColumns.price && <span className={styles.compactMeta}>{getDeckCardPriceLabel(dc)}</span>}
+                    {compactVisibleColumns.status && (
+                      <OwnershipBadge
+                        ownedQty={ownedMap.get(dc.scryfall_id) ?? 0}
+                        ownedAlt={ownedNameMap.get((dc.name || '').toLowerCase()) ?? 0}
+                        ownedInDeck={allocationSetHas(inOtherDeckSet, dc)}
+                        inCollDeck={allocationSetHas(collDeckSfSet, dc)}
+                      />
+                    )}
+                    {compactVisibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} />}
+                    {compactVisibleColumns.qty && (
+                      <div className={styles.qtyControls}>
+                        <button className={styles.qtyBtn} onClick={() => changeQty(dc.id, -1)}>−</button>
+                        <span className={styles.qtyVal}>{dc.qty}</span>
+                        <button className={styles.qtyBtn} onClick={() => changeQty(dc.id, +1)}>+</button>
+                      </div>
+                    )}
+                    {compactVisibleColumns.remove && <button className={styles.removeBtn} onClick={() => removeCardFromDeck(dc.id)}>✕</button>}
                   </div>
                 )
                 // list view
-                return <DeckCardRow key={dc.id} {...deckRowProps(dc)} />
+                return <DeckCardRowV2 key={dc.id} {...deckRowProps(dc)} />
               }
 
               if (groupByType) {
@@ -2958,7 +3202,24 @@ export default function DeckBuilderPage() {
                       </div>
                       {!collapsed && (deckView === 'visual'
                         ? <div className={styles.visualGrid} style={{ '--deckbuilder-grid-min': `${visualCardMinWidth}px` }}>{cards.map(dc => renderCard(dc))}</div>
-                        : cards.map(dc => renderCard(dc))
+                        : (
+                          <>
+                            {deckView === 'list' && (
+                              <div className={styles.deckListHeader} style={{ '--deck-list-columns': listGridTemplate }}>
+                                <span className={styles.deckListHeaderCard}>Card</span>
+                                {visibleColumns.set && <span className={styles.deckListHeaderSet}>Set</span>}
+                                {visibleColumns.manaValue && <span className={styles.deckListHeaderMetric}>Mana Value</span>}
+                                {visibleColumns.cmc && <span className={styles.deckListHeaderMetric}>CMC</span>}
+                                {visibleColumns.price && <span className={styles.deckListHeaderMetric}>Price</span>}
+                                {visibleColumns.status && <span className={styles.deckListHeaderStatus}>Status</span>}
+                                {visibleColumns.actions && <span className={styles.deckListHeaderActions}>Actions</span>}
+                                {visibleColumns.qty && <span className={styles.deckListHeaderQty}>Qty</span>}
+                                {visibleColumns.remove && <span className={styles.deckListHeaderRemove}>Remove</span>}
+                              </div>
+                            )}
+                            {cards.map(dc => renderCard(dc))}
+                          </>
+                        )
                       )}
                     </div>
                   )
@@ -2966,9 +3227,27 @@ export default function DeckBuilderPage() {
               }
 
               // Flat (no grouping)
-              return deckView === 'visual'
-                ? <div className={styles.visualGrid} style={{ '--deckbuilder-grid-min': `${visualCardMinWidth}px` }}>{sortedDeckCards.map(dc => renderCard(dc))}</div>
-                : sortedDeckCards.map(dc => renderCard(dc))
+              if (deckView === 'visual') {
+                return <div className={styles.visualGrid} style={{ '--deckbuilder-grid-min': `${visualCardMinWidth}px` }}>{sortedDeckCards.map(dc => renderCard(dc))}</div>
+              }
+              return (
+                <>
+                  {deckView === 'list' && (
+                    <div className={styles.deckListHeader} style={{ '--deck-list-columns': listGridTemplate }}>
+                      <span className={styles.deckListHeaderCard}>Card</span>
+                      {visibleColumns.set && <span className={styles.deckListHeaderSet}>Set</span>}
+                      {visibleColumns.manaValue && <span className={styles.deckListHeaderMetric}>Mana Value</span>}
+                      {visibleColumns.cmc && <span className={styles.deckListHeaderMetric}>CMC</span>}
+                      {visibleColumns.price && <span className={styles.deckListHeaderMetric}>Price</span>}
+                      {visibleColumns.status && <span className={styles.deckListHeaderStatus}>Status</span>}
+                      {visibleColumns.actions && <span className={styles.deckListHeaderActions}>Actions</span>}
+                      {visibleColumns.qty && <span className={styles.deckListHeaderQty}>Qty</span>}
+                      {visibleColumns.remove && <span className={styles.deckListHeaderRemove}>Remove</span>}
+                    </div>
+                  )}
+                  {sortedDeckCards.map(dc => renderCard(dc))}
+                </>
+              )
             })()}
           </div>
         )}
@@ -3062,11 +3341,6 @@ export default function DeckBuilderPage() {
             </>
           ) : (
             <>
-              {(isCollectionDeck || deckMeta.linked_deck_id) && (
-                <button className={styles.convertBtn} onClick={() => setShowSync(true)} disabled={syncRunning}>
-                  {syncRunning ? 'Syncing…' : 'Sync →'}
-                </button>
-              )}
               {!isCollectionDeck && deckMeta.linked_deck_id && (
                 <div style={{ fontSize:'0.74rem', color:'var(--text-faint)', textAlign:'center', marginTop:2 }}>↔ linked to collection deck</div>
               )}
@@ -3083,6 +3357,16 @@ export default function DeckBuilderPage() {
           inOtherDeckSet={inOtherDeckSet}
           onConfirm={handleMakeDeck}
           onClose={() => setShowMakeDeck(false)}
+        />
+      )}
+
+      {showExport && (
+        <ExportModal
+          cards={deckCards}
+          sfMap={{}}
+          title={deckName || 'Deck'}
+          folderType="deck"
+          onClose={() => setShowExport(false)}
         />
       )}
 
