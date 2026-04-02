@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { sb } from '../lib/supabase'
+import { fetchCardsByNames } from '../lib/deckBuilderApi'
 import styles from './Auth.module.css'
 
 const AuthContext = createContext(null)
@@ -34,16 +35,22 @@ function useCardArts(cardNames) {
   const [arts, setArts] = useState([])
   useEffect(() => {
     let cancelled = false
-    Promise.all(
-      cardNames.map(name =>
-        fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=json`)
-          .then(r => r.json())
-          .then(d => d.image_uris?.art_crop || d.card_faces?.[0]?.image_uris?.art_crop || null)
-          .catch(() => null)
-      )
-    ).then(results => { if (!cancelled) setArts(results.filter(Boolean)) })
+    fetchCardsByNames(cardNames)
+      .then(results => {
+        if (cancelled) return
+        const byName = new Map(results.map(card => [card.name, card]))
+        setArts(
+          cardNames
+            .map(name => {
+              const d = byName.get(name)
+              return d?.image_uris?.art_crop || d?.card_faces?.[0]?.image_uris?.art_crop || null
+            })
+            .filter(Boolean)
+        )
+      })
+      .catch(() => { if (!cancelled) setArts([]) })
     return () => { cancelled = true }
-  }, []) // eslint-disable-line
+  }, [cardNames]) // eslint-disable-line react-hooks/exhaustive-deps
   return arts
 }
 
@@ -52,19 +59,23 @@ function useCardImages(cardNames) {
   const [images, setImages] = useState([])
   useEffect(() => {
     let cancelled = false
-    Promise.all(
-      cardNames.map(name =>
-        fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=json`)
-          .then(r => r.json())
-          .then(d => ({
-            name: d.name,
-            src: d.image_uris?.normal || d.card_faces?.[0]?.image_uris?.normal || null,
-          }))
-          .catch(() => null)
-      )
-    ).then(results => { if (!cancelled) setImages(results.filter(r => r?.src)) })
+    fetchCardsByNames(cardNames)
+      .then(results => {
+        if (cancelled) return
+        const byName = new Map(results.map(card => [card.name, card]))
+        setImages(
+          cardNames
+            .map(name => {
+              const d = byName.get(name)
+              const src = d?.image_uris?.normal || d?.card_faces?.[0]?.image_uris?.normal || null
+              return src ? { name: d.name, src } : null
+            })
+            .filter(Boolean)
+        )
+      })
+      .catch(() => { if (!cancelled) setImages([]) })
     return () => { cancelled = true }
-  }, []) // eslint-disable-line
+  }, [cardNames]) // eslint-disable-line react-hooks/exhaustive-deps
   return images
 }
 
