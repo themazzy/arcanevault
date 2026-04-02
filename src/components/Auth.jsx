@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { sb } from '../lib/supabase'
 import styles from './Auth.module.css'
 
@@ -69,7 +69,7 @@ function useCardImages(cardNames) {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────
-const BG_CARDS = [
+const BG_CARD_POOL = [
   'Urborg, Tomb of Yawgmoth',
   'Emrakul, the Promised End',
   'Jace, the Mind Sculptor',
@@ -78,7 +78,7 @@ const BG_CARDS = [
   'Force of Will',
 ]
 
-const GALLERY_CARDS = [
+const GALLERY_CARD_POOL = [
   'Yawgmoth, Thran Physician',
   'Elesh Norn, Grand Cenobite',
   'Ugin, the Spirit Dragon',
@@ -93,8 +93,44 @@ const GALLERY_CARDS = [
   'Nicol Bolas, Planeswalker',
 ]
 
-const COLLECTION_CARDS = ['Lightning Bolt', 'Sol Ring', 'Mana Crypt', 'Force of Will', 'Cyclonic Rift', 'Rhystic Study']
-const BUILDER_CARDS    = ["Atraxa, Praetors' Voice", 'Doubling Season', 'Demonic Tutor', 'The One Ring', 'Sylvan Library', 'Vampiric Tutor']
+const COLLECTION_CARD_POOL = [
+  'Lightning Bolt',
+  'Sol Ring',
+  'Mana Crypt',
+  'Force of Will',
+  'Cyclonic Rift',
+  'Rhystic Study',
+  'Smothering Tithe',
+  'Ancient Copper Dragon',
+  'Mana Vault',
+  'Dockside Extortionist',
+  'Sensei\'s Divining Top',
+  'Swords to Plowshares',
+]
+
+const BUILDER_CARD_POOL = [
+  "Atraxa, Praetors' Voice",
+  'Doubling Season',
+  'Demonic Tutor',
+  'The One Ring',
+  'Sylvan Library',
+  'Vampiric Tutor',
+  'Mana Drain',
+  'Jeska\'s Will',
+  'Cyclonic Rift',
+  'Deflecting Swat',
+  'Teferi\'s Protection',
+  'Birds of Paradise',
+]
+
+function shuffleAndTake(cards, count) {
+  const copy = [...cards]
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[copy[i], copy[j]] = [copy[j], copy[i]]
+  }
+  return copy.slice(0, count)
+}
 
 const FEATURES = [
   {
@@ -138,27 +174,6 @@ const FEATURES = [
     title: 'Sharing and Planning',
     desc: 'Share decks, compare ideas, and keep collection decks aligned with the cards you actually own.',
     stat: 'Shareable decks and collection sync',
-  },
-]
-
-const STEPS = [
-  {
-    number: '01',
-    title: 'Scan or Search',
-    desc: 'Use your phone camera to add cards quickly, or search by name, set, or collector number when you want a specific printing.',
-    cards: COLLECTION_CARDS.slice(0, 3),
-  },
-  {
-    number: '02',
-    title: 'Organise Everything',
-    desc: 'Sort cards into binders, assemble decks, and build wishlists. Move cards with bulk actions or import an entire collection from a Manabox CSV export.',
-    cards: BUILDER_CARDS.slice(0, 3),
-  },
-  {
-    number: '03',
-    title: 'Track Profit and Loss',
-    desc: 'Market prices update daily. Historical snapshots chart how your collection changes so you can follow value across cards and decks.',
-    cards: COLLECTION_CARDS.slice(3, 6),
   },
 ]
 
@@ -222,10 +237,35 @@ export function LoginPage({ forcedMode = null }) {
   const [success, setSuccess]   = useState('')
   const [loading, setLoading]   = useState(false)
 
-  const bgArts         = useCardArts(BG_CARDS)
-  const galleryImages  = useCardImages(GALLERY_CARDS)
-  const collectionArts = useCardArts(COLLECTION_CARDS)
-  const builderArts    = useCardArts(BUILDER_CARDS)
+  const bgCards = useMemo(() => shuffleAndTake(BG_CARD_POOL, 6), [])
+  const galleryCards = useMemo(() => shuffleAndTake(GALLERY_CARD_POOL, 12), [])
+  const collectionCards = useMemo(() => shuffleAndTake(COLLECTION_CARD_POOL, 6), [])
+  const builderCards = useMemo(() => shuffleAndTake(BUILDER_CARD_POOL, 6), [])
+  const steps = useMemo(() => ([
+    {
+      number: '01',
+      title: 'Scan or Search',
+      desc: 'Use your phone camera to add cards quickly, or search by name, set, or collector number when you want a specific printing.',
+      cards: collectionCards.slice(0, 3),
+    },
+    {
+      number: '02',
+      title: 'Organise Everything',
+      desc: 'Sort cards into binders, assemble decks, and build wishlists. Move cards with bulk actions or import an entire collection from a Manabox CSV export.',
+      cards: builderCards.slice(0, 3),
+    },
+    {
+      number: '03',
+      title: 'Track Profit and Loss',
+      desc: 'Market prices update daily. Historical snapshots chart how your collection changes so you can follow value across cards and decks.',
+      cards: collectionCards.slice(3, 6),
+    },
+  ]), [builderCards, collectionCards])
+
+  const bgArts         = useCardArts(bgCards)
+  const galleryImages  = useCardImages(galleryCards)
+  const collectionArts = useCardArts(collectionCards)
+  const builderArts    = useCardArts(builderCards)
 
   useEffect(() => {
     if (forcedMode) setMode(forcedMode)
@@ -282,7 +322,7 @@ export function LoginPage({ forcedMode = null }) {
 
       {/* ── Cinematic art background ── */}
       <div className={styles.artBg}>
-        {BG_CARDS.map((_, i) => (
+        {bgCards.map((_, i) => (
           <div
             key={i}
             className={styles.artTile}
@@ -525,7 +565,7 @@ export function LoginPage({ forcedMode = null }) {
         <div className={styles.sectionLabel} style={{ justifyContent: 'center' }}>How it works</div>
         <h2 className={styles.sectionTitle} style={{ textAlign: 'center' }}>From unboxed to organised in minutes</h2>
         <div className={styles.steps}>
-          {STEPS.map((step, si) => (
+          {steps.map((step, si) => (
             <div key={step.number} className={styles.step}>
               <div className={styles.stepNumber}>{step.number}</div>
               <div className={styles.stepContent}>
@@ -577,7 +617,7 @@ export function LoginPage({ forcedMode = null }) {
               { value: 'Prices', label: 'Follow deck and card value' },
             ]}
             highlights={['Locations', 'Printings', 'Wishlists']}
-            cards={COLLECTION_CARDS}
+            cards={collectionCards}
             arts={collectionArts}
           />
           <AppPanel
@@ -591,7 +631,7 @@ export function LoginPage({ forcedMode = null }) {
               { value: 'Combos', label: 'Review lines and package ideas' },
             ]}
             highlights={['Recommendations', 'Collection Decks', 'Sharing']}
-            cards={BUILDER_CARDS}
+            cards={builderCards}
             arts={builderArts}
           />
         </div>
