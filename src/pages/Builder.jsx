@@ -119,7 +119,7 @@ export default function BuilderPage() {
     const { data } = await sb.from('folders')
       .select('*')
       .eq('user_id', user.id)
-      .in('type', ['builder', 'deck'])
+      .in('type', ['builder_deck', 'deck'])
       .order('updated_at', { ascending: false })
     // Exclude group folders and collection decks hidden from builder
     const nonGroupDecks = (data || []).filter(f => {
@@ -138,7 +138,7 @@ export default function BuilderPage() {
     const description = JSON.stringify({ format: newFormat })
     const { data, error } = await sb.from('folders').insert({
       user_id:     user.id,
-      type:        'builder',
+      type:        'builder_deck',
       name:        newName.trim(),
       description,
     }).select().single()
@@ -209,7 +209,7 @@ export default function BuilderPage() {
   const filtered = decks
     .filter(d => {
       if (search && !d.name.toLowerCase().includes(search.toLowerCase())) return false
-      if (typeFilter === 'builder' && d.type !== 'builder') return false
+      if (typeFilter === 'builder' && d.type !== 'builder_deck') return false
       if (typeFilter === 'collection' && d.type !== 'deck') return false
       return true
     })

@@ -1267,21 +1267,21 @@ function RecentlyViewedSection({ onCardClick }) {
 // ── Changelog / WIP panel ────────────────────────────────────────────────────
 const CHANGELOG = [
   {
-    version: '2026-03-31',
+    version: '2026-04-02',
     label: 'Latest',
     updates: [
-      'Collection loading and folder membership sync were rebuilt for much faster IDB-first rendering',
-      'Collection ownership and per-folder quantity tracking were tightened so cards, badges, and bulk actions stay accurate',
-      'Wishlists now use the shared card browser patterns, including grid-first browsing and wishlist-only bulk move',
+      'Collection decks now use normalized deck allocations, with deck loading, deck deletion, and collection moves fixed around the new model',
+      'Deck Builder sync and Make Collection Deck now support alternate owned printings, foil-aware matching, and explicit printing selection',
+      'Deck Builder badges, mobile layout, grid controls, DFC previews, and combos tab visibility were improved',
     ],
   },
   {
     version: '2026-03-31',
     label: 'Previous',
     updates: [
-      'Life Tracker gained a unified game log, clearer counter tracking, and stronger low-life/death-state feedback',
-      'Fullscreen and mobile Life Tracker layouts were tightened for short landscape phone screens',
-      'Light theme readability and Android back-button behavior were both improved across the app',
+      'Collection loading and folder membership sync were rebuilt for much faster IDB-first rendering',
+      'Collection ownership and per-folder quantity tracking were tightened so cards, badges, and bulk actions stay accurate',
+      'Wishlists now use the shared card browser patterns, including grid-first browsing and wishlist-only bulk move',
     ],
   },
   {

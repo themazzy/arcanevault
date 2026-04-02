@@ -399,15 +399,19 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
 
       const folderTarget = folderMode ? selectedFolder : (destTab !== 'collection' ? selectedFolder : null)
       if (folderTarget) {
+        const folderType = folders.find(f => f.id === folderTarget)?.type || destTab
         const { data: saved, error: savedErr } = await sb.from('cards')
           .select('id,set_code,collector_number,foil,language,condition')
           .eq('user_id', userId).in('set_code', setCodes)
         if (savedErr) { setError(savedErr.message); setSaving(false); return }
         if (saved?.length) {
           const savedByKey = new Map(saved.map(card => [getOwnedCardKey(card), card]))
-          const { data: existingLinks, error: linksErr } = await sb.from('folder_cards')
-            .select('card_id,qty')
-            .eq('folder_id', folderTarget)
+          const placementTable = folderType === 'deck' ? 'deck_allocations' : 'folder_cards'
+          const placementKey = folderType === 'deck' ? 'deck_id' : 'folder_id'
+          const linkSelect = folderType === 'deck' ? 'card_id,qty' : 'card_id,qty'
+          const { data: existingLinks, error: linksErr } = await sb.from(placementTable)
+            .select(linkSelect)
+            .eq(placementKey, folderTarget)
           if (linksErr) { setError(linksErr.message); setSaving(false); return }
 
           const existingLinkQty = new Map((existingLinks || []).map(link => [link.card_id, link.qty || 1]))
@@ -415,16 +419,18 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
             .map(card => {
               const savedCard = savedByKey.get(getOwnedCardKey(card))
               if (!savedCard) return null
-              return {
-                folder_id: folderTarget,
+              const base = {
                 card_id: savedCard.id,
                 qty: (existingLinkQty.get(savedCard.id) || 0) + card.qty,
               }
+              return folderType === 'deck'
+                ? { ...base, deck_id: folderTarget, user_id: userId }
+                : { ...base, folder_id: folderTarget }
             })
             .filter(Boolean)
           if (links.length) {
-            const { error: linkSaveErr } = await sb.from('folder_cards')
-              .upsert(links, { onConflict: 'folder_id,card_id' })
+            const { error: linkSaveErr } = await sb.from(placementTable)
+              .upsert(links, { onConflict: `${placementKey},card_id` })
             if (linkSaveErr) { setError(linkSaveErr.message); setSaving(false); return }
           }
         }

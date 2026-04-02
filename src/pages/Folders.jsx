@@ -173,6 +173,71 @@ function isGroupFolder(f) {
   return parseFolderDesc(f.description).isGroup === true
 }
 
+async function fetchFolderPlacementRows(folder) {
+  if (!folder) return []
+  if (folder.type === 'deck') {
+    const { data, error } = await sb.from('deck_allocations').select('id, card_id, qty').eq('deck_id', folder.id)
+    if (error) throw error
+    return (data || []).map(row => ({ ...row, table: 'deck_allocations' }))
+  }
+  const { data, error } = await sb.from('folder_cards').select('id, card_id, qty').eq('folder_id', folder.id)
+  if (error) throw error
+  return (data || []).map(row => ({ ...row, table: 'folder_cards' }))
+}
+
+async function upsertPlacementRows(targetFolder, rows) {
+  if (!targetFolder || !rows?.length) return
+  const cardIds = [...new Set(rows.map(row => row.card_id).filter(Boolean))]
+  if (!cardIds.length) return
+
+  if (targetFolder.type === 'deck') {
+    const { data: existingRows, error } = await sb.from('deck_allocations')
+      .select('id, card_id, qty')
+      .eq('deck_id', targetFolder.id)
+      .in('card_id', cardIds)
+    if (error) throw error
+
+    const existingMap = new Map((existingRows || []).map(row => [row.card_id, row]))
+    const inserts = []
+    for (const row of rows) {
+      const existing = existingMap.get(row.card_id)
+      if (existing) {
+        const { error: updateErr } = await sb.from('deck_allocations').update({ qty: (existing.qty || 0) + (row.qty || 0) }).eq('id', existing.id)
+        if (updateErr) throw updateErr
+      } else {
+        inserts.push({ id: crypto.randomUUID(), deck_id: targetFolder.id, user_id: targetFolder.user_id, card_id: row.card_id, qty: row.qty || 0 })
+      }
+    }
+    if (inserts.length) {
+      const { error: insertErr } = await sb.from('deck_allocations').insert(inserts)
+      if (insertErr) throw insertErr
+    }
+    return
+  }
+
+  const { data: existingRows, error } = await sb.from('folder_cards')
+    .select('id, card_id, qty')
+    .eq('folder_id', targetFolder.id)
+    .in('card_id', cardIds)
+  if (error) throw error
+
+  const existingMap = new Map((existingRows || []).map(row => [row.card_id, row]))
+  const inserts = []
+  for (const row of rows) {
+    const existing = existingMap.get(row.card_id)
+    if (existing) {
+      const { error: updateErr } = await sb.from('folder_cards').update({ qty: (existing.qty || 0) + (row.qty || 0) }).eq('id', existing.id)
+      if (updateErr) throw updateErr
+    } else {
+      inserts.push({ folder_id: targetFolder.id, card_id: row.card_id, qty: row.qty || 0 })
+    }
+  }
+  if (inserts.length) {
+    const { error: insertErr } = await sb.from('folder_cards').insert(inserts)
+    if (insertErr) throw insertErr
+  }
+}
+
 // ── GroupSection ──────────────────────────────────────────────────────────────
 function GroupSection({ group, folders, folderMeta, priceSource, selectMode, selectedIds,
   onToggleSelect, onEnterSelectMode, onOpenFolder, onDeleteGroup, onRenameGroup,
@@ -832,19 +897,12 @@ function DeleteFolderModal({ folder, onDone, onCancel }) {
   const handleConfirm = async () => {
     setBusy(true)
     if (mode === 'binder' || mode === 'deck') {
-      const { data: fc } = await sb.from('folder_cards').select('card_id, qty').eq('folder_id', folder.id)
-      for (const { card_id, qty } of fc || []) {
-        const { data: existing } = await sb.from('folder_cards')
-          .select('id, qty').eq('folder_id', targetId).eq('card_id', card_id).maybeSingle()
-        if (existing) {
-          await sb.from('folder_cards').update({ qty: existing.qty + qty }).eq('id', existing.id)
-        } else {
-          await sb.from('folder_cards').insert({ folder_id: targetId, card_id, qty })
-        }
-      }
+      const targetFolder = allFolders.find(f => f.id === targetId)
+      const rows = await fetchFolderPlacementRows(folder)
+      if (targetFolder) await upsertPlacementRows(targetFolder, rows)
     } else if (mode === 'delete') {
-      const { data: fc } = await sb.from('folder_cards').select('card_id').eq('folder_id', folder.id)
-      const ids = (fc || []).map(r => r.card_id)
+      const rows = await fetchFolderPlacementRows(folder)
+      const ids = rows.map(r => r.card_id)
       await sb.from('folders').delete().eq('id', folder.id)
       if (ids.length) await pruneUnplacedCards(ids)
       onDone()
@@ -976,19 +1034,12 @@ function BulkDeleteModal({ nonEmpty, empty, onDone, onCancel }) {
     setBusy(true)
     for (const folder of nonEmpty) {
       if (mode === 'binder' || mode === 'deck') {
-        const { data: fc } = await sb.from('folder_cards').select('card_id, qty').eq('folder_id', folder.id)
-        for (const { card_id, qty } of fc || []) {
-          const { data: existing } = await sb.from('folder_cards')
-            .select('id, qty').eq('folder_id', targetId).eq('card_id', card_id).maybeSingle()
-          if (existing) {
-            await sb.from('folder_cards').update({ qty: existing.qty + qty }).eq('id', existing.id)
-          } else {
-            await sb.from('folder_cards').insert({ folder_id: targetId, card_id, qty })
-          }
-        }
+        const targetFolder = allFolders.find(f => f.id === targetId)
+        const rows = await fetchFolderPlacementRows(folder)
+        if (targetFolder) await upsertPlacementRows(targetFolder, rows)
       } else if (mode === 'delete') {
-        const { data: fc } = await sb.from('folder_cards').select('card_id').eq('folder_id', folder.id)
-        folder._deleteCardIds = (fc || []).map(r => r.card_id)
+        const rows = await fetchFolderPlacementRows(folder)
+        folder._deleteCardIds = rows.map(r => r.card_id)
       }
     }
     for (const folder of [...nonEmpty, ...empty]) {
@@ -1127,20 +1178,25 @@ export default function FoldersPage({ type }) {
     try {
       const folderIds = folders.map(f => f.id)
       if (!folderIds.length) { setExportAllLoading(false); return }
-      let allFc = [], from = 0
+      let allRows = [], from = 0
       while (true) {
-        const { data: page } = await sb
-          .from('folder_cards')
-          .select('folder_id, qty, cards(name, set_code, collector_number, foil, condition, language, purchase_price)')
-          .in('folder_id', folderIds)
-          .range(from, from + 999)
-        if (page?.length) allFc = [...allFc, ...page]
+        const query = type === 'deck'
+          ? sb.from('deck_allocations_view')
+              .select('deck_id, qty, name, set_code, collector_number, foil, condition, language')
+              .in('deck_id', folderIds)
+          : sb.from('folder_cards')
+              .select('folder_id, qty, cards(name, set_code, collector_number, foil, condition, language, purchase_price)')
+              .in('folder_id', folderIds)
+        const { data: page } = await query.range(from, from + 999)
+        if (page?.length) allRows = [...allRows, ...page]
         if (!page || page.length < 1000) break
         from += 1000
       }
-      const cards = allFc.map(fc => {
-        const folder = folders.find(f => f.id === fc.folder_id)
-        return { ...fc.cards, _folder_qty: fc.qty, _folderName: folder?.name || '', _folderType: folder?.type || type }
+      const cards = allRows.map(row => {
+        const folderId = row.deck_id || row.folder_id
+        const folder = folders.find(f => f.id === folderId)
+        const card = row.cards || row
+        return { ...card, _folder_qty: row.qty, _folderName: folder?.name || '', _folderType: folder?.type || type }
       })
       const sfMap = cards.length ? await loadCardMapWithSharedPrices(cards) : {}
       setExportAllCards(cards)
@@ -1171,28 +1227,35 @@ export default function FoldersPage({ type }) {
     setFolders(foldersData)
 
     const ids = foldersData.map(f => f.id)
-    let allFc = [], fcFrom = 0
+    let allRows = [], fcFrom = 0
     while (true) {
-      const { data: page } = await sb
-        .from('folder_cards')
-        .select('folder_id, qty, cards(set_code, collector_number, foil)')
-        .in('folder_id', ids)
-        .range(fcFrom, fcFrom + 999)
-      if (page?.length) allFc = [...allFc, ...page]
+      const query = type === 'deck'
+        ? sb
+            .from('deck_allocations_view')
+            .select('deck_id, qty, set_code, collector_number, foil')
+            .in('deck_id', ids)
+        : sb
+            .from('folder_cards')
+            .select('folder_id, qty, cards(set_code, collector_number, foil)')
+            .in('folder_id', ids)
+      const { data: page } = await query.range(fcFrom, fcFrom + 999)
+      if (page?.length) allRows = [...allRows, ...page]
       if (!page || page.length < 1000) break
       fcFrom += 1000
     }
 
-    const sfMap = allFc.length ? await loadCardMapWithSharedPrices(allFc.map(row => row.cards).filter(Boolean)) : {}
+    const priceCards = allRows.map(row => row.cards || row).filter(Boolean)
+    const sfMap = priceCards.length ? await loadCardMapWithSharedPrices(priceCards) : {}
     const meta  = {}
     for (const f of foldersData) meta[f.id] = { count: 0, totalQty: 0, value: 0 }
 
-    for (const row of allFc) {
-      const m = meta[row.folder_id]
+    for (const row of allRows) {
+      const folderId = row.deck_id || row.folder_id
+      const m = meta[folderId]
       if (!m) continue
       m.count++
       m.totalQty += row.qty || 1
-      const card = row.cards
+      const card = row.cards || row
       if (card) {
         const sf = sfMap[`${card.set_code}-${card.collector_number}`]
         const p  = getPrice(sf, card.foil, { price_source }) ?? (parseFloat(card.purchase_price) || null)

@@ -12,7 +12,17 @@ export async function pruneUnplacedCards(cardIds) {
 
   if (linksError) throw linksError
 
-  const placedIds = new Set((remainingLinks || []).map(row => row.card_id))
+  const { data: remainingAllocations, error: allocationsError } = await sb
+    .from('deck_allocations')
+    .select('card_id')
+    .in('card_id', uniqueIds)
+
+  if (allocationsError) throw allocationsError
+
+  const placedIds = new Set([
+    ...(remainingLinks || []).map(row => row.card_id),
+    ...(remainingAllocations || []).map(row => row.card_id),
+  ])
   const orphanIds = uniqueIds.filter(id => !placedIds.has(id))
   if (!orphanIds.length) return []
 

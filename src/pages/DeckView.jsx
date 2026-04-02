@@ -5,6 +5,7 @@ import { useAuth } from '../components/Auth'
 import { parseDeckMeta, serializeDeckMeta, FORMATS, groupDeckCards, TYPE_GROUPS } from '../lib/deckBuilderApi'
 import DeckStats, { normalizeDeckBuilderCards } from '../components/DeckStats'
 import styles from './DeckView.module.css'
+import { fetchDeckCards } from '../lib/deckData'
 
 // ── Mana / symbol renderer ────────────────────────────────────────────────────
 // Converts Scryfall notation like {W}, {T}, {2/U}, {X} → inline SVG images.
@@ -165,30 +166,7 @@ export default function DeckViewPage() {
       setDeck(folder)
       setDeckMeta(parseDeckMeta(folder.description))
 
-      const { data: deckCards, error: dcErr } = await sb
-        .from('deck_cards').select('*').eq('deck_id', id)
-        .order('is_commander', { ascending: false })
-      if (dcErr) console.error('[DeckView] deck_cards error:', dcErr)
-
-      // Fallback: collection decks store cards in folder_cards
-      if ((!deckCards || deckCards.length === 0) && folder.type === 'deck') {
-        const { data: fc } = await sb.from('folder_cards').select('*, cards(*)').eq('folder_id', id)
-        if (fc?.length) {
-          setCards(fc.map(r => ({
-            id:           r.id,
-            deck_id:      id,
-            name:         r.cards?.name || '',
-            qty:          r.qty || 1,
-            foil:         r.cards?.foil || false,
-            is_commander: false,
-            type_line:    null,
-            image_uri:    null,
-          })))
-          setLoading(false)
-          return
-        }
-      }
-
+      const deckCards = await fetchDeckCards(id)
       setCards(deckCards || [])
       setLoading(false)
     })()
@@ -241,6 +219,7 @@ export default function DeckViewPage() {
       if (cards.length > 0) {
         const rows = cards.map(c => ({
           deck_id:          newFolder.id,
+          card_print_id:    c.card_print_id || null,
           name:             c.name,
           qty:              c.qty,
           foil:             c.foil || false,

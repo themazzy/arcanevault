@@ -78,6 +78,38 @@ export function getCardImageUri(sfCard, size = 'normal') {
     ?? null
 }
 
+export function getPrimaryFaceData(sfCard) {
+  if (!sfCard) return null
+  return sfCard.card_faces?.[0] || null
+}
+
+export function getDeckBuilderCardMeta(sfCard) {
+  if (!sfCard) {
+    return {
+      scryfall_id: null,
+      set_code: null,
+      collector_number: null,
+      type_line: null,
+      mana_cost: null,
+      cmc: null,
+      color_identity: [],
+      image_uri: null,
+    }
+  }
+
+  const face = getPrimaryFaceData(sfCard)
+  return {
+    scryfall_id: sfCard.id || null,
+    set_code: sfCard.set || null,
+    collector_number: sfCard.collector_number || null,
+    type_line: face?.type_line || sfCard.type_line || null,
+    mana_cost: face?.mana_cost || sfCard.mana_cost || null,
+    cmc: sfCard.cmc ?? null,
+    color_identity: sfCard.color_identity || [],
+    image_uri: getCardImageUri(sfCard, 'normal'),
+  }
+}
+
 // ── EDHRec slug ───────────────────────────────────────────────────────────────
 
 export function nameToSlug(name) {
@@ -143,6 +175,27 @@ export async function fetchCardsByNames(names) {
       }
     } catch {}
     if (i + 75 < names.length) await new Promise(r => setTimeout(r, 150))
+  }
+  return results
+}
+
+export async function fetchCardsByScryfallIds(ids) {
+  if (!ids?.length) return []
+  const results = []
+  for (let i = 0; i < ids.length; i += 75) {
+    const batch = ids.slice(i, i + 75).map(id => ({ id }))
+    try {
+      const res = await fetch(sfUrl(`${SF}/cards/collection`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ identifiers: batch }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        results.push(...(data.data || []))
+      }
+    } catch {}
+    if (i + 75 < ids.length) await new Promise(r => setTimeout(r, 150))
   }
   return results
 }

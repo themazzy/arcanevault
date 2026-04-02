@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { sb } from '../lib/supabase'
 import { getScryfallKey, getPrice, formatPrice } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
-import { getLocalCards, putCards, deleteCard, deleteAllCards, getAllLocalFolderCards, putFolderCards, getLocalFolders, putFolders, setMeta, getMeta, deleteFolder as deleteLocalFolder, replaceLocalFolderCards } from '../lib/db'
+import { getLocalCards, putCards, deleteCard, deleteAllCards, getAllLocalFolderCards, putFolderCards, getLocalFolders, putFolders, setMeta, getMeta, deleteFolder as deleteLocalFolder, replaceLocalFolderCards, getAllDeckAllocationsForUser, putDeckAllocations, replaceDeckAllocations } from '../lib/db'
 import { parseManaboxCSV } from '../lib/csvParser'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
@@ -139,7 +139,8 @@ export default function CollectionPage() {
         const folderById = Object.fromEntries(folderRows.map(f => [f.id, f]))
         const map = {}
         for (const row of linkRows) {
-          const folder = folderById[row.folder_id]
+          const folderId = row.folder_id || row.deck_id
+          const folder = folderById[folderId]
           if (!folder) continue
           if (!map[row.card_id]) map[row.card_id] = []
           map[row.card_id].push({ id: folder.id, name: folder.name, type: folder.type, qty: row.qty || 1 })
@@ -151,9 +152,12 @@ export default function CollectionPage() {
       const localFolders = await getLocalFolders(user.id)
       if (localFolders.length) {
         const ids = localFolders.map(f => f.id)
-        const allFc = await getAllLocalFolderCards(ids)
+        const [allFc, allDa] = await Promise.all([
+          getAllLocalFolderCards(ids.filter(id => localFolders.find(f => f.id === id)?.type !== 'deck')),
+          getAllDeckAllocationsForUser(user.id),
+        ])
         setFolders(localFolders)
-        setCardFolderMap(buildCardFolderMap(localFolders, allFc))
+        setCardFolderMap(buildCardFolderMap(localFolders, [...allFc, ...allDa]))
       }
 
       if (!navigator.onLine) return
@@ -180,49 +184,42 @@ export default function CollectionPage() {
       await putFolders(foldersData)
 
       const folderIds = foldersData.map(f => f.id)
+      const placementFolderIds = foldersData.filter(f => f.type !== 'deck').map(f => f.id)
+      const deckIds = foldersData.filter(f => f.type === 'deck').map(f => f.id)
       const fullSyncKey = `folder_cards_full_sync_${user.id}`
       const deltaSyncKey = `folder_cards_delta_sync_${user.id}`
-      const lastFullSync = await getMeta(fullSyncKey)
-      const lastDeltaSync = await getMeta(deltaSyncKey)
-      const shouldFullSync = !lastFullSync || (Date.now() - new Date(lastFullSync).getTime() > FOLDER_CARDS_FULL_SYNC_MS)
 
-      if (shouldFullSync) {
-        let allFc = [], fcFrom = 0
+      let allFc = [], fcFrom = 0
         while (true) {
           const { data: page } = await sb.from('folder_cards')
             .select('id,card_id,folder_id,qty,updated_at')
-            .in('folder_id', folderIds).range(fcFrom, fcFrom + 999)
+            .in('folder_id', placementFolderIds).range(fcFrom, fcFrom + 999)
           if (page?.length) allFc = [...allFc, ...page]
           if (!page || page.length < 1000) break
           fcFrom += 1000
         }
-        await replaceLocalFolderCards(folderIds, allFc)
-        const syncedAt = new Date().toISOString()
-        await setMeta(fullSyncKey, syncedAt)
-        await setMeta(deltaSyncKey, new Date(Date.now() - FOLDER_CARDS_DELTA_OVERLAP_MS).toISOString())
-        setCardFolderMap(buildCardFolderMap(foldersData, allFc))
-        return
-      }
-
-      if (lastDeltaSync) {
-        let changedRows = [], fcFrom = 0
+      let allDa = []
+      if (deckIds.length) {
+        let daFrom = 0
         while (true) {
-          const { data: page } = await sb.from('folder_cards')
-            .select('id,card_id,folder_id,qty,updated_at')
-            .in('folder_id', folderIds)
-            .gt('updated_at', lastDeltaSync)
-            .order('updated_at', { ascending: true })
-            .range(fcFrom, fcFrom + 999)
-          if (page?.length) changedRows = [...changedRows, ...page]
+          const { data: page } = await sb.from('deck_allocations')
+            .select('id,card_id,deck_id,qty,user_id,updated_at')
+            .eq('user_id', user.id)
+            .in('deck_id', deckIds)
+            .range(daFrom, daFrom + 999)
+          if (page?.length) allDa = [...allDa, ...page]
           if (!page || page.length < 1000) break
-          fcFrom += 1000
+          daFrom += 1000
         }
-        if (changedRows.length) await putFolderCards(changedRows)
       }
 
+      await replaceLocalFolderCards(placementFolderIds, allFc)
+      await replaceDeckAllocations(deckIds, allDa)
+
+      const syncedAt = new Date().toISOString()
+      await setMeta(fullSyncKey, syncedAt)
       await setMeta(deltaSyncKey, new Date(Date.now() - FOLDER_CARDS_DELTA_OVERLAP_MS).toISOString())
-      const localAllFc = await getAllLocalFolderCards(folderIds)
-      setCardFolderMap(buildCardFolderMap(foldersData, localAllFc))
+      setCardFolderMap(buildCardFolderMap(foldersData, [...allFc, ...allDa]))
     }
     loadFolderMembership()
   }, [user.id])
@@ -371,12 +368,22 @@ export default function CollectionPage() {
       }
       totalMissed += missed
 
-      const newLinks = Object.entries(qtyByCardId).map(([cid, qty]) => ({
-        id:        crypto.randomUUID(),
-        folder_id: folderData.id,
-        card_id:   cid,
-        qty,
-      }))
+      const newLinks = Object.entries(qtyByCardId).map(([cid, qty]) => (
+        folder.type === 'deck'
+          ? {
+              id:      crypto.randomUUID(),
+              deck_id: folderData.id,
+              user_id: user.id,
+              card_id: cid,
+              qty,
+            }
+          : {
+              id:        crypto.randomUUID(),
+              folder_id: folderData.id,
+              card_id:   cid,
+              qty,
+            }
+      ))
 
       if (!newLinks.length) {
         console.warn(`[Import] 0 cards could be mapped for "${folder.name}" (${missed} missed)`)
@@ -386,17 +393,19 @@ export default function CollectionPage() {
 
       // Delete old links then re-insert fresh — avoids any constraint ambiguity
       // and makes re-imports idempotent for this folder.
-      const { data: oldLinks } = await sb.from('folder_cards').select('card_id').eq('folder_id', folderData.id)
-      const { error: delErr } = await sb.from('folder_cards').delete().eq('folder_id', folderData.id)
+      const placementTable = folder.type === 'deck' ? 'deck_allocations' : 'folder_cards'
+      const placementKey = folder.type === 'deck' ? 'deck_id' : 'folder_id'
+      const { data: oldLinks } = await sb.from(placementTable).select('card_id').eq(placementKey, folderData.id)
+      const { error: delErr } = await sb.from(placementTable).delete().eq(placementKey, folderData.id)
       if (delErr) console.warn(`[Import] Could not clear old cards for "${folder.name}":`, delErr.message)
 
       // Batch the inserts (Supabase/PostgREST limit ~1 MB per request)
       const FC_BATCH = 500
       let batchOk = true
       for (let bi = 0; bi < newLinks.length; bi += FC_BATCH) {
-        const { error: fce } = await sb.from('folder_cards').insert(newLinks.slice(bi, bi + FC_BATCH))
+        const { error: fce } = await sb.from(placementTable).insert(newLinks.slice(bi, bi + FC_BATCH))
         if (fce) {
-          console.error(`[Import] folder_cards insert failed for "${folder.name}" batch ${bi}:`, fce.message)
+          console.error(`[Import] ${placementTable} insert failed for "${folder.name}" batch ${bi}:`, fce.message)
           batchOk = false; break
         }
       }
@@ -471,17 +480,118 @@ export default function CollectionPage() {
   }
 
   const handleMoveToFolder = async (folder) => {
-    const folderCards = []
+    const selectedRows = []
     const seenIds = new Set()
     for (const key of selected) {
       const card = displayCards.find(c => (c._displayKey || c.id) === key)
       if (!card || seenIds.has(card.id)) continue
       seenIds.add(card.id)
-      const totalQty = card.qty || 1
       const selQty = splitState.get(card.id) ?? 1
-      folderCards.push({ folder_id: folder.id, card_id: card.id, qty: selQty })
+      selectedRows.push({
+        card_id: card.id,
+        qty: selQty,
+        sourceFolder: card._displayFolder || null,
+        sourceQty: card._folder_qty || card.qty || 1,
+      })
     }
-    await sb.from('folder_cards').upsert(folderCards, { onConflict: 'folder_id,card_id', ignoreDuplicates: true })
+
+    if (!selectedRows.length) return
+
+    const placementTable = folder.type === 'deck' ? 'deck_allocations' : 'folder_cards'
+    const placementKey = folder.type === 'deck' ? 'deck_id' : 'folder_id'
+    const existingRows = await sb.from(placementTable)
+      .select('id,card_id,qty')
+      .eq(placementKey, folder.id)
+      .in('card_id', selectedRows.map(row => row.card_id))
+
+    if (existingRows.error) {
+      setError(existingRows.error.message)
+      return
+    }
+
+    const existingQtyByCardId = Object.fromEntries((existingRows.data || []).map(row => [row.card_id, row.qty || 0]))
+    const payload = selectedRows.map(row => (
+      folder.type === 'deck'
+        ? {
+            deck_id: folder.id,
+            user_id: user.id,
+            card_id: row.card_id,
+            qty: row.qty + (existingQtyByCardId[row.card_id] || 0),
+          }
+        : {
+            folder_id: folder.id,
+            card_id: row.card_id,
+            qty: row.qty + (existingQtyByCardId[row.card_id] || 0),
+          }
+    ))
+
+    const { error: moveErr } = await sb
+      .from(placementTable)
+      .upsert(payload, { onConflict: `${placementKey},card_id` })
+
+    if (moveErr) {
+      setError(moveErr.message)
+      return
+    }
+
+    for (const row of selectedRows) {
+      const sourceFolder = row.sourceFolder
+      if (!sourceFolder || sourceFolder.id === folder.id) continue
+
+      const sourceTable = sourceFolder.type === 'deck' ? 'deck_allocations' : 'folder_cards'
+      const sourceKey = sourceFolder.type === 'deck' ? 'deck_id' : 'folder_id'
+      const remaining = row.sourceQty - row.qty
+
+      if (remaining > 0) {
+        const { error: sourceUpdateErr } = await sb
+          .from(sourceTable)
+          .update({ qty: remaining })
+          .eq(sourceKey, sourceFolder.id)
+          .eq('card_id', row.card_id)
+
+        if (sourceUpdateErr) {
+          setError(sourceUpdateErr.message)
+          return
+        }
+      } else {
+        const { error: sourceDeleteErr } = await sb
+          .from(sourceTable)
+          .delete()
+          .eq(sourceKey, sourceFolder.id)
+          .eq('card_id', row.card_id)
+
+        if (sourceDeleteErr) {
+          setError(sourceDeleteErr.message)
+          return
+        }
+      }
+    }
+
+    setCardFolderMap(prev => {
+      const next = { ...prev }
+      for (const row of selectedRows) {
+        const current = [...(next[row.card_id] || [])]
+        if (row.sourceFolder && row.sourceFolder.id !== folder.id) {
+          const sourceIdx = current.findIndex(entry => entry.id === row.sourceFolder.id)
+          if (sourceIdx >= 0) {
+            const remaining = row.sourceQty - row.qty
+            if (remaining > 0) {
+              current[sourceIdx] = { ...current[sourceIdx], qty: remaining }
+            } else {
+              current.splice(sourceIdx, 1)
+            }
+          }
+        }
+        const existingIdx = current.findIndex(entry => entry.id === folder.id)
+        const nextQty = row.qty + (existingQtyByCardId[row.card_id] || 0)
+        const folderEntry = { id: folder.id, name: folder.name, type: folder.type, qty: nextQty }
+        if (existingIdx >= 0) current[existingIdx] = folderEntry
+        else current.push(folderEntry)
+        next[row.card_id] = current
+      }
+      return next
+    })
+
     setSelected(new Set()); setSplitState(new Map()); setSelectMode(false)
   }
 
@@ -578,9 +688,22 @@ export default function CollectionPage() {
 
   // Expand cards that are in multiple folders into separate display entries
   const displayCards = useMemo(() => {
+    const matchesLocationFilter = (folder) => {
+      if (!folder) return filters.location === 'all' && !filters.folderName?.trim()
+      if (filters.location === 'binder' && folder.type !== 'binder') return false
+      if (filters.location === 'deck' && folder.type !== 'deck') return false
+      if (filters.folderName?.trim()) {
+        const q = filters.folderName.trim().toLowerCase()
+        if (!(folder.name || '').toLowerCase().includes(q)) return false
+      }
+      return true
+    }
     const result = []
     for (const card of filtered) {
-      const folders = cardFolderMap[card.id]
+      const allFolders = cardFolderMap[card.id] || []
+      const folders = (filters.location !== 'all' || filters.folderName?.trim())
+        ? allFolders.filter(matchesLocationFilter)
+        : allFolders
       if (folders && folders.length > 1) {
         // One tile per folder membership — badge hidden, each tile is independently selectable
         folders.forEach((f, i) => {
