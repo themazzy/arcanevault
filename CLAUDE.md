@@ -102,15 +102,17 @@ User action
 
 **Key gotcha:** Never use Supabase's nested `select('folder_cards(cards(*))')` — it requires FK relationships configured in PostgREST and silently returns empty. Always do flat queries and join in memory.
 
-### IDB Schema (v3)
+### IDB Schema (v6)
 
 | Store | Key | Description |
 |---|---|---|
 | `scryfall` | `${set_code}-${collector_number}` | Card metadata + prices |
 | `cards` | `id` | User's owned cards |
+| `card_prints` | `id` | Normalized shared print metadata keyed to Scryfall/card print identity |
 | `folders` | `id` | Binders, decks, wishlists, builder decks |
-| `folder_cards` | `id` | Cards ↔ folders join (`qty`, `updated_at` used for incremental sync) |
-| `deck_cards` | `id` | Deck builder cards (independent of collection) |
+| `folder_cards` | `id` | Owned-card placements in binders/lists (`qty`, `updated_at` used for incremental sync) |
+| `deck_cards` | `id` | Deck builder cards: intended deck composition, independent of ownership |
+| `deck_allocations` | `id` | Owned collection cards assigned into collection decks |
 | `meta` | string key | Sync timestamps, cache versions |
 
 ### Pricing
@@ -149,10 +151,11 @@ The same filter logic is duplicated in `CardComponents.jsx` for the non-worker p
 
 `src/pages/Collection.jsx` loads binder/deck membership in two phases:
 
-1. Read `folders` + `folder_cards` from IDB first and build `cardFolderMap` immediately.
+1. Read `folders` + `folder_cards` + `deck_allocations` from IDB first and build `cardFolderMap` immediately.
 2. Sync `folders` from Supabase on every online load.
 3. Sync `folder_cards` incrementally using `folder_cards.updated_at`.
-4. Run a full `folder_cards` reconcile every 10 minutes to catch remote deletes that delta sync cannot see.
+4. Sync `deck_allocations` alongside folder placements because collection decks no longer read from `folder_cards`.
+5. Run a full `folder_cards` reconcile every 10 minutes to catch remote deletes that delta sync cannot see.
 
 Delta sync state is stored in IDB `meta` with:
 - `folder_cards_full_sync_<userId>`
@@ -163,15 +166,23 @@ Required DB pieces:
 - index `folder_cards_updated_at_idx`
 - trigger `folder_cards_updated_at` using `update_updated_at()`
 
-If you change folder membership writes, preserve `updated_at` behavior or collection load performance will regress. Remote folder deletions are handled by syncing `folders` every load and pruning missing local folders; remote `folder_cards` deletions are caught on the periodic full reconcile.
+If you change placement writes, preserve `updated_at` behavior on `folder_cards` and keep `deck_allocations` sync logic aligned or collection/deck badges will drift. Remote folder deletions are handled by syncing `folders` every load and pruning missing local folders; remote `folder_cards` deletions are caught on the periodic full reconcile.
 
 ### Collection Ownership Rules
 
 Owned collection cards cannot exist without at least one binder or collection-deck placement.
 
 - `src/lib/collectionOwnership.js` holds the cleanup helpers for this rule.
-- When removing cards from binders or collection decks, only delete the underlying `cards` row if no `folder_cards` placement remains anywhere else.
+- When removing cards from binders or collection decks, only delete the underlying `cards` row if no `folder_cards` or `deck_allocations` placement remains anywhere else.
 - Deleting a non-empty binder or deck must offer transfer options so cards can be moved instead of being implicitly deleted.
+
+### Deck Model
+
+- `deck_cards` is the source of truth for intended deck contents in Builder.
+- `deck_allocations` is the source of truth for owned cards assigned into collection decks.
+- `folder_cards` is for binder/list placement and should not be used as deck-content truth anymore.
+- Collection deck sync and "Make Collection Deck" must operate on exact owned `cards.id` rows, not just card names.
+- Foil and non-foil must be treated as different exact matches in allocation logic.
 
 ### Wishlist Rules
 
@@ -687,10 +698,12 @@ Processes ~30k+ cards. Downloads `art_crop` images from Scryfall, skips rows alr
 
 - `cards` — user's owned cards, RLS by `user_id`
 - `folders` — type is `'binder' | 'deck' | 'list' | 'builder_deck'`
-- `folder_cards` — links `folder_id` + `card_id` + `qty`
+- `folder_cards` — links `folder_id` + `card_id` + `qty` for binders/lists
+- `deck_allocations` — links `deck_id` + `card_id` + `qty` for owned cards assigned into collection decks
 - `list_items` — wishlist items: `folder_id, name, set_code, collector_number, scryfall_id, foil, qty`
 - `feedback_attachments` — optional screenshots linked to `feedback`; files live in the `assets` storage bucket
 - `deck_cards` — builder deck cards (separate from collection ownership)
+- `card_prints` — normalized print metadata shared across ownership, deck builder, prices, and scanner matching
 - `user_settings` — single row per user, upserted via `SettingsContext`
 - `card_prices` — shared daily market prices keyed by `scryfall_id + snapshot_date`; app keeps only today and yesterday
 - `game_sessions` — multiplayer life tracker sessions; `status`: `'waiting' | 'playing'`

@@ -13,7 +13,7 @@
 import { openDB } from 'idb'
 
 const DB_NAME    = 'arcanevault'
-const DB_VERSION = 4
+const DB_VERSION = 6
 const SCRYFALL_METADATA_UPDATED_AT_KEY = 'scryfall_metadata_updated_at'
 const LEGACY_SCRYFALL_PRICES_UPDATED_AT_KEY = 'scryfall_prices_updated_at'
 
@@ -35,6 +35,12 @@ async function getDb() {
         c.createIndex('user_id',         'user_id')
         c.createIndex('set_code',        'set_code')
         c.createIndex('updated_at',      'updated_at')
+      }
+
+      if (!db.objectStoreNames.contains('card_prints')) {
+        const cp = db.createObjectStore('card_prints', { keyPath: 'id' })
+        cp.createIndex('scryfall_id', 'scryfall_id', { unique: true })
+        cp.createIndex('set_code', 'set_code')
       }
 
       // folder_cards store — links between folders and owned collection cards
@@ -72,6 +78,13 @@ async function getDb() {
           dc.createIndex('deck_id', 'deck_id')
           dc.createIndex('user_id', 'user_id')
         }
+      }
+
+      if (!db.objectStoreNames.contains('deck_allocations')) {
+        const da = db.createObjectStore('deck_allocations', { keyPath: 'id' })
+        da.createIndex('deck_id', 'deck_id')
+        da.createIndex('card_id', 'card_id')
+        da.createIndex('user_id', 'user_id')
       }
     }
   })
@@ -168,6 +181,21 @@ export async function getScannerHashCount() {
 export async function getLocalCards(userId) {
   const db = await getDb()
   return db.getAllFromIndex('cards', 'user_id', userId)
+}
+
+export async function getLocalCardPrints() {
+  const db = await getDb()
+  return db.getAll('card_prints')
+}
+
+export async function putCardPrints(rows) {
+  if (!rows?.length) return
+  const db = await getDb()
+  const tx = db.transaction('card_prints', 'readwrite')
+  await Promise.all([
+    ...rows.map(r => tx.store.put(r)),
+    tx.done,
+  ])
 }
 
 export async function putCards(cards) {
@@ -279,17 +307,48 @@ export async function deleteAllDeckCardsLocal(deckId) {
   await Promise.all([...all.map(r => tx.store.delete(r.id)), tx.done])
 }
 
+export async function getDeckAllocations(deckId) {
+  const db = await getDb()
+  return db.getAllFromIndex('deck_allocations', 'deck_id', deckId)
+}
+
+export async function getAllDeckAllocationsForUser(userId) {
+  const db = await getDb()
+  return db.getAllFromIndex('deck_allocations', 'user_id', userId)
+}
+
+export async function putDeckAllocations(rows) {
+  if (!rows?.length) return
+  const db = await getDb()
+  const tx = db.transaction('deck_allocations', 'readwrite')
+  await Promise.all([...rows.map(r => tx.store.put(r)), tx.done])
+}
+
+export async function replaceDeckAllocations(deckIds, rows) {
+  const ids = [...new Set((deckIds || []).filter(Boolean))]
+  const db = await getDb()
+  const tx = db.transaction('deck_allocations', 'readwrite')
+  for (const deckId of ids) {
+    const existing = await tx.store.index('deck_id').getAll(deckId)
+    for (const row of existing) await tx.store.delete(row.id)
+  }
+  for (const row of rows || []) await tx.store.put(row)
+  await tx.done
+}
+
 // ── Diagnostics ───────────────────────────────────────────────────────────────
 
 export async function getDbStats() {
   const db = await getDb()
-  const [cards, folders, folderCards, scryfall, deckCards] = await Promise.all([
+  const [cards, folders, folderCards, scryfall, deckCards, cardPrints, deckAllocations] = await Promise.all([
     db.count('cards'),
     db.count('folders'),
     db.count('folder_cards'),
     db.count('scryfall'),
     db.count('deck_cards'),
+    db.count('card_prints'),
+    db.count('deck_allocations'),
   ])
   const sfInfo = await getScryfallCacheInfo()
-  return { cards, folders, folderCards, scryfall, deckCards, sfUpdatedAt: sfInfo.updatedAt }
+  return { cards, folders, folderCards, scryfall, deckCards, cardPrints, deckAllocations, sfUpdatedAt: sfInfo.updatedAt }
 }

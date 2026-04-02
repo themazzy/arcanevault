@@ -13,6 +13,7 @@ import styles from './DeckBrowser.module.css'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
 import { useLongPress } from '../hooks/useLongPress'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
+import { fetchDeckAllocations, upsertDeckAllocations } from '../lib/deckData'
 
 // ── Constants (kept for grouping/categorization used in views below) ──────────
 
@@ -624,9 +625,20 @@ export default function DeckBrowser({ folder, onBack }) {
   useEffect(() => {
     const load = async () => {
       setLoading(true)
-      const { data } = await sb.from('folder_cards').select('qty, cards(*)').eq('folder_id', folder.id)
+      const data = await fetchDeckAllocations(folder.id)
       if (data) {
-        const cardList = data.map(row => ({ ...row.cards, _folder_qty: row.qty }))
+        const cardList = data.map(row => ({
+          id: row.card_id,
+          scryfall_id: row.scryfall_id,
+          name: row.name,
+          set_code: row.set_code,
+          collector_number: row.collector_number,
+          foil: row.foil,
+          condition: row.condition,
+          language: row.language,
+          _folder_qty: row.qty,
+          _allocation_id: row.id,
+        }))
         setCards(cardList)
         const map = await loadCardMapWithSharedPrices(cardList)
         if (map) setSfMap({ ...map })
@@ -685,13 +697,12 @@ export default function DeckBrowser({ folder, onBack }) {
       const totalQty = card?._folder_qty || card?.qty || 1
       const selQty = splitState.get(id) ?? 1
       const remaining = totalQty - selQty
-      remaining > 0 ? toUpdate.push({ id, remaining }) : toDelete.push(id)
+      remaining > 0 ? toUpdate.push({ allocId: card?._allocation_id, remaining }) : toDelete.push(card?._allocation_id)
     }
-    if (toDelete.length) await sb.from('folder_cards').delete().eq('folder_id', folder.id).in('card_id', toDelete)
-    for (const { id, remaining } of toUpdate) {
-      await sb.from('folder_cards').update({ qty: remaining }).eq('folder_id', folder.id).eq('card_id', id)
+    if (toDelete.length) await sb.from('deck_allocations').delete().eq('deck_id', folder.id).in('id', toDelete.filter(Boolean))
+    for (const { allocId, remaining } of toUpdate) {
+      await sb.from('deck_allocations').update({ qty: remaining }).eq('id', allocId)
     }
-    if (toDelete.length) await pruneUnplacedCards(toDelete)
     setCards(prev => prev.map(c => {
       if (!selectedCards.has(c.id)) return c
       const totalQty = c._folder_qty || c.qty || 1
@@ -710,13 +721,20 @@ export default function DeckBrowser({ folder, onBack }) {
       const totalQty = card?._folder_qty || card?.qty || 1
       const selQty = splitState.get(id) ?? 1
       const remaining = totalQty - selQty
-      insertRows.push({ folder_id: targetFolder.id, card_id: id, qty: selQty })
-      remaining > 0 ? toUpdate.push({ id, remaining }) : toDelete.push(id)
+      insertRows.push({ card_id: id, qty: selQty, user_id: user.id })
+      remaining > 0 ? toUpdate.push({ allocId: card?._allocation_id, remaining }) : toDelete.push(card?._allocation_id)
     }
-    await sb.from('folder_cards').upsert(insertRows, { onConflict: 'folder_id,card_id', ignoreDuplicates: true })
-    if (toDelete.length) await sb.from('folder_cards').delete().eq('folder_id', folder.id).in('card_id', toDelete)
-    for (const { id, remaining } of toUpdate) {
-      await sb.from('folder_cards').update({ qty: remaining }).eq('folder_id', folder.id).eq('card_id', id)
+    if (targetFolder.type === 'deck') {
+      await upsertDeckAllocations(targetFolder.id, user.id, insertRows)
+    } else {
+      await sb.from('folder_cards').upsert(
+        insertRows.map(row => ({ folder_id: targetFolder.id, card_id: row.card_id, qty: row.qty })),
+        { onConflict: 'folder_id,card_id', ignoreDuplicates: true }
+      )
+    }
+    if (toDelete.length) await sb.from('deck_allocations').delete().eq('deck_id', folder.id).in('id', toDelete.filter(Boolean))
+    for (const { allocId, remaining } of toUpdate) {
+      await sb.from('deck_allocations').update({ qty: remaining }).eq('id', allocId)
     }
     setCards(prev => prev.map(c => {
       if (!selectedCards.has(c.id)) return c
@@ -948,9 +966,20 @@ export default function DeckBrowser({ folder, onBack }) {
           onClose={() => setShowAddCard(false)}
           onSaved={async () => {
             setShowAddCard(false)
-            const { data } = await sb.from('folder_cards').select('qty, cards(*)').eq('folder_id', folder.id)
+            const data = await fetchDeckAllocations(folder.id)
             if (data) {
-              const cardList = data.map(row => ({ ...row.cards, _folder_qty: row.qty }))
+              const cardList = data.map(row => ({
+                id: row.card_id,
+                scryfall_id: row.scryfall_id,
+                name: row.name,
+                set_code: row.set_code,
+                collector_number: row.collector_number,
+                foil: row.foil,
+                condition: row.condition,
+                language: row.language,
+                _folder_qty: row.qty,
+                _allocation_id: row.id,
+              }))
               setCards(cardList)
               const map = await loadCardMapWithSharedPrices(cardList)
               if (map) setSfMap({ ...map })

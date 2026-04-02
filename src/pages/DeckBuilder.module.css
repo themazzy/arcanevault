@@ -862,36 +862,48 @@
   min-width: 0;
 }
 
-.collDeckBadge {
-  font-size: 0.55rem;
-  color: var(--green, #5dba70);
-  flex-shrink: 0;
+.stateBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   line-height: 1;
-  opacity: 0.85;
-}
-
-.ownedDot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--green, #4a9a5a);
+  white-space: nowrap;
   flex-shrink: 0;
 }
 
-.ownedDotAlt {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: rgba(201,168,76,0.7);
-  flex-shrink: 0;
+.stateBadgeAssigned {
+  background: rgba(74,154,90,0.16);
+  border: 1px solid rgba(74,154,90,0.4);
+  color: var(--green, #5dba70);
 }
 
-.ownedDotInDeck {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #e07020;
-  flex-shrink: 0;
+.stateBadgeOwned {
+  background: rgba(92,123,255,0.14);
+  border: 1px solid rgba(92,123,255,0.34);
+  color: #a9bcff;
+}
+
+.stateBadgeCommitted {
+  background: rgba(224,112,32,0.16);
+  border: 1px solid rgba(224,112,32,0.4);
+  color: #f0a267;
+}
+
+.stateBadgeAlt {
+  background: rgba(201,168,76,0.16);
+  border: 1px solid rgba(201,168,76,0.35);
+  color: var(--gold);
+}
+
+.stateBadgeMissing {
+  background: rgba(224,92,92,0.14);
+  border: 1px solid rgba(224,92,92,0.38);
+  color: #ff9b9b;
 }
 
 .deckCardLeft {
@@ -929,7 +941,8 @@
   flex-shrink: 0;
 }
 .deckCardRow:hover .editBtn,
-.compactRow:hover .editBtn { opacity: 1; }
+.compactRow:hover .editBtn,
+.visualCard:hover .editBtn { opacity: 1; }
 .editBtn:hover { color: var(--gold); background: var(--s3); }
 
 .editMenuPopover {
@@ -1075,6 +1088,12 @@
   .floatingPreview { display: none; }
 }
 
+.floatingPreviewStack {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
 .floatingImg {
   width: 300px;
   border-radius: 12px;
@@ -1087,6 +1106,77 @@
   .right { display: none; }
   .page.showRight .left { display: none; }
   .page.showRight .right { display: flex; }
+
+  .deckHeader {
+    padding: 10px 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: flex-start;
+  }
+
+  .deckNameInput {
+    width: 100%;
+    min-width: 0;
+    order: 0;
+  }
+
+  .deckMeta {
+    order: 1;
+  }
+
+  .importBtn,
+  .shareBtn {
+    font-size: 0.72rem;
+    padding: 5px 8px;
+  }
+
+  .tabBar {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .tabBar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tab {
+    flex: 0 0 auto;
+    min-width: 88px;
+    padding: 10px 12px;
+  }
+
+  .deckList {
+    padding: 8px 8px 14px;
+  }
+
+  .deckToolbar {
+    gap: 6px;
+    padding: 4px 0 8px;
+  }
+
+  .deckCardRow,
+  .compactRow {
+    gap: 6px;
+    padding-left: 6px;
+  }
+
+  .deckCardLeft {
+    gap: 8px;
+  }
+
+  .stateBadge {
+    padding: 2px 6px;
+    font-size: 0.55rem;
+  }
+
+  .qtyControls {
+    gap: 2px;
+  }
+
+  .qtyBtn {
+    min-width: 24px;
+    min-height: 24px;
+  }
 }
 
 @media (max-width: 540px) {
@@ -1094,6 +1184,76 @@
   .cmdArtDetails { display: none; }
   /* Shrink thumbnail slightly */
   .cmdArtPane { width: 72px; height: 52px; }
+
+  .leftTop {
+    padding: 10px;
+  }
+
+  .searchPanel,
+  .recsPanel {
+    padding: 8px;
+  }
+
+  .searchInput {
+    font-size: 0.84rem;
+    padding: 8px 10px;
+  }
+
+  .searchBtn {
+    padding: 0 10px;
+  }
+
+  .searchRow,
+  .recRow {
+    gap: 8px;
+    padding: 8px 6px;
+  }
+
+  .searchThumb,
+  .searchThumbPlaceholder {
+    width: 34px;
+    height: 46px;
+  }
+
+  .deckHeader {
+    padding: 8px 10px;
+  }
+
+  .deckNameInput {
+    font-size: 1rem;
+  }
+
+  .importBtn,
+  .shareBtn {
+    font-size: 0.68rem;
+    padding: 5px 7px;
+  }
+
+  .deckCardRow,
+  .compactRow {
+    flex-wrap: wrap;
+    align-items: center;
+    padding-right: 4px;
+  }
+
+  .deckCardLeft {
+    min-width: calc(100% - 74px);
+  }
+
+  .editBtn,
+  .removeBtn {
+    opacity: 1;
+  }
+
+  .stateBadge {
+    max-width: 88px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .floatingImg {
+    width: min(42vw, 220px);
+  }
 }
 
 .mobilePanelToggle {
@@ -1213,7 +1373,7 @@
 /* ── Visual grid view ───────────────────────────────────────────────── */
 .visualGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(var(--deckbuilder-grid-min, 136px), 1fr));
   gap: 6px;
   padding: 4px 0;
 }
@@ -1232,6 +1392,18 @@
 .visualCard:hover {
   transform: scale(1.04);
   border-color: rgba(201,168,76,0.5);
+  z-index: 2;
+}
+
+.visualCardTop {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  right: 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 4px;
   z-index: 2;
 }
 
@@ -1275,6 +1447,68 @@
   text-shadow: 0 0 6px rgba(201,168,76,0.6);
 }
 
+.visualCardBottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 18px 5px 5px;
+  background: linear-gradient(to top, rgba(7,8,11,0.96), rgba(7,8,11,0.74), transparent);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.visualCardName {
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 600;
+  line-height: 1.2;
+  text-shadow: 0 2px 10px rgba(0,0,0,0.6);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 2.35em;
+}
+
+.visualCardControls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.visualCardBtn {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(8,10,15,0.72);
+  color: var(--text);
+  font-size: 0.8rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.visualCardBtn:hover {
+  background: rgba(18,22,30,0.9);
+  border-color: rgba(201,168,76,0.36);
+  color: var(--gold);
+}
+
+.visualCardCount {
+  min-width: 16px;
+  text-align: center;
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
 /* ── Group toggle ────────────────────────────────────────────── */
 .groupToggle {
   margin-left: auto;
@@ -1307,6 +1541,3 @@
   background: rgba(201,168,76,0.06) !important;
   border-left: 2px solid rgba(201,168,76,0.5);
 }
-
-
-

@@ -2,20 +2,22 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
+import { useSettings } from '../components/SettingsContext'
 import {
   FORMATS, TYPE_GROUPS, classifyCardType,
   parseDeckMeta, serializeDeckMeta, getCardImageUri, nameToSlug,
-  searchCards, searchCommanders, fetchCardsByNames,
+  searchCards, searchCommanders, fetchCardsByNames, fetchCardsByScryfallIds, getDeckBuilderCardMeta,
   fetchEdhrecCommander, makeDebouncer,
   importDeckFromUrl, parseTextDecklist,
 } from '../lib/deckBuilderApi'
 import {
   getLocalCards, getDeckCards, putDeckCards, deleteDeckCardLocal,
-  getLocalFolderCards, getScryfallEntry,
 } from '../lib/db'
 import styles from './DeckBuilder.module.css'
 import DeckStats, { normalizeDeckBuilderCards } from '../components/DeckStats'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
+import { fetchDeckAllocations, fetchDeckAllocationsForUser, fetchDeckCards, upsertDeckAllocations } from '../lib/deckData'
+import { planDeckAllocations } from '../lib/deckAllocationPlanner'
 
 // Upgrade a Scryfall CDN image to large quality regardless of stored size variant
 function toLargeImg(uri) {
@@ -40,20 +42,54 @@ function ColorPip({ color }) {
   )
 }
 
+function OwnershipBadge({ ownedQty, ownedAlt, ownedInDeck, inCollDeck }) {
+  if (inCollDeck) return <span className={`${styles.stateBadge} ${styles.stateBadgeAssigned}`} title="Assigned to this collection deck">In Deck</span>
+  if (ownedQty > 0 && !ownedInDeck) return <span className={`${styles.stateBadge} ${styles.stateBadgeOwned}`} title="Owned and available">Owned</span>
+  if (ownedAlt > 0) return <span className={`${styles.stateBadge} ${styles.stateBadgeAlt}`} title="A different version is owned">Other Print</span>
+  if (ownedInDeck) return <span className={`${styles.stateBadge} ${styles.stateBadgeCommitted}`} title="Owned, but committed to another deck">In Other Deck</span>
+  return <span className={`${styles.stateBadge} ${styles.stateBadgeMissing}`} title="Not owned in collection">Not Owned</span>
+}
+
+function deckAllocationKeys(cardLike) {
+  if (!cardLike) return []
+  const keys = []
+  const foilKey = cardLike.foil ? '1' : '0'
+  if (cardLike.card_print_id) keys.push(`print:${cardLike.card_print_id}`)
+  if (cardLike.scryfall_id) {
+    keys.push(`sf:${cardLike.scryfall_id}|${foilKey}`)
+    keys.push(`sf:${cardLike.scryfall_id}`)
+  }
+  const nameKey = (cardLike.name || '').trim().toLowerCase()
+  if (nameKey) {
+    keys.push(`name:${nameKey}|${foilKey}`)
+    keys.push(`name:${nameKey}`)
+  }
+  return [...new Set(keys)]
+}
+
+function allocationSetHas(set, cardLike) {
+  return deckAllocationKeys(cardLike).some(key => set.has(key))
+}
+
 // ── Floating card preview ─────────────────────────────────────────────────────
-function FloatingPreview({ imageUri, x, y }) {
-  if (!imageUri) return null
-  const left = x > window.innerWidth - 280 ? x - 240 : x + 16
+function FloatingPreview({ imageUris, x, y }) {
+  if (!imageUris?.length) return null
+  const width = imageUris.length > 1 ? 400 : 300
+  const left = x > window.innerWidth - (width + 40) ? x - (width - 60) : x + 16
   const top  = Math.min(y - 30, window.innerHeight - 330)
   return (
     <div className={styles.floatingPreview} style={{ left, top }}>
-      <img className={styles.floatingImg} src={imageUri} alt="" />
+      <div className={styles.floatingPreviewStack}>
+        {imageUris.map((uri, index) => (
+          <img key={`${uri}:${index}`} className={styles.floatingImg} src={uri} alt="" />
+        ))}
+      </div>
     </div>
   )
 }
 
 // ── Single card row in search results ─────────────────────────────────────────
-function SearchResultRow({ card, ownedQty, onAdd }) {
+function SearchResultRow({ card, ownedQty, onAdd, addFeedback }) {
   const img = getCardImageUri(card, 'small')
   return (
     <div className={styles.searchRow}>
@@ -62,7 +98,14 @@ function SearchResultRow({ card, ownedQty, onAdd }) {
         : <div className={styles.searchThumbPlaceholder} />
       }
       <div className={styles.searchInfo}>
-        <div className={styles.searchName}>{card.name}</div>
+        <div className={styles.searchName}>
+          <span>{card.name}</span>
+          {addFeedback?.count > 0 && (
+            <span style={{ marginLeft:8, color:'var(--green)', fontSize:'0.74rem', fontWeight:600 }}>
+              {`+${addFeedback.count}`}
+            </span>
+          )}
+        </div>
         <div className={styles.searchType}>{card.type_line}</div>
       </div>
       <div className={styles.searchMeta}>
@@ -142,8 +185,13 @@ function EditMenu({ dc, isEDH, onSetCommander, onToggleFoil, onPickVersion }) {
       >⚙</button>
       {open && (
         <div className={styles.editMenuPopover}>
+          {isEDH && dc.is_commander && (
+            <button className={styles.editMenuItem} onClick={() => { onSetCommander(dc, false); setOpen(false) }}>
+              Unset as Commander
+            </button>
+          )}
           {isEDH && !dc.is_commander && canBeCommander(dc) && (
-            <button className={styles.editMenuItem} onClick={() => { onSetCommander(dc); setOpen(false) }}>
+            <button className={styles.editMenuItem} onClick={() => { onSetCommander(dc, true); setOpen(false) }}>
               ♛ Set as Commander
             </button>
           )}
@@ -153,6 +201,11 @@ function EditMenu({ dc, isEDH, onSetCommander, onToggleFoil, onPickVersion }) {
           <button className={styles.editMenuItem} onClick={() => { onPickVersion(dc); setOpen(false) }}>
             ⚙ Change Version
           </button>
+          {dc.qty > 1 && (
+            <button className={styles.editMenuItem} onClick={() => { onPickVersion(dc, { splitOne: true }); setOpen(false) }}>
+              Split 1x To Other Version
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -170,17 +223,8 @@ function DeckCardRow({ dc, ownedQty, ownedAlt, ownedInDeck, inCollDeck, onChange
         }
         <span className={styles.deckCardName}>{dc.name}</span>
         {dc.foil && <span className={styles.foilBadge} title="Foil">✦</span>}
-        {inCollDeck && <span className={styles.collDeckBadge} title="In your collection deck">◆</span>}
+        <OwnershipBadge ownedQty={ownedQty} ownedAlt={ownedAlt} ownedInDeck={ownedInDeck} inCollDeck={inCollDeck} />
       </div>
-      {/* 3-state ownership dot */}
-      {ownedQty > 0 && !ownedInDeck
-        ? <span className={styles.ownedDot} title="Owned (free)" />
-        : ownedInDeck
-          ? <span className={styles.ownedDotInDeck} title="Owned (in another deck)" />
-          : ownedAlt > 0
-            ? <span className={styles.ownedDotAlt} title="Different version owned" />
-            : null
-      }
       <EditMenu dc={dc} isEDH={isEDH} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} />
       <div className={styles.qtyControls}>
         <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, -1)}>−</button>
@@ -282,6 +326,12 @@ function MakeDeckRow({ item }) {
     if (missingQty > 0) parts.push(`${missingQty}× missing`)
     statusDetail = parts.join(', ')
   }
+  const allocationDetail = (item.allocations || [])
+    .map(row => {
+      const print = row.set_code && row.collector_number ? `${String(row.set_code).toUpperCase()} #${row.collector_number}` : 'owned print'
+      return `${row.qty}× ${print}${row.foil ? ' foil' : ''}`
+    })
+    .join(', ')
   return (
     <div style={{ display:'flex', alignItems:'center', padding:'5px 20px', borderBottom:'1px solid rgba(255,255,255,0.04)', gap:10, minHeight:36 }}>
       {img
@@ -292,9 +342,134 @@ function MakeDeckRow({ item }) {
         <span style={{ fontSize:'0.84rem', color:'var(--text)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', display:'block' }}>
           {neededQty > 1 ? `${neededQty}× ` : ''}{dc.name}
         </span>
+        {allocationDetail && (
+          <span style={{ fontSize:'0.72rem', color:'var(--text-faint)', display:'block', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+            Uses: {allocationDetail}
+          </span>
+        )}
       </div>
       <div style={{ fontSize:'0.79rem', color:statusColor, flexShrink:0, display:'flex', alignItems:'center', gap:4 }}>
         <span>{statusIcon}</span><span>{statusDetail}</span>
+      </div>
+    </div>
+  )
+}
+
+function buildChosenAllocations(item, exactVersionOnly, chosenOtherCardId) {
+  const exactAllocations = item.exactAllocations || []
+  const exactQty = exactAllocations.reduce((sum, row) => sum + row.qty, 0)
+  let otherAllocations = exactVersionOnly ? [] : (item.otherAllocations || [])
+
+  if (!exactVersionOnly && chosenOtherCardId) {
+    const candidate = (item.otherCandidates || []).find(row => row.card_id === chosenOtherCardId)
+    const remainingNeeded = Math.max(0, (item.neededQty || 0) - exactQty)
+    if (candidate && remainingNeeded > 0 && (candidate.available_qty || 0) >= remainingNeeded) {
+      otherAllocations = [{
+        card_id: candidate.card_id,
+        qty: remainingNeeded,
+        card_print_id: candidate.card_print_id || null,
+        scryfall_id: candidate.scryfall_id || null,
+        name: candidate.name || item.dc.name,
+        set_code: candidate.set_code || null,
+        collector_number: candidate.collector_number || null,
+        foil: !!candidate.foil,
+      }]
+    }
+  }
+
+  const addExact = exactQty
+  const addOther = otherAllocations.reduce((sum, row) => sum + row.qty, 0)
+  const totalAdd = addExact + addOther
+  return {
+    exactAllocations,
+    otherAllocations,
+    allocations: [...exactAllocations, ...otherAllocations],
+    addExact,
+    addOther,
+    totalAdd,
+    missingQty: Math.max(0, (item.neededQty || 0) - totalAdd),
+  }
+}
+
+function buildChosenPrintingSelections(items, chosenOtherCardIds) {
+  return (items || [])
+    .map(item => {
+      const chosenCardId = chosenOtherCardIds?.[item.dc.id]
+      if (!chosenCardId) return null
+      const candidate = (item.otherCandidates || []).find(row => row.card_id === chosenCardId)
+      if (!candidate) return null
+      return {
+        deckCardId: item.dc.id,
+        candidate,
+      }
+    })
+    .filter(Boolean)
+}
+
+function PrintingPickerModal({ cardName, options, selectedCardId, onSelect, onClose }) {
+  const [details, setDetails] = useState([])
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      const ids = [...new Set(options.map(option => option.scryfall_id).filter(Boolean))]
+      const fetched = ids.length ? await fetchCardsByScryfallIds(ids) : []
+      if (cancelled) return
+      const byId = new Map(fetched.map(card => [card.id, card]))
+      setDetails(options.map(option => {
+        const sf = option.scryfall_id ? byId.get(option.scryfall_id) : null
+        return {
+          ...option,
+          image_uri: getCardImageUri(sf, 'normal'),
+          set_name: sf?.set_name || (option.set_code ? String(option.set_code).toUpperCase() : 'Unknown set'),
+        }
+      }))
+    }
+    load()
+    return () => { cancelled = true }
+  }, [options])
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:730, display:'flex', alignItems:'center', justifyContent:'center' }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, width:760, maxWidth:'95vw', maxHeight:'88vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
+        <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <span style={{ fontFamily:'var(--font-display)', color:'var(--gold)', fontSize:'1rem' }}>Choose owned printing</span>
+          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.2rem', cursor:'pointer' }}>✕</button>
+        </div>
+        <div style={{ padding:'12px 20px', color:'var(--text-dim)', fontSize:'0.84rem' }}>
+          Select which owned printing to use for {cardName}.
+        </div>
+        <div style={{ padding:'0 20px 20px', overflowY:'auto', display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(160px, 1fr))', gap:12 }}>
+          {details.map(option => (
+            <button
+              key={option.card_id}
+              onClick={() => onSelect(option.card_id)}
+              style={{
+                background: selectedCardId === option.card_id ? 'rgba(201,168,76,0.12)' : 'rgba(255,255,255,0.03)',
+                border: selectedCardId === option.card_id ? '1px solid rgba(201,168,76,0.45)' : '1px solid var(--border)',
+                borderRadius:8,
+                padding:10,
+                display:'flex',
+                flexDirection:'column',
+                gap:8,
+                cursor:'pointer',
+                color:'var(--text)',
+                textAlign:'left',
+              }}>
+              {option.image_uri
+                ? <img src={option.image_uri} alt={option.name} style={{ width:'100%', aspectRatio:'63 / 88', objectFit:'cover', borderRadius:6 }} loading="lazy" />
+                : <div style={{ width:'100%', aspectRatio:'63 / 88', background:'rgba(255,255,255,0.05)', borderRadius:6, display:'flex', alignItems:'center', justifyContent:'center', color:'var(--text-faint)', fontSize:'0.75rem', textAlign:'center', padding:8 }}>{option.name}</div>}
+              <div style={{ fontSize:'0.8rem', fontWeight:600 }}>{option.set_name}</div>
+              <div style={{ fontSize:'0.73rem', color:'var(--text-faint)' }}>
+                {option.set_code ? `${String(option.set_code).toUpperCase()} #${option.collector_number || '?'}` : 'Owned printing'}
+              </div>
+              <div style={{ fontSize:'0.73rem', color:'var(--text-faint)' }}>
+                {option.available_qty}× available{option.foil ? ' • foil' : ''}
+              </div>
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   )
@@ -310,43 +485,17 @@ function MakeDeckModal({ deckCards, userId, inOtherDeckSet, onConfirm, onClose }
   const [wishlists, setWishlists] = useState([])
   const [selectedWishlistId, setSelectedWishlistId] = useState('')
   const [newWishlistName, setNewWishlistName] = useState('')
+  const [chosenOtherCardIds, setChosenOtherCardIds] = useState({})
+  const [pickerItem, setPickerItem] = useState(null)
 
   useEffect(() => {
     async function load() {
       // Use IDB (same source as the green bar) so counts are consistent
       const collCards = await getLocalCards(userId)
-      const sfIdMap = new Map()   // scryfall_id → { cardId, qty }
-      const nameQtyMap = new Map() // name_lower → { cardId, qty }
-      for (const c of collCards || []) {
-        const qty = c.qty || 1
-        if (c.scryfall_id) {
-          if (!sfIdMap.has(c.scryfall_id)) sfIdMap.set(c.scryfall_id, { cardId: c.id, qty })
-          else sfIdMap.get(c.scryfall_id).qty += qty
-        }
-        const n = (c.name || '').toLowerCase()
-        if (n) {
-          if (!nameQtyMap.has(n)) nameQtyMap.set(n, { cardId: c.id, qty })
-          else nameQtyMap.get(n).qty += qty
-        }
-      }
-      const items = []
-      for (const dc of deckCards) {
-        if (dc.is_commander) continue
-        const nameLower = (dc.name || '').toLowerCase()
-        const exactEntry = sfIdMap.get(dc.scryfall_id)
-        const anyEntry   = nameQtyMap.get(nameLower)
-        const exactQty   = exactEntry?.qty ?? 0
-        const totalQty   = anyEntry?.qty ?? 0
-        const otherQty   = Math.max(0, totalQty - exactQty)
-        const needed     = dc.qty
-        const addExact   = Math.min(exactQty, needed)
-        const remaining  = needed - addExact
-        const addOther   = Math.min(otherQty, remaining)
-        const totalAdd   = addExact + addOther
-        const missingQty = needed - totalAdd
-        const cardId     = addExact > 0 ? exactEntry.cardId : (addOther > 0 ? anyEntry.cardId : null)
-        items.push({ dc, neededQty: needed, addExact, addOther, totalAdd, missingQty, cardId })
-      }
+      const items = planDeckAllocations(
+        deckCards.filter(dc => !dc.is_commander),
+        collCards || []
+      )
       const { data: wls } = await sb.from('folders').select('id, name').eq('user_id', userId).eq('type', 'list').order('name')
       setPreviewItems(items)
       setWishlists(wls || [])
@@ -359,10 +508,11 @@ function MakeDeckModal({ deckCards, userId, inOtherDeckSet, onConfirm, onClose }
     .filter(i => !skipBasicLands || !BASIC_LANDS.has(i.dc.name))
     .filter(i => pullFromOtherDecks || !inOtherDeckSet?.has(i.dc.scryfall_id))
     .map(i => {
-      const effectiveOther = exactVersionOnly ? 0 : i.addOther
-      const totalAdd   = i.addExact + effectiveOther
-      const missingQty = i.neededQty - totalAdd
-      return { ...i, addOther: effectiveOther, totalAdd, missingQty }
+      const chosen = buildChosenAllocations(i, exactVersionOnly, chosenOtherCardIds[i.dc.id])
+      return {
+        ...i,
+        ...chosen,
+      }
     })
   const addItems      = filtered.filter(i => i.totalAdd > 0)
   const missingItems  = filtered.filter(i => i.missingQty > 0)
@@ -407,7 +557,20 @@ function MakeDeckModal({ deckCards, userId, inOtherDeckSet, onConfirm, onClose }
             <div style={{ flex:1, overflowY:'auto', minHeight:0 }}>
               {filtered.length === 0
                 ? <div style={{ padding:40, textAlign:'center', color:'var(--text-faint)', fontSize:'0.85rem' }}>No cards to add.</div>
-                : filtered.map(item => <MakeDeckRow key={item.dc.id} item={item} />)
+                : filtered.map(item => (
+                  <div key={item.dc.id}>
+                    <MakeDeckRow item={item} />
+                    {!exactVersionOnly && (item.otherCandidates?.length || 0) > 1 && item.totalAdd > 0 && (
+                      <div style={{ padding:'0 20px 8px' }}>
+                        <button
+                          onClick={() => setPickerItem(item)}
+                          style={{ background:'none', border:'1px solid var(--border)', borderRadius:4, padding:'5px 10px', color:'var(--text-dim)', fontSize:'0.76rem', cursor:'pointer' }}>
+                          Choose owned printing
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))
               }
             </div>
             {missingCount > 0 && (
@@ -432,7 +595,13 @@ function MakeDeckModal({ deckCards, userId, inOtherDeckSet, onConfirm, onClose }
             <div style={{ padding:'12px 20px', borderTop:'1px solid var(--border)', display:'flex', gap:8, justifyContent:'flex-end' }}>
               <button onClick={onClose} style={{ background:'none', border:'1px solid var(--border)', borderRadius:4, padding:'7px 16px', color:'var(--text-dim)', fontSize:'0.83rem', cursor:'pointer' }}>Cancel</button>
               <button
-                onClick={() => onConfirm({ addItems, missingItems, wishlistId: selectedWishlistId === 'new' ? null : (selectedWishlistId || null), wishlistName: selectedWishlistId === 'new' ? newWishlistName.trim() : null })}
+                onClick={() => onConfirm({
+                  addItems,
+                  missingItems,
+                  printingSelections: buildChosenPrintingSelections(filtered, chosenOtherCardIds),
+                  wishlistId: selectedWishlistId === 'new' ? null : (selectedWishlistId || null),
+                  wishlistName: selectedWishlistId === 'new' ? newWishlistName.trim() : null,
+                })}
                 disabled={!canConfirm}
                 style={{ background:'rgba(74,154,90,0.15)', border:'1px solid rgba(74,154,90,0.4)', borderRadius:4, padding:'7px 16px', color:'var(--green, #4a9a5a)', fontSize:'0.83rem', cursor:'pointer', opacity:canConfirm ? 1 : 0.45 }}>
                 Create Deck ({addItems.reduce((s, i) => s + i.totalAdd, 0)} cards)
@@ -441,6 +610,18 @@ function MakeDeckModal({ deckCards, userId, inOtherDeckSet, onConfirm, onClose }
           </>
         )}
       </div>
+      {pickerItem && (
+        <PrintingPickerModal
+          cardName={pickerItem.dc.name}
+          options={pickerItem.otherCandidates || []}
+          selectedCardId={chosenOtherCardIds[pickerItem.dc.id] || ''}
+          onSelect={(cardId) => {
+            setChosenOtherCardIds(prev => ({ ...prev, [pickerItem.dc.id]: cardId }))
+            setPickerItem(null)
+          }}
+          onClose={() => setPickerItem(null)}
+        />
+      )}
     </div>
   )
 }
@@ -448,62 +629,140 @@ function MakeDeckModal({ deckCards, userId, inOtherDeckSet, onConfirm, onClose }
 // ── Sync modal ────────────────────────────────────────────────────────────────
 function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onConfirm, onClose }) {
   const [loading, setLoading] = useState(true)
-  const [diff, setDiff] = useState(null)
+  const [baseDiff, setBaseDiff] = useState(null)
   const [folders, setFolders] = useState([])
   const [wishlists, setWishlists] = useState([])
-  const [moveDestinations, setMoveDestinations] = useState({})
+  const [exactVersionOnly, setExactVersionOnly] = useState(true)
   const [globalDest, setGlobalDest] = useState('')
   const [wishlistId, setWishlistId] = useState('')
   const [newWishlistName, setNewWishlistName] = useState('')
+  const [chosenOtherCardIds, setChosenOtherCardIds] = useState({})
+  const [pickerItem, setPickerItem] = useState(null)
 
   useEffect(() => {
     async function load() {
-      const targetFolderId = isCollectionDeck ? deckId : deckMeta.linked_deck_id
-      if (!targetFolderId) { setLoading(false); return }
-      const [{ data: fc }, { data: collCards }, { data: foldersData }, { data: wls }] = await Promise.all([
-        sb.from('folder_cards').select('id, card_id, qty, cards(id, scryfall_id, name)').eq('folder_id', targetFolderId),
-        sb.from('cards').select('id, scryfall_id, name').eq('user_id', userId),
-        sb.from('folders').select('id, name, type').eq('user_id', userId).in('type', ['deck', 'binder']).neq('id', targetFolderId).order('name'),
+      const targetDeckId = isCollectionDeck ? deckId : deckMeta.linked_deck_id
+      if (!targetDeckId) { setLoading(false); return }
+      const [collCards, { data: allocations }, { data: foldersData }, { data: wls }] = await Promise.all([
+        getLocalCards(userId),
+        sb.from('deck_allocations_view').select('*').eq('deck_id', targetDeckId),
+        sb.from('folders').select('id, name, type').eq('user_id', userId).in('type', ['deck', 'binder']).neq('id', targetDeckId).order('name'),
         sb.from('folders').select('id, name').eq('user_id', userId).eq('type', 'list').order('name'),
       ])
-      const sfIdToCardId = new Map()
-      const nameToCardId = new Map()
-      for (const c of collCards || []) {
-        if (c.scryfall_id && !sfIdToCardId.has(c.scryfall_id)) sfIdToCardId.set(c.scryfall_id, c.id)
-        const n = (c.name || '').toLowerCase()
-        if (n && !nameToCardId.has(n)) nameToCardId.set(n, c.id)
-      }
       const collMap = new Map()
-      for (const row of fc || []) collMap.set(row.card_id, row)
-      const builderCards = deckCards.filter(dc => !dc.is_commander && !BASIC_LANDS.has(dc.name))
+      for (const row of allocations || []) collMap.set(row.card_id, row)
+      const builderCards = deckCards.filter(dc => dc.board !== 'side')
+      const allocationMatchesDeckCard = (dc, row) => {
+        if (dc.scryfall_id && row.scryfall_id) return dc.scryfall_id === row.scryfall_id && !!dc.foil === !!row.foil
+        return (dc.name || '').trim().toLowerCase() === (row.name || '').trim().toLowerCase() && !!dc.foil === !!row.foil
+      }
+
+      const remainingCurrentByCardId = new Map((allocations || []).map(row => [row.card_id, row.qty || 0]))
+      const preservedByCardId = new Map()
+      const plannedBase = builderCards.map(dc => {
+        let remainingQty = dc.qty || 0
+        const preservedAllocations = []
+        const matchingAllocations = (allocations || []).filter(row => allocationMatchesDeckCard(dc, row))
+
+        for (const row of matchingAllocations) {
+          if (remainingQty <= 0) break
+          const available = remainingCurrentByCardId.get(row.card_id) || 0
+          if (available <= 0) continue
+          const usedQty = Math.min(available, remainingQty)
+          preservedAllocations.push({ card_id: row.card_id, qty: usedQty })
+          preservedByCardId.set(row.card_id, (preservedByCardId.get(row.card_id) || 0) + usedQty)
+          remainingCurrentByCardId.set(row.card_id, available - usedQty)
+          remainingQty -= usedQty
+        }
+
+        return {
+          dc,
+          neededQty: dc.qty || 0,
+          preservedAllocations,
+          remainingQty,
+        }
+      })
+
+      const remainingOwnedCards = (collCards || []).map(card => ({
+        ...card,
+        qty: Math.max(0, (card.qty || 0) - (preservedByCardId.get(card.id) || 0)),
+      }))
+      const plannedRemainder = planDeckAllocations(
+        plannedBase.map(item => ({ ...item.dc, qty: item.remainingQty })),
+        remainingOwnedCards
+      )
+      const planned = plannedBase.map((base, index) => {
+        const remainder = plannedRemainder[index]
+        const exactAllocations = [
+          ...base.preservedAllocations,
+          ...(remainder?.exactAllocations || []),
+        ]
+        const otherAllocations = remainder?.otherAllocations || []
+        const allocationsForDeck = [...exactAllocations, ...otherAllocations]
+        const exactQty = exactAllocations.reduce((sum, row) => sum + row.qty, 0)
+        const otherQty = otherAllocations.reduce((sum, row) => sum + row.qty, 0)
+        const totalAdd = allocationsForDeck.reduce((sum, row) => sum + row.qty, 0)
+        return {
+          dc: base.dc,
+          neededQty: base.neededQty,
+          addExact: exactQty,
+          addOther: otherQty,
+          totalAdd,
+          missingQty: Math.max(0, base.neededQty - totalAdd),
+          exactAllocations,
+          otherAllocations,
+          exactCandidates: remainder?.exactCandidates || [],
+          otherCandidates: remainder?.otherCandidates || [],
+          allocations: allocationsForDeck,
+        }
+      })
+      const desiredByCardId = new Map()
+      for (const item of planned) {
+        for (const row of item.allocations) {
+          desiredByCardId.set(row.card_id, (desiredByCardId.get(row.card_id) || 0) + row.qty)
+        }
+      }
       const added = [], changed = []
-      const builderCardIds = new Set()
-      for (const dc of builderCards) {
-        const cardId = sfIdToCardId.get(dc.scryfall_id) ?? nameToCardId.get((dc.name || '').toLowerCase())
-        if (!cardId) { added.push({ dc, cardId: null, owned: false }); continue }
-        builderCardIds.add(cardId)
-        const existing = collMap.get(cardId)
-        if (!existing) added.push({ dc, cardId, owned: true })
-        else if (existing.qty !== dc.qty) changed.push({ dc, cardId, fcRow: existing, oldQty: existing.qty, newQty: dc.qty })
+      for (const item of planned) {
+        const newExactAllocations = item.exactAllocations.filter(row => !collMap.has(row.card_id))
+        const newOtherAllocations = item.otherAllocations.filter(row => !collMap.has(row.card_id))
+        const newAllocations = [...newExactAllocations, ...newOtherAllocations]
+        const addCandidate = {
+          ...item,
+          exactAllocations: newExactAllocations,
+          otherAllocations: newOtherAllocations,
+          otherCandidates: item.otherCandidates || [],
+          allocations: newAllocations,
+          addExact: newExactAllocations.reduce((sum, row) => sum + row.qty, 0),
+          addOther: newOtherAllocations.reduce((sum, row) => sum + row.qty, 0),
+          totalAdd: newAllocations.reduce((sum, row) => sum + row.qty, 0),
+          owned: item.totalAdd > 0,
+        }
+
+        if (addCandidate.totalAdd > 0 || item.missingQty > 0) {
+          added.push({
+            ...addCandidate,
+          })
+        }
+        for (const row of item.allocations) {
+          const desiredQty = desiredByCardId.get(row.card_id)
+          const existing = collMap.get(row.card_id)
+          if (existing && existing.qty !== desiredQty && !changed.some(c => c.cardId === row.card_id)) {
+            changed.push({ dc: item.dc, cardId: row.card_id, allocRow: existing, oldQty: existing.qty, newQty: desiredQty })
+          }
+        }
       }
       const removed = []
       for (const [cardId, fcRow] of collMap) {
-        if (!builderCardIds.has(cardId)) removed.push({ cardId, fcRow, name: fcRow.cards?.name || '?' })
+        if (!desiredByCardId.has(cardId)) removed.push({ cardId, allocRow: fcRow, name: fcRow.name || '?' })
       }
-      setDiff({ added, changed, removed, targetFolderId })
+      setBaseDiff({ added, changed, removed, targetDeckId })
       setFolders(foldersData || [])
       setWishlists(wls || [])
       setLoading(false)
     }
     load()
   }, [])
-
-  useEffect(() => {
-    if (!globalDest || !diff?.removed.length) return
-    const updates = {}
-    for (const r of diff.removed) updates[r.fcRow.id] = globalDest
-    setMoveDestinations(updates)
-  }, [globalDest, diff])
 
   const overlay = { position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:700, display:'flex', alignItems:'center', justifyContent:'center' }
   const s = { background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:4, padding:'5px 8px', color:'var(--text)', fontSize:'0.83rem' }
@@ -517,10 +776,36 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
     </div>
   )
 
+  const diff = (() => {
+    if (!baseDiff) return null
+    const normalizedAdded = (baseDiff.added || []).map(item => {
+      const chosen = buildChosenAllocations(item, exactVersionOnly, chosenOtherCardIds[item.dc.id])
+      return {
+        ...item,
+        ...chosen,
+      }
+    })
+    return { ...baseDiff, added: normalizedAdded }
+  })()
+
   const { added = [], changed = [], removed = [] } = diff || {}
-  const ownedAdded   = added.filter(i => i.owned)
-  const unownedAdded = added.filter(i => !i.owned)
+  const ownedAdded   = added.filter(i => i.totalAdd > 0)
+  const unownedAdded = added.filter(i => i.missingQty > 0)
   const hasChanges   = ownedAdded.length || removed.length || changed.length || unownedAdded.length
+  const movedOwnedRows = [
+    ...changed
+      .filter(i => i.newQty < i.oldQty)
+      .map(i => ({
+        key: `changed:${i.allocRow.id}`,
+        name: i.dc.name,
+        qty: i.oldQty - i.newQty,
+      })),
+    ...removed.map(r => ({
+      key: `removed:${r.allocRow.id}`,
+      name: r.name,
+      qty: r.allocRow.qty || 0,
+    })),
+  ]
 
   if (!hasChanges) return (
     <div style={overlay} onClick={e => e.target === e.currentTarget && onClose()}>
@@ -534,8 +819,7 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
     </div>
   )
 
-  const allRemovesMapped = !removed.length || removed.every(r => moveDestinations[r.fcRow.id])
-  const canConfirm = allRemovesMapped
+  const canConfirm = movedOwnedRows.length === 0 || !!globalDest
 
   return (
     <div style={overlay} onClick={e => e.target === e.currentTarget && onClose()}>
@@ -545,13 +829,41 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
           <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.2rem', cursor:'pointer' }}>✕</button>
         </div>
         <div style={{ flex:1, overflowY:'auto', minHeight:0, padding:'16px 20px', display:'flex', flexDirection:'column', gap:16 }}>
+          <div>
+            <label style={{ display:'flex', alignItems:'flex-start', gap:8, cursor:'pointer' }}>
+              <input type="checkbox" checked={exactVersionOnly} onChange={e => setExactVersionOnly(e.target.checked)} style={{ accentColor:'var(--gold)', marginTop:2, flexShrink:0 }} />
+              <span>
+                <div style={{ fontSize:'0.84rem', color:'var(--text-dim)' }}>Use specified version only</div>
+                <div style={{ fontSize:'0.75rem', color:'var(--text-faint)' }}>Won't substitute a different printing during sync</div>
+              </span>
+            </label>
+          </div>
           {ownedAdded.length > 0 && (
             <div>
               <div style={secLabel}>Adding to collection deck ({ownedAdded.length})</div>
               {ownedAdded.map(i => (
-                <div key={i.dc.id} style={{ display:'flex', justifyContent:'space-between', padding:'3px 0', fontSize:'0.84rem', color:'var(--text)' }}>
-                  <span>{i.dc.qty > 1 ? `${i.dc.qty}× ` : ''}{i.dc.name}</span>
-                  <span style={{ color:'var(--green, #4a9a5a)', fontSize:'0.78rem' }}>✓ owned</span>
+                <div key={i.dc.id} style={{ display:'flex', flexDirection:'column', gap:2, padding:'3px 0', fontSize:'0.84rem', color:'var(--text)' }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', gap:8 }}>
+                    <span>{i.totalAdd > 1 ? `${i.totalAdd}× ` : ''}{i.dc.name}</span>
+                    <span style={{ color:'var(--green, #4a9a5a)', fontSize:'0.78rem' }}>✓ owned</span>
+                  </div>
+                  {!!i.allocations?.length && (
+                    <div style={{ color:'var(--text-faint)', fontSize:'0.74rem' }}>
+                      Uses: {i.allocations.map(row => {
+                        const print = row.set_code && row.collector_number ? `${String(row.set_code).toUpperCase()} #${row.collector_number}` : 'owned print'
+                        return `${row.qty}× ${print}${row.foil ? ' foil' : ''}`
+                      }).join(', ')}
+                    </div>
+                  )}
+                  {!exactVersionOnly && (i.otherCandidates?.length || 0) > 1 && (
+                    <div>
+                      <button
+                        onClick={() => setPickerItem(i)}
+                        style={{ background:'none', border:'1px solid var(--border)', borderRadius:4, padding:'5px 10px', color:'var(--text-dim)', fontSize:'0.76rem', cursor:'pointer', marginTop:4 }}>
+                        Choose owned printing
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -569,31 +881,49 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
           )}
           {removed.length > 0 && (
             <div>
-              <div style={secLabel}>Removed — choose destination ({removed.length})</div>
-              <div style={{ marginBottom:8, display:'flex', gap:8, alignItems:'center' }}>
-                <span style={{ fontSize:'0.79rem', color:'var(--text-faint)', whiteSpace:'nowrap' }}>All to:</span>
-                <select value={globalDest} onChange={e => setGlobalDest(e.target.value)} style={{ ...s, flex:1 }}>
-                  <option value="">— Pick individually —</option>
-                  {folders.map(f => <option key={f.id} value={f.id}>{f.name} ({f.type})</option>)}
-                </select>
-              </div>
+              <div style={secLabel}>Removed from owned allocation ({removed.length})</div>
               {removed.map(r => (
-                <div key={r.fcRow.id} style={{ display:'flex', gap:8, alignItems:'center', marginBottom:4 }}>
-                  <span style={{ flex:1, fontSize:'0.84rem', color:'var(--text)' }}>{r.name}</span>
-                  <select
-                    value={moveDestinations[r.fcRow.id] || ''}
-                    onChange={e => setMoveDestinations(prev => ({ ...prev, [r.fcRow.id]: e.target.value }))}
-                    style={{ ...s, minWidth:160 }}>
-                    <option value="">— Required —</option>
-                    {folders.map(f => <option key={f.id} value={f.id}>{f.name} ({f.type})</option>)}
-                  </select>
+                <div key={r.allocRow.id} style={{ display:'flex', justifyContent:'space-between', padding:'3px 0', fontSize:'0.84rem', color:'var(--text)' }}>
+                  <span>{r.name}</span>
+                  <span style={{ color:'var(--text-faint)', fontSize:'0.78rem' }}>move required</span>
                 </div>
               ))}
+            </div>
+          )}
+          {movedOwnedRows.length > 0 && (
+            <div>
+              <div style={secLabel}>Move removed owned copies to</div>
+              <select value={globalDest} onChange={e => setGlobalDest(e.target.value)} style={{ ...s, width:'100%' }}>
+                <option value="">— Select binder or deck —</option>
+                {folders.map(folder => (
+                  <option key={folder.id} value={folder.id}>
+                    {folder.type === 'binder' ? 'Binder' : 'Deck'}: {folder.name}
+                  </option>
+                ))}
+              </select>
+              <div style={{ display:'flex', flexDirection:'column', gap:4, marginTop:10 }}>
+                {movedOwnedRows.map(row => (
+                  <div key={row.key} style={{ display:'flex', justifyContent:'space-between', fontSize:'0.8rem', color:'var(--text-dim)' }}>
+                    <span>{row.name}</span>
+                    <span>{row.qty}×</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           {unownedAdded.length > 0 && (
             <div>
               <div style={secLabel}>Not owned — add to wishlist? ({unownedAdded.length})</div>
+              <div style={{ display:'flex', flexDirection:'column', gap:4, marginBottom:10 }}>
+                {unownedAdded.map(item => (
+                  <div key={item.dc.id} style={{ display:'flex', justifyContent:'space-between', fontSize:'0.84rem', color:'var(--text)' }}>
+                    <span>{item.dc.name}</span>
+                    <span style={{ color:'var(--text-faint)', fontSize:'0.78rem' }}>
+                      {item.missingQty || item.dc.qty || 1}×
+                    </span>
+                  </div>
+                ))}
+              </div>
               <div style={{ display:'flex', gap:8, alignItems:'center' }}>
                 <select value={wishlistId} onChange={e => setWishlistId(e.target.value)} style={{ ...s, flex:1 }}>
                   <option value="">— Skip —</option>
@@ -609,19 +939,103 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
             </div>
           )}
         </div>
+        {pickerItem && (
+          <PrintingPickerModal
+            cardName={pickerItem.dc.name}
+            options={pickerItem.otherCandidates || []}
+            selectedCardId={chosenOtherCardIds[pickerItem.dc.id] || ''}
+            onSelect={(cardId) => {
+              setChosenOtherCardIds(prev => ({ ...prev, [pickerItem.dc.id]: cardId }))
+              setPickerItem(null)
+            }}
+            onClose={() => setPickerItem(null)}
+          />
+        )}
         <div style={{ padding:'12px 20px', borderTop:'1px solid var(--border)', display:'flex', gap:8, justifyContent:'space-between', alignItems:'center' }}>
-          <span style={{ fontSize:'0.79rem', color:'#e07070' }}>
-            {!allRemovesMapped && removed.length > 0 ? '⚠ All removed cards need a destination' : ''}
+          <span style={{ fontSize:'0.79rem', color:'var(--text-faint)' }}>
+            {movedOwnedRows.length > 0 ? 'Owned cards must be reassigned to another binder or deck before sync can finish.' : ''}
           </span>
           <div style={{ display:'flex', gap:8 }}>
             <button onClick={onClose} style={{ background:'none', border:'1px solid var(--border)', borderRadius:4, padding:'7px 16px', color:'var(--text-dim)', fontSize:'0.83rem', cursor:'pointer' }}>Cancel</button>
             <button
               disabled={!canConfirm}
-              onClick={() => canConfirm && onConfirm({ diff, moveDestinations, wishlistId: wishlistId === 'new' ? null : (wishlistId || null), wishlistName: wishlistId === 'new' ? newWishlistName.trim() : null })}
+              onClick={() => canConfirm && onConfirm({
+                diff,
+                addItems: ownedAdded,
+                missingItems: unownedAdded,
+                printingSelections: buildChosenPrintingSelections(added, chosenOtherCardIds),
+                moveDestinationId: globalDest || null,
+                wishlistId: wishlistId === 'new' ? null : (wishlistId || null),
+                wishlistName: wishlistId === 'new' ? newWishlistName.trim() : null,
+              })}
               style={{ background:'rgba(74,154,90,0.15)', border:'1px solid rgba(74,154,90,0.4)', borderRadius:4, padding:'7px 16px', color:'var(--green, #4a9a5a)', fontSize:'0.83rem', cursor:canConfirm ? 'pointer' : 'not-allowed', opacity:canConfirm ? 1 : 0.45 }}>
               Apply Sync
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function MoveOwnedCardsModal({ title, message, items, folders, onConfirm, onClose }) {
+  const [targetId, setTargetId] = useState('')
+  const [busy, setBusy] = useState(false)
+  const canConfirm = !!targetId && !busy
+
+  const overlay = { position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:720, display:'flex', alignItems:'center', justifyContent:'center' }
+  const inputStyle = { background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:4, padding:'8px 10px', color:'var(--text)', fontSize:'0.84rem', width:'100%' }
+
+  async function handleConfirm() {
+    const target = folders.find(folder => folder.id === targetId)
+    if (!target) return
+    setBusy(true)
+    try {
+      await onConfirm(target)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div style={overlay} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, width:520, maxWidth:'94vw', display:'flex', flexDirection:'column', overflow:'hidden' }}>
+        <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <span style={{ fontFamily:'var(--font-display)', color:'var(--gold)', fontSize:'1rem' }}>{title}</span>
+          <button onClick={onClose} disabled={busy} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.2rem', cursor:busy ? 'default' : 'pointer' }}>✕</button>
+        </div>
+        <div style={{ padding:'16px 20px', display:'flex', flexDirection:'column', gap:14 }}>
+          <p style={{ margin:0, color:'var(--text-dim)', fontSize:'0.84rem', lineHeight:1.6 }}>{message}</p>
+          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+            {items.map(item => (
+              <div key={item.key} style={{ display:'flex', justifyContent:'space-between', fontSize:'0.84rem', color:'var(--text)' }}>
+                <span>{item.name}</span>
+                <span style={{ color:'var(--text-faint)' }}>{item.qty}×</span>
+              </div>
+            ))}
+          </div>
+          <select value={targetId} onChange={e => setTargetId(e.target.value)} style={inputStyle}>
+            <option value="">— Select binder or deck —</option>
+            {folders.map(folder => (
+              <option key={folder.id} value={folder.id}>
+                {folder.type === 'binder' ? 'Binder' : 'Deck'}: {folder.name}
+              </option>
+            ))}
+          </select>
+          {folders.length === 0 && (
+            <div style={{ color:'#d48d6a', fontSize:'0.8rem' }}>
+              No other binders or decks are available. Create one first, then try again.
+            </div>
+          )}
+        </div>
+        <div style={{ padding:'12px 20px', borderTop:'1px solid var(--border)', display:'flex', justifyContent:'flex-end', gap:8 }}>
+          <button onClick={onClose} disabled={busy} style={{ background:'none', border:'1px solid var(--border)', borderRadius:4, padding:'7px 16px', color:'var(--text-dim)', fontSize:'0.83rem', cursor:busy ? 'default' : 'pointer' }}>Cancel</button>
+          <button
+            onClick={handleConfirm}
+            disabled={!canConfirm}
+            style={{ background:'rgba(74,154,90,0.15)', border:'1px solid rgba(74,154,90,0.4)', borderRadius:4, padding:'7px 16px', color:'var(--green, #4a9a5a)', fontSize:'0.83rem', cursor:canConfirm ? 'pointer' : 'not-allowed', opacity:canConfirm ? 1 : 0.45 }}>
+            {busy ? 'Moving…' : 'Move & Continue'}
+          </button>
         </div>
       </div>
     </div>
@@ -703,6 +1117,7 @@ function VersionPickerModal({ dc, ownedMap, onSelect, onClose }) {
 export default function DeckBuilderPage() {
   const { id: deckId } = useParams()
   const { user }       = useAuth()
+  const { grid_density } = useSettings()
   const navigate       = useNavigate()
 
   // Deck state
@@ -744,17 +1159,18 @@ export default function DeckBuilderPage() {
   const [collDeckSfSet,   setCollDeckSfSet]   = useState(new Set())
   // Version picker
   const [versionPickCard, setVersionPickCard] = useState(null)
+  const [addFeedback, setAddFeedback] = useState(null)
   // Share button
   const [shareCopied, setShareCopied] = useState(false)
 
   // Hover preview
-  const [hoverImg, setHoverImg] = useState(null)
+  const [hoverImages, setHoverImages] = useState([])
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 })
 
   // Right panel tabs: 'deck' | 'stats' | 'combos'
   const [rightTab,            setRightTab]            = useState('deck')
   const [statsBracketOverride, setStatsBracketOverride] = useState(null)
-  const [deckView,    setDeckView]    = useState('visual')   // 'list' | 'compact' | 'visual'
+  const [deckView,    setDeckView]    = useState('list')   // 'list' | 'compact' | 'visual'
   const [showRight, setShowRight] = useState(false)
   const [deckSort,    setDeckSort]    = useState('type')   // 'name' | 'cmc' | 'color' | 'type'
   const [groupByType, setGroupByType] = useState(true)
@@ -784,6 +1200,7 @@ export default function DeckBuilderPage() {
   const [syncRunning,     setSyncRunning]     = useState(false)
   const [syncDone,        setSyncDone]        = useState(false)
   const [syncMsg,         setSyncMsg]         = useState('')
+  const [pendingOwnedMove, setPendingOwnedMove] = useState(null)
 
   // Description & tags
   const [cmdDescription, setCmdDescription] = useState('')
@@ -796,6 +1213,12 @@ export default function DeckBuilderPage() {
   const cmdDebounce     = useRef(makeDebouncer(300))
   const qtyTimers       = useRef(new Map())
   const saveMetaTimer   = useRef(null)
+  const hoverPreviewCache = useRef(new Map())
+  const hoverPreviewPromises = useRef(new Map())
+  const addFeedbackTimer = useRef(null)
+  const addFeedbackRef = useRef(null)
+  const hoverPreviewKey = useRef(null)
+  const hoverPreviewTimer = useRef(null)
 
   useEffect(() => { deckCardsRef.current = deckCards }, [deckCards])
 
@@ -826,60 +1249,106 @@ export default function DeckBuilderPage() {
         setCmdDescription(meta.deckDescription || '')
         setCmdTags(meta.tags || [])
 
-        // Load deck cards from Supabase
-        const { data: cards } = await sb.from('deck_cards').select('*').eq('deck_id', deckId).order('is_commander', { ascending: false })
-        let cardList = cards || []
+        async function enrichDeckCardsWithMetadata(rows) {
+          const rowsNeedingMeta = (rows || []).filter(row => !row.type_line || !row.image_uri || row.cmc == null)
+          if (!rowsNeedingMeta.length) return rows || []
 
-        // For collection decks (type='deck'), migrate folder_cards → deck_cards when needed.
-        // This runs when: (a) deck_cards is empty (first open), or (b) folder_cards has more
-        // non-commander cards than deck_cards (corrupted state after a partial commander save).
-        if (folder.type === 'deck') {
-          const fcRows = await getLocalFolderCards(deckId)
-          // Only migrate when folder_cards has more entries than ALL deck_cards (including
-          // commanders). Comparing against non-commander count caused re-migration every
-          // time a card was promoted to commander, duplicating the entire deck.
-          if (fcRows?.length && fcRows.length > cardList.length) {
-            const ownedAll = await getLocalCards(user.id)
-            const cardById = new Map(ownedAll.map(c => [c.id, c]))
-            const now = new Date().toISOString()
-            const built = await Promise.all(
-              fcRows.map(async r => {
-                const c = cardById.get(r.card_id)
-                if (!c) return null
-                const sfKey = c.set_code && c.collector_number ? `${c.set_code}-${c.collector_number}` : null
-                const sf = sfKey ? await getScryfallEntry(sfKey) : null
-                const imageUri = sf?.image_uris?.normal ?? sf?.image_uris?.small ?? (sf?.card_faces?.[0]?.image_uris?.normal) ?? null
-                return {
-                  id:               crypto.randomUUID(),
-                  deck_id:          deckId,
-                  user_id:          user.id,
-                  scryfall_id:      c.scryfall_id ?? null,
-                  name:             c.name,
-                  set_code:         c.set_code ?? null,
-                  collector_number: c.collector_number ?? null,
-                  type_line:        sf?.type_line ?? null,
-                  mana_cost:        sf?.mana_cost ?? null,
-                  cmc:              sf?.cmc ?? null,
-                  color_identity:   sf?.color_identity ?? [],
-                  image_uri:        imageUri,
-                  qty:              r.qty || 1,
-                  foil:             c.foil ?? false,
-                  is_commander:     false,
-                  board:            'main',
-                  created_at:       now,
-                  updated_at:       now,
-                }
-              })
-            )
-            const newRows = built.filter(Boolean)
-            if (newRows.length) {
-              // Combine with any existing deck_cards (e.g. a commander already saved)
-              // then persist to Supabase so the migration survives reloads
-              cardList = [...cardList.filter(dc => dc.is_commander), ...newRows]
-              sb.from('deck_cards').upsert(newRows, { onConflict: 'id' })
-                .then(({ error }) => { if (error) console.error('[DeckBuilder] folder_cards migration failed:', error) })
+          const missingIds = [...new Set(rowsNeedingMeta.map(row => row.scryfall_id).filter(Boolean))]
+          const fetchedByIdRows = missingIds.length ? await fetchCardsByScryfallIds(missingIds) : []
+          const fetchedById = new Map(fetchedByIdRows.map(card => [card.id, card]))
+
+          const unresolvedNameRows = rowsNeedingMeta.filter(row => !row.scryfall_id || !fetchedById.has(row.scryfall_id))
+          const missingMetaNames = [...new Set(unresolvedNameRows.map(row => row.name).filter(Boolean))]
+          const fetchedByNameRows = missingMetaNames.length ? await fetchCardsByNames(missingMetaNames) : []
+          const fetchedByName = new Map(fetchedByNameRows.map(card => [(card.name || '').toLowerCase(), card]))
+          const updates = []
+          const enrichedRows = (rows || []).map(row => {
+            const fetched = (row.scryfall_id && fetchedById.get(row.scryfall_id)) || fetchedByName.get((row.name || '').toLowerCase())
+            if (!fetched) return row
+            const meta = getDeckBuilderCardMeta(fetched)
+
+            const next = {
+              ...row,
+              scryfall_id: row.scryfall_id || meta.scryfall_id,
+              set_code: row.set_code || meta.set_code,
+              collector_number: row.collector_number || meta.collector_number,
+              type_line: row.type_line || meta.type_line,
+              mana_cost: row.mana_cost || meta.mana_cost,
+              cmc: row.cmc ?? meta.cmc,
+              color_identity: (row.color_identity && row.color_identity.length > 0)
+                ? row.color_identity
+                : (meta.color_identity || []),
+              image_uri: row.image_uri || meta.image_uri || null,
             }
+
+            const changed =
+              next.scryfall_id !== row.scryfall_id ||
+              next.set_code !== row.set_code ||
+              next.collector_number !== row.collector_number ||
+              next.type_line !== row.type_line ||
+              next.mana_cost !== row.mana_cost ||
+              next.cmc !== row.cmc ||
+              JSON.stringify(next.color_identity || []) !== JSON.stringify(row.color_identity || []) ||
+              next.image_uri !== row.image_uri
+
+            if (changed) {
+              updates.push({
+                id: row.id,
+                scryfall_id: next.scryfall_id,
+                set_code: next.set_code,
+                collector_number: next.collector_number,
+                type_line: next.type_line,
+                mana_cost: next.mana_cost,
+                cmc: next.cmc,
+                color_identity: next.color_identity,
+                image_uri: next.image_uri,
+                updated_at: new Date().toISOString(),
+              })
+            }
+
+            return next
+          })
+
+          for (const update of updates) {
+            const { id, ...payload } = update
+            await sb.from('deck_cards').update(payload).eq('id', id)
           }
+
+          return enrichedRows
+        }
+
+        let cardList = await fetchDeckCards(deckId)
+        if (folder.type === 'deck' && cardList.length === 0) {
+          const allocations = await fetchDeckAllocations(deckId)
+          if ((allocations || []).length > 0) {
+            const now = new Date().toISOString()
+            const hydratedRows = allocations.map(row => ({
+              id: crypto.randomUUID(),
+              deck_id: deckId,
+              user_id: user.id,
+              card_print_id: row.card_print_id || null,
+              scryfall_id: row.scryfall_id || null,
+              name: row.name,
+              set_code: row.set_code || null,
+              collector_number: row.collector_number || null,
+              type_line: row.type_line || null,
+              mana_cost: row.mana_cost || null,
+              cmc: row.cmc ?? null,
+              color_identity: row.color_identity || [],
+              image_uri: row.image_uri || null,
+              qty: row.qty || 1,
+              foil: row.foil ?? false,
+              is_commander: false,
+              board: 'main',
+              created_at: now,
+              updated_at: now,
+            }))
+            const { error: hydrateErr } = await sb.from('deck_cards').insert(hydratedRows)
+            if (hydrateErr) throw hydrateErr
+            cardList = await enrichDeckCardsWithMetadata(hydratedRows)
+          }
+        } else {
+          cardList = await enrichDeckCardsWithMetadata(cardList)
         }
 
         setDeckCards(cardList)
@@ -897,25 +1366,15 @@ export default function DeckBuilderPage() {
         setOwnedMap(map)
         setOwnedNameMap(nameMap)
 
-        // Build a set of scryfall_ids in THIS deck's folder_cards (for owned indicator)
-        if (folder.type === 'deck') {
-          const thisFcRows = await getLocalFolderCards(deckId)
-          if (thisFcRows?.length) {
-            const thisCardIds = new Set(thisFcRows.map(r => r.card_id))
-            setCollDeckSfSet(new Set(owned.filter(c => thisCardIds.has(c.id)).map(c => c.scryfall_id).filter(Boolean)))
-          }
-        }
+        const thisAllocations = await fetchDeckAllocations(deckId)
+        setCollDeckSfSet(new Set((thisAllocations || []).flatMap(row => deckAllocationKeys(row))))
 
-        // Find scryfall_ids of cards already assigned to other collection decks (use IDB to avoid large GET)
-        const { data: deckFolders } = await sb.from('folders').select('id').eq('user_id', user.id).eq('type', 'deck')
-        if (deckFolders?.length) {
-          const dIds = deckFolders.map(d => d.id)
-          const { data: fcRows } = await sb.from('folder_cards').select('card_id').in('folder_id', dIds.filter(id => id !== deckId))
-          if (fcRows?.length) {
-            const cardIdSet = new Set(fcRows.map(r => r.card_id))
-            setInOtherDeckSet(new Set(owned.filter(c => cardIdSet.has(c.id)).map(c => c.scryfall_id).filter(Boolean)))
-          }
-        }
+        const allAllocations = await fetchDeckAllocationsForUser(user.id)
+        setInOtherDeckSet(new Set(
+          (allAllocations || [])
+            .filter(row => row.deck_id !== deckId)
+            .flatMap(row => deckAllocationKeys(row))
+        ))
       } catch (err) {
         setLoadError('Failed to load deck')
         console.error(err)
@@ -965,6 +1424,14 @@ export default function DeckBuilderPage() {
   }, [deckCards, recImages])
 
   const deckNameSet = useMemo(() => new Set(deckCards.map(dc => dc.name.toLowerCase())), [deckCards])
+  const visualCardMinWidth = useMemo(() => {
+    const densityMap = {
+      cozy: 170,
+      comfortable: 136,
+      compact: 112,
+    }
+    return densityMap[grid_density] || densityMap.comfortable
+  }, [grid_density])
 
   const recCategoriesFiltered = useMemo(() => {
     if (!recs?.categories) return []
@@ -1123,15 +1590,16 @@ export default function DeckBuilderPage() {
     let name, scryfallId, setCode, collNum, typeLine, manaCost, cmc, colorId, imageUri
 
     if (isSfCard) {
+      const meta = getDeckBuilderCardMeta(sfCardOrRec)
       name       = sfCardOrRec.name
-      scryfallId = sfCardOrRec.id
-      setCode    = sfCardOrRec.set
-      collNum    = sfCardOrRec.collector_number
-      typeLine   = sfCardOrRec.type_line
-      manaCost   = sfCardOrRec.mana_cost
-      cmc        = sfCardOrRec.cmc
-      colorId    = sfCardOrRec.color_identity
-      imageUri   = getCardImageUri(sfCardOrRec, 'normal')
+      scryfallId = meta.scryfall_id
+      setCode    = meta.set_code
+      collNum    = meta.collector_number
+      typeLine   = meta.type_line
+      manaCost   = meta.mana_cost
+      cmc        = meta.cmc
+      colorId    = meta.color_identity
+      imageUri   = meta.image_uri
     } else {
       // EDHRec rec — enrich from scryfall cache or fetch
       name       = sfCardOrRec.name
@@ -1145,26 +1613,43 @@ export default function DeckBuilderPage() {
       try {
         const [full] = await fetchCardsByNames([name])
         if (full) {
-          scryfallId = full.id
-          setCode    = full.set
-          collNum    = full.collector_number
-          typeLine   = full.type_line
-          manaCost   = full.mana_cost
-          cmc        = full.cmc
-          colorId    = full.color_identity
-          imageUri   = getCardImageUri(full, 'normal')
+          const meta = getDeckBuilderCardMeta(full)
+          scryfallId = meta.scryfall_id
+          setCode    = meta.set_code
+          collNum    = meta.collector_number
+          typeLine   = meta.type_line
+          manaCost   = meta.mana_cost
+          cmc        = meta.cmc
+          colorId    = meta.color_identity
+          imageUri   = meta.image_uri
         }
       } catch {}
     }
 
     // Check if already in deck
     const existing = deckCards.find(dc =>
-      (scryfallId && dc.scryfall_id === scryfallId) || dc.name === name
+      ((scryfallId && dc.scryfall_id === scryfallId) || dc.name === name) && !!dc.foil === false
     )
+
+    const flashAddFeedback = (cardName, scryfallId, qtyAdded = 1) => {
+      const key = scryfallId || cardName
+      const prev = addFeedbackRef.current
+      const next = prev?.key === key
+        ? { key, name: cardName, count: (prev.count || 0) + qtyAdded }
+        : { key, name: cardName, count: qtyAdded }
+      addFeedbackRef.current = next
+      setAddFeedback(next)
+      if (addFeedbackTimer.current) clearTimeout(addFeedbackTimer.current)
+      addFeedbackTimer.current = setTimeout(() => {
+        addFeedbackRef.current = null
+        setAddFeedback(null)
+      }, 2600)
+    }
 
     if (existing) {
       // Increment qty
       changeQty(existing.id, +1)
+      flashAddFeedback(name, scryfallId, 1)
       return
     }
 
@@ -1192,29 +1677,84 @@ export default function DeckBuilderPage() {
     setDeckCards(prev => [...prev, newRow])
     await sb.from('deck_cards').insert(newRow)
     putDeckCards([newRow]).catch(() => {})
+    flashAddFeedback(name, scryfallId, 1)
   }
 
   function changeQty(deckCardId, delta) {
+    const current = deckCardsRef.current.find(dc => dc.id === deckCardId)
+    if (!current) return
+
+    const nextQty = current.qty + delta
+    if (nextQty <= 0) {
+      removeCardFromDeck(deckCardId)
+      return
+    }
+
+    if (delta < 0) {
+      getOwnedMoveRowsForDeckCard(current, nextQty)
+        .then(rows => {
+          if (!rows.length) {
+            setDeckCards(prev => prev.map(dc => dc.id === deckCardId ? { ...dc, qty: nextQty } : dc))
+            if (qtyTimers.current.has(deckCardId)) clearTimeout(qtyTimers.current.get(deckCardId))
+            const timer = setTimeout(async () => {
+              const latest = deckCardsRef.current.find(dc => dc.id === deckCardId)
+              if (!latest || latest.qty <= 0) return
+              await sb.from('deck_cards').update({ qty: latest.qty, updated_at: new Date().toISOString() }).eq('id', deckCardId)
+              qtyTimers.current.delete(deckCardId)
+            }, 600)
+            qtyTimers.current.set(deckCardId, timer)
+            return
+          }
+
+          promptToMoveOwnedCopies({
+            title: 'Move owned copy',
+            message: 'This card is assigned to this deck in your collection. Choose where to move the owned copy before reducing it in the decklist.',
+            items: rows,
+            onComplete: async () => {
+              setDeckCards(prev => prev.map(dc => dc.id === deckCardId ? { ...dc, qty: nextQty } : dc))
+              await sb.from('deck_cards').update({ qty: nextQty, updated_at: new Date().toISOString() }).eq('id', deckCardId)
+            },
+          }).catch(err => {
+            console.error('[DeckBuilder move decrease]', err)
+          })
+        })
+      return
+    }
+
     setDeckCards(prev => prev.map(dc => {
       if (dc.id !== deckCardId) return dc
-      const qty = dc.qty + delta
-      if (qty <= 0) return dc // handled via remove
-      return { ...dc, qty }
+      return { ...dc, qty: nextQty }
     }))
 
-    // Debounce Supabase update
     if (qtyTimers.current.has(deckCardId)) clearTimeout(qtyTimers.current.get(deckCardId))
     const timer = setTimeout(async () => {
-      const current = deckCardsRef.current.find(dc => dc.id === deckCardId)
-      if (!current) return
-      if (current.qty <= 0) return
-      await sb.from('deck_cards').update({ qty: current.qty, updated_at: new Date().toISOString() }).eq('id', deckCardId)
+      const latest = deckCardsRef.current.find(dc => dc.id === deckCardId)
+      if (!latest || latest.qty <= 0) return
+      await sb.from('deck_cards').update({ qty: latest.qty, updated_at: new Date().toISOString() }).eq('id', deckCardId)
       qtyTimers.current.delete(deckCardId)
     }, 600)
     qtyTimers.current.set(deckCardId, timer)
   }
 
   async function removeCardFromDeck(deckCardId) {
+    const current = deckCardsRef.current.find(dc => dc.id === deckCardId)
+    if (!current) return
+
+    const rows = await getOwnedMoveRowsForDeckCard(current, 0)
+    if (rows.length) {
+      await promptToMoveOwnedCopies({
+        title: 'Move owned copy',
+        message: 'This card is assigned to this deck in your collection. Choose where to move the owned copy before removing it from the decklist.',
+        items: rows,
+        onComplete: async () => {
+          setDeckCards(prev => prev.filter(dc => dc.id !== deckCardId))
+          await sb.from('deck_cards').delete().eq('id', deckCardId)
+          deleteDeckCardLocal(deckCardId).catch(() => {})
+        },
+      })
+      return
+    }
+
     setDeckCards(prev => prev.filter(dc => dc.id !== deckCardId))
     await sb.from('deck_cards').delete().eq('id', deckCardId)
     deleteDeckCardLocal(deckCardId).catch(() => {})
@@ -1228,7 +1768,11 @@ export default function DeckBuilderPage() {
     await sb.from('deck_cards').update({ foil: newFoil, updated_at: new Date().toISOString() }).eq('id', deckCardId)
   }
 
-  async function setCardAsCommander(dc) {
+  async function setCardAsCommander(dc, nextIsCommander = true) {
+    if (!nextIsCommander) {
+      await unsetCommander(dc.id)
+      return
+    }
     const alreadyHasCmd = deckCardsRef.current.some(c => c.is_commander)
     const updated = { ...dc, is_commander: true }
     setDeckCards(prev => prev.map(c => c.id === dc.id ? updated : c))
@@ -1241,7 +1785,7 @@ export default function DeckBuilderPage() {
           ...deckMeta,
           commanderName: dc.name,
           commanderScryfallId: dc.scryfall_id,
-          coverArtUri: dc.image_uri ?? deckMeta.coverArtUri,
+          coverArtUri: dc.image_uri ? toArtCropImg(dc.image_uri) : deckMeta.coverArtUri,
           commanderColorIdentity: dc.color_identity ?? [],
         }
     setDeckMeta(newMeta)
@@ -1341,6 +1885,7 @@ export default function DeckBuilderPage() {
 
       for (const entry of parsed) {
         const sf = sfByName.get(entry.name.toLowerCase())
+        const meta = getDeckBuilderCardMeta(sf)
         const isCmd = entry.isCommander && !commanderSet
         if (isCmd) commanderSet = true
 
@@ -1348,15 +1893,15 @@ export default function DeckBuilderPage() {
           id:               crypto.randomUUID(),
           deck_id:          deckId,
           user_id:          user.id,
-          scryfall_id:      sf?.id ?? null,
+          scryfall_id:      meta.scryfall_id,
           name:             entry.name,
-          set_code:         entry.setCode ?? sf?.set ?? null,
-          collector_number: entry.collectorNumber ?? sf?.collector_number ?? null,
-          type_line:        sf?.type_line ?? null,
-          mana_cost:        sf?.mana_cost ?? null,
-          cmc:              sf?.cmc ?? null,
-          color_identity:   sf?.color_identity ?? [],
-          image_uri:        getCardImageUri(sf, 'normal'),
+          set_code:         entry.setCode ?? meta.set_code,
+          collector_number: entry.collectorNumber ?? meta.collector_number,
+          type_line:        meta.type_line,
+          mana_cost:        meta.mana_cost,
+          cmc:              meta.cmc,
+          color_identity:   meta.color_identity ?? [],
+          image_uri:        meta.image_uri,
           qty:              entry.qty,
           foil:             entry.foil ?? false,
           is_commander:     isCmd,
@@ -1386,19 +1931,438 @@ export default function DeckBuilderPage() {
     setImporting(false)
   }
 
-  async function updateCardVersion(dcId, sfCard) {
+  async function updateCardVersion(versionTarget, sfCard) {
+    const dcId = versionTarget?.id || versionTarget
+    const meta = getDeckBuilderCardMeta(sfCard)
     const updated = {
-      scryfall_id:      sfCard.id,
-      set_code:         sfCard.set,
-      collector_number: sfCard.collector_number,
-      image_uri:        getCardImageUri(sfCard, 'normal'),
+      scryfall_id:      meta.scryfall_id,
+      set_code:         meta.set_code,
+      collector_number: meta.collector_number,
+      type_line:        meta.type_line,
+      mana_cost:        meta.mana_cost,
+      cmc:              meta.cmc,
+      color_identity:   meta.color_identity,
+      image_uri:        meta.image_uri,
+    }
+    if (versionTarget?.splitOne) {
+      const original = deckCardsRef.current.find(d => d.id === dcId)
+      if (!original || (original.qty || 0) < 2) return
+      const now = new Date().toISOString()
+      const splitRow = {
+        ...original,
+        ...updated,
+        id: crypto.randomUUID(),
+        qty: 1,
+        updated_at: now,
+        created_at: now,
+      }
+      setDeckCards(prev => prev.flatMap(d => {
+        if (d.id !== dcId) return [d]
+        return [{ ...d, qty: d.qty - 1 }, splitRow]
+      }))
+      await sb.from('deck_cards').update({ qty: original.qty - 1, updated_at: now }).eq('id', dcId)
+      await sb.from('deck_cards').insert(splitRow)
+      putDeckCards([{ ...original, qty: original.qty - 1, updated_at: now }, splitRow]).catch(() => {})
+      setVersionPickCard(null)
+      return
     }
     setDeckCards(prev => prev.map(d => d.id === dcId ? { ...d, ...updated } : d))
     await sb.from('deck_cards').update(updated).eq('id', dcId)
     setVersionPickCard(null)
   }
 
-  async function handleMakeDeck({ addItems, missingItems, wishlistId, wishlistName }) {
+  function getHoverImagesFromScryfallCard(sfCard) {
+    if (!sfCard) return []
+    const faceImages = (sfCard.card_faces || [])
+      .map(face => face?.image_uris?.large || face?.image_uris?.normal || null)
+      .filter(Boolean)
+    if (faceImages.length > 1) return faceImages
+    const single = getCardImageUri(sfCard, 'large') || getCardImageUri(sfCard, 'normal')
+    return single ? [single] : []
+  }
+
+  async function showHoverPreviewForDeckCard(dc, e) {
+    const fallback = dc.image_uri ? [toLargeImg(dc.image_uri)] : []
+    const hoverKey = dc.id || dc.scryfall_id || dc.name
+    hoverPreviewKey.current = hoverKey
+    setHoverPos({ x: e.clientX, y: e.clientY })
+    setHoverImages(fallback)
+
+    if (!dc.scryfall_id) return
+    if (hoverPreviewTimer.current) clearTimeout(hoverPreviewTimer.current)
+    if (hoverPreviewCache.current.has(dc.scryfall_id)) {
+      if (hoverPreviewKey.current === hoverKey) setHoverImages(hoverPreviewCache.current.get(dc.scryfall_id))
+      return
+    }
+
+    hoverPreviewTimer.current = setTimeout(async () => {
+      if (hoverPreviewKey.current !== hoverKey) return
+      try {
+        let promise = hoverPreviewPromises.current.get(dc.scryfall_id)
+        if (!promise) {
+          promise = fetchCardsByScryfallIds([dc.scryfall_id])
+          hoverPreviewPromises.current.set(dc.scryfall_id, promise)
+        }
+        const [sfCard] = await promise
+        hoverPreviewPromises.current.delete(dc.scryfall_id)
+        const images = getHoverImagesFromScryfallCard(sfCard)
+        if (!images.length) return
+        hoverPreviewCache.current.set(dc.scryfall_id, images)
+        if (hoverPreviewKey.current === hoverKey) setHoverImages(images)
+      } catch {
+        hoverPreviewPromises.current.delete(dc.scryfall_id)
+      }
+    }, 180)
+  }
+
+  function clearHoverPreview() {
+    if (hoverPreviewTimer.current) {
+      clearTimeout(hoverPreviewTimer.current)
+      hoverPreviewTimer.current = null
+    }
+    hoverPreviewKey.current = null
+    setHoverImages([])
+  }
+
+  function getAllocationDeckId() {
+    return isCollectionDeck ? deckId : (deckMeta.linked_deck_id || null)
+  }
+
+  async function refreshAllocationIndicators(explicitDeckId = null) {
+    const allocationDeckId = explicitDeckId || getAllocationDeckId()
+    if (allocationDeckId) {
+      const thisAllocations = await fetchDeckAllocations(allocationDeckId)
+      setCollDeckSfSet(new Set((thisAllocations || []).flatMap(row => deckAllocationKeys(row))))
+    } else {
+      setCollDeckSfSet(new Set())
+    }
+
+    const allAllocations = await fetchDeckAllocationsForUser(user.id)
+    setInOtherDeckSet(new Set(
+      (allAllocations || [])
+        .filter(row => row.deck_id !== allocationDeckId)
+        .flatMap(row => deckAllocationKeys(row))
+    ))
+  }
+
+  function matchesAllocationRow(dc, row) {
+    if (dc.scryfall_id && row.scryfall_id) return dc.scryfall_id === row.scryfall_id && !!dc.foil === !!row.foil
+    return (dc.name || '').toLowerCase() === (row.name || '').toLowerCase() && !!dc.foil === !!row.foil
+  }
+
+  async function getOwnedMoveRowsForDeckCard(dc, desiredQty) {
+    const allocationDeckId = getAllocationDeckId()
+    if (!allocationDeckId) return []
+
+    const allocations = await fetchDeckAllocations(allocationDeckId)
+    const matchingRows = (allocations || [])
+      .filter(row => matchesAllocationRow(dc, row))
+      .sort((a, b) => (a.qty || 0) - (b.qty || 0))
+
+    const allocatedQty = matchingRows.reduce((sum, row) => sum + (row.qty || 0), 0)
+    let remaining = Math.max(0, allocatedQty - desiredQty)
+    if (remaining <= 0) return []
+
+    const rows = []
+    for (const row of matchingRows) {
+      if (remaining <= 0) break
+      const qty = Math.min(row.qty || 0, remaining)
+      if (qty <= 0) continue
+      rows.push({
+        key: `${row.id}:${qty}`,
+        card_id: row.card_id,
+        qty,
+        name: row.name || dc.name,
+        allocRow: row,
+      })
+      remaining -= qty
+    }
+
+    return rows
+  }
+
+  async function loadMoveTargets(excludeDeckId) {
+    const { data, error } = await sb
+      .from('folders')
+      .select('id, name, type')
+      .eq('user_id', user.id)
+      .in('type', ['binder', 'deck'])
+      .neq('id', excludeDeckId)
+      .order('type')
+      .order('name')
+
+    if (error) throw error
+    return data || []
+  }
+
+  async function moveOwnedCopiesOutOfDeck(rows, destination) {
+    if (!rows?.length || !destination?.id) return
+
+    const movesByAllocation = new Map()
+    for (const row of rows) {
+      if (!row?.allocRow?.id || !row.card_id || !(row.qty > 0)) continue
+      const existing = movesByAllocation.get(row.allocRow.id)
+      if (existing) existing.qty += row.qty
+      else movesByAllocation.set(row.allocRow.id, { ...row })
+    }
+
+    const normalizedRows = [...movesByAllocation.values()]
+    const destinationByCardId = new Map()
+    for (const row of normalizedRows) {
+      destinationByCardId.set(row.card_id, (destinationByCardId.get(row.card_id) || 0) + row.qty)
+    }
+    const cardIds = [...destinationByCardId.keys()]
+
+    if (destination.type === 'deck') {
+      const { data: existingRows, error } = await sb
+        .from('deck_allocations')
+        .select('id, card_id, qty')
+        .eq('deck_id', destination.id)
+        .in('card_id', cardIds)
+      if (error) throw error
+
+      const existingMap = new Map((existingRows || []).map(row => [row.card_id, row]))
+      const inserts = []
+      for (const [cardId, qty] of destinationByCardId) {
+        const existing = existingMap.get(cardId)
+        if (existing) {
+          const { error: updateErr } = await sb.from('deck_allocations').update({ qty: (existing.qty || 0) + qty }).eq('id', existing.id)
+          if (updateErr) throw updateErr
+        } else {
+          inserts.push({ id: crypto.randomUUID(), deck_id: destination.id, user_id: user.id, card_id: cardId, qty })
+        }
+      }
+      if (inserts.length) {
+        const { error: insertErr } = await sb.from('deck_allocations').insert(inserts)
+        if (insertErr) throw insertErr
+      }
+    } else {
+      const { data: existingRows, error } = await sb
+        .from('folder_cards')
+        .select('id, card_id, qty')
+        .eq('folder_id', destination.id)
+        .in('card_id', cardIds)
+      if (error) throw error
+
+      const existingMap = new Map((existingRows || []).map(row => [row.card_id, row]))
+      const inserts = []
+      for (const [cardId, qty] of destinationByCardId) {
+        const existing = existingMap.get(cardId)
+        if (existing) {
+          const { error: updateErr } = await sb.from('folder_cards').update({ qty: (existing.qty || 0) + qty }).eq('id', existing.id)
+          if (updateErr) throw updateErr
+        } else {
+          inserts.push({ folder_id: destination.id, card_id: cardId, qty })
+        }
+      }
+      if (inserts.length) {
+        const { error: insertErr } = await sb.from('folder_cards').insert(inserts)
+        if (insertErr) throw insertErr
+      }
+    }
+
+    for (const row of normalizedRows) {
+      const nextQty = (row.allocRow.qty || 0) - row.qty
+      if (nextQty > 0) {
+        const { error } = await sb.from('deck_allocations').update({ qty: nextQty }).eq('id', row.allocRow.id)
+        if (error) throw error
+      } else {
+        const { error } = await sb.from('deck_allocations').delete().eq('id', row.allocRow.id)
+        if (error) throw error
+      }
+    }
+  }
+
+  async function promptToMoveOwnedCopies({ title, message, items, onComplete }) {
+    const folders = await loadMoveTargets(getAllocationDeckId())
+    setPendingOwnedMove({
+      title,
+      message,
+      items,
+      folders,
+      onConfirm: async (destination) => {
+        await moveOwnedCopiesOutOfDeck(items, destination)
+        await onComplete?.(destination)
+        await refreshAllocationIndicators()
+        setPendingOwnedMove(null)
+      },
+    })
+  }
+
+  async function reassignPlacementsToDeck(targetDeckId, rows) {
+    if (!rows?.length) return
+
+    const cardIds = [...new Set(rows.map(row => row.card_id).filter(Boolean))]
+    if (!cardIds.length) return
+
+    const [{ data: folderPlacements, error: folderErr }, { data: deckPlacements, error: deckErr }] = await Promise.all([
+      sb.from('folder_cards')
+        .select('id, folder_id, card_id, qty')
+        .in('card_id', cardIds),
+      sb.from('deck_allocations')
+        .select('id, deck_id, card_id, qty')
+        .in('card_id', cardIds)
+        .neq('deck_id', targetDeckId),
+    ])
+
+    if (folderErr) throw folderErr
+    if (deckErr) throw deckErr
+
+    const placementsByCardId = new Map()
+    for (const row of folderPlacements || []) {
+      const list = placementsByCardId.get(row.card_id) || []
+      list.push({ ...row, table: 'folder_cards', placementKey: 'folder_id', placementId: row.folder_id, rank: 0 })
+      placementsByCardId.set(row.card_id, list)
+    }
+    for (const row of deckPlacements || []) {
+      const list = placementsByCardId.get(row.card_id) || []
+      list.push({ ...row, table: 'deck_allocations', placementKey: 'deck_id', placementId: row.deck_id, rank: 1 })
+      placementsByCardId.set(row.card_id, list)
+    }
+
+    for (const row of rows) {
+      let remaining = row.qty || 0
+      const placements = (placementsByCardId.get(row.card_id) || [])
+        .sort((a, b) => a.rank - b.rank || (a.qty || 0) - (b.qty || 0))
+
+      for (const placement of placements) {
+        if (remaining <= 0) break
+        const usedQty = Math.min(placement.qty || 0, remaining)
+        const nextQty = (placement.qty || 0) - usedQty
+
+        if (nextQty > 0) {
+          const { error } = await sb.from(placement.table).update({ qty: nextQty }).eq('id', placement.id)
+          if (error) throw error
+        } else {
+          const { error } = await sb.from(placement.table).delete().eq('id', placement.id)
+          if (error) throw error
+        }
+
+        remaining -= usedQty
+      }
+    }
+  }
+
+  async function syncDeckRowsToAllocatedPrintings(items) {
+    const normalizedItems = (items || []).filter(item => item?.dc?.id && (item.allocations || []).length > 0)
+    if (!normalizedItems.length) return
+
+    const desiredByDeckCardId = new Map()
+    for (const item of normalizedItems) {
+      const prints = [...new Map(
+        (item.allocations || []).map(row => [
+          `${row.scryfall_id || ''}|${row.set_code || ''}|${row.collector_number || ''}|${row.foil ? '1' : '0'}`,
+          row,
+        ])
+      ).values()]
+      if (prints.length !== 1) continue
+
+      const desired = prints[0]
+      const samePrinting =
+        (item.dc.scryfall_id || null) === (desired.scryfall_id || null) &&
+        (item.dc.set_code || null) === (desired.set_code || null) &&
+        (item.dc.collector_number || null) === (desired.collector_number || null) &&
+        !!item.dc.foil === !!desired.foil
+      if (!samePrinting) desiredByDeckCardId.set(item.dc.id, desired)
+    }
+    if (!desiredByDeckCardId.size) return
+
+    const scryfallIds = [...new Set([...desiredByDeckCardId.values()].map(row => row.scryfall_id).filter(Boolean))]
+    const fetchedRows = scryfallIds.length ? await fetchCardsByScryfallIds(scryfallIds) : []
+    const fetchedById = new Map(fetchedRows.map(card => [card.id, card]))
+
+    const updates = []
+    const now = new Date().toISOString()
+    setDeckCards(prev => prev.map(dc => {
+      const desired = desiredByDeckCardId.get(dc.id)
+      if (!desired) return dc
+      const fetched = desired.scryfall_id ? fetchedById.get(desired.scryfall_id) : null
+      const meta = fetched ? getDeckBuilderCardMeta(fetched) : null
+      const next = {
+        ...dc,
+        scryfall_id: desired.scryfall_id || dc.scryfall_id || null,
+        set_code: desired.set_code || meta?.set_code || dc.set_code || null,
+        collector_number: desired.collector_number || meta?.collector_number || dc.collector_number || null,
+        type_line: meta?.type_line || dc.type_line || null,
+        mana_cost: meta?.mana_cost || dc.mana_cost || null,
+        cmc: meta?.cmc ?? dc.cmc ?? null,
+        color_identity: meta?.color_identity || dc.color_identity || [],
+        image_uri: meta?.image_uri || dc.image_uri || null,
+        foil: !!desired.foil,
+        updated_at: now,
+      }
+      updates.push({
+        id: dc.id,
+        scryfall_id: next.scryfall_id,
+        set_code: next.set_code,
+        collector_number: next.collector_number,
+        type_line: next.type_line,
+        mana_cost: next.mana_cost,
+        cmc: next.cmc,
+        color_identity: next.color_identity,
+        image_uri: next.image_uri,
+        foil: next.foil,
+        updated_at: now,
+      })
+      return next
+    }))
+
+    for (const update of updates) {
+      const { id, ...payload } = update
+      await sb.from('deck_cards').update(payload).eq('id', id)
+    }
+  }
+
+  async function applyExplicitPrintingSelections(printingSelections) {
+    const selections = (printingSelections || []).filter(row => row?.deckCardId && row?.candidate)
+    if (!selections.length) return
+
+    const scryfallIds = [...new Set(selections.map(row => row.candidate.scryfall_id).filter(Boolean))]
+    const fetchedRows = scryfallIds.length ? await fetchCardsByScryfallIds(scryfallIds) : []
+    const fetchedById = new Map(fetchedRows.map(card => [card.id, card]))
+    const now = new Date().toISOString()
+
+    setDeckCards(prev => prev.map(dc => {
+      const selection = selections.find(row => row.deckCardId === dc.id)
+      if (!selection) return dc
+      const candidate = selection.candidate
+      const fetched = candidate.scryfall_id ? fetchedById.get(candidate.scryfall_id) : null
+      const meta = fetched ? getDeckBuilderCardMeta(fetched) : null
+      return {
+        ...dc,
+        scryfall_id: candidate.scryfall_id || dc.scryfall_id || null,
+        set_code: candidate.set_code || meta?.set_code || dc.set_code || null,
+        collector_number: candidate.collector_number || meta?.collector_number || dc.collector_number || null,
+        type_line: meta?.type_line || dc.type_line || null,
+        mana_cost: meta?.mana_cost || dc.mana_cost || null,
+        cmc: meta?.cmc ?? dc.cmc ?? null,
+        color_identity: meta?.color_identity || dc.color_identity || [],
+        image_uri: meta?.image_uri || dc.image_uri || null,
+        foil: !!candidate.foil,
+        updated_at: now,
+      }
+    }))
+
+    for (const selection of selections) {
+      const candidate = selection.candidate
+      const fetched = candidate.scryfall_id ? fetchedById.get(candidate.scryfall_id) : null
+      const meta = fetched ? getDeckBuilderCardMeta(fetched) : null
+      await sb.from('deck_cards').update({
+        scryfall_id: candidate.scryfall_id || null,
+        set_code: candidate.set_code || meta?.set_code || null,
+        collector_number: candidate.collector_number || meta?.collector_number || null,
+        type_line: meta?.type_line || null,
+        mana_cost: meta?.mana_cost || null,
+        cmc: meta?.cmc ?? null,
+        color_identity: meta?.color_identity || [],
+        image_uri: meta?.image_uri || null,
+        foil: !!candidate.foil,
+        updated_at: now,
+      }).eq('id', selection.deckCardId)
+    }
+  }
+
+  async function handleMakeDeck({ addItems, missingItems, printingSelections, wishlistId, wishlistName }) {
     if (makeDeckRunning) return
     setMakeDeckRunning(true)
     setShowMakeDeck(false)
@@ -1406,49 +2370,19 @@ export default function DeckBuilderPage() {
       // Transform this builder deck into a collection deck in-place (no new folder)
       const { error: typeErr } = await sb.from('folders').update({ type: 'deck' }).eq('id', deckId)
       if (typeErr) throw typeErr
+      await applyExplicitPrintingSelections(printingSelections)
 
       if (addItems.length > 0) {
-        // Move cards from their source folders into this deck (don't copy)
-        const cardIds = addItems.map(i => i.cardId).filter(Boolean)
-        const { data: sourceRows } = await sb.from('folder_cards')
-          .select('id, card_id, qty')
-          .in('card_id', cardIds)
-          .neq('folder_id', deckId)
+        const allocationRows = addItems
+          .flatMap(item => (item.allocations || []).map(row => ({
+            id: crypto.randomUUID(),
+            card_id: row.card_id,
+            qty: row.qty,
+          })))
 
-        const sourceByCardId = new Map()
-        for (const row of sourceRows || []) {
-          if (!sourceByCardId.has(row.card_id)) sourceByCardId.set(row.card_id, [])
-          sourceByCardId.get(row.card_id).push(row)
-        }
-
-        const toDelete = []
-        const toUpdate = [] // { id, qty }
-        const toInsert = []
-
-        for (const item of addItems) {
-          if (!item.cardId) continue
-          const rows = sourceByCardId.get(item.cardId) || []
-          let remaining = item.totalAdd
-          for (const row of rows) {
-            if (remaining <= 0) break
-            const take = Math.min(row.qty, remaining)
-            remaining -= take
-            if (take >= row.qty) toDelete.push(row.id)
-            else toUpdate.push({ id: row.id, qty: row.qty - take })
-          }
-          toInsert.push({ id: crypto.randomUUID(), folder_id: deckId, card_id: item.cardId, qty: item.totalAdd })
-        }
-
-        if (toDelete.length) {
-          const { error: delErr } = await sb.from('folder_cards').delete().in('id', toDelete)
-          if (delErr) throw delErr
-        }
-        for (const u of toUpdate) {
-          await sb.from('folder_cards').update({ qty: u.qty }).eq('id', u.id)
-        }
-        const { error: fcErr } = await sb.from('folder_cards').insert(toInsert)
-        if (fcErr) throw fcErr
-        await pruneUnplacedCards(addItems.map(i => i.cardId).filter(Boolean))
+        await syncDeckRowsToAllocatedPrintings(addItems)
+        await upsertDeckAllocations(deckId, user.id, allocationRows)
+        await reassignPlacementsToDeck(deckId, allocationRows)
       }
 
       let targetWishlistId = wishlistId
@@ -1462,10 +2396,8 @@ export default function DeckBuilderPage() {
         await sb.from('list_items').insert(listInserts)
       }
 
-      // Update local deck state to reflect it's now a collection deck
       setDeck(prev => ({ ...prev, type: 'deck' }))
-      // Update owned indicator — mark added cards as in-collection-deck
-      setCollDeckSfSet(new Set(addItems.map(i => i.dc.scryfall_id).filter(Boolean)))
+      await refreshAllocationIndicators(deckId)
 
       const addCount = addItems.reduce((s, i) => s + i.totalAdd, 0)
       const misCount = missingItems.reduce((s, i) => s + i.missingQty, 0)
@@ -1481,25 +2413,62 @@ export default function DeckBuilderPage() {
     setMakeDeckRunning(false)
   }
 
-  async function handleSync({ diff, moveDestinations, wishlistId, wishlistName }) {
+  async function handleSync({ diff, addItems, missingItems, printingSelections, moveDestinationId, wishlistId, wishlistName }) {
     if (syncRunning) return
     setSyncRunning(true)
     setShowSync(false)
     try {
-      const { added, changed, removed, targetFolderId } = diff
-      const ownedAdded   = added.filter(i => i.owned)
-      const unownedAdded = added.filter(i => !i.owned)
+      const targetDeckId = diff?.targetDeckId || getAllocationDeckId()
+      if (!targetDeckId) throw new Error('No linked collection deck to sync.')
+      await applyExplicitPrintingSelections(printingSelections)
+      const { added, changed, removed } = diff
+      const ownedAdded = addItems || []
+      const unownedAdded = missingItems || []
 
       if (ownedAdded.length > 0) {
-        const inserts = ownedAdded.map(i => ({ id: crypto.randomUUID(), folder_id: targetFolderId, card_id: i.cardId, qty: i.dc.qty }))
-        await sb.from('folder_cards').insert(inserts)
+        const addedRows = ownedAdded.flatMap(i => (i.allocations || []).map(row => ({
+          id: crypto.randomUUID(),
+          card_id: row.card_id,
+          qty: row.qty,
+        })))
+        await syncDeckRowsToAllocatedPrintings(ownedAdded)
+        await upsertDeckAllocations(targetDeckId, user.id, addedRows)
+        await reassignPlacementsToDeck(targetDeckId, addedRows)
       }
-      for (const c of changed) {
-        await sb.from('folder_cards').update({ qty: c.newQty }).eq('id', c.fcRow.id)
+      const increased = changed.filter(c => c.newQty > c.oldQty)
+      const decreased = changed.filter(c => c.newQty < c.oldQty)
+      for (const c of increased) {
+        await sb.from('deck_allocations').update({ qty: c.newQty }).eq('id', c.allocRow.id)
       }
-      for (const r of removed) {
-        const destId = moveDestinations[r.fcRow.id]
-        if (destId) await sb.from('folder_cards').update({ folder_id: destId }).eq('id', r.fcRow.id)
+      const increasedRows = increased
+        .map(c => ({ card_id: c.cardId, qty: c.newQty - c.oldQty }))
+      if (increasedRows.length > 0) {
+        await reassignPlacementsToDeck(targetDeckId, increasedRows)
+      }
+
+      const moveRows = [
+        ...decreased.map(c => ({
+          key: `changed:${c.allocRow.id}`,
+          card_id: c.cardId,
+          qty: c.oldQty - c.newQty,
+          name: c.dc.name,
+          allocRow: c.allocRow,
+        })),
+        ...removed.map(r => ({
+          key: `removed:${r.allocRow.id}`,
+          card_id: r.cardId,
+          qty: r.allocRow.qty || 0,
+          name: r.name,
+          allocRow: r.allocRow,
+        })),
+      ]
+
+      if (moveRows.length > 0) {
+        const destination = targetDeckId && moveDestinationId
+          ? (await loadMoveTargets(targetDeckId)).find(folder => folder.id === moveDestinationId)
+          : null
+        if (!destination) throw new Error('Select a destination for removed owned cards.')
+        await moveOwnedCopiesOutOfDeck(moveRows, destination)
       }
 
       let targetWishlistId = wishlistId
@@ -1508,10 +2477,11 @@ export default function DeckBuilderPage() {
         targetWishlistId = wl?.id
       }
       if (targetWishlistId && unownedAdded.length > 0) {
-        const listInserts = unownedAdded.map(i => ({ id: crypto.randomUUID(), folder_id: targetWishlistId, user_id: user.id, name: i.dc.name, scryfall_id: i.dc.scryfall_id || null, set_code: i.dc.set_code || null, collector_number: i.dc.collector_number || null, foil: i.dc.foil ?? false, qty: i.dc.qty }))
+        const listInserts = unownedAdded.map(i => ({ id: crypto.randomUUID(), folder_id: targetWishlistId, user_id: user.id, name: i.dc.name, scryfall_id: i.dc.scryfall_id || null, set_code: i.dc.set_code || null, collector_number: i.dc.collector_number || null, foil: i.dc.foil ?? false, qty: i.missingQty || i.dc.qty }))
         await sb.from('list_items').insert(listInserts)
       }
 
+      await refreshAllocationIndicators(targetDeckId)
       setSyncMsg('Sync complete')
       setSyncDone(true)
     } catch (err) {
@@ -1632,7 +2602,6 @@ export default function DeckBuilderPage() {
               />
               <button className={styles.searchBtn} onClick={() => doSearch(searchQuery, 1)}>→</button>
             </div>
-
             <div className={styles.searchResults}>
               {searchLoading && searchPage === 1 && <div className={styles.searchEmpty}>Searching…</div>}
               {!searchLoading && searchResults.length === 0 && searchQuery && (
@@ -1646,6 +2615,7 @@ export default function DeckBuilderPage() {
                   key={c.id}
                   card={c}
                   ownedQty={ownedMap.get(c.id) ?? 0}
+                  addFeedback={addFeedback?.key === (c.id || c.name) ? addFeedback : null}
                   onAdd={addCardToDeck}
                 />
               ))}
@@ -1695,9 +2665,9 @@ export default function DeckBuilderPage() {
                               imageUri={recImages[rec.name] || null}
                               ownedQty={ownedMap.get(rec.slug) ?? 0}
                               onAdd={addCardToDeck}
-                              onHoverEnter={(uri, e) => { setHoverImg(uri); setHoverPos({ x: e.clientX, y: e.clientY }) }}
+                              onHoverEnter={(uri, e) => { setHoverImages(uri ? [uri] : []); setHoverPos({ x: e.clientX, y: e.clientY }) }}
                               onHoverMove={e => setHoverPos({ x: e.clientX, y: e.clientY })}
-                              onHoverLeave={() => setHoverImg(null)}
+                              onHoverLeave={() => clearHoverPreview()}
                             />
                           ))}
                         </div>
@@ -1818,7 +2788,7 @@ export default function DeckBuilderPage() {
           {[
             { id: 'deck',   label: 'Deck',   badge: `${totalCards}/${deckSize}`, over: totalCards > deckSize },
             { id: 'stats',  label: 'Stats',  badge: null },
-            !isCollectionDeck && { id: 'combos', label: 'Combos', badge: combosFetched ? String(combosIncluded.length) : null },
+            { id: 'combos', label: 'Combos', badge: combosFetched ? String(combosIncluded.length) : null },
           ].filter(Boolean).map(({ id, label, badge, over }) => (
             <button
               key={id}
@@ -1885,14 +2855,14 @@ export default function DeckBuilderPage() {
                 dc,
                 ownedQty:    ownedMap.get(dc.scryfall_id) ?? 0,
                 ownedAlt:    ownedNameMap.get((dc.name || '').toLowerCase()) ?? 0,
-                ownedInDeck: inOtherDeckSet.has(dc.scryfall_id),
-                inCollDeck:  collDeckSfSet.has(dc.scryfall_id),
+                ownedInDeck: allocationSetHas(inOtherDeckSet, dc),
+                inCollDeck:  allocationSetHas(collDeckSfSet, dc),
                 onChangeQty: changeQty,
                 onRemove:    removeCardFromDeck,
-                onMouseEnter: () => setHoverImg(toLargeImg(dc.image_uri)),
-                onMouseLeave: () => setHoverImg(null),
+                onMouseEnter: e => showHoverPreviewForDeckCard(dc, e),
+                onMouseLeave: () => clearHoverPreview(),
                 onMouseMove:  e => setHoverPos({ x: e.clientX, y: e.clientY }),
-                onPickVersion: setVersionPickCard,
+                onPickVersion: (dc, options = {}) => setVersionPickCard({ ...dc, ...options }),
                 onToggleFoil:  toggleFoil,
                 onSetCommander: setCardAsCommander,
                 isEDH,
@@ -1901,28 +2871,51 @@ export default function DeckBuilderPage() {
               const renderCard = (dc) => {
                 if (deckView === 'visual') return (
                   <div key={dc.id} className={`${styles.visualCard}${dc.is_commander ? ' '+styles.isCommander : ''}`}
-                    onMouseEnter={() => setHoverImg(toLargeImg(dc.image_uri))}
-                    onMouseLeave={() => setHoverImg(null)}
+                    onMouseEnter={e => showHoverPreviewForDeckCard(dc, e)}
+                    onMouseLeave={() => clearHoverPreview()}
                     onMouseMove={e => setHoverPos({ x: e.clientX, y: e.clientY })}>
                     {dc.image_uri
                       ? <img src={dc.image_uri} alt={dc.name} className={styles.visualCardImg} loading="lazy" />
                       : <div className={styles.visualCardPlaceholder}>{dc.name}</div>}
                     {dc.qty > 1 && <span className={styles.visualCardQty}>×{dc.qty}</span>}
                     {dc.foil && <span className={styles.visualCardFoil} title="Foil">✦</span>}
+                    <div className={styles.visualCardTop}>
+                      <OwnershipBadge
+                        ownedQty={ownedMap.get(dc.scryfall_id) ?? 0}
+                        ownedAlt={ownedNameMap.get((dc.name || '').toLowerCase()) ?? 0}
+                        ownedInDeck={allocationSetHas(inOtherDeckSet, dc)}
+                        inCollDeck={allocationSetHas(collDeckSfSet, dc)}
+                      />
+                      <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} />
+                    </div>
+                    <div className={styles.visualCardBottom}>
+                      <div className={styles.visualCardName}>{dc.name}</div>
+                      <div className={styles.visualCardControls}>
+                        <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, -1) }}>−</button>
+                        <span className={styles.visualCardCount}>{dc.qty}</span>
+                        <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, +1) }}>+</button>
+                        <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); removeCardFromDeck(dc.id) }}>✕</button>
+                      </div>
+                    </div>
                   </div>
                 )
                 if (deckView === 'compact') return (
                   <div key={dc.id} className={`${styles.compactRow}${dc.is_commander ? ' '+styles.isCommander : ''}`}>
                     <span className={styles.compactQty}>{dc.qty}</span>
                     {dc.foil && <span className={styles.foilBadge} title="Foil">✦</span>}
-                    {collDeckSfSet.has(dc.scryfall_id) && <span className={styles.collDeckBadge} title="In your collection deck">◆</span>}
                     <span className={styles.compactName}
-                      onMouseEnter={() => setHoverImg(toLargeImg(dc.image_uri))}
-                      onMouseLeave={() => setHoverImg(null)}
+                      onMouseEnter={e => showHoverPreviewForDeckCard(dc, e)}
+                      onMouseLeave={() => clearHoverPreview()}
                       onMouseMove={e => setHoverPos({ x: e.clientX, y: e.clientY })}>
                       {dc.name}
                     </span>
-                    <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={setVersionPickCard} />
+                    <OwnershipBadge
+                      ownedQty={ownedMap.get(dc.scryfall_id) ?? 0}
+                      ownedAlt={ownedNameMap.get((dc.name || '').toLowerCase()) ?? 0}
+                      ownedInDeck={allocationSetHas(inOtherDeckSet, dc)}
+                      inCollDeck={allocationSetHas(collDeckSfSet, dc)}
+                    />
+                    <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} />
                     <div className={styles.qtyControls}>
                       <button className={styles.qtyBtn} onClick={() => changeQty(dc.id, -1)}>−</button>
                       <span className={styles.qtyVal}>{dc.qty}</span>
@@ -1964,7 +2957,7 @@ export default function DeckBuilderPage() {
                         <span className={styles.groupCount}>{groupQty}</span>
                       </div>
                       {!collapsed && (deckView === 'visual'
-                        ? <div className={styles.visualGrid}>{cards.map(dc => renderCard(dc))}</div>
+                        ? <div className={styles.visualGrid} style={{ '--deckbuilder-grid-min': `${visualCardMinWidth}px` }}>{cards.map(dc => renderCard(dc))}</div>
                         : cards.map(dc => renderCard(dc))
                       )}
                     </div>
@@ -1974,7 +2967,7 @@ export default function DeckBuilderPage() {
 
               // Flat (no grouping)
               return deckView === 'visual'
-                ? <div className={styles.visualGrid}>{sortedDeckCards.map(dc => renderCard(dc))}</div>
+                ? <div className={styles.visualGrid} style={{ '--deckbuilder-grid-min': `${visualCardMinWidth}px` }}>{sortedDeckCards.map(dc => renderCard(dc))}</div>
                 : sortedDeckCards.map(dc => renderCard(dc))
             })()}
           </div>
@@ -2106,18 +3099,29 @@ export default function DeckBuilderPage() {
         />
       )}
 
+      {pendingOwnedMove && (
+        <MoveOwnedCardsModal
+          title={pendingOwnedMove.title}
+          message={pendingOwnedMove.message}
+          items={pendingOwnedMove.items}
+          folders={pendingOwnedMove.folders}
+          onConfirm={pendingOwnedMove.onConfirm}
+          onClose={() => setPendingOwnedMove(null)}
+        />
+      )}
+
       {/* Version picker modal */}
       {versionPickCard && (
         <VersionPickerModal
           dc={versionPickCard}
           ownedMap={ownedMap}
-          onSelect={p => updateCardVersion(versionPickCard.id, p)}
+          onSelect={p => updateCardVersion(versionPickCard, p)}
           onClose={() => setVersionPickCard(null)}
         />
       )}
 
       {/* Floating card preview */}
-      <FloatingPreview imageUri={hoverImg} x={hoverPos.x} y={hoverPos.y} />
+      <FloatingPreview imageUris={hoverImages} x={hoverPos.x} y={hoverPos.y} />
 
       {/* ── Import modal ──────────────────────────────────────────── */}
       {showImport && (

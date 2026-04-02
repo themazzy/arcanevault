@@ -101,7 +101,7 @@ export default function ImportModal({ userId, folderType, folders: initialFolder
         }
       } else {
         const cardRows = []
-        const fcRows   = []
+        const placementRows = []
         for (const c of parsed) {
           const sf = sfByName[c.name.toLowerCase()]
           if (!sf) { errs.push(c.name); setProgress(p => p + 1); continue }
@@ -122,10 +122,18 @@ export default function ImportModal({ userId, folderType, folders: initialFolder
             for (const row of cardRows) {
               const sfKey = row.scryfall_id + (row.foil ? '|f' : '')
               const cid = sfToId[sfKey]
-              if (cid) { fcRows.push({ folder_id: folderId, card_id: cid, qty: row.qty }); count++ }
+              if (cid) {
+                placementRows.push(
+                  folderType === 'deck'
+                    ? { deck_id: folderId, user_id: userId, card_id: cid, qty: row.qty }
+                    : { folder_id: folderId, card_id: cid, qty: row.qty }
+                )
+                count++
+              }
             }
-            if (fcRows.length) {
-              await sb.from('folder_cards').upsert(fcRows, { onConflict: 'folder_id,card_id', ignoreDuplicates: true })
+            if (placementRows.length) {
+              await sb.from(folderType === 'deck' ? 'deck_allocations' : 'folder_cards')
+                .upsert(placementRows, { onConflict: `${folderType === 'deck' ? 'deck_id' : 'folder_id'},card_id`, ignoreDuplicates: true })
             }
           }
         }
