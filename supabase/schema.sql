@@ -81,6 +81,16 @@ create table if not exists card_prices_stage (
   primary key (scryfall_id, snapshot_date)
 );
 
+create table if not exists card_hashes (
+  scryfall_id        text primary key,
+  name               text not null,
+  set_code           text,
+  collector_number   text,
+  phash_hex          text,
+  image_uri          text,
+  art_crop_uri       text
+);
+
 -- ── SHARED FOLDERS (public read-only links) ───────────────────────────────────
 create table shared_folders (
   id           uuid default gen_random_uuid() primary key,
@@ -102,6 +112,7 @@ create index card_prices_snapshot_date_idx on card_prices(snapshot_date);
 create index card_prices_set_collector_snapshot_idx on card_prices(set_code, collector_number, snapshot_date);
 create index card_prices_stage_snapshot_date_idx on card_prices_stage(snapshot_date);
 create index card_prices_stage_set_collector_snapshot_idx on card_prices_stage(set_code, collector_number, snapshot_date);
+create index if not exists card_hashes_phash_idx on card_hashes(phash_hex) where phash_hex is not null;
 
 -- ── ROW LEVEL SECURITY ────────────────────────────────────────────────────────
 alter table cards            enable row level security;
@@ -109,12 +120,14 @@ alter table folders          enable row level security;
 alter table folder_cards     enable row level security;
 alter table card_prices      enable row level security;
 alter table card_prices_stage enable row level security;
+alter table card_hashes      enable row level security;
 alter table shared_folders   enable row level security;
 
 -- cards: users own their cards
 create policy "own cards"   on cards           for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "own folders" on folders         for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "public read card_prices" on card_prices for select using (true);
+create policy "public read card_hashes" on card_hashes for select using (true);
 
 -- folder_cards: access if you own the folder
 create policy "own folder_cards" on folder_cards for all
@@ -131,6 +144,7 @@ create policy "public read shared_folders" on shared_folders for select
 grant all on cards, folders, folder_cards, shared_folders to authenticated;
 grant select on shared_folders to anon;
 grant select on card_prices to authenticated, anon;
+grant select on card_hashes to authenticated, anon;
 revoke all on card_prices_stage from anon, authenticated;
 revoke all on card_prices_stage from public;
 
