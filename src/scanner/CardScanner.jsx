@@ -221,18 +221,20 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
 
     ;(async () => {
       try {
+        const cvPromise = waitForOpenCV()
+
         await databaseService.init(status => {
           if (!mountedRef.current) return
           setHashLoadInfo(status)
           setCardCount(status.loadedCount ?? 0)
         })
-        const cvPromise = waitForOpenCV()
 
-        await databaseService.waitUntilFullyLoaded()
         if (!mountedRef.current) return
-        setDbReady(true)
         setCardCount(databaseService.cardCount)
         setHashLoadInfo(databaseService.status)
+        if (databaseService.cardCount > 0) {
+          setDbReady(true)
+        }
 
         if (databaseService.cardCount === 0) {
           await databaseService.sync(status => {
@@ -243,8 +245,10 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
           await databaseService.waitUntilFullyLoaded()
           if (!mountedRef.current) return
           setCardCount(databaseService.cardCount)
-          setDbReady(true)
           setHashLoadInfo(databaseService.status)
+          if (databaseService.cardCount > 0) {
+            setDbReady(true)
+          }
         }
 
         await cvPromise
