@@ -7,10 +7,14 @@ export const useAuth = () => useContext(AuthContext)
 
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(undefined)
+  const [authEvent, setAuthEvent] = useState(null)
 
   useEffect(() => {
     sb.auth.getSession().then(({ data: { session } }) => setSession(session))
-    const { data: { subscription } } = sb.auth.onAuthStateChange((_e, s) => setSession(s))
+    const { data: { subscription } } = sb.auth.onAuthStateChange((event, s) => {
+      setAuthEvent(event)
+      setSession(s)
+    })
     return () => subscription.unsubscribe()
   }, [])
 
@@ -19,7 +23,7 @@ export function AuthProvider({ children }) {
   )
 
   return (
-    <AuthContext.Provider value={{ session, user: session?.user || null }}>
+    <AuthContext.Provider value={{ session, user: session?.user || null, authEvent, clearAuthEvent: () => setAuthEvent(null) }}>
       {children}
     </AuthContext.Provider>
   )
@@ -97,13 +101,13 @@ const FEATURES = [
     icon: '◈',
     title: 'Collection Tracking',
     desc: 'Catalog every card you own. Search and filter by name, set, colour, type, rarity or price. Your complete inventory is always one search away.',
-    stat: '30,000+ cards in the database',
+    stat: 'Search Scryfall print data',
   },
   {
     icon: '⚔',
     title: 'Deck Builder',
-    desc: 'Build Commander, Modern, Legacy and Pioneer decks with EDHRec synergy recommendations and combo detection. From idea to finished decklist in minutes.',
-    stat: '12 formats supported',
+    desc: 'Build decklists with recommendations, combo detection, collection sync, and collection-deck allocation workflows.',
+    stat: 'Commander-focused deck workflow',
   },
   {
     icon: '◉',
@@ -115,13 +119,13 @@ const FEATURES = [
     icon: '◎',
     title: 'Card Scanner',
     desc: 'Point your camera at any card. OCR text recognition plus perceptual image hashing identify it instantly — no barcode, no typing required.',
-    stat: 'Works completely offline',
+    stat: 'Offline-capable scanner workflow',
   },
   {
     icon: '⬡',
     title: 'Binder Organisation',
     desc: 'Group cards into named binders, decks, and wishlists. Bulk-import from Manabox CSV. View everything in grid or table view with full filtering.',
-    stat: 'Unlimited binders and decks',
+    stat: 'Binders, decks, and wishlists',
   },
   {
     icon: '✦',
@@ -179,8 +183,9 @@ function AppPanel({ title, subtitle, icon, cards, arts }) {
 }
 
 // ── Login page ─────────────────────────────────────────────────────────────
-export function LoginPage() {
-  const [mode, setMode]         = useState('login')
+export function LoginPage({ forcedMode = null }) {
+  const { user, clearAuthEvent } = useAuth()
+  const [mode, setMode]         = useState(forcedMode || 'login')
   const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
   const [password2, setPassword2] = useState('')
@@ -193,6 +198,17 @@ export function LoginPage() {
   const collectionArts = useCardArts(COLLECTION_CARDS)
   const builderArts    = useCardArts(BUILDER_CARDS)
 
+  useEffect(() => {
+    if (forcedMode) setMode(forcedMode)
+  }, [forcedMode])
+
+  useEffect(() => {
+    const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : ''
+    const params = new URLSearchParams(hash)
+    const description = params.get('error_description')
+    if (description) setError(decodeURIComponent(description.replace(/\+/g, ' ')))
+  }, [])
+
   const submit = async () => {
     setError(''); setSuccess(''); setLoading(true)
     if (mode === 'register') {
@@ -204,6 +220,22 @@ export function LoginPage() {
       })
       if (err) setError(err.message)
       else setSuccess('Account created! Check your email to confirm, then sign in.')
+    } else if (mode === 'forgot') {
+      if (!email) { setError('Enter your email address first.'); setLoading(false); return }
+      const { error: err } = await sb.auth.resetPasswordForEmail(email, {
+        redirectTo: 'https://themazzy.github.io/arcanevault/',
+      })
+      if (err) setError(err.message)
+      else setSuccess('Password reset email sent. Check your inbox to continue.')
+    } else if (mode === 'recovery') {
+      if (password !== password2) { setError('Passwords do not match.'); setLoading(false); return }
+      if (password.length < 6)    { setError('Password must be at least 6 characters.'); setLoading(false); return }
+      const { error: err } = await sb.auth.updateUser({ password })
+      if (err) setError(err.message)
+      else {
+        clearAuthEvent?.()
+        setSuccess('Password updated. You can now continue with your new password.')
+      }
     } else {
       const { error: err } = await sb.auth.signInWithPassword({ email, password })
       if (err) setError(err.message)
@@ -211,7 +243,10 @@ export function LoginPage() {
     setLoading(false)
   }
 
-  const switchMode = (m) => { setMode(m); setError(''); setSuccess('') }
+  const switchMode = (m) => {
+    if (forcedMode === 'recovery') return
+    setMode(m); setError(''); setSuccess('')
+  }
 
   return (
     <div className={styles.page}>
@@ -252,7 +287,7 @@ export function LoginPage() {
           <div className={styles.heroStats}>
             <div className={styles.heroStat}>
               <span className={styles.heroStatNum}>30K+</span>
-              <span className={styles.heroStatLabel}>Cards in database</span>
+              <span className={styles.heroStatLabel}>Scryfall-backed card search</span>
             </div>
             <div className={styles.heroStatDivider} />
             <div className={styles.heroStat}>
@@ -261,53 +296,99 @@ export function LoginPage() {
             </div>
             <div className={styles.heroStatDivider} />
             <div className={styles.heroStat}>
-              <span className={styles.heroStatNum}>Free</span>
-              <span className={styles.heroStatLabel}>No subscription</span>
+              <span className={styles.heroStatNum}>Decks</span>
+              <span className={styles.heroStatLabel}>Builder and collection sync</span>
             </div>
           </div>
         </div>
 
         {/* ── Auth form ── */}
         <div className={styles.heroRight}>
-          <div className={styles.formCard}>
+          <form
+            className={styles.formCard}
+            onSubmit={e => {
+              e.preventDefault()
+              submit()
+            }}
+          >
             <div className={styles.formHeading}>
-              {mode === 'login' ? 'Welcome back' : 'Join ArcaneVault'}
+              {mode === 'recovery'
+                ? 'Reset your password'
+                : mode === 'forgot'
+                  ? 'Forgot your password?'
+                  : mode === 'login'
+                    ? 'Welcome back'
+                    : 'Join ArcaneVault'}
             </div>
             <div className={styles.formSub}>
-              {mode === 'login' ? 'Sign in to your vault' : 'Start cataloguing your collection today'}
+              {mode === 'recovery'
+                ? 'Choose a new password to complete the recovery link'
+                : mode === 'forgot'
+                  ? 'Enter your email and we will send you a recovery link'
+                : mode === 'login'
+                  ? 'Sign in to your vault'
+                  : 'Start cataloguing your collection today'}
             </div>
-            <div className={styles.tabs}>
+            {mode !== 'recovery' && mode !== 'forgot' && <div className={styles.tabs}>
               <button
                 className={`${styles.tab}${mode === 'login' ? ' ' + styles.active : ''}`}
+                type="button"
                 onClick={() => switchMode('login')}
               >Sign In</button>
               <button
                 className={`${styles.tab}${mode === 'register' ? ' ' + styles.active : ''}`}
+                type="button"
                 onClick={() => switchMode('register')}
               >Create Account</button>
-            </div>
-            <input
+            </div>}
+            {mode !== 'recovery' && <input
               className={styles.input}
               type="email"
               placeholder="Email address"
+              autoComplete="username"
+              inputMode="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && submit()}
-              autoFocus
-            />
-            <input
+              autoFocus={mode === 'login' || mode === 'register' || mode === 'forgot'}
+            />}
+            {mode === 'recovery' && (
+              <input
+                type="email"
+                autoComplete="username"
+                value={user?.email || email}
+                readOnly
+                tabIndex={-1}
+                aria-hidden="true"
+                style={{
+                  position: 'absolute',
+                  width: 1,
+                  height: 1,
+                  padding: 0,
+                  margin: -1,
+                  overflow: 'hidden',
+                  clip: 'rect(0, 0, 0, 0)',
+                  whiteSpace: 'nowrap',
+                  border: 0,
+                }}
+              />
+            )}
+            {mode !== 'forgot' && <input
               className={styles.input}
               type="password"
-              placeholder="Password"
+              placeholder={mode === 'recovery' ? 'New password' : 'Password'}
+              autoComplete={mode === 'recovery' || mode === 'register' ? 'new-password' : 'current-password'}
               value={password}
               onChange={e => setPassword(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && submit()}
-            />
-            {mode === 'register' && (
+              autoFocus={mode === 'recovery'}
+            />}
+            {(mode === 'register' || mode === 'recovery') && (
               <input
                 className={styles.input}
                 type="password"
-                placeholder="Confirm password"
+                placeholder={mode === 'recovery' ? 'Confirm new password' : 'Confirm password'}
+                autoComplete="new-password"
                 value={password2}
                 onChange={e => setPassword2(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && submit()}
@@ -315,18 +396,54 @@ export function LoginPage() {
             )}
             <button
               className={styles.submit}
-              onClick={submit}
-              disabled={loading || !email || !password}
+              type="submit"
+              disabled={
+                loading ||
+                !email && mode === 'forgot' ||
+                (!password && mode !== 'forgot') ||
+                (mode !== 'recovery' && mode !== 'forgot' && !email) ||
+                ((mode === 'register' || mode === 'recovery') && !password2)
+              }
             >
-              {loading ? '…' : mode === 'login' ? 'Sign In' : 'Create Account'}
+              {loading
+                ? '...'
+                : mode === 'recovery'
+                  ? 'Update Password'
+                  : mode === 'forgot'
+                    ? 'Send Reset Email'
+                    : mode === 'login'
+                      ? 'Sign In'
+                      : 'Create Account'}
             </button>
             {error   && <div className={styles.error}>{error}</div>}
             {success && <div className={styles.success}>{success}</div>}
 
+            {mode === 'login' && (
+              <button
+                className={styles.resetLink}
+                onClick={() => switchMode('forgot')}
+                type="button"
+              >
+                Forgot password?
+              </button>
+            )}
+            {mode === 'forgot' && (
+              <button
+                className={styles.resetLink}
+                onClick={() => switchMode('login')}
+                type="button"
+              >
+                Back to sign in
+              </button>
+            )}
             <div className={styles.formNote}>
-              Free forever. No credit card required.
+              {mode === 'recovery'
+                ? 'Set a new password to finish the recovery flow.'
+                : mode === 'forgot'
+                  ? 'We will send the reset link to the email address above.'
+                  : 'Use your account to keep your collection, decks, and settings in sync.'}
             </div>
-          </div>
+          </form>
         </div>
       </section>
 
@@ -423,14 +540,14 @@ export function LoginPage() {
           <AppPanel
             icon="◈"
             title="COLLECTION"
-            subtitle="18,300 cards · €10,767 total value"
+            subtitle="Collection view with pricing and locations"
             cards={COLLECTION_CARDS}
             arts={collectionArts}
           />
           <AppPanel
             icon="⚔"
             title="DECK BUILDER"
-            subtitle="12 decks · Commander / EDH"
+            subtitle="Builder, sync, and collection deck flow"
             cards={BUILDER_CARDS}
             arts={builderArts}
           />
@@ -451,12 +568,12 @@ export function LoginPage() {
         <div className={styles.statsBarDot} />
         <div className={styles.statsBarItem}>
           <span className={styles.statsBarNum}>Offline</span>
-          <span className={styles.statsBarLabel}>Works without internet</span>
+          <span className={styles.statsBarLabel}>Offline-capable scanner and local cache</span>
         </div>
         <div className={styles.statsBarDot} />
         <div className={styles.statsBarItem}>
-          <span className={styles.statsBarNum}>Free</span>
-          <span className={styles.statsBarLabel}>No subscription, ever</span>
+          <span className={styles.statsBarNum}>Sync</span>
+          <span className={styles.statsBarLabel}>Supabase-backed account data</span>
         </div>
       </div>
 
@@ -468,9 +585,9 @@ export function LoginPage() {
           className={styles.footerBtn}
           onClick={() => { switchMode('register'); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
         >
-          Get Started — It's Free
+          Create Account
         </button>
-        <p className={styles.footerSmall}>No credit card required. Works in your browser.</p>
+        <p className={styles.footerSmall}>Works in your browser and keeps your collection tied to your account.</p>
       </footer>
 
     </div>

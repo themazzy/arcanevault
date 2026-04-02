@@ -20,6 +20,27 @@
 .search:focus { border-color: var(--border-hi); }
 .search::placeholder { color: var(--text-faint); }
 
+.folderSearch {
+  min-width: 200px;
+  max-width: 280px;
+  background: var(--s-subtle);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 11px;
+  color: var(--text);
+  font-family: var(--font-serif);
+  font-size: 0.86rem;
+  outline: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+.folderSearch:focus {
+  border-color: var(--border-hi);
+  background: var(--s2);
+}
+.folderSearch::placeholder {
+  color: var(--text-faint);
+}
+
 .list { display: flex; flex-direction: column; gap: 6px; }
 
 .item {

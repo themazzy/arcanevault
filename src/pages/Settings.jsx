@@ -2,10 +2,9 @@ import { useEffect, useState } from 'react'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
 import { maskEmailAddress, THEMES, useSettings } from '../components/SettingsContext'
-import { clearAllScryfallCache, clearScryfallCache, PRICE_SOURCES } from '../lib/scryfall'
+import { clearScryfallCache, PRICE_SOURCES } from '../lib/scryfall'
 import { getDbStats } from '../lib/db'
 import { Button, SectionHeader } from '../components/UI'
-import CacheDebug from '../components/CacheDebug'
 import styles from './Settings.module.css'
 
 function formatAge(ms) {
@@ -52,11 +51,21 @@ function ThemePicker({ value, onChange }) {
       {Object.entries(THEMES).map(([id, theme]) => {
         const active = value === id
         const { bg, accent, hi, text } = theme.preview
+        const mutedText = `${text}88`
         return (
           <button
             key={id}
             className={`${styles.themeSwatch}${active ? ' ' + styles.themeSwatchActive : ''}`}
-            style={{ '--swatch-bg': bg, '--swatch-accent': accent, '--swatch-hi': hi }}
+            style={{
+              '--swatch-bg': bg,
+              '--swatch-accent': accent,
+              '--swatch-hi': hi,
+              '--swatch-text': text,
+              '--swatch-text-muted': mutedText,
+              '--swatch-shell': bg,
+              '--swatch-label-bg': `color-mix(in srgb, ${bg} 84%, #101010 16%)`,
+              '--swatch-name-color': active ? accent : text,
+            }}
             onClick={() => onChange(id)}
             title={theme.name}
           >
@@ -96,12 +105,8 @@ function ThemePicker({ value, onChange }) {
               {active && <div className={styles.swatchActiveCheck} style={{ color: accent }}>✓</div>}
             </div>
             <div className={styles.swatchLabel}>
-              <div className={styles.swatchName} style={{ color: active ? accent : text }}>
-                {theme.name}
-              </div>
-              <div className={styles.swatchLore} style={{ color: `${text}88` }}>
-                {theme.lore}
-              </div>
+              <div className={styles.swatchName}>{theme.name}</div>
+              <div className={styles.swatchLore}>{theme.lore}</div>
             </div>
             <div className={styles.swatchColorBar}>
               <div style={{ flex: 2, background: accent, borderRadius: '2px 0 0 2px' }} />
@@ -129,7 +134,6 @@ function CacheStatus({ ttlH, onClear }) {
       cardCount: stats.scryfall,
       ageMs: Date.now() - stats.sfUpdatedAt,
       ts: stats.sfUpdatedAt,
-      sizeKB: 0,
     })
   }
 
@@ -158,27 +162,16 @@ function CacheStatus({ ttlH, onClear }) {
     <div className={styles.cachePanel}>
       {info ? (
         <>
-          <div className={styles.cacheStats}>
-            <div className={styles.cacheStat}>
-              <span className={styles.cacheStatVal}>{info.cardCount.toLocaleString()}</span>
-              <span className={styles.cacheStatLabel}>cards cached</span>
+          <div className={styles.cacheSummary}>
+            <div className={styles.cacheSummaryMain}>
+              <span className={styles.cacheSummaryCount}>{info.cardCount.toLocaleString()}</span>
+              <span className={styles.cacheSummaryText}>card metadata entries stored locally</span>
             </div>
-            <div className={styles.cacheDivider} />
-            <div className={styles.cacheStat}>
-              <span className={styles.cacheStatVal}>{info.sizeKB} KB</span>
-              <span className={styles.cacheStatLabel}>stored size</span>
-            </div>
-            <div className={styles.cacheDivider} />
-            <div className={styles.cacheStat}>
-              <span className={styles.cacheStatVal}>{formatAge(info.ageMs)}</span>
-              <span className={styles.cacheStatLabel}>metadata cached</span>
-            </div>
-            <div className={styles.cacheDivider} />
-            <div className={styles.cacheStat}>
-              <span className={`${styles.cacheStatVal} ${isExpired ? styles.cacheExpired : styles.cacheOk}`}>
-                {isExpired ? 'Expired' : `in ${expiresIn}`}
+            <div className={styles.cacheSummarySub}>
+              <span>Updated {formatAge(info.ageMs)}</span>
+              <span className={isExpired ? styles.cacheExpired : styles.cacheOk}>
+                {isExpired ? 'Expired' : `Refreshes in ${expiresIn}`}
               </span>
-              <span className={styles.cacheStatLabel}>expires</span>
             </div>
           </div>
           <div className={styles.cacheBarWrap}>
@@ -189,14 +182,14 @@ function CacheStatus({ ttlH, onClear }) {
           </div>
           <div className={styles.cacheBarLabels}>
             <span>Fresh</span>
-            <span>{isExpired ? 'Expired - missing card metadata will refresh on next visit' : `${ttlH}h TTL`}</span>
+            <span>{isExpired ? 'Expired - missing metadata will refresh automatically' : `${ttlH}h local data TTL`}</span>
           </div>
         </>
       ) : (
         <div className={styles.cacheEmpty}>
           {cleared
-            ? '✓ Cache cleared - card metadata will be fetched on next visit'
-            : 'No cache - card metadata will be fetched on next collection visit'}
+            ? 'Cache cleared - card metadata will refresh automatically as you browse'
+            : 'No local card metadata yet - it will be filled automatically as you browse'}
         </div>
       )}
 
@@ -207,22 +200,7 @@ function CacheStatus({ ttlH, onClear }) {
           onClick={handleClear}
           disabled={!info && !cleared}
         >
-          {cleared ? '✓ Cleared' : 'Clear Metadata'}
-        </Button>
-        <Button
-          variant="danger"
-          size="sm"
-          onClick={() => {
-            clearAllScryfallCache()
-            setInfo(null)
-            setCleared(true)
-            setTimeout(() => setCleared(false), 2500)
-            onClear?.()
-          }}
-          disabled={!info}
-          style={{ marginLeft: 8 }}
-        >
-          Clear All (incl. images)
+          {cleared ? 'Cleared' : 'Clear Local Metadata'}
         </Button>
       </div>
     </div>
@@ -232,9 +210,11 @@ function CacheStatus({ ttlH, onClear }) {
 export default function SettingsPage() {
   const { user } = useAuth()
   const settings = useSettings()
-  const [pwNew, setPwNew] = useState('')
+  const [emailNew, setEmailNew] = useState('')
   const [pwMsg, setPwMsg] = useState('')
   const [pwError, setPwError] = useState('')
+  const [emailMsg, setEmailMsg] = useState('')
+  const [emailError, setEmailError] = useState('')
   const [saving, setSaving] = useState(false)
 
   const lastSyncAge = settings.lastSyncedAt
@@ -256,15 +236,34 @@ export default function SettingsPage() {
   const handleChangePassword = async () => {
     setPwMsg('')
     setPwError('')
-    if (pwNew.length < 6) {
-      setPwError('New password must be at least 6 characters.')
+    if (!user?.email) {
+      setPwError('No signed-in email is available for password reset.')
       return
     }
-    const { error } = await sb.auth.updateUser({ password: pwNew })
+    const { error } = await sb.auth.resetPasswordForEmail(user.email, {
+      redirectTo: 'https://themazzy.github.io/arcanevault/',
+    })
     if (error) setPwError(error.message)
+    else setPwMsg('Password reset email sent. Check your inbox to continue.')
+  }
+
+  const handleChangeEmail = async () => {
+    setEmailMsg('')
+    setEmailError('')
+    const nextEmail = emailNew.trim()
+    if (!nextEmail) {
+      setEmailError('Enter the new email address you want to use.')
+      return
+    }
+    if (nextEmail.toLowerCase() === (user?.email || '').toLowerCase()) {
+      setEmailError('That is already your current email address.')
+      return
+    }
+    const { error } = await sb.auth.updateUser({ email: nextEmail })
+    if (error) setEmailError(error.message)
     else {
-      setPwMsg('Password updated.')
-      setPwNew('')
+      setEmailMsg('Email change requested. Check your inbox for the confirmation email.')
+      setEmailNew('')
     }
   }
 
@@ -464,19 +463,23 @@ export default function SettingsPage() {
       </div>
 
       <div className={styles.section}>
-        <div className={styles.sectionTitle}>Card Cache</div>
-        <SettingRow label="Cache Duration" description="How long Scryfall card metadata is kept locally before missing entries are refreshed">
+        <div className={styles.sectionTitle}>Offline & Local Data</div>
+        <SettingRow label="Local Metadata Duration" description="How long card metadata is kept locally before missing details are refreshed automatically">
           <Select value={String(settings.cache_ttl_h)} onChange={v => set('cache_ttl_h', parseInt(v))}
             options={[['12', '12 hours'], ['24', '24 hours (default)'], ['48', '48 hours'], ['168', '1 week']]} />
         </SettingRow>
         <div className={styles.cachePanelWrap}>
           <CacheStatus ttlH={settings.cache_ttl_h} />
-          <CacheDebug />
         </div>
       </div>
 
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Profile</div>
+        <div className={styles.accountCard}>
+          <div className={styles.accountEyebrow}>Public identity</div>
+          <div className={styles.accountEmail}>{settings.nickname?.trim() || 'No nickname set'}</div>
+          <div className={styles.accountSub}>This name is used to prefill your identity in tournament and game lobby flows.</div>
+        </div>
         <SettingRow label="Preferred Nickname" description="Auto-fills as your name when creating a game lobby">
           <input
             className={styles.input}
@@ -486,13 +489,6 @@ export default function SettingsPage() {
             onChange={e => set('nickname', e.target.value)}
             maxLength={24}
           />
-        </SettingRow>
-        <SettingRow
-          label="Hide Email"
-          description="Mask part of your email address anywhere the signed-in email is shown in the app."
-          onRowClick={() => set('anonymize_email', !settings.anonymize_email)}
-        >
-          <Toggle value={!!settings.anonymize_email} onChange={v => set('anonymize_email', v)} />
         </SettingRow>
       </div>
 
@@ -509,6 +505,19 @@ export default function SettingsPage() {
 
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Settings Sync</div>
+        <div className={styles.accountCard}>
+          <div className={styles.accountEyebrow}>Sync state</div>
+          <div className={styles.accountEmail}>
+            {settings.syncState === 'syncing' ? 'Syncing now'
+              : settings.syncState === 'saved' ? 'Synced'
+              : settings.syncState === 'error' ? 'Sync error'
+              : settings.syncState === 'pending' ? 'Pending changes'
+              : 'Idle'}
+          </div>
+          <div className={styles.accountSub}>
+            {lastSyncAge ? `Last successful settings sync ${lastSyncAge}.` : 'No successful settings sync yet in this session.'}
+          </div>
+        </div>
         <SettingRow
           label="Settings Sync Status"
           description={lastSyncAge ? `Last successful settings sync ${lastSyncAge}.` : 'No successful settings sync yet in this session.'}
@@ -540,24 +549,43 @@ export default function SettingsPage() {
 
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Account</div>
+        <div className={styles.accountCard}>
+          <div className={styles.accountEyebrow}>Signed in as</div>
+          <div className={styles.accountEmail}>{maskEmailAddress(user?.email, true)}</div>
+          <div className={styles.accountSub}>This email is currently bound to your Arcane Vault sign-in.</div>
+        </div>
         <SettingRow label="Email">
-          <span className={styles.email}>{maskEmailAddress(user?.email, settings.anonymize_email)}</span>
+          <span className={styles.email}>{maskEmailAddress(user?.email, true)}</span>
         </SettingRow>
-        <SettingRow label="Change Password">
+        <SettingRow
+          label="Change Email"
+          description="Send a confirmation email to switch your Arcane Vault login to a new address."
+        >
           <div className={styles.pwForm}>
             <input
               className={styles.input}
-              type="password"
-              placeholder="New password"
-              value={pwNew}
-              onChange={e => setPwNew(e.target.value)}
+              type="email"
+              placeholder="Enter a new email"
+              autoComplete="email"
+              value={emailNew}
+              onChange={e => setEmailNew(e.target.value)}
             />
-            <Button size="sm" onClick={handleChangePassword} disabled={!pwNew}>Update</Button>
+            <Button size="sm" onClick={handleChangeEmail} disabled={!emailNew.trim()}>Send Change Email</Button>
+          </div>
+          {emailError && <div className={styles.pwError}>{emailError}</div>}
+          {emailMsg && <div className={styles.pwMsg}>{emailMsg}</div>}
+        </SettingRow>
+        <SettingRow
+          label="Change Password"
+          description="Send a password reset email instead of changing your password directly in the app."
+        >
+          <div className={styles.pwForm}>
+            <Button size="sm" onClick={handleChangePassword} disabled={!user?.email}>Send Reset Email</Button>
           </div>
           {pwError && <div className={styles.pwError}>{pwError}</div>}
           {pwMsg && <div className={styles.pwMsg}>{pwMsg}</div>}
         </SettingRow>
-        <SettingRow label="Sign Out Everywhere" description="Signs out all sessions on all devices">
+        <SettingRow label="Sign Out Everywhere" description="Ends this Arcane Vault session on all devices where you are currently signed in.">
           <Button variant="danger" size="sm" onClick={() => sb.auth.signOut({ scope: 'global' })}>
             Sign Out All
           </Button>

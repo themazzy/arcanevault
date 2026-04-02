@@ -22,7 +22,7 @@ const TABS = [
 
 export default function Layout({ children }) {
   const { user } = useAuth()
-  const { anonymize_email, keep_screen_awake } = useSettings()
+  const { keep_screen_awake } = useSettings()
   const navigate = useNavigate()
   const location = useLocation()
   const isNative = Capacitor.isNativePlatform()
@@ -96,7 +96,7 @@ export default function Layout({ children }) {
     navigate('/')
   }
 
-  const displayEmail = maskEmailAddress(user?.email, anonymize_email)
+  const displayEmail = maskEmailAddress(user?.email, true)
 
   return (
     <div className={`${styles.app} ${isNativeScannerRoute ? styles.appScanner : ''}`}>

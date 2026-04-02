@@ -17,6 +17,7 @@ import { pruneUnplacedCards } from '../lib/collectionOwnership'
 const DEBOUNCE_MS = 300
 const FOLDER_CARDS_FULL_SYNC_MS = 10 * 60 * 1000
 const FOLDER_CARDS_DELTA_OVERLAP_MS = 30 * 1000
+const LOCAL_COLLECTION_FRESH_MS = 5 * 60 * 1000
 
 const worker = new Worker(new URL('../lib/filterWorker.js', import.meta.url), { type: 'module' })
 
@@ -48,6 +49,7 @@ export default function CollectionPage() {
   const [splitState, setSplitState] = useState(new Map())
   const [folders, setFolders] = useState([])
   const [cardFolderMap, setCardFolderMap] = useState({})
+  const [folderMembershipLoading, setFolderMembershipLoading] = useState(true)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const workerReqId  = useRef(0)
   const enrichingRef = useRef(false)
@@ -70,8 +72,13 @@ export default function CollectionPage() {
     setLoading(true)
 
     // 1. Read from IDB immediately — instant render even offline
-    const localCards = await getLocalCards(user.id)
-    if (localCards.length) {
+    const [localCards, cardsSyncedAt] = await Promise.all([
+      getLocalCards(user.id),
+      getMeta(`cards_synced_${user.id}`),
+    ])
+    const localCardsFresh = !!cardsSyncedAt && (Date.now() - Number(cardsSyncedAt) <= LOCAL_COLLECTION_FRESH_MS)
+    const canHydrateFromIdb = localCards.length && (!navigator.onLine || localCardsFresh)
+    if (canHydrateFromIdb) {
       console.log(`[Collection] IDB: ${localCards.length} cards (offline-ready)`)
       setCards(localCards)
       setLoading(false)
@@ -111,7 +118,7 @@ export default function CollectionPage() {
       await putCards(allCards)
       await setMeta(`cards_synced_${user.id}`, Date.now())
       setCards(allCards)
-      if (!localCards.length) {
+      if (!canHydrateFromIdb) {
         // First ever load — start enrichment now that we have cards
         startEnrichment(allCards)
       } else {
@@ -135,6 +142,7 @@ export default function CollectionPage() {
   // ── Load folder membership ───────────────────────────────────────────────────
   useEffect(() => {
     const loadFolderMembership = async () => {
+      setFolderMembershipLoading(true)
       const buildCardFolderMap = (folderRows, linkRows) => {
         const folderById = Object.fromEntries(folderRows.map(f => [f.id, f]))
         const map = {}
@@ -160,7 +168,10 @@ export default function CollectionPage() {
         setCardFolderMap(buildCardFolderMap(localFolders, [...allFc, ...allDa]))
       }
 
-      if (!navigator.onLine) return
+      if (!navigator.onLine) {
+        setFolderMembershipLoading(false)
+        return
+      }
 
       // Sync folders from Supabase
       const { data: foldersData } = await sb.from('folders')
@@ -171,6 +182,7 @@ export default function CollectionPage() {
         }
         setFolders([])
         setCardFolderMap({})
+        setFolderMembershipLoading(false)
         return
       }
 
@@ -220,6 +232,7 @@ export default function CollectionPage() {
       await setMeta(fullSyncKey, syncedAt)
       await setMeta(deltaSyncKey, new Date(Date.now() - FOLDER_CARDS_DELTA_OVERLAP_MS).toISOString())
       setCardFolderMap(buildCardFolderMap(foldersData, [...allFc, ...allDa]))
+      setFolderMembershipLoading(false)
     }
     loadFolderMembership()
   }, [user.id])
@@ -688,6 +701,7 @@ export default function CollectionPage() {
 
   // Expand cards that are in multiple folders into separate display entries
   const displayCards = useMemo(() => {
+    const usingPlacementView = filters.location !== 'all' || filters.folderName?.trim()
     const matchesLocationFilter = (folder) => {
       if (!folder) return filters.location === 'all' && !filters.folderName?.trim()
       if (filters.location === 'binder' && folder.type !== 'binder') return false
@@ -701,7 +715,7 @@ export default function CollectionPage() {
     const result = []
     for (const card of filtered) {
       const allFolders = cardFolderMap[card.id] || []
-      const folders = (filters.location !== 'all' || filters.folderName?.trim())
+      const folders = usingPlacementView
         ? allFolders.filter(matchesLocationFilter)
         : allFolders
       if (folders && folders.length > 1) {
@@ -710,7 +724,12 @@ export default function CollectionPage() {
           result.push({ ...card, _displayKey: `${card.id}_${i}`, _displayFolder: f, _folder_qty: f.qty || 1, _multiFolder: true })
         })
       } else {
-        result.push({ ...card, _displayKey: card.id, _displayFolder: folders?.[0] || null, _folder_qty: folders?.[0]?.qty || card.qty })
+        result.push({
+          ...card,
+          _displayKey: card.id,
+          _displayFolder: folders?.[0] || null,
+          _folder_qty: usingPlacementView ? (folders?.[0]?.qty || card.qty) : card.qty,
+        })
       }
     }
     displayCardsRef.current = result
@@ -718,6 +737,13 @@ export default function CollectionPage() {
   }, [filtered, cardFolderMap])
 
   if (loading && !cards.length) return <EmptyState>Loading your collection…</EmptyState>
+
+  const statusItems = [
+    loading ? 'Loading collection…' : null,
+    folderMembershipLoading ? 'Loading locations and badges…' : null,
+    enriching ? (progLabel || 'Refreshing card data…') : null,
+    importing ? (progLabel || 'Importing collection…') : null,
+  ].filter(Boolean)
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -756,6 +782,13 @@ export default function CollectionPage() {
       )}
 
       <ErrorBox>{error}</ErrorBox>
+      {statusItems.length > 0 && (
+        <div className={styles.statusBar}>
+          {statusItems.map((item, index) => (
+            <span key={`${item}:${index}`} className={styles.statusChip}>{item}</span>
+          ))}
+        </div>
+      )}
       {(enriching || importing) && <ProgressBar value={progress} label={progLabel} />}
 
       {cards.length > 0 && <>

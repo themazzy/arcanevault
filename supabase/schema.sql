@@ -108,6 +108,7 @@ alter table cards            enable row level security;
 alter table folders          enable row level security;
 alter table folder_cards     enable row level security;
 alter table card_prices      enable row level security;
+alter table card_prices_stage enable row level security;
 alter table shared_folders   enable row level security;
 
 -- cards: users own their cards
@@ -130,6 +131,8 @@ create policy "public read shared_folders" on shared_folders for select
 grant all on cards, folders, folder_cards, shared_folders to authenticated;
 grant select on shared_folders to anon;
 grant select on card_prices to authenticated, anon;
+revoke all on card_prices_stage from anon, authenticated;
+revoke all on card_prices_stage from public;
 
 create or replace function publish_card_prices(p_snapshot_date date, p_retention_cutoff date)
 returns void

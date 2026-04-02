@@ -317,7 +317,7 @@ const DEFAULTS = {
   theme: 'shadow',
   oled_mode: false,
   nickname: '',
-  anonymize_email: false,
+  anonymize_email: true,
   reduce_motion: false,
   higher_contrast: false,
   card_name_size: 'default',

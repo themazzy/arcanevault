@@ -2,6 +2,7 @@
 .page {
   display: grid;
   grid-template-columns: 380px 1fr;
+  grid-template-rows: auto 1fr;
   height: calc(100vh - 64px);
   overflow: hidden;
 }
@@ -10,6 +11,8 @@
 .left {
   display: flex;
   flex-direction: column;
+  grid-column: 1;
+  grid-row: 2;
   border-right: 1px solid var(--border);
   background: rgba(0,0,0,0.2);
   overflow: hidden;
@@ -532,10 +535,14 @@
 .right {
   display: flex;
   flex-direction: column;
+  grid-column: 2;
+  grid-row: 2;
   overflow: hidden;
 }
 
 .deckHeader {
+  grid-column: 1 / -1;
+  grid-row: 1;
   flex-shrink: 0;
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
@@ -566,6 +573,16 @@
   flex-shrink: 0;
 }
 
+.headerActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 1;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
 .cardCount {
   font-size: 0.82rem;
   color: var(--text-dim);
@@ -573,6 +590,57 @@
 }
 
 .cardCountOver { color: #e07070; }
+
+.headerBtn,
+.headerBtnPrimary,
+.headerLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.78rem;
+  line-height: 1;
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, opacity 0.15s;
+}
+
+.headerBtn,
+.headerLink {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: var(--text-dim);
+}
+
+.headerBtn:hover:not(:disabled),
+.headerLink:hover {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.2);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.headerBtnPrimary {
+  background: rgba(201,168,76,0.16);
+  border: 1px solid rgba(201,168,76,0.36);
+  color: var(--gold, #c9a84c);
+}
+
+.headerBtnPrimary:hover:not(:disabled) {
+  background: rgba(201,168,76,0.24);
+  border-color: rgba(201,168,76,0.52);
+}
+
+.headerBtn:disabled,
+.headerBtnPrimary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
 .importBtn {
   background: transparent;
@@ -784,6 +852,30 @@
   padding: 8px 12px;
 }
 
+.deckListHeader {
+  display: grid;
+  grid-template-columns: var(--deck-list-columns, minmax(0, 1fr) 88px 94px 64px 58px 56px);
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 6px 12px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  color: var(--text-faint);
+  font-size: 0.64rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.deckListHeaderCard { min-width: 0; }
+.deckListHeaderSet,
+.deckListHeaderMetric,
+.deckListHeaderStatus,
+.deckListHeaderActions,
+.deckListHeaderQty,
+.deckListHeaderRemove {
+  text-align: center;
+}
+
 .deckGroup {
   margin-bottom: 4px;
 }
@@ -826,9 +918,10 @@
 }
 
 .deckCardRow {
-  display: flex;
+  display: grid;
+  grid-template-columns: var(--deck-list-columns, minmax(0, 1fr) 88px 94px 64px 58px 56px);
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   padding: 4px 4px 4px 12px;
   border-radius: 3px;
   transition: background 0.1s;
@@ -853,13 +946,14 @@
 }
 
 .deckCardName {
-  flex: 1;
+  display: inline-block;
   font-size: 0.83rem;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+  max-width: min(100%, 28ch);
 }
 
 .stateBadge {
@@ -910,9 +1004,59 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  flex: 1;
   min-width: 0;
   cursor: default;
+}
+
+.deckCardStatus {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.deckCardSet {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.deckCardMetric {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.manaCostInline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  flex-wrap: wrap;
+  min-height: 14px;
+}
+
+.manaSymbolInline {
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.manaCostDivider {
+  color: var(--text-faint);
+  margin: 0 2px;
+}
+
+.editMenuCell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .shareBtn {
@@ -936,13 +1080,9 @@
   cursor: pointer;
   padding: 2px 6px;
   border-radius: 3px;
-  opacity: 0;
-  transition: opacity 0.15s, color 0.15s, background 0.15s;
-  flex-shrink: 0;
+  opacity: 1;
+  transition: color 0.15s, background 0.15s;
 }
-.deckCardRow:hover .editBtn,
-.compactRow:hover .editBtn,
-.visualCard:hover .editBtn { opacity: 1; }
 .editBtn:hover { color: var(--gold); background: var(--s3); }
 
 .editMenuPopover {
@@ -976,8 +1116,8 @@
 .qtyControls {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 3px;
-  flex-shrink: 0;
 }
 
 .qtyBtn {
@@ -1013,7 +1153,7 @@
   padding: 2px 4px;
   border-radius: 2px;
   transition: color 0.1s, background 0.1s;
-  flex-shrink: 0;
+  justify-self: center;
 }
 
 .removeBtn:hover { color: #e07070; background: rgba(224,112,112,0.1); }
@@ -1102,10 +1242,21 @@
 
 /* ── Responsive ── */
 @media (max-width: 900px) {
-  .page { grid-template-columns: 1fr; }
+  .page {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 64px);
+  }
+
+  .left,
+  .right {
+    min-height: 0;
+  }
+
   .right { display: none; }
   .page.showRight .left { display: none; }
-  .page.showRight .right { display: flex; }
+  .page.showRight .right { display: flex; flex: 1; }
+  .page:not(.showRight) .left { flex: 1; }
 
   .deckHeader {
     padding: 10px 12px;
@@ -1124,10 +1275,19 @@
     order: 1;
   }
 
-  .importBtn,
-  .shareBtn {
+  .headerActions {
+    order: 2;
+    width: 100%;
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .headerBtn,
+  .headerBtnPrimary,
+  .headerLink {
+    min-height: 32px;
+    padding: 6px 10px;
     font-size: 0.72rem;
-    padding: 5px 8px;
   }
 
   .tabBar {
@@ -1141,12 +1301,19 @@
 
   .tab {
     flex: 0 0 auto;
-    min-width: 88px;
-    padding: 10px 12px;
+    min-width: 74px;
+    padding: 8px 10px;
+    font-size: 0.74rem;
   }
 
   .deckList {
     padding: 8px 8px 14px;
+  }
+
+  .deckListHeader {
+    gap: 6px;
+    padding-left: 6px;
+    font-size: 0.58rem;
   }
 
   .deckToolbar {
@@ -1164,6 +1331,10 @@
     gap: 8px;
   }
 
+  .deckCardStatus {
+    min-width: 0;
+  }
+
   .stateBadge {
     padding: 2px 6px;
     font-size: 0.55rem;
@@ -1176,6 +1347,13 @@
   .qtyBtn {
     min-width: 24px;
     min-height: 24px;
+  }
+
+  .mobilePanelBtn {
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    padding: 9px 6px;
+    min-height: 34px;
   }
 }
 
@@ -1223,10 +1401,16 @@
     font-size: 1rem;
   }
 
-  .importBtn,
-  .shareBtn {
+  .headerActions {
+    gap: 5px;
+  }
+
+  .headerBtn,
+  .headerBtnPrimary,
+  .headerLink {
+    min-height: 30px;
+    padding: 5px 8px;
     font-size: 0.68rem;
-    padding: 5px 7px;
   }
 
   .deckCardRow,
@@ -1236,8 +1420,17 @@
     padding-right: 4px;
   }
 
+  .deckListHeader {
+    display: none;
+  }
+
   .deckCardLeft {
     min-width: calc(100% - 74px);
+  }
+
+  .deckCardStatus {
+    min-width: 0;
+    justify-content: flex-start;
   }
 
   .editBtn,
@@ -1264,14 +1457,16 @@
   border: 1px solid rgba(255,255,255,0.09);
   border-radius: 7px;
   overflow: hidden;
+  align-self: stretch;
 }
 .mobilePanelBtn {
   flex: 1;
   background: none; border: none;
   color: var(--text-dim);
   font-family: var(--font-display);
-  font-size: 0.8rem; letter-spacing: 0.06em; text-transform: uppercase;
-  padding: 12px 8px;
+  font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase;
+  padding: 9px 8px;
+  min-height: 34px;
   cursor: pointer; transition: all 0.15s;
 }
 .mobilePanelBtnActive {
@@ -1361,13 +1556,53 @@
   text-align: right;
 }
 
+.compactThumb,
+.compactThumbPlaceholder {
+  width: 20px;
+  height: 28px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.compactThumb {
+  object-fit: cover;
+}
+
+.compactThumbPlaceholder {
+  background: var(--s3);
+}
+
 .compactName {
-  flex: 1;
+  flex: 0 1 240px;
+  min-width: 0;
+  max-width: clamp(140px, 34vw, 240px);
   font-size: 0.82rem;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.compactName + .compactMeta,
+.compactName + .stateBadge,
+.compactName + .editMenuCell,
+.compactName + .qtyControls,
+.compactName + .removeBtn,
+.compactName + .foilBadge + .compactMeta,
+.compactName + .foilBadge + .stateBadge,
+.compactName + .foilBadge + .editMenuCell,
+.compactName + .foilBadge + .qtyControls,
+.compactName + .foilBadge + .removeBtn {
+  margin-left: auto;
+}
+
+.compactMeta {
+  font-size: 0.69rem;
+  color: var(--text-faint);
+  white-space: nowrap;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
 }
 
 /* ── Visual grid view ───────────────────────────────────────────────── */
@@ -1528,10 +1763,43 @@
   color: var(--gold);
 }
 
+.columnMenuWrap {
+  position: relative;
+}
+
+.columnMenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 150px;
+  padding: 8px;
+  border-radius: 10px;
+  background: var(--bg2, #16161b);
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 28px rgba(0,0,0,0.45);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.columnMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.columnMenuItem input {
+  accent-color: var(--gold, #c9a84c);
+}
+
 /* ── Foil badge / button ─────────────────────────────────────── */
 .foilBadge {
   font-size: 0.68rem;
-  color: rgba(201,168,76,0.85);
+  color: #b48cff;
   flex-shrink: 0;
 }
 

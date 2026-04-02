@@ -1,3 +1,23 @@
+.statusBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+
+.statusChip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(201,168,76,0.08);
+  border: 1px solid rgba(201,168,76,0.22);
+  color: var(--gold-dim);
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+}
+
 .gridHeader {
   display: flex; justify-content: space-between; align-items: center;
   margin-bottom: 14px; color: var(--text-dim); font-size: 0.82rem;
