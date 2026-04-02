@@ -608,31 +608,64 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 28px;
+  align-items: stretch;
 }
 
-/* Panel — replaces macOS chrome mockup */
 .panel {
+  position: relative;
   background: var(--glass-medium);
   border: 1px solid rgba(255,255,255,0.08);
-  border-top: 2px solid rgba(201,168,76,0.4);
-  border-radius: 10px;
+  border-top: 2px solid rgba(201,168,76,0.28);
+  border-radius: 18px;
   overflow: hidden;
   box-shadow: 0 28px 70px rgba(0,0,0,0.55);
   transition: transform 0.3s ease, box-shadow 0.3s ease;
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(10px);
 }
 .panel:hover {
   transform: translateY(-4px);
   box-shadow: 0 40px 90px rgba(0,0,0,0.65), 0 0 20px rgba(201,168,76,0.06);
 }
 
+.panelCollection {
+  background:
+    radial-gradient(circle at top left, rgba(201,168,76,0.12), transparent 42%),
+    linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.16)),
+    var(--glass-medium);
+}
+
+.panelBuilder {
+  background:
+    radial-gradient(circle at top right, rgba(133,104,193,0.18), transparent 42%),
+    linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.16)),
+    var(--glass-medium);
+}
+
+.panelGlow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(135deg, rgba(255,255,255,0.06), transparent 38%);
+  opacity: 0.65;
+}
+
 .panelHeader {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 18px 20px 14px;
+  background: rgba(255,255,255,0.02);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.panelHeaderMain {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 18px;
-  background: rgba(201,168,76,0.04);
-  border-bottom: 1px solid rgba(201,168,76,0.1);
+  gap: 16px;
+  width: 100%;
 }
 
 .panelTitleRow {
@@ -655,34 +688,106 @@
 }
 
 .panelSub {
-  font-size: 0.66rem;
+  font-size: 0.78rem;
+  color: var(--text-dim, #a89878);
+  line-height: 1.5;
+  max-width: 32ch;
+}
+
+.panelEyebrow {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.08);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--text-faint, #857868);
 }
 
+.panelMetrics {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  padding: 0 20px 14px;
+}
+
+.panelMetric {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  background: rgba(0,0,0,0.2);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 12px;
+}
+
+.panelMetricValue {
+  font-family: var(--font-display);
+  font-size: 0.94rem;
+  color: var(--gold, #c9a84c);
+  letter-spacing: 0.05em;
+}
+
+.panelMetricLabel {
+  font-size: 0.68rem;
+  color: var(--text-faint, #857868);
+  line-height: 1.45;
+}
+
+.panelHighlights {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 20px 16px;
+}
+
+.panelHighlight {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(201,168,76,0.08);
+  border: 1px solid rgba(201,168,76,0.14);
+  color: var(--gold, #c9a84c);
+  font-size: 0.66rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .panelGrid {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  padding: 14px;
+  gap: 10px;
+  padding: 0 20px 20px;
 }
 
 .panelCard {
-  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border-radius: 12px;
   overflow: hidden;
-  background: var(--s1);
-  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(10,10,15,0.66);
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
 }
 
 .panelCardImg {
   width: 100%;
-  aspect-ratio: 3 / 2;
+  aspect-ratio: 4 / 3;
   object-fit: cover;
   display: block;
 }
 
 .panelCardPh {
   width: 100%;
-  aspect-ratio: 3 / 2;
+  aspect-ratio: 4 / 3;
   background: var(--s2);
   animation: ph 1.5s ease-in-out infinite;
 }
@@ -693,12 +798,11 @@
 }
 
 .panelCardName {
-  padding: 5px 7px 6px;
-  font-size: 0.58rem;
+  padding: 9px 10px 11px;
+  font-size: 0.69rem;
   color: var(--text-dim, #a89878);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.35;
+  min-height: 3.1em;
 }
 
 /* ── Stats bar ───────────────────────────────────────────────────────────── */
@@ -822,6 +926,7 @@
   .features, .howItWorks, .screenshots { padding: 64px 28px; }
   .footerCta { padding: 72px 28px; }
   .panelRow  { grid-template-columns: 1fr; }
+  .panelHeaderMain { flex-direction: column; align-items: flex-start; }
   .step      { grid-template-columns: 60px 1fr; }
   .stepCards { display: none; }
   .statsBar  { flex-wrap: wrap; gap: 28px; }
@@ -833,6 +938,8 @@
   .tagline     { font-size: 2rem; }
   .step        { grid-template-columns: 1fr; gap: 12px; }
   .stepNumber  { font-size: 2rem; text-align: left; }
+  .panelMetrics { grid-template-columns: 1fr; }
+  .panelGrid { grid-template-columns: repeat(2, 1fr); }
 }
 
 @media (max-width: 480px) {
@@ -844,4 +951,6 @@
   .galleryCard { width: 100px; }
   .heroStats   { flex-direction: column; align-items: flex-start; gap: 16px; }
   .heroStatDivider { display: none; }
+  .panelHeader, .panelMetrics, .panelHighlights, .panelGrid { padding-left: 14px; padding-right: 14px; }
+  .panelGrid { grid-template-columns: 1fr; padding-bottom: 14px; }
 }

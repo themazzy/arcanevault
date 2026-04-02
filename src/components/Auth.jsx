@@ -162,17 +162,40 @@ const STEPS = [
   },
 ]
 
-// App panel (no browser chrome)
-function AppPanel({ title, subtitle, icon, cards, arts }) {
+// App panel
+function AppPanel({ title, subtitle, icon, eyebrow, accent, metrics = [], highlights = [], cards, arts }) {
   return (
-    <div className={styles.panel}>
+    <div className={`${styles.panel} ${accent === 'builder' ? styles.panelBuilder : styles.panelCollection}`}>
+      <div className={styles.panelGlow} />
       <div className={styles.panelHeader}>
-        <div className={styles.panelTitleRow}>
-          <span className={styles.panelIcon}>{icon}</span>
-          <span className={styles.panelTitle}>{title}</span>
+        <div className={styles.panelHeaderMain}>
+          <div className={styles.panelTitleRow}>
+            <span className={styles.panelIcon}>{icon}</span>
+            <span className={styles.panelTitle}>{title}</span>
+          </div>
+          {eyebrow ? <span className={styles.panelEyebrow}>{eyebrow}</span> : null}
         </div>
         <span className={styles.panelSub}>{subtitle}</span>
       </div>
+      {metrics.length ? (
+        <div className={styles.panelMetrics}>
+          {metrics.map(metric => (
+            <div key={metric.label} className={styles.panelMetric}>
+              <span className={styles.panelMetricValue}>{metric.value}</span>
+              <span className={styles.panelMetricLabel}>{metric.label}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {highlights.length ? (
+        <div className={styles.panelHighlights}>
+          {highlights.map(item => (
+            <span key={item} className={styles.panelHighlight}>
+              {item}
+            </span>
+          ))}
+        </div>
+      ) : null}
       <div className={styles.panelGrid}>
         {cards.map((name, i) => (
           <div key={name} className={styles.panelCard}>
@@ -546,14 +569,28 @@ export function LoginPage({ forcedMode = null }) {
           <AppPanel
             icon="◈"
             title="COLLECTION"
+            eyebrow="Your owned inventory"
             subtitle="Collection view with pricing, locations, and print tracking"
+            accent="collection"
+            metrics={[
+              { value: 'Binders', label: 'Track where cards live' },
+              { value: 'Prices', label: 'Follow deck and card value' },
+            ]}
+            highlights={['Locations', 'Printings', 'Wishlists']}
             cards={COLLECTION_CARDS}
             arts={collectionArts}
           />
           <AppPanel
             icon="⚔"
             title="DECK BUILDER"
+            eyebrow="Plan before you pull cards"
             subtitle="Builder, sync, sharing, and collection deck flow"
+            accent="builder"
+            metrics={[
+              { value: 'Sync', label: 'Move owned copies into decks' },
+              { value: 'Combos', label: 'Review lines and package ideas' },
+            ]}
+            highlights={['Recommendations', 'Collection Decks', 'Sharing']}
             cards={BUILDER_CARDS}
             arts={builderArts}
           />
