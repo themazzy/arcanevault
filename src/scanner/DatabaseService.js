@@ -323,19 +323,21 @@ class DatabaseService {
   async _fetchWebPage(page) {
     const from = page * PAGE_SIZE
     const to   = from + PAGE_SIZE - 1
-    const { data } = await sb
+    const { data, error } = await sb
       .from('card_hashes')
       .select('scryfall_id,name,set_code,collector_number,phash_hex,image_uri')
       .not('phash_hex', 'is', null)
       .range(from, to)
+    if (error) throw error
     return data ?? []
   }
 
   async _fetchTotalCount() {
-    const { count } = await sb
+    const { count, error } = await sb
       .from('card_hashes')
       .select('scryfall_id', { count: 'exact', head: true })
       .not('phash_hex', 'is', null)
+    if (error) throw error
     return count ?? 0
   }
 
