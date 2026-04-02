@@ -100,8 +100,8 @@ const FEATURES = [
   {
     icon: '◈',
     title: 'Collection Tracking',
-    desc: 'Catalog every card you own. Search and filter by name, set, colour, type, rarity or price. Your complete inventory is always one search away.',
-    stat: 'Search Scryfall print data',
+    desc: 'Catalog every card you own. Search and filter by name, set, colour, type, rarity or price so your full collection stays easy to navigate.',
+    stat: 'Search by name, set, and print',
   },
   {
     icon: '⚔',
@@ -112,14 +112,14 @@ const FEATURES = [
   {
     icon: '◉',
     title: 'Profit and Loss',
-    desc: 'Live EUR and USD market values, refreshed daily from Scryfall. Historical price snapshots reveal exactly how your collection grows over time.',
-    stat: 'EUR & USD live pricing',
+    desc: 'Follow daily EUR and USD market values, compare deck totals, and watch how your collection changes over time.',
+    stat: 'Daily market price tracking',
   },
   {
     icon: '◎',
     title: 'Card Scanner',
-    desc: 'Point your camera at any card. OCR text recognition plus perceptual image hashing identify it instantly — no barcode, no typing required.',
-    stat: 'Offline-capable scanner workflow',
+    desc: 'Use your camera to add cards quickly when typing every print by hand would slow you down.',
+    stat: 'Fast camera card entry',
   },
   {
     icon: '⬡',
@@ -133,13 +133,19 @@ const FEATURES = [
     desc: 'Track exact printings and foil finishes you are hunting. See live market prices for every item on your list so you can buy at the right moment.',
     stat: 'Track any printing or foil',
   },
+  {
+    icon: '✧',
+    title: 'Sharing and Planning',
+    desc: 'Share decks, compare ideas, and keep collection decks aligned with the cards you actually own.',
+    stat: 'Shareable decks and collection sync',
+  },
 ]
 
 const STEPS = [
   {
     number: '01',
     title: 'Scan or Search',
-    desc: 'Use your phone camera to scan cards straight into your vault — or search Scryfall\'s database of 30,000+ cards by name, set, or collector number.',
+    desc: 'Use your phone camera to add cards quickly, or search by name, set, or collector number when you want a specific printing.',
     cards: COLLECTION_CARDS.slice(0, 3),
   },
   {
@@ -151,12 +157,12 @@ const STEPS = [
   {
     number: '03',
     title: 'Track Profit and Loss',
-    desc: 'Market prices update daily. Historical snapshots chart how your collection appreciates. Know your profit and loss on every card and every deck you own.',
+    desc: 'Market prices update daily. Historical snapshots chart how your collection changes so you can follow value across cards and decks.',
     cards: COLLECTION_CARDS.slice(3, 6),
   },
 ]
 
-// ── App panel (no browser chrome) ─────────────────────────────────────────
+// App panel (no browser chrome)
 function AppPanel({ title, subtitle, icon, cards, arts }) {
   return (
     <div className={styles.panel}>
@@ -286,8 +292,8 @@ export function LoginPage({ forcedMode = null }) {
 
           <div className={styles.heroStats}>
             <div className={styles.heroStat}>
-              <span className={styles.heroStatNum}>30K+</span>
-              <span className={styles.heroStatLabel}>Scryfall-backed card search</span>
+              <span className={styles.heroStatNum}>Collection</span>
+              <span className={styles.heroStatLabel}>Cards, binders, decks, and wishlists</span>
             </div>
             <div className={styles.heroStatDivider} />
             <div className={styles.heroStat}>
@@ -297,7 +303,7 @@ export function LoginPage({ forcedMode = null }) {
             <div className={styles.heroStatDivider} />
             <div className={styles.heroStat}>
               <span className={styles.heroStatNum}>Decks</span>
-              <span className={styles.heroStatLabel}>Builder and collection sync</span>
+              <span className={styles.heroStatLabel}>Builder, sharing, and collection sync</span>
             </div>
           </div>
         </div>
@@ -540,14 +546,14 @@ export function LoginPage({ forcedMode = null }) {
           <AppPanel
             icon="◈"
             title="COLLECTION"
-            subtitle="Collection view with pricing and locations"
+            subtitle="Collection view with pricing, locations, and print tracking"
             cards={COLLECTION_CARDS}
             arts={collectionArts}
           />
           <AppPanel
             icon="⚔"
             title="DECK BUILDER"
-            subtitle="Builder, sync, and collection deck flow"
+            subtitle="Builder, sync, sharing, and collection deck flow"
             cards={BUILDER_CARDS}
             arts={builderArts}
           />
@@ -557,8 +563,8 @@ export function LoginPage({ forcedMode = null }) {
       {/* ── Stats bar ── */}
       <div className={styles.statsBar}>
         <div className={styles.statsBarItem}>
-          <span className={styles.statsBarNum}>30,000+</span>
-          <span className={styles.statsBarLabel}>Cards in Scryfall database</span>
+          <span className={styles.statsBarNum}>Search</span>
+          <span className={styles.statsBarLabel}>Find exact printings and finishes</span>
         </div>
         <div className={styles.statsBarDot} />
         <div className={styles.statsBarItem}>
@@ -567,13 +573,13 @@ export function LoginPage({ forcedMode = null }) {
         </div>
         <div className={styles.statsBarDot} />
         <div className={styles.statsBarItem}>
-          <span className={styles.statsBarNum}>Offline</span>
-          <span className={styles.statsBarLabel}>Offline-capable scanner and local cache</span>
+          <span className={styles.statsBarNum}>Share</span>
+          <span className={styles.statsBarLabel}>Show off decks and collection plans</span>
         </div>
         <div className={styles.statsBarDot} />
         <div className={styles.statsBarItem}>
-          <span className={styles.statsBarNum}>Sync</span>
-          <span className={styles.statsBarLabel}>Supabase-backed account data</span>
+          <span className={styles.statsBarNum}>Organise</span>
+          <span className={styles.statsBarLabel}>Keep binders, decks, and wishlists in step</span>
         </div>
       </div>
 
@@ -587,7 +593,7 @@ export function LoginPage({ forcedMode = null }) {
         >
           Create Account
         </button>
-        <p className={styles.footerSmall}>Works in your browser and keeps your collection tied to your account.</p>
+        <p className={styles.footerSmall}>Use one account to keep your collection, decks, and wishlists together.</p>
       </footer>
 
     </div>
