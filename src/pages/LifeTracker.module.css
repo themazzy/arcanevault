@@ -124,6 +124,22 @@
 
 /* ── Player Panel ──────────────────────────────────────────────────────────── */
 .playerPanel {
+  --lt-panel-s1: rgba(8,10,16,0.22);
+  --lt-panel-s2: rgba(8,10,16,0.30);
+  --lt-panel-s3: rgba(8,10,16,0.42);
+  --lt-panel-s4: rgba(8,10,16,0.52);
+  --lt-panel-subtle: rgba(255,255,255,0.08);
+  --lt-panel-medium: rgba(255,255,255,0.12);
+  --lt-panel-border: rgba(255,255,255,0.10);
+  --lt-panel-border-strong: rgba(255,255,255,0.16);
+  --s1: var(--lt-panel-s1);
+  --s2: var(--lt-panel-s2);
+  --s3: var(--lt-panel-s3);
+  --s4: var(--lt-panel-s4);
+  --s-subtle: var(--lt-panel-subtle);
+  --s-medium: var(--lt-panel-medium);
+  --s-border: var(--lt-panel-border);
+  --s-border2: var(--lt-panel-border-strong);
   background: var(--s2);
   border: 1px solid var(--s-border);
   border-top: 3px solid var(--player-color, var(--gold));
@@ -135,6 +151,17 @@
   height: 100%;           /* fill gridCell so grid-auto-rows: 1fr works */
   box-sizing: border-box;
   overflow: hidden;       /* clip any child overflow to panel bounds */
+}
+
+[data-oled="true"] .playerPanel {
+  --lt-panel-s1: rgba(8,10,16,0.16);
+  --lt-panel-s2: rgba(8,10,16,0.22);
+  --lt-panel-s3: rgba(8,10,16,0.30);
+  --lt-panel-s4: rgba(8,10,16,0.40);
+  --lt-panel-subtle: rgba(255,255,255,0.07);
+  --lt-panel-medium: rgba(255,255,255,0.11);
+  --lt-panel-border: rgba(255,255,255,0.10);
+  --lt-panel-border-strong: rgba(255,255,255,0.15);
 }
 
 .playerBgArt,

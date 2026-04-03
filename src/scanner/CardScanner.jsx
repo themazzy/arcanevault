@@ -22,6 +22,10 @@ import {
 } from './ScannerEngine'
 import styles from './CardScanner.module.css'
 
+// TODO: After re-seeding card_hashes with the aligned hashCore pipeline,
+// these thresholds should be tightened. Correct matches are expected to
+// cluster at distances 30–60 once seed and client share the same code.
+// Suggested post-reseed targets: THRESHOLD→80, GAP→18, STRONG→96, SINGLE→64.
 const MATCH_THRESHOLD = 112
 const MATCH_MIN_GAP = 12
 const MATCH_STRONG_THRESHOLD = 124

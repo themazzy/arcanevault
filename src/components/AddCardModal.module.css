@@ -347,6 +347,49 @@
 .input::placeholder { color: var(--text-faint); }
 .input option { background: var(--bg3); }
 
+.selectMenuWrap {
+  width: 100%;
+}
+
+.selectMenuPanel {
+  width: 100%;
+  min-width: 0;
+}
+
+.selectTrigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--s2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 7px 10px;
+  color: var(--text);
+  font-family: var(--font-serif);
+  font-size: 0.88rem;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+
+.selectTrigger:hover,
+.selectTriggerOpen {
+  border-color: rgba(201,168,76,0.4);
+}
+
+.selectTriggerLabel {
+  min-width: 0;
+}
+
+.selectTriggerChevron {
+  flex-shrink: 0;
+  color: var(--text-faint);
+  font-size: 0.66rem;
+  line-height: 1;
+}
+
 .priceInputRow {
   display: flex;
   gap: 4px;
@@ -372,16 +415,76 @@
   gap: 10px;
   flex-wrap: wrap;
 }
+.foilToggleWrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 .foilToggle {
   display: flex;
   align-items: center;
-  gap: 7px;
-  font-size: 0.88rem;
-  color: var(--text-dim);
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 112px;
+  padding: 5px 6px 5px 12px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 999px;
+  background: var(--s1);
+  color: var(--text);
+  font-size: 0.82rem;
+  font-family: var(--font-display);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   cursor: pointer;
   user-select: none;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s, color 0.2s, opacity 0.2s;
 }
-.foilToggle input { accent-color: var(--gold); width: 14px; height: 14px; }
+.foilToggle:hover {
+  border-color: rgba(201,168,76,0.28);
+}
+.foilToggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.foilToggleOn {
+  background: rgba(201,168,76,0.12);
+  border-color: rgba(201,168,76,0.42);
+  box-shadow: 0 0 0 1px rgba(201,168,76,0.06), 0 8px 18px rgba(0,0,0,0.16);
+  color: var(--gold);
+}
+.foilToggleText {
+  line-height: 1;
+}
+.foilToggleTrack {
+  width: 40px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.08);
+  position: relative;
+  flex-shrink: 0;
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+.foilToggleKnob {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.78);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.26);
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+.foilToggleOn .foilToggleTrack {
+  background: rgba(201,168,76,0.22);
+  border-color: rgba(201,168,76,0.34);
+}
+.foilToggleOn .foilToggleKnob {
+  transform: translateX(18px);
+  background: var(--gold);
+}
 .noFoilNote { font-size: 0.68rem; color: var(--text-faint); font-style: italic; }
 
 /* ── Queue ── */
@@ -572,6 +675,61 @@
   max-height: 220px;
   overflow-y: auto;
   box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  transition:
+    height 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: height;
+}
+
+.folderDropdownInner {
+  display: flex;
+  flex-direction: column;
+  min-height: min-content;
+}
+
+.folderDropdownList {
+  display: flex;
+  flex-direction: column;
+}
+
+.folderDropBackdrop {
+  display: none;
+}
+
+.folderDropBackdropClosing {
+  pointer-events: none;
+}
+
+.folderDropdownHeader {
+  display: none;
+}
+
+.folderDropdownClosing {
+  pointer-events: none;
+}
+
+.folderDropdownHeaderTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.folderDropdownTitle {
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+.folderDropdownDone {
+  display: none;
+}
+
+.folderDropdownSearch {
+  display: none;
 }
 .folderDropItem {
   display: block;
@@ -661,6 +819,219 @@
   }
   .folderDropdown {
     max-height: min(220px, 40vh);
+  }
+}
+
+@media (max-width: 640px) {
+  .selectTrigger {
+    min-height: 40px;
+    border-radius: 10px;
+  }
+
+  .selectMenuPanel {
+    width: auto;
+  }
+
+  .folderDropBackdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    border: none;
+    padding: 0;
+    margin: 0;
+    background: rgba(0,0,0,0.62);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    z-index: 399;
+    cursor: pointer;
+    animation: folderBackdropIn 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .folderDropBackdropClosing {
+    animation: folderBackdropOut 0.22s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  }
+
+  .folderDropdown {
+    position: fixed;
+    display: flex;
+    flex-direction: column;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    z-index: 400;
+    max-height: min(72vh, 540px);
+    border-radius: 22px 22px 0 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0)),
+      color-mix(in srgb, var(--bg3, #16161b) 90%, black);
+    border-top: 1px solid rgba(255,255,255,0.12);
+    box-shadow: 0 -20px 56px rgba(0,0,0,0.56);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    padding: 14px 16px calc(18px + env(safe-area-inset-bottom, 0px));
+    overflow: hidden;
+    overscroll-behavior: contain;
+    animation: folderSheetIn 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: height 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+    will-change: height;
+  }
+
+  .folderDropdownClosing {
+    animation: folderSheetOut 0.22s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  }
+
+  .folderDropdownInner {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .folderDropdownHeader {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 10px;
+    flex-shrink: 0;
+  }
+
+  .folderDropdownHeaderTop {
+    position: relative;
+  }
+
+  .folderDropdownHeader::before {
+    content: '';
+    display: block;
+    width: 42px;
+    height: 4px;
+    border-radius: 999px;
+    margin: 0 auto;
+    background: rgba(255,255,255,0.18);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.04);
+  }
+
+  .folderDropdownDone {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(201,168,76,0.28);
+    background: rgba(201,168,76,0.10);
+    color: var(--gold);
+    border-radius: 10px;
+    min-width: 42px;
+    min-height: 38px;
+    padding: 7px 13px;
+    font-size: 0.7rem;
+    font-family: var(--font-display);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, color 0.15s;
+  }
+
+  .folderDropdownDone:hover {
+    border-color: rgba(201,168,76,0.42);
+    background: rgba(201,168,76,0.16);
+  }
+
+  .folderDropdownSearch {
+    display: block;
+    width: 100%;
+    background: var(--s1);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    color: var(--text);
+    font-size: 0.85rem;
+    padding: 12px 14px;
+    outline: none;
+  }
+
+  .folderDropdownSearch:focus {
+    border-color: rgba(201,168,76,0.32);
+  }
+
+  .folderDropdownList {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 2px;
+  }
+
+  .folderDropdownList::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .folderDropdownList::-webkit-scrollbar-thumb {
+    background: rgba(201,168,76,0.22);
+    border-radius: 999px;
+  }
+
+  .folderDropItem {
+    background: var(--s1);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    margin-bottom: 10px;
+    padding: 12px 14px;
+    color: var(--text);
+  }
+
+  .folderDropItem:hover {
+    background: var(--s2);
+    border-color: rgba(201,168,76,0.22);
+    color: var(--gold);
+  }
+
+  .folderDropItemActive {
+    border-color: rgba(201,168,76,0.3) !important;
+    background:
+      linear-gradient(180deg, rgba(201,168,76,0.14), rgba(201,168,76,0.05)),
+      color-mix(in srgb, var(--s2) 92%, rgba(201,168,76,0.08)) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.05),
+      0 10px 24px rgba(0,0,0,0.14);
+  }
+
+  .folderDropEmpty {
+    padding: 14px 8px;
+  }
+
+  .folderDropDivider {
+    margin: 4px 0 10px;
+  }
+
+  .folderDropCreate {
+    background: var(--s1);
+    border: 1px solid rgba(201,168,76,0.24);
+    border-radius: 12px;
+    padding: 12px 14px;
+  }
+
+  .folderDropCreate:hover {
+    background: rgba(201,168,76,0.08);
+    border-color: rgba(201,168,76,0.34);
+  }
+
+  @keyframes folderBackdropIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes folderBackdropOut {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
+
+  @keyframes folderSheetIn {
+    from { opacity: 0; transform: translateY(18px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes folderSheetOut {
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(18px); }
   }
 }
 

@@ -73,11 +73,56 @@ export function DropZone({ onFile, title, subtitle }) {
 }
 
 export function Modal({ children, onClose }) {
+  const modalRef = useRef(null)
+  const modalContentRef = useRef(null)
+  const [modalHeight, setModalHeight] = useState(null)
+
+  useEffect(() => {
+    const modalEl = modalRef.current
+    const contentEl = modalContentRef.current
+    if (!modalEl || !contentEl) return
+
+    let frame = 0
+    const updateHeight = () => {
+      const computed = window.getComputedStyle(modalEl)
+      const paddingY =
+        parseFloat(computed.paddingTop || '0') +
+        parseFloat(computed.paddingBottom || '0') +
+        parseFloat(computed.borderTopWidth || '0') +
+        parseFloat(computed.borderBottomWidth || '0')
+      setModalHeight(contentEl.offsetHeight + paddingY)
+    }
+
+    updateHeight()
+    frame = window.requestAnimationFrame(updateHeight)
+
+    const observer = new ResizeObserver(() => {
+      if (frame) window.cancelAnimationFrame(frame)
+      frame = window.requestAnimationFrame(updateHeight)
+    })
+
+    observer.observe(contentEl)
+    window.addEventListener('resize', updateHeight)
+
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame)
+      observer.disconnect()
+      window.removeEventListener('resize', updateHeight)
+    }
+  }, [children])
+
   return (
     <div className={styles.overlay} onClick={onClose}>
-      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+      <div
+        ref={modalRef}
+        className={styles.modal}
+        style={modalHeight ? { height: `${modalHeight}px` } : undefined}
+        onClick={e => e.stopPropagation()}
+      >
         <button className={styles.closeBtn} onClick={onClose}>×</button>
-        {children}
+        <div ref={modalContentRef} className={styles.modalContent}>
+          {children}
+        </div>
       </div>
     </div>
   )
@@ -130,6 +175,105 @@ export function ResponsiveHeaderActions({ primary = null, children, menuLabel = 
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+export function ResponsiveMenu({
+  title = 'Menu',
+  trigger,
+  children,
+  align = 'right',
+  wrapClassName = '',
+  panelClassName = '',
+  closeLabel = 'Done',
+}) {
+  const [rendered, setRendered] = useState(false)
+  const [closing, setClosing] = useState(false)
+  const ref = useRef(null)
+  const closeTimeoutRef = useRef(null)
+
+  const clearCloseTimeout = () => {
+    if (closeTimeoutRef.current) {
+      clearTimeout(closeTimeoutRef.current)
+      closeTimeoutRef.current = null
+    }
+  }
+
+  const openMenu = () => {
+    clearCloseTimeout()
+    setClosing(false)
+    setRendered(true)
+  }
+
+  const closeMenu = () => {
+    if (!rendered || closing) return
+    clearCloseTimeout()
+    setClosing(true)
+    closeTimeoutRef.current = setTimeout(() => {
+      setRendered(false)
+      setClosing(false)
+      closeTimeoutRef.current = null
+    }, 220)
+  }
+
+  const setOpen = (next) => {
+    const current = rendered && !closing
+    const nextValue = typeof next === 'function' ? next(current) : next
+    if (nextValue) openMenu()
+    else closeMenu()
+  }
+
+  useEffect(() => {
+    if (!rendered) return
+    const close = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) closeMenu()
+    }
+    document.addEventListener('mousedown', close)
+    document.addEventListener('touchstart', close)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      document.removeEventListener('touchstart', close)
+    }
+  }, [rendered])
+
+  useEffect(() => () => clearCloseTimeout(), [])
+
+  const toggleMenu = () => {
+    if (rendered && !closing) closeMenu()
+    else openMenu()
+  }
+  const open = rendered && !closing
+
+  return (
+    <div ref={ref} className={`${styles.responsiveMenuWrap} ${wrapClassName}`}>
+      {trigger({ open, setOpen, toggle: toggleMenu, close: closeMenu })}
+      {rendered && (
+        <>
+          <button
+            type="button"
+            className={`${styles.responsiveMenuBackdrop} ${closing ? styles.responsiveMenuBackdropClosing : ''}`}
+            aria-label={`Close ${title}`}
+            onClick={closeMenu}
+          />
+          <div
+            className={`${styles.responsiveMenuPanel} ${align === 'left' ? styles.responsiveMenuPanelLeft : ''} ${closing ? styles.responsiveMenuPanelClosing : ''} ${panelClassName}`}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className={styles.responsiveMenuHeader}>
+              <div className={styles.responsiveMenuHeaderTop}>
+                <span className={styles.responsiveMenuTitle}>{title}</span>
+                <button type="button" className={styles.responsiveMenuClose} onClick={closeMenu}>
+                  {closeLabel}
+                </button>
+              </div>
+            </div>
+            <div className={styles.responsiveMenuBody}>
+              {typeof children === 'function' ? children({ close: closeMenu }) : children}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

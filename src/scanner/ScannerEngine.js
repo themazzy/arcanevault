@@ -8,6 +8,7 @@ import {
   ART_X as SHARED_ART_X,
   ART_Y as SHARED_ART_Y,
 } from './constants'
+import { computeHashFromGray, rgbToGray32x32, hashToHex as _hashToHex } from './hashCore'
 
 export function isOpenCVReady() {
   return typeof window !== 'undefined' &&
@@ -191,28 +192,6 @@ export function detectCardCorners(imageData, width, height) {
 
 const CARD_W = 500
 const CARD_H = 700
-
-function percentileCap(u8, percentile = 0.985) {
-  const hist = new Int32Array(256)
-  for (let i = 0; i < u8.length; i++) hist[u8[i]]++
-  const target = Math.max(1, Math.floor(u8.length * percentile))
-  let seen = 0
-  let cap = 255
-  for (let v = 0; v < 256; v++) {
-    seen += hist[v]
-    if (seen >= target) {
-      cap = v
-      break
-    }
-  }
-  if (cap >= 250) return u8
-  const out = new Uint8Array(u8.length)
-  for (let i = 0; i < u8.length; i++) {
-    const val = u8[i]
-    out[i] = val > cap ? cap : val
-  }
-  return out
-}
 
 export function cropCardFromReticle(
   imageData,
@@ -458,97 +437,6 @@ export function createNameStripCanvas(cardImageData) {
   return createNameStripCanvases(cardImageData)[0]?.canvas ?? null
 }
 
-function dct2d(matrix, N) {
-  const out = new Float64Array(N * N)
-  for (let y = 0; y < N; y++) {
-    for (let u = 0; u < N; u++) {
-      let sum = 0
-      for (let x = 0; x < N; x++) {
-        sum += matrix[y * N + x] * Math.cos((2 * x + 1) * u * Math.PI / (2 * N))
-      }
-      const cu = u === 0 ? 1 / Math.sqrt(2) : 1
-      out[y * N + u] = (2 / N) * cu * sum / 2
-    }
-  }
-  const tmp = out.slice()
-  for (let x = 0; x < N; x++) {
-    for (let v = 0; v < N; v++) {
-      let sum = 0
-      for (let y = 0; y < N; y++) {
-        sum += tmp[y * N + x] * Math.cos((2 * y + 1) * v * Math.PI / (2 * N))
-      }
-      const cv2 = v === 0 ? 1 / Math.sqrt(2) : 1
-      out[v * N + x] = (2 / N) * cv2 * sum / 2
-    }
-  }
-  return out
-}
-
-function applyCLAHE(u8, width, height, tileGridX = 4, tileGridY = 4, clipLimit = 40.0) {
-  const tileW = Math.floor(width / tileGridX)
-  const tileH = Math.floor(height / tileGridY)
-  const tileArea = tileW * tileH
-  const clip = Math.max(1, Math.floor(clipLimit * tileArea / 256))
-
-  const luts = []
-  for (let ty = 0; ty < tileGridY; ty++) {
-    for (let tx = 0; tx < tileGridX; tx++) {
-      const hist = new Int32Array(256)
-      for (let y = ty * tileH; y < (ty + 1) * tileH; y++) {
-        for (let x = tx * tileW; x < (tx + 1) * tileW; x++) {
-          hist[u8[y * width + x]]++
-        }
-      }
-
-      let excess = 0
-      for (let i = 0; i < 256; i++) {
-        if (hist[i] > clip) {
-          excess += hist[i] - clip
-          hist[i] = clip
-        }
-      }
-      const add = Math.floor(excess / 256)
-      let rem = excess % 256
-      const step = rem > 0 ? Math.floor(256 / rem) : 256
-      for (let i = 0; i < 256; i++) {
-        hist[i] += add
-        if (rem > 0 && i % step === 0) {
-          hist[i]++
-          rem--
-        }
-      }
-
-      const lut = new Uint8Array(256)
-      let cdf = 0
-      for (let i = 0; i < 256; i++) {
-        cdf += hist[i]
-        lut[i] = Math.min(255, Math.round(cdf * 255.0 / tileArea))
-      }
-      luts.push(lut)
-    }
-  }
-
-  const out = new Uint8Array(width * height)
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const v = u8[y * width + x]
-      const gx = (x + 0.5) / tileW - 0.5
-      const gy = (y + 0.5) / tileH - 0.5
-      const tx0 = Math.max(0, Math.min(tileGridX - 2, Math.floor(gx)))
-      const ty0 = Math.max(0, Math.min(tileGridY - 2, Math.floor(gy)))
-      const ax = Math.max(0, Math.min(1, gx - tx0))
-      const ay = Math.max(0, Math.min(1, gy - ty0))
-      out[y * width + x] = Math.round(
-        luts[ty0 * tileGridX + tx0][v] * (1 - ax) * (1 - ay) +
-        luts[ty0 * tileGridX + tx0 + 1][v] * ax * (1 - ay) +
-        luts[(ty0 + 1) * tileGridX + tx0][v] * (1 - ax) * ay +
-        luts[(ty0 + 1) * tileGridX + tx0 + 1][v] * ax * ay
-      )
-    }
-  }
-  return out
-}
-
 export function computePHash256(artImageData) {
   if (!isOpenCVReady()) throw new Error('OpenCV not ready')
   const cv = window.cv
@@ -564,36 +452,8 @@ export function computePHash256(artImageData) {
 
     const rgba = resized.data
     if (!rgba || rgba.length < 4096) throw new Error(`resized.data invalid (len=${rgba?.length})`)
-    const grayU8 = new Uint8Array(32 * 32)
-    for (let i = 0; i < 32 * 32; i++) {
-      grayU8[i] = Math.round(0.2126 * rgba[i * 4] + 0.7152 * rgba[i * 4 + 1] + 0.0722 * rgba[i * 4 + 2])
-    }
 
-    const glareSuppressed = percentileCap(grayU8, 0.98)
-    const eq8 = applyCLAHE(glareSuppressed, 32, 32)
-    const pixels = new Float64Array(32 * 32)
-    for (let i = 0; i < pixels.length; i++) pixels[i] = eq8[i]
-    const dct = dct2d(pixels, 32)
-
-    const coeffs = []
-    for (let y = 0; y < 16; y++) {
-      for (let x = 0; x < 16; x++) {
-        coeffs.push(dct[y * 32 + x])
-      }
-    }
-
-    const mean = coeffs.slice(1).reduce((a, b) => a + b, 0) / 255
-    const bits = coeffs.map(v => v > mean ? 1 : 0)
-
-    const pack64 = (start) => {
-      let r = 0n
-      for (let i = 0; i < 64; i++) {
-        if (bits[start + i]) r |= 1n << BigInt(i)
-      }
-      return r
-    }
-
-    return { p1: pack64(0), p2: pack64(64), p3: pack64(128), p4: pack64(192) }
+    return computeHashFromGray(rgbToGray32x32(rgba, 4))
   } finally {
     src.delete()
     blurred.delete()
@@ -601,8 +461,6 @@ export function computePHash256(artImageData) {
   }
 }
 
-export function hashToHex({ p1, p2, p3, p4 }) {
-  return [p1, p2, p3, p4]
-    .map(n => n.toString(16).padStart(16, '0'))
-    .join('')
+export function hashToHex(hash) {
+  return _hashToHex(hash)
 }

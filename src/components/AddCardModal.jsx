@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { sb } from '../lib/supabase'
-import { Modal, Button, ErrorBox } from './UI'
+import { Modal, Button, ErrorBox, ResponsiveMenu } from './UI'
 import { useSettings } from './SettingsContext'
 import { getPrice, formatPrice, getPriceSource, sfGet } from '../lib/scryfall'
 import styles from './AddCardModal.module.css'
+import uiStyles from './UI.module.css'
 
 function getMarketPrice(printing, isFoil, priceSource = 'cardmarket_trend') {
   const value = getPrice(printing, isFoil, { price_source: priceSource })
@@ -42,6 +43,72 @@ function getOwnedCardKey(card) {
   ].join('|')
 }
 
+function getOptionLabel(options, value) {
+  return options.find(([optionValue]) => optionValue === value)?.[1] || value
+}
+
+function MenuField({ label, title, value, options, onChange }) {
+  return (
+    <div className={styles.field}>
+      <label className={styles.label}>{label}</label>
+      <ResponsiveMenu
+        title={title}
+        align="left"
+        wrapClassName={styles.selectMenuWrap}
+        panelClassName={styles.selectMenuPanel}
+        trigger={({ open, toggle }) => (
+          <button
+            type="button"
+            className={`${styles.selectTrigger} ${open ? styles.selectTriggerOpen : ''}`}
+            onClick={toggle}
+          >
+            <span className={styles.selectTriggerLabel}>{getOptionLabel(options, value)}</span>
+            <span className={styles.selectTriggerChevron}>{open ? '▲' : '▼'}</span>
+          </button>
+        )}
+      >
+        {({ close }) => (
+          <div className={uiStyles.responsiveMenuList}>
+            {options.map(([optionValue, optionLabel]) => (
+              <button
+                key={optionValue}
+                type="button"
+                className={`${uiStyles.responsiveMenuAction} ${value === optionValue ? uiStyles.responsiveMenuActionActive : ''}`}
+                onClick={() => { onChange(optionValue); close() }}
+              >
+                <span>{optionLabel}</span>
+                <span className={uiStyles.responsiveMenuCheck}>{value === optionValue ? '✓' : ''}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </ResponsiveMenu>
+    </div>
+  )
+}
+
+function FoilSwitch({ value, onChange, disabled = false, note = null }) {
+  return (
+    <div className={styles.foilToggleWrap}>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={value}
+        aria-label="Foil"
+        className={`${styles.foilToggle} ${value ? styles.foilToggleOn : ''}`}
+        onClick={() => { if (!disabled) onChange(!value) }}
+        disabled={disabled}
+      >
+        <span className={styles.foilToggleText}>Foil</span>
+        <span className={styles.foilToggleTrack}>
+          <span className={styles.foilToggleKnob} />
+        </span>
+      </button>
+      {note}
+    </div>
+  )
+}
+
 // Edit mode (simple form) ────────────────────────────────────────────────────
 function EditForm({ card, onClose, onSaved }) {
   const [qty, setQty]                   = useState(card.qty || 1)
@@ -73,28 +140,15 @@ function EditForm({ card, onClose, onSaved }) {
           <label className={styles.label}>Quantity</label>
           <input className={styles.input} type="number" min="1" value={qty} onChange={e => setQty(e.target.value)} />
         </div>
-        <div className={styles.field}>
-          <label className={styles.label}>Condition</label>
-          <select className={styles.input} value={condition} onChange={e => setCondition(e.target.value)}>
-            {CONDITIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-        </div>
-        <div className={styles.field}>
-          <label className={styles.label}>Language</label>
-          <select className={styles.input} value={language} onChange={e => setLanguage(e.target.value)}>
-            {LANGUAGES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-        </div>
+        <MenuField label="Condition" title="Condition" value={condition} options={CONDITIONS} onChange={setCondition} />
+        <MenuField label="Language" title="Language" value={language} options={LANGUAGES} onChange={setLanguage} />
         <div className={styles.field}>
           <label className={styles.label}>Purchase Price (€)</label>
           <input className={styles.input} type="number" min="0" step="0.01"
             value={purchasePrice} onChange={e => setPurchasePrice(e.target.value)} />
         </div>
       </div>
-      <label className={styles.foilToggle}>
-        <input type="checkbox" checked={foil} onChange={e => setFoil(e.target.checked)} />
-        Foil
-      </label>
+      <FoilSwitch value={foil} onChange={setFoil} />
       <ErrorBox>{error}</ErrorBox>
       <div className={styles.actions}>
         <Button variant="ghost" onClick={onClose}>Cancel</Button>
@@ -125,6 +179,7 @@ export default function AddCardModal({
 // ── Add flow ──────────────────────────────────────────────────────────────────
 function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderType = 'binder', defaultFolderId = null, initialCardName = null }) {
   const { price_source } = useSettings()
+  const isMobileViewport = typeof window !== 'undefined' && window.innerWidth <= 640
 
   // Format a printing's non-foil price using the user's price source
   const fmtPrintingPrice = (printing) => {
@@ -169,9 +224,76 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
   // Folder mode — searchable dropdown
   const [folderSearch, setFolderSearch]   = useState('')
   const [folderDropOpen, setFolderDropOpen] = useState(false)
+  const [folderDropClosing, setFolderDropClosing] = useState(false)
   const [creatingFolder, setCreatingFolder] = useState(false)
   const [newFolderName, setNewFolderName]   = useState('')
   const folderDropRef = useRef(null)
+  const folderDropdownRef = useRef(null)
+  const folderDropdownInnerRef = useRef(null)
+  const folderDropdownHeaderRef = useRef(null)
+  const folderDropdownListRef = useRef(null)
+  const folderDropCloseTimeoutRef = useRef(null)
+  const [folderDropdownHeight, setFolderDropdownHeight] = useState(0)
+
+  const clearFolderDropCloseTimeout = () => {
+    if (folderDropCloseTimeoutRef.current) {
+      clearTimeout(folderDropCloseTimeoutRef.current)
+      folderDropCloseTimeoutRef.current = null
+    }
+  }
+
+  const openFolderDropdown = () => {
+    clearFolderDropCloseTimeout()
+    setFolderDropClosing(false)
+    setFolderDropOpen(true)
+  }
+
+  const closeFolderDropdown = () => {
+    if (!folderDropOpen || folderDropClosing) return
+    clearFolderDropCloseTimeout()
+    setFolderDropClosing(true)
+    folderDropCloseTimeoutRef.current = setTimeout(() => {
+      setFolderDropOpen(false)
+      setFolderDropClosing(false)
+      folderDropCloseTimeoutRef.current = null
+    }, 220)
+  }
+
+  const folderDropVisible = folderDropOpen || folderDropClosing
+
+  const measureFolderDropdownHeight = () => {
+    const dropdown = folderDropdownRef.current
+    const inner = folderDropdownInnerRef.current
+    const header = folderDropdownHeaderRef.current
+    const list = folderDropdownListRef.current
+    if (!dropdown || !inner) return 0
+
+    const getMaxHeight = () => {
+      if (typeof window === 'undefined') return 220
+      return window.innerWidth <= 640
+        ? Math.min(window.innerHeight * 0.72, 540)
+        : 220
+    }
+
+    const maxHeight = getMaxHeight()
+    const isMobile = typeof window !== 'undefined' && window.innerWidth <= 640
+
+    if (isMobile && header && list) {
+      const computed = window.getComputedStyle(dropdown)
+      const paddingY =
+        parseFloat(computed.paddingTop || '0') +
+        parseFloat(computed.paddingBottom || '0') +
+        parseFloat(computed.borderTopWidth || '0') +
+        parseFloat(computed.borderBottomWidth || '0')
+      const headerHeight = header.offsetHeight
+      const headerMargin = parseFloat(window.getComputedStyle(header).marginBottom || '0')
+      const listNaturalHeight = list.scrollHeight
+      const maxListHeight = Math.max(0, maxHeight - paddingY - headerHeight - headerMargin)
+      return paddingY + headerHeight + headerMargin + Math.min(listNaturalHeight, maxListHeight)
+    }
+
+    return Math.min(inner.scrollHeight, maxHeight)
+  }
 
   // Save
   const [saving, setSaving]   = useState(false)
@@ -198,11 +320,63 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
 
   // Close folder dropdown on outside click
   useEffect(() => {
-    if (!folderDropOpen) return
-    const close = (e) => { if (folderDropRef.current && !folderDropRef.current.contains(e.target)) setFolderDropOpen(false) }
+    if (!folderDropVisible) return
+    const close = (e) => { if (folderDropRef.current && !folderDropRef.current.contains(e.target)) closeFolderDropdown() }
     document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
-  }, [folderDropOpen])
+    document.addEventListener('touchstart', close)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      document.removeEventListener('touchstart', close)
+    }
+  }, [folderDropVisible, folderDropClosing, folderDropOpen])
+
+  useLayoutEffect(() => {
+    if (!folderDropVisible) {
+      setFolderDropdownHeight(0)
+      return
+    }
+
+    const dropdown = folderDropdownRef.current
+    if (!dropdown) return
+
+    let frame = 0
+    let frame2 = 0
+    const animateToMeasuredHeight = () => {
+      const currentHeight = dropdown.getBoundingClientRect().height
+      const nextHeight = measureFolderDropdownHeight()
+      if (!nextHeight) return
+
+      if (Math.abs(currentHeight - nextHeight) < 1) {
+        setFolderDropdownHeight(nextHeight)
+        return
+      }
+
+      setFolderDropdownHeight(currentHeight)
+      frame = window.requestAnimationFrame(() => {
+        frame2 = window.requestAnimationFrame(() => {
+          setFolderDropdownHeight(nextHeight)
+        })
+      })
+    }
+
+    animateToMeasuredHeight()
+
+    const handleResize = () => {
+      if (frame) window.cancelAnimationFrame(frame)
+      if (frame2) window.cancelAnimationFrame(frame2)
+      frame = window.requestAnimationFrame(animateToMeasuredHeight)
+    }
+
+    window.addEventListener('resize', handleResize)
+
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame)
+      if (frame2) window.cancelAnimationFrame(frame2)
+      window.removeEventListener('resize', handleResize)
+    }
+  }, [folderDropVisible, folderSearch, selectedFolder, destTab, creatingFolder, folders])
+
+  useEffect(() => () => clearFolderDropCloseTimeout(), [])
 
   // Close suggestions on outside click
   useEffect(() => {
@@ -578,18 +752,8 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
                   <input className={styles.input} type="number" min="1" value={qty}
                     onChange={e => setQty(e.target.value)} />
                 </div>
-                <div className={styles.field}>
-                  <label className={styles.label}>Condition</label>
-                  <select className={styles.input} value={condition} onChange={e => setCondition(e.target.value)}>
-                    {CONDITIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                  </select>
-                </div>
-                <div className={styles.field}>
-                  <label className={styles.label}>Language</label>
-                  <select className={styles.input} value={language} onChange={e => setLanguage(e.target.value)}>
-                    {LANGUAGES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                  </select>
-                </div>
+                <MenuField label="Condition" title="Condition" value={condition} options={CONDITIONS} onChange={setCondition} />
+                <MenuField label="Language" title="Language" value={language} options={LANGUAGES} onChange={setLanguage} />
                 <div className={styles.field}>
                   <label className={styles.label}>Purchase Price ({getPriceSource(price_source).symbol})</label>
                   <div className={styles.priceInputRow}>
@@ -603,15 +767,12 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
               </div>
 
               <div className={styles.bottomRow}>
-                <label className={styles.foilToggle}>
-                  <input type="checkbox" checked={foil}
-                    onChange={e => handleFoilChange(e.target.checked)}
-                    disabled={!hasFoil} />
-                  <span style={{ opacity: hasFoil ? 1 : 0.4 }}>Foil</span>
-                  {selectedPrinting && !hasFoil && (
-                    <span className={styles.noFoilNote}>No foil version</span>
-                  )}
-                </label>
+                <FoilSwitch
+                  value={foil}
+                  onChange={handleFoilChange}
+                  disabled={!hasFoil}
+                  note={selectedPrinting && !hasFoil ? <span className={styles.noFoilNote}>No foil version</span> : null}
+                />
                 <Button onClick={addToQueue} disabled={!selectedPrinting}>+ Add to Queue</Button>
               </div>
             </div>
@@ -671,37 +832,77 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
                   <input
                     className={styles.folderSearchInput}
                     value={selectedFolder ? (folders.find(f => f.id === selectedFolder)?.name || folderSearch) : folderSearch}
-                    onChange={e => { setFolderSearch(e.target.value); setSelectedFolder(null); setFolderDropOpen(true) }}
-                    onFocus={() => setFolderDropOpen(true)}
+                    onChange={e => { setFolderSearch(e.target.value); setSelectedFolder(null); openFolderDropdown() }}
+                    onFocus={openFolderDropdown}
                     placeholder={`Choose ${destTab === 'list' ? 'a wishlist' : `a ${destTab}`}…`}
                   />
                   <button className={styles.folderSearchChevron} tabIndex={-1}
-                    onMouseDown={e => { e.preventDefault(); setFolderDropOpen(v => !v) }}>
-                    {folderDropOpen ? '▲' : '▼'}
+                    onMouseDown={e => {
+                      e.preventDefault()
+                      if (folderDropOpen && !folderDropClosing) closeFolderDropdown()
+                      else openFolderDropdown()
+                    }}>
+                    {folderDropOpen && !folderDropClosing ? '▲' : '▼'}
                   </button>
                 </div>
-                {folderDropOpen && (
-                  <div className={styles.folderDropdown}>
-                    {filteredFoldersByType.length > 0
-                      ? filteredFoldersByType.map(f => (
-                          <button key={f.id}
-                            className={`${styles.folderDropItem} ${selectedFolder === f.id ? styles.folderDropItemActive : ''}`}
-                            onMouseDown={() => { setSelectedFolder(f.id); setFolderSearch(f.name); setFolderDropOpen(false) }}>
-                            {f.name}
+                {folderDropVisible && (
+                  <>
+                    <button
+                      type="button"
+                      className={`${styles.folderDropBackdrop} ${folderDropClosing ? styles.folderDropBackdropClosing : ''}`}
+                      aria-label="Close location picker"
+                      onClick={closeFolderDropdown}
+                    />
+                    <div
+                      ref={folderDropdownRef}
+                      className={`${styles.folderDropdown} ${folderDropClosing ? styles.folderDropdownClosing : ''}`}
+                      style={folderDropdownHeight ? { height: `${folderDropdownHeight}px` } : undefined}
+                    >
+                      <div ref={folderDropdownInnerRef} className={styles.folderDropdownInner}>
+                        <div ref={folderDropdownHeaderRef} className={styles.folderDropdownHeader}>
+                        <div className={styles.folderDropdownHeaderTop}>
+                          <span className={styles.folderDropdownTitle}>
+                            {destTab === 'list' ? 'Select Wishlist' : `Select ${destTab[0].toUpperCase()}${destTab.slice(1)}`}
+                          </span>
+                          <button
+                            type="button"
+                            className={styles.folderDropdownDone}
+                            onClick={closeFolderDropdown}
+                          >
+                            Done
                           </button>
-                        ))
-                      : <div className={styles.folderDropEmpty}>
-                          {folderSearch
-                            ? `No ${destTab === 'list' ? 'wishlists' : destTab + 's'} match "${folderSearch}"`
-                            : `No ${destTab === 'list' ? 'wishlists' : destTab + 's'} yet`}
                         </div>
-                    }
-                    <div className={styles.folderDropDivider} />
-                    <button className={styles.folderDropCreate}
-                      onMouseDown={() => { setCreatingFolder(true); setFolderDropOpen(false) }}>
-                      + Create new {destTab === 'list' ? 'wishlist' : destTab}
-                    </button>
-                  </div>
+                        <input
+                          className={styles.folderDropdownSearch}
+                          value={selectedFolder ? (folders.find(f => f.id === selectedFolder)?.name || folderSearch) : folderSearch}
+                          onChange={e => { setFolderSearch(e.target.value); setSelectedFolder(null) }}
+                          placeholder={`Search ${destTab === 'list' ? 'wishlists' : `${destTab}s`}…`}
+                        />
+                        </div>
+                        <div ref={folderDropdownListRef} className={styles.folderDropdownList}>
+                          {filteredFoldersByType.length > 0
+                            ? filteredFoldersByType.map(f => (
+                                <button key={f.id}
+                                  className={`${styles.folderDropItem} ${selectedFolder === f.id ? styles.folderDropItemActive : ''}`}
+                                  onMouseDown={() => { setSelectedFolder(f.id); setFolderSearch(f.name); closeFolderDropdown() }}>
+                                  {f.name}
+                                </button>
+                              ))
+                            : <div className={styles.folderDropEmpty}>
+                                {folderSearch
+                                  ? `No ${destTab === 'list' ? 'wishlists' : destTab + 's'} match "${folderSearch}"`
+                                  : `No ${destTab === 'list' ? 'wishlists' : destTab + 's'} yet`}
+                              </div>
+                          }
+                          <div className={styles.folderDropDivider} />
+                          <button className={styles.folderDropCreate}
+                            onMouseDown={() => { setCreatingFolder(true); closeFolderDropdown() }}>
+                            + Create new {destTab === 'list' ? 'wishlist' : destTab}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </>
                 )}
               </div>
               {creatingFolder && (

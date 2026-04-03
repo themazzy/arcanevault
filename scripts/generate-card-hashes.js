@@ -22,13 +22,12 @@ import fetch from 'node-fetch'
 import sharp from 'sharp'
 import { createClient } from '@supabase/supabase-js'
 import { ART_H, ART_W, ART_X, ART_Y, CARD_H, CARD_W } from '../src/scanner/constants.js'
+import { computeHashFromGray, hashToHex, rgbToGray32x32 } from '../src/scanner/hashCore.js'
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL
 const SUPABASE_KEY = process.env.VITE_SUPABASE_ANON_KEY
 const BATCH_SIZE = 50
 const CONCURRENCY = 4
-const DCT_SIZE = 32
-const HASH_BANDS = 16
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
   console.error('Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY')
@@ -37,137 +36,27 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY)
 
-function dct2d(matrix, N) {
-  const out = new Float64Array(N * N)
-  for (let y = 0; y < N; y++) {
-    for (let u = 0; u < N; u++) {
-      let sum = 0
-      for (let x = 0; x < N; x++) {
-        sum += matrix[y * N + x] * Math.cos((2 * x + 1) * u * Math.PI / (2 * N))
-      }
-      const cu = u === 0 ? 1 / Math.sqrt(2) : 1
-      out[y * N + u] = (2 / N) * cu * sum / 2
-    }
-  }
-
-  const tmp = out.slice()
-  for (let x = 0; x < N; x++) {
-    for (let v = 0; v < N; v++) {
-      let sum = 0
-      for (let y = 0; y < N; y++) {
-        sum += tmp[y * N + x] * Math.cos((2 * y + 1) * v * Math.PI / (2 * N))
-      }
-      const cv2 = v === 0 ? 1 / Math.sqrt(2) : 1
-      out[v * N + x] = (2 / N) * cv2 * sum / 2
-    }
-  }
-  return out
-}
-
-function applyCLAHE(u8, width, height, tileGridX = 4, tileGridY = 4, clipLimit = 40.0) {
-  const tileW = Math.floor(width / tileGridX)
-  const tileH = Math.floor(height / tileGridY)
-  const tileArea = tileW * tileH
-  const clip = Math.max(1, Math.floor(clipLimit * tileArea / 256))
-
-  const luts = []
-  for (let ty = 0; ty < tileGridY; ty++) {
-    for (let tx = 0; tx < tileGridX; tx++) {
-      const hist = new Int32Array(256)
-      for (let y = ty * tileH; y < (ty + 1) * tileH; y++) {
-        for (let x = tx * tileW; x < (tx + 1) * tileW; x++) {
-          hist[u8[y * width + x]]++
-        }
-      }
-
-      let excess = 0
-      for (let i = 0; i < 256; i++) {
-        if (hist[i] > clip) {
-          excess += hist[i] - clip
-          hist[i] = clip
-        }
-      }
-
-      const add = Math.floor(excess / 256)
-      let rem = excess % 256
-      const step = rem > 0 ? Math.floor(256 / rem) : 256
-      for (let i = 0; i < 256; i++) {
-        hist[i] += add
-        if (rem > 0 && i % step === 0) {
-          hist[i]++
-          rem--
-        }
-      }
-
-      const lut = new Uint8Array(256)
-      let cdf = 0
-      for (let i = 0; i < 256; i++) {
-        cdf += hist[i]
-        lut[i] = Math.min(255, Math.round(cdf * 255.0 / tileArea))
-      }
-      luts.push(lut)
-    }
-  }
-
-  const out = new Uint8Array(width * height)
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const v = u8[y * width + x]
-      const gx = (x + 0.5) / tileW - 0.5
-      const gy = (y + 0.5) / tileH - 0.5
-      const tx0 = Math.max(0, Math.min(tileGridX - 2, Math.floor(gx)))
-      const ty0 = Math.max(0, Math.min(tileGridY - 2, Math.floor(gy)))
-      const ax = Math.max(0, Math.min(1, gx - tx0))
-      const ay = Math.max(0, Math.min(1, gy - ty0))
-      out[y * width + x] = Math.round(
-        luts[ty0 * tileGridX + tx0][v] * (1 - ax) * (1 - ay) +
-        luts[ty0 * tileGridX + tx0 + 1][v] * ax * (1 - ay) +
-        luts[(ty0 + 1) * tileGridX + tx0][v] * (1 - ax) * ay +
-        luts[(ty0 + 1) * tileGridX + tx0 + 1][v] * ax * ay
-      )
-    }
-  }
-  return out
-}
-
 async function computePHashHex(imageBuffer) {
+  // Output raw RGB (not sharp's built-in grayscale) so we can apply the
+  // exact same BT.709 formula used by the live scanner in the browser.
   const { data } = await sharp(imageBuffer)
     .blur(1.0)
-    .resize(DCT_SIZE, DCT_SIZE, { fit: 'fill' })
-    .grayscale()
+    .resize(32, 32, { fit: 'fill', kernel: 'lanczos3' })
+    .removeAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true })
 
-  const equalized = applyCLAHE(data, DCT_SIZE, DCT_SIZE)
-  const pixels = new Float64Array(DCT_SIZE * DCT_SIZE)
-  for (let i = 0; i < pixels.length; i++) pixels[i] = equalized[i]
+  const grayU8 = rgbToGray32x32(data, 3)
+  const hash = computeHashFromGray(grayU8)
+  const hex = hashToHex(hash)
 
-  const dct = dct2d(pixels, DCT_SIZE)
-  const coeffs = []
-  for (let y = 0; y < HASH_BANDS; y++) {
-    for (let x = 0; x < HASH_BANDS; x++) {
-      coeffs.push(dct[y * DCT_SIZE + x])
-    }
+  // Convert Uint32Array(8) back to BigInt for the DB BIGINT columns
+  const bigints = []
+  for (let i = 0; i < 8; i += 2) {
+    bigints.push((BigInt(hash[i + 1] >>> 0) << 32n) | BigInt(hash[i] >>> 0))
   }
 
-  const mean = coeffs.slice(1).reduce((a, b) => a + b, 0) / (coeffs.length - 1)
-  const bits = coeffs.map(c => c > mean ? 1 : 0)
-
-  const pack64 = (start) => {
-    let value = 0n
-    for (let i = 0; i < 64; i++) {
-      if (bits[start + i]) value |= (1n << BigInt(i))
-    }
-    return value
-  }
-
-  const p1 = pack64(0)
-  const p2 = pack64(64)
-  const p3 = pack64(128)
-  const p4 = pack64(192)
-  const hex = [p1, p2, p3, p4].map(n => n.toString(16).padStart(16, '0')).join('')
-
-  return { hex, p1, p2, p3, p4 }
+  return { hex, p1: bigints[0], p2: bigints[1], p3: bigints[2], p4: bigints[3] }
 }
 
 async function fetchImage(url) {

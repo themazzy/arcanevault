@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button } from '../components/UI'
+import { Button, ResponsiveMenu } from '../components/UI'
+import uiStyles from '../components/UI.module.css'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { sb } from '../lib/supabase'
@@ -215,42 +216,41 @@ function LayoutPicker({ playerCount, value, onChange }) {
 
 // ── Custom Deck Dropdown ───────────────────────────────────────────────────────
 function DeckDropdown({ value, valueName, options, onChange }) {
-  const [open, setOpen] = useState(false)
-  const wrapRef = useRef(null)
-
-  useEffect(() => {
-    if (!open) return
-    const handler = e => { if (!wrapRef.current?.contains(e.target)) setOpen(false) }
-    document.addEventListener('pointerdown', handler)
-    return () => document.removeEventListener('pointerdown', handler)
-  }, [open])
-
   return (
-    <div className={styles.deckDrop} ref={wrapRef}>
-      <button
-        className={`${styles.deckDropBtn} ${open ? styles.deckDropBtnOpen : ''}`}
-        onClick={() => setOpen(v => !v)}>
-        <span className={styles.deckDropValue}>{valueName || '— No deck —'}</span>
-        <span className={styles.deckDropArrow}>{open ? '▲' : '▼'}</span>
-      </button>
-      {open && (
-        <div className={styles.deckDropMenu}>
+    <ResponsiveMenu
+      title="Select Deck"
+      align="left"
+      wrapClassName={styles.deckDrop}
+      trigger={({ open, toggle }) => (
+        <button
+          className={`${styles.deckDropBtn} ${open ? styles.deckDropBtnOpen : ''}`}
+          onClick={toggle}>
+          <span className={styles.deckDropValue}>{valueName || '— No deck —'}</span>
+          <span className={styles.deckDropArrow}>{open ? '▲' : '▼'}</span>
+        </button>
+      )}
+    >
+      {({ close }) => (
+        <div className={uiStyles.responsiveMenuList}>
           <button
-            className={`${styles.deckDropItem} ${!value ? styles.deckDropItemActive : ''}`}
-            onClick={() => { onChange(null, null); setOpen(false) }}>
-            — No deck selected —
+            className={`${uiStyles.responsiveMenuAction} ${!value ? uiStyles.responsiveMenuActionActive : ''}`}
+            onClick={() => { onChange(null, null); close() }}>
+            <span>— No deck selected —</span>
+            <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{!value ? '✓' : ''}</span>
           </button>
           {options.map(d => (
             <button key={d.id}
-              className={`${styles.deckDropItem} ${value === d.id ? styles.deckDropItemActive : ''}`}
-              onClick={() => { onChange(d.id, d.name); setOpen(false) }}>
+              className={`${uiStyles.responsiveMenuAction} ${value === d.id ? uiStyles.responsiveMenuActionActive : ''}`}
+              onClick={() => { onChange(d.id, d.name); close() }}>
               <span>{d.name}</span>
-              {d.type === 'builder_deck' && <span className={styles.deckDropTypeBadge}>builder</span>}
+              <span className={uiStyles.responsiveMenuMeta}>
+                {d.type === 'builder_deck' ? 'builder' : value === d.id ? 'selected' : ''}
+              </span>
             </button>
           ))}
         </div>
       )}
-    </div>
+    </ResponsiveMenu>
   )
 }
 

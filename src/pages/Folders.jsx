@@ -6,12 +6,13 @@ import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { CardGrid, CardDetail, FilterBar, BulkActionBar, applyFilterSort, EMPTY_FILTERS } from '../components/CardComponents'
-import { EmptyState, SectionHeader, Button, Modal, ResponsiveHeaderActions } from '../components/UI'
+import { EmptyState, SectionHeader, Button, Modal, ResponsiveHeaderActions, ResponsiveMenu } from '../components/UI'
 import AddCardModal from '../components/AddCardModal'
 import ImportModal from '../components/ImportModal'
 import ExportModal from '../components/ExportModal'
 import DeckBrowser from './DeckBrowser'
 import styles from './Folders.module.css'
+import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
 
@@ -41,39 +42,37 @@ function PencilIcon({ size = 14 }) {
 
 // ── Sort dropdown (custom, dark-themed — native <option> can't be styled) ─────
 function SortDropdown({ value, onChange, options }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef(null)
-
-  useEffect(() => {
-    const close = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
-    document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
-  }, [])
-
   const current = options.find(([v]) => v === value)
 
   return (
-    <div ref={ref} className={styles.sortDropdown}>
-      <button className={styles.sortDropdownBtn} onClick={() => setOpen(o => !o)}>
-        <span>{current?.[1] || value}</span>
-        <svg className={`${styles.sortArrow} ${open ? styles.sortArrowOpen : ''}`}
-          width="10" height="10" viewBox="0 0 10 10" fill="none"
-          stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-          <polyline points="2,3 5,7 8,3" />
-        </svg>
-      </button>
-      {open && (
-        <div className={styles.sortDropdownMenu}>
+    <ResponsiveMenu
+      title="Sort Folders"
+      align="left"
+      wrapClassName={styles.sortDropdown}
+      trigger={({ open, toggle }) => (
+        <button className={styles.sortDropdownBtn} onClick={toggle}>
+          <span>{current?.[1] || value}</span>
+          <svg className={`${styles.sortArrow} ${open ? styles.sortArrowOpen : ''}`}
+            width="10" height="10" viewBox="0 0 10 10" fill="none"
+            stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="2,3 5,7 8,3" />
+          </svg>
+        </button>
+      )}
+    >
+      {({ close }) => (
+        <div className={uiStyles.responsiveMenuList}>
           {options.map(([v, l]) => (
             <button key={v}
-              className={`${styles.sortDropdownItem} ${v === value ? styles.sortDropdownItemActive : ''}`}
-              onClick={() => { onChange(v); setOpen(false) }}>
-              {l}
+              className={`${uiStyles.responsiveMenuAction} ${v === value ? uiStyles.responsiveMenuActionActive : ''}`}
+              onClick={() => { onChange(v); close() }}>
+              <span>{l}</span>
+              <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{v === value ? '✓' : ''}</span>
             </button>
           ))}
         </div>
       )}
-    </div>
+    </ResponsiveMenu>
   )
 }
 
@@ -280,8 +279,12 @@ function GroupSection({ group, folders, folderMeta, priceSource, selectMode, sel
           <span className={styles.groupName}>{group.name}</span>
         )}
         <span className={styles.groupCount}>{folders.length}</span>
-        <div ref={cogRef} className={styles.groupCogWrap}>
-          <button className={styles.groupCogBtn} onClick={e => { e.stopPropagation(); setCogOpen(v => !v) }}>⚙</button>
+        <ResponsiveMenu
+          title="Group Actions"
+          wrapClassName={styles.groupCogWrap}
+          trigger={({ toggle }) => <button className={styles.groupCogBtn} onClick={e => { e.stopPropagation(); toggle() }}>⚙</button>}
+        >
+          <div>
           {cogOpen && (
             <div className={styles.groupCogMenu}>
               {!isFirst && (
@@ -303,6 +306,7 @@ function GroupSection({ group, folders, folderMeta, priceSource, selectMode, sel
             </div>
           )}
         </div>
+        </ResponsiveMenu>
       </div>
       {!collapsed && (
         <div className={styles.groupGrid}>
