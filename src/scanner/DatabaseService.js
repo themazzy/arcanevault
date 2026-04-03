@@ -4,9 +4,13 @@
  * Native (Android/iOS):  @capacitor-community/sqlite, fully offline
  * Web (dev/browser):     fetches hashes directly from Supabase (up to 10k cards)
  *
- * Supabase `card_hashes` table must have a `phash_hex` TEXT column (64 hex chars).
- * We avoid reading the BIGINT hash_part_* columns in JS to sidestep the 53-bit
- * precision limit of JavaScript Numbers.
+ * Speed improvements:
+ *  - Pre-parsed IDB cache: stores hash_u32 (Array<number>) so warm starts skip
+ *    all BigInt/hex parsing (~880K parseInt calls for a 10K-card DB).
+ *  - Incremental band index: _addToIndex() is O(1) per card; the old
+ *    _rebuildIndex() (O(N)) was called after every page batch = O(N²/B) total.
+ *  - Chunked native SQLite load: first 5000 rows available immediately;
+ *    rest streams in background so scanning starts before full load.
  */
 
 import { Capacitor } from '@capacitor/core'
@@ -23,9 +27,10 @@ import { hexToHash, hammingDistance } from './hashCore'
 
 export { hammingDistance }
 
-const DB_NAME   = 'arcanevault_hashes'
-const PAGE_SIZE = 1000
-const BAND_MASK = 0x3F  // 6-bit bands
+const DB_NAME          = 'arcanevault_hashes'
+const PAGE_SIZE        = 1000
+const NATIVE_CHUNK     = 5000
+const BAND_MASK        = 0x3F  // 6-bit bands
 // [wordIndex, shift] — 16 bands of 6 bits across the 8 Uint32 words
 const BAND_SPECS = [
   [0, 0], [0, 16], [1, 0], [1, 16],
@@ -34,10 +39,33 @@ const BAND_SPECS = [
   [6, 0], [6, 16], [7, 0], [7, 16],
 ]
 
-// ── Row → in-memory hash object ───────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
+/**
+ * Augment raw Supabase/SQLite rows with a pre-parsed hash_u32 field so that
+ * subsequent rowToHash() calls can skip hexToHash() entirely.
+ */
+function augmentWithParsed(rows) {
+  return rows.map(r => {
+    if (r.hash_u32) return r   // already augmented
+    const hash = hexToHash(r.phash_hex)
+    if (!hash) return r
+    return { ...r, hash_u32: Array.from(hash) }
+  })
+}
+
+/**
+ * Convert a raw DB row into the in-memory hash object.
+ * Uses pre-parsed hash_u32 when available (warm IDB cache) to avoid
+ * re-parsing hex strings on every load.
+ */
 function rowToHash(r) {
-  const hash = hexToHash(r.phash_hex)
+  let hash
+  if (r.hash_u32) {
+    hash = new Uint32Array(r.hash_u32)
+  } else {
+    hash = hexToHash(r.phash_hex)
+  }
   if (!hash) return null
   return {
     id:       r.scryfall_id,
@@ -52,7 +80,7 @@ function rowToHash(r) {
 // ── Service ───────────────────────────────────────────────────────────────────
 
 class DatabaseService {
-  _hashes      = []    // { id, name, setCode, collNum, p1..p4 BigInt, imageUri }
+  _hashes      = []
   _bandIndex   = BAND_SPECS.map(() => new Map())
   _sqlite      = null
   _db          = null
@@ -71,10 +99,7 @@ class DatabaseService {
   }
 
   _emitProgress(onProgress, patch = {}) {
-    this._status = {
-      ...this._status,
-      ...patch,
-    }
+    this._status = { ...this._status, ...patch }
     const total = this._status.totalCount || this._status.loadedCount || 0
     this._status.progress = total > 0
       ? Math.max(0, Math.min(100, Math.round((this._status.loadedCount / total) * 100)))
@@ -169,6 +194,10 @@ class DatabaseService {
         if (data.length < PAGE_SIZE) break
       }
 
+      // Clear IDB cache so the rebuilt data (with hash_u32) is stored fresh
+      await clearScannerHashEntries().catch(() => {})
+      await setMeta('scanner_sqlite_count', 0).catch(() => {})
+
       await this._loadCache()
     } finally {
       this._syncing = false
@@ -204,23 +233,120 @@ class DatabaseService {
     this._bandIndex = BAND_SPECS.map(() => new Map())
     this._fullyLoaded = false
     if (this._isNative && this._db) {
-      const res = await this._db.query(
-        'SELECT scryfall_id,name,set_code,collector_number,phash_hex,image_uri FROM card_hashes WHERE phash_hex IS NOT NULL'
-      )
-      this._hashes = (res.values ?? []).map(rowToHash).filter(Boolean)
+      await this._loadNativeCache(onProgress)
+    } else {
+      await this._loadWebCache(onProgress)
+    }
+  }
+
+  // ── Native path: IDB pre-parsed cache → chunked SQLite fallback ────────────
+
+  async _loadNativeCache(onProgress) {
+    // Check IDB for pre-parsed cache (populated on previous runs)
+    const cachedRows = await getAllScannerHashEntries().catch(() => [])
+    const sqliteCount = Number(await getMeta('scanner_sqlite_count').catch(() => 0)) || 0
+
+    if (cachedRows.length > 0 && sqliteCount > 0 && cachedRows.length >= sqliteCount) {
+      this._hashes = cachedRows.map(rowToHash).filter(Boolean)
       this._rebuildIndex()
       this._fullyLoaded = true
       this._emitProgress(onProgress, {
         loadedCount: this._hashes.length,
         totalCount: this._hashes.length,
         phase: 'ready',
-        source: 'sqlite',
+        source: 'idb cache',
       })
       this._loadPromise = Promise.resolve(this._hashes.length)
-    } else {
-      await this._loadWebCache(onProgress)
+      return
     }
+
+    // Get total from SQLite
+    const countRes = await this._db.query(
+      'SELECT COUNT(*) as cnt FROM card_hashes WHERE phash_hex IS NOT NULL'
+    ).catch(() => ({ values: [] }))
+    const total = countRes.values?.[0]?.cnt ?? 0
+
+    this._emitProgress(onProgress, {
+      loadedCount: 0,
+      totalCount: total,
+      phase: 'loading hashes',
+      source: 'sqlite',
+    })
+
+    if (total === 0) {
+      this._fullyLoaded = true
+      this._loadPromise = Promise.resolve(0)
+      return
+    }
+
+    // Load first chunk synchronously so scanning can start immediately
+    const firstChunk = await this._fetchSQLiteChunk(0)
+    const augmented = augmentWithParsed(firstChunk)
+    this._hashes = augmented.map(rowToHash).filter(Boolean)
+    this._rebuildIndex()
+    await putScannerHashEntries(augmented).catch(() => {})
+
+    this._emitProgress(onProgress, {
+      loadedCount: this._hashes.length,
+      totalCount: total,
+      phase: firstChunk.length === NATIVE_CHUNK ? 'loading hashes' : 'ready',
+      source: 'sqlite',
+    })
+
+    if (firstChunk.length < NATIVE_CHUNK) {
+      this._fullyLoaded = true
+      await setMeta('scanner_sqlite_count', total).catch(() => {})
+      this._loadPromise = Promise.resolve(this._hashes.length)
+      return
+    }
+
+    // Stream remainder in background
+    this._loadPromise = this._continueNativeLoad(NATIVE_CHUNK, onProgress, total)
+      .finally(async () => {
+        this._fullyLoaded = true
+        await setMeta('scanner_sqlite_count', total).catch(() => {})
+        this._emitProgress(onProgress, {
+          loadedCount: this._hashes.length,
+          totalCount: total,
+          phase: 'ready',
+          source: 'sqlite',
+        })
+      })
   }
+
+  async _fetchSQLiteChunk(offset) {
+    const res = await this._db.query(
+      'SELECT scryfall_id,name,set_code,collector_number,phash_hex,image_uri FROM card_hashes WHERE phash_hex IS NOT NULL LIMIT ? OFFSET ?',
+      [NATIVE_CHUNK, offset]
+    ).catch(() => ({ values: [] }))
+    return res.values ?? []
+  }
+
+  async _continueNativeLoad(startOffset, onProgress, total) {
+    let offset = startOffset
+    while (true) {
+      const chunk = await this._fetchSQLiteChunk(offset)
+      if (!chunk.length) break
+      const augmented = augmentWithParsed(chunk)
+      const startIdx = this._hashes.length
+      this._hashes.push(...augmented.map(rowToHash).filter(Boolean))
+      for (let i = startIdx; i < this._hashes.length; i++) {
+        this._addToIndex(this._hashes[i], i)
+      }
+      await putScannerHashEntries(augmented).catch(() => {})
+      this._emitProgress(onProgress, {
+        loadedCount: this._hashes.length,
+        totalCount: total,
+        phase: chunk.length < NATIVE_CHUNK ? 'finalizing' : 'loading hashes',
+        source: 'sqlite',
+      })
+      if (chunk.length < NATIVE_CHUNK) break
+      offset += NATIVE_CHUNK
+    }
+    return this._hashes.length
+  }
+
+  // ── Web path: IDB cache → Supabase network fallback ───────────────────────
 
   async _loadWebCache(onProgress) {
     this._emitProgress(onProgress, { phase: 'checking cache', source: 'idb', loadedCount: 0 })
@@ -255,9 +381,6 @@ class DatabaseService {
       await clearScannerHashEntries().catch(() => {})
     }
 
-    // Web fallback — PostgREST caps at 1000 rows per request regardless of .limit().
-    // Load the first page synchronously so init() resolves quickly, then paginate
-    // the remaining pages in the background while persisting locally.
     const totalCount = expectedTotal
     this._emitProgress(onProgress, {
       loadedCount: 0,
@@ -267,9 +390,10 @@ class DatabaseService {
     })
 
     const firstPage = await this._fetchWebPage(0)
-    this._hashes = firstPage.map(rowToHash).filter(Boolean)
+    const augmentedFirst = augmentWithParsed(firstPage)
+    this._hashes = augmentedFirst.map(rowToHash).filter(Boolean)
     this._rebuildIndex()
-    if (firstPage.length) await putScannerHashEntries(firstPage).catch(() => {})
+    if (augmentedFirst.length) await putScannerHashEntries(augmentedFirst).catch(() => {})
     if (totalCount) await setMeta('scanner_hash_total_count', totalCount).catch(() => {})
     this._emitProgress(onProgress, {
       loadedCount: this._hashes.length,
@@ -317,7 +441,7 @@ class DatabaseService {
   }
 
   async _continueWebLoad(startPage, onProgress, totalCount = 0) {
-    const BATCH = 8   // fetch 8 pages in parallel — ~8× faster than sequential
+    const BATCH = 8   // fetch 8 pages in parallel
     let page = startPage
 
     while (true) {
@@ -330,12 +454,16 @@ class DatabaseService {
       let reachedEnd = false
       for (const data of results) {
         if (!data.length) { reachedEnd = true; break }
-        this._hashes.push(...data.map(rowToHash).filter(Boolean))
-        await putScannerHashEntries(data).catch(() => {})
+        const augmented = augmentWithParsed(data)
+        const startIdx = this._hashes.length
+        this._hashes.push(...augmented.map(rowToHash).filter(Boolean))
+        for (let i = startIdx; i < this._hashes.length; i++) {
+          this._addToIndex(this._hashes[i], i)
+        }
+        await putScannerHashEntries(augmented).catch(() => {})
         if (data.length < PAGE_SIZE) { reachedEnd = true; break }
       }
 
-      this._rebuildIndex()
       this._emitProgress(onProgress, {
         loadedCount: this._hashes.length,
         totalCount: totalCount || this._hashes.length,
@@ -358,14 +486,11 @@ class DatabaseService {
     return best.distance <= threshold ? best : null
   }
 
-  // Like findMatch but always returns the closest card (no threshold cutoff).
   findBest(hash) {
     const [best] = this.findBestTwo(hash)
     return best
   }
 
-  // Returns the two closest cards. Used for gap-check: a match is only
-  // confirmed when best is significantly closer than second-best.
   findBestTwo(hash) {
     const { best, second } = this.findBestTwoWithStats(hash)
     return [best, second]
@@ -373,12 +498,7 @@ class DatabaseService {
 
   findBestTwoWithStats(hash) {
     if (!this._hashes.length) {
-      return {
-        best: null,
-        second: null,
-        candidateCount: 0,
-        totalCount: 0,
-      }
+      return { best: null, second: null, candidateCount: 0, totalCount: 0 }
     }
     const candidates = this._getCandidates(hash)
     let best = null, second = null
@@ -400,15 +520,21 @@ class DatabaseService {
     }
   }
 
+  // ── Index ──────────────────────────────────────────────────────────────────
+
+  /** Full rebuild — O(N). Use only when rebuilding from scratch. */
   _rebuildIndex() {
     this._bandIndex = BAND_SPECS.map(() => new Map())
-    this._hashes.forEach((card, idx) => {
-      BAND_SPECS.forEach(([wordIdx, shift], bandIdx) => {
-        const key = (card.hash[wordIdx] >>> shift) & BAND_MASK
-        const bucket = this._bandIndex[bandIdx].get(key)
-        if (bucket) bucket.push(idx)
-        else this._bandIndex[bandIdx].set(key, [idx])
-      })
+    this._hashes.forEach((card, idx) => this._addToIndex(card, idx))
+  }
+
+  /** Incremental insert — O(1). Use when appending a single card. */
+  _addToIndex(card, idx) {
+    BAND_SPECS.forEach(([wordIdx, shift], bandIdx) => {
+      const key = (card.hash[wordIdx] >>> shift) & BAND_MASK
+      const bucket = this._bandIndex[bandIdx].get(key)
+      if (bucket) bucket.push(idx)
+      else this._bandIndex[bandIdx].set(key, [idx])
     })
   }
 
@@ -441,11 +567,11 @@ class DatabaseService {
     return candidates.length ? candidates : this._hashes
   }
 
-  get cardCount()   { return this._hashes.length }
-  get isReady()     { return this._initialized }
-  get isSyncing()   { return this._syncing }
-  get isFullyLoaded() { return this._fullyLoaded }
-  get status()      { return this._status }
+  get cardCount()       { return this._hashes.length }
+  get isReady()         { return this._initialized }
+  get isSyncing()       { return this._syncing }
+  get isFullyLoaded()   { return this._fullyLoaded }
+  get status()          { return this._status }
   waitUntilFullyLoaded() { return this._loadPromise }
 }
 

@@ -1,16 +1,11 @@
-import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Capacitor } from '@capacitor/core'
 import CardScanner from '../scanner/CardScanner'
-import AddCardModal from '../components/AddCardModal'
-import { useAuth } from '../components/Auth'
 import styles from './Scanner.module.css'
 
 export default function ScannerPage() {
   const navigate = useNavigate()
-  const { user } = useAuth()
   const isNative = Capacitor.isNativePlatform()
-  const [addCard, setAddCard] = useState(null)  // { name, ... } from hash match
 
   if (!isNative) {
     return (
@@ -37,21 +32,5 @@ export default function ScannerPage() {
     )
   }
 
-  return (
-    <>
-      <CardScanner
-        onMatch={() => {}}
-        onAddCard={card => setAddCard(card)}
-        onClose={() => navigate(-1)}
-      />
-      {addCard && (
-        <AddCardModal
-          userId={user?.id}
-          initialCardName={addCard.name}
-          onClose={() => setAddCard(null)}
-          onSaved={() => setAddCard(null)}
-        />
-      )}
-    </>
-  )
+  return <CardScanner onMatch={() => {}} onClose={() => navigate(-1)} />
 }
