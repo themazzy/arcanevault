@@ -4,8 +4,14 @@
     <script>
   // Apply saved theme instantly before React boots to prevent flash of wrong theme.
   // Reads the vars cache written by applyTheme() in SettingsContext.jsx.
+  // On the scanner route (native), mark html so CSS keeps everything transparent
+  // for the camera preview behind the WebView.
   (function() {
     try {
+      var isScanner = /\/scanner\/?$/.test(window.location.pathname);
+      if (isScanner) {
+        document.documentElement.setAttribute('data-scanner', 'true');
+      }
       var cached = localStorage.getItem('arcanevault_theme_cache');
       if (cached) {
         var t = JSON.parse(cached);

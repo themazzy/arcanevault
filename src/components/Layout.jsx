@@ -42,8 +42,25 @@ export default function Layout({ children }) {
 
   useLayoutEffect(() => {
     if (!isNativeScannerRoute) return
-    document.documentElement.setAttribute('data-scanner', 'true')
-    return () => document.documentElement.removeAttribute('data-scanner')
+    const html = document.documentElement
+    const body = document.body
+    const root = document.getElementById('root')
+    html.setAttribute('data-scanner', 'true')
+    // Belt-and-suspenders: inline styles guarantee transparency even if
+    // CSS rules are slow to evaluate or a re-render briefly invalidates them.
+    for (const el of [html, body, root]) {
+      if (!el) continue
+      el.style.setProperty('background', 'transparent', 'important')
+      el.style.setProperty('background-image', 'none', 'important')
+    }
+    return () => {
+      html.removeAttribute('data-scanner')
+      for (const el of [html, body, root]) {
+        if (!el) continue
+        el.style.removeProperty('background')
+        el.style.removeProperty('background-image')
+      }
+    }
   }, [isNativeScannerRoute])
 
   useEffect(() => {

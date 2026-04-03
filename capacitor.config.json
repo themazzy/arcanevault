@@ -1,5 +1,6 @@
 {
   "appId": "com.arcanevault.app",
   "appName": "ArcaneVault",
-  "webDir": "dist"
+  "webDir": "dist",
+  "backgroundColor": "#00000000"
 }
