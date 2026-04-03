@@ -47,17 +47,30 @@ export default function Layout({ children }) {
     const body = document.body
     const root = document.getElementById('root')
     const prevHtmlBg = html.style.background
+    const prevHtmlBgImg = html.style.backgroundImage
     const prevBodyBg = body.style.background
+    const prevBodyBgImg = body.style.backgroundImage
     const prevRootBg = root?.style.background ?? ''
+    const prevRootBgImg = root?.style.backgroundImage ?? ''
 
     html.style.background = 'transparent'
+    html.style.backgroundImage = 'none'
     body.style.background = 'transparent'
-    if (root) root.style.background = 'transparent'
+    body.style.backgroundImage = 'none'
+    if (root) {
+      root.style.background = 'transparent'
+      root.style.backgroundImage = 'none'
+    }
 
     return () => {
       html.style.background = prevHtmlBg
+      html.style.backgroundImage = prevHtmlBgImg
       body.style.background = prevBodyBg
-      if (root) root.style.background = prevRootBg
+      body.style.backgroundImage = prevBodyBgImg
+      if (root) {
+        root.style.background = prevRootBg
+        root.style.backgroundImage = prevRootBgImg
+      }
     }
   }, [isNativeScannerRoute])
 
