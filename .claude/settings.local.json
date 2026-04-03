@@ -33,7 +33,8 @@
       "Bash(npm run:*)",
       "Bash(npx cap:*)",
       "Bash(gh workflow:*)",
-      "Bash(grep -n \"CardGrid\\\\|VirtualCardGrid\" /c/Users/Jan/Desktop/arcanevault/arcanevault/src/pages/*.jsx)"
+      "Bash(grep -n \"CardGrid\\\\|VirtualCardGrid\" /c/Users/Jan/Desktop/arcanevault/arcanevault/src/pages/*.jsx)",
+      "Bash(npm install:*)"
     ]
   }
 }

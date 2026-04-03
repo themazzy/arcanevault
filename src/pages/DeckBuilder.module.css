@@ -1343,13 +1343,14 @@
   }
 
   .leftTopContent {
-    overflow: hidden;
+    overflow: visible;
     max-height: 400px;
     opacity: 1;
     transition: max-height 0.22s ease, opacity 0.18s ease;
   }
 
   .leftTopContentCollapsed {
+    overflow: hidden !important;
     max-height: 0 !important;
     opacity: 0 !important;
     pointer-events: none;

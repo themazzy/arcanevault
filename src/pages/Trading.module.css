@@ -142,12 +142,13 @@
 
 .searchInput {
   width: 100%;
-  background: var(--s2);
+  min-height: 30px;
+  background: var(--s3);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 10px 12px;
+  border-radius: 4px;
+  padding: 7px 10px;
   color: var(--text);
-  font-size: 0.92rem;
+  font-size: 0.88rem;
 }
 
 .selectorList,

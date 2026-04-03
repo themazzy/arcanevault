@@ -10,12 +10,15 @@ import { useRef, useCallback } from 'react'
 export function useLongPress(callback, { delay = 500, moveThreshold = 10 } = {}) {
   const timerRef   = useRef(null)
   const originRef  = useRef(null) // { x, y } of initial touch
+  const firedRef   = useRef(false) // true after long-press fires; lets callers suppress the follow-up click
 
   const start = useCallback((e) => {
     if (e.type === 'mousedown' && e.button !== 0) return
+    firedRef.current = false
     const touch = e.touches?.[0]
     originRef.current = touch ? { x: touch.clientX, y: touch.clientY } : null
     timerRef.current = setTimeout(() => {
+      firedRef.current = true
       callback(e)
       timerRef.current = null
     }, delay)
@@ -47,5 +50,6 @@ export function useLongPress(callback, { delay = 500, moveThreshold = 10 } = {})
     onTouchEnd:   cancel,
     onTouchCancel: cancel,
     onTouchMove,
+    fired: firedRef, // ref — truthy when long-press just fired; consumer must reset after reading
   }
 }
