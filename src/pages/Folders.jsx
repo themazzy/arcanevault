@@ -6,7 +6,7 @@ import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { CardGrid, CardDetail, FilterBar, BulkActionBar, applyFilterSort, EMPTY_FILTERS } from '../components/CardComponents'
-import { EmptyState, SectionHeader, Button, Modal, ResponsiveHeaderActions, ResponsiveMenu } from '../components/UI'
+import { EmptyState, SectionHeader, Button, Modal, ResponsiveHeaderActions, ResponsiveMenu, Select } from '../components/UI'
 import AddCardModal from '../components/AddCardModal'
 import ImportModal from '../components/ImportModal'
 import ExportModal from '../components/ExportModal'
@@ -242,18 +242,9 @@ function GroupSection({ group, folders, folderMeta, priceSource, selectMode, sel
   onToggleSelect, onEnterSelectMode, onOpenFolder, onDeleteGroup, onRenameGroup,
   onDeleteFolder, onEditBg, onClearBg, onMoveToGroup, onMoveUp, onMoveDown, isFirst, isLast }) {
   const [collapsed, setCollapsed] = useState(false)
-  const [cogOpen, setCogOpen] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [renameVal, setRenameVal] = useState('')
-  const cogRef = useRef(null)
   const renameRef = useRef(null)
-
-  useEffect(() => {
-    if (!cogOpen) return
-    const close = (e) => { if (cogRef.current && !cogRef.current.contains(e.target)) setCogOpen(false) }
-    document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
-  }, [cogOpen])
 
   useEffect(() => { if (renaming) renameRef.current?.focus() }, [renaming])
 
@@ -284,28 +275,26 @@ function GroupSection({ group, folders, folderMeta, priceSource, selectMode, sel
           wrapClassName={styles.groupCogWrap}
           trigger={({ toggle }) => <button className={styles.groupCogBtn} onClick={e => { e.stopPropagation(); toggle() }}>⚙</button>}
         >
-          <div>
-          {cogOpen && (
-            <div className={styles.groupCogMenu}>
+          {({ close }) => (
+            <div className={uiStyles.responsiveMenuList}>
               {!isFirst && (
-                <button className={styles.groupCogItem} onClick={() => { onMoveUp(); setCogOpen(false) }}>
+                <button className={uiStyles.responsiveMenuAction} onClick={() => { onMoveUp(); close() }}>
                   ↑ Move Up
                 </button>
               )}
               {!isLast && (
-                <button className={styles.groupCogItem} onClick={() => { onMoveDown(); setCogOpen(false) }}>
+                <button className={uiStyles.responsiveMenuAction} onClick={() => { onMoveDown(); close() }}>
                   ↓ Move Down
                 </button>
               )}
-              <button className={styles.groupCogItem} onClick={() => { setRenameVal(group.name); setRenaming(true); setCogOpen(false) }}>
+              <button className={uiStyles.responsiveMenuAction} onClick={() => { setRenameVal(group.name); setRenaming(true); close() }}>
                 Rename
               </button>
-              <button className={`${styles.groupCogItem} ${styles.groupCogItemDanger}`} onClick={() => { onDeleteGroup(group); setCogOpen(false) }}>
+              <button className={`${uiStyles.responsiveMenuAction} ${uiStyles.responsiveMenuActionDanger}`} onClick={() => { onDeleteGroup(group); close() }}>
                 Delete Group
               </button>
             </div>
           )}
-        </div>
         </ResponsiveMenu>
       </div>
       {!collapsed && (
@@ -340,24 +329,16 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
   const value  = meta?.value
   const qty    = meta?.totalQty ?? meta?.count ?? 0
   const bgUrl  = useMemo(() => parseBgUrl(folder.description), [folder.description])
-  const [cogOpen, setCogOpen]   = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [renameVal, setRenameVal] = useState('')
-  const cogRef    = useRef(null)
   const renameRef = useRef(null)
 
   const longPress = useLongPress(() => { if (!selectMode) onEnterSelectMode?.() }, { delay: 500 })
 
-  useEffect(() => {
-    if (!cogOpen) return
-    const close = (e) => { if (cogRef.current && !cogRef.current.contains(e.target)) setCogOpen(false) }
-    document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
-  }, [cogOpen])
-
   useEffect(() => { if (renaming) renameRef.current?.focus() }, [renaming])
 
-  const startRename = () => { setRenameVal(folder.name); setRenaming(true); setCogOpen(false) }
+  const startRename = () => { setRenameVal(folder.name); setRenaming(true) }
 
   const confirmRename = () => {
     const trimmed = renameVal.trim()
@@ -380,13 +361,12 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
 
   return (
     <div
-      className={`${styles.folderCard}${selectMode ? ` ${styles.folderCardSelectMode}` : ''}${selectMode && selected ? ` ${styles.folderCardSelected}` : ''}`}
+      className={`${styles.folderCard}${menuOpen ? ` ${styles.folderCardMenuOpen}` : ''}${selectMode ? ` ${styles.folderCardSelectMode}` : ''}${selectMode && selected ? ` ${styles.folderCardSelected}` : ''}`}
       style={{
         ...(bgUrl ? {
           backgroundImage: `linear-gradient(rgba(10,10,18,0.55) 0%, rgba(10,10,18,0.80) 100%), url(${bgUrl})`,
           backgroundSize: 'cover', backgroundPosition: 'center top',
         } : {}),
-        ...(cogOpen ? { zIndex: 200, position: 'relative' } : {}),
       }}
       onClick={handleCardClick}
       {...longPressProps}>
@@ -397,37 +377,43 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
           onClick={e => { e.stopPropagation(); onToggleSelect() }}
         />
       ) : (
-        <div ref={cogRef} className={styles.cogMenuWrap}>
-          <button className={styles.cogBtn} onClick={e => { e.stopPropagation(); setCogOpen(o => !o) }} title="Options">
+        <ResponsiveMenu
+          title="Options"
+          wrapClassName={styles.cogMenuWrap}
+          onOpenChange={setMenuOpen}
+          trigger={({ toggle }) => (
+            <button className={styles.cogBtn} onClick={e => { e.stopPropagation(); toggle() }} title="Options">
             ⚙
           </button>
-          {cogOpen && (
-            <div className={styles.cogMenu}>
-              <button className={styles.cogMenuItem}
-                onClick={e => { e.stopPropagation(); startRename() }}>
+          )}
+        >
+          {({ close }) => (
+            <div className={uiStyles.responsiveMenuList}>
+              <button className={uiStyles.responsiveMenuAction}
+                onClick={e => { e.stopPropagation(); startRename(); close() }}>
                 <span className={styles.cogMenuItemIcon}><PencilIcon size={12} /> Rename</span>
               </button>
-              <button className={styles.cogMenuItem}
-                onClick={e => { e.stopPropagation(); setCogOpen(false); onEditBg() }}>
+              <button className={uiStyles.responsiveMenuAction}
+                onClick={e => { e.stopPropagation(); onEditBg(); close() }}>
                 Set background art
               </button>
               {bgUrl && (
-                <button className={styles.cogMenuItem}
-                  onClick={e => { e.stopPropagation(); setCogOpen(false); onClearBg() }}>
+                <button className={uiStyles.responsiveMenuAction}
+                  onClick={e => { e.stopPropagation(); onClearBg(); close() }}>
                   Clear background
                 </button>
               )}
-              <button className={styles.cogMenuItem}
-                onClick={e => { e.stopPropagation(); setCogOpen(false); onMoveToGroup?.() }}>
+              <button className={uiStyles.responsiveMenuAction}
+                onClick={e => { e.stopPropagation(); onMoveToGroup?.(); close() }}>
                 📁 Move to Group
               </button>
-              <button className={`${styles.cogMenuItem} ${styles.cogMenuItemDanger}`}
-                onClick={e => { e.stopPropagation(); setCogOpen(false); onDelete() }}>
+              <button className={`${uiStyles.responsiveMenuAction} ${uiStyles.responsiveMenuActionDanger}`}
+                onClick={e => { e.stopPropagation(); onDelete(); close() }}>
                 <span className={styles.cogMenuItemIcon}><TrashIcon size={12} /> Delete</span>
               </button>
             </div>
           )}
-        </div>
+        </ResponsiveMenu>
       )}
 
       {renaming ? (
@@ -952,13 +938,13 @@ function DeleteFolderModal({ folder, onDone, onCancel }) {
 
           {(mode === 'binder' || mode === 'deck') && (
             <>
-              <select className={styles.deleteTargetSelect}
-                value={targetId} onChange={e => setTargetId(e.target.value)}>
+              <Select className={styles.deleteTargetSelect}
+                value={targetId} onChange={e => setTargetId(e.target.value)} title={`Select ${mode}`}>
                 <option value="">— Select {mode} —</option>
                 {targets.length === 0
                   ? <option disabled>No {mode}s available</option>
                   : targets.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-              </select>
+              </Select>
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <input
                   className={styles.newGroupInput}
@@ -1098,13 +1084,13 @@ function BulkDeleteModal({ nonEmpty, empty, onDone, onCancel }) {
 
           {(mode === 'binder' || mode === 'deck') && (
             <>
-              <select className={styles.deleteTargetSelect}
-                value={targetId} onChange={e => setTargetId(e.target.value)}>
+              <Select className={styles.deleteTargetSelect}
+                value={targetId} onChange={e => setTargetId(e.target.value)} title={`Select ${mode}`}>
                 <option value="">— Select {mode} —</option>
                 {targets.length === 0
                   ? <option disabled>No {mode}s available</option>
                   : targets.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-              </select>
+              </Select>
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <input
                   className={styles.newGroupInput}

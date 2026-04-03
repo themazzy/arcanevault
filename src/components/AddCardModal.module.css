@@ -631,8 +631,8 @@
 
 /* ── Destination folder dropdown ── */
 .folderSearchWrap {
-  position: relative;
   margin-top: 8px;
+  width: 100%;
 }
 /* Inner wrapper so chevron sits inside the border */
 .folderSearchInner {
@@ -665,71 +665,39 @@
   flex-shrink: 0;
 }
 .folderDropdown {
-  position: absolute;
-  top: calc(100% + 3px);
-  left: 0; right: 0;
-  background: var(--bg2);
-  border: 1px solid var(--border-hi);
-  border-radius: 5px;
-  z-index: 400;
-  max-height: 220px;
-  overflow-y: auto;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-  transition:
-    height 0.18s cubic-bezier(0.4, 0, 0.2, 1),
-    box-shadow 0.18s cubic-bezier(0.4, 0, 0.2, 1),
-    border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1);
-  will-change: height;
+  min-width: 0;
+  width: 100%;
+  max-width: none;
+  height: 320px;
+  padding: 0;
+  overflow: hidden;
 }
 
 .folderDropdownInner {
   display: flex;
   flex-direction: column;
-  min-height: min-content;
+  min-height: 0;
+  height: 100%;
+  padding: 8px;
+  box-sizing: border-box;
 }
 
 .folderDropdownList {
   display: flex;
   flex-direction: column;
-}
-
-.folderDropBackdrop {
-  display: none;
-}
-
-.folderDropBackdropClosing {
-  pointer-events: none;
-}
-
-.folderDropdownHeader {
-  display: none;
-}
-
-.folderDropdownClosing {
-  pointer-events: none;
-}
-
-.folderDropdownHeaderTop {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.folderDropdownTitle {
-  font-family: var(--font-display);
-  font-size: 0.8rem;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--gold);
-}
-
-.folderDropdownDone {
-  display: none;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .folderDropdownSearch {
   display: none;
+}
+.folderDropdownHeader {
+  display: flex;
+  flex-direction: column;
+  padding-top: 4px;
+  margin-bottom: 10px;
+  flex-shrink: 0;
 }
 .folderDropItem {
   display: block;
@@ -818,7 +786,8 @@
     width: 100%;
   }
   .folderDropdown {
-    max-height: min(220px, 40vh);
+    width: 100%;
+    height: 320px;
   }
 }
 
@@ -832,108 +801,24 @@
     width: auto;
   }
 
-  .folderDropBackdrop {
-    display: block;
-    position: fixed;
-    inset: 0;
-    border: none;
-    padding: 0;
-    margin: 0;
-    background: rgba(0,0,0,0.62);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    z-index: 399;
-    cursor: pointer;
-    animation: folderBackdropIn 0.22s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  .folderDropBackdropClosing {
-    animation: folderBackdropOut 0.22s cubic-bezier(0.4, 0, 0.2, 1) forwards;
-  }
-
   .folderDropdown {
-    position: fixed;
-    display: flex;
-    flex-direction: column;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    top: auto;
-    z-index: 400;
-    max-height: min(72vh, 540px);
-    border-radius: 22px 22px 0 0;
-    border-left: none;
-    border-right: none;
-    border-bottom: none;
-    background:
-      linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0)),
-      color-mix(in srgb, var(--bg3, #16161b) 90%, black);
-    border-top: 1px solid rgba(255,255,255,0.12);
-    box-shadow: 0 -20px 56px rgba(0,0,0,0.56);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
+    height: min(72vh, 540px);
     padding: 14px 16px calc(18px + env(safe-area-inset-bottom, 0px));
-    overflow: hidden;
-    overscroll-behavior: contain;
-    animation: folderSheetIn 0.22s cubic-bezier(0.4, 0, 0.2, 1);
-    transition: height 0.22s cubic-bezier(0.4, 0, 0.2, 1);
-    will-change: height;
-  }
-
-  .folderDropdownClosing {
-    animation: folderSheetOut 0.22s cubic-bezier(0.4, 0, 0.2, 1) forwards;
   }
 
   .folderDropdownInner {
     flex: 1;
     min-height: 0;
+    height: 100%;
+    padding: 0;
   }
 
   .folderDropdownHeader {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    padding-top: 2px;
     margin-bottom: 10px;
     flex-shrink: 0;
-  }
-
-  .folderDropdownHeaderTop {
-    position: relative;
-  }
-
-  .folderDropdownHeader::before {
-    content: '';
-    display: block;
-    width: 42px;
-    height: 4px;
-    border-radius: 999px;
-    margin: 0 auto;
-    background: rgba(255,255,255,0.18);
-    box-shadow: 0 0 0 1px rgba(255,255,255,0.04);
-  }
-
-  .folderDropdownDone {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: 1px solid rgba(201,168,76,0.28);
-    background: rgba(201,168,76,0.10);
-    color: var(--gold);
-    border-radius: 10px;
-    min-width: 42px;
-    min-height: 38px;
-    padding: 7px 13px;
-    font-size: 0.7rem;
-    font-family: var(--font-display);
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    cursor: pointer;
-    transition: border-color 0.15s, background 0.15s, color 0.15s;
-  }
-
-  .folderDropdownDone:hover {
-    border-color: rgba(201,168,76,0.42);
-    background: rgba(201,168,76,0.16);
   }
 
   .folderDropdownSearch {
@@ -1014,24 +899,4 @@
     border-color: rgba(201,168,76,0.34);
   }
 
-  @keyframes folderBackdropIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
-
-  @keyframes folderBackdropOut {
-    from { opacity: 1; }
-    to { opacity: 0; }
-  }
-
-  @keyframes folderSheetIn {
-    from { opacity: 0; transform: translateY(18px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-
-  @keyframes folderSheetOut {
-    from { opacity: 1; transform: translateY(0); }
-    to { opacity: 0; transform: translateY(18px); }
-  }
 }
-

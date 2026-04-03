@@ -4,6 +4,69 @@
   margin: 0 auto;
 }
 
+.newDeckForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.newDeckInput,
+.newDeckSelect {
+  background: var(--s-subtle);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 9px 12px;
+  color: var(--text);
+  font-family: var(--font-serif);
+  font-size: 0.9rem;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.newDeckInput:focus,
+.newDeckSelect:focus {
+  border-color: var(--border-hi);
+  box-shadow: var(--input-focus);
+}
+
+.newDeckSelect {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+}
+
+.newDeckSelectOpen,
+.newDeckSelect:hover {
+  background: var(--s2);
+  border-color: var(--border-hi);
+}
+
+.newDeckSelectWrap {
+  width: 100%;
+}
+
+.newDeckMenuPanel {
+  min-width: 0;
+  width: 100%;
+  max-width: none;
+}
+
+.newDeckSelectChevron {
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.newDeckActions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 /* ── Confirm dialog ─────────────────────────────────────────────────── */
 .confirmOverlay {
   position: fixed;

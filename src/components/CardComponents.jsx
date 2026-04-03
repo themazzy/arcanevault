@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getImageUri, getPrice, formatPrice, getPriceSource } from '../lib/scryfall'
-import { Modal, Badge, ResponsiveMenu } from './UI'
+import { Modal, Badge, ResponsiveMenu, Select } from './UI'
 import styles from './CardComponents.module.css'
 import uiStyles from './UI.module.css'
 import { FolderTypeIcon } from './Icons'
@@ -900,11 +900,11 @@ function LegacyCardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, al
 
               <div className={styles.editGroup}>
                 <span className={styles.editLabel}>Condition</span>
-                <select className={styles.editSelect} value={editCondition} onChange={e => setEditCondition(e.target.value)}>
+                <Select className={styles.editSelect} value={editCondition} onChange={e => setEditCondition(e.target.value)} title="Select condition">
                   {Object.entries(CONDITION_LABELS).map(([k, v]) => (
                     <option key={k} value={k}>{v}</option>
                   ))}
-                </select>
+                </Select>
               </div>
 
               {/* Buy Price */}
@@ -1491,11 +1491,11 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
 
                 <div className={styles.editGroup}>
                   <span className={styles.editLabel}>Condition</span>
-                  <select className={styles.editSelect} value={editCondition} onChange={e => setEditCondition(e.target.value)}>
+                  <Select className={styles.editSelect} value={editCondition} onChange={e => setEditCondition(e.target.value)} title="Select condition">
                     {Object.entries(CONDITION_LABELS).map(([k, v]) => (
                       <option key={k} value={k}>{v}</option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
 
                 <div className={styles.editGroup}>
@@ -2109,15 +2109,15 @@ export function FilterBar({
                   <div className={styles.fsectionSubLabel}>Number of colors</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span className={styles.rangeLabel}>Min</span>
-                    <select className={styles.miniSelect} value={filters.colorCountMin}
-                      onChange={e => set('colorCountMin', parseInt(e.target.value))}>
+                    <Select className={styles.miniSelect} value={filters.colorCountMin}
+                      onChange={e => set('colorCountMin', parseInt(e.target.value))} title="Select minimum colors">
                       {[0,1,2,3,4,5].map(n => <option key={n} value={n}>{n}</option>)}
-                    </select>
+                    </Select>
                     <span className={styles.rangeLabel}>Max</span>
-                    <select className={styles.miniSelect} value={filters.colorCountMax}
-                      onChange={e => set('colorCountMax', parseInt(e.target.value))}>
+                    <Select className={styles.miniSelect} value={filters.colorCountMax}
+                      onChange={e => set('colorCountMax', parseInt(e.target.value))} title="Select maximum colors">
                       {[0,1,2,3,4,5].map(n => <option key={n} value={n}>{n}</option>)}
-                    </select>
+                    </Select>
                   </div>
                 </div>
               </div>
