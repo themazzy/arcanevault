@@ -106,12 +106,8 @@ function minAreaRectPoints(cv, cnt) {
   }
 }
 
-export function detectCardCorners(imageData, width, height) {
-  if (!isOpenCVReady()) return null
-  const cv = window.cv
-
-  const src = cv.matFromImageData(imageData)
-  const gray = new cv.Mat()
+// Find a card quad from a grayscale Mat using adaptive Canny + contour scoring.
+function findBestQuad(cv, gray, width, height) {
   const blurred = new cv.Mat()
   const edges = new cv.Mat()
   const dilated = new cv.Mat()
@@ -119,7 +115,6 @@ export function detectCardCorners(imageData, width, height) {
   const hier = new cv.Mat()
 
   try {
-    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY)
     cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0)
 
     const gdata = blurred.data
@@ -129,10 +124,7 @@ export function detectCardCorners(imageData, width, height) {
     let median = 127
     for (let v = 0; v < 256; v++) {
       cumul += hist[v]
-      if (cumul >= gdata.length / 2) {
-        median = v
-        break
-      }
+      if (cumul >= gdata.length / 2) { median = v; break }
     }
     const lo = Math.max(10, Math.round(median * 0.5))
     const hi = Math.min(240, Math.round(median * 1.5))
@@ -180,13 +172,39 @@ export function detectCardCorners(imageData, width, height) {
 
     return bestCandidate?.pts ?? null
   } finally {
-    src.delete()
-    gray.delete()
     blurred.delete()
     edges.delete()
     dilated.delete()
     contours.delete()
     hier.delete()
+  }
+}
+
+export function detectCardCorners(imageData, width, height) {
+  if (!isOpenCVReady()) return null
+  const cv = window.cv
+  const src = cv.matFromImageData(imageData)
+  const gray = new cv.Mat()
+
+  try {
+    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY)
+
+    // Standard detection
+    const result = findBestQuad(cv, gray, width, height)
+    if (result) return result
+
+    // Retry with histogram equalization — helps dark/low-contrast cards
+    // (black borders on dark backgrounds, dimly lit scenes)
+    const eqGray = new cv.Mat()
+    try {
+      cv.equalizeHist(gray, eqGray)
+      return findBestQuad(cv, eqGray, width, height)
+    } finally {
+      eqGray.delete()
+    }
+  } finally {
+    src.delete()
+    gray.delete()
   }
 }
 
@@ -295,146 +313,6 @@ export function cropArtRegion(cardImageData, { xOffset = 0, yOffset = 0, inset =
   } finally {
     src.delete()
   }
-}
-
-function buildNameStripCanvas(cardImageData, {
-  x = 0.04,
-  y = 0.028,
-  width = 0.74,
-  height = 0.11,
-  mode = 'otsu',
-  contrastBoost = 1,
-} = {}) {
-  const srcCanvas = document.createElement('canvas')
-  srcCanvas.width = CARD_W
-  srcCanvas.height = CARD_H
-  const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true })
-  srcCtx.putImageData(cardImageData, 0, 0)
-
-  const nx = Math.round(CARD_W * x)
-  const ny = Math.round(CARD_H * y)
-  const nw = Math.round(CARD_W * width)
-  const nh = Math.round(CARD_H * height)
-
-  const base = document.createElement('canvas')
-  base.width = nw
-  base.height = nh
-  const baseCtx = base.getContext('2d', { willReadFrequently: true })
-  baseCtx.drawImage(srcCanvas, nx, ny, nw, nh, 0, 0, nw, nh)
-
-  const raw = baseCtx.getImageData(0, 0, nw, nh)
-  const data = raw.data
-  let meanBright = 0
-  for (let i = 0; i < data.length; i += 4) {
-    meanBright += (data[i] * 299 + data[i + 1] * 587 + data[i + 2] * 114) / 1000
-  }
-  meanBright /= Math.max(1, data.length / 4)
-  const darkBg = meanBright < 160
-
-  const scale = Math.max(3, Math.min(8, Math.ceil(60 / Math.max(nh, 1))))
-  const out = document.createElement('canvas')
-  out.width = nw * scale
-  out.height = nh * scale
-  const outCtx = out.getContext('2d', { willReadFrequently: true })
-  outCtx.drawImage(base, 0, 0, nw, nh, 0, 0, out.width, out.height)
-
-  const img = outCtx.getImageData(0, 0, out.width, out.height)
-  const px = img.data
-  const gray = new Uint8Array(px.length >> 2)
-  const hist = new Int32Array(256)
-  for (let i = 0; i < px.length; i += 4) {
-    const r = px[i]
-    const g0 = px[i + 1]
-    const b = px[i + 2]
-    const baseGray = ((r * 299 + g0 * 587 + b * 114) / 1000) | 0
-    const boosted = Math.max(0, Math.min(255, Math.round((baseGray - 128) * contrastBoost + 128)))
-    const g = boosted
-    gray[i >> 2] = g
-    hist[g]++
-  }
-
-  const total = gray.length
-  let sumAll = 0
-  for (let i = 0; i < 256; i++) sumAll += i * hist[i]
-  let sumB = 0
-  let wB = 0
-  let best = 0
-  let threshold = 128
-  for (let t = 0; t < 256; t++) {
-    wB += hist[t]
-    if (!wB) continue
-    const wF = total - wB
-    if (!wF) break
-    sumB += t * hist[t]
-    const mB = sumB / wB
-    const mF = (sumAll - sumB) / wF
-    const sigma = wB * wF * (mB - mF) ** 2
-    if (sigma > best) {
-      best = sigma
-      threshold = t
-    }
-  }
-
-  for (let i = 0; i < px.length; i += 4) {
-    let v = gray[i >> 2]
-    if (mode === 'otsu') {
-      v = gray[i >> 2] >= threshold ? 255 : 0
-      if (darkBg) v = 255 - v
-    } else if (mode === 'gray-invert' && darkBg) {
-      v = 255 - v
-    } else if (mode === 'soft-threshold') {
-      const thresholded = gray[i >> 2] >= threshold ? 255 : 32
-      v = darkBg ? 255 - thresholded : thresholded
-    }
-    px[i] = v
-    px[i + 1] = v
-    px[i + 2] = v
-    px[i + 3] = 255
-  }
-  outCtx.putImageData(img, 0, 0)
-  return out
-}
-
-export function createNameStripCanvases(cardImageData) {
-  return [
-    {
-      label: 'otsu-wide',
-      canvas: buildNameStripCanvas(cardImageData, {
-        x: 0.04,
-        y: 0.028,
-        width: 0.74,
-        height: 0.11,
-        mode: 'otsu',
-        contrastBoost: 1.1,
-      }),
-    },
-    {
-      label: 'gray-wide',
-      canvas: buildNameStripCanvas(cardImageData, {
-        x: 0.04,
-        y: 0.028,
-        width: 0.74,
-        height: 0.11,
-        mode: 'gray-invert',
-        contrastBoost: 1.3,
-      }),
-    },
-    {
-      label: 'otsu-tight',
-      canvas: buildNameStripCanvas(cardImageData, {
-        x: 0.055,
-        y: 0.03,
-        width: 0.69,
-        height: 0.095,
-        mode: 'soft-threshold',
-        contrastBoost: 1.15,
-      }),
-    },
-  ]
-}
-
-export function createNameStripCanvas(cardImageData) {
-  return createNameStripCanvases(cardImageData)[0]?.canvas ?? null
 }
 
 export function computePHash256(artImageData) {
