@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react'
 import { sb } from '../lib/supabase'
-import { Modal } from './UI'
+import { Modal, Select } from './UI'
 import { parseTextDecklist, fetchCardsByNames } from '../lib/deckBuilderApi'
 import { parseManaboxCSV } from '../lib/csvParser'
 import styles from './ImportModal.module.css'
@@ -186,14 +186,15 @@ export default function ImportModal({ userId, folderType, folders: initialFolder
             {/* Folder picker */}
             {!creating ? (
               <div className={styles.pickerRow}>
-                <select
+                <Select
                   className={styles.folderSelect}
                   value={folderId}
                   onChange={e => setFolderId(e.target.value)}
+                  title={`Select ${noun}`}
                 >
                   <option value="">— Select {noun} —</option>
                   {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-                </select>
+                </Select>
                 <button className={styles.createBtn} onClick={() => setCreating(true)}>
                   + New {noun}
                 </button>

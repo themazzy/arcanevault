@@ -15,7 +15,7 @@ import {
 } from '../lib/db'
 import styles from './DeckBuilder.module.css'
 import uiStyles from '../components/UI.module.css'
-import { ResponsiveMenu } from '../components/UI'
+import { ResponsiveMenu, Select } from '../components/UI'
 import DeckStats, { normalizeDeckBuilderCards } from '../components/DeckStats'
 import ExportModal from '../components/ExportModal'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
@@ -673,12 +673,13 @@ function MakeDeckModal({ deckCards, userId, inOtherDeckSet, onConfirm, onClose }
                   Add {missingItems.reduce((s, i) => s + i.missingQty, 0)} missing card{missingCount !== 1 ? 's' : ''} to wishlist:
                 </div>
                 <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-                  <select value={selectedWishlistId} onChange={e => setSelectedWishlistId(e.target.value)}
-                    style={{ background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:4, padding:'6px 10px', color:'var(--text)', fontSize:'0.84rem', flex:1, minWidth:0 }}>
+                  <Select value={selectedWishlistId} onChange={e => setSelectedWishlistId(e.target.value)}
+                    style={{ background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:4, padding:'6px 10px', color:'var(--text)', fontSize:'0.84rem', flex:1, minWidth:0 }}
+                    title="Select wishlist">
                     <option value="">— Skip missing —</option>
                     {wishlists.map(wl => <option key={wl.id} value={wl.id}>{wl.name}</option>)}
                     <option value="new">+ Create new wishlist…</option>
-                  </select>
+                  </Select>
                   {selectedWishlistId === 'new' && (
                     <input autoFocus placeholder="Wishlist name…" value={newWishlistName} onChange={e => setNewWishlistName(e.target.value)}
                       style={{ background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:4, padding:'6px 10px', color:'var(--text)', fontSize:'0.84rem', flex:1 }} />
@@ -987,14 +988,14 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
           {movedOwnedRows.length > 0 && (
             <div>
               <div style={secLabel}>Move removed owned copies to</div>
-              <select value={globalDest} onChange={e => setGlobalDest(e.target.value)} style={{ ...s, width:'100%' }}>
+              <Select value={globalDest} onChange={e => setGlobalDest(e.target.value)} style={{ ...s, width:'100%' }} title="Select destination">
                 <option value="">— Select binder or deck —</option>
                 {folders.map(folder => (
                   <option key={folder.id} value={folder.id}>
                     {folder.type === 'binder' ? 'Binder' : 'Deck'}: {folder.name}
                   </option>
                 ))}
-              </select>
+              </Select>
               <div style={{ display:'flex', flexDirection:'column', gap:4, marginTop:10 }}>
                 {movedOwnedRows.map(row => (
                   <div key={row.key} style={{ display:'flex', justifyContent:'space-between', fontSize:'0.8rem', color:'var(--text-dim)' }}>
@@ -1018,12 +1019,12 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
                   </div>
                 ))}
               </div>
-              <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-                <select value={wishlistId} onChange={e => setWishlistId(e.target.value)} style={{ ...s, flex:1 }}>
+                <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                  <Select value={wishlistId} onChange={e => setWishlistId(e.target.value)} style={{ ...s, flex:1 }} title="Select wishlist">
                   <option value="">— Skip —</option>
                   {wishlists.map(wl => <option key={wl.id} value={wl.id}>{wl.name}</option>)}
                   <option value="new">+ Create new wishlist…</option>
-                </select>
+                </Select>
                 {wishlistId === 'new' && (
                   <input autoFocus value={newWishlistName} onChange={e => setNewWishlistName(e.target.value)}
                     placeholder="Wishlist name…"
@@ -1108,14 +1109,14 @@ function MoveOwnedCardsModal({ title, message, items, folders, onConfirm, onClos
               </div>
             ))}
           </div>
-          <select value={targetId} onChange={e => setTargetId(e.target.value)} style={inputStyle}>
+          <Select value={targetId} onChange={e => setTargetId(e.target.value)} style={inputStyle} title="Select destination">
             <option value="">— Select binder or deck —</option>
             {folders.map(folder => (
               <option key={folder.id} value={folder.id}>
                 {folder.type === 'binder' ? 'Binder' : 'Deck'}: {folder.name}
               </option>
             ))}
-          </select>
+          </Select>
           {folders.length === 0 && (
             <div style={{ color:'#d48d6a', fontSize:'0.8rem' }}>
               No other binders or decks are available. Create one first, then try again.
@@ -2737,13 +2738,14 @@ export default function DeckBuilderPage() {
           {/* Format selector */}
           <div className={styles.formatRow}>
             <span className={styles.formatLabel}>Format</span>
-            <select
+            <Select
               className={styles.formatSelect}
               value={deckMeta.format || 'commander'}
               onChange={e => handleFormatChange(e.target.value)}
+              title="Select format"
             >
               {FORMATS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
-            </select>
+            </Select>
           </div>
 
           {/* Commander picker */}

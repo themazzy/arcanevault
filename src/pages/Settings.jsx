@@ -4,7 +4,7 @@ import { useAuth } from '../components/Auth'
 import { maskEmailAddress, THEMES, useSettings } from '../components/SettingsContext'
 import { clearScryfallCache, PRICE_SOURCES } from '../lib/scryfall'
 import { getDbStats } from '../lib/db'
-import { Button, SectionHeader } from '../components/UI'
+import { Button, SectionHeader, Select as UISelect } from '../components/UI'
 import styles from './Settings.module.css'
 
 function formatAge(ms) {
@@ -28,9 +28,9 @@ function SettingRow({ label, description, children, onRowClick }) {
 
 function Select({ value, onChange, options }) {
   return (
-    <select className={styles.select} value={value} onChange={e => onChange(e.target.value)}>
+    <UISelect className={styles.select} value={value} onChange={e => onChange(e.target.value)} title="Select setting">
       {options.map(([val, label]) => <option key={val} value={val}>{label}</option>)}
-    </select>
+    </UISelect>
   )
 }
 
@@ -391,15 +391,16 @@ export default function SettingsPage() {
         <div className={styles.sectionTitle}>Prices</div>
 
         <SettingRow label="Price Source" description="Marketplace and price type used throughout the app">
-          <select
+          <UISelect
             className={styles.priceSourceSelect}
             value={settings.price_source}
             onChange={e => set('price_source', e.target.value)}
+            title="Select price source"
           >
             {PRICE_SOURCES.map(src => (
               <option key={src.id} value={src.id}>{src.label}</option>
             ))}
-          </select>
+          </UISelect>
           <div className={styles.priceSourceRadios}>
             {PRICE_SOURCES.map(src => (
               <label key={src.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>

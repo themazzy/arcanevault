@@ -6,6 +6,7 @@ import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getLocalCards, getLocalFolders, getAllLocalFolderCards } from '../lib/db'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
+import { Select } from '../components/UI'
 import styles from './Home.module.css'
 import { TypeLineFilter } from '../components/CardComponents'
 
@@ -313,13 +314,14 @@ function AdvancedSearchPanel({ adv, set }) {
             </button>
           ))}
           {adv.colors.length > 0 && (
-            <select className={styles.advSelect} style={{ marginLeft: 6 }}
+            <Select className={styles.advSelect} style={{ marginLeft: 6 }}
               value={adv.colorMode}
-              onChange={e => set(prev => ({ ...prev, colorMode: e.target.value }))}>
+              onChange={e => set(prev => ({ ...prev, colorMode: e.target.value }))}
+              title="Select color mode">
               <option value="includes">Includes</option>
               <option value="exactly">Exactly</option>
               <option value="at_least">At least</option>
-            </select>
+            </Select>
           )}
         </div>
       </div>
@@ -334,16 +336,17 @@ function AdvancedSearchPanel({ adv, set }) {
           />
         </div>
         <span className={styles.advLabel} style={{ marginLeft: 4 }}>CMC</span>
-        <select className={styles.advSelect}
+        <Select className={styles.advSelect}
           value={adv.cmcOp}
-          onChange={e => set(prev => ({ ...prev, cmcOp: e.target.value }))}>
+          onChange={e => set(prev => ({ ...prev, cmcOp: e.target.value }))}
+          title="Select CMC filter">
           <option value="">Any</option>
           <option value="=">= (equal)</option>
           <option value="<">{'< (less)'}</option>
           <option value="<=">{'≤ (max)'}</option>
           <option value=">">{'> (more)'}</option>
           <option value=">=">{'>= (min)'}</option>
-        </select>
+        </Select>
         {adv.cmcOp && (
           <input className={styles.advInput} style={{ width: 54 }}
             type="number" min="0" step="1" placeholder="0"
@@ -365,12 +368,13 @@ function AdvancedSearchPanel({ adv, set }) {
           ))}
         </div>
         <span className={styles.advLabel} style={{ marginLeft: 10 }}>Format</span>
-        <select className={styles.advSelect}
+        <Select className={styles.advSelect}
           value={adv.format}
-          onChange={e => set(prev => ({ ...prev, format: e.target.value }))}>
+          onChange={e => set(prev => ({ ...prev, format: e.target.value }))}
+          title="Select format">
           <option value="">Any</option>
           {ADV_FORMATS.map(f => <option key={f} value={f}>{f.charAt(0).toUpperCase() + f.slice(1)}</option>)}
-        </select>
+        </Select>
       </div>
 
       {/* Oracle text */}

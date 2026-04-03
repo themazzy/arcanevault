@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { sb } from '../lib/supabase'
-import { Button, Checkbox, Modal, SectionHeader, Spinner } from './UI'
+import { Button, Checkbox, Modal, SectionHeader, Select, Spinner } from './UI'
 import styles from './MoveCardsModal.module.css'
 
 // ── MoveCardsModal ────────────────────────────────────────────────────────────
@@ -180,15 +180,16 @@ export default function MoveCardsModal({
               </button>
             ) : (
               <div className={styles.createForm}>
-                <select
+                <Select
                   className={styles.createSelect}
                   value={createType}
                   onChange={e => setCreateType(e.target.value)}
+                  title="Select folder type"
                 >
                   <option value="binder">Binder</option>
                   <option value="deck">Deck</option>
                   <option value="list">Wishlist</option>
-                </select>
+                </Select>
                 <input
                   autoFocus
                   className={styles.createInput}

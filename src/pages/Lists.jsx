@@ -526,24 +526,16 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onRename,
   const value  = meta?.value
   const qty    = meta?.totalQty ?? 0
   const bgUrl  = useMemo(() => parseBgUrl(folder.description), [folder.description])
-  const [cogOpen, setCogOpen]     = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const [renaming, setRenaming]   = useState(false)
   const [renameVal, setRenameVal] = useState('')
-  const cogRef    = useRef(null)
   const renameRef = useRef(null)
 
   const longPress = useLongPress(() => { if (!selectMode) onEnterSelectMode?.() }, { delay: 500 })
 
-  useEffect(() => {
-    if (!cogOpen) return
-    const close = (e) => { if (cogRef.current && !cogRef.current.contains(e.target)) setCogOpen(false) }
-    document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
-  }, [cogOpen])
-
   useEffect(() => { if (renaming) renameRef.current?.focus() }, [renaming])
 
-  const startRename = () => { setRenameVal(folder.name); setRenaming(true); setCogOpen(false) }
+  const startRename = () => { setRenameVal(folder.name); setRenaming(true) }
   const confirmRename = () => {
     const trimmed = renameVal.trim()
     if (trimmed && trimmed !== folder.name) onRename?.(trimmed)
@@ -562,13 +554,12 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onRename,
 
   return (
     <div
-      className={`${styles.folderCard}${selectMode ? ` ${styles.folderCardSelectMode}` : ''}${selectMode && selected ? ` ${styles.folderCardSelected}` : ''}`}
+      className={`${styles.folderCard}${menuOpen ? ` ${styles.folderCardMenuOpen}` : ''}${selectMode ? ` ${styles.folderCardSelectMode}` : ''}${selectMode && selected ? ` ${styles.folderCardSelected}` : ''}`}
       style={{
         ...(bgUrl ? {
           backgroundImage: `linear-gradient(rgba(10,10,18,0.55) 0%, rgba(10,10,18,0.80) 100%), url(${bgUrl})`,
           backgroundSize: 'cover', backgroundPosition: 'center top',
         } : {}),
-        ...(cogOpen ? { zIndex: 200, position: 'relative' } : {}),
       }}
       onClick={handleCardClick}
       {...longPressProps}>
@@ -579,37 +570,53 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onRename,
           onClick={e => { e.stopPropagation(); onToggleSelect() }}
         />
       ) : (
-        <div ref={cogRef} className={styles.cogMenuWrap}>
-          <button className={styles.cogBtn} onClick={e => { e.stopPropagation(); setCogOpen(o => !o) }} title="Options">
-            ⚙
-          </button>
-          {cogOpen && (
-            <div className={styles.cogMenu}>
-              <button className={styles.cogMenuItem}
-                onClick={e => { e.stopPropagation(); startRename() }}>
+        <ResponsiveMenu
+          title="Options"
+          wrapClassName={styles.cogMenuWrap}
+          onOpenChange={setMenuOpen}
+          trigger={({ toggle }) => (
+            <button className={styles.cogBtn} onClick={e => { e.stopPropagation(); toggle() }} title="Options">
+              ⚙
+            </button>
+          )}
+        >
+          {({ close }) => (
+            <div className={uiStyles.responsiveMenuList}>
+              <button
+                className={uiStyles.responsiveMenuAction}
+                onClick={e => { e.stopPropagation(); startRename(); close() }}
+              >
                 <span className={styles.cogMenuItemIcon}><PencilIcon size={12} /> Rename</span>
               </button>
-              <button className={styles.cogMenuItem}
-                onClick={e => { e.stopPropagation(); setCogOpen(false); onEditBg?.() }}>
+              <button
+                className={uiStyles.responsiveMenuAction}
+                onClick={e => { e.stopPropagation(); onEditBg?.(); close() }}
+              >
                 Set background art
               </button>
               {bgUrl && (
-                <button className={styles.cogMenuItem}
-                  onClick={e => { e.stopPropagation(); setCogOpen(false); onClearBg?.() }}>
+                <button
+                  className={uiStyles.responsiveMenuAction}
+                  onClick={e => { e.stopPropagation(); onClearBg?.(); close() }}
+                >
                   Clear background
                 </button>
               )}
-              <button className={styles.cogMenuItem}
-                onClick={e => { e.stopPropagation(); setCogOpen(false); onMoveToGroup?.() }}>
+              <button
+                className={uiStyles.responsiveMenuAction}
+                onClick={e => { e.stopPropagation(); onMoveToGroup?.(); close() }}
+              >
                 📁 Move to Group
               </button>
-              <button className={`${styles.cogMenuItem} ${styles.cogMenuItemDanger}`}
-                onClick={e => { e.stopPropagation(); setCogOpen(false); onDelete() }}>
+              <button
+                className={`${uiStyles.responsiveMenuAction} ${uiStyles.responsiveMenuActionDanger}`}
+                onClick={e => { e.stopPropagation(); onDelete(); close() }}
+              >
                 <span className={styles.cogMenuItemIcon}><TrashIcon size={12} /> Delete</span>
               </button>
             </div>
           )}
-        </div>
+        </ResponsiveMenu>
       )}
 
       {renaming ? (
@@ -639,18 +646,9 @@ function GroupSection({ group, folders, folderMeta, priceSource, selectMode, sel
   onToggleSelect, onEnterSelectMode, onOpenFolder, onDeleteGroup, onRenameGroup,
   onDeleteFolder, onEditBg, onClearBg, onMoveToGroup, onMoveUp, onMoveDown, isFirst, isLast }) {
   const [collapsed, setCollapsed] = useState(false)
-  const [cogOpen, setCogOpen]     = useState(false)
   const [renaming, setRenaming]   = useState(false)
   const [renameVal, setRenameVal] = useState('')
-  const cogRef    = useRef(null)
   const renameRef = useRef(null)
-
-  useEffect(() => {
-    if (!cogOpen) return
-    const close = (e) => { if (cogRef.current && !cogRef.current.contains(e.target)) setCogOpen(false) }
-    document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
-  }, [cogOpen])
 
   useEffect(() => { if (renaming) renameRef.current?.focus() }, [renaming])
 
@@ -672,29 +670,34 @@ function GroupSection({ group, folders, folderMeta, priceSource, selectMode, sel
           <span className={styles.groupName}>{group.name}</span>
         )}
         <span className={styles.groupCount}>{folders.length}</span>
-        <div ref={cogRef} className={styles.groupCogWrap}>
-          <button className={styles.groupCogBtn} onClick={e => { e.stopPropagation(); setCogOpen(v => !v) }}>⚙</button>
-          {cogOpen && (
-            <div className={styles.groupCogMenu}>
+        <ResponsiveMenu
+          title="Group Actions"
+          wrapClassName={styles.groupCogWrap}
+          trigger={({ toggle }) => (
+            <button className={styles.groupCogBtn} onClick={e => { e.stopPropagation(); toggle() }}>...</button>
+          )}
+        >
+          {({ close }) => (
+            <div className={uiStyles.responsiveMenuList}>
               {!isFirst && (
-                <button className={styles.groupCogItem} onClick={() => { onMoveUp(); setCogOpen(false) }}>
-                  ↑ Move Up
+                <button className={uiStyles.responsiveMenuAction} onClick={() => { onMoveUp(); close() }}>
+                  Move Up
                 </button>
               )}
               {!isLast && (
-                <button className={styles.groupCogItem} onClick={() => { onMoveDown(); setCogOpen(false) }}>
-                  ↓ Move Down
+                <button className={uiStyles.responsiveMenuAction} onClick={() => { onMoveDown(); close() }}>
+                  Move Down
                 </button>
               )}
-              <button className={styles.groupCogItem} onClick={() => { setRenameVal(group.name); setRenaming(true); setCogOpen(false) }}>
+              <button className={uiStyles.responsiveMenuAction} onClick={() => { setRenameVal(group.name); setRenaming(true); close() }}>
                 Rename
               </button>
-              <button className={`${styles.groupCogItem} ${styles.groupCogItemDanger}`} onClick={() => { onDeleteGroup(group); setCogOpen(false) }}>
+              <button className={`${uiStyles.responsiveMenuAction} ${uiStyles.responsiveMenuActionDanger}`} onClick={() => { onDeleteGroup(group); close() }}>
                 Delete Group
               </button>
             </div>
           )}
-        </div>
+        </ResponsiveMenu>
       </div>
       {!collapsed && (
         <div className={styles.groupGrid}>
@@ -1230,3 +1233,4 @@ export default function ListsPage() {
     </div>
   )
 }
+

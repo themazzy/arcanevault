@@ -2,9 +2,10 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
-import { Button, Modal, EmptyState, SectionHeader } from '../components/UI'
+import { Button, Modal, EmptyState, SectionHeader, ResponsiveMenu } from '../components/UI'
 import { parseDeckMeta, FORMATS } from '../lib/deckBuilderApi'
 import styles from './Builder.module.css'
+import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 
 const COLOR_LABEL = { W: '#f8f0d8', U: '#4488cc', B: '#8855aa', R: '#cc4444', G: '#44884a', C: '#aaaaaa' }
@@ -206,6 +207,8 @@ export default function BuilderPage() {
     toggleSelectMode()
   }
 
+  const currentFormat = FORMATS.find(f => f.id === newFormat) || FORMATS[0]
+
   const filtered = decks
     .filter(d => {
       if (search && !d.name.toLowerCase().includes(search.toLowerCase())) return false
@@ -331,27 +334,54 @@ export default function BuilderPage() {
       )}
 
       {showNew && (
-        <Modal onClose={() => setShowNew(false)}>
+        <Modal onClose={() => setShowNew(false)} allowOverflow>
           <h2 style={{ fontFamily: 'var(--font-display)', color: 'var(--gold)', marginBottom: 16, fontSize: '1rem' }}>
             New Builder Deck
           </h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className={styles.newDeckForm}>
             <input
               autoFocus
               value={newName}
               onChange={e => setNewName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && createDeck()}
               placeholder="Deck name…"
-              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border)', borderRadius: 4, padding: '8px 12px', color: 'var(--text)', fontSize: '0.9rem', outline: 'none' }}
+              className={styles.newDeckInput}
             />
-            <select
-              value={newFormat}
-              onChange={e => setNewFormat(e.target.value)}
-              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border)', borderRadius: 4, padding: '8px 12px', color: 'var(--text)', fontSize: '0.88rem' }}
+            <ResponsiveMenu
+              title="Select Format"
+              align="left"
+              wrapClassName={styles.newDeckSelectWrap}
+              panelClassName={styles.newDeckMenuPanel}
+              trigger={({ open, toggle }) => (
+                <button
+                  type="button"
+                  className={`${styles.newDeckSelect} ${open ? styles.newDeckSelectOpen : ''}`}
+                  onClick={toggle}
+                  aria-haspopup="menu"
+                  aria-expanded={open}
+                >
+                  <span>{currentFormat?.label || 'Select format'}</span>
+                  <span className={styles.newDeckSelectChevron} aria-hidden="true">{open ? '▲' : '▼'}</span>
+                </button>
+              )}
             >
-              {FORMATS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
-            </select>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              {({ close }) => (
+                <div className={uiStyles.responsiveMenuList}>
+                  {FORMATS.map(f => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      className={`${uiStyles.responsiveMenuAction} ${f.id === newFormat ? uiStyles.responsiveMenuActionActive : ''}`}
+                      onClick={() => { setNewFormat(f.id); close() }}
+                    >
+                      <span>{f.label}</span>
+                      <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{f.id === newFormat ? '✓' : ''}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </ResponsiveMenu>
+            <div className={styles.newDeckActions}>
               <Button onClick={() => setShowNew(false)} style={{ background: 'transparent' }}>Cancel</Button>
               <Button onClick={createDeck} disabled={creating || !newName.trim()}>
                 {creating ? 'Creating…' : 'Create'}

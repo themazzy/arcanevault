@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { sb } from '../lib/supabase'
 import { Modal, Button, ErrorBox, ResponsiveMenu } from './UI'
 import { useSettings } from './SettingsContext'
@@ -179,7 +179,6 @@ export default function AddCardModal({
 // ── Add flow ──────────────────────────────────────────────────────────────────
 function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderType = 'binder', defaultFolderId = null, initialCardName = null }) {
   const { price_source } = useSettings()
-  const isMobileViewport = typeof window !== 'undefined' && window.innerWidth <= 640
 
   // Format a printing's non-foil price using the user's price source
   const fmtPrintingPrice = (printing) => {
@@ -223,77 +222,8 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
 
   // Folder mode — searchable dropdown
   const [folderSearch, setFolderSearch]   = useState('')
-  const [folderDropOpen, setFolderDropOpen] = useState(false)
-  const [folderDropClosing, setFolderDropClosing] = useState(false)
   const [creatingFolder, setCreatingFolder] = useState(false)
   const [newFolderName, setNewFolderName]   = useState('')
-  const folderDropRef = useRef(null)
-  const folderDropdownRef = useRef(null)
-  const folderDropdownInnerRef = useRef(null)
-  const folderDropdownHeaderRef = useRef(null)
-  const folderDropdownListRef = useRef(null)
-  const folderDropCloseTimeoutRef = useRef(null)
-  const [folderDropdownHeight, setFolderDropdownHeight] = useState(0)
-
-  const clearFolderDropCloseTimeout = () => {
-    if (folderDropCloseTimeoutRef.current) {
-      clearTimeout(folderDropCloseTimeoutRef.current)
-      folderDropCloseTimeoutRef.current = null
-    }
-  }
-
-  const openFolderDropdown = () => {
-    clearFolderDropCloseTimeout()
-    setFolderDropClosing(false)
-    setFolderDropOpen(true)
-  }
-
-  const closeFolderDropdown = () => {
-    if (!folderDropOpen || folderDropClosing) return
-    clearFolderDropCloseTimeout()
-    setFolderDropClosing(true)
-    folderDropCloseTimeoutRef.current = setTimeout(() => {
-      setFolderDropOpen(false)
-      setFolderDropClosing(false)
-      folderDropCloseTimeoutRef.current = null
-    }, 220)
-  }
-
-  const folderDropVisible = folderDropOpen || folderDropClosing
-
-  const measureFolderDropdownHeight = () => {
-    const dropdown = folderDropdownRef.current
-    const inner = folderDropdownInnerRef.current
-    const header = folderDropdownHeaderRef.current
-    const list = folderDropdownListRef.current
-    if (!dropdown || !inner) return 0
-
-    const getMaxHeight = () => {
-      if (typeof window === 'undefined') return 220
-      return window.innerWidth <= 640
-        ? Math.min(window.innerHeight * 0.72, 540)
-        : 220
-    }
-
-    const maxHeight = getMaxHeight()
-    const isMobile = typeof window !== 'undefined' && window.innerWidth <= 640
-
-    if (isMobile && header && list) {
-      const computed = window.getComputedStyle(dropdown)
-      const paddingY =
-        parseFloat(computed.paddingTop || '0') +
-        parseFloat(computed.paddingBottom || '0') +
-        parseFloat(computed.borderTopWidth || '0') +
-        parseFloat(computed.borderBottomWidth || '0')
-      const headerHeight = header.offsetHeight
-      const headerMargin = parseFloat(window.getComputedStyle(header).marginBottom || '0')
-      const listNaturalHeight = list.scrollHeight
-      const maxListHeight = Math.max(0, maxHeight - paddingY - headerHeight - headerMargin)
-      return paddingY + headerHeight + headerMargin + Math.min(listNaturalHeight, maxListHeight)
-    }
-
-    return Math.min(inner.scrollHeight, maxHeight)
-  }
 
   // Save
   const [saving, setSaving]   = useState(false)
@@ -317,66 +247,6 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
     if (initialCardName) selectCard(initialCardName)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  // Close folder dropdown on outside click
-  useEffect(() => {
-    if (!folderDropVisible) return
-    const close = (e) => { if (folderDropRef.current && !folderDropRef.current.contains(e.target)) closeFolderDropdown() }
-    document.addEventListener('mousedown', close)
-    document.addEventListener('touchstart', close)
-    return () => {
-      document.removeEventListener('mousedown', close)
-      document.removeEventListener('touchstart', close)
-    }
-  }, [folderDropVisible, folderDropClosing, folderDropOpen])
-
-  useLayoutEffect(() => {
-    if (!folderDropVisible) {
-      setFolderDropdownHeight(0)
-      return
-    }
-
-    const dropdown = folderDropdownRef.current
-    if (!dropdown) return
-
-    let frame = 0
-    let frame2 = 0
-    const animateToMeasuredHeight = () => {
-      const currentHeight = dropdown.getBoundingClientRect().height
-      const nextHeight = measureFolderDropdownHeight()
-      if (!nextHeight) return
-
-      if (Math.abs(currentHeight - nextHeight) < 1) {
-        setFolderDropdownHeight(nextHeight)
-        return
-      }
-
-      setFolderDropdownHeight(currentHeight)
-      frame = window.requestAnimationFrame(() => {
-        frame2 = window.requestAnimationFrame(() => {
-          setFolderDropdownHeight(nextHeight)
-        })
-      })
-    }
-
-    animateToMeasuredHeight()
-
-    const handleResize = () => {
-      if (frame) window.cancelAnimationFrame(frame)
-      if (frame2) window.cancelAnimationFrame(frame2)
-      frame = window.requestAnimationFrame(animateToMeasuredHeight)
-    }
-
-    window.addEventListener('resize', handleResize)
-
-    return () => {
-      if (frame) window.cancelAnimationFrame(frame)
-      if (frame2) window.cancelAnimationFrame(frame2)
-      window.removeEventListener('resize', handleResize)
-    }
-  }, [folderDropVisible, folderSearch, selectedFolder, destTab, creatingFolder, folders])
-
-  useEffect(() => () => clearFolderDropCloseTimeout(), [])
 
   // Close suggestions on outside click
   useEffect(() => {
@@ -827,84 +697,64 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
                   </button>
                 ))}
               </div>
-              <div ref={folderDropRef} className={styles.folderSearchWrap}>
-                <div className={styles.folderSearchInner}>
-                  <input
-                    className={styles.folderSearchInput}
-                    value={selectedFolder ? (folders.find(f => f.id === selectedFolder)?.name || folderSearch) : folderSearch}
-                    onChange={e => { setFolderSearch(e.target.value); setSelectedFolder(null); openFolderDropdown() }}
-                    onFocus={openFolderDropdown}
-                    placeholder={`Choose ${destTab === 'list' ? 'a wishlist' : `a ${destTab}`}…`}
-                  />
-                  <button className={styles.folderSearchChevron} tabIndex={-1}
-                    onMouseDown={e => {
-                      e.preventDefault()
-                      if (folderDropOpen && !folderDropClosing) closeFolderDropdown()
-                      else openFolderDropdown()
-                    }}>
-                    {folderDropOpen && !folderDropClosing ? '▲' : '▼'}
-                  </button>
-                </div>
-                {folderDropVisible && (
-                  <>
-                    <button
-                      type="button"
-                      className={`${styles.folderDropBackdrop} ${folderDropClosing ? styles.folderDropBackdropClosing : ''}`}
-                      aria-label="Close location picker"
-                      onClick={closeFolderDropdown}
+              <ResponsiveMenu
+                title={destTab === 'list' ? 'Select Wishlist' : `Select ${destTab[0].toUpperCase()}${destTab.slice(1)}`}
+                align="left"
+                wrapClassName={styles.folderSearchWrap}
+                panelClassName={styles.folderDropdown}
+                trigger={({ open, toggle, setOpen }) => (
+                  <div className={styles.folderSearchInner}>
+                    <input
+                      className={styles.folderSearchInput}
+                      value={selectedFolder ? (folders.find(f => f.id === selectedFolder)?.name || folderSearch) : folderSearch}
+                      onChange={e => { setFolderSearch(e.target.value); setSelectedFolder(null); setOpen(true) }}
+                      onFocus={() => setOpen(true)}
+                      placeholder={`Choose ${destTab === 'list' ? 'a wishlist' : `a ${destTab}`}…`}
                     />
-                    <div
-                      ref={folderDropdownRef}
-                      className={`${styles.folderDropdown} ${folderDropClosing ? styles.folderDropdownClosing : ''}`}
-                      style={folderDropdownHeight ? { height: `${folderDropdownHeight}px` } : undefined}
-                    >
-                      <div ref={folderDropdownInnerRef} className={styles.folderDropdownInner}>
-                        <div ref={folderDropdownHeaderRef} className={styles.folderDropdownHeader}>
-                        <div className={styles.folderDropdownHeaderTop}>
-                          <span className={styles.folderDropdownTitle}>
-                            {destTab === 'list' ? 'Select Wishlist' : `Select ${destTab[0].toUpperCase()}${destTab.slice(1)}`}
-                          </span>
-                          <button
-                            type="button"
-                            className={styles.folderDropdownDone}
-                            onClick={closeFolderDropdown}
-                          >
-                            Done
-                          </button>
-                        </div>
-                        <input
-                          className={styles.folderDropdownSearch}
-                          value={selectedFolder ? (folders.find(f => f.id === selectedFolder)?.name || folderSearch) : folderSearch}
-                          onChange={e => { setFolderSearch(e.target.value); setSelectedFolder(null) }}
-                          placeholder={`Search ${destTab === 'list' ? 'wishlists' : `${destTab}s`}…`}
-                        />
-                        </div>
-                        <div ref={folderDropdownListRef} className={styles.folderDropdownList}>
-                          {filteredFoldersByType.length > 0
-                            ? filteredFoldersByType.map(f => (
-                                <button key={f.id}
-                                  className={`${styles.folderDropItem} ${selectedFolder === f.id ? styles.folderDropItemActive : ''}`}
-                                  onMouseDown={() => { setSelectedFolder(f.id); setFolderSearch(f.name); closeFolderDropdown() }}>
-                                  {f.name}
-                                </button>
-                              ))
-                            : <div className={styles.folderDropEmpty}>
-                                {folderSearch
-                                  ? `No ${destTab === 'list' ? 'wishlists' : destTab + 's'} match "${folderSearch}"`
-                                  : `No ${destTab === 'list' ? 'wishlists' : destTab + 's'} yet`}
-                              </div>
-                          }
-                          <div className={styles.folderDropDivider} />
-                          <button className={styles.folderDropCreate}
-                            onMouseDown={() => { setCreatingFolder(true); closeFolderDropdown() }}>
-                            + Create new {destTab === 'list' ? 'wishlist' : destTab}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </>
+                    <button className={styles.folderSearchChevron} tabIndex={-1}
+                      onMouseDown={e => {
+                        e.preventDefault()
+                        toggle()
+                      }}>
+                      {open ? '▲' : '▼'}
+                    </button>
+                  </div>
                 )}
-              </div>
+              >
+                {({ close }) => (
+                  <div className={styles.folderDropdownInner}>
+                    <div className={styles.folderDropdownHeader}>
+                      <input
+                        className={styles.folderDropdownSearch}
+                        value={selectedFolder ? (folders.find(f => f.id === selectedFolder)?.name || folderSearch) : folderSearch}
+                        onChange={e => { setFolderSearch(e.target.value); setSelectedFolder(null) }}
+                        placeholder={`Search ${destTab === 'list' ? 'wishlists' : `${destTab}s`}…`}
+                      />
+                    </div>
+                    <div className={styles.folderDropdownList}>
+                      <button className={styles.folderDropCreate}
+                        onMouseDown={() => { setCreatingFolder(true); close() }}>
+                        + Create new {destTab === 'list' ? 'wishlist' : destTab}
+                      </button>
+                      <div className={styles.folderDropDivider} />
+                      {filteredFoldersByType.length > 0
+                        ? filteredFoldersByType.map(f => (
+                            <button key={f.id}
+                              className={`${styles.folderDropItem} ${selectedFolder === f.id ? styles.folderDropItemActive : ''}`}
+                              onMouseDown={() => { setSelectedFolder(f.id); setFolderSearch(f.name); close() }}>
+                              {f.name}
+                            </button>
+                          ))
+                        : <div className={styles.folderDropEmpty}>
+                            {folderSearch
+                              ? `No ${destTab === 'list' ? 'wishlists' : destTab + 's'} match "${folderSearch}"`
+                              : `No ${destTab === 'list' ? 'wishlists' : destTab + 's'} yet`}
+                          </div>
+                      }
+                    </div>
+                  </div>
+                )}
+              </ResponsiveMenu>
               {creatingFolder && (
                 <div className={styles.newFolderRow}>
                   <input
@@ -933,7 +783,7 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
         <Button variant="ghost" onClick={onClose}>Cancel</Button>
         {queue.length > 0 && (
           <Button onClick={saveAll} disabled={saving || !canSave}>
-            {saving ? 'Saving…' : `Save ${queue.length} Card${queue.length !== 1 ? 's' : ''}`}
+            {saving ? 'Saving…' : `Save ${totalQty} Card${totalQty !== 1 ? 's' : ''}`}
           </Button>
         )}
       </div>

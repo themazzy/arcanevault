@@ -12,15 +12,23 @@
   border-radius: 7px;
   padding: 20px;
   cursor: pointer;
-  transition: border-color 0.18s, background 0.18s, transform 0.18s, box-shadow 0.18s;
+  transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
   position: relative;
 }
 .folderCard:hover {
   border-color: rgba(201,168,76,0.28);
   border-top-color: rgba(201,168,76,0.65);
   background: rgba(201,168,76,0.04);
-  transform: translateY(-2px);
   box-shadow: 0 8px 24px rgba(0,0,0,0.4), 0 0 12px rgba(201,168,76,0.06);
+}
+.folderCard:focus-within,
+.folderCard:focus-within:hover,
+.folderCardMenuOpen,
+.folderCardMenuOpen:hover {
+  border-color: var(--s-border);
+  border-top-color: rgba(201,168,76,0.35);
+  background: var(--s-card);
+  box-shadow: none;
 }
 .folderCardSelectMode {
   cursor: pointer;
@@ -539,6 +547,8 @@
   transition: opacity 0.15s;
 }
 .groupHeader:hover .groupCogBtn { opacity: 1; }
+.groupCogWrap:focus-within .groupCogBtn { opacity: 1; }
+.groupHeader:has(.responsiveMenuWrapOpen) .groupCogBtn { opacity: 1; }
 .groupCogBtn:hover { color: var(--text); }
 
 .groupCogMenu {
@@ -939,6 +949,9 @@
     left: auto;
     min-width: 0;
     width: min(220px, calc(100vw - 20px));
+  }
+  .groupCogBtn {
+    opacity: 1;
   }
 }
 
