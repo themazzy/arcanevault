@@ -18,6 +18,7 @@ import {
   waitForOpenCV,
   detectCardCorners, warpCard, cropArtRegion, cropCardFromReticle, computePHash256,
 } from './ScannerEngine'
+import { Select } from '../components/UI'
 import styles from './CardScanner.module.css'
 
 // TODO: After re-seeding card_hashes with the aligned hashCore pipeline,
