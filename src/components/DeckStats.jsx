@@ -249,7 +249,7 @@ function BracketBadge({ bracket, autobracket, gameChangers, onOverride }) {
   const canOverride = typeof onOverride === 'function'
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div style={{ position: 'relative', maxWidth: '100%' }}>
       <button
         style={{
           display: 'flex', alignItems: 'center', gap: 8,
@@ -257,6 +257,9 @@ function BracketBadge({ bracket, autobracket, gameChangers, onOverride }) {
           borderRadius: 4, padding: '7px 14px', cursor: canOverride ? 'pointer' : 'default',
           fontFamily: 'var(--font-display)', fontSize: '0.8rem', letterSpacing: '0.04em',
           color: meta.color, transition: 'background 0.15s',
+          maxWidth: '100%',
+          flexWrap: 'wrap',
+          boxSizing: 'border-box',
         }}
         onClick={() => canOverride && setOpen(v => !v)}
       >
@@ -276,7 +279,8 @@ function BracketBadge({ bracket, autobracket, gameChangers, onOverride }) {
         <div style={{
           position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 20,
           background: '#1a1620', border: '1px solid var(--border)',
-          borderRadius: 5, padding: '14px 16px', minWidth: 260,
+          borderRadius: 5, padding: '14px 16px', width: 'min(320px, calc(100vw - 48px))',
+          maxWidth: 'calc(100vw - 48px)', boxSizing: 'border-box',
           boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
         }}>
           <p style={{ fontSize: '0.82rem', color: 'var(--text-dim)', margin: '0 0 10px', lineHeight: 1.5 }}>
@@ -380,7 +384,7 @@ function ColorStackBar({ colorCounts, totalPips, title, cardCounts = null }) {
           </div>
         ))}
       </div>
-      <div style={{ minHeight: '1.2em', fontSize: '0.75rem', color: 'var(--text-dim)', paddingLeft: 2, marginTop: 3 }}>
+      <div style={{ minHeight: '1.2em', fontSize: '0.75rem', color: 'var(--text-dim)', paddingLeft: 2, marginTop: 3, overflowWrap: 'anywhere' }}>
         {sel && (
           <>
             <span style={{ color: COLOR_BG[sel.c] || '#ccc', fontWeight: 600, marginRight: 4 }}>
@@ -425,9 +429,9 @@ function ManaCurveChart({ curve, avgCmc, curveMode, curveSegData, onModeChange }
   }
 
   return (
-    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 5, padding: '14px 14px 10px' }}>
+    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 5, padding: '14px 14px 10px', minWidth: 0 }}>
       {/* Title row */}
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
         <span style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-faint)', fontFamily: 'var(--font-display)' }}>
           Mana Curve
         </span>
@@ -437,7 +441,7 @@ function ManaCurveChart({ curve, avgCmc, curveMode, curveSegData, onModeChange }
           </span>
         )}
         {/* Mode toggle */}
-        <div style={{ display: 'flex', gap: 3, marginLeft: 'auto' }}>
+        <div style={{ display: 'flex', gap: 3, marginLeft: 'auto', flexWrap: 'wrap', justifyContent: 'flex-end', minWidth: 0 }}>
           {[['flat', '—'], ['color', 'Color'], ['type', 'Type']].map(([m, l]) => (
             <button key={m}
               style={{
@@ -458,7 +462,7 @@ function ManaCurveChart({ curve, avgCmc, curveMode, curveSegData, onModeChange }
 
       {/* Bars */}
       <div
-        style={{ display: 'flex', alignItems: 'flex-end', gap: 4, position: 'relative' }}
+        style={{ display: 'flex', alignItems: 'flex-end', gap: 4, position: 'relative', minWidth: 0 }}
         data-curve-chart
         onMouseLeave={() => setTooltip(null)}
       >
@@ -467,7 +471,7 @@ function ManaCurveChart({ curve, avgCmc, curveMode, curveSegData, onModeChange }
           const barPx = count > 0 ? Math.max(Math.round((count / maxVal) * BAR_MAX_PX), 4) : 0
           const segs = curveMode !== 'flat' ? curveSegData[i] : null
           return (
-            <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, flex: 1 }}>
+            <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, flex: '1 1 0', minWidth: 0 }}>
               <span style={{ fontSize: '0.6rem', color: 'var(--text-faint)', minHeight: 12, lineHeight: '12px', textAlign: 'center' }}>
                 {count > 0 ? count : ''}
               </span>
@@ -551,8 +555,8 @@ function TypeBreakdown({ typeCounts }) {
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
         {entries.filter(([, v]) => v > 0).map(([type, count]) => (
-          <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ width: 90, fontSize: '0.72rem', color: 'var(--text-dim)', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+            <div style={{ flex: '0 1 clamp(68px, 28vw, 90px)', fontSize: '0.72rem', color: 'var(--text-dim)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 }}>
               <TypeIcon type={type} size={13} style={{ verticalAlign: 'middle' }} />
               {' '}{type}
             </div>
@@ -563,8 +567,8 @@ function TypeBreakdown({ typeCounts }) {
           </div>
         ))}
         {landCount > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: 0.7 }}>
-            <div style={{ width: 90, fontSize: '0.72rem', color: 'var(--text-dim)', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: 0.7, minWidth: 0 }}>
+            <div style={{ flex: '0 1 clamp(68px, 28vw, 90px)', fontSize: '0.72rem', color: 'var(--text-dim)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 }}>
               <TypeIcon type="Lands" size={13} style={{ verticalAlign: 'middle' }} />
               {' '}Lands
             </div>
@@ -667,6 +671,11 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride })
       padding: '18px 20px',
       marginBottom: 18,
       display: 'flex', flexDirection: 'column', gap: 16,
+      width: '100%',
+      maxWidth: '100%',
+      minWidth: 0,
+      boxSizing: 'border-box',
+      overflowX: 'clip',
     }}>
       {/* Pills row */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -703,7 +712,7 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride })
       )}
 
       {/* Charts */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: 14, minWidth: 0 }}>
         <ManaCurveChart
           curve={curve}
           avgCmc={avgCmc}

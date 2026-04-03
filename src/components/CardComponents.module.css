@@ -98,14 +98,23 @@
   box-shadow: 0 0 0 3px rgba(201,168,76,0.1), 0 2px 8px rgba(0,0,0,0.3);
 }
 .searchInput::placeholder { color: var(--text-faint); font-style: italic; }
-.filterSelect {
-  background: var(--s2); border: 1px solid var(--border);
-  border-radius: 4px; padding: 9px 12px; color: var(--text);
-  font-family: var(--font-serif); font-size: 0.9rem;
-  outline: none; cursor: pointer; transition: border-color 0.2s, box-shadow 0.2s;
+.filterSelect { display: none; }
+.filterSortMobile { display: block; }
+.filterSortBtn {
+  background: var(--s2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 9px 12px;
+  color: var(--text);
+  font-family: var(--font-serif);
+  font-size: 0.9rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 128px;
 }
-.filterSelect:focus { border-color: var(--border-hi); box-shadow: var(--input-focus); }
-.filterSelect option { background: var(--bg3); }
 .clearBtn {
   background: none; border: 1px solid rgba(196,96,96,0.25);
   border-radius: 4px; padding: 9px 12px;
@@ -238,7 +247,7 @@
   /* Compact filter bar so more cards are visible */
   .filterBar { gap: 6px; margin: 10px 0; }
   .searchInput { padding: 7px 10px; font-size: 0.85rem; min-width: 0; }
-  .filterSelect { padding: 7px 8px; font-size: 0.8rem; }
+  .filterSortBtn { padding: 7px 8px; font-size: 0.8rem; min-width: 116px; }
 }
 
 /* ── Selection mode ─────────────────────────────────────────────────────────── */

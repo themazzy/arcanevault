@@ -156,6 +156,12 @@
   box-shadow: 0 24px 64px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.03) inset;
   /* Subtle gold top-accent */
   background-image: linear-gradient(to bottom, rgba(201,168,76,0.04) 0px, transparent 60px);
+  transition: height 0.22s ease-in-out;
+  overflow: hidden;
+}
+
+.modalContent {
+  width: 100%;
 }
 @media (min-width: 601px) {
   .overlay { align-items: center; padding: 20px; }
@@ -261,6 +267,313 @@
     right: 0;
     min-width: 0;
     width: min(280px, calc(100vw - 16px));
+  }
+}
+
+/* Responsive menu / mobile sheet */
+.responsiveMenuWrap {
+  position: relative;
+}
+
+.responsiveMenuBackdrop {
+  display: none;
+}
+
+.responsiveMenuBackdropClosing {
+  pointer-events: none;
+}
+
+.responsiveMenuPanel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 180px;
+  max-width: min(320px, calc(100vw - 16px));
+  padding: 8px;
+  border-radius: 12px;
+  background: rgba(18,16,22,0.96);
+  border: 1px solid rgba(201,168,76,0.18);
+  box-shadow: 0 20px 48px rgba(0,0,0,0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 140;
+}
+
+.responsiveMenuPanelLeft {
+  left: 0;
+  right: auto;
+}
+
+.responsiveMenuPanelClosing {
+  pointer-events: none;
+}
+
+.responsiveMenuHeader {
+  display: none;
+}
+
+.responsiveMenuHeader::before {
+  content: '';
+  display: block;
+  width: 42px;
+  height: 4px;
+  border-radius: 999px;
+  margin: 0 auto 10px;
+  background: rgba(255,255,255,0.18);
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.04);
+}
+
+.responsiveMenuHeaderTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.responsiveMenuTitle {
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+.responsiveMenuClose {
+  display: none;
+}
+
+.responsiveMenuBody {
+  display: flex;
+  flex-direction: column;
+}
+
+.responsiveMenuList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.responsiveMenuAction {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  padding: 9px 12px;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  font-family: var(--font-serif);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.responsiveMenuAction:hover {
+  background: var(--s2);
+  color: var(--text);
+}
+
+.responsiveMenuActionActive {
+  background: rgba(201,168,76,0.08);
+  color: var(--gold);
+}
+
+.responsiveMenuActionDanger {
+  color: #d08a8a;
+}
+
+.responsiveMenuActionDanger:hover {
+  background: rgba(196,96,96,0.08);
+  color: #f0a3a3;
+}
+
+.responsiveMenuMeta {
+  font-size: 0.68rem;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.responsiveMenuCheck {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.04);
+  color: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.responsiveMenuActionActive .responsiveMenuCheck {
+  border-color: rgba(201,168,76,0.42);
+  background: rgba(201,168,76,0.18);
+  color: var(--gold);
+}
+
+@media (max-width: 640px) {
+  .responsiveMenuBackdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    border: none;
+    padding: 0;
+    margin: 0;
+    background: rgba(0,0,0,0.62);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    z-index: 139;
+    cursor: pointer;
+    animation: responsiveMenuBackdropIn 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .responsiveMenuBackdropClosing {
+    animation: responsiveMenuBackdropOut 0.22s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  }
+
+  .responsiveMenuPanel,
+  .responsiveMenuPanelLeft {
+    position: fixed;
+    display: flex;
+    flex-direction: column;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    min-width: 0;
+    max-width: none;
+    width: 100%;
+    max-height: min(72vh, 540px);
+    padding: 14px 16px calc(18px + env(safe-area-inset-bottom, 0px));
+    border-radius: 22px 22px 0 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0)),
+      color-mix(in srgb, var(--bg3, #16161b) 90%, black);
+    border-top: 1px solid rgba(255,255,255,0.12);
+    box-shadow: 0 -20px 56px rgba(0,0,0,0.56);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    gap: 10px;
+    overflow: hidden;
+    overscroll-behavior: contain;
+    z-index: 140;
+    animation: responsiveMenuSheetIn 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .responsiveMenuPanelClosing {
+    animation: responsiveMenuSheetOut 0.22s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  }
+
+  .responsiveMenuHeader {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-bottom: 2px;
+    flex-shrink: 0;
+  }
+
+  .responsiveMenuClose {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(201,168,76,0.28);
+    background: rgba(201,168,76,0.10);
+    color: var(--gold);
+    border-radius: 10px;
+    min-width: 42px;
+    min-height: 38px;
+    padding: 7px 13px;
+    font-size: 0.7rem;
+    font-family: var(--font-display);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, color 0.15s;
+  }
+
+  .responsiveMenuClose:hover {
+    border-color: rgba(201,168,76,0.42);
+    background: rgba(201,168,76,0.16);
+  }
+
+  .responsiveMenuBody {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .responsiveMenuList {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    gap: 10px;
+    padding-right: 2px;
+  }
+
+  .responsiveMenuList::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .responsiveMenuList::-webkit-scrollbar-thumb {
+    background: rgba(201,168,76,0.22);
+    border-radius: 999px;
+  }
+
+  .responsiveMenuAction {
+    padding: 12px 14px;
+    font-size: 0.84rem;
+    color: var(--text);
+    background: var(--s1);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+  }
+
+  .responsiveMenuAction:hover {
+    background: var(--s2);
+    border-color: rgba(201,168,76,0.22);
+    color: var(--gold);
+  }
+
+  .responsiveMenuActionActive {
+    border-color: rgba(201,168,76,0.3);
+    background:
+      linear-gradient(180deg, rgba(201,168,76,0.14), rgba(201,168,76,0.05)),
+      color-mix(in srgb, var(--s2) 92%, rgba(201,168,76,0.08));
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.05),
+      0 10px 24px rgba(0,0,0,0.14);
+  }
+
+  @keyframes responsiveMenuBackdropIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes responsiveMenuBackdropOut {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
+
+  @keyframes responsiveMenuSheetIn {
+    from { opacity: 0; transform: translateY(18px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes responsiveMenuSheetOut {
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(18px); }
   }
 }
 

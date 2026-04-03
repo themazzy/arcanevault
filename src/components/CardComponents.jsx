@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getImageUri, getPrice, formatPrice, getPriceSource } from '../lib/scryfall'
-import { Modal, Badge } from './UI'
+import { Modal, Badge, ResponsiveMenu } from './UI'
 import styles from './CardComponents.module.css'
+import uiStyles from './UI.module.css'
 import { FolderTypeIcon } from './Icons'
 import { sb } from '../lib/supabase'
 import { putCards } from '../lib/db'
@@ -1981,6 +1982,20 @@ export function FilterBar({
   const activeCount = countActive(filters)
   const set = (key, val) => setFilters(f => ({ ...f, [key]: val }))
   const clear = () => setFilters({ ...EMPTY_FILTERS })
+  const sortOptions = [
+    ['name', 'Name A→Z'],
+    ['price_desc', 'Price ↓'],
+    ['price_asc', 'Price ↑'],
+    ['pl_desc', 'P&L ↓'],
+    ['pl_asc', 'P&L ↑'],
+    ['cmc_asc', 'Mana Value ↑'],
+    ['cmc_desc', 'Mana Value ↓'],
+    ['qty', 'Quantity'],
+    ['set', 'Set'],
+    ['rarity', 'Rarity'],
+    ['added', 'Recently Added'],
+  ]
+  const currentSortLabel = sortOptions.find(([v]) => v === sort)?.[1] || 'Sort'
 
   return (
     <div className={styles.filterWrap}>
@@ -2000,6 +2015,32 @@ export function FilterBar({
           <option value="rarity">Rarity</option>
           <option value="added">Recently Added</option>
         </select>
+        <ResponsiveMenu
+          title="Sort Cards"
+          align="left"
+          wrapClassName={styles.filterSortMobile}
+          trigger={({ open, toggle }) => (
+            <button className={styles.filterSortBtn} onClick={toggle}>
+              <span>{currentSortLabel}</span>
+              <span>{open ? '▲' : '▼'}</span>
+            </button>
+          )}
+        >
+          {({ close }) => (
+            <div className={uiStyles.responsiveMenuList}>
+              {sortOptions.map(([value, label]) => (
+                <button
+                  key={value}
+                  className={`${uiStyles.responsiveMenuAction} ${sort === value ? uiStyles.responsiveMenuActionActive : ''}`}
+                  onClick={() => { setSort(value); close() }}
+                >
+                  <span>{label}</span>
+                  <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{sort === value ? '✓' : ''}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </ResponsiveMenu>
         <button
           className={`${styles.filterToggle}${open ? ' ' + styles.filterToggleOpen : ''}${activeCount ? ' ' + styles.filterToggleActive : ''}`}
           onClick={() => setOpen(v => !v)}

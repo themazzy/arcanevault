@@ -4,7 +4,7 @@ import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
-import { EmptyState, SectionHeader, Modal, ResponsiveHeaderActions } from '../components/UI'
+import { EmptyState, SectionHeader, Modal, ResponsiveHeaderActions, ResponsiveMenu } from '../components/UI'
 import { CardGrid, FilterBar, BulkActionBar, applyFilterSort, EMPTY_FILTERS } from '../components/CardComponents'
 import { useLongPress } from '../hooks/useLongPress'
 import AddCardModal from '../components/AddCardModal'
@@ -12,6 +12,7 @@ import ImportModal from '../components/ImportModal'
 import ExportModal from '../components/ExportModal'
 import styles from './Folders.module.css'
 import listStyles from './Lists.module.css'
+import uiStyles from '../components/UI.module.css'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function parseFolderDesc(description) {
@@ -75,36 +76,36 @@ function PencilIcon({ size = 14 }) {
 
 // ── Sort dropdown ─────────────────────────────────────────────────────────────
 function SortDropdown({ value, onChange, options }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef(null)
-  useEffect(() => {
-    const close = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
-    document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
-  }, [])
   const current = options.find(([v]) => v === value)
   return (
-    <div ref={ref} className={styles.sortDropdown}>
-      <button className={styles.sortDropdownBtn} onClick={() => setOpen(o => !o)}>
-        <span>{current?.[1] || value}</span>
-        <svg className={`${styles.sortArrow} ${open ? styles.sortArrowOpen : ''}`}
-          width="10" height="10" viewBox="0 0 10 10" fill="none"
-          stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-          <polyline points="2,3 5,7 8,3" />
-        </svg>
-      </button>
-      {open && (
-        <div className={styles.sortDropdownMenu}>
+    <ResponsiveMenu
+      title="Sort Lists"
+      align="left"
+      wrapClassName={styles.sortDropdown}
+      trigger={({ open, toggle }) => (
+        <button className={styles.sortDropdownBtn} onClick={toggle}>
+          <span>{current?.[1] || value}</span>
+          <svg className={`${styles.sortArrow} ${open ? styles.sortArrowOpen : ''}`}
+            width="10" height="10" viewBox="0 0 10 10" fill="none"
+            stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="2,3 5,7 8,3" />
+          </svg>
+        </button>
+      )}
+    >
+      {({ close }) => (
+        <div className={uiStyles.responsiveMenuList}>
           {options.map(([v, l]) => (
             <button key={v}
-              className={`${styles.sortDropdownItem} ${v === value ? styles.sortDropdownItemActive : ''}`}
-              onClick={() => { onChange(v); setOpen(false) }}>
-              {l}
+              className={`${uiStyles.responsiveMenuAction} ${v === value ? uiStyles.responsiveMenuActionActive : ''}`}
+              onClick={() => { onChange(v); close() }}>
+              <span>{l}</span>
+              <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{v === value ? '✓' : ''}</span>
             </button>
           ))}
         </div>
       )}
-    </div>
+    </ResponsiveMenu>
   )
 }
 

@@ -19,58 +19,33 @@ import {
   putScannerHashEntries,
   setMeta,
 } from '../lib/db'
+import { hexToHash, hammingDistance } from './hashCore'
+
+export { hammingDistance }
 
 const DB_NAME   = 'arcanevault_hashes'
 const PAGE_SIZE = 1000
-const BAND_WIDTH = 6
-const BAND_MASK = (1n << BigInt(BAND_WIDTH)) - 1n
+const BAND_MASK = 0x3F  // 6-bit bands
+// [wordIndex, shift] — 16 bands of 6 bits across the 8 Uint32 words
 const BAND_SPECS = [
-  ['p1', 0], ['p1', 16], ['p1', 32], ['p1', 48],
-  ['p2', 0], ['p2', 16], ['p2', 32], ['p2', 48],
-  ['p3', 0], ['p3', 16], ['p3', 32], ['p3', 48],
-  ['p4', 0], ['p4', 16], ['p4', 32], ['p4', 48],
+  [0, 0], [0, 16], [1, 0], [1, 16],
+  [2, 0], [2, 16], [3, 0], [3, 16],
+  [4, 0], [4, 16], [5, 0], [5, 16],
+  [6, 0], [6, 16], [7, 0], [7, 16],
 ]
-
-// ── Hash math ─────────────────────────────────────────────────────────────────
-
-export function hexToHashParts(hex) {
-  if (!hex || hex.length !== 64) return null
-  try {
-    return {
-      p1: BigInt('0x' + hex.slice(0,  16)),
-      p2: BigInt('0x' + hex.slice(16, 32)),
-      p3: BigInt('0x' + hex.slice(32, 48)),
-      p4: BigInt('0x' + hex.slice(48, 64)),
-    }
-  } catch { return null }
-}
-
-function popcount64(n) {
-  let count = 0
-  let val = BigInt.asUintN(64, n)
-  while (val > 0n) { val &= val - 1n; count++ }
-  return count
-}
-
-export function hammingDistance(a, b) {
-  return popcount64(a.p1 ^ b.p1) +
-         popcount64(a.p2 ^ b.p2) +
-         popcount64(a.p3 ^ b.p3) +
-         popcount64(a.p4 ^ b.p4)
-}
 
 // ── Row → in-memory hash object ───────────────────────────────────────────────
 
 function rowToHash(r) {
-  const parts = hexToHashParts(r.phash_hex)
-  if (!parts) return null
+  const hash = hexToHash(r.phash_hex)
+  if (!hash) return null
   return {
     id:       r.scryfall_id,
     name:     r.name,
     setCode:  r.set_code,
     collNum:  r.collector_number,
     imageUri: r.image_uri,
-    ...parts,
+    hash,
   }
 }
 
@@ -409,7 +384,7 @@ class DatabaseService {
     let best = null, second = null
     let bestDist = Infinity, secondDist = Infinity
     for (const card of candidates) {
-      const d = hammingDistance(hash, card)
+      const d = hammingDistance(hash, card.hash)
       if (d < bestDist) {
         second = best; secondDist = bestDist
         best = card;   bestDist   = d
@@ -428,8 +403,8 @@ class DatabaseService {
   _rebuildIndex() {
     this._bandIndex = BAND_SPECS.map(() => new Map())
     this._hashes.forEach((card, idx) => {
-      BAND_SPECS.forEach(([part, shift], bandIdx) => {
-        const key = this._bandKey(card[part], shift)
+      BAND_SPECS.forEach(([wordIdx, shift], bandIdx) => {
+        const key = (card.hash[wordIdx] >>> shift) & BAND_MASK
         const bucket = this._bandIndex[bandIdx].get(key)
         if (bucket) bucket.push(idx)
         else this._bandIndex[bandIdx].set(key, [idx])
@@ -437,16 +412,12 @@ class DatabaseService {
     })
   }
 
-  _bandKey(value, shift) {
-    return Number((BigInt.asUintN(64, value) >> BigInt(shift)) & BAND_MASK)
-  }
-
   _getCandidates(hash) {
     if (!this._bandIndex.length || this._hashes.length <= 2000) return this._hashes
 
     const hitCounts = new Map()
-    BAND_SPECS.forEach(([part, shift], bandIdx) => {
-      const key = this._bandKey(hash[part], shift)
+    BAND_SPECS.forEach(([wordIdx, shift], bandIdx) => {
+      const key = (hash[wordIdx] >>> shift) & BAND_MASK
       const bucket = this._bandIndex[bandIdx].get(key)
       if (!bucket) return
       for (const idx of bucket) {

@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useAuth } from '../components/Auth'
+import { ResponsiveMenu } from '../components/UI'
+import uiStyles from '../components/UI.module.css'
 import { sb } from '../lib/supabase'
 import styles from './JoinGame.module.css'
 
@@ -257,13 +259,19 @@ export default function JoinGamePage() {
             <label className={styles.claimLabel}>
               Deck <span className={styles.claimOptional}>(optional)</span>
             </label>
-            <div className={styles.claimDeckWrap} ref={deckRef}>
+            <ResponsiveMenu
+              title="Select Deck"
+              align="left"
+              wrapClassName={styles.claimDeckWrap}
+              trigger={({ open, toggle }) => (
               <button
                 className={`${styles.claimDeckBtn} ${deckOpen ? styles.claimDeckBtnOpen : ''}`}
                 onClick={() => setDeckOpen(v => !v)}>
                 <span className={styles.claimDeckVal}>{claimDeckName || '— No deck —'}</span>
                 <span>{deckOpen ? '▲' : '▼'}</span>
               </button>
+              )}
+            >
               {deckOpen && (
                 <div className={styles.claimDeckMenu}>
                   <button className={styles.claimDeckItem}
@@ -280,7 +288,7 @@ export default function JoinGamePage() {
                   ))}
                 </div>
               )}
-            </div>
+            </ResponsiveMenu>
           </>
         )}
 

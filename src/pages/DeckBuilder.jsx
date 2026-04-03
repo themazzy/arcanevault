@@ -14,6 +14,8 @@ import {
   getLocalCards, getDeckCards, putDeckCards, deleteDeckCardLocal, getMeta, setMeta, getScryfallEntry,
 } from '../lib/db'
 import styles from './DeckBuilder.module.css'
+import uiStyles from '../components/UI.module.css'
+import { ResponsiveMenu } from '../components/UI'
 import DeckStats, { normalizeDeckBuilderCards } from '../components/DeckStats'
 import ExportModal from '../components/ExportModal'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
@@ -196,49 +198,44 @@ function canBeCommander(dc) {
 
 // ── Edit dropdown (⚙) shared by list + compact views ─────────────────────────
 function EditMenu({ dc, isEDH, onSetCommander, onToggleFoil, onPickVersion }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef(null)
-
-  useEffect(() => {
-    if (!open) return
-    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open])
-
   return (
-    <div ref={ref} className={styles.editMenuCell}>
-      <button
-        className={styles.editBtn}
-        onClick={e => { e.stopPropagation(); setOpen(v => !v) }}
-        title="Edit"
-      >⚙</button>
-      {open && (
-        <div className={styles.editMenuPopover}>
+    <ResponsiveMenu
+      title="Card Actions"
+      wrapClassName={styles.editMenuCell}
+      trigger={({ toggle }) => (
+        <button
+          className={styles.editBtn}
+          onClick={e => { e.stopPropagation(); toggle() }}
+          title="Edit"
+        >⚙</button>
+      )}
+    >
+      {({ close }) => (
+        <div className={uiStyles.responsiveMenuList}>
           {isEDH && dc.is_commander && (
-            <button className={styles.editMenuItem} onClick={() => { onSetCommander(dc, false); setOpen(false) }}>
-              Unset as Commander
+            <button className={uiStyles.responsiveMenuAction} onClick={() => { onSetCommander(dc, false); close() }}>
+              <span>Unset as Commander</span>
             </button>
           )}
           {isEDH && !dc.is_commander && canBeCommander(dc) && (
-            <button className={styles.editMenuItem} onClick={() => { onSetCommander(dc, true); setOpen(false) }}>
-              ♛ Set as Commander
+            <button className={uiStyles.responsiveMenuAction} onClick={() => { onSetCommander(dc, true); close() }}>
+              <span>♛ Set as Commander</span>
             </button>
           )}
-          <button className={styles.editMenuItem} onClick={() => { onToggleFoil(dc.id); setOpen(false) }}>
-            {dc.foil ? '✦ Remove Foil' : '◇ Mark as Foil'}
+          <button className={uiStyles.responsiveMenuAction} onClick={() => { onToggleFoil(dc.id); close() }}>
+            <span>{dc.foil ? '✦ Remove Foil' : '◇ Mark as Foil'}</span>
           </button>
-          <button className={styles.editMenuItem} onClick={() => { onPickVersion(dc); setOpen(false) }}>
-            ⚙ Change Version
+          <button className={uiStyles.responsiveMenuAction} onClick={() => { onPickVersion(dc); close() }}>
+            <span>⚙ Change Version</span>
           </button>
           {dc.qty > 1 && (
-            <button className={styles.editMenuItem} onClick={() => { onPickVersion(dc, { splitOne: true }); setOpen(false) }}>
-              Split 1x To Other Version
+            <button className={uiStyles.responsiveMenuAction} onClick={() => { onPickVersion(dc, { splitOne: true }); close() }}>
+              <span>Split 1x To Other Version</span>
             </button>
           )}
         </div>
       )}
-    </div>
+    </ResponsiveMenu>
   )
 }
 
@@ -1271,7 +1268,6 @@ export default function DeckBuilderPage() {
   const [showRight, setShowRight] = useState(false)
   const [deckSort,    setDeckSort]    = useState('type')   // 'name' | 'cmc' | 'color' | 'type'
   const [groupByType, setGroupByType] = useState(true)
-  const [showColumnMenu, setShowColumnMenu] = useState(false)
   const [visibleColumns, setVisibleColumns] = useState(DEFAULT_LIST_COLUMNS)
   const [compactVisibleColumns, setCompactVisibleColumns] = useState(DEFAULT_COMPACT_COLUMNS)
   const [builderSfMap, setBuilderSfMap] = useState({})
@@ -1321,7 +1317,6 @@ export default function DeckBuilderPage() {
   const addFeedbackRef = useRef(null)
   const hoverPreviewKey = useRef(null)
   const hoverPreviewTimer = useRef(null)
-  const columnMenuRef = useRef(null)
 
   useEffect(() => {
     let ignore = false
@@ -1352,20 +1347,6 @@ export default function DeckBuilderPage() {
   useEffect(() => {
     setMeta('deckbuilder_compact_visible_columns_v1', compactVisibleColumns).catch(() => {})
   }, [compactVisibleColumns])
-
-  useEffect(() => {
-    const onDocMouseDown = (e) => {
-      if (columnMenuRef.current && !columnMenuRef.current.contains(e.target)) {
-        setShowColumnMenu(false)
-      }
-    }
-    document.addEventListener('mousedown', onDocMouseDown)
-    return () => document.removeEventListener('mousedown', onDocMouseDown)
-  }, [])
-
-  useEffect(() => {
-    if (deckView !== 'list' && deckView !== 'compact') setShowColumnMenu(false)
-  }, [deckView])
 
   useEffect(() => {
     let cancelled = false
@@ -3040,38 +3021,47 @@ export default function DeckBuilderPage() {
                   ≡ Grouped
                 </button>
                 {(deckView === 'list' || deckView === 'compact') && (
-                  <div className={styles.columnMenuWrap} ref={columnMenuRef}>
-                    <button
-                      className={styles.groupToggle}
-                      onClick={() => setShowColumnMenu(v => !v)}
-                      title="Choose visible columns"
-                    >
-                      Columns
-                    </button>
-                    {showColumnMenu && (
-                      <div className={styles.columnMenu}>
-                        {[
-                          ['set', 'Set'],
-                          ['manaValue', 'Mana Value'],
-                          ['cmc', 'CMC'],
-                          ['price', 'Price'],
-                          ['status', 'Status'],
-                          ['actions', 'Actions'],
-                          ['qty', 'Qty'],
-                          ['remove', 'Remove'],
-                        ].map(([key, label]) => (
-                          <label key={key} className={styles.columnMenuItem}>
-                            <input
-                              type="checkbox"
-                              checked={activeColumns[key]}
-                              onChange={() => setActiveColumns(prev => ({ ...prev, [key]: !prev[key] }))}
-                            />
-                            <span>{label}</span>
-                          </label>
-                        ))}
-                      </div>
+                  <ResponsiveMenu
+                    title="Visible Columns"
+                    wrapClassName={styles.columnMenuWrap}
+                    trigger={({ toggle }) => (
+                      <button
+                        className={styles.groupToggle}
+                        onClick={toggle}
+                        title="Choose visible columns"
+                      >
+                        Columns
+                      </button>
                     )}
-                  </div>
+                  >
+                    {() => (
+                      <div className={uiStyles.responsiveMenuList}>
+                          {[
+                            ['set', 'Set'],
+                            ['manaValue', 'Mana Value'],
+                            ['cmc', 'CMC'],
+                            ['price', 'Price'],
+                            ['status', 'Status'],
+                            ['actions', 'Actions'],
+                            ['qty', 'Qty'],
+                            ['remove', 'Remove'],
+                          ].map(([key, label]) => (
+                            <label key={key} className={`${styles.columnMenuItem} ${activeColumns[key] ? styles.columnMenuItemActive : ''}`}>
+                              <input
+                                type="checkbox"
+                                className={styles.columnMenuCheckbox}
+                                checked={activeColumns[key]}
+                                onChange={() => setActiveColumns(prev => ({ ...prev, [key]: !prev[key] }))}
+                              />
+                              <span className={styles.columnMenuLabel}>{label}</span>
+                              <span className={styles.columnMenuCheck} aria-hidden="true">
+                                {activeColumns[key] ? '✓' : ''}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                    )}
+                  </ResponsiveMenu>
                 )}
               </div>
             )}
