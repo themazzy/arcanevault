@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useLayoutEffect } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { Capacitor } from '@capacitor/core'
 import { sb } from '../lib/supabase'
@@ -40,38 +40,10 @@ export default function Layout({ children }) {
     return () => { document.body.style.overflow = '' }
   }, [menuOpen, isNativeScannerRoute])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isNativeScannerRoute) return
-
-    const html = document.documentElement
-    const body = document.body
-    const root = document.getElementById('root')
-    const prevHtmlBg = html.style.background
-    const prevHtmlBgImg = html.style.backgroundImage
-    const prevBodyBg = body.style.background
-    const prevBodyBgImg = body.style.backgroundImage
-    const prevRootBg = root?.style.background ?? ''
-    const prevRootBgImg = root?.style.backgroundImage ?? ''
-
-    html.style.background = 'transparent'
-    html.style.backgroundImage = 'none'
-    body.style.background = 'transparent'
-    body.style.backgroundImage = 'none'
-    if (root) {
-      root.style.background = 'transparent'
-      root.style.backgroundImage = 'none'
-    }
-
-    return () => {
-      html.style.background = prevHtmlBg
-      html.style.backgroundImage = prevHtmlBgImg
-      body.style.background = prevBodyBg
-      body.style.backgroundImage = prevBodyBgImg
-      if (root) {
-        root.style.background = prevRootBg
-        root.style.backgroundImage = prevRootBgImg
-      }
-    }
+    document.documentElement.setAttribute('data-scanner', 'true')
+    return () => document.documentElement.removeAttribute('data-scanner')
   }, [isNativeScannerRoute])
 
   useEffect(() => {
