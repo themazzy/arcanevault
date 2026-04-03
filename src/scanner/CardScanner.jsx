@@ -13,12 +13,10 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { CameraPreview } from '@capacitor-community/camera-preview'
 import { Haptics, ImpactStyle } from '@capacitor/haptics'
-import { initScanner } from '../lib/scanner'
-import { sfGet } from '../lib/scryfall'
 import { databaseService } from './DatabaseService'
 import {
   waitForOpenCV,
-  detectCardCorners, warpCard, cropArtRegion, computePHash256, createNameStripCanvases,
+  detectCardCorners, warpCard, cropArtRegion, cropCardFromReticle, computePHash256,
 } from './ScannerEngine'
 import styles from './CardScanner.module.css'
 
@@ -30,8 +28,6 @@ const MATCH_THRESHOLD = 112
 const MATCH_MIN_GAP = 12
 const MATCH_STRONG_THRESHOLD = 124
 const MATCH_STRONG_SINGLE = 96
-const MATCH_MIN_GAP_WITH_OCR = 6
-const MATCH_VERY_STRONG_DISTANCE = 56
 const MATCH_COOLDOWN = 3000
 const PRIMARY_CROP_VARIANTS = [
   { xOffset: 0, yOffset: 0 },
@@ -45,7 +41,6 @@ const STABILITY_REQUIRED = 2
 const SAMPLE_DELAY_MS = 80
 const DEBUG = true
 const NATIVE_CAPTURE_SETTLE_MS = 120
-const OCR_MIN_CONFIDENCE = 32
 
 const normalizeName = (value = '') =>
   value
@@ -54,52 +49,7 @@ const normalizeName = (value = '') =>
     .replace(/\s+/g, ' ')
     .trim()
 
-function levenshteinDistance(a = '', b = '') {
-  const rows = a.length + 1
-  const cols = b.length + 1
-  const dp = Array.from({ length: rows }, () => new Uint16Array(cols))
-  for (let i = 0; i < rows; i++) dp[i][0] = i
-  for (let j = 0; j < cols; j++) dp[0][j] = j
-  for (let i = 1; i < rows; i++) {
-    for (let j = 1; j < cols; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1
-      dp[i][j] = Math.min(
-        dp[i - 1][j] + 1,
-        dp[i][j - 1] + 1,
-        dp[i - 1][j - 1] + cost,
-      )
-    }
-  }
-  return dp[a.length][b.length]
-}
-
-function stringSimilarity(a = '', b = '') {
-  if (!a || !b) return 0
-  if (a === b) return 1
-  return 1 - levenshteinDistance(a, b) / Math.max(a.length, b.length)
-}
-
-function nameSupportScore(ocrText, candidateName) {
-  const ocr = normalizeName(ocrText)
-  const cand = normalizeName(candidateName)
-  if (!ocr || !cand) return 0
-  if (ocr === cand) return 1
-  if (cand.includes(ocr) || ocr.includes(cand)) return 0.92
-
-  const ocrWords = ocr.split(' ').filter(Boolean)
-  const candWords = cand.split(' ').filter(Boolean)
-  const wordSpaceScore = stringSimilarity(ocr, cand)
-  const compactScore = stringSimilarity(ocr.replace(/ /g, ''), cand.replace(/ /g, ''))
-  if (!ocrWords.length || !candWords.length) return Math.max(wordSpaceScore, compactScore)
-  let hits = 0
-  for (const word of ocrWords) {
-    if (candWords.some(cw => cw === word || cw.startsWith(word) || word.startsWith(cw))) hits++
-  }
-  const tokenScore = hits / Math.max(ocrWords.length, candWords.length)
-  return Math.max(tokenScore, compactScore, wordSpaceScore * 0.95)
-}
-
-function shouldAcceptMatch({ best, gap, stableCount, ocrSupport, ocrConfidence, sameNameCluster = false }) {
+function shouldAcceptMatch({ best, gap, stableCount, sameNameCluster = false }) {
   if (!best) return { accepted: false, reason: 'no best candidate' }
   if (stableCount >= STABILITY_REQUIRED && best.distance <= MATCH_THRESHOLD && gap >= MATCH_MIN_GAP) {
     return { accepted: true, reason: 'stable threshold match' }
@@ -107,25 +57,18 @@ function shouldAcceptMatch({ best, gap, stableCount, ocrSupport, ocrConfidence, 
   if (stableCount >= STABILITY_REQUIRED && sameNameCluster && best.distance <= MATCH_THRESHOLD) {
     return { accepted: true, reason: 'stable same-name printing cluster' }
   }
-  if (stableCount >= STABILITY_REQUIRED && best.distance <= MATCH_STRONG_THRESHOLD && gap >= MATCH_MIN_GAP_WITH_OCR) {
+  if (stableCount >= STABILITY_REQUIRED && best.distance <= MATCH_STRONG_THRESHOLD && gap >= MATCH_MIN_GAP) {
     return { accepted: true, reason: 'stable relaxed match' }
   }
   if (stableCount >= 1 && sameNameCluster && best.distance <= MATCH_STRONG_THRESHOLD) {
     return { accepted: true, reason: 'same-name printing cluster' }
   }
-  if (stableCount >= 1 && best.distance <= MATCH_STRONG_SINGLE && gap >= MATCH_MIN_GAP_WITH_OCR) {
+  if (stableCount >= 1 && best.distance <= MATCH_STRONG_SINGLE && gap >= MATCH_MIN_GAP) {
     return { accepted: true, reason: 'single strong frame' }
-  }
-  if (ocrSupport >= 0.72 && ocrConfidence >= OCR_MIN_CONFIDENCE && best.distance <= MATCH_STRONG_THRESHOLD) {
-    return { accepted: true, reason: 'ocr verified best match' }
-  }
-  if (best.distance <= MATCH_VERY_STRONG_DISTANCE && ocrSupport >= 0.58 && ocrConfidence >= OCR_MIN_CONFIDENCE) {
-    return { accepted: true, reason: 'very strong visual match with moderate ocr support' }
   }
   if (stableCount < STABILITY_REQUIRED) return { accepted: false, reason: 'insufficient stable votes' }
   if (best.distance > MATCH_STRONG_THRESHOLD) return { accepted: false, reason: `distance too high (${best.distance})` }
-  if (sameNameCluster) return { accepted: false, reason: 'same-name cluster still too weak' }
-  if (gap < MATCH_MIN_GAP_WITH_OCR) return { accepted: false, reason: `gap too small (${gap})` }
+  if (gap < MATCH_MIN_GAP) return { accepted: false, reason: `gap too small (${gap})` }
   return { accepted: false, reason: 'best candidate not confident enough' }
 }
 
@@ -133,7 +76,7 @@ function isDecisiveCandidate(best, gap) {
   if (!best) return false
   return (
     (best.distance <= MATCH_THRESHOLD && gap >= MATCH_MIN_GAP) ||
-    (best.distance <= MATCH_STRONG_SINGLE && gap >= MATCH_MIN_GAP_WITH_OCR)
+    (best.distance <= MATCH_STRONG_SINGLE && gap >= MATCH_MIN_GAP)
   )
 }
 
@@ -271,11 +214,6 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
   }, [])
 
   useEffect(() => {
-    if (!cvReady || !dbReady) return
-    initScanner().catch(() => {})
-  }, [cvReady, dbReady])
-
-  useEffect(() => {
     let started = false
 
     ;(async () => {
@@ -374,64 +312,6 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
     }
     setCameraRestartTick(t => t + 1)
   }, [isNative])
-
-  const recognizeCardName = useCallback(async (cardImageData) => {
-    try {
-      const worker = await initScanner()
-      if (!worker || !cardImageData) return null
-      const variants = createNameStripCanvases(cardImageData)
-      let bestResult = null
-      for (const variant of variants) {
-        const { data } = await worker.recognize(variant.canvas)
-        const text = data.text?.trim()?.replace(/[^A-Za-z0-9 ',.\-]/g, '') || ''
-        if (!text) continue
-        const confidence = data.confidence ?? 0
-        const score = confidence + Math.min(text.length, 24) * 1.25
-        if (!bestResult || score > bestResult.score) {
-          bestResult = { text, confidence, score, variant: variant.label }
-        }
-      }
-      return bestResult ? { text: bestResult.text, confidence: bestResult.confidence, variant: bestResult.variant } : null
-    } catch {
-      return null
-    }
-  }, [])
-
-  const resolveNewestPrintingFromOcr = useCallback(async (ocrText) => {
-    if (!normalizeName(ocrText)) return null
-    try {
-      const resolved = await sfGet(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(ocrText)}`)
-      if (!resolved?.name) return null
-
-      const support = nameSupportScore(ocrText, resolved.name)
-      if (support < 0.42) return null
-
-      const prints = await sfGet(
-        `https://api.scryfall.com/cards/search?q=${encodeURIComponent(`!"${resolved.name}"`)}&unique=prints&order=released&dir=desc`
-      )
-      const newest = prints?.data?.[0] ?? resolved
-      const imageUri = newest.image_uris?.normal
-        || newest.image_uris?.large
-        || newest.card_faces?.[0]?.image_uris?.normal
-        || newest.card_faces?.[0]?.image_uris?.large
-        || null
-
-      return {
-        id: newest.id,
-        name: newest.name,
-        setCode: newest.set,
-        collNum: newest.collector_number,
-        imageUri,
-        releasedAt: newest.released_at ?? null,
-        ocrSupport: support,
-        source: 'ocr',
-      }
-    } catch {
-      return null
-    }
-  }, [])
-
-
 
   const captureFrame = useCallback(async () => {
     let imageData, w, h
@@ -532,10 +412,24 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
     if (corners) {
       const warped = warpCard(imageData, corners)
       if (warped) {
-        ocrCardImage = warped
         tryMatchCardImage(warped, 'corners', FAST_PRIMARY_VARIANTS)
         if (shouldExpandCropSearch()) {
           tryMatchCardImage(warped, 'corners', PRIMARY_CROP_VARIANTS.slice(1))
+        }
+      }
+    }
+
+    // Reticle fallback — if corner detection failed or produced a weak match,
+    // crop whatever is inside the targeting box (no perspective correction).
+    if (shouldExpandCropSearch()) {
+      const reticleCrop = cropCardFromReticle(
+        imageData, w, h,
+        window.innerWidth, window.innerHeight,
+      )
+      if (reticleCrop) {
+        tryMatchCardImage(reticleCrop, 'reticle', FAST_PRIMARY_VARIANTS)
+        if (shouldExpandCropSearch()) {
+          tryMatchCardImage(reticleCrop, 'reticle', PRIMARY_CROP_VARIANTS.slice(1))
         }
       }
     }
@@ -550,7 +444,6 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
         totalCount: bestStats.totalCount,
         variant: null,
         source: bestSource,
-        cardImageData: ocrCardImage,
       }
     }
 
@@ -585,7 +478,6 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
       let bestObservedSource = null
       let bestObservedCardImage = null
       let bestObservedSameNameCluster = false
-      let ocrFallbackCardImage = null
       const frameSummaries = []
 
       for (let i = 0; i < STABILITY_SAMPLES; i++) {
@@ -604,8 +496,6 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
           bestObservedCardImage = result.cardImageData
           bestObservedSameNameCluster = !!result.sameNameCluster
         }
-        if (!ocrFallbackCardImage && result.cardImageData) ocrFallbackCardImage = result.cardImageData
-
         if (result.status === 'found' && result.best) {
           const previous = votes.get(result.best.id) ?? { count: 0, best: result.best }
           votes.set(result.best.id, {
@@ -622,27 +512,18 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
       }
 
       const stableVote = getStableVote(votes)
-      const visualAcceptance = shouldAcceptMatch({
+      const acceptance = shouldAcceptMatch({
         best: stableVote?.best ?? bestObserved,
         gap: bestObservedGap ?? 0,
         stableCount: stableVote?.count ?? 0,
-        ocrSupport: 0,
-        ocrConfidence: 0,
         sameNameCluster: bestObservedSameNameCluster,
       })
-      let match = visualAcceptance.accepted ? (stableVote?.best ?? bestObserved) : null
-      const needsOcr = !match && !!(bestObservedCardImage || ocrFallbackCardImage)
-      const ocrResult = needsOcr ? await recognizeCardName(bestObservedCardImage || ocrFallbackCardImage) : null
-      const ocrSupport = bestObserved ? nameSupportScore(ocrResult?.text, bestObserved.name) : 0
-      const ocrMatch = needsOcr && !!ocrResult?.text
-        ? await resolveNewestPrintingFromOcr(ocrResult.text)
-        : null
-      if (!match && ocrMatch) match = ocrMatch
+      const match = acceptance.accepted ? (stableVote?.best ?? bestObserved) : null
 
       if (DEBUG && mountedRef.current) {
         setDebugInfo({
           stage: match
-            ? `${match.source === 'ocr' ? 'OCR' : 'MATCHED'} ${stableVote?.count ?? 0}/${STABILITY_SAMPLES} (${bestObservedGap ?? '?'})`
+            ? `MATCHED ${stableVote?.count ?? 0}/${STABILITY_SAMPLES} (${bestObservedGap ?? '?'})`
             : bestObserved
               ? `no match - ${bestObserved.distance}/${bestObservedGap ?? '?'}`
               : 'no match - no candidate',
@@ -654,15 +535,9 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
           total: databaseService.cardCount,
           votes: stableVote?.count ? `${stableVote.count}/${STABILITY_REQUIRED}` : `0/${STABILITY_REQUIRED}`,
           frames: frameSummaries.join(' | '),
-          source: match?.source ?? bestObservedSource ?? '-',
-          visualSource: bestObservedSource ?? '-',
+          source: bestObservedSource ?? '-',
           cluster: bestObservedSameNameCluster ? 'same-name printings' : '-',
-          decision: match?.source === 'ocr' ? 'ocr fallback newest printing' : visualAcceptance.reason,
-          ocrText: needsOcr ? (ocrResult?.text || '-') : '(skipped)',
-          ocrConfidence: needsOcr ? (ocrResult ? `${ocrResult.confidence.toFixed(0)}%` : '-') : '-',
-          ocrSupport: needsOcr ? `${Math.round(ocrSupport * 100)}%` : '-',
-          ocrVariant: needsOcr ? (ocrResult?.variant || '-') : '-',
-          ocrResolved: ocrMatch ? `${ocrMatch.name} ${ocrMatch.setCode?.toUpperCase?.() ? `(${ocrMatch.setCode.toUpperCase()})` : ''}`.trim() : '-',
+          decision: acceptance.reason,
           variant: bestObservedVariant
             ? `x:${bestObservedVariant.xOffset ?? 0} y:${bestObservedVariant.yOffset ?? 0} i:${bestObservedVariant.inset ?? 0}`
             : '-',
@@ -702,7 +577,7 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
     } finally {
       if (mountedRef.current) setScanning(false)
     }
-  }, [isReady, onMatch, recognizeCardName, resolveNewestPrintingFromOcr, scanSingleFrame, scanning])
+  }, [isReady, onMatch, scanSingleFrame, scanning])
 
   return (
     <div className={`${styles.root} ${isNative ? styles.rootNative : ''}`}>
@@ -762,15 +637,9 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
                 <div><b>Dist/Gap:</b> {debugInfo.visualScore}</div>
                 <div><b>Votes:</b> {debugInfo.votes}</div>
                 <div><b>Source:</b> {debugInfo.source}</div>
-                <div><b>Visual Src:</b> {debugInfo.visualSource}</div>
                 <div><b>Cluster:</b> {debugInfo.cluster}</div>
                 <div><b>Decision:</b> {debugInfo.decision}</div>
                 <div><b>Pool:</b> {debugInfo.candidates?.toLocaleString?.() ?? 0}/{debugInfo.total?.toLocaleString?.() ?? cardCount.toLocaleString()}</div>
-                <div><b>OCR:</b> {debugInfo.ocrText}</div>
-                <div><b>OCR Conf:</b> {debugInfo.ocrConfidence}</div>
-                <div><b>OCR Support:</b> {debugInfo.ocrSupport}</div>
-                <div><b>OCR Variant:</b> {debugInfo.ocrVariant}</div>
-                <div><b>OCR Resolved:</b> {debugInfo.ocrResolved}</div>
                 <div><b>Crop:</b> {debugInfo.variant}</div>
                 <div><b>Frames:</b> {debugInfo.frames}</div>
               </>
@@ -826,17 +695,18 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
               Restart Camera
             </button>
             {availableFlashModes.length > 0 && (
-              <select
+              <Select
                 className={styles.controlSelect}
                 value={flashMode}
                 onChange={e => handleFlashMode(e.target.value)}
+                title="Select flash mode"
               >
                 {availableFlashModes.map(mode => (
                   <option key={mode} value={mode}>
                     {mode === 'torch' ? 'Flash: on' : `Flash: ${mode}`}
                   </option>
                 ))}
-              </select>
+              </Select>
             )}
           </div>
           <div className={styles.controlHint}>
@@ -884,4 +754,3 @@ export default function CardScanner({ onMatch, onAddCard, onClose }) {
     </div>
   )
 }
-
