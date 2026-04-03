@@ -1041,11 +1041,11 @@ function LegacyCardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, al
 }
 
 
-export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, allFolders = [], priceSource = 'cardmarket_trend', onSave, currentFolderId = null }) {
+export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, allFolders = [], priceSource = 'cardmarket_trend', onSave, currentFolderId = null, readOnly = false }) {
   if (!card) return null
 
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState('collection')
+  const [activeTab, setActiveTab] = useState(readOnly ? 'overview' : 'collection')
   const [face, setFace] = useState(0)
 
   useEffect(() => {
@@ -1194,8 +1194,12 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
     }
   }
 
+  useEffect(() => {
+    if (readOnly && activeTab === 'collection') setActiveTab('overview')
+  }, [activeTab, readOnly])
+
   const tabs = [
-    { id: 'collection', label: 'Edit' },
+    ...(!readOnly ? [{ id: 'collection', label: 'Edit' }] : []),
     { id: 'overview', label: 'Overview' },
     { id: 'rules', label: 'Rules' },
     { id: 'legality', label: 'Legality' },

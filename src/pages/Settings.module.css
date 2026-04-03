@@ -108,6 +108,20 @@
 
 .email { font-size: 0.88rem; color: var(--text-dim); font-style: italic; }
 
+.appVersion {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(201,168,76,0.22);
+  background: rgba(201,168,76,0.08);
+  color: var(--gold);
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+}
+
 .accountCard {
   margin: 18px 20px 0;
   padding: 16px 18px;

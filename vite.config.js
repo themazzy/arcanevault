@@ -1,9 +1,13 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import pkg from './package.json'
 
 export default defineConfig({
   base: process.env.VITE_CAPACITOR ? '/' : '/arcanevault/',
   plugins: [react()],
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   server: {
     allowedHosts: [
       'natalee-endophytous-violinistically.ngrok-free.dev'

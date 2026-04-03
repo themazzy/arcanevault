@@ -216,6 +216,25 @@
 .folderSearch::placeholder {
   color: var(--text-faint);
 }
+
+.desktopOnlySearch {
+  display: block;
+}
+
+.desktopOnlyAction {
+  display: block;
+}
+
+.mobileHeaderControls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mobileHeaderControls .folderSearch {
+  flex: 1;
+  min-width: 0;
+}
 .viewAllBtn {
   display: inline-flex;
   align-items: center;
@@ -343,16 +362,21 @@
   color: var(--text);
   border-color: var(--s-medium);
 }
-.sortArrow {
+.sortArrowWrap {
   flex-shrink: 0;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   padding: 0 9px;
-  opacity: 0.5;
-  transition: transform 0.18s, opacity 0.15s;
   border-left: 1px solid var(--s-border2);
   margin-left: 4px;
 }
+
+.sortArrow {
+  display: block;
+  opacity: 0.5;
+  transition: transform 0.18s, opacity 0.15s;
+}
+
 .sortDropdownBtn:hover .sortArrow { opacity: 0.85; }
 .sortArrowOpen {
   transform: rotate(180deg);
@@ -596,7 +620,6 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 14px;
-  padding-left: 16px;
 }
 
 .ungroupedHeader {
@@ -793,6 +816,15 @@
   font-family: var(--font-display, 'Cinzel', serif);
   font-weight: 600;
 }
+.browserHeaderActionsDesktop {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.browserHeaderActionsMobile {
+  display: none;
+}
 .addCardsBtn {
   display: inline-flex;
   align-items: center;
@@ -815,6 +847,39 @@
   background: rgba(201,168,76,0.2);
   border-color: rgba(201,168,76,0.55);
 }
+.mobileHeaderActionsBtn,
+.mobileViewBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: var(--control-height);
+  background: rgba(201,168,76,0.12);
+  border: 1px solid rgba(201,168,76,0.3);
+  border-radius: 4px;
+  color: var(--gold, #c9a84c);
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: var(--control-font-size);
+  letter-spacing: var(--control-letter-spacing);
+  padding: 6px var(--control-padding-x);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+  gap: 8px;
+}
+.mobileHeaderActionsBtn:hover,
+.mobileViewBtn:hover {
+  background: rgba(201,168,76,0.2);
+  border-color: rgba(201,168,76,0.55);
+}
+.mobileViewChevron {
+  opacity: 0.72;
+  transition: transform 0.16s ease, opacity 0.16s ease;
+}
+.mobileViewChevronOpen {
+  transform: rotate(180deg);
+  opacity: 0.95;
+}
 
 /* ── Control bar (count + view toggle) ───────────────────────────────────── */
 .binderControlBar {
@@ -823,6 +888,13 @@
   justify-content: space-between;
   margin: 10px 0 12px;
   gap: 12px;
+}
+.browserControlsDesktop {
+  display: flex;
+  align-items: center;
+}
+.browserControlsMobile {
+  display: none;
 }
 .binderCount {
   font-size: 0.78rem;
@@ -989,6 +1061,12 @@
 }
 
 @media (max-width: 980px) {
+  .desktopOnlySearch {
+    display: none;
+  }
+  .desktopOnlyAction {
+    display: none;
+  }
   .headerActions {
     width: 100%;
     flex-direction: column;
@@ -1031,5 +1109,72 @@
   }
   .viewToggle {
     align-self: flex-start;
+  }
+}
+
+@media (max-width: 620px) {
+  .binderHeader {
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+  }
+  .backBtn {
+    font-size: 0.7rem;
+  }
+  .binderTitleRow {
+    gap: 8px;
+  }
+  .binderTitle {
+    font-size: 1.05rem;
+  }
+  .binderMeta {
+    gap: 6px 8px;
+    font-size: 0.8rem;
+  }
+  .browserHeaderActionsDesktop {
+    display: none;
+  }
+  .browserHeaderActionsMobile {
+    display: flex;
+  }
+  .browserControlsDesktop {
+    display: none;
+  }
+  .browserControlsMobile {
+    display: flex;
+  }
+  .binderControlBar {
+    gap: 8px;
+    margin: 8px 0 10px;
+    align-items: center;
+  }
+  .binderCount {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .binderMeta {
+    gap: 4px 8px;
+  }
+  .binderControlBar {
+    margin-bottom: 8px;
+  }
+}
+
+@media (max-width: 500px) {
+  .mobileHeaderControls {
+    gap: 6px;
+  }
+  .mobileHeaderControls .sortDropdown {
+    flex-shrink: 0;
+  }
+  .mobileHeaderControls .sortDropdownBtn {
+    min-width: 0;
+    padding-left: 10px;
+  }
+  .mobileHeaderControls .sortArrowWrap {
+    padding: 0 8px;
+    margin-left: 2px;
   }
 }

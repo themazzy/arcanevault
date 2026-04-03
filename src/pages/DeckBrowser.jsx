@@ -6,10 +6,12 @@ import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { useSettings } from '../components/SettingsContext'
 import { useAuth } from '../components/Auth'
 import { CardDetail, FilterBar, BulkActionBar, applyFilterSort, EMPTY_FILTERS } from '../components/CardComponents'
-import { EmptyState, Badge } from '../components/UI'
+import { EmptyState, Badge, ResponsiveMenu } from '../components/UI'
 import AddCardModal from '../components/AddCardModal'
 import ExportModal from '../components/ExportModal'
+import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import styles from './DeckBrowser.module.css'
+import uiStyles from '../components/UI.module.css'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
 import { useLongPress } from '../hooks/useLongPress'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
@@ -648,6 +650,10 @@ export default function DeckBrowser({ folder, onBack }) {
     load()
   }, [folder.id])
 
+  useEffect(() => {
+    setGroupBy(default_grouping || 'type')
+  }, [default_grouping])
+
   // Fetch all folders for "Move to" dropdown (RLS filters by user automatically)
   useEffect(() => {
     sb.from('folders').select('id, name, type').then(({ data }) => setAllFolders(data || []))
@@ -823,15 +829,49 @@ export default function DeckBrowser({ folder, onBack }) {
           <div className={styles.headerMeta}>
             <span>{totalQty} cards</span>
             <span className={styles.deckValue}>{formatPrice(totalValue, price_source)}</span>
-            <button className={styles.addCardsBtn} onClick={() => setShowExport(true)}>
-              ↓ Export
-            </button>
-            <button className={styles.addCardsBtn} onClick={() => setShowAddCard(true)}>
-              + Add Cards
-            </button>
-            <button className={styles.editInBuilderBtn} onClick={() => navigate(`/builder/${folder.id}`)}>
-              ⚔ Edit in Builder
-            </button>
+            <div className={styles.headerActionsDesktop}>
+              <button className={styles.addCardsBtn} onClick={() => setShowExport(true)}>
+                ↓ Export
+              </button>
+              <button className={styles.addCardsBtn} onClick={() => setShowAddCard(true)}>
+                + Add Cards
+              </button>
+              <button className={styles.editInBuilderBtn} onClick={() => navigate(`/builder/${folder.id}`)}>
+                ⚔ Edit in Builder
+              </button>
+            </div>
+            <div className={styles.headerActionsMobile}>
+              <ResponsiveMenu
+                title="Deck Actions"
+                trigger={({ open, toggle }) => (
+                  <button className={styles.mobileHeaderActionsBtn} onClick={toggle}>
+                    <span>Actions</span>
+                    <svg className={`${styles.mobileControlsChevron} ${open ? styles.mobileControlsChevronOpen : ''}`}
+                      width="10" height="10" viewBox="0 0 10 10" fill="none"
+                      stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <polyline points="2,3 5,6.5 8,3" />
+                    </svg>
+                  </button>
+                )}
+              >
+                {({ close }) => (
+                  <div className={uiStyles.responsiveMenuList}>
+                    <button className={uiStyles.responsiveMenuAction}
+                      onClick={() => { setShowExport(true); close() }}>
+                      <span>Export</span>
+                    </button>
+                    <button className={uiStyles.responsiveMenuAction}
+                      onClick={() => { setShowAddCard(true); close() }}>
+                      <span>Add Cards</span>
+                    </button>
+                    <button className={uiStyles.responsiveMenuAction}
+                      onClick={() => { navigate(`/builder/${folder.id}`); close() }}>
+                      <span>Edit in Builder</span>
+                    </button>
+                  </div>
+                )}
+              </ResponsiveMenu>
+            </div>
           </div>
         </div>
       </div>
@@ -842,31 +882,102 @@ export default function DeckBrowser({ folder, onBack }) {
         selectMode={selectMode} onToggleSelectMode={toggleSelectMode} />
 
       <div className={styles.controlBar}>
-        <div className={styles.controlLeft}>
-          <span className={styles.countInfo}>{filtered.length < cards.length
-            ? `${filtered.length} of ${cards.length} cards`
-            : `${cards.length} cards`}
-          </span>
-          {/* Group by */}
-          <div className={styles.groupByToggle}>
-            <button className={`${styles.groupByBtn} ${groupBy==='type' ? styles.groupByActive : ''}`}
-              onClick={() => setGroupBy('type')}>By Type</button>
-            <button className={`${styles.groupByBtn} ${groupBy==='category' ? styles.groupByActive : ''}`}
-              onClick={() => setGroupBy('category')}>By Function</button>
-            <button className={`${styles.groupByBtn} ${groupBy==='none' ? styles.groupByActive : ''}`}
-              onClick={() => setGroupBy('none')}>Ungrouped</button>
+        <span className={styles.countInfo}>{filtered.length < cards.length
+          ? `${filtered.length} of ${cards.length} cards`
+          : `${cards.length} cards`}
+        </span>
+        <CardBrowserViewControls
+          viewMode={viewMode}
+          setViewMode={setViewMode}
+          groupBy={groupBy}
+          setGroupBy={setGroupBy}
+        />
+        {false && (
+        <>
+        <div className={styles.desktopControls}>
+          <div className={styles.controlLeft}>
+            <div className={styles.groupByToggle}>
+              <button className={`${styles.groupByBtn} ${groupBy==='type' ? styles.groupByActive : ''}`}
+                onClick={() => setGroupBy('type')}>By Type</button>
+              <button className={`${styles.groupByBtn} ${groupBy==='category' ? styles.groupByActive : ''}`}
+                onClick={() => setGroupBy('category')}>By Function</button>
+              <button className={`${styles.groupByBtn} ${groupBy==='none' ? styles.groupByActive : ''}`}
+                onClick={() => setGroupBy('none')}>Ungrouped</button>
+            </div>
+          </div>
+          <div className={styles.viewToggle}>
+            {VIEW_MODES.map(v => (
+              <button key={v.id}
+                className={`${styles.viewBtn} ${viewMode===v.id ? styles.viewActive : ''}`}
+                onClick={() => setViewMode(v.id)}>
+                {v.label}
+              </button>
+            ))}
           </div>
         </div>
-        {/* View mode */}
-        <div className={styles.viewToggle}>
-          {VIEW_MODES.map(v => (
-            <button key={v.id}
-              className={`${styles.viewBtn} ${viewMode===v.id ? styles.viewActive : ''}`}
-              onClick={() => setViewMode(v.id)}>
-              {v.label}
-            </button>
-          ))}
+        <div className={styles.mobileControlsMenu}>
+          <ResponsiveMenu
+            title="Group Cards"
+            trigger={({ open, toggle }) => (
+              <button className={styles.mobileControlsBtn} onClick={toggle}>
+                <span>Group</span>
+                <svg className={`${styles.mobileControlsChevron} ${open ? styles.mobileControlsChevronOpen : ''}`}
+                  width="10" height="10" viewBox="0 0 10 10" fill="none"
+                  stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polyline points="2,3 5,6.5 8,3" />
+                </svg>
+              </button>
+            )}
+          >
+            {({ close }) => (
+              <div className={uiStyles.responsiveMenuList}>
+                <button className={`${uiStyles.responsiveMenuAction} ${groupBy==='type' ? uiStyles.responsiveMenuActionActive : ''}`}
+                  onClick={() => { setGroupBy('type'); close() }}>
+                  <span>By Type</span>
+                  <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{groupBy==='type' ? '✓' : ''}</span>
+                </button>
+                <button className={`${uiStyles.responsiveMenuAction} ${groupBy==='category' ? uiStyles.responsiveMenuActionActive : ''}`}
+                  onClick={() => { setGroupBy('category'); close() }}>
+                  <span>By Function</span>
+                  <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{groupBy==='category' ? '✓' : ''}</span>
+                </button>
+                <button className={`${uiStyles.responsiveMenuAction} ${groupBy==='none' ? uiStyles.responsiveMenuActionActive : ''}`}
+                  onClick={() => { setGroupBy('none'); close() }}>
+                  <span>Ungrouped</span>
+                  <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{groupBy==='none' ? '✓' : ''}</span>
+                </button>
+              </div>
+            )}
+          </ResponsiveMenu>
+          <ResponsiveMenu
+            title="View Mode"
+            trigger={({ open, toggle }) => (
+              <button className={styles.mobileControlsBtn} onClick={toggle}>
+                <span>View</span>
+                <svg className={`${styles.mobileControlsChevron} ${open ? styles.mobileControlsChevronOpen : ''}`}
+                  width="10" height="10" viewBox="0 0 10 10" fill="none"
+                  stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polyline points="2,3 5,6.5 8,3" />
+                </svg>
+              </button>
+            )}
+          >
+            {({ close }) => (
+              <div className={uiStyles.responsiveMenuList}>
+                {VIEW_MODES.map(v => (
+                  <button key={v.id}
+                    className={`${uiStyles.responsiveMenuAction} ${viewMode===v.id ? uiStyles.responsiveMenuActionActive : ''}`}
+                    onClick={() => { setViewMode(v.id); close() }}>
+                    <span>{v.label.replace(/^[^\w]+ /, '')}</span>
+                    <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{viewMode===v.id ? '✓' : ''}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </ResponsiveMenu>
         </div>
+        </>
+        )}
       </div>
 
       {selectMode && selectedCards.size > 0 && (
@@ -903,7 +1014,26 @@ export default function DeckBrowser({ folder, onBack }) {
       {filtered.length === 0 && <EmptyState>No cards match.</EmptyState>}
 
       {/* ── Views ── */}
-      {viewMode === 'list' && filtered.length > 0 && (
+      {filtered.length > 0 && (
+        <CardBrowserContent
+          cards={filtered}
+          sfMap={sfMap}
+          priceSource={price_source}
+          viewMode={viewMode}
+          groupBy={groupBy}
+          onSelect={c => { handleHoverEnd(); setDetailCardId(c.id) }}
+          selectMode={selectMode}
+          selectedCards={selectedCards}
+          onToggleSelect={onToggleSelect}
+          onAdjustQty={onAdjustQty}
+          splitState={splitState}
+          onEnterSelectMode={() => setSelectMode(true)}
+          onHover={handleHover}
+          onHoverEnd={handleHoverEnd}
+        />
+      )}
+
+      {false && viewMode === 'list' && filtered.length > 0 && (
         <div className={styles.deckList}>
           {groupOrder.filter(g => groups[g]?.length).map(g => (
             <DeckListGroup key={g} groupName={g} cards={groups[g]}
@@ -919,7 +1049,7 @@ export default function DeckBrowser({ folder, onBack }) {
         </div>
       )}
 
-      {viewMode === 'stacks' && filtered.length > 0 && (
+      {false && viewMode === 'stacks' && filtered.length > 0 && (
         <StacksView groups={groups} groupOrder={groupOrder} sfMap={sfMap} priceSource={price_source}
           onSelect={c => { handleHoverEnd(); setDetailCardId(c.id) }}
           onHover={handleHover} onHoverEnd={handleHoverEnd}
@@ -929,14 +1059,14 @@ export default function DeckBrowser({ folder, onBack }) {
           hideHeaders={groupBy==='none'} />
       )}
 
-      {viewMode === 'text' && filtered.length > 0 && (
+      {false && viewMode === 'text' && filtered.length > 0 && (
         <TextView groups={groups} groupOrder={groupOrder}
           selectMode={selectMode} selectedCards={selectedCards} onToggleSelect={onToggleSelect}
           onEnterSelectMode={() => setSelectMode(true)}
           hideHeaders={groupBy==='none'} />
       )}
 
-      {viewMode === 'grid' && filtered.length > 0 && (
+      {false && viewMode === 'grid' && filtered.length > 0 && (
         <DeckCardGrid cards={filtered} sfMap={sfMap} priceSource={price_source} onSelect={c => { handleHoverEnd(); setDetailCardId(c.id) }}
           onHover={handleHover} onHoverEnd={handleHoverEnd}
           selectMode={selectMode} selectedCards={selectedCards} onToggleSelect={onToggleSelect}
@@ -944,12 +1074,19 @@ export default function DeckBrowser({ folder, onBack }) {
           onEnterSelectMode={() => { setSelectMode(true) }} />
       )}
 
-      {viewMode === 'table' && filtered.length > 0 && (
+      {false && viewMode === 'table' && filtered.length > 0 && (
         <TableView cards={filtered} sfMap={sfMap}
           priceSource={price_source}
           onSelect={c => { handleHoverEnd(); setDetailCardId(c.id) }}
           selectMode={selectMode} selectedCards={selectedCards} onToggleSelect={onToggleSelect}
           onEnterSelectMode={() => setSelectMode(true)} />
+      )}
+      {false && selectedCard && (
+        <CardDetail card={selectedCard} sfCard={selectedSf}
+          priceSource={price_source}
+          currentFolderId={folder.id}
+          onSave={handleCardSave}
+          onClose={() => setDetailCardId(null)} />
       )}
 
       {selectedCard && (

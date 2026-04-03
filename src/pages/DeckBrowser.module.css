@@ -28,6 +28,8 @@
 }
 .headerMeta { display: flex; align-items: center; gap: 12px; color: var(--text-dim); font-size: 0.85rem; flex-wrap: wrap; }
 .deckValue { color: var(--green); font-family: var(--font-display); font-size: 1rem; font-weight: 600; }
+.headerActionsDesktop { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.headerActionsMobile { display: none; }
 .addCardsBtn {
   display: inline-flex;
   align-items: center;
@@ -66,6 +68,15 @@
   white-space: nowrap;
 }
 .editInBuilderBtn:hover { background: rgba(201,168,76,0.22); border-color: rgba(201,168,76,0.45); }
+.mobileHeaderActionsBtn {
+  display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box;
+  height: var(--control-height);
+  background: rgba(201,168,76,0.12); border: 1px solid rgba(201,168,76,0.3);
+  border-radius: 4px; padding: 6px var(--control-padding-x); color: var(--gold);
+  font-family: var(--font-display); font-size: var(--control-font-size); letter-spacing: var(--control-letter-spacing);
+  cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s; white-space: nowrap; gap: 8px;
+}
+.mobileHeaderActionsBtn:hover { background: rgba(201,168,76,0.22); border-color: rgba(201,168,76,0.45); }
 
 /* Stats toggle */
 .statsToggle {
@@ -309,6 +320,7 @@
   margin: 10px 0 12px; gap: 12px; flex-wrap: wrap;
 }
 .countInfo { font-size: 0.8rem; color: var(--text-dim); }
+.desktopControls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .viewToggle {
   display: flex;
   background: var(--s-card);
@@ -702,6 +714,19 @@
 .groupByBtn:hover { color: var(--text); border-color: var(--s-border2); }
 .groupByActive { color: var(--gold) !important; border-color: rgba(201,168,76,0.35) !important; background: rgba(201,168,76,0.07) !important; }
 
+.mobileControlsMenu { display: none; }
+.mobileControlsMenu { gap: 8px; align-items: center; }
+.mobileControlsBtn {
+  display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box;
+  height: var(--control-height);
+  background: rgba(201,168,76,0.12); border: 1px solid rgba(201,168,76,0.3);
+  border-radius: 4px; padding: 6px var(--control-padding-x); color: var(--gold);
+  font-size: var(--control-font-size); font-family: var(--font-display); letter-spacing: var(--control-letter-spacing);
+  cursor: pointer; transition: all 0.15s; white-space: nowrap; gap: 8px;
+}
+.mobileControlsBtn:hover { background: rgba(201,168,76,0.22); border-color: rgba(201,168,76,0.45); }
+.mobileControlsChevron { opacity: 0.72; transition: transform 0.16s ease, opacity 0.16s ease; }
+.mobileControlsChevronOpen { transform: rotate(180deg); opacity: 0.95; }
 /* ── Floating card preview ───────────────────────────────────────────────── */
 .floatingPreview {
   position: fixed;
@@ -727,13 +752,36 @@
   .bracketDetail { min-width: 220px; }
 
   /* Header: stack name + meta vertically, shrink buttons */
-  .deckName { font-size: 1.1rem; }
-  .headerMeta { gap: 6px; }
+  .header { margin-bottom: 8px; padding: 8px 10px; }
+  .backBtn { padding-bottom: 8px; font-size: 0.7rem; }
+  .titleRow { gap: 8px; }
+  .deckName { font-size: 1.05rem; }
+  .headerMeta { gap: 6px 8px; font-size: 0.8rem; }
+  .headerActionsDesktop { display: none; }
+  .headerActionsMobile { display: flex; }
   .addCardsBtn,
   .editInBuilderBtn,
   .viewBtn {
     height: var(--control-height);
     font-size: var(--control-font-size);
     padding: 6px var(--control-padding-x);
+  }
+  .desktopControls { display: none; }
+  .mobileControlsMenu { display: flex; }
+  .controlBar { align-items: center; }
+  .countInfo { flex: 1; min-width: 0; }
+}
+
+@media (max-width: 480px) {
+  .headerMeta {
+    align-items: center;
+    gap: 4px 8px;
+  }
+  .deckValue {
+    font-size: 0.92rem;
+  }
+  .controlBar {
+    margin: 8px 0 10px;
+    gap: 8px;
   }
 }
