@@ -5,11 +5,12 @@ import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { EmptyState, SectionHeader, Modal, ResponsiveHeaderActions, ResponsiveMenu, Button } from '../components/UI'
-import { CardGrid, FilterBar, BulkActionBar, applyFilterSort, EMPTY_FILTERS } from '../components/CardComponents'
+import { CardGrid, CardDetail, FilterBar, BulkActionBar, applyFilterSort, EMPTY_FILTERS } from '../components/CardComponents'
 import { useLongPress } from '../hooks/useLongPress'
 import AddCardModal from '../components/AddCardModal'
 import ImportModal from '../components/ImportModal'
 import ExportModal from '../components/ExportModal'
+import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import styles from './Folders.module.css'
 import listStyles from './Lists.module.css'
 import uiStyles from '../components/UI.module.css'
@@ -75,7 +76,7 @@ function PencilIcon({ size = 14 }) {
 }
 
 // ── Sort dropdown ─────────────────────────────────────────────────────────────
-function SortDropdown({ value, onChange, options }) {
+function SortDropdown({ value, onChange, options, compact = false }) {
   const current = options.find(([v]) => v === value)
   return (
     <ResponsiveMenu
@@ -84,12 +85,14 @@ function SortDropdown({ value, onChange, options }) {
       wrapClassName={styles.sortDropdown}
       trigger={({ open, toggle }) => (
         <button className={styles.sortDropdownBtn} onClick={toggle}>
-          <span>{current?.[1] || value}</span>
-          <svg className={`${styles.sortArrow} ${open ? styles.sortArrowOpen : ''}`}
-            width="10" height="10" viewBox="0 0 10 10" fill="none"
-            stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="2,3 5,7 8,3" />
-          </svg>
+          <span>{compact ? 'Sort' : (current?.[1] || value)}</span>
+          <span className={styles.sortArrowWrap} aria-hidden="true">
+            <svg className={`${styles.sortArrow} ${open ? styles.sortArrowOpen : ''}`}
+              width="10" height="10" viewBox="0 0 10 10" fill="none"
+              stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="2,3 5,7 8,3" />
+            </svg>
+          </span>
         </button>
       )}
     >
@@ -203,7 +206,7 @@ function WishlistItem({ item, sfCard, priceSource, onDelete, selectMode, selecte
 
 // ── ListBrowser ───────────────────────────────────────────────────────────────
 function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
-  const { price_source, default_sort } = useSettings()
+  const { price_source, default_sort, default_grouping } = useSettings()
   const { user } = useAuth()
   const [items, setItems]       = useState([])
   const [sfMap, setSfMap]       = useState({})
@@ -217,7 +220,9 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
   const [splitState, setSplitState]       = useState(new Map())
   const [showAddCard, setShowAddCard]     = useState(false)
   const [showExport, setShowExport]       = useState(false)
-  const [view, setView]                   = useState('grid')   // 'list' | 'grid'
+  const [viewMode, setViewMode]           = useState('grid')
+  const [groupBy, setGroupBy]             = useState(default_grouping || 'type')
+  const [selectedItemId, setSelectedItemId] = useState(null)
   const isAllView = !folder
   const browserTitle = title || folder?.name || 'All Wishlist Cards'
   const folderIds = useMemo(() => folders.map(f => f.id), [folders])
@@ -260,6 +265,10 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
   useEffect(() => { reload() }, [reload])
 
   useEffect(() => {
+    setGroupBy(default_grouping || 'type')
+  }, [default_grouping])
+
+  useEffect(() => {
     if (folders.length) {
       setAllFolders(
         isAllView
@@ -277,6 +286,8 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
     () => applyFilterSort(items, sfMap, search, sort, filters),
     [items, sfMap, search, sort, filters]
   )
+  const selectedItem = selectedItemId ? items.find(item => item.id === selectedItemId) : null
+  const selectedSf = selectedItem ? sfMap[`${selectedItem.set_code}-${selectedItem.collector_number}`] : null
 
   const { totalValue, totalQty } = useMemo(() => {
     let v = 0, q = 0
@@ -409,8 +420,36 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
           <div className={styles.binderMeta}>
             <span>{totalQty} wants</span>
             <span className={styles.binderValue}>{formatPrice(totalValue, price_source)}</span>
-            <Button variant="secondary" size="sm" onClick={() => setShowExport(true)}>↓ Export</Button>
-            <Button size="sm" onClick={() => setShowAddCard(true)}>+ Add Cards</Button>
+            <div className={styles.browserHeaderActionsDesktop}>
+              <Button variant="secondary" size="sm" onClick={() => setShowExport(true)}>↓ Export</Button>
+              <Button size="sm" onClick={() => setShowAddCard(true)}>+ Add Cards</Button>
+            </div>
+            <div className={styles.browserHeaderActionsMobile}>
+              <ResponsiveMenu
+                title="Wishlist Actions"
+                trigger={({ open, toggle }) => (
+                  <button className={styles.mobileHeaderActionsBtn} onClick={toggle}>
+                    <span>Actions</span>
+                    <svg className={`${styles.mobileViewChevron} ${open ? styles.mobileViewChevronOpen : ''}`}
+                      width="10" height="10" viewBox="0 0 10 10" fill="none"
+                      stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <polyline points="2,3 5,6.5 8,3" />
+                    </svg>
+                  </button>
+                )}
+              >
+                {({ close }) => (
+                  <div className={uiStyles.responsiveMenuList}>
+                    <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowExport(true); close() }}>
+                      <span>Export</span>
+                    </button>
+                    <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowAddCard(true); close() }}>
+                      <span>Add Cards</span>
+                    </button>
+                  </div>
+                )}
+              </ResponsiveMenu>
+            </div>
           </div>
         </div>
       </div>
@@ -430,12 +469,54 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
             ? `${filtered.length} of ${items.length} cards`
             : `${items.length} cards`} · {totalQty} total
         </span>
-        <div className={`${styles.viewToggle} ${uiStyles.segmented}`}>
-          <Button variant="toggle" size="sm" active={view === 'list'}
-            onClick={() => setView('list')}>≡ List</Button>
-          <Button variant="toggle" size="sm" active={view === 'grid'}
-            onClick={() => setView('grid')}>⊞ Grid</Button>
+        <CardBrowserViewControls
+          viewMode={viewMode}
+          setViewMode={setViewMode}
+          groupBy={groupBy}
+          setGroupBy={setGroupBy}
+        />
+        {false && (
+        <>
+        <div className={styles.browserControlsDesktop}>
+          <div className={`${styles.viewToggle} ${uiStyles.segmented}`}>
+            <Button variant="toggle" size="sm" active={view === 'list'}
+              onClick={() => setView('list')}>≡ List</Button>
+            <Button variant="toggle" size="sm" active={view === 'grid'}
+              onClick={() => setView('grid')}>⊞ Grid</Button>
+          </div>
         </div>
+        <div className={styles.browserControlsMobile}>
+          <ResponsiveMenu
+            title="View Mode"
+            trigger={({ open, toggle }) => (
+              <button className={styles.mobileViewBtn} onClick={toggle}>
+                <span>View</span>
+                <svg className={`${styles.mobileViewChevron} ${open ? styles.mobileViewChevronOpen : ''}`}
+                  width="10" height="10" viewBox="0 0 10 10" fill="none"
+                  stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polyline points="2,3 5,6.5 8,3" />
+                </svg>
+              </button>
+            )}
+          >
+            {({ close }) => (
+              <div className={uiStyles.responsiveMenuList}>
+                <button className={`${uiStyles.responsiveMenuAction} ${view === 'list' ? uiStyles.responsiveMenuActionActive : ''}`}
+                  onClick={() => { setView('list'); close() }}>
+                  <span>List</span>
+                  <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{view === 'list' ? '✓' : ''}</span>
+                </button>
+                <button className={`${uiStyles.responsiveMenuAction} ${view === 'grid' ? uiStyles.responsiveMenuActionActive : ''}`}
+                  onClick={() => { setView('grid'); close() }}>
+                  <span>Grid</span>
+                  <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{view === 'grid' ? '✓' : ''}</span>
+                </button>
+              </div>
+            )}
+          </ResponsiveMenu>
+        </div>
+        </>
+        )}
       </div>
 
       {selectMode && selectedItems.size > 0 && (
@@ -464,7 +545,26 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
 
       {filtered.length === 0 && <EmptyState>No cards match.</EmptyState>}
 
-      {view === 'list' && filtered.length > 0 && (
+      {filtered.length > 0 && (
+        <CardBrowserContent
+          cards={filtered.map(item => ({
+            ...item,
+            _folderName: isAllView ? folderNameById[item.folder_id] || '' : '',
+          }))}
+          sfMap={sfMap}
+          priceSource={price_source}
+          viewMode={viewMode}
+          groupBy={groupBy}
+          onSelect={item => setSelectedItemId(item.id)}
+          selectMode={selectMode}
+          selectedCards={selectedItems}
+          onToggleSelect={onToggleSelect}
+          onAdjustQty={onAdjustQty}
+          splitState={splitState}
+          onEnterSelectMode={enterSelectMode}
+        />
+      )}
+      {false && view === 'list' && filtered.length > 0 && (
         <div className={listStyles.list}>
           {filtered.map(item => (
             <WishlistItem
@@ -483,7 +583,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
         </div>
       )}
 
-      {view === 'grid' && filtered.length > 0 && (
+      {false && view === 'grid' && filtered.length > 0 && (
         <CardGrid
           cards={filtered}
           sfMap={sfMap}
@@ -494,6 +594,16 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
           onEnterSelectMode={enterSelectMode}
           splitState={splitState}
           onAdjustQty={onAdjustQty}
+        />
+      )}
+
+      {selectedItem && (
+        <CardDetail
+          card={selectedItem}
+          sfCard={selectedSf}
+          priceSource={price_source}
+          readOnly
+          onClose={() => setSelectedItemId(null)}
         />
       )}
 
@@ -1028,6 +1138,17 @@ export default function ListsPage() {
               <Button size="sm" className={styles.viewAllBtn} onClick={() => setShowAllCards(true)}>View All Cards</Button>
             ) : null}
             menuLabel="Wishlist actions"
+            mobileExtra={!selectMode ? (
+              <div className={styles.mobileHeaderControls}>
+                <input
+                  className={styles.folderSearch}
+                  value={folderSearch}
+                  onChange={e => setFolderSearch(e.target.value)}
+                  placeholder="Search wishlists…"
+                />
+                <SortDropdown value={sort} onChange={handleSortChange} options={SORT_OPTIONS} compact />
+              </div>
+            ) : null}
           >
             <div className={styles.headerActions}>
               {selectMode ? (
@@ -1052,12 +1173,14 @@ export default function ListsPage() {
                 <Button size="sm" onClick={() => setShowNewFolder(true)}>+ New Wishlist</Button>
                 <Button variant="ghost" size="sm" onClick={() => setSelectMode(true)}>Select</Button>
                 <input
-                  className={styles.folderSearch}
+                  className={`${styles.folderSearch} ${styles.desktopOnlySearch}`}
                   value={folderSearch}
                   onChange={e => setFolderSearch(e.target.value)}
                   placeholder="Search wishlists…"
                 />
-                <SortDropdown value={sort} onChange={handleSortChange} options={SORT_OPTIONS} />
+                <div className={styles.desktopOnlyAction}>
+                  <SortDropdown value={sort} onChange={handleSortChange} options={SORT_OPTIONS} />
+                </div>
                 </>
               )}
             </div>
@@ -1242,4 +1365,3 @@ export default function ListsPage() {
     </div>
   )
 }
-

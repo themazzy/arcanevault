@@ -407,6 +407,15 @@
   gap: 8px;
 }
 
+.headerActionMobileExtra {
+  flex: 1;
+  min-width: 0;
+}
+
+.headerActionMobileExtra > * {
+  width: 100%;
+}
+
 .headerMenuBtn {
   width: 34px;
   height: 34px;
@@ -467,10 +476,34 @@
   .sectionTitle { font-size: 0.88rem; }
   .headerActionDesktop { display: none; }
   .headerActionMobile { display: flex; }
+  .headerMenuBtn {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    border: 1px solid color-mix(in srgb, var(--gold) 34%, transparent);
+    background: color-mix(in srgb, var(--gold) 16%, transparent);
+    color: var(--gold);
+  }
+  .headerMenuBtn:hover {
+    border-color: color-mix(in srgb, var(--gold) 48%, transparent);
+    background: color-mix(in srgb, var(--gold) 24%, transparent);
+    color: var(--gold);
+  }
   .headerMenuPanel {
     right: 0;
     min-width: 0;
-    width: min(280px, calc(100vw - 16px));
+    width: min(320px, calc(100vw - 16px));
+    max-width: min(320px, calc(100vw - 16px));
+    padding: 10px;
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--popup-bg, var(--bg3)) 96%, transparent);
+    border: 1px solid color-mix(in srgb, var(--gold) 24%, var(--border) 76%);
+    box-shadow:
+      0 18px 42px color-mix(in srgb, var(--scrim-medium, rgba(0,0,0,0.55)) 78%, transparent),
+      0 0 0 1px color-mix(in srgb, var(--text) 4%, transparent);
+    gap: 8px;
+    overflow: visible;
+    z-index: 130;
   }
 }
 
@@ -492,6 +525,28 @@
   border-color: rgba(141,93,0,0.35);
   background: rgba(255,245,230,1);
   color: var(--gold);
+}
+
+@media (max-width: 980px) {
+  [data-theme-mode="light"] .headerMenuBtn {
+    border-color: color-mix(in srgb, var(--gold) 60%, transparent);
+    background: color-mix(in srgb, var(--gold) 22%, white 78%);
+    color: color-mix(in srgb, var(--gold) 86%, #2a1b05 14%);
+  }
+
+  [data-theme-mode="light"] .headerMenuBtn:hover {
+    border-color: color-mix(in srgb, var(--gold) 78%, transparent);
+    background: color-mix(in srgb, var(--gold) 30%, white 70%);
+    color: color-mix(in srgb, var(--gold) 86%, #2a1b05 14%);
+  }
+
+  [data-theme-mode="light"] .headerMenuPanel {
+    background: rgba(255,248,239,0.985);
+    border-color: rgba(116,82,24,0.24);
+    box-shadow:
+      0 18px 42px rgba(48,30,10,0.18),
+      0 0 0 1px rgba(116,82,24,0.06);
+  }
 }
 
 /* Responsive menu / mobile sheet */
@@ -542,17 +597,6 @@
 
 .responsiveMenuHeader {
   display: none;
-}
-
-.responsiveMenuHeader::before {
-  content: '';
-  display: block;
-  width: 42px;
-  height: 4px;
-  border-radius: 999px;
-  margin: 0 auto 10px;
-  background: color-mix(in srgb, var(--text) 18%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 6%, transparent);
 }
 
 .responsiveMenuHeaderTop {
@@ -631,6 +675,12 @@
   color: var(--gold);
 }
 
+.responsiveMenuActionActive:hover {
+  background: rgba(201,168,76,0.14);
+  border-color: rgba(201,168,76,0.3);
+  color: var(--gold);
+}
+
 .responsiveMenuActionDanger {
   color: #d08a8a;
 }
@@ -689,6 +739,12 @@
 }
 
 [data-theme-mode="light"] .responsiveMenuActionActive {
+  background: rgba(141,93,0,0.12);
+  border-color: rgba(141,93,0,0.28);
+  color: #6f4900;
+}
+
+[data-theme-mode="light"] .responsiveMenuActionActive:hover {
   background: rgba(141,93,0,0.12);
   border-color: rgba(141,93,0,0.28);
   color: #6f4900;
@@ -758,8 +814,9 @@
   .responsiveMenuHeader {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    padding-bottom: 2px;
+    gap: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
     flex-shrink: 0;
   }
 
@@ -771,13 +828,9 @@
     background: color-mix(in srgb, var(--gold) 16%, transparent);
     color: var(--gold);
     border-radius: 10px;
-    min-width: 42px;
-    min-height: 38px;
-    padding: 7px 13px;
-    font-size: 0.7rem;
-    font-family: var(--font-display);
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    width: 38px;
+    height: 38px;
+    padding: 0;
     cursor: pointer;
     transition: border-color 0.15s, background 0.15s, color 0.15s;
   }
@@ -785,6 +838,11 @@
   .responsiveMenuClose:hover {
     border-color: color-mix(in srgb, var(--gold) 48%, transparent);
     background: color-mix(in srgb, var(--gold) 24%, transparent);
+  }
+
+  .responsiveMenuTitle {
+    font-size: 0.9rem;
+    letter-spacing: 0.07em;
   }
 
   .responsiveMenuBody {
@@ -836,6 +894,17 @@
       0 10px 24px color-mix(in srgb, var(--scrim-soft, rgba(0,0,0,0.35)) 52%, transparent);
   }
 
+  .responsiveMenuActionActive:hover {
+    border-color: color-mix(in srgb, var(--gold) 52%, transparent);
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--gold) 22%, transparent), color-mix(in srgb, var(--gold) 10%, transparent)),
+      color-mix(in srgb, var(--s2) 90%, color-mix(in srgb, var(--gold) 12%, transparent));
+    color: var(--gold);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--text) 8%, transparent),
+      0 10px 24px color-mix(in srgb, var(--scrim-soft, rgba(0,0,0,0.35)) 52%, transparent);
+  }
+
   .responsiveMenuActionActive .responsiveMenuCheck {
     border-color: color-mix(in srgb, var(--gold) 68%, transparent);
     background: color-mix(in srgb, var(--gold) 24%, transparent);
@@ -854,6 +923,14 @@
   }
 
   [data-theme-mode="light"] .responsiveMenuActionActive {
+    border-color: color-mix(in srgb, var(--gold) 70%, transparent);
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--gold) 24%, white 76%), color-mix(in srgb, var(--gold) 12%, white 88%)),
+      color-mix(in srgb, var(--s2) 82%, var(--gold) 18%);
+    color: var(--text);
+  }
+
+  [data-theme-mode="light"] .responsiveMenuActionActive:hover {
     border-color: color-mix(in srgb, var(--gold) 70%, transparent);
     background:
       linear-gradient(180deg, color-mix(in srgb, var(--gold) 24%, white 76%), color-mix(in srgb, var(--gold) 12%, white 88%)),

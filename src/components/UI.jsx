@@ -20,6 +20,25 @@ function ChevronIcon({ open = false }) {
   )
 }
 
+function CloseIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 14 14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <line x1="3" y1="3" x2="11" y2="11" />
+      <line x1="11" y1="3" x2="3" y2="11" />
+    </svg>
+  )
+}
+
 export function Button({
   children,
   variant = 'default',
@@ -246,7 +265,7 @@ export function SectionHeader({ title, action }) {
   )
 }
 
-export function ResponsiveHeaderActions({ primary = null, children, menuLabel = 'More actions' }) {
+export function ResponsiveHeaderActions({ primary = null, children, menuLabel = 'More actions', mobileExtra = null }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
 
@@ -268,6 +287,7 @@ export function ResponsiveHeaderActions({ primary = null, children, menuLabel = 
 
       <div className={styles.headerActionMobile}>
         {primary}
+        {mobileExtra ? <div className={styles.headerActionMobileExtra}>{mobileExtra}</div> : null}
         <button
           className={styles.headerMenuBtn}
           onClick={() => setOpen(v => !v)}
@@ -426,8 +446,8 @@ export function ResponsiveMenu({
             <div className={styles.responsiveMenuHeader}>
               <div className={styles.responsiveMenuHeaderTop}>
                 <span className={styles.responsiveMenuTitle}>{title}</span>
-                <button type="button" className={styles.responsiveMenuClose} onClick={closeMenu}>
-                  {closeLabel}
+                <button type="button" className={styles.responsiveMenuClose} onClick={closeMenu} aria-label={closeLabel}>
+                  <CloseIcon />
                 </button>
               </div>
             </div>

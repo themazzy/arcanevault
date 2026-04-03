@@ -7,6 +7,8 @@ import { getDbStats } from '../lib/db'
 import { Button, SectionHeader, Select as UISelect } from '../components/UI'
 import styles from './Settings.module.css'
 
+const APP_VERSION = __APP_VERSION__
+
 function formatAge(ms) {
   if (ms < 60000) return 'just now'
   if (ms < 3600000) return `${Math.round(ms / 60000)}m ago`
@@ -495,6 +497,9 @@ export default function SettingsPage() {
 
       <div className={styles.section}>
         <div className={styles.sectionTitle}>App</div>
+        <SettingRow label="Version" description="Installed app version for this build.">
+          <span className={styles.appVersion}>v{APP_VERSION}</span>
+        </SettingRow>
         <SettingRow
           label="Keep Screen Awake"
           description="Requests a wake lock so the screen does not dim or sleep while the app is open."
