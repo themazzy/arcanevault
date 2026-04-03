@@ -101,11 +101,11 @@ const MODES = {
 // cols = grid columns. rotations = { [playerIndex]: degrees } — applied on tablet/phone only
 const LAYOUTS = {
   2: [
-    { id: '2-portrait',  cols: 1, label: 'Portrait',     rotations: { 1: 180 } },
+    { id: '2-portrait',  cols: 1, label: 'Portrait',     rotations: { 0: 180 } },
     { id: '2-landscape', cols: 2, label: 'Side by Side', rotations: {} },
   ],
   3: [
-    { id: '3-2+1', cols: 2, label: '2 + 1', rotations: { 2: 180 } },
+    { id: '3-2+1', cols: 2, label: '2 + 1', rotations: { 0: 180, 1: 180 } },
     { id: '3-row', cols: 3, label: 'Row',    rotations: {} },
   ],
   4: [
@@ -113,12 +113,12 @@ const LAYOUTS = {
     { id: '4-row', cols: 4, label: 'Row',    rotations: {} },
   ],
   5: [
-    { id: '5-3+2', cols: 3, label: '3 + 2', rotations: { 3: 180, 4: 180 } },
-    { id: '5-2+3', cols: 3, label: '2 + 3', rotations: { 2: 180, 3: 180, 4: 180 } },
+    { id: '5-3+2', cols: 3, label: '3 + 2', rotations: { 0: 180, 1: 180, 2: 180 } },
+    { id: '5-2+3', cols: 3, label: '2 + 3', rotations: { 0: 180, 1: 180 } },
   ],
   6: [
-    { id: '6-3x2', cols: 3, label: '3 × 2', rotations: { 3: 180, 4: 180, 5: 180 } },
-    { id: '6-2x3', cols: 2, label: '2 × 3', rotations: { 2: 180, 3: 180, 4: 180, 5: 180 } },
+    { id: '6-3x2', cols: 3, label: '3 × 2', rotations: { 0: 180, 1: 180, 2: 180 } },
+    { id: '6-2x3', cols: 2, label: '2 × 3', rotations: { 0: 180, 1: 180 } },
   ],
 }
 

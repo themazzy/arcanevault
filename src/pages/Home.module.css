@@ -580,14 +580,28 @@
   margin-bottom: 2px; flex-wrap: wrap;
 }
 .tabBtn {
-  background: none; border: none; border-bottom: 2px solid transparent;
-  color: var(--text-faint); font-family: var(--font-display);
-  font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase;
-  padding: 7px 14px; cursor: pointer; transition: all 0.15s;
-  position: relative; bottom: -1px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: var(--control-height);
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 4px;
+  color: var(--text-dim);
+  font-family: var(--font-display);
+  font-size: var(--control-font-size);
+  letter-spacing: var(--control-letter-spacing);
+  padding: 6px var(--control-padding-x);
+  cursor: pointer;
+  transition: all 0.15s;
 }
-.tabBtn:hover { color: var(--gold-dim); }
-.tabActive { color: var(--gold) !important; border-bottom-color: var(--gold) !important; }
+.tabBtn:hover { background: var(--s2); color: var(--text); border-color: rgba(255,255,255,0.2); }
+.tabActive {
+  color: var(--gold) !important;
+  background: rgba(201,168,76,0.12) !important;
+  border-color: rgba(201,168,76,0.25) !important;
+}
 .tabContent { display: flex; flex-direction: column; gap: 10px; padding-top: 6px; }
 
 /* Oracle text */
@@ -647,14 +661,15 @@
 .searchWrap { flex: 1; position: relative; }
 .searchInput {
   width: 100%;
-  background: var(--s2); border: 1px solid var(--border);
-  border-radius: 4px; padding: 11px 14px;
-  color: var(--text); font-size: 0.92rem; font-family: var(--font-serif);
-  outline: none; box-sizing: border-box; transition: border-color 0.2s, box-shadow 0.2s;
+  min-height: 30px;
+  background: var(--s3); border: 1px solid var(--border);
+  border-radius: 4px; padding: 7px 10px;
+  color: var(--text); font-size: 0.88rem; font-family: var(--font-serif);
+  outline: none; box-sizing: border-box; transition: border-color 0.15s, background 0.15s;
 }
 .searchInput:focus {
-  border-color: rgba(201,168,76,0.5);
-  box-shadow: var(--input-focus);
+  background: var(--s2);
+  border-color: rgba(255,255,255,0.25);
 }
 .searchInput::placeholder { color: var(--text-faint); }
 
@@ -679,38 +694,56 @@
 .suggSet { font-size: 0.72rem; color: var(--text-faint); white-space: nowrap; flex-shrink: 0; }
 
 .searchBtn {
-  background: rgba(201,168,76,0.12); border: 1px solid rgba(201,168,76,0.35);
-  border-radius: 4px; padding: 11px 22px; color: var(--gold);
-  font-family: var(--font-display); font-size: 0.8rem; letter-spacing: 0.06em;
-  cursor: pointer; transition: all 0.2s; white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: var(--control-height);
+  background: rgba(201,168,76,0.12); border: 1px solid rgba(201,168,76,0.3);
+  border-radius: 4px; padding: 6px var(--control-padding-x); color: var(--gold);
+  font-family: var(--font-display); font-size: var(--control-font-size); letter-spacing: var(--control-letter-spacing);
+  cursor: pointer; transition: all 0.15s; white-space: nowrap;
 }
 .searchBtn:hover:not(:disabled) {
   background: rgba(201,168,76,0.22);
-  border-color: rgba(201,168,76,0.55);
-  box-shadow: 0 4px 16px rgba(201,168,76,0.12);
+  border-color: rgba(201,168,76,0.45);
 }
 .searchBtn:disabled { opacity: 0.4; cursor: default; }
 
 .clearBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: var(--control-height);
   background: none; border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 3px; padding: 5px 12px; color: var(--text-faint);
-  font-size: 0.76rem; cursor: pointer; transition: all 0.15s;
+  border-radius: 4px; padding: 6px var(--control-padding-x); color: var(--text-dim);
+  font-family: var(--font-display); font-size: var(--control-font-size); letter-spacing: var(--control-letter-spacing);
+  cursor: pointer; transition: all 0.15s;
 }
 .clearBtn:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
 
 .loadMoreBtn {
-  background: rgba(201,168,76,0.08); border: 1px solid rgba(201,168,76,0.25);
-  border-radius: 5px; padding: 8px 24px; color: var(--gold);
-  font-size: 0.82rem; cursor: pointer; transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: var(--control-height);
+  background: rgba(201,168,76,0.12); border: 1px solid rgba(201,168,76,0.3);
+  border-radius: 4px; padding: 6px var(--control-padding-x); color: var(--gold);
+  font-family: var(--font-display); font-size: var(--control-font-size); letter-spacing: var(--control-letter-spacing);
+  cursor: pointer; transition: all 0.15s;
 }
 .loadMoreBtn:hover:not(:disabled) { background: rgba(201,168,76,0.15); border-color: var(--gold); }
 .loadMoreBtn:disabled { opacity: 0.4; cursor: default; }
 
 /* ── Advanced search toggle button ──────────────────────────────────────────── */
 .advToggleBtn {
+  display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box;
+  height: var(--control-height);
   background: var(--s2); border: 1px solid var(--border);
-  border-radius: 3px; padding: 5px 12px; color: var(--text-dim);
-  font-size: 0.76rem; font-family: var(--font-display); letter-spacing: 0.04em;
+  border-radius: 4px; padding: 6px var(--control-padding-x); color: var(--text-dim);
+  font-size: var(--control-font-size); font-family: var(--font-display); letter-spacing: var(--control-letter-spacing);
   cursor: pointer; transition: all 0.15s; white-space: nowrap;
 }
 .advToggleBtn:hover { color: var(--text); border-color: var(--border-hi); background: var(--s3); }

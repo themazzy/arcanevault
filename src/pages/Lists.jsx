@@ -4,7 +4,7 @@ import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
-import { EmptyState, SectionHeader, Modal, ResponsiveHeaderActions, ResponsiveMenu } from '../components/UI'
+import { EmptyState, SectionHeader, Modal, ResponsiveHeaderActions, ResponsiveMenu, Button } from '../components/UI'
 import { CardGrid, FilterBar, BulkActionBar, applyFilterSort, EMPTY_FILTERS } from '../components/CardComponents'
 import { useLongPress } from '../hooks/useLongPress'
 import AddCardModal from '../components/AddCardModal'
@@ -137,11 +137,7 @@ function CardArtPicker({ onSelect, onClose }) {
           placeholder="Search card name…"
           style={{ flex: 1, background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border)',
             borderRadius: 4, padding: '8px 12px', color: 'var(--text)', fontSize: '0.9rem', outline: 'none' }} />
-        <button onClick={search} disabled={loading}
-          style={{ background: 'rgba(201,168,76,0.12)', border: '1px solid rgba(201,168,76,0.35)',
-            borderRadius: 4, color: 'var(--gold)', padding: '8px 14px', cursor: 'pointer', fontSize: '0.85rem' }}>
-          {loading ? '…' : 'Search'}
-        </button>
+        <Button onClick={search} disabled={loading}>{loading ? '…' : 'Search'}</Button>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px,1fr))', gap: 8, maxHeight: 360, overflowY: 'auto' }}>
         {results.map(c => (
@@ -162,12 +158,21 @@ function WishlistItem({ item, sfCard, priceSource, onDelete, selectMode, selecte
   const price    = getPrice(sfCard, item.foil, { price_source: priceSource })
   const img      = sfCard?.image_uris?.small
   const longPress = useLongPress(() => { if (!selectMode) onEnterSelectMode?.() }, { delay: 500 })
-  const { onMouseLeave: lpLeave, ...lpRest } = longPress
+  const { onMouseLeave: lpLeave, fired: lpFired, ...lpRest } = longPress
+
+  const handleClick = () => {
+    if (lpFired.current) {
+      lpFired.current = false
+      onToggleSelect?.()
+      return
+    }
+    if (selectMode) onToggleSelect?.()
+  }
 
   return (
     <div
       className={`${listStyles.item}${selectMode ? ` ${listStyles.itemSelectMode}` : ''}${selected ? ` ${listStyles.itemSelected}` : ''}`}
-      onClick={selectMode ? onToggleSelect : undefined}
+      onClick={handleClick}
       onMouseLeave={lpLeave}
       {...lpRest}
     >
@@ -398,14 +403,14 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
     <div>
       {/* ── Wishlist header ── */}
       <div className={styles.binderHeader}>
-        <button className={styles.backBtn} onClick={onBack}>← Back to Wishlists</button>
+        <Button variant="ghost" size="sm" className={styles.backBtn} onClick={onBack}>← Back to Wishlists</Button>
         <div className={styles.binderTitleRow}>
           <h2 className={styles.binderTitle}>{browserTitle}</h2>
           <div className={styles.binderMeta}>
             <span>{totalQty} wants</span>
             <span className={styles.binderValue}>{formatPrice(totalValue, price_source)}</span>
-            <button className={styles.addCardsBtn} onClick={() => setShowExport(true)}>↓ Export</button>
-            <button className={styles.addCardsBtn} onClick={() => setShowAddCard(true)}>+ Add Cards</button>
+            <Button variant="secondary" size="sm" onClick={() => setShowExport(true)}>↓ Export</Button>
+            <Button size="sm" onClick={() => setShowAddCard(true)}>+ Add Cards</Button>
           </div>
         </div>
       </div>
@@ -425,11 +430,11 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
             ? `${filtered.length} of ${items.length} cards`
             : `${items.length} cards`} · {totalQty} total
         </span>
-        <div className={styles.viewToggle}>
-          <button className={`${styles.viewBtn} ${view === 'list' ? styles.viewActive : ''}`}
-            onClick={() => setView('list')}>≡ List</button>
-          <button className={`${styles.viewBtn} ${view === 'grid' ? styles.viewActive : ''}`}
-            onClick={() => setView('grid')}>⊞ Grid</button>
+        <div className={`${styles.viewToggle} ${uiStyles.segmented}`}>
+          <Button variant="toggle" size="sm" active={view === 'list'}
+            onClick={() => setView('list')}>≡ List</Button>
+          <Button variant="toggle" size="sm" active={view === 'grid'}
+            onClick={() => setView('grid')}>⊞ Grid</Button>
         </div>
       </div>
 
@@ -532,6 +537,7 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onRename,
   const renameRef = useRef(null)
 
   const longPress = useLongPress(() => { if (!selectMode) onEnterSelectMode?.() }, { delay: 500 })
+  const { fired: lpFired, ...longPressHandlers } = longPress
 
   useEffect(() => { if (renaming) renameRef.current?.focus() }, [renaming])
 
@@ -547,10 +553,15 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onRename,
   }
   const handleCardClick = () => {
     if (renaming) return
+    if (lpFired.current) {
+      lpFired.current = false
+      onToggleSelect?.()
+      return
+    }
     if (selectMode) { onToggleSelect(); return }
     onClick()
   }
-  const longPressProps = renaming ? {} : longPress
+  const longPressProps = renaming ? {} : longPressHandlers
 
   return (
     <div
@@ -1014,34 +1025,32 @@ export default function ListsPage() {
         action={
           <ResponsiveHeaderActions
             primary={!selectMode ? (
-              <button className={styles.viewAllBtn} onClick={() => setShowAllCards(true)}>View All Cards</button>
+              <Button size="sm" className={styles.viewAllBtn} onClick={() => setShowAllCards(true)}>View All Cards</Button>
             ) : null}
             menuLabel="Wishlist actions"
           >
             <div className={styles.headerActions}>
               {selectMode ? (
                 <>
-                <button className={styles.cancelSelectBtn} onClick={exitSelectMode}>Cancel</button>
+                <Button variant="ghost" size="sm" onClick={exitSelectMode}>Cancel</Button>
                 {groups.length > 0 && (
-                  <button className={styles.newGroupBtn} disabled={selectedIds.size === 0}
+                  <Button variant="secondary" size="sm" disabled={selectedIds.size === 0}
                     onClick={() => setShowBulkMoveGroup(true)}>
                     📁 Group ({selectedIds.size})
-                  </button>
+                  </Button>
                 )}
-                <button className={styles.bulkDeleteBtn} disabled={selectedIds.size === 0}
+                <Button variant="danger" size="sm" disabled={selectedIds.size === 0}
                   onClick={handleBulkDelete}>
                   <TrashIcon size={12} /> Delete ({selectedIds.size})
-                </button>
+                </Button>
                 </>
               ) : (
                 <>
-                <button className={styles.newGroupBtn} onClick={() => setShowNewGroup(true)}>
-                  + New Group
-                </button>
-                <button className={styles.importBtn} onClick={() => setShowImport(true)}>↑ Import</button>
-                <button className={styles.importBtn} onClick={handleExportAll}>↓ Export</button>
-                <button className={styles.newFolderBtn} onClick={() => setShowNewFolder(true)}>+ New Wishlist</button>
-                <button className={styles.selectModeBtn} onClick={() => setSelectMode(true)}>Select</button>
+                <Button variant="secondary" size="sm" onClick={() => setShowNewGroup(true)}>+ New Group</Button>
+                <Button variant="ghost" size="sm" onClick={() => setShowImport(true)}>↑ Import</Button>
+                <Button variant="ghost" size="sm" onClick={handleExportAll}>↓ Export</Button>
+                <Button size="sm" onClick={() => setShowNewFolder(true)}>+ New Wishlist</Button>
+                <Button variant="ghost" size="sm" onClick={() => setSelectMode(true)}>Select</Button>
                 <input
                   className={styles.folderSearch}
                   value={folderSearch}

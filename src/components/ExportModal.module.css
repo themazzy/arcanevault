@@ -72,16 +72,21 @@
   margin-bottom: 12px;
 }
 .tab {
-  background: var(--s-subtle); border: 1px solid var(--s-border2);
-  border-radius: 5px; padding: 5px 14px;
-  font-family: var(--font-display); font-size: 0.72rem;
-  letter-spacing: 0.06em; color: var(--text-dim);
+  min-height: 30px;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 4px;
+  padding: 6px 13px;
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
   cursor: pointer; transition: all 0.15s;
 }
-.tab:hover { color: var(--text); border-color: rgba(201,168,76,0.2); }
+.tab:hover { background: var(--s2); color: var(--text); border-color: rgba(255,255,255,0.2); }
 .tabActive {
   background: rgba(201,168,76,0.12) !important;
-  border-color: rgba(201,168,76,0.4) !important;
+  border-color: rgba(201,168,76,0.25) !important;
   color: var(--gold) !important;
 }
 .tabHint {
@@ -121,10 +126,15 @@
   display: flex; gap: 8px; margin-bottom: 10px;
 }
 .btn {
-  flex: 1; padding: 9px 12px;
-  font-family: var(--font-display); font-size: 0.72rem;
-  letter-spacing: 0.06em; text-transform: uppercase;
-  border-radius: 5px; cursor: pointer;
+  flex: 1;
+  min-height: 30px;
+  padding: 6px 13px;
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  border-radius: 4px;
+  cursor: pointer;
   transition: all 0.15s; border: 1px solid;
   white-space: nowrap;
 }
@@ -146,8 +156,7 @@
 }
 .btnDownload:hover {
   background: rgba(201,168,76,0.16);
-  border-color: rgba(201,168,76,0.5);
-  box-shadow: 0 2px 12px rgba(201,168,76,0.1);
+  border-color: rgba(201,168,76,0.45);
 }
 .btnShare {
   color: var(--purple);
@@ -169,11 +178,12 @@
   font-style: italic; flex-shrink: 0;
 }
 .altBtn {
+  min-height: 30px;
   background: none;
-  border: 1px solid var(--s-border2);
-  border-radius: 4px; padding: 3px 10px;
-  font-family: var(--font-display); font-size: 0.67rem;
-  letter-spacing: 0.05em; color: var(--text-dim);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 4px; padding: 6px 13px;
+  font-family: var(--font-display); font-size: 0.72rem;
+  letter-spacing: 0.04em; color: var(--text-dim);
   cursor: pointer; transition: all 0.15s;
 }
 .altBtn:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }

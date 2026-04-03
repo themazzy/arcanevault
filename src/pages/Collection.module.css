@@ -35,14 +35,34 @@
 }
 
 .importBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
   font-family: var(--font-display);
-  font-size: 0.75rem; letter-spacing: 0.06em;
-  padding: 9px 16px; border-radius: 4px; cursor: pointer;
-  background: rgba(201,168,76,0.08); border: 1px solid rgba(201,168,76,0.25);
-  color: var(--gold-dim); transition: all 0.2s;
+  height: var(--control-height);
+  font-size: var(--control-font-size);
+  letter-spacing: var(--control-letter-spacing);
+  padding: 6px var(--control-padding-x);
+  border-radius: 4px;
+  cursor: pointer;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.16);
+  color: var(--text-dim);
+  transition: all 0.15s;
 }
 .importBtn:hover {
-  background: rgba(201,168,76,0.16);
-  color: var(--gold);
-  box-shadow: 0 4px 16px rgba(201,168,76,0.1);
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.28);
+  color: var(--text);
+}
+
+[data-theme-mode="light"] .importBtn {
+  background: rgba(255,251,245,0.94);
+  border-color: rgba(116,82,24,0.24);
+}
+
+[data-theme-mode="light"] .importBtn:hover {
+  background: rgba(255,246,235,0.98);
+  border-color: rgba(116,82,24,0.38);
 }

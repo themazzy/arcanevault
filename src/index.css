@@ -50,6 +50,10 @@
   --font-xl:   1.2rem;
   --font-2xl:  1.5rem;
   --font-3xl:  2rem;
+  --control-height: 30px;
+  --control-padding-x: 13px;
+  --control-font-size: 0.72rem;
+  --control-letter-spacing: 0.04em;
   --card-name-size: 0.68rem;
   --card-name-size-tight: 0.6rem;
   --card-name-size-list: 0.88rem;
@@ -226,7 +230,7 @@
   scroll-behavior: auto !important;
 }
 
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 
 html, body, #root {
   height: 100%;
@@ -234,6 +238,7 @@ html, body, #root {
 
 html {
   font-size: var(--user-font-size, 16px);
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
@@ -249,6 +254,38 @@ body {
 
 a { color: var(--purple); text-decoration: none; }
 a:hover { text-decoration: underline; }
+
+a,
+button,
+[role="button"],
+summary {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+a:focus,
+button:focus,
+[role="button"]:focus,
+summary:focus {
+  outline: none;
+}
+
+a:focus-visible,
+button:focus-visible,
+[role="button"]:focus-visible,
+summary:focus-visible {
+  outline: 1px solid var(--border-hi);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgba(201,168,76,0.18);
+  color: inherit;
+}
+
+[data-theme-mode="light"] ::selection {
+  background: rgba(141,93,0,0.16);
+}
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 6px; height: 6px; }

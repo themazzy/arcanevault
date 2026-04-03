@@ -34,9 +34,14 @@ function CardItem({ card, sfCard, selectMode, isSelected, totalQty, onSelect, on
     if (!selectMode) onEnterSelectMode?.()
   }, { delay: 500 })
 
-  const { onMouseLeave: lpLeave, ...lpRest } = longPress
+  const { onMouseLeave: lpLeave, fired: lpFired, ...lpRest } = longPress
 
   const handleClick = () => {
+    if (lpFired.current) {
+      lpFired.current = false
+      onToggleSelect?.(displayKey, totalQty)
+      return
+    }
     if (selectMode) {
       onToggleSelect?.(displayKey, totalQty)
     } else {
@@ -1996,6 +2001,22 @@ export function FilterBar({
     ['added', 'Recently Added'],
   ]
   const currentSortLabel = sortOptions.find(([v]) => v === sort)?.[1] || 'Sort'
+  const Chevron = ({ open = false }) => (
+    <svg
+      className={`${styles.filterChevron}${open ? ` ${styles.filterChevronOpen}` : ''}`}
+      width="10"
+      height="10"
+      viewBox="0 0 10 10"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <polyline points="2,3 5,6.5 8,3" />
+    </svg>
+  )
 
   return (
     <div className={styles.filterWrap}>
@@ -2022,7 +2043,7 @@ export function FilterBar({
           trigger={({ open, toggle }) => (
             <button className={styles.filterSortBtn} onClick={toggle}>
               <span>{currentSortLabel}</span>
-              <span>{open ? '▲' : '▼'}</span>
+              <Chevron open={open} />
             </button>
           )}
         >
@@ -2045,7 +2066,8 @@ export function FilterBar({
           className={`${styles.filterToggle}${open ? ' ' + styles.filterToggleOpen : ''}${activeCount ? ' ' + styles.filterToggleActive : ''}`}
           onClick={() => setOpen(v => !v)}
         >
-          {activeCount > 0 ? `Filters (${activeCount})` : 'Filters'} {open ? '▲' : '▼'}
+          <span>{activeCount > 0 ? `Filters (${activeCount})` : 'Filters'}</span>
+          <Chevron open={open} />
         </button>
         {extra}
         {onToggleSelectMode && (

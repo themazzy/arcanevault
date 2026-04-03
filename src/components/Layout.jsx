@@ -1,6 +1,7 @@
-import { useState, useEffect, useLayoutEffect } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { Capacitor } from '@capacitor/core'
+import { App as CapApp } from '@capacitor/app'
 import { sb } from '../lib/supabase'
 import { useAuth } from './Auth'
 import { maskEmailAddress, useSettings } from './SettingsContext'
@@ -30,6 +31,29 @@ export default function Layout({ children }) {
   const isNativeScannerRoute = isNative && isScannerRoute
   const [menuOpen, setMenuOpen] = useState(false)
   const [showFeedback, setShowFeedback] = useState(false)
+
+  const backPressedRef = useRef(false)
+  const backTimerRef = useRef(null)
+
+  useEffect(() => {
+    if (!isNative) return
+    let listener
+    const register = async () => {
+      listener = await CapApp.addListener('backButton', () => {
+        if (menuOpen) { setMenuOpen(false); return }
+        if (location.pathname !== '/') { navigate('/'); return }
+        if (backPressedRef.current) {
+          CapApp.exitApp()
+          return
+        }
+        backPressedRef.current = true
+        clearTimeout(backTimerRef.current)
+        backTimerRef.current = setTimeout(() => { backPressedRef.current = false }, 2000)
+      })
+    }
+    register()
+    return () => { listener?.remove(); clearTimeout(backTimerRef.current) }
+  }, [isNative, menuOpen, location.pathname, navigate])
 
   useEffect(() => {
     setMenuOpen(false)

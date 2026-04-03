@@ -1,13 +1,55 @@
 import { Children, isValidElement, useState, useRef, useEffect, useLayoutEffect } from 'react'
 import styles from './UI.module.css'
 
-export function Button({ children, variant = 'default', size = 'md', onClick, disabled, type = 'button', className = '' }) {
+function ChevronIcon({ open = false }) {
+  return (
+    <svg
+      className={`${styles.chevronIcon}${open ? ` ${styles.chevronIconOpen}` : ''}`}
+      width="10"
+      height="10"
+      viewBox="0 0 10 10"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <polyline points="2,3 5,6.5 8,3" />
+    </svg>
+  )
+}
+
+export function Button({
+  children,
+  variant = 'default',
+  size = 'md',
+  onClick,
+  disabled,
+  type = 'button',
+  className = '',
+  active = false,
+  block = false,
+  icon = false,
+  style,
+  ...props
+}) {
   return (
     <button
       type={type}
-      className={`${styles.btn} ${styles[variant]} ${styles[size]} ${className}`}
+      className={[
+        styles.btn,
+        styles[variant],
+        styles[size],
+        active ? styles.active : '',
+        block ? styles.block : '',
+        icon ? styles.iconOnly : '',
+        className,
+      ].filter(Boolean).join(' ')}
       onClick={onClick}
       disabled={disabled}
+      style={style}
+      {...props}
     >
       {children}
     </button>
@@ -71,7 +113,7 @@ export function Select({ value, onChange, children, className = '', style, disab
           disabled={disabled}
         >
           <span className={styles.selectLabel}>{selected?.label || ''}</span>
-          <span className={styles.selectChevron} aria-hidden="true">{open ? '▲' : '▼'}</span>
+          <span className={styles.selectChevron}><ChevronIcon open={open} /></span>
         </button>
       )}
     >
