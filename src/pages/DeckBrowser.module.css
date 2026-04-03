@@ -2,7 +2,7 @@
 .deckBrowser { display: flex; flex-direction: column; gap: 0; }
 
 /* Header */
-.header { position: relative; margin-bottom: 12px; overflow: hidden; border-radius: 8px; padding: 4px 0; }
+.header { position: relative; margin-bottom: 12px; overflow: hidden; border-radius: 8px; padding: 10px 14px; border: 1px solid var(--border); }
 .headerBg {
   position: absolute;
   inset: 0;
@@ -29,33 +29,43 @@
 .headerMeta { display: flex; align-items: center; gap: 12px; color: var(--text-dim); font-size: 0.85rem; flex-wrap: wrap; }
 .deckValue { color: var(--green); font-family: var(--font-display); font-size: 1rem; font-weight: 600; }
 .addCardsBtn {
-  background: var(--s-subtle);
-  border: 1px solid var(--s-border2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: var(--control-height);
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.1);
   border-radius: 4px;
-  padding: 5px 12px;
+  padding: 6px var(--control-padding-x);
   color: var(--text-dim);
   font-family: var(--font-display);
-  font-size: 0.75rem;
-  letter-spacing: 0.05em;
+  font-size: var(--control-font-size);
+  letter-spacing: var(--control-letter-spacing);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
   white-space: nowrap;
 }
-.addCardsBtn:hover { background: rgba(201,168,76,0.1); border-color: rgba(201,168,76,0.35); color: var(--gold); }
+.addCardsBtn:hover { background: var(--s2); border-color: rgba(255,255,255,0.2); color: var(--text); }
 .editInBuilderBtn {
-  background: rgba(201,168,76,0.1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: var(--control-height);
+  background: rgba(201,168,76,0.12);
   border: 1px solid rgba(201,168,76,0.3);
   border-radius: 4px;
-  padding: 5px 12px;
+  padding: 6px var(--control-padding-x);
   color: var(--gold);
   font-family: var(--font-display);
-  font-size: 0.75rem;
-  letter-spacing: 0.05em;
+  font-size: var(--control-font-size);
+  letter-spacing: var(--control-letter-spacing);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
   white-space: nowrap;
 }
-.editInBuilderBtn:hover { background: rgba(201,168,76,0.2); border-color: rgba(201,168,76,0.5); }
+.editInBuilderBtn:hover { background: rgba(201,168,76,0.22); border-color: rgba(201,168,76,0.45); }
 
 /* Stats toggle */
 .statsToggle {
@@ -136,10 +146,12 @@
 /* Curve mode toggle */
 .curveModeToggle { display: flex; gap: 3px; margin-left: auto; }
 .curveModeBtn {
+  display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box;
+  min-width: 30px; height: var(--control-height);
   background: none; border: 1px solid var(--s-border2);
-  border-radius: 3px; padding: 2px 7px; font-size: 0.6rem;
+  border-radius: 4px; padding: 6px 10px; font-size: var(--control-font-size);
   color: var(--text-faint); cursor: pointer;
-  font-family: var(--font-display); letter-spacing: 0.04em;
+  font-family: var(--font-display); letter-spacing: var(--control-letter-spacing);
   transition: all 0.15s;
 }
 .curveModeBtn:hover { color: var(--text); }
@@ -306,23 +318,29 @@
   gap: 1px;
 }
 .viewBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
   background: transparent;
-  border: none;
-  border-radius: 3px;
-  padding: 4px 11px;
-  color: var(--text-faint);
-  font-size: 0.72rem;
+  height: var(--control-height);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 4px;
+  padding: 6px var(--control-padding-x);
+  color: var(--text-dim);
+  font-size: var(--control-font-size);
   font-family: var(--font-display);
-  letter-spacing: 0.04em;
+  letter-spacing: var(--control-letter-spacing);
   cursor: pointer;
   transition: all 0.15s;
   white-space: nowrap;
 }
-.viewBtn:hover { color: var(--text-dim); background: var(--s-subtle); }
+.viewBtn:hover { color: var(--text); background: var(--s2); border-color: rgba(255,255,255,0.2); }
 .viewActive {
   color: var(--gold) !important;
-  background: rgba(201,168,76,0.1) !important;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  background: rgba(201,168,76,0.12) !important;
+  border-color: rgba(201,168,76,0.25) !important;
+  box-shadow: none;
 }
 
 /* ── Deck List View ──────────────────────────────────────────────────────── */
@@ -674,9 +692,11 @@
 .controlLeft { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .groupByToggle { display: flex; gap: 2px; }
 .groupByBtn {
+  display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box;
+  height: var(--control-height);
   background: var(--s-card); border: 1px solid var(--border);
-  border-radius: 3px; padding: 4px 10px; color: var(--text-faint);
-  font-size: 0.72rem; font-family: var(--font-display); letter-spacing: 0.03em;
+  border-radius: 4px; padding: 6px var(--control-padding-x); color: var(--text-faint);
+  font-size: var(--control-font-size); font-family: var(--font-display); letter-spacing: var(--control-letter-spacing);
   cursor: pointer; transition: all 0.15s;
 }
 .groupByBtn:hover { color: var(--text); border-color: var(--s-border2); }
@@ -709,6 +729,11 @@
   /* Header: stack name + meta vertically, shrink buttons */
   .deckName { font-size: 1.1rem; }
   .headerMeta { gap: 6px; }
-  .addCardsBtn { font-size: 0.68rem; padding: 4px 8px; }
-  .editInBuilderBtn { font-size: 0.68rem; padding: 4px 8px; }
+  .addCardsBtn,
+  .editInBuilderBtn,
+  .viewBtn {
+    height: var(--control-height);
+    font-size: var(--control-font-size);
+    padding: 6px var(--control-padding-x);
+  }
 }

@@ -1306,6 +1306,10 @@ export default function DeckBuilderPage() {
   const [cmdTags,        setCmdTags]        = useState([])
   const [newTagInput,    setNewTagInput]    = useState('')
 
+  // Mobile leftTop collapse: auto-collapses when commander is first set on mobile
+  const [leftTopOpen, setLeftTopOpen] = useState(true)
+  const leftTopAutoCollapsedRef = useRef(false)
+
   // Refs
   const deckCardsRef    = useRef(deckCards)
   const searchDebounce  = useRef(makeDebouncer(350))
@@ -1537,6 +1541,14 @@ export default function DeckBuilderPage() {
   const isEDH          = format?.isEDH ?? false
   const commanderCards = useMemo(() => deckCards.filter(dc => dc.is_commander), [deckCards])
   const commanderCard  = commanderCards[0] ?? null
+
+  // Auto-collapse format/commander section on mobile once commander is set
+  useEffect(() => {
+    if (commanderCard && !leftTopAutoCollapsedRef.current && window.innerWidth <= 900) {
+      leftTopAutoCollapsedRef.current = true
+      setLeftTopOpen(false)
+    }
+  }, [commanderCard])
   const partnerCard    = commanderCards[1] ?? null
   const totalCards     = useMemo(() => deckCards.reduce((s, dc) => s + dc.qty, 0), [deckCards])
   const ownedCount     = useMemo(() => deckCards.filter(dc =>
@@ -2699,15 +2711,18 @@ export default function DeckBuilderPage() {
         </div>
         <div className={styles.headerActions}>
           {(isCollectionDeck || deckMeta.linked_deck_id) && (
-            <button className={styles.headerBtnPrimary} onClick={() => setShowSync(true)} disabled={syncRunning}>
-              {syncRunning ? 'Syncing...' : 'Sync'}
+            <button className={styles.headerBtnPrimary} onClick={() => setShowSync(true)} disabled={syncRunning} title="Sync collection">
+              <span className={styles.btnIcon}>{syncRunning ? '…' : '↺'}</span>
+              <span className={styles.btnLabel}>{syncRunning ? 'Syncing...' : 'Sync'}</span>
             </button>
           )}
-          <button className={styles.headerBtn} onClick={() => { setShowImport(true); setImportDone(null); setImportError(null) }}>
-            Import
+          <button className={styles.headerBtn} onClick={() => { setShowImport(true); setImportDone(null); setImportError(null) }} title="Import decklist">
+            <span className={styles.btnIcon}>↓</span>
+            <span className={styles.btnLabel}>Import</span>
           </button>
-          <button className={styles.headerBtn} onClick={() => setShowExport(true)}>
-            Export
+          <button className={styles.headerBtn} onClick={() => setShowExport(true)} title="Export decklist">
+            <span className={styles.btnIcon}>↑</span>
+            <span className={styles.btnLabel}>Export</span>
           </button>
           <button
             className={styles.headerBtn}
@@ -2718,15 +2733,18 @@ export default function DeckBuilderPage() {
             }}
             title="Copy shareable link"
           >
-            {shareCopied ? 'Copied' : 'Share'}
+            <span className={styles.btnIcon}>{shareCopied ? '✓' : '⎘'}</span>
+            <span className={styles.btnLabel}>{shareCopied ? 'Copied' : 'Share'}</span>
           </button>
           {!isCollectionDeck && !deckMeta.linked_deck_id && (
-            <button className={styles.headerBtnPrimary} onClick={() => setShowMakeDeck(true)} disabled={makeDeckRunning}>
-              {makeDeckRunning ? 'Creating...' : 'Make Collection Deck'}
+            <button className={styles.headerBtnPrimary} onClick={() => setShowMakeDeck(true)} disabled={makeDeckRunning} title="Make Collection Deck">
+              <span className={styles.btnIcon}>{makeDeckRunning ? '…' : '⊕'}</span>
+              <span className={styles.btnLabel}>{makeDeckRunning ? 'Creating...' : 'Make Collection Deck'}</span>
             </button>
           )}
-          <Link className={styles.headerLink} to="/builder">
-            Back to Decks
+          <Link className={styles.headerLink} to="/builder" title="Back to Decks">
+            <span className={styles.btnIcon}>←</span>
+            <span className={styles.btnLabel}>Back to Decks</span>
           </Link>
         </div>
       </div>
@@ -2735,60 +2753,72 @@ export default function DeckBuilderPage() {
       <div className={styles.left}>
         {/* Mobile panel toggle — rendered outside the left panel so it stays visible */}
         <div className={styles.leftTop}>
-          {/* Format selector */}
-          <div className={styles.formatRow}>
-            <span className={styles.formatLabel}>Format</span>
-            <Select
-              className={styles.formatSelect}
-              value={deckMeta.format || 'commander'}
-              onChange={e => handleFormatChange(e.target.value)}
-              title="Select format"
-            >
-              {FORMATS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
-            </Select>
+          {/* Mobile toggle for format/commander — hidden on desktop via CSS */}
+          <div className={styles.leftTopToggle} onClick={() => setLeftTopOpen(v => !v)}>
+            <div className={styles.leftTopToggleSummary}>
+              <span>{format?.label ?? 'Format'}</span>
+              {commanderCard && <span className={styles.leftTopToggleCmdr}>· {commanderCard.name}</span>}
+            </div>
+            <span className={styles.leftTopToggleChevron}>{leftTopOpen ? '▲' : '▼'}</span>
           </div>
 
-          {/* Commander picker */}
-          {isEDH && (
-            <div className={styles.cmdSection}>
-              <div className={styles.cmdLabel}>Commander</div>
-              {commanderCard && !showCmdPicker ? (
-                <div className={styles.cmdSelected} onClick={() => setShowCmdPicker(true)}>
-                  {commanderCard.image_uri && (
-                    <img className={styles.cmdImg} src={commanderCard.image_uri} alt="" />
-                  )}
-                  <span className={styles.cmdName}>{commanderCard.name}</span>
-                  <span className={styles.cmdChange}>change</span>
-                </div>
-              ) : (
-                <div>
-                  <input
-                    autoFocus={showCmdPicker}
-                    className={styles.cmdInput}
-                    value={cmdQuery}
-                    onChange={e => handleCmdQuery(e.target.value)}
-                    onBlur={() => setTimeout(() => setShowCmdPicker(false), 200)}
-                    placeholder="Search for a commander…"
-                  />
-                  {showCmdPicker && cmdResults.length > 0 && (
-                    <div className={styles.cmdDropdown}>
-                      {cmdResults.map(c => (
-                        <div key={c.id} className={styles.cmdResult} onMouseDown={() => pickCommander(c)}>
-                          {getCardImageUri(c, 'small') && (
-                            <img className={styles.cmdResultImg} src={getCardImageUri(c, 'small')} alt="" />
-                          )}
-                          <div>
-                            <div className={styles.cmdResultName}>{c.name}</div>
-                            <div className={styles.cmdResultType}>{c.type_line}</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
+          {/* Collapsible content — always visible on desktop, animated on mobile */}
+          <div className={`${styles.leftTopContent} ${!leftTopOpen ? styles.leftTopContentCollapsed : ''}`}>
+            {/* Format selector */}
+            <div className={styles.formatRow}>
+              <span className={styles.formatLabel}>Format</span>
+              <Select
+                className={styles.formatSelect}
+                value={deckMeta.format || 'commander'}
+                onChange={e => handleFormatChange(e.target.value)}
+                title="Select format"
+              >
+                {FORMATS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+              </Select>
             </div>
-          )}
+
+            {/* Commander picker */}
+            {isEDH && (
+              <div className={styles.cmdSection}>
+                <div className={styles.cmdLabel}>Commander</div>
+                {commanderCard && !showCmdPicker ? (
+                  <div className={styles.cmdSelected} onClick={() => setShowCmdPicker(true)}>
+                    {commanderCard.image_uri && (
+                      <img className={styles.cmdImg} src={commanderCard.image_uri} alt="" />
+                    )}
+                    <span className={styles.cmdName}>{commanderCard.name}</span>
+                    <span className={styles.cmdChange}>change</span>
+                  </div>
+                ) : (
+                  <div>
+                    <input
+                      autoFocus={showCmdPicker}
+                      className={styles.cmdInput}
+                      value={cmdQuery}
+                      onChange={e => handleCmdQuery(e.target.value)}
+                      onBlur={() => setTimeout(() => setShowCmdPicker(false), 200)}
+                      placeholder="Search for a commander…"
+                    />
+                    {showCmdPicker && cmdResults.length > 0 && (
+                      <div className={styles.cmdDropdown}>
+                        {cmdResults.map(c => (
+                          <div key={c.id} className={styles.cmdResult} onMouseDown={() => pickCommander(c)}>
+                            {getCardImageUri(c, 'small') && (
+                              <img className={styles.cmdResultImg} src={getCardImageUri(c, 'small')} alt="" />
+                            )}
+                            <div>
+                              <div className={styles.cmdResultName}>{c.name}</div>
+                              <div className={styles.cmdResultType}>{c.type_line}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Tabs */}

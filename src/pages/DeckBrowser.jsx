@@ -805,13 +805,17 @@ export default function DeckBrowser({ folder, onBack }) {
   ]
 
   const deckMeta = parseDeckMeta(folder.description || '{}')
+  // Use only the explicitly-set bg_url for the header background.
+  // coverArtUri is the builder-deck commander art — it is not a user-chosen
+  // background for the collection deck view and should not bleed through here.
+  const folderBgUrl = (() => { try { return JSON.parse(folder.description || '{}').bg_url || null } catch { return null } })()
 
   return (
     <div className={styles.deckBrowser} onMouseMove={handleMouseMove} onMouseLeave={handleHoverEnd}>
       {/* Header */}
       <div className={styles.header}>
-        {deckMeta.coverArtUri && (
-          <div className={styles.headerBg} style={{ backgroundImage: `url(${deckMeta.coverArtUri})` }} />
+        {folderBgUrl && (
+          <div className={styles.headerBg} style={{ backgroundImage: `url(${folderBgUrl})` }} />
         )}
         <button className={styles.backBtn} onClick={onBack}>← Back to Decks</button>
         <div className={styles.titleRow}>
@@ -869,9 +873,16 @@ export default function DeckBrowser({ folder, onBack }) {
         <BulkActionBar
           selected={selectedCards}
           selectedQty={selectedQty}
-          total={filtered.length}
-          onSelectAll={() => setSelectedCards(new Set(filtered.map(c => c.id)))}
-          onDeselectAll={() => setSelectedCards(new Set())}
+          total={filtered.reduce((s, c) => s + (c._folder_qty || c.qty || 1), 0)}
+          onSelectAll={() => {
+            setSelectedCards(new Set(filtered.map(c => c.id)))
+            setSplitState(new Map(
+              filtered
+                .filter(c => (c._folder_qty || c.qty || 1) > 1)
+                .map(c => [c.id, c._folder_qty || c.qty || 1])
+            ))
+          }}
+          onDeselectAll={() => clearSelect()}
           onDelete={handleBulkDelete}
           onMoveToFolder={handleMoveToFolder}
           folders={allFolders.filter(f => f.id !== folder.id)}
