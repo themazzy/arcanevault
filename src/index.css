@@ -292,3 +292,11 @@ a:hover { text-decoration: underline; }
   background-image: none;
   background-color: #000000;
 }
+
+/* Native scanner — make entire WebView transparent so camera shows through */
+html[data-scanner],
+html[data-scanner] body,
+html[data-scanner] #root {
+  background: transparent !important;
+  background-image: none !important;
+}
