@@ -693,14 +693,14 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
     <div>
       {/* ── Binder header ── */}
       <div className={styles.binderHeader}>
-        <button className={styles.backBtn} onClick={onBack}>← Back to {noun}s</button>
+        <Button variant="ghost" size="sm" className={styles.backBtn} onClick={onBack}>← Back to {noun}s</Button>
         <div className={styles.binderTitleRow}>
           <h2 className={styles.binderTitle}>{browserTitle}</h2>
           <div className={styles.binderMeta}>
             <span>{totalQty} cards</span>
             <span className={styles.binderValue}>{formatPrice(totalValue, price_source)}</span>
-            <button className={styles.addCardsBtn} onClick={() => setShowExport(true)}>↓ Export</button>
-            <button className={styles.addCardsBtn} onClick={() => setShowAddCard(true)}>+ Add Cards</button>
+            <Button variant="secondary" size="sm" onClick={() => setShowExport(true)}>↓ Export</Button>
+            <Button size="sm" onClick={() => setShowAddCard(true)}>+ Add Cards</Button>
           </div>
         </div>
       </div>
@@ -720,11 +720,11 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
             ? `${filtered.length} of ${cards.length} unique`
             : `${cards.length} unique`} · {totalQty} total
         </span>
-        <div className={styles.viewToggle}>
-          <button className={`${styles.viewBtn} ${view === 'grid' ? styles.viewActive : ''}`}
-            onClick={() => setView('grid')}>⊞ Grid</button>
-          <button className={`${styles.viewBtn} ${view === 'list' ? styles.viewActive : ''}`}
-            onClick={() => setView('list')}>≡ List</button>
+        <div className={`${styles.viewToggle} ${uiStyles.segmented}`}>
+          <Button variant="toggle" size="sm" active={view === 'grid'}
+            onClick={() => setView('grid')}>⊞ Grid</Button>
+          <Button variant="toggle" size="sm" active={view === 'list'}
+            onClick={() => setView('list')}>≡ List</Button>
         </div>
       </div>
 
@@ -732,8 +732,15 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
         <BulkActionBar
           selected={selectedCards}
           selectedQty={selectedQty}
-          total={filtered.length}
-          onSelectAll={() => setSelectedCards(new Set(filtered.map(c => getCardKey(c))))}
+          total={filtered.reduce((s, c) => s + (c._folder_qty || c.qty || 1), 0)}
+          onSelectAll={() => {
+            setSelectedCards(new Set(filtered.map(c => getCardKey(c))))
+            setSplitState(new Map(
+              filtered
+                .filter(c => (c._folder_qty || c.qty || 1) > 1)
+                .map(c => [getCardKey(c), c._folder_qty || c.qty || 1])
+            ))
+          }}
           onDeselectAll={() => { setSelectedCards(new Set()); setSplitState(new Map()) }}
           onDelete={handleBulkDelete}
           onMoveToFolder={handleMoveToFolder}
@@ -955,21 +962,21 @@ function DeleteFolderModal({ folder, onDone, onCancel }) {
                   }}
                   placeholder={`Create new ${mode}…`}
                 />
-                <button
-                  className={styles.newGroupSaveBtn}
+                <Button
+                  size="sm"
                   disabled={busy || !createName.trim()}
                   onClick={handleCreateTarget}>
                   Create
-                </button>
+                </Button>
               </div>
             </>
           )}
 
-          <button className={styles.deleteConfirmBtn}
+          <Button variant="danger" block
             disabled={!canConfirm || busy}
             onClick={handleConfirm}>
             {busy ? 'Working…' : 'Confirm Delete'}
-          </button>
+          </Button>
         </>
       )}
     </Modal>
@@ -1101,21 +1108,21 @@ function BulkDeleteModal({ nonEmpty, empty, onDone, onCancel }) {
                   }}
                   placeholder={`Create new ${mode}…`}
                 />
-                <button
-                  className={styles.newGroupSaveBtn}
+                <Button
+                  size="sm"
                   disabled={busy || !createName.trim()}
                   onClick={handleCreateTarget}>
                   Create
-                </button>
+                </Button>
               </div>
             </>
           )}
 
-          <button className={styles.deleteConfirmBtn}
+          <Button variant="danger" block
             disabled={!canConfirm || busy}
             onClick={handleConfirm}>
             {busy ? 'Working…' : `Delete ${nonEmpty.length + empty.length} folders`}
-          </button>
+          </Button>
         </>
       )}
     </Modal>
@@ -1474,34 +1481,32 @@ export default function FoldersPage({ type }) {
             <div className={styles.headerActions}>
               {selectMode ? (
                 <>
-                <button className={styles.cancelSelectBtn} onClick={exitSelectMode}>
-                  Cancel
-                </button>
+                <Button variant="ghost" size="sm" onClick={exitSelectMode}>Cancel</Button>
                 {groups.length > 0 && (
-                  <button
-                    className={styles.newGroupBtn}
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     disabled={selectedIds.size === 0}
                     onClick={() => setShowBulkMoveGroup(true)}>
                     📁 Group ({selectedIds.size})
-                  </button>
+                  </Button>
                 )}
-                <button
-                  className={styles.bulkDeleteBtn}
+                <Button
+                  variant="danger"
+                  size="sm"
                   disabled={selectedIds.size === 0}
                   onClick={handleBulkDelete}>
                   <TrashIcon size={12} />
                   Delete ({selectedIds.size})
-                </button>
+                </Button>
                 </>
               ) : (
                 <>
-                <button className={styles.newGroupBtn} onClick={() => setShowNewGroup(true)}>
-                  + New Group
-                </button>
-                <button className={styles.importBtn} onClick={() => setShowImport(true)}>↑ Import</button>
-                <button className={styles.importBtn} onClick={handleExportAll}>↓ Export</button>
-                <button className={styles.newFolderBtn} onClick={() => setShowNewFolder(true)}>+ New {noun}</button>
-                <button className={styles.selectModeBtn} onClick={() => setSelectMode(true)}>Select</button>
+                <Button variant="secondary" size="sm" onClick={() => setShowNewGroup(true)}>+ New Group</Button>
+                <Button variant="ghost" size="sm" onClick={() => setShowImport(true)}>↑ Import</Button>
+                <Button variant="ghost" size="sm" onClick={handleExportAll}>↓ Export</Button>
+                <Button size="sm" onClick={() => setShowNewFolder(true)}>+ New {noun}</Button>
+                <Button variant="ghost" size="sm" onClick={() => setSelectMode(true)}>Select</Button>
                 <input
                   className={styles.folderSearch}
                   value={folderSearch}

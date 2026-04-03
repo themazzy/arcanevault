@@ -801,8 +801,16 @@ export default function CollectionPage() {
 
         {selectMode && selected.size > 0 && (
           <BulkActionBar
-            selected={selected} selectedQty={selectedQty} total={filtered.length}
-            onSelectAll={() => setSelected(new Set(displayCards.map(c => c._displayKey || c.id)))}
+            selected={selected} selectedQty={selectedQty}
+            total={displayCards.reduce((s, c) => s + (c.qty || 1), 0)}
+            onSelectAll={() => {
+              setSelected(new Set(displayCards.map(c => c._displayKey || c.id)))
+              setSplitState(new Map(
+                displayCards
+                  .filter(c => (c.qty || 1) > 1)
+                  .map(c => [c.id, c.qty || 1])
+              ))
+            }}
             onDeselectAll={() => { setSelected(new Set()); setSplitState(new Map()) }}
             onDelete={handleBulkDelete}
             onMoveToFolder={handleMoveToFolder}
