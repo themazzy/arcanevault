@@ -154,6 +154,12 @@
   color: var(--text-dim, #9a8870);
 }
 
+.deckValue {
+  color: var(--green, #5dba70);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .commanderBadge {
   display: inline-flex;
   align-items: center;
@@ -177,7 +183,7 @@
   align-items: start;
 }
 
-@media (max-width: 700px) {
+@media (max-width: 1100px) {
   .body {
     grid-template-columns: 1fr;
     padding: 20px 20px 60px;
@@ -418,7 +424,7 @@
   border-radius: 2px;
 }
 
-@media (max-width: 700px) {
+@media (max-width: 1100px) {
   .sidebar { position: static; max-height: none; overflow-y: visible; }
   .deckListPanel { position: static; max-height: none; overflow-y: visible; }
 }
@@ -721,3 +727,104 @@
   pointer-events: none;
   transition: opacity 0.1s;
 }
+
+/* ── List controls row ─────────────────────────────────────────────────────── */
+.listControls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* sortSelect sits inside a viewToggles pill — matches vBtn visually */
+.sortSelect {
+  background: none;
+  border: none;
+  border-right: 1px solid rgba(255,255,255,0.07);
+  border-radius: 0;
+  color: var(--text-faint, #6a6058);
+  font-size: 0.88rem;
+  line-height: 1;
+  padding: 4px 8px;
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.sortSelect:focus { color: var(--text-dim); }
+.sortSelect option { background: var(--bg2, #1a1628); }
+
+/* ── Decklist modal ────────────────────────────────────────────────────────── */
+.decklistBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(4px);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.decklistModal {
+  background: var(--bg2, #1a1628);
+  border: 1px solid rgba(201,168,76,0.2);
+  border-radius: 10px;
+  width: 100%;
+  max-width: 520px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.7);
+}
+
+.decklistHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  flex-shrink: 0;
+}
+
+.decklistTitle {
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.decklistHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.decklistClose {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: color 0.12s;
+}
+.decklistClose:hover { color: var(--text); }
+
+.decklistText {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 18px;
+  margin: 0;
+  font-family: 'Courier New', monospace;
+  font-size: 0.8rem;
+  line-height: 1.7;
+  color: var(--text-dim);
+  white-space: pre;
+}
+.decklistText::-webkit-scrollbar { width: 4px; }
+.decklistText::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }

@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
-## ⚠️ Do Not Use Subagents
+## ⚠️ Do Not OverUse Subagents
 
-**Never** spawn subagents (Agent tool) for any task in this project. Perform all research, searches, and edits directly in the main conversation. Subagents waste tokens.
+Only spawn subagents (Agent tool) when necessary for this project. Try to perform research, searches, and edits directly in the main conversation. Subagents waste tokens.
 
 ---
 

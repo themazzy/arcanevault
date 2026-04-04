@@ -5,7 +5,12 @@ import { useAuth } from '../components/Auth'
 import { parseDeckMeta, serializeDeckMeta, FORMATS, groupDeckCards, TYPE_GROUPS } from '../lib/deckBuilderApi'
 import DeckStats, { normalizeDeckBuilderCards } from '../components/DeckStats'
 import styles from './DeckView.module.css'
+import uiStyles from '../components/UI.module.css'
 import { fetchDeckCards } from '../lib/deckData'
+import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
+import { getPrice, formatPrice } from '../lib/scryfall'
+import { ResponsiveMenu } from '../components/UI'
+import { CardBrowserContent, CARD_BROWSER_VIEW_MODES } from '../components/CardBrowserViews'
 
 // ── Mana / symbol renderer ────────────────────────────────────────────────────
 // Converts Scryfall notation like {W}, {T}, {2/U}, {X} → inline SVG images.
@@ -133,24 +138,22 @@ export default function DeckViewPage() {
   const [error, setError]       = useState(null)
 
   const [detailCard, setDetailCard] = useState(null)
-  const [deckView, setDeckView]     = useState('grid')
+  const [viewMode, setViewMode]     = useState('grid')
   const [hoverImg, setHoverImg]     = useState(null)
   const [hoverPos, setHoverPos]     = useState({ x: 0, y: 0 })
+  useEffect(() => {
+    const handler = e => setHoverPos({ x: e.clientX, y: e.clientY })
+    window.addEventListener('mousemove', handler)
+    return () => window.removeEventListener('mousemove', handler)
+  }, [])
   const [copying, setCopying]       = useState(false)
   const [copyDone, setCopyDone]     = useState(false)
 
-  // wide = show deck list in 2-col typographic layout (enough horizontal room)
-  const [wide, setWide] = useState(() => window.innerWidth >= 1100)
-  useEffect(() => {
-    const handler = () => setWide(window.innerWidth >= 1100)
-    window.addEventListener('resize', handler)
-    return () => window.removeEventListener('resize', handler)
-  }, [])
-
-  const [combosLoading,  setCombosLoading]  = useState(false)
-  const [combosFetched,  setCombosFetched]  = useState(false)
-  const [combosIncluded, setCombosIncluded] = useState([])
-  const [combosAlmost,   setCombosAlmost]   = useState([])
+  const [sortBy,    setSortBy]    = useState('type')  // 'type' | 'name' | 'cmc' | 'color'
+  const [groupBy,   setGroupBy]   = useState('type')  // 'type' | 'none'
+  const [showDecklist, setShowDecklist] = useState(false)
+  const [decklistCopied, setDecklistCopied] = useState(false)
+  const [sfMap,     setSfMap]     = useState({})
 
   const [statsBracketOverride, setStatsBracketOverride] = useState(null)
 
@@ -169,39 +172,11 @@ export default function DeckViewPage() {
       const deckCards = await fetchDeckCards(id)
       setCards(deckCards || [])
       setLoading(false)
+      if (deckCards?.length) {
+        loadCardMapWithSharedPrices(deckCards).then(setSfMap).catch(() => {})
+      }
     })()
   }, [id, user])
-
-  // ── Fetch combos once cards load ────────────────────────────────────────────
-  async function fetchCombos() {
-    if (combosLoading) return
-    setCombosLoading(true)
-    try {
-      const commander = cards.find(c => c.is_commander)
-      const body = {
-        commanders: commander ? [{ card: commander.name }] : [],
-        main: cards.filter(c => !c.is_commander).map(c => ({ card: c.name })),
-      }
-      const res = await fetch('/api/combos/find-my-combos/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      if (!res.ok) throw new Error(`API ${res.status}`)
-      const data = await res.json()
-      const r = data.results || {}
-      setCombosIncluded(r.included || [])
-      setCombosAlmost([...(r.almostIncluded || []), ...(r.almostIncludedByAddingColors || [])])
-      setCombosFetched(true)
-    } catch (e) {
-      console.warn('[DeckView Combos]', e)
-    }
-    setCombosLoading(false)
-  }
-
-  useEffect(() => {
-    if (cards.length > 0 && !combosFetched && !combosLoading) fetchCombos()
-  }, [cards]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Copy deck to own builder ────────────────────────────────────────────────
   async function copyDeck() {
@@ -244,8 +219,64 @@ export default function DeckViewPage() {
   // ── Derived values ─────────────────────────────────────────────────────────
   const isOwner    = user && deck?.user_id === user.id
   const format     = FORMATS.find(f => f.id === deckMeta.format)
-  const grouped    = groupDeckCards(cards)
   const totalCards = cards.reduce((s, c) => s + c.qty, 0)
+
+  // Sort cards according to sortBy
+  const sortCards = (list) => {
+    const copy = [...list]
+    if (sortBy === 'name') return copy.sort((a, b) => a.name.localeCompare(b.name))
+    if (sortBy === 'cmc')  return copy.sort((a, b) => (a.cmc ?? 0) - (b.cmc ?? 0) || a.name.localeCompare(b.name))
+    if (sortBy === 'color') return copy.sort((a, b) => {
+      const ca = (a.color_identity || []).join('') || 'Z'
+      const cb = (b.color_identity || []).join('') || 'Z'
+      return ca.localeCompare(cb) || a.name.localeCompare(b.name)
+    })
+    return copy // 'type' — groupDeckCards handles ordering
+  }
+
+  const groupedCards  = groupDeckCards(cards) // Map<group, cards[]>
+  const sortedFlat    = sortCards(cards)
+
+  // Total deck value
+  const totalValue = cards.reduce((sum, c) => {
+    const sfCard = sfMap[`${c.set_code}-${c.collector_number}`]
+    const p = getPrice(sfCard, c.foil)
+    return p != null ? sum + p * c.qty : sum
+  }, 0)
+  const totalValueFmt = totalValue > 0 ? formatPrice(totalValue) : null
+
+  // Build plain-text decklist for copy
+  const buildDecklist = () => {
+    const commander = cards.filter(c => c.is_commander)
+    const main      = cards.filter(c => !c.is_commander && c.board !== 'side' && c.board !== 'maybe')
+    const side      = cards.filter(c => c.board === 'side')
+    const lines = []
+    if (commander.length) {
+      lines.push('// Commander')
+      commander.forEach(c => lines.push(`${c.qty} ${c.name}`))
+      lines.push('')
+    }
+    if (groupBy === 'type') {
+      TYPE_GROUPS.forEach(group => {
+        const gc = groupedCards.get(group)?.filter(c => !c.is_commander && c.board !== 'side' && c.board !== 'maybe')
+        if (!gc?.length) return
+        lines.push(`// ${group}`)
+        sortCards(gc).forEach(c => lines.push(`${c.qty} ${c.name}`))
+        lines.push('')
+      })
+    } else {
+      if (main.length) {
+        lines.push('// Main')
+        sortCards(main).forEach(c => lines.push(`${c.qty} ${c.name}`))
+        lines.push('')
+      }
+    }
+    if (side.length) {
+      lines.push('// Sideboard')
+      sortCards(side).forEach(c => lines.push(`${c.qty} ${c.name}`))
+    }
+    return lines.join('\n').trim()
+  }
 
   // Best available card image
   const cardImg = (c) =>
@@ -316,6 +347,7 @@ export default function DeckViewPage() {
           {format && <span className={styles.formatBadge}>{format.label}</span>}
           {format && <span className={styles.metaDot}>·</span>}
           <span>{totalCards} cards</span>
+          {totalValueFmt && <><span className={styles.metaDot}>·</span><span className={styles.deckValue}>{totalValueFmt}</span></>}
           {deckMeta.commanderName && (
             <>
               <span className={styles.metaDot}>·</span>
@@ -331,81 +363,88 @@ export default function DeckViewPage() {
         {/* ── Left: deck list — the star of the page ── */}
         <div className={styles.deckListPanel}>
 
-          {/* Header: label + view toggle */}
+          {/* Header: label + controls */}
           <div className={styles.listHeader}>
             <span className={styles.listLabel}>Decklist · {totalCards}</span>
-            <div className={styles.viewToggles}>
+            <div className={styles.listControls}>
+              {/* Sort menu */}
+              <ResponsiveMenu
+                trigger={({ open, toggle }) => (
+                  <button
+                    className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.ghost} ${open ? uiStyles.active : ''}`}
+                    onClick={toggle}
+                  >
+                    Sort: {sortBy === 'type' ? 'Type' : sortBy === 'name' ? 'Name' : sortBy === 'cmc' ? 'CMC' : 'Color'} ▾
+                  </button>
+                )}
+              >
+                {({ close }) => (
+                  <>
+                    {[
+                      { id: 'type',  label: 'By Type' },
+                      { id: 'name',  label: 'By Name' },
+                      { id: 'cmc',   label: 'By CMC' },
+                      { id: 'color', label: 'By Color' },
+                    ].map(opt => (
+                      <button
+                        key={opt.id}
+                        className={`${uiStyles.responsiveMenuAction}${sortBy === opt.id ? ' ' + uiStyles.responsiveMenuActionActive : ''}`}
+                        onClick={() => { setSortBy(opt.id); close() }}
+                      >
+                        {opt.label}
+                        <span className={uiStyles.responsiveMenuCheck}>{sortBy === opt.id ? '✓' : ''}</span>
+                      </button>
+                    ))}
+                  </>
+                )}
+              </ResponsiveMenu>
+              {/* Group toggle pill */}
+              <div className={styles.viewToggles}>
+                <button
+                  className={`${styles.vBtn}${groupBy === 'type' ? ' ' + styles.vBtnActive : ''}`}
+                  onClick={() => setGroupBy('type')}
+                >Grouped</button>
+                <button
+                  className={`${styles.vBtn}${groupBy === 'none' ? ' ' + styles.vBtnActive : ''}`}
+                  onClick={() => setGroupBy('none')}
+                >Ungrouped</button>
+              </div>
+              {/* Copy decklist */}
               <button
-                className={`${styles.vBtn}${deckView === 'list' ? ' ' + styles.vBtnActive : ''}`}
-                title="List view"
-                onClick={() => setDeckView('list')}
-              >☰</button>
-              <button
-                className={`${styles.vBtn}${deckView === 'grid' ? ' ' + styles.vBtnActive : ''}`}
-                title="Grid view"
-                onClick={() => setDeckView('grid')}
-              >⊞</button>
+                className={styles.actionBtn}
+                onClick={() => setShowDecklist(true)}
+              >⎘ Copy Decklist</button>
+              {/* View toggle — all 5 modes */}
+              <div className={styles.viewToggles}>
+                {[
+                  { id: 'list',   icon: '≡',  label: 'List' },
+                  { id: 'stacks', icon: '⊟',  label: 'Stacks' },
+                  { id: 'text',   icon: '¶',  label: 'Text' },
+                  { id: 'grid',   icon: '⊞',  label: 'Grid' },
+                  { id: 'table',  icon: '⊞',  label: 'Table' },
+                ].map(m => (
+                  <button
+                    key={m.id}
+                    className={`${styles.vBtn}${viewMode === m.id ? ' ' + styles.vBtnActive : ''}`}
+                    title={m.label}
+                    onClick={() => setViewMode(m.id)}
+                  >{m.icon}</button>
+                ))}
+              </div>
             </div>
           </div>
 
-          {/* ── List view — 2 typographic columns on wide screens ── */}
-          {deckView === 'list' && (
-            <div className={wide ? styles.listTwoCol : undefined}>
-              {TYPE_GROUPS.map(group => {
-                const groupCards = grouped.get(group)
-                if (!groupCards?.length) return null
-                const groupQty = groupCards.reduce((s, c) => s + c.qty, 0)
-                return (
-                  <div key={group} className={styles.cardGroup}>
-                    <div className={styles.groupHeader}>
-                      <span>{group}</span>
-                      <span className={styles.groupCount}>{groupQty}</span>
-                    </div>
-                    {groupCards.map(c => (
-                      <div
-                        key={c.id}
-                        className={styles.cardRow}
-                        onClick={() => setDetailCard(c.name)}
-                        onMouseEnter={e => { setHoverImg(cardImg(c)); setHoverPos({ x: e.clientX, y: e.clientY }) }}
-                        onMouseMove={e => setHoverPos({ x: e.clientX, y: e.clientY })}
-                        onMouseLeave={() => setHoverImg(null)}
-                      >
-                        {c.image_uri
-                          ? <img src={c.image_uri} alt="" className={styles.cardThumb} loading="lazy" />
-                          : <div className={styles.cardThumbPh} />
-                        }
-                        <span className={styles.cardName}>{c.name}</span>
-                        {c.is_commander && <span className={styles.cmdIcon}>⚔</span>}
-                        {c.foil         && <span className={styles.foilIcon}>✦</span>}
-                        <span className={styles.cardQty}>×{c.qty}</span>
-                      </div>
-                    ))}
-                  </div>
-                )
-              })}
-            </div>
-          )}
-
-          {/* ── Grid view ── */}
-          {deckView === 'grid' && (
-            <div className={styles.cardGrid}>
-              {cards.map(c => (
-                <div
-                  key={c.id}
-                  className={styles.gridCard}
-                  onClick={() => setDetailCard(c.name)}
-                  onMouseEnter={e => { setHoverImg(cardImg(c)); setHoverPos({ x: e.clientX, y: e.clientY }) }}
-                  onMouseMove={e => setHoverPos({ x: e.clientX, y: e.clientY })}
-                  onMouseLeave={() => setHoverImg(null)}
-                  title={c.name}
-                >
-                  <img src={cardImg(c)} alt={c.name} loading="lazy" />
-                  {c.qty > 1 && <div className={styles.gridQtyBadge}>×{c.qty}</div>}
-                  {c.is_commander && <div className={styles.gridCmdBadge}>⚔</div>}
-                </div>
-              ))}
-            </div>
-          )}
+          {/* ── Card browser content ── */}
+          <CardBrowserContent
+            cards={sortedFlat}
+            sfMap={sfMap}
+            priceSource="cardmarket_trend"
+            viewMode={viewMode}
+            groupBy={groupBy}
+            onSelect={card => setDetailCard(card.name)}
+            onHover={viewMode !== 'grid' ? img => setHoverImg(img) : undefined}
+            onHoverEnd={viewMode !== 'grid' ? () => setHoverImg(null) : undefined}
+          />
 
           {cards.length === 0 && (
             <div className={styles.emptyDeck}>This deck has no cards yet.</div>
@@ -425,7 +464,7 @@ export default function DeckViewPage() {
           />
         )}
 
-        {/* ── Right sidebar: stats + combos stacked ── */}
+        {/* ── Right sidebar ── */}
         <div className={styles.sidebar}>
           {cards.length > 0 && (
             <div>
@@ -437,71 +476,36 @@ export default function DeckViewPage() {
               />
             </div>
           )}
-          <CombosPanel
-            loading={combosLoading}
-            fetched={combosFetched}
-            included={combosIncluded}
-            almost={combosAlmost}
-          />
         </div>
       </div>
-    </div>
-  )
-}
-
-// ── Combos panel ──────────────────────────────────────────────────────────────
-function CombosPanel({ loading, fetched, included, almost }) {
-  return (
-    <div className={styles.combosPanel}>
-      <div className={styles.sectionLabel}>Combos</div>
-
-      {loading && <div className={styles.combosLoading}>Finding combos…</div>}
-
-      {fetched && included.length === 0 && almost.length === 0 && (
-        <div className={styles.combosEmpty}>No combos found for this deck.</div>
-      )}
-
-      {fetched && included.length > 0 && (
-        <div>
-          <div className={styles.comboSubLabel}>
-            Combos in Deck
-            <span className={styles.comboCount}>{included.length}</span>
+      {/* ── Decklist modal ── */}
+      {showDecklist && (() => {
+        const text = buildDecklist()
+        return (
+          <div className={styles.decklistBackdrop} onClick={() => setShowDecklist(false)}>
+            <div className={styles.decklistModal} onClick={e => e.stopPropagation()}>
+              <div className={styles.decklistHeader}>
+                <span className={styles.decklistTitle}>Decklist</span>
+                <div className={styles.decklistHeaderActions}>
+                  <button
+                    className={`${styles.actionBtn}${decklistCopied ? ' ' + styles.actionBtnDone : ''}`}
+                    onClick={() => {
+                      navigator.clipboard.writeText(text).then(() => {
+                        setDecklistCopied(true)
+                        setTimeout(() => setDecklistCopied(false), 2000)
+                      })
+                    }}
+                  >
+                    {decklistCopied ? '✓ Copied' : '⎘ Copy'}
+                  </button>
+                  <button className={styles.decklistClose} onClick={() => setShowDecklist(false)}>×</button>
+                </div>
+              </div>
+              <pre className={styles.decklistText}>{text}</pre>
+            </div>
           </div>
-          {included.map((combo, i) => <ComboCard key={i} combo={combo} />)}
-        </div>
-      )}
-
-      {fetched && almost.length > 0 && (
-        <div>
-          <div className={`${styles.comboSubLabel} ${styles.comboSubLabelDim}`}>
-            Almost Included
-            <span className={`${styles.comboCount} ${styles.comboCountDim}`}>{almost.length}</span>
-          </div>
-          {almost.slice(0, 15).map((combo, i) => <ComboCard key={i} combo={combo} dim />)}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── Single combo card ─────────────────────────────────────────────────────────
-function ComboCard({ combo, dim }) {
-  const uses    = (combo.uses    || []).map(u => u.card?.name || u.template?.name || '').filter(Boolean)
-  const results = (combo.produces || []).map(p => p.feature?.name || '').filter(Boolean)
-  return (
-    <div className={`${styles.comboCard}${dim ? ' ' + styles.comboCardDim : ''}`}>
-      <div className={styles.comboPieces}>
-        {uses.map((name, i) => (
-          <span key={i} className={styles.comboPiece}>{name}</span>
-        ))}
-      </div>
-      {results.length > 0 && (
-        <div className={styles.comboResults}>
-          {results.map((r, i) => (
-            <span key={i} className={styles.comboResult}>{r}</span>
-          ))}
-        </div>
-      )}
+        )
+      })()}
     </div>
   )
 }
