@@ -214,17 +214,36 @@
 .qtyInput::-webkit-inner-spin-button,
 .qtyInput::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 
-.foilToggleOn {
-  padding: 5px 12px; border-radius: 3px; cursor: pointer;
-  background: rgba(200,160,255,0.15); border: 1px solid rgba(200,160,255,0.4);
-  color: var(--purple); font-size: 0.82rem; transition: all 0.15s;
+/* Foil switch */
+.foilSwitch {
+  position: relative;
+  width: 44px; height: 26px;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 13px;
+  cursor: pointer;
+  transition: all 0.25s;
+  padding: 0;
+  flex-shrink: 0;
 }
-.foilToggleOff {
-  padding: 5px 12px; border-radius: 3px; cursor: pointer;
-  background: var(--s2); border: 1px solid rgba(255,255,255,0.1);
-  color: var(--text-dim); font-size: 0.82rem; transition: all 0.15s;
+.foilSwitchOn {
+  background: rgba(138,111,196,0.4);
+  border-color: rgba(138,111,196,0.6);
+  box-shadow: 0 0 10px rgba(138,111,196,0.2);
 }
-.foilToggleOn:hover, .foilToggleOff:hover { border-color: rgba(200,160,255,0.5); color: var(--purple); }
+.foilSwitchKnob {
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 18px; height: 18px;
+  background: var(--text-dim);
+  border-radius: 50%;
+  transition: transform 0.25s, background 0.25s;
+  display: block;
+}
+.foilSwitchOn .foilSwitchKnob {
+  transform: translateX(20px);
+  background: var(--purple);
+}
 
 .editSelect {
   background: var(--s2); border: 1px solid rgba(255,255,255,0.12);
@@ -233,37 +252,17 @@
 }
 .editSelect option { background: var(--bg3); }
 
-.manualPriceBtn {
-  background: none; border: 1px dashed rgba(201,168,76,0.3); border-radius: 3px;
-  padding: 4px 10px; color: var(--text-faint); font-size: 0.78rem; cursor: pointer;
-  transition: all 0.15s;
+.buyPriceRow {
+  display: flex; align-items: center; gap: 8px;
 }
-.manualPriceBtn:hover { border-color: rgba(201,168,76,0.6); color: var(--gold); }
+.buyPriceValue {
+  font-size: 0.85rem; color: var(--text); font-variant-numeric: tabular-nums;
+}
 
 .editSaveRow {
   display: flex; align-items: center; gap: 10px; margin-top: 14px;
 }
-.saveBtn {
-  display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box;
-  min-height: var(--control-height);
-  font-family: var(--font-display); font-size: var(--control-font-size); letter-spacing: var(--control-letter-spacing);
-  padding: 6px var(--control-padding-x); border-radius: 4px; cursor: pointer;
-  background: rgba(74,154,90,0.15); border: 1px solid rgba(74,154,90,0.4);
-  color: var(--green); transition: all 0.2s;
-}
-.saveBtn:hover:not(:disabled) { background: rgba(74,154,90,0.25); }
-.saveBtn:disabled { opacity: 0.6; cursor: default; }
-
-.addToFolderBtn {
-  display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box;
-  height: var(--control-height);
-  padding: 6px var(--control-padding-x); border-radius: 4px; cursor: pointer;
-  background: rgba(138,111,196,0.12); border: 1px solid rgba(138,111,196,0.35);
-  color: var(--purple); font-size: var(--control-font-size); font-family: var(--font-display);
-  letter-spacing: var(--control-letter-spacing); transition: all 0.15s; white-space: nowrap;
-}
-.addToFolderBtn:hover:not(:disabled) { background: rgba(138,111,196,0.22); }
-.addToFolderBtn:disabled { opacity: 0.4; cursor: default; }
+/* saveBtn / addToFolderBtn replaced by uiStyles.btn green/purple */
 
 @media (max-width: 600px) {
   .detail { flex-direction: column; }
@@ -982,6 +981,7 @@
   left: 8px;
 }
 
+/* detailFlipBtn replaced by uiStyles.btn sm ghost with alignSelf:flex-start inline */
 .detailFlipBtn {
   background: var(--s2);
   border: 1px solid var(--border);
@@ -1279,7 +1279,9 @@
   color: var(--text-dim);
   text-decoration: none;
   text-transform: capitalize;
+  transition: border-color 0.15s, color 0.15s;
 }
+.purchaseLink:hover { text-decoration: none; border-color: rgba(255,255,255,0.22); color: var(--text); }
 
 .rulingsList {
   display: flex;
@@ -1352,22 +1354,84 @@
   outline: none;
 }
 
-.inlineActionBtn {
-  background: rgba(201,168,76,0.15);
-  border: 1px solid rgba(201,168,76,0.3);
-  border-radius: 3px;
-  padding: 6px 10px;
-  color: var(--gold);
-  font-size: 0.75rem;
-  cursor: pointer;
-}
+/* inlineActionBtn / inlineTextBtn replaced by uiStyles.btn sm / ghost */
 
-.inlineTextBtn {
+/* Move folder ResponsiveMenu */
+.moveFolderPanel {
+  width: 280px !important;
+}
+.moveFolderSearch {
+  padding: 0 0 6px;
+}
+.moveFolderSearchInput {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--s2);
+  border: 1px solid var(--s-border2);
+  border-radius: 4px;
+  padding: 6px 10px;
+  color: var(--text);
+  font-size: 0.82rem;
+  outline: none;
+}
+.moveFolderSearchInput:focus { border-color: rgba(201,168,76,0.4); }
+.moveFolderList {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.moveFolderList::-webkit-scrollbar { width: 4px; }
+.moveFolderList::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+.moveFolderEmpty {
+  padding: 12px;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 0.78rem;
+}
+.moveFolderItem {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
   background: none;
   border: none;
-  color: var(--text-faint);
+  border-radius: 4px;
+  padding: 7px 8px;
+  color: var(--text-dim);
+  font-size: 0.82rem;
   cursor: pointer;
-  font-size: 0.78rem;
+  text-align: left;
+  transition: background 0.12s, color 0.12s;
+}
+.moveFolderItem:hover { background: var(--s2); color: var(--text); }
+.moveFolderItemCurrent { color: var(--text-faint); }
+.moveFolderItemName { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.moveFolderItemBadge {
+  font-size: 0.65rem;
+  color: var(--text-faint);
+  background: var(--s2);
+  border: 1px solid var(--s-border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  flex-shrink: 0;
+}
+
+.locationSubLabel {
+  font-size: 0.68rem;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-top: 6px;
+  margin-bottom: 4px;
+}
+
+.folderPills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
 }
 
 .moveRow {
@@ -1377,29 +1441,10 @@
   flex-wrap: wrap;
 }
 
-.folderPills {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
 
-.folderChip {
-  font-size: 0.78rem;
-  padding: 3px 8px;
-  border-radius: 3px;
-  border: 1px solid rgba(201,168,76,0.35);
-  background: rgba(201,168,76,0.1);
-  color: var(--text-dim);
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.folderChip:hover {
-  color: var(--gold);
-}
+/* folderChip — base from uiStyles.btn sm, gold hover override */
+.folderChip { gap: 4px; }
+.folderChip:hover { --btn-hover-color: var(--gold); --btn-hover-border: rgba(201,168,76,0.3); }
 
 .detailError {
   font-size: 0.78rem;
@@ -1411,6 +1456,144 @@
   font-weight: 400;
   margin-left: 6px;
   opacity: 0.85;
+}
+
+/* Card tab — info grid (2-column) */
+.infoGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.infoCell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  border-right: 1px solid rgba(255,255,255,0.06);
+}
+.infoCell:nth-child(even) { border-right: none; }
+.infoCell:last-child, .infoCell:nth-last-child(2):nth-child(odd) { border-bottom: none; }
+
+.infoLabel {
+  font-size: 0.66rem;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.infoVal {
+  font-size: 0.84rem;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+/* Edit tab — row layout */
+.editRow {
+  display: flex;
+  gap: 10px;
+}
+
+.editField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Change printing — base styles from uiStyles.btn ghost, adds dashed border */
+.changePrintingBtn {
+  border-style: dashed;
+}
+.changePrintingBtnOpen {
+  --btn-border: rgba(201,168,76,0.45);
+  --btn-color: var(--gold);
+  --btn-bg: rgba(255,255,255,0.04);
+}
+
+/* Printing image grid inside ResponsiveMenu */
+.printingImgGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+  padding: 4px 2px;
+  max-height: 360px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  width: 100%;
+  box-sizing: border-box;
+}
+.printingImgGrid::-webkit-scrollbar { width: 4px; }
+.printingImgGrid::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+
+@media (min-width: 641px) {
+  .printingsMenuPanel {
+    width: 300px !important;
+  }
+}
+
+.printingImgLoading {
+  grid-column: 1 / -1;
+  padding: 20px;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 0.78rem;
+}
+
+.printingCard {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  background: none;
+  border: 1px solid var(--s-border);
+  border-radius: 5px;
+  padding: 5px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.12s, background 0.12s;
+}
+.printingCard:hover { border-color: rgba(201,168,76,0.35); background: var(--s1); }
+.printingCardActive { border-color: rgba(201,168,76,0.6) !important; background: rgba(201,168,76,0.06) !important; }
+
+.printingCardImgWrap {
+  width: 100%;
+  aspect-ratio: 0.716;
+  border-radius: 3px;
+  overflow: hidden;
+  background: rgba(255,255,255,0.04);
+}
+.printingCardImg { width: 100%; height: 100%; object-fit: cover; display: block; }
+.printingCardImgPlaceholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  font-size: 1.2rem;
+}
+
+.printingCardLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.printingCardSet {
+  font-size: 0.68rem;
+  color: var(--text);
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.printingCardMeta {
+  font-size: 0.62rem;
+  color: var(--text-faint);
 }
 
 @media (max-width: 720px) {
@@ -1444,6 +1627,9 @@
 }
 
 @media (max-width: 440px) {
+  .infoGrid { grid-template-columns: 1fr; }
+  .infoCell { border-right: none !important; }
+  .editRow { flex-direction: column; }
   .detailArtCol {
     flex-direction: column;
     min-width: 0;

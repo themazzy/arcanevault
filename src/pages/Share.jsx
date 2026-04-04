@@ -114,7 +114,7 @@ export default function SharePage() {
         <div className={styles.count}>{filtered.length} cards</div>
         <CardGrid cards={filtered} sfMap={sfMap} loading={enriching} onSelect={c => setSelected(c.id)} />
         {filtered.length === 0 && !enriching && <EmptyState>No cards found.</EmptyState>}
-        {selectedCard && <CardDetail card={selectedCard} sfCard={selectedSf} onClose={() => setSelected(null)} />}
+        {selectedCard && <CardDetail card={selectedCard} sfCard={selectedSf} readOnly onClose={() => setSelected(null)} />}
       </main>
     </div>
   )

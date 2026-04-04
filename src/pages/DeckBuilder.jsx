@@ -16,6 +16,7 @@ import {
 import styles from './DeckBuilder.module.css'
 import uiStyles from '../components/UI.module.css'
 import { ResponsiveMenu, Select } from '../components/UI'
+import { CardDetail } from '../components/CardComponents'
 import DeckStats, { normalizeDeckBuilderCards } from '../components/DeckStats'
 import ExportModal from '../components/ExportModal'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
@@ -121,10 +122,10 @@ function FloatingPreview({ imageUris, x, y }) {
 }
 
 // ── Single card row in search results ─────────────────────────────────────────
-function SearchResultRow({ card, ownedQty, onAdd, addFeedback }) {
+function SearchResultRow({ card, ownedQty, onAdd, addFeedback, onOpenDetail }) {
   const img = getCardImageUri(card, 'small')
   return (
-    <div className={styles.searchRow}>
+    <div className={styles.searchRow} onClick={() => onOpenDetail?.(card)} style={{ cursor: 'pointer' }}>
       {img
         ? <img className={styles.searchThumb} src={img} alt="" loading="lazy" />
         : <div className={styles.searchThumbPlaceholder} />
@@ -143,19 +144,21 @@ function SearchResultRow({ card, ownedQty, onAdd, addFeedback }) {
       <div className={styles.searchMeta}>
         {ownedQty > 0 && <span className={styles.ownedBadge}>✓ {ownedQty}x</span>}
       </div>
-      <button className={styles.addBtn} onClick={() => onAdd(card)} title="Add to deck">+</button>
+      <button className={styles.addBtn} onClick={e => { e.stopPropagation(); onAdd(card) }} title="Add to deck">+</button>
     </div>
   )
 }
 
 // ── Single card row in EDHRec recommendations ─────────────────────────────────
-function RecRow({ rec, imageUri, ownedQty, onAdd, onHoverEnter, onHoverLeave, onHoverMove }) {
+function RecRow({ rec, imageUri, ownedQty, onAdd, onHoverEnter, onHoverLeave, onHoverMove, onOpenDetail }) {
   const synergyPct = Math.round((rec.synergy ?? 0) * 100)
   // Scryfall CDN URLs have the size in the path — swap small → normal for hover preview
   const largeUri = imageUri ? imageUri.replace('/small/', '/normal/') : null
   return (
     <div
       className={styles.recRow}
+      style={{ cursor: 'pointer' }}
+      onClick={() => onOpenDetail?.(rec.name)}
       onMouseEnter={e => largeUri && onHoverEnter?.(largeUri, e)}
       onMouseMove={e => onHoverMove?.(e)}
       onMouseLeave={() => onHoverLeave?.()}
@@ -183,7 +186,7 @@ function RecRow({ rec, imageUri, ownedQty, onAdd, onHoverEnter, onHoverLeave, on
           {ownedQty > 0 && <span className={styles.ownedBadge}>✓</span>}
         </div>
       </div>
-      <button className={styles.addBtn} onClick={() => onAdd(rec)} title="Add to deck">+</button>
+      <button className={styles.addBtn} onClick={e => { e.stopPropagation(); onAdd(rec) }} title="Add to deck">+</button>
     </div>
   )
 }
@@ -275,12 +278,12 @@ function DeckCardRowV2({
   dc, ownedQty, ownedAlt, ownedInDeck, inCollDeck,
   onChangeQty, onRemove, onMouseEnter, onMouseLeave, onMouseMove,
   onPickVersion, onToggleFoil, onSetCommander, isEDH,
-  visibleColumns, listGridTemplate, priceLabel,
+  visibleColumns, listGridTemplate, priceLabel, onOpenDetail,
 }) {
   const setLabel = dc.set_code ? `${String(dc.set_code).toUpperCase()}${dc.collector_number ? ` #${dc.collector_number}` : ''}` : '—'
   return (
     <div className={`${styles.deckCardRow}${dc.is_commander ? ' ' + styles.isCommander : ''}`} style={{ '--deck-list-columns': listGridTemplate }}>
-      <div className={styles.deckCardLeft}>
+      <div className={styles.deckCardLeft} style={{ cursor: 'pointer' }} onClick={() => onOpenDetail?.(dc)}>
         {dc.image_uri
           ? <img className={styles.deckThumb} src={dc.image_uri} alt="" loading="lazy" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove} />
           : <div className={styles.deckThumbPlaceholder} />
@@ -330,18 +333,40 @@ function useComboCardImage(name, existingUri) {
   return existingUri || img
 }
 
-function ComboCardThumb({ name, inDeck, existingUri }) {
+function ComboCardThumb({ name, inDeck, existingUri, onAdd, onOpenDetail }) {
   const img = useComboCardImage(name, existingUri)
+  const [adding, setAdding] = useState(false)
+  const handleAdd = async e => {
+    e.stopPropagation()
+    if (adding) return
+    setAdding(true)
+    try { await onAdd(name) } finally { setAdding(false) }
+  }
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, opacity: inDeck ? 1 : 0.45 }}>
-      <div style={{
-        width: 120, height: 168, borderRadius: 7, overflow: 'hidden', flexShrink: 0,
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, opacity: inDeck ? 1 : 0.6, cursor: 'pointer' }} onClick={() => onOpenDetail?.(name)}>
+      <div style={{ position: 'relative', width: 120, height: 168, borderRadius: 7, overflow: 'hidden', flexShrink: 0,
         border: `1px solid ${inDeck ? 'rgba(201,168,76,0.5)' : 'rgba(255,255,255,0.12)'}`,
         background: 'rgba(255,255,255,0.04)',
       }}>
         {img
           ? <img src={img} alt={name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} loading="lazy" />
           : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.73rem', color: 'var(--text-faint)', padding: 8, textAlign: 'center', lineHeight: 1.3 }}>{name}</div>}
+        {!inDeck && onAdd && (
+          <button
+            onClick={handleAdd}
+            disabled={adding}
+            style={{
+              position: 'absolute', bottom: 6, left: '50%', transform: 'translateX(-50%)',
+              background: adding ? 'rgba(201,168,76,0.25)' : 'rgba(20,20,30,0.85)',
+              border: '1px solid rgba(201,168,76,0.6)', borderRadius: 4,
+              color: 'var(--gold)', fontSize: '0.7rem', padding: '3px 10px',
+              cursor: adding ? 'default' : 'pointer', whiteSpace: 'nowrap',
+              backdropFilter: 'blur(4px)',
+            }}
+          >
+            {adding ? '…' : '+ Add'}
+          </button>
+        )}
       </div>
       <div style={{ fontSize: '0.64rem', color: inDeck ? 'var(--text-faint)' : '#e08878', textAlign: 'center', maxWidth: 110, lineHeight: 1.2, wordBreak: 'break-word' }}>
         {inDeck ? name : `⊕ ${name}`}
@@ -350,7 +375,7 @@ function ComboCardThumb({ name, inDeck, existingUri }) {
   )
 }
 
-function ComboResultCard({ combo, highlight, deckCardNames, deckImages }) {
+function ComboResultCard({ combo, highlight, deckCardNames, deckImages, onAddCard, onOpenDetail }) {
   const uses    = (combo.uses    || []).map(u => u.card?.name || u.template?.name || '').filter(Boolean)
   const results = (combo.produces || []).map(p => p.feature?.name || '').filter(Boolean)
   const deckSet = new Set(deckCardNames || [])
@@ -363,7 +388,7 @@ function ComboResultCard({ combo, highlight, deckCardNames, deckImages }) {
     }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: (results.length || steps) ? 12 : 0 }}>
         {uses.map((name, i) => (
-          <ComboCardThumb key={i} name={name} inDeck={!deckCardNames || deckSet.has(name)} existingUri={deckImages?.[name]} />
+          <ComboCardThumb key={i} name={name} inDeck={!deckCardNames || deckSet.has(name)} existingUri={deckImages?.[name]} onAdd={!deckCardNames || deckSet.has(name) ? undefined : onAddCard} onOpenDetail={onOpenDetail} />
         ))}
       </div>
       {results.length > 0 && (
@@ -1233,6 +1258,9 @@ export default function DeckBuilderPage() {
   const [cmdLoading,    setCmdLoading]    = useState(false)
   const [showCmdPicker, setShowCmdPicker] = useState(false)
 
+  // Card detail modal (read-only, used throughout the builder)
+  const [detailCard, setDetailCard] = useState(null) // { card, sfCard }
+
   // Search
   const [searchQuery,   setSearchQuery]   = useState('')
   const [searchResults, setSearchResults] = useState([])
@@ -1587,6 +1615,33 @@ export default function DeckBuilderPage() {
   const deckSize       = format?.deckSize ?? 60
 
   const isCollectionDeck = deck?.type === 'deck'
+
+  // Open card detail modal from a deck_card or Scryfall card object
+  const openDeckCardDetail = useCallback((dc) => {
+    setDetailCard({ card: dc, sfCard: null })
+  }, [])
+
+  // Open card detail modal for a Scryfall search result (id = scryfall_id, set = set_code)
+  const openSearchCardDetail = useCallback((c) => {
+    setDetailCard({
+      card: { scryfall_id: c.id, set_code: c.set, collector_number: c.collector_number, name: c.name, qty: 1, foil: false },
+      sfCard: c,
+    })
+  }, [])
+
+  // Open card detail modal by card name (recs / combos — no scryfall_id available)
+  const openCardDetailByName = useCallback(async (name) => {
+    try {
+      const res = await fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}`)
+      if (!res.ok) return
+      const data = await res.json()
+      setDetailCard({
+        card: { scryfall_id: data.id, set_code: data.set, collector_number: data.collector_number, name: data.name, qty: 1, foil: false },
+        sfCard: data,
+      })
+    } catch {}
+  }, [])
+
 
   const sortedDeckCards = useMemo(() => {
     if (deckSort === 'type') return deckCards // type uses grouped rendering
@@ -2875,6 +2930,7 @@ export default function DeckBuilderPage() {
                   ownedQty={ownedMap.get(c.id) ?? 0}
                   addFeedback={addFeedback?.key === (c.id || c.name) ? addFeedback : null}
                   onAdd={addCardToDeck}
+                  onOpenDetail={openSearchCardDetail}
                 />
               ))}
               {searchHasMore && (
@@ -2926,6 +2982,7 @@ export default function DeckBuilderPage() {
                               onHoverEnter={(uri, e) => { setHoverImages(uri ? [uri] : []); setHoverPos({ x: e.clientX, y: e.clientY }) }}
                               onHoverMove={e => setHoverPos({ x: e.clientX, y: e.clientY })}
                               onHoverLeave={() => clearHoverPreview()}
+                              onOpenDetail={openCardDetailByName}
                             />
                           ))}
                         </div>
@@ -3135,11 +3192,13 @@ export default function DeckBuilderPage() {
                 visibleColumns,
                 listGridTemplate,
                 priceLabel: getDeckCardPriceLabel(dc),
+                onOpenDetail: openDeckCardDetail,
               })
 
               const renderCard = (dc) => {
                 if (deckView === 'visual') return (
                   <div key={dc.id} className={`${styles.visualCard}${dc.is_commander ? ' '+styles.isCommander : ''}`}
+                    onClick={() => openDeckCardDetail(dc)}
                     onMouseEnter={e => showHoverPreviewForDeckCard(dc, e)}
                     onMouseLeave={() => clearHoverPreview()}
                     onMouseMove={e => setHoverPos({ x: e.clientX, y: e.clientY })}>
@@ -3172,6 +3231,8 @@ export default function DeckBuilderPage() {
                   <div key={dc.id} className={`${styles.compactRow}${dc.is_commander ? ' '+styles.isCommander : ''}`}>
                     <span className={styles.compactQty}>{dc.qty}</span>
                     <span className={styles.compactName}
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => openDeckCardDetail(dc)}
                       onMouseEnter={e => showHoverPreviewForDeckCard(dc, e)}
                       onMouseLeave={() => clearHoverPreview()}
                       onMouseMove={e => setHoverPos({ x: e.clientX, y: e.clientY })}>
@@ -3331,7 +3392,7 @@ export default function DeckBuilderPage() {
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                       {combosIncluded.map((c, i) => (
-                        <ComboResultCard key={i} combo={c} highlight deckCardNames={deckCards.map(dc => dc.name)} deckImages={deckImagesMap} />
+                        <ComboResultCard key={i} combo={c} highlight deckCardNames={deckCards.map(dc => dc.name)} deckImages={deckImagesMap} onAddCard={name => addCardToDeck({ name })} onOpenDetail={openCardDetailByName} />
                       ))}
                     </div>
                   </div>
@@ -3345,7 +3406,7 @@ export default function DeckBuilderPage() {
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                       {combosAlmost.slice(0, 20).map((c, i) => (
-                        <ComboResultCard key={i} combo={c} highlight={false} deckCardNames={deckCards.map(dc => dc.name)} deckImages={deckImagesMap} />
+                        <ComboResultCard key={i} combo={c} highlight={false} deckCardNames={deckCards.map(dc => dc.name)} deckImages={deckImagesMap} onAddCard={name => addCardToDeck({ name })} onOpenDetail={openCardDetailByName} />
                       ))}
                     </div>
                     {combosAlmost.length > 20 && (
@@ -3545,6 +3606,17 @@ export default function DeckBuilderPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Read-only card detail modal */}
+      {detailCard && (
+        <CardDetail
+          card={detailCard.card}
+          sfCard={detailCard.sfCard}
+          priceSource={price_source}
+          readOnly
+          onClose={() => setDetailCard(null)}
+        />
       )}
     </div>
   )
