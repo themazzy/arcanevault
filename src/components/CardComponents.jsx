@@ -936,7 +936,7 @@ function LegacyCardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, al
 
               {/* ── Save changes ── */}
               <div className={styles.editSaveRow}>
-                <button className={styles.saveBtn} onClick={handleSave} disabled={saving || saved}>
+                <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.green}`} onClick={handleSave} disabled={saving || saved}>
                   {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save Changes'}
                 </button>
                 {saveError && <span style={{ fontSize: '0.78rem', color: '#e08878' }}>{saveError}</span>}
@@ -1045,7 +1045,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
   if (!card) return null
 
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState(readOnly ? 'overview' : 'collection')
+  const [activeTab, setActiveTab] = useState('card')
   const [face, setFace] = useState(0)
 
   useEffect(() => {
@@ -1058,13 +1058,19 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
   const [rulings, setRulings] = useState(null)
   const [loadingFull, setLoadingFull] = useState(false)
 
-  const [editQty, setEditQty] = useState(card.qty)
+  const [editQty, setEditQty] = useState(
+    currentFolderId && card._folder_qty != null ? card._folder_qty : card.qty
+  )
   const [editFoil, setEditFoil] = useState(card.foil)
   const [editCondition, setEditCondition] = useState(card.condition || 'near_mint')
+  const [editLanguage, setEditLanguage] = useState(card.language || 'en')
   const [editBuyPrice, setEditBuyPrice] = useState(parseFloat(card.purchase_price) || 0)
   const [buyPriceEdit, setBuyPriceEdit] = useState(false)
   const [buyPriceInput, setBuyPriceInput] = useState('')
   const [moveFolderText, setMoveFolderText] = useState('')
+  const [moveFolderSearch, setMoveFolderSearch] = useState('')
+  const [printings, setPrintings] = useState(null)
+  const [loadingPrintings, setLoadingPrintings] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState('')
@@ -1109,6 +1115,10 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
   const oracleText = displayFace.oracle_text || fc.oracle_text
   const flavorText = displayFace.flavor_text || fc.flavor_text
   const currentFolders = folders?.filter(Boolean) || []
+  const hasFoilVersion = card.foil ||
+    fullCard?.finishes?.includes('foil') ||
+    fullCard?.prices?.eur_foil != null ||
+    fullCard?.prices?.usd_foil != null
 
   const liveSfCard = fullCard ? { ...sfCard, prices: fullCard.prices } : sfCard
   const pricesAreLive = !!fullCard
@@ -1154,7 +1164,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
       }
       folderQty = editQty
     } else {
-      const updates = { qty: editQty, foil: editFoil, condition: editCondition }
+      const updates = { qty: editQty, foil: editFoil, condition: editCondition, language: editLanguage }
       const { error } = await sb.from('cards').update(updates).eq('id', card.id)
       if (error) {
         setSaveError(error.message)
@@ -1168,6 +1178,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
       qty: currentFolderId && card._folder_qty != null ? card.qty : editQty,
       foil: editFoil,
       condition: editCondition,
+      language: editLanguage,
       ...(folderQty != null ? { _folder_qty: folderQty } : {}),
     }
     await putCards([updatedCard])
@@ -1177,8 +1188,8 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
     setSaving(false)
   }
 
-  const handleMoveToFolder = async () => {
-    const matched = allFolders.find(f => f.name.toLowerCase() === moveFolderText.toLowerCase() || f.id === moveFolderText)
+  const handleMoveToFolder = async (targetFolder) => {
+    const matched = targetFolder || allFolders.find(f => f.name.toLowerCase() === moveFolderText.toLowerCase() || f.id === moveFolderText)
     if (!matched) return
     const qty = editQty || 1
     const { error } = await sb.from('folder_cards')
@@ -1190,25 +1201,52 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
           .in('folder_id', folders.filter(f => f.id !== matched.id).map(f => f.id))
       }
       setMoveFolderText('')
+      setMoveFolderSearch('')
       onSave?.(card)
     }
   }
 
+  const loadPrintings = async () => {
+    if (printings || loadingPrintings) return
+    const uri = fc.prints_search_uri
+    if (!uri) return
+    setLoadingPrintings(true)
+    try {
+      const sep = uri.includes('?') ? '&' : '?'
+      const res = await fetch(uri + sep + 'order=released&unique=prints')
+      if (res.ok) {
+        const data = await res.json()
+        setPrintings(data.data || [])
+      }
+    } catch {}
+    setLoadingPrintings(false)
+  }
+
+  const handleChangePrinting = async (newPrint) => {
+    const updates = { set_code: newPrint.set, collector_number: newPrint.collector_number, scryfall_id: newPrint.id }
+    const { error } = await sb.from('cards').update(updates).eq('id', card.id)
+    if (!error) {
+      const updatedCard = { ...card, ...updates }
+      await putCards([updatedCard])
+      onSave?.(updatedCard)
+      onClose?.()
+    }
+  }
+
   useEffect(() => {
-    if (readOnly && activeTab === 'collection') setActiveTab('overview')
+    if (readOnly && activeTab === 'collection') setActiveTab('card')
   }, [activeTab, readOnly])
 
   const tabs = [
+    { id: 'card', label: 'Card' },
     ...(!readOnly ? [{ id: 'collection', label: 'Edit' }] : []),
-    { id: 'overview', label: 'Overview' },
-    { id: 'rules', label: 'Rules' },
-    { id: 'legality', label: 'Legality' },
     { id: 'prices', label: 'Prices' },
     { id: 'rulings', label: 'Rulings' },
+    { id: 'legality', label: 'Legality' },
   ]
 
   return (
-    <Modal onClose={onClose} wide>
+    <Modal onClose={onClose} allowOverflow={false}>
       <div className={styles.detailShell}>
         <div className={styles.detailArtCol}>
           <div className={styles.detailArtWrap}>
@@ -1217,12 +1255,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
               : <div className={styles.imgPlaceholder}>{card.name}</div>}
             {card.foil && <div className={styles.detailFoilBadge}><Badge variant="foil">Foil</Badge></div>}
           </div>
-          {hasFaces && <button className={styles.detailFlipBtn} onClick={() => setFace(prev => (prev + 1) % faces.length)}>Flip Face</button>}
-          <div className={styles.detailArtMeta}>
-            {fc.rarity && <span style={{ textTransform: 'capitalize' }}>{fc.rarity}</span>}
-            <span>{fc.set_name || sfCard?.set_name || (card.set_code || '').toUpperCase()}</span>
-            <span>#{card.collector_number}</span>
-          </div>
+          {hasFaces && <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.ghost}`} style={{ alignSelf: 'flex-start' }} onClick={() => setFace(prev => (prev + 1) % faces.length)}>Flip Face</button>}
         </div>
 
         <div className={styles.detailBody}>
@@ -1232,13 +1265,11 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
           </div>
           <div className={styles.detailType}>{typeLine}</div>
 
-          {(displayFace.power != null || displayFace.loyalty != null || displayFace.defense != null) && (
-            <div className={styles.detailStatRow}>
-              {displayFace.power != null && <span className={styles.detailStatBadge}>{displayFace.power}/{displayFace.toughness}</span>}
-              {displayFace.loyalty != null && <span className={styles.detailStatBadge}>Loyalty {displayFace.loyalty}</span>}
-              {displayFace.defense != null && <span className={styles.detailStatBadge}>Defense {displayFace.defense}</span>}
-            </div>
-          )}
+          <div className={styles.detailMetaLine}>
+            <span>{fc.set_name || sfCard?.set_name || (card.set_code || '').toUpperCase()}</span>
+            <span>. #{card.collector_number}</span>
+            {fc.artist && <span>. {fc.artist}</span>}
+          </div>
 
           <div className={styles.detailPriceRow}>
             <div className={styles.detailPriceMain}>
@@ -1256,12 +1287,6 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
                   : null}
           </div>
 
-          <div className={styles.detailMetaLine}>
-            <span>{fc.set_name || sfCard?.set_name || (card.set_code || '').toUpperCase()}</span>
-            <span>. #{card.collector_number}</span>
-            {fc.artist && <span>. {fc.artist}</span>}
-          </div>
-
           <div className={styles.detailTabs}>
             {tabs.map(t => (
               <button
@@ -1274,100 +1299,53 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
             ))}
           </div>
 
-          {loadingFull && activeTab !== 'collection' && (
-            <div className={styles.detailLoadingNote}>Loading card data...</div>
-          )}
+          <div className={styles.detailLoadingNote} style={{ visibility: loadingFull && activeTab !== 'collection' ? 'visible' : 'hidden' }}>Loading card data...</div>
 
-          {activeTab === 'overview' && (
+          {activeTab === 'card' && (
             <div className={`${styles.detailSection} ${styles.tabContentBox}`}>
-              {typeLine && (
-                <div className={styles.detailInfoRow}>
-                  <span className={styles.detailInfoLabel}>Type</span>
-                  <span className={styles.detailInfoVal}>{typeLine}</span>
-                </div>
-              )}
-              {fc.rarity && (
-                <div className={styles.detailInfoRow}>
-                  <span className={styles.detailInfoLabel}>Rarity</span>
-                  <span className={styles.detailInfoVal} style={{ textTransform: 'capitalize' }}>{fc.rarity}</span>
-                </div>
-              )}
-              {fc.cmc != null && (
-                <div className={styles.detailInfoRow}>
-                  <span className={styles.detailInfoLabel}>Mana Value</span>
-                  <span className={styles.detailInfoVal}>{fc.cmc}</span>
-                </div>
-              )}
-              {(fc.power != null || faces?.[0]?.power != null) && (
-                <div className={styles.detailInfoRow}>
-                  <span className={styles.detailInfoLabel}>Power / Toughness</span>
-                  <span className={styles.detailInfoVal}>
-                    {faces
-                      ? faces.map(f => f.power != null ? `${f.power}/${f.toughness}` : null).filter(Boolean).join(' // ')
-                      : `${fc.power}/${fc.toughness}`}
-                  </span>
-                </div>
-              )}
-              {fc.loyalty != null && (
-                <div className={styles.detailInfoRow}>
-                  <span className={styles.detailInfoLabel}>Loyalty</span>
-                  <span className={styles.detailInfoVal}>{fc.loyalty}</span>
-                </div>
-              )}
-              {fc.defense != null && (
-                <div className={styles.detailInfoRow}>
-                  <span className={styles.detailInfoLabel}>Defense</span>
-                  <span className={styles.detailInfoVal}>{fc.defense}</span>
-                </div>
-              )}
-              {fc.color_identity?.length > 0 && (
-                <div className={styles.detailInfoRow}>
-                  <span className={styles.detailInfoLabel}>Color Identity</span>
-                  <span className={styles.detailInfoVal}>{fc.color_identity.join(', ')}</span>
-                </div>
-              )}
-              {fc.keywords?.length > 0 && (
-                <div className={styles.detailInfoRow}>
-                  <span className={styles.detailInfoLabel}>Keywords</span>
-                  <span className={styles.detailInfoVal}>{fc.keywords.join(', ')}</span>
-                </div>
-              )}
-              {fc.artist && (
-                <div className={styles.detailInfoRow}>
-                  <span className={styles.detailInfoLabel}>Artist</span>
-                  <span className={styles.detailInfoVal}>{fc.artist}</span>
-                </div>
-              )}
-              {(fc.scryfall_uri || fc.purchase_uris || fc.related_uris) && (
-                <div className={styles.detailInfoRow}>
-                  <span className={styles.detailInfoLabel}>Links</span>
-                  <span className={`${styles.detailInfoVal} ${styles.detailLinks}`}>
-                    {fc.scryfall_uri && <a href={fc.scryfall_uri} target="_blank" rel="noreferrer" className={styles.detailLink}>Scryfall {'->'}</a>}
-                    {fc.related_uris?.gatherer && <a href={fc.related_uris.gatherer} target="_blank" rel="noreferrer" className={styles.detailLinkMuted}>Gatherer {'->'}</a>}
-                    {fc.purchase_uris?.tcgplayer && <a href={fc.purchase_uris.tcgplayer} target="_blank" rel="noreferrer" className={styles.detailLinkTcg}>TCGPlayer {'->'}</a>}
-                    {fc.purchase_uris?.cardmarket && <a href={fc.purchase_uris.cardmarket} target="_blank" rel="noreferrer" className={styles.detailLinkMarket}>Cardmarket {'->'}</a>}
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'rules' && (
-            <div className={`${styles.detailSection} ${styles.tabContentBox}`}>
+              {/* Oracle text / face blocks */}
               {faces ? (
                 faces.map((singleFace, i) => (
                   <div key={i} className={styles.faceBlock}>
                     {faces.length > 1 && <div className={styles.faceTitle}>{singleFace.name}</div>}
                     {singleFace.type_line && <div className={styles.faceType}>{singleFace.type_line}</div>}
-                    <div className={styles.oracleBox}><OracleText text={singleFace.oracle_text} /></div>
+                    {singleFace.oracle_text && <div className={styles.oracleBox}><OracleText text={singleFace.oracle_text} /></div>}
                     {singleFace.flavor_text && <p className={styles.flavorText}>{singleFace.flavor_text}</p>}
                   </div>
                 ))
               ) : (
                 <>
-                  <div className={styles.oracleBox}><OracleText text={oracleText} /></div>
+                  {oracleText && <div className={styles.oracleBox}><OracleText text={oracleText} /></div>}
                   {flavorText && <p className={styles.flavorText}>{flavorText}</p>}
                 </>
+              )}
+              {/* Info grid — 2-column layout for compact display */}
+              <div className={styles.infoGrid}>
+                {typeLine && <div className={styles.infoCell}><span className={styles.infoLabel}>Type</span><span className={styles.infoVal}>{typeLine}</span></div>}
+                {fc.rarity && <div className={styles.infoCell}><span className={styles.infoLabel}>Rarity</span><span className={styles.infoVal} style={{ textTransform: 'capitalize' }}>{fc.rarity}</span></div>}
+                {fc.cmc != null && <div className={styles.infoCell}><span className={styles.infoLabel}>Mana Value</span><span className={styles.infoVal}>{fc.cmc}</span></div>}
+                {(fc.power != null || faces?.[0]?.power != null) && (
+                  <div className={styles.infoCell}>
+                    <span className={styles.infoLabel}>P / T</span>
+                    <span className={styles.infoVal}>
+                      {faces ? faces.map(f => f.power != null ? `${f.power}/${f.toughness}` : null).filter(Boolean).join(' // ') : `${fc.power}/${fc.toughness}`}
+                    </span>
+                  </div>
+                )}
+                {fc.loyalty != null && <div className={styles.infoCell}><span className={styles.infoLabel}>Loyalty</span><span className={styles.infoVal}>{fc.loyalty}</span></div>}
+                {fc.defense != null && <div className={styles.infoCell}><span className={styles.infoLabel}>Defense</span><span className={styles.infoVal}>{fc.defense}</span></div>}
+                {fc.color_identity?.length > 0 && <div className={styles.infoCell}><span className={styles.infoLabel}>Colors</span><span className={styles.infoVal}>{fc.color_identity.join(', ')}</span></div>}
+                {fc.keywords?.length > 0 && <div className={styles.infoCell}><span className={styles.infoLabel}>Keywords</span><span className={styles.infoVal}>{fc.keywords.join(', ')}</span></div>}
+                {fc.artist && <div className={styles.infoCell}><span className={styles.infoLabel}>Artist</span><span className={styles.infoVal}>{fc.artist}</span></div>}
+              </div>
+              {/* External links */}
+              {(fc.scryfall_uri || fc.related_uris || fc.purchase_uris) && (
+                <div className={styles.detailLinks}>
+                  {fc.scryfall_uri && <a href={fc.scryfall_uri} target="_blank" rel="noreferrer" className={styles.detailLink}>Scryfall →</a>}
+                  {fc.related_uris?.gatherer && <a href={fc.related_uris.gatherer} target="_blank" rel="noreferrer" className={styles.detailLinkMuted}>Gatherer →</a>}
+                  {fc.purchase_uris?.tcgplayer && <a href={fc.purchase_uris.tcgplayer} target="_blank" rel="noreferrer" className={styles.detailLinkTcg}>TCGPlayer →</a>}
+                  {fc.purchase_uris?.cardmarket && <a href={fc.purchase_uris.cardmarket} target="_blank" rel="noreferrer" className={styles.detailLinkMarket}>Cardmarket →</a>}
+                </div>
               )}
             </div>
           )}
@@ -1481,141 +1459,203 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
 
           {activeTab === 'collection' && (
             <div className={`${styles.detailSection} ${styles.tabContentBox}`}>
-              <div className={styles.detailFormGrid}>
-                <div className={styles.editGroup}>
+              {/* Row 1: Quantity + Condition */}
+              <div className={styles.editRow}>
+                <div className={styles.editField}>
                   <span className={styles.editLabel}>Quantity</span>
                   <div className={styles.qtyEditor}>
-                    <button className={styles.qtyBtn} onClick={() => setEditQty(q => Math.max(1, q - 1))}>-</button>
+                    <button className={styles.qtyBtn} onClick={() => setEditQty(q => Math.max(1, q - 1))}>−</button>
                     <input className={styles.qtyInput} type="number" min="1" value={editQty} onChange={e => setEditQty(Math.max(1, parseInt(e.target.value) || 1))} />
                     <button className={styles.qtyBtn} onClick={() => setEditQty(q => q + 1)}>+</button>
                   </div>
                 </div>
-
-                <div className={styles.editGroup}>
-                  <span className={styles.editLabel}>Foil</span>
-                  <button className={editFoil ? styles.foilToggleOn : styles.foilToggleOff} onClick={() => setEditFoil(v => !v)}>
-                    {editFoil ? 'Foil' : 'Non-foil'}
-                  </button>
-                </div>
-
-                <div className={styles.editGroup}>
+                <div className={styles.editField}>
                   <span className={styles.editLabel}>Condition</span>
-                  <Select className={styles.editSelect} value={editCondition} onChange={e => setEditCondition(e.target.value)} title="Select condition">
-                    {Object.entries(CONDITION_LABELS).map(([k, v]) => (
-                      <option key={k} value={k}>{v}</option>
-                    ))}
+                  <Select value={editCondition} onChange={e => setEditCondition(e.target.value)}>
+                    {Object.entries(CONDITION_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                   </Select>
-                </div>
-
-                <div className={styles.editGroup}>
-                  <span className={styles.editLabel}>Buy Price</span>
-                  {!buyPriceEdit ? (
-                    <button className={styles.manualPriceBtn} onClick={() => { setBuyPriceEdit(true); setBuyPriceInput(editBuyPrice > 0 ? String(editBuyPrice) : '') }}>
-                      {editBuyPrice > 0 ? `Edit EUR ${editBuyPrice.toFixed(2)}` : '+ Set buy price'}
-                    </button>
-                  ) : (
-                    <div className={styles.inlineEditor}>
-                      <input
-                        autoFocus
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={buyPriceInput}
-                        className={styles.buyPriceInput}
-                        onChange={e => setBuyPriceInput(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter') saveBuyPrice(); if (e.key === 'Escape') setBuyPriceEdit(false) }}
-                        placeholder="0.00"
-                      />
-                      <button className={styles.inlineActionBtn} onClick={saveBuyPrice}>Save</button>
-                      <button className={styles.inlineTextBtn} onClick={() => setBuyPriceEdit(false)}>Cancel</button>
-                    </div>
-                  )}
                 </div>
               </div>
 
+              {/* Row 2: Foil (conditional) + Language */}
+              <div className={styles.editRow}>
+                {hasFoilVersion && (
+                  <div className={styles.editField}>
+                    <span className={styles.editLabel}>Foil</span>
+                    <button className={`${styles.foilSwitch}${editFoil ? ' ' + styles.foilSwitchOn : ''}`} onClick={() => setEditFoil(v => !v)}>
+                      <span className={styles.foilSwitchKnob} />
+                    </button>
+                  </div>
+                )}
+                <div className={styles.editField}>
+                  <span className={styles.editLabel}>Language</span>
+                  <Select value={editLanguage} onChange={e => setEditLanguage(e.target.value)}>
+                    {Object.entries(LANG_NAMES_FULL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                  </Select>
+                </div>
+              </div>
+
+              {/* Buy Price */}
+              <div className={styles.editField}>
+                <span className={styles.editLabel}>Buy Price (EUR)</span>
+                {!buyPriceEdit ? (
+                  <div className={styles.buyPriceRow}>
+                    <span className={styles.buyPriceValue}>{editBuyPrice > 0 ? `€${editBuyPrice.toFixed(2)}` : '—'}</span>
+                    <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.ghost}`} onClick={() => { setBuyPriceEdit(true); setBuyPriceInput(editBuyPrice > 0 ? String(editBuyPrice) : '') }}>
+                      {editBuyPrice > 0 ? 'Change' : '+ Set'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className={styles.inlineEditor}>
+                    <input autoFocus type="number" min="0" step="0.01" value={buyPriceInput} className={styles.buyPriceInput}
+                      onChange={e => setBuyPriceInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') saveBuyPrice(); if (e.key === 'Escape') setBuyPriceEdit(false) }}
+                      placeholder="0.00" />
+                    <button className={`${uiStyles.btn} ${uiStyles.sm}`} onClick={saveBuyPrice}>Save</button>
+                    <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.ghost}`} onClick={() => setBuyPriceEdit(false)}>Cancel</button>
+                  </div>
+                )}
+              </div>
+
+              {/* Change Printing */}
+              {fc.prints_search_uri && (
+                <div>
+                  <ResponsiveMenu
+                    title="Select Printing"
+                    align="left"
+                    panelClassName={styles.printingsMenuPanel}
+                    onOpenChange={open => { if (open) loadPrintings() }}
+                    trigger={({ open, toggle }) => (
+                      <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.ghost} ${styles.changePrintingBtn}${open ? ' ' + styles.changePrintingBtnOpen : ''}`} onClick={toggle}>
+                        Change Printing
+                      </button>
+                    )}
+                  >
+                    {({ close }) => (
+                      <div className={styles.printingImgGrid}>
+                        {loadingPrintings ? (
+                          <div className={styles.printingImgLoading}>Loading printings…</div>
+                        ) : printings?.map((p, i) => (
+                          <button
+                            key={i}
+                            className={`${styles.printingCard}${p.id === card.scryfall_id ? ' ' + styles.printingCardActive : ''}`}
+                            onClick={() => { handleChangePrinting(p); close() }}
+                          >
+                            <div className={styles.printingCardImgWrap}>
+                              {p.image_uris?.small ? (
+                                <img className={styles.printingCardImg} src={p.image_uris.small} alt={p.name} loading="lazy" />
+                              ) : (
+                                <div className={styles.printingCardImgPlaceholder}>?</div>
+                              )}
+                            </div>
+                            <div className={styles.printingCardLabel}>
+                              <span className={styles.printingCardSet}>{p.set_name}</span>
+                              <span className={styles.printingCardMeta}>{(p.set || '').toUpperCase()} #{p.collector_number}{p.lang && p.lang !== 'en' ? ` · ${p.lang.toUpperCase()}` : ''}</span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </ResponsiveMenu>
+                </div>
+              )}
+
+              {/* Save */}
               <div className={styles.editSaveRow}>
-                <button className={styles.saveBtn} onClick={handleSave} disabled={saving || saved}>
-                  {saving ? 'Saving...' : saved ? 'Saved' : 'Save Changes'}
+                <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.green}`} onClick={handleSave} disabled={saving || saved}>
+                  {saving ? 'Saving...' : saved ? '✓ Saved' : 'Save Changes'}
                 </button>
                 {saveError && <span className={styles.detailError}>{saveError}</span>}
               </div>
 
+              {/* Move to folder */}
               {allFolders.length > 0 && (
-                <div className={`${styles.editGroup} ${styles.detailSubsection}`}>
-                  <span className={styles.editLabel}>Move to</span>
-                  <div className={styles.moveRow}>
-                    <input
-                      list="moveFolderList"
-                      className={styles.editSelect}
-                      style={{ flex: 1, minWidth: 140 }}
-                      value={moveFolderText}
-                      onChange={e => setMoveFolderText(e.target.value)}
-                      placeholder="Type or select deck / binder..."
-                    />
-                    <datalist id="moveFolderList">
-                      {allFolders.filter(f => f.type !== 'list').map(f => (
-                        <option key={f.id} value={f.name}>{f.name} ({f.type})</option>
-                      ))}
-                    </datalist>
-                    <button
-                      className={styles.addToFolderBtn}
-                      onClick={handleMoveToFolder}
-                      disabled={!moveFolderText || !allFolders.find(f => f.name.toLowerCase() === moveFolderText.toLowerCase())}
-                    >
-                      Move
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              <div className={styles.detailSubsection}>
-                <div className={styles.detailInfoRow}>
-                  <span className={styles.detailInfoLabel}>Language</span>
-                  <span className={styles.detailInfoVal}>{LANG_NAMES_FULL[card.language] || (card.language || '').toUpperCase()}</span>
-                </div>
-                <div className={styles.detailInfoRow}>
-                  <span className={styles.detailInfoLabel}>Set</span>
-                  <span className={styles.detailInfoVal}>{(card.set_code || '').toUpperCase()} . #{card.collector_number}</span>
-                </div>
-                <div className={styles.detailInfoRow}>
-                  <span className={styles.detailInfoLabel}>Added</span>
-                  <span className={styles.detailInfoVal}>{card.added_at ? new Date(card.added_at).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' }) : '-'}</span>
-                </div>
-                {editBuyPrice > 0 && (
-                  <div className={styles.detailInfoRow}>
-                    <span className={styles.detailInfoLabel}>Buy Price</span>
-                    <span className={styles.detailInfoVal}>
-                      EUR {editBuyPrice.toFixed(2)}
-                      {pl != null && <span className={styles.inlineMuted}>{pl >= 0 ? '+' : ''}EUR {pl.toFixed(2)}</span>}
-                    </span>
-                  </div>
-                )}
-                {card.misprint && <div className={styles.detailInfoRow}><span className={styles.detailInfoLabel}>Misprint</span><span className={styles.detailInfoVal}>Yes</span></div>}
-                {card.altered && <div className={styles.detailInfoRow}><span className={styles.detailInfoLabel}>Altered</span><span className={styles.detailInfoVal}>Yes</span></div>}
-              </div>
-
-              {currentFolders.length > 0 && (
                 <div className={styles.detailSubsection}>
-                  <div className={styles.detailInfoRow} style={{ alignItems: 'flex-start' }}>
-                    <span className={styles.detailInfoLabel}>In</span>
+                  {currentFolders.length > 0 && (
+                    <div>
+                      <div className={styles.locationSubLabel}>Current location</div>
                     <div className={styles.folderPills}>
                       {currentFolders.map((f, i) => {
                         const path = f.type === 'deck' ? '/decks' : f.type === 'binder' ? '/binders' : '/lists'
                         const dest = f.id ? `${path}?folder=${f.id}` : path
                         return (
-                          <button key={i} onClick={() => { onClose?.(); navigate(dest) }} className={styles.folderChip}>
-                            <FolderTypeIcon type={f.type} size={11} />{f.name} {'->'}
+                          <button key={i} onClick={() => { onClose?.(); navigate(dest) }} className={`${uiStyles.btn} ${uiStyles.sm} ${styles.folderChip}`}>
+                            <FolderTypeIcon type={f.type} size={11} />{f.name} →
                           </button>
                         )
                       })}
                     </div>
-                  </div>
+                    </div>
+                  )}
+                  <ResponsiveMenu
+                    title="Move to another Binder / Deck"
+                    align="left"
+                    panelClassName={styles.moveFolderPanel}
+                    onOpenChange={open => { if (!open) setMoveFolderSearch('') }}
+                    trigger={({ toggle }) => (
+                      <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.purple}`} onClick={toggle}>
+                        Move to another Binder / Deck
+                      </button>
+                    )}
+                  >
+                    {({ close }) => {
+                      const q = moveFolderSearch.toLowerCase()
+                      const filtered = allFolders.filter(f => f.type !== 'list' && (!q || f.name.toLowerCase().includes(q)))
+                      return (
+                        <>
+                          <div className={styles.moveFolderSearch}>
+                            <input
+                              autoFocus
+                              className={styles.moveFolderSearchInput}
+                              value={moveFolderSearch}
+                              onChange={e => setMoveFolderSearch(e.target.value)}
+                              placeholder="Search folders…"
+                            />
+                          </div>
+                          <div className={styles.moveFolderList}>
+                            {filtered.length === 0
+                              ? <div className={styles.moveFolderEmpty}>No folders found</div>
+                              : filtered.map(f => (
+                                <button
+                                  key={f.id}
+                                  className={`${styles.moveFolderItem}${currentFolders.some(cf => cf.id === f.id) ? ' ' + styles.moveFolderItemCurrent : ''}`}
+                                  onClick={() => { handleMoveToFolder(f); close() }}
+                                >
+                                  <FolderTypeIcon type={f.type} size={12} />
+                                  <span className={styles.moveFolderItemName}>{f.name}</span>
+                                  {currentFolders.some(cf => cf.id === f.id) && <span className={styles.moveFolderItemBadge}>current</span>}
+                                </button>
+                              ))
+                            }
+                          </div>
+                        </>
+                      )
+                    }}
+                  </ResponsiveMenu>
                 </div>
               )}
 
+              {/* Card metadata */}
+              <div className={styles.detailSubsection}>
+                <div className={styles.infoGrid}>
+                  <div className={styles.infoCell}><span className={styles.infoLabel}>Set</span><span className={styles.infoVal}>{(card.set_code || '').toUpperCase()} #{card.collector_number}</span></div>
+                  <div className={styles.infoCell}><span className={styles.infoLabel}>Added</span><span className={styles.infoVal}>{card.added_at ? new Date(card.added_at).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' }) : '—'}</span></div>
+                  {editBuyPrice > 0 && pl != null && (
+                    <div className={styles.infoCell}>
+                      <span className={styles.infoLabel}>P&amp;L</span>
+                      <span className={styles.infoVal} style={{ color: pl >= 0 ? 'var(--green)' : '#e05252', fontWeight: 600 }}>
+                        {pl >= 0 ? '+' : ''}€{pl.toFixed(2)}{plPct != null && <span className={styles.inlineMuted}> ({plPct >= 0 ? '+' : ''}{plPct.toFixed(1)}%)</span>}
+                      </span>
+                    </div>
+                  )}
+                  {card.misprint && <div className={styles.infoCell}><span className={styles.infoLabel}>Misprint</span><span className={styles.infoVal}>Yes</span></div>}
+                  {card.altered && <div className={styles.infoCell}><span className={styles.infoLabel}>Altered</span><span className={styles.infoVal}>Yes</span></div>}
+                </div>
+              </div>
+
               {onDelete && (
                 <div className={styles.detailSubsection}>
-                  <button className={styles.deleteBtn} onClick={onDelete}>Delete Card</button>
+                  <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.danger}`} onClick={onDelete}>Delete Card</button>
                 </div>
               )}
             </div>

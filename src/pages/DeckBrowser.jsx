@@ -1089,14 +1089,6 @@ export default function DeckBrowser({ folder, onBack }) {
           selectMode={selectMode} selectedCards={selectedCards} onToggleSelect={onToggleSelect}
           onEnterSelectMode={() => setSelectMode(true)} />
       )}
-      {false && selectedCard && (
-        <CardDetail card={selectedCard} sfCard={selectedSf}
-          priceSource={price_source}
-          currentFolderId={folder.id}
-          onSave={handleCardSave}
-          onClose={() => setDetailCardId(null)} />
-      )}
-
       {selectedCard && (
         <CardDetail card={selectedCard} sfCard={selectedSf}
           priceSource={price_source}

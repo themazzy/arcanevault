@@ -694,6 +694,7 @@ export default function StatsPage() {
             card={selectedCard}
             sfCard={selectedSf}
             priceSource={price_source}
+            readOnly
             onClose={() => setDetailCardId(null)}
           />
         )}
