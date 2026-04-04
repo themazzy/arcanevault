@@ -24,8 +24,9 @@ function CardItem({ card, sfCard, selectMode, isSelected, totalQty, onSelect, on
   const displayKey = card._displayKey || card.id
   const img = getImageUri(sfCard, 'normal')
   const scryfallPrice = getPrice(sfCard, card.foil)
-  const price = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
-  const isBuyFallback = scryfallPrice == null && price != null
+  const unitPrice = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
+  const price = unitPrice != null ? unitPrice * totalQty : null
+  const isBuyFallback = scryfallPrice == null && unitPrice != null
   const priceClass = price == null ? styles.priceNa : isBuyFallback ? styles.priceFallback : ''
 
   const selQty = splitState?.get(displayKey) ?? 1

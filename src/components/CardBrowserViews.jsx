@@ -226,8 +226,10 @@ function TextView({ groups, groupOrder, selectMode, selectedCards, onToggleSelec
 function TableRow({ card, sf, priceSource, isSelected, selectMode, onClick, onEnterSelectMode }) {
   const longPress = useLongPress(() => { if (!selectMode) onEnterSelectMode?.() }, { delay: 500 })
   const { onMouseLeave: lpLeave, ...lpRest } = longPress
+  const totalQty = card._folder_qty || card.qty || 1
   const scryfallPrice = getPrice(sf, card.foil, { price_source: priceSource })
-  const price = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
+  const unitPrice = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
+  const price = unitPrice != null ? unitPrice * totalQty : null
   const mc = sf?.mana_cost || sf?.card_faces?.[0]?.mana_cost || ''
   return (
     <tr
@@ -244,7 +246,7 @@ function TableRow({ card, sf, priceSource, isSelected, selectMode, onClick, onEn
         </td>
       )}
       <td className={styles.td} style={{ textAlign: 'center', color: 'var(--text-faint)' }}>
-        {card._folder_qty || card.qty || 1}
+        {totalQty}
       </td>
       <td className={styles.td}>
         <div>
@@ -353,8 +355,9 @@ function StackCard({ card, sf, idx, priceSource, selectMode, isSelected, onSelec
   const img = sf?.image_uris?.normal || sf?.card_faces?.[0]?.image_uris?.normal
   const totalQty = card._folder_qty || card.qty || 1
   const scryfallPrice = getPrice(sf, card.foil, { price_source: priceSource })
-  const price = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
-  const isBuyFallback = scryfallPrice == null && price != null
+  const unitPrice = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
+  const price = unitPrice != null ? unitPrice * totalQty : null
+  const isBuyFallback = scryfallPrice == null && unitPrice != null
   const key = getDisplayKey(card)
   const selQty = splitState?.get(key) ?? 1
   const longPress = useLongPress(() => { if (!selectMode) onEnterSelectMode?.() }, { delay: 500 })
@@ -454,11 +457,12 @@ function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, onHover,
 
 function ListRow({ card, sfCard, priceSource, onSelect, onHover, onHoverEnd, selectMode, isSelected, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode }) {
   const scryfallPrice = getPrice(sfCard, card.foil, { price_source: priceSource })
-  const price = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
-  const isBuyFallback = scryfallPrice == null && price != null
+  const totalQty = card._folder_qty || card.qty || 1
+  const unitPrice = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
+  const price = unitPrice != null ? unitPrice * totalQty : null
+  const isBuyFallback = scryfallPrice == null && unitPrice != null
   const typeLine = sfCard?.type_line || sfCard?.card_faces?.[0]?.type_line || ''
   const mc = sfCard?.mana_cost || sfCard?.card_faces?.[0]?.mana_cost || ''
-  const totalQty = card._folder_qty || card.qty || 1
   const img = sfCard?.image_uris?.normal || sfCard?.card_faces?.[0]?.image_uris?.normal || null
   const key = getDisplayKey(card)
   const selQty = splitState?.get(key) ?? 1
@@ -558,8 +562,9 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onT
   const img = sf?.image_uris?.normal || sf?.card_faces?.[0]?.image_uris?.normal
   const totalQty = card._folder_qty || card.qty || 1
   const scryfallPrice = getPrice(sf, card.foil, { price_source: priceSource })
-  const price = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
-  const isBuyFallback = scryfallPrice == null && price != null
+  const unitPrice = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
+  const price = unitPrice != null ? unitPrice * totalQty : null
+  const isBuyFallback = scryfallPrice == null && unitPrice != null
   const key = getDisplayKey(card)
   const selQty = splitState?.get(key) ?? 1
   const longPress = useLongPress(() => { if (!selectMode) onEnterSelectMode?.() }, { delay: 500 })
