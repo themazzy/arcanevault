@@ -282,8 +282,13 @@ export function parseImportUrl(url) {
  * Supports:
  *   "4 Lightning Bolt"
  *   "4x Lightning Bolt"
+ *   "Lightning Bolt"                        (qty defaults to 1)
+ *   "4 Lightning Bolt (M10) 155"            (set code + collector number preserved)
+ *   "4 Lightning Bolt [M10]"                (bracket set code)
+ *   "4 *F* Lightning Bolt"                  (MTGO foil marker)
+ *   "4 Lightning Bolt (M10) 155 [Foil]"     (Moxfield-style foil)
  *   Section headers: "Commander:", "Deck:", "Sideboard:", "// Comment"
- * Returns [{ name, qty, isCommander, board }]
+ * Returns [{ name, qty, isCommander, board, setCode, collectorNumber, foil }]
  */
 export function parseTextDecklist(text) {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
@@ -299,19 +304,41 @@ export function parseTextDecklist(text) {
     if (/^(\/\/\s*)?(maybeboard|maybe)/i.test(line)) { inCommander = false; board = 'maybe'; continue }
     if (line.startsWith('//')) continue // other comments
 
-    // Card line: "4 Card Name" or "4x Card Name"
-    const match = line.match(/^(\d+)x?\s+(.+)$/)
-    if (!match) continue
+    let rest = line
 
-    const qty  = parseInt(match[1], 10)
-    const name = match[2]
-      .trim()
-      .replace(/\s*\(.*?\)\s*\d*/g, '') // strip (SET) 123 suffixes
-      .replace(/\s*\/\/.*$/, '')         // strip back-face: "Front // Back" → "Front"
-      .trim()
+    // Detect and strip foil markers anywhere in the line
+    let foil = false
+    if (/\*F\*/i.test(rest) || /\[foil\]/i.test(rest) || /\(foil\)/i.test(rest)) {
+      foil = true
+      rest = rest.replace(/\s*\*F\*/gi, '').replace(/\s*\[foil\]/gi, '').replace(/\s*\(foil\)/gi, '').trim()
+    }
 
+    // Extract optional qty at start: "4 " or "4x "
+    let qty = 1
+    const qtyMatch = rest.match(/^(\d+)x?\s+/)
+    if (qtyMatch) {
+      qty = parseInt(qtyMatch[1], 10)
+      rest = rest.slice(qtyMatch[0].length)
+    }
+
+    // Extract set code + optional collector number from the end of the line:
+    //   "(M10) 155" or "[M10] 155" or "(M10)" or "[M10]"
+    // Set codes are 2-6 alphanumeric chars; collector numbers may have a trailing letter (e.g. 155a)
+    let setCode = null
+    let collectorNumber = null
+    const setMatch = rest.match(/\s+[\(\[]([A-Za-z0-9]{2,6})[\)\]]\s*(\d+[a-z]?)?\s*$/)
+    if (setMatch) {
+      setCode = setMatch[1].toLowerCase()
+      collectorNumber = setMatch[2] || null
+      rest = rest.slice(0, setMatch.index).trim()
+    }
+
+    // Strip back-face suffix: "Front // Back" → "Front"
+    rest = rest.replace(/\s*\/\/.*$/, '').trim()
+
+    const name = rest
     if (!name || qty < 1) continue
-    cards.push({ name, qty, isCommander: inCommander, board })
+    cards.push({ name, qty, isCommander: inCommander, board, setCode, collectorNumber, foil })
     inCommander = false // only first card after Commander: header is commander
   }
 

@@ -11,6 +11,7 @@ import VirtualCardGrid from '../components/VirtualCardGrid'
 import { DropZone, ProgressBar, ErrorBox, EmptyState, SectionHeader, Button } from '../components/UI'
 import AddCardModal from '../components/AddCardModal'
 import ExportModal from '../components/ExportModal'
+import ImportModal from '../components/ImportModal'
 import styles from './Collection.module.css'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
 
@@ -43,6 +44,8 @@ export default function CollectionPage() {
   const [detailCardId, setDetailCardId] = useState(null)
   const [showAdd, setShowAdd] = useState(false)
   const [showExport, setShowExport] = useState(false)
+  const [showImportModal, setShowImportModal] = useState(false)
+  const [importModalText, setImportModalText] = useState('')
   const [importing, setImporting] = useState(false)
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState(new Set())
@@ -278,7 +281,14 @@ export default function CollectionPage() {
   // ── Import ───────────────────────────────────────────────────────────────────
   const handleImport = useCallback(async (file) => {
     setError('')
-    if (!file?.name.endsWith('.csv')) { setError('Please upload a .csv file.'); return }
+    if (file?.name.endsWith('.txt')) {
+      // .txt files → open ImportModal (decklist → choose binder destination)
+      const text = await file.text()
+      setImportModalText(text)
+      setShowImportModal(true)
+      return
+    }
+    if (!file?.name.endsWith('.csv')) { setError('Please upload a .csv or .txt file.'); return }
     const text = await file.text()
     const { cards: parsed, folders } = parseManaboxCSV(text)
     if (!parsed.length) { setError('No cards found.'); return }
@@ -760,7 +770,7 @@ export default function CollectionPage() {
       {cards.length === 0 ? (
         <DropZone onFile={handleImport}
           title="Import Your Collection"
-          subtitle='Drop your Manabox CSV here, or click to browse.' />
+          subtitle='Drop a Manabox CSV here, or click to browse. Use ↑ Import above to add a decklist.' />
       ) : (
         <FilterBar
           search={searchInput} setSearch={setSearchInput}
@@ -770,11 +780,7 @@ export default function CollectionPage() {
           sets={availableSets} languages={availableLanguages}
           extra={
             <div style={{ display: 'flex', gap: 6 }}>
-              <label className={styles.importBtn}>
-                Import CSV
-                <input type="file" accept=".csv" style={{ display: 'none' }}
-                  onChange={e => e.target.files[0] && handleImport(e.target.files[0])} />
-              </label>
+              <button className={styles.importBtn} onClick={() => { setImportModalText(''); setShowImportModal(true) }}>↑ Import</button>
               <button className={styles.importBtn} onClick={() => setShowExport(true)}>↓ Export</button>
             </div>
           }
@@ -858,6 +864,17 @@ export default function CollectionPage() {
         <AddCardModal userId={user.id}
           onClose={() => setShowAdd(false)}
           onSaved={() => { setShowAdd(false); loadCards() }}
+        />
+      )}
+
+      {showImportModal && user && (
+        <ImportModal
+          userId={user.id}
+          folderType="binder"
+          folders={folders.filter(f => f.type === 'binder')}
+          initialText={importModalText || undefined}
+          onClose={() => setShowImportModal(false)}
+          onSaved={() => { setShowImportModal(false); loadCards() }}
         />
       )}
 

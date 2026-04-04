@@ -219,6 +219,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
   const [selectedItems, setSelectedItems] = useState(new Set())
   const [splitState, setSplitState]       = useState(new Map())
   const [showAddCard, setShowAddCard]     = useState(false)
+  const [showImport, setShowImport]       = useState(false)
   const [showExport, setShowExport]       = useState(false)
   const [viewMode, setViewMode]           = useState('grid')
   const [groupBy, setGroupBy]             = useState(default_grouping || 'type')
@@ -422,6 +423,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
             <span className={styles.binderValue}>{formatPrice(totalValue, price_source)}</span>
             <div className={styles.browserHeaderActionsDesktop}>
               <Button variant="secondary" size="sm" onClick={() => setShowExport(true)}>↓ Export</Button>
+              {!isAllView && <Button variant="secondary" size="sm" onClick={() => setShowImport(true)}>↑ Import</Button>}
               <Button size="sm" onClick={() => setShowAddCard(true)}>+ Add Cards</Button>
             </div>
             <div className={styles.browserHeaderActionsMobile}>
@@ -443,6 +445,9 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
                     <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowExport(true); close() }}>
                       <span>Export</span>
                     </button>
+                    {!isAllView && <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowImport(true); close() }}>
+                      <span>Import</span>
+                    </button>}
                     <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowAddCard(true); close() }}>
                       <span>Add Cards</span>
                     </button>
@@ -607,6 +612,16 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
         />
       )}
 
+      {showImport && user && !isAllView && (
+        <ImportModal
+          userId={user.id}
+          folderType="list"
+          folders={[folder]}
+          defaultFolderId={folder.id}
+          onClose={() => setShowImport(false)}
+          onSaved={() => { setShowImport(false); reload() }}
+        />
+      )}
       {showAddCard && user && (
         <AddCardModal
           userId={user.id}

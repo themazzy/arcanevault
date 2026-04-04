@@ -1,12 +1,38 @@
-.wrap { display: flex; flex-direction: column; gap: 14px; min-width: 480px; max-width: 560px; }
+.wrap {
+  display: flex; flex-direction: column; gap: 14px;
+  width: 100%; max-width: 560px;
+  max-height: calc(100dvh - 120px);
+  overflow-y: auto;
+}
 .title { font-family: var(--font-display); color: var(--gold); font-size: 1rem; font-weight: 600; margin: 0; }
-.hint { font-size: 0.82rem; color: var(--text-dim); margin: 0; }
+.hint { font-size: 0.82rem; color: var(--text-dim); margin: 0; line-height: 1.5; }
+.hintFormats { font-size: 0.75rem; color: var(--text-faint); }
+.hintFormats code { color: var(--gold); background: rgba(201,168,76,0.08); border-radius: 3px; padding: 0 4px; font-size: 0.72rem; }
+
+/* Input tabs */
+.inputTabs { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 2px; }
+.inputTab {
+  flex: 1; padding: 7px 0; background: none; border: none;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  color: var(--text-dim); font-size: 0.82rem; cursor: pointer; transition: color 0.15s;
+}
+.inputTab:hover { color: var(--text); }
+.inputTabActive { border-bottom-color: var(--gold); color: var(--gold); }
+
+.urlInput {
+  width: 100%; background: var(--s1); border: 1px solid var(--border);
+  border-radius: 4px; padding: 9px 12px; color: var(--text); font-size: 0.88rem; outline: none;
+  transition: border-color 0.2s;
+}
+.urlInput:focus { border-color: var(--border-hi); }
+.urlInput::placeholder { color: var(--text-faint); }
+.urlError { font-size: 0.82rem; color: #e07070; margin: 0; }
 
 .textarea {
   width: 100%; background: var(--s1); border: 1px solid var(--border);
   border-radius: 4px; padding: 10px 12px; color: var(--text); font-family: var(--font-mono, monospace);
   font-size: 0.82rem; resize: vertical; outline: none; transition: border-color 0.2s;
-  min-height: 160px;
+  min-height: 160px; max-height: 40vh;
 }
 .textarea:focus { border-color: var(--border-hi); }
 .textarea::placeholder { color: var(--text-faint); }
@@ -31,12 +57,30 @@
 
 /* Folder picker */
 .pickerRow { display: flex; gap: 8px; align-items: center; }
-.folderSelect {
-  flex: 1; background: var(--s2); border: 1px solid var(--border);
-  border-radius: 4px; padding: 7px 10px; color: var(--text); font-size: 0.85rem; outline: none;
-  cursor: pointer;
+
+/* Searchable folder picker — trigger button + ResponsiveMenu panel */
+.folderCombo { flex: 1; }  /* ResponsiveMenu provides position:relative via its own wrap class */
+
+.folderComboBtn {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  background: var(--s2); border: 1px solid var(--border); border-radius: 4px;
+  padding: 7px 10px; color: var(--text); font-size: 0.85rem;
+  cursor: pointer; text-align: left; transition: border-color 0.15s, background 0.15s;
 }
-.folderSelect option { background: var(--bg2); }
+.folderComboBtn:hover { border-color: var(--border-hi); background: var(--s3); }
+.folderComboBtnPlaceholder { color: var(--text-faint); }
+.folderComboArrow { color: var(--text-faint); font-size: 0.62rem; flex-shrink: 0; }
+
+/* Search input inside the dropdown / bottom sheet */
+.folderDropSearch {
+  width: 100%; background: var(--s2); border: 1px solid var(--border); border-radius: 6px;
+  padding: 7px 12px; color: var(--text); font-size: 0.85rem; outline: none;
+  box-sizing: border-box; flex-shrink: 0; margin-bottom: 4px;
+}
+.folderDropSearch:focus { border-color: var(--border-hi); }
+.folderDropSearch::placeholder { color: var(--text-faint); }
+
+.folderDropEmpty { padding: 6px 4px; color: var(--text-faint); font-size: 0.82rem; font-style: italic; }
 .createBtn {
   white-space: nowrap; background: none; border: 1px solid rgba(201,168,76,0.3);
   border-radius: 4px; padding: 7px 12px; color: var(--gold); font-size: 0.78rem;
@@ -50,7 +94,7 @@
 
 /* Preview */
 .previewList {
-  max-height: 220px; overflow-y: auto; border: 1px solid var(--border);
+  max-height: min(220px, 28vh); overflow-y: auto; border: 1px solid var(--border);
   border-radius: 4px; background: var(--s1);
 }
 .previewRow {
@@ -60,6 +104,7 @@
 .previewRow:last-child { border-bottom: none; }
 .previewQty { font-family: var(--font-display); color: var(--text-faint); font-size: 0.75rem; min-width: 28px; text-align: right; }
 .previewName { flex: 1; color: var(--text); }
+.previewSet { font-size: 0.72rem; color: var(--text-faint); font-family: monospace; }
 .previewFoil { font-size: 0.65rem; color: #c8a0ff; }
 .previewMore { padding: 6px 10px; color: var(--text-faint); font-size: 0.78rem; font-style: italic; }
 
