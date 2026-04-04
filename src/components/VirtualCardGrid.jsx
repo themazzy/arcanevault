@@ -35,15 +35,16 @@ function FolderTags({ folders }) {
 
 function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, totalQty, onToggleSelect, onEnterSelectMode, onAdjustQty, splitState, priceSource, showPrice, density, cardFolders }) {
   const img     = getImageUri(sfCard, 'normal')
+  const displayQty = card._folder_qty ?? card.qty ?? 1
   const priceMeta = getPriceWithMeta(sfCard, card.foil, { price_source: priceSource })
   const buyPrice = parseFloat(card.purchase_price) || null
   const isBuyFallback = priceMeta == null && buyPrice != null
+  const totalPriceMeta = priceMeta ? { ...priceMeta, value: priceMeta.value * displayQty } : null
   const plPct = (card.purchase_price > 0 && priceMeta?.value)
     ? ((priceMeta.value - card.purchase_price) / card.purchase_price) * 100
     : null
 
   const selQty = splitState?.get(card.id) ?? 1
-  const displayQty = card._folder_qty ?? card.qty ?? 1
 
   // If card has a _displayFolder it's an expanded entry; show only that folder.
   // Otherwise show all folders from cardFolderMap.
@@ -97,8 +98,8 @@ function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, tota
           <span className={styles.setCode}>{(card.set_code || '').toUpperCase()}</span>
           {showPrice && (
             <span className={styles.priceWrap}>
-              <span className={`${styles.price}${(priceMeta == null && !isBuyFallback) ? ' ' + styles.priceNa : (priceMeta?.isFallback || isBuyFallback ? ' ' + styles.priceFallback : '')}`}>
-                {priceMeta ? formatPriceMeta(priceMeta) : isBuyFallback ? `${priceSource === 'tcgplayer_market' ? '$' : 'EUR '}${buyPrice.toFixed(2)}` : loading ? '...' : '-'}
+              <span className={`${styles.price}${(totalPriceMeta == null && !isBuyFallback) ? ' ' + styles.priceNa : (totalPriceMeta?.isFallback || isBuyFallback ? ' ' + styles.priceFallback : '')}`}>
+                {totalPriceMeta ? formatPriceMeta(totalPriceMeta) : isBuyFallback ? `${priceSource === 'tcgplayer_market' ? '$' : 'EUR '}${(buyPrice * displayQty).toFixed(2)}` : loading ? '...' : '-'}
               </span>
               {plPct != null && (
                 <span className={`${styles.pricePct} ${plPct >= 0 ? styles.pricePctUp : styles.pricePctDown}`}>
