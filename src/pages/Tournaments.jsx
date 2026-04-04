@@ -3,6 +3,7 @@ import { Button, EmptyState, Input, Select, Badge } from '../components/UI'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { sb } from '../lib/supabase'
+import { getPublicAppUrl } from '../lib/publicUrl'
 import {
   TOURNAMENT_FORMATS,
   TOURNAMENT_STRUCTURES,
@@ -255,7 +256,7 @@ function PodMatchCard({ tournament, roundId, match, participants, onSave }) {
 }
 
 function LobbyScreen({ session, slots, onStart, onCancel }) {
-  const joinUrl = `${window.location.origin}${import.meta.env.BASE_URL}join-tournament/${session.code}`
+  const joinUrl = getPublicAppUrl(`/join-tournament/${session.code}`)
   const openSlots = slots.filter(slot => slot.slot_kind === 'app' && !slot.user_id).length
   const readyToStart = openSlots === 0 && slots.length >= 2
 

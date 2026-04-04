@@ -16,6 +16,7 @@ import styles from './Folders.module.css'
 import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
+import { getPublicAppUrl } from '../lib/publicUrl'
 
 // ── SVG Icons ─────────────────────────────────────────────────────────────────
 function TrashIcon({ size = 14 }) {
@@ -924,8 +925,7 @@ function ShareModal({ folder, onClose }) {
     load()
   }, [folder.id])
 
-  const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '')
-  const url = token ? `${window.location.origin}${base}/share/${token}` : ''
+  const url = token ? getPublicAppUrl(`/share/${token}`) : ''
 
   return (
     <Modal onClose={onClose}>
