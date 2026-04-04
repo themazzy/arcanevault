@@ -2028,7 +2028,10 @@ export default function DeckBuilderPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(import.meta.env.DEV ? {} : { apikey: import.meta.env.VITE_SUPABASE_ANON_KEY }),
+          ...(import.meta.env.DEV ? {} : {
+            'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+          }),
         },
         body: JSON.stringify(body),
       })
