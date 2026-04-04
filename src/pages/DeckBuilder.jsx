@@ -1285,10 +1285,11 @@ export default function DeckBuilderPage() {
   const [showExport,    setShowExport]    = useState(false)
   const [importUrl,     setImportUrl]     = useState('')
   const [importText,    setImportText]    = useState('')
-  const [importTab,     setImportTab]     = useState('url') // 'url' | 'text'
+  const [importTab,     setImportTab]     = useState('url') // 'url' | 'text' | 'file'
   const [importing,     setImporting]     = useState(false)
   const [importError,   setImportError]   = useState(null)
   const [importDone,    setImportDone]    = useState(null)  // summary string
+  const importFileRef = useRef(null)
 
   // Make Deck / Sync
   const [showMakeDeck,    setShowMakeDeck]    = useState(false)
@@ -2019,9 +2020,16 @@ export default function DeckBuilderPage() {
         commanders: commanderCard ? [{ card: commanderCard.name }] : [],
         main: deckCards.filter(dc => !dc.is_commander).map(dc => ({ card: dc.name })),
       }
-      const res = await fetch('/api/combos/find-my-combos/', {
+      // Dev: use Vite proxy (spoof Origin). Prod: use Supabase Edge Function.
+      const combosUrl = import.meta.env.DEV
+        ? '/api/combos/find-my-combos/'
+        : `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/combo-proxy`
+      const res = await fetch(combosUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(import.meta.env.DEV ? {} : { apikey: import.meta.env.VITE_SUPABASE_ANON_KEY }),
+        },
         body: JSON.stringify(body),
       })
       if (!res.ok) throw new Error(`API ${res.status}`)
@@ -3441,7 +3449,7 @@ export default function DeckBuilderPage() {
 
             {/* Tab switcher */}
             <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)' }}>
-              {[['url', '🔗 URL'], ['text', '📋 Paste List']].map(([id, label]) => (
+              {[['url', '🔗 URL'], ['text', '📋 Paste List'], ['file', '📂 Upload File']].map(([id, label]) => (
                 <button key={id} onClick={() => setImportTab(id)}
                   style={{ flex: 1, padding: '7px 0', background: 'none', border: 'none', borderBottom: importTab === id ? '2px solid var(--gold)' : '2px solid transparent', color: importTab === id ? 'var(--gold)' : 'var(--text-dim)', fontSize: '0.83rem', cursor: 'pointer', marginBottom: -1 }}>
                   {label}
@@ -3449,7 +3457,7 @@ export default function DeckBuilderPage() {
               ))}
             </div>
 
-            {importTab === 'url' ? (
+            {importTab === 'url' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <p style={{ fontSize: '0.78rem', color: 'var(--text-faint)', margin: 0 }}>
                   Paste a deck link from Archidekt, Moxfield, or MTGGoldfish.
@@ -3466,7 +3474,8 @@ export default function DeckBuilderPage() {
                   ⚠ Moxfield may require logging in — if it fails, use Paste List instead.
                 </p>
               </div>
-            ) : (
+            )}
+            {importTab === 'text' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <p style={{ fontSize: '0.78rem', color: 'var(--text-faint)', margin: 0 }}>
                   Paste a decklist in standard format. Optionally prefix with <code style={{ color: 'var(--gold)' }}>Commander:</code> section.
@@ -3481,6 +3490,39 @@ export default function DeckBuilderPage() {
                 />
               </div>
             )}
+            {importTab === 'file' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-faint)', margin: 0 }}>
+                  Upload a <code style={{ color: 'var(--gold)' }}>.txt</code> decklist or <code style={{ color: 'var(--gold)' }}>.csv</code> Manabox export.
+                </p>
+                <input
+                  ref={importFileRef}
+                  type="file"
+                  accept=".csv,.txt"
+                  style={{ display: 'none' }}
+                  onChange={async e => {
+                    const file = e.target.files[0]
+                    if (!file) return
+                    const text = await file.text()
+                    setImportText(text)
+                    e.target.value = ''
+                  }}
+                />
+                <button
+                  onClick={() => importFileRef.current?.click()}
+                  style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-dim)', padding: '10px 16px', fontSize: '0.83rem', cursor: 'pointer', textAlign: 'left' }}>
+                  {importText ? `✓ File loaded — ${importText.split('\n').filter(Boolean).length} lines` : 'Choose file…'}
+                </button>
+                {importText && (
+                  <textarea
+                    readOnly
+                    value={importText}
+                    rows={6}
+                    style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', borderRadius: 4, padding: '8px 12px', color: 'var(--text-faint)', fontSize: '0.78rem', outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
+                  />
+                )}
+              </div>
+            )}
 
             {importError && <p style={{ color: '#e07070', fontSize: '0.82rem', margin: 0 }}>{importError}</p>}
             {importDone  && <p style={{ color: 'var(--green)', fontSize: '0.82rem', margin: 0 }}>✓ {importDone}</p>}
@@ -3491,7 +3533,8 @@ export default function DeckBuilderPage() {
                 {importDone ? 'Close' : 'Cancel'}
               </button>
               {!importDone && (
-                <button onClick={handleImport} disabled={importing || (importTab === 'url' ? !importUrl.trim() : !importText.trim())}
+                <button onClick={handleImport}
+                  disabled={importing || (importTab === 'url' ? !importUrl.trim() : !importText.trim())}
                   style={{ background: 'rgba(201,168,76,0.15)', border: '1px solid rgba(201,168,76,0.4)', borderRadius: 4, color: 'var(--gold)', padding: '7px 18px', fontSize: '0.83rem', cursor: 'pointer', opacity: importing ? 0.6 : 1 }}>
                   {importing ? 'Importing…' : 'Import'}
                 </button>

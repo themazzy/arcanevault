@@ -453,6 +453,7 @@
   min-width: 200px;
   width: max-content;
   max-width: min(280px, calc(100vw - 16px));
+  max-height: min(72vh, 520px);
   padding: 8px;
   border-radius: 10px;
   background: color-mix(in srgb, var(--popup-bg, var(--bg3)) 97%, transparent);
@@ -464,6 +465,8 @@
   flex-direction: column;
   gap: 6px;
   z-index: 120;
+  overflow-x: hidden;
+  overflow-y: auto;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
 }

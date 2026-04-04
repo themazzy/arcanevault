@@ -9,6 +9,7 @@ import { CardDetail, FilterBar, BulkActionBar, applyFilterSort, EMPTY_FILTERS } 
 import { EmptyState, Badge, ResponsiveMenu } from '../components/UI'
 import AddCardModal from '../components/AddCardModal'
 import ExportModal from '../components/ExportModal'
+import ImportModal from '../components/ImportModal'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import styles from './DeckBrowser.module.css'
 import uiStyles from '../components/UI.module.css'
@@ -618,37 +619,37 @@ export default function DeckBrowser({ folder, onBack }) {
   // Hover preview
   const [showAddCard, setShowAddCard] = useState(false)
   const [showExport, setShowExport]   = useState(false)
+  const [showImport, setShowImport]   = useState(false)
   const [hoverImg, setHoverImg] = useState(null)
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 })
   const handleHover    = useCallback((img) => setHoverImg(img), [])
   const handleHoverEnd = useCallback(() => setHoverImg(null), [])
   const handleMouseMove = useCallback((e) => setHoverPos({ x: e.clientX, y: e.clientY }), [])
 
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true)
-      const data = await fetchDeckAllocations(folder.id)
-      if (data) {
-        const cardList = data.map(row => ({
-          id: row.card_id,
-          scryfall_id: row.scryfall_id,
-          name: row.name,
-          set_code: row.set_code,
-          collector_number: row.collector_number,
-          foil: row.foil,
-          condition: row.condition,
-          language: row.language,
-          _folder_qty: row.qty,
-          _allocation_id: row.id,
-        }))
-        setCards(cardList)
-        const map = await loadCardMapWithSharedPrices(cardList)
-        if (map) setSfMap({ ...map })
-      }
-      setLoading(false)
+  const loadCards = useCallback(async () => {
+    setLoading(true)
+    const data = await fetchDeckAllocations(folder.id)
+    if (data) {
+      const cardList = data.map(row => ({
+        id: row.card_id,
+        scryfall_id: row.scryfall_id,
+        name: row.name,
+        set_code: row.set_code,
+        collector_number: row.collector_number,
+        foil: row.foil,
+        condition: row.condition,
+        language: row.language,
+        _folder_qty: row.qty,
+        _allocation_id: row.id,
+      }))
+      setCards(cardList)
+      const map = await loadCardMapWithSharedPrices(cardList)
+      if (map) setSfMap({ ...map })
     }
-    load()
+    setLoading(false)
   }, [folder.id])
+
+  useEffect(() => { loadCards() }, [loadCards])
 
   useEffect(() => {
     setGroupBy(default_grouping || 'type')
@@ -830,6 +831,9 @@ export default function DeckBrowser({ folder, onBack }) {
             <span>{totalQty} cards</span>
             <span className={styles.deckValue}>{formatPrice(totalValue, price_source)}</span>
             <div className={styles.headerActionsDesktop}>
+              <button className={styles.addCardsBtn} onClick={() => setShowImport(true)}>
+                ↑ Import
+              </button>
               <button className={styles.addCardsBtn} onClick={() => setShowExport(true)}>
                 ↓ Export
               </button>
@@ -856,6 +860,10 @@ export default function DeckBrowser({ folder, onBack }) {
               >
                 {({ close }) => (
                   <div className={uiStyles.responsiveMenuList}>
+                    <button className={uiStyles.responsiveMenuAction}
+                      onClick={() => { setShowImport(true); close() }}>
+                      <span>Import</span>
+                    </button>
                     <button className={uiStyles.responsiveMenuAction}
                       onClick={() => { setShowExport(true); close() }}>
                       <span>Export</span>
@@ -1133,6 +1141,16 @@ export default function DeckBrowser({ folder, onBack }) {
               if (map) setSfMap({ ...map })
             }
           }}
+        />
+      )}
+      {showImport && user && (
+        <ImportModal
+          userId={user.id}
+          folderType="deck"
+          folders={[folder]}
+          defaultFolderId={folder.id}
+          onClose={() => setShowImport(false)}
+          onSaved={() => { setShowImport(false); loadCards() }}
         />
       )}
       {showExport && (
