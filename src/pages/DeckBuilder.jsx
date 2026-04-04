@@ -700,6 +700,7 @@ function MakeDeckModal({ deckCards, userId, inOtherDeckSet, onConfirm, onClose }
                 </div>
                 <div style={{ display:'flex', gap:8, alignItems:'center' }}>
                   <Select value={selectedWishlistId} onChange={e => setSelectedWishlistId(e.target.value)}
+                    menuDirection="up"
                     style={{ background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:4, padding:'6px 10px', color:'var(--text)', fontSize:'0.84rem', flex:1, minWidth:0 }}
                     title="Select wishlist">
                     <option value="">— Skip missing —</option>

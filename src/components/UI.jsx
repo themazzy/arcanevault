@@ -87,7 +87,7 @@ export function Input({ value, onChange, placeholder, type = 'text', className =
   )
 }
 
-export function Select({ value, onChange, children, className = '', style, disabled = false, title = 'Select option' }) {
+export function Select({ value, onChange, children, className = '', style, disabled = false, title = 'Select option', menuDirection = 'down' }) {
   const rawOptions = Children.toArray(children)
     .filter(child => isValidElement(child) && child.type === 'option')
     .map(child => ({
@@ -119,6 +119,7 @@ export function Select({ value, onChange, children, className = '', style, disab
     <ResponsiveMenu
       title={title}
       align="left"
+      direction={menuDirection}
       wrapClassName={styles.selectWrap}
       panelClassName={styles.selectPanel}
       trigger={({ open, toggle }) => (
@@ -313,6 +314,7 @@ export function ResponsiveMenu({
   trigger,
   children,
   align = 'right',
+  direction = 'down',
   wrapClassName = '',
   panelClassName = '',
   closeLabel = 'Done',
@@ -381,8 +383,11 @@ export function ResponsiveMenu({
       if (!panelEl) return
       const rect = panelEl.getBoundingClientRect()
       const bottomGap = 16
+      const topGap = 16
       const sideGap = 8
-      const available = Math.max(180, Math.floor(window.innerHeight - rect.top - bottomGap))
+      const availableBelow = Math.max(180, Math.floor(window.innerHeight - rect.top - bottomGap))
+      const availableAbove = Math.max(180, Math.floor(rect.bottom - topGap))
+      const available = direction === 'up' ? availableAbove : availableBelow
       const nextStyle = { maxHeight: `${Math.min(360, available)}px` }
 
       if (align === 'left' && rect.right > window.innerWidth - sideGap) {
@@ -404,7 +409,7 @@ export function ResponsiveMenu({
       window.removeEventListener('resize', updateDesktopBounds)
       window.removeEventListener('scroll', updateDesktopBounds, true)
     }
-  }, [rendered, align])
+  }, [rendered, align, direction])
 
   useEffect(() => () => clearCloseTimeout(), [])
 
@@ -439,7 +444,7 @@ export function ResponsiveMenu({
           />
           <div
             ref={panelRef}
-            className={`${styles.responsiveMenuPanel} ${align === 'left' ? styles.responsiveMenuPanelLeft : ''} ${closing ? styles.responsiveMenuPanelClosing : ''} ${panelClassName}`}
+            className={`${styles.responsiveMenuPanel} ${align === 'left' ? styles.responsiveMenuPanelLeft : ''} ${direction === 'up' ? styles.responsiveMenuPanelUp : ''} ${closing ? styles.responsiveMenuPanelClosing : ''} ${panelClassName}`}
             style={desktopPanelStyle || undefined}
             onClick={e => e.stopPropagation()}
           >

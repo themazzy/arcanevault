@@ -589,6 +589,11 @@
   overflow: hidden;
 }
 
+.responsiveMenuPanelUp {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+
 .responsiveMenuPanelLeft {
   left: 0;
   right: auto;
@@ -779,7 +784,8 @@
   }
 
   .responsiveMenuPanel,
-  .responsiveMenuPanelLeft {
+  .responsiveMenuPanelLeft,
+  .responsiveMenuPanelUp {
     position: fixed;
     display: flex;
     flex-direction: column;
