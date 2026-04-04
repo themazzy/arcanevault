@@ -23,6 +23,7 @@ import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { fetchDeckAllocations, fetchDeckAllocationsForUser, fetchDeckCards, upsertDeckAllocations } from '../lib/deckData'
 import { planDeckAllocations } from '../lib/deckAllocationPlanner'
 import { formatPrice, getPrice } from '../lib/scryfall'
+import { getPublicAppUrl } from '../lib/publicUrl'
 
 // Upgrade a Scryfall CDN image to large quality regardless of stored size variant
 function toLargeImg(uri) {
@@ -2793,7 +2794,7 @@ export default function DeckBuilderPage() {
           <button
             className={styles.headerBtn}
             onClick={() => {
-              navigator.clipboard.writeText(window.location.origin + (import.meta.env.BASE_URL || '/').replace(/\/$/, '') + '/d/' + deckId)
+              navigator.clipboard.writeText(getPublicAppUrl(`/d/${deckId}`))
               setShareCopied(true)
               setTimeout(() => setShareCopied(false), 2000)
             }}

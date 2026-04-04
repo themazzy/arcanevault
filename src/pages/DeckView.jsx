@@ -160,7 +160,7 @@ export default function DeckViewPage() {
   // ── Load deck data ──────────────────────────────────────────────────────────
   useEffect(() => {
     ;(async () => {
-      const { data: folder, error: ferr } = await sb.from('folders').select('*').eq('id', id).single()
+      const { data: folder, error: ferr } = await sb.from('folders').select('*').eq('id', id).maybeSingle()
       if (ferr || !folder) {
         setError(user ? 'Deck not found' : 'sign-in')
         setLoading(false)
@@ -184,9 +184,28 @@ export default function DeckViewPage() {
     setCopying(true)
     try {
       const newMeta = serializeDeckMeta({ ...deckMeta, copiedFrom: id })
+      const { data: existingDecks, error: namesErr } = await sb
+        .from('folders')
+        .select('name')
+        .eq('user_id', user.id)
+        .eq('type', 'builder_deck')
+      if (namesErr) throw namesErr
+
+      const existingNames = new Set((existingDecks || []).map(row => row.name))
+      const baseName = deck.name?.trim() || 'Copied Deck'
+      let nextName = baseName
+      if (existingNames.has(nextName)) {
+        let copyIndex = 2
+        nextName = `${baseName} (Copy)`
+        while (existingNames.has(nextName)) {
+          nextName = `${baseName} (Copy ${copyIndex})`
+          copyIndex += 1
+        }
+      }
+
       const { data: newFolder, error: folderErr } = await sb
         .from('folders')
-        .insert({ name: deck.name, type: 'builder_deck', user_id: user.id, description: newMeta })
+        .insert({ name: nextName, type: 'builder_deck', user_id: user.id, description: newMeta })
         .select()
         .single()
       if (folderErr) throw folderErr
@@ -194,15 +213,21 @@ export default function DeckViewPage() {
       if (cards.length > 0) {
         const rows = cards.map(c => ({
           deck_id:          newFolder.id,
+          user_id:          user.id,
           card_print_id:    c.card_print_id || null,
+          scryfall_id:      c.scryfall_id || null,
           name:             c.name,
+          set_code:         c.set_code || null,
+          collector_number: c.collector_number || null,
+          mana_cost:        c.mana_cost || null,
+          cmc:              c.cmc ?? null,
+          color_identity:   c.color_identity || [],
+          image_uri:        c.image_uri || null,
           qty:              c.qty,
           foil:             c.foil || false,
           is_commander:     c.is_commander || false,
+          board:            c.board || 'main',
           type_line:        c.type_line || null,
-          image_uri:        c.image_uri || null,
-          set_code:         c.set_code || null,
-          collector_number: c.collector_number || null,
         }))
         const { error: cardsErr } = await sb.from('deck_cards').insert(rows)
         if (cardsErr) throw cardsErr
@@ -218,6 +243,7 @@ export default function DeckViewPage() {
 
   // ── Derived values ─────────────────────────────────────────────────────────
   const isOwner    = user && deck?.user_id === user.id
+  const isViewer   = user && deck?.user_id !== user.id
   const format     = FORMATS.find(f => f.id === deckMeta.format)
   const totalCards = cards.reduce((s, c) => s + c.qty, 0)
 
@@ -328,13 +354,6 @@ export default function DeckViewPage() {
           ) : (
             <>
               <Link to="/" className={styles.topLink}>← My Vault</Link>
-              <button
-                onClick={copyDeck}
-                disabled={copying || copyDone}
-                className={`${styles.actionBtn}${copyDone ? ' ' + styles.actionBtnDone : ''}`}
-              >
-                {copyDone ? '✓ Added to My Decks' : copying ? 'Copying…' : '＋ Add to My Decks'}
-              </button>
             </>
           )}
         </div>
@@ -355,6 +374,21 @@ export default function DeckViewPage() {
             </>
           )}
         </div>
+        {isViewer && (
+          <div className={styles.viewerBanner}>
+            <div className={styles.viewerCopy}>
+              <div className={styles.viewerEyebrow}>Shared Deck</div>
+              <div className={styles.viewerText}>Copy this list straight into your deckbuilder.</div>
+            </div>
+            <button
+              onClick={copyDeck}
+              disabled={copying || copyDone}
+              className={`${styles.actionBtn}${copyDone ? ' ' + styles.actionBtnDone : ''}`}
+            >
+              {copyDone ? '✓ Added to Deckbuilder' : copying ? 'Copying…' : '＋ Copy to My Deckbuilder'}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── Body: deck list (dominant) + right sidebar ── */}
@@ -412,8 +446,13 @@ export default function DeckViewPage() {
               {/* Copy decklist */}
               <button
                 className={styles.actionBtn}
-                onClick={() => setShowDecklist(true)}
-              >⎘ Copy Decklist</button>
+                onClick={isViewer ? copyDeck : () => setShowDecklist(true)}
+                disabled={isViewer && (copying || copyDone)}
+              >
+                {isViewer
+                  ? (copyDone ? '✓ Added to Deckbuilder' : copying ? 'Copying…' : '＋ Copy to My Deckbuilder')
+                  : '⎘ Copy Decklist'}
+              </button>
               {/* View toggle — all 5 modes */}
               <div className={styles.viewToggles}>
                 {[

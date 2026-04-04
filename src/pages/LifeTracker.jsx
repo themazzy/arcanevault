@@ -5,6 +5,7 @@ import uiStyles from '../components/UI.module.css'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { sb } from '../lib/supabase'
+import { getPublicAppUrl } from '../lib/publicUrl'
 import styles from './LifeTracker.module.css'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -957,7 +958,7 @@ function LobbyScreen({ session, gameConfig, onStart, onCancel }) {
   const [copied,    setCopied]    = useState(false)
   const modeConf = MODES[gameConfig?.mode] || MODES.commander
   const life     = gameConfig?.customLife || modeConf.life
-  const joinUrl  = `${window.location.origin}${import.meta.env.BASE_URL}join/${session.code}`
+  const joinUrl  = getPublicAppUrl(`/join/${session.code}`)
 
   useEffect(() => {
     let active = true
