@@ -34,10 +34,13 @@ async function getMetadataUpdatedAt() {
 }
 
 export function sfUrl(url) {
-  if (!import.meta.env.DEV) return url
-  return url.startsWith(SF_API_ORIGIN)
-    ? `${SF_DEV_PROXY_PREFIX}${url.slice(SF_API_ORIGIN.length)}`
+  const normalizedUrl = url.startsWith('/')
+    ? `${SF_API_ORIGIN}${url}`
     : url
+  if (!import.meta.env.DEV) return normalizedUrl
+  return normalizedUrl.startsWith(SF_API_ORIGIN)
+    ? `${SF_DEV_PROXY_PREFIX}${normalizedUrl.slice(SF_API_ORIGIN.length)}`
+    : normalizedUrl
 }
 
 // ── Shared Scryfall fetch helper ───────────────────────────────────────────────
