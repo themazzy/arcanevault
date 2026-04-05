@@ -123,7 +123,7 @@ public class MainActivity extends BridgeActivity {
         if (now - lastBackPressTime < 2000) {
             // Cancel the pending toast so it doesn't linger after exit
             if (exitToast != null) exitToast.cancel();
-            super.onBackPressed();
+            finishAndRemoveTask();
         } else {
             lastBackPressTime = now;
             if (exitToast != null) exitToast.cancel();
