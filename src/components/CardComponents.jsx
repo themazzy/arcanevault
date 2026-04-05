@@ -1276,45 +1276,49 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
   return (
     <Modal onClose={onClose} allowOverflow={false}>
       <div className={styles.detailShell}>
-        <div className={styles.detailArtCol}>
-          <div className={styles.detailArtWrap}>
-            {img
-              ? <img className={styles.detailCardImg} src={img} alt={card.name} style={{ opacity: imgLoaded || img === cachedImg ? 1 : 0.7 }} />
-              : <div className={styles.imgPlaceholder}>{card.name}</div>}
-            {card.foil && <div className={styles.detailFoilBadge}><Badge variant="foil">Foil</Badge></div>}
+        <div className={styles.detailHero}>
+          <div className={styles.detailArtCol}>
+            <div className={styles.detailArtWrap}>
+              {img
+                ? <img className={styles.detailCardImg} src={img} alt={card.name} style={{ opacity: imgLoaded || img === cachedImg ? 1 : 0.7 }} />
+                : <div className={styles.imgPlaceholder}>{card.name}</div>}
+              {card.foil && <div className={styles.detailFoilBadge}><Badge variant="foil">Foil</Badge></div>}
+            </div>
+            {hasFaces && <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.ghost}`} style={{ alignSelf: 'flex-start' }} onClick={() => setFace(prev => (prev + 1) % faces.length)}>Flip Face</button>}
           </div>
-          {hasFaces && <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.ghost}`} style={{ alignSelf: 'flex-start' }} onClick={() => setFace(prev => (prev + 1) % faces.length)}>Flip Face</button>}
+
+          <div className={styles.detailSummary}>
+            <div className={styles.detailHeader}>
+              <div className={styles.detailName}>{displayName}</div>
+              {manaCost && <ManaSymbols cost={manaCost} />}
+            </div>
+            <div className={styles.detailType}>{typeLine}</div>
+
+            <div className={styles.detailMetaLine}>
+              <span>{fc.set_name || sfCard?.set_name || (card.set_code || '').toUpperCase()}</span>
+              <span>. #{card.collector_number}</span>
+              {fc.artist && <span>. {fc.artist}</span>}
+            </div>
+
+            <div className={styles.detailPriceRow}>
+              <div className={styles.detailPriceMain}>
+                {price != null ? fmtOwned(price) : '-'}
+                {displayQty > 1 && price != null && (
+                  <span className={styles.detailPriceMeta}>x {displayQty} = {fmtOwned(totalPrice)}</span>
+                )}
+              </div>
+              {priceIsBuyFallback
+                ? <span className={styles.detailStatusPill}>Buy price</span>
+                : pricesAreLive
+                  ? <span className={`${styles.detailStatusPill} ${styles.detailStatusLive}`}>Live price</span>
+                  : loadingFull
+                    ? <span className={styles.detailLoadingNote}>Fetching live price...</span>
+                    : null}
+            </div>
+          </div>
         </div>
 
         <div className={styles.detailBody}>
-          <div className={styles.detailHeader}>
-            <div className={styles.detailName}>{displayName}</div>
-            {manaCost && <ManaSymbols cost={manaCost} />}
-          </div>
-          <div className={styles.detailType}>{typeLine}</div>
-
-          <div className={styles.detailMetaLine}>
-            <span>{fc.set_name || sfCard?.set_name || (card.set_code || '').toUpperCase()}</span>
-            <span>. #{card.collector_number}</span>
-            {fc.artist && <span>. {fc.artist}</span>}
-          </div>
-
-          <div className={styles.detailPriceRow}>
-            <div className={styles.detailPriceMain}>
-              {price != null ? fmtOwned(price) : '-'}
-              {displayQty > 1 && price != null && (
-                <span className={styles.detailPriceMeta}>x {displayQty} = {fmtOwned(totalPrice)}</span>
-              )}
-            </div>
-            {priceIsBuyFallback
-              ? <span className={styles.detailStatusPill}>Buy price</span>
-              : pricesAreLive
-                ? <span className={`${styles.detailStatusPill} ${styles.detailStatusLive}`}>Live price</span>
-                : loadingFull
-                  ? <span className={styles.detailLoadingNote}>Fetching live price...</span>
-                  : null}
-          </div>
-
           <div className={styles.detailTabs}>
             {tabs.map(t => (
               <button

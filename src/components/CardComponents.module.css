@@ -946,8 +946,14 @@
 
 /* Shared Card Detail v2 */
 .detailShell {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.detailHero {
   display: grid;
-  grid-template-columns: 240px 1fr;
+  grid-template-columns: 240px minmax(0, 1fr);
   gap: 26px;
   align-items: start;
 }
@@ -956,6 +962,13 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.detailSummary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
 }
 
 .detailArtWrap {
@@ -1597,7 +1610,7 @@
 }
 
 @media (max-width: 720px) {
-  .detailShell {
+  .detailHero {
     grid-template-columns: 1fr;
     gap: 16px;
   }
@@ -1608,21 +1621,21 @@
   }
 
   .detailArtCol {
-    flex-direction: row;
-    align-items: flex-start;
-    gap: 14px;
-    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
     min-width: 0;
   }
 
   .detailArtWrap {
-    width: 130px;
-    flex-shrink: 0;
+    width: 100%;
+    max-width: 220px;
+    margin: 0 auto;
     aspect-ratio: 5 / 7;
   }
 
-  .detailArtMeta {
-    flex-direction: column;
+  .detailSummary {
+    gap: 8px;
   }
 
   .ruling {
@@ -1644,6 +1657,10 @@
     width: 100%;
     max-width: 220px;
     margin: 0 auto;
+  }
+
+  .detailSummary {
+    gap: 7px;
   }
 
   .detailFormGrid {
