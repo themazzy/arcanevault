@@ -205,6 +205,10 @@ export function Modal({ children, onClose, allowOverflow = true }) {
   const modalRef = useRef(null)
   const modalContentRef = useRef(null)
   const [modalHeight, setModalHeight] = useState(null)
+  const handleOverlayClick = (e) => {
+    if (e.target !== e.currentTarget) return
+    onClose?.()
+  }
 
   useEffect(() => {
     const modalEl = modalRef.current
@@ -241,14 +245,14 @@ export function Modal({ children, onClose, allowOverflow = true }) {
   }, [children])
 
   return (
-    <div className={styles.overlay} onClick={onClose}>
+    <div className={styles.overlay} onClick={handleOverlayClick}>
       <div
         ref={modalRef}
         className={`${styles.modal} ${allowOverflow ? styles.modalAllowOverflow : ''}`}
         style={modalHeight ? { height: `${modalHeight}px` } : undefined}
         onClick={e => e.stopPropagation()}
       >
-        <button className={styles.closeBtn} onClick={onClose}>×</button>
+        <button className={styles.closeBtn} onClick={e => { e.stopPropagation(); onClose?.() }}>×</button>
         <div ref={modalContentRef} className={`${styles.modalContent} ${allowOverflow ? styles.modalContentAllowOverflow : ''}`}>
           {children}
         </div>
