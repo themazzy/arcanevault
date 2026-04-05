@@ -38,14 +38,25 @@ function DeckArtBackground({ meta, deckType }) {
 }
 
 function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSelect, onEnterSelectMode, onDelete, navigate }) {
-  const longPress = useLongPress(() => { if (!selectMode) onEnterSelectMode?.() }, { delay: 500 })
+  const longPress = useLongPress(() => {
+    if (selectMode) return
+    onEnterSelectMode?.()
+    onToggleSelect?.(deck.id)
+  }, { delay: 500 })
+  const { fired: lpFired, ...lpRest } = longPress
   // If a collection deck has a linked builder deck, open the builder version instead
   const effectiveId = (deck.type === 'deck' && meta.linked_builder_id) ? meta.linked_builder_id : deck.id
   return (
     <div
       className={`${styles.card}${isSelected ? ' ' + styles.cardSelected : ''}`}
-      onClick={() => selectMode ? onToggleSelect(deck.id) : navigate(`/builder/${effectiveId}`)}
-      {...longPress}>
+      onClick={() => {
+        if (lpFired.current) {
+          lpFired.current = false
+          return
+        }
+        selectMode ? onToggleSelect(deck.id) : navigate(`/builder/${effectiveId}`)
+      }}
+      {...lpRest}>
       <DeckArtBackground meta={meta} deckType={deck.type} />
       <div className={styles.cardContent}>
         {selectMode && (

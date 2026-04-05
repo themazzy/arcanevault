@@ -156,15 +156,18 @@ function rowFolderMeta(card) {
 }
 
 function TextRow({ card, selectMode, isSelected, onToggleSelect, onEnterSelectMode }) {
-  const totalQty = card._folder_qty || card.qty || 1
+  const totalQty = card._folder_qty ?? card.qty ?? 1
   const key = getDisplayKey(card)
-  const longPress = useLongPress(() => { if (!selectMode) onEnterSelectMode?.() }, { delay: 500 })
+  const longPress = useLongPress(() => {
+    if (selectMode) return
+    onEnterSelectMode?.()
+    onToggleSelect?.(key, totalQty)
+  }, { delay: 500 })
   const { onMouseLeave: lpLeave, fired: lpFired, ...lpRest } = longPress
 
   const handleClick = () => {
     if (lpFired.current) {
       lpFired.current = false
-      onToggleSelect?.(key, totalQty)
       return
     }
     if (selectMode) onToggleSelect?.(key, totalQty)
@@ -223,21 +226,32 @@ function TextView({ groups, groupOrder, selectMode, selectedCards, onToggleSelec
   )
 }
 
-function TableRow({ card, sf, priceSource, isSelected, selectMode, onClick, onEnterSelectMode }) {
-  const longPress = useLongPress(() => { if (!selectMode) onEnterSelectMode?.() }, { delay: 500 })
-  const { onMouseLeave: lpLeave, ...lpRest } = longPress
-  const totalQty = card._folder_qty || card.qty || 1
+function TableRow({ card, sf, priceSource, isSelected, selectMode, onClick, onEnterSelectMode, onToggleSelect }) {
+  const totalQty = card._folder_qty ?? card.qty ?? 1
+  const key = getDisplayKey(card)
+  const longPress = useLongPress(() => {
+    if (selectMode) return
+    onEnterSelectMode?.()
+    onToggleSelect?.(key, totalQty)
+  }, { delay: 500 })
+  const { onMouseLeave: lpLeave, fired: lpFired, ...lpRest } = longPress
   const scryfallPrice = getPrice(sf, card.foil, { price_source: priceSource })
   const unitPrice = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
   const price = unitPrice != null ? unitPrice * totalQty : null
   const mc = sf?.mana_cost || sf?.card_faces?.[0]?.mana_cost || ''
   return (
-    <tr
-      className={`${styles.tr}${isSelected ? ` ${styles.trSelected}` : ''}`}
-      onClick={onClick}
-      onMouseLeave={e => { lpLeave?.(e) }}
-      {...lpRest}
-    >
+      <tr
+        className={`${styles.tr}${isSelected ? ` ${styles.trSelected}` : ''}`}
+        onClick={() => {
+          if (lpFired.current) {
+            lpFired.current = false
+            return
+          }
+          onClick?.()
+        }}
+        onMouseLeave={e => { lpLeave?.(e) }}
+        {...lpRest}
+      >
       {selectMode && (
         <td className={styles.td} style={{ textAlign: 'center', paddingRight: 0 }}>
           <div className={`${styles.tableCheckbox}${isSelected ? ` ${styles.tableCheckboxChecked}` : ''}`}>
@@ -342,6 +356,7 @@ function TableView({ cards, sfMap, priceSource, onSelect, selectMode, selectedCa
                 selectMode={selectMode}
                 onClick={() => selectMode ? onToggleSelect?.(key, card._folder_qty || card.qty || 1) : onSelect?.(card)}
                 onEnterSelectMode={onEnterSelectMode}
+                onToggleSelect={onToggleSelect}
               />
             )
           })}
@@ -353,21 +368,29 @@ function TableView({ cards, sfMap, priceSource, onSelect, selectMode, selectedCa
 
 function StackCard({ card, sf, idx, priceSource, selectMode, isSelected, onSelect, onToggleSelect, onAdjustQty, splitState, onHover, onHoverEnd, onEnterSelectMode }) {
   const img = sf?.image_uris?.normal || sf?.card_faces?.[0]?.image_uris?.normal
-  const totalQty = card._folder_qty || card.qty || 1
+  const totalQty = card._folder_qty ?? card.qty ?? 1
   const scryfallPrice = getPrice(sf, card.foil, { price_source: priceSource })
   const unitPrice = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
   const price = unitPrice != null ? unitPrice * totalQty : null
   const isBuyFallback = scryfallPrice == null && unitPrice != null
   const key = getDisplayKey(card)
   const selQty = splitState?.get(key) ?? 1
-  const longPress = useLongPress(() => { if (!selectMode) onEnterSelectMode?.() }, { delay: 500 })
-  const { onMouseLeave: lpLeave, ...lpRest } = longPress
+  const longPress = useLongPress(() => {
+    if (selectMode) return
+    onEnterSelectMode?.()
+    onToggleSelect?.(key, totalQty)
+  }, { delay: 500 })
+  const { onMouseLeave: lpLeave, fired: lpFired, ...lpRest } = longPress
 
   return (
     <div
       className={`${styles.stackCard} ${isSelected ? styles.stackCardSelected : ''}`}
       style={{ zIndex: idx }}
       onClick={() => {
+        if (lpFired.current) {
+          lpFired.current = false
+          return
+        }
         if (!selectMode) return onSelect?.(card)
         onToggleSelect?.(key, totalQty)
       }}
@@ -457,7 +480,7 @@ function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, onHover,
 
 function ListRow({ card, sfCard, priceSource, onSelect, onHover, onHoverEnd, selectMode, isSelected, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode }) {
   const scryfallPrice = getPrice(sfCard, card.foil, { price_source: priceSource })
-  const totalQty = card._folder_qty || card.qty || 1
+  const totalQty = card._folder_qty ?? card.qty ?? 1
   const unitPrice = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
   const price = unitPrice != null ? unitPrice * totalQty : null
   const isBuyFallback = scryfallPrice == null && unitPrice != null
@@ -466,13 +489,16 @@ function ListRow({ card, sfCard, priceSource, onSelect, onHover, onHoverEnd, sel
   const img = sfCard?.image_uris?.normal || sfCard?.card_faces?.[0]?.image_uris?.normal || null
   const key = getDisplayKey(card)
   const selQty = splitState?.get(key) ?? 1
-  const longPress = useLongPress(() => { if (!selectMode) onEnterSelectMode?.() }, { delay: 500 })
+  const longPress = useLongPress(() => {
+    if (selectMode) return
+    onEnterSelectMode?.()
+    onToggleSelect?.(key, totalQty)
+  }, { delay: 500 })
   const { onMouseLeave: lpLeave, fired: lpFired, ...lpRest } = longPress
 
   const handleClick = () => {
     if (lpFired.current) {
       lpFired.current = false
-      onToggleSelect?.(key, totalQty)
       return
     }
     if (!selectMode) {
@@ -516,7 +542,7 @@ function ListRow({ card, sfCard, priceSource, onSelect, onHover, onHoverEnd, sel
 
 function ListGroup({ groupName, cards, sfMap, priceSource, onSelect, color, onHover, onHoverEnd, selectMode, selectedCards, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, hideHeader }) {
   const [collapsed, setCollapsed] = useState(false)
-  const total = cards.reduce((sum, card) => sum + (card._folder_qty || card.qty || 1), 0)
+  const total = cards.reduce((sum, card) => sum + (card._folder_qty ?? card.qty ?? 1), 0)
 
   return (
     <div className={styles.listGroup}>
@@ -560,20 +586,23 @@ function ListGroup({ groupName, cards, sfMap, priceSource, onSelect, color, onHo
 
 function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onToggleSelect, onAdjustQty, splitState, onHover, onHoverEnd, onEnterSelectMode }) {
   const img = sf?.image_uris?.normal || sf?.card_faces?.[0]?.image_uris?.normal
-  const totalQty = card._folder_qty || card.qty || 1
+  const totalQty = card._folder_qty ?? card.qty ?? 1
   const scryfallPrice = getPrice(sf, card.foil, { price_source: priceSource })
   const unitPrice = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
   const price = unitPrice != null ? unitPrice * totalQty : null
   const isBuyFallback = scryfallPrice == null && unitPrice != null
   const key = getDisplayKey(card)
   const selQty = splitState?.get(key) ?? 1
-  const longPress = useLongPress(() => { if (!selectMode) onEnterSelectMode?.() }, { delay: 500 })
+  const longPress = useLongPress(() => {
+    if (selectMode) return
+    onEnterSelectMode?.()
+    onToggleSelect?.(key, totalQty)
+  }, { delay: 500 })
   const { onMouseLeave: lpLeave, fired: lpFired, ...lpRest } = longPress
 
   const handleClick = () => {
     if (lpFired.current) {
       lpFired.current = false
-      onToggleSelect?.(key, totalQty)
       return
     }
     if (!selectMode) return onSelect?.(card)

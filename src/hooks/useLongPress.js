@@ -19,6 +19,7 @@ export function useLongPress(callback, { delay = 500, moveThreshold = 10 } = {})
     originRef.current = touch ? { x: touch.clientX, y: touch.clientY } : null
     timerRef.current = setTimeout(() => {
       firedRef.current = true
+      if (e.cancelable) e.preventDefault()
       callback(e)
       timerRef.current = null
     }, delay)
@@ -50,6 +51,8 @@ export function useLongPress(callback, { delay = 500, moveThreshold = 10 } = {})
     onTouchEnd:   cancel,
     onTouchCancel: cancel,
     onTouchMove,
+    onContextMenu: e => e.preventDefault(),
+    onDragStart: e => e.preventDefault(),
     fired: firedRef, // ref — truthy when long-press just fired; consumer must reset after reading
   }
 }

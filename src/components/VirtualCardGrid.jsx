@@ -51,25 +51,34 @@ function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, tota
   const folders = card._displayFolder
     ? [card._displayFolder]
     : (cardFolders?.[card.id] || [])
+  const displayKey = card._displayKey || card.id
 
   const handleClick = () => {
     if (selectMode) {
-      onToggleSelect?.(card._displayKey || card.id, totalQty)
+      onToggleSelect?.(displayKey, totalQty)
     } else {
       onClick?.(card)
     }
   }
 
   const longPress = useLongPress(() => {
-    if (!selectMode) onEnterSelectMode?.()
+    if (selectMode) return
+    onEnterSelectMode?.()
+    onToggleSelect?.(displayKey, totalQty)
   }, { delay: 500 })
 
-  const { onMouseLeave: lpLeave, ...lpRest } = longPress
+  const { onMouseLeave: lpLeave, fired: lpFired, ...lpRest } = longPress
 
   return (
     <div
       className={`${styles.cardWrap}${isSelected ? ' ' + styles.cardSelected : ''}`}
-      onClick={handleClick}
+      onClick={() => {
+        if (lpFired.current) {
+          lpFired.current = false
+          return
+        }
+        handleClick()
+      }}
       onMouseLeave={lpLeave}
       {...lpRest}
     >

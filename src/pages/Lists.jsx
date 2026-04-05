@@ -160,13 +160,16 @@ function CardArtPicker({ onSelect, onClose }) {
 function WishlistItem({ item, sfCard, priceSource, onDelete, selectMode, selected, onToggleSelect, onEnterSelectMode, folderName = '' }) {
   const price    = getPrice(sfCard, item.foil, { price_source: priceSource })
   const img      = sfCard?.image_uris?.small
-  const longPress = useLongPress(() => { if (!selectMode) onEnterSelectMode?.() }, { delay: 500 })
+  const longPress = useLongPress(() => {
+    if (selectMode) return
+    onEnterSelectMode?.()
+    onToggleSelect?.()
+  }, { delay: 500 })
   const { onMouseLeave: lpLeave, fired: lpFired, ...lpRest } = longPress
 
   const handleClick = () => {
     if (lpFired.current) {
       lpFired.current = false
-      onToggleSelect?.()
       return
     }
     if (selectMode) onToggleSelect?.()
@@ -661,7 +664,11 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onRename,
   const [renameVal, setRenameVal] = useState('')
   const renameRef = useRef(null)
 
-  const longPress = useLongPress(() => { if (!selectMode) onEnterSelectMode?.() }, { delay: 500 })
+  const longPress = useLongPress(() => {
+    if (selectMode) return
+    onEnterSelectMode?.()
+    onToggleSelect?.()
+  }, { delay: 500 })
   const { fired: lpFired, ...longPressHandlers } = longPress
 
   useEffect(() => { if (renaming) renameRef.current?.focus() }, [renaming])
@@ -680,7 +687,6 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onRename,
     if (renaming) return
     if (lpFired.current) {
       lpFired.current = false
-      onToggleSelect?.()
       return
     }
     if (selectMode) { onToggleSelect(); return }

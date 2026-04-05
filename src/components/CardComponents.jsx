@@ -32,7 +32,9 @@ function CardItem({ card, sfCard, selectMode, isSelected, totalQty, onSelect, on
   const selQty = splitState?.get(displayKey) ?? 1
 
   const longPress = useLongPress(() => {
-    if (!selectMode) onEnterSelectMode?.()
+    if (selectMode) return
+    onEnterSelectMode?.()
+    onToggleSelect?.(displayKey, totalQty)
   }, { delay: 500 })
 
   const { onMouseLeave: lpLeave, fired: lpFired, ...lpRest } = longPress
@@ -40,7 +42,6 @@ function CardItem({ card, sfCard, selectMode, isSelected, totalQty, onSelect, on
   const handleClick = () => {
     if (lpFired.current) {
       lpFired.current = false
-      onToggleSelect?.(displayKey, totalQty)
       return
     }
     if (selectMode) {

@@ -16,6 +16,9 @@ dist/
 .DS_Store
 Thumbs.db
 *.log
+.claude/
+.agents/
+skills-lock.json
 
 # Android build artifacts (keep source, ignore generated output)
 android/.gradle/
@@ -24,3 +27,6 @@ android/build/
 android/local.properties
 android/.idea/
 android/capacitor-cordova-android-plugins/build/
+
+# Local Supabase temp state
+supabase/.temp/
