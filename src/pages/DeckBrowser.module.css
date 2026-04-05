@@ -489,7 +489,7 @@
   transform: translateY(-4px) scale(1.02);
   box-shadow: 0 12px 36px rgba(0,0,0,0.6), 0 0 18px rgba(201,168,76,0.1);
 }
-.gridImg { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gridImg { width: 100%; height: 100%; object-fit: cover; display: block; -webkit-user-drag: none; -webkit-touch-callout: none; user-select: none; }
 .gridImgPlaceholder {
   width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
   font-size: 0.7rem; color: var(--text-faint); text-align: center; padding: 8px;
@@ -652,6 +652,9 @@
   width: 100%; aspect-ratio: 63/88; object-fit: cover;
   border-radius: 5px; display: block;
   border: 1px solid var(--s-border2);
+  -webkit-user-drag: none;
+  -webkit-touch-callout: none;
+  user-select: none;
 }
 .stackCardPlaceholder {
   width: 100%; aspect-ratio: 63/88;

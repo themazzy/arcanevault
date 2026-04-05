@@ -9,6 +9,17 @@ import { sb } from '../lib/supabase'
 import { putCards } from '../lib/db'
 import { useLongPress } from '../hooks/useLongPress'
 
+const NON_DRAGGABLE_IMG_PROPS = {
+  draggable: false,
+  onDragStart: e => e.preventDefault(),
+  onContextMenu: e => e.preventDefault(),
+  style: {
+    WebkitUserDrag: 'none',
+    WebkitTouchCallout: 'none',
+    userSelect: 'none',
+  },
+}
+
 const fmt = (v, currency = 'EUR') => {
   if (v == null || isNaN(v)) return '—'
   return currency === 'EUR' ? `€${v.toFixed(2)}` : `$${v.toFixed(2)}`
@@ -66,7 +77,7 @@ function CardItem({ card, sfCard, selectMode, isSelected, totalQty, onSelect, on
       )}
       <div className={`${styles.imgContainer}${isSelected ? ' ' + styles.imgSelected : ''}`}>
         {img
-          ? <img className={styles.img} src={img} alt={card.name} loading="lazy" />
+          ? <img className={styles.img} src={img} alt={card.name} loading="lazy" {...NON_DRAGGABLE_IMG_PROPS} />
           : <div className={styles.imgPlaceholder}>{card.name}</div>
         }
         {(card._folder_qty || card.qty) > 1 && <div className={styles.qty}>×{card._folder_qty || card.qty}</div>}

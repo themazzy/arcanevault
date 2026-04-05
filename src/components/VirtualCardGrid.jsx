@@ -6,6 +6,17 @@ import { Badge } from './UI'
 import styles from './VirtualCardGrid.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 
+const NON_DRAGGABLE_IMG_PROPS = {
+  draggable: false,
+  onDragStart: e => e.preventDefault(),
+  onContextMenu: e => e.preventDefault(),
+  style: {
+    WebkitUserDrag: 'none',
+    WebkitTouchCallout: 'none',
+    userSelect: 'none',
+  },
+}
+
 const DENSITY_MIN_WIDTH   = { cozy: 210, comfortable: 168, compact: 128 }
 const DENSITY_CARD_HEIGHT = { cozy: 375, comfortable: 325, compact: 260 }
 const OVERSCAN = 3
@@ -84,7 +95,7 @@ function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, tota
     >
       <div className={`${styles.imgContainer}${isSelected ? ' ' + styles.imgSelected : ''}`}>
         {img
-          ? <img className={styles.img} src={img} alt={card.name} loading="lazy" decoding="async" />
+          ? <img className={styles.img} src={img} alt={card.name} loading="lazy" decoding="async" {...NON_DRAGGABLE_IMG_PROPS} />
           : <div className={styles.imgPlaceholder}>{card.name}</div>
         }
         {card.foil && <Badge variant="foil">Foil</Badge>}

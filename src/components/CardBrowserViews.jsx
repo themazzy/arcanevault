@@ -5,6 +5,17 @@ import { useLongPress } from '../hooks/useLongPress'
 import uiStyles from './UI.module.css'
 import styles from '../pages/DeckBrowser.module.css'
 
+const NON_DRAGGABLE_IMG_PROPS = {
+  draggable: false,
+  onDragStart: e => e.preventDefault(),
+  onContextMenu: e => e.preventDefault(),
+  style: {
+    WebkitUserDrag: 'none',
+    WebkitTouchCallout: 'none',
+    userSelect: 'none',
+  },
+}
+
 const TYPE_ORDER = ['Commander', 'Creatures', 'Planeswalkers', 'Battles', 'Instants',
   'Sorceries', 'Artifacts', 'Enchantments', 'Lands', 'Other']
 
@@ -405,7 +416,7 @@ function StackCard({ card, sf, idx, priceSource, selectMode, isSelected, onSelec
         </div>
       )}
       <div className={styles.stackImgWrap}>
-        {img ? <img src={img} alt={card.name} className={styles.stackCardImg} loading="lazy" /> : <div className={styles.stackCardPlaceholder}>{card.name}</div>}
+        {img ? <img src={img} alt={card.name} className={styles.stackCardImg} loading="lazy" {...NON_DRAGGABLE_IMG_PROPS} /> : <div className={styles.stackCardPlaceholder}>{card.name}</div>}
         {totalQty > 1 && !isSelected && <div className={styles.stackQty}>×{totalQty}</div>}
         {card.foil && <div className={styles.stackFoil}><Badge variant="foil">Foil</Badge></div>}
         {selectMode && isSelected && totalQty > 1 && (
@@ -623,7 +634,7 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onT
         </div>
       )}
       <div className={styles.gridImgWrap}>
-        {img ? <img src={img} alt={card.name} className={styles.gridImg} loading="lazy" /> : <div className={styles.gridImgPlaceholder}>{card.name}</div>}
+        {img ? <img src={img} alt={card.name} className={styles.gridImg} loading="lazy" {...NON_DRAGGABLE_IMG_PROPS} /> : <div className={styles.gridImgPlaceholder}>{card.name}</div>}
         {totalQty > 1 && !isSelected && <div className={styles.gridQty}>×{totalQty}</div>}
         {card.foil && <div className={styles.gridFoil}><Badge variant="foil">Foil</Badge></div>}
         {selectMode && isSelected && totalQty > 1 && (
