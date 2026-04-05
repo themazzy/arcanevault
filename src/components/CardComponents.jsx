@@ -7,6 +7,7 @@ import uiStyles from './UI.module.css'
 import { FolderTypeIcon } from './Icons'
 import { sb } from '../lib/supabase'
 import { putCards } from '../lib/db'
+import { useAuth } from './Auth'
 import { useLongPress } from '../hooks/useLongPress'
 
 const NON_DRAGGABLE_IMG_PROPS = {
@@ -1054,10 +1055,11 @@ function LegacyCardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, al
 }
 
 
-export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, allFolders = [], priceSource = 'cardmarket_trend', onSave, currentFolderId = null, readOnly = false }) {
+export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, allFolders = [], priceSource = 'cardmarket_trend', onSave, currentFolderId = null, currentFolderType = null, readOnly = false }) {
   if (!card) return null
 
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [activeTab, setActiveTab] = useState('card')
   const [face, setFace] = useState(0)
 
@@ -1128,6 +1130,8 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
   const oracleText = displayFace.oracle_text || fc.oracle_text
   const flavorText = displayFace.flavor_text || fc.flavor_text
   const currentFolders = folders?.filter(Boolean) || []
+  const scopedFolderType = currentFolderType || currentFolders[0]?.type || null
+  const displayQty = currentFolderId && card._folder_qty != null ? card._folder_qty : (card.qty || 1)
   const hasFoilVersion = card.foil ||
     fullCard?.finishes?.includes('foil') ||
     fullCard?.prices?.eur_foil != null ||
@@ -1139,12 +1143,12 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
   const buyPrice = editBuyPrice > 0 ? editBuyPrice : (parseFloat(card.purchase_price) || null)
   const price = scryPrice ?? buyPrice
   const priceIsBuyFallback = scryPrice == null && buyPrice != null
-  const totalPrice = price != null ? price * card.qty : null
+  const totalPrice = price != null ? price * displayQty : null
   const fmtOwned = v => formatPrice(v, priceSource)
 
   const eurLiveSfCard = fullCard ? { ...sfCard, prices: fullCard.prices } : sfCard
   const eurPrice = getPrice(eurLiveSfCard, card.foil, { price_source: 'cardmarket_trend' })
-  const pl = eurPrice != null && editBuyPrice > 0 ? (eurPrice - editBuyPrice) * card.qty : null
+  const pl = eurPrice != null && editBuyPrice > 0 ? (eurPrice - editBuyPrice) * displayQty : null
   const plPct = eurPrice != null && editBuyPrice > 0 ? ((eurPrice - editBuyPrice) / editBuyPrice) * 100 : null
 
   const saveBuyPrice = async () => {
@@ -1166,9 +1170,11 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
     let folderQty = card._folder_qty
 
     if (currentFolderId && card._folder_qty != null) {
-      const { error: folderError } = await sb.from('folder_cards')
+      const table = scopedFolderType === 'deck' ? 'deck_allocations' : 'folder_cards'
+      const key = scopedFolderType === 'deck' ? 'deck_id' : 'folder_id'
+      const { error: folderError } = await sb.from(table)
         .update({ qty: editQty })
-        .eq('folder_id', currentFolderId)
+        .eq(key, currentFolderId)
         .eq('card_id', card.id)
       if (folderError) {
         setSaveError(folderError.message)
@@ -1205,13 +1211,22 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
     const matched = targetFolder || allFolders.find(f => f.name.toLowerCase() === moveFolderText.toLowerCase() || f.id === moveFolderText)
     if (!matched) return
     const qty = editQty || 1
-    const { error } = await sb.from('folder_cards')
-      .upsert({ folder_id: matched.id, card_id: card.id, qty }, { onConflict: 'folder_id,card_id' })
+    const targetTable = matched.type === 'deck' ? 'deck_allocations' : 'folder_cards'
+    const targetKey = matched.type === 'deck' ? 'deck_id' : 'folder_id'
+    const targetPayload = matched.type === 'deck'
+      ? { deck_id: matched.id, user_id: user?.id || card.user_id, card_id: card.id, qty }
+      : { folder_id: matched.id, card_id: card.id, qty }
+    const { error } = await sb.from(targetTable)
+      .upsert(targetPayload, { onConflict: `${targetKey},card_id` })
     if (!error) {
       if (folders?.length) {
-        await sb.from('folder_cards').delete()
-          .eq('card_id', card.id)
-          .in('folder_id', folders.filter(f => f.id !== matched.id).map(f => f.id))
+        for (const existingFolder of folders.filter(f => f.id !== matched.id)) {
+          const sourceTable = existingFolder.type === 'deck' ? 'deck_allocations' : 'folder_cards'
+          const sourceKey = existingFolder.type === 'deck' ? 'deck_id' : 'folder_id'
+          await sb.from(sourceTable).delete()
+            .eq('card_id', card.id)
+            .eq(sourceKey, existingFolder.id)
+        }
       }
       setMoveFolderText('')
       setMoveFolderSearch('')
@@ -1287,8 +1302,8 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
           <div className={styles.detailPriceRow}>
             <div className={styles.detailPriceMain}>
               {price != null ? fmtOwned(price) : '-'}
-              {card.qty > 1 && price != null && (
-                <span className={styles.detailPriceMeta}>x {card.qty} = {fmtOwned(totalPrice)}</span>
+              {displayQty > 1 && price != null && (
+                <span className={styles.detailPriceMeta}>x {displayQty} = {fmtOwned(totalPrice)}</span>
               )}
             </div>
             {priceIsBuyFallback
@@ -1406,9 +1421,9 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
                     <div className={styles.priceDetailVal} style={{ color: 'var(--green)' }}>
                       {cur === 'EUR' ? 'EUR ' : cur === 'USD' ? 'USD ' : ''}{parseFloat(val).toFixed(2)}{cur === 'TIX' ? ' tix' : ''}
                     </div>
-                    {card.qty > 1 && cur !== 'TIX' && (
+                    {displayQty > 1 && cur !== 'TIX' && (
                       <div className={styles.priceDetailSub}>
-                        x {card.qty} = {cur === 'EUR' ? 'EUR ' : 'USD '}{(parseFloat(val) * card.qty).toFixed(2)}
+                        x {displayQty} = {cur === 'EUR' ? 'EUR ' : 'USD '}{(parseFloat(val) * displayQty).toFixed(2)}
                       </div>
                     )}
                   </div>
@@ -1421,7 +1436,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
                     <span className={styles.detailInfoLabel}>Purchase Price</span>
                     <span className={styles.detailInfoVal}>
                       EUR {parseFloat(card.purchase_price).toFixed(2)}
-                      {card.qty > 1 && ` x ${card.qty} = EUR ${(parseFloat(card.purchase_price) * card.qty).toFixed(2)}`}
+                      {displayQty > 1 && ` x ${displayQty} = EUR ${(parseFloat(card.purchase_price) * displayQty).toFixed(2)}`}
                     </span>
                   </div>
                   {pl != null && (
