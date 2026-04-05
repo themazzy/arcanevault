@@ -362,6 +362,7 @@ export default function ImportModal({
                           value={folderSearch}
                           onChange={e => setFolderSearch(e.target.value)}
                           placeholder={`Search ${noun.toLowerCase()}s…`}
+                          onMouseDown={e => e.stopPropagation()}
                         />
                         <div className={uiStyles.responsiveMenuList}>
                           {filteredFolders.length > 0
@@ -369,7 +370,8 @@ export default function ImportModal({
                                 <button
                                   key={f.id}
                                   className={`${uiStyles.responsiveMenuAction} ${folderId === f.id ? uiStyles.responsiveMenuActionActive : ''}`}
-                                  onMouseDown={() => { setFolderId(f.id); setFolderSearch(''); close() }}
+                                  onMouseDown={e => { e.preventDefault(); e.stopPropagation() }}
+                                  onClick={e => { e.preventDefault(); e.stopPropagation(); setFolderId(f.id); setFolderSearch(''); close() }}
                                 >{f.name}</button>
                               ))
                             : <div className={styles.folderDropEmpty}>
