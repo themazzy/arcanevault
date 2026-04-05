@@ -17,10 +17,10 @@ import {
   waitForOpenCV,
   detectCardCorners, warpCard, cropArtRegion, cropCardFromReticle, computePHash256,
 } from './ScannerEngine'
-import { Select } from '../components/UI'
 import { useAuth } from '../components/Auth'
-import { sfGet } from '../lib/scryfall'
+import { formatPriceMeta, getPriceWithMeta, sfGet } from '../lib/scryfall'
 import { sb } from '../lib/supabase'
+import { useSettings } from '../components/SettingsContext'
 import styles from './CardScanner.module.css'
 
 const MATCH_THRESHOLD        = 122
@@ -40,6 +40,20 @@ const SAMPLE_DELAY_MS     = 80
 const DEBUG               = true
 const NATIVE_CAPTURE_SETTLE_MS = 120
 const PENDING_KEY         = 'arcanevault_scan_basket'
+const SET_ICON_CACHE_KEY  = 'arcanevault_scan_set_icons'
+const CARD_LANGUAGES = [
+  ['en', 'EN'],
+  ['de', 'DE'],
+  ['fr', 'FR'],
+  ['it', 'IT'],
+  ['es', 'ES'],
+  ['pt', 'PT'],
+  ['ja', 'JA'],
+  ['ko', 'KO'],
+  ['ru', 'RU'],
+  ['cs', 'TC'],
+  ['ct', 'SC'],
+]
 
 // ── Pending basket helpers ────────────────────────────────────────────────────
 
@@ -54,6 +68,18 @@ function savePending(cards) {
   try { localStorage.setItem(PENDING_KEY, JSON.stringify(cards)) } catch {}
 }
 
+function loadSetIconCache() {
+  try {
+    const raw = localStorage.getItem(SET_ICON_CACHE_KEY)
+    const parsed = raw ? JSON.parse(raw) : {}
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch { return {} }
+}
+
+function saveSetIconCache(cache) {
+  try { localStorage.setItem(SET_ICON_CACHE_KEY, JSON.stringify(cache)) } catch {}
+}
+
 let _uidCounter = Date.now()
 function nextUid() { return String(++_uidCounter) }
 
@@ -64,14 +90,83 @@ function getOwnedCardKey(c) {
 async function batchSaveCards({ userId, cards, folderId, folderType }) {
   if (!cards.length || !folderId) return
 
+  let aggregatedOwned = Array.from(
+    cards.reduce((map, c) => {
+      const row = {
+        user_id: userId,
+        name: c.name,
+        set_code: c.setCode,
+        collector_number: c.collNum,
+        scryfall_id: c.id,
+        foil: c.foil,
+        qty: c.qty ?? 1,
+        condition: 'near_mint',
+        language: c.language || 'en',
+        currency: 'EUR',
+      }
+      const key = getOwnedCardKey(row)
+      const prev = map.get(key)
+      if (prev) {
+        prev.qty += row.qty
+        prev.name = row.name
+        prev.scryfall_id = row.scryfall_id
+      } else {
+        map.set(key, row)
+      }
+      return map
+    }, new Map()).values()
+  )
+
+  const scryfallIds = [...new Set(aggregatedOwned.map(c => c.scryfall_id).filter(Boolean))]
+  if (scryfallIds.length) {
+    const { data: printRows, error: printErr } = await sb
+      .from('card_prints')
+      .select('id,scryfall_id,set_code,collector_number,name')
+      .in('scryfall_id', scryfallIds)
+    if (printErr) throw new Error(printErr.message)
+
+    const printByScryfallId = new Map((printRows || []).map(row => [row.scryfall_id, row]))
+    aggregatedOwned = aggregatedOwned.map(row => {
+      const print = row.scryfall_id ? printByScryfallId.get(row.scryfall_id) : null
+      return print ? {
+        ...row,
+        card_print_id: print.id,
+        name: print.name || row.name,
+        set_code: print.set_code || row.set_code,
+        collector_number: print.collector_number || row.collector_number,
+      } : row
+    })
+  }
+
   if (folderType === 'list') {
-    const items = cards.map(c => ({
+    const aggregatedItems = Array.from(
+      cards.reduce((map, c) => {
+        const key = [c.setCode, c.collNum, c.foil ? 1 : 0].join('|')
+        const prev = map.get(key)
+        if (prev) {
+          prev.qty += c.qty ?? 1
+        } else {
+          map.set(key, {
+            folder_id: folderId,
+            user_id: userId,
+            name: c.name,
+            set_code: c.setCode,
+            collector_number: c.collNum,
+            scryfall_id: c.id,
+            foil: c.foil,
+            qty: c.qty ?? 1,
+          })
+        }
+        return map
+      }, new Map()).values()
+    )
+    const items = aggregatedItems.map(c => ({
       folder_id: folderId,
       user_id: userId,
       name: c.name,
-      set_code: c.setCode,
-      collector_number: c.collNum,
-      scryfall_id: c.id,
+      set_code: c.set_code,
+      collector_number: c.collector_number,
+      scryfall_id: c.scryfall_id,
       foil: c.foil,
       qty: c.qty ?? 1,
     }))
@@ -82,18 +177,7 @@ async function batchSaveCards({ userId, cards, folderId, folderType }) {
   }
 
   // Binder or deck — upsert owned cards first
-  const owned = cards.map(c => ({
-    user_id: userId,
-    name: c.name,
-    set_code: c.setCode,
-    collector_number: c.collNum,
-    scryfall_id: c.id,
-    foil: c.foil,
-    qty: c.qty ?? 1,
-    condition: 'near_mint',
-    language: 'en',
-    currency: 'EUR',
-  }))
+  const owned = aggregatedOwned
 
   const setCodes = [...new Set(owned.map(c => c.set_code))]
   const { data: existing, error: existErr } = await sb.from('cards')
@@ -103,15 +187,28 @@ async function batchSaveCards({ userId, cards, folderId, folderType }) {
   if (existErr) throw new Error(existErr.message)
 
   const existByKey = new Map((existing || []).map(c => [getOwnedCardKey({ ...c, set_code: c.set_code }), c]))
-  const upsertRows = owned.map(c => {
+  const resolvedRows = owned.map(c => {
     const key = getOwnedCardKey({ set_code: c.set_code, collector_number: c.collector_number, foil: c.foil, language: c.language, condition: c.condition })
     const prev = existByKey.get(key)
     return prev ? { ...prev, ...c, id: prev.id, qty: (prev.qty || 0) + c.qty } : c
   })
 
-  const { error: upsertErr } = await sb.from('cards')
-    .upsert(upsertRows, { onConflict: 'user_id,set_code,collector_number,foil,language,condition' })
-  if (upsertErr) throw new Error(upsertErr.message)
+  const updateRows = resolvedRows.filter(row => row.id)
+  const insertRows = resolvedRows.filter(row => !row.id)
+
+  for (const row of updateRows) {
+    const { id, ...patch } = row
+    const { error: updateErr } = await sb.from('cards')
+      .update(patch)
+      .eq('id', id)
+    if (updateErr) throw new Error(updateErr.message)
+  }
+
+  if (insertRows.length) {
+    const { error: insertErr } = await sb.from('cards')
+      .insert(insertRows)
+    if (insertErr) throw new Error(insertErr.message)
+  }
 
   // Re-query to get IDs
   const { data: saved, error: savedErr } = await sb.from('cards')
@@ -196,11 +293,14 @@ function getCardImg(sf) {
 
 export default function CardScanner({ onMatch, onClose }) {
   const { user } = useAuth()
+  const { price_source } = useSettings()
   const isNative = Capacitor.isNativePlatform()
 
   const videoRef    = useRef(null)
   const canvasRef   = useRef(null)
   const mountedRef  = useRef(true)
+  const manualSearchRequestRef = useRef(0)
+  const setIconFetchesRef = useRef(new Set())
 
   // ── Scanner state ──────────────────────────────────────────────────────────
   const [cvReady, setCvReady]     = useState(false)
@@ -216,6 +316,11 @@ export default function CardScanner({ onMatch, onClose }) {
   const [flashMode, setFlashMode]   = useState('off')
   const [cameraStarted, setCameraStarted] = useState(false)
   const [cameraRestartTick, setCameraRestartTick] = useState(0)
+  const [setIcons, setSetIcons] = useState(() => loadSetIconCache())
+  const [latestPrintingData, setLatestPrintingData] = useState(null)
+  const [latestLanguageOptions, setLatestLanguageOptions] = useState([['en', 'EN']])
+  const [printingDataById, setPrintingDataById] = useState({})
+  const [languageOptionsByOracleId, setLanguageOptionsByOracleId] = useState({})
 
   // ── Pending basket ─────────────────────────────────────────────────────────
   const [pendingCards, setPendingCards] = useState(() => loadPending())
@@ -241,15 +346,27 @@ export default function CardScanner({ onMatch, onClose }) {
   const [addFlowSaving, setAddFlowSaving]         = useState(false)
   const [addFlowError, setAddFlowError]           = useState(null)
   const [addFlowFoldersLoading, setAddFlowFoldersLoading] = useState(false)
+  const [addFlowCreatingFolder, setAddFlowCreatingFolder] = useState(false)
+  const [closing, setClosing] = useState(false)
+  const [saveNotice, setSaveNotice] = useState(null)
+  const latestPending = pendingCards[0] || null
 
   const isReady = cvReady && dbReady
   const availableFlashModes = flashModes.includes('torch')
     ? flashModes.filter(m => m === 'off' || m === 'torch')
     : flashModes
+  const flashSupported = availableFlashModes.includes('torch') || availableFlashModes.includes('on')
+  const flashEnabled = flashMode === 'torch' || flashMode === 'on'
   const hashProgressVisible = !!hashLoadInfo && (!databaseService.isFullyLoaded || preparing)
 
   // Persist basket to localStorage whenever it changes
   useEffect(() => { savePending(pendingCards) }, [pendingCards])
+  useEffect(() => { saveSetIconCache(setIcons) }, [setIcons])
+  useEffect(() => {
+    if (!saveNotice) return undefined
+    const timer = window.setTimeout(() => setSaveNotice(null), 2200)
+    return () => window.clearTimeout(timer)
+  }, [saveNotice])
 
   // ── Init DB + OpenCV ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -354,6 +471,159 @@ export default function CardScanner({ onMatch, onClose }) {
     if (track) track.applyConstraints({ advanced: [{ torch: flashMode === 'torch' || flashMode === 'on' }] }).catch(() => {})
   }, [cameraStarted, flashMode, isNative])
 
+  useEffect(() => {
+    const missingSetCodes = [...new Set(pendingCards.map(card => card?.setCode).filter(Boolean))]
+      .filter(setCode => !setIcons[setCode] && !setIconFetchesRef.current.has(setCode))
+    if (!missingSetCodes.length) return
+    let cancelled = false
+    ;(async () => {
+      for (const setCode of missingSetCodes) {
+        setIconFetchesRef.current.add(setCode)
+        try {
+          const data = await sfGet(`/sets/${setCode}`)
+          if (cancelled) return
+          if (data?.icon_svg_uri) {
+            setSetIcons(prev => (prev[setCode] ? prev : { ...prev, [setCode]: data.icon_svg_uri }))
+          }
+        } finally {
+          setIconFetchesRef.current.delete(setCode)
+        }
+      }
+    })()
+    return () => { cancelled = true }
+  }, [pendingCards, setIcons])
+
+  useEffect(() => {
+    const setCode = latestPending?.setCode
+    if (!setCode || setIcons[setCode] || setIconFetchesRef.current.has(setCode)) return
+    let cancelled = false
+    ;(async () => {
+      setIconFetchesRef.current.add(setCode)
+      try {
+        const data = await sfGet(`/sets/${setCode}`)
+        if (!cancelled && data?.icon_svg_uri) {
+          setSetIcons(prev => (prev[setCode] ? prev : { ...prev, [setCode]: data.icon_svg_uri }))
+        }
+      } finally {
+        setIconFetchesRef.current.delete(setCode)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [latestPending?.setCode, setIcons])
+
+  useEffect(() => {
+    const missing = [...new Set((printingPickerResults || []).map(card => card?.set).filter(Boolean))]
+      .filter(setCode => !setIcons[setCode] && !setIconFetchesRef.current.has(setCode))
+    if (!missing.length) return
+    let cancelled = false
+    ;(async () => {
+      for (const setCode of missing) {
+        setIconFetchesRef.current.add(setCode)
+        try {
+          const data = await sfGet(`/sets/${setCode}`)
+          if (cancelled) return
+          if (data?.icon_svg_uri) {
+            setSetIcons(prev => (prev[setCode] ? prev : { ...prev, [setCode]: data.icon_svg_uri }))
+          }
+        } finally {
+          setIconFetchesRef.current.delete(setCode)
+        }
+      }
+    })()
+    return () => { cancelled = true }
+  }, [printingPickerResults, setIcons])
+
+  useEffect(() => {
+    const cardId = latestPending?.id
+    if (!cardId) { setLatestPrintingData(null); return }
+    let cancelled = false
+    ;(async () => {
+      const data = await sfGet(`/cards/${cardId}`)
+      if (!cancelled) setLatestPrintingData(data || null)
+    })()
+    return () => { cancelled = true }
+  }, [latestPending?.id])
+
+  useEffect(() => {
+    const missingIds = [...new Set(pendingCards.map(card => card?.id).filter(Boolean))]
+      .filter(cardId => !printingDataById[cardId])
+    if (!missingIds.length) return
+    let cancelled = false
+    ;(async () => {
+      for (const cardId of missingIds) {
+        const data = await sfGet(`/cards/${cardId}`)
+        if (cancelled) return
+        if (data) {
+          setPrintingDataById(prev => (prev[cardId] ? prev : { ...prev, [cardId]: data }))
+        }
+      }
+    })()
+    return () => { cancelled = true }
+  }, [pendingCards, printingDataById])
+
+  useEffect(() => {
+    if (!latestPending) {
+      setLatestLanguageOptions([['en', 'EN']])
+      return
+    }
+
+    let cancelled = false
+    ;(async () => {
+      const fallbackValue = latestPending.language || 'en'
+      const fallback = CARD_LANGUAGES.filter(([value]) => value === fallbackValue)
+      const defaultOptions = fallback.length ? fallback : [['en', 'EN']]
+
+      if (!latestPrintingData?.oracle_id) {
+        setLatestLanguageOptions(defaultOptions)
+        return
+      }
+
+      try {
+        const q = `oracleid:${latestPrintingData.oracle_id} unique:prints`
+        const data = await sfGet(`/cards/search?q=${encodeURIComponent(q)}&order=released&dir=desc`)
+        if (cancelled) return
+
+        const available = new Set((data?.data || []).map(card => card?.lang).filter(Boolean))
+        available.add(fallbackValue)
+
+        const options = CARD_LANGUAGES.filter(([value]) => available.has(value))
+        setLatestLanguageOptions(options.length ? options : defaultOptions)
+      } catch {
+        if (!cancelled) setLatestLanguageOptions(defaultOptions)
+      }
+    })()
+
+    return () => { cancelled = true }
+  }, [latestPending, latestPrintingData])
+
+  useEffect(() => {
+    const missingOracleIds = [...new Set(
+      pendingCards
+        .map(card => printingDataById[card.id]?.oracle_id)
+        .filter(Boolean)
+    )].filter(oracleId => !languageOptionsByOracleId[oracleId])
+    if (!missingOracleIds.length) return
+    let cancelled = false
+    ;(async () => {
+      for (const oracleId of missingOracleIds) {
+        try {
+          const q = `oracleid:${oracleId} unique:prints`
+          const data = await sfGet(`/cards/search?q=${encodeURIComponent(q)}&order=released&dir=desc`)
+          if (cancelled) return
+          const available = new Set((data?.data || []).map(card => card?.lang).filter(Boolean))
+          const options = CARD_LANGUAGES.filter(([value]) => available.has(value))
+          setLanguageOptionsByOracleId(prev => (prev[oracleId]
+            ? prev
+            : { ...prev, [oracleId]: options.length ? options : [['en', 'EN']] }))
+        } catch {
+          if (cancelled) return
+          setLanguageOptionsByOracleId(prev => (prev[oracleId] ? prev : { ...prev, [oracleId]: [['en', 'EN']] }))
+        }
+      }
+    })()
+    return () => { cancelled = true }
+  }, [pendingCards, printingDataById, languageOptionsByOracleId])
+
   // ── Basket operations ──────────────────────────────────────────────────────
 
   const addToPending = useCallback((match) => {
@@ -366,13 +636,15 @@ export default function CardScanner({ onMatch, onClose }) {
       imageUri: match.imageUri,
       foil:     false,
       qty:      1,
+      language: 'en',
     }
     setPendingCards(prev => {
       // Deduplicate: if same card+foil already in basket, increment qty
-      const idx = prev.findIndex(c => c.id === entry.id && c.foil === entry.foil)
+      const idx = prev.findIndex(c => c.id === entry.id && c.foil === entry.foil && (c.language || 'en') === entry.language)
       if (idx !== -1) {
-        const next = [...prev]
-        next[idx] = { ...next[idx], qty: next[idx].qty + 1 }
+        const existing = prev[idx]
+        const next = prev.filter((_, i) => i !== idx)
+        next.unshift({ ...existing, qty: existing.qty + 1 })
         return next
       }
       return [entry, ...prev]
@@ -386,6 +658,14 @@ export default function CardScanner({ onMatch, onClose }) {
 
   const updatePending = useCallback((uid, patch) => {
     setPendingCards(prev => prev.map(c => c.uid === uid ? { ...c, ...patch } : c))
+  }, [])
+
+  const adjustPendingQty = useCallback((uid, delta) => {
+    setPendingCards(prev => prev.flatMap(card => {
+      if (card.uid !== uid) return [card]
+      const nextQty = (card.qty || 1) + delta
+      return nextQty > 0 ? [{ ...card, qty: nextQty }] : []
+    }))
   }, [])
 
   // ── Printing picker ────────────────────────────────────────────────────────
@@ -419,16 +699,38 @@ export default function CardScanner({ onMatch, onClose }) {
 
   // ── Manual search ──────────────────────────────────────────────────────────
 
-  const handleManualSearch = useCallback(async (q) => {
-    setManualSearchQuery(q)
-    if (q.trim().length < 2) { setManualSearchResults([]); return }
-    setManualSearchLoading(true)
-    try {
-      const data = await sfGet(`/cards/search?q=${encodeURIComponent(q)}&unique=cards&order=name`)
-      if (mountedRef.current) setManualSearchResults(data?.data?.slice(0, 20) ?? [])
-    } catch { if (mountedRef.current) setManualSearchResults([]) }
-    if (mountedRef.current) setManualSearchLoading(false)
-  }, [])
+  useEffect(() => {
+    if (!manualSearchOpen) return
+
+    const q = manualSearchQuery.trim()
+    if (q.length < 2) {
+      manualSearchRequestRef.current += 1
+      setManualSearchLoading(false)
+      setManualSearchResults([])
+      return
+    }
+
+    const requestId = manualSearchRequestRef.current + 1
+    manualSearchRequestRef.current = requestId
+
+    const timer = setTimeout(async () => {
+      if (!mountedRef.current || manualSearchRequestRef.current !== requestId) return
+      setManualSearchLoading(true)
+      try {
+        const data = await sfGet(`/cards/search?q=${encodeURIComponent(q)}&unique=cards&order=name`)
+        if (!mountedRef.current || manualSearchRequestRef.current !== requestId) return
+        setManualSearchResults(data?.data?.slice(0, 20) ?? [])
+      } catch {
+        if (!mountedRef.current || manualSearchRequestRef.current !== requestId) return
+        setManualSearchResults([])
+      } finally {
+        if (!mountedRef.current || manualSearchRequestRef.current !== requestId) return
+        setManualSearchLoading(false)
+      }
+    }, 250)
+
+    return () => clearTimeout(timer)
+  }, [manualSearchOpen, manualSearchQuery])
 
   const addManualCard = useCallback((sf) => {
     const imgUri = getCardImg(sf)
@@ -441,12 +743,27 @@ export default function CardScanner({ onMatch, onClose }) {
       imageUri: imgUri,
       foil:     false,
       qty:      1,
+      language: 'en',
     }
-    setPendingCards(prev => [entry, ...prev])
+    setPendingCards(prev => {
+      const idx = prev.findIndex(c => c.id === entry.id && c.foil === entry.foil && (c.language || 'en') === entry.language)
+      if (idx !== -1) {
+        const existing = prev[idx]
+        const next = prev.filter((_, i) => i !== idx)
+        next.unshift({ ...existing, qty: existing.qty + 1 })
+        return next
+      }
+      return [entry, ...prev]
+    })
+    setPrintingPickerFor(null)
+    setPrintingPickerResults([])
+    setAddFlowOpen(false)
     setManualSearchOpen(false)
+    manualSearchRequestRef.current += 1
     setManualSearchQuery('')
     setManualSearchResults([])
-    setBasketExpanded(true)
+    setManualSearchLoading(false)
+    setBasketExpanded(false)
   }, [])
 
   // ── Add flow ───────────────────────────────────────────────────────────────
@@ -456,6 +773,7 @@ export default function CardScanner({ onMatch, onClose }) {
     setAddFlowSelectedFolder(null)
     setAddFlowError(null)
     setAddFlowFolderSearch('')
+    setAddFlowCreatingFolder(false)
     setAddFlowFoldersLoading(true)
     try {
       const { data, error } = await sb.from('folders')
@@ -470,6 +788,40 @@ export default function CardScanner({ onMatch, onClose }) {
     setAddFlowFoldersLoading(false)
   }, [user])
 
+  const createAddFlowFolder = useCallback(async () => {
+    const rawName = addFlowFolderSearch.trim()
+    if (!rawName || !user?.id || addFlowCreatingFolder) return
+
+    const normalizedName = rawName.toLowerCase()
+    const folderType = addFlowFolderType === 'deck' ? 'deck' : addFlowFolderType
+    const existing = addFlowFolders.find(f =>
+      f.type === folderType &&
+      String(f.name || '').trim().toLowerCase() === normalizedName
+    )
+    if (existing) {
+      setAddFlowSelectedFolder(existing.id)
+      setAddFlowError(null)
+      return
+    }
+
+    setAddFlowCreatingFolder(true)
+    setAddFlowError(null)
+    try {
+      const { data, error } = await sb.from('folders')
+        .insert({ user_id: user.id, type: folderType, name: rawName })
+        .select('id,name,type')
+        .single()
+      if (error) throw new Error(error.message)
+      if (!data) throw new Error('Failed to create folder')
+      setAddFlowFolders(prev => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)))
+      setAddFlowSelectedFolder(data.id)
+    } catch (e) {
+      setAddFlowError(e.message)
+    } finally {
+      setAddFlowCreatingFolder(false)
+    }
+  }, [addFlowCreatingFolder, addFlowFolderSearch, addFlowFolderType, addFlowFolders, user])
+
   const saveAllPending = useCallback(async () => {
     if (!addFlowSelectedFolder || !pendingCards.length || !user?.id) return
     const folder = addFlowFolders.find(f => f.id === addFlowSelectedFolder)
@@ -477,6 +829,7 @@ export default function CardScanner({ onMatch, onClose }) {
     setAddFlowSaving(true)
     setAddFlowError(null)
     try {
+      const savedQty = pendingCards.reduce((sum, card) => sum + (card.qty || 1), 0)
       await batchSaveCards({
         userId: user.id,
         cards: pendingCards,
@@ -486,6 +839,7 @@ export default function CardScanner({ onMatch, onClose }) {
       setPendingCards([])
       setAddFlowOpen(false)
       setAddFlowSelectedFolder(null)
+      setSaveNotice(`Saved ${savedQty} card${savedQty !== 1 ? 's' : ''} to ${folder.name}`)
     } catch (e) {
       setAddFlowError(e.message)
     }
@@ -655,13 +1009,10 @@ export default function CardScanner({ onMatch, onClose }) {
 
   // ── Derived ────────────────────────────────────────────────────────────────
 
-  const handleRestartCamera = useCallback(async () => {
-    setScanResult(null)
-    if (isNative) { try { await CameraPreview.stop().catch(() => {}) } catch {} await sleep(120) }
-    setCameraRestartTick(t => t + 1)
-  }, [isNative])
-
-  const handleFlashMode = useCallback((nextMode) => { setFlashMode(nextMode) }, [])
+  const handleFlashToggle = useCallback(() => {
+    if (!flashSupported) return
+    setFlashMode(current => ((current === 'torch' || current === 'on') ? 'off' : (availableFlashModes.includes('torch') ? 'torch' : 'on')))
+  }, [availableFlashModes, flashSupported])
 
   const filteredFolders = addFlowFolders.filter(f => {
     const typeMatch = addFlowFolderType === 'binder' ? f.type === 'binder'
@@ -671,11 +1022,60 @@ export default function CardScanner({ onMatch, onClose }) {
     if (!addFlowFolderSearch.trim()) return true
     return f.name.toLowerCase().includes(addFlowFolderSearch.toLowerCase())
   })
+  const createFolderLabel = addFlowFolderType === 'list' ? 'wishlist' : addFlowFolderType
+  const canCreateAddFlowFolder = !!addFlowFolderSearch.trim() && !addFlowCreatingFolder
+  const hasExactAddFlowMatch = addFlowFolders.some(f => {
+    const typeMatch = addFlowFolderType === 'binder' ? f.type === 'binder'
+      : addFlowFolderType === 'deck' ? (f.type === 'deck' || f.type === 'builder_deck')
+      : f.type === 'list'
+    if (!typeMatch) return false
+    return String(f.name || '').trim().toLowerCase() === addFlowFolderSearch.trim().toLowerCase()
+  })
+  const latestSetIcon = latestPending?.setCode ? setIcons[latestPending.setCode] : null
+  const pendingTotalQty = pendingCards.reduce((sum, card) => sum + (card.qty || 1), 0)
+  const showManualSearchEmpty = manualSearchOpen &&
+    manualSearchQuery.trim().length >= 2 &&
+    !manualSearchLoading &&
+    manualSearchResults.length === 0
+  const hasFoilVersion = !latestPending ? false : (
+    latestPending.foil ||
+    !latestPrintingData ||
+    latestPrintingData?.finishes?.includes('foil') ||
+    latestPrintingData?.prices?.eur_foil != null ||
+    latestPrintingData?.prices?.usd_foil != null
+  )
+  const latestPriceMeta = latestPending && latestPrintingData
+    ? getPriceWithMeta(latestPrintingData, latestPending.foil, { price_source })
+    : null
+  const scannedValueMeta = pendingCards.reduce((acc, card) => {
+    const priceMeta = printingDataById[card.id]
+      ? getPriceWithMeta(printingDataById[card.id], card.foil, { price_source })
+      : null
+    if (!priceMeta) return acc
+    if (!acc) {
+      return {
+        symbol: priceMeta.symbol,
+        value: priceMeta.value * (card.qty || 1),
+      }
+    }
+    return {
+      ...acc,
+      value: acc.value + (priceMeta.value * (card.qty || 1)),
+    }
+  }, null)
+
+  const handleClose = useCallback(() => {
+    if (closing) return
+    setClosing(true)
+    window.setTimeout(() => {
+      onClose?.()
+    }, 220)
+  }, [closing, onClose])
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className={`${styles.root} ${isNative ? styles.rootNative : ''}`}>
+    <div className={`${styles.root} ${isNative ? styles.rootNative : ''} ${closing ? styles.rootClosing : styles.rootEntering}`}>
       {!isNative && (
         <>
           <video ref={videoRef} className={styles.video} playsInline muted />
@@ -683,7 +1083,7 @@ export default function CardScanner({ onMatch, onClose }) {
         </>
       )}
 
-      <div className={`${styles.overlay} ${isNative ? styles.overlayNative : ''}`}>
+      <div className={`${styles.overlay} ${isNative ? styles.overlayNative : ''} ${closing ? styles.overlayClosing : styles.overlayEntering}`}>
         {/* Top bar */}
         <div className={styles.topBar}>
           <div className={styles.statusRow}>
@@ -702,7 +1102,54 @@ export default function CardScanner({ onMatch, onClose }) {
               <div className={styles.loadingPill}>Starting…</div>
             )}
           </div>
-          <button className={styles.closeBtn} onClick={onClose}>✕</button>
+          <div className={styles.controlMenu}>
+            <button
+              className={`${styles.menuIconBtn} ${styles.menuCloseBtn}`}
+              onClick={handleClose}
+              title="Close"
+              aria-label="Close"
+            >
+              ✕
+            </button>
+            <button
+              className={`${styles.menuIconBtn} ${basketExpanded ? styles.menuIconBtnActive : ''}`}
+              onClick={() => setBasketExpanded(v => !v)}
+              title="Scanned cards"
+              aria-label="Scanned cards"
+            >
+              <svg viewBox="0 0 24 24" className={styles.menuIcon} aria-hidden="true">
+                <path d="M6 5h12M6 12h12M6 19h12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+              {pendingTotalQty > 0 && <span className={styles.menuCount}>{pendingTotalQty}</span>}
+            </button>
+            <button
+              className={styles.menuIconBtn}
+              onClick={() => {
+                manualSearchRequestRef.current += 1
+                setManualSearchQuery('')
+                setManualSearchResults([])
+                setManualSearchLoading(false)
+                setManualSearchOpen(true)
+              }}
+              title="Manual add"
+              aria-label="Manual add"
+            >
+              <svg viewBox="0 0 24 24" className={styles.menuIcon} aria-hidden="true">
+                <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+            </button>
+            <button
+              className={`${styles.menuIconBtn} ${flashEnabled ? styles.menuIconBtnActive : ''}`}
+              onClick={handleFlashToggle}
+              title={flashSupported ? (flashEnabled ? 'Flash on' : 'Flash off') : 'Flash unavailable'}
+              aria-label={flashSupported ? (flashEnabled ? 'Flash on' : 'Flash off') : 'Flash unavailable'}
+              disabled={!flashSupported}
+            >
+              <svg viewBox="0 0 24 24" className={styles.menuIcon} aria-hidden="true">
+                <path d="M13 2L6 13h5l-1 9 8-12h-5l0-8z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Targeting reticle */}
@@ -711,111 +1158,267 @@ export default function CardScanner({ onMatch, onClose }) {
           <span className={`${styles.corner} ${styles.tr}`} />
           <span className={`${styles.corner} ${styles.br}`} />
           <span className={`${styles.corner} ${styles.bl}`} />
-          {preparing && !errorMsg && <div className={styles.preparingSpinner}>⟳</div>}
-          {scanning && <div className={styles.pausedLabel}>Scanning…</div>}
+          {preparing && !errorMsg && <div className={styles.preparingSpinner}>+</div>}
+          {scanning && <div className={styles.pausedLabel}>Scanning...</div>}
           {isReady && !scanning && !preparing && <div className={styles.scanLine} />}
         </div>
 
         {/* Debug strip */}
         {DEBUG && debugInfo && (
           <div className={styles.debugStrip}>
-            {debugInfo.dist}d {debugInfo.gap}g {debugInfo.src} {debugInfo.votes}v | {debugInfo.decision}{debugInfo.name ? ` · ${debugInfo.name}` : ''}
+            {debugInfo.dist}d {debugInfo.gap}g {debugInfo.src} {debugInfo.votes}v | {debugInfo.decision}{debugInfo.name ? ` - ${debugInfo.name}` : ''}
           </div>
         )}
         {DEBUG && !debugInfo && (
           <div className={styles.debugStrip}>
-            hashes: {cardCount.toLocaleString()} {databaseService.isFullyLoaded ? '✓' : '...'} | CV: {cvReady ? '✓' : '...'} | DB: {dbReady ? '✓' : '...'}
+            hashes: {cardCount.toLocaleString()} {databaseService.isFullyLoaded ? 'yes' : '...'} | CV: {cvReady ? 'yes' : '...'} | DB: {dbReady ? 'yes' : '...'}
+          </div>
+        )}
+
+        {pendingCards.length > 0 && (
+          <div className={styles.scannedValueBadge}>
+            <span className={styles.scannedValueBadgeLabel}>Scanned Value</span>
+            <span className={styles.scannedValueBadgeAmount}>
+              {scannedValueMeta ? `${scannedValueMeta.symbol}${scannedValueMeta.value.toFixed(2)}` : '—'}
+            </span>
+          </div>
+        )}
+
+        {saveNotice && (
+          <div className={styles.saveNotice} role="status" aria-live="polite">
+            {saveNotice}
           </div>
         )}
 
         {/* Bottom bar */}
         <div className={styles.bottomBar}>
-          {/* Pending basket */}
-          {pendingCards.length > 0 && (
-            <div className={styles.basket}>
-              <div className={styles.basketHeader} onClick={() => setBasketExpanded(v => !v)}>
-                <span className={styles.basketTitle}>Pending</span>
-                <span className={styles.basketCount}>{pendingCards.length}</span>
-                <span className={`${styles.basketChevron} ${basketExpanded ? styles.basketChevronOpen : ''}`}>▼</span>
-              </div>
-              {basketExpanded && (
-                <div className={styles.basketList}>
-                  {pendingCards.map(card => (
-                    <div key={card.uid} className={styles.basketItem}>
-                      {card.imageUri
-                        ? <img src={card.imageUri} className={styles.basketItemImg} alt={card.name} />
-                        : <div className={styles.basketItemImgPlaceholder}>{card.name[0]}</div>
-                      }
-                      <div className={styles.basketItemInfo}>
-                        <div className={styles.basketItemName}>{card.name}</div>
-                        <div className={styles.basketItemMeta}>
-                          {card.setCode?.toUpperCase()}{card.collNum ? ` #${card.collNum}` : ''}{card.qty > 1 ? ` ×${card.qty}` : ''}
-                        </div>
-                      </div>
-                      <div className={styles.basketItemActions}>
-                        <button
-                          className={`${styles.basketFoilBtn} ${card.foil ? styles.basketFoilBtnActive : ''}`}
-                          onClick={() => updatePending(card.uid, { foil: !card.foil })}
-                        >
-                          FOIL
-                        </button>
-                        <button
-                          className={styles.basketPrintingBtn}
-                          onClick={() => openPrintingPicker(card.uid)}
-                          title="Change printing"
-                        >
-                          ⊞
-                        </button>
-                        <button
-                          className={styles.basketRemoveBtn}
-                          onClick={() => removePending(card.uid)}
-                          title="Remove"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+          {latestPending && (
+            <div className={styles.latestCardBar}>
+              <div className={styles.latestCardMain}>
+                {latestPending.imageUri
+                  ? <img src={latestPending.imageUri} className={styles.latestCardImg} alt={latestPending.name} />
+                  : <div className={styles.latestCardImgPlaceholder}>{latestPending.name[0]}</div>
+                }
+                <div className={styles.latestCardInfo}>
+                  <div className={styles.latestCardName} title={latestPending.name}>{latestPending.name}</div>
+                  <div className={styles.latestCardMeta}>
+                    {latestPending.setCode?.toUpperCase() || '—'}
+                    {latestPending.collNum ? ` #${latestPending.collNum}` : ''}
+                  </div>
+                  <div className={styles.latestCardPrice}>
+                    {latestPriceMeta ? formatPriceMeta(latestPriceMeta) : '—'}
+                  </div>
                 </div>
-              )}
+              </div>
+              <div className={styles.latestCardActions}>
+                <div className={styles.latestQtyControls}>
+                  <button
+                    className={styles.latestQtyBtn}
+                    onClick={() => adjustPendingQty(latestPending.uid, -1)}
+                    title="Decrease quantity"
+                    aria-label="Decrease quantity"
+                  >
+                    -
+                  </button>
+                  <div className={styles.latestQtyValue}>{latestPending.qty || 1}</div>
+                  <button
+                    className={styles.latestQtyBtn}
+                    onClick={() => adjustPendingQty(latestPending.uid, 1)}
+                    title="Increase quantity"
+                    aria-label="Increase quantity"
+                  >
+                    +
+                  </button>
+                </div>
+                <button
+                  className={styles.latestActionIconBtn}
+                  onClick={() => openPrintingPicker(latestPending.uid)}
+                  title="Change printing"
+                  aria-label="Change printing"
+                >
+                  {latestSetIcon
+                    ? <img src={latestSetIcon} alt="" className={styles.latestSetIcon} />
+                    : (
+                      <svg viewBox="0 0 24 24" className={styles.latestActionIcon} aria-hidden="true">
+                        <path d="M6 4h9l3 3v13H6z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                        <path d="M15 4v4h4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                      </svg>
+                    )}
+                </button>
+                <select
+                  className={styles.latestLanguageSelect}
+                  value={latestPending.language || 'en'}
+                  onChange={e => updatePending(latestPending.uid, { language: e.target.value })}
+                  title="Card language"
+                  aria-label="Card language"
+                  disabled={latestLanguageOptions.length <= 1}
+                >
+                  {latestLanguageOptions.map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+                <button
+                  className={`${styles.latestActionIconBtn} ${latestPending.foil ? styles.latestActionBtnActive : ''}`}
+                  onClick={() => updatePending(latestPending.uid, { foil: !latestPending.foil })}
+                  title={hasFoilVersion ? (latestPending.foil ? 'Foil on' : 'Foil off') : 'No foil version'}
+                  aria-label={hasFoilVersion ? (latestPending.foil ? 'Foil on' : 'Foil off') : 'No foil version'}
+                  disabled={!hasFoilVersion}
+                >
+                  <span className={styles.latestFoilIcon} aria-hidden="true">✦</span>
+                </button>
+                <button
+                  className={`${styles.latestActionIconBtn} ${styles.latestActionDanger}`}
+                  onClick={() => removePending(latestPending.uid)}
+                  title="Remove"
+                  aria-label="Remove"
+                >
+                  <span className={styles.latestActionX} aria-hidden="true">✕</span>
+                </button>
+              </div>
             </div>
           )}
-
-          {/* Camera controls */}
-          <div className={styles.controlBar}>
-            <button className={styles.controlBtn} onClick={handleRestartCamera}>↺ Camera</button>
-            <button className={styles.controlBtn} onClick={() => setManualSearchOpen(true)}>+ Manual</button>
-            {availableFlashModes.length > 0 && (
-              <Select
-                className={styles.controlSelect}
-                value={flashMode}
-                onChange={e => handleFlashMode(e.target.value)}
-                title="Flash mode"
-              >
-                {availableFlashModes.map(mode => (
-                  <option key={mode} value={mode}>
-                    {mode === 'torch' ? 'Flash: on' : `Flash: ${mode}`}
-                  </option>
-                ))}
-              </Select>
-            )}
-          </div>
 
           {/* Scan + Add buttons */}
           <div className={styles.btnRow}>
             {isReady && (
               <button className={styles.primaryBtn} onClick={handleScan} disabled={scanning}>
-                {scanning ? 'Scanning…' : scanResult === 'found' ? '✓ Scan Again' : scanResult === 'notfound' ? 'Not Found – Retry' : 'Scan Card'}
-              </button>
-            )}
-            {pendingCards.length > 0 && (
-              <button className={styles.primaryBtn} onClick={openAddFlow} style={{ flex: '0 0 auto', minWidth: 100 }}>
-                Add {pendingCards.length}
+                {scanning ? 'Scanning...' : 'Scan'}
               </button>
             )}
           </div>
         </div>
       </div>
+
+      {/* Printing picker overlay */}
+      {basketExpanded && pendingCards.length > 0 && (
+        <div className={styles.overlayPanel}>
+          <div className={styles.overlayPanelHeader}>
+            <span className={styles.overlayPanelTitle}>
+              Scanned Cards
+              <span className={styles.overlayPanelTitleValue}>
+                {scannedValueMeta ? `${scannedValueMeta.symbol}${scannedValueMeta.value.toFixed(2)}` : '—'}
+              </span>
+            </span>
+            <span className={styles.overlayPanelCount}>{pendingTotalQty}</span>
+            <button className={styles.closeBtn} onClick={() => setBasketExpanded(false)}>✕</button>
+          </div>
+          <div className={styles.historyList}>
+            {pendingCards.map(card => {
+              const historyPrintingData = printingDataById[card.id] || null
+              const historySetIcon = card.setCode ? setIcons[card.setCode] : null
+              const historyOracleId = historyPrintingData?.oracle_id || null
+              const fallbackLanguageValue = card.language || 'en'
+              const fallbackLanguage = CARD_LANGUAGES.find(([value]) => value === fallbackLanguageValue)
+              const historyLanguageOptions = historyOracleId
+                ? (languageOptionsByOracleId[historyOracleId] || (fallbackLanguage ? [fallbackLanguage] : [['en', 'EN']]))
+                : (fallbackLanguage ? [fallbackLanguage] : [['en', 'EN']])
+              const historyHasFoilVersion = (
+                card.foil ||
+                !historyPrintingData ||
+                historyPrintingData?.finishes?.includes('foil') ||
+                historyPrintingData?.prices?.eur_foil != null ||
+                historyPrintingData?.prices?.usd_foil != null
+              )
+              const historyPriceMeta = historyPrintingData
+                ? getPriceWithMeta(historyPrintingData, card.foil, { price_source })
+                : null
+
+              return (
+                <div key={card.uid} className={styles.historyItem}>
+                  {card.imageUri
+                    ? <img src={card.imageUri} className={styles.historyItemImg} alt={card.name} />
+                    : <div className={styles.historyItemImgPlaceholder}>{card.name[0]}</div>
+                  }
+                  <div className={styles.historyItemBody}>
+                    <div className={styles.historyItemInfo}>
+                      <div className={styles.historyItemName}>{card.name}</div>
+                      <div className={styles.historyItemMeta}>
+                        {card.setCode?.toUpperCase()}
+                        {card.collNum ? ` #${card.collNum}` : ''}
+                        {card.language && card.language !== 'en' ? ` - ${card.language.toUpperCase()}` : ''}
+                        {card.foil ? ' - Foil' : ''}
+                      </div>
+                      <div className={styles.historyItemPrice}>
+                        {historyPriceMeta ? formatPriceMeta(historyPriceMeta) : '—'}
+                      </div>
+                    </div>
+                    <div className={styles.historyItemActions}>
+                      <div className={styles.historyQtyControls}>
+                        <button
+                          className={styles.historyQtyBtn}
+                          onClick={() => adjustPendingQty(card.uid, -1)}
+                          title="Decrease quantity"
+                          aria-label="Decrease quantity"
+                        >
+                          -
+                        </button>
+                        <div className={styles.historyQtyValue}>{card.qty || 1}</div>
+                        <button
+                          className={styles.historyQtyBtn}
+                          onClick={() => adjustPendingQty(card.uid, 1)}
+                          title="Increase quantity"
+                          aria-label="Increase quantity"
+                        >
+                          +
+                        </button>
+                      </div>
+                      <button
+                        className={styles.historyActionIconBtn}
+                        onClick={() => openPrintingPicker(card.uid)}
+                        title="Change printing"
+                        aria-label="Change printing"
+                      >
+                        {historySetIcon
+                          ? <img src={historySetIcon} alt="" className={styles.historySetIcon} />
+                          : (
+                            <svg viewBox="0 0 24 24" className={styles.historyActionIcon} aria-hidden="true">
+                              <path d="M6 4h9l3 3v13H6z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                              <path d="M15 4v4h4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                            </svg>
+                          )}
+                      </button>
+                      <select
+                        className={styles.historyLanguageSelect}
+                        value={card.language || 'en'}
+                        onChange={e => updatePending(card.uid, { language: e.target.value })}
+                        title="Card language"
+                        aria-label="Card language"
+                        disabled={historyLanguageOptions.length <= 1}
+                      >
+                        {historyLanguageOptions.map(([value, label]) => (
+                          <option key={value} value={value}>{label}</option>
+                        ))}
+                      </select>
+                      <button
+                        className={`${styles.historyActionIconBtn} ${card.foil ? styles.latestActionBtnActive : ''}`}
+                        onClick={() => updatePending(card.uid, { foil: !card.foil })}
+                        title={historyHasFoilVersion ? (card.foil ? 'Foil on' : 'Foil off') : 'No foil version'}
+                        aria-label={historyHasFoilVersion ? (card.foil ? 'Foil on' : 'Foil off') : 'No foil version'}
+                        disabled={!historyHasFoilVersion}
+                      >
+                        <span className={styles.historyFoilIcon} aria-hidden="true">✦</span>
+                      </button>
+                      <button
+                        className={`${styles.historyActionIconBtn} ${styles.latestActionDanger}`}
+                        onClick={() => removePending(card.uid)}
+                        title="Remove"
+                        aria-label="Remove"
+                      >
+                        <span className={styles.historyActionX} aria-hidden="true">✕</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <div className={styles.historyFooter}>
+            <button className={styles.historyAddBtn} onClick={openAddFlow}>
+              Add {pendingTotalQty}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Printing picker overlay */}
       {printingPickerFor && (
@@ -824,11 +1427,16 @@ export default function CardScanner({ onMatch, onClose }) {
             <span className={styles.overlayPanelTitle}>Choose Printing</span>
             <button className={styles.closeBtn} onClick={() => { setPrintingPickerFor(null); setPrintingPickerResults([]) }}>✕</button>
           </div>
-          {printingPickerLoading && <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem' }}>Loading…</div>}
+          {printingPickerLoading && <div className={styles.overlayPanelState}>Loading…</div>}
           <div className={styles.printingGrid}>
             {printingPickerResults.map(sf => {
               const img = getCardImg(sf)
-              const isActive = pendingCards.find(c => c.uid === printingPickerFor)?.id === sf.id
+              const pickerCard = pendingCards.find(c => c.uid === printingPickerFor)
+              const isActive = pickerCard?.id === sf.id
+              const setIcon = sf.set ? setIcons[sf.set] : null
+              const regularPriceMeta = getPriceWithMeta(sf, false, { price_source })
+              const foilPriceMeta = getPriceWithMeta(sf, true, { price_source })
+              const activePriceMeta = getPriceWithMeta(sf, pickerCard?.foil, { price_source })
               return (
                 <div
                   key={sf.id}
@@ -836,7 +1444,17 @@ export default function CardScanner({ onMatch, onClose }) {
                   onClick={() => selectPrinting(printingPickerFor, sf)}
                 >
                   {img && <img src={img} className={styles.printingCardImg} alt={sf.name} />}
-                  <div className={styles.printingCardLabel}>{sf.set?.toUpperCase()} #{sf.collector_number}</div>
+                  <div className={styles.printingCardLabel}>
+                    {setIcon && <img src={setIcon} alt="" className={styles.printingCardSetIcon} />}
+                    <span>{sf.set?.toUpperCase()} #{sf.collector_number}</span>
+                  </div>
+                  <div className={styles.printingCardPrice}>
+                    {activePriceMeta ? formatPriceMeta(activePriceMeta) : '—'}
+                  </div>
+                  <div className={styles.printingCardPriceMeta}>
+                    <span>R {regularPriceMeta ? formatPriceMeta(regularPriceMeta) : '—'}</span>
+                    <span>F {foilPriceMeta ? formatPriceMeta(foilPriceMeta) : '—'}</span>
+                  </div>
                 </div>
               )
             })}
@@ -849,18 +1467,18 @@ export default function CardScanner({ onMatch, onClose }) {
         <div className={styles.overlayPanel}>
           <div className={styles.overlayPanelHeader}>
             <span className={styles.overlayPanelTitle}>Add Card Manually</span>
-            <button className={styles.closeBtn} onClick={() => { setManualSearchOpen(false); setManualSearchQuery(''); setManualSearchResults([]) }}>✕</button>
+            <button className={styles.closeBtn} onClick={() => { manualSearchRequestRef.current += 1; setManualSearchOpen(false); setManualSearchQuery(''); setManualSearchResults([]); setManualSearchLoading(false) }}>✕</button>
           </div>
           <div className={styles.searchInputRow}>
             <input
               className={styles.searchInput}
               placeholder="Search card name…"
               value={manualSearchQuery}
-              onChange={e => handleManualSearch(e.target.value)}
+              onChange={e => setManualSearchQuery(e.target.value)}
               autoFocus
             />
           </div>
-          {manualSearchLoading && <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem' }}>Searching…</div>}
+          {manualSearchLoading && <div className={styles.overlayPanelState}>Searching…</div>}
           <div className={styles.searchResultList}>
             {manualSearchResults.map(sf => {
               const img = getCardImg(sf)
@@ -874,6 +1492,9 @@ export default function CardScanner({ onMatch, onClose }) {
                 </div>
               )
             })}
+            {showManualSearchEmpty && (
+              <div className={styles.overlayPanelEmpty}>No cards found</div>
+            )}
           </div>
         </div>
       )}
@@ -882,19 +1503,34 @@ export default function CardScanner({ onMatch, onClose }) {
       {addFlowOpen && (
         <div className={styles.overlayPanel}>
           <div className={styles.overlayPanelHeader}>
-            <span className={styles.overlayPanelTitle}>Add {pendingCards.length} Card{pendingCards.length !== 1 ? 's' : ''}</span>
+            <span className={styles.overlayPanelTitle}>
+              Add {pendingCards.length} Card{pendingCards.length !== 1 ? 's' : ''}
+              <span className={styles.overlayPanelTitleValue}>
+                {scannedValueMeta ? `${scannedValueMeta.symbol}${scannedValueMeta.value.toFixed(2)}` : '—'}
+              </span>
+            </span>
             <button className={styles.closeBtn} onClick={() => setAddFlowOpen(false)}>✕</button>
           </div>
 
           {/* Review list */}
           <div className={styles.reviewList}>
-            {pendingCards.map(c => (
+            {pendingCards.map(c => {
+              const reviewPriceMeta = printingDataById[c.id]
+                ? getPriceWithMeta(printingDataById[c.id], c.foil, { price_source })
+                : null
+              return (
               <div key={c.uid} className={styles.reviewItem}>
                 {c.imageUri && <img src={c.imageUri} className={styles.reviewItemImg} alt={c.name} />}
-                <span className={styles.reviewItemName}>{c.name}</span>
-                <span className={styles.reviewItemMeta}>{c.setCode?.toUpperCase()}{c.foil ? ' · Foil' : ''}{c.qty > 1 ? ` ×${c.qty}` : ''}</span>
+                <div className={styles.reviewItemInfo}>
+                  <span className={styles.reviewItemName}>{c.name}</span>
+                  <span className={styles.reviewItemMeta}>{c.setCode?.toUpperCase()}{c.foil ? ' · Foil' : ''}{c.qty > 1 ? ` ×${c.qty}` : ''}</span>
+                </div>
+                <span className={styles.reviewItemPrice}>
+                  {reviewPriceMeta ? formatPriceMeta(reviewPriceMeta) : '—'}
+                </span>
               </div>
-            ))}
+              )
+            })}
           </div>
 
           {/* Folder type tabs */}
@@ -917,10 +1553,17 @@ export default function CardScanner({ onMatch, onClose }) {
             value={addFlowFolderSearch}
             onChange={e => setAddFlowFolderSearch(e.target.value)}
           />
+          <button
+            className={styles.inlineCreateBtn}
+            onClick={createAddFlowFolder}
+            disabled={!canCreateAddFlowFolder || hasExactAddFlowMatch}
+          >
+            {addFlowCreatingFolder ? `Creating ${createFolderLabel}…` : `+ Create new ${createFolderLabel}`}
+          </button>
 
           {/* Folder list */}
           {addFlowFoldersLoading
-            ? <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem' }}>Loading…</div>
+            ? <div className={styles.overlayPanelState}>Loading…</div>
             : (
               <div className={styles.folderList}>
                 {filteredFolders.map(f => (
@@ -934,7 +1577,7 @@ export default function CardScanner({ onMatch, onClose }) {
                   </div>
                 ))}
                 {filteredFolders.length === 0 && (
-                  <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.75rem', padding: '8px 4px' }}>No {addFlowFolderType}s found</div>
+                  <div className={styles.overlayPanelEmpty}>No {addFlowFolderType}s found</div>
                 )}
               </div>
             )
@@ -954,3 +1597,4 @@ export default function CardScanner({ onMatch, onClose }) {
     </div>
   )
 }
+

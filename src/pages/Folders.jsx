@@ -508,6 +508,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
   const { user } = useAuth()
   const [cards, setCards]             = useState([])
   const [sfMap, setSfMap]             = useState({})
+  const [allFolders, setAllFolders]   = useState([])
   const [loading, setLoading]         = useState(true)
   const [selected, setSelected]       = useState(null)
   const [search, setSearch]           = useState('')
@@ -574,6 +575,10 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
   useEffect(() => {
     setGroupBy(default_grouping || 'type')
   }, [default_grouping])
+
+  useEffect(() => {
+    sb.from('folders').select('id, name, type').then(({ data }) => setAllFolders(data || []))
+  }, [])
 
   const filtered = useMemo(
     () => applyFilterSort(cards, sfMap, search, sort, filters),
