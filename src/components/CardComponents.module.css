@@ -1602,6 +1602,11 @@
     gap: 16px;
   }
 
+  .detailSection {
+    max-height: none;
+    overflow-y: visible;
+  }
+
   .detailArtCol {
     flex-direction: row;
     align-items: flex-start;
