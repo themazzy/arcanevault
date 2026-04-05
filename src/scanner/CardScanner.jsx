@@ -84,7 +84,8 @@ let _uidCounter = Date.now()
 function nextUid() { return String(++_uidCounter) }
 
 function getOwnedCardKey(c) {
-  return [c.set_code, c.collector_number, c.foil ? 1 : 0, c.language || 'en', c.condition || 'near_mint'].join('|')
+  const printPart = c.card_print_id ? `print:${c.card_print_id}` : `set:${c.set_code}|${c.collector_number}`
+  return [printPart, c.foil ? 1 : 0, c.language || 'en', c.condition || 'near_mint'].join('|')
 }
 
 async function batchSaveCards({ userId, cards, folderId, folderType }) {
@@ -179,16 +180,22 @@ async function batchSaveCards({ userId, cards, folderId, folderType }) {
   // Binder or deck — upsert owned cards first
   const owned = aggregatedOwned
 
-  const setCodes = [...new Set(owned.map(c => c.set_code))]
-  const { data: existing, error: existErr } = await sb.from('cards')
-    .select('id,set_code,collector_number,foil,language,condition,qty')
+  const setCodes = [...new Set(owned.map(c => c.set_code).filter(Boolean))]
+  const cardPrintIds = [...new Set(owned.map(c => c.card_print_id).filter(Boolean))]
+  const existingFilter = [
+    setCodes.length ? `set_code.in.(${setCodes.join(',')})` : null,
+    cardPrintIds.length ? `card_print_id.in.(${cardPrintIds.join(',')})` : null,
+  ].filter(Boolean).join(',')
+  let existingQuery = sb.from('cards')
+    .select('id,set_code,collector_number,foil,language,condition,qty,card_print_id')
     .eq('user_id', userId)
-    .in('set_code', setCodes)
+  if (existingFilter) existingQuery = existingQuery.or(existingFilter)
+  const { data: existing, error: existErr } = await existingQuery
   if (existErr) throw new Error(existErr.message)
 
-  const existByKey = new Map((existing || []).map(c => [getOwnedCardKey({ ...c, set_code: c.set_code }), c]))
+  const existByKey = new Map((existing || []).map(c => [getOwnedCardKey(c), c]))
   const resolvedRows = owned.map(c => {
-    const key = getOwnedCardKey({ set_code: c.set_code, collector_number: c.collector_number, foil: c.foil, language: c.language, condition: c.condition })
+    const key = getOwnedCardKey(c)
     const prev = existByKey.get(key)
     return prev ? { ...prev, ...c, id: prev.id, qty: (prev.qty || 0) + c.qty } : c
   })
@@ -211,13 +218,14 @@ async function batchSaveCards({ userId, cards, folderId, folderType }) {
   }
 
   // Re-query to get IDs
-  const { data: saved, error: savedErr } = await sb.from('cards')
-    .select('id,set_code,collector_number,foil,language,condition')
+  let savedQuery = sb.from('cards')
+    .select('id,set_code,collector_number,foil,language,condition,card_print_id')
     .eq('user_id', userId)
-    .in('set_code', setCodes)
+  if (existingFilter) savedQuery = savedQuery.or(existingFilter)
+  const { data: saved, error: savedErr } = await savedQuery
   if (savedErr) throw new Error(savedErr.message)
 
-  const savedByKey = new Map((saved || []).map(c => [getOwnedCardKey({ ...c, set_code: c.set_code }), c]))
+  const savedByKey = new Map((saved || []).map(c => [getOwnedCardKey(c), c]))
   const table = folderType === 'deck' ? 'deck_allocations' : 'folder_cards'
   const fk    = folderType === 'deck' ? 'deck_id' : 'folder_id'
 
@@ -226,7 +234,7 @@ async function batchSaveCards({ userId, cards, folderId, folderType }) {
   const existLinkQty = new Map((existLinks || []).map(l => [l.card_id, l.qty || 1]))
 
   const links = owned.map(c => {
-    const key = getOwnedCardKey({ set_code: c.set_code, collector_number: c.collector_number, foil: c.foil, language: c.language, condition: c.condition })
+    const key = getOwnedCardKey(c)
     const sc = savedByKey.get(key)
     if (!sc) return null
     const base = { card_id: sc.id, qty: (existLinkQty.get(sc.id) || 0) + (c.qty ?? 1) }
