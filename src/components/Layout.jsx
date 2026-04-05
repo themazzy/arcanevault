@@ -39,11 +39,20 @@ export default function Layout({ children }) {
     if (!isNative) return
     let listener
     const register = async () => {
-      listener = await CapApp.addListener('backButton', () => {
+      listener = await CapApp.addListener('backButton', async () => {
         if (menuOpen) { setMenuOpen(false); return }
         if (location.pathname !== '/') { navigate('/'); return }
         if (backPressedRef.current) {
-          CapApp.exitApp()
+          backPressedRef.current = false
+          clearTimeout(backTimerRef.current)
+          try {
+            await CapApp.exitApp()
+          } catch {
+            await CapApp.minimizeApp().catch(() => {})
+          }
+          setTimeout(() => {
+            CapApp.minimizeApp().catch(() => {})
+          }, 150)
           return
         }
         backPressedRef.current = true
