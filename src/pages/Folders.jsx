@@ -829,7 +829,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
                 .map(c => [getCardKey(c), c._folder_qty || c.qty || 1])
             ))
           }}
-          onDeselectAll={() => { setSelectedCards(new Set()); setSplitState(new Map()) }}
+          onDeselectAll={clearSelect}
           onDelete={handleBulkDelete}
           onMoveToFolder={handleMoveToFolder}
           folders={moveFolders}

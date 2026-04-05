@@ -305,6 +305,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
   }, [items, sfMap, price_source])
 
   const toggleSelectMode  = () => { setSelectMode(v => !v); setSelectedItems(new Set()); setSplitState(new Map()) }
+  const clearSelect = () => { setSelectedItems(new Set()); setSplitState(new Map()); setSelectMode(false) }
   const enterSelectMode   = useCallback(() => setSelectMode(true), [])
   const onToggleSelect = useCallback((id, totalQty) => {
     setSelectedItems(prev => {
@@ -533,7 +534,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
           selectedQty={[...selectedItems].reduce((sum, id) => sum + (splitState.get(id) ?? 1), 0)}
           total={filtered.length}
           onSelectAll={() => setSelectedItems(new Set(filtered.map(i => i.id)))}
-          onDeselectAll={() => setSelectedItems(new Set())}
+          onDeselectAll={clearSelect}
           onDelete={handleBulkDelete}
           onMoveToFolder={handleMoveToWishlist}
           folders={allFolders}
