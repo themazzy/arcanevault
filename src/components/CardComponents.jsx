@@ -1491,67 +1491,67 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
 
           {activeTab === 'collection' && (
             <div className={`${styles.detailSection} ${styles.tabContentBox}`}>
-              {/* Row 1: Quantity + Condition */}
-              <div className={styles.editRow}>
-                <div className={styles.editField}>
-                  <span className={styles.editLabel}>Quantity</span>
-                  <div className={styles.qtyEditor}>
-                    <button className={styles.qtyBtn} onClick={() => setEditQty(q => Math.max(1, q - 1))}>−</button>
-                    <input className={styles.qtyInput} type="number" min="1" value={editQty} onChange={e => setEditQty(Math.max(1, parseInt(e.target.value) || 1))} />
-                    <button className={styles.qtyBtn} onClick={() => setEditQty(q => q + 1)}>+</button>
+              <div className={styles.editControlsGrid}>
+                <div className={styles.editGroupCard}>
+                  <div className={styles.editRow}>
+                    <div className={styles.editField}>
+                      <span className={styles.editLabel}>Quantity</span>
+                      <div className={styles.qtyEditor}>
+                        <button className={styles.qtyBtn} onClick={() => setEditQty(q => Math.max(1, q - 1))}>−</button>
+                        <input className={styles.qtyInput} type="number" min="1" value={editQty} onChange={e => setEditQty(Math.max(1, parseInt(e.target.value) || 1))} />
+                        <button className={styles.qtyBtn} onClick={() => setEditQty(q => q + 1)}>+</button>
+                      </div>
+                    </div>
+                    <div className={styles.editField}>
+                      <span className={styles.editLabel}>Condition</span>
+                      <Select value={editCondition} onChange={e => setEditCondition(e.target.value)}>
+                        {Object.entries(CONDITION_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                      </Select>
+                    </div>
                   </div>
-                </div>
-                <div className={styles.editField}>
-                  <span className={styles.editLabel}>Condition</span>
-                  <Select value={editCondition} onChange={e => setEditCondition(e.target.value)}>
-                    {Object.entries(CONDITION_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                  </Select>
-                </div>
-              </div>
 
-              {/* Row 2: Foil (conditional) + Language */}
-              <div className={styles.editRow}>
-                {hasFoilVersion && (
+                  <div className={styles.editRow}>
+                    {hasFoilVersion && (
+                      <div className={styles.editField}>
+                        <span className={styles.editLabel}>Foil</span>
+                        <button className={`${styles.foilSwitch}${editFoil ? ' ' + styles.foilSwitchOn : ''}`} onClick={() => setEditFoil(v => !v)}>
+                          <span className={styles.foilSwitchKnob} />
+                        </button>
+                      </div>
+                    )}
+                    <div className={styles.editField}>
+                      <span className={styles.editLabel}>Language</span>
+                      <Select value={editLanguage} onChange={e => setEditLanguage(e.target.value)}>
+                        {Object.entries(LANG_NAMES_FULL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                      </Select>
+                    </div>
+                  </div>
+
                   <div className={styles.editField}>
-                    <span className={styles.editLabel}>Foil</span>
-                    <button className={`${styles.foilSwitch}${editFoil ? ' ' + styles.foilSwitchOn : ''}`} onClick={() => setEditFoil(v => !v)}>
-                      <span className={styles.foilSwitchKnob} />
-                    </button>
+                    <span className={styles.editLabel}>Buy Price (EUR)</span>
+                    {!buyPriceEdit ? (
+                      <div className={styles.buyPriceRow}>
+                        <span className={styles.buyPriceValue}>{editBuyPrice > 0 ? `€${editBuyPrice.toFixed(2)}` : '—'}</span>
+                        <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.ghost}`} onClick={() => { setBuyPriceEdit(true); setBuyPriceInput(editBuyPrice > 0 ? String(editBuyPrice) : '') }}>
+                          {editBuyPrice > 0 ? 'Change' : '+ Set'}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className={styles.inlineEditor}>
+                        <input autoFocus type="number" min="0" step="0.01" value={buyPriceInput} className={styles.buyPriceInput}
+                          onChange={e => setBuyPriceInput(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') saveBuyPrice(); if (e.key === 'Escape') setBuyPriceEdit(false) }}
+                          placeholder="0.00" />
+                        <button className={`${uiStyles.btn} ${uiStyles.sm}`} onClick={saveBuyPrice}>Save</button>
+                        <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.ghost}`} onClick={() => setBuyPriceEdit(false)}>Cancel</button>
+                      </div>
+                    )}
                   </div>
-                )}
-                <div className={styles.editField}>
-                  <span className={styles.editLabel}>Language</span>
-                  <Select value={editLanguage} onChange={e => setEditLanguage(e.target.value)}>
-                    {Object.entries(LANG_NAMES_FULL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                  </Select>
                 </div>
               </div>
 
-              {/* Buy Price */}
-              <div className={styles.editField}>
-                <span className={styles.editLabel}>Buy Price (EUR)</span>
-                {!buyPriceEdit ? (
-                  <div className={styles.buyPriceRow}>
-                    <span className={styles.buyPriceValue}>{editBuyPrice > 0 ? `€${editBuyPrice.toFixed(2)}` : '—'}</span>
-                    <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.ghost}`} onClick={() => { setBuyPriceEdit(true); setBuyPriceInput(editBuyPrice > 0 ? String(editBuyPrice) : '') }}>
-                      {editBuyPrice > 0 ? 'Change' : '+ Set'}
-                    </button>
-                  </div>
-                ) : (
-                  <div className={styles.inlineEditor}>
-                    <input autoFocus type="number" min="0" step="0.01" value={buyPriceInput} className={styles.buyPriceInput}
-                      onChange={e => setBuyPriceInput(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter') saveBuyPrice(); if (e.key === 'Escape') setBuyPriceEdit(false) }}
-                      placeholder="0.00" />
-                    <button className={`${uiStyles.btn} ${uiStyles.sm}`} onClick={saveBuyPrice}>Save</button>
-                    <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.ghost}`} onClick={() => setBuyPriceEdit(false)}>Cancel</button>
-                  </div>
-                )}
-              </div>
-
-              {/* Change Printing */}
-              {fc.prints_search_uri && (
-                <div>
+              <div className={styles.editActionRow}>
+                {fc.prints_search_uri && (
                   <ResponsiveMenu
                     title="Select Printing"
                     align="left"
@@ -1589,18 +1589,16 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
                       </div>
                     )}
                   </ResponsiveMenu>
-                </div>
-              )}
+                )}
 
-              {/* Save */}
-              <div className={styles.editSaveRow}>
-                <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.green}`} onClick={handleSave} disabled={saving || saved}>
-                  {saving ? 'Saving...' : saved ? '✓ Saved' : 'Save Changes'}
-                </button>
-                {saveError && <span className={styles.detailError}>{saveError}</span>}
+                <div className={styles.editSaveRow}>
+                  <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.green}`} onClick={handleSave} disabled={saving || saved}>
+                    {saving ? 'Saving...' : saved ? '✓ Saved' : 'Save Changes'}
+                  </button>
+                  {saveError && <span className={styles.detailError}>{saveError}</span>}
+                </div>
               </div>
 
-              {/* Move to folder */}
               {allFolders.length > 0 && (
                 <div className={styles.detailSubsection}>
                   {currentFolders.length > 0 && (
