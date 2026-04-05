@@ -1547,50 +1547,53 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
                       </div>
                     )}
                   </div>
+
+                  {fc.prints_search_uri && (
+                    <div className={styles.editField}>
+                      <span className={styles.editLabel}>Printing</span>
+                      <ResponsiveMenu
+                        title="Select Printing"
+                        align="left"
+                        panelClassName={styles.printingsMenuPanel}
+                        onOpenChange={open => { if (open) loadPrintings() }}
+                        trigger={({ open, toggle }) => (
+                          <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.ghost} ${styles.changePrintingBtn}${open ? ' ' + styles.changePrintingBtnOpen : ''}`} onClick={toggle}>
+                            Change Printing
+                          </button>
+                        )}
+                      >
+                        {({ close }) => (
+                          <div className={styles.printingImgGrid}>
+                            {loadingPrintings ? (
+                              <div className={styles.printingImgLoading}>Loading printings…</div>
+                            ) : printings?.map((p, i) => (
+                              <button
+                                key={i}
+                                className={`${styles.printingCard}${p.id === card.scryfall_id ? ' ' + styles.printingCardActive : ''}`}
+                                onClick={() => { handleChangePrinting(p); close() }}
+                              >
+                                <div className={styles.printingCardImgWrap}>
+                                  {p.image_uris?.small ? (
+                                    <img className={styles.printingCardImg} src={p.image_uris.small} alt={p.name} loading="lazy" />
+                                  ) : (
+                                    <div className={styles.printingCardImgPlaceholder}>?</div>
+                                  )}
+                                </div>
+                                <div className={styles.printingCardLabel}>
+                                  <span className={styles.printingCardSet}>{p.set_name}</span>
+                                  <span className={styles.printingCardMeta}>{(p.set || '').toUpperCase()} #{p.collector_number}{p.lang && p.lang !== 'en' ? ` · ${p.lang.toUpperCase()}` : ''}</span>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </ResponsiveMenu>
+                    </div>
+                  )}
                 </div>
               </div>
 
               <div className={styles.editActionRow}>
-                {fc.prints_search_uri && (
-                  <ResponsiveMenu
-                    title="Select Printing"
-                    align="left"
-                    panelClassName={styles.printingsMenuPanel}
-                    onOpenChange={open => { if (open) loadPrintings() }}
-                    trigger={({ open, toggle }) => (
-                      <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.ghost} ${styles.changePrintingBtn}${open ? ' ' + styles.changePrintingBtnOpen : ''}`} onClick={toggle}>
-                        Change Printing
-                      </button>
-                    )}
-                  >
-                    {({ close }) => (
-                      <div className={styles.printingImgGrid}>
-                        {loadingPrintings ? (
-                          <div className={styles.printingImgLoading}>Loading printings…</div>
-                        ) : printings?.map((p, i) => (
-                          <button
-                            key={i}
-                            className={`${styles.printingCard}${p.id === card.scryfall_id ? ' ' + styles.printingCardActive : ''}`}
-                            onClick={() => { handleChangePrinting(p); close() }}
-                          >
-                            <div className={styles.printingCardImgWrap}>
-                              {p.image_uris?.small ? (
-                                <img className={styles.printingCardImg} src={p.image_uris.small} alt={p.name} loading="lazy" />
-                              ) : (
-                                <div className={styles.printingCardImgPlaceholder}>?</div>
-                              )}
-                            </div>
-                            <div className={styles.printingCardLabel}>
-                              <span className={styles.printingCardSet}>{p.set_name}</span>
-                              <span className={styles.printingCardMeta}>{(p.set || '').toUpperCase()} #{p.collector_number}{p.lang && p.lang !== 'en' ? ` · ${p.lang.toUpperCase()}` : ''}</span>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </ResponsiveMenu>
-                )}
-
                 <div className={styles.editSaveRow}>
                   <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.green}`} onClick={handleSave} disabled={saving || saved}>
                     {saving ? 'Saving...' : saved ? '✓ Saved' : 'Save Changes'}

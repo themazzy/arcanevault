@@ -1149,8 +1149,8 @@
 
 .detailSection {
   padding-top: 14px;
-  overflow-y: auto;
-  max-height: 420px;
+  overflow: visible;
+  max-height: none;
 }
 
 .oracleBox {
@@ -1637,11 +1637,6 @@
   .detailHero {
     grid-template-columns: 1fr;
     gap: 16px;
-  }
-
-  .detailSection {
-    max-height: none;
-    overflow-y: visible;
   }
 
   .detailArtCol {
