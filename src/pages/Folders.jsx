@@ -880,8 +880,11 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
         <CardDetail
           card={selectedCard}
           sfCard={selectedSf}
+          folders={folder ? [folder] : []}
+          allFolders={allFolders}
           priceSource={price_source}
           currentFolderId={folder.id}
+          currentFolderType={folder.type}
           onSave={handleCardSave}
           onClose={() => setSelected(null)}
         />

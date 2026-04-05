@@ -41,7 +41,7 @@ export default function CollectionPage() {
   const [search, setSearch]           = useState('')
   const [sort, setSort]     = useState(default_sort || 'name')
   const [filters, setFilters] = useState(EMPTY_FILTERS)
-  const [detailCardId, setDetailCardId] = useState(null)
+  const [detailCardKey, setDetailCardKey] = useState(null)
   const [showAdd, setShowAdd] = useState(false)
   const [showExport, setShowExport] = useState(false)
   const [showImportModal, setShowImportModal] = useState(false)
@@ -463,37 +463,68 @@ export default function CollectionPage() {
 
   // ── Bulk delete ──────────────────────────────────────────────────────────────
   const handleBulkDelete = async () => {
-    const toDelete = [], toUpdate = []
-    const seenIds = new Set()
+    const placementRows = []
+    const selectedQtyByCardId = new Map()
     for (const key of selected) {
       const card = displayCards.find(c => (c._displayKey || c.id) === key)
-      if (!card || seenIds.has(card.id)) continue
-      seenIds.add(card.id)
-      const totalQty = card.qty || 1
-      const selQty = splitState.get(card.id) ?? 1
-      const remaining = totalQty - selQty
-      if (remaining > 0) toUpdate.push({ id: card.id, remaining })
-      else toDelete.push(card.id)
+      if (!card) continue
+      const totalQty = card._folder_qty || card.qty || 1
+      const selQty = splitState.get(key) ?? 1
+      placementRows.push({
+        id: card.id,
+        sourceFolder: card._displayFolder || null,
+        remainingPlacementQty: totalQty - selQty,
+      })
+      selectedQtyByCardId.set(card.id, (selectedQtyByCardId.get(card.id) || 0) + selQty)
     }
 
-    if (toDelete.length === cards.length && !toUpdate.length) {
-      await sb.from('cards').delete().eq('user_id', user.id)
-      await deleteAllCards(user.id)
-      setCards([]); setSelected(new Set()); setSplitState(new Map()); setSelectMode(false); return
-    }
+    const cardUpdates = cards.map(card => ({
+      id: card.id,
+      remaining: (card.qty || 1) - (selectedQtyByCardId.get(card.id) || 0),
+    })).filter(row => selectedQtyByCardId.has(row.id))
+
+    const toDelete = cardUpdates.filter(row => row.remaining <= 0)
+    const toUpdate = cardUpdates.filter(row => row.remaining > 0)
 
     const BATCH = 100
+    for (let i = 0; i < placementRows.length; i += BATCH) {
+      const batch = placementRows.slice(i, i + BATCH)
+      for (const row of batch) {
+        if (!row.sourceFolder) continue
+        const sourceTable = row.sourceFolder.type === 'deck' ? 'deck_allocations' : 'folder_cards'
+        const sourceKey = row.sourceFolder.type === 'deck' ? 'deck_id' : 'folder_id'
+        if (row.remainingPlacementQty > 0) {
+          await sb.from(sourceTable).update({ qty: row.remainingPlacementQty }).eq(sourceKey, row.sourceFolder.id).eq('card_id', row.id)
+        } else {
+          await sb.from(sourceTable).delete().eq(sourceKey, row.sourceFolder.id).eq('card_id', row.id)
+        }
+      }
+    }
+    setCardFolderMap(prev => {
+      const next = { ...prev }
+      for (const row of placementRows) {
+        if (!row.sourceFolder) continue
+        const current = [...(next[row.id] || [])]
+        const idx = current.findIndex(folder => folder.id === row.sourceFolder.id)
+        if (idx < 0) continue
+        if (row.remainingPlacementQty > 0) current[idx] = { ...current[idx], qty: row.remainingPlacementQty }
+        else current.splice(idx, 1)
+        next[row.id] = current
+      }
+      return next
+    })
     for (let i = 0; i < toDelete.length; i += BATCH) {
       const batch = toDelete.slice(i, i + BATCH)
-      await sb.from('cards').delete().in('id', batch)
-      for (const id of batch) await deleteCard(id)
+      const cardIds = batch.map(row => row.id)
+      await sb.from('cards').delete().in('id', cardIds)
+      for (const id of cardIds) await deleteCard(id)
     }
     for (const { id, remaining } of toUpdate) {
       await sb.from('cards').update({ qty: remaining }).eq('id', id)
       const card = cards.find(c => c.id === id)
       if (card) await putCards([{ ...card, qty: remaining }])
     }
-    const toDeleteSet = new Set(toDelete)
+    const toDeleteSet = new Set(toDelete.map(row => row.id))
     setCards(prev => prev.map(c => {
       if (toDeleteSet.has(c.id)) return null
       const upd = toUpdate.find(u => u.id === c.id)
@@ -504,13 +535,12 @@ export default function CollectionPage() {
 
   const handleMoveToFolder = async (folder) => {
     const selectedRows = []
-    const seenIds = new Set()
     for (const key of selected) {
       const card = displayCards.find(c => (c._displayKey || c.id) === key)
-      if (!card || seenIds.has(card.id)) continue
-      seenIds.add(card.id)
-      const selQty = splitState.get(card.id) ?? 1
+      if (!card) continue
+      const selQty = splitState.get(key) ?? 1
       selectedRows.push({
+        displayKey: key,
         card_id: card.id,
         qty: selQty,
         sourceFolder: card._displayFolder || null,
@@ -619,16 +649,45 @@ export default function CollectionPage() {
   }
 
   const handleDelete = async (card) => {
-    await sb.from('cards').delete().eq('id', card.id)
-    await deleteCard(card.id)
-    setCards(prev => prev.filter(c => c.id !== card.id))
-    setDetailCardId(null)
+    const selectedQty = card._folder_qty || card.qty || 1
+    const nextOwnedQty = (cards.find(c => c.id === card.id)?.qty || card.qty || 1) - selectedQty
+    if (card._displayFolder) {
+      const sourceTable = card._displayFolder.type === 'deck' ? 'deck_allocations' : 'folder_cards'
+      const sourceKey = card._displayFolder.type === 'deck' ? 'deck_id' : 'folder_id'
+      await sb.from(sourceTable).delete().eq(sourceKey, card._displayFolder.id).eq('card_id', card.id)
+      setCardFolderMap(prev => {
+        const next = { ...prev }
+        next[card.id] = (next[card.id] || []).filter(folder => folder.id !== card._displayFolder.id)
+        return next
+      })
+    }
+    if (nextOwnedQty > 0) {
+      await sb.from('cards').update({ qty: nextOwnedQty }).eq('id', card.id)
+      const updatedCard = { ...(cards.find(c => c.id === card.id) || card), qty: nextOwnedQty }
+      await putCards([updatedCard])
+      setCards(prev => prev.map(c => c.id === card.id ? updatedCard : c))
+    } else {
+      await sb.from('cards').delete().eq('id', card.id)
+      await deleteCard(card.id)
+      setCards(prev => prev.filter(c => c.id !== card.id))
+    }
+    setDetailCardKey(null)
   }
 
   const handleCardSave = useCallback(async (updatedCard) => {
     // Update in-memory state → triggers worker re-filter/re-sort
     setCards(prev => prev.map(c => c.id === updatedCard.id ? { ...c, ...updatedCard } : c))
-    // Persist to IDB
+    if (updatedCard._displayFolder?.id && updatedCard._folder_qty != null) {
+      setCardFolderMap(prev => {
+        const next = { ...prev }
+        next[updatedCard.id] = (next[updatedCard.id] || []).map(folder =>
+          folder.id === updatedCard._displayFolder.id
+            ? { ...folder, qty: updatedCard._folder_qty }
+            : folder
+        )
+        return next
+      })
+    }
     await putCards([updatedCard])
   }, [])
 
@@ -641,13 +700,11 @@ export default function CollectionPage() {
       const next = new Set(prev)
       if (next.has(id)) {
         next.delete(id)
-        const card = displayCardsRef.current.find(c => (c._displayKey || c.id) === id)
-        if (card) setSplitState(s => { const n = new Map(s); n.delete(card.id); return n })
+        setSplitState(s => { const n = new Map(s); n.delete(id); return n })
       } else {
         next.add(id)
         if (totalQty > 1) {
-          const card = displayCardsRef.current.find(c => (c._displayKey || c.id) === id)
-          if (card) setSplitState(s => new Map(s).set(card.id, 1))
+          setSplitState(s => new Map(s).set(id, 1))
         }
       }
       return next
@@ -661,10 +718,7 @@ export default function CollectionPage() {
       if (next <= 0) {
         setSelected(prevSelected => {
           const updated = new Set(prevSelected)
-          for (const key of updated) {
-            const card = displayCardsRef.current.find(c => (c._displayKey || c.id) === key)
-            if (card?.id === id) updated.delete(key)
-          }
+          updated.delete(id)
           return updated
         })
         const updated = new Map(prev)
@@ -679,8 +733,7 @@ export default function CollectionPage() {
     [...selected].reduce((sum, key) => {
       const card = displayCardsRef.current.find(c => (c._displayKey || c.id) === key)
       if (!card) return sum
-      const totalQty = card.qty || 1
-      return sum + (splitState.get(card.id) ?? 1)
+      return sum + (splitState.get(key) ?? 1)
     }, 0)
   , [selected, splitState])
 
@@ -706,9 +759,6 @@ export default function CollectionPage() {
     const seen = new Set(cards.map(c => c.language).filter(Boolean))
     return [...seen].sort()
   }, [cards])
-
-  const selectedCard = detailCardId ? cards.find(c => c.id === detailCardId) : null
-  const selectedSf   = selectedCard ? sfMap[getScryfallKey(selectedCard)] : null
 
   // Expand cards that are in multiple folders into separate display entries
   const displayCards = useMemo(() => {
@@ -746,6 +796,9 @@ export default function CollectionPage() {
     displayCardsRef.current = result
     return result
   }, [filtered, cardFolderMap])
+
+  const selectedCard = detailCardKey ? displayCards.find(c => (c._displayKey || c.id) === detailCardKey) : null
+  const selectedSf   = selectedCard ? sfMap[getScryfallKey(selectedCard)] : null
 
   if (loading && !cards.length) return <EmptyState>Loading your collection…</EmptyState>
 
@@ -814,8 +867,8 @@ export default function CollectionPage() {
               setSelected(new Set(displayCards.map(c => c._displayKey || c.id)))
               setSplitState(new Map(
                 displayCards
-                  .filter(c => (c.qty || 1) > 1)
-                  .map(c => [c.id, c.qty || 1])
+                  .filter(c => (c._folder_qty || c.qty || 1) > 1)
+                  .map(c => [c._displayKey || c.id, c._folder_qty || c.qty || 1])
               ))
             }}
             onDeselectAll={clearSelect}
@@ -836,7 +889,7 @@ export default function CollectionPage() {
         <div className={styles.gridViewport}>
           <VirtualCardGrid
             cards={displayCards} sfMap={sfMap} loading={enriching}
-            onSelect={c => setDetailCardId(c.id)}
+            onSelect={c => setDetailCardKey(c._displayKey || c.id)}
             selectMode={selectMode} selected={selected} onToggleSelect={toggleSelect}
             onEnterSelectMode={() => { setSelectMode(true) }}
             splitState={splitState} onAdjustQty={onAdjustQty}
@@ -852,10 +905,12 @@ export default function CollectionPage() {
       {selectedCard && (
         <CardDetail
           card={selectedCard} sfCard={selectedSf}
-          folders={cardFolderMap[selectedCard.id]}
+          folders={selectedCard._displayFolder ? [selectedCard._displayFolder] : (cardFolderMap[selectedCard.id] || [])}
           allFolders={folders}
           priceSource={price_source}
-          onClose={() => setDetailCardId(null)}
+          currentFolderId={selectedCard._displayFolder?.id ?? null}
+          currentFolderType={selectedCard._displayFolder?.type ?? null}
+          onClose={() => setDetailCardKey(null)}
           onDelete={() => handleDelete(selectedCard)}
           onSave={handleCardSave}
         />

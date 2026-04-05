@@ -1092,7 +1092,10 @@ export default function DeckBrowser({ folder, onBack }) {
       {selectedCard && (
         <CardDetail card={selectedCard} sfCard={selectedSf}
           priceSource={price_source}
+          folders={[folder]}
+          allFolders={allFolders}
           currentFolderId={folder.id}
+          currentFolderType={folder.type}
           onSave={handleCardSave}
           onClose={() => setDetailCardId(null)} />
       )}

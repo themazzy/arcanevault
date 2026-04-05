@@ -55,14 +55,14 @@ function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, tota
     ? ((priceMeta.value - card.purchase_price) / card.purchase_price) * 100
     : null
 
-  const selQty = splitState?.get(card.id) ?? 1
+  const displayKey = card._displayKey || card.id
+  const selQty = splitState?.get(displayKey) ?? 1
 
   // If card has a _displayFolder it's an expanded entry; show only that folder.
   // Otherwise show all folders from cardFolderMap.
   const folders = card._displayFolder
     ? [card._displayFolder]
     : (cardFolders?.[card.id] || [])
-  const displayKey = card._displayKey || card.id
 
   const handleClick = () => {
     if (selectMode) {
@@ -102,9 +102,9 @@ function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, tota
         {displayQty > 1 && <div className={styles.qty}>x{displayQty}</div>}
         {selectMode && isSelected && totalQty > 1 && (
           <div className={styles.qtyOverlay}>
-            <button className={styles.qtyBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(card.id, +1, totalQty) }}>+</button>
+            <button className={styles.qtyBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(displayKey, +1, totalQty) }}>+</button>
             <div className={styles.qtyDisplay}>{selQty} of {totalQty}</div>
-            <button className={styles.qtyBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(card.id, -1, totalQty) }}>-</button>
+            <button className={styles.qtyBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(displayKey, -1, totalQty) }}>-</button>
           </div>
         )}
       </div>
