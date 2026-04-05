@@ -1,3 +1,35 @@
+/* ── Support Grid ───────────────────────────────────────────────────────── */
+.supportGrid {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.supportBadge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--s2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+.supportBadge:hover {
+  border-color: var(--gold);
+  background: rgba(201,168,76,0.08);
+  transform: translateY(-2px);
+}
+.supportIcon { font-size: 1.2rem; }
+.supportText {
+  font-size: 0.85rem;
+  color: var(--text);
+  font-weight: 500;
+}
+.supportBadge:hover .supportText { color: var(--gold); }
+
 /* ── Layout ──────────────────────────────────────────────────────────────── */
 .home { max-width: 1100px; margin: 0 auto; }
 

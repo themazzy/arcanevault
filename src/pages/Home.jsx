@@ -1396,7 +1396,7 @@ export default function HomePage() {
   return (
     <div className={styles.home}>
       <div className={styles.hero}>
-        <div className={styles.heroTitle}>ARCANE<span>VAULT</span></div>
+        <div className={styles.heroTitle}>ARCANE<span className={styles.heroAccent}>VAULT</span></div>
         <div className={styles.heroSub}>Your Magic: The Gathering collection manager</div>
       </div>
 

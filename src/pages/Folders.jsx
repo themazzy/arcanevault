@@ -338,7 +338,11 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
   const [renameVal, setRenameVal] = useState('')
   const renameRef = useRef(null)
 
-  const longPress = useLongPress(() => { if (!selectMode) onEnterSelectMode?.() }, { delay: 500 })
+  const longPress = useLongPress(() => {
+    if (selectMode) return
+    onEnterSelectMode?.()
+    onToggleSelect?.()
+  }, { delay: 500 })
   const { fired: lpFired, ...longPressHandlers } = longPress
 
   useEffect(() => { if (renaming) renameRef.current?.focus() }, [renaming])
@@ -360,7 +364,6 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
     if (renaming) return
     if (lpFired.current) {
       lpFired.current = false
-      onToggleSelect?.()
       return
     }
     if (selectMode) { onToggleSelect(); return }
