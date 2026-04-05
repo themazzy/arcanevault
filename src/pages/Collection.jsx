@@ -635,6 +635,7 @@ export default function CollectionPage() {
   const displayCardsRef = useRef([])
 
   const toggleSelectMode = () => { setSelectMode(v => !v); setSelected(new Set()); setSplitState(new Map()) }
+  const clearSelect = () => { setSelected(new Set()); setSplitState(new Map()); setSelectMode(false) }
   const toggleSelect = useCallback((id, totalQty) => {
     setSelected(prev => {
       const next = new Set(prev)
@@ -817,7 +818,7 @@ export default function CollectionPage() {
                   .map(c => [c.id, c.qty || 1])
               ))
             }}
-            onDeselectAll={() => { setSelected(new Set()); setSplitState(new Map()) }}
+            onDeselectAll={clearSelect}
             onDelete={handleBulkDelete}
             onMoveToFolder={handleMoveToFolder}
             folders={folders}
