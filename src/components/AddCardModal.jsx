@@ -729,11 +729,13 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
                         value={selectedFolder ? (folders.find(f => f.id === selectedFolder)?.name || folderSearch) : folderSearch}
                         onChange={e => { setFolderSearch(e.target.value); setSelectedFolder(null) }}
                         placeholder={`Search ${destTab === 'list' ? 'wishlists' : `${destTab}s`}…`}
+                        onMouseDown={e => e.stopPropagation()}
                       />
                     </div>
                     <div className={styles.folderDropdownList}>
                       <button className={styles.folderDropCreate}
-                        onMouseDown={() => { setCreatingFolder(true); close() }}>
+                        onMouseDown={e => { e.preventDefault(); e.stopPropagation() }}
+                        onClick={e => { e.preventDefault(); e.stopPropagation(); setCreatingFolder(true); close() }}>
                         + Create new {destTab === 'list' ? 'wishlist' : destTab}
                       </button>
                       <div className={styles.folderDropDivider} />
@@ -741,7 +743,8 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
                         ? filteredFoldersByType.map(f => (
                             <button key={f.id}
                               className={`${styles.folderDropItem} ${selectedFolder === f.id ? styles.folderDropItemActive : ''}`}
-                              onMouseDown={() => { setSelectedFolder(f.id); setFolderSearch(f.name); close() }}>
+                              onMouseDown={e => { e.preventDefault(); e.stopPropagation() }}
+                              onClick={e => { e.preventDefault(); e.stopPropagation(); setSelectedFolder(f.id); setFolderSearch(f.name); close() }}>
                               {f.name}
                             </button>
                           ))
