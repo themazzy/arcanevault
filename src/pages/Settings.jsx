@@ -39,8 +39,13 @@ function Select({ value, onChange, options }) {
 function Toggle({ value, onChange }) {
   return (
     <button
+      type="button"
       className={`${styles.toggle}${value ? ' ' + styles.toggleOn : ''}`}
-      onClick={() => onChange(!value)}
+      aria-pressed={value}
+      onClick={e => {
+        e.stopPropagation()
+        onChange(!value)
+      }}
     >
       <span className={styles.toggleKnob} />
     </button>
@@ -222,6 +227,11 @@ export default function SettingsPage() {
   const lastSyncAge = settings.lastSyncedAt
     ? formatAge(Date.now() - new Date(settings.lastSyncedAt).getTime())
     : null
+  const syncStatusLabel = settings.syncState === 'syncing' ? 'Syncing'
+    : settings.syncState === 'saved' ? 'Synced'
+    : settings.syncState === 'error' ? 'Sync Error'
+    : settings.syncState === 'pending' ? 'Pending'
+    : 'Idle'
 
   const set = async (key, value) => {
     setSaving(true)
@@ -405,20 +415,18 @@ export default function SettingsPage() {
           </UISelect>
           <div className={styles.priceSourceRadios}>
             {PRICE_SOURCES.map(src => (
-              <label key={src.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+              <label key={src.id} className={`${styles.priceSourceOption} ${settings.price_source === src.id ? styles.priceSourceOptionActive : ''}`}>
                 <input
                   type="radio"
                   name="price_source"
                   value={src.id}
                   checked={settings.price_source === src.id}
                   onChange={() => set('price_source', src.id)}
-                  style={{ marginTop: 3, accentColor: 'var(--gold)' }}
+                  className={styles.priceSourceRadio}
                 />
-                <div>
-                  <div style={{ fontSize: '0.88rem', color: settings.price_source === src.id ? 'var(--gold)' : 'var(--text)' }}>
-                    {src.label}
-                  </div>
-                  <div style={{ fontSize: '0.74rem', color: 'var(--text-faint)', marginTop: 1 }}>{src.description}</div>
+                <div className={styles.priceSourceBody}>
+                  <div className={styles.priceSourceLabel}>{src.label}</div>
+                  <div className={styles.priceSourceDesc}>{src.description}</div>
                 </div>
               </label>
             ))}
@@ -478,12 +486,7 @@ export default function SettingsPage() {
 
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Profile</div>
-        <div className={styles.accountCard}>
-          <div className={styles.accountEyebrow}>Public identity</div>
-          <div className={styles.accountEmail}>{settings.nickname?.trim() || 'No nickname set'}</div>
-          <div className={styles.accountSub}>This name is used to prefill your identity in tournament and game lobby flows.</div>
-        </div>
-        <SettingRow label="Preferred Nickname" description="Auto-fills as your name when creating a game lobby">
+        <SettingRow label="Preferred Nickname" description="Used as your public in-app identity and auto-fills tournament and game lobby flows.">
           <input
             className={styles.input}
             type="text"
@@ -511,30 +514,13 @@ export default function SettingsPage() {
 
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Settings Sync</div>
-        <div className={styles.accountCard}>
-          <div className={styles.accountEyebrow}>Sync state</div>
-          <div className={styles.accountEmail}>
-            {settings.syncState === 'syncing' ? 'Syncing now'
-              : settings.syncState === 'saved' ? 'Synced'
-              : settings.syncState === 'error' ? 'Sync error'
-              : settings.syncState === 'pending' ? 'Pending changes'
-              : 'Idle'}
-          </div>
-          <div className={styles.accountSub}>
-            {lastSyncAge ? `Last successful settings sync ${lastSyncAge}.` : 'No successful settings sync yet in this session.'}
-          </div>
-        </div>
         <SettingRow
-          label="Settings Sync Status"
+          label="Sync Status"
           description={lastSyncAge ? `Last successful settings sync ${lastSyncAge}.` : 'No successful settings sync yet in this session.'}
         >
           <div className={styles.syncStatusWrap}>
             <span className={`${styles.syncStatus} ${styles[`syncStatus_${settings.syncState}`] || ''}`}>
-              {settings.syncState === 'syncing' ? 'Syncing...'
-                : settings.syncState === 'saved' ? 'Synced'
-                : settings.syncState === 'error' ? 'Sync Error'
-                : settings.syncState === 'pending' ? 'Pending'
-                : 'Idle'}
+              {syncStatusLabel}
             </span>
             <Button size="sm" onClick={handleManualSync} disabled={settings.syncState === 'syncing' || !user}>
               {settings.syncState === 'syncing' ? 'Syncing...' : 'Sync Settings Now'}
@@ -560,9 +546,6 @@ export default function SettingsPage() {
           <div className={styles.accountEmail}>{maskEmailAddress(user?.email, true)}</div>
           <div className={styles.accountSub}>This email is currently bound to your Arcane Vault sign-in.</div>
         </div>
-        <SettingRow label="Email">
-          <span className={styles.email}>{maskEmailAddress(user?.email, true)}</span>
-        </SettingRow>
         <SettingRow
           label="Change Email"
           description="Send a confirmation email to switch your Arcane Vault login to a new address."
@@ -596,6 +579,49 @@ export default function SettingsPage() {
             Sign Out All
           </Button>
         </SettingRow>
+      </div>
+
+      <div className={styles.section}>
+        <div className={styles.sectionTitle}>Support</div>
+        <div className={styles.supportCard}>
+          <div className={styles.supportEyebrow}>Keep Arcane Vault growing</div>
+          <div className={styles.supportTitle}>Support development</div>
+          <div className={styles.supportText}>
+            If the app is useful to you, this section can point people toward direct support options. Placeholder links are wired in for now and can be replaced later.
+          </div>
+          <div className={styles.supportGrid}>
+            <button
+              type="button"
+              className={styles.supportBadge}
+            >
+              <span className={styles.supportBadgeIcon}>☕</span>
+              <span className={styles.supportBadgeBody}>
+                <span className={styles.supportBadgeLabel}>Buy Me a Coffee</span>
+                <span className={styles.supportBadgeMeta}>Placeholder link</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              className={styles.supportBadge}
+            >
+              <span className={styles.supportBadgeIcon}>◎</span>
+              <span className={styles.supportBadgeBody}>
+                <span className={styles.supportBadgeLabel}>PayPal</span>
+                <span className={styles.supportBadgeMeta}>Placeholder link</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              className={styles.supportBadge}
+            >
+              <span className={styles.supportBadgeIcon}>P</span>
+              <span className={styles.supportBadgeBody}>
+                <span className={styles.supportBadgeLabel}>Patreon</span>
+                <span className={styles.supportBadgeMeta}>Placeholder link</span>
+              </span>
+            </button>
+          </div>
+        </div>
       </div>
 
       {saving && <div className={styles.savingIndicator}>Saving...</div>}
