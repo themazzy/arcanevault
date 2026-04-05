@@ -1300,6 +1300,12 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
               {fc.artist && <span>. {fc.artist}</span>}
             </div>
 
+            {fc.rarity && (
+              <div className={styles.detailStatRow}>
+                <span className={styles.detailStatBadge} style={{ textTransform: 'capitalize' }}>{fc.rarity}</span>
+              </div>
+            )}
+
             <div className={styles.detailPriceRow}>
               <div className={styles.detailPriceMain}>
                 {price != null ? fmtOwned(price) : '-'}
