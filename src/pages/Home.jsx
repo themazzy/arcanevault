@@ -92,7 +92,7 @@ async function loadCollectionData(userId) {
     safeSfMap = await loadCardMapWithSharedPrices(allCards)
   }
 
-  return { folders: allFolders, cardRows, sfMap: safeSfMap, recentCards }
+  return { folders: allFolders, cards: allCards, cardRows, sfMap: safeSfMap, recentCards }
 }
 
 // ── Scryfall sets cache (used by SetCompletionSection) ────────────────────────
@@ -930,28 +930,71 @@ function SetCompletionSection({ data, loading }) {
 function CollectionSnapshot({ data, loading, priceSource }) {
   const stats = useMemo(() => {
     if (!data) return null
-    const { folders, cardRows, sfMap } = data
+    const { folders, cards, sfMap } = data
     const binderCount = folders.filter(f => f.type === 'binder').length
     const deckCount   = folders.filter(f => f.type === 'deck').length
-    const uniqueIds   = new Set(cardRows.map(r => r.card_id))
-    let totalQty = 0, totalValue = 0
-    for (const row of cardRows) {
-      totalQty += row.qty || 1
-      const card = row.cards
-      if (!card) continue
+    const uniquePrints = new Set()
+    const sets = new Set()
+    let totalQty = 0
+    let totalValue = 0
+    let foilQty = 0
+
+    for (const card of cards || []) {
+      const qty = card.qty || 1
+      totalQty += qty
+      if (card.foil) foilQty += qty
+      if (card.set_code && card.collector_number) uniquePrints.add(`${card.set_code}-${card.collector_number}`)
+      if (card.set_code) sets.add(card.set_code)
       const sf = sfMap[`${card.set_code}-${card.collector_number}`]
       const p  = getPrice(sf, card.foil, { price_source: priceSource })
-      if (p != null) totalValue += p * (row.qty || 1)
+      if (p != null) totalValue += p * qty
     }
-    return { binderCount, deckCount, uniqueCount: uniqueIds.size, totalQty, totalValue }
+
+    return {
+      binderCount,
+      deckCount,
+      totalQty,
+      totalValue,
+      uniqueEntries: cards?.length || 0,
+      uniquePrintCount: uniquePrints.size,
+      uniqueSetCount: sets.size,
+      foilQty,
+      foilPct: totalQty ? Math.round((foilQty / totalQty) * 100) : 0,
+      avgCopiesPerEntry: cards?.length ? totalQty / cards.length : 0,
+    }
   }, [data, priceSource])
 
   const tiles = stats ? [
-    { label: 'Total Cards',       val: stats.totalQty.toLocaleString(),    color: 'var(--text)' },
-    { label: 'Unique Cards',      val: stats.uniqueCount.toLocaleString(), color: 'var(--text)' },
-    { label: 'Collection Value',  val: formatPrice(stats.totalValue, priceSource), color: 'var(--green)' },
-    { label: 'Binders',           val: stats.binderCount.toString(),        color: 'var(--text)' },
-    { label: 'Decks',             val: stats.deckCount.toString(),          color: 'var(--text)' },
+    {
+      label: 'Total Copies',
+      val: stats.totalQty.toLocaleString(),
+      meta: `${stats.uniqueEntries.toLocaleString()} entries`,
+      color: 'var(--text)',
+    },
+    {
+      label: 'Unique Prints',
+      val: stats.uniquePrintCount.toLocaleString(),
+      meta: `${stats.uniqueSetCount.toLocaleString()} sets`,
+      color: 'var(--text)',
+    },
+    {
+      label: 'Collection Value',
+      val: formatPrice(stats.totalValue, priceSource),
+      meta: '',
+      color: 'var(--green)',
+    },
+    {
+      label: 'Binders',
+      val: stats.binderCount.toString(),
+      meta: 'Collection folders',
+      color: 'var(--text)',
+    },
+    {
+      label: 'Decks',
+      val: stats.deckCount.toString(),
+      meta: 'Built decks',
+      color: 'var(--text)',
+    },
   ] : []
 
   return (
@@ -966,6 +1009,7 @@ function CollectionSnapshot({ data, loading, priceSource }) {
               <div key={t.label} className={styles.snapshotTile}>
                 <div className={styles.snapshotVal} style={{ color: t.color }}>{t.val}</div>
                 <div className={styles.snapshotLabel}>{t.label}</div>
+                {t.meta ? <div className={styles.snapshotMeta}>{t.meta}</div> : null}
               </div>
             ))
         }

@@ -475,5 +475,325 @@
   /* Prevent pie/bar chart labels from overflowing the card box */
   .chartBox { overflow: hidden; }
   /* Tighten the bar chart axis labels */
-  .chartBox text { font-size: 9px !important; }
+.chartBox text { font-size: 9px !important; }
+}
+
+.showcase {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+  gap: 18px;
+  align-items: stretch;
+}
+.showcaseHero {
+  display: grid;
+  grid-template-columns: minmax(170px, 240px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+  width: 100%;
+  background:
+    radial-gradient(circle at top right, rgba(201,168,76,0.16), transparent 36%),
+    linear-gradient(135deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  padding: 18px;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+}
+.showcaseHero:hover {
+  border-color: rgba(201,168,76,0.28);
+  transform: translateY(-1px);
+  box-shadow: 0 12px 30px rgba(0,0,0,0.24);
+}
+.showcaseArtFrame {
+  position: relative;
+  min-width: 0;
+  perspective: 1600px;
+}
+.showcaseArtStage {
+  position: relative;
+  transform-style: preserve-3d;
+  transform-origin: 50% 50%;
+  animation: showcaseTilt 14s ease-in-out infinite;
+}
+.showcaseArt,
+.showcaseArtFallback {
+  width: 100%;
+  aspect-ratio: 63 / 88;
+  border-radius: 12px;
+  display: block;
+}
+.showcaseArt {
+  object-fit: cover;
+  box-shadow: 0 16px 36px rgba(0,0,0,0.42);
+  animation: showcaseFade 320ms ease;
+  backface-visibility: hidden;
+}
+.showcaseFoil {
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  pointer-events: none;
+  overflow: hidden;
+  mix-blend-mode: screen;
+}
+.showcaseFoil::before,
+.showcaseFoil::after {
+  content: '';
+  position: absolute;
+  inset: -10%;
+  border-radius: inherit;
+}
+.showcaseFoil::before {
+  background:
+    linear-gradient(
+      112deg,
+      rgba(255, 50, 110, 0.12) 0%,
+      rgba(255, 190, 70, 0.15) 16%,
+      rgba(120, 255, 120, 0.12) 32%,
+      rgba(80, 220, 255, 0.14) 48%,
+      rgba(170, 120, 255, 0.14) 66%,
+      rgba(255, 120, 215, 0.12) 84%,
+      rgba(255,255,255,0.06) 100%
+    ),
+    repeating-linear-gradient(
+      118deg,
+      rgba(255,255,255,0) 0px,
+      rgba(255,255,255,0) 26px,
+      rgba(255,255,255,0.10) 36px,
+      rgba(255,255,255,0) 54px
+    );
+  opacity: 0.72;
+  animation: showcaseFoilShift 14s ease-in-out infinite;
+}
+.showcaseFoil::after {
+  background:
+    linear-gradient(
+      90deg,
+      rgba(255,255,255,0) 0%,
+      rgba(255,255,255,0.05) 32%,
+      rgba(255,255,255,0.34) 48%,
+      rgba(255,255,255,0.05) 64%,
+      rgba(255,255,255,0) 100%
+    );
+  transform: translateX(-120%) skewX(-18deg);
+  opacity: 0.75;
+  animation: showcaseFoilGlimmer 14s ease-in-out infinite;
+}
+.showcaseArtFallback {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: var(--text-faint);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.showcaseRank {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: rgba(14,12,18,0.84);
+  border: 1px solid rgba(201,168,76,0.28);
+  color: var(--gold, #c9a84c);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+}
+.showcaseBody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.showcaseEyebrow,
+.showcaseMetricLabel,
+.showcaseChipRank {
+  font-family: var(--font-display, 'Cinzel', serif);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.showcaseEyebrow {
+  color: var(--text-faint);
+  font-size: 0.62rem;
+}
+.showcaseNameRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.showcaseName {
+  color: var(--gold, #c9a84c);
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 1.35rem;
+  line-height: 1.1;
+}
+.showcaseSet {
+  color: var(--text-dim, #9a8870);
+  font-size: 0.82rem;
+}
+.showcaseMetrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 6px;
+}
+.showcaseMetric {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.showcaseMetricLabel {
+  color: var(--text-faint);
+  font-size: 0.58rem;
+}
+.showcaseMetric strong {
+  color: var(--text);
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 0.92rem;
+}
+.showcaseRail {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  max-height: 460px;
+  overflow: auto;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(201,168,76,0.18) transparent;
+}
+.showcaseChip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 8px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.18s, background 0.18s, transform 0.18s;
+}
+.showcaseChip:hover {
+  border-color: rgba(201,168,76,0.22);
+  background: rgba(201,168,76,0.04);
+  transform: translateX(2px);
+}
+.showcaseChipActive {
+  border-color: rgba(201,168,76,0.32);
+  background: rgba(201,168,76,0.07);
+  box-shadow: inset 0 0 0 1px rgba(201,168,76,0.08);
+}
+.showcaseChipThumb {
+  flex-shrink: 0;
+}
+.showcaseChipMeta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.showcaseChipRank {
+  color: var(--text-faint);
+  font-size: 0.58rem;
+}
+.showcaseChipName {
+  color: var(--gold, #c9a84c);
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 0.78rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.showcaseChipValue {
+  color: var(--green, #5dba70);
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 768px) {
+  .showcase { grid-template-columns: 1fr; }
+  .showcaseHero { grid-template-columns: 140px minmax(0, 1fr); }
+}
+
+@media (max-width: 480px) {
+  .showcaseHero { grid-template-columns: 1fr; }
+  .showcaseArtFrame { max-width: 230px; }
+  .showcaseMetrics { grid-template-columns: 1fr; }
+  .showcaseRail { max-height: 360px; }
+}
+
+@keyframes showcaseFade {
+  from { opacity: 0; transform: translateY(6px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes showcaseTilt {
+  0% { transform: rotateY(-8deg) rotateX(1.5deg); }
+  25% { transform: rotateY(0deg) rotateX(0deg); }
+  50% { transform: rotateY(8deg) rotateX(-1.5deg); }
+  75% { transform: rotateY(0deg) rotateX(0deg); }
+  100% { transform: rotateY(-8deg) rotateX(1.5deg); }
+}
+
+@keyframes showcaseFoilShift {
+  0% { transform: translateX(-2%) translateY(-1%) scale(1.02); filter: hue-rotate(0deg); }
+  50% { transform: translateX(2%) translateY(1%) scale(1.04); filter: hue-rotate(24deg); }
+  100% { transform: translateX(-2%) translateY(-1%) scale(1.02); filter: hue-rotate(0deg); }
+}
+
+@keyframes showcaseFoilGlimmer {
+  0%, 18% { transform: translateX(-130%) skewX(-18deg); opacity: 0; }
+  28% { transform: translateX(-18%) skewX(-18deg); opacity: 0.82; }
+  38% { transform: translateX(112%) skewX(-18deg); opacity: 0; }
+  52%, 68% { transform: translateX(-130%) skewX(-18deg); opacity: 0; }
+  78% { transform: translateX(-12%) skewX(-18deg); opacity: 0.7; }
+  88% { transform: translateX(112%) skewX(-18deg); opacity: 0; }
+  100% { transform: translateX(112%) skewX(-18deg); opacity: 0; }
+}
+
+.distList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.distRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.distHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+}
+.distLabel {
+  color: var(--text);
+  font-size: 0.84rem;
+}
+.distValue {
+  color: var(--text-faint);
+  font-size: 0.74rem;
+  white-space: nowrap;
+}
+.distTrack {
+  height: 7px;
+  border-radius: 999px;
+  background: var(--s2);
+  overflow: hidden;
+}
+.distFill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--gold), var(--purple, #8a6fc4));
 }

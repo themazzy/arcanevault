@@ -177,6 +177,12 @@
   letter-spacing: 0.07em;
   margin-top: 5px;
 }
+.snapshotMeta {
+  margin-top: 6px;
+  font-size: 0.74rem;
+  color: var(--text-dim);
+  line-height: 1.35;
+}
 .snapshotSkeleton {
   height: 70px;
   border-radius: 5px;
