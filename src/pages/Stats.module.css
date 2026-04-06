@@ -126,11 +126,9 @@
       color-mix(in srgb, var(--gold) 88%, white 12%) 0%,
       color-mix(in srgb, var(--purple, var(--gold)) 86%, white 14%) 100%);
   opacity: 0.96;
-  -webkit-mask-image: var(--set-icon);
   -webkit-mask-repeat: no-repeat;
   -webkit-mask-position: center;
   -webkit-mask-size: contain;
-  mask-image: var(--set-icon);
   mask-repeat: no-repeat;
   mask-position: center;
   mask-size: contain;
