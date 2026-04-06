@@ -269,21 +269,26 @@ async function batchSaveCards({ userId, cards, folderId, folderType }) {
 const normalizeName = (value = '') =>
   value.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim()
 
-function shouldAcceptMatch({ best, gap, stableCount, sameNameCluster = false }) {
+function shouldAcceptMatch({ best, gap, stableCount, sameNameCluster = false, strictMode = false }) {
   if (!best) return { accepted: false, reason: 'no best candidate' }
-  if (stableCount >= STABILITY_REQUIRED && best.distance <= MATCH_THRESHOLD && gap >= MATCH_MIN_GAP)
+  // In strict mode (auto-scan) require both stable votes AND a strong single-frame
+  // distance to avoid false positives from incidental objects.
+  const threshold   = strictMode ? MATCH_STRONG_SINGLE  : MATCH_THRESHOLD
+  const relaxed     = strictMode ? MATCH_THRESHOLD       : MATCH_STRONG_THRESHOLD
+  const minGap      = strictMode ? MATCH_MIN_GAP + 4     : MATCH_MIN_GAP
+  if (stableCount >= STABILITY_REQUIRED && best.distance <= threshold && gap >= minGap)
     return { accepted: true, reason: 'stable threshold match' }
-  if (stableCount >= STABILITY_REQUIRED && sameNameCluster && best.distance <= MATCH_THRESHOLD)
+  if (stableCount >= STABILITY_REQUIRED && sameNameCluster && best.distance <= threshold)
     return { accepted: true, reason: 'stable same-name printing cluster' }
-  if (stableCount >= STABILITY_REQUIRED && best.distance <= MATCH_STRONG_THRESHOLD && gap >= MATCH_MIN_GAP)
+  if (!strictMode && stableCount >= STABILITY_REQUIRED && best.distance <= relaxed && gap >= minGap)
     return { accepted: true, reason: 'stable relaxed match' }
-  if (stableCount >= 1 && sameNameCluster && best.distance <= MATCH_STRONG_THRESHOLD)
+  if (!strictMode && stableCount >= 1 && sameNameCluster && best.distance <= relaxed)
     return { accepted: true, reason: 'same-name printing cluster' }
-  if (stableCount >= 1 && best.distance <= MATCH_STRONG_SINGLE && gap >= MATCH_MIN_GAP)
+  if (!strictMode && stableCount >= 1 && best.distance <= MATCH_STRONG_SINGLE && gap >= MATCH_MIN_GAP)
     return { accepted: true, reason: 'single strong frame' }
   if (stableCount < STABILITY_REQUIRED) return { accepted: false, reason: 'insufficient stable votes' }
-  if (best.distance > MATCH_STRONG_THRESHOLD) return { accepted: false, reason: `distance too high (${best.distance})` }
-  if (gap < MATCH_MIN_GAP) return { accepted: false, reason: `gap too small (${gap})` }
+  if (best.distance > relaxed) return { accepted: false, reason: `distance too high (${best.distance})` }
+  if (gap < minGap) return { accepted: false, reason: `gap too small (${gap})` }
   return { accepted: false, reason: 'best candidate not confident enough' }
 }
 
@@ -322,6 +327,7 @@ export default function CardScanner({ onMatch, onClose }) {
   const videoRef    = useRef(null)
   const canvasRef   = useRef(null)
   const mountedRef  = useRef(true)
+  const autoScanRef = useRef(false)
   const manualSearchRequestRef = useRef(0)
   const setIconFetchesRef = useRef(new Set())
 
@@ -399,6 +405,7 @@ export default function CardScanner({ onMatch, onClose }) {
   useEffect(() => { savePending(pendingCards) }, [pendingCards])
   useEffect(() => { saveSetIconCache(setIcons) }, [setIcons])
   useEffect(() => {
+    autoScanRef.current = autoScan
     try { localStorage.setItem('arcanevault_scanner_autoscan', autoScan ? '1' : '0') } catch {}
   }, [autoScan])
   useEffect(() => {
@@ -672,7 +679,7 @@ export default function CardScanner({ onMatch, onClose }) {
 
   // ── Basket operations ──────────────────────────────────────────────────────
 
-  const addToPending = useCallback((match, { foil = false } = {}) => {
+  const addToPending = useCallback((match, { foil = false, expandBasket = true } = {}) => {
     const entry = {
       uid:      nextUid(),
       id:       match.id,
@@ -695,7 +702,7 @@ export default function CardScanner({ onMatch, onClose }) {
       }
       return [entry, ...prev]
     })
-    setBasketExpanded(true)
+    if (expandBasket) setBasketExpanded(true)
   }, [])
 
   const removePending = useCallback((uid) => {
@@ -1062,11 +1069,15 @@ export default function CardScanner({ onMatch, onClose }) {
       }
 
       const stableVote = getStableVote(votes)
+      const isAutoScan = autoScanRef.current
       const acceptance = shouldAcceptMatch({
         best: stableVote?.best ?? bestObserved,
         gap: bestObservedGap ?? 0,
         stableCount: stableVote?.count ?? 0,
         sameNameCluster: bestObservedSameNameCluster,
+        // Auto-scan requires a tighter match to avoid false positives from
+        // incidental objects (card slingers, sleeves, etc.)
+        strictMode: isAutoScan,
       })
       const match = acceptance.accepted ? (stableVote?.best ?? bestObserved) : null
 
@@ -1096,7 +1107,7 @@ export default function CardScanner({ onMatch, onClose }) {
       }
 
       setScanResult('found')
-      addToPending(match, { foil: preferFoil })
+      addToPending(match, { foil: preferFoil, expandBasket: !isAutoScan })
       try { await Haptics.impact({ style: ImpactStyle.Medium }) } catch {}
       onMatch?.(match)
     } catch (e) {
