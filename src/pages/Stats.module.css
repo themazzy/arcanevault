@@ -121,8 +121,11 @@
   height: 16px;
   display: inline-block;
   flex-shrink: 0;
-  background: currentColor;
-  opacity: 0.82;
+  background:
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--gold) 88%, white 12%) 0%,
+      color-mix(in srgb, var(--purple, var(--gold)) 86%, white 14%) 100%);
+  opacity: 0.96;
   -webkit-mask-image: var(--set-icon);
   -webkit-mask-repeat: no-repeat;
   -webkit-mask-position: center;
@@ -131,6 +134,14 @@
   mask-repeat: no-repeat;
   mask-position: center;
   mask-size: contain;
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--gold) 22%, transparent));
+}
+.setRowIconFallback {
+  width: 16px;
+  height: 16px;
+  display: block;
+  flex-shrink: 0;
+  opacity: 0.88;
 }
 
 .setRowCount {

@@ -10,6 +10,7 @@ import {
   BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts'
+import setIconManifest from '../data/setIconManifest.json'
 import styles from './Stats.module.css'
 
 // ── Colour palettes ───────────────────────────────────────────────────────────
@@ -48,6 +49,7 @@ const CONDITION_LABELS = {
 
 const SETS_CACHE_KEY = 'av_scryfall_sets'
 const SETS_CACHE_TTL = 24 * 60 * 60 * 1000
+const LOCAL_SET_ICONS = new Set((setIconManifest?.icons || []).map(code => String(code).toLowerCase()))
 
 async function fetchScryfallSetsMap() {
   try {
@@ -83,7 +85,36 @@ function SLabel({ children }) {
   return <div className={styles.sectionLabel}>{children}</div>
 }
 function getSetIconUrl(code) {
+  return code ? `/set-icons/${String(code).toLowerCase()}.svg` : ''
+}
+function getRemoteSetIconUrl(code) {
   return code ? `https://svgs.scryfall.io/sets/${String(code).toLowerCase()}.svg` : ''
+}
+
+function SetIcon({ code }) {
+  const localUrl = getSetIconUrl(code)
+  const remoteUrl = getRemoteSetIconUrl(code)
+  const hasLocalIcon = !!(code && LOCAL_SET_ICONS.has(String(code).toLowerCase()))
+
+  if (hasLocalIcon) {
+    return (
+      <span
+        className={styles.setRowIcon}
+        style={{ '--set-icon': `url("${localUrl}")` }}
+        aria-hidden="true"
+      />
+    )
+  }
+
+  return (
+    <img
+      src={remoteUrl}
+      alt=""
+      className={styles.setRowIconFallback}
+      loading="lazy"
+      aria-hidden="true"
+    />
+  )
 }
 
 function SetRow({ row }) {
@@ -92,11 +123,7 @@ function SetRow({ row }) {
     <div className={styles.setRow}>
       <div className={styles.setRowMeta}>
         <span className={styles.setRowName}>
-          <span
-            className={styles.setRowIcon}
-            style={{ '--set-icon': `url("${getSetIconUrl(row.code)}")` }}
-            aria-hidden="true"
-          />
+          <SetIcon code={row.code} />
           <span>{row.name}</span>
         </span>
         <span className={styles.setRowCount}>
