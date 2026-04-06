@@ -138,24 +138,42 @@ function applyCLAHE(u8, width, height, tileGridX = 4, tileGridY = 4, clipLimit =
 }
 
 // ── 2D DCT (Discrete Cosine Transform) ─────────────────────────────────────
+//
+// Precomputed tables for N=32 so Math.cos is never called at runtime.
+// COS_TABLE[x * 32 + u] = cos((2x+1)*u*PI/64)
+// NORM[u] = (2/32) * (u===0 ? 1/sqrt(2) : 1) / 2
+
+const _N = 32
+const COS_TABLE = new Float64Array(_N * _N)
+const NORM = new Float64Array(_N)
+;(function buildTables() {
+  for (let x = 0; x < _N; x++)
+    for (let u = 0; u < _N; u++)
+      COS_TABLE[x * _N + u] = Math.cos((2 * x + 1) * u * Math.PI / (2 * _N))
+  for (let u = 0; u < _N; u++)
+    NORM[u] = (2 / _N) * (u === 0 ? 1 / Math.sqrt(2) : 1) / 2
+})()
 
 function dct2d(matrix, N) {
   const out = new Float64Array(N * N)
+  // Row-wise DCT
   for (let y = 0; y < N; y++) {
+    const rowOff = y * N
     for (let u = 0; u < N; u++) {
       let sum = 0
       for (let x = 0; x < N; x++)
-        sum += matrix[y * N + x] * Math.cos((2 * x + 1) * u * Math.PI / (2 * N))
-      out[y * N + u] = (2 / N) * (u === 0 ? 1 / Math.sqrt(2) : 1) * sum / 2
+        sum += matrix[rowOff + x] * COS_TABLE[x * N + u]
+      out[rowOff + u] = NORM[u] * sum
     }
   }
+  // Column-wise DCT
   const tmp = out.slice()
   for (let x = 0; x < N; x++) {
     for (let v = 0; v < N; v++) {
       let sum = 0
       for (let y = 0; y < N; y++)
-        sum += tmp[y * N + x] * Math.cos((2 * y + 1) * v * Math.PI / (2 * N))
-      out[v * N + x] = (2 / N) * (v === 0 ? 1 / Math.sqrt(2) : 1) * sum / 2
+        sum += tmp[y * N + x] * COS_TABLE[y * N + v]
+      out[v * N + x] = NORM[v] * sum
     }
   }
   return out
@@ -190,6 +208,33 @@ export function computeHashFromGray(grayU8) {
   for (let i = 1; i < 256; i++) sum += coeffs[i]
   const mean = sum / 255
 
+  const hash = new Uint32Array(8)
+  for (let i = 0; i < 256; i++) {
+    if (coeffs[i] > mean) hash[i >>> 5] |= 1 << (i & 31)
+  }
+  return hash
+}
+
+/**
+ * Variant of computeHashFromGray with aggressive glare suppression (percentileCap 0.92).
+ * Used as a fallback when the standard hash scores poorly — helps foil cards under
+ * uneven lighting where specular hotspots dominate more than 2% of the art pixels.
+ * Does NOT change stored DB hashes — only used client-side for re-hashing on miss.
+ */
+export function computeHashFromGrayGlare(grayU8) {
+  if (grayU8.length !== 1024) throw new Error(`Expected 1024 gray pixels, got ${grayU8.length}`)
+  const capped = percentileCap(grayU8, 0.92)
+  const equalized = applyCLAHE(capped, 32, 32)
+  const pixels = new Float64Array(1024)
+  for (let i = 0; i < 1024; i++) pixels[i] = equalized[i]
+  const dct = dct2d(pixels, 32)
+  const coeffs = new Float64Array(256)
+  for (let y = 0; y < 16; y++)
+    for (let x = 0; x < 16; x++)
+      coeffs[y * 16 + x] = dct[y * 32 + x]
+  let sum = 0
+  for (let i = 1; i < 256; i++) sum += coeffs[i]
+  const mean = sum / 255
   const hash = new Uint32Array(8)
   for (let i = 0; i < 256; i++) {
     if (coeffs[i] > mean) hash[i >>> 5] |= 1 << (i & 31)

@@ -50,7 +50,7 @@ const CONDITION_LABELS = {
 const SETS_CACHE_KEY = 'av_scryfall_sets'
 const SETS_CACHE_TTL = 24 * 60 * 60 * 1000
 const LOCAL_SET_ICONS = Object.fromEntries(
-  Object.entries(setIconManifest?.icons || {}).map(([code, relPath]) => [String(code).toLowerCase(), `/${String(relPath).replace(/^\/+/, '')}`])
+  Object.entries(setIconManifest?.icons || {}).map(([code, relPath]) => [String(code).toLowerCase(), `${import.meta.env.BASE_URL}${String(relPath).replace(/^\/+/, '')}`])
 )
 
 async function fetchScryfallSetsMap() {
