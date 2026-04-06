@@ -324,7 +324,6 @@ export default function CardScanner({ onMatch, onClose }) {
   const mountedRef  = useRef(true)
   const manualSearchRequestRef = useRef(0)
   const setIconFetchesRef = useRef(new Set())
-  const settingsPanelRef = useRef(null)
 
   // ── Scanner state ──────────────────────────────────────────────────────────
   const [cvReady, setCvReady]     = useState(false)
@@ -380,6 +379,13 @@ export default function CardScanner({ onMatch, onClose }) {
   const [autoScan, setAutoScan] = useState(() => {
     try { return localStorage.getItem('arcanevault_scanner_autoscan') === '1' } catch { return false }
   })
+  const [preferFoil, setPreferFoil] = useState(() => {
+    try { return localStorage.getItem('arcanevault_scanner_prefer_foil') === '1' } catch { return false }
+  })
+  const [lockSet, setLockSet] = useState(() => {
+    try { return localStorage.getItem('arcanevault_scanner_lock_set') === '1' } catch { return false }
+  })
+  const [lockedSetCode, setLockedSetCode] = useState(null)
 
   const isReady = cvReady && dbReady
   const availableFlashModes = flashModes.includes('torch')
@@ -396,15 +402,12 @@ export default function CardScanner({ onMatch, onClose }) {
     try { localStorage.setItem('arcanevault_scanner_autoscan', autoScan ? '1' : '0') } catch {}
   }, [autoScan])
   useEffect(() => {
-    if (!settingsOpen) return
-    const handler = (e) => {
-      if (settingsPanelRef.current && !settingsPanelRef.current.contains(e.target)) {
-        setSettingsOpen(false)
-      }
-    }
-    document.addEventListener('pointerdown', handler)
-    return () => document.removeEventListener('pointerdown', handler)
-  }, [settingsOpen])
+    try { localStorage.setItem('arcanevault_scanner_prefer_foil', preferFoil ? '1' : '0') } catch {}
+  }, [preferFoil])
+  useEffect(() => {
+    try { localStorage.setItem('arcanevault_scanner_lock_set', lockSet ? '1' : '0') } catch {}
+    if (!lockSet) setLockedSetCode(null)
+  }, [lockSet])
   useEffect(() => {
     if (!saveNotice) return undefined
     const timer = window.setTimeout(() => setSaveNotice(null), 2200)
@@ -450,18 +453,6 @@ export default function CardScanner({ onMatch, onClose }) {
     })()
     return () => { mountedRef.current = false }
   }, [])
-
-  // ── Auto-scan loop ────────────────────────────────────────────────────────
-  // Re-runs whenever scanning goes idle. Schedules the next handleScan() call
-  // after a cooldown: longer after a match so the user can see the result.
-  // Pauses automatically when any overlay is open.
-  useEffect(() => {
-    if (!autoScan || !isReady || scanning) return
-    if (addFlowOpen || basketExpanded || manualSearchOpen || settingsOpen) return
-    const cooldown = scanResult === 'found' ? 1800 : 600
-    const timer = window.setTimeout(() => { handleScan() }, cooldown)
-    return () => window.clearTimeout(timer)
-  }, [autoScan, isReady, scanning, addFlowOpen, basketExpanded, manualSearchOpen, settingsOpen, handleScan, scanResult])
 
   // ── Camera start/stop ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -681,7 +672,7 @@ export default function CardScanner({ onMatch, onClose }) {
 
   // ── Basket operations ──────────────────────────────────────────────────────
 
-  const addToPending = useCallback((match) => {
+  const addToPending = useCallback((match, { foil = false } = {}) => {
     const entry = {
       uid:      nextUid(),
       id:       match.id,
@@ -689,7 +680,7 @@ export default function CardScanner({ onMatch, onClose }) {
       setCode:  match.setCode,
       collNum:  match.collNum,
       imageUri: match.imageUri,
-      foil:     false,
+      foil,
       qty:      1,
       language: 'en',
     }
@@ -1092,8 +1083,20 @@ export default function CardScanner({ onMatch, onClose }) {
 
       if (!match) { setScanResult('notfound'); return }
 
+      // Lock-set filtering: reject matches from a different set than the locked one.
+      // When lock mode is on but no set is locked yet, the first match locks it in.
+      if (lockSet) {
+        if (lockedSetCode && match.setCode !== lockedSetCode) {
+          setScanResult('notfound')
+          if (DEBUG && mountedRef.current)
+            setDebugInfo(d => ({ ...(d || {}), decision: `locked to ${lockedSetCode}, got ${match.setCode}` }))
+          return
+        }
+        if (!lockedSetCode) setLockedSetCode(match.setCode)
+      }
+
       setScanResult('found')
-      addToPending(match)
+      addToPending(match, { foil: preferFoil })
       try { await Haptics.impact({ style: ImpactStyle.Medium }) } catch {}
       onMatch?.(match)
     } catch (e) {
@@ -1102,7 +1105,20 @@ export default function CardScanner({ onMatch, onClose }) {
     } finally {
       if (mountedRef.current) setScanning(false)
     }
-  }, [isReady, scanning, scanSingleFrame, addToPending, onMatch])
+  }, [isReady, scanning, scanSingleFrame, addToPending, onMatch, lockSet, lockedSetCode, preferFoil])
+
+  // ── Auto-scan loop ────────────────────────────────────────────────────────
+  // Re-runs whenever scanning goes idle. Schedules the next handleScan() call
+  // after a cooldown: longer after a match so the user can see the result.
+  // Pauses automatically when any overlay is open.
+  // Must be defined after handleScan (useCallback const — TDZ applies).
+  useEffect(() => {
+    if (!autoScan || !isReady || scanning) return
+    if (addFlowOpen || basketExpanded || manualSearchOpen || settingsOpen) return
+    const cooldown = scanResult === 'found' ? 1800 : 600
+    const timer = window.setTimeout(() => { handleScan() }, cooldown)
+    return () => window.clearTimeout(timer)
+  }, [autoScan, isReady, scanning, addFlowOpen, basketExpanded, manualSearchOpen, settingsOpen, handleScan, scanResult])
 
   // ── Derived ────────────────────────────────────────────────────────────────
 
@@ -1260,27 +1276,6 @@ export default function CardScanner({ onMatch, onClose }) {
           </div>
         </div>
 
-        {/* Settings panel */}
-        {settingsOpen && (
-          <div className={styles.settingsPanel} ref={settingsPanelRef}>
-            <div className={styles.settingsPanelHeader}>Scanner Settings</div>
-            <div className={styles.settingsRow}>
-              <div className={styles.settingsRowLabel}>
-                <span className={styles.settingsRowTitle}>Auto-scan</span>
-                <span className={styles.settingsRowDesc}>Scan continuously without pressing the button</span>
-              </div>
-              <button
-                role="switch"
-                aria-checked={autoScan}
-                className={`${styles.toggle} ${autoScan ? styles.toggleOn : ''}`}
-                onClick={() => setAutoScan(v => !v)}
-              >
-                <span className={styles.toggleThumb} />
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* Targeting reticle */}
         <div className={`${styles.targetFrame} ${scanResult === 'found' ? styles.targetLit : ''} ${scanning ? styles.targetPaused : ''}`}>
           <span className={`${styles.corner} ${styles.tl}`} />
@@ -1290,6 +1285,19 @@ export default function CardScanner({ onMatch, onClose }) {
           {preparing && !errorMsg && <div className={styles.preparingSpinner}>+</div>}
           {scanning && <div className={styles.pausedLabel}>Scanning...</div>}
           {isReady && !scanning && !preparing && <div className={styles.scanLine} />}
+          {lockSet && lockedSetCode && (
+            <div className={styles.lockedSetBadge}>
+              <span className={styles.lockedSetIcon}>⬡</span>
+              {lockedSetCode.toUpperCase()}
+              <button className={styles.lockedSetClear} onClick={() => setLockedSetCode(null)} title="Clear locked set">✕</button>
+            </div>
+          )}
+          {lockSet && !lockedSetCode && (
+            <div className={styles.lockedSetBadge} style={{ opacity: 0.45 }}>
+              <span className={styles.lockedSetIcon}>⬡</span>
+              Scan to lock set
+            </div>
+          )}
         </div>
 
         {/* Debug strip */}
@@ -1727,6 +1735,60 @@ export default function CardScanner({ onMatch, onClose }) {
           >
             {addFlowSaving ? 'Saving…' : `Save to ${addFlowFolders.find(f => f.id === addFlowSelectedFolder)?.name ?? '…'}`}
           </button>
+        </div>
+      )}
+
+      {/* Scanner settings overlay */}
+      {settingsOpen && (
+        <div className={styles.overlayPanel}>
+          <div className={styles.overlayPanelHeader}>
+            <span className={styles.overlayPanelTitle}>Scanner Settings</span>
+            <button className={styles.closeBtn} onClick={() => setSettingsOpen(false)}>✕</button>
+          </div>
+
+          <div className={styles.settingsRow}>
+            <div className={styles.settingsRowLabel}>
+              <span className={styles.settingsRowTitle}>Auto-scan</span>
+              <span className={styles.settingsRowDesc}>Scan continuously without pressing the button</span>
+            </div>
+            <button role="switch" aria-checked={autoScan}
+              className={`${styles.toggle} ${autoScan ? styles.toggleOn : ''}`}
+              onClick={() => setAutoScan(v => !v)}>
+              <span className={styles.toggleThumb} />
+            </button>
+          </div>
+
+          <div className={styles.settingsRow}>
+            <div className={styles.settingsRowLabel}>
+              <span className={styles.settingsRowTitle}>Prefer foils</span>
+              <span className={styles.settingsRowDesc}>Scanned cards are pre-selected as foil when available</span>
+            </div>
+            <button role="switch" aria-checked={preferFoil}
+              className={`${styles.toggle} ${preferFoil ? styles.toggleOn : ''}`}
+              onClick={() => setPreferFoil(v => !v)}>
+              <span className={styles.toggleThumb} />
+            </button>
+          </div>
+
+          <div className={styles.settingsRow}>
+            <div className={styles.settingsRowLabel}>
+              <span className={styles.settingsRowTitle}>Lock set</span>
+              <span className={styles.settingsRowDesc}>
+                First scan locks a set — only cards from that set are accepted.
+                {lockSet && lockedSetCode && (
+                  <> Locked to <strong style={{ color: 'var(--gold)' }}>{lockedSetCode.toUpperCase()}</strong>.{' '}
+                    <button className={styles.settingsInlineBtn} onClick={() => setLockedSetCode(null)}>Clear</button>
+                  </>
+                )}
+                {lockSet && !lockedSetCode && <> Waiting for first scan to lock.</>}
+              </span>
+            </div>
+            <button role="switch" aria-checked={lockSet}
+              className={`${styles.toggle} ${lockSet ? styles.toggleOn : ''}`}
+              onClick={() => setLockSet(v => !v)}>
+              <span className={styles.toggleThumb} />
+            </button>
+          </div>
         </div>
       )}
     </div>
