@@ -82,13 +82,23 @@ function StatCard({ label, value, sub }) {
 function SLabel({ children }) {
   return <div className={styles.sectionLabel}>{children}</div>
 }
+function getSetIconUrl(code) {
+  return code ? `https://svgs.scryfall.io/sets/${String(code).toLowerCase()}.svg` : ''
+}
 
 function SetRow({ row }) {
   const pct = row.pct ?? 0
   return (
     <div className={styles.setRow}>
       <div className={styles.setRowMeta}>
-        <span className={styles.setRowName}>{row.name}</span>
+        <span className={styles.setRowName}>
+          <span
+            className={styles.setRowIcon}
+            style={{ '--set-icon': `url("${getSetIconUrl(row.code)}")` }}
+            aria-hidden="true"
+          />
+          <span>{row.name}</span>
+        </span>
         <span className={styles.setRowCount}>
           {row.owned}{row.total ? `/${row.total}` : ''}{row.pct != null ? ` · ${row.pct}%` : ''}
         </span>
@@ -275,7 +285,6 @@ function TopValuableShowcase({ cards, fmt, onOpen }) {
           ) : (
             <div className={styles.showcaseArtFallback}>No image</div>
           )}
-          <div className={styles.showcaseRank}>#{activeIndex + 1}</div>
         </div>
 
         <div className={styles.showcaseBody}>

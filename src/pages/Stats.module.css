@@ -107,11 +107,30 @@
 }
 
 .setRowName {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   color: var(--text);
   font-size: 0.84rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.setRowIcon {
+  width: 16px;
+  height: 16px;
+  display: inline-block;
+  flex-shrink: 0;
+  background: currentColor;
+  opacity: 0.82;
+  -webkit-mask-image: var(--set-icon);
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  -webkit-mask-size: contain;
+  mask-image: var(--set-icon);
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: contain;
 }
 
 .setRowCount {
@@ -509,13 +528,16 @@
 .showcaseArtFrame {
   position: relative;
   min-width: 0;
-  perspective: 1600px;
+  perspective: 2200px;
 }
 .showcaseArtStage {
   position: relative;
+  display: block;
+  width: 100%;
   transform-style: preserve-3d;
   transform-origin: 50% 50%;
-  animation: showcaseTilt 14s ease-in-out infinite;
+  will-change: transform, filter;
+  animation: showcaseTilt 9s ease-in-out infinite;
 }
 .showcaseArt,
 .showcaseArtFallback {
@@ -529,6 +551,7 @@
   box-shadow: 0 16px 36px rgba(0,0,0,0.42);
   animation: showcaseFade 320ms ease;
   backface-visibility: hidden;
+  transform: translateZ(18px);
 }
 .showcaseFoil {
   position: absolute;
@@ -537,6 +560,8 @@
   pointer-events: none;
   overflow: hidden;
   mix-blend-mode: screen;
+  transform: translateZ(24px);
+  filter: saturate(1.25) brightness(1.08);
 }
 .showcaseFoil::before,
 .showcaseFoil::after {
@@ -549,37 +574,39 @@
   background:
     linear-gradient(
       112deg,
-      rgba(255, 50, 110, 0.12) 0%,
-      rgba(255, 190, 70, 0.15) 16%,
-      rgba(120, 255, 120, 0.12) 32%,
-      rgba(80, 220, 255, 0.14) 48%,
-      rgba(170, 120, 255, 0.14) 66%,
-      rgba(255, 120, 215, 0.12) 84%,
-      rgba(255,255,255,0.06) 100%
+      rgba(255, 50, 110, 0.20) 0%,
+      rgba(255, 190, 70, 0.24) 16%,
+      rgba(120, 255, 120, 0.18) 32%,
+      rgba(80, 220, 255, 0.22) 48%,
+      rgba(170, 120, 255, 0.22) 66%,
+      rgba(255, 120, 215, 0.18) 84%,
+      rgba(255,255,255,0.10) 100%
     ),
+    radial-gradient(circle at 22% 18%, rgba(255,255,255,0.30), rgba(255,255,255,0) 22%),
+    radial-gradient(circle at 74% 72%, rgba(120,220,255,0.20), rgba(120,220,255,0) 28%),
     repeating-linear-gradient(
       118deg,
       rgba(255,255,255,0) 0px,
       rgba(255,255,255,0) 26px,
-      rgba(255,255,255,0.10) 36px,
+      rgba(255,255,255,0.16) 36px,
       rgba(255,255,255,0) 54px
     );
-  opacity: 0.72;
-  animation: showcaseFoilShift 14s ease-in-out infinite;
+  opacity: 0.95;
+  animation: showcaseFoilShift 9s ease-in-out infinite;
 }
 .showcaseFoil::after {
   background:
     linear-gradient(
       90deg,
       rgba(255,255,255,0) 0%,
-      rgba(255,255,255,0.05) 32%,
-      rgba(255,255,255,0.34) 48%,
-      rgba(255,255,255,0.05) 64%,
+      rgba(255,255,255,0.10) 32%,
+      rgba(255,255,255,0.55) 48%,
+      rgba(255,255,255,0.10) 64%,
       rgba(255,255,255,0) 100%
     );
   transform: translateX(-120%) skewX(-18deg);
-  opacity: 0.75;
-  animation: showcaseFoilGlimmer 14s ease-in-out infinite;
+  opacity: 0.95;
+  animation: showcaseFoilGlimmer 9s ease-in-out infinite;
 }
 .showcaseArtFallback {
   background: rgba(255,255,255,0.04);
@@ -588,19 +615,6 @@
   display: flex;
   align-items: center;
   justify-content: center;
-}
-.showcaseRank {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  background: rgba(14,12,18,0.84);
-  border: 1px solid rgba(201,168,76,0.28);
-  color: var(--gold, #c9a84c);
-  border-radius: 999px;
-  padding: 4px 10px;
-  font-family: var(--font-display, 'Cinzel', serif);
-  font-size: 0.72rem;
-  letter-spacing: 0.08em;
 }
 .showcaseBody {
   display: flex;
@@ -738,27 +752,27 @@
 }
 
 @keyframes showcaseTilt {
-  0% { transform: rotateY(-8deg) rotateX(1.5deg); }
-  25% { transform: rotateY(0deg) rotateX(0deg); }
-  50% { transform: rotateY(8deg) rotateX(-1.5deg); }
-  75% { transform: rotateY(0deg) rotateX(0deg); }
-  100% { transform: rotateY(-8deg) rotateX(1.5deg); }
+  0% { transform: rotateY(-18deg) rotateX(2.5deg) translateX(-8px) scale(0.985); }
+  20% { transform: rotateY(-6deg) rotateX(1deg) translateX(-2px) scale(1); }
+  50% { transform: rotateY(18deg) rotateX(-2.5deg) translateX(8px) scale(0.985); }
+  70% { transform: rotateY(6deg) rotateX(-1deg) translateX(2px) scale(1); }
+  100% { transform: rotateY(-18deg) rotateX(2.5deg) translateX(-8px) scale(0.985); }
 }
 
 @keyframes showcaseFoilShift {
-  0% { transform: translateX(-2%) translateY(-1%) scale(1.02); filter: hue-rotate(0deg); }
-  50% { transform: translateX(2%) translateY(1%) scale(1.04); filter: hue-rotate(24deg); }
-  100% { transform: translateX(-2%) translateY(-1%) scale(1.02); filter: hue-rotate(0deg); }
+  0% { transform: translateX(-8%) translateY(-2%) scale(1.06); filter: hue-rotate(0deg); }
+  50% { transform: translateX(8%) translateY(2%) scale(1.1); filter: hue-rotate(38deg); }
+  100% { transform: translateX(-8%) translateY(-2%) scale(1.06); filter: hue-rotate(0deg); }
 }
 
 @keyframes showcaseFoilGlimmer {
-  0%, 18% { transform: translateX(-130%) skewX(-18deg); opacity: 0; }
-  28% { transform: translateX(-18%) skewX(-18deg); opacity: 0.82; }
-  38% { transform: translateX(112%) skewX(-18deg); opacity: 0; }
-  52%, 68% { transform: translateX(-130%) skewX(-18deg); opacity: 0; }
-  78% { transform: translateX(-12%) skewX(-18deg); opacity: 0.7; }
-  88% { transform: translateX(112%) skewX(-18deg); opacity: 0; }
-  100% { transform: translateX(112%) skewX(-18deg); opacity: 0; }
+  0%, 12% { transform: translateX(-145%) skewX(-20deg); opacity: 0; }
+  22% { transform: translateX(-24%) skewX(-20deg); opacity: 1; }
+  32% { transform: translateX(118%) skewX(-20deg); opacity: 0; }
+  46%, 58% { transform: translateX(-145%) skewX(-20deg); opacity: 0; }
+  68% { transform: translateX(-18%) skewX(-20deg); opacity: 0.92; }
+  78% { transform: translateX(118%) skewX(-20deg); opacity: 0; }
+  100% { transform: translateX(118%) skewX(-20deg); opacity: 0; }
 }
 
 .distList {
