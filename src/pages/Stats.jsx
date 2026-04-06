@@ -21,6 +21,30 @@ const FORMAT_COLORS = {
   Commander: '#c9a84c', Modern: '#5a9ab0', Pioneer: '#8ab87a',
   Standard: '#c46030', Legacy: '#8a6fc4', Vintage: '#6a6a7a',
 }
+const LANGUAGE_LABELS = {
+  en: 'English',
+  de: 'German',
+  fr: 'French',
+  it: 'Italian',
+  es: 'Spanish',
+  pt: 'Portuguese',
+  ja: 'Japanese',
+  ko: 'Korean',
+  ru: 'Russian',
+  cs: 'Traditional Chinese',
+  ct: 'Simplified Chinese',
+  he: 'Hebrew',
+  ar: 'Arabic',
+  la: 'Latin',
+  ph: 'Phyrexian',
+}
+const CONDITION_LABELS = {
+  near_mint: 'Near Mint',
+  lightly_played: 'Lightly Played',
+  moderately_played: 'Moderately Played',
+  heavily_played: 'Heavily Played',
+  damaged: 'Damaged',
+}
 
 const SETS_CACHE_KEY = 'av_scryfall_sets'
 const SETS_CACHE_TTL = 24 * 60 * 60 * 1000
@@ -200,6 +224,140 @@ function MoverRow({ card, tone, onOpen, fmt }) {
   )
 }
 
+function getShowcaseImage(sf) {
+  return sf?.image_uris?.normal
+    || sf?.image_uris?.large
+    || sf?.card_faces?.[0]?.image_uris?.normal
+    || sf?.card_faces?.[0]?.image_uris?.large
+    || null
+}
+
+function TopValuableShowcase({ cards, fmt, onOpen }) {
+  const [activeIndex, setActiveIndex] = useState(0)
+
+  useEffect(() => {
+    if (!cards.length) return
+    setActiveIndex(prev => Math.min(prev, cards.length - 1))
+  }, [cards])
+
+  useEffect(() => {
+    if (cards.length < 2) return undefined
+    const timer = window.setInterval(() => {
+      setActiveIndex(prev => (prev + 1) % cards.length)
+    }, 4200)
+    return () => window.clearInterval(timer)
+  }, [cards])
+
+  if (!cards.length) return null
+
+  const active = cards[activeIndex]
+  const image = getShowcaseImage(active._sf)
+  const total = active._price != null ? active._price * active.qty : 0
+
+  return (
+    <div className={styles.showcase}>
+      <button
+        type="button"
+        className={styles.showcaseHero}
+        onClick={() => onOpen(active.id)}
+      >
+        <div className={styles.showcaseArtFrame}>
+          {image ? (
+            <div className={styles.showcaseArtStage}>
+              <img
+                key={`${active.id}-${activeIndex}`}
+                src={image}
+                alt={active._sf?.name || active.name || 'Card'}
+                className={styles.showcaseArt}
+              />
+              {active.foil && <div className={styles.showcaseFoil} aria-hidden="true" />}
+            </div>
+          ) : (
+            <div className={styles.showcaseArtFallback}>No image</div>
+          )}
+          <div className={styles.showcaseRank}>#{activeIndex + 1}</div>
+        </div>
+
+        <div className={styles.showcaseBody}>
+          <div className={styles.showcaseEyebrow}>Featured Value Card</div>
+          <div className={styles.showcaseNameRow}>
+            <div className={styles.showcaseName}>
+              {active._sf?.name || `${active.set_code?.toUpperCase()}-${active.collector_number}`}
+            </div>
+            {active.foil && <span className={styles.foilTag}>FOIL</span>}
+          </div>
+          <div className={styles.showcaseSet}>
+            {active._sf?.set_name || (active.set_code || '').toUpperCase()} · #{active.collector_number}
+          </div>
+          <div className={styles.showcaseMetrics}>
+            <div className={styles.showcaseMetric}>
+              <span className={styles.showcaseMetricLabel}>Price</span>
+              <strong>{fmt(active._price)}</strong>
+            </div>
+            <div className={styles.showcaseMetric}>
+              <span className={styles.showcaseMetricLabel}>Qty</span>
+              <strong>{active.qty}</strong>
+            </div>
+            <div className={styles.showcaseMetric}>
+              <span className={styles.showcaseMetricLabel}>Total</span>
+              <strong>{fmt(total)}</strong>
+            </div>
+          </div>
+        </div>
+      </button>
+
+      <div className={styles.showcaseRail}>
+        {cards.map((card, index) => {
+          const selected = index === activeIndex
+          return (
+            <button
+              key={card.id}
+              type="button"
+              className={`${styles.showcaseChip} ${selected ? styles.showcaseChipActive : ''}`}
+              onClick={() => setActiveIndex(index)}
+            >
+              <div className={styles.showcaseChipThumb}>
+                <CardThumb sf={card._sf} size={34} />
+              </div>
+              <div className={styles.showcaseChipMeta}>
+                <span className={styles.showcaseChipRank}>#{index + 1}</span>
+                <span className={styles.showcaseChipName}>
+                  {card._sf?.name || `${card.set_code?.toUpperCase()}-${card.collector_number}`}
+                </span>
+                <span className={styles.showcaseChipValue}>{fmt(card._price)}</span>
+              </div>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function DistributionBars({ items, total, labels = {} }) {
+  const max = items.length ? Math.max(...items.map(item => item.qty)) : 1
+
+  return (
+    <div className={styles.distList}>
+      {items.map(item => {
+        const label = labels[item.key] || String(item.key || 'unknown').toUpperCase()
+        const pct = total ? Math.round((item.qty / total) * 100) : 0
+        return (
+          <div key={item.key} className={styles.distRow}>
+            <div className={styles.distHead}>
+              <span className={styles.distLabel}>{label}</span>
+              <span className={styles.distValue}>{item.qty.toLocaleString()} · {pct}%</span>
+            </div>
+            <div className={styles.distTrack}>
+              <div className={styles.distFill} style={{ width: `${(item.qty / max) * 100}%` }} />
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 const CustomTooltip = ({ active, payload, label, fmt }) => {
   if (!active || !payload?.length) return null
   return (
@@ -275,7 +433,7 @@ export default function StatsPage() {
     let totalValue = 0, totalCost = 0, totalQty = 0
     let foilCount  = 0, foilValue = 0
     let dayChange  = 0
-    const byRarity = {}, bySet = {}, byType = {}
+    const byRarity = {}, bySet = {}, byType = {}, byLanguage = {}, byCondition = {}
     const priceSourceMeta = getPriceSource(price_source)
 
     // Value tiers
@@ -307,6 +465,8 @@ export default function StatsPage() {
       totalQty   += c.qty
       if (c.foil) { foilCount += c.qty; foilValue += val }
       if (price != null && prevPrice != null) dayChange += (price - prevPrice) * c.qty
+      byLanguage[c.language || 'en'] = (byLanguage[c.language || 'en'] || 0) + c.qty
+      byCondition[c.condition || 'near_mint'] = (byCondition[c.condition || 'near_mint'] || 0) + c.qty
 
       // Rarity
       const rarity = sf?.rarity || 'unknown'
@@ -380,6 +540,14 @@ export default function StatsPage() {
       .sort((a, b) => b[1] - a[1])
       .map(([name, count]) => ({ name, value: count }))
 
+    const languageData = Object.entries(byLanguage)
+      .sort((a, b) => b[1] - a[1])
+      .map(([key, qty]) => ({ key, qty }))
+
+    const conditionData = Object.entries(byCondition)
+      .sort((a, b) => b[1] - a[1])
+      .map(([key, qty]) => ({ key, qty }))
+
     // ── BUG FIX: name + image come from _sf, NOT c.name ────────────────────
     const topCards = [...cards]
       .map(c => {
@@ -413,6 +581,7 @@ export default function StatsPage() {
       uniqueCards: cards.length,
       uniqueSets:  Object.keys(bySet).length,
       avgCardValue: totalQty > 0 ? totalValue / totalQty : 0,
+      languageData, conditionData,
       rarityData, topSets, typeData, topCards,
       valueTiers: valueTiers.filter(t => t.count > 0),
       legalityData, maxLegal,
@@ -627,48 +796,21 @@ export default function StatsPage() {
         </div>
 
         {/* ── Top 20 most valuable cards — BUG FIXED ── */}
+        <div className={styles.chartRow}>
+          <div className={styles.chartBox}>
+            <SLabel>Language Distribution</SLabel>
+            <DistributionBars items={stats.languageData} total={stats.totalQty} labels={LANGUAGE_LABELS} />
+          </div>
+
+          <div className={styles.chartBox}>
+            <SLabel>Condition Distribution</SLabel>
+            <DistributionBars items={stats.conditionData} total={stats.totalQty} labels={CONDITION_LABELS} />
+          </div>
+        </div>
+
         <div className={styles.chartBox}>
           <SLabel>Top 20 Most Valuable Cards</SLabel>
-          <div className={styles.tableWrap}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  {['#', 'Card', 'Set', 'Qty', 'Price', 'Total'].map(h => (
-                    <th
-                      key={h} className={styles.th}
-                      style={{ textAlign: ['#', 'Qty'].includes(h) ? 'center' : 'left' }}
-                    >{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {stats.topCards.map((c, i) => (
-                  <tr key={c.id} className={styles.tr}>
-                    <td className={styles.tdRank}>{i + 1}</td>
-                    <td className={styles.tdCard}>
-                      <button
-                        type="button"
-                        className={styles.cardButton}
-                        onClick={() => setDetailCardId(c.id)}
-                      >
-                        <CardThumb sf={c._sf} size={26} />
-                        <span className={styles.tdCardName}>
-                          {c._sf?.name || `${c.set_code?.toUpperCase()}-${c.collector_number}`}
-                        </span>
-                        {c.foil && <span className={styles.foilTag}>FOIL</span>}
-                      </button>
-                    </td>
-                    <td className={styles.tdSet}>{c._sf?.set_name || (c.set_code || '').toUpperCase()}</td>
-                    <td className={styles.tdCenter}>{c.qty}</td>
-                    <td style={{ padding: '6px 10px', color: c.foil ? '#c8a0ff' : 'var(--green, #5dba70)' }}>
-                      {fmt(c._price)}
-                    </td>
-                    <td className={styles.tdTotal}>{fmt(c._price * c.qty)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <TopValuableShowcase cards={stats.topCards} fmt={fmt} onOpen={setDetailCardId} />
         </div>
 
         {/* ── Top 15 sets by value ── */}
