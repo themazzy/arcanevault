@@ -1886,3 +1886,57 @@
   0%, 100% { opacity: 1; transform: scale(1); }
   50%       { opacity: 0.4; transform: scale(0.75); }
 }
+
+/* ── Locked set badge (inside reticle) ── */
+.lockedSetBadge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px 3px 6px;
+  background: rgba(0,0,0,0.55);
+  border: 1px solid rgba(201,168,76,0.4);
+  border-radius: 20px;
+  font-size: .7rem;
+  font-weight: 600;
+  letter-spacing: .06em;
+  color: var(--gold, #c9a84c);
+  backdrop-filter: blur(4px);
+}
+
+.lockedSetIcon {
+  font-size: .65rem;
+  opacity: 0.8;
+}
+
+.lockedSetClear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 0 0 0 2px;
+  color: rgba(201,168,76,0.7);
+  font-size: .7rem;
+  cursor: pointer;
+  line-height: 1;
+  transition: color .15s;
+}
+.lockedSetClear:hover {
+  color: var(--gold, #c9a84c);
+}
+
+/* ── Inline clear button (settings overlay) ── */
+.settingsInlineBtn {
+  background: none;
+  border: 1px solid rgba(201,168,76,0.35);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: .7rem;
+  color: var(--gold, #c9a84c);
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.settingsInlineBtn:hover {
+  background: rgba(201,168,76,0.12);
+  border-color: rgba(201,168,76,0.6);
+}
