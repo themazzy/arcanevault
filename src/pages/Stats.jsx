@@ -49,7 +49,9 @@ const CONDITION_LABELS = {
 
 const SETS_CACHE_KEY = 'av_scryfall_sets'
 const SETS_CACHE_TTL = 24 * 60 * 60 * 1000
-const LOCAL_SET_ICONS = new Set((setIconManifest?.icons || []).map(code => String(code).toLowerCase()))
+const LOCAL_SET_ICONS = Object.fromEntries(
+  Object.entries(setIconManifest?.icons || {}).map(([code, relPath]) => [String(code).toLowerCase(), `/${String(relPath).replace(/^\/+/, '')}`])
+)
 
 async function fetchScryfallSetsMap() {
   try {
@@ -85,7 +87,7 @@ function SLabel({ children }) {
   return <div className={styles.sectionLabel}>{children}</div>
 }
 function getSetIconUrl(code) {
-  return code ? `/set-icons/${String(code).toLowerCase()}.svg` : ''
+  return code ? LOCAL_SET_ICONS[String(code).toLowerCase()] || '' : ''
 }
 function getRemoteSetIconUrl(code) {
   return code ? `https://svgs.scryfall.io/sets/${String(code).toLowerCase()}.svg` : ''
@@ -94,13 +96,16 @@ function getRemoteSetIconUrl(code) {
 function SetIcon({ code }) {
   const localUrl = getSetIconUrl(code)
   const remoteUrl = getRemoteSetIconUrl(code)
-  const hasLocalIcon = !!(code && LOCAL_SET_ICONS.has(String(code).toLowerCase()))
+  const hasLocalIcon = !!localUrl
 
   if (hasLocalIcon) {
     return (
       <span
         className={styles.setRowIcon}
-        style={{ '--set-icon': `url("${localUrl}")` }}
+        style={{
+          WebkitMaskImage: `url("${localUrl}")`,
+          maskImage: `url("${localUrl}")`,
+        }}
         aria-hidden="true"
       />
     )
