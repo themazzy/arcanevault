@@ -8,7 +8,40 @@ import {
   ART_X as SHARED_ART_X,
   ART_Y as SHARED_ART_Y,
 } from './constants'
-import { computeHashFromGray, rgbToGray32x32, hashToHex as _hashToHex } from './hashCore'
+import { computeHashFromGray, computeHashFromGrayGlare, rgbToGray32x32, hashToHex as _hashToHex } from './hashCore'
+
+// ── Reusable scratch canvases (avoids per-frame createElement overhead) ───────
+let _cardCanvas = null, _cardCtx = null
+let _artCanvas = null,  _artCtx = null
+let _srcCanvas = null,  _srcCtx = null
+
+function getCardCanvas() {
+  if (!_cardCanvas) {
+    _cardCanvas = document.createElement('canvas')
+    _cardCanvas.width = CARD_W; _cardCanvas.height = CARD_H
+    _cardCtx = _cardCanvas.getContext('2d', { willReadFrequently: true })
+  }
+  return { canvas: _cardCanvas, ctx: _cardCtx }
+}
+
+function getArtCanvas() {
+  if (!_artCanvas) {
+    _artCanvas = document.createElement('canvas')
+    _artCanvas.width = SHARED_ART_W; _artCanvas.height = SHARED_ART_H
+    _artCtx = _artCanvas.getContext('2d', { willReadFrequently: true })
+  }
+  return { canvas: _artCanvas, ctx: _artCtx }
+}
+
+function getSrcCanvas(w, h) {
+  if (!_srcCanvas) {
+    _srcCanvas = document.createElement('canvas')
+    _srcCtx = _srcCanvas.getContext('2d', { willReadFrequently: true })
+  }
+  if (_srcCanvas.width !== w) _srcCanvas.width = w
+  if (_srcCanvas.height !== h) _srcCanvas.height = h
+  return { canvas: _srcCanvas, ctx: _srcCtx }
+}
 
 export function isOpenCVReady() {
   return typeof window !== 'undefined' &&
@@ -106,8 +139,9 @@ function minAreaRectPoints(cv, cnt) {
   }
 }
 
-// Find a card quad from a grayscale Mat using adaptive Canny + contour scoring.
-function findBestQuad(cv, gray, width, height) {
+// Find a card quad from a grayscale Mat using Canny + contour scoring.
+// cannyLo/cannyHi: pass explicit values to override adaptive thresholds (used for dark-card retry).
+function findBestQuad(cv, gray, width, height, cannyLo = -1, cannyHi = -1) {
   const blurred = new cv.Mat()
   const edges = new cv.Mat()
   const dilated = new cv.Mat()
@@ -117,17 +151,21 @@ function findBestQuad(cv, gray, width, height) {
   try {
     cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0)
 
-    const gdata = blurred.data
-    const hist = new Int32Array(256)
-    for (let i = 0; i < gdata.length; i++) hist[gdata[i]]++
-    let cumul = 0
-    let median = 127
-    for (let v = 0; v < 256; v++) {
-      cumul += hist[v]
-      if (cumul >= gdata.length / 2) { median = v; break }
+    let lo, hi
+    if (cannyLo >= 0 && cannyHi >= 0) {
+      lo = cannyLo; hi = cannyHi
+    } else {
+      const gdata = blurred.data
+      const hist = new Int32Array(256)
+      for (let i = 0; i < gdata.length; i++) hist[gdata[i]]++
+      let cumul = 0, median = 127
+      for (let v = 0; v < 256; v++) {
+        cumul += hist[v]
+        if (cumul >= gdata.length / 2) { median = v; break }
+      }
+      lo = Math.max(10, Math.round(median * 0.5))
+      hi = Math.min(240, Math.round(median * 1.5))
     }
-    const lo = Math.max(10, Math.round(median * 0.5))
-    const hi = Math.min(240, Math.round(median * 1.5))
     cv.Canny(blurred, edges, lo, hi)
 
     const kernel = cv.Mat.ones(3, 3, cv.CV_8U)
@@ -180,6 +218,9 @@ function findBestQuad(cv, gray, width, height) {
   }
 }
 
+// detectCardCorners expects a pre-downscaled imageData (caller uses GPU canvas.drawImage
+// to halve the frame before passing here). Returns corners in imageData coordinates —
+// caller must scale back to full-frame coords.
 export function detectCardCorners(imageData, width, height) {
   if (!isOpenCVReady()) return null
   const cv = window.cv
@@ -189,12 +230,17 @@ export function detectCardCorners(imageData, width, height) {
   try {
     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY)
 
-    // Standard detection
+    // Pass 1: adaptive Canny
     const result = findBestQuad(cv, gray, width, height)
     if (result) return result
 
-    // Retry with histogram equalization — helps dark/low-contrast cards
-    // (black borders on dark backgrounds, dimly lit scenes)
+    // Pass 2: dark-card / low-contrast — fixed low Canny thresholds.
+    // Adaptive thresholds on dark images produce lo=15/hi=45 which can miss subtle
+    // card borders; fixed lo=5/hi=40 catches them without the cost of equalizeHist.
+    const darkResult = findBestQuad(cv, gray, width, height, 5, 40)
+    if (darkResult) return darkResult
+
+    // Pass 3: equalizeHist fallback — helps very dark or severely underexposed scenes
     const eqGray = new cv.Mat()
     try {
       cv.equalizeHist(gray, eqGray)
@@ -211,8 +257,9 @@ export function detectCardCorners(imageData, width, height) {
 const CARD_W = 500
 const CARD_H = 700
 
+// source: HTMLCanvasElement (preferred — no putImageData cost) or ImageData fallback.
 export function cropCardFromReticle(
-  imageData,
+  source,
   frameWidth,
   frameHeight,
   viewportWidth,
@@ -238,21 +285,18 @@ export function cropCardFromReticle(
   const sourceW = Math.max(40, Math.min(frameWidth - sourceX, cropWidth / scale))
   const sourceH = Math.max(56, Math.min(frameHeight - sourceY, cropHeight / scale))
 
-  const srcCanvas = document.createElement('canvas')
-  srcCanvas.width = frameWidth
-  srcCanvas.height = frameHeight
-  const srcCtx = srcCanvas.getContext('2d')
-  srcCtx.putImageData(imageData, 0, 0)
+  // Use canvas directly (GPU drawImage) when available; fall back to putImageData for ImageData input.
+  let drawSource
+  if (source instanceof HTMLCanvasElement) {
+    drawSource = source
+  } else {
+    const { canvas: srcCanvas, ctx: srcCtx } = getSrcCanvas(frameWidth, frameHeight)
+    srcCtx.putImageData(source, 0, 0)
+    drawSource = srcCanvas
+  }
 
-  const outCanvas = document.createElement('canvas')
-  outCanvas.width = CARD_W
-  outCanvas.height = CARD_H
-  const outCtx = outCanvas.getContext('2d')
-  outCtx.drawImage(
-    srcCanvas,
-    sourceX, sourceY, sourceW, sourceH,
-    0, 0, CARD_W, CARD_H,
-  )
+  const { canvas: outCanvas, ctx: outCtx } = getCardCanvas()
+  outCtx.drawImage(drawSource, sourceX, sourceY, sourceW, sourceH, 0, 0, CARD_W, CARD_H)
 
   return outCtx.getImageData(0, 0, CARD_W, CARD_H)
 }
@@ -279,11 +323,9 @@ export function warpCard(imageData, corners) {
     dstPts.delete()
     M.delete()
 
-    const canvas = document.createElement('canvas')
-    canvas.width = CARD_W
-    canvas.height = CARD_H
+    const { canvas, ctx } = getCardCanvas()
     cv.imshow(canvas, dst)
-    return canvas.getContext('2d').getImageData(0, 0, CARD_W, CARD_H)
+    return ctx.getImageData(0, 0, CARD_W, CARD_H)
   } finally {
     src.delete()
     dst.delete()
@@ -304,15 +346,32 @@ export function cropArtRegion(cardImageData, { xOffset = 0, yOffset = 0, inset =
   try {
     const rect = new cv.Rect(x, y, width, height)
     const roi = src.roi(rect)
-    const canvas = document.createElement('canvas')
-    canvas.width = SHARED_ART_W
-    canvas.height = SHARED_ART_H
+    const { canvas, ctx } = getArtCanvas()
     cv.imshow(canvas, roi)
     roi.delete()
-    return canvas.getContext('2d').getImageData(0, 0, SHARED_ART_W, SHARED_ART_H)
+    return ctx.getImageData(0, 0, SHARED_ART_W, SHARED_ART_H)
   } finally {
     src.delete()
   }
+}
+
+/**
+ * Rotate an ImageData 180° in pure JS (no OpenCV needed).
+ * Used as a fallback for upside-down cards.
+ */
+export function rotateCard180(imageData) {
+  const { width, height, data } = imageData
+  const out = new Uint8ClampedArray(data.length)
+  const total = width * height
+  for (let i = 0; i < total; i++) {
+    const src = (total - 1 - i) * 4
+    const dst = i * 4
+    out[dst]     = data[src]
+    out[dst + 1] = data[src + 1]
+    out[dst + 2] = data[src + 2]
+    out[dst + 3] = data[src + 3]
+  }
+  return new ImageData(out, width, height)
 }
 
 export function computePHash256(artImageData) {
@@ -332,6 +391,32 @@ export function computePHash256(artImageData) {
     if (!rgba || rgba.length < 4096) throw new Error(`resized.data invalid (len=${rgba?.length})`)
 
     return computeHashFromGray(rgbToGray32x32(rgba, 4))
+  } finally {
+    src.delete()
+    blurred.delete()
+    resized.delete()
+  }
+}
+
+/**
+ * Variant of computePHash256 with aggressive glare suppression (percentileCap 0.92).
+ * Used as a client-side fallback when the standard hash scores poorly on a given frame,
+ * typically caused by foil specular reflections. Does not affect stored DB hashes.
+ */
+export function computePHash256Foil(artImageData) {
+  if (!isOpenCVReady()) throw new Error('OpenCV not ready')
+  const cv = window.cv
+  const src = cv.matFromImageData(artImageData)
+  if (!src || src.empty()) throw new Error('matFromImageData failed')
+  const blurred = new cv.Mat()
+  const resized = new cv.Mat()
+  try {
+    cv.GaussianBlur(src, blurred, new cv.Size(5, 5), 1.0)
+    cv.resize(blurred, resized, new cv.Size(32, 32), 0, 0, cv.INTER_LANCZOS4)
+    if (resized.empty()) throw new Error('resize to 32x32 failed')
+    const rgba = resized.data
+    if (!rgba || rgba.length < 4096) throw new Error(`resized.data invalid (len=${rgba?.length})`)
+    return computeHashFromGrayGlare(rgbToGray32x32(rgba, 4))
   } finally {
     src.delete()
     blurred.delete()

@@ -1744,3 +1744,145 @@
   background: linear-gradient(90deg, rgba(201,168,76,0.8), rgba(93,186,112,0.9));
   transition: width 0.25s ease;
 }
+
+/* ── Settings panel ── */
+.settingsPanel {
+  position: absolute;
+  top: 56px;
+  right: 12px;
+  width: 240px;
+  background: rgba(12,14,18,0.94);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 12px;
+  overflow: hidden;
+  animation: settingsPanelIn 160ms cubic-bezier(.2,.82,.24,1);
+  z-index: 10;
+}
+
+@keyframes settingsPanelIn {
+  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.settingsPanelHeader {
+  padding: 10px 14px 8px;
+  font-family: var(--font-display);
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.35);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.settingsRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+.settingsRowLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settingsRowTitle {
+  font-size: 0.8rem;
+  color: rgba(255,255,255,0.88);
+  font-family: var(--font-display);
+  letter-spacing: 0.03em;
+}
+
+.settingsRowDesc {
+  font-size: 0.67rem;
+  color: rgba(255,255,255,0.4);
+  line-height: 1.3;
+}
+
+/* ── Toggle switch ── */
+.toggle {
+  flex-shrink: 0;
+  width: 40px;
+  height: 24px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.14);
+  padding: 0;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.toggleOn {
+  background: rgba(201,168,76,0.32);
+  border-color: rgba(201,168,76,0.6);
+}
+
+.toggleThumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.55);
+  transition: transform 0.18s cubic-bezier(.4,0,.2,1), background 0.2s ease;
+}
+
+.toggleOn .toggleThumb {
+  transform: translateX(16px);
+  background: var(--gold, #c9a84c);
+}
+
+/* ── Auto-scan status badge (replaces scan button) ── */
+.autoScanBadge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  justify-content: center;
+  padding: 10px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.05);
+  color: rgba(255,255,255,0.5);
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  min-height: 42px;
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
+}
+
+.autoScanBadgeActive {
+  color: var(--gold, #c9a84c);
+  border-color: rgba(201,168,76,0.4);
+  background: rgba(201,168,76,0.08);
+}
+
+.autoScanDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.3);
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+
+.autoScanBadge:not(.autoScanBadgeActive) .autoScanDot {
+  animation: autoScanPulse 2s ease-in-out infinite;
+  background: rgba(93,186,112,0.7);
+}
+
+.autoScanBadgeActive .autoScanDot {
+  animation: autoScanPulse 0.7s ease-in-out infinite;
+  background: var(--gold, #c9a84c);
+}
+
+@keyframes autoScanPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.75); }
+}

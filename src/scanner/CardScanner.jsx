@@ -15,7 +15,8 @@ import { Haptics, ImpactStyle } from '@capacitor/haptics'
 import { databaseService } from './DatabaseService'
 import {
   waitForOpenCV,
-  detectCardCorners, warpCard, cropArtRegion, cropCardFromReticle, computePHash256,
+  detectCardCorners, warpCard, cropArtRegion, cropCardFromReticle,
+  computePHash256, computePHash256Foil, rotateCard180,
 } from './ScannerEngine'
 import { useAuth } from '../components/Auth'
 import { formatPriceMeta, getPriceWithMeta, sfGet } from '../lib/scryfall'
@@ -36,7 +37,7 @@ const PRIMARY_CROP_VARIANTS = [
 const FAST_PRIMARY_VARIANTS = [PRIMARY_CROP_VARIANTS[0]]
 const STABILITY_SAMPLES   = 3
 const STABILITY_REQUIRED  = 2
-const SAMPLE_DELAY_MS     = 80
+const SAMPLE_DELAY_MS     = 40
 const DEBUG               = true
 const NATIVE_CAPTURE_SETTLE_MS = 120
 const PENDING_KEY         = 'arcanevault_scan_basket'
@@ -54,6 +55,20 @@ const CARD_LANGUAGES = [
   ['cs', 'TC'],
   ['ct', 'SC'],
 ]
+
+// ── Module-level scratch canvas for pre-downscaled corner detection frames ───
+let _smallFrameCanvas = null
+let _smallFrameCtx   = null
+
+function getSmallFrameCanvas(w, h) {
+  if (!_smallFrameCanvas) {
+    _smallFrameCanvas = document.createElement('canvas')
+    _smallFrameCtx    = _smallFrameCanvas.getContext('2d', { willReadFrequently: true })
+  }
+  if (_smallFrameCanvas.width  !== w) _smallFrameCanvas.width  = w
+  if (_smallFrameCanvas.height !== h) _smallFrameCanvas.height = h
+  return { canvas: _smallFrameCanvas, ctx: _smallFrameCtx }
+}
 
 // ── Pending basket helpers ────────────────────────────────────────────────────
 
@@ -309,6 +324,7 @@ export default function CardScanner({ onMatch, onClose }) {
   const mountedRef  = useRef(true)
   const manualSearchRequestRef = useRef(0)
   const setIconFetchesRef = useRef(new Set())
+  const settingsPanelRef = useRef(null)
 
   // ── Scanner state ──────────────────────────────────────────────────────────
   const [cvReady, setCvReady]     = useState(false)
@@ -359,6 +375,12 @@ export default function CardScanner({ onMatch, onClose }) {
   const [saveNotice, setSaveNotice] = useState(null)
   const latestPending = pendingCards[0] || null
 
+  // ── Scanner settings ───────────────────────────────────────────────────────
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [autoScan, setAutoScan] = useState(() => {
+    try { return localStorage.getItem('arcanevault_scanner_autoscan') === '1' } catch { return false }
+  })
+
   const isReady = cvReady && dbReady
   const availableFlashModes = flashModes.includes('torch')
     ? flashModes.filter(m => m === 'off' || m === 'torch')
@@ -370,6 +392,19 @@ export default function CardScanner({ onMatch, onClose }) {
   // Persist basket to localStorage whenever it changes
   useEffect(() => { savePending(pendingCards) }, [pendingCards])
   useEffect(() => { saveSetIconCache(setIcons) }, [setIcons])
+  useEffect(() => {
+    try { localStorage.setItem('arcanevault_scanner_autoscan', autoScan ? '1' : '0') } catch {}
+  }, [autoScan])
+  useEffect(() => {
+    if (!settingsOpen) return
+    const handler = (e) => {
+      if (settingsPanelRef.current && !settingsPanelRef.current.contains(e.target)) {
+        setSettingsOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', handler)
+    return () => document.removeEventListener('pointerdown', handler)
+  }, [settingsOpen])
   useEffect(() => {
     if (!saveNotice) return undefined
     const timer = window.setTimeout(() => setSaveNotice(null), 2200)
@@ -416,6 +451,18 @@ export default function CardScanner({ onMatch, onClose }) {
     return () => { mountedRef.current = false }
   }, [])
 
+  // ── Auto-scan loop ────────────────────────────────────────────────────────
+  // Re-runs whenever scanning goes idle. Schedules the next handleScan() call
+  // after a cooldown: longer after a match so the user can see the result.
+  // Pauses automatically when any overlay is open.
+  useEffect(() => {
+    if (!autoScan || !isReady || scanning) return
+    if (addFlowOpen || basketExpanded || manualSearchOpen || settingsOpen) return
+    const cooldown = scanResult === 'found' ? 1800 : 600
+    const timer = window.setTimeout(() => { handleScan() }, cooldown)
+    return () => window.clearTimeout(timer)
+  }, [autoScan, isReady, scanning, addFlowOpen, basketExpanded, manualSearchOpen, settingsOpen, handleScan, scanResult])
+
   // ── Camera start/stop ──────────────────────────────────────────────────────
   useEffect(() => {
     let started = false
@@ -440,7 +487,7 @@ export default function CardScanner({ onMatch, onClose }) {
           if (desiredFlash && mountedRef.current) setFlashMode(desiredFlash)
         } else {
           const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+            video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
           })
           if (videoRef.current && mountedRef.current) {
             videoRef.current.srcObject = stream
@@ -866,19 +913,34 @@ export default function CardScanner({ onMatch, onClose }) {
         image.onerror = reject
         image.src = 'data:image/jpeg;base64,' + value
       })
+      const w = img.width, h = img.height
       const canvas = document.createElement('canvas')
-      canvas.width = img.width; canvas.height = img.height
+      canvas.width = w; canvas.height = h
       const ctx = canvas.getContext('2d', { willReadFrequently: true })
       ctx.drawImage(img, 0, 0)
-      const imageData = ctx.getImageData(0, 0, img.width, img.height)
-      return { imageData, w: img.width, h: img.height }
+      // Small frame for corner detection (GPU-downscaled)
+      const sw = Math.round(w / 2), sh = Math.round(h / 2)
+      const { ctx: smallCtx } = getSmallFrameCanvas(sw, sh)
+      smallCtx.drawImage(img, 0, 0, sw, sh)
+      const smallImageData = smallCtx.getImageData(0, 0, sw, sh)
+      const imageData = ctx.getImageData(0, 0, w, h)
+      return { imageData, srcCanvas: canvas, w, h, smallImageData, sw, sh }
     } else {
       const vid = videoRef.current
       if (!vid?.videoWidth) return null
+      const w = vid.videoWidth, h = vid.videoHeight
       const canvas = canvasRef.current
-      canvas.width = vid.videoWidth; canvas.height = vid.videoHeight
-      canvas.getContext('2d').drawImage(vid, 0, 0)
-      return { imageData: canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height), w: canvas.width, h: canvas.height }
+      canvas.width = w; canvas.height = h
+      if (!canvas._ctx) canvas._ctx = canvas.getContext('2d', { willReadFrequently: true })
+      const ctx2d = canvas._ctx
+      ctx2d.drawImage(vid, 0, 0)
+      // Small frame for corner detection — GPU-accelerated drawImage to 50% size.
+      // Replaces the OpenCV software resize inside detectCardCorners.
+      const sw = Math.round(w / 2), sh = Math.round(h / 2)
+      const { ctx: smallCtx } = getSmallFrameCanvas(sw, sh)
+      smallCtx.drawImage(vid, 0, 0, sw, sh)
+      const smallImageData = smallCtx.getImageData(0, 0, sw, sh)
+      return { imageData: ctx2d.getImageData(0, 0, w, h), srcCanvas: canvas, w, h, smallImageData, sw, sh }
     }
   }, [isNative])
 
@@ -886,8 +948,12 @@ export default function CardScanner({ onMatch, onClose }) {
     const frame = await captureFrame()
     if (!frame) return { status: 'error', stage: 'no frame', best: null, second: null, candidateCount: 0, totalCount: 0 }
 
-    const { imageData, w, h } = frame
-    const corners = detectCardCorners(imageData, w, h)
+    const { imageData, srcCanvas, w, h, smallImageData, sw, sh } = frame
+    // Corner detection runs on the pre-downscaled (sw×sh) frame — cheaper matFromImageData,
+    // cheaper cvtColor, no OpenCV resize. Scale corners back to full-res coords for warpCard.
+    const cornersSmall = detectCardCorners(smallImageData, sw, sh)
+    const scaleX = w / sw, scaleY = h / sh
+    const corners = cornersSmall?.map(p => ({ x: p.x * scaleX, y: p.y * scaleY })) ?? null
 
     let best = null, second = null
     let bestStats = { candidateCount: 0, totalCount: databaseService.cardCount }
@@ -915,6 +981,17 @@ export default function CardScanner({ onMatch, onClose }) {
         if (!hash) continue
         const { best: c, second: r, candidateCount, totalCount } = databaseService.findBestTwoWithStats(hash)
         if (updateBest(c, r, candidateCount, totalCount, variant, sourceLabel)) return
+        // Foil fallback: if standard hash scores poorly, retry with aggressive glare suppression.
+        // Only pays for itself when the card is likely foil (high distance suggests blown highlights).
+        if (c && c.distance > MATCH_THRESHOLD) {
+          try {
+            const foilHash = computePHash256Foil(artCrop)
+            if (foilHash) {
+              const foilStats = databaseService.findBestTwoWithStats(foilHash)
+              if (updateBest(foilStats.best, foilStats.second, foilStats.candidateCount, foilStats.totalCount, variant, `${sourceLabel}+foil`)) return
+            }
+          } catch { /* non-critical */ }
+        }
       }
     }
 
@@ -923,13 +1000,25 @@ export default function CardScanner({ onMatch, onClose }) {
       if (warped) {
         tryMatch(warped, 'corners', FAST_PRIMARY_VARIANTS)
         if (shouldExpand()) tryMatch(warped, 'corners', PRIMARY_CROP_VARIANTS.slice(1))
+        // 180° rotation fallback — cards held upside-down on a table are common.
+        // Only runs when the upright pass didn't produce a decisive match.
+        if (shouldExpand()) {
+          const warped180 = rotateCard180(warped)
+          tryMatch(warped180, 'corners+rot180', FAST_PRIMARY_VARIANTS)
+          if (shouldExpand()) tryMatch(warped180, 'corners+rot180', PRIMARY_CROP_VARIANTS.slice(1))
+        }
       }
     }
     if (shouldExpand()) {
-      const reticle = cropCardFromReticle(imageData, w, h, window.innerWidth, window.innerHeight)
+      const reticle = cropCardFromReticle(srcCanvas ?? imageData, w, h, window.innerWidth, window.innerHeight)
       if (reticle) {
         tryMatch(reticle, 'reticle', FAST_PRIMARY_VARIANTS)
         if (shouldExpand()) tryMatch(reticle, 'reticle', PRIMARY_CROP_VARIANTS.slice(1))
+        if (shouldExpand()) {
+          const reticle180 = rotateCard180(reticle)
+          tryMatch(reticle180, 'reticle+rot180', FAST_PRIMARY_VARIANTS)
+          if (shouldExpand()) tryMatch(reticle180, 'reticle+rot180', PRIMARY_CROP_VARIANTS.slice(1))
+        }
       }
     }
 
@@ -1157,8 +1246,40 @@ export default function CardScanner({ onMatch, onClose }) {
                 <path d="M13 2L6 13h5l-1 9 8-12h-5l0-8z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
               </svg>
             </button>
+            <button
+              className={`${styles.menuIconBtn} ${settingsOpen ? styles.menuIconBtnActive : ''}`}
+              onClick={() => setSettingsOpen(v => !v)}
+              title="Scanner settings"
+              aria-label="Scanner settings"
+            >
+              <svg viewBox="0 0 24 24" className={styles.menuIcon} aria-hidden="true">
+                <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.8" />
+                <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+            </button>
           </div>
         </div>
+
+        {/* Settings panel */}
+        {settingsOpen && (
+          <div className={styles.settingsPanel} ref={settingsPanelRef}>
+            <div className={styles.settingsPanelHeader}>Scanner Settings</div>
+            <div className={styles.settingsRow}>
+              <div className={styles.settingsRowLabel}>
+                <span className={styles.settingsRowTitle}>Auto-scan</span>
+                <span className={styles.settingsRowDesc}>Scan continuously without pressing the button</span>
+              </div>
+              <button
+                role="switch"
+                aria-checked={autoScan}
+                className={`${styles.toggle} ${autoScan ? styles.toggleOn : ''}`}
+                onClick={() => setAutoScan(v => !v)}
+              >
+                <span className={styles.toggleThumb} />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Targeting reticle */}
         <div className={`${styles.targetFrame} ${scanResult === 'found' ? styles.targetLit : ''} ${scanning ? styles.targetPaused : ''}`}>
@@ -1286,12 +1407,18 @@ export default function CardScanner({ onMatch, onClose }) {
             </div>
           )}
 
-          {/* Scan + Add buttons */}
+          {/* Scan button / auto-scan indicator */}
           <div className={styles.btnRow}>
-            {isReady && (
+            {isReady && !autoScan && (
               <button className={styles.primaryBtn} onClick={handleScan} disabled={scanning}>
                 {scanning ? 'Scanning...' : 'Scan'}
               </button>
+            )}
+            {isReady && autoScan && (
+              <div className={`${styles.autoScanBadge} ${scanning ? styles.autoScanBadgeActive : ''}`}>
+                <span className={styles.autoScanDot} />
+                {scanning ? 'Scanning…' : 'Auto-scan on'}
+              </div>
             )}
           </div>
         </div>

@@ -212,9 +212,11 @@ These are only active during `npm run dev`. Production deploys on GitHub Pages c
 | `src/lib/scryfall.js` | Scryfall metadata/image cache + batch lookup helpers |
 | `src/lib/sharedCardPrices.js` | Overlays shared Supabase daily prices onto cached Scryfall card data |
 | `src/lib/filterWorker.js` | Web Worker: filter + sort logic |
-| `src/scanner/DatabaseService.js` | pHash DB: SQLite (native) + Supabase fallback (web); sync + in-memory search |
-| `src/scanner/ScannerEngine.js` | OpenCV.js card detection, perspective warp, art crop, 256-bit pHash |
-| `src/scanner/CardScanner.jsx` | Full-screen scanner UI: camera, targeting reticle, stability buffer, match panel |
+| `src/scanner/DatabaseService.js` | pHash DB: SQLite (native) + Supabase fallback (web); LSH band index, IDB pre-parsed cache |
+| `src/scanner/ScannerEngine.js` | OpenCV.js card detection (multi-pass Canny), perspective warp, art crop, reticle crop, 180° rotation, pHash |
+| `src/scanner/hashCore.js` | Pure-JS pHash core: precomputed DCT cosine table, CLAHE, percentileCap, Hamming distance — shared with seed script |
+| `src/scanner/constants.js` | Shared card/art dimensions: `CARD_W=500, CARD_H=700, ART_X=38, ART_Y=66, ART_W=424, ART_H=248` |
+| `src/scanner/CardScanner.jsx` | Full-screen scanner UI: camera, auto-scan loop, targeting reticle, stability buffer, settings panel, match basket |
 | `src/pages/Scanner.jsx` | Route wrapper for `CardScanner` at `/scanner` |
 | `scripts/generate-card-hashes.js` | Node.js seed script: downloads Scryfall art crops, computes pHashes, uploads to Supabase |
 | `src/lib/fx.js` | EUR↔USD conversion via frankfurter.app (6 h IDB cache) |
@@ -360,16 +362,86 @@ Use Scryfall syntax when building search queries:
 
 ### Card Scanner (`src/scanner/`)
 
-pHash + OpenCV pipeline: camera → card detection (OpenCV contours, aspect ratio 0.65–0.77) → perspective warp (500×700) → art crop ROI `{x:25, y:55, w:450, h:275}` → 256-bit pHash → Hamming distance lookup.
+#### Pipeline overview
 
-Match confirmed only if `best.distance ≤ 110` AND `gap ≥ 15`. Requires 2 consecutive matching frames before confirming.
+```
+captureFrame()
+  → full-res ImageData (1280×720 web / native JPEG)   ← for warpCard
+  → small ImageData (640×360, GPU canvas.drawImage)   ← for detectCardCorners
 
-#### Key implementation notes
+detectCardCorners(smallImageData, sw, sh)
+  → 3-pass: adaptive Canny → fixed lo=5/hi=40 → equalizeHist
+  → corners in small-image coords; caller scales back to full-res (×2)
 
-- **BigInt precision**: Supabase BIGINT returned as JS Number loses bits >53. Read `phash_hex TEXT` (64 hex chars) exclusively; parse with `BigInt('0x' + chunk)`.
-- **Hash algorithm must match exactly**: Client (`ScannerEngine.computePHash256`) and seed script (`generate-card-hashes.js`) must use identical: Gaussian blur σ=1.0, Lanczos resize, BT.709 grayscale, CLAHE (tileGrid=4×4, clipLimit=40), pure-JS `dct2d()`. If any step changes, **truncate `card_hashes` and re-seed**.
-- **OpenCV.js**: Loaded via async CDN `<script>` tag (not bundled). Check `window.cv` readiness via polling (`waitForOpenCV()`).
-- **DB loading**: PostgREST caps `.range()` at 1000 rows. Web path loads page 0 synchronously, then continues 8 pages at a time in background (`_continueWebLoad`).
+warpCard(imageData, scaledCorners)  →  500×700 ImageData
+
+cropArtRegion(warpedCard)           →  art crop (ART_X=38, ART_Y=66, ART_W=424, ART_H=248)
+
+computePHash256(artCrop)            →  Uint32Array(8) — 256-bit pHash
+
+databaseService.findBestTwoWithStats(hash)   ← LSH band index + Hamming distance
+
+stability voting (up to STABILITY_SAMPLES=3 frames, SAMPLE_DELAY_MS=40)
+```
+
+**Reticle fallback**: when no corners are found, `cropCardFromReticle(srcCanvas, w, h, vw, vh)` crops the reticle region directly from the camera canvas — pass `srcCanvas` (HTMLCanvasElement) to skip the expensive `putImageData` copy.
+
+**180° rotation fallback**: after each warp/reticle pass, if no decisive match, `rotateCard180(warpedCard)` is tried — catches cards held upside-down.
+
+**Foil fallback**: when standard hash distance > `MATCH_THRESHOLD`, `computePHash256Foil(artCrop)` re-hashes with `percentileCap(0.92)` (aggressive glare suppression). Does not affect stored DB hashes.
+
+#### Match thresholds (CardScanner.jsx)
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `MATCH_THRESHOLD` | 122 | Standard acceptance distance |
+| `MATCH_STRONG_THRESHOLD` | 134 | Relaxed acceptance with 2+ stable votes |
+| `MATCH_STRONG_SINGLE` | 108 | Single-frame strong match |
+| `MATCH_MIN_GAP` | 8 | Min gap between best and second-best |
+| `STABILITY_SAMPLES` | 3 | Max frames per scan attempt |
+| `STABILITY_REQUIRED` | 2 | Votes needed for stable match |
+| `SAMPLE_DELAY_MS` | 40 | Sleep between stability frames |
+
+#### Hash algorithm — must match seed script exactly
+
+`computePHash256` pipeline (client + `generate-card-hashes.js` must be identical):
+1. `GaussianBlur` σ=1.0 on art crop (424×248)
+2. `resize` to 32×32 with INTER_LANCZOS4
+3. BT.709 grayscale (`rgbToGray32x32`)
+4. `percentileCap(0.98)` — glare suppression
+5. `CLAHE(tileGrid=4×4, clipLimit=40)`
+6. 2D-DCT via `dct2d()` with **precomputed cosine/norm tables** (built at module load in `hashCore.js` — do not add `Math.cos` calls back to the inner loop)
+7. Top-left 16×16 DCT coefficients → median threshold → 256-bit hash
+
+**If any step changes, truncate `card_hashes` and re-seed.** `computePHash256Foil` uses `percentileCap(0.92)` instead of 0.98 — client-side only, never changes stored hashes.
+
+#### Auto-scan
+
+Toggle in the gear menu (right sidebar). Setting persisted to `localStorage` key `arcanevault_scanner_autoscan`. When on:
+- Replaces the manual Scan button with a pulsing status badge
+- After a match: 1800 ms cooldown before next scan
+- After a miss: 600 ms cooldown
+- Pauses automatically when any overlay is open (basket, add-flow, manual search, settings)
+
+#### captureFrame return shape
+
+```js
+{ imageData, srcCanvas, w, h, smallImageData, sw, sh }
+// imageData    — full-res, for warpCard
+// srcCanvas    — HTMLCanvasElement with full frame drawn, for cropCardFromReticle
+// smallImageData — half-res, for detectCardCorners (GPU-downscaled via drawImage)
+// sw, sh       — smallImageData dimensions (≈ w/2, h/2)
+```
+
+Corner coords from `detectCardCorners(smallImageData, sw, sh)` are in small-image space — scale back with `scaleX = w/sw, scaleY = h/sh` before passing to `warpCard`.
+
+#### Other implementation notes
+
+- **Camera resolution**: web path requests `ideal: 1280×720`. Native uses `enableHighResolution: true` with the device screen size.
+- **Scratch canvases**: `ScannerEngine.js` maintains module-level reusable canvases (`_cardCanvas` 500×700, `_artCanvas` 424×248, `_srcCanvas` dynamic). `CardScanner.jsx` adds `_smallFrameCanvas` for the pre-downscaled corner detection frame.
+- **BigInt precision**: Supabase BIGINT returned as JS Number loses bits >53. Read `phash_hex TEXT` (64 hex chars) exclusively.
+- **IDB hash cache**: `DatabaseService` stores `hash_u32: number[]` in IDB so warm starts skip all hex parsing. Web path loads 1000-row pages, page 0 sync then 8 pages at a time in background.
+- **OpenCV.js**: Loaded via async CDN `<script>` tag (not bundled). Check `window.cv` readiness via `waitForOpenCV()`.
 - **DEBUG flag**: `CardScanner.jsx` has `const DEBUG = true` at the top — set to `false` once scanner accuracy is confirmed.
 
 ### Life Tracker (`LifeTracker.jsx`)

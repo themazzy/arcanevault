@@ -5,6 +5,39 @@ import { Modal } from './UI'
 import styles from './FeedbackModal.module.css'
 
 const MAX_SCREENSHOT_SIZE = 8 * 1024 * 1024
+const APP_VERSION = '0.1.0'
+
+function collectDeviceInfo() {
+  const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection
+  return {
+    app_version: APP_VERSION,
+    url: window.location.href,
+    user_agent: navigator.userAgent,
+    platform: navigator.platform,
+    language: navigator.language,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    screen: {
+      width: window.screen.width,
+      height: window.screen.height,
+      dpr: window.devicePixelRatio,
+    },
+    viewport: {
+      width: window.innerWidth,
+      height: window.innerHeight,
+    },
+    online: navigator.onLine,
+    touch_points: navigator.maxTouchPoints,
+    device_memory: navigator.deviceMemory ?? null,
+    hardware_concurrency: navigator.hardwareConcurrency ?? null,
+    connection: conn
+      ? { effective_type: conn.effectiveType, downlink: conn.downlink, rtt: conn.rtt }
+      : null,
+    pwa: window.matchMedia('(display-mode: standalone)').matches,
+    prefers_dark: window.matchMedia('(prefers-color-scheme: dark)').matches,
+    prefers_reduced_motion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    recent_errors: window.__arcaneErrors?.slice() ?? [],
+  }
+}
 
 const safeFileName = (fileName) =>
   fileName
@@ -72,6 +105,7 @@ export default function FeedbackModal({ onClose }) {
           contact: contact.trim() || null,
           user_id: user?.id || null,
           user_email: user?.email || null,
+          device_info: collectDeviceInfo(),
         })
         .select('id')
         .single()
