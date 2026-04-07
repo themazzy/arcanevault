@@ -1747,6 +1747,25 @@
   transition: width 0.25s ease;
 }
 
+/* Indeterminate shimmer — shown when width is 0% but loading is active */
+.loadingPillBar:has(.loadingPillFill[style*="width: 0%"]) {
+  overflow: visible;
+  position: relative;
+}
+.loadingPillBar:has(.loadingPillFill[style*="width: 0%"])::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent 0%, rgba(201,168,76,0.5) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: loadingShimmer 1.4s ease-in-out infinite;
+}
+@keyframes loadingShimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 /* ── Settings panel ── */
 .settingsPanel {
   position: absolute;

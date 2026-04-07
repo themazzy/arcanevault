@@ -351,18 +351,20 @@ class DatabaseService {
   async _loadWebCache(onProgress) {
     this._emitProgress(onProgress, { phase: 'checking cache', source: 'idb', loadedCount: 0 })
 
-    // Fetch IDB cache and remote total in parallel to avoid serial round trips
-    const [cachedRows, cachedTotal, remoteTotal] = await Promise.all([
+    // Fetch IDB cache, cached total, remote count, AND the first network page
+    // all in parallel. By the time we know it's a cache miss, page 0 is already
+    // in hand — eliminates the extra round-trip that caused the bar to stick at 0%.
+    const [cachedRows, cachedTotal, remoteTotal, firstNetworkPage] = await Promise.all([
       getAllScannerHashEntries().catch(() => []),
       getMeta('scanner_hash_total_count').then(v => Number(v) || 0).catch(() => 0),
       this._fetchTotalCount().catch(() => 0),
+      this._fetchWebPage(0).catch(() => []),
     ])
 
     const expectedTotal = remoteTotal || cachedTotal
     const hasCompleteCache = expectedTotal > 0 && cachedRows.length >= expectedTotal
-    const shouldRefreshCache = cachedRows.length > 0 && expectedTotal > 0 && cachedRows.length !== expectedTotal
 
-    if (cachedRows?.length && hasCompleteCache && !shouldRefreshCache) {
+    if (hasCompleteCache) {
       // Yield to main thread so React can paint "building index" before the
       // synchronous map+rebuildIndex blocks the thread.
       this._emitProgress(onProgress, {
@@ -385,17 +387,11 @@ class DatabaseService {
       return
     }
 
-    if (cachedRows?.length && shouldRefreshCache) {
-      this._emitProgress(onProgress, {
-        loadedCount: cachedRows.length,
-        totalCount: expectedTotal,
-        phase: 'refreshing cache',
-        source: 'network',
-      })
+    // Cache is missing or stale — use the page we already fetched speculatively.
+    if (cachedRows.length > 0) {
       await clearScannerHashEntries().catch(() => {})
     }
 
-    // Fetch first page and save total in parallel — first page available immediately
     const totalCount = expectedTotal
     this._emitProgress(onProgress, {
       loadedCount: 0,
@@ -404,8 +400,8 @@ class DatabaseService {
       source: 'network',
     })
 
-    const firstPage = await this._fetchWebPage(0)
-    const augmentedFirst = augmentWithParsed(firstPage)
+    // firstNetworkPage already fetched — process immediately
+    const augmentedFirst = augmentWithParsed(firstNetworkPage)
     this._hashes = augmentedFirst.map(rowToHash).filter(Boolean)
     this._rebuildIndex()
     await Promise.all([
@@ -415,11 +411,11 @@ class DatabaseService {
     this._emitProgress(onProgress, {
       loadedCount: this._hashes.length,
       totalCount: totalCount || this._hashes.length,
-      phase: firstPage.length === PAGE_SIZE ? 'downloading hashes' : 'ready',
+      phase: firstNetworkPage.length === PAGE_SIZE ? 'downloading hashes' : 'ready',
       source: 'network',
     })
 
-    if (firstPage.length === PAGE_SIZE) {
+    if (firstNetworkPage.length === PAGE_SIZE) {
       this._loadPromise = this._continueWebLoad(1, onProgress, totalCount)
         .finally(() => {
           this._fullyLoaded = true
