@@ -100,6 +100,13 @@
   position: fixed; inset: 0;
   background: rgba(0,0,0,0.55);
   z-index: 499;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s cubic-bezier(.4,0,.2,1);
+}
+.mobileOverlayOpen {
+  opacity: 1;
+  pointer-events: auto;
 }
 .mobileNav {
   position: fixed;
