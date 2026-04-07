@@ -3,6 +3,11 @@ import { enrichCards, getInstantCache } from './scryfall'
 
 const SET_CHUNK_SIZE = 50
 
+// Per-set-code price row cache — avoids re-fetching card_prices on every navigation.
+// Prices only change daily; 10-minute in-memory TTL is safe.
+const _setRowCache = new Map() // set_code → { rows: [], fetchedAt: number }
+const PRICE_CACHE_TTL_MS = 10 * 60 * 1000
+
 function isoDateUtc(daysOffset = 0) {
   const date = new Date()
   date.setUTCHours(0, 0, 0, 0)
@@ -43,31 +48,56 @@ export async function overlaySharedCardPrices(cards, baseMap = {}) {
 
   const today = isoDateUtc(0)
   const yesterday = isoDateUtc(-1)
-  const rows = []
+  const now = Date.now()
 
-  for (let i = 0; i < setCodes.length; i += SET_CHUNK_SIZE) {
-    const chunk = setCodes.slice(i, i + SET_CHUNK_SIZE)
-    const { data, error } = await sb
-      .from('card_prices')
-      .select(`
-        scryfall_id,
-        set_code,
-        collector_number,
-        snapshot_date,
-        price_regular_eur,
-        price_foil_eur,
-        price_regular_usd,
-        price_foil_usd,
-        updated_at
-      `)
-      .in('set_code', chunk)
-      .in('snapshot_date', [today, yesterday])
+  // Fetch only set codes not already cached (or expired)
+  const toFetch = setCodes.filter(s => {
+    const cached = _setRowCache.get(s)
+    return !cached || now - cached.fetchedAt > PRICE_CACHE_TTL_MS
+  })
 
-    if (error) {
-      console.warn('[Prices] Could not load shared card prices:', error.message)
-      return { ...baseMap }
+  if (toFetch.length) {
+    const fetched = []
+    for (let i = 0; i < toFetch.length; i += SET_CHUNK_SIZE) {
+      const chunk = toFetch.slice(i, i + SET_CHUNK_SIZE)
+      const { data, error } = await sb
+        .from('card_prices')
+        .select(`
+          scryfall_id,
+          set_code,
+          collector_number,
+          snapshot_date,
+          price_regular_eur,
+          price_foil_eur,
+          price_regular_usd,
+          price_foil_usd,
+          updated_at
+        `)
+        .in('set_code', chunk)
+        .in('snapshot_date', [today, yesterday])
+
+      if (error) {
+        console.warn('[Prices] Could not load shared card prices:', error.message)
+        return { ...baseMap }
+      }
+      fetched.push(...(data || []))
     }
-    rows.push(...(data || []))
+
+    // Group fetched rows by set_code and store in cache
+    const bySet = {}
+    for (const row of fetched) {
+      if (!bySet[row.set_code]) bySet[row.set_code] = []
+      bySet[row.set_code].push(row)
+    }
+    for (const s of toFetch) {
+      _setRowCache.set(s, { rows: bySet[s] || [], fetchedAt: now })
+    }
+  }
+
+  // Collect rows from cache for all requested set codes
+  const rows = []
+  for (const s of setCodes) {
+    rows.push(...(_setRowCache.get(s)?.rows || []))
   }
 
   const currentByKey = {}
