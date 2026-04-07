@@ -216,6 +216,14 @@
   overflow: hidden;
 }
 
+/* Auto-scan mode: position/size driven by inline style (pixel-based) so
+   CSS transitions can animate between detected card positions smoothly.
+   The CSS top/left/transform defaults are overridden by inline style. */
+.targetFrameAutoScan {
+  transition: top 0.12s ease-out, left 0.12s ease-out,
+              width 0.12s ease-out, height 0.12s ease-out;
+}
+
 /* Corner brackets */
 .corner {
   position: absolute;
