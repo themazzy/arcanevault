@@ -271,6 +271,30 @@ export default function CollectionPage() {
     return () => worker.removeEventListener('message', handler)
   }, [])
 
+  // ── Orphan cleanup — runs once per mount after both syncs complete ───────────
+  const orphanCheckDone = useRef(false)
+  useEffect(() => {
+    if (loading || folderMembershipLoading || !isOnline || !cards.length || orphanCheckDone.current) return
+    orphanCheckDone.current = true
+    const orphanIds = cards.filter(c => !cardFolderMap[c.id]?.length).map(c => c.id)
+    if (!orphanIds.length) return
+    console.log(`[Collection] Cleaning up ${orphanIds.length} orphaned cards`)
+    const orphanSet = new Set(orphanIds)
+    const BATCH = 100;
+    (async () => {
+      try {
+        for (let i = 0; i < orphanIds.length; i += BATCH) {
+          const batch = orphanIds.slice(i, i + BATCH)
+          await sb.from('cards').delete().in('id', batch)
+          for (const id of batch) await deleteCard(id)
+        }
+        setCards(prev => prev.filter(c => !orphanSet.has(c.id)))
+      } catch (err) {
+        console.error('[Collection] Orphan cleanup failed:', err.message)
+      }
+    })()
+  }, [loading, folderMembershipLoading, cards, cardFolderMap, isOnline])
+
   // ── Scryfall enrichment ──────────────────────────────────────────────────────
   const startEnrichment = useCallback(async (rawCards) => {
     if (enrichingRef.current) return
@@ -450,8 +474,18 @@ export default function CollectionPage() {
       else folderFail++
     }
 
+    // ── Prune any imported cards that ended up with no folder placement ────────
+    const importedIds = dedupedCards
+      .map(c => cardKeyMap[`${c.set_code}-${c.collector_number}-${c.foil}-${c.language}-${c.condition}`])
+      .filter(Boolean)
+    const prunedOrphans = await pruneUnplacedCards(importedIds).catch(err => {
+      console.warn('[Import] Orphan prune failed:', err.message)
+      return []
+    })
+    if (prunedOrphans.length) console.log(`[Import] Pruned ${prunedOrphans.length} cards with no folder placement`)
+
     // ── Done ────────────────────────────────────────────────────────────────
-    let msg = `Done — ${dedupedCards.length} cards, ${folderOk}/${folderList.length} folders linked`
+    let msg = `Done — ${dedupedCards.length - prunedOrphans.length} cards, ${folderOk}/${folderList.length} folders linked`
     if (totalMissed > 0) msg += ` (${totalMissed} card rows not matched)`
     if (folderFail > 0) setError(`${folderFail} folder(s) failed to link — check the browser console for details.`)
     setProgLabel(msg)
