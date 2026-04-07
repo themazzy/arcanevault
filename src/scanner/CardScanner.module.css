@@ -32,6 +32,15 @@
 }
 .hiddenCanvas { display: none; }
 
+.cornerOverlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
 /* Overlay rendered on top of camera (transparent on native, dim on web) */
 .overlay {
   position: absolute;
@@ -852,6 +861,14 @@
 .latestFoilIcon {
   font-size: 1rem;
   line-height: 1;
+}
+
+.conditionBtn {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  min-width: 32px;
+  font-family: var(--font-display);
 }
 
 .latestActionX {
@@ -1960,4 +1977,80 @@
 .settingsInlineBtn:hover {
   background: rgba(201,168,76,0.12);
   border-color: rgba(201,168,76,0.6);
+}
+
+/* ── Set chips (multi-set lock) ── */
+.setChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(201,168,76,0.15);
+  border: 1px solid rgba(201,168,76,0.4);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 0.7rem;
+  color: var(--gold, #c9a84c);
+  margin: 0 2px;
+}
+.setChipRemove {
+  background: none;
+  border: none;
+  color: inherit;
+  opacity: 0.7;
+  cursor: pointer;
+  padding: 0;
+  font-size: 0.6rem;
+  line-height: 1;
+}
+.setChipRemove:hover { opacity: 1; }
+
+/* ── Numeric stepper (min price setting) ── */
+.settingsNumericInput {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.settingsNumericBtn {
+  background: var(--s3, rgba(255,255,255,0.08));
+  border: 1px solid var(--s-border2, rgba(255,255,255,0.12));
+  border-radius: 4px;
+  color: var(--text);
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.settingsNumericBtn:hover { background: var(--s4, rgba(255,255,255,0.12)); }
+.settingsNumericValue {
+  font-size: 0.8rem;
+  color: var(--text);
+  min-width: 36px;
+  text-align: center;
+}
+
+/* ── Session statistics ── */
+.sessionStats {
+  padding: 10px 16px 12px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  margin-top: 4px;
+}
+.sessionStatsSectionLabel {
+  display: block;
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 6px;
+}
+.sessionStatsRow {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  padding: 2px 0;
 }

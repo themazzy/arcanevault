@@ -23,6 +23,7 @@ import { formatPriceMeta, getPriceWithMeta, sfGet } from '../lib/scryfall'
 import { sb } from '../lib/supabase'
 import { useSettings } from '../components/SettingsContext'
 import styles from './CardScanner.module.css'
+import { playMatchSound } from './scanSounds'
 
 const MATCH_THRESHOLD        = 122
 const MATCH_MIN_GAP          = 8
@@ -38,7 +39,7 @@ const FAST_PRIMARY_VARIANTS = [PRIMARY_CROP_VARIANTS[0]]
 const STABILITY_SAMPLES   = 3
 const STABILITY_REQUIRED  = 2
 const SAMPLE_DELAY_MS     = 40
-const DEBUG               = true
+const DEBUG               = false
 const NATIVE_CAPTURE_SETTLE_MS = 120
 const PENDING_KEY         = 'arcanevault_scan_basket'
 const SET_ICON_CACHE_KEY  = 'arcanevault_scan_set_icons'
@@ -98,6 +99,13 @@ function saveSetIconCache(cache) {
 let _uidCounter = Date.now()
 function nextUid() { return String(++_uidCounter) }
 
+const CONDITIONS = ['NM', 'LP', 'MP', 'HP', 'DMG']
+const CONDITION_DB = { NM: 'near_mint', LP: 'lightly_played', MP: 'moderately_played', HP: 'heavily_played', DMG: 'damaged' }
+function cycleCondition(current) {
+  const idx = CONDITIONS.indexOf(current)
+  return CONDITIONS[(idx + 1) % CONDITIONS.length]
+}
+
 function getOwnedCardKey(c) {
   const printPart = c.card_print_id ? `print:${c.card_print_id}` : `set:${c.set_code}|${c.collector_number}`
   return [printPart, c.foil ? 1 : 0, c.language || 'en', c.condition || 'near_mint'].join('|')
@@ -116,7 +124,7 @@ async function batchSaveCards({ userId, cards, folderId, folderType }) {
         scryfall_id: c.id,
         foil: c.foil,
         qty: c.qty ?? 1,
-        condition: 'near_mint',
+        condition: CONDITION_DB[c.condition] || 'near_mint',
         language: c.language || 'en',
         currency: 'EUR',
       }
@@ -319,10 +327,15 @@ export default function CardScanner({ onMatch, onClose }) {
   const { price_source } = useSettings()
   const isNative = Capacitor.isNativePlatform()
 
-  const videoRef    = useRef(null)
-  const canvasRef   = useRef(null)
-  const mountedRef  = useRef(true)
+  const videoRef          = useRef(null)
+  const canvasRef         = useRef(null)
+  const cornerOverlayRef  = useRef(null)
+  const mountedRef        = useRef(true)
   const autoScanRef = useRef(false)
+  const lastAutoScanIdRef = useRef(null)
+  const lastSoundCardUidRef = useRef(null)
+  const sessionStatsRef = useRef({ attempts: 0, hits: 0, totalMs: 0 })
+  const [sessionStatsDisplay, setSessionStatsDisplay] = useState({ attempts: 0, hits: 0, totalMs: 0 })
   const manualSearchRequestRef = useRef(0)
   const setIconFetchesRef = useRef(new Set())
 
@@ -386,7 +399,21 @@ export default function CardScanner({ onMatch, onClose }) {
   const [lockSet, setLockSet] = useState(() => {
     try { return localStorage.getItem('arcanevault_scanner_lock_set') === '1' } catch { return false }
   })
-  const [lockedSetCode, setLockedSetCode] = useState(null)
+  const [scanSounds, setScanSounds] = useState(() => {
+    try { return localStorage.getItem('arcanevault_scanner_sounds') !== '0' } catch { return true }
+  })
+  const [liveCorners, setLiveCorners] = useState(() => {
+    try { return localStorage.getItem('arcanevault_scanner_live_corners') === '1' } catch { return false }
+  })
+  const [minPriceThreshold, setMinPriceThreshold] = useState(() => {
+    try { return parseFloat(localStorage.getItem('arcanevault_scanner_min_price') || '0') || 0 } catch { return 0 }
+  })
+  const [lockedSets, setLockedSets] = useState(() => {
+    try {
+      const raw = localStorage.getItem('arcanevault_scanner_locked_sets')
+      return raw ? new Set(JSON.parse(raw)) : new Set()
+    } catch { return new Set() }
+  })
 
   const isReady = cvReady && dbReady
   const availableFlashModes = flashModes.includes('torch')
@@ -408,13 +435,99 @@ export default function CardScanner({ onMatch, onClose }) {
   }, [preferFoil])
   useEffect(() => {
     try { localStorage.setItem('arcanevault_scanner_lock_set', lockSet ? '1' : '0') } catch {}
-    if (!lockSet) setLockedSetCode(null)
+    if (!lockSet) setLockedSets(new Set())
   }, [lockSet])
+  useEffect(() => {
+    try { localStorage.setItem('arcanevault_scanner_sounds', scanSounds ? '1' : '0') } catch {}
+  }, [scanSounds])
+  useEffect(() => {
+    try { localStorage.setItem('arcanevault_scanner_live_corners', liveCorners ? '1' : '0') } catch {}
+  }, [liveCorners])
+  useEffect(() => {
+    try { localStorage.setItem('arcanevault_scanner_min_price', String(minPriceThreshold)) } catch {}
+  }, [minPriceThreshold])
+  useEffect(() => {
+    try { localStorage.setItem('arcanevault_scanner_locked_sets', JSON.stringify([...lockedSets])) } catch {}
+  }, [lockedSets])
   useEffect(() => {
     if (!saveNotice) return undefined
     const timer = window.setTimeout(() => setSaveNotice(null), 2200)
     return () => window.clearTimeout(timer)
   }, [saveNotice])
+
+  // ── Scan sound — plays when price data arrives for a newly scanned card ─────
+  useEffect(() => {
+    if (!scanSounds) return
+    if (!latestPending || !latestPrintingData) return
+    if (lastSoundCardUidRef.current === latestPending.uid) return
+    lastSoundCardUidRef.current = latestPending.uid
+    const priceMeta = getPriceWithMeta(latestPrintingData, latestPending.foil, { price_source })
+    playMatchSound(priceMeta?.value ?? 0)
+  }, [scanSounds, latestPending, latestPrintingData, price_source])
+
+  // ── Live corner overlay — rAF loop drawing detected card outline ────────────
+  // Web-only (native uses CameraPreview behind the WebView). Defaults off.
+  // Pauses during active scans to avoid OpenCV contention.
+  useEffect(() => {
+    const overlayCanvas = cornerOverlayRef.current
+    if (!overlayCanvas) return
+    // Always clear when effect re-runs (scanning started, feature toggled off, etc.)
+    const overlayCtx = overlayCanvas.getContext('2d')
+    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height)
+
+    if (isNative || !liveCorners || !isReady || !cameraStarted || scanning) return
+
+    let frameCount = 0
+    let animHandle = null
+    let stopped = false
+
+    const loop = () => {
+      if (stopped) return
+      frameCount++
+      animHandle = requestAnimationFrame(loop)
+
+      // Detect every 3rd frame (~10fps on 30fps camera) to limit CPU usage
+      if (frameCount % 3 !== 0) return
+
+      const vid = videoRef.current
+      if (!vid?.videoWidth) return
+
+      const sw = Math.round(vid.videoWidth / 2)
+      const sh = Math.round(vid.videoHeight / 2)
+      if (overlayCanvas.width !== sw) overlayCanvas.width = sw
+      if (overlayCanvas.height !== sh) overlayCanvas.height = sh
+
+      const { ctx: smallCtx } = getSmallFrameCanvas(sw, sh)
+      smallCtx.drawImage(vid, 0, 0, sw, sh)
+      let smallImageData
+      try { smallImageData = smallCtx.getImageData(0, 0, sw, sh) } catch { return }
+
+      const corners = detectCardCorners(smallImageData, sw, sh)
+      overlayCtx.clearRect(0, 0, sw, sh)
+
+      if (corners?.length === 4) {
+        overlayCtx.beginPath()
+        overlayCtx.moveTo(corners[0].x, corners[0].y)
+        for (let i = 1; i < 4; i++) overlayCtx.lineTo(corners[i].x, corners[i].y)
+        overlayCtx.closePath()
+        overlayCtx.strokeStyle = 'rgba(201,168,76,0.75)'
+        overlayCtx.lineWidth = 2
+        overlayCtx.stroke()
+        for (const pt of corners) {
+          overlayCtx.beginPath()
+          overlayCtx.arc(pt.x, pt.y, 5, 0, Math.PI * 2)
+          overlayCtx.fillStyle = 'rgba(201,168,76,0.85)'
+          overlayCtx.fill()
+        }
+      }
+    }
+
+    animHandle = requestAnimationFrame(loop)
+    return () => {
+      stopped = true
+      if (animHandle) cancelAnimationFrame(animHandle)
+    }
+  }, [isNative, liveCorners, isReady, cameraStarted, scanning])
 
   // ── Init DB + OpenCV ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -676,19 +789,24 @@ export default function CardScanner({ onMatch, onClose }) {
 
   const addToPending = useCallback((match, { foil = false } = {}) => {
     const entry = {
-      uid:      nextUid(),
-      id:       match.id,
-      name:     match.name,
-      setCode:  match.setCode,
-      collNum:  match.collNum,
-      imageUri: match.imageUri,
+      uid:       nextUid(),
+      id:        match.id,
+      name:      match.name,
+      setCode:   match.setCode,
+      collNum:   match.collNum,
+      imageUri:  match.imageUri,
       foil,
-      qty:      1,
-      language: 'en',
+      qty:       1,
+      language:  'en',
+      condition: 'NM',
     }
     setPendingCards(prev => {
-      // Deduplicate: if same card+foil already in basket, increment qty
-      const idx = prev.findIndex(c => c.id === entry.id && c.foil === entry.foil && (c.language || 'en') === entry.language)
+      // Deduplicate: if same card+foil+condition already in basket, increment qty
+      const idx = prev.findIndex(c =>
+        c.id === entry.id && c.foil === entry.foil &&
+        (c.language || 'en') === entry.language &&
+        (c.condition || 'NM') === entry.condition
+      )
       if (idx !== -1) {
         const existing = prev[idx]
         const next = prev.filter((_, i) => i !== idx)
@@ -782,18 +900,23 @@ export default function CardScanner({ onMatch, onClose }) {
   const addManualCard = useCallback((sf) => {
     const imgUri = getCardImg(sf)
     const entry = {
-      uid:      nextUid(),
-      id:       sf.id,
-      name:     sf.name,
-      setCode:  sf.set,
-      collNum:  sf.collector_number,
-      imageUri: imgUri,
-      foil:     false,
-      qty:      1,
-      language: 'en',
+      uid:       nextUid(),
+      id:        sf.id,
+      name:      sf.name,
+      setCode:   sf.set,
+      collNum:   sf.collector_number,
+      imageUri:  imgUri,
+      foil:      false,
+      qty:       1,
+      language:  'en',
+      condition: 'NM',
     }
     setPendingCards(prev => {
-      const idx = prev.findIndex(c => c.id === entry.id && c.foil === entry.foil && (c.language || 'en') === entry.language)
+      const idx = prev.findIndex(c =>
+        c.id === entry.id && c.foil === entry.foil &&
+        (c.language || 'en') === entry.language &&
+        (c.condition || 'NM') === entry.condition
+      )
       if (idx !== -1) {
         const existing = prev[idx]
         const next = prev.filter((_, i) => i !== idx)
@@ -1034,6 +1157,7 @@ export default function CardScanner({ onMatch, onClose }) {
     if (!isReady || scanning || !mountedRef.current) return
     setScanning(true)
     setScanResult(null)
+    const scanStart = Date.now()
     try {
       const votes = new Map()
       let bestObserved = null, bestObservedGap = null
@@ -1086,22 +1210,41 @@ export default function CardScanner({ onMatch, onClose }) {
         })
       }
 
-      if (!match) { setScanResult('notfound'); return }
-
-      // Lock-set filtering: reject matches from a different set than the locked one.
-      // When lock mode is on but no set is locked yet, the first match locks it in.
-      if (lockSet) {
-        if (lockedSetCode && match.setCode !== lockedSetCode) {
-          setScanResult('notfound')
-          if (DEBUG && mountedRef.current)
-            setDebugInfo(d => ({ ...(d || {}), decision: `locked to ${lockedSetCode}, got ${match.setCode}` }))
-          return
-        }
-        if (!lockedSetCode) setLockedSetCode(match.setCode)
+      const elapsed = Date.now() - scanStart
+      if (!match) {
+        if (isAutoScan) lastAutoScanIdRef.current = null
+        sessionStatsRef.current.attempts++
+        sessionStatsRef.current.totalMs += elapsed
+        setSessionStatsDisplay({ ...sessionStatsRef.current })
+        setScanResult('notfound')
+        return
       }
 
+      // Lock-set filtering: reject matches not in the locked set list.
+      // When lock mode is on and no sets are locked yet, the first match locks its set in.
+      if (lockSet) {
+        if (lockedSets.size > 0 && !lockedSets.has(match.setCode)) {
+          sessionStatsRef.current.attempts++
+          sessionStatsRef.current.totalMs += elapsed
+          setSessionStatsDisplay({ ...sessionStatsRef.current })
+          setScanResult('notfound')
+          return
+        }
+        if (lockedSets.size === 0) setLockedSets(new Set([match.setCode]))
+      }
+
+      sessionStatsRef.current.attempts++
+      sessionStatsRef.current.hits++
+      sessionStatsRef.current.totalMs += elapsed
+      setSessionStatsDisplay({ ...sessionStatsRef.current })
       setScanResult('found')
-      addToPending(match, { foil: preferFoil })
+      // In auto-scan mode, skip adding if this is the same card as the last scan
+      // (prevents quantity inflation when a card sits in frame across multiple cycles)
+      const isDuplicate = isAutoScan && match.id === lastAutoScanIdRef.current
+      if (!isDuplicate) {
+        if (isAutoScan) lastAutoScanIdRef.current = match.id
+        addToPending(match, { foil: preferFoil })
+      }
       try { await Haptics.impact({ style: ImpactStyle.Medium }) } catch {}
       onMatch?.(match)
     } catch (e) {
@@ -1110,7 +1253,7 @@ export default function CardScanner({ onMatch, onClose }) {
     } finally {
       if (mountedRef.current) setScanning(false)
     }
-  }, [isReady, scanning, scanSingleFrame, addToPending, onMatch, lockSet, lockedSetCode, preferFoil])
+  }, [isReady, scanning, scanSingleFrame, addToPending, onMatch, lockSet, lockedSets, preferFoil])
 
   // ── Auto-scan loop ────────────────────────────────────────────────────────
   // Re-runs whenever scanning goes idle. Schedules the next handleScan() call
@@ -1120,7 +1263,7 @@ export default function CardScanner({ onMatch, onClose }) {
   useEffect(() => {
     if (!autoScan || !isReady || scanning) return
     if (addFlowOpen || basketExpanded || manualSearchOpen || settingsOpen) return
-    const cooldown = scanResult === 'found' ? 1800 : 600
+    const cooldown = scanResult === 'found' ? 1000 : 350
     const timer = window.setTimeout(() => { handleScan() }, cooldown)
     return () => window.clearTimeout(timer)
   }, [autoScan, isReady, scanning, addFlowOpen, basketExpanded, manualSearchOpen, settingsOpen, handleScan, scanResult])
@@ -1197,6 +1340,7 @@ export default function CardScanner({ onMatch, onClose }) {
       {!isNative && (
         <>
           <video ref={videoRef} className={styles.video} playsInline muted />
+          <canvas ref={cornerOverlayRef} className={styles.cornerOverlay} aria-hidden="true" />
           <canvas ref={canvasRef} className={styles.hiddenCanvas} />
         </>
       )}
@@ -1299,14 +1443,16 @@ export default function CardScanner({ onMatch, onClose }) {
           {preparing && !errorMsg && <div className={styles.preparingSpinner}>+</div>}
           {scanning && <div className={styles.pausedLabel}>Scanning...</div>}
           {isReady && !scanning && !preparing && <div className={styles.scanLine} />}
-          {lockSet && lockedSetCode && (
+          {lockSet && lockedSets.size > 0 && (
             <div className={styles.lockedSetBadge}>
               <span className={styles.lockedSetIcon}>⬡</span>
-              {lockedSetCode.toUpperCase()}
-              <button className={styles.lockedSetClear} onClick={() => setLockedSetCode(null)} title="Clear locked set">✕</button>
+              {lockedSets.size === 1
+                ? [...lockedSets][0].toUpperCase()
+                : `${lockedSets.size} sets`}
+              <button className={styles.lockedSetClear} onClick={() => setLockedSets(new Set())} title="Clear locked sets">✕</button>
             </div>
           )}
-          {lockSet && !lockedSetCode && (
+          {lockSet && lockedSets.size === 0 && (
             <div className={styles.lockedSetBadge} style={{ opacity: 0.45 }}>
               <span className={styles.lockedSetIcon}>⬡</span>
               Scan to lock set
@@ -1348,7 +1494,7 @@ export default function CardScanner({ onMatch, onClose }) {
                     {latestPending.collNum ? ` #${latestPending.collNum}` : ''}
                   </div>
                   <div className={styles.latestCardPrice}>
-                    {latestPriceMeta ? formatPriceMeta(latestPriceMeta) : '—'}
+                    {latestPriceMeta && latestPriceMeta.value >= minPriceThreshold ? formatPriceMeta(latestPriceMeta) : '—'}
                   </div>
                 </div>
               </div>
@@ -1407,6 +1553,14 @@ export default function CardScanner({ onMatch, onClose }) {
                   disabled={!hasFoilVersion}
                 >
                   <span className={styles.latestFoilIcon} aria-hidden="true">✦</span>
+                </button>
+                <button
+                  className={`${styles.latestActionIconBtn} ${styles.conditionBtn} ${(latestPending.condition || 'NM') !== 'NM' ? styles.latestActionBtnActive : ''}`}
+                  onClick={() => updatePending(latestPending.uid, { condition: cycleCondition(latestPending.condition || 'NM') })}
+                  title={`Condition: ${latestPending.condition || 'NM'} — tap to cycle`}
+                  aria-label={`Condition: ${latestPending.condition || 'NM'}`}
+                >
+                  {latestPending.condition || 'NM'}
                 </button>
                 <button
                   className={`${styles.latestActionIconBtn} ${styles.latestActionDanger}`}
@@ -1545,6 +1699,14 @@ export default function CardScanner({ onMatch, onClose }) {
                         disabled={!historyHasFoilVersion}
                       >
                         <span className={styles.historyFoilIcon} aria-hidden="true">✦</span>
+                      </button>
+                      <button
+                        className={`${styles.historyActionIconBtn} ${styles.conditionBtn} ${(card.condition || 'NM') !== 'NM' ? styles.latestActionBtnActive : ''}`}
+                        onClick={() => updatePending(card.uid, { condition: cycleCondition(card.condition || 'NM') })}
+                        title={`Condition: ${card.condition || 'NM'} — tap to cycle`}
+                        aria-label={`Condition: ${card.condition || 'NM'}`}
+                      >
+                        {card.condition || 'NM'}
                       </button>
                       <button
                         className={`${styles.historyActionIconBtn} ${styles.latestActionDanger}`}
@@ -1777,15 +1939,61 @@ export default function CardScanner({ onMatch, onClose }) {
 
           <div className={styles.settingsRow}>
             <div className={styles.settingsRowLabel}>
+              <span className={styles.settingsRowTitle}>Scan sounds</span>
+              <span className={styles.settingsRowDesc}>Play a tone when a card is matched — pitch varies by card value</span>
+            </div>
+            <button role="switch" aria-checked={scanSounds}
+              className={`${styles.toggle} ${scanSounds ? styles.toggleOn : ''}`}
+              onClick={() => setScanSounds(v => !v)}>
+              <span className={styles.toggleThumb} />
+            </button>
+          </div>
+
+          <div className={styles.settingsRow}>
+            <div className={styles.settingsRowLabel}>
+              <span className={styles.settingsRowTitle}>Min. price display</span>
+              <span className={styles.settingsRowDesc}>Hide price on cards worth less than this amount (0 = always show)</span>
+            </div>
+            <div className={styles.settingsNumericInput}>
+              <button className={styles.settingsNumericBtn} onClick={() => setMinPriceThreshold(v => Math.max(0, +(v - 0.5).toFixed(2)))}>−</button>
+              <span className={styles.settingsNumericValue}>{minPriceThreshold === 0 ? 'Off' : `${minPriceThreshold.toFixed(2)}`}</span>
+              <button className={styles.settingsNumericBtn} onClick={() => setMinPriceThreshold(v => +(v + 0.5).toFixed(2))}>+</button>
+            </div>
+          </div>
+
+          {!isNative && (
+            <div className={styles.settingsRow}>
+              <div className={styles.settingsRowLabel}>
+                <span className={styles.settingsRowTitle}>Live card outline</span>
+                <span className={styles.settingsRowDesc}>Show detected card edges on the camera feed in real time</span>
+              </div>
+              <button role="switch" aria-checked={liveCorners}
+                className={`${styles.toggle} ${liveCorners ? styles.toggleOn : ''}`}
+                onClick={() => setLiveCorners(v => !v)}>
+                <span className={styles.toggleThumb} />
+              </button>
+            </div>
+          )}
+
+          <div className={styles.settingsRow}>
+            <div className={styles.settingsRowLabel}>
               <span className={styles.settingsRowTitle}>Lock set</span>
               <span className={styles.settingsRowDesc}>
-                First scan locks a set — only cards from that set are accepted.
-                {lockSet && lockedSetCode && (
-                  <> Locked to <strong style={{ color: 'var(--gold)' }}>{lockedSetCode.toUpperCase()}</strong>.{' '}
-                    <button className={styles.settingsInlineBtn} onClick={() => setLockedSetCode(null)}>Clear</button>
+                Scan a card to lock its set — only cards from locked sets are accepted.
+                {lockSet && lockedSets.size > 0 && (
+                  <>
+                    {' '}Locked:{' '}
+                    {[...lockedSets].map(code => (
+                      <span key={code} className={styles.setChip}>
+                        {code.toUpperCase()}
+                        <button className={styles.setChipRemove} onClick={() => setLockedSets(prev => { const next = new Set(prev); next.delete(code); return next })} title={`Remove ${code.toUpperCase()}`}>✕</button>
+                      </span>
+                    ))}
+                    {' '}
+                    <button className={styles.settingsInlineBtn} onClick={() => setLockedSets(new Set())}>Clear all</button>
                   </>
                 )}
-                {lockSet && !lockedSetCode && <> Waiting for first scan to lock.</>}
+                {lockSet && lockedSets.size === 0 && <> Waiting for first scan to lock.</>}
               </span>
             </div>
             <button role="switch" aria-checked={lockSet}
@@ -1794,6 +2002,27 @@ export default function CardScanner({ onMatch, onClose }) {
               <span className={styles.toggleThumb} />
             </button>
           </div>
+
+          {sessionStatsDisplay.attempts > 0 && (
+            <div className={styles.sessionStats}>
+              <span className={styles.sessionStatsSectionLabel}>Session</span>
+              <div className={styles.sessionStatsRow}>
+                <span>{sessionStatsDisplay.hits} / {sessionStatsDisplay.attempts} matched</span>
+                <span>{Math.round(sessionStatsDisplay.hits / sessionStatsDisplay.attempts * 100)}%</span>
+              </div>
+              <div className={styles.sessionStatsRow}>
+                <span>Avg scan time</span>
+                <span>{Math.round(sessionStatsDisplay.totalMs / sessionStatsDisplay.attempts)}ms</span>
+              </div>
+              <button
+                className={styles.settingsInlineBtn}
+                onClick={() => { sessionStatsRef.current = { attempts: 0, hits: 0, totalMs: 0 }; setSessionStatsDisplay({ attempts: 0, hits: 0, totalMs: 0 }) }}
+                style={{ marginTop: 4 }}
+              >
+                Reset stats
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
