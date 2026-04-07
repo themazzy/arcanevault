@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { sb } from '../lib/supabase'
-import { getScryfallKey, getPrice, formatPrice } from '../lib/scryfall'
+import { getScryfallKey, getPrice, formatPrice, getInstantCache } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getLocalCards, putCards, deleteCard, deleteAllCards, getAllLocalFolderCards, putFolderCards, getLocalFolders, putFolders, setMeta, getMeta, deleteFolder as deleteLocalFolder, replaceLocalFolderCards, getAllDeckAllocationsForUser, putDeckAllocations, replaceDeckAllocations } from '../lib/db'
 import { parseManaboxCSV } from '../lib/csvParser'
@@ -8,6 +8,7 @@ import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
 import VirtualCardGrid from '../components/VirtualCardGrid'
+import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import { DropZone, ProgressBar, ErrorBox, EmptyState, SectionHeader, Button } from '../components/UI'
 import AddCardModal from '../components/AddCardModal'
 import ExportModal from '../components/ExportModal'
@@ -54,6 +55,9 @@ export default function CollectionPage() {
   const [cardFolderMap, setCardFolderMap] = useState({})
   const [folderMembershipLoading, setFolderMembershipLoading] = useState(true)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
+  const [viewMode, setViewMode] = useState('grid')
+  const [groupBy, setGroupBy]   = useState('none')
+  useEffect(() => { setSelected(new Set()); setSplitState(new Map()); setSelectMode(false) }, [viewMode])
   const workerReqId  = useRef(0)
   const enrichingRef = useRef(false)
 
@@ -69,6 +73,11 @@ export default function CollectionPage() {
     window.addEventListener('offline', off)
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off) }
   }, [])
+
+  // ── Pre-fill sfMap from IDB/memory cache — avoids blank images on navigation ──
+  useEffect(() => {
+    getInstantCache(cache_ttl_h * 3600000).then(map => { if (map) setSfMap(map) })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Load cards — IDB first, Supabase sync in background ──────────────────────
   const loadCards = useCallback(async () => {
@@ -451,16 +460,6 @@ export default function CollectionPage() {
     await loadCards()
   }, [user.id, loadCards])
 
-  // Map selected display keys → unique real card IDs
-  const selectedRealIds = () => {
-    const ids = new Set()
-    for (const key of selected) {
-      const card = displayCards.find(c => (c._displayKey || c.id) === key)
-      if (card) ids.add(card.id)
-    }
-    return [...ids]
-  }
-
   // ── Bulk delete ──────────────────────────────────────────────────────────────
   const handleBulkDelete = async () => {
     const placementRows = []
@@ -795,7 +794,7 @@ export default function CollectionPage() {
     }
     displayCardsRef.current = result
     return result
-  }, [filtered, cardFolderMap])
+  }, [filtered, cardFolderMap, filters])
 
   const selectedCard = detailCardKey ? displayCards.find(c => (c._displayKey || c.id) === detailCardKey) : null
   const selectedSf   = selectedCard ? sfMap[getScryfallKey(selectedCard)] : null
@@ -859,6 +858,11 @@ export default function CollectionPage() {
           </span>
         </div>
 
+        <CardBrowserViewControls
+          viewMode={viewMode} setViewMode={setViewMode}
+          groupBy={groupBy} setGroupBy={setGroupBy}
+        />
+
         {selectMode && selected.size > 0 && (
           <BulkActionBar
             selected={selected} selectedQty={selectedQty}
@@ -886,20 +890,38 @@ export default function CollectionPage() {
           />
         )}
 
-        <div className={styles.gridViewport}>
-          <VirtualCardGrid
-            cards={displayCards} sfMap={sfMap} loading={enriching}
-            onSelect={c => setDetailCardKey(c._displayKey || c.id)}
-            selectMode={selectMode} selected={selected} onToggleSelect={toggleSelect}
-            onEnterSelectMode={() => { setSelectMode(true) }}
-            splitState={splitState} onAdjustQty={onAdjustQty}
+        {viewMode === 'grid' ? (
+          <div className={styles.gridViewport}>
+            <VirtualCardGrid
+              cards={displayCards} sfMap={sfMap} loading={enriching}
+              onSelect={c => setDetailCardKey(c._displayKey || c.id)}
+              selectMode={selectMode} selected={selected} onToggleSelect={toggleSelect}
+              onEnterSelectMode={() => { setSelectMode(true) }}
+              splitState={splitState} onAdjustQty={onAdjustQty}
+              priceSource={price_source}
+              showPrice={show_price} density={grid_density}
+              cardFolders={cardFolderMap}
+            />
+          </div>
+        ) : (
+          <CardBrowserContent
+            cards={filtered}
+            sfMap={sfMap}
             priceSource={price_source}
-            showPrice={show_price} density={grid_density}
-            cardFolders={cardFolderMap}
+            viewMode={viewMode}
+            groupBy={groupBy}
+            density={grid_density}
+            onSelect={c => setDetailCardKey(c._displayKey || c.id)}
+            selectMode={selectMode}
+            selectedCards={selected}
+            onToggleSelect={toggleSelect}
+            onAdjustQty={onAdjustQty}
+            splitState={splitState}
+            onEnterSelectMode={() => setSelectMode(true)}
           />
-        </div>
+        )}
 
-        {displayCards.length === 0 && !enriching && <EmptyState>No cards match your filters.</EmptyState>}
+        {filtered.length === 0 && !enriching && <EmptyState>No cards match your filters.</EmptyState>}
       </>}
 
       {selectedCard && (
