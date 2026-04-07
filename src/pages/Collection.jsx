@@ -103,7 +103,7 @@ export default function CollectionPage() {
       return
     }
 
-    let allCards = [], from = 0
+    let allCards = [], from = 0, fetchComplete = false
     const PAGE = 1000
     while (true) {
       const { data, error: err } = await sb.from('cards')
@@ -111,11 +111,11 @@ export default function CollectionPage() {
         .range(from, from + PAGE - 1)
       if (err) { setError(err.message); break }
       if (data?.length) allCards = [...allCards, ...data]
-      if (!data || data.length < PAGE) break
+      if (!data || data.length < PAGE) { fetchComplete = true; break }
       from += PAGE
     }
 
-    if (allCards.length) {
+    if (allCards.length && fetchComplete) {
       // Prune IDB entries that no longer exist in Supabase (deleted cards)
       // This prevents the brief "doubling" on refresh when IDB is stale
       if (localCards.length) {
