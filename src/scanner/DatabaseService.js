@@ -351,17 +351,18 @@ class DatabaseService {
   async _loadWebCache(onProgress) {
     this._emitProgress(onProgress, { phase: 'checking cache', source: 'idb', loadedCount: 0 })
 
-    // Fetch IDB cache, cached total, remote count, AND the first network page
-    // all in parallel. By the time we know it's a cache miss, page 0 is already
-    // in hand — eliminates the extra round-trip that caused the bar to stick at 0%.
-    const [cachedRows, cachedTotal, remoteTotal, firstNetworkPage] = await Promise.all([
+    // Stage 1: IDB cache + counts only — fast, no page data yet.
+    // Separating this from the page fetch means the user sees the total count
+    // (and a "0/N" progress display) before the first page even arrives.
+    const [cachedRows, cachedTotal, remoteTotal] = await Promise.all([
       getAllScannerHashEntries().catch(() => []),
       getMeta('scanner_hash_total_count').then(v => Number(v) || 0).catch(() => 0),
       this._fetchTotalCount().catch(() => 0),
-      this._fetchWebPage(0).catch(() => []),
     ])
 
     const expectedTotal = remoteTotal || cachedTotal
+    // If the remote count exceeds what we have locally, treat cache as stale
+    // so newly-added sets are picked up on every startup.
     const hasCompleteCache = expectedTotal > 0 && cachedRows.length >= expectedTotal
 
     if (hasCompleteCache) {
@@ -387,20 +388,25 @@ class DatabaseService {
       return
     }
 
-    // Cache is missing or stale — use the page we already fetched speculatively.
+    // Cache is missing, stale, or incomplete (e.g. interrupted download).
     if (cachedRows.length > 0) {
       await clearScannerHashEntries().catch(() => {})
     }
 
     const totalCount = expectedTotal
+    // Emit 0/N so the user sees the full count before page 0 arrives.
     this._emitProgress(onProgress, {
       loadedCount: 0,
       totalCount,
       phase: 'downloading hashes',
       source: 'network',
     })
+    // Yield so React paints the "0/N" state before we block on the network.
+    await new Promise(r => setTimeout(r, 0))
 
-    // firstNetworkPage already fetched — process immediately
+    // Stage 2: fetch page 0 — user sees the bar advance from 0 → ~10%.
+    const firstNetworkPage = await this._fetchWebPage(0).catch(() => [])
+
     const augmentedFirst = augmentWithParsed(firstNetworkPage)
     this._hashes = augmentedFirst.map(rowToHash).filter(Boolean)
     this._rebuildIndex()
