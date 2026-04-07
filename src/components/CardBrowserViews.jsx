@@ -668,9 +668,12 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onT
   )
 }
 
-function GridView({ cards, sfMap, priceSource, onSelect, onHover, onHoverEnd, selectMode, selectedCards, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode }) {
+const DENSITY_MIN_WIDTH = { cozy: 210, comfortable: 160, compact: 128 }
+
+function GridView({ cards, sfMap, priceSource, onSelect, onHover, onHoverEnd, selectMode, selectedCards, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, density }) {
+  const minW = DENSITY_MIN_WIDTH[density] || 160
   return (
-    <div className={styles.cardGrid}>
+    <div className={styles.cardGrid} style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${minW}px, 1fr))` }}>
       {cards.map(card => {
         const key = getDisplayKey(card)
         return (
@@ -788,6 +791,7 @@ export function CardBrowserContent({
   priceSource,
   viewMode,
   groupBy,
+  density,
   onSelect,
   selectMode,
   selectedCards,
@@ -882,6 +886,7 @@ export function CardBrowserContent({
       cards={cards}
       sfMap={sfMap}
       priceSource={priceSource}
+      density={density}
       onSelect={onSelect}
       onHover={onHover}
       onHoverEnd={onHoverEnd}
