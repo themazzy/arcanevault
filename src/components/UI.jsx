@@ -272,15 +272,36 @@ export function SectionHeader({ title, action }) {
 
 export function ResponsiveHeaderActions({ primary = null, children, menuLabel = 'More actions', mobileExtra = null }) {
   const [open, setOpen] = useState(false)
+  const [panelClosing, setPanelClosing] = useState(false)
+  const panelTimerRef = useRef(null)
   const ref = useRef(null)
+
+  const openPanel  = () => {
+    clearTimeout(panelTimerRef.current)
+    panelTimerRef.current = null
+    setPanelClosing(false)
+    setOpen(true)
+  }
+  const closePanel = () => {
+    if (panelTimerRef.current) return
+    setPanelClosing(true)
+    panelTimerRef.current = setTimeout(() => {
+      setOpen(false)
+      setPanelClosing(false)
+      panelTimerRef.current = null
+    }, 150)
+  }
+  const togglePanel = () => { if (open && !panelClosing) closePanel(); else openPanel() }
+
+  useEffect(() => () => clearTimeout(panelTimerRef.current), [])
 
   useEffect(() => {
     if (!open) return
-    const close = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false)
+    const handle = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) closePanel()
     }
-    document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
   }, [open])
 
   return (
@@ -295,7 +316,7 @@ export function ResponsiveHeaderActions({ primary = null, children, menuLabel = 
         {mobileExtra ? <div className={styles.headerActionMobileExtra}>{mobileExtra}</div> : null}
         <button
           className={styles.headerMenuBtn}
-          onClick={() => setOpen(v => !v)}
+          onClick={togglePanel}
           aria-label={menuLabel}
           aria-expanded={open}
         >
@@ -303,8 +324,8 @@ export function ResponsiveHeaderActions({ primary = null, children, menuLabel = 
           <span />
           <span />
         </button>
-        {open && (
-          <div className={styles.headerMenuPanel}>
+        {(open || panelClosing) && (
+          <div className={`${styles.headerMenuPanel}${panelClosing ? ` ${styles.headerMenuPanelClosing}` : ''}`}>
             {children}
           </div>
         )}

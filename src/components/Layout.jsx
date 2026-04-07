@@ -184,7 +184,7 @@ export default function Layout({ children }) {
             </nav>
           </header>
 
-          {menuOpen && <div className={styles.mobileOverlay} onClick={() => setMenuOpen(false)} />}
+          <div className={`${styles.mobileOverlay}${menuOpen ? ` ${styles.mobileOverlayOpen}` : ''}`} onClick={() => setMenuOpen(false)} />
 
           <div className={`${styles.mobileNav} ${menuOpen ? styles.mobileNavOpen : ''}`}>
             <div className={styles.mobileNavLogo}>ARCANE<span>VAULT</span></div>

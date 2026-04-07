@@ -330,6 +330,38 @@ function getCardImg(sf) {
   return null
 }
 
+// ── Animated toggle hook (open + close animations for overlay panels) ─────────
+
+function useAnimatedToggle(duration = 180) {
+  const [on, setOn] = useState(false)
+  const [animClosing, setAnimClosing] = useState(false)
+  const timerRef = useRef(null)
+
+  const show = useCallback(() => {
+    clearTimeout(timerRef.current)
+    timerRef.current = null
+    setAnimClosing(false)
+    setOn(true)
+  }, [])
+
+  const hide = useCallback(() => {
+    if (timerRef.current) return
+    setAnimClosing(true)
+    timerRef.current = setTimeout(() => {
+      setOn(false)
+      setAnimClosing(false)
+      timerRef.current = null
+    }, duration)
+  }, [duration])
+
+  const toggle = useCallback(() => {
+    if (on && !animClosing) hide(); else if (!on && !animClosing) show()
+  }, [on, animClosing, hide, show])
+
+  useEffect(() => () => clearTimeout(timerRef.current), [])
+  return { on, closing: animClosing, show, hide, toggle }
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function CardScanner({ onMatch, onClose }) {
@@ -373,21 +405,42 @@ export default function CardScanner({ onMatch, onClose }) {
 
   // ── Pending basket ─────────────────────────────────────────────────────────
   const [pendingCards, setPendingCards] = useState(() => loadPending())
-  const [basketExpanded, setBasketExpanded] = useState(false)
+
+  // ── Animated overlay toggles ───────────────────────────────────────────────
+  const basketTgl     = useAnimatedToggle(180)
+  const basketExpanded = basketTgl.on
+  const basketClosing  = basketTgl.closing
+
+  const manualTgl       = useAnimatedToggle(180)
+  const manualSearchOpen    = manualTgl.on
+  const manualSearchClosing = manualTgl.closing
+
+  const addFlowTgl    = useAnimatedToggle(180)
+  const addFlowOpen    = addFlowTgl.on
+  const addFlowClosing = addFlowTgl.closing
+
+  const settingsTgl   = useAnimatedToggle(180)
+  const settingsOpen    = settingsTgl.on
+  const settingsClosing = settingsTgl.closing
+
+  const setPickerTgl  = useAnimatedToggle(180)
+  const setPickerOpen    = setPickerTgl.on
+  const setPickerClosing = setPickerTgl.closing
 
   // ── Printing picker ────────────────────────────────────────────────────────
   const [printingPickerFor, setPrintingPickerFor]         = useState(null)   // uid
   const [printingPickerResults, setPrintingPickerResults] = useState([])
   const [printingPickerLoading, setPrintingPickerLoading] = useState(false)
+  const [printingPickerSearch, setPrintingPickerSearch]   = useState('')
+  const [printingPickerClosing, setPrintingPickerClosing] = useState(false)
+  const printingPickerTimerRef = useRef(null)
 
   // ── Manual search ──────────────────────────────────────────────────────────
-  const [manualSearchOpen, setManualSearchOpen]     = useState(false)
   const [manualSearchQuery, setManualSearchQuery]   = useState('')
   const [manualSearchResults, setManualSearchResults] = useState([])
   const [manualSearchLoading, setManualSearchLoading] = useState(false)
 
   // ── Add flow (folder picker + save) ───────────────────────────────────────
-  const [addFlowOpen, setAddFlowOpen]             = useState(false)
   const [addFlowFolderType, setAddFlowFolderType] = useState('binder')
   const [addFlowFolders, setAddFlowFolders]       = useState([])
   const [addFlowFolderSearch, setAddFlowFolderSearch] = useState('')
@@ -401,7 +454,6 @@ export default function CardScanner({ onMatch, onClose }) {
   const latestPending = pendingCards[0] || null
 
   // ── Scanner settings ───────────────────────────────────────────────────────
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [autoScan, setAutoScan] = useState(() => {
     try { return localStorage.getItem('arcanevault_scanner_autoscan') === '1' } catch { return false }
   })
@@ -426,7 +478,6 @@ export default function CardScanner({ onMatch, onClose }) {
       return raw ? new Set(JSON.parse(raw)) : new Set()
     } catch { return new Set() }
   })
-  const [setPickerOpen, setSetPickerOpen] = useState(false)
   const [setPickerSets, setSetPickerSets] = useState([])   // [{ code, name, icon_svg_uri }]
   const [setPickerLoading, setSetPickerLoading] = useState(false)
   const [setPickerSearch, setSetPickerSearch] = useState('')
@@ -919,9 +970,13 @@ export default function CardScanner({ onMatch, onClose }) {
   const openPrintingPicker = useCallback(async (uid) => {
     const card = pendingCards.find(c => c.uid === uid)
     if (!card) return
+    clearTimeout(printingPickerTimerRef.current)
+    printingPickerTimerRef.current = null
+    setPrintingPickerClosing(false)
     setPrintingPickerFor(uid)
     setPrintingPickerLoading(true)
     setPrintingPickerResults([])
+    setPrintingPickerSearch('')
     try {
       const encodedName = encodeURIComponent(`!"${card.name}"`)
       const data = await sfGet(`/cards/search?q=${encodedName}&unique=prints&order=released&dir=desc`)
@@ -929,6 +984,18 @@ export default function CardScanner({ onMatch, onClose }) {
     } catch { /* ignore */ }
     if (mountedRef.current) setPrintingPickerLoading(false)
   }, [pendingCards])
+
+  const closePrintingPicker = useCallback(() => {
+    if (printingPickerTimerRef.current) return
+    setPrintingPickerClosing(true)
+    printingPickerTimerRef.current = setTimeout(() => {
+      setPrintingPickerFor(null)
+      setPrintingPickerResults([])
+      setPrintingPickerSearch('')
+      setPrintingPickerClosing(false)
+      printingPickerTimerRef.current = null
+    }, 180)
+  }, [])
 
   const selectPrinting = useCallback((uid, sf) => {
     const imgUri = getCardImg(sf)
@@ -939,9 +1006,8 @@ export default function CardScanner({ onMatch, onClose }) {
       collNum:  sf.collector_number,
       imageUri: imgUri,
     })
-    setPrintingPickerFor(null)
-    setPrintingPickerResults([])
-  }, [updatePending])
+    closePrintingPicker()
+  }, [updatePending, closePrintingPicker])
 
   // ── Manual search ──────────────────────────────────────────────────────────
 
@@ -986,21 +1052,20 @@ export default function CardScanner({ onMatch, onClose }) {
       collNum:  sf.collector_number,
       imageUri: getCardImg(sf),
     })
-    setPrintingPickerFor(null)
-    setPrintingPickerResults([])
-    setAddFlowOpen(false)
-    setManualSearchOpen(false)
+    closePrintingPicker()
+    addFlowTgl.hide()
+    manualTgl.hide()
     manualSearchRequestRef.current += 1
     setManualSearchQuery('')
     setManualSearchResults([])
     setManualSearchLoading(false)
-    setBasketExpanded(false)
-  }, [addToPending])
+    basketTgl.hide()
+  }, [addToPending, closePrintingPicker, addFlowTgl.hide, manualTgl.hide, basketTgl.hide])
 
   // ── Add flow ───────────────────────────────────────────────────────────────
 
   const openAddFlow = useCallback(async () => {
-    setAddFlowOpen(true)
+    addFlowTgl.show()
     setAddFlowSelectedFolder(null)
     setAddFlowError(null)
     setAddFlowFolderSearch('')
@@ -1017,7 +1082,7 @@ export default function CardScanner({ onMatch, onClose }) {
       setAddFlowError(e.message)
     }
     setAddFlowFoldersLoading(false)
-  }, [user])
+  }, [user, addFlowTgl.show])
 
   const createAddFlowFolder = useCallback(async () => {
     const rawName = addFlowFolderSearch.trim()
@@ -1068,14 +1133,14 @@ export default function CardScanner({ onMatch, onClose }) {
         folderType: folder.type,
       })
       setPendingCards([])
-      setAddFlowOpen(false)
+      addFlowTgl.hide()
       setAddFlowSelectedFolder(null)
       setSaveNotice(`Saved ${savedQty} card${savedQty !== 1 ? 's' : ''} to ${folder.name}`)
     } catch (e) {
       setAddFlowError(e.message)
     }
     setAddFlowSaving(false)
-  }, [addFlowSelectedFolder, pendingCards, addFlowFolders, user])
+  }, [addFlowSelectedFolder, pendingCards, addFlowFolders, user, addFlowTgl.hide])
 
   // ── Capture + scan logic ───────────────────────────────────────────────────
 
@@ -1302,7 +1367,7 @@ export default function CardScanner({ onMatch, onClose }) {
         addToPending(match, { foil: preferFoil })
       }
       // In manual mode, close any open overlay — result shows in the bottom bar only
-      if (!isAutoScan) setBasketExpanded(false)
+      if (!isAutoScan) basketTgl.hide()
       try { await Haptics.impact({ style: ImpactStyle.Medium }) } catch {}
       onMatch?.(match)
     } catch (e) {
@@ -1444,7 +1509,7 @@ export default function CardScanner({ onMatch, onClose }) {
             </button>
             <button
               className={`${styles.menuIconBtn} ${basketExpanded ? styles.menuIconBtnActive : ''}`}
-              onClick={() => setBasketExpanded(v => !v)}
+              onClick={() => basketTgl.toggle()}
               title="Scanned cards"
               aria-label="Scanned cards"
             >
@@ -1460,7 +1525,7 @@ export default function CardScanner({ onMatch, onClose }) {
                 setManualSearchQuery('')
                 setManualSearchResults([])
                 setManualSearchLoading(false)
-                setManualSearchOpen(true)
+                manualTgl.show()
               }}
               title="Manual add"
               aria-label="Manual add"
@@ -1482,7 +1547,7 @@ export default function CardScanner({ onMatch, onClose }) {
             </button>
             <button
               className={`${styles.menuIconBtn} ${settingsOpen ? styles.menuIconBtnActive : ''}`}
-              onClick={() => setSettingsOpen(v => !v)}
+              onClick={() => settingsTgl.toggle()}
               title="Scanner settings"
               aria-label="Scanner settings"
             >
@@ -1662,9 +1727,9 @@ export default function CardScanner({ onMatch, onClose }) {
         </div>
       </div>
 
-      {/* Printing picker overlay */}
-      {basketExpanded && pendingCards.length > 0 && (
-        <div className={styles.overlayPanel}>
+      {/* Basket overlay */}
+      {(basketExpanded || basketClosing) && pendingCards.length > 0 && (
+        <div className={`${styles.overlayPanel}${basketClosing ? ` ${styles.overlayPanelClosing}` : ''}`}>
           <div className={styles.overlayPanelHeader}>
             <span className={styles.overlayPanelTitle}>
               Scanned Cards
@@ -1673,7 +1738,7 @@ export default function CardScanner({ onMatch, onClose }) {
               </span>
             </span>
             <span className={styles.overlayPanelCount}>{pendingTotalQty}</span>
-            <button className={styles.closeBtn} onClick={() => setBasketExpanded(false)}>✕</button>
+            <button className={styles.closeBtn} onClick={() => basketTgl.hide()}>✕</button>
           </div>
           <div className={styles.historyList}>
             {pendingCards.map(card => {
@@ -1802,15 +1867,28 @@ export default function CardScanner({ onMatch, onClose }) {
       )}
 
       {/* Printing picker overlay */}
-      {printingPickerFor && (
-        <div className={styles.overlayPanel}>
+      {(printingPickerFor || printingPickerClosing) && (
+        <div className={`${styles.overlayPanel}${printingPickerClosing ? ` ${styles.overlayPanelClosing}` : ''}`}>
           <div className={styles.overlayPanelHeader}>
             <span className={styles.overlayPanelTitle}>Choose Printing</span>
-            <button className={styles.closeBtn} onClick={() => { setPrintingPickerFor(null); setPrintingPickerResults([]) }}>✕</button>
+            <button className={styles.closeBtn} onClick={closePrintingPicker}>✕</button>
+          </div>
+          <div className={styles.searchInputRow}>
+            <input
+              className={styles.searchInput}
+              placeholder="Filter by set name or code…"
+              value={printingPickerSearch}
+              onChange={e => setPrintingPickerSearch(e.target.value)}
+              autoFocus
+            />
           </div>
           {printingPickerLoading && <div className={styles.overlayPanelState}>Loading…</div>}
           <div className={styles.printingGrid}>
-            {printingPickerResults.map(sf => {
+            {printingPickerResults.filter(sf => {
+              if (!printingPickerSearch) return true
+              const q = printingPickerSearch.toLowerCase()
+              return (sf.set_name?.toLowerCase().includes(q)) || (sf.set?.toLowerCase().includes(q))
+            }).map(sf => {
               const img = getCardImg(sf)
               const pickerCard = pendingCards.find(c => c.uid === printingPickerFor)
               const isActive = pickerCard?.id === sf.id
@@ -1844,11 +1922,11 @@ export default function CardScanner({ onMatch, onClose }) {
       )}
 
       {/* Manual search overlay */}
-      {manualSearchOpen && (
-        <div className={styles.overlayPanel}>
+      {(manualSearchOpen || manualSearchClosing) && (
+        <div className={`${styles.overlayPanel}${manualSearchClosing ? ` ${styles.overlayPanelClosing}` : ''}`}>
           <div className={styles.overlayPanelHeader}>
             <span className={styles.overlayPanelTitle}>Add Card Manually</span>
-            <button className={styles.closeBtn} onClick={() => { manualSearchRequestRef.current += 1; setManualSearchOpen(false); setManualSearchQuery(''); setManualSearchResults([]); setManualSearchLoading(false) }}>✕</button>
+            <button className={styles.closeBtn} onClick={() => { manualSearchRequestRef.current += 1; manualTgl.hide(); setManualSearchQuery(''); setManualSearchResults([]); setManualSearchLoading(false) }}>✕</button>
           </div>
           <div className={styles.searchInputRow}>
             <input
@@ -1881,8 +1959,8 @@ export default function CardScanner({ onMatch, onClose }) {
       )}
 
       {/* Add flow overlay */}
-      {addFlowOpen && (
-        <div className={styles.overlayPanel}>
+      {(addFlowOpen || addFlowClosing) && (
+        <div className={`${styles.overlayPanel}${addFlowClosing ? ` ${styles.overlayPanelClosing}` : ''}`}>
           <div className={styles.overlayPanelHeader}>
             <span className={styles.overlayPanelTitle}>
               Add {pendingCards.length} Card{pendingCards.length !== 1 ? 's' : ''}
@@ -1890,7 +1968,7 @@ export default function CardScanner({ onMatch, onClose }) {
                 {scannedValueMeta ? `${scannedValueMeta.symbol}${scannedValueMeta.value.toFixed(2)}` : '—'}
               </span>
             </span>
-            <button className={styles.closeBtn} onClick={() => setAddFlowOpen(false)}>✕</button>
+            <button className={styles.closeBtn} onClick={() => addFlowTgl.hide()}>✕</button>
           </div>
 
           {/* Review list */}
@@ -1977,11 +2055,11 @@ export default function CardScanner({ onMatch, onClose }) {
       )}
 
       {/* Scanner settings overlay */}
-      {settingsOpen && (
-        <div className={styles.overlayPanel}>
+      {(settingsOpen || settingsClosing) && (
+        <div className={`${styles.overlayPanel}${settingsClosing ? ` ${styles.overlayPanelClosing}` : ''}`}>
           <div className={styles.overlayPanelHeader}>
             <span className={styles.overlayPanelTitle}>Scanner Settings</span>
-            <button className={styles.closeBtn} onClick={() => setSettingsOpen(false)}>✕</button>
+            <button className={styles.closeBtn} onClick={() => settingsTgl.hide()}>✕</button>
           </div>
 
           <div className={styles.settingsRow}>
@@ -2055,7 +2133,7 @@ export default function CardScanner({ onMatch, onClose }) {
                   <div className={styles.setChipRow}>
                     <button
                       className={styles.settingsInlineBtn}
-                      onClick={() => { setSetPickerOpen(true); setSettingsOpen(false) }}
+                      onClick={() => { setPickerTgl.show(); settingsTgl.hide() }}
                     >
                       {lockedSets.size === 0 ? 'Choose sets…' : 'Edit sets…'}
                     </button>
@@ -2106,11 +2184,11 @@ export default function CardScanner({ onMatch, onClose }) {
       )}
 
       {/* Set picker overlay */}
-      {setPickerOpen && (
-        <div className={styles.overlayPanel}>
+      {(setPickerOpen || setPickerClosing) && (
+        <div className={`${styles.overlayPanel}${setPickerClosing ? ` ${styles.overlayPanelClosing}` : ''}`}>
           <div className={styles.overlayPanelHeader}>
             <span className={styles.overlayPanelTitle}>Lock Sets</span>
-            <button className={styles.closeBtn} onClick={() => setSetPickerOpen(false)}>✕</button>
+            <button className={styles.closeBtn} onClick={() => setPickerTgl.hide()}>✕</button>
           </div>
           <div className={styles.setPickerSearch}>
             <input
@@ -2166,7 +2244,7 @@ export default function CardScanner({ onMatch, onClose }) {
             }
           </div>
           <div className={styles.historyFooter}>
-            <button className={styles.historyAddBtn} onClick={() => setSetPickerOpen(false)}>
+            <button className={styles.historyAddBtn} onClick={() => setPickerTgl.hide()}>
               Done {lockedSets.size > 0 ? `(${lockedSets.size} set${lockedSets.size !== 1 ? 's' : ''} locked)` : ''}
             </button>
           </div>

@@ -1127,6 +1127,12 @@
   animation: scannerOverlayFade 180ms ease-out;
 }
 
+.overlayPanelClosing {
+  animation: scannerOverlayOut 180ms ease-in forwards;
+  pointer-events: none;
+  overflow: hidden;
+}
+
 .overlayPanelHeader {
   display: flex;
   align-items: center;
