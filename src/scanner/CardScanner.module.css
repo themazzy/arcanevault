@@ -1979,6 +1979,15 @@
   border-color: rgba(201,168,76,0.6);
 }
 
+/* ── Set chip row in settings ── */
+.setChipRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+}
+
 /* ── Set chips (multi-set lock) ── */
 .setChip {
   display: inline-flex;
@@ -2003,6 +2012,89 @@
   line-height: 1;
 }
 .setChipRemove:hover { opacity: 1; }
+
+.setChipIcon {
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+  opacity: 0.85;
+  filter: invert(1);
+}
+
+/* ── Set picker overlay ── */
+.setPickerSearch {
+  padding: 10px 12px 6px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.setPickerInput {
+  width: 100%;
+  background: var(--s2, rgba(255,255,255,0.05));
+  border: 1px solid var(--s-border2, rgba(255,255,255,0.12));
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: var(--text);
+  font-size: 0.85rem;
+  outline: none;
+}
+.setPickerInput::placeholder { color: var(--text-faint); }
+.setPickerInput:focus { border-color: rgba(201,168,76,0.5); }
+.setPickerSelected {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  align-items: center;
+}
+.setPickerList {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.setPickerRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s;
+}
+.setPickerRow:hover { background: var(--s3, rgba(255,255,255,0.06)); }
+.setPickerRowLocked { background: rgba(201,168,76,0.08); }
+.setPickerRowLocked:hover { background: rgba(201,168,76,0.14); }
+.setPickerRowIcon {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  flex-shrink: 0;
+  opacity: 0.8;
+  filter: invert(1);
+}
+.setPickerRowName {
+  flex: 1;
+  font-size: 0.82rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.setPickerRowCode {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  font-family: var(--font-display);
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+.setPickerRowCheck {
+  color: var(--gold, #c9a84c);
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
 
 /* ── Numeric stepper (min price setting) ── */
 .settingsNumericInput {

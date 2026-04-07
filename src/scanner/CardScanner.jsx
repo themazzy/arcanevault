@@ -96,6 +96,16 @@ function saveSetIconCache(cache) {
   try { localStorage.setItem(SET_ICON_CACHE_KEY, JSON.stringify(cache)) } catch {}
 }
 
+// Cache entries are { icon: string, name: string } — handle legacy string-only values
+function getSetIcon(setIcons, code) {
+  const v = setIcons[code]
+  return typeof v === 'string' ? v : v?.icon ?? null
+}
+function getSetName(setIcons, code) {
+  const v = setIcons[code]
+  return typeof v === 'string' ? null : v?.name ?? null
+}
+
 let _uidCounter = Date.now()
 function nextUid() { return String(++_uidCounter) }
 
@@ -414,6 +424,10 @@ export default function CardScanner({ onMatch, onClose }) {
       return raw ? new Set(JSON.parse(raw)) : new Set()
     } catch { return new Set() }
   })
+  const [setPickerOpen, setSetPickerOpen] = useState(false)
+  const [setPickerSets, setSetPickerSets] = useState([])   // [{ code, name, icon_svg_uri }]
+  const [setPickerLoading, setSetPickerLoading] = useState(false)
+  const [setPickerSearch, setSetPickerSearch] = useState('')
 
   const isReady = cvReady && dbReady
   const availableFlashModes = flashModes.includes('torch')
@@ -464,6 +478,35 @@ export default function CardScanner({ onMatch, onClose }) {
     const priceMeta = getPriceWithMeta(latestPrintingData, latestPending.foil, { price_source })
     playMatchSound(priceMeta?.value ?? 0)
   }, [scanSounds, latestPending, latestPrintingData, price_source])
+
+  // ── Set picker — fetch all sets from Scryfall when picker opens ──────────────
+  useEffect(() => {
+    if (!setPickerOpen || setPickerSets.length > 0) return
+    let cancelled = false
+    setSetPickerLoading(true)
+    ;(async () => {
+      try {
+        const data = await sfGet('/sets')
+        if (cancelled) return
+        const sets = (data?.data || [])
+          .filter(s => s.set_type !== 'token' && s.set_type !== 'memorabilia' && s.card_count > 0)
+          .map(s => ({ code: s.code, name: s.name, icon: s.icon_svg_uri, released: s.released_at }))
+          .sort((a, b) => (b.released || '').localeCompare(a.released || ''))
+        if (!cancelled) setSetPickerSets(sets)
+        // Also seed our setIcons cache with names from the full list
+        if (!cancelled) setSetIcons(prev => {
+          const next = { ...prev }
+          for (const s of sets) {
+            if (!next[s.code] && s.icon) next[s.code] = { icon: s.icon, name: s.name }
+          }
+          return next
+        })
+      } catch { /* non-critical */ } finally {
+        if (!cancelled) setSetPickerLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [setPickerOpen, setPickerSets.length])
 
   // ── Live corner overlay — rAF loop drawing detected card outline ────────────
   // Web-only (native uses CameraPreview behind the WebView). Defaults off.
@@ -644,7 +687,7 @@ export default function CardScanner({ onMatch, onClose }) {
           const data = await sfGet(`/sets/${setCode}`)
           if (cancelled) return
           if (data?.icon_svg_uri) {
-            setSetIcons(prev => (prev[setCode] ? prev : { ...prev, [setCode]: data.icon_svg_uri }))
+            setSetIcons(prev => (prev[setCode] ? prev : { ...prev, [setCode]: { icon: data.icon_svg_uri, name: data.name || setCode } }))
           }
         } finally {
           setIconFetchesRef.current.delete(setCode)
@@ -663,7 +706,7 @@ export default function CardScanner({ onMatch, onClose }) {
       try {
         const data = await sfGet(`/sets/${setCode}`)
         if (!cancelled && data?.icon_svg_uri) {
-          setSetIcons(prev => (prev[setCode] ? prev : { ...prev, [setCode]: data.icon_svg_uri }))
+          setSetIcons(prev => (prev[setCode] ? prev : { ...prev, [setCode]: { icon: data.icon_svg_uri, name: data.name || setCode } }))
         }
       } finally {
         setIconFetchesRef.current.delete(setCode)
@@ -684,7 +727,7 @@ export default function CardScanner({ onMatch, onClose }) {
           const data = await sfGet(`/sets/${setCode}`)
           if (cancelled) return
           if (data?.icon_svg_uri) {
-            setSetIcons(prev => (prev[setCode] ? prev : { ...prev, [setCode]: data.icon_svg_uri }))
+            setSetIcons(prev => (prev[setCode] ? prev : { ...prev, [setCode]: { icon: data.icon_svg_uri, name: data.name || setCode } }))
           }
         } finally {
           setIconFetchesRef.current.delete(setCode)
@@ -1221,16 +1264,12 @@ export default function CardScanner({ onMatch, onClose }) {
       }
 
       // Lock-set filtering: reject matches not in the locked set list.
-      // When lock mode is on and no sets are locked yet, the first match locks its set in.
-      if (lockSet) {
-        if (lockedSets.size > 0 && !lockedSets.has(match.setCode)) {
-          sessionStatsRef.current.attempts++
-          sessionStatsRef.current.totalMs += elapsed
-          setSessionStatsDisplay({ ...sessionStatsRef.current })
-          setScanResult('notfound')
-          return
-        }
-        if (lockedSets.size === 0) setLockedSets(new Set([match.setCode]))
+      if (lockSet && lockedSets.size > 0 && !lockedSets.has(match.setCode)) {
+        sessionStatsRef.current.attempts++
+        sessionStatsRef.current.totalMs += elapsed
+        setSessionStatsDisplay({ ...sessionStatsRef.current })
+        setScanResult('notfound')
+        return
       }
 
       sessionStatsRef.current.attempts++
@@ -1245,6 +1284,8 @@ export default function CardScanner({ onMatch, onClose }) {
         if (isAutoScan) lastAutoScanIdRef.current = match.id
         addToPending(match, { foil: preferFoil })
       }
+      // In manual mode, close any open overlay — result shows in the bottom bar only
+      if (!isAutoScan) setBasketExpanded(false)
       try { await Haptics.impact({ style: ImpactStyle.Medium }) } catch {}
       onMatch?.(match)
     } catch (e) {
@@ -1262,11 +1303,11 @@ export default function CardScanner({ onMatch, onClose }) {
   // Must be defined after handleScan (useCallback const — TDZ applies).
   useEffect(() => {
     if (!autoScan || !isReady || scanning) return
-    if (addFlowOpen || basketExpanded || manualSearchOpen || settingsOpen) return
+    if (addFlowOpen || basketExpanded || manualSearchOpen || settingsOpen || setPickerOpen) return
     const cooldown = scanResult === 'found' ? 1000 : 350
     const timer = window.setTimeout(() => { handleScan() }, cooldown)
     return () => window.clearTimeout(timer)
-  }, [autoScan, isReady, scanning, addFlowOpen, basketExpanded, manualSearchOpen, settingsOpen, handleScan, scanResult])
+  }, [autoScan, isReady, scanning, addFlowOpen, basketExpanded, manualSearchOpen, settingsOpen, setPickerOpen, handleScan, scanResult])
 
   // ── Derived ────────────────────────────────────────────────────────────────
 
@@ -1292,7 +1333,7 @@ export default function CardScanner({ onMatch, onClose }) {
     if (!typeMatch) return false
     return String(f.name || '').trim().toLowerCase() === addFlowFolderSearch.trim().toLowerCase()
   })
-  const latestSetIcon = latestPending?.setCode ? setIcons[latestPending.setCode] : null
+  const latestSetIcon = latestPending?.setCode ? getSetIcon(setIcons, latestPending.setCode) : null
   const pendingTotalQty = pendingCards.reduce((sum, card) => sum + (card.qty || 1), 0)
   const showManualSearchEmpty = manualSearchOpen &&
     manualSearchQuery.trim().length >= 2 &&
@@ -1607,7 +1648,7 @@ export default function CardScanner({ onMatch, onClose }) {
           <div className={styles.historyList}>
             {pendingCards.map(card => {
               const historyPrintingData = printingDataById[card.id] || null
-              const historySetIcon = card.setCode ? setIcons[card.setCode] : null
+              const historySetIcon = card.setCode ? getSetIcon(setIcons, card.setCode) : null
               const historyOracleId = historyPrintingData?.oracle_id || null
               const fallbackLanguageValue = card.language || 'en'
               const fallbackLanguage = CARD_LANGUAGES.find(([value]) => value === fallbackLanguageValue)
@@ -1743,7 +1784,7 @@ export default function CardScanner({ onMatch, onClose }) {
               const img = getCardImg(sf)
               const pickerCard = pendingCards.find(c => c.uid === printingPickerFor)
               const isActive = pickerCard?.id === sf.id
-              const setIcon = sf.set ? setIcons[sf.set] : null
+              const setIcon = sf.set ? getSetIcon(setIcons, sf.set) : null
               const regularPriceMeta = getPriceWithMeta(sf, false, { price_source })
               const foilPriceMeta = getPriceWithMeta(sf, true, { price_source })
               const activePriceMeta = getPriceWithMeta(sf, pickerCard?.foil, { price_source })
@@ -1979,21 +2020,29 @@ export default function CardScanner({ onMatch, onClose }) {
             <div className={styles.settingsRowLabel}>
               <span className={styles.settingsRowTitle}>Lock set</span>
               <span className={styles.settingsRowDesc}>
-                Scan a card to lock its set — only cards from locked sets are accepted.
-                {lockSet && lockedSets.size > 0 && (
-                  <>
-                    {' '}Locked:{' '}
-                    {[...lockedSets].map(code => (
-                      <span key={code} className={styles.setChip}>
-                        {code.toUpperCase()}
-                        <button className={styles.setChipRemove} onClick={() => setLockedSets(prev => { const next = new Set(prev); next.delete(code); return next })} title={`Remove ${code.toUpperCase()}`}>✕</button>
-                      </span>
-                    ))}
-                    {' '}
-                    <button className={styles.settingsInlineBtn} onClick={() => setLockedSets(new Set())}>Clear all</button>
-                  </>
+                Only cards from selected sets are accepted.
+                {lockSet && (
+                  <div className={styles.setChipRow}>
+                    <button
+                      className={styles.settingsInlineBtn}
+                      onClick={() => { setSetPickerOpen(true); setSettingsOpen(false) }}
+                    >
+                      {lockedSets.size === 0 ? 'Choose sets…' : 'Edit sets…'}
+                    </button>
+                    {lockedSets.size > 0 && (
+                      <>
+                        {[...lockedSets].map(code => (
+                          <span key={code} className={styles.setChip}>
+                            {getSetIcon(setIcons, code) && <img src={getSetIcon(setIcons, code)} alt="" className={styles.setChipIcon} />}
+                            {code.toUpperCase()}
+                            <button className={styles.setChipRemove} onClick={() => setLockedSets(prev => { const next = new Set(prev); next.delete(code); return next })} title={`Remove ${code.toUpperCase()}`}>✕</button>
+                          </span>
+                        ))}
+                        <button className={styles.settingsInlineBtn} onClick={() => setLockedSets(new Set())}>Clear all</button>
+                      </>
+                    )}
+                  </div>
                 )}
-                {lockSet && lockedSets.size === 0 && <> Waiting for first scan to lock.</>}
               </span>
             </div>
             <button role="switch" aria-checked={lockSet}
@@ -2023,6 +2072,74 @@ export default function CardScanner({ onMatch, onClose }) {
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Set picker overlay */}
+      {setPickerOpen && (
+        <div className={styles.overlayPanel}>
+          <div className={styles.overlayPanelHeader}>
+            <span className={styles.overlayPanelTitle}>Lock Sets</span>
+            <button className={styles.closeBtn} onClick={() => setSetPickerOpen(false)}>✕</button>
+          </div>
+          <div className={styles.setPickerSearch}>
+            <input
+              className={styles.setPickerInput}
+              type="text"
+              placeholder="Search by name or set code…"
+              value={setPickerSearch}
+              onChange={e => setSetPickerSearch(e.target.value)}
+              autoFocus
+            />
+          </div>
+          {lockedSets.size > 0 && (
+            <div className={styles.setPickerSelected}>
+              {[...lockedSets].map(code => (
+                <span key={code} className={styles.setChip}>
+                  {getSetIcon(setIcons, code) && <img src={getSetIcon(setIcons, code)} alt="" className={styles.setChipIcon} />}
+                  {code.toUpperCase()}
+                  <button className={styles.setChipRemove} onClick={() => setLockedSets(prev => { const next = new Set(prev); next.delete(code); return next })}>✕</button>
+                </span>
+              ))}
+              <button className={styles.settingsInlineBtn} onClick={() => setLockedSets(new Set())}>Clear all</button>
+            </div>
+          )}
+          {setPickerLoading && <div className={styles.overlayPanelState}>Loading sets…</div>}
+          <div className={styles.setPickerList}>
+            {setPickerSets
+              .filter(s => {
+                const q = setPickerSearch.toLowerCase().trim()
+                if (!q) return true
+                return s.name.toLowerCase().includes(q) || s.code.toLowerCase().includes(q)
+              })
+              .map(s => {
+                const isLocked = lockedSets.has(s.code)
+                const icon = getSetIcon(setIcons, s.code) || s.icon
+                return (
+                  <button
+                    key={s.code}
+                    className={`${styles.setPickerRow} ${isLocked ? styles.setPickerRowLocked : ''}`}
+                    onClick={() => setLockedSets(prev => {
+                      const next = new Set(prev)
+                      if (next.has(s.code)) next.delete(s.code)
+                      else next.add(s.code)
+                      return next
+                    })}
+                  >
+                    {icon && <img src={icon} alt="" className={styles.setPickerRowIcon} />}
+                    <span className={styles.setPickerRowName}>{s.name}</span>
+                    <span className={styles.setPickerRowCode}>{s.code.toUpperCase()}</span>
+                    {isLocked && <span className={styles.setPickerRowCheck}>✓</span>}
+                  </button>
+                )
+              })
+            }
+          </div>
+          <div className={styles.historyFooter}>
+            <button className={styles.historyAddBtn} onClick={() => setSetPickerOpen(false)}>
+              Done {lockedSets.size > 0 ? `(${lockedSets.size} set${lockedSets.size !== 1 ? 's' : ''} locked)` : ''}
+            </button>
+          </div>
         </div>
       )}
     </div>
