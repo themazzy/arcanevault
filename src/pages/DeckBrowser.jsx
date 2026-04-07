@@ -17,6 +17,7 @@ import { parseDeckMeta } from '../lib/deckBuilderApi'
 import { useLongPress } from '../hooks/useLongPress'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { fetchDeckAllocations, upsertDeckAllocations } from '../lib/deckData'
+import { getDeckAllocations, getCardsByIds } from '../lib/db'
 
 // ── Constants (kept for grouping/categorization used in views below) ──────────
 
@@ -628,23 +629,19 @@ export default function DeckBrowser({ folder, onBack }) {
 
   const loadCards = useCallback(async () => {
     setLoading(true)
-    const data = await fetchDeckAllocations(folder.id)
-    if (data) {
-      const cardList = data.map(row => ({
-        id: row.card_id,
-        scryfall_id: row.scryfall_id,
-        name: row.name,
-        set_code: row.set_code,
-        collector_number: row.collector_number,
-        foil: row.foil,
-        condition: row.condition,
-        language: row.language,
-        _folder_qty: row.qty,
-        _allocation_id: row.id,
-      }))
+    const allocs = await getDeckAllocations(folder.id)
+    if (allocs?.length) {
+      const cardIds = allocs.map(a => a.card_id).filter(Boolean)
+      const localCards = await getCardsByIds(cardIds)
+      const cardById = Object.fromEntries(localCards.map(c => [c.id, c]))
+      const cardList = allocs
+        .filter(a => cardById[a.card_id])
+        .map(a => ({ ...cardById[a.card_id], _folder_qty: a.qty, _allocation_id: a.id }))
       setCards(cardList)
       const map = await loadCardMapWithSharedPrices(cardList)
       if (map) setSfMap({ ...map })
+    } else {
+      setCards([])
     }
     setLoading(false)
   }, [folder.id])

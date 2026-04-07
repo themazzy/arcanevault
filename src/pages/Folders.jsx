@@ -17,6 +17,7 @@ import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { getPublicAppUrl } from '../lib/publicUrl'
+import { getLocalFolderCards, getAllLocalFolderCards, getDeckAllocations, getCardsByIds } from '../lib/db'
 
 // ── SVG Icons ─────────────────────────────────────────────────────────────────
 function TrashIcon({ size = 14 }) {
@@ -533,32 +534,27 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
       let cardList = []
       if (isAllView) {
         const folderNameById = Object.fromEntries(folders.map(f => [f.id, f.name]))
-        let allRows = [], from = 0
-        while (folderIds.length) {
-          const { data } = await sb
-            .from('folder_cards')
-            .select('folder_id, qty, cards(*)')
-            .in('folder_id', folderIds)
-            .range(from, from + 999)
-          if (data?.length) allRows = [...allRows, ...data]
-          if (!data || data.length < 1000) break
-          from += 1000
-        }
-        cardList = allRows
-          .filter(row => row.cards)
-          .map(row => ({
-            ...row.cards,
-            _folder_qty: row.qty,
-            _folderName: folderNameById[row.folder_id] || '',
-            _sourceFolderId: row.folder_id,
-            _displayKey: `${row.folder_id}:${row.cards.id}`,
+        const allFcRows = await getAllLocalFolderCards(folderIds)
+        const uniqueIds = [...new Set(allFcRows.map(r => r.card_id).filter(Boolean))]
+        const localCards = await getCardsByIds(uniqueIds)
+        const cardById = Object.fromEntries(localCards.map(c => [c.id, c]))
+        cardList = allFcRows
+          .filter(r => cardById[r.card_id])
+          .map(r => ({
+            ...cardById[r.card_id],
+            _folder_qty: r.qty,
+            _folderName: folderNameById[r.folder_id] || '',
+            _sourceFolderId: r.folder_id,
+            _displayKey: `${r.folder_id}:${r.card_id}`,
           }))
       } else {
-        const { data } = await sb
-          .from('folder_cards')
-          .select('qty, cards(*)')
-          .eq('folder_id', folder.id)
-        if (data) cardList = data.filter(row => row.cards).map(row => ({ ...row.cards, _folder_qty: row.qty }))
+        const fcRows = await getLocalFolderCards(folder.id)
+        const cardIds = fcRows.map(r => r.card_id).filter(Boolean)
+        const localCards = await getCardsByIds(cardIds)
+        const cardById = Object.fromEntries(localCards.map(c => [c.id, c]))
+        cardList = fcRows
+          .filter(r => cardById[r.card_id])
+          .map(r => ({ ...cardById[r.card_id], _folder_qty: r.qty }))
       }
       setCards(cardList)
       if (cardList.length) {
@@ -1335,24 +1331,17 @@ export default function FoldersPage({ type }) {
     setFolders(foldersData)
 
     const ids = foldersData.map(f => f.id)
-    let allRows = [], fcFrom = 0
-    while (true) {
-      const query = type === 'deck'
-        ? sb
-            .from('deck_allocations_view')
-            .select('deck_id, qty, set_code, collector_number, foil')
-            .in('deck_id', ids)
-        : sb
-            .from('folder_cards')
-            .select('folder_id, qty, cards(set_code, collector_number, foil)')
-            .in('folder_id', ids)
-      const { data: page } = await query.range(fcFrom, fcFrom + 999)
-      if (page?.length) allRows = [...allRows, ...page]
-      if (!page || page.length < 1000) break
-      fcFrom += 1000
-    }
 
-    const priceCards = allRows.map(row => row.cards || row).filter(Boolean)
+    // Read placement rows from IDB (instant, no network)
+    const allRows = type === 'deck'
+      ? (await Promise.all(ids.map(id => getDeckAllocations(id)))).flat()
+      : await getAllLocalFolderCards(ids)
+
+    const uniqueCardIds = [...new Set(allRows.map(r => r.card_id).filter(Boolean))]
+    const localCards = await getCardsByIds(uniqueCardIds)
+    const cardById = Object.fromEntries(localCards.map(c => [c.id, c]))
+
+    const priceCards = uniqueCardIds.map(id => cardById[id]).filter(Boolean)
     const sfMap = priceCards.length ? await loadCardMapWithSharedPrices(priceCards) : {}
     const meta  = {}
     for (const f of foldersData) meta[f.id] = { count: 0, totalQty: 0, value: 0 }
@@ -1363,7 +1352,7 @@ export default function FoldersPage({ type }) {
       if (!m) continue
       m.count++
       m.totalQty += row.qty || 1
-      const card = row.cards || row
+      const card = cardById[row.card_id]
       if (card) {
         const sf = sfMap[`${card.set_code}-${card.collector_number}`]
         const p  = getPrice(sf, card.foil, { price_source }) ?? (parseFloat(card.purchase_price) || null)

@@ -183,6 +183,13 @@ export async function getLocalCards(userId) {
   return db.getAllFromIndex('cards', 'user_id', userId)
 }
 
+export async function getCardsByIds(ids) {
+  if (!ids?.length) return []
+  const db = await getDb()
+  const results = await Promise.all(ids.map(id => db.get('cards', id)))
+  return results.filter(Boolean)
+}
+
 export async function getLocalCardPrints() {
   const db = await getDb()
   return db.getAll('card_prints')
