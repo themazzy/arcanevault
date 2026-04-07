@@ -23,6 +23,111 @@ const LOCAL_COLLECTION_FRESH_MS = 5 * 60 * 1000
 
 const worker = new Worker(new URL('../lib/filterWorker.js', import.meta.url), { type: 'module' })
 
+function OrphanModal({ cards, folders, userId, onAssigned, onDeleted }) {
+  const [selectedFolderId, setSelectedFolderId] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const folder = folders.find(f => f.id === selectedFolderId) || null
+
+  const handleAssign = async () => {
+    if (!folder) return
+    setBusy(true); setError('')
+    try {
+      const isDecK = folder.type === 'deck'
+      const table  = isDecK ? 'deck_allocations' : 'folder_cards'
+      const rows   = cards.map(c => isDecK
+        ? { id: crypto.randomUUID(), deck_id: folder.id, card_id: c.id, user_id: userId, qty: c.qty || 1 }
+        : { id: crypto.randomUUID(), folder_id: folder.id, card_id: c.id, qty: c.qty || 1 }
+      )
+      const { error: err } = await sb.from(table).insert(rows)
+      if (err) throw err
+      onAssigned(cards, folder)
+    } catch (e) {
+      setError(e.message)
+      setBusy(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    setBusy(true); setError('')
+    try {
+      const ids = cards.map(c => c.id)
+      const BATCH = 100
+      for (let i = 0; i < ids.length; i += BATCH) {
+        const { error: err } = await sb.from('cards').delete().in('id', ids.slice(i, i + BATCH))
+        if (err) throw err
+        for (const id of ids.slice(i, i + BATCH)) await deleteCard(id)
+      }
+      onDeleted(cards)
+    } catch (e) {
+      setError(e.message)
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ background: 'var(--bg2)', border: '1px solid var(--border-hi)', borderRadius: 10, maxWidth: 480, width: '100%', maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: '0.72rem', letterSpacing: '0.12em', color: 'var(--text-faint)', textTransform: 'uppercase', marginBottom: 6 }}>Unassigned Cards</div>
+          <div style={{ fontSize: '0.88rem', color: 'var(--text-dim)' }}>
+            {cards.length} card{cards.length !== 1 ? 's' : ''} found without a binder, deck, or wishlist. Assign them or delete.
+          </div>
+        </div>
+
+        <div style={{ overflowY: 'auto', flex: 1, padding: '12px 20px' }}>
+          {cards.map(c => (
+            <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--border)', fontSize: '0.84rem' }}>
+              <span style={{ color: 'var(--text)' }}>{c.name}</span>
+              <span style={{ color: 'var(--text-faint)', fontFamily: 'var(--font-serif)', fontSize: '0.76rem' }}>{(c.set_code || '').toUpperCase()}</span>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ padding: '14px 20px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <select
+            value={selectedFolderId}
+            onChange={e => setSelectedFolderId(e.target.value)}
+            disabled={busy}
+            style={{ width: '100%', padding: '8px 10px', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text)', fontSize: '0.84rem' }}
+          >
+            <option value=''>— Pick a destination —</option>
+            {['binder', 'deck', 'list'].map(type => {
+              const group = folders.filter(f => f.type === type)
+              if (!group.length) return null
+              return (
+                <optgroup key={type} label={type.charAt(0).toUpperCase() + type.slice(1) + 's'}>
+                  {group.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                </optgroup>
+              )
+            })}
+          </select>
+
+          {error && <div style={{ color: 'var(--red)', fontSize: '0.78rem' }}>{error}</div>}
+
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={handleAssign}
+              disabled={busy || !folder}
+              style={{ flex: 1, padding: '9px 0', background: folder ? 'rgba(201,168,76,0.15)' : 'var(--bg3)', border: '1px solid var(--s-border2)', borderRadius: 6, color: folder ? 'var(--gold)' : 'var(--text-faint)', fontFamily: 'var(--font-display)', fontSize: '0.72rem', letterSpacing: '0.08em', cursor: folder ? 'pointer' : 'default', transition: 'all 0.15s' }}
+            >
+              {busy ? '…' : 'Assign All'}
+            </button>
+            <button
+              onClick={handleDelete}
+              disabled={busy}
+              style={{ padding: '9px 16px', background: 'rgba(220,60,60,0.08)', border: '1px solid rgba(220,60,60,0.25)', borderRadius: 6, color: 'var(--red, #e05555)', fontFamily: 'var(--font-display)', fontSize: '0.72rem', letterSpacing: '0.08em', cursor: 'pointer', transition: 'all 0.15s' }}
+            >
+              Delete All
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function CollectionPage() {
   const { user } = useAuth()
   const { price_source, default_sort, grid_density, show_price, cache_ttl_h, loaded: settingsLoaded } = useSettings()
@@ -57,6 +162,7 @@ export default function CollectionPage() {
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [viewMode, setViewMode] = useState('grid')
   const [groupBy, setGroupBy]   = useState('none')
+  const [orphanCards, setOrphanCards] = useState([])
   useEffect(() => { setSelected(new Set()); setSplitState(new Map()); setSelectMode(false) }, [viewMode])
   const workerReqId  = useRef(0)
   const enrichingRef = useRef(false)
@@ -271,28 +377,13 @@ export default function CollectionPage() {
     return () => worker.removeEventListener('message', handler)
   }, [])
 
-  // ── Orphan cleanup — runs once per mount after both syncs complete ───────────
+  // ── Orphan detection — runs once per mount after both syncs complete ─────────
   const orphanCheckDone = useRef(false)
   useEffect(() => {
     if (loading || folderMembershipLoading || !isOnline || !cards.length || orphanCheckDone.current) return
     orphanCheckDone.current = true
-    const orphanIds = cards.filter(c => !cardFolderMap[c.id]?.length).map(c => c.id)
-    if (!orphanIds.length) return
-    console.log(`[Collection] Cleaning up ${orphanIds.length} orphaned cards`)
-    const orphanSet = new Set(orphanIds)
-    const BATCH = 100;
-    (async () => {
-      try {
-        for (let i = 0; i < orphanIds.length; i += BATCH) {
-          const batch = orphanIds.slice(i, i + BATCH)
-          await sb.from('cards').delete().in('id', batch)
-          for (const id of batch) await deleteCard(id)
-        }
-        setCards(prev => prev.filter(c => !orphanSet.has(c.id)))
-      } catch (err) {
-        console.error('[Collection] Orphan cleanup failed:', err.message)
-      }
-    })()
+    const orphans = cards.filter(c => !cardFolderMap[c.id]?.length)
+    if (orphans.length) setOrphanCards(orphans)
   }, [loading, folderMembershipLoading, cards, cardFolderMap, isOnline])
 
   // ── Scryfall enrichment ──────────────────────────────────────────────────────
@@ -474,18 +565,8 @@ export default function CollectionPage() {
       else folderFail++
     }
 
-    // ── Prune any imported cards that ended up with no folder placement ────────
-    const importedIds = dedupedCards
-      .map(c => cardKeyMap[`${c.set_code}-${c.collector_number}-${c.foil}-${c.language}-${c.condition}`])
-      .filter(Boolean)
-    const prunedOrphans = await pruneUnplacedCards(importedIds).catch(err => {
-      console.warn('[Import] Orphan prune failed:', err.message)
-      return []
-    })
-    if (prunedOrphans.length) console.log(`[Import] Pruned ${prunedOrphans.length} cards with no folder placement`)
-
     // ── Done ────────────────────────────────────────────────────────────────
-    let msg = `Done — ${dedupedCards.length - prunedOrphans.length} cards, ${folderOk}/${folderList.length} folders linked`
+    let msg = `Done — ${dedupedCards.length} cards, ${folderOk}/${folderList.length} folders linked`
     if (totalMissed > 0) msg += ` (${totalMissed} card rows not matched)`
     if (folderFail > 0) setError(`${folderFail} folder(s) failed to link — check the browser console for details.`)
     setProgLabel(msg)
@@ -997,6 +1078,28 @@ export default function CollectionPage() {
           title="Collection"
           folderType="collection"
           onClose={() => setShowExport(false)}
+        />
+      )}
+
+      {orphanCards.length > 0 && (
+        <OrphanModal
+          cards={orphanCards}
+          folders={folders}
+          userId={user.id}
+          onAssigned={(assigned, folder) => {
+            const assignedSet = new Set(assigned.map(c => c.id))
+            setCardFolderMap(prev => {
+              const next = { ...prev }
+              for (const c of assigned) next[c.id] = [{ id: folder.id, name: folder.name, type: folder.type, qty: c.qty || 1 }]
+              return next
+            })
+            setOrphanCards([])
+          }}
+          onDeleted={(deleted) => {
+            const deletedSet = new Set(deleted.map(c => c.id))
+            setCards(prev => prev.filter(c => !deletedSet.has(c.id)))
+            setOrphanCards([])
+          }}
         />
       )}
     </div>
