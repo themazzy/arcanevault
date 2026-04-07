@@ -469,8 +469,8 @@ export default function CardScanner({ onMatch, onClose }) {
   }, [lockedSets])
   useEffect(() => {
     if (!saveNotice) return undefined
-    const timer = window.setTimeout(() => setSaveNotice(null), 2200)
-    return () => window.clearTimeout(timer)
+    const timer = setTimeout(() => setSaveNotice(null), 2200)
+    return () => clearTimeout(timer)
   }, [saveNotice])
 
   // ── Scan sound — plays when price data arrives for a newly scanned card ─────
@@ -754,24 +754,6 @@ export default function CardScanner({ onMatch, onClose }) {
   }, [pendingCards, setIcons])
 
   useEffect(() => {
-    const setCode = latestPending?.setCode
-    if (!setCode || setIcons[setCode] || setIconFetchesRef.current.has(setCode)) return
-    let cancelled = false
-    ;(async () => {
-      setIconFetchesRef.current.add(setCode)
-      try {
-        const data = await sfGet(`/sets/${setCode}`)
-        if (!cancelled && data?.icon_svg_uri) {
-          setSetIcons(prev => (prev[setCode] ? prev : { ...prev, [setCode]: { icon: data.icon_svg_uri, name: data.name || setCode } }))
-        }
-      } finally {
-        setIconFetchesRef.current.delete(setCode)
-      }
-    })()
-    return () => { cancelled = true }
-  }, [latestPending?.setCode, setIcons])
-
-  useEffect(() => {
     const missing = [...new Set((printingPickerResults || []).map(card => card?.set).filter(Boolean))]
       .filter(setCode => !setIcons[setCode] && !setIconFetchesRef.current.has(setCode))
     if (!missing.length) return
@@ -997,32 +979,12 @@ export default function CardScanner({ onMatch, onClose }) {
   }, [manualSearchOpen, manualSearchQuery])
 
   const addManualCard = useCallback((sf) => {
-    const imgUri = getCardImg(sf)
-    const entry = {
-      uid:       nextUid(),
-      id:        sf.id,
-      name:      sf.name,
-      setCode:   sf.set,
-      collNum:   sf.collector_number,
-      imageUri:  imgUri,
-      foil:      false,
-      qty:       1,
-      language:  'en',
-      condition: 'NM',
-    }
-    setPendingCards(prev => {
-      const idx = prev.findIndex(c =>
-        c.id === entry.id && c.foil === entry.foil &&
-        (c.language || 'en') === entry.language &&
-        (c.condition || 'NM') === entry.condition
-      )
-      if (idx !== -1) {
-        const existing = prev[idx]
-        const next = prev.filter((_, i) => i !== idx)
-        next.unshift({ ...existing, qty: existing.qty + 1 })
-        return next
-      }
-      return [entry, ...prev]
+    addToPending({
+      id:       sf.id,
+      name:     sf.name,
+      setCode:  sf.set,
+      collNum:  sf.collector_number,
+      imageUri: getCardImg(sf),
     })
     setPrintingPickerFor(null)
     setPrintingPickerResults([])
@@ -1033,7 +995,7 @@ export default function CardScanner({ onMatch, onClose }) {
     setManualSearchResults([])
     setManualSearchLoading(false)
     setBasketExpanded(false)
-  }, [])
+  }, [addToPending])
 
   // ── Add flow ───────────────────────────────────────────────────────────────
 
@@ -1145,8 +1107,7 @@ export default function CardScanner({ onMatch, onClose }) {
       const w = vid.videoWidth, h = vid.videoHeight
       const canvas = canvasRef.current
       canvas.width = w; canvas.height = h
-      if (!canvas._ctx) canvas._ctx = canvas.getContext('2d', { willReadFrequently: true })
-      const ctx2d = canvas._ctx
+      const ctx2d = canvas.getContext('2d', { willReadFrequently: true })
       ctx2d.drawImage(vid, 0, 0)
       // Small frame for corner detection — GPU-accelerated drawImage to 50% size.
       // Replaces the OpenCV software resize inside detectCardCorners.
@@ -1359,11 +1320,11 @@ export default function CardScanner({ onMatch, onClose }) {
   // Must be defined after handleScan (useCallback const — TDZ applies).
   useEffect(() => {
     if (!autoScan || !isReady || scanning) return
-    if (addFlowOpen || basketExpanded || manualSearchOpen || settingsOpen || setPickerOpen) return
+    if (addFlowOpen || basketExpanded || manualSearchOpen || settingsOpen || setPickerOpen || printingPickerFor !== null) return
     const cooldown = scanResult === 'found' ? 1000 : 350
-    const timer = window.setTimeout(() => { handleScan() }, cooldown)
-    return () => window.clearTimeout(timer)
-  }, [autoScan, isReady, scanning, addFlowOpen, basketExpanded, manualSearchOpen, settingsOpen, setPickerOpen, handleScan, scanResult])
+    const timer = setTimeout(() => { handleScan() }, cooldown)
+    return () => clearTimeout(timer)
+  }, [autoScan, isReady, scanning, addFlowOpen, basketExpanded, manualSearchOpen, settingsOpen, setPickerOpen, printingPickerFor, handleScan, scanResult])
 
   // ── Derived ────────────────────────────────────────────────────────────────
 
@@ -1425,7 +1386,7 @@ export default function CardScanner({ onMatch, onClose }) {
   const handleClose = useCallback(() => {
     if (closing) return
     setClosing(true)
-    window.setTimeout(() => {
+    setTimeout(() => {
       onClose?.()
     }, 220)
   }, [closing, onClose])
