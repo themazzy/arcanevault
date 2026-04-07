@@ -600,7 +600,7 @@ function DeckCardGrid({ cards, sfMap, priceSource, onSelect, onHover, onHoverEnd
 
 export default function DeckBrowser({ folder, onBack }) {
   const navigate = useNavigate()
-  const { price_source, default_sort, default_grouping } = useSettings()
+  const { price_source, default_sort, default_grouping, grid_density } = useSettings()
   const { user } = useAuth()
   const [cards, setCards]           = useState([])
   const [sfMap, setSfMap]           = useState({})
@@ -1026,6 +1026,7 @@ export default function DeckBrowser({ folder, onBack }) {
           priceSource={price_source}
           viewMode={viewMode}
           groupBy={groupBy}
+          density={grid_density}
           onSelect={c => { handleHoverEnd(); setDetailCardId(c.id) }}
           selectMode={selectMode}
           selectedCards={selectedCards}

@@ -505,7 +505,7 @@ function BinderListView({ cards, sfMap, priceSource }) {
 
 // ── FolderBrowser ─────────────────────────────────────────────────────────────
 function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder', onBack }) {
-  const { price_source, default_sort, default_grouping } = useSettings()
+  const { price_source, default_sort, default_grouping, grid_density } = useSettings()
   const { user } = useAuth()
   const [cards, setCards]             = useState([])
   const [sfMap, setSfMap]             = useState({})
@@ -851,6 +851,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
           priceSource={price_source}
           viewMode={viewMode}
           groupBy={groupBy}
+          density={grid_density}
           onSelect={isAllView ? () => {} : c => setSelected(c.id)}
           selectMode={selectMode}
           selectedCards={selectedCards}

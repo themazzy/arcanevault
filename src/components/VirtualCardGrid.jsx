@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect, useMemo } from 'react'
+import { useRef, useCallback, useEffect, useMemo, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { getImageUri, getPriceWithMeta, formatPriceMeta } from '../lib/scryfall'
 import { FolderTypeIcon } from './Icons'
@@ -144,7 +144,7 @@ export default function VirtualCardGrid({
   cardFolders,
 }) {
   const parentRef = useRef(null)
-  const colsRef   = useRef(4)
+  const [cols, setCols] = useState(4)
 
   const minW  = DENSITY_MIN_WIDTH[density]   || 168
   const cardH = DENSITY_CARD_HEIGHT[density] || 310
@@ -152,7 +152,7 @@ export default function VirtualCardGrid({
   const measureCols = useCallback(() => {
     if (!parentRef.current) return
     const w = parentRef.current.offsetWidth
-    colsRef.current = Math.max(1, Math.floor(w / minW))
+    setCols(Math.max(1, Math.floor(w / minW)))
   }, [minW])
 
   useEffect(() => {
@@ -167,7 +167,6 @@ export default function VirtualCardGrid({
     cards.map(card => ({ ...card, _totalQty: card._folder_qty ?? card.qty ?? 1 }))
   , [cards])
 
-  const cols    = colsRef.current
   const rowCount = Math.ceil(cardsWithQty.length / cols)
 
   const virtualizer = useVirtualizer({

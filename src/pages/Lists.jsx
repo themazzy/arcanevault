@@ -209,7 +209,7 @@ function WishlistItem({ item, sfCard, priceSource, onDelete, selectMode, selecte
 
 // ── ListBrowser ───────────────────────────────────────────────────────────────
 function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
-  const { price_source, default_sort, default_grouping } = useSettings()
+  const { price_source, default_sort, default_grouping, grid_density } = useSettings()
   const { user } = useAuth()
   const [items, setItems]       = useState([])
   const [sfMap, setSfMap]       = useState({})
@@ -564,6 +564,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
           priceSource={price_source}
           viewMode={viewMode}
           groupBy={groupBy}
+          density={grid_density}
           onSelect={item => setSelectedItemId(item.id)}
           selectMode={selectMode}
           selectedCards={selectedItems}
