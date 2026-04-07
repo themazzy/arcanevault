@@ -34,7 +34,18 @@
       "Bash(npx cap:*)",
       "Bash(gh workflow:*)",
       "Bash(grep -n \"CardGrid\\\\|VirtualCardGrid\" /c/Users/Jan/Desktop/arcanevault/arcanevault/src/pages/*.jsx)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(curl -s -o /dev/null -D - -X OPTIONS \"https://backend.commanderspellbook.com/find-my-combos/\" -H \"Origin: https://themazzy.github.io\" -H \"Access-Control-Request-Method: POST\")",
+      "Bash(curl -s -o /dev/null -D - -X POST \"https://backend.commanderspellbook.com/find-my-combos/\" -H \"Origin: https://themazzy.github.io\" -H \"Content-Type: application/json\" -d '{\"commanders\":[],\"main\":[{\"card\":\"Lightning Bolt\"}]}')",
+      "Bash(curl -s -o /dev/null -D - -X POST \"https://backend.commanderspellbook.com/find-my-combos/\" -H \"Origin: https://commanderspellbook.com\" -H \"Content-Type: application/json\" -d '{\"commanders\":[],\"main\":[{\"card\":\"Lightning Bolt\"}]}')",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\('version','unknown'\\)\\)\")",
+      "WebSearch",
+      "WebFetch(domain:www.manabox.app)",
+      "WebFetch(domain:manabox.app)",
+      "WebFetch(domain:www.scanyourmtg.com)",
+      "WebFetch(domain:www.reddit.com)",
+      "WebFetch(domain:thoughtseize.io)",
+      "WebFetch(domain:cardslinger.shop)"
     ]
   }
 }

@@ -1459,8 +1459,7 @@ export default function CardScanner({ onMatch, onClose }) {
               aria-label="Scanner settings"
             >
               <svg viewBox="0 0 24 24" className={styles.menuIcon} aria-hidden="true">
-                <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.8" />
-                <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                <path d="M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.92c.04-.36.07-.72.07-1.08s-.03-.73-.07-1.08l2.32-1.82c.21-.16.27-.46.13-.7l-2.2-3.81c-.13-.24-.42-.32-.66-.24l-2.74 1.1c-.57-.44-1.18-.81-1.85-1.09L14.05 2.1A.54.54 0 0 0 13.5 1.6h-3c-.27 0-.5.19-.54.46l-.41 2.89c-.67.28-1.29.65-1.85 1.09L5 4.94c-.25-.09-.53 0-.66.24L2.14 9c-.14.23-.08.53.13.7l2.32 1.82C4.53 11.27 4.5 11.63 4.5 12s.03.73.07 1.08L2.27 14.9c-.21.17-.27.47-.13.7l2.2 3.81c.13.24.41.32.66.24l2.74-1.1c.57.44 1.18.81 1.85 1.09l.41 2.9c.04.26.27.46.54.46h3c.27 0 .5-.2.54-.46l.41-2.9c.67-.28 1.28-.65 1.85-1.09l2.74 1.1c.25.08.53 0 .66-.24l2.2-3.81c.14-.23.08-.53-.13-.7l-2.32-1.82z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
           </div>
