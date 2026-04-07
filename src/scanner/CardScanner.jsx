@@ -1282,6 +1282,15 @@ export default function CardScanner({ onMatch, onClose }) {
         </div>
 
         {/* Targeting reticle */}
+        {pendingCards.length > 0 && (
+          <div className={styles.scannedValueBadge}>
+            <span className={styles.scannedValueBadgeLabel}>Scanned Value</span>
+            <span className={styles.scannedValueBadgeAmount}>
+              {scannedValueMeta ? `${scannedValueMeta.symbol}${scannedValueMeta.value.toFixed(2)}` : '—'}
+            </span>
+          </div>
+        )}
+
         <div className={`${styles.targetFrame} ${scanResult === 'found' ? styles.targetLit : ''} ${scanning ? styles.targetPaused : ''}`}>
           <span className={`${styles.corner} ${styles.tl}`} />
           <span className={`${styles.corner} ${styles.tr}`} />
@@ -1314,15 +1323,6 @@ export default function CardScanner({ onMatch, onClose }) {
         {DEBUG && !debugInfo && (
           <div className={styles.debugStrip}>
             hashes: {cardCount.toLocaleString()} {databaseService.isFullyLoaded ? 'yes' : '...'} | CV: {cvReady ? 'yes' : '...'} | DB: {dbReady ? 'yes' : '...'}
-          </div>
-        )}
-
-        {pendingCards.length > 0 && (
-          <div className={styles.scannedValueBadge}>
-            <span className={styles.scannedValueBadgeLabel}>Scanned Value</span>
-            <span className={styles.scannedValueBadgeAmount}>
-              {scannedValueMeta ? `${scannedValueMeta.symbol}${scannedValueMeta.value.toFixed(2)}` : '—'}
-            </span>
           </div>
         )}
 

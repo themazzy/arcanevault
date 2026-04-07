@@ -350,14 +350,28 @@ class DatabaseService {
 
   async _loadWebCache(onProgress) {
     this._emitProgress(onProgress, { phase: 'checking cache', source: 'idb', loadedCount: 0 })
-    const cachedRows = await getAllScannerHashEntries().catch(() => [])
-    const cachedTotal = Number(await getMeta('scanner_hash_total_count').catch(() => 0)) || 0
-    const remoteTotal = Number(await this._fetchTotalCount().catch(() => 0)) || 0
+
+    // Fetch IDB cache and remote total in parallel to avoid serial round trips
+    const [cachedRows, cachedTotal, remoteTotal] = await Promise.all([
+      getAllScannerHashEntries().catch(() => []),
+      getMeta('scanner_hash_total_count').then(v => Number(v) || 0).catch(() => 0),
+      this._fetchTotalCount().catch(() => 0),
+    ])
+
     const expectedTotal = remoteTotal || cachedTotal
     const hasCompleteCache = expectedTotal > 0 && cachedRows.length >= expectedTotal
     const shouldRefreshCache = cachedRows.length > 0 && expectedTotal > 0 && cachedRows.length !== expectedTotal
 
     if (cachedRows?.length && hasCompleteCache && !shouldRefreshCache) {
+      // Yield to main thread so React can paint "building index" before the
+      // synchronous map+rebuildIndex blocks the thread.
+      this._emitProgress(onProgress, {
+        loadedCount: cachedRows.length,
+        totalCount: expectedTotal,
+        phase: 'building index',
+        source: 'idb cache',
+      })
+      await new Promise(r => setTimeout(r, 0))
       this._hashes = cachedRows.map(rowToHash).filter(Boolean)
       this._rebuildIndex()
       this._fullyLoaded = true
@@ -381,6 +395,7 @@ class DatabaseService {
       await clearScannerHashEntries().catch(() => {})
     }
 
+    // Fetch first page and save total in parallel — first page available immediately
     const totalCount = expectedTotal
     this._emitProgress(onProgress, {
       loadedCount: 0,
@@ -393,8 +408,10 @@ class DatabaseService {
     const augmentedFirst = augmentWithParsed(firstPage)
     this._hashes = augmentedFirst.map(rowToHash).filter(Boolean)
     this._rebuildIndex()
-    if (augmentedFirst.length) await putScannerHashEntries(augmentedFirst).catch(() => {})
-    if (totalCount) await setMeta('scanner_hash_total_count', totalCount).catch(() => {})
+    await Promise.all([
+      augmentedFirst.length ? putScannerHashEntries(augmentedFirst).catch(() => {}) : Promise.resolve(),
+      totalCount ? setMeta('scanner_hash_total_count', totalCount).catch(() => {}) : Promise.resolve(),
+    ])
     this._emitProgress(onProgress, {
       loadedCount: this._hashes.length,
       totalCount: totalCount || this._hashes.length,
@@ -461,15 +478,16 @@ class DatabaseService {
           this._addToIndex(this._hashes[i], i)
         }
         await putScannerHashEntries(augmented).catch(() => {})
+        // Emit after every page so the progress bar advances smoothly
+        this._emitProgress(onProgress, {
+          loadedCount: this._hashes.length,
+          totalCount: totalCount || this._hashes.length,
+          phase: 'downloading hashes',
+          source: 'network',
+        })
         if (data.length < PAGE_SIZE) { reachedEnd = true; break }
       }
 
-      this._emitProgress(onProgress, {
-        loadedCount: this._hashes.length,
-        totalCount: totalCount || this._hashes.length,
-        phase: reachedEnd ? 'finalizing cache' : 'downloading hashes',
-        source: 'network',
-      })
       if (reachedEnd) break
       page += BATCH
     }
