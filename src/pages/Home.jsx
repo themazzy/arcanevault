@@ -816,7 +816,7 @@ function RandomCardSection() {
           <div className={styles.skeletonBody} />
         </div>
       ) : card ? (
-        <CardView card={card} badge="✦ Random" />
+        <CardView card={card} />
       ) : (
         <div className={styles.emptyMsg}>Failed to load card.</div>
       )}
