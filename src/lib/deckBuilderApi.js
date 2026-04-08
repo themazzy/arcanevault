@@ -152,7 +152,7 @@ export async function searchCards({ query = '', format, colorIdentity, cardType,
   const q = encodeURIComponent(parts.join(' '))
   const order = format === 'commander' ? 'edhrec' : 'name'
   const data = await sfFetch(`${SF}/cards/search?q=${q}&order=${order}&unique=cards&page=${page}`)
-  if (!data) return { cards: [], hasMore: false }
+  if (!data) return { cards: [], hasMore: false, error: true }
   return { cards: data.data || [], hasMore: data.has_more || false }
 }
 
@@ -263,13 +263,14 @@ export async function fetchEdhrecCommander(commanderName) {
           header: cl.header,
           tag:    cl.tag,
           cards:  cl.cardviews.map(cv => ({
-            name:      cv.name,
-            slug:      cv.sanitized,
-            inclusion: cv.inclusion ?? 0,
-            synergy:   cv.synergy   ?? 0,
-            cmc:       cv.cmc       ?? 0,
-            type:      cv.type      ?? '',
-            colorIdentity: cv.color_identity || [],
+            name:           cv.name,
+            slug:           cv.sanitized,
+            inclusion:      cv.inclusion      ?? 0,
+            potentialDecks: cv.potential_decks ?? 0,
+            synergy:        cv.synergy        ?? 0,
+            cmc:            cv.cmc            ?? 0,
+            type:           cv.type           ?? '',
+            colorIdentity:  cv.color_identity || [],
           })),
         })),
     }
