@@ -120,6 +120,20 @@ export function nameToSlug(name) {
     .replace(/\s+/g, '-')
 }
 
+function getEdhrecCommanderSlugCandidates(name) {
+  const parts = String(name || '')
+    .split('//')
+    .map(part => part.trim())
+    .filter(Boolean)
+
+  const candidates = [
+    nameToSlug(name),
+    ...parts.map(part => nameToSlug(part)),
+  ].filter(Boolean)
+
+  return [...new Set(candidates)]
+}
+
 // ── Scryfall helpers ──────────────────────────────────────────────────────────
 // sfGet (rate-limited, with Accept header) is imported from scryfall.js
 const sfFetch = sfGet
@@ -222,12 +236,23 @@ async function edhrecFetch(path) {
 }
 
 export async function fetchEdhrecCommander(commanderName) {
-  const slug = nameToSlug(commanderName)
-  if (_edhCache[slug]) return _edhCache[slug]
+  const slugs = getEdhrecCommanderSlugCandidates(commanderName)
+  const cached = slugs.find(slug => _edhCache[slug])
+  if (cached) return _edhCache[cached]
 
   try {
-    const data = await edhrecFetch(`commanders/${slug}.json`)
-    if (!data) throw new Error('all proxies failed')
+    let data = null
+    let resolvedSlug = null
+
+    for (const slug of slugs) {
+      data = await edhrecFetch(`commanders/${slug}.json`)
+      if (data) {
+        resolvedSlug = slug
+        break
+      }
+    }
+
+    if (!data) throw new Error('all commander slugs failed')
 
     const cardlists = data?.container?.json_dict?.cardlists || []
     const result = {
@@ -249,7 +274,7 @@ export async function fetchEdhrecCommander(commanderName) {
         })),
     }
 
-    _edhCache[slug] = result
+    for (const slug of slugs) _edhCache[slug] = result
     return result
   } catch (err) {
     console.warn('[EDHRec] failed for', commanderName, err.message)
