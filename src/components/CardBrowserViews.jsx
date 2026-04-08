@@ -880,28 +880,54 @@ function estimateStackGroupWeight(cardCount, hideHeaders) {
   return (hideHeaders ? 0 : 1.2) + Math.max(cardCount, 1) * 0.34
 }
 
-function GridView({ cards, sfMap, priceSource, onSelect, selectMode, selectedCards, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, density }) {
+function GridView({ cards, sfMap, priceSource, onSelect, selectMode, selectedCards, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, density, groups, groupOrder, groupBy }) {
   const minW = DENSITY_MIN_WIDTH[density] || 160
+  const gridStyle = { gridTemplateColumns: `repeat(auto-fill, minmax(${minW}px, 1fr))` }
+
+  const renderCards = (cardList) => cardList.map(card => {
+    const key = getDisplayKey(card)
+    return (
+      <GridCard
+        key={key}
+        card={card}
+        sf={sfMap[getScryfallKey(card)]}
+        priceSource={priceSource}
+        selectMode={selectMode}
+        isSelected={selectedCards?.has(key)}
+        onSelect={onSelect}
+        onToggleSelect={onToggleSelect}
+        onAdjustQty={onAdjustQty}
+        splitState={splitState}
+        onEnterSelectMode={onEnterSelectMode}
+      />
+    )
+  })
+
+  if (groupBy && groupBy !== 'none' && groups && groupOrder) {
+    return (
+      <div className={styles.gridGroups}>
+        {groupOrder.filter(g => groups[g]?.length).map(g => {
+          const groupCards = groups[g]
+          const total = groupCards.reduce((sum, c) => sum + (c._folder_qty ?? c.qty ?? 1), 0)
+          return (
+            <div key={g} className={styles.gridGroup}>
+              <div className={styles.textGroupHeader}>
+                <span>{g}</span>
+                <span className={styles.textGroupCount}>{total}</span>
+              </div>
+              <div className={styles.cardGrid} style={gridStyle}>
+                {renderCards(groupCards)}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
   return (
-    <div className={styles.cardGrid} style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${minW}px, 1fr))` }}>
-      {cards.map(card => {
-        const key = getDisplayKey(card)
-        return (
-          <GridCard
-            key={key}
-            card={card}
-            sf={sfMap[getScryfallKey(card)]}
-            priceSource={priceSource}
-            selectMode={selectMode}
-            isSelected={selectedCards?.has(key)}
-            onSelect={onSelect}
-            onToggleSelect={onToggleSelect}
-            onAdjustQty={onAdjustQty}
-            splitState={splitState}
-            onEnterSelectMode={onEnterSelectMode}
-          />
-        )
-      })}
+    <div className={styles.cardGrid} style={gridStyle}>
+      {renderCards(cards)}
     </div>
   )
 }
@@ -1077,6 +1103,9 @@ export function CardBrowserContent({
       sfMap={sfMap}
       priceSource={priceSource}
       density={density}
+      groups={groups}
+      groupOrder={groupOrder}
+      groupBy={groupBy}
       onSelect={onSelect}
       onHover={onHover}
       onHoverEnd={onHoverEnd}
