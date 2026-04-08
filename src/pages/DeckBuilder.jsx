@@ -152,6 +152,9 @@ function SearchResultRow({ card, ownedQty, onAdd, addFeedback, onOpenDetail }) {
 
 // ── Single card row in EDHRec recommendations ─────────────────────────────────
 function RecRow({ rec, imageUri, ownedQty, onAdd, onHoverEnter, onHoverLeave, onHoverMove, onOpenDetail }) {
+  const inclusionPct = rec.potentialDecks > 0
+    ? Math.round((rec.inclusion / rec.potentialDecks) * 100)
+    : (rec.inclusion ?? 0)
   const synergyPct = Math.round((rec.synergy ?? 0) * 100)
   // Scryfall CDN URLs have the size in the path — swap small → normal for hover preview
   const largeUri = imageUri ? imageUri.replace('/small/', '/normal/') : null
@@ -176,11 +179,17 @@ function RecRow({ rec, imageUri, ownedQty, onAdd, onHoverEnter, onHoverLeave, on
         </div>
         <div className={styles.recStats}>
           <div className={styles.inclusionBar}>
-            <div className={styles.inclusionFill} style={{ width: `${rec.inclusion ?? 0}%` }} />
+            <div className={styles.inclusionFill} style={{ width: `${inclusionPct}%` }} />
           </div>
-          <span className={styles.inclusionPct}>{rec.inclusion ?? 0}%</span>
+          <span
+            className={styles.inclusionPct}
+            title={`Included in ${inclusionPct}% of ${rec.potentialDecks.toLocaleString()} sampled ${rec.potentialDecks === 1 ? 'deck' : 'decks'} for this commander`}
+          >{inclusionPct}%</span>
           {synergyPct !== 0 && (
-            <span className={synergyPct > 0 ? styles.synergyPos : styles.synergyNeg}>
+            <span
+              className={synergyPct > 0 ? styles.synergyPos : styles.synergyNeg}
+              title={`${synergyPct > 0 ? '+' : ''}${synergyPct}% synergy — appears ${Math.abs(synergyPct)}% ${synergyPct > 0 ? 'more' : 'less'} often in this commander's decks than average`}
+            >
               {synergyPct > 0 ? '+' : ''}{synergyPct}
             </span>
           )}
@@ -1269,12 +1278,14 @@ export default function DeckBuilderPage() {
   const [searchLoading, setSearchLoading] = useState(false)
   const [searchHasMore, setSearchHasMore] = useState(false)
   const [searchPage,    setSearchPage]    = useState(1)
+  const [searchError,   setSearchError]   = useState(false)
 
   // Recommendations
   const [recs,         setRecs]         = useState([])
   const [recImages,    setRecImages]    = useState({}) // name -> image_uri
-  const [recsLoading,  setRecsLoading]  = useState(false)
-  const [recsError,    setRecsError]    = useState(null)
+  const [recsLoading,   setRecsLoading]   = useState(false)
+  const [recsError,     setRecsError]     = useState(null)
+  const [recsOwnedOnly, setRecsOwnedOnly] = useState(false)
   const [collapsedCats, setCollapsedCats] = useState(new Set())
 
   // Collection
@@ -1679,9 +1690,13 @@ export default function DeckBuilderPage() {
     if (!recs?.categories) return []
     return recs.categories.map(c => ({
       ...c,
-      cards: c.cards.filter(r => !deckNameSet.has(r.name.toLowerCase())),
+      cards: c.cards.filter(r => {
+        if (deckNameSet.has(r.name.toLowerCase())) return false
+        if (recsOwnedOnly && (ownedNameMap.get(r.name.toLowerCase()) ?? 0) === 0) return false
+        return true
+      }),
     })).filter(c => c.cards.length > 0)
-  }, [recs, deckNameSet])
+  }, [recs, deckNameSet, recsOwnedOnly, ownedNameMap])
 
   // ── Format change ─────────────────────────────────────────────────────────
   async function handleFormatChange(fmtId) {
@@ -1807,8 +1822,9 @@ export default function DeckBuilderPage() {
   // ── Card search ───────────────────────────────────────────────────────────
   const doSearch = useCallback(async (q, page = 1) => {
     setSearchLoading(true)
+    setSearchError(false)
     setSearchPage(page)
-    const { cards, hasMore } = await searchCards({
+    const { cards, hasMore, error } = await searchCards({
       query: q,
       format: deckMeta.format,
       colorIdentity: isEDH && colorIdentity.length ? colorIdentity : undefined,
@@ -1817,6 +1833,7 @@ export default function DeckBuilderPage() {
     if (page === 1) setSearchResults(cards)
     else setSearchResults(prev => [...prev, ...cards])
     setSearchHasMore(hasMore)
+    if (error) setSearchError(true)
     setSearchLoading(false)
   }, [deckMeta.format, isEDH, colorIdentity])
 
@@ -2919,10 +2936,13 @@ export default function DeckBuilderPage() {
             </div>
             <div className={styles.searchResults}>
               {searchLoading && searchPage === 1 && <div className={styles.searchEmpty}>Searching…</div>}
-              {!searchLoading && searchResults.length === 0 && searchQuery && (
+              {!searchLoading && searchError && (
+                <div className={styles.searchEmpty}>Scryfall is unavailable — try again in a moment.</div>
+              )}
+              {!searchLoading && !searchError && searchResults.length === 0 && searchQuery && (
                 <div className={styles.searchEmpty}>No results. Try a different query.</div>
               )}
-              {!searchLoading && searchResults.length === 0 && !searchQuery && (
+              {!searchLoading && !searchError && searchResults.length === 0 && !searchQuery && (
                 <div className={styles.searchEmpty}>Type a card name or keyword to search.</div>
               )}
               {searchResults.map(c => (
@@ -2951,6 +2971,15 @@ export default function DeckBuilderPage() {
             {isEDH && !commanderCard && <div className={styles.recsEmpty}>Pick a commander first to see recommendations.</div>}
             {isEDH && commanderCard && (
               <>
+                <div className={styles.recsToolbar}>
+                  <button
+                    className={`${styles.recsToggleBtn}${recsOwnedOnly ? ' ' + styles.recsToggleActive : ''}`}
+                    onClick={() => setRecsOwnedOnly(v => !v)}
+                    title="Show only cards you own"
+                  >
+                    Owned only
+                  </button>
+                </div>
                 {recsLoading && <div className={styles.recsLoading}>Loading recommendations…</div>}
                 {recsError && <div className={styles.recsError}>Recommendations unavailable for this commander.</div>}
                 {!recsLoading && !recsError && recs?.categories && (

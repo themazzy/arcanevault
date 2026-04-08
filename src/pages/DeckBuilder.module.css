@@ -411,6 +411,30 @@
   flex-direction: column;
 }
 
+.recsToolbar {
+  display: flex;
+  align-items: center;
+  padding: 6px 8px 4px;
+  gap: 6px;
+}
+
+.recsToggleBtn {
+  padding: 3px 10px;
+  font-size: 0.75rem;
+  background: var(--s3);
+  border: 1px solid var(--s-border2);
+  border-radius: 4px;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.recsToggleBtn:hover { background: var(--s4); }
+.recsToggleActive {
+  background: rgba(201,168,76,0.15);
+  border-color: rgba(201,168,76,0.4);
+  color: var(--gold);
+}
+
 .recsList {
   flex: 1;
   overflow-y: auto;
