@@ -8,7 +8,6 @@ import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
 import VirtualCardGrid from '../components/VirtualCardGrid'
-import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import { DropZone, ProgressBar, ErrorBox, EmptyState, SectionHeader, Button } from '../components/UI'
 import AddCardModal from '../components/AddCardModal'
 import ExportModal from '../components/ExportModal'
@@ -160,10 +159,7 @@ export default function CollectionPage() {
   const [cardFolderMap, setCardFolderMap] = useState({})
   const [folderMembershipLoading, setFolderMembershipLoading] = useState(true)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
-  const [viewMode, setViewMode] = useState('grid')
-  const [groupBy, setGroupBy]   = useState('none')
   const [orphanCards, setOrphanCards] = useState([])
-  useEffect(() => { setSelected(new Set()); setSplitState(new Map()); setSelectMode(false) }, [viewMode])
   const workerReqId  = useRef(0)
   const enrichingRef = useRef(false)
 
@@ -973,11 +969,6 @@ export default function CollectionPage() {
           </span>
         </div>
 
-        <CardBrowserViewControls
-          viewMode={viewMode} setViewMode={setViewMode}
-          groupBy={groupBy} setGroupBy={setGroupBy}
-        />
-
         {selectMode && selected.size > 0 && (
           <BulkActionBar
             selected={selected} selectedQty={selectedQty}
@@ -1005,36 +996,18 @@ export default function CollectionPage() {
           />
         )}
 
-        {viewMode === 'grid' ? (
-          <div className={styles.gridViewport}>
-            <VirtualCardGrid
-              cards={displayCards} sfMap={sfMap} loading={enriching}
-              onSelect={c => setDetailCardKey(c._displayKey || c.id)}
-              selectMode={selectMode} selected={selected} onToggleSelect={toggleSelect}
-              onEnterSelectMode={() => { setSelectMode(true) }}
-              splitState={splitState} onAdjustQty={onAdjustQty}
-              priceSource={price_source}
-              showPrice={show_price} density={grid_density}
-              cardFolders={cardFolderMap}
-            />
-          </div>
-        ) : (
-          <CardBrowserContent
-            cards={filtered}
-            sfMap={sfMap}
-            priceSource={price_source}
-            viewMode={viewMode}
-            groupBy={groupBy}
-            density={grid_density}
+        <div className={styles.gridViewport}>
+          <VirtualCardGrid
+            cards={displayCards} sfMap={sfMap} loading={enriching}
             onSelect={c => setDetailCardKey(c._displayKey || c.id)}
-            selectMode={selectMode}
-            selectedCards={selected}
-            onToggleSelect={toggleSelect}
-            onAdjustQty={onAdjustQty}
-            splitState={splitState}
-            onEnterSelectMode={() => setSelectMode(true)}
+            selectMode={selectMode} selected={selected} onToggleSelect={toggleSelect}
+            onEnterSelectMode={() => { setSelectMode(true) }}
+            splitState={splitState} onAdjustQty={onAdjustQty}
+            priceSource={price_source}
+            showPrice={show_price} density={grid_density}
+            cardFolders={cardFolderMap}
           />
-        )}
+        </div>
 
         {filtered.length === 0 && !enriching && <EmptyState>No cards match your filters.</EmptyState>}
       </>}

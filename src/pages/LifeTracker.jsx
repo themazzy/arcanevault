@@ -1800,6 +1800,9 @@ export default function LifeTrackerPage() {
     const [decks,        setDecks]        = useState([])
   const [history,      setHistory]      = useState(() => loadHistory())
   const [isFullscreen, setIsFullscreen] = useState(false)
+  // Two separate refs intentional: topbar and fsControls each render a gear wrap.
+  // If they share one ref, React nullifies it when fsControls unmounts (on fullscreen
+  // exit), causing the menu to close instantly after toggling fullscreen.
     const gearMenuRef   = useRef(null)
     const gearMenuFsRef = useRef(null)
   const [session,        setSession]        = useState(null)

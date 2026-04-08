@@ -808,6 +808,10 @@ export default function DeckBrowser({ folder, onBack }) {
     { id:'table',  label:'⊞ Table' },
   ]
 
+  const ORDERED_VIEW_MODES = ['grid', 'stacks', 'table', 'text']
+    .map(id => VIEW_MODES.find(v => v.id === id))
+    .filter(Boolean)
+
   const deckMeta = parseDeckMeta(folder.description || '{}')
   // Use only the explicitly-set bg_url for the header background.
   // coverArtUri is the builder-deck commander art — it is not a user-chosen
@@ -911,7 +915,7 @@ export default function DeckBrowser({ folder, onBack }) {
             </div>
           </div>
           <div className={styles.viewToggle}>
-            {VIEW_MODES.map(v => (
+            {ORDERED_VIEW_MODES.map(v => (
               <button key={v.id}
                 className={`${styles.viewBtn} ${viewMode===v.id ? styles.viewActive : ''}`}
                 onClick={() => setViewMode(v.id)}>
@@ -969,7 +973,7 @@ export default function DeckBrowser({ folder, onBack }) {
           >
             {({ close }) => (
               <div className={uiStyles.responsiveMenuList}>
-                {VIEW_MODES.map(v => (
+                {ORDERED_VIEW_MODES.map(v => (
                   <button key={v.id}
                     className={`${uiStyles.responsiveMenuAction} ${viewMode===v.id ? uiStyles.responsiveMenuActionActive : ''}`}
                     onClick={() => { setViewMode(v.id); close() }}>

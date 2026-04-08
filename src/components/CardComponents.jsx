@@ -1276,6 +1276,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
   return (
     <Modal onClose={onClose} allowOverflow={false}>
       <div className={styles.detailShell}>
+        {img && <div className={styles.detailArtBleed} style={{ backgroundImage: `url(${img})` }} aria-hidden="true" />}
         <div className={styles.detailHero}>
           <div className={styles.detailArtCol}>
             <div className={styles.detailArtWrap}>
@@ -1420,23 +1421,35 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
               </div>
               <div className={styles.pricesGrid}>
                 {[
-                  ['EUR', fc.prices?.eur, 'Market (EUR)'],
-                  ['EUR', fc.prices?.eur_foil, 'Foil Market (EUR)'],
-                  ['USD', fc.prices?.usd, 'Market (USD)'],
-                  ['USD', fc.prices?.usd_foil, 'Foil Market (USD)'],
-                  ['TIX', fc.prices?.tix, 'MTGO (tix)'],
-                ].map(([cur, val, label]) => val ? (
-                  <div key={label} className={styles.priceDetailBlock}>
-                    <div className={styles.priceDetailLabel}>{label}</div>
-                    <div className={styles.priceDetailVal} style={{ color: 'var(--green)' }}>
-                      {cur === 'EUR' ? 'EUR ' : cur === 'USD' ? 'USD ' : ''}{parseFloat(val).toFixed(2)}{cur === 'TIX' ? ' tix' : ''}
-                    </div>
-                    {displayQty > 1 && cur !== 'TIX' && (
-                      <div className={styles.priceDetailSub}>
-                        x {displayQty} = {cur === 'EUR' ? 'EUR ' : 'USD '}{(parseFloat(val) * displayQty).toFixed(2)}
+                  ['EUR', fc.prices?.eur,     'Cardmarket',      'EUR', fc.purchase_uris?.cardmarket],
+                  ['EUR', fc.prices?.eur_foil, 'Cardmarket Foil', 'EUR', fc.purchase_uris?.cardmarket],
+                  ['USD', fc.prices?.usd,     'TCGPlayer',       'USD', fc.purchase_uris?.tcgplayer],
+                  ['USD', fc.prices?.usd_foil, 'TCGPlayer Foil',  'USD', fc.purchase_uris?.tcgplayer],
+                  ['TIX', fc.prices?.tix,     'Cardhoarder',     'tix', fc.purchase_uris?.cardhoarder],
+                ].map(([cur, val, label, unit, href]) => val ? (
+                  href
+                    ? <a key={label} href={href} target="_blank" rel="noreferrer" className={styles.priceDetailBlock}>
+                        <div className={styles.priceDetailLabel}>{label}</div>
+                        <div className={styles.priceDetailVal} style={{ color: 'var(--green)' }}>
+                          {cur !== 'TIX' ? `${cur} ` : ''}{parseFloat(val).toFixed(2)}{cur === 'TIX' ? ' tix' : ''}
+                        </div>
+                        {displayQty > 1 && cur !== 'TIX' && (
+                          <div className={styles.priceDetailSub}>
+                            x {displayQty} = {cur} {(parseFloat(val) * displayQty).toFixed(2)}
+                          </div>
+                        )}
+                      </a>
+                    : <div key={label} className={styles.priceDetailBlock}>
+                        <div className={styles.priceDetailLabel}>{label}</div>
+                        <div className={styles.priceDetailVal} style={{ color: 'var(--green)' }}>
+                          {cur !== 'TIX' ? `${cur} ` : ''}{parseFloat(val).toFixed(2)}{cur === 'TIX' ? ' tix' : ''}
+                        </div>
+                        {displayQty > 1 && cur !== 'TIX' && (
+                          <div className={styles.priceDetailSub}>
+                            x {displayQty} = {cur} {(parseFloat(val) * displayQty).toFixed(2)}
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
                 ) : null)}
               </div>
 
