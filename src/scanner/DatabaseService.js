@@ -352,12 +352,18 @@ class DatabaseService {
     this._emitProgress(onProgress, { phase: 'checking cache', source: 'idb', loadedCount: 0 })
 
     // Stage 1: IDB cache + counts only — fast, no page data yet.
-    // Separating this from the page fetch means the user sees the total count
-    // (and a "0/N" progress display) before the first page even arrives.
+    // _fetchTotalCount() is a Supabase network call and slower than the IDB
+    // reads. We emit the count as a side-effect the moment it resolves so the
+    // UI shows "checking cache 0/N" instead of a blank shimmer during the wait.
     const [cachedRows, cachedTotal, remoteTotal] = await Promise.all([
       getAllScannerHashEntries().catch(() => []),
       getMeta('scanner_hash_total_count').then(v => Number(v) || 0).catch(() => 0),
-      this._fetchTotalCount().catch(() => 0),
+      this._fetchTotalCount()
+        .then(count => {
+          if (count > 0) this._emitProgress(onProgress, { totalCount: count })
+          return count
+        })
+        .catch(() => 0),
     ])
 
     const expectedTotal = remoteTotal || cachedTotal
