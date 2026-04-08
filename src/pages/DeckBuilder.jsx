@@ -2932,7 +2932,6 @@ export default function DeckBuilderPage() {
                 onChange={e => handleSearchInput(e.target.value)}
                 placeholder="Search cards…"
               />
-              <button className={styles.searchBtn} onClick={() => doSearch(searchQuery, 1)}>→</button>
             </div>
             <div className={styles.searchResults}>
               {searchLoading && searchPage === 1 && <div className={styles.searchEmpty}>Searching…</div>}
