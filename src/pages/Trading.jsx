@@ -1,23 +1,28 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { sb } from '../lib/supabase'
-import { formatPrice, getImageUri, getPrice, sfGet } from '../lib/scryfall'
+import { formatPrice, getImageUri, getInstantCache, getPrice, sfGet } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
-import { deleteCard, getLocalCards, putCards, putFolderCards, putFolders } from '../lib/db'
+import {
+  deleteCard,
+  deleteDeckAllocationsByIds,
+  deleteFolderCardsByIds,
+  getAllDeckAllocationsForUser,
+  getAllLocalFolderCards,
+  getLocalCards,
+  getLocalFolders,
+  putCards,
+  putDeckAllocations,
+  putFolders,
+  putFolderCards,
+  replaceDeckAllocations,
+  replaceLocalFolderCards,
+} from '../lib/db'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
-import { EmptyState, ProgressBar, SectionHeader } from '../components/UI'
+import { EmptyState, Modal, ProgressBar, SectionHeader } from '../components/UI'
 import styles from './Trading.module.css'
 
 const SEARCH_LIMIT = 8
-const RECENTLY_TRADED_BINDER = 'Recently Traded'
-const DEFAULT_RECEIVED_LANGUAGE = 'en'
-const DEFAULT_RECEIVED_CONDITION = 'near_mint'
-
-async function fetchWantedCards(query) {
-  if (!query.trim()) return []
-  const json = await sfGet(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(query.trim())}&order=name&unique=prints`)
-  return (json?.data || []).slice(0, SEARCH_LIMIT)
-}
 
 function getCollectionCardName(card, sf) {
   return sf?.name || card.name || `${(card.set_code || '').toUpperCase()} #${card.collector_number || ''}`.trim()
@@ -27,8 +32,8 @@ function getOfferKey(item) {
   return `${item.setCode}-${item.collectorNumber}`
 }
 
-function createWantedItemId(sfCard, foil) {
-  return `${sfCard.id}-${foil ? 'foil' : 'nonfoil'}`
+function createWantedItemId(scryfallId, foil) {
+  return `${scryfallId}-${foil ? 'foil' : 'nonfoil'}`
 }
 
 function sumTradeValue(items, getUnitPrice) {
@@ -42,7 +47,186 @@ function countUnpriced(items, getUnitPrice) {
   return items.reduce((count, item) => count + (getUnitPrice(item) == null ? 1 : 0), 0)
 }
 
-function TradeRow({ item, side, unitPrice, totalPrice, onAdd, onSub, onRemove, onToggleFoil, maxQty }) {
+function getSourceLabel(source) {
+  if (!source) return 'Unplaced'
+  const typeLabel = source.type === 'deck' ? 'Deck' : source.type === 'list' ? 'List' : 'Binder'
+  return `${typeLabel}: ${source.name}`
+}
+
+function WarningTriangleIcon() {
+  return (
+    <svg
+      className={styles.deckSourceIcon}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M8 2.2 14 13H2L8 2.2Z" />
+      <path d="M8 5.5v3.8" />
+      <circle cx="8" cy="11.2" r="0.7" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+
+function PencilIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M11.2 2.3 13.7 4.8 6 12.5 3.5 13l.5-2.5 7.2-8.2Z" />
+      <path d="M10.5 3 13 5.5" />
+    </svg>
+  )
+}
+
+function FieldBlock({ label, value, accent = false }) {
+  if (!value) return null
+  return (
+    <div className={styles.optionField}>
+      <div className={styles.optionFieldLabel}>{label}</div>
+      <div className={`${styles.optionFieldValue}${accent ? ` ${styles.optionFieldValueAccent}` : ''}`}>{value}</div>
+    </div>
+  )
+}
+
+function CustomPriceModal({ item, side, priceSource, onClose, onSave }) {
+  const [value, setValue] = useState(item.customPrice != null ? String(item.customPrice) : '')
+
+  return (
+    <Modal onClose={onClose}>
+      <div className={styles.optionPicker}>
+        <h3 className={styles.optionPickerTitle}>Custom Price</h3>
+        <div className={styles.customPriceTitle}>{item.name}</div>
+        <div className={styles.customPriceHint}>
+          {side === 'want'
+            ? 'Used for trade totals and saved as the buy price.'
+            : 'Used only for this trade row.'}
+        </div>
+        <input
+          className={styles.searchInput}
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          placeholder={`Enter ${formatPrice(0, priceSource).replace('0.00', '').trim()} price`}
+          inputMode="decimal"
+        />
+        <div className={styles.customPriceActions}>
+          <button
+            className={styles.clearBtn}
+            type="button"
+            onClick={() => {
+              onSave(null)
+              onClose()
+            }}
+          >
+            Clear
+          </button>
+          <button
+            className={styles.tradeBtn}
+            type="button"
+            onClick={() => {
+              const parsed = Number.parseFloat(value.replace(',', '.'))
+              if (!Number.isFinite(parsed) || parsed < 0) return
+              onSave(parsed)
+              onClose()
+            }}
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function SourceLabel({ source }) {
+  if (!source) return null
+  if (source.type === 'deck') {
+    return (
+      <>
+        <span className={styles.deckSourceBadge}><WarningTriangleIcon />In Deck</span>
+        <span>{source.name}</span>
+      </>
+    )
+  }
+  return <span>{getSourceLabel(source)}</span>
+}
+
+function buildCardFolderMap(folderRows, linkRows) {
+  const folderById = Object.fromEntries((folderRows || []).map(folder => [folder.id, folder]))
+  const map = {}
+  for (const row of linkRows || []) {
+    const folderId = row.folder_id || row.deck_id
+    const folder = folderById[folderId]
+    if (!folder) continue
+    if (!map[row.card_id]) map[row.card_id] = []
+    map[row.card_id].push({
+      id: folder.id,
+      name: folder.name,
+      type: folder.type,
+      qty: row.qty || 1,
+    })
+  }
+  return map
+}
+
+async function fetchWantedCards(query) {
+  if (!query.trim()) return []
+  const json = await sfGet(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(query.trim())}&order=name&unique=prints`)
+  const grouped = new Map()
+  for (const card of (json?.data || []).slice(0, 80)) {
+    const key = card.oracle_id || card.name?.toLowerCase() || card.id
+    const existing = grouped.get(key)
+    if (existing) {
+      existing.options.push(card)
+      existing.printingCount += 1
+      if (!existing.image) existing.image = getImageUri(card, 'small')
+      continue
+    }
+    grouped.set(key, {
+      id: `want-${key}`,
+      name: card.name,
+      image: getImageUri(card, 'small'),
+      options: [card],
+      printingCount: 1,
+    })
+  }
+  return [...grouped.values()]
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+    .slice(0, SEARCH_LIMIT)
+}
+
+async function applyTradeResultToLocalDb(result) {
+  if (!result) return
+  const binder = result.binder || null
+  const cards = result.cards || []
+  const deletedCardIds = result.deleted_card_ids || []
+  const folderCards = result.folder_cards || []
+  const deletedFolderCardIds = result.deleted_folder_card_ids || []
+  const deckAllocations = result.deck_allocations || []
+  const deletedDeckAllocationIds = result.deleted_deck_allocation_ids || []
+
+  if (binder) await putFolders([binder])
+  if (cards.length) await putCards(cards)
+  if (folderCards.length) await putFolderCards(folderCards)
+  if (deckAllocations.length) await putDeckAllocations(deckAllocations)
+  if (deletedFolderCardIds.length) await deleteFolderCardsByIds(deletedFolderCardIds)
+  if (deletedDeckAllocationIds.length) await deleteDeckAllocationsByIds(deletedDeckAllocationIds)
+  if (deletedCardIds.length) {
+    await Promise.all(deletedCardIds.map(id => deleteCard(id)))
+  }
+}
+
+function TradeRow({ item, side, unitPrice, totalPrice, onAdd, onSub, onRemove, onToggleFoil, onEditPrice, maxQty }) {
   return (
     <div className={styles.tradeRow}>
       <div className={styles.tradeCard}>
@@ -56,16 +240,30 @@ function TradeRow({ item, side, unitPrice, totalPrice, onAdd, onSub, onRemove, o
           <div className={styles.tradeSub}>
             <span>{item.setName || item.setCode?.toUpperCase() || 'Unknown set'}</span>
             {item.collectorNumber && <span>#{item.collectorNumber}</span>}
-            {side === 'offer' && maxQty != null && <span>Owned {maxQty}</span>}
+            {side === 'offer' && item.sourceName && <SourceLabel source={{ name: item.sourceName, type: item.sourceType }} />}
+            {side === 'offer' && maxQty != null && <span>Available {maxQty}</span>}
+            {side === 'want' && item.foil && <span>Foil</span>}
           </div>
           <div className={styles.tradePriceRow}>
-            <span className={styles.tradeUnit}>{unitPrice != null ? formatPrice(unitPrice, item.priceSource) : 'Price unavailable'}</span>
-            <span className={styles.tradeTotal}>{totalPrice != null ? formatPrice(totalPrice, item.priceSource) : '—'}</span>
+            {item.qty > 1 ? (
+              <>
+                <span className={styles.tradeUnit}>{unitPrice != null ? formatPrice(unitPrice, item.priceSource) : 'Price unavailable'}</span>
+                <span className={styles.tradeEquation}>× {item.qty} =</span>
+                <span className={styles.tradeTotal}>{totalPrice != null ? formatPrice(totalPrice, item.priceSource) : '-'}</span>
+              </>
+            ) : (
+              <span className={styles.tradeUnit}>{unitPrice != null ? formatPrice(unitPrice, item.priceSource) : 'Price unavailable'}</span>
+            )}
+            {onEditPrice && (
+              <button className={styles.editPriceBtn} onClick={onEditPrice} type="button" title="Set custom price">
+                <PencilIcon />
+              </button>
+            )}
           </div>
         </div>
       </div>
       <div className={styles.tradeActions}>
-        <button className={styles.qtyBtn} onClick={onSub} type="button">−</button>
+        <button className={styles.qtyBtn} onClick={onSub} type="button">-</button>
         <div className={styles.qtyVal}>{item.qty}</div>
         <button className={styles.qtyBtn} onClick={onAdd} disabled={maxQty != null && item.qty >= maxQty} type="button">+</button>
         {onToggleFoil && (
@@ -83,118 +281,413 @@ function TradeRow({ item, side, unitPrice, totalPrice, onAdd, onSub, onRemove, o
   )
 }
 
+function OptionPickerModal({ title, options, onClose, onSelect, mode, priceSource }) {
+  const [query, setQuery] = useState('')
+
+  const filteredOptions = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return options
+    return options.filter(option => {
+      const haystack = [
+        option.name,
+        option.setName,
+        option.setCode,
+        option.collectorNumber,
+        option.sourceName,
+        option.sourceType,
+        option.foil ? 'foil' : 'nonfoil',
+      ].filter(Boolean).join(' ').toLowerCase()
+      return haystack.includes(q)
+    })
+  }, [options, query])
+
+  return (
+    <Modal onClose={onClose}>
+      <div className={styles.optionPicker}>
+        <h3 className={styles.optionPickerTitle}>{title}</h3>
+        <input
+          className={styles.searchInput}
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder={mode === 'offer' ? 'Filter by set, collector number, or location...' : 'Filter by set or collector number...'}
+        />
+        <div className={styles.optionPickerList}>
+          {filteredOptions.map(option => (
+            (() => {
+              const unitPrice = mode === 'offer'
+                ? getPrice(option.sf, option.card?.foil, { price_source: priceSource, cardId: option.card?.id })
+                : getPrice(option.sf, option.foil, { price_source: priceSource, cardId: option.scryfallId })
+              return (
+            <button
+              key={option.id}
+              className={styles.optionPickerItem}
+              onClick={() => onSelect(option)}
+              type="button"
+            >
+              {option.image
+                ? <img src={option.image} alt="" className={styles.optionPickerImg} loading="lazy" />
+                : <div className={styles.optionPickerImgPlaceholder}>No art</div>}
+              <div className={styles.optionPickerMeta}>
+                <div className={styles.optionPickerName}>{option.name}</div>
+                <div className={styles.optionPickerFields}>
+                  <FieldBlock
+                    label="Set"
+                    value={`${option.setName || option.setCode?.toUpperCase() || 'Unknown set'}${option.collectorNumber ? ` · #${option.collectorNumber}` : ''}`}
+                  />
+                  <FieldBlock
+                    label="Price"
+                    value={unitPrice != null ? formatPrice(unitPrice, priceSource) : 'Unavailable'}
+                    accent={unitPrice != null}
+                  />
+                  {mode === 'offer' && (
+                    <FieldBlock
+                      label="Location"
+                      value={(
+                        <span className={styles.optionFieldInline}>
+                          <SourceLabel source={{ name: option.sourceName, type: option.sourceType }} />
+                        </span>
+                      )}
+                    />
+                  )}
+                  {mode === 'offer' && option.availableQty != null && (
+                    <FieldBlock
+                      label="Quantity"
+                      value={`${option.availableQty} available`}
+                      accent
+                    />
+                  )}
+                  {mode === 'want' && (
+                    <FieldBlock
+                      label="Finish"
+                      value={option.foil ? 'Foil' : 'Non-foil'}
+                      accent={option.foil}
+                    />
+                  )}
+                </div>
+              </div>
+            </button>
+              )
+            })()
+          ))}
+          {filteredOptions.length === 0 && (
+            <EmptyState>No options match this filter.</EmptyState>
+          )}
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 export default function TradingPage() {
   const { user } = useAuth()
-  const { price_source } = useSettings()
+  const { price_source, cache_ttl_h } = useSettings()
 
   const [cards, setCards] = useState([])
+  const [folders, setFolders] = useState([])
+  const [cardFolderMap, setCardFolderMap] = useState({})
   const [sfMap, setSfMap] = useState({})
   const [collectionLoaded, setCollectionLoaded] = useState(false)
   const [collectionLoading, setCollectionLoading] = useState(false)
   const [progress, setProgress] = useState(0)
   const [progLabel, setProgLabel] = useState('')
   const [collectionQuery, setCollectionQuery] = useState('')
+  const [debouncedCollectionQuery, setDebouncedCollectionQuery] = useState('')
   const [wantedQuery, setWantedQuery] = useState('')
   const [wantedLoading, setWantedLoading] = useState(false)
+  const [wantedError, setWantedError] = useState('')
   const [wantedResults, setWantedResults] = useState([])
   const [offerItems, setOfferItems] = useState([])
   const [wantItems, setWantItems] = useState([])
   const [tradeSaving, setTradeSaving] = useState(false)
   const [tradeError, setTradeError] = useState('')
   const [tradeMessage, setTradeMessage] = useState('')
+  const [backgroundSyncing, setBackgroundSyncing] = useState(false)
+  const [offerPicker, setOfferPicker] = useState(null)
+  const [wantPicker, setWantPicker] = useState(null)
+  const [priceEditor, setPriceEditor] = useState(null)
 
-  const loadCollection = useCallback(async () => {
-    if (collectionLoaded || collectionLoading) return
+  const cardsById = useMemo(
+    () => Object.fromEntries(cards.map(card => [card.id, card])),
+    [cards]
+  )
 
+  const applyCollectionData = useCallback((nextCards, nextFolders, nextFolderCards, nextDeckAllocations) => {
+    setCards(nextCards || [])
+    setFolders(nextFolders || [])
+    setCardFolderMap(buildCardFolderMap(nextFolders || [], [...(nextFolderCards || []), ...(nextDeckAllocations || [])]))
+    setCollectionLoaded(true)
+  }, [])
+
+  const hydrateLocalCollection = useCallback(async () => {
     setCollectionLoading(true)
     setTradeError('')
-    setProgress(0)
-    setProgLabel('Loading collection…')
+    setProgress(5)
+    setProgLabel('Loading local collection...')
 
     try {
-      const localCards = await getLocalCards(user.id)
-      if (localCards.length) {
-        setCards(localCards)
-        setProgress(35)
-      }
+      const [localCards, localFolders] = await Promise.all([
+        getLocalCards(user.id),
+        getLocalFolders(user.id),
+      ])
+      const nonDeckIds = localFolders.filter(folder => folder.type !== 'deck').map(folder => folder.id)
+      const [localFolderCards, localDeckAllocations] = await Promise.all([
+        nonDeckIds.length ? getAllLocalFolderCards(nonDeckIds) : Promise.resolve([]),
+        getAllDeckAllocationsForUser(user.id),
+      ])
 
-      let allCards = localCards
-      if (navigator.onLine) {
-        let from = 0
-        const fetched = []
-        while (true) {
-          const { data, error } = await sb.from('cards')
-            .select('*')
-            .eq('user_id', user.id)
-            .order('name')
-            .range(from, from + 999)
-          if (error) throw error
-          if (!data?.length) break
-          fetched.push(...data)
-          if (data.length < 1000) break
-          from += 1000
-        }
-        if (fetched.length) {
-          allCards = fetched
-          await putCards(fetched)
-          setCards(fetched)
-        }
+      applyCollectionData(localCards, localFolders, localFolderCards, localDeckAllocations)
+      setProgress(35)
+      setProgLabel(navigator.onLine ? 'Syncing collection...' : '')
+      return {
+        cards: localCards,
+        folders: localFolders,
+        folderCards: localFolderCards,
+        deckAllocations: localDeckAllocations,
       }
-
-      setCards(allCards)
-      const map = allCards.length ? await loadCardMapWithSharedPrices(allCards) : {}
-      setSfMap(map)
-      setCollectionLoaded(true)
-      setProgress(100)
     } catch (err) {
-      setTradeError(err.message || 'Failed to load collection.')
+      setTradeError(err.message || 'Failed to load local collection.')
+      return null
     } finally {
+      if (!navigator.onLine) {
+        setCollectionLoading(false)
+        setBackgroundSyncing(false)
+        setProgress(100)
+        setProgLabel('')
+      }
+    }
+  }, [applyCollectionData, user.id])
+
+  const syncRemoteCollection = useCallback(async () => {
+    if (!navigator.onLine) return
+
+    setCollectionLoading(true)
+    setBackgroundSyncing(true)
+    setProgress(current => Math.max(current, 40))
+    setProgLabel('Syncing collection...')
+
+    try {
+      let cardFrom = 0
+      const fetchedCards = []
+      while (true) {
+        const { data, error } = await sb.from('cards')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('name')
+          .range(cardFrom, cardFrom + 999)
+        if (error) throw error
+        if (!data?.length) break
+        fetchedCards.push(...data)
+        if (data.length < 1000) break
+        cardFrom += 1000
+      }
+
+      const { data: fetchedFolders, error: foldersError } = await sb.from('folders')
+        .select('id,name,type,description,updated_at,user_id')
+        .eq('user_id', user.id)
+        .order('name')
+      if (foldersError) throw foldersError
+
+      const binderOrListIds = (fetchedFolders || []).filter(folder => folder.type !== 'deck').map(folder => folder.id)
+      const deckIds = (fetchedFolders || []).filter(folder => folder.type === 'deck').map(folder => folder.id)
+
+      let fetchedFolderCards = []
+      let folderCardFrom = 0
+      while (binderOrListIds.length) {
+        const { data, error } = await sb.from('folder_cards')
+          .select('id,card_id,folder_id,qty,updated_at')
+          .in('folder_id', binderOrListIds)
+          .range(folderCardFrom, folderCardFrom + 999)
+        if (error) throw error
+        if (!data?.length) break
+        fetchedFolderCards.push(...data)
+        if (data.length < 1000) break
+        folderCardFrom += 1000
+      }
+
+      let fetchedDeckAllocations = []
+      let deckAllocationFrom = 0
+      while (deckIds.length) {
+        const { data, error } = await sb.from('deck_allocations')
+          .select('id,card_id,deck_id,qty,user_id,updated_at')
+          .eq('user_id', user.id)
+          .in('deck_id', deckIds)
+          .range(deckAllocationFrom, deckAllocationFrom + 999)
+        if (error) throw error
+        if (!data?.length) break
+        fetchedDeckAllocations.push(...data)
+        if (data.length < 1000) break
+        deckAllocationFrom += 1000
+      }
+
+      await putCards(fetchedCards)
+      await putFolders(fetchedFolders || [])
+      await replaceLocalFolderCards(binderOrListIds, fetchedFolderCards)
+      await replaceDeckAllocations(deckIds, fetchedDeckAllocations)
+
+      applyCollectionData(fetchedCards, fetchedFolders || [], fetchedFolderCards, fetchedDeckAllocations)
+      setProgress(100)
+      setProgLabel('')
+    } catch (err) {
+      setTradeError(err.message || 'Failed to sync collection.')
+    } finally {
+      setBackgroundSyncing(false)
       setCollectionLoading(false)
     }
-  }, [collectionLoaded, collectionLoading, user.id])
+  }, [applyCollectionData, user.id])
 
   useEffect(() => {
-    if (collectionQuery.trim() && !collectionLoaded && !collectionLoading) {
-      loadCollection()
-    }
-  }, [collectionQuery, collectionLoaded, collectionLoading, loadCollection])
+    const timeoutId = setTimeout(() => {
+      setDebouncedCollectionQuery(collectionQuery)
+    }, 120)
+    return () => clearTimeout(timeoutId)
+  }, [collectionQuery])
 
   useEffect(() => {
     let cancelled = false
-    const t = setTimeout(async () => {
-      if (!wantedQuery.trim()) {
-        setWantedResults([])
-        return
+
+    getInstantCache(cache_ttl_h * 3600000).then(map => {
+      if (!cancelled && map) setSfMap(map)
+    })
+
+    hydrateLocalCollection().then(() => {
+      if (!cancelled && navigator.onLine) {
+        void syncRemoteCollection()
       }
-      setWantedLoading(true)
-      const results = await fetchWantedCards(wantedQuery)
-      if (!cancelled) {
-        setWantedResults(results)
-        setWantedLoading(false)
-      }
-    }, 250)
+    })
+
     return () => {
       cancelled = true
-      clearTimeout(t)
+    }
+  }, [cache_ttl_h, hydrateLocalCollection, syncRemoteCollection])
+
+  useEffect(() => {
+    let cancelled = false
+    const timeoutId = setTimeout(async () => {
+      if (!wantedQuery.trim()) {
+        if (!cancelled) {
+          setWantedResults([])
+          setWantedError('')
+          setWantedLoading(false)
+        }
+        return
+      }
+
+      if (!cancelled) {
+        setWantedLoading(true)
+        setWantedError('')
+      }
+
+      try {
+        const results = await fetchWantedCards(wantedQuery)
+        if (!cancelled) {
+          setWantedResults(results)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setWantedResults([])
+          setWantedError(err.message || 'Failed to search Scryfall.')
+        }
+      } finally {
+        if (!cancelled) setWantedLoading(false)
+      }
+    }, 250)
+
+    return () => {
+      cancelled = true
+      clearTimeout(timeoutId)
     }
   }, [wantedQuery])
 
-  const filteredCards = useMemo(() => {
+  const tradeSearchRows = useMemo(() => {
+    const rows = []
+    for (const card of cards) {
+      const sources = (cardFolderMap[card.id] || []).filter(source => (source.qty || 0) > 0)
+      for (const source of sources) {
+        rows.push({
+          id: `${card.id}:${source.type}:${source.id}`,
+          cardId: card.id,
+          name: card.name || '',
+          setCode: card.set_code || '',
+          collectorNumber: card.collector_number || '',
+          foil: !!card.foil,
+          sourceId: source.id,
+          sourceType: source.type,
+          sourceName: source.name || '',
+          qty: source.qty || 1,
+        })
+      }
+    }
+    return rows
+  }, [cardFolderMap, cards])
+
+  const offerSearchResults = useMemo(() => {
     if (!collectionLoaded) return []
-    const q = collectionQuery.trim().toLowerCase()
+    const q = debouncedCollectionQuery.trim().toLowerCase()
     if (!q) return []
-    return cards.filter(card => {
-      const sf = sfMap[`${card.set_code}-${card.collector_number}`]
+
+    const grouped = new Map()
+    for (const row of tradeSearchRows) {
       const haystack = [
-        card.name,
-        sf?.name,
-        sf?.set_name,
-        card.set_code,
-        card.collector_number,
+        row.name,
+        row.setCode,
+        row.collectorNumber,
+        row.sourceName,
+        row.sourceType,
       ].filter(Boolean).join(' ').toLowerCase()
-      return haystack.includes(q)
-    })
-  }, [cards, collectionLoaded, collectionQuery, sfMap])
+
+      if (!haystack.includes(q)) continue
+
+      const card = cardsById[row.cardId]
+      if (!card) continue
+      const sf = sfMap[`${row.setCode}-${row.collectorNumber}`]
+      const displayName = sf?.name || row.name
+      const groupKey = displayName.toLowerCase()
+      const option = {
+        id: row.id,
+        card,
+        sf,
+        name: displayName,
+        image: getImageUri(sf, 'small'),
+        setName: sf?.set_name || row.setCode?.toUpperCase() || '',
+        setCode: row.setCode,
+        collectorNumber: row.collectorNumber,
+        source: {
+          id: row.sourceId,
+          type: row.sourceType,
+          name: row.sourceName,
+          qty: row.qty,
+        },
+        availableQty: row.qty,
+        sourceId: row.sourceId,
+        sourceType: row.sourceType,
+        sourceName: row.sourceName,
+      }
+
+      const existing = grouped.get(groupKey)
+      if (existing) {
+        existing.options.push(option)
+        existing.printingKeys.add(`${row.setCode}-${row.collectorNumber}`)
+        existing.sourceCount += 1
+        if (!existing.image && option.image) existing.image = option.image
+      } else {
+        grouped.set(groupKey, {
+          id: `offer-${groupKey}`,
+          name: displayName,
+          image: option.image,
+          options: [option],
+          printingKeys: new Set([`${row.setCode}-${row.collectorNumber}`]),
+          sourceCount: 1,
+        })
+      }
+    }
+
+    return [...grouped.values()]
+      .map(group => ({
+        ...group,
+        printingCount: group.printingKeys.size,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [cardsById, collectionLoaded, debouncedCollectionQuery, sfMap, tradeSearchRows])
 
   const offerQtyById = useMemo(
     () => Object.fromEntries(offerItems.map(item => [item.id, item.qty])),
@@ -212,17 +705,45 @@ export default function TradingPage() {
     return null
   }, [sfMap])
 
-  const addOfferCard = async (card) => {
-    const sf = await ensureOfferCardData(card)
+  const ensureCardsData = useCallback(async (targetCards) => {
+    const missing = (targetCards || []).filter(card => card && !sfMap[`${card.set_code}-${card.collector_number}`])
+    if (!missing.length) return
+    const map = await loadCardMapWithSharedPrices(missing)
+    if (map) setSfMap(prev => ({ ...prev, ...map }))
+  }, [sfMap])
+
+  useEffect(() => {
+    const visibleCards = [...new Map(
+      offerSearchResults.slice(0, 24).map(group => {
+        const option = group.options[0]
+        return option ? [option.card.id, option.card] : null
+      }).filter(Boolean)
+    ).values()]
+    if (!visibleCards.length) return
+    void ensureCardsData(visibleCards)
+  }, [ensureCardsData, offerSearchResults])
+
+  useEffect(() => {
+    const selectedCards = offerItems
+      .map(item => cardsById[item.cardId])
+      .filter(Boolean)
+    if (!selectedCards.length) return
+    void ensureCardsData(selectedCards)
+  }, [cardsById, ensureCardsData, offerItems])
+
+  const addOfferCard = async (entry) => {
+    const { card, source } = entry
+    const sf = entry.sf || await ensureOfferCardData(card)
     setOfferItems(prev => {
-      const existing = prev.find(item => item.id === card.id)
-      const maxQty = card.qty || 1
+      const existing = prev.find(item => item.id === entry.id)
+      const maxQty = source.qty || 1
       if (existing) {
         if (existing.qty >= maxQty) return prev
-        return prev.map(item => item.id === card.id ? { ...item, qty: item.qty + 1 } : item)
+        return prev.map(item => item.id === entry.id ? { ...item, qty: item.qty + 1 } : item)
       }
       return [...prev, {
-        id: card.id,
+        id: entry.id,
+        cardId: card.id,
         name: getCollectionCardName(card, sf),
         setName: sf?.set_name || card.set_code?.toUpperCase() || '',
         setCode: card.set_code,
@@ -231,8 +752,40 @@ export default function TradingPage() {
         foil: !!card.foil,
         qty: 1,
         maxQty,
+        sourceId: source.id,
+        sourceType: source.type,
+        sourceName: source.name,
         priceSource: price_source,
+        customPrice: null,
       }]
+    })
+  }
+
+  const handleOfferSearchSelect = async (group) => {
+    const uniqueCards = [...new Map(group.options.map(option => [option.card.id, option.card])).values()]
+    await ensureCardsData(uniqueCards)
+    const options = group.options
+      .map(option => {
+        const card = option.card
+        const sf = sfMap[`${card.set_code}-${card.collector_number}`] || option.sf
+        return {
+          ...option,
+          sf,
+          image: getImageUri(sf, 'small') || option.image,
+          setName: sf?.set_name || option.setName,
+          name: sf?.name || option.name,
+        }
+      })
+      .sort((a, b) => (a.setName || '').localeCompare(b.setName || '') || (a.sourceName || '').localeCompare(b.sourceName || ''))
+
+    if (options.length === 1) {
+      await addOfferCard(options[0])
+      return
+    }
+
+    setOfferPicker({
+      title: `Choose Printing and Location for ${group.name}`,
+      options,
     })
   }
 
@@ -245,7 +798,7 @@ export default function TradingPage() {
   }
 
   const addWantedCard = (sfCard) => {
-    const itemId = createWantedItemId(sfCard, false)
+    const itemId = createWantedItemId(sfCard.id, false)
     setWantItems(prev => {
       const existing = prev.find(item => item.id === itemId)
       if (existing) return prev.map(item => item.id === itemId ? { ...item, qty: item.qty + 1 } : item)
@@ -261,7 +814,37 @@ export default function TradingPage() {
         qty: 1,
         sf: sfCard,
         priceSource: price_source,
+        customPrice: null,
       }]
+    })
+  }
+
+  const handleWantSearchSelect = (group) => {
+    const options = [...group.options]
+      .sort((a, b) => {
+        if (!!a.foil !== !!b.foil) return a.foil ? -1 : 1
+        return (a.set_name || '').localeCompare(b.set_name || '') || (a.collector_number || '').localeCompare(b.collector_number || '')
+      })
+      .map(card => ({
+        id: `${card.id}-${card.foil ? 'foil' : 'nonfoil'}`,
+        scryfallId: card.id,
+        name: card.name,
+        setName: card.set_name,
+        setCode: card.set,
+        collectorNumber: card.collector_number,
+        image: getImageUri(card, 'small'),
+        foil: false,
+        sf: card,
+      }))
+
+    if (options.length === 1) {
+      addWantedCard(options[0].sf)
+      return
+    }
+
+    setWantPicker({
+      title: `Choose Printing for ${group.name}`,
+      options,
     })
   }
 
@@ -273,14 +856,50 @@ export default function TradingPage() {
     }))
   }
 
+  const toggleWantItemFoil = (id) => {
+    setWantItems(prev => {
+      const current = prev.find(item => item.id === id)
+      if (!current) return prev
+
+      const nextFoil = !current.foil
+      const nextId = createWantedItemId(current.scryfallId, nextFoil)
+      const remaining = prev.filter(item => item.id !== id)
+      const merged = remaining.find(item => item.id === nextId)
+
+      if (merged) {
+        return remaining.map(item => item.id === nextId
+          ? { ...item, qty: item.qty + current.qty, foil: nextFoil, priceSource: price_source }
+          : item
+        )
+      }
+
+      return [...remaining, {
+        ...current,
+        id: nextId,
+        foil: nextFoil,
+        priceSource: price_source,
+      }]
+    })
+  }
+
   const getOfferUnitPrice = useCallback((item) => {
+    if (item.customPrice != null) return item.customPrice
     const sf = sfMap[getOfferKey(item)]
-    return getPrice(sf, item.foil, { price_source, cardId: item.id })
+    return getPrice(sf, item.foil, { price_source, cardId: item.cardId })
   }, [price_source, sfMap])
 
   const getWantUnitPrice = useCallback((item) => {
+    if (item.customPrice != null) return item.customPrice
     return getPrice(item.sf, item.foil, { price_source, cardId: item.scryfallId })
   }, [price_source])
+
+  const setOfferCustomPrice = (id, customPrice) => {
+    setOfferItems(prev => prev.map(item => item.id === id ? { ...item, customPrice } : item))
+  }
+
+  const setWantCustomPrice = (id, customPrice) => {
+    setWantItems(prev => prev.map(item => item.id === id ? { ...item, customPrice } : item))
+  }
 
   const offerTotal = useMemo(() => sumTradeValue(offerItems, getOfferUnitPrice), [offerItems, getOfferUnitPrice])
   const wantTotal = useMemo(() => sumTradeValue(wantItems, getWantUnitPrice), [wantItems, getWantUnitPrice])
@@ -289,7 +908,7 @@ export default function TradingPage() {
   const delta = wantTotal - offerTotal
 
   const settlement = useMemo(() => {
-    if (!offerItems.length && !wantItems.length) return 'Add cards to both sides to compare the trade.'
+    if (!offerItems.length && !wantItems.length) return 'Add cards to at least one side to compare the trade.'
     if (Math.abs(delta) < 0.005) return 'Even trade at current market prices.'
     if (delta > 0) return `You still need to pay ${formatPrice(delta, price_source)}.`
     return `You should receive ${formatPrice(Math.abs(delta), price_source)} back.`
@@ -304,146 +923,44 @@ export default function TradingPage() {
     setTradeMessage('')
 
     try {
-      let nextCards = [...cards]
-      const touchedCards = []
-      const insertedFolderRows = []
-
-      let tradedBinder = null
-      const { data: existingBinder, error: binderLookupError } = await sb.from('folders')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('type', 'binder')
-        .eq('name', RECENTLY_TRADED_BINDER)
-        .maybeSingle()
-      if (binderLookupError) throw binderLookupError
-
-      if (existingBinder) {
-        tradedBinder = existingBinder
-      } else {
-        const { data: createdBinder, error: binderCreateError } = await sb.from('folders')
-          .insert({
-            user_id: user.id,
-            type: 'binder',
-            name: RECENTLY_TRADED_BINDER,
-            description: '{}',
-          })
-          .select()
-          .single()
-        if (binderCreateError) throw binderCreateError
-        tradedBinder = createdBinder
-      }
-      await putFolders([tradedBinder])
-
-      for (const item of offerItems) {
-        const current = nextCards.find(card => card.id === item.id)
-        if (!current) continue
-
-        const remaining = (current.qty || 1) - item.qty
-        if (remaining > 0) {
-          const updated = { ...current, qty: remaining, updated_at: new Date().toISOString() }
-          const { error } = await sb.from('cards').update({ qty: remaining, updated_at: updated.updated_at }).eq('id', item.id)
-          if (error) throw error
-          nextCards = nextCards.map(card => card.id === item.id ? updated : card)
-          touchedCards.push(updated)
-        } else {
-          const { error } = await sb.from('cards').delete().eq('id', item.id)
-          if (error) throw error
-          nextCards = nextCards.filter(card => card.id !== item.id)
-          await deleteCard(item.id)
-
-          // Remove dangling folder links when the underlying collection card is gone.
-          await sb.from('folder_cards').delete().eq('card_id', item.id)
-        }
-      }
-
       const currency = price_source === 'tcgplayer_market' ? 'USD' : 'EUR'
+      const offerPayload = offerItems.map(item => ({
+        card_id: item.cardId,
+        source_id: item.sourceId,
+        source_type: item.sourceType,
+        qty: item.qty,
+      }))
+      const wantPayload = wantItems.map(item => ({
+        scryfall_id: item.scryfallId,
+        name: item.name,
+        set_code: item.setCode,
+        collector_number: item.collectorNumber,
+        foil: item.foil,
+        qty: item.qty,
+        purchase_price: getWantUnitPrice(item) ?? 0,
+        currency,
+      }))
 
-      for (const item of wantItems) {
-        const unitPrice = getWantUnitPrice(item) ?? 0
+      const { data, error } = await sb.rpc('commit_trade', {
+        p_offer_items: offerPayload,
+        p_want_items: wantPayload,
+      })
+      if (error) throw error
 
-        const { data: existingCard, error: existingCardError } = await sb.from('cards')
-          .select('*')
-          .eq('user_id', user.id)
-          .eq('set_code', item.setCode)
-          .eq('collector_number', item.collectorNumber)
-          .eq('foil', item.foil)
-          .eq('language', DEFAULT_RECEIVED_LANGUAGE)
-          .eq('condition', DEFAULT_RECEIVED_CONDITION)
-          .maybeSingle()
-        if (existingCardError) throw existingCardError
+      const result = typeof data === 'string' ? JSON.parse(data) : data
+      await applyTradeResultToLocalDb(result)
+      if (navigator.onLine) await syncRemoteCollection()
+      else await hydrateLocalCollection()
 
-        let savedCard = existingCard
-        if (existingCard) {
-          const nextQty = (existingCard.qty || 1) + item.qty
-          const updated = { ...existingCard, qty: nextQty, updated_at: new Date().toISOString() }
-          const { error } = await sb.from('cards')
-            .update({ qty: nextQty, updated_at: updated.updated_at })
-            .eq('id', existingCard.id)
-          if (error) throw error
-          savedCard = updated
-        } else {
-          const insertPayload = {
-            user_id: user.id,
-            name: item.name,
-            set_code: item.setCode,
-            collector_number: item.collectorNumber,
-            scryfall_id: item.scryfallId,
-            foil: item.foil,
-            qty: item.qty,
-            condition: DEFAULT_RECEIVED_CONDITION,
-            language: DEFAULT_RECEIVED_LANGUAGE,
-            purchase_price: unitPrice,
-            currency,
-          }
-          const { data: createdCard, error } = await sb.from('cards')
-            .insert(insertPayload)
-            .select()
-            .single()
-          if (error) throw error
-          savedCard = createdCard
-        }
-
-        nextCards = nextCards.some(card => card.id === savedCard.id)
-          ? nextCards.map(card => card.id === savedCard.id ? savedCard : card)
-          : [...nextCards, savedCard]
-        touchedCards.push(savedCard)
-
-        const { data: existingLink, error: linkLookupError } = await sb.from('folder_cards')
-          .select('*')
-          .eq('folder_id', tradedBinder.id)
-          .eq('card_id', savedCard.id)
-          .maybeSingle()
-        if (linkLookupError) throw linkLookupError
-
-        if (existingLink) {
-          const nextQty = (existingLink.qty || 0) + item.qty
-          const { data: updatedLink, error } = await sb.from('folder_cards')
-            .update({ qty: nextQty })
-            .eq('id', existingLink.id)
-            .select()
-            .single()
-          if (error) throw error
-          insertedFolderRows.push(updatedLink)
-        } else {
-          const { data: createdLink, error } = await sb.from('folder_cards')
-            .insert({ folder_id: tradedBinder.id, card_id: savedCard.id, qty: item.qty })
-            .select()
-            .single()
-          if (error) throw error
-          insertedFolderRows.push(createdLink)
-        }
-      }
-
-      if (touchedCards.length) await putCards(touchedCards)
-      if (insertedFolderRows.length) await putFolderCards(insertedFolderRows)
-
-      setCards(nextCards)
       setOfferItems([])
       setWantItems([])
       setCollectionQuery('')
       setWantedQuery('')
       setWantedResults([])
-      setTradeMessage(`Trade saved. Received cards were moved to the ${RECENTLY_TRADED_BINDER} binder.`)
+      setWantedError('')
+      setOfferPicker(null)
+      setWantPicker(null)
+      setTradeMessage('Trade saved. Received cards were moved to the Recently Traded binder.')
     } catch (err) {
       setTradeError(err.message || 'Failed to save trade.')
     } finally {
@@ -455,7 +972,7 @@ export default function TradingPage() {
     <div className={styles.page}>
       <SectionHeader title="Trading" />
       <div className={styles.intro}>
-        Build both sides of a trade, compare live values, and save the result back into your collection.
+        Build both sides of a trade, compare live values, and choose the exact binder or deck copies you are trading away.
       </div>
 
       {(tradeError || tradeMessage) && (
@@ -493,7 +1010,7 @@ export default function TradingPage() {
             disabled={tradeSaving || (!offerItems.length && !wantItems.length)}
             onClick={handleTrade}
           >
-            {tradeSaving ? 'Saving trade…' : 'Trade'}
+            {tradeSaving ? 'Saving trade...' : 'Trade'}
           </button>
         </div>
       </div>
@@ -503,7 +1020,7 @@ export default function TradingPage() {
           <div className={styles.panelHead}>
             <div>
               <h3 className={styles.panelTitle}>You give</h3>
-              <div className={styles.panelDesc}>Search your collection only when you need it.</div>
+              <div className={styles.panelDesc}>Each result is tied to a specific binder, list, or collection deck source.</div>
             </div>
             {offerItems.length > 0 && (
               <button className={styles.clearBtn} onClick={() => setOfferItems([])} type="button">Clear</button>
@@ -514,52 +1031,54 @@ export default function TradingPage() {
             className={styles.searchInput}
             value={collectionQuery}
             onChange={e => setCollectionQuery(e.target.value)}
-            placeholder="Search your collection by name, set, or collector number…"
+            placeholder="Search your collection by name, set, or collector number..."
           />
 
           {!collectionQuery.trim() && !collectionLoaded && (
             <EmptyState>Collection cards will load when you start typing here.</EmptyState>
           )}
 
-          {collectionLoading && (
-            <ProgressBar value={progress} label={progLabel || 'Loading collection…'} />
+          {collectionLoading && !collectionLoaded && (
+            <ProgressBar value={progress} label={progLabel || 'Loading collection...'} />
           )}
 
-          {collectionQuery.trim() && !collectionLoading && (
+          {backgroundSyncing && collectionLoaded && (
+              <div className={styles.searchState}>Local results ready. Syncing latest collection data...</div>
+          )}
+
+          {collectionQuery.trim() && collectionLoaded && (
             <div className={styles.selectorList}>
-              {filteredCards.slice(0, 80).map(card => {
-                const sf = sfMap[`${card.set_code}-${card.collector_number}`]
-                const maxQty = card.qty || 1
-                const selectedQty = offerQtyById[card.id] || 0
-                const unitPrice = getPrice(sf, card.foil, { price_source, cardId: card.id })
+              {offerSearchResults.slice(0, 80).map(group => {
+                const preview = group.options[0]
+                const previewCard = preview?.card
+                const previewSf = previewCard ? sfMap[`${previewCard.set_code}-${previewCard.collector_number}`] || preview.sf : null
+                const selectedQty = group.options.reduce((sum, option) => sum + (offerQtyById[option.id] || 0), 0)
+                const unitPrice = previewCard ? getPrice(previewSf, previewCard.foil, { price_source, cardId: previewCard.id }) : null
                 return (
                   <button
-                    key={card.id}
+                    key={group.id}
                     className={styles.selectorItem}
-                    onClick={() => addOfferCard(card)}
-                    disabled={selectedQty >= maxQty}
+                    onClick={() => handleOfferSearchSelect(group)}
                     type="button"
                   >
-                    {getImageUri(sf, 'small')
-                      ? <img src={getImageUri(sf, 'small')} alt="" className={styles.selectorImg} loading="lazy" />
+                    {group.image || getImageUri(previewSf, 'small')
+                      ? <img src={group.image || getImageUri(previewSf, 'small')} alt="" className={styles.selectorImg} loading="lazy" />
                       : <div className={styles.selectorImgPlaceholder}>No art</div>}
                     <div className={styles.selectorMeta}>
-                      <div className={styles.selectorName}>{getCollectionCardName(card, sf)}</div>
+                      <div className={styles.selectorName}>{group.name}</div>
                       <div className={styles.selectorSub}>
-                        <span>{sf?.set_name || card.set_code?.toUpperCase() || 'Unknown set'}</span>
-                        <span>Owned {maxQty}</span>
-                        {card.foil && <span>Foil</span>}
+                        <span>{group.printingCount} printing{group.printingCount !== 1 ? 's' : ''}</span>
+                        <span>{group.sourceCount} location{group.sourceCount !== 1 ? 's' : ''}</span>
                       </div>
                     </div>
                     <div className={styles.selectorAside}>
-                      <div className={styles.selectorPrice}>{unitPrice != null ? formatPrice(unitPrice, price_source) : '—'}</div>
-                      <div className={styles.selectorPick}>{selectedQty > 0 ? `${selectedQty}/${maxQty}` : 'Add'}</div>
+                      <div className={styles.selectorPick}>{selectedQty > 0 ? `${selectedQty} selected` : 'Choose'}</div>
                     </div>
                   </button>
                 )
               })}
-              {collectionLoaded && filteredCards.length === 0 && (
-                <EmptyState>No collection cards match this search.</EmptyState>
+              {collectionLoaded && offerSearchResults.length === 0 && (
+                <EmptyState>No placed collection cards match this search.</EmptyState>
               )}
             </div>
           )}
@@ -584,6 +1103,7 @@ export default function TradingPage() {
                   unitPrice={unitPrice}
                   totalPrice={totalPrice}
                   maxQty={item.maxQty}
+                  onEditPrice={() => setPriceEditor({ side: 'offer', item })}
                   onAdd={() => updateOfferItem(item.id, current => current.qty < current.maxQty ? { ...current, qty: current.qty + 1 } : current)}
                   onSub={() => updateOfferItem(item.id, current => current.qty > 1 ? { ...current, qty: current.qty - 1 } : null)}
                   onRemove={() => updateOfferItem(item.id, () => null)}
@@ -597,7 +1117,7 @@ export default function TradingPage() {
           <div className={styles.panelHead}>
             <div>
               <h3 className={styles.panelTitle}>You receive</h3>
-              <div className={styles.panelDesc}>Search Scryfall and add the cards you want to buy or trade for.</div>
+              <div className={styles.panelDesc}>Search Scryfall and add the printings you expect to receive.</div>
             </div>
             {wantItems.length > 0 && (
               <button className={styles.clearBtn} onClick={() => setWantItems([])} type="button">Clear</button>
@@ -608,38 +1128,38 @@ export default function TradingPage() {
             className={styles.searchInput}
             value={wantedQuery}
             onChange={e => setWantedQuery(e.target.value)}
-            placeholder="Search any card or printing you want…"
+            placeholder="Search any card or printing you want..."
           />
 
           <div className={styles.selectorList}>
-            {wantedLoading && <div className={styles.searchState}>Searching Scryfall…</div>}
-            {!wantedLoading && wantedResults.map(card => {
-              const unitPrice = getPrice(card, false, { price_source, cardId: card.id })
+            {wantedLoading && <div className={styles.searchState}>Searching Scryfall...</div>}
+            {!wantedLoading && wantedError && <div className={styles.searchState}>{wantedError}</div>}
+            {!wantedLoading && !wantedError && wantedResults.map(group => {
+              const preview = group.options[0]
+              const unitPrice = preview ? getPrice(preview, false, { price_source, cardId: preview.id }) : null
               return (
                 <button
-                  key={card.id}
+                  key={group.id}
                   className={styles.selectorItem}
-                  onClick={() => addWantedCard(card)}
+                  onClick={() => handleWantSearchSelect(group)}
                   type="button"
                 >
-                  {getImageUri(card, 'small')
-                    ? <img src={getImageUri(card, 'small')} alt="" className={styles.selectorImg} loading="lazy" />
+                  {group.image
+                    ? <img src={group.image} alt="" className={styles.selectorImg} loading="lazy" />
                     : <div className={styles.selectorImgPlaceholder}>No art</div>}
                   <div className={styles.selectorMeta}>
-                    <div className={styles.selectorName}>{card.name}</div>
+                    <div className={styles.selectorName}>{group.name}</div>
                     <div className={styles.selectorSub}>
-                      <span>{card.set_name}</span>
-                      <span>#{card.collector_number}</span>
+                      <span>{group.printingCount} printing{group.printingCount !== 1 ? 's' : ''} available</span>
                     </div>
                   </div>
                   <div className={styles.selectorAside}>
-                    <div className={styles.selectorPrice}>{unitPrice != null ? formatPrice(unitPrice, price_source) : '—'}</div>
-                    <div className={styles.selectorPick}>Add</div>
+                    <div className={styles.selectorPick}>Choose</div>
                   </div>
                 </button>
               )
             })}
-            {!wantedLoading && wantedQuery.trim() && wantedResults.length === 0 && (
+            {!wantedLoading && !wantedError && wantedQuery.trim() && wantedResults.length === 0 && (
               <EmptyState>No Scryfall results for this search.</EmptyState>
             )}
           </div>
@@ -657,16 +1177,58 @@ export default function TradingPage() {
                   side="want"
                   unitPrice={unitPrice}
                   totalPrice={totalPrice}
+                  onEditPrice={() => setPriceEditor({ side: 'want', item })}
                   onAdd={() => updateWantItem(item.id, current => ({ ...current, qty: current.qty + 1 }))}
                   onSub={() => updateWantItem(item.id, current => current.qty > 1 ? { ...current, qty: current.qty - 1 } : null)}
                   onRemove={() => updateWantItem(item.id, () => null)}
-                  onToggleFoil={() => updateWantItem(item.id, current => ({ ...current, foil: !current.foil }))}
+                  onToggleFoil={() => toggleWantItemFoil(item.id)}
                 />
               )
             })}
           </div>
         </section>
       </div>
+
+      {offerPicker && (
+        <OptionPickerModal
+          title={offerPicker.title}
+          options={offerPicker.options}
+          mode="offer"
+          priceSource={price_source}
+          onClose={() => setOfferPicker(null)}
+          onSelect={async (option) => {
+            await addOfferCard(option)
+            setOfferPicker(null)
+          }}
+        />
+      )}
+
+      {wantPicker && (
+        <OptionPickerModal
+          title={wantPicker.title}
+          options={wantPicker.options}
+          mode="want"
+          priceSource={price_source}
+          onClose={() => setWantPicker(null)}
+          onSelect={(option) => {
+            addWantedCard(option.sf)
+            setWantPicker(null)
+          }}
+        />
+      )}
+
+      {priceEditor && (
+        <CustomPriceModal
+          item={priceEditor.item}
+          side={priceEditor.side}
+          priceSource={price_source}
+          onClose={() => setPriceEditor(null)}
+          onSave={(customPrice) => {
+            if (priceEditor.side === 'offer') setOfferCustomPrice(priceEditor.item.id, customPrice)
+            else setWantCustomPrice(priceEditor.item.id, customPrice)
+          }}
+        />
+      )}
     </div>
   )
 }
