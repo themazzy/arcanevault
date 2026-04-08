@@ -148,6 +148,12 @@
   --bg3: #0e2029;
 }
 
+:root[data-theme="nightshade"] {
+  --bg: #08050c;
+  --bg2: #0d0812;
+  --bg3: #130c18;
+}
+
 /* ── Light theme overrides ───────────────────────────────────────────────── */
 [data-theme-mode="light"] {
   --s-card:    rgba(255,252,246,0.78);
