@@ -387,6 +387,7 @@
   background: none; border: none;
   color: var(--text-dim); font-size: 1.3rem;
   cursor: pointer; transition: color 0.2s; line-height: 1;
+  z-index: 10;
 }
 .closeBtn:hover { color: var(--gold); }
 

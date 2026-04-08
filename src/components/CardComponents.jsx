@@ -787,8 +787,8 @@ function LegacyCardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, al
                   const legal = status === 'legal'
                   const restricted = status === 'restricted'
                   const banned = status === 'banned'
-                  const color = legal ? '#4a9a5a' : restricted ? '#c9a84c' : '#6a6a7a'
-                  const bg    = legal ? 'rgba(74,154,90,0.1)' : restricted ? 'rgba(201,168,76,0.1)' : 'rgba(255,255,255,0.03)'
+                  const color = legal ? '#4a9a5a' : restricted ? '#c9a84c' : banned ? '#c05050' : '#6a6a7a'
+                  const bg    = legal ? 'rgba(74,154,90,0.1)' : restricted ? 'rgba(201,168,76,0.1)' : banned ? 'rgba(192,80,80,0.1)' : 'rgba(255,255,255,0.03)'
                   return (
                     <div key={fmt} className={styles.legalityRow} style={{ background: bg, borderColor: color + '44' }}>
                       <span className={styles.legalityFormat}>{label}</span>
@@ -1398,8 +1398,8 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
                   const legal = status === 'legal'
                   const restricted = status === 'restricted'
                   const banned = status === 'banned'
-                  const color = legal ? '#4a9a5a' : restricted ? '#c9a84c' : '#6a6a7a'
-                  const bg = legal ? 'rgba(74,154,90,0.1)' : restricted ? 'rgba(201,168,76,0.1)' : 'rgba(255,255,255,0.03)'
+                  const color = legal ? '#4a9a5a' : restricted ? '#c9a84c' : banned ? '#c05050' : '#6a6a7a'
+                  const bg = legal ? 'rgba(74,154,90,0.1)' : restricted ? 'rgba(201,168,76,0.1)' : banned ? 'rgba(192,80,80,0.1)' : 'rgba(255,255,255,0.03)'
                   return (
                     <div key={fmtKey} className={styles.legalityRow} style={{ background: bg, borderColor: `${color}44` }}>
                       <span className={styles.legalityFormat}>{label}</span>
