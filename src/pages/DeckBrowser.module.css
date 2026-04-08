@@ -472,6 +472,15 @@
 .priceFallback { color: var(--text-dim) !important; }
 
 /* ── Grid View ───────────────────────────────────────────────────────────── */
+.gridGroups {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.gridGroup .cardGrid {
+  margin-top: 8px;
+}
+
 .cardGrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
