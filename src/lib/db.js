@@ -276,6 +276,17 @@ export async function putFolderCards(rows) {
   await Promise.all([...rows.map(r => tx.store.put(r)), tx.done])
 }
 
+export async function deleteFolderCardsByIds(ids) {
+  const uniqueIds = [...new Set((ids || []).filter(Boolean))]
+  if (!uniqueIds.length) return
+  const db = await getDb()
+  const tx = db.transaction('folder_cards', 'readwrite')
+  await Promise.all([
+    ...uniqueIds.map(id => tx.store.delete(id)),
+    tx.done,
+  ])
+}
+
 export async function replaceLocalFolderCards(folderIds, rows) {
   const ids = [...new Set((folderIds || []).filter(Boolean))]
   const db = await getDb()
@@ -329,6 +340,17 @@ export async function putDeckAllocations(rows) {
   const db = await getDb()
   const tx = db.transaction('deck_allocations', 'readwrite')
   await Promise.all([...rows.map(r => tx.store.put(r)), tx.done])
+}
+
+export async function deleteDeckAllocationsByIds(ids) {
+  const uniqueIds = [...new Set((ids || []).filter(Boolean))]
+  if (!uniqueIds.length) return
+  const db = await getDb()
+  const tx = db.transaction('deck_allocations', 'readwrite')
+  await Promise.all([
+    ...uniqueIds.map(id => tx.store.delete(id)),
+    tx.done,
+  ])
 }
 
 export async function replaceDeckAllocations(deckIds, rows) {
