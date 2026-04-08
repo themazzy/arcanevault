@@ -3,12 +3,12 @@ import { sb } from '../lib/supabase'
 import { Modal, ResponsiveMenu } from './UI'
 import { parseTextDecklist, importDeckFromUrl } from '../lib/deckBuilderApi'
 import { parseManaboxCSV } from '../lib/csvParser'
-import { sfUrl } from '../lib/scryfall'
+import { fetchScryfallBatch } from '../lib/scryfall'
+import { putCards, putDeckAllocations, putFolderCards, putFolders } from '../lib/db'
 import styles from './ImportModal.module.css'
 import uiStyles from './UI.module.css'
 
 const NOUN = { binder: 'Binder', deck: 'Deck', list: 'Wishlist' }
-const SF = 'https://api.scryfall.com'
 
 /**
  * Resolve cards using the Scryfall /cards/collection endpoint.
@@ -27,15 +27,8 @@ async function resolveCards(parsed) {
 
   for (let i = 0; i < identifiers.length; i += 75) {
     const batch = identifiers.slice(i, i + 75)
-    try {
-      const res = await fetch(sfUrl(`${SF}/cards/collection`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ identifiers: batch }),
-      })
-      if (res.ok) {
-        const data = await res.json()
-        for (const sf of (data.data || [])) {
+    const data = await fetchScryfallBatch(batch)
+    for (const sf of data) {
           // Key by full name
           results.set(sf.name.toLowerCase(), sf)
           // Also key by front-face name for DFCs ("Brazen Borrower // Petty Theft" → "brazen borrower")
@@ -45,9 +38,7 @@ async function resolveCards(parsed) {
           if (sf.set && sf.collector_number) {
             results.set(`${sf.set}-${sf.collector_number}`, sf)
           }
-        }
-      }
-    } catch {}
+    }
     if (i + 75 < identifiers.length) await new Promise(r => setTimeout(r, 150))
   }
   return results
@@ -153,6 +144,7 @@ export default function ImportModal({
       .insert({ name: newName.trim(), type: folderType, user_id: userId })
       .select().single()
     if (data) {
+      await putFolders([data])
       setFolders(prev => [...prev, data])
       setFolderId(data.id)
       setCreating(false)
@@ -172,6 +164,7 @@ export default function ImportModal({
     try {
       // Resolve all cards via Scryfall collection endpoint (supports exact-printing lookup)
       const sfMap = await resolveCards(parsed)
+      if (!sfMap.size) throw new Error('Scryfall card lookup is temporarily unavailable.')
 
       // Helper: find the best Scryfall match for a parsed entry
       const resolveSf = (c) => {
@@ -200,7 +193,6 @@ export default function ImportModal({
         }
       } else {
         const cardRows = []
-        const placementRows = []
         for (const c of parsed) {
           const sf = resolveSf(c)
           if (!sf) { errs.push(c.name); setProgress(p => p + 1); continue }
@@ -214,12 +206,14 @@ export default function ImportModal({
         if (cardRows.length) {
           const { data: upserted } = await sb.from('cards')
             .upsert(cardRows, { onConflict: 'user_id,set_code,collector_number,foil,language,condition', ignoreDuplicates: false })
-            .select('id, set_code, collector_number, foil, language, condition')
+            .select('*')
           if (upserted) {
+            await putCards(upserted)
             const cardKeyToId = {}
             for (const r of upserted) {
               cardKeyToId[`${r.set_code}-${r.collector_number}-${r.foil}-${r.language}-${r.condition}`] = r.id
             }
+            const placementRows = []
             for (const row of cardRows) {
               const cardKey = `${row.set_code}-${row.collector_number}-${row.foil}-${row.language}-${row.condition}`
               const cid = cardKeyToId[cardKey]
@@ -233,8 +227,13 @@ export default function ImportModal({
               }
             }
             if (placementRows.length) {
-              await sb.from(folderType === 'deck' ? 'deck_allocations' : 'folder_cards')
+              const { data: savedPlacements } = await sb.from(folderType === 'deck' ? 'deck_allocations' : 'folder_cards')
                 .upsert(placementRows, { onConflict: `${folderType === 'deck' ? 'deck_id' : 'folder_id'},card_id`, ignoreDuplicates: true })
+                .select('*')
+              if (savedPlacements?.length) {
+                if (folderType === 'deck') await putDeckAllocations(savedPlacements)
+                else await putFolderCards(savedPlacements)
+              }
             }
           }
         }

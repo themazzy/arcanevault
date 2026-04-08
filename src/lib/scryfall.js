@@ -52,9 +52,13 @@ export async function sfGet(url) {
   const wait = Math.max(0, 100 - (Date.now() - _lastSfCall))
   if (wait) await new Promise(r => setTimeout(r, wait))
   _lastSfCall = Date.now()
-  const res = await fetch(sfUrl(url), { headers: SF_HEADERS })
-  if (!res.ok) return null
-  return res.json()
+  try {
+    const res = await fetch(sfUrl(url), { headers: SF_HEADERS })
+    if (!res.ok) return null
+    return res.json()
+  } catch {
+    return null
+  }
 }
 
 // Clear old localStorage keys
