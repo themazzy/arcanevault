@@ -227,21 +227,6 @@
 
 .searchInput:focus { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.3); }
 
-.searchBtn {
-  min-height: 30px;
-  background: rgba(201,168,76,0.12);
-  border: 1px solid rgba(201,168,76,0.3);
-  border-radius: 4px;
-  color: var(--gold, #c9a84c);
-  font-family: var(--font-display);
-  font-size: 0.72rem;
-  letter-spacing: 0.04em;
-  padding: 6px 13px;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
-}
-
-.searchBtn:hover { background: rgba(201,168,76,0.22); border-color: rgba(201,168,76,0.45); }
 
 .typeFilters {
   display: flex;
@@ -1482,10 +1467,6 @@
     padding: 7px 10px;
   }
 
-  .searchBtn {
-    min-height: 30px;
-    padding: 6px 13px;
-  }
 
   .searchRow,
   .recRow {
