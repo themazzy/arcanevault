@@ -102,19 +102,6 @@ User action
 
 **Key gotcha:** Never use Supabase's nested `select('folder_cards(cards(*))')` — it requires FK relationships configured in PostgREST and silently returns empty. Always do flat queries and join in memory.
 
-### IDB Schema (v6)
-
-| Store | Key | Description |
-|---|---|---|
-| `scryfall` | `${set_code}-${collector_number}` | Card metadata + prices |
-| `cards` | `id` | User's owned cards |
-| `card_prints` | `id` | Normalized shared print metadata |
-| `folders` | `id` | Binders, decks, wishlists, builder decks |
-| `folder_cards` | `id` | Owned-card placements in binders/lists (`qty`, `updated_at` used for incremental sync) |
-| `deck_cards` | `id` | Deck builder cards: intended deck composition, independent of ownership |
-| `deck_allocations` | `id` | Owned collection cards assigned into collection decks |
-| `meta` | string key | Sync timestamps, cache versions |
-
 ### Pricing
 
 - Shared market prices live in Supabase `card_prices` with `today` + `yesterday` retention.
@@ -350,16 +337,6 @@ onMouseLeave={e => { myOwnLeaveHandler(); lpLeave?.(e) }}
 {...lpRest}
 ```
 
-### Scryfall Queries
-
-Use Scryfall syntax when building search queries:
-- Types: `t:Creature`, `t:"Legendary Creature"`
-- Colors: `c:RG` (includes), `c>=RG` (at least), `c=RG` (exact), `id:RG` (identity)
-- Numerics: `cmc=3`, `pow>=2`, `tou<4`
-- Rarity: `r:rare`, `r:mythic`
-- Oracle: `o:"draw a card"`
-- Format: `f:commander`, `f:modern`
-
 ### Card Scanner (`src/scanner/`)
 
 #### Pipeline overview
@@ -390,18 +367,6 @@ stability voting (up to STABILITY_SAMPLES=3 frames, SAMPLE_DELAY_MS=40)
 
 **Foil fallback**: when standard hash distance > `MATCH_THRESHOLD`, `computePHash256Foil(artCrop)` re-hashes with `percentileCap(0.92)` (aggressive glare suppression). Does not affect stored DB hashes.
 
-#### Match thresholds (CardScanner.jsx)
-
-| Constant | Value | Meaning |
-|---|---|---|
-| `MATCH_THRESHOLD` | 122 | Standard acceptance distance |
-| `MATCH_STRONG_THRESHOLD` | 134 | Relaxed acceptance with 2+ stable votes |
-| `MATCH_STRONG_SINGLE` | 108 | Single-frame strong match |
-| `MATCH_MIN_GAP` | 8 | Min gap between best and second-best |
-| `STABILITY_SAMPLES` | 3 | Max frames per scan attempt |
-| `STABILITY_REQUIRED` | 2 | Votes needed for stable match |
-| `SAMPLE_DELAY_MS` | 40 | Sleep between stability frames |
-
 #### Hash algorithm — must match seed script exactly
 
 `computePHash256` pipeline (client + `generate-card-hashes.js` must be identical):
@@ -415,53 +380,9 @@ stability voting (up to STABILITY_SAMPLES=3 frames, SAMPLE_DELAY_MS=40)
 
 **If any step changes, truncate `card_hashes` and re-seed.** `computePHash256Foil` uses `percentileCap(0.92)` instead of 0.98 — client-side only, never changes stored hashes.
 
-#### Auto-scan
-
-Toggle in the gear menu (right sidebar). Setting persisted to `localStorage` key `arcanevault_scanner_autoscan`. When on:
-- Replaces the manual Scan button with a pulsing status badge
-- After a match: 1800 ms cooldown before next scan
-- After a miss: 600 ms cooldown
-- Pauses automatically when any overlay is open (basket, add-flow, manual search, settings)
-
-#### captureFrame return shape
-
-```js
-{ imageData, srcCanvas, w, h, smallImageData, sw, sh }
-// imageData    — full-res, for warpCard
-// srcCanvas    — HTMLCanvasElement with full frame drawn, for cropCardFromReticle
-// smallImageData — half-res, for detectCardCorners (GPU-downscaled via drawImage)
-// sw, sh       — smallImageData dimensions (≈ w/2, h/2)
-```
-
-Corner coords from `detectCardCorners(smallImageData, sw, sh)` are in small-image space — scale back with `scaleX = w/sw, scaleY = h/sh` before passing to `warpCard`.
-
-#### Other implementation notes
-
-- **Camera resolution**: web path requests `ideal: 1280×720`. Native uses `enableHighResolution: true` with the device screen size.
-- **Scratch canvases**: `ScannerEngine.js` maintains module-level reusable canvases (`_cardCanvas` 500×700, `_artCanvas` 424×248, `_srcCanvas` dynamic). `CardScanner.jsx` adds `_smallFrameCanvas` for the pre-downscaled corner detection frame.
-- **BigInt precision**: Supabase BIGINT returned as JS Number loses bits >53. Read `phash_hex TEXT` (64 hex chars) exclusively.
-- **IDB hash cache**: `DatabaseService` stores `hash_u32: number[]` in IDB so warm starts skip all hex parsing. Web path loads 1000-row pages, page 0 sync then 8 pages at a time in background.
-- **OpenCV.js**: Loaded via async CDN `<script>` tag (not bundled). Check `window.cv` readiness via `waitForOpenCV()`.
-- **DEBUG flag**: `CardScanner.jsx` has `const DEBUG = true` at the top — set to `false` once scanner accuracy is confirmed.
+**BigInt precision**: Supabase BIGINT returned as JS Number loses bits >53. Read `phash_hex TEXT` (64 hex chars) exclusively.
 
 ### Life Tracker (`LifeTracker.jsx`)
-
-#### Grid & Rotation
-
-Each player is wrapped in a `.gridCell` (`position: relative; overflow: hidden`). Rotated panels use `position: absolute; inset: 0` so they fill their cell before rotating — the cell clips any overflow. Without the `gridCell` wrapper, rotated panels bleed into adjacent cells.
-
-`.grid` requires an explicit `height` for `grid-auto-rows: 1fr` to distribute rows equally.
-
-#### Fullscreen Mode
-
-Use `100dvh` (dynamic viewport height) in fullscreen — not `100svh` — so Android Chrome's collapsing address bar is tracked correctly.
-
-**Gear menu ref gotcha:** The topbar and `fsControls` each render a gear wrap. Use **two separate refs** (`gearMenuRef` for the topbar, `gearMenuFsRef` for fsControls) and check both in the `pointerdown` outside-click handler. If both share one ref, React nullifies it when `fsControls` unmounts, causing the menu to close instantly after exiting fullscreen.
-
-#### Landscape phone breakpoints
-
-- `@media (max-width: 900px)` — rotations and grid height applied (`calc(100svh - 192px)`)
-- `@media (max-height: 500px)` — compact mode; keep the quick life row (`-10`, `-5`, `+5`, `+10`) and commander damage bar visible.
 
 #### Multiplayer Lobby
 

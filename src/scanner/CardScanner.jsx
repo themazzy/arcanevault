@@ -6,6 +6,21 @@
  *
  * Scanned cards accumulate in a pending basket. User can adjust foil,
  * change printing, add manually, then save all at once to a chosen folder.
+ *
+ * ── Scan pipeline ─────────────────────────────────────────────────────────
+ * captureFrame() → { imageData, srcCanvas, w, h, smallImageData, sw, sh }
+ *   imageData      — full-res, for warpCard
+ *   srcCanvas      — HTMLCanvasElement with full frame drawn, for cropCardFromReticle
+ *   smallImageData — half-res (GPU-downscaled via drawImage), for detectCardCorners
+ *   sw, sh         — small-image dimensions (≈ w/2, h/2)
+ *
+ * detectCardCorners() returns coords in small-image space.
+ * Scale back to full-res: scaleX = w/sw, scaleY = h/sh, before calling warpCard().
+ *
+ * ── Auto-scan ─────────────────────────────────────────────────────────────
+ * Toggle in gear menu; persisted to localStorage 'arcanevault_scanner_autoscan'.
+ * Cooldowns: 1800 ms after match, 600 ms after miss.
+ * Pauses automatically when any overlay is open (basket, add-flow, settings).
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react'

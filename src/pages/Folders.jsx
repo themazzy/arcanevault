@@ -522,11 +522,16 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
   const [showExport, setShowExport]   = useState(false)
   const [viewMode, setViewMode]       = useState('grid')
   const [groupBy, setGroupBy]         = useState(default_grouping || 'type')
+  const [hoverImg, setHoverImg]       = useState(null)
+  const [hoverPos, setHoverPos]       = useState({ x: 0, y: 0 })
   const isAllView = !folder
   const browserTitle = title || folder?.name || `All ${noun} Cards`
   const folderIds = useMemo(() => folders.map(f => f.id), [folders])
   const moveFolders = useMemo(() => isAllView ? folders : folders.filter(f => f.id !== folder.id && !isGroupFolder(f)), [folders, isAllView, folder?.id])
   const getCardKey = useCallback((card) => card?._displayKey || card?.id, [])
+  const handleHover = useCallback((img) => setHoverImg(img), [])
+  const handleHoverEnd = useCallback(() => setHoverImg(null), [])
+  const handleMouseMove = useCallback((e) => setHoverPos({ x: e.clientX, y: e.clientY }), [])
 
   useEffect(() => {
     const load = async () => {
@@ -709,7 +714,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
   if (loading) return <EmptyState>Loading…</EmptyState>
 
   return (
-    <div>
+    <div onMouseMove={handleMouseMove} onMouseLeave={handleHoverEnd}>
       {/* ── Binder header ── */}
       <div className={styles.binderHeader}>
         <Button variant="ghost" size="sm" className={styles.backBtn} onClick={onBack}>← Back to {noun}s</Button>
@@ -859,6 +864,8 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
           onAdjustQty={onAdjustQty}
           splitState={splitState}
           onEnterSelectMode={() => setSelectMode(true)}
+          onHover={handleHover}
+          onHoverEnd={handleHoverEnd}
         />
       )}
       {false && view === 'grid' && filtered.length > 0 && (
@@ -890,6 +897,12 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
           onSave={handleCardSave}
           onClose={() => setSelected(null)}
         />
+      )}
+      {hoverImg && (
+        <div className={styles.floatingPreview}
+          style={{ left: hoverPos.x + 18, top: Math.max(8, hoverPos.y - 160), pointerEvents: 'none' }}>
+          <img className={styles.floatingImg} src={hoverImg} alt="" />
+        </div>
       )}
       {showAddCard && user && (
         <AddCardModal

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Badge, ResponsiveMenu } from './UI'
 import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
 import { useLongPress } from '../hooks/useLongPress'
@@ -48,6 +48,9 @@ const CAT_COLORS = {
   Other: '#666',
 }
 
+// True on devices where a fine pointer (mouse/trackpad) is available — false on touch-only phones
+const CAN_HOVER = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover) and (pointer: fine)').matches
+
 export const CARD_BROWSER_GROUP_OPTIONS = [
   { id: 'type', label: 'By Type' },
   { id: 'category', label: 'By Function' },
@@ -55,15 +58,21 @@ export const CARD_BROWSER_GROUP_OPTIONS = [
 ]
 
 export const CARD_BROWSER_VIEW_MODES = [
-  { id: 'list', label: 'List', desktopLabel: '≡ List' },
   { id: 'stacks', label: 'Stacks', desktopLabel: '⊟ Stacks' },
   { id: 'text', label: 'Text', desktopLabel: '¶ Text' },
   { id: 'grid', label: 'Grid', desktopLabel: '⊞ Grid' },
-  { id: 'table', label: 'Table', desktopLabel: '⊞ Table' },
+  { id: 'table', label: 'Table', desktopLabel: '≡ Table' },
 ]
 
 function getDisplayKey(card) {
   return card?._displayKey || card?.id
+}
+
+function getOrderedBrowserViewModes() {
+  const order = ['grid', 'stacks', 'table', 'text']
+  return order
+    .map(id => CARD_BROWSER_VIEW_MODES.find(mode => mode.id === id))
+    .filter(Boolean)
 }
 
 function getCardType(typeLine = '') {
@@ -166,9 +175,10 @@ function rowFolderMeta(card) {
   ) : null
 }
 
-function TextRow({ card, selectMode, isSelected, onToggleSelect, onEnterSelectMode }) {
+function TextRow({ card, sfCard, selectMode, isSelected, onToggleSelect, onEnterSelectMode, onHover, onHoverEnd }) {
   const totalQty = card._folder_qty ?? card.qty ?? 1
   const key = getDisplayKey(card)
+  const img = sfCard?.image_uris?.normal || sfCard?.card_faces?.[0]?.image_uris?.normal
   const longPress = useLongPress(() => {
     if (selectMode) return
     onEnterSelectMode?.()
@@ -188,7 +198,8 @@ function TextRow({ card, selectMode, isSelected, onToggleSelect, onEnterSelectMo
     <div
       className={`${styles.textRow}${isSelected ? ` ${styles.textRowSelected}` : ''}${selectMode ? ` ${styles.textRowSelectable}` : ''}`}
       onClick={handleClick}
-      onMouseLeave={e => { lpLeave?.(e) }}
+      onMouseEnter={CAN_HOVER && !selectMode && img ? () => onHover?.(img) : undefined}
+      onMouseLeave={e => { if (CAN_HOVER && !selectMode) onHoverEnd?.(); lpLeave?.(e) }}
       {...lpRest}
     >
       {selectMode && (
@@ -203,7 +214,7 @@ function TextRow({ card, selectMode, isSelected, onToggleSelect, onEnterSelectMo
   )
 }
 
-function TextView({ groups, groupOrder, selectMode, selectedCards, onToggleSelect, onEnterSelectMode, hideHeaders }) {
+function TextView({ groups, groupOrder, sfMap, selectMode, selectedCards, onToggleSelect, onEnterSelectMode, hideHeaders, onHover, onHoverEnd }) {
   return (
     <div className={styles.textView}>
       {groupOrder.filter(group => groups[group]?.length).map(group => {
@@ -224,10 +235,13 @@ function TextView({ groups, groupOrder, selectMode, selectedCards, onToggleSelec
                 <TextRow
                   key={getDisplayKey(card)}
                   card={card}
+                  sfCard={sfMap[getScryfallKey(card)]}
                   selectMode={selectMode}
                   isSelected={selectedCards?.has(getDisplayKey(card))}
                   onToggleSelect={onToggleSelect}
                   onEnterSelectMode={onEnterSelectMode}
+                  onHover={onHover}
+                  onHoverEnd={onHoverEnd}
                 />
               ))}
           </div>
@@ -237,9 +251,11 @@ function TextView({ groups, groupOrder, selectMode, selectedCards, onToggleSelec
   )
 }
 
-function TableRow({ card, sf, priceSource, isSelected, selectMode, onClick, onEnterSelectMode, onToggleSelect }) {
+function TableRow({ card, sf, priceSource, isSelected, selectMode, onClick, onEnterSelectMode, onToggleSelect, onAdjustQty, splitState, onHover, onHoverEnd, visibleCols }) {
   const totalQty = card._folder_qty ?? card.qty ?? 1
   const key = getDisplayKey(card)
+  const selQty = splitState?.get(key) ?? 1
+  const img = sf?.image_uris?.normal || sf?.card_faces?.[0]?.image_uris?.normal
   const longPress = useLongPress(() => {
     if (selectMode) return
     onEnterSelectMode?.()
@@ -250,19 +266,38 @@ function TableRow({ card, sf, priceSource, isSelected, selectMode, onClick, onEn
   const unitPrice = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
   const price = unitPrice != null ? unitPrice * totalQty : null
   const mc = sf?.mana_cost || sf?.card_faces?.[0]?.mana_cost || ''
+  const hoverEnter = CAN_HOVER && !selectMode && img ? () => onHover?.(img) : undefined
+  const hoverLeave = CAN_HOVER && !selectMode ? () => onHoverEnd?.() : undefined
+  const typeLine = (sf?.type_line || '-').split('â€”')[0].trim()
+  const setCode = (card.set_code || sf?.set || '-').toUpperCase()
+  const collectorNumber = card.collector_number || sf?.collector_number
+  const rarity = sf?.rarity || '-'
+  const pt = sf?.power != null
+    ? `${sf.power}/${sf.toughness ?? '?'}`
+    : sf?.card_faces?.[0]?.power != null
+      ? `${sf.card_faces[0].power}/${sf.card_faces[0].toughness ?? '?'}`
+      : '-'
+  const mobileMeta = []
+  if (visibleCols.type) mobileMeta.push(typeLine)
+  if (visibleCols.set) mobileMeta.push(`${setCode}${collectorNumber ? ` #${collectorNumber}` : ''}`)
+  if (visibleCols.price && price != null) mobileMeta.push(formatPrice(price, priceSource))
+  if (visibleCols.pt && pt !== '-') mobileMeta.push(pt)
+  if (visibleCols.rarity && rarity !== '-') mobileMeta.push(rarity)
+  if (visibleCols.cmc && sf?.cmc != null) mobileMeta.push(`CMC ${sf.cmc}`)
+  if (visibleCols.color) mobileMeta.push(`Color ${(sf?.color_identity || []).join('') || 'C'}`)
   return (
-      <tr
-        className={`${styles.tr}${isSelected ? ` ${styles.trSelected}` : ''}`}
-        onClick={() => {
-          if (lpFired.current) {
-            lpFired.current = false
-            return
-          }
-          onClick?.()
-        }}
-        onMouseLeave={e => { lpLeave?.(e) }}
-        {...lpRest}
-      >
+    <tr
+      className={`${styles.tr}${isSelected ? ` ${styles.trSelected}` : ''}`}
+      onClick={() => {
+        if (lpFired.current) {
+          lpFired.current = false
+          return
+        }
+        onClick?.()
+      }}
+      onMouseLeave={e => { lpLeave?.(e) }}
+      {...lpRest}
+    >
       {selectMode && (
         <td className={styles.td} style={{ textAlign: 'center', paddingRight: 0 }}>
           <div className={`${styles.tableCheckbox}${isSelected ? ` ${styles.tableCheckboxChecked}` : ''}`}>
@@ -270,34 +305,132 @@ function TableRow({ card, sf, priceSource, isSelected, selectMode, onClick, onEn
           </div>
         </td>
       )}
-      <td className={styles.td} style={{ textAlign: 'center', color: 'var(--text-faint)' }}>
-        {totalQty}
+      <td className={styles.td} style={{ textAlign: 'center', color: 'var(--text-faint)' }} onMouseEnter={hoverEnter} onMouseLeave={hoverLeave}>
+        {selectMode && isSelected && totalQty > 1 ? (
+          <span className={styles.tableQtyAdj}>
+            <button className={styles.tableQtyBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(key, -1, totalQty) }}>−</button>
+            <span className={styles.tableQtyVal}>{selQty}/{totalQty}</span>
+            <button className={styles.tableQtyBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(key, +1, totalQty) }}>+</button>
+          </span>
+        ) : totalQty}
       </td>
-      <td className={styles.td}>
+      <td className={styles.td} onMouseEnter={hoverEnter} onMouseLeave={hoverLeave}>
         <div>
           <span className={styles.tableName}>{card.name}</span>
           {card.foil && <span className={styles.tableFoil}>✦</span>}
+          {mobileMeta.length > 0 && (
+            <div className={styles.tableMetaMobile}>{mobileMeta.join(' | ')}</div>
+          )}
           {rowFolderMeta(card)}
         </div>
       </td>
-      <td className={styles.td} style={{ textAlign: 'center', color: 'var(--text-dim)' }}>
-        <InlineMana cost={mc} size={13} />
-      </td>
-      <td className={styles.td} style={{ color: 'var(--text-faint)', fontSize: '0.76rem' }}>
-        {(sf?.type_line || '—').split('—')[0].trim()}
-      </td>
-      <td className={styles.td} style={{ textAlign: 'right', fontFamily: 'var(--font-display)', fontSize: '0.8rem', color: (scryfallPrice == null && price != null) ? 'var(--text-dim)' : 'var(--green)' }}>
-        {price != null ? formatPrice(price, priceSource) : '—'}
-      </td>
+      {visibleCols.mana && (
+        <td className={`${styles.td} ${getTableColClass('mana')}`.trim()} style={{ textAlign: 'center' }}>
+          <InlineMana cost={mc} size={13} />
+        </td>
+      )}
+      {visibleCols.cmc && (
+        <td className={`${styles.td} ${getTableColClass('cmc')}`.trim()} style={{ textAlign: 'center', color: 'var(--text-dim)', fontSize: '0.8rem' }}>
+          {sf?.cmc ?? '—'}
+        </td>
+      )}
+      {visibleCols.type && (
+        <td className={`${styles.td} ${getTableColClass('type')}`.trim()} style={{ color: 'var(--text-faint)', fontSize: '0.76rem' }}>
+          {(sf?.type_line || '—').split('—')[0].trim()}
+        </td>
+      )}
+      {visibleCols.set && (
+        <td className={`${styles.td} ${getTableColClass('set')}`.trim()} style={{ fontSize: '0.72rem', color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>
+          <span style={{ textTransform: 'uppercase' }}>{card.set_code || sf?.set || '—'}</span>
+          {(card.collector_number || sf?.collector_number)
+            ? <span style={{ color: 'var(--text-faint)' }}> #{card.collector_number || sf?.collector_number}</span>
+            : null}
+        </td>
+      )}
+      {visibleCols.rarity && (
+        <td className={`${styles.td} ${getTableColClass('rarity')}`.trim()} style={{ fontSize: '0.7rem', textTransform: 'capitalize', color: ({ common: 'var(--text-faint)', uncommon: '#a0a8b8', rare: 'var(--gold)', mythic: '#e07020' })[sf?.rarity] || 'var(--text-faint)' }}>
+          {sf?.rarity || '—'}
+        </td>
+      )}
+      {visibleCols.color && (
+        <td className={`${styles.td} ${getTableColClass('color')}`.trim()} style={{ textAlign: 'center' }}>
+          {(sf?.color_identity || []).length
+            ? <span style={{ display: 'inline-flex', gap: 2, alignItems: 'center' }}>
+                {sf.color_identity.map(c => (
+                  <img key={c} src={`https://svgs.scryfall.io/card-symbols/${c}.svg`} alt={c} style={{ width: 13, height: 13 }} />
+                ))}
+              </span>
+            : <span style={{ color: 'var(--text-faint)', fontSize: '0.7rem' }}>C</span>}
+        </td>
+      )}
+      {visibleCols.pt && (
+        <td className={`${styles.td} ${getTableColClass('pt')}`.trim()} style={{ textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-dim)' }}>
+          {sf?.power != null
+            ? `${sf.power}/${sf.toughness ?? '?'}`
+            : sf?.card_faces?.[0]?.power != null
+              ? `${sf.card_faces[0].power}/${sf.card_faces[0].toughness ?? '?'}`
+              : '—'}
+        </td>
+      )}
+      {visibleCols.price && (
+        <td className={`${styles.td} ${getTableColClass('price')}`.trim()} style={{ textAlign: 'right', fontFamily: 'var(--font-display)', fontSize: '0.8rem', color: (scryfallPrice == null && price != null) ? 'var(--text-dim)' : 'var(--green)' }}>
+          {price != null ? formatPrice(price, priceSource) : '—'}
+        </td>
+      )}
     </tr>
   )
 }
 
-function TableView({ cards, sfMap, priceSource, onSelect, selectMode, selectedCards, onToggleSelect, onEnterSelectMode }) {
+const TABLE_OPTIONAL_COLS = [
+  ['mana',   'Mana Cost'],
+  ['cmc',    'CMC'],
+  ['type',   'Type'],
+  ['set',    'Set'],
+  ['rarity', 'Rarity'],
+  ['color',  'Color'],
+  ['pt',     'P / T'],
+  ['price',  'Price'],
+]
+
+const LS_COL_KEY = 'arcanevault_browser_table_columns_v1'
+const DEFAULT_VISIBLE_COLS = { mana: true, cmc: false, type: true, set: false, rarity: false, color: false, pt: false, price: true }
+const TABLE_COL_FOLD_CLASS = {
+  mana: 'colFoldSm',
+  cmc: 'colFoldSm',
+  rarity: 'colFoldSm',
+  color: 'colFoldSm',
+  type: 'colFoldXs',
+  pt: 'colFoldXs',
+  set: 'colFoldXxs',
+  price: 'colFoldXxs',
+}
+
+function loadVisibleCols() {
+  try { return { ...DEFAULT_VISIBLE_COLS, ...JSON.parse(localStorage.getItem(LS_COL_KEY) || 'null') } } catch { return { ...DEFAULT_VISIBLE_COLS } }
+}
+
+function getTableColClass(col) {
+  return TABLE_COL_FOLD_CLASS[col] ? styles[TABLE_COL_FOLD_CLASS[col]] : ''
+}
+
+function TableView({ cards, sfMap, priceSource, groups, groupOrder, groupBy, onSelect, selectMode, selectedCards, onToggleSelect, onEnterSelectMode, onAdjustQty, splitState, onHover, onHoverEnd }) {
   const [sortCol, setSortCol] = useState('name')
   const [sortDir, setSortDir] = useState(1)
+  const [collapsed, setCollapsed] = useState(new Set())
+  const [visibleCols, setVisibleCols] = useState(loadVisibleCols)
+
+  const toggleCol = col => setVisibleCols(prev => {
+    const next = { ...prev, [col]: !prev[col] }
+    try { localStorage.setItem(LS_COL_KEY, JSON.stringify(next)) } catch {}
+    return next
+  })
+
+  const isGrouped = groupBy && groupBy !== 'none'
+  const visCount = Object.values(visibleCols).filter(Boolean).length
+  const colCount = (selectMode ? 1 : 0) + 2 + visCount
 
   const sorted = useMemo(() => {
+    if (isGrouped) return cards
     return [...cards].sort((a, b) => {
       const sfA = sfMap[getScryfallKey(a)]
       const sfB = sfMap[getScryfallKey(b)]
@@ -308,9 +441,27 @@ function TableView({ cards, sfMap, priceSource, onSelect, selectMode, selectedCa
         vb = b.name
         return sortDir * (va < vb ? -1 : va > vb ? 1 : 0)
       }
-      if (sortCol === 'cmc') {
+      if (sortCol === 'mana' || sortCol === 'cmc') {
         va = sfA?.cmc ?? 99
         vb = sfB?.cmc ?? 99
+      }
+      if (sortCol === 'set') {
+        va = sfA?.set || a.set_code || ''
+        vb = sfB?.set || b.set_code || ''
+        return sortDir * (va < vb ? -1 : va > vb ? 1 : 0)
+      }
+      if (sortCol === 'rarity') {
+        const RO = { common: 0, uncommon: 1, rare: 2, mythic: 3 }
+        va = RO[sfA?.rarity] ?? 0
+        vb = RO[sfB?.rarity] ?? 0
+      }
+      if (sortCol === 'color') {
+        va = (sfA?.color_identity || []).length
+        vb = (sfB?.color_identity || []).length
+      }
+      if (sortCol === 'pt') {
+        va = parseFloat(sfA?.power) || 0
+        vb = parseFloat(sfB?.power) || 0
       }
       if (sortCol === 'type') {
         va = getCardType(sfA?.type_line || sfA?.card_faces?.[0]?.type_line || '')
@@ -327,57 +478,112 @@ function TableView({ cards, sfMap, priceSource, onSelect, selectMode, selectedCa
       }
       return sortDir * (va - vb)
     })
-  }, [cards, priceSource, sfMap, sortCol, sortDir])
+  }, [cards, priceSource, sfMap, sortCol, sortDir, isGrouped])
 
-  const arrow = col => (sortCol === col ? (sortDir > 0 ? '↑' : '↓') : '')
+  const arrow = col => (!isGrouped && sortCol === col) ? (sortDir > 0 ? '↑' : '↓') : ''
+
+  const toggleCollapse = group => setCollapsed(prev => {
+    const next = new Set(prev)
+    if (next.has(group)) next.delete(group)
+    else next.add(group)
+    return next
+  })
+
+  const renderRows = cardList => cardList.map(card => {
+    const key = getDisplayKey(card)
+    return (
+      <TableRow
+        key={key}
+        card={card}
+        sf={sfMap[getScryfallKey(card)]}
+        priceSource={priceSource}
+        isSelected={selectedCards?.has(key)}
+        selectMode={selectMode}
+        onClick={() => selectMode ? onToggleSelect?.(key, card._folder_qty || card.qty || 1) : onSelect?.(card)}
+        onEnterSelectMode={onEnterSelectMode}
+        onToggleSelect={onToggleSelect}
+        onAdjustQty={onAdjustQty}
+        splitState={splitState}
+        onHover={onHover}
+        onHoverEnd={onHoverEnd}
+        visibleCols={visibleCols}
+      />
+    )
+  })
 
   return (
-    <div className={styles.tableWrap}>
-      <table className={styles.table}>
-        <thead>
-          <tr>
-            {selectMode && <th className={styles.th} style={{ width: 32 }} />}
-            {[['qty', 'Qty'], ['name', 'Name'], ['cmc', 'CMC'], ['type', 'Type'], ['price', 'Price']].map(([key, label]) => (
-              <th
-                key={key}
-                className={styles.th}
-                onClick={() => {
-                  if (sortCol === key) setSortDir(dir => -dir)
-                  else {
-                    setSortCol(key)
-                    setSortDir(1)
-                  }
-                }}
-              >
-                {label} <span className={styles.thArrow}>{arrow(key)}</span>
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map(card => {
-            const key = getDisplayKey(card)
-            return (
-              <TableRow
-                key={key}
-                card={card}
-                sf={sfMap[getScryfallKey(card)]}
-                priceSource={priceSource}
-                isSelected={selectedCards?.has(key)}
-                selectMode={selectMode}
-                onClick={() => selectMode ? onToggleSelect?.(key, card._folder_qty || card.qty || 1) : onSelect?.(card)}
-                onEnterSelectMode={onEnterSelectMode}
-                onToggleSelect={onToggleSelect}
-              />
-            )
-          })}
-        </tbody>
-      </table>
-    </div>
+    <>
+      <div className={styles.tableColPicker}>
+        <ResponsiveMenu
+          title="Visible Columns"
+          align="left"
+          wrapClassName={styles.columnMenuWrap}
+          trigger={({ toggle }) => (
+            <button className={styles.groupByBtn} onClick={toggle} title="Choose visible columns">Columns</button>
+          )}
+        >
+          {() => (
+            <div className={uiStyles.responsiveMenuList}>
+              {TABLE_OPTIONAL_COLS.map(([col, label]) => (
+                <label key={col} className={`${styles.columnMenuItem} ${visibleCols[col] ? styles.columnMenuItemActive : ''}`}>
+                  <input type="checkbox" className={styles.columnMenuCheckbox} checked={!!visibleCols[col]} onChange={() => toggleCol(col)} />
+                  <span className={styles.columnMenuLabel}>{label}</span>
+                  <span className={styles.columnMenuCheck} aria-hidden="true">{visibleCols[col] ? '✓' : ''}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </ResponsiveMenu>
+      </div>
+      <div className={styles.tableWrap}>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              {selectMode && <th className={styles.th} style={{ width: 32 }} />}
+              {[['qty', 'Qty'], ['name', 'Name'], ...TABLE_OPTIONAL_COLS.filter(([col]) => visibleCols[col])].map(([col, label]) => (
+                <th
+                  key={col}
+                  className={`${styles.th} ${getTableColClass(col)}`.trim()}
+                  onClick={!isGrouped ? () => {
+                    if (sortCol === col) setSortDir(dir => -dir)
+                    else { setSortCol(col); setSortDir(1) }
+                  } : undefined}
+                  style={isGrouped ? { cursor: 'default' } : {}}
+                >
+                  {label}{arrow(col) ? <span className={styles.thArrow}>{arrow(col)}</span> : null}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {isGrouped
+              ? groupOrder.filter(g => groups[g]?.length).map(group => {
+                  const groupCards = groups[group]
+                  const total = groupCards.reduce((s, c) => s + (c._folder_qty ?? c.qty ?? 1), 0)
+                  const isCollapsed = collapsed.has(group)
+                  return (
+                    <Fragment key={group}>
+                      <tr className={styles.tableGroupRow} onClick={() => toggleCollapse(group)}>
+                        <td className={styles.tableGroupCell} colSpan={colCount}>
+                          <span className={styles.tableGroupToggle}>{isCollapsed ? '▸' : '▾'}</span>
+                          <span className={styles.tableGroupName} style={{ color: CAT_COLORS[group] || 'var(--gold-dim)' }}>{group}</span>
+                          <span className={styles.tableGroupCount}>{total}</span>
+                        </td>
+                      </tr>
+                      {!isCollapsed && renderRows(groupCards)}
+                    </Fragment>
+                  )
+                })
+              : renderRows(sorted)
+            }
+          </tbody>
+        </table>
+      </div>
+    </>
   )
 }
 
-function StackCard({ card, sf, idx, priceSource, selectMode, isSelected, onSelect, onToggleSelect, onAdjustQty, splitState, onHover, onHoverEnd, onEnterSelectMode }) {
+function StackCard({ card, sf, idx, priceSource, selectMode, isSelected, onSelect, onToggleSelect, onAdjustQty, splitState, onHoverPreview, onHoverPreviewEnd, onEnterSelectMode }) {
   const img = sf?.image_uris?.normal || sf?.card_faces?.[0]?.image_uris?.normal
   const totalQty = card._folder_qty ?? card.qty ?? 1
   const scryfallPrice = getPrice(sf, card.foil, { price_source: priceSource })
@@ -386,15 +592,58 @@ function StackCard({ card, sf, idx, priceSource, selectMode, isSelected, onSelec
   const isBuyFallback = scryfallPrice == null && unitPrice != null
   const key = getDisplayKey(card)
   const selQty = splitState?.get(key) ?? 1
+  const cardRef = useRef(null)
+  const hoverTimerRef = useRef(null)
   const longPress = useLongPress(() => {
     if (selectMode) return
     onEnterSelectMode?.()
     onToggleSelect?.(key, totalQty)
   }, { delay: 500 })
   const { onMouseLeave: lpLeave, fired: lpFired, ...lpRest } = longPress
+  const handleMouseEnter = CAN_HOVER && !selectMode && img
+    ? () => {
+        const rect = cardRef.current?.getBoundingClientRect()
+        if (rect) {
+          const pad = 12
+          const previewWidth = rect.width * 1.55
+          const previewHeight = previewWidth * (88 / 63)
+          const roomRight = window.innerWidth - rect.right
+          const roomLeft = rect.left
+          const nextSide = roomRight >= previewWidth + pad
+            ? 'right'
+            : roomLeft >= previewWidth + pad
+              ? 'left'
+              : roomRight >= roomLeft ? 'right' : 'left'
+          if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
+          const top = Math.max(12, Math.min(rect.top, window.innerHeight - previewHeight - 12))
+          const left = nextSide === 'right'
+            ? rect.right + pad
+            : rect.left - previewWidth - pad
+          hoverTimerRef.current = setTimeout(() => onHoverPreview?.({
+            img,
+            top,
+            left: Math.max(12, Math.min(left, window.innerWidth - previewWidth - 12)),
+            width: previewWidth,
+          }), 110)
+        }
+      }
+    : undefined
+  const handleMouseLeave = e => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current)
+      hoverTimerRef.current = null
+    }
+    onHoverPreviewEnd?.()
+    lpLeave?.(e)
+  }
+
+  useEffect(() => () => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
+  }, [])
 
   return (
     <div
+      ref={cardRef}
       className={`${styles.stackCard} ${isSelected ? styles.stackCardSelected : ''}`}
       style={{ zIndex: idx }}
       onClick={() => {
@@ -405,8 +654,8 @@ function StackCard({ card, sf, idx, priceSource, selectMode, isSelected, onSelec
         if (!selectMode) return onSelect?.(card)
         onToggleSelect?.(key, totalQty)
       }}
-      onMouseEnter={() => !selectMode && img && onHover?.(img)}
-      onMouseLeave={e => { if (!selectMode) onHoverEnd?.(); lpLeave?.(e) }}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
       title={card.name}
       {...lpRest}
     >
@@ -445,29 +694,85 @@ function StackCard({ card, sf, idx, priceSource, selectMode, isSelected, onSelec
   )
 }
 
-function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, onHover, onHoverEnd, selectMode, selectedCards, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, hideHeaders }) {
+function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, selectMode, selectedCards, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, hideHeaders }) {
+  const wrapRef = useRef(null)
+  const [wrapWidth, setWrapWidth] = useState(0)
+  const [activePreview, setActivePreview] = useState(null)
+
+  useEffect(() => {
+    if (!wrapRef.current || typeof ResizeObserver === 'undefined') return
+    const node = wrapRef.current
+    const observer = new ResizeObserver(entries => {
+      const nextWidth = entries[0]?.contentRect?.width ?? node.clientWidth ?? 0
+      setWrapWidth(nextWidth)
+    })
+    observer.observe(node)
+    setWrapWidth(node.clientWidth || 0)
+    return () => observer.disconnect()
+  }, [])
+
+  const stackGroups = useMemo(() => (
+    groupOrder
+      .filter(group => groups[group]?.length)
+      .map(group => ({
+        group,
+        cards: groups[group],
+        total: groups[group].reduce((sum, card) => sum + (card._folder_qty || card.qty || 1), 0),
+      }))
+  ), [groupOrder, groups])
+
+  const columnCount = useMemo(() => {
+    if (wrapWidth <= 0) return 1
+    const maxColumns = Math.max(stackGroups.length, 1)
+    if (wrapWidth <= 480) return 1
+    if (wrapWidth <= 760) return 2
+    return Math.min(maxColumns, 6)
+  }, [stackGroups.length, wrapWidth])
+
+  const columnWidth = useMemo(() => {
+    if (wrapWidth <= 0) return STACK_MIN_COLUMN_WIDTH
+    const baselineColumns = wrapWidth <= 480 ? 1 : wrapWidth <= 760 ? 2 : 6
+    const available = wrapWidth - Math.max(baselineColumns - 1, 0) * STACK_GAP_PX
+    return Math.min(220, Math.max(88, Math.floor(available / baselineColumns)))
+  }, [wrapWidth])
+
+  const columns = useMemo(() => {
+    const next = Array.from({ length: columnCount }, () => ({ weight: 0, groups: [] }))
+    for (const item of stackGroups) {
+      const target = next.reduce((best, column, index, arr) => (
+        column.weight < arr[best].weight ? index : best
+      ), 0)
+      next[target].groups.push(item)
+      next[target].weight += estimateStackGroupWeight(item.cards.length, hideHeaders)
+    }
+    return next.map(column => column.groups).filter(column => column.length)
+  }, [columnCount, hideHeaders, stackGroups])
+
   return (
-    <div className={styles.stacksWrap}>
-      {groupOrder.filter(group => groups[group]?.length).map(group => {
-        const cards = groups[group]
-        const total = cards.reduce((sum, card) => sum + (card._folder_qty || card.qty || 1), 0)
-        return (
-          <div key={group} className={styles.stackGroup}>
-            {!hideHeaders && (
-              <div className={styles.stackGroupHeader}>
-                <span style={{ color: CAT_COLORS[group] || 'var(--gold-dim)' }}>{group}</span>
-                <span className={styles.stackGroupCount}>{total}</span>
-              </div>
-            )}
-            <div className={styles.stackCards}>
-              {cards.map((card, idx) => {
-                const key = getDisplayKey(card)
-                return (
-                  <StackCard
-                    key={key}
-                    card={card}
-                    sf={sfMap[getScryfallKey(card)]}
-                    idx={idx}
+    <div
+      ref={wrapRef}
+      className={styles.stacksWrap}
+      style={{ '--stack-gap': `${STACK_GAP_PX}px`, '--stack-col-w': `${columnWidth}px` }}
+    >
+      {columns.map((column, columnIdx) => (
+        <div key={`stack-col-${columnIdx}`} className={styles.stackColumn}>
+          {column.map(({ group, cards, total }) => (
+            <div key={group} className={styles.stackGroup}>
+              {!hideHeaders && (
+                <div className={styles.stackGroupHeader}>
+                  <span style={{ color: CAT_COLORS[group] || 'var(--gold-dim)' }}>{group}</span>
+                  <span className={styles.stackGroupCount}>{total}</span>
+                </div>
+              )}
+              <div className={styles.stackCards}>
+                {cards.map((card, idx) => {
+                  const key = getDisplayKey(card)
+                  return (
+                    <StackCard
+                      key={key}
+                      card={card}
+                      sf={sfMap[getScryfallKey(card)]}
+                      idx={idx + 1}
                     priceSource={priceSource}
                     selectMode={selectMode}
                     isSelected={selectedCards?.has(key)}
@@ -475,120 +780,20 @@ function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, onHover,
                     onToggleSelect={onToggleSelect}
                     onAdjustQty={onAdjustQty}
                     splitState={splitState}
-                    onHover={onHover}
-                    onHoverEnd={onHoverEnd}
+                    onHoverPreview={setActivePreview}
+                    onHoverPreviewEnd={() => setActivePreview(null)}
                     onEnterSelectMode={onEnterSelectMode}
                   />
                 )
               })}
             </div>
           </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function ListRow({ card, sfCard, priceSource, onSelect, onHover, onHoverEnd, selectMode, isSelected, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode }) {
-  const scryfallPrice = getPrice(sfCard, card.foil, { price_source: priceSource })
-  const totalQty = card._folder_qty ?? card.qty ?? 1
-  const unitPrice = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
-  const price = unitPrice != null ? unitPrice * totalQty : null
-  const isBuyFallback = scryfallPrice == null && unitPrice != null
-  const typeLine = sfCard?.type_line || sfCard?.card_faces?.[0]?.type_line || ''
-  const mc = sfCard?.mana_cost || sfCard?.card_faces?.[0]?.mana_cost || ''
-  const img = sfCard?.image_uris?.normal || sfCard?.card_faces?.[0]?.image_uris?.normal || null
-  const key = getDisplayKey(card)
-  const selQty = splitState?.get(key) ?? 1
-  const longPress = useLongPress(() => {
-    if (selectMode) return
-    onEnterSelectMode?.()
-    onToggleSelect?.(key, totalQty)
-  }, { delay: 500 })
-  const { onMouseLeave: lpLeave, fired: lpFired, ...lpRest } = longPress
-
-  const handleClick = () => {
-    if (lpFired.current) {
-      lpFired.current = false
-      return
-    }
-    if (!selectMode) {
-      onSelect?.(card)
-      return
-    }
-    onToggleSelect?.(key, totalQty)
-  }
-
-  return (
-    <div
-      className={`${styles.deckRow} ${isSelected ? styles.deckRowSelected : ''} ${selectMode ? styles.deckRowSelectMode : ''}`}
-      onClick={handleClick}
-      onMouseEnter={() => !selectMode && img && onHover?.(img)}
-      onMouseLeave={e => { if (!selectMode) onHoverEnd?.(); lpLeave?.(e) }}
-      {...lpRest}
-    >
-      {selectMode && isSelected && totalQty > 1 ? (
-        <span className={styles.deckRowQtyAdj}>
-          <button className={styles.deckRowQtyBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(key, -1, totalQty) }}>−</button>
-          <span className={styles.deckRowQtyVal}>{selQty}/{totalQty}</span>
-          <button className={styles.deckRowQtyBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(key, +1, totalQty) }}>+</button>
-        </span>
-      ) : selectMode ? (
-        <span className={`${styles.rowCheckbox} ${isSelected ? styles.rowCheckboxChecked : ''}`}>{isSelected && '✓'}</span>
-      ) : (
-        <span className={styles.deckRowQty}>×{totalQty}</span>
-      )}
-      <span className={styles.deckRowName}>
-        <span>{card.name}</span>
-        {card._folderName ? <span style={{ display: 'block', fontSize: '0.66rem', color: 'var(--gold-dim)', marginTop: 2 }}>{card._folderName}</span> : null}
-      </span>
-      <span className={styles.deckRowMana}><InlineMana cost={mc} size={13} /></span>
-      <span className={styles.deckRowType}>{typeLine.split('—')[0].trim()}</span>
-      <span className={`${styles.deckRowPrice} ${card.foil ? styles.foilPrice : ''} ${isBuyFallback ? styles.priceFallback : ''}`}>
-        {price != null ? formatPrice(price, priceSource) : '—'}
-      </span>
-    </div>
-  )
-}
-
-function ListGroup({ groupName, cards, sfMap, priceSource, onSelect, color, onHover, onHoverEnd, selectMode, selectedCards, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, hideHeader }) {
-  const [collapsed, setCollapsed] = useState(false)
-  const total = cards.reduce((sum, card) => sum + (card._folder_qty ?? card.qty ?? 1), 0)
-
-  return (
-    <div className={styles.listGroup}>
-      {!hideHeader && (
-        <button className={styles.groupHeader} onClick={() => setCollapsed(v => !v)}>
-          <span className={styles.groupIcon} style={{ color: color || 'var(--gold-dim)' }}>
-            <TypeIcon type={groupName} size={13} style={{ verticalAlign: 'middle' }} />
-          </span>
-          <span className={styles.groupName}>{groupName}</span>
-          <span className={styles.groupCount}>{total}</span>
-          <span className={styles.groupToggle}>{collapsed ? '▸' : '▾'}</span>
-        </button>
-      )}
-      {(!collapsed || hideHeader) && (
-        <div className={styles.groupRows}>
-          {cards.map(card => {
-            const key = getDisplayKey(card)
-            return (
-              <ListRow
-                key={key}
-                card={card}
-                sfCard={sfMap[getScryfallKey(card)]}
-                priceSource={priceSource}
-                onSelect={onSelect}
-                onHover={onHover}
-                onHoverEnd={onHoverEnd}
-                selectMode={selectMode}
-                isSelected={selectedCards?.has(key)}
-                onToggleSelect={onToggleSelect}
-                onAdjustQty={onAdjustQty}
-                splitState={splitState}
-                onEnterSelectMode={onEnterSelectMode}
-              />
-            )
-          })}
+        ))}
+      </div>
+      ))}
+      {activePreview?.img && (
+        <div className={styles.stackHoverPreview} style={{ top: `${activePreview.top}px`, left: `${activePreview.left}px`, width: `${activePreview.width}px` }}>
+          <img src={activePreview.img} alt="" className={styles.stackHoverPreviewImg} loading="lazy" {...NON_DRAGGABLE_IMG_PROPS} />
         </div>
       )}
     </div>
@@ -624,8 +829,7 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onT
     <div
       className={`${styles.gridCard} ${isSelected ? styles.gridCardSelected : ''}`}
       onClick={handleClick}
-      onMouseEnter={() => !selectMode && img && onHover?.(img)}
-      onMouseLeave={e => { if (!selectMode) onHoverEnd?.(); lpLeave?.(e) }}
+      onMouseLeave={e => { lpLeave?.(e) }}
       {...lpRest}
     >
       {selectMode && (
@@ -669,8 +873,14 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onT
 }
 
 const DENSITY_MIN_WIDTH = { cozy: 210, comfortable: 160, compact: 128 }
+const STACK_MIN_COLUMN_WIDTH = 88
+const STACK_GAP_PX = 12
 
-function GridView({ cards, sfMap, priceSource, onSelect, onHover, onHoverEnd, selectMode, selectedCards, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, density }) {
+function estimateStackGroupWeight(cardCount, hideHeaders) {
+  return (hideHeaders ? 0 : 1.2) + Math.max(cardCount, 1) * 0.34
+}
+
+function GridView({ cards, sfMap, priceSource, onSelect, selectMode, selectedCards, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, density }) {
   const minW = DENSITY_MIN_WIDTH[density] || 160
   return (
     <div className={styles.cardGrid} style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${minW}px, 1fr))` }}>
@@ -688,8 +898,6 @@ function GridView({ cards, sfMap, priceSource, onSelect, onHover, onHoverEnd, se
             onToggleSelect={onToggleSelect}
             onAdjustQty={onAdjustQty}
             splitState={splitState}
-            onHover={onHover}
-            onHoverEnd={onHoverEnd}
             onEnterSelectMode={onEnterSelectMode}
           />
         )
@@ -715,7 +923,7 @@ export function CardBrowserViewControls({ viewMode, setViewMode, groupBy, setGro
             ))}
           </div>
           <div className={styles.viewToggle}>
-            {CARD_BROWSER_VIEW_MODES.map(mode => (
+            {getOrderedBrowserViewModes().map(mode => (
               <button
                 key={mode.id}
                 className={`${styles.viewBtn} ${viewMode === mode.id ? styles.viewActive : ''}`}
@@ -767,7 +975,7 @@ export function CardBrowserViewControls({ viewMode, setViewMode, groupBy, setGro
         >
           {({ close }) => (
             <div className={uiStyles.responsiveMenuList}>
-              {CARD_BROWSER_VIEW_MODES.map(mode => (
+              {getOrderedBrowserViewModes().map(mode => (
                 <button
                   key={mode.id}
                   className={`${uiStyles.responsiveMenuAction} ${viewMode === mode.id ? uiStyles.responsiveMenuActionActive : ''}`}
@@ -802,36 +1010,10 @@ export function CardBrowserContent({
   onHover,
   onHoverEnd,
 }) {
+  const effectiveViewMode = viewMode === 'list' ? 'table' : viewMode
   const { groups, groupOrder } = useMemo(() => buildGroups(cards, sfMap, groupBy), [cards, groupBy, sfMap])
 
-  if (viewMode === 'list') {
-    return (
-      <div className={styles.deckList}>
-        {groupOrder.filter(group => groups[group]?.length).map(group => (
-          <ListGroup
-            key={group}
-            groupName={group}
-            cards={groups[group]}
-            sfMap={sfMap}
-            priceSource={priceSource}
-            onSelect={onSelect}
-            color={groupBy === 'category' ? CAT_COLORS[group] : undefined}
-            onHover={onHover}
-            onHoverEnd={onHoverEnd}
-            selectMode={selectMode}
-            selectedCards={selectedCards}
-            onToggleSelect={onToggleSelect}
-            onAdjustQty={onAdjustQty}
-            splitState={splitState}
-            onEnterSelectMode={onEnterSelectMode}
-            hideHeader={groupBy === 'none'}
-          />
-        ))}
-      </div>
-    )
-  }
-
-  if (viewMode === 'stacks') {
+  if (effectiveViewMode === 'stacks') {
     return (
       <StacksView
         groups={groups}
@@ -839,8 +1021,6 @@ export function CardBrowserContent({
         sfMap={sfMap}
         priceSource={priceSource}
         onSelect={onSelect}
-        onHover={onHover}
-        onHoverEnd={onHoverEnd}
         selectMode={selectMode}
         selectedCards={selectedCards}
         onToggleSelect={onToggleSelect}
@@ -852,31 +1032,41 @@ export function CardBrowserContent({
     )
   }
 
-  if (viewMode === 'text') {
+  if (effectiveViewMode === 'text') {
     return (
       <TextView
         groups={groups}
         groupOrder={groupOrder}
+        sfMap={sfMap}
         selectMode={selectMode}
         selectedCards={selectedCards}
         onToggleSelect={onToggleSelect}
         onEnterSelectMode={onEnterSelectMode}
         hideHeaders={groupBy === 'none'}
+        onHover={onHover}
+        onHoverEnd={onHoverEnd}
       />
     )
   }
 
-  if (viewMode === 'table') {
+  if (effectiveViewMode === 'table') {
     return (
       <TableView
         cards={cards}
         sfMap={sfMap}
         priceSource={priceSource}
+        groups={groups}
+        groupOrder={groupOrder}
+        groupBy={groupBy}
         onSelect={onSelect}
         selectMode={selectMode}
         selectedCards={selectedCards}
         onToggleSelect={onToggleSelect}
         onEnterSelectMode={onEnterSelectMode}
+        onAdjustQty={onAdjustQty}
+        splitState={splitState}
+        onHover={onHover}
+        onHoverEnd={onHoverEnd}
       />
     )
   }

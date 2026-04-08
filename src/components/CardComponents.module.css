@@ -949,6 +949,25 @@
   display: flex;
   flex-direction: column;
   gap: 18px;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.detailArtBleed {
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  right: -8px;
+  height: 300px;
+  background-size: cover;
+  background-position: center top;
+  filter: blur(52px) saturate(1.25);
+  opacity: 0.11;
+  mask-image: linear-gradient(to bottom, black 10%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, black 10%, transparent 100%);
+  pointer-events: none;
+  z-index: -1;
 }
 
 .detailHero {
@@ -975,7 +994,7 @@
   position: relative;
   border-radius: 10px;
   overflow: hidden;
-  box-shadow: 0 8px 28px rgba(0,0,0,0.6), 0 0 0 1px rgba(180,140,60,0.08);
+  box-shadow: 0 12px 36px rgba(0,0,0,0.65), 0 0 0 1px rgba(180,140,60,0.18);
   background: var(--s2);
   aspect-ratio: 63 / 88;
 }
@@ -1121,34 +1140,33 @@
 
 .detailTabs {
   display: flex;
-  gap: 2px;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-  margin-bottom: 2px;
+  gap: 3px;
+  background: var(--s1);
+  border: 1px solid var(--s-border);
+  border-radius: 8px;
+  padding: 4px;
   flex-wrap: wrap;
 }
 
 .detailTab {
   background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
   color: var(--text-faint);
   font-family: var(--font-display);
   font-size: 0.72rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  padding: 7px 14px;
+  padding: 5px 14px;
   cursor: pointer;
   transition: all 0.15s;
-  position: relative;
-  bottom: -1px;
-  margin-bottom: 0;
 }
 
-.detailTab:hover { color: var(--gold-dim); }
-.detailTabActive { color: var(--gold) !important; border-bottom-color: var(--gold) !important; }
+.detailTab:hover { background: var(--s3); color: var(--text); border-color: var(--s-border2); }
+.detailTabActive { color: var(--gold) !important; background: rgba(201,168,76,0.12) !important; border-color: rgba(201,168,76,0.25) !important; }
 
 .detailSection {
-  padding-top: 14px;
+  padding-top: 8px;
   overflow: visible;
   max-height: none;
 }
@@ -1250,6 +1268,15 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s, background 0.15s;
+}
+a.priceDetailBlock:hover,
+a.priceDetailBlock:focus {
+  border-color: rgba(201,168,76,0.4);
+  background: var(--s3);
+  text-decoration: none;
 }
 
 .priceDetailLabel {
@@ -1633,24 +1660,41 @@
   color: var(--text-faint);
 }
 
-@media (max-width: 720px) {
+/* Tablet: narrow 2-column (180px art) */
+@media (max-width: 720px) and (min-width: 541px) {
+  .detailHero {
+    grid-template-columns: 180px minmax(0, 1fr);
+    gap: 18px;
+  }
+
+  .detailArtWrap {
+    aspect-ratio: 63 / 88;
+  }
+
+  .ruling {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}
+
+/* Phone: single column, art centered */
+@media (max-width: 540px) {
   .detailHero {
     grid-template-columns: 1fr;
-    gap: 16px;
+    gap: 14px;
   }
 
   .detailArtCol {
     flex-direction: column;
-    align-items: stretch;
+    align-items: center;
     gap: 10px;
     min-width: 0;
   }
 
   .detailArtWrap {
     width: 100%;
-    max-width: 220px;
-    margin: 0 auto;
-    aspect-ratio: 5 / 7;
+    max-width: 200px;
+    aspect-ratio: 63 / 88;
   }
 
   .detailSummary {
@@ -1669,15 +1713,9 @@
   .editRow { flex-direction: column; }
   .editActionRow { align-items: stretch; }
   .editActionRow > * { width: 100%; }
-  .detailArtCol {
-    flex-direction: column;
-    min-width: 0;
-  }
 
   .detailArtWrap {
-    width: 100%;
-    max-width: 220px;
-    margin: 0 auto;
+    max-width: 170px;
   }
 
   .detailSummary {

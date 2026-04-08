@@ -227,6 +227,8 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
   const [viewMode, setViewMode]           = useState('grid')
   const [groupBy, setGroupBy]             = useState(default_grouping || 'type')
   const [selectedItemId, setSelectedItemId] = useState(null)
+  const [hoverImg, setHoverImg]           = useState(null)
+  const [hoverPos, setHoverPos]           = useState({ x: 0, y: 0 })
   const isAllView = !folder
   const browserTitle = title || folder?.name || 'All Wishlist Cards'
   const folderIds = useMemo(() => folders.map(f => f.id), [folders])
@@ -234,6 +236,9 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
     () => Object.fromEntries((folders || []).map(f => [f.id, f.name])),
     [folders]
   )
+  const handleHover = useCallback((img) => setHoverImg(img), [])
+  const handleHoverEnd = useCallback(() => setHoverImg(null), [])
+  const handleMouseMove = useCallback((e) => setHoverPos({ x: e.clientX, y: e.clientY }), [])
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -416,7 +421,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
   if (loading) return <EmptyState>Loading…</EmptyState>
 
   return (
-    <div>
+    <div onMouseMove={handleMouseMove} onMouseLeave={handleHoverEnd}>
       {/* ── Wishlist header ── */}
       <div className={styles.binderHeader}>
         <Button variant="ghost" size="sm" className={styles.backBtn} onClick={onBack}>← Back to Wishlists</Button>
@@ -572,6 +577,8 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
           onAdjustQty={onAdjustQty}
           splitState={splitState}
           onEnterSelectMode={enterSelectMode}
+          onHover={handleHover}
+          onHoverEnd={handleHoverEnd}
         />
       )}
       {false && view === 'list' && filtered.length > 0 && (
@@ -615,6 +622,12 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
           readOnly
           onClose={() => setSelectedItemId(null)}
         />
+      )}
+      {hoverImg && (
+        <div className={styles.floatingPreview}
+          style={{ left: hoverPos.x + 18, top: Math.max(8, hoverPos.y - 160), pointerEvents: 'none' }}>
+          <img className={styles.floatingImg} src={hoverImg} alt="" />
+        </div>
       )}
 
       {showImport && user && !isAllView && (

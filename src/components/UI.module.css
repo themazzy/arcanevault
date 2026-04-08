@@ -343,20 +343,21 @@
 }
 
 .modal {
-  background: var(--bg3);
-  border: 1px solid rgba(180,140,60,0.3);
-  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg3) 94%, transparent);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border: 1px solid rgba(180,140,60,0.32);
+  border-radius: 12px;
   max-width: 860px; width: 100%;
   max-height: none;
   padding: 22px;
   position: relative;
   margin: auto;
-  box-shadow: 0 24px 64px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.03) inset;
-  /* Subtle gold top-accent */
-  background-image: linear-gradient(to bottom, rgba(201,168,76,0.04) 0px, transparent 60px);
+  box-shadow: 0 32px 80px rgba(0,0,0,0.75), 0 0 0 1px rgba(255,255,255,0.04) inset;
+  background-image: linear-gradient(to bottom, rgba(201,168,76,0.05) 0px, transparent 80px);
   transition: height 0.22s ease-in-out;
   overflow: hidden;
-  animation: modalSlideIn 0.22s cubic-bezier(0.2, 0, 0, 1);
+  animation: modalSlideIn 0.25s cubic-bezier(0.2, 0, 0, 1);
 }
 
 @keyframes modalSlideIn {

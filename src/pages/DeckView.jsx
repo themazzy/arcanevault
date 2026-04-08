@@ -262,6 +262,7 @@ export default function DeckViewPage() {
 
   const groupedCards  = groupDeckCards(cards) // Map<group, cards[]>
   const sortedFlat    = sortCards(cards)
+  const effectiveViewMode = viewMode === 'list' ? 'table' : viewMode
 
   // Total deck value
   const totalValue = cards.reduce((sum, c) => {
@@ -461,10 +462,10 @@ export default function DeckViewPage() {
                   { id: 'text',   icon: '¶',  label: 'Text' },
                   { id: 'grid',   icon: '⊞',  label: 'Grid' },
                   { id: 'table',  icon: '⊞',  label: 'Table' },
-                ].map(m => (
+                ].filter(m => m.id !== 'list').map(m => (
                   <button
                     key={m.id}
-                    className={`${styles.vBtn}${viewMode === m.id ? ' ' + styles.vBtnActive : ''}`}
+                    className={`${styles.vBtn}${effectiveViewMode === m.id ? ' ' + styles.vBtnActive : ''}`}
                     title={m.label}
                     onClick={() => setViewMode(m.id)}
                   >{m.icon}</button>
@@ -478,11 +479,11 @@ export default function DeckViewPage() {
             cards={sortedFlat}
             sfMap={sfMap}
             priceSource="cardmarket_trend"
-            viewMode={viewMode}
+            viewMode={effectiveViewMode}
             groupBy={groupBy}
             onSelect={card => setDetailCard(card.name)}
-            onHover={viewMode !== 'grid' ? img => setHoverImg(img) : undefined}
-            onHoverEnd={viewMode !== 'grid' ? () => setHoverImg(null) : undefined}
+            onHover={effectiveViewMode !== 'grid' ? img => setHoverImg(img) : undefined}
+            onHoverEnd={effectiveViewMode !== 'grid' ? () => setHoverImg(null) : undefined}
           />
 
           {cards.length === 0 && (
