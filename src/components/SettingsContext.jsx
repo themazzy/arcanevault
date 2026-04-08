@@ -301,6 +301,23 @@ export const THEMES = {
     glow: '0 0 18px rgba(68,184,176,0.18)',
     focus: '0 0 0 3px rgba(68,184,176,0.12)',
   }),
+  nightshade: createDarkTheme({
+    name: 'Nightshade',
+    lore: 'Midnight roses, velvet shadows, and pale moonlight',
+    bg: '#08050c',
+    bg2: '#0d0812',
+    bg3: '#130c18',
+    accent: '#b87abf',
+    accentDim: '#8a5a90',
+    hi: '#c05878',
+    text: '#e2d4e8',
+    textDim: '#9b88aa',
+    textFaint: '#6e5c7a',
+    border: 'rgba(160,100,180,0.18)',
+    borderHi: 'rgba(184,122,191,0.48)',
+    glow: '0 0 18px rgba(184,122,191,0.20)',
+    focus: '0 0 0 3px rgba(184,122,191,0.14)',
+  }),
 }
 
 const DEFAULTS = {
