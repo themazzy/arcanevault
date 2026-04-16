@@ -209,7 +209,12 @@ export default function CollectionPage() {
     const PAGE = 1000
     while (true) {
       const { data, error: err } = await sb.from('cards')
-        .select('*').eq('user_id', user.id).order('name')
+        .select('*')
+        .eq('user_id', user.id)
+        // Stable pagination: name is not unique, so page boundaries can duplicate
+        // rows unless we add a unique tie-breaker.
+        .order('name')
+        .order('id')
         .range(from, from + PAGE - 1)
       if (err) { setError(err.message); break }
       if (data?.length) allCards = [...allCards, ...data]
@@ -319,7 +324,9 @@ export default function CollectionPage() {
         while (true) {
           const { data: page } = await sb.from('folder_cards')
             .select('id,card_id,folder_id,qty,updated_at')
-            .in('folder_id', placementFolderIds).range(fcFrom, fcFrom + 999)
+            .in('folder_id', placementFolderIds)
+            .order('id')
+            .range(fcFrom, fcFrom + 999)
           if (page?.length) allFc = [...allFc, ...page]
           if (!page || page.length < 1000) break
           fcFrom += 1000
@@ -332,6 +339,7 @@ export default function CollectionPage() {
             .select('id,card_id,deck_id,qty,user_id,updated_at')
             .eq('user_id', user.id)
             .in('deck_id', deckIds)
+            .order('id')
             .range(daFrom, daFrom + 999)
           if (page?.length) allDa = [...allDa, ...page]
           if (!page || page.length < 1000) break
@@ -449,7 +457,9 @@ export default function CollectionPage() {
     while (true) {
       const { data: page } = await sb.from('cards')
         .select('id,set_code,collector_number,foil,language,condition')
-        .eq('user_id', user.id).range(dbFrom, dbFrom + 999)
+        .eq('user_id', user.id)
+        .order('id')
+        .range(dbFrom, dbFrom + 999)
       if (page?.length) allDbCards = [...allDbCards, ...page]
       if (!page || page.length < 1000) break
       dbFrom += 1000
@@ -884,15 +894,29 @@ export default function CollectionPage() {
       return true
     }
     const result = []
+    const seenCardIds = new Set()
     for (const card of filtered) {
-      const allFolders = cardFolderMap[card.id] || []
+      // Collection cards should be unique by cards.id. If stale local state or sync
+      // briefly duplicates a row, drop later duplicates so React keys stay stable.
+      if (seenCardIds.has(card.id)) continue
+      seenCardIds.add(card.id)
+
+      const allFolders = (cardFolderMap[card.id] || []).filter((folder, index, arr) =>
+        arr.findIndex(candidate => candidate.id === folder.id) === index
+      )
       const folders = usingPlacementView
         ? allFolders.filter(matchesLocationFilter)
         : allFolders
       if (folders && folders.length > 1) {
         // One tile per folder membership — badge hidden, each tile is independently selectable
-        folders.forEach((f, i) => {
-          result.push({ ...card, _displayKey: `${card.id}_${i}`, _displayFolder: f, _folder_qty: f.qty || 1, _multiFolder: true })
+        folders.forEach((f) => {
+          result.push({
+            ...card,
+            _displayKey: `${card.id}:${f.type}:${f.id}`,
+            _displayFolder: f,
+            _folder_qty: f.qty || 1,
+            _multiFolder: true,
+          })
         })
       } else {
         result.push({

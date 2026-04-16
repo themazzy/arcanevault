@@ -68,13 +68,14 @@ export function getFxRates() {
  * @returns {number}
  */
 export function convertCurrency(value, fromCurrency, toCurrency) {
-  if (!value) return null
-  if (fromCurrency === toCurrency) return value
+  const numericValue = typeof value === 'number' ? value : Number(String(value ?? '').replace(/,/g, '').trim())
+  if (!Number.isFinite(numericValue)) return null
+  if (fromCurrency === toCurrency) return numericValue
   if (fromCurrency === 'TIX') return null  // MTGO tix don't convert to real money
 
   const rates = getFxRates()
   // All rates are relative to EUR
-  const inEur  = fromCurrency === 'EUR' ? value : value / (rates[fromCurrency] || 1)
+  const inEur  = fromCurrency === 'EUR' ? numericValue : numericValue / (rates[fromCurrency] || 1)
   const result = toCurrency   === 'EUR' ? inEur  : inEur * (rates[toCurrency]  || 1)
   return result
 }

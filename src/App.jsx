@@ -18,6 +18,7 @@ import DeckViewPage from './pages/DeckView'
 import TradingPage from './pages/Trading'
 import TournamentsPage from './pages/Tournaments'
 import ScannerPage from './pages/Scanner'
+import PokemonCollectionPage from './pages/PokemonCollection'
 
 function PrivateApp() {
   const { user, authEvent } = useAuth()
@@ -36,6 +37,7 @@ function PrivateApp() {
           <Route path="/stats"       element={<StatsPage />} />
           <Route path="/life"        element={<LifeTrackerPage />} />
           <Route path="/tournaments" element={<TournamentsPage />} />
+          <Route path="/pokemon"     element={<PokemonCollectionPage />} />
           <Route path="/settings"    element={<SettingsPage />} />
           <Route path="/builder"     element={<BuilderPage />} />
           <Route path="/builder/:id" element={<DeckBuilderPage />} />

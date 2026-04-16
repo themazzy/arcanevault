@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { getInstantCache, getPrice, formatPrice, getImageUri, sfGet } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
-import { getLocalCards, getLocalFolders, getAllLocalFolderCards } from '../lib/db'
+import { getLocalCards, getLocalFolders, getAllLocalFolderCards, putCards } from '../lib/db'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { Select } from '../components/UI'
@@ -93,6 +93,33 @@ async function loadCollectionData(userId) {
   }
 
   return { folders: allFolders, cards: allCards, cardRows, sfMap: safeSfMap, recentCards }
+}
+
+// Syncs cards from Supabase into IDB and returns updated cards array if anything changed.
+// Returns null when offline or when the data matches what we already have.
+async function syncCardsFromSupabase(userId, currentCards) {
+  if (!navigator.onLine) return null
+  try {
+    let fresh = [], from = 0
+    while (true) {
+      const { data, error } = await sb.from('cards')
+        .select('*').eq('user_id', userId).order('name')
+        .range(from, from + 999)
+      if (error) { console.warn('[Home] sync error:', error.message); return null }
+      if (data?.length) fresh = [...fresh, ...data]
+      if (!data || data.length < 1000) break
+      from += 1000
+    }
+    // Compare total qty to decide if a re-render is needed
+    const currentQty = currentCards.reduce((s, c) => s + (c.qty || 1), 0)
+    const freshQty   = fresh.reduce((s, c) => s + (c.qty || 1), 0)
+    if (fresh.length === currentCards.length && freshQty === currentQty) return null
+    await putCards(fresh)
+    return fresh
+  } catch (e) {
+    console.warn('[Home] sync exception:', e)
+    return null
+  }
 }
 
 // ── Scryfall sets cache (used by SetCompletionSection) ────────────────────────
@@ -1416,9 +1443,20 @@ export default function HomePage() {
   useEffect(() => {
     if (!user) return
     setCollLoading(true)
-    loadCollectionData(user.id).then(data => {
+    loadCollectionData(user.id).then(async data => {
       setCollData(data)
       setCollLoading(false)
+      // Background sync: if Supabase has fresher card data than IDB, update the snapshot
+      const freshCards = await syncCardsFromSupabase(user.id, data.cards)
+      if (freshCards) {
+        const sfMap = await loadCardMapWithSharedPrices(freshCards)
+        const seen = new Set()
+        const recentCards = [...freshCards]
+          .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
+          .filter(c => seen.has(c.id) ? false : (seen.add(c.id), true))
+          .slice(0, 14)
+        setCollData(prev => ({ ...prev, cards: freshCards, sfMap, recentCards }))
+      }
     })
   }, [user?.id])
 
