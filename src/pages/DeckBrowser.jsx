@@ -13,6 +13,7 @@ import ImportModal from '../components/ImportModal'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import styles from './DeckBrowser.module.css'
 import uiStyles from '../components/UI.module.css'
+import { GridViewIcon, StacksViewIcon, TextViewIcon, TableViewIcon, ListViewIcon } from '../icons'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
 import { useLongPress } from '../hooks/useLongPress'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
@@ -829,11 +830,11 @@ export default function DeckBrowser({ folder, onBack }) {
   if (loading) return <EmptyState>Loading deck…</EmptyState>
 
   const VIEW_MODES = [
-    { id:'list',   label:'≡ List' },
-    { id:'stacks', label:'⊟ Stacks' },
-    { id:'text',   label:'¶ Text' },
-    { id:'grid',   label:'⊞ Grid' },
-    { id:'table',  label:'⊞ Table' },
+    { id:'list',   label:'List',   Icon: ListViewIcon },
+    { id:'stacks', label:'Stacks', Icon: StacksViewIcon },
+    { id:'text',   label:'Text',   Icon: TextViewIcon },
+    { id:'grid',   label:'Grid',   Icon: GridViewIcon },
+    { id:'table',  label:'Table',  Icon: TableViewIcon },
   ]
 
   const ORDERED_VIEW_MODES = ['grid', 'stacks', 'table', 'text']
@@ -946,8 +947,10 @@ export default function DeckBrowser({ folder, onBack }) {
             {ORDERED_VIEW_MODES.map(v => (
               <button key={v.id}
                 className={`${styles.viewBtn} ${viewMode===v.id ? styles.viewActive : ''}`}
-                onClick={() => setViewMode(v.id)}>
-                {v.label}
+                onClick={() => setViewMode(v.id)}
+                title={v.label}>
+                <v.Icon size={13} />
+                <span>{v.label}</span>
               </button>
             ))}
           </div>

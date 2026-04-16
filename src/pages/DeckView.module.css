@@ -302,6 +302,8 @@
 }
 
 .vBtn {
+  display: inline-flex;
+  align-items: center;
   background: none;
   border: none;
   border-radius: 3px;

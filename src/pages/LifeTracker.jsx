@@ -7,6 +7,7 @@ import { useSettings } from '../components/SettingsContext'
 import { sb } from '../lib/supabase'
 import { getPublicAppUrl } from '../lib/publicUrl'
 import styles from './LifeTracker.module.css'
+import { SettingsIcon } from '../icons'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const SESSION_KEY = 'av_life_tracker'
@@ -1691,7 +1692,7 @@ function PlayerPanel({
           <button
             className={styles.playerSettingsBtn}
             onClick={() => onRequestPlayerSettings?.(player.id)}
-            title="Player settings">⚙</button>
+            title="Player settings"><SettingsIcon size={15} /></button>
         </div>
 
         <div className={styles.lifeArea}>
@@ -2230,7 +2231,7 @@ export default function LifeTrackerPage() {
               className={`${styles.gearBtn} ${showGameMenu ? styles.gearBtnActive : ''}`}
               onClick={() => setShowGameMenu(v => !v)}
               title="Game options">
-              ⚙
+              <SettingsIcon size={18} />
             </button>
             {showGameMenu && (
               <div className={styles.gearMenu}>
@@ -2269,7 +2270,7 @@ export default function LifeTrackerPage() {
               className={`${styles.fsMenuBtn} ${showGameMenu ? styles.gearBtnActive : ''}`}
               onClick={() => setShowGameMenu(v => !v)}
               title="Game options">
-              ⚙
+              <SettingsIcon size={18} />
             </button>
           </div>
         )}

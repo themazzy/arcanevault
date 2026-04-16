@@ -7,18 +7,23 @@ import { useAuth } from './Auth'
 import { maskEmailAddress, useSettings } from './SettingsContext'
 import FeedbackModal from './FeedbackModal'
 import styles from './Layout.module.css'
+import {
+  HomeIcon, CollectionIcon, DecksIcon, BuilderIcon, BindersIcon,
+  WishlistsIcon, TradingIcon, StatsIcon, LifeIcon, ScannerIcon,
+  SettingsIcon, MenuIcon, CloseIcon, BugIcon,
+} from '../icons'
 
 const TABS = [
-  { to: '/', label: 'Home' },
-  { to: '/collection', label: 'Collection' },
-  { to: '/decks', label: 'Decks' },
-  { to: '/builder', label: 'Deckbuilder' },
-  { to: '/binders', label: 'Binders' },
-  { to: '/lists', label: 'Wishlists' },
-  { to: '/trading', label: 'Trading' },
-  { to: '/stats', label: 'Stats' },
-  { to: '/life', label: 'Life' },
-  { to: '/scanner', label: 'Scanner' },
+  { to: '/', label: 'Home',       Icon: HomeIcon },
+  { to: '/collection', label: 'Collection', Icon: CollectionIcon },
+  { to: '/decks', label: 'Decks',       Icon: DecksIcon },
+  { to: '/builder', label: 'Deckbuilder', Icon: BuilderIcon },
+  { to: '/binders', label: 'Binders',    Icon: BindersIcon },
+  { to: '/lists', label: 'Wishlists',  Icon: WishlistsIcon },
+  { to: '/trading', label: 'Trading',    Icon: TradingIcon },
+  { to: '/stats', label: 'Stats',      Icon: StatsIcon },
+  { to: '/life', label: 'Life',       Icon: LifeIcon },
+  { to: '/scanner', label: 'Scanner',    Icon: ScannerIcon },
 ]
 
 export default function Layout({ children }) {
@@ -148,7 +153,7 @@ export default function Layout({ children }) {
                   onClick={() => setShowFeedback(true)}
                   title="Report a bug or request a feature"
                 >
-                  <span className={styles.feedbackIcon}>🐞</span>
+                  <span className={styles.feedbackIcon}><BugIcon size={13} /></span>
                   <span>Bug</span>
                 </button>
                 <NavLink
@@ -156,7 +161,7 @@ export default function Layout({ children }) {
                   className={({ isActive }) => `${styles.settingsLink}${isActive ? ' ' + styles.settingsActive : ''}`}
                   title="Settings"
                 >
-                  ⚙
+                  <SettingsIcon size={18} />
                 </NavLink>
                 <button className={styles.signOut} onClick={signOut}>Sign out</button>
               </div>
@@ -166,7 +171,7 @@ export default function Layout({ children }) {
                 onClick={() => setMenuOpen(v => !v)}
                 aria-label={menuOpen ? 'Close menu' : 'Open menu'}
               >
-                {menuOpen ? '✕' : '☰'}
+                {menuOpen ? <CloseIcon size={20} /> : <MenuIcon size={22} />}
               </button>
             </div>
 
@@ -178,6 +183,7 @@ export default function Layout({ children }) {
                   end={t.to === '/'}
                   className={({ isActive }) => `${styles.tab}${isActive ? ' ' + styles.active : ''}`}
                 >
+                  <t.Icon size={12} />
                   {t.label}
                 </NavLink>
               ))}
@@ -196,6 +202,7 @@ export default function Layout({ children }) {
                 className={({ isActive }) => `${styles.mobileNavLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}
                 onClick={() => setMenuOpen(false)}
               >
+                <t.Icon size={17} />
                 {t.label}
               </NavLink>
             ))}
@@ -205,6 +212,7 @@ export default function Layout({ children }) {
                 className={({ isActive }) => `${styles.mobileNavLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}
                 onClick={() => setMenuOpen(false)}
               >
+                <SettingsIcon size={17} />
                 Settings
               </NavLink>
               <button
@@ -212,7 +220,7 @@ export default function Layout({ children }) {
                 onClick={() => { setMenuOpen(false); setShowFeedback(true) }}
                 style={{ background: 'none', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer' }}
               >
-                <span className={styles.mobileNavIcon}>🐞</span>
+                <span className={styles.mobileNavIcon}><BugIcon size={17} /></span>
                 <span>Bug / Feature Request</span>
               </button>
               <button className={styles.mobileSignOut} onClick={signOut}>Sign out</button>

@@ -13,6 +13,7 @@ import ExportModal from '../components/ExportModal'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import styles from './Folders.module.css'
 import listStyles from './Lists.module.css'
+import { SettingsIcon } from '../icons'
 import uiStyles from '../components/UI.module.css'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -729,7 +730,7 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onRename,
           onOpenChange={setMenuOpen}
           trigger={({ toggle }) => (
             <button className={styles.cogBtn} onClick={e => { e.stopPropagation(); toggle() }} title="Options">
-              ⚙
+              <SettingsIcon size={14} />
             </button>
           )}
         >

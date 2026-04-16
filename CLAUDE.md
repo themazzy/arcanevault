@@ -113,6 +113,17 @@ User action
 - Manual overrides stored in `localStorage` as `arcanevault_manual_prices`
 - Price source from `useSettings().price_source` — always pass it down; never hardcode.
 
+### Icons
+
+All SVG icons live in **`src/icons/index.jsx`** — this is the single source of truth for iconography.
+
+- 56 icons, all `viewBox="0 0 16 16"` (except `SettingsIcon` which uses `0 0 24 24` to match its detailed gear path), `currentColor`, props: `size` (default 16), `color`, `className`.
+- **`SettingsIcon`** uses the same detailed Material-style gear as the CardScanner menu button. Do not replace it with a simpler cog.
+- `src/components/Icons.jsx` is a compatibility shim — it re-exports folder-type icons from `src/icons`. Import new icons directly from `../icons` (or `../../icons` from scanner/).
+- When adding new icons, add them to `src/icons/index.jsx` following the existing pattern. Never use `⚙`, `☰`, `✕`, `⊞`, `≡`, `⊟` Unicode characters as icon substitutes — use the SVG components instead.
+
+Categories: Navigation · Actions · Folder types · View modes · Status · Game · UI chrome.
+
 ### Settings
 
 `useSettings()` returns all user preferences plus `save(patch)`, `syncNow()`, sync status, and the last sync error. Settings write to `localStorage` immediately and debounce a Supabase upsert (800 ms).
@@ -195,6 +206,7 @@ These are only active during `npm run dev`. Production deploys on GitHub Pages c
 
 | File | Role |
 |---|---|
+| `src/icons/index.jsx` | **Unified icon system** — all 56 SVG icons; single source of truth for iconography |
 | `src/lib/db.js` | IDB layer — all local reads/writes |
 | `src/lib/scryfall.js` | Scryfall metadata/image cache + batch lookup helpers |
 | `src/lib/sharedCardPrices.js` | Overlays shared Supabase daily prices onto cached Scryfall card data |

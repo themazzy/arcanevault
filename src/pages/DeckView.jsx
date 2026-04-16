@@ -11,6 +11,7 @@ import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getPrice, formatPrice } from '../lib/scryfall'
 import { ResponsiveMenu } from '../components/UI'
 import { CardBrowserContent, CARD_BROWSER_VIEW_MODES } from '../components/CardBrowserViews'
+import { GridViewIcon, StacksViewIcon, TextViewIcon, TableViewIcon, CopyIcon, CheckIcon } from '../icons'
 
 // ── Mana / symbol renderer ────────────────────────────────────────────────────
 // Converts Scryfall notation like {W}, {T}, {2/U}, {X} → inline SVG images.
@@ -457,18 +458,17 @@ export default function DeckViewPage() {
               {/* View toggle — all 5 modes */}
               <div className={styles.viewToggles}>
                 {[
-                  { id: 'list',   icon: '≡',  label: 'List' },
-                  { id: 'stacks', icon: '⊟',  label: 'Stacks' },
-                  { id: 'text',   icon: '¶',  label: 'Text' },
-                  { id: 'grid',   icon: '⊞',  label: 'Grid' },
-                  { id: 'table',  icon: '⊞',  label: 'Table' },
-                ].filter(m => m.id !== 'list').map(m => (
+                  { id: 'stacks', Icon: StacksViewIcon, label: 'Stacks' },
+                  { id: 'text',   Icon: TextViewIcon,   label: 'Text' },
+                  { id: 'grid',   Icon: GridViewIcon,   label: 'Grid' },
+                  { id: 'table',  Icon: TableViewIcon,  label: 'Table' },
+                ].map(m => (
                   <button
                     key={m.id}
                     className={`${styles.vBtn}${effectiveViewMode === m.id ? ' ' + styles.vBtnActive : ''}`}
                     title={m.label}
                     onClick={() => setViewMode(m.id)}
-                  >{m.icon}</button>
+                  ><m.Icon size={13} /></button>
                 ))}
               </div>
             </div>

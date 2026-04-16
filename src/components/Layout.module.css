@@ -50,6 +50,7 @@
 
 .tabs { display: flex; border-top: 1px solid rgba(180,140,60,0.1); margin-top: 2px; }
 .tab {
+  display: inline-flex; align-items: center; gap: 5px;
   font-family: var(--font-display); font-size: 0.75rem;
   letter-spacing: 0.1em; text-transform: uppercase;
   padding: 11px 18px; text-decoration: none;
