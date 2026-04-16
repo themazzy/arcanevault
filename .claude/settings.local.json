@@ -45,7 +45,27 @@
       "WebFetch(domain:www.scanyourmtg.com)",
       "WebFetch(domain:www.reddit.com)",
       "WebFetch(domain:thoughtseize.io)",
-      "WebFetch(domain:cardslinger.shop)"
+      "WebFetch(domain:cardslinger.shop)",
+      "Bash(python -c \"import graphify\")",
+      "Bash(pip install *)",
+      "Bash(python *)",
+      "Bash(python -c ' *)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(gh api *)",
+      "Read(//c/Users/Jan/.claude/skills/**)",
+      "Skill(mempalace:init)",
+      "Skill(mempalace)",
+      "Bash(C:/Users/Jan/AppData/Local/Python/pythoncore-3.14-64/Scripts/mempalace.exe init *)",
+      "Bash(PYTHONIOENCODING=utf-8 PYTHONUTF8=1 C:/Users/Jan/AppData/Local/Python/pythoncore-3.14-64/Scripts/mempalace.exe init *)",
+      "Bash(claude mcp *)",
+      "Bash(PYTHONIOENCODING=utf-8 PYTHONUTF8=1 C:/Users/Jan/AppData/Local/Python/pythoncore-3.14-64/Scripts/mempalace.exe status *)",
+      "Bash(PYTHONIOENCODING=utf-8 PYTHONUTF8=1 C:/Users/Jan/AppData/Local/Python/pythoncore-3.14-64/Scripts/mempalace.exe *)",
+      "Skill(mempalace:mine)",
+      "mcp__mempalace__mempalace_diary_write",
+      "mcp__mempalace__mempalace_add_drawer",
+      "mcp__mempalace__mempalace_kg_add",
+      "mcp__mempalace__mempalace_search",
+      "mcp__mempalace__mempalace_status"
     ]
   }
 }
