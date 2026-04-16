@@ -13,7 +13,7 @@ import ImportModal from '../components/ImportModal'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import styles from './DeckBrowser.module.css'
 import uiStyles from '../components/UI.module.css'
-import { GridViewIcon, StacksViewIcon, TextViewIcon, TableViewIcon, ListViewIcon } from '../icons'
+import { ChevronDownIcon, ChevronUpIcon, GridViewIcon, ListViewIcon, StacksViewIcon, TableViewIcon, TextViewIcon } from '../icons'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
 import { useLongPress } from '../hooks/useLongPress'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
@@ -880,11 +880,9 @@ export default function DeckBrowser({ folder, onBack }) {
                 trigger={({ open, toggle }) => (
                   <button className={styles.mobileHeaderActionsBtn} onClick={toggle}>
                     <span>Actions</span>
-                    <svg className={`${styles.mobileControlsChevron} ${open ? styles.mobileControlsChevronOpen : ''}`}
-                      width="10" height="10" viewBox="0 0 10 10" fill="none"
-                      stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <polyline points="2,3 5,6.5 8,3" />
-                    </svg>
+                    <span className={`${styles.mobileControlsChevron} ${open ? styles.mobileControlsChevronOpen : ''}`} aria-hidden="true">
+                      {open ? <ChevronUpIcon size={10} /> : <ChevronDownIcon size={10} />}
+                    </span>
                   </button>
                 )}
               >

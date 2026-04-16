@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { sb } from '../lib/supabase'
 import { getPrice, formatPrice, getScryfallKey, getPriceSource } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
@@ -6,6 +6,7 @@ import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { CardDetail } from '../components/CardComponents'
 import { EmptyState, SectionHeader, ProgressBar } from '../components/UI'
+import { parseDeckMeta } from '../lib/deckBuilderApi'
 import {
   BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
@@ -21,6 +22,14 @@ const PIE_COLORS = ['#c9a84c', '#8a6fc4', '#8ab87a', '#c46060', '#5a9ab0', '#c47
 const FORMAT_COLORS = {
   Commander: '#c9a84c', Modern: '#5a9ab0', Pioneer: '#8ab87a',
   Standard: '#c46030', Legacy: '#8a6fc4', Vintage: '#6a6a7a',
+}
+const GAME_MODE_LABELS = {
+  standard: 'Standard',
+  commander: 'Commander',
+  brawl: 'Brawl',
+  oathbreaker: 'Oathbreaker',
+  planechase: 'Planechase',
+  custom: 'Custom',
 }
 const LANGUAGE_LABELS = {
   en: 'English',
@@ -399,6 +408,148 @@ function DistributionBars({ items, total, labels = {} }) {
   )
 }
 
+function HistoryEntryCard({ row, deckMeta, onEdit, onDelete }) {
+  const [notes, setNotes] = useState(row.notes || '')
+  const [placement, setPlacement] = useState(row.placement || 1)
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const players = [...(row.players_json || [])].sort((a, b) => (a.placement || 99) - (b.placement || 99))
+  const playedAt = row.played_at || row.game_ended_at
+  const mins = row.game_started_at && row.game_ended_at
+    ? Math.round((new Date(row.game_ended_at) - new Date(row.game_started_at)) / 60000)
+    : 0
+  const bgUrl = deckMeta?.coverArtUri || deckMeta?.bg_url || null
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await onEdit(row.id, { notes: notes.trim(), placement: Number(placement) })
+      setEditing(false)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <article className={styles.historyCard}>
+      {bgUrl && (
+        <>
+          <div className={styles.historyCardBg} style={{ backgroundImage: `url("${bgUrl}")` }} />
+          <div className={styles.historyCardShade} />
+        </>
+      )}
+      <div className={styles.historyCardContent}>
+        <div className={styles.historyCardHead}>
+          <div className={styles.historyCardModeRow}>
+            <span className={styles.histMode}>{GAME_MODE_LABELS[row.format] || row.format || 'Game'}</span>
+            {playedAt && (
+              <span className={styles.histDate}>
+                {new Date(playedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+              </span>
+            )}
+            {mins > 0 && <span className={styles.histDur}>{mins} min</span>}
+          </div>
+          <div className={styles.historyDeckBlock}>
+            <div className={styles.historyDeckLabel}>Your Deck</div>
+            <div className={styles.historyDeckName}>{row.deck_name || deckMeta?.name || 'No deck selected'}</div>
+            <div className={styles.historyResultLine}>
+              <span className={`${styles.historyPlacementPill} ${row.placement === 1 ? styles.historyPlacementWin : ''}`}>
+                Place #{row.placement}
+              </span>
+              <span className={styles.historyPlayerMeta}>
+                {row.player_name || 'You'}{Number.isFinite(row.final_life) ? ` · ${row.final_life} life` : ''}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className={styles.historyStandings}>
+          <div className={styles.historyStandingsLabel}>Final Standings</div>
+          <div className={styles.historyStandingsList}>
+            {players.map((p, idx) => (
+              <div key={`${row.id}-${idx}`} className={styles.historyStandingRow}>
+                <span className={styles.historyStandingPlace}>{p.placement}.</span>
+                <span className={styles.historyStandingDot} style={{ background: p.color || 'var(--gold)' }} />
+                <span className={styles.historyStandingName}>{p.name}</span>
+                {p.deckName && <span className={styles.historyStandingDeck}>{p.deckName}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {editing ? (
+          <div className={styles.historyEditor}>
+            <label className={styles.historyField}>
+              <span>Placement</span>
+              <select className={styles.historySelect} value={placement} onChange={e => setPlacement(e.target.value)}>
+                {Array.from({ length: Math.max(row.player_count || players.length || 1, 1) }, (_, i) => i + 1).map(n => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </label>
+            <label className={styles.historyField}>
+              <span>Private notes</span>
+              <textarea
+                className={styles.historyTextarea}
+                rows={4}
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                placeholder="Only visible to you"
+              />
+            </label>
+            <div className={styles.historyEntryActions}>
+              <button className={styles.historySecondaryBtn} onClick={() => setEditing(false)} disabled={saving}>Cancel</button>
+              <button className={styles.historyPrimaryBtn} onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {row.notes && <p className={styles.historyNotes}>{row.notes}</p>}
+            <div className={styles.historyEntryActions}>
+              <button className={styles.historySecondaryBtn} onClick={() => setEditing(true)}>Edit</button>
+              <button className={styles.historyDangerBtn} onClick={() => onDelete(row)}>Delete</button>
+            </div>
+          </>
+        )}
+      </div>
+    </article>
+  )
+}
+
+function GameHistorySection({ rows, loading, deckMap, onRefresh, onEdit, onDelete }) {
+  return (
+    <div className={styles.chartBox}>
+      <div className={styles.sectionHead}>
+        <SLabel>Game History</SLabel>
+        <div className={styles.historyToolbar}>
+          <span className={styles.sectionCount}>{rows.length} entries</span>
+          <button className={styles.historyRefreshBtn} onClick={onRefresh} disabled={loading}>
+            {loading ? 'Refreshing…' : '↻ Refresh'}
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className={styles.historyEmpty}>Loading game history…</div>
+      ) : rows.length === 0 ? (
+        <div className={styles.historyEmpty}>No saved game history yet.</div>
+      ) : (
+        <div className={styles.historyList}>
+          {rows.map(row => (
+            <HistoryEntryCard
+              key={row.id}
+              row={row}
+              deckMeta={deckMap[row.deck_id] || null}
+              onEdit={onEdit}
+              onDelete={onDelete}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 const CustomTooltip = ({ active, payload, label, fmt }) => {
   if (!active || !payload?.length) return null
   return (
@@ -423,12 +574,16 @@ export default function StatsPage() {
   const sym = price_source === 'tcgplayer_market' ? '$' : '€'
   const fmt = v => formatPrice(v, price_source)
 
-  const [cards,        setCards]        = useState([])
-  const [sfMap,        setSfMap]        = useState({})
-  const [loading,      setLoading]      = useState(true)
-  const [loadProgress, setLoadProgress] = useState(0)
-  const [progLabel,    setProgLabel]    = useState('')
-  const [detailCardId, setDetailCardId] = useState(null)
+  const [tab,            setTab]          = useState('overview')
+  const [cards,          setCards]        = useState([])
+  const [sfMap,          setSfMap]        = useState({})
+  const [loading,        setLoading]      = useState(true)
+  const [loadProgress,   setLoadProgress] = useState(0)
+  const [progLabel,      setProgLabel]    = useState('')
+  const [detailCardId,   setDetailCardId] = useState(null)
+  const [historyRows,    setHistoryRows]  = useState([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [deckMap,        setDeckMap]      = useState({})
 
   useEffect(() => {
     const load = async () => {
@@ -466,6 +621,62 @@ export default function StatsPage() {
     }
     load()
   }, [user.id])
+
+  const refreshHistory = useCallback(async () => {
+    if (!user?.id) return
+    setHistoryLoading(true)
+    try {
+      const [{ data: rows, error: rowsError }, { data: decks, error: decksError }] = await Promise.all([
+        sb.from('game_results')
+          .select('id,deck_id,deck_name,format,player_count,placement,played_at,player_name,player_color,final_life,game_started_at,game_ended_at,players_json,notes,updated_at')
+          .eq('user_id', user.id)
+          .order('played_at', { ascending: false })
+          .limit(100),
+        sb.from('folders')
+          .select('id,name,description')
+          .eq('user_id', user.id)
+          .in('type', ['deck', 'builder_deck']),
+      ])
+      if (rowsError) throw rowsError
+      if (decksError) throw decksError
+
+      setHistoryRows(rows || [])
+      setDeckMap(Object.fromEntries((decks || []).map(deck => [deck.id, { name: deck.name, ...parseDeckMeta(deck.description) }])))
+    } catch (error) {
+      console.error('stats history load:', error)
+      setHistoryRows([])
+      setDeckMap({})
+    } finally {
+      setHistoryLoading(false)
+    }
+  }, [user?.id])
+
+  useEffect(() => {
+    if (tab === 'history') refreshHistory()
+  }, [tab, refreshHistory])
+
+  const handleHistoryEdit = useCallback(async (rowId, patch) => {
+    const payload = { ...patch, updated_at: new Date().toISOString() }
+    const { error } = await sb.from('game_results').update(payload).eq('id', rowId).eq('user_id', user.id)
+    if (error) {
+      console.error('stats history update:', error)
+      window.alert('Could not update your game history entry.')
+      return
+    }
+    await refreshHistory()
+  }, [refreshHistory, user?.id])
+
+  const handleHistoryDelete = useCallback(async (row) => {
+    const label = row.deck_name || deckMap[row.deck_id]?.name || 'this game'
+    if (!window.confirm(`Delete your history entry for ${label}? This only removes it for your account.`)) return
+    const { error } = await sb.from('game_results').delete().eq('id', row.id).eq('user_id', user.id)
+    if (error) {
+      console.error('stats history delete:', error)
+      window.alert('Could not delete your game history entry.')
+      return
+    }
+    await refreshHistory()
+  }, [deckMap, refreshHistory, user?.id])
 
   // ── All derived stats ───────────────────────────────────────────────────────
   const stats = useMemo(() => {
@@ -651,7 +862,29 @@ export default function StatsPage() {
     <div className={styles.page}>
       <SectionHeader title={`Collection Stats · ${cards.length.toLocaleString()} unique cards`} />
 
-      {stats && <>
+      <div className={styles.statsTabs}>
+        <button
+          className={`${styles.statsTabBtn} ${tab === 'overview' ? styles.statsTabBtnActive : ''}`}
+          onClick={() => setTab('overview')}>
+          Overview
+        </button>
+        <button
+          className={`${styles.statsTabBtn} ${tab === 'history' ? styles.statsTabBtnActive : ''}`}
+          onClick={() => setTab('history')}>
+          Game History
+        </button>
+      </div>
+
+      {tab === 'history' ? (
+        <GameHistorySection
+          rows={historyRows}
+          loading={historyLoading}
+          deckMap={deckMap}
+          onRefresh={refreshHistory}
+          onEdit={handleHistoryEdit}
+          onDelete={handleHistoryDelete}
+        />
+      ) : stats && <>
 
         {/* ── Summary stat cards ── */}
         <div className={styles.statGrid}>

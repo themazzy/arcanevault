@@ -599,3 +599,13 @@ export function ExternalLinkIcon(p) {
     </Icon>
   )
 }
+
+export function ImageIcon(p) {
+  return (
+    <Icon {...p}>
+      <rect x="2.5" y="3" width="11" height="10" rx="1.8" stroke={p.color ?? 'currentColor'} strokeWidth="1.3" />
+      <circle cx="5.5" cy="6" r="0.9" fill={p.color ?? 'currentColor'} />
+      <path d="M4 11l2.4-2.4 1.8 1.8 1.7-1.7L12 11" stroke={p.color ?? 'currentColor'} strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    </Icon>
+  )
+}
