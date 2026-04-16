@@ -7,7 +7,7 @@ import { useSettings } from '../components/SettingsContext'
 import { sb } from '../lib/supabase'
 import { getPublicAppUrl } from '../lib/publicUrl'
 import styles from './LifeTracker.module.css'
-import { SettingsIcon } from '../icons'
+import { ChevronDownIcon, ChevronUpIcon, SettingsIcon } from '../icons'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const SESSION_KEY = 'av_life_tracker'
@@ -143,6 +143,34 @@ function saveHistory(h) {
   try { localStorage.setItem(HISTORY_KEY, JSON.stringify(h.slice(0, MAX_HISTORY))) } catch {}
 }
 
+function buildDeckStatsMap(rows) {
+  const map = {}
+  ;(rows || []).forEach(r => {
+    if (!r.deck_id) return
+    if (!map[r.deck_id]) map[r.deck_id] = { wins: 0, losses: 0, games: 0 }
+    map[r.deck_id].games++
+    if (r.placement === 1) map[r.deck_id].wins++
+    else map[r.deck_id].losses++
+  })
+  Object.values(map).forEach(s => {
+    s.win_pct = s.games > 0 ? Math.round(100 * s.wins / s.games) : 0
+  })
+  return map
+}
+
+function serializeGamePlayers(players, placements) {
+  return players.map(p => ({
+    playerId: p.id,
+    userId: p.userId || null,
+    name: p.name,
+    color: p.color,
+    deckId: p.deckId || null,
+    deckName: p.deckName || null,
+    placement: placements[p.id],
+    finalLife: p.life,
+  }))
+}
+
 // ── Player factory ─────────────────────────────────────────────────────────────
 function makePlayer(i, life, seed = {}) {
   return {
@@ -217,6 +245,54 @@ function LayoutPicker({ playerCount, value, onChange }) {
 }
 
 // ── Custom Deck Dropdown ───────────────────────────────────────────────────────
+function DeckDropdownMenu({ value, options, onChange, close }) {
+  const [query, setQuery] = useState('')
+  const inputRef = useRef(null)
+
+  useEffect(() => {
+    inputRef.current?.focus()
+  }, [])
+
+  const filteredOptions = options.filter(d =>
+    d.name.toLowerCase().includes(query.trim().toLowerCase())
+  )
+
+  return (
+    <div className={styles.deckDropMenuWrap}>
+      <div className={styles.deckDropSearchWrap}>
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="Search decks..."
+          className={styles.deckDropSearch}
+        />
+      </div>
+      <div className={uiStyles.responsiveMenuList}>
+        <button
+          className={`${uiStyles.responsiveMenuAction} ${!value ? uiStyles.responsiveMenuActionActive : ''}`}
+          onClick={() => { onChange(null, null); close() }}>
+          <span>No deck selected</span>
+          <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{!value ? '✓' : ''}</span>
+        </button>
+        {filteredOptions.map(d => (
+          <button key={d.id}
+            className={`${uiStyles.responsiveMenuAction} ${value === d.id ? uiStyles.responsiveMenuActionActive : ''}`}
+            onClick={() => { onChange(d.id, d.name); close() }}>
+            <span>{d.name}</span>
+            <span className={uiStyles.responsiveMenuMeta}>
+              {value === d.id ? 'selected' : ''}
+            </span>
+          </button>
+        ))}
+        {filteredOptions.length === 0 && (
+          <div className={styles.deckDropEmpty}>No matching decks.</div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function DeckDropdown({ value, valueName, options, onChange }) {
   return (
     <ResponsiveMenu
@@ -227,30 +303,18 @@ function DeckDropdown({ value, valueName, options, onChange }) {
         <button
           className={`${styles.deckDropBtn} ${open ? styles.deckDropBtnOpen : ''}`}
           onClick={toggle}>
-          <span className={styles.deckDropValue}>{valueName || '— No deck —'}</span>
-          <span className={styles.deckDropArrow}>{open ? '▲' : '▼'}</span>
+          <span className={styles.deckDropValue}>{valueName || 'No deck selected'}</span>
+          <span className={styles.deckDropArrow}>{open ? <ChevronUpIcon size={12} /> : <ChevronDownIcon size={12} />}</span>
         </button>
       )}
     >
       {({ close }) => (
-        <div className={uiStyles.responsiveMenuList}>
-          <button
-            className={`${uiStyles.responsiveMenuAction} ${!value ? uiStyles.responsiveMenuActionActive : ''}`}
-            onClick={() => { onChange(null, null); close() }}>
-            <span>— No deck selected —</span>
-            <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{!value ? '✓' : ''}</span>
-          </button>
-          {options.map(d => (
-            <button key={d.id}
-              className={`${uiStyles.responsiveMenuAction} ${value === d.id ? uiStyles.responsiveMenuActionActive : ''}`}
-              onClick={() => { onChange(d.id, d.name); close() }}>
-              <span>{d.name}</span>
-              <span className={uiStyles.responsiveMenuMeta}>
-                {d.type === 'builder_deck' ? 'builder' : value === d.id ? 'selected' : ''}
-              </span>
-            </button>
-          ))}
-        </div>
+        <DeckDropdownMenu
+          value={value}
+          options={options}
+          onChange={onChange}
+          close={close}
+        />
       )}
     </ResponsiveMenu>
   )
@@ -1298,6 +1362,159 @@ function HistoryEntry({ game }) {
 }
 
 // ── Pre-game Setup Screen ──────────────────────────────────────────────────────
+function GameHistoryPanel({ rows, loading, decks, onRefresh, onUpdate, onDelete }) {
+  const [editingId, setEditingId] = useState(null)
+  const [editNotes, setEditNotes] = useState('')
+  const [editPlacement, setEditPlacement] = useState(1)
+  const [saving, setSaving] = useState(false)
+  const deckNameById = Object.fromEntries((decks || []).map(d => [d.id, d.name]))
+
+  const beginEdit = (row) => {
+    setEditingId(row.id)
+    setEditNotes(row.notes || '')
+    setEditPlacement(row.placement || 1)
+  }
+
+  const cancelEdit = () => {
+    setEditingId(null)
+    setEditNotes('')
+    setEditPlacement(1)
+  }
+
+  const submitEdit = async (row) => {
+    setSaving(true)
+    try {
+      await onUpdate(row.id, {
+        notes: editNotes.trim(),
+        placement: Number(editPlacement),
+      })
+      cancelEdit()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = async (row) => {
+    const label = row.deck_name || deckNameById[row.deck_id] || 'this game'
+    if (!window.confirm(`Delete your history entry for ${label}? This only removes it for your account.`)) return
+    await onDelete(row.id)
+  }
+
+  return (
+    <div className={styles.historyScreen}>
+      <div className={styles.historyHero}>
+        <div className={styles.historyHeroGlyph}>📜</div>
+        <h1 className={styles.setupTitle}>Game History</h1>
+        <p className={styles.setupSub}>Private notes and results for your decks</p>
+      </div>
+
+      <div className={styles.historyActions}>
+        <button className={styles.historyRefreshBtn} onClick={onRefresh} disabled={loading}>
+          {loading ? 'Refreshing…' : '↻ Refresh'}
+        </button>
+      </div>
+
+      {loading ? (
+        <div className={styles.historyEmpty}>Loading recent games…</div>
+      ) : rows.length === 0 ? (
+        <div className={styles.historyEmpty}>
+          No saved game history yet. Finish a local or shared game with one of your decks to see it here.
+        </div>
+      ) : (
+        <div className={styles.historyList}>
+          {rows.map(row => {
+            const players = [...(row.players_json || [])].sort((a, b) => (a.placement || 99) - (b.placement || 99))
+            const isEditing = editingId === row.id
+            const playedAt = row.played_at || row.game_ended_at
+            const mins = row.game_started_at && row.game_ended_at
+              ? Math.round((new Date(row.game_ended_at) - new Date(row.game_started_at)) / 60000)
+              : 0
+
+            return (
+              <div key={row.id} className={styles.historyEntryCard}>
+                <div className={styles.historyEntryHead}>
+                  <div className={styles.historyEntryMeta}>
+                    <span className={styles.histMode}>{MODES[row.format]?.label || row.format || 'Game'}</span>
+                    {playedAt && (
+                      <span className={styles.histDate}>
+                        {new Date(playedAt).toLocaleDateString(undefined, {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                        })}
+                      </span>
+                    )}
+                    {mins > 0 && <span className={styles.histDur}>{mins} min</span>}
+                  </div>
+                  <div className={styles.historyEntryResult}>
+                    <span
+                      className={`${styles.histPlayer} ${row.placement === 1 ? styles.histPlayerWin : ''}`}
+                      style={{ '--pc': row.player_color || '#c9a84c' }}>
+                      {row.placement}. {row.player_name || 'You'} · {row.deck_name || deckNameById[row.deck_id] || 'Deck'}
+                    </span>
+                  </div>
+                </div>
+
+                {players.length > 0 && (
+                  <div className={styles.histPlayers}>
+                    {players.map((p, idx) => (
+                      <span
+                        key={`${row.id}-${idx}`}
+                        className={`${styles.histPlayer} ${p.placement === 1 ? styles.histPlayerWin : ''}`}
+                        style={{ '--pc': p.color || '#c9a84c' }}>
+                        {p.placement}. {p.name}{p.deckName ? ` · ${p.deckName}` : ''}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {isEditing ? (
+                  <div className={styles.historyEditor}>
+                    <label className={styles.historyField}>
+                      <span>Placement</span>
+                      <select
+                        className={styles.historySelect}
+                        value={editPlacement}
+                        onChange={e => setEditPlacement(e.target.value)}>
+                        {Array.from({ length: Math.max(row.player_count || players.length || 1, 1) }, (_, i) => i + 1).map(n => (
+                          <option key={n} value={n}>{n}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className={styles.historyField}>
+                      <span>Private notes</span>
+                      <textarea
+                        className={styles.historyTextarea}
+                        value={editNotes}
+                        onChange={e => setEditNotes(e.target.value)}
+                        rows={4}
+                        placeholder="Only visible to you" />
+                    </label>
+                    <div className={styles.historyEntryActions}>
+                      <button className={styles.historySecondaryBtn} onClick={cancelEdit} disabled={saving}>Cancel</button>
+                      <button className={styles.historyPrimaryBtn} onClick={() => submitEdit(row)} disabled={saving}>
+                        {saving ? 'Saving…' : 'Save'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {row.notes && <p className={styles.histNotes}>{row.notes}</p>}
+                    <div className={styles.historyEntryActions}>
+                      <button className={styles.historySecondaryBtn} onClick={() => beginEdit(row)}>Edit</button>
+                      <button className={styles.historyDangerBtn} onClick={() => handleDelete(row)}>Delete</button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function PreGameSetup({ onStart, onCreateLobby, decks, history, deckStatsMap, nickname }) {
   const navigate = useNavigate()
   const [mode,        setMode]        = useState('commander')
@@ -1794,11 +2011,11 @@ export default function LifeTrackerPage() {
   const [cmdDmgPlayer,     setCmdDmgPlayer]     = useState(null)
   const [countersPlayer,   setCountersPlayer]   = useState(null)
   const [playerSettingsPlayer, setPlayerSettingsPlayer] = useState(null)
-    const [showDice,     setShowDice]     = useState(false)
-    const [showPicker,   setShowPicker]   = useState(false)
-    const [showCoin,     setShowCoin]     = useState(false)
-    const [showGameMenu, setShowGameMenu] = useState(false)
-    const [decks,        setDecks]        = useState([])
+  const [showDice,     setShowDice]     = useState(false)
+  const [showPicker,   setShowPicker]   = useState(false)
+  const [showCoin,     setShowCoin]     = useState(false)
+  const [showGameMenu, setShowGameMenu] = useState(false)
+  const [decks,        setDecks]        = useState([])
   const [history,      setHistory]      = useState(() => loadHistory())
   const [isFullscreen, setIsFullscreen] = useState(false)
   // Two separate refs intentional: topbar and fsControls each render a gear wrap.
@@ -1816,6 +2033,15 @@ export default function LifeTrackerPage() {
   const addGameLogEvent = useCallback((event) => {
     setGameLog(prev => [event, ...prev].slice(0, 120))
   }, [])
+
+  const refreshDeckStats = useCallback(async () => {
+    if (!user) return
+    const { data } = await sb.from('game_results')
+      .select('deck_id,placement')
+      .eq('user_id', user.id)
+    setDeckStatsMap(buildDeckStatsMap(data || []))
+  }, [user])
+
 
   useEffect(() => {
     if (!showGameMenu) return
@@ -1961,36 +2187,12 @@ export default function LifeTrackerPage() {
       .eq('user_id', user.id)
       .in('type', ['deck', 'builder_deck'])
       .order('name')
-      .then(({ data }) => setDecks(
-        (data || []).filter(d => d.type === 'deck' || d.type === 'builder_deck')
-      ))
-  }, [user])
-
-  useEffect(() => {
-    if (!user) return
-    sb.from('game_results')
-      .select('deck_id,placement')
-      .eq('user_id', user.id)
-      .then(({ data }) => {
-        if (!data) return
-        const map = {}
-        data.forEach(r => {
-          if (!r.deck_id) return
-          if (!map[r.deck_id]) map[r.deck_id] = { wins: 0, losses: 0, games: 0 }
-          map[r.deck_id].games++
-          if (r.placement === 1) map[r.deck_id].wins++
-          else map[r.deck_id].losses++
-        })
-        Object.values(map).forEach(s => {
-          s.win_pct = s.games > 0 ? Math.round(100 * s.wins / s.games) : 0
-        })
-        setDeckStatsMap(map)
-      })
+      .then(({ data }) => setDecks(data || []))
   }, [user])
 
   useEffect(() => {
     const saved = loadSession()
-    if (saved?.screen === 'playing' && saved.players?.length) {
+    if (saved?.screen === 'playing' && saved.players && saved.config) {
       setScreen('playing')
       setGameConfig(saved.config)
       setPlayers(saved.players.map(migratePlayer))
@@ -2025,61 +2227,90 @@ export default function LifeTrackerPage() {
   const handleSaveGame = async ({ placements, notes }) => {
     const endedAt = Date.now()
     const endedAtIso = new Date(endedAt).toISOString()
+    const startedAtIso = new Date(startedAt || endedAt).toISOString()
+    const serializedPlayers = serializeGamePlayers(players, placements)
     const game = {
       id: endedAt, mode: gameConfig.mode, startedAt, endedAt,
       duration: endedAt - (startedAt || endedAt),
       notes,
-      players: players.map(p => ({
-        name: p.name, color: p.color,
-        deckId: p.deckId, deckName: p.deckName,
-        placement: placements[p.id], finalLife: p.life,
+      players: serializedPlayers.map(p => ({
+        name: p.name,
+        color: p.color,
+        deckId: p.deckId,
+        deckName: p.deckName,
+        placement: p.placement,
+        finalLife: p.finalLife,
       })),
     }
     const newHistory = [game, ...history]
     setHistory(newHistory)
     saveHistory(newHistory)
 
-    // Persist results to Supabase for any player with an ArcaneVault deck ID
     if (user) {
       const isShared = !!gameSessionId
-      const results = players
-        .filter(p => p.deckId && (isShared ? p.userId : true))
+      const trackedPayload = {
+        source_session_id: gameSessionId || null,
+        host_user_id: user.id,
+        mode: gameConfig.mode,
+        custom_life: gameConfig.mode === 'custom' ? gameConfig.customLife : null,
+        player_count: players.length,
+        is_shared: isShared,
+        players_json: serializedPlayers,
+        started_at: startedAtIso,
+        ended_at: endedAtIso,
+      }
+
+      const localHistoryPlayers = players.filter(p => p.deckId || (p.deckName && p.deckName !== 'No deck selected'))
+      const resultPlayers = isShared
+        ? players.filter(p => p.userId)
+        : (localHistoryPlayers.length > 0 ? localHistoryPlayers : players.slice(0, 1))
+
+      const results = resultPlayers
         .map(p => ({
-          session_id:   gameSessionId || null,
-          user_id:      isShared ? p.userId : user.id,
-          deck_id:      p.deckId,
-          deck_name:    p.deckName,
-          format:       gameConfig.mode,
+          session_id: gameSessionId || null,
+          user_id: isShared ? p.userId : user.id,
+          deck_id: p.deckId || null,
+          deck_name: p.deckName || 'No deck selected',
+          format: gameConfig.mode,
           player_count: players.length,
-          placement:    placements[p.id],
-          played_at:    endedAtIso,
+          placement: placements[p.id],
+          played_at: endedAtIso,
+          player_name: p.name,
+          player_color: p.color,
+          final_life: p.life,
+          game_started_at: startedAtIso,
+          game_ended_at: endedAtIso,
+          players_json: serializedPlayers,
+          notes: (isShared ? p.userId === user.id : true) ? notes.trim() : '',
         }))
-      if (results.length > 0) {
-        try {
-          const { error } = await sb.from('game_results').insert(results)
+
+      try {
+        const { data: trackedGame, error: trackedError } = await sb
+          .from('tracked_games')
+          .insert(trackedPayload)
+          .select('id')
+          .single()
+        if (trackedError) throw trackedError
+
+        if (results.length > 0) {
+          const rows = results.map(row => ({
+            ...row,
+            game_id: trackedGame.id,
+          }))
+          const { error } = await sb.from('game_results').insert(rows)
           if (error) throw error
-          // Refresh local stats map after save
-          const { data } = await sb.from('game_results')
-            .select('deck_id,placement').eq('user_id', user.id)
-          if (data) {
-            const map = {}
-            data.forEach(r => {
-              if (!r.deck_id) return
-              if (!map[r.deck_id]) map[r.deck_id] = { wins: 0, losses: 0, games: 0 }
-              map[r.deck_id].games++
-              if (r.placement === 1) map[r.deck_id].wins++
-              else map[r.deck_id].losses++
-            })
-            Object.values(map).forEach(s => {
-              s.win_pct = s.games > 0 ? Math.round(100 * s.wins / s.games) : 0
-            })
-            setDeckStatsMap(map)
-          }
-        } catch (e) {
-          console.error('game_results insert:', e)
-          window.alert('Could not save game results. Game still open. Please try again.')
-          return
         }
+
+        await refreshDeckStats()
+      } catch (e) {
+        console.error('game history save:', e)
+        const detail = [e?.message, e?.details, e?.hint].filter(Boolean).join(' ')
+        window.alert(
+          detail
+            ? `Could not save game history. ${detail}`
+            : 'Could not save game history. Game still open. Please try again.'
+        )
+        return
       }
     }
 
@@ -2370,3 +2601,5 @@ export default function LifeTrackerPage() {
     </div>
   )
 }
+
+

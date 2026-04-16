@@ -13,36 +13,13 @@ import ExportModal from '../components/ExportModal'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import DeckBrowser from './DeckBrowser'
 import styles from './Folders.module.css'
-import { SettingsIcon } from '../icons'
+import { SettingsIcon, DeleteIcon, EditIcon, BinderIcon, ImageIcon, RemoveIcon } from '../icons'
 import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { getPublicAppUrl } from '../lib/publicUrl'
 import { getLocalFolderCards, getAllLocalFolderCards, getDeckAllocations, getCardsByIds } from '../lib/db'
 
-// ── SVG Icons ─────────────────────────────────────────────────────────────────
-function TrashIcon({ size = 14 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
-      strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="2,4 14,4" />
-      <path d="M5 4V2.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5V4" />
-      <rect x="3" y="4" width="10" height="9" rx="1" />
-      <line x1="6" y1="7" x2="6" y2="11" />
-      <line x1="10" y1="7" x2="10" y2="11" />
-    </svg>
-  )
-}
-
-
-function PencilIcon({ size = 14 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
-      strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M11 2.5l2.5 2.5L5 13.5H2.5V11L11 2.5z" />
-    </svg>
-  )
-}
 
 // ── Sort dropdown (custom, dark-themed — native <option> can't be styled) ─────
 function SortDropdown({ value, onChange, options, compact = false }) {
@@ -406,25 +383,25 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
             <div className={uiStyles.responsiveMenuList}>
               <button className={uiStyles.responsiveMenuAction}
                 onClick={e => { e.stopPropagation(); startRename(); close() }}>
-                <span className={styles.cogMenuItemIcon}><PencilIcon size={12} /> Rename</span>
+                <span className={styles.cogMenuItemIcon}><EditIcon size={12} /> Rename</span>
               </button>
               <button className={uiStyles.responsiveMenuAction}
                 onClick={e => { e.stopPropagation(); onEditBg(); close() }}>
-                Set background art
+                <span className={styles.cogMenuItemIcon}><ImageIcon size={12} /> Set background art</span>
               </button>
               {bgUrl && (
                 <button className={uiStyles.responsiveMenuAction}
                   onClick={e => { e.stopPropagation(); onClearBg(); close() }}>
-                  Clear background
+                  <span className={styles.cogMenuItemIcon}><RemoveIcon size={12} /> Clear background</span>
                 </button>
               )}
               <button className={uiStyles.responsiveMenuAction}
                 onClick={e => { e.stopPropagation(); onMoveToGroup?.(); close() }}>
-                📁 Move to Group
+                <span className={styles.cogMenuItemIcon}><BinderIcon size={12} /> Move to Group</span>
               </button>
               <button className={`${uiStyles.responsiveMenuAction} ${uiStyles.responsiveMenuActionDanger}`}
                 onClick={e => { e.stopPropagation(); onDelete(); close() }}>
-                <span className={styles.cogMenuItemIcon}><TrashIcon size={12} /> Delete</span>
+                <span className={styles.cogMenuItemIcon}><DeleteIcon size={12} /> Delete</span>
               </button>
             </div>
           )}
@@ -1051,7 +1028,7 @@ function DeleteFolderModal({ folder, onDone, onCancel }) {
                 className={`${styles.deleteModeBtn} ${mode === o.key ? styles.deleteModeBtnActive : ''}`}
                 onClick={() => { setMode(o.key); setTargetId(''); setCreateName('') }}>
                 <span className={styles.deleteModeIcon}>
-                  {o.key === 'delete' ? <TrashIcon size={16} /> : o.icon}
+                  {o.key === 'delete' ? <DeleteIcon size={16} /> : o.icon}
                 </span>
                 <span>
                   <div style={{ fontWeight: 600, marginBottom: 2 }}>{o.label}</div>
@@ -1197,7 +1174,7 @@ function BulkDeleteModal({ nonEmpty, empty, onDone, onCancel }) {
                 className={`${styles.deleteModeBtn} ${mode === o.key ? styles.deleteModeBtnActive : ''}`}
                 onClick={() => { setMode(o.key); setTargetId(''); setCreateName('') }}>
                 <span className={styles.deleteModeIcon}>
-                  {o.key === 'delete' ? <TrashIcon size={16} /> : o.icon}
+                  {o.key === 'delete' ? <DeleteIcon size={16} /> : o.icon}
                 </span>
                 <span>
                   <div style={{ fontWeight: 600, marginBottom: 2 }}>{o.label}</div>
@@ -1618,7 +1595,7 @@ export default function FoldersPage({ type }) {
                   size="sm"
                   disabled={selectedIds.size === 0}
                   onClick={handleBulkDelete}>
-                  <TrashIcon size={12} />
+                  <DeleteIcon size={12} />
                   Delete ({selectedIds.size})
                 </Button>
                 </>
@@ -1868,3 +1845,4 @@ export default function FoldersPage({ type }) {
     </div>
   )
 }
+

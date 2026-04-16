@@ -1495,6 +1495,33 @@
   display: flex; flex-direction: column; gap: 0;
   max-width: 680px; margin: 0 auto; width: 100%; padding-bottom: 32px;
 }
+.setupTabs {
+  display: flex;
+  gap: 8px;
+  margin: 8px auto 0;
+  width: 100%;
+  max-width: 680px;
+}
+.setupTabBtn {
+  flex: 1;
+  background: var(--s1);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  color: var(--text-dim);
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.setupTabBtn:hover { color: var(--text); border-color: rgba(201,168,76,0.22); }
+.setupTabBtnActive {
+  background: rgba(201,168,76,0.12) !important;
+  border-color: rgba(201,168,76,0.4) !important;
+  color: var(--gold) !important;
+}
 .setupHero {
   text-align: center; padding: 28px 0 22px;
 }
@@ -1690,6 +1717,39 @@
 .deckDropBtnOpen      { border-color: rgba(201,168,76,0.4) !important; color: var(--text) !important; }
 .deckDropValue        { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .deckDropArrow        { font-size: 0.6rem; flex-shrink: 0; color: var(--text-faint); }
+.deckDropMenuWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+}
+.deckDropSearchWrap {
+  padding: 4px 4px 0;
+}
+.deckDropSearch {
+  width: 100%;
+  background: var(--s2);
+  border: 1px solid var(--s-border);
+  border-radius: 6px;
+  padding: 9px 11px;
+  color: var(--text);
+  font-size: 0.82rem;
+  outline: none;
+}
+.deckDropSearch:focus {
+  border-color: rgba(201,168,76,0.45);
+  box-shadow: 0 0 0 1px rgba(201,168,76,0.18);
+}
+.deckDropSearch::placeholder {
+  color: var(--text-faint);
+}
+.deckDropEmpty {
+  padding: 14px 12px 10px;
+  color: var(--text-faint);
+  font-size: 0.78rem;
+  text-align: center;
+}
 .deckDropMenu {
   position: absolute; top: calc(100% + 3px); left: 0; right: 0;
   background: var(--bg3);
@@ -1743,6 +1803,134 @@
 }
 .histPlayerWin { color: var(--gold) !important; }
 .histNotes { font-size: 0.72rem; color: var(--text-faint); font-style: italic; margin: 0; }
+
+.historyScreen {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-width: 680px;
+  margin: 0 auto;
+  width: 100%;
+  padding-bottom: 32px;
+}
+.historyHero {
+  text-align: center;
+  padding: 28px 0 18px;
+}
+.historyHeroGlyph {
+  font-size: 2rem;
+  color: var(--gold);
+  margin-bottom: 8px;
+  display: block;
+  filter: drop-shadow(0 0 18px rgba(201,168,76,0.35));
+}
+.historyActions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 0 10px;
+}
+.historyRefreshBtn,
+.historyPrimaryBtn,
+.historySecondaryBtn,
+.historyDangerBtn {
+  border-radius: 6px;
+  font-family: var(--font-display);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.historyRefreshBtn,
+.historySecondaryBtn {
+  background: var(--s1);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: var(--text-dim);
+}
+.historyRefreshBtn:hover,
+.historySecondaryBtn:hover { color: var(--text); border-color: rgba(201,168,76,0.2); }
+.historyPrimaryBtn {
+  background: rgba(201,168,76,0.14);
+  border: 1px solid rgba(201,168,76,0.35);
+  color: var(--gold);
+}
+.historyPrimaryBtn:hover { background: rgba(201,168,76,0.22); border-color: rgba(201,168,76,0.5); }
+.historyDangerBtn {
+  background: rgba(196,96,96,0.08);
+  border: 1px solid rgba(196,96,96,0.22);
+  color: #d79a9a;
+}
+.historyDangerBtn:hover { background: rgba(196,96,96,0.14); border-color: rgba(196,96,96,0.35); }
+.historyEmpty {
+  background: var(--s1);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 8px;
+  color: var(--text-faint);
+  text-align: center;
+  padding: 24px 18px;
+}
+.historyList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.historyEntryCard {
+  background: var(--s1);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-top: 2px solid rgba(201,168,76,0.34);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.historyEntryHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.historyEntryMeta,
+.historyEntryResult {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.historyEditor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.historyField {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--text-dim);
+  font-size: 0.74rem;
+}
+.historySelect,
+.historyTextarea {
+  background: var(--s2);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--font-serif);
+  font-size: 0.86rem;
+  padding: 8px 10px;
+  outline: none;
+}
+.historyTextarea {
+  resize: vertical;
+  min-height: 88px;
+}
+.historyEntryActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
 
 /* Start button + lobby footer */
 .setupFooter { padding-top: 6px; display: flex; flex-direction: column; gap: 10px; }
