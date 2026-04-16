@@ -2023,6 +2023,7 @@ export default function LifeTrackerPage() {
 
   const handleSaveGame = async ({ placements, notes }) => {
     const endedAt = Date.now()
+    const endedAtIso = new Date(endedAt).toISOString()
     const game = {
       id: endedAt, mode: gameConfig.mode, startedAt, endedAt,
       duration: endedAt - (startedAt || endedAt),
@@ -2040,7 +2041,6 @@ export default function LifeTrackerPage() {
     // Persist results to Supabase for any player with an ArcaneVault deck ID
     if (user) {
       const isShared = !!gameSessionId
-      const now = new Date().toISOString()
       const results = players
         .filter(p => p.deckId && (isShared ? p.userId : true))
         .map(p => ({
@@ -2051,11 +2051,12 @@ export default function LifeTrackerPage() {
           format:       gameConfig.mode,
           player_count: players.length,
           placement:    placements[p.id],
-          played_at:    now,
+          played_at:    endedAtIso,
         }))
       if (results.length > 0) {
         try {
-          await sb.from('game_results').insert(results)
+          const { error } = await sb.from('game_results').insert(results)
+          if (error) throw error
           // Refresh local stats map after save
           const { data } = await sb.from('game_results')
             .select('deck_id,placement').eq('user_id', user.id)
@@ -2073,9 +2074,21 @@ export default function LifeTrackerPage() {
             })
             setDeckStatsMap(map)
           }
-        } catch (e) { console.error('game_results insert:', e) }
+        } catch (e) {
+          console.error('game_results insert:', e)
+          window.alert('Could not save game results. Game still open. Please try again.')
+          return
+        }
       }
     }
+
+    if (gameSessionId) {
+      const { error } = await sb.from('game_sessions')
+        .update({ status: 'ended', ended_at: endedAtIso })
+        .eq('id', gameSessionId)
+      if (error) console.error('game_sessions finalize:', error)
+    }
+
     setGameSessionId(null)
     handleNewGame()
   }

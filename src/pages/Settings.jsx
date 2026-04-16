@@ -496,11 +496,10 @@ export default function SettingsPage() {
               ['compact', 'Compact (more, smaller)'],
             ]} />
         </SettingRow>
-        <SettingRow label="Default Grouping" description="Initial grouping mode for deck-style card browsers.">
-          <Select value={settings.default_grouping} onChange={v => set('default_grouping', v)}
+        <SettingRow label="Deckbuilder Grouping" description="Initial grouping mode for deckbuilder only. Decks, binders, and wishlists always start ungrouped.">
+          <Select value={settings.default_grouping === 'none' ? 'none' : 'type'} onChange={v => set('default_grouping', v)}
             options={[
-              ['type', 'By Type'],
-              ['category', 'By Function'],
+              ['type', 'Grouped by Type'],
               ['none', 'Ungrouped'],
             ]} />
         </SettingRow>

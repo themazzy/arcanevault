@@ -214,21 +214,23 @@ function TextRow({ card, sfCard, selectMode, isSelected, onToggleSelect, onEnter
   )
 }
 
-function TextView({ groups, groupOrder, sfMap, selectMode, selectedCards, onToggleSelect, onEnterSelectMode, hideHeaders, onHover, onHoverEnd }) {
+function TextView({ groups, groupOrder, sfMap, selectMode, selectedCards, onToggleSelect, onEnterSelectMode, hideHeaders, onHover, onHoverEnd, collapsedGroups, onToggleGroup }) {
   return (
     <div className={styles.textView}>
       {groupOrder.filter(group => groups[group]?.length).map(group => {
         const cards = groups[group]
         const total = cards.reduce((sum, card) => sum + (card._folder_qty || card.qty || 1), 0)
+        const isCollapsed = collapsedGroups?.has(group)
         return (
           <div key={group} className={styles.textGroup}>
             {!hideHeaders && (
-              <div className={styles.textGroupHeader}>
-                <span style={{ color: CAT_COLORS[group] || 'var(--gold-dim)' }}>{group}</span>
+              <button className={`${styles.textGroupHeader} ${styles.groupHeaderToggleBtn}`} onClick={() => onToggleGroup?.(group)}>
+                <span className={`${styles.groupArrow}${isCollapsed ? ` ${styles.groupArrowCollapsed}` : ''}`}>▾</span>
+                <span className={styles.groupHeaderTitle} style={{ color: CAT_COLORS[group] || 'var(--gold-dim)' }}>{group}</span>
                 <span className={styles.textGroupCount}>{total}</span>
-              </div>
+              </button>
             )}
-            {cards
+            {!isCollapsed && cards
               .slice()
               .sort((a, b) => a.name.localeCompare(b.name))
               .map(card => (
@@ -413,10 +415,9 @@ function getTableColClass(col) {
   return TABLE_COL_FOLD_CLASS[col] ? styles[TABLE_COL_FOLD_CLASS[col]] : ''
 }
 
-function TableView({ cards, sfMap, priceSource, groups, groupOrder, groupBy, onSelect, selectMode, selectedCards, onToggleSelect, onEnterSelectMode, onAdjustQty, splitState, onHover, onHoverEnd }) {
+function TableView({ cards, sfMap, priceSource, groups, groupOrder, groupBy, onSelect, selectMode, selectedCards, onToggleSelect, onEnterSelectMode, onAdjustQty, splitState, onHover, onHoverEnd, collapsedGroups, onToggleGroup }) {
   const [sortCol, setSortCol] = useState('name')
   const [sortDir, setSortDir] = useState(1)
-  const [collapsed, setCollapsed] = useState(new Set())
   const [visibleCols, setVisibleCols] = useState(loadVisibleCols)
 
   const toggleCol = col => setVisibleCols(prev => {
@@ -481,13 +482,6 @@ function TableView({ cards, sfMap, priceSource, groups, groupOrder, groupBy, onS
   }, [cards, priceSource, sfMap, sortCol, sortDir, isGrouped])
 
   const arrow = col => (!isGrouped && sortCol === col) ? (sortDir > 0 ? '↑' : '↓') : ''
-
-  const toggleCollapse = group => setCollapsed(prev => {
-    const next = new Set(prev)
-    if (next.has(group)) next.delete(group)
-    else next.add(group)
-    return next
-  })
 
   const renderRows = cardList => cardList.map(card => {
     const key = getDisplayKey(card)
@@ -560,12 +554,12 @@ function TableView({ cards, sfMap, priceSource, groups, groupOrder, groupBy, onS
               ? groupOrder.filter(g => groups[g]?.length).map(group => {
                   const groupCards = groups[group]
                   const total = groupCards.reduce((s, c) => s + (c._folder_qty ?? c.qty ?? 1), 0)
-                  const isCollapsed = collapsed.has(group)
+                  const isCollapsed = collapsedGroups?.has(group)
                   return (
                     <Fragment key={group}>
-                      <tr className={styles.tableGroupRow} onClick={() => toggleCollapse(group)}>
+                      <tr className={styles.tableGroupRow} onClick={() => onToggleGroup?.(group)}>
                         <td className={styles.tableGroupCell} colSpan={colCount}>
-                          <span className={styles.tableGroupToggle}>{isCollapsed ? '▸' : '▾'}</span>
+                          <span className={`${styles.groupArrow}${isCollapsed ? ` ${styles.groupArrowCollapsed}` : ''}`}>▾</span>
                           <span className={styles.tableGroupName} style={{ color: CAT_COLORS[group] || 'var(--gold-dim)' }}>{group}</span>
                           <span className={styles.tableGroupCount}>{total}</span>
                         </td>
@@ -694,7 +688,7 @@ function StackCard({ card, sf, idx, priceSource, selectMode, isSelected, onSelec
   )
 }
 
-function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, selectMode, selectedCards, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, hideHeaders }) {
+function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, selectMode, selectedCards, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, hideHeaders, collapsedGroups, onToggleGroup }) {
   const wrapRef = useRef(null)
   const [wrapWidth, setWrapWidth] = useState(0)
   const [activePreview, setActivePreview] = useState(null)
@@ -759,36 +753,39 @@ function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, selectMo
           {column.map(({ group, cards, total }) => (
             <div key={group} className={styles.stackGroup}>
               {!hideHeaders && (
-                <div className={styles.stackGroupHeader}>
-                  <span style={{ color: CAT_COLORS[group] || 'var(--gold-dim)' }}>{group}</span>
+                <button className={`${styles.stackGroupHeader} ${styles.groupHeaderToggleBtn}`} onClick={() => onToggleGroup?.(group)}>
+                  <span className={`${styles.groupArrow}${collapsedGroups?.has(group) ? ` ${styles.groupArrowCollapsed}` : ''}`}>▾</span>
+                  <span className={styles.groupHeaderTitle} style={{ color: CAT_COLORS[group] || 'var(--gold-dim)' }}>{group}</span>
                   <span className={styles.stackGroupCount}>{total}</span>
+                </button>
+              )}
+              {!collapsedGroups?.has(group) && (
+                <div className={styles.stackCards}>
+                  {cards.map((card, idx) => {
+                    const key = getDisplayKey(card)
+                    return (
+                      <StackCard
+                        key={key}
+                        card={card}
+                        sf={sfMap[getScryfallKey(card)]}
+                        idx={idx + 1}
+                        priceSource={priceSource}
+                        selectMode={selectMode}
+                        isSelected={selectedCards?.has(key)}
+                        onSelect={onSelect}
+                        onToggleSelect={onToggleSelect}
+                        onAdjustQty={onAdjustQty}
+                        splitState={splitState}
+                        onHoverPreview={setActivePreview}
+                        onHoverPreviewEnd={() => setActivePreview(null)}
+                        onEnterSelectMode={onEnterSelectMode}
+                      />
+                    )
+                  })}
                 </div>
               )}
-              <div className={styles.stackCards}>
-                {cards.map((card, idx) => {
-                  const key = getDisplayKey(card)
-                  return (
-                    <StackCard
-                      key={key}
-                      card={card}
-                      sf={sfMap[getScryfallKey(card)]}
-                      idx={idx + 1}
-                    priceSource={priceSource}
-                    selectMode={selectMode}
-                    isSelected={selectedCards?.has(key)}
-                    onSelect={onSelect}
-                    onToggleSelect={onToggleSelect}
-                    onAdjustQty={onAdjustQty}
-                    splitState={splitState}
-                    onHoverPreview={setActivePreview}
-                    onHoverPreviewEnd={() => setActivePreview(null)}
-                    onEnterSelectMode={onEnterSelectMode}
-                  />
-                )
-              })}
             </div>
-          </div>
-        ))}
+          ))}
       </div>
       ))}
       {activePreview?.img && (
@@ -880,7 +877,7 @@ function estimateStackGroupWeight(cardCount, hideHeaders) {
   return (hideHeaders ? 0 : 1.2) + Math.max(cardCount, 1) * 0.34
 }
 
-function GridView({ cards, sfMap, priceSource, onSelect, selectMode, selectedCards, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, density, groups, groupOrder, groupBy }) {
+function GridView({ cards, sfMap, priceSource, onSelect, selectMode, selectedCards, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, density, groups, groupOrder, groupBy, collapsedGroups, onToggleGroup }) {
   const minW = DENSITY_MIN_WIDTH[density] || 160
   const gridStyle = { gridTemplateColumns: `repeat(auto-fill, minmax(${minW}px, 1fr))` }
 
@@ -909,15 +906,19 @@ function GridView({ cards, sfMap, priceSource, onSelect, selectMode, selectedCar
         {groupOrder.filter(g => groups[g]?.length).map(g => {
           const groupCards = groups[g]
           const total = groupCards.reduce((sum, c) => sum + (c._folder_qty ?? c.qty ?? 1), 0)
+          const isCollapsed = collapsedGroups?.has(g)
           return (
             <div key={g} className={styles.gridGroup}>
-              <div className={styles.textGroupHeader}>
-                <span>{g}</span>
+              <button className={`${styles.textGroupHeader} ${styles.groupHeaderToggleBtn}`} onClick={() => onToggleGroup?.(g)}>
+                <span className={`${styles.groupArrow}${isCollapsed ? ` ${styles.groupArrowCollapsed}` : ''}`}>▾</span>
+                <span className={styles.groupHeaderTitle}>{g}</span>
                 <span className={styles.textGroupCount}>{total}</span>
-              </div>
-              <div className={styles.cardGrid} style={gridStyle}>
-                {renderCards(groupCards)}
-              </div>
+              </button>
+              {!isCollapsed && (
+                <div className={styles.cardGrid} style={gridStyle}>
+                  {renderCards(groupCards)}
+                </div>
+              )}
             </div>
           )
         })}
@@ -1038,6 +1039,16 @@ export function CardBrowserContent({
 }) {
   const effectiveViewMode = viewMode === 'list' ? 'table' : viewMode
   const { groups, groupOrder } = useMemo(() => buildGroups(cards, sfMap, groupBy), [cards, groupBy, sfMap])
+  const [collapsedGroups, setCollapsedGroups] = useState(new Set())
+
+  const toggleGroup = group => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev)
+      if (next.has(group)) next.delete(group)
+      else next.add(group)
+      return next
+    })
+  }
 
   if (effectiveViewMode === 'stacks') {
     return (
@@ -1054,6 +1065,8 @@ export function CardBrowserContent({
         splitState={splitState}
         onEnterSelectMode={onEnterSelectMode}
         hideHeaders={groupBy === 'none'}
+        collapsedGroups={collapsedGroups}
+        onToggleGroup={toggleGroup}
       />
     )
   }
@@ -1071,6 +1084,8 @@ export function CardBrowserContent({
         hideHeaders={groupBy === 'none'}
         onHover={onHover}
         onHoverEnd={onHoverEnd}
+        collapsedGroups={collapsedGroups}
+        onToggleGroup={toggleGroup}
       />
     )
   }
@@ -1093,6 +1108,8 @@ export function CardBrowserContent({
         splitState={splitState}
         onHover={onHover}
         onHoverEnd={onHoverEnd}
+        collapsedGroups={collapsedGroups}
+        onToggleGroup={toggleGroup}
       />
     )
   }
@@ -1115,6 +1132,8 @@ export function CardBrowserContent({
       onAdjustQty={onAdjustQty}
       splitState={splitState}
       onEnterSelectMode={onEnterSelectMode}
+      collapsedGroups={collapsedGroups}
+      onToggleGroup={toggleGroup}
     />
   )
 }

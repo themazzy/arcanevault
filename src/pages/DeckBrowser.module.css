@@ -574,6 +574,30 @@
   letter-spacing: 0.04em; border-bottom: 1px solid var(--s-border);
   margin-bottom: 4px;
 }
+.groupHeaderToggleBtn {
+  width: 100%;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.groupHeaderTitle {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.groupArrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  margin-right: 6px;
+  color: var(--text-faint);
+  flex: 0 0 auto;
+  transition: transform 0.15s ease;
+}
+.groupArrowCollapsed { transform: rotate(-90deg); }
 .textGroupCount {
   background: var(--s-border); border-radius: 10px;
   padding: 2px 8px; font-size: 0.7rem; color: var(--text-dim);
@@ -722,7 +746,6 @@
 .tableGroupRow { background: var(--s2); cursor: pointer; user-select: none; }
 .tableGroupRow:hover { background: var(--s3); }
 .tableGroupCell { padding: 6px 12px; border-bottom: 1px solid var(--border); }
-.tableGroupToggle { font-size: 0.7rem; color: var(--text-faint); margin-right: 6px; }
 .tableGroupName { font-family: var(--font-display); font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; }
 .tableGroupCount { margin-left: 8px; font-size: 0.72rem; color: var(--text-faint); background: var(--s-border); border-radius: 8px; padding: 1px 6px; }
 

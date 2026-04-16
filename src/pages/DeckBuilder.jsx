@@ -1248,7 +1248,7 @@ function VersionPickerModal({ dc, ownedMap, onSelect, onClose }) {
 export default function DeckBuilderPage() {
   const { id: deckId } = useParams()
   const { user }       = useAuth()
-  const { grid_density, price_source } = useSettings()
+  const { grid_density, price_source, default_grouping } = useSettings()
   const navigate       = useNavigate()
 
   // Deck state
@@ -1309,7 +1309,7 @@ export default function DeckBuilderPage() {
   const [deckView,    setDeckView]    = useState('list')   // 'list' | 'compact' | 'visual'
   const [showRight, setShowRight] = useState(false)
   const [deckSort,    setDeckSort]    = useState('type')   // 'name' | 'cmc' | 'color' | 'type'
-  const [groupByType, setGroupByType] = useState(true)
+  const [groupByType, setGroupByType] = useState(default_grouping !== 'none')
   const [visibleColumns, setVisibleColumns] = useState(DEFAULT_LIST_COLUMNS)
   const [compactVisibleColumns, setCompactVisibleColumns] = useState(DEFAULT_COMPACT_COLUMNS)
   const [builderSfMap, setBuilderSfMap] = useState({})
@@ -1394,6 +1394,10 @@ export default function DeckBuilderPage() {
   useEffect(() => {
     setMeta('deckbuilder_compact_visible_columns_v1', compactVisibleColumns).catch(() => {})
   }, [compactVisibleColumns])
+
+  useEffect(() => {
+    setGroupByType(default_grouping !== 'none')
+  }, [default_grouping])
 
   useEffect(() => {
     let cancelled = false
