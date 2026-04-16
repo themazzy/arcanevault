@@ -17,7 +17,7 @@ import { parseDeckMeta } from '../lib/deckBuilderApi'
 import { useLongPress } from '../hooks/useLongPress'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { fetchDeckAllocations, upsertDeckAllocations } from '../lib/deckData'
-import { getDeckAllocations, getCardsByIds, putCards, replaceDeckAllocations } from '../lib/db'
+import { getDeckAllocations, getCardsByIds, replaceDeckAllocations } from '../lib/db'
 
 // ── Constants (kept for grouping/categorization used in views below) ──────────
 
@@ -647,19 +647,6 @@ export default function DeckBrowser({ folder, onBack }) {
     if (navigator.onLine) {
       try {
         const remote = await fetchDeckAllocations(folder.id)
-        const remoteCards = remote.map(row => ({
-          id: row.card_id,
-          scryfall_id: row.scryfall_id,
-          name: row.name,
-          set_code: row.set_code,
-          collector_number: row.collector_number,
-          foil: row.foil,
-          qty: row.qty,
-          condition: row.condition,
-          language: row.language,
-          purchase_price: row.purchase_price,
-        }))
-        if (remoteCards.length) await putCards(remoteCards)
         await replaceDeckAllocations([folder.id], remote.map(row => ({
           id: row.id,
           deck_id: row.deck_id,
