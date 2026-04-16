@@ -314,6 +314,23 @@ export default function SettingsPage() {
 
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Accessibility</div>
+        <SettingRow label="Body Font" description="Serif feels more arcane; Sans-serif is cleaner and easier to read for long sessions.">
+          <div className={styles.fontWeightOptions}>
+            {[
+              { value: 'serif', label: 'Serif' },
+              { value: 'sans', label: 'Sans-serif' },
+            ].map(({ value, label }) => (
+              <button
+                key={value}
+                className={`${styles.fontOption} ${(settings.body_font ?? 'serif') === value ? styles.fontOptionActive : ''}`}
+                style={{ fontFamily: value === 'sans' ? 'Inter, system-ui, sans-serif' : 'Crimson Pro, Georgia, serif' }}
+                onClick={() => set('body_font', value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </SettingRow>
         <SettingRow label="Font Weight" description="How thick the body text appears - increase if text looks too thin on your screen">
           <div className={styles.fontWeightOptions}>
             {[
@@ -353,8 +370,24 @@ export default function SettingsPage() {
           </div>
         </SettingRow>
         <SettingRow label="Text Preview">
-          <div className={styles.fontPreview}>
-            The quick brown fox jumps over the lazy dog. <em>Italics.</em>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div
+              className={styles.fontPreview}
+              style={{ fontFamily: (settings.body_font ?? 'serif') === 'sans' ? 'Inter, system-ui, sans-serif' : 'Crimson Pro, Georgia, serif' }}
+            >
+              The quick brown fox jumps over the lazy dog. <em>Italics.</em>
+            </div>
+            <div
+              className={styles.fontPreview}
+              style={{
+                fontFamily: (settings.body_font ?? 'serif') === 'sans' ? 'Inter, system-ui, sans-serif' : 'Cinzel, Georgia, serif',
+                letterSpacing: (settings.body_font ?? 'serif') === 'sans' ? '0.02em' : '0.08em',
+                fontSize: '0.8em',
+                opacity: 0.7,
+              }}
+            >
+              Section Header · Card Type · Label
+            </div>
           </div>
         </SettingRow>
         <SettingRow label="Card Name Size" description="Adjust card title size in grids, stacks, and list views.">

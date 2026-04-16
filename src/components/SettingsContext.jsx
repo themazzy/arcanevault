@@ -301,23 +301,6 @@ export const THEMES = {
     glow: '0 0 18px rgba(68,184,176,0.18)',
     focus: '0 0 0 3px rgba(68,184,176,0.12)',
   }),
-  nightshade: createDarkTheme({
-    name: 'Nightshade',
-    lore: 'Midnight roses, velvet shadows, and pale moonlight',
-    bg: '#08050c',
-    bg2: '#0d0812',
-    bg3: '#130c18',
-    accent: '#b87abf',
-    accentDim: '#8a5a90',
-    hi: '#c05878',
-    text: '#e2d4e8',
-    textDim: '#9b88aa',
-    textFaint: '#6e5c7a',
-    border: 'rgba(160,100,180,0.18)',
-    borderHi: 'rgba(184,122,191,0.48)',
-    glow: '0 0 18px rgba(184,122,191,0.20)',
-    focus: '0 0 0 3px rgba(184,122,191,0.14)',
-  }),
 }
 
 const DEFAULTS = {
@@ -331,6 +314,7 @@ const DEFAULTS = {
   list_sort: 'name',
   font_weight: 420,
   font_size: 16,
+  body_font: 'serif',
   theme: 'shadow',
   oled_mode: false,
   nickname: '',
@@ -500,6 +484,12 @@ export function SettingsProvider({ children }) {
 
   useEffect(() => {
     const root = document.documentElement
+    if (settings.body_font === 'sans') root.setAttribute('data-font', 'sans')
+    else root.removeAttribute('data-font')
+  }, [settings.body_font])
+
+  useEffect(() => {
+    const root = document.documentElement
     const sizes = {
       compact: { base: '0.62rem', tight: '0.56rem', list: '0.82rem' },
       default: { base: '0.68rem', tight: '0.60rem', list: '0.88rem' },
@@ -543,7 +533,7 @@ export function SettingsProvider({ children }) {
     try {
       const {
         price_source, default_sort, grid_density, show_price, cache_ttl_h,
-        binder_sort, deck_sort, list_sort, font_weight, font_size, theme, oled_mode, nickname,
+        binder_sort, deck_sort, list_sort, font_weight, font_size, body_font, theme, oled_mode, nickname,
         anonymize_email, reduce_motion, higher_contrast, card_name_size, default_grouping,
         keep_screen_awake, show_sync_errors,
       } = next
@@ -551,7 +541,7 @@ export function SettingsProvider({ children }) {
         {
           user_id: user.id,
           price_source, default_sort, grid_density, show_price, cache_ttl_h,
-          binder_sort, deck_sort, list_sort, font_weight, font_size, theme, oled_mode, nickname,
+          binder_sort, deck_sort, list_sort, font_weight, font_size, body_font, theme, oled_mode, nickname,
           anonymize_email, reduce_motion, higher_contrast, card_name_size, default_grouping,
           keep_screen_awake, show_sync_errors,
           updated_at: new Date().toISOString(),
