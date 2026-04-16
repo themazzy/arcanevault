@@ -13,6 +13,7 @@
   --text-dim:  #a89878;
   --text-faint:#857868;
   --font-serif: 'Crimson Pro', Georgia, serif;
+  --font-sans: 'Inter', system-ui, sans-serif;
   --font-display: 'Cinzel', Georgia, serif;
 
   /* Shared shadows & glows */
@@ -82,6 +83,24 @@
   --scrim-soft: rgba(0,0,0,0.35);
 }
 
+:root[data-font="sans"] {
+  --font-serif: 'Inter', system-ui, sans-serif;
+  --font-display: 'Inter', system-ui, sans-serif;
+  /* Scale down ~8% — Inter's x-height is visually larger than Crimson Pro at the same rem */
+  --font-xs:   0.63rem;
+  --font-sm:   0.72rem;
+  --font-md:   0.81rem;
+  --font-base: 0.87rem;
+  --font-lg:   0.97rem;
+  --font-xl:   1.1rem;
+  --font-2xl:  1.38rem;
+  --font-3xl:  1.84rem;
+  --control-font-size: 0.66rem;
+  --card-name-size: 0.63rem;
+  --card-name-size-tight: 0.55rem;
+  --card-name-size-list: 0.81rem;
+}
+
 :root[data-theme="azorius"] {
   --bg: #edf4fb;
   --bg2: #e0ebf7;
@@ -146,53 +165,6 @@
   --bg: #061117;
   --bg2: #0a1820;
   --bg3: #0e2029;
-}
-
-:root[data-theme="nightshade"] {
-  --bg: #08050c;
-  --bg2: #0d0812;
-  --bg3: #130c18;
-}
-
-/* ── Nightshade: layered atmospheric background ─────────────────────────── */
-/*    Layers (top → bottom): moon disc · moon corona · 8 stars ·            */
-/*    rose ambient · violet mist · bat silhouettes · repeating rose pattern  */
-[data-theme="nightshade"] body {
-  background-image:
-    /* Moon — bright inner disc */
-    radial-gradient(circle 65px at 82% 8%, rgba(245,228,255,0.24) 0%, rgba(215,178,235,0.16) 50%, transparent 80%),
-    /* Moon — soft outer corona */
-    radial-gradient(circle 190px at 82% 8%, rgba(184,122,191,0.10) 0%, transparent 70%),
-    /* Stars */
-    radial-gradient(circle 1.5px at 64%  4%, rgba(255,245,255,0.55) 0%, transparent 100%),
-    radial-gradient(circle 1px   at 72%  3%, rgba(255,245,255,0.42) 0%, transparent 100%),
-    radial-gradient(circle 1px   at 57%  6%, rgba(255,245,255,0.38) 0%, transparent 100%),
-    radial-gradient(circle 1px   at 43%  2%, rgba(255,245,255,0.45) 0%, transparent 100%),
-    radial-gradient(circle 2px   at 30%  5%, rgba(255,245,255,0.35) 0%, transparent 100%),
-    radial-gradient(circle 1px   at 18%  9%, rgba(255,245,255,0.30) 0%, transparent 100%),
-    radial-gradient(circle 1px   at 90% 18%, rgba(255,245,255,0.32) 0%, transparent 100%),
-    radial-gradient(circle 1.5px at  8% 14%, rgba(255,245,255,0.40) 0%, transparent 100%),
-    /* Deep rose ambient — bottom left */
-    radial-gradient(ellipse 35% 28% at -4% 108%, rgba(192,88,120,0.14) 0%, transparent 100%),
-    /* Violet ground mist — bottom centre */
-    radial-gradient(ellipse 90% 22% at 50% 110%, rgba(100,55,130,0.18) 0%, transparent 100%),
-    /* Bat silhouettes — orchid + rose, tiled 560×380 */
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='560' height='380' viewBox='0 0 560 380'%3E%3Cg transform='translate(90,70) scale(1.3)' fill='%23b87abf' opacity='0.07'%3E%3Cellipse cx='0' cy='0' rx='5' ry='4'/%3E%3Cpath d='M-5,-1 Q-13,-10 -19,-4 Q-13,2 -5,1Z'/%3E%3Cpath d='M5,-1 Q13,-10 19,-4 Q13,2 5,1Z'/%3E%3Cpath d='M-3,-4 L-4,-8 L0,-4Z M3,-4 L4,-8 L0,-4Z'/%3E%3C/g%3E%3Cg transform='translate(360,90) scale(0.9) rotate(-14)' fill='%23c05878' opacity='0.06'%3E%3Cellipse cx='0' cy='0' rx='5' ry='4'/%3E%3Cpath d='M-5,-1 Q-13,-10 -19,-4 Q-13,2 -5,1Z'/%3E%3Cpath d='M5,-1 Q13,-10 19,-4 Q13,2 5,1Z'/%3E%3Cpath d='M-3,-4 L-4,-8 L0,-4Z M3,-4 L4,-8 L0,-4Z'/%3E%3C/g%3E%3Cg transform='translate(490,265) scale(0.75) rotate(9)' fill='%23b87abf' opacity='0.055'%3E%3Cellipse cx='0' cy='0' rx='5' ry='4'/%3E%3Cpath d='M-5,-1 Q-13,-10 -19,-4 Q-13,2 -5,1Z'/%3E%3Cpath d='M5,-1 Q13,-10 19,-4 Q13,2 5,1Z'/%3E%3Cpath d='M-3,-4 L-4,-8 L0,-4Z M3,-4 L4,-8 L0,-4Z'/%3E%3C/g%3E%3Cg transform='translate(195,300) scale(0.65) rotate(-6)' fill='%23b87abf' opacity='0.05'%3E%3Cellipse cx='0' cy='0' rx='5' ry='4'/%3E%3Cpath d='M-5,-1 Q-13,-10 -19,-4 Q-13,2 -5,1Z'/%3E%3Cpath d='M5,-1 Q13,-10 19,-4 Q13,2 5,1Z'/%3E%3Cpath d='M-3,-4 L-4,-8 L0,-4Z M3,-4 L4,-8 L0,-4Z'/%3E%3C/g%3E%3C/svg%3E"),
-    /* Rose & thorn silhouettes — tiled 150×150 */
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='150' viewBox='0 0 150 150'%3E%3Cg transform='translate(75,66)' fill='%23b87abf' opacity='0.055'%3E%3Cellipse cx='0' cy='-16' rx='6' ry='10'/%3E%3Cellipse cx='0' cy='-16' rx='6' ry='10' transform='rotate(72)'/%3E%3Cellipse cx='0' cy='-16' rx='6' ry='10' transform='rotate(144)'/%3E%3Cellipse cx='0' cy='-16' rx='6' ry='10' transform='rotate(216)'/%3E%3Cellipse cx='0' cy='-16' rx='6' ry='10' transform='rotate(288)'/%3E%3Ccircle cx='0' cy='0' r='7'/%3E%3Crect x='-1.5' y='7' width='3' height='48' rx='1.5'/%3E%3Cpolygon points='-1.5,26 -9,21 -1.5,32'/%3E%3Cpolygon points='1.5,38 9,33 1.5,44'/%3E%3C/g%3E%3C/svg%3E");
-  background-size:
-    auto, auto,
-    auto, auto, auto, auto, auto, auto, auto, auto,
-    auto, auto,
-    560px 380px,
-    150px 150px;
-  background-repeat:
-    no-repeat, no-repeat,
-    no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat,
-    no-repeat, no-repeat,
-    repeat,
-    repeat;
-  background-attachment: fixed;
 }
 
 /* ── Light theme overrides ───────────────────────────────────────────────── */
