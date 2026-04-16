@@ -1,0 +1,554 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  background: rgba(0,0,0,0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  backdrop-filter: blur(6px);
+}
+
+.modal {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 620px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(201,168,76,0.08);
+  overflow: hidden;
+}
+
+/* ── Header ── */
+.header {
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--s1);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.headerLogo {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  letter-spacing: 0.14em;
+  color: var(--gold);
+}
+.headerLogo span { color: var(--text-faint); }
+
+.progressRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.steps {
+  display: flex;
+  gap: 5px;
+  flex: 1;
+}
+
+.stepDot {
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--s3);
+  transition: background 0.25s;
+}
+.stepDotActive { background: var(--gold); }
+.stepDotDone { background: var(--green); }
+
+.stepLabel {
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  font-family: var(--font-display);
+  white-space: nowrap;
+}
+
+/* ── Body ── */
+.body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+}
+
+/* ── Footer ── */
+.footer {
+  padding: 14px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--s1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.footerRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btnBack {
+  background: none;
+  border: 1px solid var(--s-border2);
+  color: var(--text-dim);
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s;
+}
+.btnBack:hover { background: var(--s-medium); color: var(--text); }
+
+.btnSkip {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-family: inherit;
+  transition: color 0.15s;
+}
+.btnSkip:hover { color: var(--text-dim); }
+.btnSkip:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btnNext {
+  background: var(--gold);
+  border: none;
+  color: var(--bg);
+  padding: 9px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  font-family: inherit;
+  transition: opacity 0.15s;
+}
+.btnNext:hover { opacity: 0.88; }
+.btnNext:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ── Step common ── */
+.stepContent {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.stepTitle {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  color: var(--text);
+  margin: 0;
+  letter-spacing: 0.04em;
+}
+
+.stepDesc {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  margin: 0;
+  line-height: 1.6;
+}
+
+/* ── Welcome step ── */
+.welcomeGlyph {
+  font-size: 2.8rem;
+  color: var(--gold);
+  line-height: 1;
+}
+
+.featureList {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.featureItem {
+  background: var(--s2);
+  border: 1px solid var(--border);
+  border-top: 2px solid rgba(201,168,76,0.35);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.featureItemTitle {
+  font-size: 0.84rem;
+  color: var(--text);
+  font-weight: 500;
+  margin-bottom: 3px;
+}
+
+.featureItemDesc {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+/* ── Theme step ── */
+.themeGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+  gap: 8px;
+}
+
+.themeSwatch {
+  background: var(--sw-bg, var(--bg2));
+  border: 1.5px solid transparent;
+  border-radius: 8px;
+  padding: 10px 10px 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, transform 0.15s;
+  position: relative;
+  outline: none;
+}
+.themeSwatch:hover { transform: translateY(-1px); border-color: var(--sw-accent); }
+.themeSwatch:focus-visible { outline: 2px solid var(--sw-accent); outline-offset: 2px; }
+.themeSwatchActive {
+  border-color: var(--sw-accent) !important;
+  box-shadow: 0 0 0 1px var(--sw-accent);
+}
+
+.swatchBar {
+  display: flex;
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 9px;
+}
+
+.swatchName {
+  font-size: 0.84rem;
+  color: var(--sw-text, var(--text));
+  font-weight: 500;
+}
+
+.swatchLore {
+  font-size: 0.68rem;
+  color: var(--sw-text, var(--text));
+  opacity: 0.5;
+  margin-top: 3px;
+  line-height: 1.35;
+}
+
+.swatchCheck {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  font-size: 0.82rem;
+  color: var(--sw-accent, var(--gold));
+  font-weight: 700;
+}
+
+/* ── Price step ── */
+.priceList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.priceOption {
+  background: var(--s2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 13px 16px;
+  cursor: pointer;
+  text-align: left;
+  position: relative;
+  transition: border-color 0.15s, background 0.15s;
+  outline: none;
+}
+.priceOption:hover { border-color: var(--border-hi); background: var(--s3); }
+.priceOption:focus-visible { outline: 2px solid var(--border-hi); outline-offset: 2px; }
+.priceOptionActive {
+  border-color: var(--gold) !important;
+  background: var(--s3) !important;
+}
+
+.priceOptionLabel {
+  font-size: 0.9rem;
+  color: var(--text);
+  font-weight: 500;
+  margin-bottom: 3px;
+}
+
+.priceOptionDesc {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+.priceCheck {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  transform: translateY(-50%);
+  color: var(--gold);
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+/* ── Profile step ── */
+.nicknameInput {
+  background: var(--s2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 16px;
+  color: var(--text);
+  font-size: 1.05rem;
+  font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.nicknameInput:focus {
+  border-color: var(--border-hi);
+  box-shadow: var(--input-focus);
+}
+.nicknameInput::placeholder { color: var(--text-faint); }
+
+.nicknameMeta {
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  text-align: right;
+  margin-top: -8px;
+}
+
+/* ── Toggle ── */
+.toggle {
+  width: 42px;
+  height: 24px;
+  border-radius: 12px;
+  background: var(--s3);
+  border: 1px solid var(--s-border2);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+  flex-shrink: 0;
+  padding: 0;
+}
+.toggleOn {
+  background: var(--gold);
+  border-color: var(--gold);
+}
+.toggleKnob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  transition: transform 0.2s, background 0.2s;
+}
+.toggleOn .toggleKnob {
+  transform: translateX(18px);
+  background: var(--bg);
+}
+
+/* ── Toggle rows (used in Theme + Text steps) ── */
+.toggleRows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.toggleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 16px;
+  background: var(--s2);
+  border-bottom: 1px solid var(--border);
+}
+.toggleRow:last-child { border-bottom: none; }
+
+.toggleRowLabel { flex: 1; min-width: 0; }
+.toggleRowTitle { font-size: 0.88rem; color: var(--text); }
+.toggleRowDesc { font-size: 0.75rem; color: var(--text-dim); margin-top: 2px; line-height: 1.4; font-style: italic; }
+
+/* ── Text step ── */
+.textGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.textGroupLabel {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  font-family: var(--font-display);
+}
+
+.optionRow {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.optionBtn {
+  padding: 7px 14px;
+  background: var(--s2);
+  border: 1px solid var(--s-border2);
+  border-radius: 6px;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.optionBtn:hover { background: var(--s3); color: var(--text); }
+.optionBtnActive {
+  background: rgba(201,168,76,0.15) !important;
+  border-color: rgba(201,168,76,0.5) !important;
+  color: var(--gold) !important;
+}
+
+.densityPreview {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  align-items: start;
+}
+
+/* min-width:0 is essential — without it grid items can overflow their column */
+.densityCard {
+  min-width: 0;
+  cursor: default;
+}
+
+.densityCardImg {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 63 / 88;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--s2);
+  border: 1px solid rgba(180,140,60,0.14);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+}
+.densityCardImg img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.densityCardImgFallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+  color: var(--text-faint);
+  text-align: center;
+  padding: 4px;
+}
+.densityCardImgSkeleton {
+  background: linear-gradient(90deg, var(--s2) 25%, var(--s3) 50%, var(--s2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+}
+
+.densityCardName {
+  font-family: var(--font-display);
+  font-size: 0.58rem;
+  color: var(--gold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 4px 1px 0;
+  line-height: 1.3;
+}
+
+.densityCardMeta {
+  font-size: 0.52rem;
+  color: var(--text-faint);
+  padding: 1px 1px 0;
+}
+
+.densitySkeletonLine {
+  height: 5px;
+  border-radius: 2px;
+  background: var(--s3);
+  margin-top: 4px;
+  width: 100%;
+}
+
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.textPreviewBox {
+  background: var(--s2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.textPreviewBody {
+  font-size: 0.9rem;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.textPreviewDisplay {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  opacity: 0.8;
+}
+
+/* ── Done step ── */
+.doneGlyph {
+  font-size: 2.8rem;
+  color: var(--gold);
+  line-height: 1;
+}
+
+.doneNote {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  padding: 12px 14px;
+  background: var(--s2);
+  border-radius: 6px;
+  border-left: 2px solid rgba(201,168,76,0.45);
+  line-height: 1.5;
+}
+
+/* ── Responsive ── */
+@media (max-width: 500px) {
+  .featureList { grid-template-columns: 1fr; }
+  .themeGrid { grid-template-columns: repeat(2, 1fr); }
+  .header { padding: 14px 16px 12px; }
+  .body { padding: 16px; }
+  .footer { padding: 12px 16px; }
+  .stepTitle { font-size: 1.2rem; }
+  .btnNext { padding: 8px 16px; font-size: 0.85rem; }
+}

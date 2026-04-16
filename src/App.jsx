@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth, LoginPage } from './components/Auth'
 import { SettingsProvider } from './components/SettingsContext'
+import { SetupWizardProvider } from './components/SetupWizard'
 import Layout from './components/Layout'
 import HomePage from './pages/Home'
 import CollectionPage from './pages/Collection'
@@ -26,6 +27,7 @@ function PrivateApp() {
   if (!user) return <LoginPage />
   return (
     <SettingsProvider>
+      <SetupWizardProvider>
       <Layout>
         <Routes>
           <Route path="/"            element={<HomePage />} />
@@ -45,6 +47,7 @@ function PrivateApp() {
           <Route path="*"            element={<Navigate to="/" />} />
         </Routes>
       </Layout>
+      </SetupWizardProvider>
     </SettingsProvider>
   )
 }
