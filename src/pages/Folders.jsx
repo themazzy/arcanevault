@@ -13,6 +13,7 @@ import ExportModal from '../components/ExportModal'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import DeckBrowser from './DeckBrowser'
 import styles from './Folders.module.css'
+import { SettingsIcon } from '../icons'
 import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
@@ -278,7 +279,7 @@ function GroupSection({ group, folders, folderMeta, priceSource, selectMode, sel
         <ResponsiveMenu
           title="Group Actions"
           wrapClassName={styles.groupCogWrap}
-          trigger={({ toggle }) => <button className={styles.groupCogBtn} onClick={e => { e.stopPropagation(); toggle() }}>⚙</button>}
+          trigger={({ toggle }) => <button className={styles.groupCogBtn} onClick={e => { e.stopPropagation(); toggle() }}><SettingsIcon size={13} /></button>}
         >
           {({ close }) => (
             <div className={uiStyles.responsiveMenuList}>
@@ -397,7 +398,7 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
           onOpenChange={setMenuOpen}
           trigger={({ toggle }) => (
             <button className={styles.cogBtn} onClick={e => { e.stopPropagation(); toggle() }} title="Options">
-            ⚙
+            <SettingsIcon size={14} />
           </button>
           )}
         >

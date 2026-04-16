@@ -24,6 +24,7 @@ import { fetchDeckAllocations, fetchDeckAllocationsForUser, fetchDeckCards, upse
 import { planDeckAllocations } from '../lib/deckAllocationPlanner'
 import { formatPrice, getPrice } from '../lib/scryfall'
 import { getPublicAppUrl } from '../lib/publicUrl'
+import { ListViewIcon, StacksViewIcon, GridViewIcon, SettingsIcon } from '../icons'
 
 // Upgrade a Scryfall CDN image to large quality regardless of stored size variant
 function toLargeImg(uri) {
@@ -220,7 +221,7 @@ function EditMenu({ dc, isEDH, onSetCommander, onToggleFoil, onPickVersion }) {
           className={styles.editBtn}
           onClick={e => { e.stopPropagation(); toggle() }}
           title="Edit"
-        >⚙</button>
+        ><SettingsIcon size={13} /></button>
       )}
     >
       {({ close }) => (
@@ -239,7 +240,7 @@ function EditMenu({ dc, isEDH, onSetCommander, onToggleFoil, onPickVersion }) {
             <span>{dc.foil ? '✦ Remove Foil' : '◇ Mark as Foil'}</span>
           </button>
           <button className={uiStyles.responsiveMenuAction} onClick={() => { onPickVersion(dc); close() }}>
-            <span>⚙ Change Version</span>
+            <span><SettingsIcon size={12} /> Change Version</span>
           </button>
           {dc.qty > 1 && (
             <button className={uiStyles.responsiveMenuAction} onClick={() => { onPickVersion(dc, { splitOne: true }); close() }}>
@@ -3137,10 +3138,14 @@ export default function DeckBuilderPage() {
             {deckCards.length > 0 && (
               <div className={styles.deckToolbar}>
                 <div className={styles.toolbarGroup}>
-                  {[['list','≡'],['compact','⊟'],['visual','⊞']].map(([v, icon]) => (
+                  {[
+                    ['list',    ListViewIcon],
+                    ['compact', StacksViewIcon],
+                    ['visual',  GridViewIcon],
+                  ].map(([v, ViewIcon]) => (
                     <button key={v} className={`${styles.viewBtn}${deckView === v ? ' '+styles.viewBtnActive : ''}`}
                       onClick={() => setDeckView(v)} title={v}>
-                      {icon}
+                      <ViewIcon size={13} />
                     </button>
                   ))}
                 </div>
@@ -3156,7 +3161,7 @@ export default function DeckBuilderPage() {
                   className={`${styles.groupToggle}${groupByType ? ' '+styles.groupToggleActive : ''}`}
                   onClick={() => setGroupByType(v => !v)}
                   title="Toggle type grouping">
-                  ≡ Grouped
+                  <ListViewIcon size={12} /> Grouped
                 </button>
                 {(deckView === 'list' || deckView === 'compact') && (
                   <ResponsiveMenu

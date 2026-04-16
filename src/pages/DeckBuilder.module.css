@@ -1582,6 +1582,8 @@
 }
 
 .viewBtn {
+  display: inline-flex;
+  align-items: center;
   min-height: 30px;
   background: rgba(255,255,255,0.04);
   border: 1px solid rgba(255,255,255,0.16);
@@ -1872,6 +1874,9 @@
 
 /* ── Group toggle ────────────────────────────────────────────── */
 .groupToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   margin-left: auto;
   background: none;
   border: 1px solid var(--border);

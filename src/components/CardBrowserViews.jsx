@@ -4,6 +4,7 @@ import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
 import { useLongPress } from '../hooks/useLongPress'
 import uiStyles from './UI.module.css'
 import styles from '../pages/DeckBrowser.module.css'
+import { GridViewIcon, StacksViewIcon, TextViewIcon, TableViewIcon } from '../icons'
 
 const NON_DRAGGABLE_IMG_PROPS = {
   draggable: false,
@@ -58,10 +59,10 @@ export const CARD_BROWSER_GROUP_OPTIONS = [
 ]
 
 export const CARD_BROWSER_VIEW_MODES = [
-  { id: 'stacks', label: 'Stacks', desktopLabel: '⊟ Stacks' },
-  { id: 'text', label: 'Text', desktopLabel: '¶ Text' },
-  { id: 'grid', label: 'Grid', desktopLabel: '⊞ Grid' },
-  { id: 'table', label: 'Table', desktopLabel: '≡ Table' },
+  { id: 'stacks', label: 'Stacks', Icon: StacksViewIcon },
+  { id: 'text',   label: 'Text',   Icon: TextViewIcon },
+  { id: 'grid',   label: 'Grid',   Icon: GridViewIcon },
+  { id: 'table',  label: 'Table',  Icon: TableViewIcon },
 ]
 
 function getDisplayKey(card) {
@@ -955,8 +956,10 @@ export function CardBrowserViewControls({ viewMode, setViewMode, groupBy, setGro
                 key={mode.id}
                 className={`${styles.viewBtn} ${viewMode === mode.id ? styles.viewActive : ''}`}
                 onClick={() => setViewMode(mode.id)}
+                title={mode.label}
               >
-                {mode.desktopLabel}
+                <mode.Icon size={13} />
+                <span>{mode.label}</span>
               </button>
             ))}
           </div>
