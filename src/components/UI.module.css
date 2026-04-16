@@ -809,10 +809,13 @@
     -webkit-backdrop-filter: blur(6px);
     z-index: 139;
     cursor: pointer;
+    touch-action: manipulation;
+    pointer-events: all;
     animation: responsiveMenuBackdropIn 0.22s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .responsiveMenuBackdropClosing {
+    pointer-events: all;
     animation: responsiveMenuBackdropOut 0.22s cubic-bezier(0.4, 0, 0.2, 1) forwards;
   }
 

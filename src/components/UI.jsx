@@ -350,7 +350,9 @@ export function ResponsiveMenu({
   const [desktopPanelStyle, setDesktopPanelStyle] = useState(null)
   const ref = useRef(null)
   const panelRef = useRef(null)
+  const backdropRef = useRef(null)
   const closeTimeoutRef = useRef(null)
+  const closeMenuRef = useRef(null)
 
   const clearCloseTimeout = () => {
     if (closeTimeoutRef.current) {
@@ -438,6 +440,23 @@ export function ResponsiveMenu({
 
   useEffect(() => () => clearCloseTimeout(), [])
 
+  // Keep a stable ref so the native touchstart handler never goes stale
+  closeMenuRef.current = closeMenu
+
+  // Attach touchstart as non-passive so preventDefault actually works,
+  // preventing the synthetic click that would otherwise activate elements beneath
+  useEffect(() => {
+    const el = backdropRef.current
+    if (!el) return
+    const handler = (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      closeMenuRef.current?.()
+    }
+    el.addEventListener('touchstart', handler, { passive: false })
+    return () => el.removeEventListener('touchstart', handler, { passive: false })
+  }, [rendered])
+
   const toggleMenu = () => {
     if (rendered && !closing) closeMenu()
     else openMenu()
@@ -449,7 +468,6 @@ export function ResponsiveMenu({
   }, [open, onOpenChange])
 
   const handleBackdropPointerDown = (e) => {
-    e.preventDefault()
     e.stopPropagation()
     closeMenu()
   }
@@ -460,12 +478,12 @@ export function ResponsiveMenu({
       {rendered && (
         <>
           <button
+            ref={backdropRef}
             type="button"
             className={`${styles.responsiveMenuBackdrop} ${closing ? styles.responsiveMenuBackdropClosing : ''}`}
             aria-label={`Close ${title}`}
             onMouseDown={handleBackdropPointerDown}
-            onTouchStart={handleBackdropPointerDown}
-            onClick={closeMenu}
+            onClick={e => { e.stopPropagation(); closeMenu() }}
           />
           <div
             ref={panelRef}
