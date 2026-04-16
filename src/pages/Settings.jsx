@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
 import { maskEmailAddress, THEMES, useSettings } from '../components/SettingsContext'
+import { useSetupWizard } from '../components/SetupWizard'
 import { clearScryfallCache, PRICE_SOURCES } from '../lib/scryfall'
 import { getDbStats } from '../lib/db'
 import { Button, SectionHeader, Select as UISelect } from '../components/UI'
@@ -217,6 +218,7 @@ function CacheStatus({ ttlH, onClear }) {
 export default function SettingsPage() {
   const { user } = useAuth()
   const settings = useSettings()
+  const { open: openWizard } = useSetupWizard()
   const [emailNew, setEmailNew] = useState('')
   const [pwMsg, setPwMsg] = useState('')
   const [pwError, setPwError] = useState('')
@@ -532,6 +534,9 @@ export default function SettingsPage() {
 
       <div className={styles.section}>
         <div className={styles.sectionTitle}>App</div>
+        <SettingRow label="Setup Wizard" description="Rerun the first-time setup to pick your theme, price market, and nickname.">
+          <Button size="sm" onClick={openWizard}>Rerun Setup</Button>
+        </SettingRow>
         <SettingRow label="Version" description="Installed app version for this build.">
           <span className={styles.appVersion}>v{APP_VERSION}</span>
         </SettingRow>
