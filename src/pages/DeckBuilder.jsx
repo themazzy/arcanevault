@@ -1364,6 +1364,7 @@ export default function DeckBuilderPage() {
   const addFeedbackRef = useRef(null)
   const hoverPreviewKey = useRef(null)
   const hoverPreviewTimer = useRef(null)
+  const importingRef = useRef(false)
 
   useEffect(() => {
     let ignore = false
@@ -2128,6 +2129,8 @@ export default function DeckBuilderPage() {
   // ── Convert to collection deck ────────────────────────────────────────────
   // ── Deck import ──────────────────────────────────────────────────────────
   async function handleImport() {
+    if (importingRef.current) return
+    importingRef.current = true
     setImportError(null)
     setImportDone(null)
     setImporting(true)
@@ -2202,6 +2205,7 @@ export default function DeckBuilderPage() {
       setImportError(err.message)
     }
     setImporting(false)
+    importingRef.current = false
   }
 
   async function updateCardVersion(versionTarget, sfCard) {
