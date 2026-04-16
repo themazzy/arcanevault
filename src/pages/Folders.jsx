@@ -505,7 +505,7 @@ function BinderListView({ cards, sfMap, priceSource }) {
 
 // ── FolderBrowser ─────────────────────────────────────────────────────────────
 function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder', onBack }) {
-  const { price_source, default_sort, default_grouping, grid_density } = useSettings()
+  const { price_source, default_sort, grid_density } = useSettings()
   const { user } = useAuth()
   const [cards, setCards]             = useState([])
   const [sfMap, setSfMap]             = useState({})
@@ -521,7 +521,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
   const [showAddCard, setShowAddCard] = useState(false)
   const [showExport, setShowExport]   = useState(false)
   const [viewMode, setViewMode]       = useState('grid')
-  const [groupBy, setGroupBy]         = useState(default_grouping || 'type')
+  const [groupBy, setGroupBy]         = useState('none')
   const [hoverImg, setHoverImg]       = useState(null)
   const [hoverPos, setHoverPos]       = useState({ x: 0, y: 0 })
   const isAllView = !folder
@@ -572,10 +572,6 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
     }
     load()
   }, [folder?.id, folderIds, folders, isAllView])
-
-  useEffect(() => {
-    setGroupBy(default_grouping || 'type')
-  }, [default_grouping])
 
   useEffect(() => {
     sb.from('folders').select('id, name, type').then(({ data }) => setAllFolders(data || []))

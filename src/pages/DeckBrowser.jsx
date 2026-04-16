@@ -600,7 +600,7 @@ function DeckCardGrid({ cards, sfMap, priceSource, onSelect, onHover, onHoverEnd
 
 export default function DeckBrowser({ folder, onBack }) {
   const navigate = useNavigate()
-  const { price_source, default_sort, default_grouping, grid_density } = useSettings()
+  const { price_source, default_sort, grid_density } = useSettings()
   const { user } = useAuth()
   const [cards, setCards]           = useState([])
   const [sfMap, setSfMap]           = useState({})
@@ -608,7 +608,7 @@ export default function DeckBrowser({ folder, onBack }) {
   const [detailCardId, setDetailCardId] = useState(null)
   const [allFolders, setAllFolders] = useState([])
   const [viewMode, setViewMode]     = useState('grid')
-  const [groupBy, setGroupBy]       = useState(default_grouping || 'type')
+  const [groupBy, setGroupBy]       = useState('none')
   const [bracketOverride, setBracketOverride] = useState(null)
   const [search, setSearch]     = useState('')
   const [sort, setSort]         = useState('cmc_asc')
@@ -692,10 +692,6 @@ export default function DeckBrowser({ folder, onBack }) {
   }, [folder.id])
 
   useEffect(() => { loadCards() }, [loadCards])
-
-  useEffect(() => {
-    setGroupBy(default_grouping || 'type')
-  }, [default_grouping])
 
   // Fetch all folders for "Move to" dropdown (RLS filters by user automatically)
   useEffect(() => {

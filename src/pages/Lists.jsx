@@ -209,7 +209,7 @@ function WishlistItem({ item, sfCard, priceSource, onDelete, selectMode, selecte
 
 // ── ListBrowser ───────────────────────────────────────────────────────────────
 function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
-  const { price_source, default_sort, default_grouping, grid_density } = useSettings()
+  const { price_source, default_sort, grid_density } = useSettings()
   const { user } = useAuth()
   const [items, setItems]       = useState([])
   const [sfMap, setSfMap]       = useState({})
@@ -225,7 +225,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
   const [showImport, setShowImport]       = useState(false)
   const [showExport, setShowExport]       = useState(false)
   const [viewMode, setViewMode]           = useState('grid')
-  const [groupBy, setGroupBy]             = useState(default_grouping || 'type')
+  const [groupBy, setGroupBy]             = useState('none')
   const [selectedItemId, setSelectedItemId] = useState(null)
   const [hoverImg, setHoverImg]           = useState(null)
   const [hoverPos, setHoverPos]           = useState({ x: 0, y: 0 })
@@ -272,10 +272,6 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
   }, [folder?.id, folderIds, isAllView])
 
   useEffect(() => { reload() }, [reload])
-
-  useEffect(() => {
-    setGroupBy(default_grouping || 'type')
-  }, [default_grouping])
 
   useEffect(() => {
     if (folders.length) {
