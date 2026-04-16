@@ -151,6 +151,40 @@
   font-size: 0.88rem;
 }
 
+.listLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  padding: 2px 0;
+  flex-shrink: 0;
+}
+
+.listLabel::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--s-border);
+}
+
+.foilBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.63rem;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(160, 120, 240, 0.12);
+  border: 1px solid rgba(160, 120, 240, 0.28);
+  color: var(--purple, #b48ef0);
+  font-weight: 500;
+  letter-spacing: 0;
+  flex-shrink: 0;
+}
+
 .selectorList,
 .selectedList {
   display: flex;
@@ -390,14 +424,13 @@
   border: 1px solid var(--border);
   color: var(--text-dim);
   border-radius: 4px;
-  padding: 4px 6px;
+  padding: 6px 8px;
   cursor: pointer;
-  margin-left: 2px;
 }
 
 .editPriceBtn svg {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
 }
 
 .qtyBtn,
@@ -655,6 +688,82 @@
   }
 }
 
+@media (max-width: 600px) {
+  .intro {
+    display: none;
+  }
+
+  .summaryGrid {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  /* Settlement card spans both columns, button docked right */
+  .summaryCard:last-child {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto auto;
+    column-gap: 12px;
+  }
+
+  .summaryCard:last-child .summaryLabel {
+    grid-column: 1 / -1;
+  }
+
+  .summaryCard:last-child .tradeBtn {
+    grid-column: 2;
+    grid-row: 2 / 4;
+    align-self: center;
+    margin-top: 0;
+    width: auto;
+    padding: 8px 16px;
+    white-space: nowrap;
+  }
+
+  .summaryCard {
+    padding: 10px 12px;
+  }
+
+  .summaryLabel {
+    font-size: 0.6rem;
+    margin-bottom: 3px;
+  }
+
+  .summaryValue {
+    font-size: 1.05rem;
+  }
+
+  .summarySub {
+    font-size: 0.74rem;
+    margin-top: 4px;
+  }
+}
+
+@media (max-width: 380px) {
+  .panel {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .selectorList {
+    max-height: 280px;
+  }
+
+  .tradeActions {
+    grid-template-columns: 32px 40px 32px 1fr;
+    gap: 6px;
+  }
+
+  .qtyBtn {
+    width: 32px;
+  }
+
+  .qtyVal {
+    min-width: 40px;
+  }
+}
+
 @media (max-width: 560px) {
   .tradeRow {
     grid-template-columns: 1fr;
@@ -665,9 +774,12 @@
     min-width: 0;
   }
 
-  .foilBtn,
-  .removeBtn {
+  .foilBtn {
     grid-column: auto;
+  }
+
+  .removeBtn {
+    grid-column: 1 / -1;
   }
 
   .tradeCard {

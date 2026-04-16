@@ -341,6 +341,13 @@ function OptionPickerModal({ title, options, onClose, onSelect, mode, priceSourc
                   />
                   {mode === 'offer' && (
                     <FieldBlock
+                      label="Finish"
+                      value={option.card?.foil ? 'Foil' : 'Non-foil'}
+                      accent={!!option.card?.foil}
+                    />
+                  )}
+                  {mode === 'offer' && (
+                    <FieldBlock
                       label="Location"
                       value={(
                         <span className={styles.optionFieldInline}>
@@ -1047,42 +1054,49 @@ export default function TradingPage() {
           )}
 
           {collectionQuery.trim() && collectionLoaded && (
-            <div className={styles.selectorList}>
-              {offerSearchResults.slice(0, 80).map(group => {
-                const preview = group.options[0]
-                const previewCard = preview?.card
-                const previewSf = previewCard ? sfMap[`${previewCard.set_code}-${previewCard.collector_number}`] || preview.sf : null
-                const selectedQty = group.options.reduce((sum, option) => sum + (offerQtyById[option.id] || 0), 0)
-                const unitPrice = previewCard ? getPrice(previewSf, previewCard.foil, { price_source, cardId: previewCard.id }) : null
-                return (
-                  <button
-                    key={group.id}
-                    className={styles.selectorItem}
-                    onClick={() => handleOfferSearchSelect(group)}
-                    type="button"
-                  >
-                    {group.image || getImageUri(previewSf, 'small')
-                      ? <img src={group.image || getImageUri(previewSf, 'small')} alt="" className={styles.selectorImg} loading="lazy" />
-                      : <div className={styles.selectorImgPlaceholder}>No art</div>}
-                    <div className={styles.selectorMeta}>
-                      <div className={styles.selectorName}>{group.name}</div>
-                      <div className={styles.selectorSub}>
-                        <span>{group.printingCount} printing{group.printingCount !== 1 ? 's' : ''}</span>
-                        <span>{group.sourceCount} location{group.sourceCount !== 1 ? 's' : ''}</span>
+            <>
+              {offerSearchResults.length > 0 && <div className={styles.listLabel}>Search results</div>}
+              <div className={styles.selectorList}>
+                {offerSearchResults.slice(0, 80).map(group => {
+                  const preview = group.options[0]
+                  const previewCard = preview?.card
+                  const previewSf = previewCard ? sfMap[`${previewCard.set_code}-${previewCard.collector_number}`] || preview.sf : null
+                  const selectedQty = group.options.reduce((sum, option) => sum + (offerQtyById[option.id] || 0), 0)
+                  const foilCount = group.options.filter(opt => !!opt.card?.foil).length
+                  return (
+                    <button
+                      key={group.id}
+                      className={styles.selectorItem}
+                      onClick={() => handleOfferSearchSelect(group)}
+                      type="button"
+                    >
+                      {group.image || getImageUri(previewSf, 'small')
+                        ? <img src={group.image || getImageUri(previewSf, 'small')} alt="" className={styles.selectorImg} loading="lazy" />
+                        : <div className={styles.selectorImgPlaceholder}>No art</div>}
+                      <div className={styles.selectorMeta}>
+                        <div className={styles.selectorName}>{group.name}</div>
+                        <div className={styles.selectorSub}>
+                          <span>{group.printingCount} printing{group.printingCount !== 1 ? 's' : ''}</span>
+                          <span>{group.sourceCount} location{group.sourceCount !== 1 ? 's' : ''}</span>
+                          {foilCount > 0 && <span className={styles.foilBadge}>✦ {foilCount === group.options.length ? 'Foil' : `${foilCount} foil`}</span>}
+                        </div>
                       </div>
-                    </div>
-                    <div className={styles.selectorAside}>
-                      <div className={styles.selectorPick}>{selectedQty > 0 ? `${selectedQty} selected` : 'Choose'}</div>
-                    </div>
-                  </button>
-                )
-              })}
-              {collectionLoaded && offerSearchResults.length === 0 && (
-                <EmptyState>No placed collection cards match this search.</EmptyState>
-              )}
-            </div>
+                      <div className={styles.selectorAside}>
+                        <div className={styles.selectorPick}>{selectedQty > 0 ? `${selectedQty} selected` : 'Choose'}</div>
+                      </div>
+                    </button>
+                  )
+                })}
+                {collectionLoaded && offerSearchResults.length === 0 && (
+                  <EmptyState>No placed collection cards match this search.</EmptyState>
+                )}
+              </div>
+            </>
           )}
 
+          {(offerItems.length > 0 || !collectionQuery.trim()) && (
+            <div className={styles.listLabel}>{offerItems.length > 0 ? 'Selected' : 'Your cards'}</div>
+          )}
           <div className={styles.selectedList}>
             {offerItems.length === 0 ? (
               <EmptyState>No cards selected from your collection yet.</EmptyState>
@@ -1131,39 +1145,43 @@ export default function TradingPage() {
             placeholder="Search any card or printing you want..."
           />
 
-          <div className={styles.selectorList}>
-            {wantedLoading && <div className={styles.searchState}>Searching Scryfall...</div>}
-            {!wantedLoading && wantedError && <div className={styles.searchState}>{wantedError}</div>}
-            {!wantedLoading && !wantedError && wantedResults.map(group => {
-              const preview = group.options[0]
-              const unitPrice = preview ? getPrice(preview, false, { price_source, cardId: preview.id }) : null
-              return (
-                <button
-                  key={group.id}
-                  className={styles.selectorItem}
-                  onClick={() => handleWantSearchSelect(group)}
-                  type="button"
-                >
-                  {group.image
-                    ? <img src={group.image} alt="" className={styles.selectorImg} loading="lazy" />
-                    : <div className={styles.selectorImgPlaceholder}>No art</div>}
-                  <div className={styles.selectorMeta}>
-                    <div className={styles.selectorName}>{group.name}</div>
-                    <div className={styles.selectorSub}>
-                      <span>{group.printingCount} printing{group.printingCount !== 1 ? 's' : ''} available</span>
+          {(wantedLoading || wantedResults.length > 0 || (!wantedLoading && wantedError)) && (
+            <>
+              {wantedResults.length > 0 && !wantedLoading && <div className={styles.listLabel}>Search results</div>}
+              <div className={styles.selectorList}>
+                {wantedLoading && <div className={styles.searchState}>Searching Scryfall...</div>}
+                {!wantedLoading && wantedError && <div className={styles.searchState}>{wantedError}</div>}
+                {!wantedLoading && !wantedError && wantedResults.map(group => (
+                  <button
+                    key={group.id}
+                    className={styles.selectorItem}
+                    onClick={() => handleWantSearchSelect(group)}
+                    type="button"
+                  >
+                    {group.image
+                      ? <img src={group.image} alt="" className={styles.selectorImg} loading="lazy" />
+                      : <div className={styles.selectorImgPlaceholder}>No art</div>}
+                    <div className={styles.selectorMeta}>
+                      <div className={styles.selectorName}>{group.name}</div>
+                      <div className={styles.selectorSub}>
+                        <span>{group.printingCount} printing{group.printingCount !== 1 ? 's' : ''} available</span>
+                      </div>
                     </div>
-                  </div>
-                  <div className={styles.selectorAside}>
-                    <div className={styles.selectorPick}>Choose</div>
-                  </div>
-                </button>
-              )
-            })}
-            {!wantedLoading && !wantedError && wantedQuery.trim() && wantedResults.length === 0 && (
-              <EmptyState>No Scryfall results for this search.</EmptyState>
-            )}
-          </div>
+                    <div className={styles.selectorAside}>
+                      <div className={styles.selectorPick}>Choose</div>
+                    </div>
+                  </button>
+                ))}
+                {!wantedLoading && !wantedError && wantedQuery.trim() && wantedResults.length === 0 && (
+                  <EmptyState>No Scryfall results for this search.</EmptyState>
+                )}
+              </div>
+            </>
+          )}
 
+          {(wantItems.length > 0 || !wantedQuery.trim()) && (
+            <div className={styles.listLabel}>{wantItems.length > 0 ? 'Selected' : 'Cards you want'}</div>
+          )}
           <div className={styles.selectedList}>
             {wantItems.length === 0 ? (
               <EmptyState>No wanted cards added yet.</EmptyState>
