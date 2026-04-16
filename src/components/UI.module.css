@@ -492,6 +492,28 @@
   pointer-events: none;
 }
 
+@media (max-width: 480px) {
+  /* Title on its own line; action shell fills the row beneath */
+  .sectionHeader {
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+
+  .sectionTitle {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .headerActionShell {
+    flex: 0 0 100%;
+  }
+
+  .headerActionMobile {
+    width: 100%;
+  }
+}
+
 @media (max-width: 980px) {
   .sectionHeader {
     align-items: flex-start;
