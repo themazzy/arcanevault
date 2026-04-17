@@ -243,6 +243,38 @@ export function computeHashFromGrayGlare(grayU8) {
 }
 
 /**
+ * Variant of computeHashFromGray for dark art cards (Swamp, Phyrexian cards, etc).
+ * Stretches the dark dynamic range before hashing so CLAHE has more signal to work with.
+ * percentileCap(0.98) is a no-op on dark images; this replaces it with a linear floor-stretch.
+ * Does NOT change stored DB hashes — only used client-side for re-hashing on miss.
+ */
+export function computeHashFromGrayDark(grayU8) {
+  if (grayU8.length !== 1024) throw new Error(`Expected 1024 gray pixels, got ${grayU8.length}`)
+  const sorted = grayU8.slice().sort((a, b) => a - b)
+  const p95 = sorted[Math.floor(grayU8.length * 0.95)]
+  const scale = p95 > 10 ? Math.min(3.0, 200 / p95) : 1.0
+  const stretched = new Uint8Array(1024)
+  for (let i = 0; i < 1024; i++)
+    stretched[i] = Math.min(255, Math.round(grayU8[i] * scale))
+  const equalized = applyCLAHE(stretched, 32, 32)
+  const pixels = new Float64Array(1024)
+  for (let i = 0; i < 1024; i++) pixels[i] = equalized[i]
+  const dct = dct2d(pixels, 32)
+  const coeffs = new Float64Array(256)
+  for (let y = 0; y < 16; y++)
+    for (let x = 0; x < 16; x++)
+      coeffs[y * 16 + x] = dct[y * 32 + x]
+  let sum = 0
+  for (let i = 1; i < 256; i++) sum += coeffs[i]
+  const mean = sum / 255
+  const hash = new Uint32Array(8)
+  for (let i = 0; i < 256; i++) {
+    if (coeffs[i] > mean) hash[i >>> 5] |= 1 << (i & 31)
+  }
+  return hash
+}
+
+/**
  * Convert 32×32 grayscale Uint8Array to BT.709 from raw RGB(A) buffer.
  * Works with both 3-channel (RGB) and 4-channel (RGBA) input.
  */

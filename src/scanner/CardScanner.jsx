@@ -31,7 +31,7 @@ import { databaseService } from './DatabaseService'
 import {
   waitForOpenCV,
   detectCardCorners, warpCard, cropArtRegion, cropCardFromReticle,
-  computePHash256, computePHash256Foil, rotateCard180,
+  computePHash256, computePHash256Foil, computePHash256Dark, rotateCard180,
 } from './ScannerEngine'
 import { useAuth } from '../components/Auth'
 import { formatPriceMeta, getPriceWithMeta, sfGet } from '../lib/scryfall'
@@ -386,7 +386,6 @@ export default function CardScanner({ onMatch, onClose }) {
 
   const videoRef          = useRef(null)
   const canvasRef         = useRef(null)
-  const cornerOverlayRef  = useRef(null)
   const mountedRef        = useRef(true)
   const autoScanRef = useRef(false)
   const scanningRef = useRef(false)
@@ -404,7 +403,7 @@ export default function CardScanner({ onMatch, onClose }) {
   const [errorMsg, setErrorMsg]   = useState(null)
   const [scanning, setScanning]   = useState(false)
   const [scanResult, setScanResult] = useState(null)   // 'found' | 'notfound' | null
-  const [liveCardBounds, setLiveCardBounds] = useState(null) // { cx, cy, w, h } screen pixels
+  const [detectedCorners, setDetectedCorners] = useState(null) // [{x,y}×4] screen px or null
   const [cardCount, setCardCount] = useState(0)
   const [debugInfo, setDebugInfo] = useState(null)
   const [hashLoadInfo, setHashLoadInfo] = useState(databaseService.status)
@@ -481,9 +480,6 @@ export default function CardScanner({ onMatch, onClose }) {
   const [scanSounds, setScanSounds] = useState(() => {
     try { return localStorage.getItem('arcanevault_scanner_sounds') !== '0' } catch { return true }
   })
-  const [liveCorners, setLiveCorners] = useState(() => {
-    try { return localStorage.getItem('arcanevault_scanner_live_corners') === '1' } catch { return false }
-  })
   const [minPriceThreshold, setMinPriceThreshold] = useState(() => {
     try { return parseFloat(localStorage.getItem('arcanevault_scanner_min_price') || '0') || 0 } catch { return 0 }
   })
@@ -524,9 +520,6 @@ export default function CardScanner({ onMatch, onClose }) {
   useEffect(() => {
     try { localStorage.setItem('arcanevault_scanner_sounds', scanSounds ? '1' : '0') } catch {}
   }, [scanSounds])
-  useEffect(() => {
-    try { localStorage.setItem('arcanevault_scanner_live_corners', liveCorners ? '1' : '0') } catch {}
-  }, [liveCorners])
   useEffect(() => {
     try { localStorage.setItem('arcanevault_scanner_min_price', String(minPriceThreshold)) } catch {}
   }, [minPriceThreshold])
@@ -578,24 +571,15 @@ export default function CardScanner({ onMatch, onClose }) {
     return () => { cancelled = true }
   }, [setPickerOpen, setPickerSets.length])
 
-  // ── Live corner overlay + dynamic auto-scan reticle ─────────────────────────
-  // Web-only (native uses CameraPreview behind the WebView).
-  // liveCorners: draws the detected card outline on the corner overlay canvas.
-  // autoScan: tracks detected card bounds to animate the targeting reticle.
-  // Uses scanningRef (not scanning state) so the rAF loop doesn't restart on
-  // every scan cycle — it simply skips detection while a scan is in progress
-  // to avoid OpenCV contention with the scan loop.
+  // ── Tracking frame corner detection ──────────────────────────────────────────
+  // Web-only. Runs at ~15fps (every 2nd rAF frame) and emits the 4 detected card
+  // corners in screen space so the SVG tracking overlay can snap to them.
+  // Uses scanningRef so the loop doesn't restart on every scan cycle.
   useEffect(() => {
-    const overlayCanvas = cornerOverlayRef.current
-    if (!overlayCanvas) return
-
-    const overlayCtx = overlayCanvas.getContext('2d')
-    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height)
-
-    const needsCanvas  = !isNative && liveCorners && isReady && cameraStarted && !anyOverlayOpen
-    const needsReticle = !isNative && autoScan    && isReady && cameraStarted && !anyOverlayOpen
-
-    if (!needsCanvas && !needsReticle) return
+    if (isNative || !isReady || !cameraStarted || anyOverlayOpen) {
+      setDetectedCorners(null)
+      return
+    }
 
     let frameCount = 0
     let animHandle = null
@@ -606,27 +590,17 @@ export default function CardScanner({ onMatch, onClose }) {
       frameCount++
       animHandle = requestAnimationFrame(loop)
 
-      // Detect every 3rd frame (~10fps on 30fps camera) to limit CPU usage
-      if (frameCount % 3 !== 0) return
+      // ~15fps on a 30fps camera feed
+      if (frameCount % 2 !== 0) return
 
       const vid = videoRef.current
       if (!vid?.videoWidth) return
 
+      // Skip while a scan is actively running to avoid concurrent OpenCV calls.
+      if (scanningRef.current) return
+
       const sw = Math.round(vid.videoWidth / 2)
       const sh = Math.round(vid.videoHeight / 2)
-
-      if (needsCanvas) {
-        if (overlayCanvas.width  !== sw) overlayCanvas.width  = sw
-        if (overlayCanvas.height !== sh) overlayCanvas.height = sh
-      }
-
-      // Skip corner detection while a scan is actively running to avoid
-      // concurrent OpenCV calls on the main thread.
-      if (scanningRef.current) {
-        if (needsCanvas) overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height)
-        return
-      }
-
       const { ctx: smallCtx } = getSmallFrameCanvas(sw, sh)
       smallCtx.drawImage(vid, 0, 0, sw, sh)
       let smallImageData
@@ -634,55 +608,21 @@ export default function CardScanner({ onMatch, onClose }) {
 
       const corners = detectCardCorners(smallImageData, sw, sh)
 
-      // — Canvas overlay (liveCorners setting) —
-      if (needsCanvas) {
-        overlayCtx.clearRect(0, 0, sw, sh)
-        if (corners?.length === 4) {
-          overlayCtx.beginPath()
-          overlayCtx.moveTo(corners[0].x, corners[0].y)
-          for (let i = 1; i < 4; i++) overlayCtx.lineTo(corners[i].x, corners[i].y)
-          overlayCtx.closePath()
-          overlayCtx.strokeStyle = 'rgba(201,168,76,0.75)'
-          overlayCtx.lineWidth = 2
-          overlayCtx.stroke()
-          for (const pt of corners) {
-            overlayCtx.beginPath()
-            overlayCtx.arc(pt.x, pt.y, 5, 0, Math.PI * 2)
-            overlayCtx.fillStyle = 'rgba(201,168,76,0.85)'
-            overlayCtx.fill()
-          }
-        }
-      }
-
-      // — Dynamic reticle (auto-scan mode) —
-      if (needsReticle) {
-        if (corners?.length === 4) {
-          // Map corners from small-frame coords → full video coords → screen coords.
-          // The video element uses object-fit: cover, so we apply the cover scale.
-          const videoW = vid.videoWidth, videoH = vid.videoHeight
-          const screenW = window.innerWidth, screenH = window.innerHeight
-          const smallScaleX = videoW / sw   // ≈ 2
-          const smallScaleY = videoH / sh   // ≈ 2
-          const coverScale  = Math.max(screenW / videoW, screenH / videoH)
-          const offsetX = (screenW - videoW * coverScale) / 2
-          const offsetY = (screenH - videoH * coverScale) / 2
-
-          const sc = corners.map(p => ({
-            x: p.x * smallScaleX * coverScale + offsetX,
-            y: p.y * smallScaleY * coverScale + offsetY,
-          }))
-          const xs = sc.map(p => p.x), ys = sc.map(p => p.y)
-          const minX = Math.min(...xs), maxX = Math.max(...xs)
-          const minY = Math.min(...ys), maxY = Math.max(...ys)
-          setLiveCardBounds({
-            cx: (minX + maxX) / 2,
-            cy: (minY + maxY) / 2,
-            w:  maxX - minX,
-            h:  maxY - minY,
-          })
-        } else {
-          setLiveCardBounds(null)
-        }
+      if (corners?.length === 4) {
+        // Map corners: small-frame → full video → screen (object-fit: cover).
+        const videoW = vid.videoWidth, videoH = vid.videoHeight
+        const screenW = window.innerWidth, screenH = window.innerHeight
+        const smallScaleX = videoW / sw
+        const smallScaleY = videoH / sh
+        const coverScale  = Math.max(screenW / videoW, screenH / videoH)
+        const offsetX = (screenW - videoW * coverScale) / 2
+        const offsetY = (screenH - videoH * coverScale) / 2
+        setDetectedCorners(corners.map(p => ({
+          x: p.x * smallScaleX * coverScale + offsetX,
+          y: p.y * smallScaleY * coverScale + offsetY,
+        })))
+      } else {
+        setDetectedCorners(null)
       }
     }
 
@@ -690,9 +630,9 @@ export default function CardScanner({ onMatch, onClose }) {
     return () => {
       stopped = true
       if (animHandle) cancelAnimationFrame(animHandle)
-      setLiveCardBounds(null)
+      setDetectedCorners(null)
     }
-  }, [isNative, liveCorners, autoScan, isReady, cameraStarted, anyOverlayOpen])
+  }, [isNative, isReady, cameraStarted, anyOverlayOpen])
 
   // ── Init DB + OpenCV ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -1236,14 +1176,22 @@ export default function CardScanner({ onMatch, onClose }) {
         if (!hash) continue
         const { best: c, second: r, candidateCount, totalCount } = databaseService.findBestTwoWithStats(hash)
         if (updateBest(c, r, candidateCount, totalCount, variant, sourceLabel)) return
-        // Foil fallback: if standard hash scores poorly, retry with aggressive glare suppression.
-        // Only pays for itself when the card is likely foil (high distance suggests blown highlights).
         if (c && c.distance > MATCH_THRESHOLD) {
+          // Foil fallback: aggressive glare suppression for blown highlights.
           try {
             const foilHash = computePHash256Foil(artCrop)
             if (foilHash) {
               const foilStats = databaseService.findBestTwoWithStats(foilHash)
               if (updateBest(foilStats.best, foilStats.second, foilStats.candidateCount, foilStats.totalCount, variant, `${sourceLabel}+foil`)) return
+            }
+          } catch { /* non-critical */ }
+          // Dark art fallback: stretch low dynamic range for dark-art cards (Swamp, etc).
+          // computePHash256Dark returns null when mean brightness ≥ 80 (not dark art).
+          try {
+            const darkHash = computePHash256Dark(artCrop)
+            if (darkHash) {
+              const darkStats = databaseService.findBestTwoWithStats(darkHash)
+              if (updateBest(darkStats.best, darkStats.second, darkStats.candidateCount, darkStats.totalCount, variant, `${sourceLabel}+dark`)) return
             }
           } catch { /* non-critical */ }
         }
@@ -1471,16 +1419,20 @@ export default function CardScanner({ onMatch, onClose }) {
     }, 220)
   }, [closing, onClose])
 
-  // Dynamic reticle — in auto-scan mode the targeting frame follows the detected card.
-  // Uses pixel-based positioning so CSS transitions can animate between positions
-  // (percentage ↔ px transitions don't interpolate in browsers).
-  const targetFrameStyle = autoScan ? {
-    left: liveCardBounds ? liveCardBounds.cx : window.innerWidth  / 2,
-    top:  liveCardBounds ? liveCardBounds.cy : window.innerHeight * 0.5 - 8,
-    width:  liveCardBounds ? liveCardBounds.w : 280,
-    height: liveCardBounds ? liveCardBounds.h : 392,
-    transform: 'translate(-50%, -50%)',
-  } : undefined
+  // Tracking frame — compute display corners for SVG overlay.
+  // Uses detected corners when available, falls back to static center position.
+  const CORNER_ROTATIONS = [0, 90, 180, 270]
+  const trackingCorners = detectedCorners ?? (() => {
+    const cx = window.innerWidth / 2
+    const cy = window.innerHeight / 2 - 8
+    const w = 280, h = 392
+    return [
+      { x: cx - w / 2, y: cy - h / 2 },
+      { x: cx + w / 2, y: cy - h / 2 },
+      { x: cx + w / 2, y: cy + h / 2 },
+      { x: cx - w / 2, y: cy + h / 2 },
+    ]
+  })()
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -1489,7 +1441,6 @@ export default function CardScanner({ onMatch, onClose }) {
       {!isNative && (
         <>
           <video ref={videoRef} className={styles.video} playsInline muted />
-          <canvas ref={cornerOverlayRef} className={styles.cornerOverlay} aria-hidden="true" />
           <canvas ref={canvasRef} className={styles.hiddenCanvas} />
         </>
       )}
@@ -1583,14 +1534,24 @@ export default function CardScanner({ onMatch, onClose }) {
           </div>
         )}
 
-        <div
-          className={`${styles.targetFrame} ${autoScan ? styles.targetFrameAutoScan : ''} ${scanResult === 'found' ? styles.targetLit : ''} ${scanning ? styles.targetPaused : ''}`}
-          style={targetFrameStyle}
-        >
-          <span className={`${styles.corner} ${styles.tl}`} />
-          <span className={`${styles.corner} ${styles.tr}`} />
-          <span className={`${styles.corner} ${styles.br}`} />
-          <span className={`${styles.corner} ${styles.bl}`} />
+        {/* Tracking frame SVG — corners snap to detected card at ~15fps */}
+        <svg className={styles.trackingOverlay} aria-hidden="true">
+          <polygon
+            className={`${styles.trackingPoly} ${scanResult === 'found' ? styles.trackingPolyMatch : ''} ${!detectedCorners ? styles.trackingPolyFaint : ''}`}
+            points={detectedCorners ? detectedCorners.map(p => `${p.x},${p.y}`).join(' ') : ''}
+          />
+          {trackingCorners.map((pt, i) => (
+            <g key={i}
+              className={`${styles.trackingCornerGroup} ${scanResult === 'found' ? styles.trackingCornerMatch : ''} ${!detectedCorners ? styles.trackingCornerFaint : ''} ${scanning ? styles.trackingCornerScanning : ''}`}
+              style={{ transform: `translate(${pt.x}px, ${pt.y}px) rotate(${CORNER_ROTATIONS[i]}deg)` }}
+            >
+              <path d="M0,0 L16,0 M0,0 L0,16" className={styles.trackingCorner} />
+            </g>
+          ))}
+        </svg>
+
+        {/* Status elements fixed at frame center — spinner, scan line, set lock badge */}
+        <div className={styles.frameCenterContent}>
           {preparing && !errorMsg && <div className={styles.preparingSpinner}>+</div>}
           {scanning && <div className={styles.pausedLabel}>Scanning...</div>}
           {isReady && !scanning && !preparing && <div className={styles.scanLine} />}
@@ -2124,20 +2085,6 @@ export default function CardScanner({ onMatch, onClose }) {
               <button className={styles.settingsNumericBtn} onClick={() => setMinPriceThreshold(v => +(v + 0.5).toFixed(2))}>+</button>
             </div>
           </div>
-
-          {!isNative && (
-            <div className={styles.settingsRow}>
-              <div className={styles.settingsRowLabel}>
-                <span className={styles.settingsRowTitle}>Live card outline</span>
-                <span className={styles.settingsRowDesc}>Show detected card edges on the camera feed in real time</span>
-              </div>
-              <button role="switch" aria-checked={liveCorners}
-                className={`${styles.toggle} ${liveCorners ? styles.toggleOn : ''}`}
-                onClick={() => setLiveCorners(v => !v)}>
-                <span className={styles.toggleThumb} />
-              </button>
-            </div>
-          )}
 
           <div className={styles.settingsRow}>
             <div className={styles.settingsRowLabel}>
