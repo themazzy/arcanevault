@@ -12,6 +12,13 @@ import SharePage from './pages/Share'
 import JoinGamePage from './pages/JoinGame'
 import JoinTournamentPage from './pages/JoinTournament'
 import SettingsPage from './pages/Settings'
+import HelpPage from './pages/Help'
+import AdminPage from './pages/Admin'
+import LegalPage from './pages/Legal'
+import PrivacyPage from './pages/Privacy'
+import StorageNoticePage from './pages/StorageNotice'
+import CreditsPage from './pages/Credits'
+import DeleteAccountPage from './pages/DeleteAccount'
 import LifeTrackerPage from './pages/LifeTracker'
 import BuilderPage from './pages/Builder'
 import DeckBuilderPage from './pages/DeckBuilder'
@@ -41,6 +48,8 @@ function PrivateApp() {
           <Route path="/tournaments" element={<TournamentsPage />} />
           <Route path="/pokemon"     element={<PokemonCollectionPage />} />
           <Route path="/settings"    element={<SettingsPage />} />
+          <Route path="/help"        element={<HelpPage />} />
+          <Route path="/admin"       element={<AdminPage />} />
           <Route path="/builder"     element={<BuilderPage />} />
           <Route path="/builder/:id" element={<DeckBuilderPage />} />
           <Route path="/scanner"     element={<ScannerPage />} />
@@ -60,6 +69,11 @@ export default function App() {
     >
       <AuthProvider>
         <Routes>
+          <Route path="/legal" element={<LegalPage />} />
+          <Route path="/privacy" element={<PrivacyPage />} />
+          <Route path="/storage" element={<StorageNoticePage />} />
+          <Route path="/credits" element={<CreditsPage />} />
+          <Route path="/delete-account" element={<DeleteAccountPage />} />
           <Route path="/share/:token" element={<SharePage />} />
           <Route path="/d/:id" element={<DeckViewPage />} />
           <Route path="/join/:code" element={<JoinGamePage />} />

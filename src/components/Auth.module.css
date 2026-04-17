@@ -314,6 +314,25 @@
   padding-top: 2px;
 }
 
+.legalLinks {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 14px;
+  padding-top: 6px;
+}
+
+.legalLink {
+  color: var(--text-faint, #857868);
+  text-decoration: none;
+  font-size: 0.72rem;
+}
+
+.legalLink:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
 /* ── Gallery strip ───────────────────────────────────────────────────────── */
 .galleryOuter {
   position: relative;
@@ -906,6 +925,24 @@
   color: var(--text-faint, #857868);
   font-style: italic;
   margin: 0;
+}
+
+.footerLegal {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px 16px;
+}
+
+.footerLegalLink {
+  color: var(--text-faint, #857868);
+  font-size: 0.74rem;
+  text-decoration: none;
+}
+
+.footerLegalLink:hover {
+  color: var(--text);
+  text-decoration: underline;
 }
 
 /* ── Responsive ──────────────────────────────────────────────────────────── */
