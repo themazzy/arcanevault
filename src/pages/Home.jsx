@@ -9,6 +9,7 @@ import { useSettings } from '../components/SettingsContext'
 import { Select } from '../components/UI'
 import styles from './Home.module.css'
 import { TypeLineFilter } from '../components/CardComponents'
+import { CloseIcon, CheckIcon, WarningIcon, BannedIcon, ChevronDownIcon, ChevronUpIcon, ChevronRightIcon, DiceIcon, ImageIcon } from '../icons'
 
 // ── Recently Viewed (localStorage + custom event for live update) ─────────────
 const VIEWED_KEY = 'arcanevault_recently_viewed'
@@ -494,7 +495,7 @@ function CardView({ card: initialCard, onClose, badge }) {
 
   return (
     <div className={styles.cardView}>
-      {onClose && <button className={styles.cvClose} onClick={onClose}>✕</button>}
+      {onClose && <button className={styles.cvClose} onClick={onClose}><CloseIcon size={14} /></button>}
       {badge && <div className={styles.cvBadge}>{badge}</div>}
       <div className={styles.cvLayout}>
         <div className={styles.cvArtCol}>
@@ -503,7 +504,7 @@ function CardView({ card: initialCard, onClose, badge }) {
               ? <img src={img} alt={card.name} className={styles.cvImg} />
               : <div className={styles.cvImgPlaceholder}>{card.name}</div>}
           </div>
-          {hasFaces && <button className={styles.cvFlipBtn} onClick={() => setFace(f => 1 - f)}>↺ Flip</button>}
+          {hasFaces && <button className={styles.cvFlipBtn} onClick={() => setFace(f => 1 - f)}>Flip</button>}
           <div className={styles.cvArtCaption}>
             <span style={{ color: rarityColor(card.rarity) }}>
               {card.rarity ? card.rarity.charAt(0).toUpperCase() + card.rarity.slice(1) : ''}
@@ -545,7 +546,7 @@ function CardView({ card: initialCard, onClose, badge }) {
           {(power != null || loyalty != null) && (
             <div className={styles.cvStats}>
               {power   != null && <span className={styles.cvStatBadge}>{power}/{toughness}</span>}
-              {loyalty != null && <span className={styles.cvStatBadge}>◆ {loyalty}</span>}
+              {loyalty != null && <span className={styles.cvStatBadge}>{loyalty}</span>}
             </div>
           )}
           <div className={styles.tabBar}>
@@ -609,7 +610,13 @@ function CardView({ card: initialCard, onClose, badge }) {
                   return (
                     <div key={fmt} className={styles.legalRow} style={{ background: bg, borderColor: color + '55' }}>
                       <span>{label}</span>
-                      <span style={{ color }}>{status === 'legal' ? '✓ Legal' : status === 'restricted' ? '⚠ Restricted' : '✕ Banned'}</span>
+                      <span style={{ color, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        {status === 'legal'
+                          ? <><CheckIcon size={12} /> Legal</>
+                          : status === 'restricted'
+                            ? <><WarningIcon size={12} /> Restricted</>
+                            : <><BannedIcon size={12} /> Banned</>}
+                      </span>
                     </div>
                   )
                 }).filter(Boolean)}
@@ -742,12 +749,12 @@ function CardLookupSection() {
   return (
     <section className={styles.section}>
       <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>⊛ Card Lookup</h2>
+        <h2 className={styles.sectionTitle}>Card Lookup</h2>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button
             className={`${styles.advToggleBtn} ${showAdv ? styles.advToggleBtnActive : ''}`}
             onClick={() => setShowAdv(v => !v)}>
-            {showAdv ? '▾' : '▸'} Filters{activeAdvCount > 0 ? ` (${activeAdvCount})` : ''}
+            {showAdv ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />} Filters{activeAdvCount > 0 ? ` (${activeAdvCount})` : ''}
           </button>
           {mode !== 'idle' && (
             <button className={styles.clearBtn} onClick={handleClear}>Clear</button>
@@ -832,9 +839,9 @@ function RandomCardSection() {
   return (
     <section className={styles.section}>
       <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>🎲 Random Card</h2>
+        <h2 className={styles.sectionTitle}><DiceIcon size={14} style={{ marginRight: 5, verticalAlign: 'middle' }} /> Random Card</h2>
         <button className={styles.rerollBtn} onClick={roll} disabled={loading}>
-          {loading ? 'Rolling…' : '⟳ Reroll'}
+          {loading ? 'Rolling…' : 'Reroll'}
         </button>
       </div>
       {loading ? (
@@ -924,7 +931,7 @@ function SetCompletionSection({ data, loading }) {
   return (
     <section className={styles.section}>
       <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>⊛ Set Completion</h2>
+        <h2 className={styles.sectionTitle}>Set Completion</h2>
         <span className={styles.sectionCount}>{rows.length} sets</span>
       </div>
       {loading
@@ -937,7 +944,7 @@ function SetCompletionSection({ data, loading }) {
             {rest.length > 0 && (
               <div className={styles.setDropdown}>
                 <button className={styles.setDropdownToggle} onClick={() => setExpanded(v => !v)}>
-                  {expanded ? '▲ Show less' : `▼ Show all ${rows.length} sets`}
+                  {expanded ? <><ChevronUpIcon size={12} /> Show less</> : <><ChevronDownIcon size={12} /> Show all {rows.length} sets</>}
                 </button>
                 {expanded && (
                   <div className={styles.setDropdownList}>
@@ -1027,7 +1034,7 @@ function CollectionSnapshot({ data, loading, priceSource }) {
   return (
     <section className={styles.section}>
       <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>⊛ Collection</h2>
+        <h2 className={styles.sectionTitle}>Collection</h2>
       </div>
       <div className={styles.snapshotGrid}>
         {loading
@@ -1066,7 +1073,7 @@ function TopValuedCards({ data, loading, priceSource, onCardClick }) {
   return (
     <section className={styles.section}>
       <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>⊛ Most Valuable Cards</h2>
+        <h2 className={styles.sectionTitle}>Most Valuable Cards</h2>
       </div>
       {loading ? <LoadingStrip /> : (
         <div className={styles.hScroll}>
@@ -1097,7 +1104,7 @@ function RecentlyAdded({ data, loading, onCardClick }) {
   return (
     <section className={styles.section}>
       <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>⊛ Recently Added</h2>
+        <h2 className={styles.sectionTitle}>Recently Added</h2>
       </div>
       {loading ? <LoadingStrip /> : (
         <div className={styles.hScroll}>
@@ -1149,7 +1156,7 @@ function TopValuedDecks({ data, loading, priceSource }) {
   return (
     <section className={styles.section}>
       <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>⊛ Most Valuable Decks</h2>
+        <h2 className={styles.sectionTitle}>Most Valuable Decks</h2>
       </div>
       {loading ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1195,7 +1202,7 @@ function MTGNewsSection() {
   // Strip HTML tags from RSS description to get plain-text excerpt
   const stripHtml = html => {
     if (!html) return ''
-    return html.replace(/<[^>]*>/g, '').replace(/&[a-z]+;/gi, ' ').trim().slice(0, 140)
+    return html.replace(/<[^>]*>/g, '').replace(/&#?\w+;/g, ' ').trim().slice(0, 140)
   }
 
   if (!loading && articles.length === 0) return null
@@ -1203,7 +1210,7 @@ function MTGNewsSection() {
   return (
     <section className={styles.section}>
       <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>⊛ MTG News</h2>
+        <h2 className={styles.sectionTitle}>MTG News</h2>
         <div className={styles.newsSources}>
           {NEWS_FEEDS.map(f => (
             <span key={f.label} className={styles.newsSourceBadge}
@@ -1227,7 +1234,7 @@ function MTGNewsSection() {
               <div className={styles.newsCardImg}>
                 {article.thumbnail && article.thumbnail.startsWith('http')
                   ? <img src={article.thumbnail} alt="" loading="lazy" />
-                  : <div className={styles.newsCardImgPlaceholder}>✦</div>
+                  : <div className={styles.newsCardImgPlaceholder}><ImageIcon size={24} /></div>
                 }
                 <span className={styles.newsCardBadge}
                   style={{ background: article._sourceColor + '22', color: article._sourceColor, borderColor: article._sourceColor + '55' }}>
@@ -1275,7 +1282,7 @@ function UpcomingSetsSection() {
   return (
     <section className={styles.section}>
       <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>⊛ Upcoming Sets</h2>
+        <h2 className={styles.sectionTitle}>Upcoming Sets</h2>
       </div>
       {loading ? (
         <div className={styles.setsGrid}>
@@ -1313,7 +1320,7 @@ function RecentlyViewedSection({ onCardClick }) {
   return (
     <section className={styles.section}>
       <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>⊛ Recently Viewed</h2>
+        <h2 className={styles.sectionTitle}>Recently Viewed</h2>
         <button className={styles.clearBtn} onClick={() => { localStorage.removeItem(VIEWED_KEY); setViewed([]) }}>
           Clear
         </button>
@@ -1404,8 +1411,8 @@ function ChangelogPanel() {
   return (
     <div className={styles.changelog}>
       <button className={styles.changelogHeader} onClick={toggle}>
-        <span className={styles.changelogTitle}>📋 Updates &amp; Roadmap</span>
-        <span className={styles.changelogChevron}>{open ? '▲' : '▼'}</span>
+        <span className={styles.changelogTitle}>Updates &amp; Roadmap</span>
+        <span className={styles.changelogChevron}>{open ? <ChevronUpIcon size={10} /> : <ChevronDownIcon size={10} />}</span>
       </button>
       {open && (
         <div className={styles.changelogBody}>
@@ -1471,8 +1478,11 @@ export default function HomePage() {
       }
       if (!card && fallbackName) card = await fetchByName(fallbackName)
       if (card) { setModalCard(card); addRecentlyViewed(card) }
-    } catch { /* ignore */ }
-    setModalLoading(false)
+    } catch (e) {
+      console.warn('[Home] openCard error:', e)
+    } finally {
+      setModalLoading(false)
+    }
   }, [])
 
   return (

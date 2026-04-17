@@ -97,29 +97,41 @@ function CardArtPicker({ onSelect, onClose }) {
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
   const inputRef = useRef(null)
+  const timerRef = useRef(null)
   useEffect(() => { inputRef.current?.focus() }, [])
-  const search = async () => {
-    if (!query.trim()) return
+  useEffect(() => () => clearTimeout(timerRef.current), [])
+
+  const search = async (q) => {
+    const term = q ?? query
+    if (!term.trim()) return
     setLoading(true)
     try {
-      const r = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}&unique=art&order=name`)
+      const r = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(term)}&unique=art&order=name`)
       const data = await r.json()
       setResults((data.data || []).filter(c => c.image_uris?.art_crop).slice(0, 20))
     } catch { setResults([]) }
     setLoading(false)
   }
+
+  const handleQueryChange = (v) => {
+    setQuery(v)
+    clearTimeout(timerRef.current)
+    if (v.trim().length < 2) { setResults([]); return }
+    timerRef.current = setTimeout(() => search(v), 350)
+  }
+
   return (
     <Modal onClose={onClose}>
       <h2 style={{ fontFamily: 'var(--font-display)', color: 'var(--gold)', marginBottom: 14, fontSize: '1rem' }}>
         Choose Card Art Background
       </h2>
       <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        <input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && search()}
+        <input ref={inputRef} value={query} onChange={e => handleQueryChange(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { clearTimeout(timerRef.current); search() } }}
           placeholder="Search card name…"
           style={{ flex: 1, background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border)',
             borderRadius: 4, padding: '8px 12px', color: 'var(--text)', fontSize: '0.9rem', outline: 'none' }} />
-        <Button onClick={search} disabled={loading}>{loading ? '…' : 'Search'}</Button>
+        {loading && <span style={{ alignSelf: 'center', color: 'var(--text-faint)', fontSize: '0.85rem' }}>…</span>}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px,1fr))', gap: 8, maxHeight: 360, overflowY: 'auto' }}>
         {results.map(c => (

@@ -33,9 +33,9 @@ function OrphanModal({ cards, folders, userId, onAssigned, onDeleted }) {
     if (!folder) return
     setBusy(true); setError('')
     try {
-      const isDecK = folder.type === 'deck'
-      const table  = isDecK ? 'deck_allocations' : 'folder_cards'
-      const rows   = cards.map(c => isDecK
+      const isDeck = folder.type === 'deck'
+      const table  = isDeck ? 'deck_allocations' : 'folder_cards'
+      const rows   = cards.map(c => isDeck
         ? { id: crypto.randomUUID(), deck_id: folder.id, card_id: c.id, user_id: userId, qty: c.qty || 1 }
         : { id: crypto.randomUUID(), folder_id: folder.id, card_id: c.id, qty: c.qty || 1 }
       )
@@ -178,7 +178,7 @@ export default function CollectionPage() {
 
   // ── Pre-fill sfMap from IDB/memory cache — avoids blank images on navigation ──
   useEffect(() => {
-    getInstantCache(cache_ttl_h * 3600000).then(map => { if (map) setSfMap(map) })
+    getInstantCache(ttlMsRef.current).then(map => { if (map) setSfMap(map) })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Load cards — IDB first, Supabase sync in background ──────────────────────
@@ -205,7 +205,8 @@ export default function CollectionPage() {
       return
     }
 
-    let allCards = [], from = 0, fetchComplete = false
+    const allCards = []
+    let pageFrom = 0, fetchComplete = false
     const PAGE = 1000
     while (true) {
       const { data, error: err } = await sb.from('cards')
@@ -215,22 +216,21 @@ export default function CollectionPage() {
         // rows unless we add a unique tie-breaker.
         .order('name')
         .order('id')
-        .range(from, from + PAGE - 1)
+        .range(pageFrom, pageFrom + PAGE - 1)
       if (err) { setError(err.message); break }
-      if (data?.length) allCards = [...allCards, ...data]
+      if (data?.length) allCards.push(...data)
       if (!data || data.length < PAGE) { fetchComplete = true; break }
-      from += PAGE
+      pageFrom += PAGE
     }
 
     if (allCards.length && fetchComplete) {
       // Prune IDB entries that no longer exist in Supabase (deleted cards)
-      // This prevents the brief "doubling" on refresh when IDB is stale
       if (localCards.length) {
         const sbIds = new Set(allCards.map(c => c.id))
         const orphans = localCards.filter(c => !sbIds.has(c.id))
         if (orphans.length) {
           console.log(`[Collection] Pruning ${orphans.length} orphaned IDB cards`)
-          for (const c of orphans) await deleteCard(c.id)
+          await Promise.all(orphans.map(c => deleteCard(c.id)))
         }
       }
       // Persist to IDB for next offline load
@@ -238,17 +238,13 @@ export default function CollectionPage() {
       await setMeta(`cards_synced_${user.id}`, Date.now())
       setCards(allCards)
       if (!canHydrateFromIdb) {
-        // First ever load — start enrichment now that we have cards
         startEnrichment(allCards)
       } else {
-        // Check if any new cards appeared vs local
         const localIds = new Set(localCards.map(c => c.id))
         const newCards = allCards.filter(c => !localIds.has(c.id))
         if (newCards.length) {
           console.log(`[Collection] ${newCards.length} new cards synced from Supabase`)
-          loadCardMapWithSharedPrices(allCards, { cacheTtlMs: ttlMsRef.current }).then(map => {
-            setSfMap({ ...map })
-          })
+          loadCardMapWithSharedPrices(allCards, { cacheTtlMs: ttlMsRef.current }).then(setSfMap)
         }
       }
     }
@@ -314,38 +310,65 @@ export default function CollectionPage() {
       setFolders(foldersData)
       await putFolders(foldersData)
 
-      const folderIds = foldersData.map(f => f.id)
       const placementFolderIds = foldersData.filter(f => f.type !== 'deck').map(f => f.id)
       const deckIds = foldersData.filter(f => f.type === 'deck').map(f => f.id)
       const fullSyncKey = `folder_cards_full_sync_${user.id}`
       const deltaSyncKey = `folder_cards_delta_sync_${user.id}`
 
-      let allFc = [], fcFrom = 0
-        while (true) {
-          const { data: page } = await sb.from('folder_cards')
-            .select('id,card_id,folder_id,qty,updated_at')
-            .in('folder_id', placementFolderIds)
-            .order('id')
-            .range(fcFrom, fcFrom + 999)
-          if (page?.length) allFc = [...allFc, ...page]
-          if (!page || page.length < 1000) break
-          fcFrom += 1000
-        }
-      let allDa = []
-      if (deckIds.length) {
-        let daFrom = 0
-        while (true) {
-          const { data: page } = await sb.from('deck_allocations')
-            .select('id,card_id,deck_id,qty,user_id,updated_at')
-            .eq('user_id', user.id)
-            .in('deck_id', deckIds)
-            .order('id')
-            .range(daFrom, daFrom + 999)
-          if (page?.length) allDa = [...allDa, ...page]
-          if (!page || page.length < 1000) break
-          daFrom += 1000
-        }
+      const lastFullSync = await getMeta(fullSyncKey)
+      const needsFullSync = !lastFullSync || Date.now() - new Date(lastFullSync).getTime() > FOLDER_CARDS_FULL_SYNC_MS
+
+      if (!needsFullSync) {
+        // Within the 10-min window — use IDB data, skip Supabase round-trips
+        const [allFc, allDa] = await Promise.all([
+          getAllLocalFolderCards(placementFolderIds),
+          getAllDeckAllocationsForUser(user.id),
+        ])
+        setCardFolderMap(buildCardFolderMap(foldersData, [...allFc, ...allDa]))
+        setFolderMembershipLoading(false)
+        return
       }
+
+      // Full sync: fetch folder_cards + deck_allocations in parallel
+      const fetchFolderCards = async (folderIds) => {
+        const rows = []
+        let from = 0
+        while (true) {
+          const { data: page, error: err } = await sb.from('folder_cards')
+            .select('id,card_id,folder_id,qty,updated_at')
+            .in('folder_id', folderIds)
+            .order('id')
+            .range(from, from + 999)
+          if (err) throw err
+          if (page?.length) rows.push(...page)
+          if (!page || page.length < 1000) break
+          from += 1000
+        }
+        return rows
+      }
+
+      const fetchDeckAllocations = async (dIds, uid) => {
+        const rows = []
+        let from = 0
+        while (true) {
+          const { data: page, error: err } = await sb.from('deck_allocations')
+            .select('id,card_id,deck_id,qty,user_id,updated_at')
+            .eq('user_id', uid)
+            .in('deck_id', dIds)
+            .order('id')
+            .range(from, from + 999)
+          if (err) throw err
+          if (page?.length) rows.push(...page)
+          if (!page || page.length < 1000) break
+          from += 1000
+        }
+        return rows
+      }
+
+      const [allFc, allDa] = await Promise.all([
+        placementFolderIds.length ? fetchFolderCards(placementFolderIds) : Promise.resolve([]),
+        deckIds.length ? fetchDeckAllocations(deckIds, user.id) : Promise.resolve([]),
+      ])
 
       await replaceLocalFolderCards(placementFolderIds, allFc)
       await replaceDeckAllocations(deckIds, allDa)
@@ -614,9 +637,11 @@ export default function CollectionPage() {
         const sourceTable = row.sourceFolder.type === 'deck' ? 'deck_allocations' : 'folder_cards'
         const sourceKey = row.sourceFolder.type === 'deck' ? 'deck_id' : 'folder_id'
         if (row.remainingPlacementQty > 0) {
-          await sb.from(sourceTable).update({ qty: row.remainingPlacementQty }).eq(sourceKey, row.sourceFolder.id).eq('card_id', row.id)
+          const { error: err } = await sb.from(sourceTable).update({ qty: row.remainingPlacementQty }).eq(sourceKey, row.sourceFolder.id).eq('card_id', row.id)
+          if (err) { setError(err.message); return }
         } else {
-          await sb.from(sourceTable).delete().eq(sourceKey, row.sourceFolder.id).eq('card_id', row.id)
+          const { error: err } = await sb.from(sourceTable).delete().eq(sourceKey, row.sourceFolder.id).eq('card_id', row.id)
+          if (err) { setError(err.message); return }
         }
       }
     }
@@ -636,11 +661,13 @@ export default function CollectionPage() {
     for (let i = 0; i < toDelete.length; i += BATCH) {
       const batch = toDelete.slice(i, i + BATCH)
       const cardIds = batch.map(row => row.id)
-      await sb.from('cards').delete().in('id', cardIds)
-      for (const id of cardIds) await deleteCard(id)
+      const { error: delErr } = await sb.from('cards').delete().in('id', cardIds)
+      if (delErr) { setError(delErr.message); return }
+      await Promise.all(cardIds.map(id => deleteCard(id)))
     }
     for (const { id, remaining } of toUpdate) {
-      await sb.from('cards').update({ qty: remaining }).eq('id', id)
+      const { error: updErr } = await sb.from('cards').update({ qty: remaining }).eq('id', id)
+      if (updErr) { setError(updErr.message); return }
       const card = cards.find(c => c.id === id)
       if (card) await putCards([{ ...card, qty: remaining }])
     }
@@ -862,7 +889,7 @@ export default function CollectionPage() {
     return s + (p != null ? p * c.qty : 0)
   }, 0), [cards, sfMap, price_source])
 
-  const totalQty = useMemo(() => cards.reduce((s, c) => s + c.qty, 0), [cards])
+  const totalQty = useMemo(() => cards.reduce((s, c) => s + (c.qty || 1), 0), [cards])
 
   const availableSets = useMemo(() => {
     const seen = {}
@@ -927,9 +954,10 @@ export default function CollectionPage() {
         })
       }
     }
-    displayCardsRef.current = result
     return result
   }, [filtered, cardFolderMap, filters])
+
+  useEffect(() => { displayCardsRef.current = displayCards }, [displayCards])
 
   const selectedCard = detailCardKey ? displayCards.find(c => (c._displayKey || c.id) === detailCardKey) : null
   const selectedSf   = selectedCard ? sfMap[getScryfallKey(selectedCard)] : null

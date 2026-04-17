@@ -2,11 +2,13 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { sb } from '../lib/supabase'
 import { getPrice, formatPrice, getScryfallKey, getPriceSource } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
+import { getLocalCards } from '../lib/db'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { CardDetail } from '../components/CardComponents'
 import { EmptyState, SectionHeader, ProgressBar } from '../components/UI'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
+import { ChevronDownIcon, ChevronUpIcon } from '../icons'
 import {
   BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
@@ -23,6 +25,13 @@ const FORMAT_COLORS = {
   Commander: '#c9a84c', Modern: '#5a9ab0', Pioneer: '#8ab87a',
   Standard: '#c46030', Legacy: '#8a6fc4', Vintage: '#6a6a7a',
 }
+const PLACEMENT_COLORS = {
+  1: 'var(--gold)',
+  2: '#8ab0c8',
+  3: '#c47060',
+  4: '#6a6a7a',
+}
+
 const GAME_MODE_LABELS = {
   standard: 'Standard',
   commander: 'Commander',
@@ -56,6 +65,42 @@ const CONDITION_LABELS = {
   damaged: 'Damaged',
 }
 
+// ── Security helpers ──────────────────────────────────────────────────────────
+const SAFE_BG_ORIGINS = [
+  'https://cards.scryfall.io',
+  'https://c1.scryfall.com',
+  'https://c2.scryfall.com',
+]
+function safeBgUrl(raw) {
+  if (!raw) return null
+  try {
+    const u = new URL(raw)
+    if (u.protocol !== 'https:') return null
+    if (!SAFE_BG_ORIGINS.some(o => raw.startsWith(o))) return null
+    return raw
+  } catch { return null }
+}
+
+function sanitizeStr(s, maxLen = 64) {
+  if (typeof s !== 'string') return ''
+  return s.replace(/[\u0000-\u001f\u007f-\u009f]/g, '').slice(0, maxLen)
+}
+
+function sanitizeGameRow(row) {
+  return {
+    ...row,
+    player_name: sanitizeStr(row.player_name),
+    format: typeof row.format === 'string' ? row.format.slice(0, 32) : null,
+    players_json: Array.isArray(row.players_json)
+      ? row.players_json.map(p => ({
+          ...p,
+          name: sanitizeStr(p.name),
+          deckName: sanitizeStr(p.deckName),
+        }))
+      : [],
+  }
+}
+
 const SETS_CACHE_KEY = 'av_scryfall_sets'
 const SETS_CACHE_TTL = 24 * 60 * 60 * 1000
 const LOCAL_SET_ICONS = Object.fromEntries(
@@ -70,14 +115,35 @@ async function fetchScryfallSetsMap() {
       if (Date.now() - ts < SETS_CACHE_TTL) return data
     }
     const r = await fetch('https://api.scryfall.com/sets')
+    if (!r.ok) return {}
     const json = await r.json()
     const data = {}
-    for (const s of (json.data || [])) data[s.code] = { name: s.name, count: s.card_count }
-    localStorage.setItem(SETS_CACHE_KEY, JSON.stringify({ ts: Date.now(), data }))
+    for (const s of (json.data || [])) {
+      if (typeof s.code !== 'string' || s.code.length > 10) continue
+      if (typeof s.name !== 'string' || s.name.length > 120) continue
+      data[s.code] = { name: s.name, count: typeof s.card_count === 'number' ? s.card_count : 0 }
+    }
+    try {
+      localStorage.setItem(SETS_CACHE_KEY, JSON.stringify({ ts: Date.now(), data }))
+    } catch (storageErr) {
+      console.warn('[Stats] Could not cache sets to localStorage:', storageErr)
+    }
     return data
-  } catch {
+  } catch (err) {
+    console.warn('[Stats] fetchScryfallSetsMap failed:', err?.message ?? String(err))
     return {}
   }
+}
+
+// ── Hooks ─────────────────────────────────────────────────────────────────────
+function useWindowWidth() {
+  const [width, setWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200)
+  useEffect(() => {
+    const handler = () => setWidth(window.innerWidth)
+    window.addEventListener('resize', handler, { passive: true })
+    return () => window.removeEventListener('resize', handler)
+  }, [])
+  return width
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -170,18 +236,18 @@ function SetCompletionSection({ cards, sfMap, loading }) {
       }
       map[card.set_code].nums.add(card.collector_number)
     }
-    return Object.values(map)
+    return Object.values(map).map(s => ({ code: s.code, name: s.name, owned: s.nums.size }))
   }, [cards, sfMap])
 
   useEffect(() => {
     if (ownedBySet.length) fetchScryfallSetsMap().then(setSetsMap)
-  }, [ownedBySet.length])
+  }, [ownedBySet])
 
   const rows = useMemo(() => {
     return ownedBySet.map(s => {
       const total = setsMap?.[s.code]?.count || null
-      const pct = total ? Math.min(100, Math.round((s.nums.size / total) * 100)) : null
-      return { code: s.code, name: setsMap?.[s.code]?.name || s.name, owned: s.nums.size, total, pct }
+      const pct = total ? Math.min(100, Math.round((s.owned / total) * 100)) : null
+      return { code: s.code, name: setsMap?.[s.code]?.name || s.name, owned: s.owned, total, pct }
     }).sort((a, b) => {
       if (a.pct != null && b.pct != null) return b.pct - a.pct
       if (a.pct != null) return -1
@@ -211,7 +277,9 @@ function SetCompletionSection({ cards, sfMap, loading }) {
           {rest.length > 0 && (
             <div className={styles.setDropdown}>
               <button className={styles.setDropdownToggle} onClick={() => setExpanded(v => !v)}>
-                {expanded ? '▲ Show less' : `▼ Show all ${rows.length} sets`}
+                {expanded
+                  ? <><ChevronUpIcon size={10} /> Show less</>
+                  : <><ChevronDownIcon size={10} /> Show all {rows.length} sets</>}
               </button>
               {expanded && (
                 <div className={styles.setDropdownList}>
@@ -233,8 +301,8 @@ function CardThumb({ sf, size = 28 }) {
   if (!url) return (
     <div style={{
       width: size, height: h, flexShrink: 0,
-      background: 'rgba(255,255,255,0.04)',
-      border: '1px solid rgba(255,255,255,0.07)',
+      background: 'var(--s2)',
+      border: '1px solid var(--s-border)',
       borderRadius: 2,
     }} />
   )
@@ -413,12 +481,17 @@ function HistoryEntryCard({ row, deckMeta, onEdit, onDelete }) {
   const [placement, setPlacement] = useState(row.placement || 1)
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+
+  useEffect(() => { setNotes(row.notes || '') }, [row.notes])
+  useEffect(() => { setPlacement(row.placement || 1) }, [row.placement])
+
   const players = [...(row.players_json || [])].sort((a, b) => (a.placement || 99) - (b.placement || 99))
   const playedAt = row.played_at || row.game_ended_at
   const mins = row.game_started_at && row.game_ended_at
     ? Math.round((new Date(row.game_ended_at) - new Date(row.game_started_at)) / 60000)
     : 0
-  const bgUrl = deckMeta?.coverArtUri || deckMeta?.bg_url || null
+  const bgUrl = safeBgUrl(deckMeta?.coverArtUri || deckMeta?.bg_url || null)
 
   const save = async () => {
     setSaving(true)
@@ -441,7 +514,7 @@ function HistoryEntryCard({ row, deckMeta, onEdit, onDelete }) {
       <div className={styles.historyCardContent}>
         <div className={styles.historyCardHead}>
           <div className={styles.historyCardModeRow}>
-            <span className={styles.histMode}>{GAME_MODE_LABELS[row.format] || row.format || 'Game'}</span>
+            <span className={styles.histMode}>{GAME_MODE_LABELS[row.format] ?? 'Game'}</span>
             {playedAt && (
               <span className={styles.histDate}>
                 {new Date(playedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
@@ -506,8 +579,18 @@ function HistoryEntryCard({ row, deckMeta, onEdit, onDelete }) {
           <>
             {row.notes && <p className={styles.historyNotes}>{row.notes}</p>}
             <div className={styles.historyEntryActions}>
-              <button className={styles.historySecondaryBtn} onClick={() => setEditing(true)}>Edit</button>
-              <button className={styles.historyDangerBtn} onClick={() => onDelete(row)}>Delete</button>
+              {confirmingDelete ? (
+                <>
+                  <span style={{ fontSize: '0.76rem', color: 'var(--text-dim)', alignSelf: 'center' }}>Delete this entry?</span>
+                  <button className={styles.historySecondaryBtn} onClick={() => setConfirmingDelete(false)}>Cancel</button>
+                  <button className={styles.historyDangerBtn} onClick={() => { setConfirmingDelete(false); onDelete(row) }}>Confirm</button>
+                </>
+              ) : (
+                <>
+                  <button className={styles.historySecondaryBtn} onClick={() => setEditing(true)}>Edit</button>
+                  <button className={styles.historyDangerBtn} onClick={() => setConfirmingDelete(true)}>Delete</button>
+                </>
+              )}
             </div>
           </>
         )}
@@ -524,7 +607,7 @@ function GameHistorySection({ rows, loading, deckMap, onRefresh, onEdit, onDelet
         <div className={styles.historyToolbar}>
           <span className={styles.sectionCount}>{rows.length} entries</span>
           <button className={styles.historyRefreshBtn} onClick={onRefresh} disabled={loading}>
-            {loading ? 'Refreshing…' : '↻ Refresh'}
+            {loading ? 'Refreshing…' : 'Refresh'}
           </button>
         </div>
       </div>
@@ -550,6 +633,156 @@ function GameHistorySection({ rows, loading, deckMap, onRefresh, onEdit, onDelet
   )
 }
 
+const PLACEMENT_RANK_COLORS = {
+  0: 'var(--gold)',
+  1: '#8ab0c8',
+  2: '#c47060',
+  3: '#6a6a7a',
+}
+
+const PLACEMENT_LABELS = ['1st', '2nd', '3rd', '4th']
+const PLACEMENT_KEYS   = ['p1',  'p2',  'p3',  'p4']
+
+function DeckWinratesSection({ rows, loading, deckMap }) {
+  const deckStats = useMemo(() => {
+    if (!rows.length) return []
+    const map = {}
+    for (const row of rows) {
+      const deckName = row.deck_name || deckMap[row.deck_id]?.name
+      if (!deckName || deckName === 'No deck selected') continue
+      const key = row.deck_id || `name:${row.deck_name}`
+      if (!map[key]) {
+        map[key] = {
+          id: row.deck_id,
+          name: deckName,
+          games: 0, p1: 0, p2: 0, p3: 0, p4: 0,
+          formats: new Set(),
+        }
+      }
+      const d = map[key]
+      d.games++
+      const p = Number(row.placement) || 1
+      if (p === 1) d.p1++
+      else if (p === 2) d.p2++
+      else if (p === 3) d.p3++
+      else d.p4++
+      if (row.format) d.formats.add(row.format)
+    }
+    return Object.values(map)
+      .map(d => ({
+        ...d,
+        winRate: d.games > 0 ? (d.p1 / d.games) * 100 : 0,
+        losses: d.games - d.p1,
+        formats: [...d.formats],
+      }))
+      .sort((a, b) => b.winRate - a.winRate || b.games - a.games)
+  }, [rows, deckMap])
+
+  const qualifiedRows = rows.filter(r => r.deck_name || deckMap[r.deck_id]?.name)
+  const totalGames    = qualifiedRows.length
+  const totalWins     = qualifiedRows.filter(r => r.placement === 1).length
+  const overallWinRate = totalGames > 0 ? (totalWins / totalGames) * 100 : 0
+
+  if (loading) return (
+    <div className={styles.chartBox}>
+      <SLabel>Deck Win Rates</SLabel>
+      <div className={styles.historyEmpty}>Loading game history…</div>
+    </div>
+  )
+
+  if (!deckStats.length) return (
+    <div className={styles.chartBox}>
+      <SLabel>Deck Win Rates</SLabel>
+      <div className={styles.historyEmpty}>No game history yet. Play some games to see deck stats.</div>
+    </div>
+  )
+
+  return (
+    <>
+      <div className={styles.statGrid} style={{ marginBottom: 16 }}>
+        <StatCard label="Games Tracked" value={totalGames.toLocaleString()} sub={`${deckStats.length} deck${deckStats.length !== 1 ? 's' : ''}`} />
+        <StatCard label="Overall Win Rate" value={`${overallWinRate.toFixed(0)}%`} sub={`${totalWins}W · ${totalGames - totalWins}L`} />
+        <StatCard label="Best Deck" value={deckStats[0]?.name || '—'} sub={deckStats[0] ? `${deckStats[0].winRate.toFixed(0)}% win rate` : ''} />
+      </div>
+
+      <div className={styles.chartBox}>
+        <SLabel>By Deck</SLabel>
+        <div className={styles.winrateLeaderboard}>
+          {deckStats.map((deck, idx) => {
+            const rankColor = PLACEMENT_RANK_COLORS[Math.min(idx, 3)]
+            const segs = PLACEMENT_KEYS
+              .map((k, i) => ({ label: PLACEMENT_LABELS[i], count: deck[k], color: PLACEMENT_COLORS[i + 1] }))
+              .filter(s => s.count > 0)
+
+            return (
+              <div key={deck.id || deck.name} className={styles.winrateEntry}>
+                <div className={styles.winrateEntryAccent} style={{ background: rankColor }} />
+
+                <div className={styles.winrateEntryRank} style={{ color: rankColor }}>
+                  #{idx + 1}
+                </div>
+
+                <div className={styles.winrateEntryMain}>
+                  <div className={styles.winrateEntryHead}>
+                    <span className={styles.winrateDeckName}>{deck.name}</span>
+                    <div className={styles.winrateDeckMeta}>
+                      {deck.formats.map(f => (
+                        <span key={f} className={styles.winrateFormatPill}>{GAME_MODE_LABELS[f] || f}</span>
+                      ))}
+                      <span className={styles.winrateGameCount}>{deck.games} {deck.games === 1 ? 'Game' : 'Games'}</span>
+                    </div>
+                  </div>
+
+                  <div className={styles.winrateEntryStats}>
+                    <div className={styles.winrateBar}>
+                      {segs.map((s, i) => (
+                        <div
+                          key={s.label}
+                          className={`${styles.winrateBarSeg} ${i === 0 ? styles.winrateBarSegFirst : ''} ${i === segs.length - 1 ? styles.winrateBarSegLast : ''} ${segs.length === 1 ? styles.winrateBarSegOnly : ''}`}
+                          style={{ flex: s.count, background: s.color }}
+                          title={`${s.label}: ${s.count}`}
+                        />
+                      ))}
+                    </div>
+
+                    <div className={styles.winratePlacementGrid}>
+                      {PLACEMENT_KEYS.map((k, i) => (
+                        <div key={k} className={styles.winratePlacementCell}>
+                          <span className={styles.winratePlacementDot} style={{ background: PLACEMENT_COLORS[i + 1] }} />
+                          <span className={styles.winratePlacementLbl}>{PLACEMENT_LABELS[i]}</span>
+                          <span className={styles.winratePlacementNum}>{deck[k]}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className={styles.winrateEntryScore}>
+                  <div
+                    className={styles.winrateRateBig}
+                    style={{
+                      color: deck.winRate >= 50 ? 'var(--gold)'
+                        : deck.winRate >= 25 ? 'var(--text)'
+                        : 'var(--text-dim)',
+                    }}
+                  >
+                    {deck.winRate.toFixed(0)}%
+                  </div>
+                  <div className={styles.winrateWL}>
+                    <span className={styles.winrateW}>{deck.p1}W</span>
+                    <span className={styles.winrateWLSep}>·</span>
+                    <span className={styles.winrateL}>{deck.losses}L</span>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </>
+  )
+}
+
 const CustomTooltip = ({ active, payload, label, fmt }) => {
   if (!active || !payload?.length) return null
   return (
@@ -571,8 +804,9 @@ const CustomTooltip = ({ active, payload, label, fmt }) => {
 export default function StatsPage() {
   const { user }         = useAuth()
   const { price_source } = useSettings()
-  const sym = price_source === 'tcgplayer_market' ? '$' : '€'
-  const fmt = v => formatPrice(v, price_source)
+  const sym = getPriceSource(price_source).symbol
+  const fmt = useCallback(v => formatPrice(v, price_source), [price_source])
+  const windowWidth = useWindowWidth()
 
   const [tab,            setTab]          = useState('overview')
   const [cards,          setCards]        = useState([])
@@ -586,40 +820,33 @@ export default function StatsPage() {
   const [deckMap,        setDeckMap]      = useState({})
 
   useEffect(() => {
+    let cancelled = false
     const load = async () => {
       setLoading(true)
       setLoadProgress(0)
-
-      let allCards = [], from = 0, pageNum = 0
       setProgLabel('Loading collection…')
-      while (true) {
-        const { data, error } = await sb.from('cards')
-          .select('id,set_code,collector_number,foil,qty,purchase_price,condition,language')
-          .eq('user_id', user.id)
-          .range(from, from + 999)
-        if (error || !data?.length) break
-        allCards = [...allCards, ...data]
-        pageNum++
-        setLoadProgress(Math.min(40, pageNum * 8))
-        if (data.length < 1000) break
-        from += 1000
-      }
 
+      const allCards = await getLocalCards(user.id)
+      if (cancelled) return
       setCards(allCards)
+      setLoadProgress(40)
 
       const map = allCards.length
         ? await loadCardMapWithSharedPrices(allCards, {
             onProgress: (pct, label) => {
+              if (cancelled) return
               setLoadProgress(40 + Math.round(pct * 0.6))
               if (label) setProgLabel(label)
             },
           })
         : {}
+      if (cancelled) return
       setSfMap(map)
       setLoadProgress(100)
       setLoading(false)
     }
     load()
+    return () => { cancelled = true }
   }, [user.id])
 
   const refreshHistory = useCallback(async () => {
@@ -631,7 +858,7 @@ export default function StatsPage() {
           .select('id,deck_id,deck_name,format,player_count,placement,played_at,player_name,player_color,final_life,game_started_at,game_ended_at,players_json,notes,updated_at')
           .eq('user_id', user.id)
           .order('played_at', { ascending: false })
-          .limit(100),
+          .limit(500),
         sb.from('folders')
           .select('id,name,description')
           .eq('user_id', user.id)
@@ -640,10 +867,10 @@ export default function StatsPage() {
       if (rowsError) throw rowsError
       if (decksError) throw decksError
 
-      setHistoryRows(rows || [])
+      setHistoryRows((rows || []).map(sanitizeGameRow))
       setDeckMap(Object.fromEntries((decks || []).map(deck => [deck.id, { name: deck.name, ...parseDeckMeta(deck.description) }])))
     } catch (error) {
-      console.error('stats history load:', error)
+      console.error('[Stats] history load:', error?.message ?? String(error))
       setHistoryRows([])
       setDeckMap({})
     } finally {
@@ -652,14 +879,15 @@ export default function StatsPage() {
   }, [user?.id])
 
   useEffect(() => {
-    if (tab === 'history') refreshHistory()
+    if (tab === 'history' || tab === 'winrates') refreshHistory()
   }, [tab, refreshHistory])
 
   const handleHistoryEdit = useCallback(async (rowId, patch) => {
+    if (!user?.id) return
     const payload = { ...patch, updated_at: new Date().toISOString() }
     const { error } = await sb.from('game_results').update(payload).eq('id', rowId).eq('user_id', user.id)
     if (error) {
-      console.error('stats history update:', error)
+      console.error('[Stats] history update:', error?.message ?? String(error))
       window.alert('Could not update your game history entry.')
       return
     }
@@ -667,16 +895,15 @@ export default function StatsPage() {
   }, [refreshHistory, user?.id])
 
   const handleHistoryDelete = useCallback(async (row) => {
-    const label = row.deck_name || deckMap[row.deck_id]?.name || 'this game'
-    if (!window.confirm(`Delete your history entry for ${label}? This only removes it for your account.`)) return
+    if (!user?.id) return
     const { error } = await sb.from('game_results').delete().eq('id', row.id).eq('user_id', user.id)
     if (error) {
-      console.error('stats history delete:', error)
+      console.error('[Stats] history delete:', error?.message ?? String(error))
       window.alert('Could not delete your game history entry.')
       return
     }
     await refreshHistory()
-  }, [deckMap, refreshHistory, user?.id])
+  }, [refreshHistory, user?.id])
 
   // ── All derived stats ───────────────────────────────────────────────────────
   const stats = useMemo(() => {
@@ -701,8 +928,9 @@ export default function StatsPage() {
     // Collection age
     const byYear = {}
 
-    // Movers
+    // Movers + priced index for top cards
     const movingCards = []
+    const allPriced = []
 
     for (const c of cards) {
       const key   = `${c.set_code}-${c.collector_number}`
@@ -775,6 +1003,8 @@ export default function StatsPage() {
         const plPct = ((price - c.purchase_price) / c.purchase_price) * 100
         movingCards.push({ ...c, _sf: sf, _price: price, _pl: pl, _plPct: plPct })
       }
+
+      if (price != null) allPriced.push({ ...c, _sf: sf, _price: price })
     }
 
     // ── Derived collections ─────────────────────────────────────────────────
@@ -800,16 +1030,7 @@ export default function StatsPage() {
       .sort((a, b) => b[1] - a[1])
       .map(([key, qty]) => ({ key, qty }))
 
-    // ── BUG FIX: name + image come from _sf, NOT c.name ────────────────────
-    const topCards = [...cards]
-      .map(c => {
-        const sf    = sfMap[`${c.set_code}-${c.collector_number}`]
-        const price = getPrice(sf, c.foil, { price_source, cardId: c.id })
-        return { ...c, _sf: sf, _price: price }
-      })
-      .filter(c => c._price != null)
-      .sort((a, b) => b._price - a._price)
-      .slice(0, 20)
+    const topCards = [...allPriced].sort((a, b) => b._price - a._price).slice(0, 20)
 
     const ageData = Object.entries(byYear)
       .sort((a, b) => Number(a[0]) - Number(b[0]))
@@ -862,13 +1083,21 @@ export default function StatsPage() {
     <div className={styles.page}>
       <SectionHeader title={`Collection Stats · ${cards.length.toLocaleString()} unique cards`} />
 
-      <div className={styles.statsTabs}>
+      <div className={styles.statsTabs} role="tablist">
         <button
+          role="tab" aria-selected={tab === 'overview'}
           className={`${styles.statsTabBtn} ${tab === 'overview' ? styles.statsTabBtnActive : ''}`}
           onClick={() => setTab('overview')}>
           Overview
         </button>
         <button
+          role="tab" aria-selected={tab === 'winrates'}
+          className={`${styles.statsTabBtn} ${tab === 'winrates' ? styles.statsTabBtnActive : ''}`}
+          onClick={() => setTab('winrates')}>
+          Deck Win Rates
+        </button>
+        <button
+          role="tab" aria-selected={tab === 'history'}
           className={`${styles.statsTabBtn} ${tab === 'history' ? styles.statsTabBtnActive : ''}`}
           onClick={() => setTab('history')}>
           Game History
@@ -883,6 +1112,12 @@ export default function StatsPage() {
           onRefresh={refreshHistory}
           onEdit={handleHistoryEdit}
           onDelete={handleHistoryDelete}
+        />
+      ) : tab === 'winrates' ? (
+        <DeckWinratesSection
+          rows={historyRows}
+          loading={historyLoading}
+          deckMap={deckMap}
         />
       ) : stats && <>
 
@@ -937,7 +1172,7 @@ export default function StatsPage() {
             <SLabel>Value Distribution</SLabel>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={stats.valueTiers}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--s-border)" vertical={false} />
                 <XAxis dataKey="label" tick={{ fill: 'var(--text-dim)', fontSize: 11 }} />
                 <YAxis tick={{ fill: 'var(--text-dim)', fontSize: 11 }} tickFormatter={v => v.toLocaleString()} />
                 <Tooltip content={tt} />
@@ -1020,7 +1255,7 @@ export default function StatsPage() {
             <SLabel>Collection Age Spread</SLabel>
             <ResponsiveContainer width="100%" height={180}>
               <BarChart data={stats.ageData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--s-border)" vertical={false} />
                 <XAxis dataKey="year" tick={{ fill: 'var(--text-dim)', fontSize: 10 }} interval={1} />
                 <YAxis tick={{ fill: 'var(--text-dim)', fontSize: 11 }} tickFormatter={v => v.toLocaleString()} width={50} />
                 <Tooltip content={tt} />
@@ -1036,7 +1271,7 @@ export default function StatsPage() {
             <SLabel>Value by Rarity</SLabel>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={stats.rarityData} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--s-border)" horizontal={false} />
                 <XAxis type="number" tick={{ fill: 'var(--text-dim)', fontSize: 11 }} tickFormatter={v => fmt(v)} />
                 <YAxis type="category" dataKey="name" tick={{ fill: 'var(--text-dim)', fontSize: 11 }} width={72} />
                 <Tooltip content={tt} />
@@ -1054,9 +1289,9 @@ export default function StatsPage() {
                 <Pie
                   data={stats.typeData} dataKey="value" nameKey="name"
                   cx="50%" cy="50%"
-                  outerRadius={window.innerWidth < 480 ? 60 : 78}
+                  outerRadius={windowWidth < 480 ? 60 : 78}
                   paddingAngle={2}
-                  label={window.innerWidth < 480
+                  label={windowWidth < 480
                     ? ({ percent }) => `${(percent * 100).toFixed(0)}%`
                     : ({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                   labelLine={false}
@@ -1092,7 +1327,7 @@ export default function StatsPage() {
           <SLabel>Top 15 Sets by Value</SLabel>
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={stats.topSets} margin={{ bottom: 60 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--s-border)" />
               <XAxis
                 dataKey="name"
                 tick={{ fill: 'var(--text-dim)', fontSize: 10, angle: -35, textAnchor: 'end' }}

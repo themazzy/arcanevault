@@ -134,15 +134,26 @@ export default function JoinGamePage() {
     setStatus('claiming')
   }
 
-  const searchArt = async () => {
-    if (!artQuery.trim()) return
+  const artTimerRef = useRef(null)
+  useEffect(() => () => clearTimeout(artTimerRef.current), [])
+
+  const searchArt = async (q) => {
+    const term = q ?? artQuery
+    if (!term.trim()) return
     setArtLoading(true)
     try {
-      const r = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(artQuery)}&unique=art&order=name`)
+      const r = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(term)}&unique=art&order=name`)
       const data = await r.json()
       setArtResults((data.data || []).filter(c => c.image_uris?.art_crop).slice(0, 20))
     } catch { setArtResults([]) }
     setArtLoading(false)
+  }
+
+  const handleArtQueryChange = (v) => {
+    setArtQuery(v)
+    clearTimeout(artTimerRef.current)
+    if (v.trim().length < 2) { setArtResults([]); return }
+    artTimerRef.current = setTimeout(() => searchArt(v), 350)
   }
 
   const submitClaim = async () => {
@@ -312,12 +323,10 @@ export default function JoinGamePage() {
                   className={styles.artSearchInput}
                   placeholder="Card name…"
                   value={artQuery}
-                  onChange={e => setArtQuery(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && searchArt()}
+                  onChange={e => handleArtQueryChange(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { clearTimeout(artTimerRef.current); searchArt() } }}
                 />
-                <button className={styles.artSearchBtn} onClick={searchArt} disabled={artLoading}>
-                  {artLoading ? '…' : '→'}
-                </button>
+                {artLoading && <span style={{ alignSelf: 'center', color: 'var(--text-faint)', fontSize: '0.88rem' }}>…</span>}
               </div>
               {artResults.length > 0 && (
                 <div className={styles.artGrid}>

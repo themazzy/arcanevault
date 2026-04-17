@@ -224,6 +224,31 @@
   min-width: 180px;
 }
 
+.selectSearch {
+  margin-bottom: 6px;
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--s-subtle, rgba(255,255,255,0.05));
+  border: 1px solid var(--s-border, rgba(255,255,255,0.1));
+  border-radius: 5px;
+  padding: 6px 10px;
+  color: var(--text);
+  font-size: 0.82rem;
+  outline: none;
+  flex-shrink: 0;
+}
+.selectSearch:focus {
+  border-color: var(--border-hi);
+  box-shadow: var(--input-focus);
+}
+
+.selectSearchEmpty {
+  padding: 8px 10px;
+  color: var(--text-faint);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
 .selectOpen,
 .select:hover:not(:disabled) {
   border-color: var(--border-hi);

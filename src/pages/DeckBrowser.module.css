@@ -37,7 +37,7 @@
   box-sizing: border-box;
   height: var(--control-height);
   background: transparent;
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid var(--s-border2);
   border-radius: 4px;
   padding: 6px var(--control-padding-x);
   color: var(--text-dim);
@@ -48,7 +48,7 @@
   transition: background 0.15s, border-color 0.15s, color 0.15s;
   white-space: nowrap;
 }
-.addCardsBtn:hover { background: var(--s2); border-color: rgba(255,255,255,0.2); color: var(--text); }
+.addCardsBtn:hover { background: var(--s2); border-color: var(--s-border2); color: var(--text); }
 .editInBuilderBtn {
   display: inline-flex;
   align-items: center;
@@ -260,7 +260,7 @@
   font-size: 0.7rem; color: var(--text-faint); font-family: var(--font-display);
   cursor: pointer; transition: all 0.15s; align-self: center;
 }
-.bracketResetBtn:hover { color: var(--text); border-color: rgba(255,255,255,0.3); }
+.bracketResetBtn:hover { color: var(--text); border-color: var(--s-border2); }
 
 /* ── Mana Overview wrapper ────────────────────────────────────────────────── */
 .manaOverview { display: flex; flex-direction: column; gap: 10px; }
@@ -337,7 +337,7 @@
   box-sizing: border-box;
   background: transparent;
   height: var(--control-height);
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid var(--s-border2);
   border-radius: 4px;
   padding: 6px var(--control-padding-x);
   color: var(--text-dim);
@@ -348,7 +348,7 @@
   transition: all 0.15s;
   white-space: nowrap;
 }
-.viewBtn:hover { color: var(--text); background: var(--s2); border-color: rgba(255,255,255,0.2); }
+.viewBtn:hover { color: var(--text); background: var(--s2); border-color: var(--s-border2); }
 .viewActive {
   color: var(--gold) !important;
   background: rgba(201,168,76,0.12) !important;
@@ -416,7 +416,7 @@
 .deckRowQtyBtn {
   width: 20px; height: 20px;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12);
+  background: var(--s-medium); border: 1px solid var(--s-border2);
   border-radius: 3px; color: var(--gold); cursor: pointer;
   font-size: 0.85rem; font-weight: 600; line-height: 1;
   flex-shrink: 0;
@@ -449,7 +449,7 @@
   line-height: 1;
   transition: background 0.15s;
 }
-.qtyOverlayBtn:hover { background: rgba(255,255,255,0.12); }
+.qtyOverlayBtn:hover { background: var(--s-border2); }
 .qtyOverlayDisplay {
   padding: 3px 0;
   text-align: center;
@@ -689,7 +689,7 @@
 .columnMenuCheckbox:checked + .columnMenuLabel { color: var(--gold); }
 .columnMenuCheck {
   width: 18px; height: 18px; border-radius: 6px;
-  border: 1px solid rgba(255,255,255,0.16); background: rgba(255,255,255,0.04);
+  border: 1px solid var(--s-border2); background: var(--s-subtle);
   color: transparent; display: inline-flex; align-items: center; justify-content: center;
   flex-shrink: 0; font-family: var(--font-display); font-size: 0.72rem; line-height: 1;
   transition: border-color 0.15s, background 0.15s, color 0.15s;
@@ -707,7 +707,7 @@
     font-size: 0.84rem;
     color: var(--text);
     background: var(--s1);
-    border: 1px solid rgba(255,255,255,0.08);
+    border: 1px solid var(--s-medium);
     border-radius: 12px;
     position: relative;
   }
@@ -718,13 +718,13 @@
     background:
       linear-gradient(180deg, rgba(201,168,76,0.14), rgba(201,168,76,0.05)),
       color-mix(in srgb, var(--s2) 92%, rgba(201,168,76,0.08));
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 10px 24px rgba(0,0,0,0.14);
+    box-shadow: inset 0 1px 0 var(--s3), 0 10px 24px rgba(0,0,0,0.14);
   }
   .columnMenuCheck {
     width: 22px;
     height: 22px;
     border-radius: 7px;
-    border-color: rgba(255,255,255,0.14);
+    border-color: var(--s-border2);
     background: rgba(0,0,0,0.18);
     font-size: 0.82rem;
   }
@@ -798,7 +798,7 @@
   border: 1px solid rgba(201,168,76,0.28);
   border-radius: 8px;
   background: linear-gradient(180deg, rgba(201,168,76,0.08), rgba(201,168,76,0.03));
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+  box-shadow: inset 0 1px 0 var(--s1);
 }
 .stackGroupHeader > :first-child {
   min-width: 0;
@@ -851,12 +851,12 @@
   object-fit: cover;
   display: block;
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--s-border2) 70%, rgba(255,255,255,0.08));
+  border: 1px solid color-mix(in srgb, var(--s-border2) 70%, var(--s-medium));
 }
 .stackCardImg {
   width: 100%; aspect-ratio: 63/88; object-fit: cover;
   border-radius: 7px; display: block;
-  border: 1px solid color-mix(in srgb, var(--s-border2) 70%, rgba(255,255,255,0.08));
+  border: 1px solid color-mix(in srgb, var(--s-border2) 70%, var(--s-medium));
   -webkit-user-drag: none;
   -webkit-touch-callout: none;
   user-select: none;
