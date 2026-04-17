@@ -8,7 +8,7 @@ import {
   ART_X as SHARED_ART_X,
   ART_Y as SHARED_ART_Y,
 } from './constants'
-import { computeHashFromGray, computeHashFromGrayGlare, rgbToGray32x32, hashToHex as _hashToHex } from './hashCore'
+import { computeHashFromGray, computeHashFromGrayGlare, computeHashFromGrayDark, rgbToGray32x32, hashToHex as _hashToHex } from './hashCore'
 
 // ── Reusable scratch canvases (avoids per-frame createElement overhead) ───────
 let _cardCanvas = null, _cardCtx = null
@@ -141,7 +141,8 @@ function minAreaRectPoints(cv, cnt) {
 
 // Find a card quad from a grayscale Mat using Canny + contour scoring.
 // cannyLo/cannyHi: pass explicit values to override adaptive thresholds (used for dark-card retry).
-function findBestQuad(cv, gray, width, height, cannyLo = -1, cannyHi = -1) {
+// blurSize: kernel side length for pre-Canny Gaussian blur. Use 3 for faint dark-border edges.
+function findBestQuad(cv, gray, width, height, cannyLo = -1, cannyHi = -1, blurSize = 5) {
   const blurred = new cv.Mat()
   const edges = new cv.Mat()
   const dilated = new cv.Mat()
@@ -149,7 +150,7 @@ function findBestQuad(cv, gray, width, height, cannyLo = -1, cannyHi = -1) {
   const hier = new cv.Mat()
 
   try {
-    cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0)
+    cv.GaussianBlur(gray, blurred, new cv.Size(blurSize, blurSize), 0)
 
     let lo, hi
     if (cannyLo >= 0 && cannyHi >= 0) {
@@ -163,8 +164,10 @@ function findBestQuad(cv, gray, width, height, cannyLo = -1, cannyHi = -1) {
         cumul += hist[v]
         if (cumul >= gdata.length / 2) { median = v; break }
       }
-      lo = Math.max(10, Math.round(median * 0.5))
-      hi = Math.min(240, Math.round(median * 1.5))
+      // Tighter ratio keeps Pass 1 distinct from Pass 2 across all lighting conditions.
+      // On bright backgrounds median*1.5 → hi≈225 which misses faint dark-card borders.
+      lo = Math.max(5,  Math.round(median * 0.33))
+      hi = Math.max(60, Math.min(220, Math.round(median * 1.33)))
     }
     cv.Canny(blurred, edges, lo, hi)
 
@@ -234,19 +237,21 @@ export function detectCardCorners(imageData, width, height) {
     const result = findBestQuad(cv, gray, width, height)
     if (result) return result
 
-    // Pass 2: dark-card / low-contrast — fixed low Canny thresholds.
-    // Adaptive thresholds on dark images produce lo=15/hi=45 which can miss subtle
-    // card borders; fixed lo=5/hi=40 catches them without the cost of equalizeHist.
-    const darkResult = findBestQuad(cv, gray, width, height, 5, 40)
+    // Pass 2: dark-card / low-contrast — fixed low thresholds + smaller blur.
+    // 3×3 kernel preserves the faint border gradient that 5×5 smears below threshold.
+    const darkResult = findBestQuad(cv, gray, width, height, 5, 40, 3)
     if (darkResult) return darkResult
 
-    // Pass 3: equalizeHist fallback — helps very dark or severely underexposed scenes
-    const eqGray = new cv.Mat()
+    // Pass 3: local CLAHE contrast enhancement — better than global equalizeHist for
+    // dark-card-on-dark-background scenes where global equalization blends border into bg.
+    const claheMat = new cv.Mat()
     try {
-      cv.equalizeHist(gray, eqGray)
-      return findBestQuad(cv, eqGray, width, height)
+      const clahe = cv.createCLAHE(2.0, new cv.Size(8, 8))
+      clahe.apply(gray, claheMat)
+      clahe.delete()
+      return findBestQuad(cv, claheMat, width, height, 5, 40, 3)
     } finally {
-      eqGray.delete()
+      claheMat.delete()
     }
   } finally {
     src.delete()
@@ -417,6 +422,35 @@ export function computePHash256Foil(artImageData) {
     const rgba = resized.data
     if (!rgba || rgba.length < 4096) throw new Error(`resized.data invalid (len=${rgba?.length})`)
     return computeHashFromGrayGlare(rgbToGray32x32(rgba, 4))
+  } finally {
+    src.delete()
+    blurred.delete()
+    resized.delete()
+  }
+}
+
+/**
+ * Variant of computePHash256 for dark art. Stretches the low dynamic range before hashing.
+ * Returns null when the art crop isn't dark (mean brightness ≥ 80) — caller skips in that case.
+ * Does not affect stored DB hashes — client-side fallback only.
+ */
+export function computePHash256Dark(artImageData) {
+  if (!isOpenCVReady()) throw new Error('OpenCV not ready')
+  const cv = window.cv
+  const src = cv.matFromImageData(artImageData)
+  if (!src || src.empty()) throw new Error('matFromImageData failed')
+  const blurred = new cv.Mat()
+  const resized = new cv.Mat()
+  try {
+    cv.GaussianBlur(src, blurred, new cv.Size(5, 5), 1.0)
+    cv.resize(blurred, resized, new cv.Size(32, 32), 0, 0, cv.INTER_LANCZOS4)
+    if (resized.empty()) throw new Error('resize to 32x32 failed')
+    const rgba = resized.data
+    if (!rgba || rgba.length < 4096) throw new Error(`resized.data invalid (len=${rgba?.length})`)
+    const gray = rgbToGray32x32(rgba, 4)
+    const mean = gray.reduce((s, v) => s + v, 0) / gray.length
+    if (mean >= 80) return null  // not dark art — skip this fallback
+    return computeHashFromGrayDark(gray)
   } finally {
     src.delete()
     blurred.delete()

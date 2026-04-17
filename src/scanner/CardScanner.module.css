@@ -32,15 +32,6 @@
 }
 .hiddenCanvas { display: none; }
 
-.cornerOverlay {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  pointer-events: none;
-}
-
 /* Overlay rendered on top of camera (transparent on native, dim on web) */
 .overlay {
   position: absolute;
@@ -159,32 +150,53 @@
 .closeBtn:hover { background: rgba(255,255,255,0.15); }
 .closeBtn:active { transform: scale(0.94); }
 
-/* ── Targeting reticle ── */
-.targetFrame {
+/* ── Tracking frame SVG overlay ── */
+.trackingOverlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.trackingPoly {
+  fill: none;
+  stroke: rgba(201,168,76,0.55);
+  stroke-width: 1.5;
+}
+.trackingPolyMatch { stroke: rgba(93,186,112,0.95); stroke-width: 2; }
+.trackingPolyFaint { stroke: none; }
+
+.trackingCornerGroup {
+  transition: transform 0.08s ease-out;
+}
+.trackingCorner {
+  stroke: rgba(201,168,76,0.9);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  fill: none;
+}
+.trackingCornerMatch .trackingCorner { stroke: rgba(93,186,112,0.95); }
+.trackingCornerFaint .trackingCorner { stroke: rgba(201,168,76,0.35); }
+.trackingCornerScanning .trackingCorner { stroke: rgba(201,168,76,0.45); }
+
+/* Status elements (spinner, scan line, set lock) fixed at frame center */
+.frameCenterContent {
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -52%);
   width: 280px;
-  height: 392px;   /* 280 × 1.4 = 392 (≈ MTG card 500×700) */
+  height: 392px;
   pointer-events: none;
-  overflow: hidden;
 }
 
-/* Auto-scan mode: position/size driven by inline style (pixel-based) so
-   CSS transitions can animate between detected card positions smoothly.
-   The CSS top/left/transform defaults are overridden by inline style. */
-.targetFrameAutoScan {
-  transition: top 0.12s ease-out, left 0.12s ease-out,
-              width 0.12s ease-out, height 0.12s ease-out;
-}
-
-/* Small portrait phones (e.g. Samsung S24 ~390×844) — shrink frame and tighten
-   control menu so the reticle doesn't visually overlap the icon buttons. */
+/* Small portrait phones — tighten control menu */
 @media (max-height: 850px) and (max-width: 430px) {
-  .targetFrame {
+  .frameCenterContent {
     width: 240px;
-    height: 336px; /* maintains 1:1.4 card ratio */
+    height: 336px;
   }
   .controlMenu {
     gap: 4px;
@@ -195,18 +207,6 @@
     min-height: 38px;
   }
 }
-
-/* Corner brackets */
-.corner {
-  position: absolute;
-  width: 28px;
-  height: 28px;
-  border-color: rgba(201,168,76,0.85);
-  border-style: solid;
-  transition: border-color 0.2s;
-}
-.targetLit    .corner { border-color: rgba(93,186,112,0.95); }
-.targetPaused .corner { border-color: rgba(255,255,255,0.30); }
 
 /* Paused label inside reticle */
 .pausedLabel {
@@ -233,11 +233,6 @@
   from { transform: translate(-50%, -50%) rotate(0deg); }
   to   { transform: translate(-50%, -50%) rotate(360deg); }
 }
-
-.tl { top: 0; left: 0;  border-width: 3px 0 0 3px; border-radius: 3px 0 0 3px; }
-.tr { top: 0; right: 0; border-width: 3px 3px 0 0; border-radius: 0 3px 0 0; }
-.br { bottom: 0; right: 0; border-width: 0 3px 3px 0; border-radius: 0 0 3px 0; }
-.bl { bottom: 0; left: 0;  border-width: 0 0 3px 3px; border-radius: 0 0 0 3px; }
 
 /* Animated scan line */
 .scanLine {
