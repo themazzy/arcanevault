@@ -30,3 +30,15 @@ android/capacitor-cordova-android-plugins/build/
 
 # Local Supabase temp state
 supabase/.temp/
+
+# Scratch / local tool files
+ArcaneVault/
+ai_agents-main/
+graphify-out/
+chroma.sqlite3
+mempalace.yaml
+entities.json
+bindersfixplan.md
+collectionfixplan.md
+deckbuilderfix.md
+ownedmap-foil-plan.md
