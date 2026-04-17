@@ -192,7 +192,7 @@ export function computeHashFromGray(grayU8) {
   if (grayU8.length !== 1024) throw new Error(`Expected 1024 gray pixels, got ${grayU8.length}`)
 
   const capped = percentileCap(grayU8, 0.98)
-  const equalized = applyCLAHE(capped, 32, 32)
+  const equalized = applyCLAHE(capped, 32, 32, 2, 2)
 
   const pixels = new Float64Array(1024)
   for (let i = 0; i < 1024; i++) pixels[i] = equalized[i]
@@ -224,7 +224,7 @@ export function computeHashFromGray(grayU8) {
 export function computeHashFromGrayGlare(grayU8) {
   if (grayU8.length !== 1024) throw new Error(`Expected 1024 gray pixels, got ${grayU8.length}`)
   const capped = percentileCap(grayU8, 0.92)
-  const equalized = applyCLAHE(capped, 32, 32)
+  const equalized = applyCLAHE(capped, 32, 32, 2, 2)
   const pixels = new Float64Array(1024)
   for (let i = 0; i < 1024; i++) pixels[i] = equalized[i]
   const dct = dct2d(pixels, 32)
@@ -256,7 +256,7 @@ export function computeHashFromGrayDark(grayU8) {
   const stretched = new Uint8Array(1024)
   for (let i = 0; i < 1024; i++)
     stretched[i] = Math.min(255, Math.round(grayU8[i] * scale))
-  const equalized = applyCLAHE(stretched, 32, 32)
+  const equalized = applyCLAHE(stretched, 32, 32, 2, 2)
   const pixels = new Float64Array(1024)
   for (let i = 0; i < 1024; i++) pixels[i] = equalized[i]
   const dct = dct2d(pixels, 32)
@@ -285,4 +285,22 @@ export function rgbToGray32x32(rgbData, channels = 4) {
     grayU8[i] = Math.round(0.2126 * rgbData[off] + 0.7152 * rgbData[off + 1] + 0.0722 * rgbData[off + 2])
   }
   return grayU8
+}
+
+/**
+ * Extract HSV saturation channel (0–255) from a 32×32 raw RGB(A) buffer.
+ * Saturation captures color richness independently of brightness — cards with
+ * identical luminance composition but different color identities diverge here.
+ */
+export function rgbToSaturation32x32(rgbData, channels = 4) {
+  const satU8 = new Uint8Array(1024)
+  for (let i = 0; i < 1024; i++) {
+    const off = i * channels
+    const r = rgbData[off] / 255
+    const g = rgbData[off + 1] / 255
+    const b = rgbData[off + 2] / 255
+    const max = Math.max(r, g, b)
+    satU8[i] = max === 0 ? 0 : Math.round((max - Math.min(r, g, b)) / max * 255)
+  }
+  return satU8
 }

@@ -8,7 +8,7 @@ import {
   ART_X as SHARED_ART_X,
   ART_Y as SHARED_ART_Y,
 } from './constants'
-import { computeHashFromGray, computeHashFromGrayGlare, computeHashFromGrayDark, rgbToGray32x32, hashToHex as _hashToHex } from './hashCore'
+import { computeHashFromGray, computeHashFromGrayGlare, computeHashFromGrayDark, rgbToGray32x32, rgbToSaturation32x32, hashToHex as _hashToHex } from './hashCore'
 
 // ── Reusable scratch canvases (avoids per-frame createElement overhead) ───────
 let _cardCanvas = null, _cardCtx = null
@@ -451,6 +451,33 @@ export function computePHash256Dark(artImageData) {
     const mean = gray.reduce((s, v) => s + v, 0) / gray.length
     if (mean >= 80) return null  // not dark art — skip this fallback
     return computeHashFromGrayDark(gray)
+  } finally {
+    src.delete()
+    blurred.delete()
+    resized.delete()
+  }
+}
+
+/**
+ * Compute a 256-bit perceptual hash of the HSV saturation channel of the art crop.
+ * Captures color identity independently of luminance — helps distinguish cards with
+ * similar art composition but different color palettes (e.g. land reprints).
+ * Stored as phash_hex2 in the DB; used client-side for combined-distance re-ranking.
+ */
+export function computePHash256Color(artImageData) {
+  if (!isOpenCVReady()) throw new Error('OpenCV not ready')
+  const cv = window.cv
+  const src = cv.matFromImageData(artImageData)
+  if (!src || src.empty()) throw new Error('matFromImageData failed')
+  const blurred = new cv.Mat()
+  const resized = new cv.Mat()
+  try {
+    cv.GaussianBlur(src, blurred, new cv.Size(5, 5), 1.0)
+    cv.resize(blurred, resized, new cv.Size(32, 32), 0, 0, cv.INTER_LANCZOS4)
+    if (resized.empty()) throw new Error('resize to 32x32 failed')
+    const rgba = resized.data
+    if (!rgba || rgba.length < 4096) throw new Error(`resized.data invalid (len=${rgba?.length})`)
+    return computeHashFromGray(rgbToSaturation32x32(rgba, 4))
   } finally {
     src.delete()
     blurred.delete()

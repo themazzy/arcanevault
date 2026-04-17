@@ -31,6 +31,8 @@ const DB_NAME          = 'arcanevault_hashes'
 const PAGE_SIZE        = 1000
 const NATIVE_CHUNK     = 5000
 const BAND_MASK        = 0x3F  // 6-bit bands
+// Bump to invalidate IDB cache when stored hash schema changes (e.g. new columns).
+const CACHE_VERSION    = 2
 // [wordIndex, shift] — 16 bands of 6 bits across the 8 Uint32 words
 const BAND_SPECS = [
   [0, 0], [0, 16], [1, 0], [1, 16],
@@ -50,14 +52,18 @@ function augmentWithParsed(rows) {
     if (r.hash_u32) return r   // already augmented
     const hash = hexToHash(r.phash_hex)
     if (!hash) return r
-    return { ...r, hash_u32: Array.from(hash) }
+    const colorHash = r.phash_hex2 ? hexToHash(r.phash_hex2) : null
+    return {
+      ...r,
+      hash_u32: Array.from(hash),
+      ...(colorHash ? { hash_u32_color: Array.from(colorHash) } : {}),
+    }
   })
 }
 
 /**
  * Convert a raw DB row into the in-memory hash object.
- * Uses pre-parsed hash_u32 when available (warm IDB cache) to avoid
- * re-parsing hex strings on every load.
+ * Uses pre-parsed hash_u32 / hash_u32_color when available (warm IDB cache).
  */
 function rowToHash(r) {
   let hash
@@ -67,13 +73,20 @@ function rowToHash(r) {
     hash = hexToHash(r.phash_hex)
   }
   if (!hash) return null
+  let hashColor = null
+  if (r.hash_u32_color) {
+    hashColor = new Uint32Array(r.hash_u32_color)
+  } else if (r.phash_hex2) {
+    hashColor = hexToHash(r.phash_hex2)
+  }
   return {
-    id:       r.scryfall_id,
-    name:     r.name,
-    setCode:  r.set_code,
-    collNum:  r.collector_number,
-    imageUri: r.image_uri,
+    id:        r.scryfall_id,
+    name:      r.name,
+    setCode:   r.set_code,
+    collNum:   r.collector_number,
+    imageUri:  r.image_uri,
     hash,
+    hashColor,
   }
 }
 
@@ -156,6 +169,7 @@ class DatabaseService {
         set_code         TEXT,
         collector_number TEXT,
         phash_hex        TEXT,
+        phash_hex2       TEXT,
         image_uri        TEXT,
         art_crop_uri     TEXT,
         synced_at        INTEGER DEFAULT 0
@@ -163,6 +177,8 @@ class DatabaseService {
       CREATE INDEX IF NOT EXISTS idx_phash ON card_hashes (phash_hex)
         WHERE phash_hex IS NOT NULL;
     `)
+    // Migration: add phash_hex2 to existing SQLite DBs that predate this column.
+    await this._db.execute(`ALTER TABLE card_hashes ADD COLUMN phash_hex2 TEXT`).catch(() => {})
   }
 
   // ── Sync from Supabase ─────────────────────────────────────────────────────
@@ -179,7 +195,7 @@ class DatabaseService {
         const to   = from + PAGE_SIZE - 1
         const { data, error } = await sb
           .from('card_hashes')
-          .select('scryfall_id,name,set_code,collector_number,phash_hex,image_uri,art_crop_uri')
+          .select('scryfall_id,name,set_code,collector_number,phash_hex,phash_hex2,image_uri,art_crop_uri')
           .not('phash_hex', 'is', null)
           .range(from, to)
 
@@ -205,7 +221,7 @@ class DatabaseService {
   }
 
   async _upsertBatch(rows) {
-    const placeholders = rows.map(() => '(?,?,?,?,?,?,?,?)').join(',')
+    const placeholders = rows.map(() => '(?,?,?,?,?,?,?,?,?)').join(',')
     const values = []
     for (const r of rows) {
       values.push(
@@ -213,6 +229,7 @@ class DatabaseService {
         r.set_code         ?? null,
         r.collector_number ?? null,
         r.phash_hex        ?? null,
+        r.phash_hex2       ?? null,
         r.image_uri        ?? null,
         r.art_crop_uri     ?? null,
         Date.now(),
@@ -220,7 +237,7 @@ class DatabaseService {
     }
     await this._db.run(
       `INSERT OR REPLACE INTO card_hashes
-         (scryfall_id,name,set_code,collector_number,phash_hex,image_uri,art_crop_uri,synced_at)
+         (scryfall_id,name,set_code,collector_number,phash_hex,phash_hex2,image_uri,art_crop_uri,synced_at)
        VALUES ${placeholders}`,
       values,
     )
@@ -316,7 +333,7 @@ class DatabaseService {
 
   async _fetchSQLiteChunk(offset) {
     const res = await this._db.query(
-      'SELECT scryfall_id,name,set_code,collector_number,phash_hex,image_uri FROM card_hashes WHERE phash_hex IS NOT NULL LIMIT ? OFFSET ?',
+      'SELECT scryfall_id,name,set_code,collector_number,phash_hex,phash_hex2,image_uri FROM card_hashes WHERE phash_hex IS NOT NULL LIMIT ? OFFSET ?',
       [NATIVE_CHUNK, offset]
     ).catch(() => ({ values: [] }))
     return res.values ?? []
@@ -350,6 +367,14 @@ class DatabaseService {
 
   async _loadWebCache(onProgress) {
     this._emitProgress(onProgress, { phase: 'checking cache', source: 'idb', loadedCount: 0 })
+
+    // Invalidate IDB cache when the stored hash schema changes (CACHE_VERSION bump).
+    const storedVersion = Number(await getMeta('scanner_cache_version').catch(() => 0)) || 0
+    if (storedVersion !== CACHE_VERSION) {
+      await clearScannerHashEntries().catch(() => {})
+      await setMeta('scanner_cache_version', CACHE_VERSION).catch(() => {})
+      await setMeta('scanner_hash_total_count', 0).catch(() => {})
+    }
 
     // Stage 1: IDB cache + counts only — fast, no page data yet.
     // _fetchTotalCount() is a Supabase network call and slower than the IDB
@@ -449,7 +474,7 @@ class DatabaseService {
     const to   = from + PAGE_SIZE - 1
     const { data, error } = await sb
       .from('card_hashes')
-      .select('scryfall_id,name,set_code,collector_number,phash_hex,image_uri')
+      .select('scryfall_id,name,set_code,collector_number,phash_hex,phash_hex2,image_uri')
       .not('phash_hex', 'is', null)
       .range(from, to)
     if (error) throw error
@@ -522,7 +547,10 @@ class DatabaseService {
     return [best, second]
   }
 
-  findBestTwoWithStats(hash) {
+  // colorHash: optional Uint32Array(8) from computePHash256Color.
+  // When provided, combined distance = 0.65 * luma + 0.35 * color, giving
+  // color-identity cards (lands, reprints) a tiebreaker over look-alike art.
+  findBestTwoWithStats(hash, colorHash = null) {
     if (!this._hashes.length) {
       return { best: null, second: null, candidateCount: 0, totalCount: 0 }
     }
@@ -530,7 +558,10 @@ class DatabaseService {
     let best = null, second = null
     let bestDist = Infinity, secondDist = Infinity
     for (const card of candidates) {
-      const d = hammingDistance(hash, card.hash)
+      const lumaDist = hammingDistance(hash, card.hash)
+      const d = (colorHash && card.hashColor)
+        ? Math.round(0.65 * lumaDist + 0.35 * hammingDistance(colorHash, card.hashColor))
+        : lumaDist
       if (d < bestDist) {
         second = best; secondDist = bestDist
         best = card;   bestDist   = d
