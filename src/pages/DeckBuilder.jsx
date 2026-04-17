@@ -1550,22 +1550,34 @@ export default function DeckBuilderPage() {
           const fetchedByName = new Map(fetchedByNameRows.map(card => [(card.name || '').toLowerCase(), card]))
           const updates = []
           const enrichedRows = (rows || []).map(row => {
-            const fetched = (row.scryfall_id && fetchedById.get(row.scryfall_id)) || fetchedByName.get((row.name || '').toLowerCase())
+            const resolvedById   = row.scryfall_id ? fetchedById.get(row.scryfall_id) : null
+            const resolvedByName = !resolvedById   ? fetchedByName.get((row.name || '').toLowerCase()) : null
+            const fetched = resolvedById || resolvedByName
             if (!fetched) return row
             const meta = getDeckBuilderCardMeta(fetched)
 
+            // Only update printing-identity fields (scryfall_id, set, image) when:
+            // - resolved via the card's own ID (safe — same card), OR
+            // - the row genuinely has no printing info yet (name-only, e.g. text import)
+            // Never overwrite an existing scryfall_id with a name lookup — that
+            // would silently reassign to whatever Scryfall currently returns as
+            // the "newest" printing (e.g. an upcoming set reprint).
+            const canUpdatePrinting = !!resolvedById || !row.scryfall_id
+
             const next = {
               ...row,
-              scryfall_id: row.scryfall_id || meta.scryfall_id,
-              set_code: row.set_code || meta.set_code,
-              collector_number: row.collector_number || meta.collector_number,
               type_line: row.type_line || meta.type_line,
               mana_cost: row.mana_cost || meta.mana_cost,
               cmc: row.cmc ?? meta.cmc,
               color_identity: (row.color_identity && row.color_identity.length > 0)
                 ? row.color_identity
                 : (meta.color_identity || []),
-              image_uri: row.image_uri || meta.image_uri || null,
+              ...(canUpdatePrinting && {
+                scryfall_id:       row.scryfall_id       || meta.scryfall_id,
+                set_code:          row.set_code          || meta.set_code,
+                collector_number:  row.collector_number  || meta.collector_number,
+                image_uri:         row.image_uri         || meta.image_uri || null,
+              }),
             }
 
             const changed =
