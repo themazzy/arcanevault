@@ -31,7 +31,7 @@ import { databaseService } from './DatabaseService'
 import {
   waitForOpenCV,
   detectCardCorners, warpCard, cropArtRegion, cropCardFromReticle,
-  computePHash256, computePHash256Foil, computePHash256Dark, rotateCard180,
+  computePHash256, computePHash256Foil, computePHash256Dark, computePHash256Color, rotateCard180,
 } from './ScannerEngine'
 import { useAuth } from '../components/Auth'
 import { formatPriceMeta, getPriceWithMeta, sfGet } from '../lib/scryfall'
@@ -1169,19 +1169,27 @@ export default function CardScanner({ onMatch, onClose }) {
     const shouldExpand = () => !best || best.distance > MATCH_THRESHOLD || bestGap < MATCH_MIN_GAP
 
     const tryMatch = (cardImg, sourceLabel, variants) => {
+      // Color hash computed once per image (robust to small crop shifts).
+      // Null if OpenCV isn't ready or art crop fails — matching gracefully degrades.
+      let colorHash = null
+      try {
+        const defaultCrop = cropArtRegion(cardImg)
+        if (defaultCrop) colorHash = computePHash256Color(defaultCrop)
+      } catch { /* non-critical */ }
+
       for (const variant of variants) {
         const artCrop = cropArtRegion(cardImg, variant)
         if (!artCrop) continue
         const hash = computePHash256(artCrop)
         if (!hash) continue
-        const { best: c, second: r, candidateCount, totalCount } = databaseService.findBestTwoWithStats(hash)
+        const { best: c, second: r, candidateCount, totalCount } = databaseService.findBestTwoWithStats(hash, colorHash)
         if (updateBest(c, r, candidateCount, totalCount, variant, sourceLabel)) return
         if (c && c.distance > MATCH_THRESHOLD) {
           // Foil fallback: aggressive glare suppression for blown highlights.
           try {
             const foilHash = computePHash256Foil(artCrop)
             if (foilHash) {
-              const foilStats = databaseService.findBestTwoWithStats(foilHash)
+              const foilStats = databaseService.findBestTwoWithStats(foilHash, colorHash)
               if (updateBest(foilStats.best, foilStats.second, foilStats.candidateCount, foilStats.totalCount, variant, `${sourceLabel}+foil`)) return
             }
           } catch { /* non-critical */ }
@@ -1190,7 +1198,7 @@ export default function CardScanner({ onMatch, onClose }) {
           try {
             const darkHash = computePHash256Dark(artCrop)
             if (darkHash) {
-              const darkStats = databaseService.findBestTwoWithStats(darkHash)
+              const darkStats = databaseService.findBestTwoWithStats(darkHash, colorHash)
               if (updateBest(darkStats.best, darkStats.second, darkStats.candidateCount, darkStats.totalCount, variant, `${sourceLabel}+dark`)) return
             }
           } catch { /* non-critical */ }
