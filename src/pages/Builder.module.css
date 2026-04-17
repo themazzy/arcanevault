@@ -413,6 +413,90 @@
   border-color: rgba(200,60,60,0.5) !important;
 }
 
+/* ── Page-level tab bar (My Decks / Deck Browser) ────────────────────── */
+.pageTabBar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.pageTab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  padding: 8px 20px;
+  margin-bottom: -1px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.pageTab:hover { color: var(--text); }
+
+.pageTabActive {
+  color: var(--gold);
+  border-bottom-color: var(--gold);
+}
+
+/* ── Community deck tile extras ─────────────────────────────────────── */
+.cardSub {
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  font-style: italic;
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardBottom {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cardColors {
+  display: flex;
+  gap: 4px;
+}
+
+.cardTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.cardTag {
+  font-size: 0.65rem;
+  color: var(--text-faint);
+  background: var(--s2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 6px;
+}
+
+.viewBtn {
+  background: rgba(201,168,76,0.1);
+  border: 1px solid rgba(201,168,76,0.3);
+  border-radius: 4px;
+  color: var(--gold);
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 4px 12px;
+  transition: background 0.15s, border-color 0.15s;
+  align-self: flex-start;
+}
+
+.viewBtn:hover {
+  background: rgba(201,168,76,0.2);
+  border-color: rgba(201,168,76,0.5);
+}
+
 /* ── Responsive ──────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .page { padding: 16px; }

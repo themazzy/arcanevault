@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
@@ -246,10 +246,10 @@ export default function DeckViewPage() {
   const isOwner    = user && deck?.user_id === user.id
   const isViewer   = user && deck?.user_id !== user.id
   const format     = FORMATS.find(f => f.id === deckMeta.format)
-  const totalCards = cards.reduce((s, c) => s + c.qty, 0)
+  const totalCards = useMemo(() => cards.reduce((s, c) => s + c.qty, 0), [cards])
 
   // Sort cards according to sortBy
-  const sortCards = (list) => {
+  const sortCards = useCallback((list) => {
     const copy = [...list]
     if (sortBy === 'name') return copy.sort((a, b) => a.name.localeCompare(b.name))
     if (sortBy === 'cmc')  return copy.sort((a, b) => (a.cmc ?? 0) - (b.cmc ?? 0) || a.name.localeCompare(b.name))
@@ -259,22 +259,24 @@ export default function DeckViewPage() {
       return ca.localeCompare(cb) || a.name.localeCompare(b.name)
     })
     return copy // 'type' — groupDeckCards handles ordering
-  }
+  }, [sortBy])
 
-  const groupedCards  = groupDeckCards(cards) // Map<group, cards[]>
-  const sortedFlat    = sortCards(cards)
+  const groupedCards  = useMemo(() => groupDeckCards(cards), [cards])
+  const sortedFlat    = useMemo(() => sortCards(cards), [cards, sortCards])
   const effectiveViewMode = viewMode === 'list' ? 'table' : viewMode
 
   // Total deck value
-  const totalValue = cards.reduce((sum, c) => {
-    const sfCard = sfMap[`${c.set_code}-${c.collector_number}`]
-    const p = getPrice(sfCard, c.foil)
-    return p != null ? sum + p * c.qty : sum
-  }, 0)
-  const totalValueFmt = totalValue > 0 ? formatPrice(totalValue) : null
+  const { totalValue, totalValueFmt } = useMemo(() => {
+    const v = cards.reduce((sum, c) => {
+      const sfCard = sfMap[`${c.set_code}-${c.collector_number}`]
+      const p = getPrice(sfCard, c.foil)
+      return p != null ? sum + p * c.qty : sum
+    }, 0)
+    return { totalValue: v, totalValueFmt: v > 0 ? formatPrice(v) : null }
+  }, [cards, sfMap])
 
   // Build plain-text decklist for copy
-  const buildDecklist = () => {
+  const buildDecklist = useCallback(() => {
     const commander = cards.filter(c => c.is_commander)
     const main      = cards.filter(c => !c.is_commander && c.board !== 'side' && c.board !== 'maybe')
     const side      = cards.filter(c => c.board === 'side')
@@ -304,7 +306,7 @@ export default function DeckViewPage() {
       sortCards(side).forEach(c => lines.push(`${c.qty} ${c.name}`))
     }
     return lines.join('\n').trim()
-  }
+  }, [cards, groupBy, groupedCards, sortCards])
 
   // Best available card image
   const cardImg = (c) =>

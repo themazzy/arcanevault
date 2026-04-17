@@ -46,23 +46,13 @@
   padding: 6px var(--control-padding-x);
   border-radius: 4px;
   cursor: pointer;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.16);
+  background: var(--s-subtle);
+  border: 1px solid var(--s-border);
   color: var(--text-dim);
   transition: all 0.15s;
 }
 .importBtn:hover {
-  background: rgba(255,255,255,0.08);
-  border-color: rgba(255,255,255,0.28);
+  background: var(--s-medium);
+  border-color: var(--s-border2);
   color: var(--text);
-}
-
-[data-theme-mode="light"] .importBtn {
-  background: rgba(255,251,245,0.94);
-  border-color: rgba(116,82,24,0.24);
-}
-
-[data-theme-mode="light"] .importBtn:hover {
-  background: rgba(255,246,235,0.98);
-  border-color: rgba(116,82,24,0.38);
 }

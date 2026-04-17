@@ -656,7 +656,7 @@ export default function DeckBrowser({ folder, onBack }) {
           qty: row.qty,
           updated_at: row.updated_at,
         })))
-        const cardList = remote.map(row => ({
+        const remoteCardList = remote.map(row => ({
           id: row.card_id,
           scryfall_id: row.scryfall_id,
           name: row.name,
@@ -670,9 +670,17 @@ export default function DeckBrowser({ folder, onBack }) {
           _folder_qty: row.qty,
           _allocation_id: row.id,
         }))
-        setCards(cardList)
-        const map = await loadCardMapWithSharedPrices(cardList)
-        if (map) setSfMap({ ...map })
+        // Only re-render if remote differs from what's already shown
+        setCards(prev => {
+          const sig = l => l.map(c => `${c.id}|${c._folder_qty ?? c.qty}|${c._allocation_id}`).sort().join(',')
+          return sig(prev) === sig(remoteCardList) ? prev : remoteCardList
+        })
+        const map = await loadCardMapWithSharedPrices(remoteCardList)
+        if (map) setSfMap(prev => {
+          const newKeys = Object.keys(map).sort().join(',')
+          const oldKeys = Object.keys(prev).sort().join(',')
+          return newKeys === oldKeys ? prev : { ...map }
+        })
       } catch {}
     }
 
@@ -683,8 +691,12 @@ export default function DeckBrowser({ folder, onBack }) {
 
   // Fetch all folders for "Move to" dropdown (RLS filters by user automatically)
   useEffect(() => {
-    sb.from('folders').select('id, name, type').then(({ data }) => setAllFolders(data || []))
-  }, [])
+    let cancelled = false
+    sb.from('folders').select('id, name, type').then(({ data }) => {
+      if (!cancelled) setAllFolders(data || [])
+    })
+    return () => { cancelled = true }
+  }, [user?.id])
 
   const clearSelect = () => { setSelectedCards(new Set()); setSplitState(new Map()); setSelectMode(false) }
   const toggleSelectMode = () => { setSelectMode(v => { if (v) clearSelect(); return !v }) }
@@ -732,18 +744,23 @@ export default function DeckBrowser({ folder, onBack }) {
       const remaining = totalQty - selQty
       remaining > 0 ? toUpdate.push({ allocId: card?._allocation_id, remaining }) : toDelete.push(card?._allocation_id)
     }
-    if (toDelete.length) await sb.from('deck_allocations').delete().eq('deck_id', folder.id).in('id', toDelete.filter(Boolean))
-    for (const { allocId, remaining } of toUpdate) {
-      await sb.from('deck_allocations').update({ qty: remaining }).eq('id', allocId)
+    try {
+      if (toDelete.length) await sb.from('deck_allocations').delete().eq('deck_id', folder.id).in('id', toDelete.filter(Boolean))
+      for (const { allocId, remaining } of toUpdate) {
+        await sb.from('deck_allocations').update({ qty: remaining }).eq('id', allocId)
+      }
+      setCards(prev => prev.map(c => {
+        if (!selectedCards.has(c.id)) return c
+        const totalQty = c._folder_qty || c.qty || 1
+        const selQty = splitState.get(c.id) ?? 1
+        const remaining = totalQty - selQty
+        return remaining > 0 ? { ...c, _folder_qty: remaining } : null
+      }).filter(Boolean))
+      clearSelect()
+    } catch (e) {
+      console.error('[DeckBrowser] bulk delete failed:', e)
+      loadCards()
     }
-    setCards(prev => prev.map(c => {
-      if (!selectedCards.has(c.id)) return c
-      const totalQty = c._folder_qty || c.qty || 1
-      const selQty = splitState.get(c.id) ?? 1
-      const remaining = totalQty - selQty
-      return remaining > 0 ? { ...c, _folder_qty: remaining } : null
-    }).filter(Boolean))
-    clearSelect()
   }
 
   const handleMoveToFolder = async (targetFolder) => {
@@ -757,26 +774,31 @@ export default function DeckBrowser({ folder, onBack }) {
       insertRows.push({ card_id: id, qty: selQty, user_id: user.id })
       remaining > 0 ? toUpdate.push({ allocId: card?._allocation_id, remaining }) : toDelete.push(card?._allocation_id)
     }
-    if (targetFolder.type === 'deck') {
-      await upsertDeckAllocations(targetFolder.id, user.id, insertRows)
-    } else {
-      await sb.from('folder_cards').upsert(
-        insertRows.map(row => ({ folder_id: targetFolder.id, card_id: row.card_id, qty: row.qty })),
-        { onConflict: 'folder_id,card_id', ignoreDuplicates: true }
-      )
+    try {
+      if (targetFolder.type === 'deck') {
+        await upsertDeckAllocations(targetFolder.id, user.id, insertRows)
+      } else {
+        await sb.from('folder_cards').upsert(
+          insertRows.map(row => ({ folder_id: targetFolder.id, card_id: row.card_id, qty: row.qty })),
+          { onConflict: 'folder_id,card_id', ignoreDuplicates: true }
+        )
+      }
+      if (toDelete.length) await sb.from('deck_allocations').delete().eq('deck_id', folder.id).in('id', toDelete.filter(Boolean))
+      for (const { allocId, remaining } of toUpdate) {
+        await sb.from('deck_allocations').update({ qty: remaining }).eq('id', allocId)
+      }
+      setCards(prev => prev.map(c => {
+        if (!selectedCards.has(c.id)) return c
+        const totalQty = c._folder_qty || c.qty || 1
+        const selQty = splitState.get(c.id) ?? 1
+        const remaining = totalQty - selQty
+        return remaining > 0 ? { ...c, _folder_qty: remaining } : null
+      }).filter(Boolean))
+      clearSelect()
+    } catch (e) {
+      console.error('[DeckBrowser] move to folder failed:', e)
+      loadCards()
     }
-    if (toDelete.length) await sb.from('deck_allocations').delete().eq('deck_id', folder.id).in('id', toDelete.filter(Boolean))
-    for (const { allocId, remaining } of toUpdate) {
-      await sb.from('deck_allocations').update({ qty: remaining }).eq('id', allocId)
-    }
-    setCards(prev => prev.map(c => {
-      if (!selectedCards.has(c.id)) return c
-      const totalQty = c._folder_qty || c.qty || 1
-      const selQty = splitState.get(c.id) ?? 1
-      const remaining = totalQty - selQty
-      return remaining > 0 ? { ...c, _folder_qty: remaining } : null
-    }).filter(Boolean))
-    clearSelect()
   }
 
   const selectedQty = useMemo(() =>
@@ -828,18 +850,6 @@ export default function DeckBrowser({ folder, onBack }) {
   }, [])
 
   if (loading) return <EmptyState>Loading deck…</EmptyState>
-
-  const VIEW_MODES = [
-    { id:'list',   label:'List',   Icon: ListViewIcon },
-    { id:'stacks', label:'Stacks', Icon: StacksViewIcon },
-    { id:'text',   label:'Text',   Icon: TextViewIcon },
-    { id:'grid',   label:'Grid',   Icon: GridViewIcon },
-    { id:'table',  label:'Table',  Icon: TableViewIcon },
-  ]
-
-  const ORDERED_VIEW_MODES = ['grid', 'stacks', 'table', 'text']
-    .map(id => VIEW_MODES.find(v => v.id === id))
-    .filter(Boolean)
 
   const deckMeta = parseDeckMeta(folder.description || '{}')
   // Use only the explicitly-set bg_url for the header background.
@@ -928,94 +938,6 @@ export default function DeckBrowser({ folder, onBack }) {
           groupBy={groupBy}
           setGroupBy={setGroupBy}
         />
-        {false && (
-        <>
-        <div className={styles.desktopControls}>
-          <div className={styles.controlLeft}>
-            <div className={styles.groupByToggle}>
-              <button className={`${styles.groupByBtn} ${groupBy==='type' ? styles.groupByActive : ''}`}
-                onClick={() => setGroupBy('type')}>By Type</button>
-              <button className={`${styles.groupByBtn} ${groupBy==='category' ? styles.groupByActive : ''}`}
-                onClick={() => setGroupBy('category')}>By Function</button>
-              <button className={`${styles.groupByBtn} ${groupBy==='none' ? styles.groupByActive : ''}`}
-                onClick={() => setGroupBy('none')}>Ungrouped</button>
-            </div>
-          </div>
-          <div className={styles.viewToggle}>
-            {ORDERED_VIEW_MODES.map(v => (
-              <button key={v.id}
-                className={`${styles.viewBtn} ${viewMode===v.id ? styles.viewActive : ''}`}
-                onClick={() => setViewMode(v.id)}
-                title={v.label}>
-                <v.Icon size={13} />
-                <span>{v.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className={styles.mobileControlsMenu}>
-          <ResponsiveMenu
-            title="Group Cards"
-            trigger={({ open, toggle }) => (
-              <button className={styles.mobileControlsBtn} onClick={toggle}>
-                <span>Group</span>
-                <svg className={`${styles.mobileControlsChevron} ${open ? styles.mobileControlsChevronOpen : ''}`}
-                  width="10" height="10" viewBox="0 0 10 10" fill="none"
-                  stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <polyline points="2,3 5,6.5 8,3" />
-                </svg>
-              </button>
-            )}
-          >
-            {({ close }) => (
-              <div className={uiStyles.responsiveMenuList}>
-                <button className={`${uiStyles.responsiveMenuAction} ${groupBy==='type' ? uiStyles.responsiveMenuActionActive : ''}`}
-                  onClick={() => { setGroupBy('type'); close() }}>
-                  <span>By Type</span>
-                  <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{groupBy==='type' ? '✓' : ''}</span>
-                </button>
-                <button className={`${uiStyles.responsiveMenuAction} ${groupBy==='category' ? uiStyles.responsiveMenuActionActive : ''}`}
-                  onClick={() => { setGroupBy('category'); close() }}>
-                  <span>By Function</span>
-                  <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{groupBy==='category' ? '✓' : ''}</span>
-                </button>
-                <button className={`${uiStyles.responsiveMenuAction} ${groupBy==='none' ? uiStyles.responsiveMenuActionActive : ''}`}
-                  onClick={() => { setGroupBy('none'); close() }}>
-                  <span>Ungrouped</span>
-                  <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{groupBy==='none' ? '✓' : ''}</span>
-                </button>
-              </div>
-            )}
-          </ResponsiveMenu>
-          <ResponsiveMenu
-            title="View Mode"
-            trigger={({ open, toggle }) => (
-              <button className={styles.mobileControlsBtn} onClick={toggle}>
-                <span>View</span>
-                <svg className={`${styles.mobileControlsChevron} ${open ? styles.mobileControlsChevronOpen : ''}`}
-                  width="10" height="10" viewBox="0 0 10 10" fill="none"
-                  stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <polyline points="2,3 5,6.5 8,3" />
-                </svg>
-              </button>
-            )}
-          >
-            {({ close }) => (
-              <div className={uiStyles.responsiveMenuList}>
-                {ORDERED_VIEW_MODES.map(v => (
-                  <button key={v.id}
-                    className={`${uiStyles.responsiveMenuAction} ${viewMode===v.id ? uiStyles.responsiveMenuActionActive : ''}`}
-                    onClick={() => { setViewMode(v.id); close() }}>
-                    <span>{v.label.replace(/^[^\w]+ /, '')}</span>
-                    <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{viewMode===v.id ? '✓' : ''}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </ResponsiveMenu>
-        </div>
-        </>
-        )}
       </div>
 
       {selectMode && selectedCards.size > 0 && (
@@ -1072,54 +994,6 @@ export default function DeckBrowser({ folder, onBack }) {
         />
       )}
 
-      {false && viewMode === 'list' && filtered.length > 0 && (
-        <div className={styles.deckList}>
-          {groupOrder.filter(g => groups[g]?.length).map(g => (
-            <DeckListGroup key={g} groupName={g} cards={groups[g]}
-              sfMap={sfMap} priceSource={price_source}
-              onSelect={c => { handleHoverEnd(); setDetailCardId(c.id) }}
-              color={groupBy==='category' ? CAT_COLORS[g] : undefined}
-              onHover={handleHover} onHoverEnd={handleHoverEnd}
-              selectMode={selectMode} selectedCards={selectedCards} onToggleSelect={onToggleSelect}
-              splitState={splitState} onAdjustQty={onAdjustQty}
-              onEnterSelectMode={() => setSelectMode(true)}
-              hideHeader={groupBy==='none'} />
-          ))}
-        </div>
-      )}
-
-      {false && viewMode === 'stacks' && filtered.length > 0 && (
-        <StacksView groups={groups} groupOrder={groupOrder} sfMap={sfMap} priceSource={price_source}
-          onSelect={c => { handleHoverEnd(); setDetailCardId(c.id) }}
-          onHover={handleHover} onHoverEnd={handleHoverEnd}
-          selectMode={selectMode} selectedCards={selectedCards} onToggleSelect={onToggleSelect}
-          splitState={splitState} onAdjustQty={onAdjustQty}
-          onEnterSelectMode={() => setSelectMode(true)}
-          hideHeaders={groupBy==='none'} />
-      )}
-
-      {false && viewMode === 'text' && filtered.length > 0 && (
-        <TextView groups={groups} groupOrder={groupOrder}
-          selectMode={selectMode} selectedCards={selectedCards} onToggleSelect={onToggleSelect}
-          onEnterSelectMode={() => setSelectMode(true)}
-          hideHeaders={groupBy==='none'} />
-      )}
-
-      {false && viewMode === 'grid' && filtered.length > 0 && (
-        <DeckCardGrid cards={filtered} sfMap={sfMap} priceSource={price_source} onSelect={c => { handleHoverEnd(); setDetailCardId(c.id) }}
-          onHover={handleHover} onHoverEnd={handleHoverEnd}
-          selectMode={selectMode} selectedCards={selectedCards} onToggleSelect={onToggleSelect}
-          onAdjustQty={onAdjustQty} splitState={splitState}
-          onEnterSelectMode={() => { setSelectMode(true) }} />
-      )}
-
-      {false && viewMode === 'table' && filtered.length > 0 && (
-        <TableView cards={filtered} sfMap={sfMap}
-          priceSource={price_source}
-          onSelect={c => { handleHoverEnd(); setDetailCardId(c.id) }}
-          selectMode={selectMode} selectedCards={selectedCards} onToggleSelect={onToggleSelect}
-          onEnterSelectMode={() => setSelectMode(true)} />
-      )}
       {selectedCard && (
         <CardDetail card={selectedCard} sfCard={selectedSf}
           priceSource={price_source}

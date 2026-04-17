@@ -30,6 +30,17 @@
   background: var(--s-card);
   box-shadow: none;
 }
+.folderCardHasBg {
+  --text-dim: rgba(255,255,255,0.75);
+  --text-faint: rgba(255,255,255,0.45);
+}
+.folderCardHasBg .cogBtn {
+  color: rgba(255,255,255,0.7);
+}
+.folderCardHasBg .cogBtn:hover {
+  color: #fff;
+}
+
 .folderCardSelectMode {
   cursor: pointer;
 }

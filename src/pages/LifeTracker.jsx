@@ -326,17 +326,27 @@ function ArtPicker({ onSelect, onClear, onClose, rotation = 0 }) {
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
   const inputRef = useRef(null)
+  const timerRef = useRef(null)
   useEffect(() => inputRef.current?.focus(), [])
+  useEffect(() => () => clearTimeout(timerRef.current), [])
 
-  const search = async () => {
-    if (!query.trim()) return
+  const search = async (q) => {
+    const term = q ?? query
+    if (!term.trim()) return
     setLoading(true)
     try {
-      const r = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}&unique=art&order=name`)
+      const r = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(term)}&unique=art&order=name`)
       const data = await r.json()
       setResults((data.data || []).filter(c => c.image_uris?.art_crop).slice(0, 20))
     } catch { setResults([]) }
     setLoading(false)
+  }
+
+  const handleQueryChange = (v) => {
+    setQuery(v)
+    clearTimeout(timerRef.current)
+    if (v.trim().length < 2) { setResults([]); return }
+    timerRef.current = setTimeout(() => search(v), 350)
   }
 
   return (
@@ -350,12 +360,12 @@ function ArtPicker({ onSelect, onClear, onClose, rotation = 0 }) {
         </div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
           <input ref={inputRef}
-            value={query} onChange={e => setQuery(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && search()}
+            value={query} onChange={e => handleQueryChange(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') { clearTimeout(timerRef.current); search() } }}
             placeholder="Search card name…"
             style={{ flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', borderRadius: 3, padding: '8px 12px', color: 'var(--text)', fontSize: '0.88rem', outline: 'none' }}
           />
-          <Button onClick={search} disabled={loading}>{loading ? '…' : 'Search'}</Button>
+          {loading && <span style={{ alignSelf: 'center', color: 'var(--text-faint)', fontSize: '0.88rem' }}>…</span>}
         </div>
         <button onClick={onClear}
           style={{ background: 'none', border: '1px solid rgba(200,70,60,0.3)', borderRadius: 3, padding: '4px 12px', color: '#e08878', fontSize: '0.76rem', cursor: 'pointer', marginBottom: 10 }}>
@@ -1164,16 +1174,26 @@ function HostSetupScreen({ session, config, decks, onSubmit, onCancel, nickname 
   const [artResults,  setArtResults]  = useState([])
   const [artLoading,  setArtLoading]  = useState(false)
   const [submitting,  setSubmitting]  = useState(false)
+  const artTimerRef = useRef(null)
+  useEffect(() => () => clearTimeout(artTimerRef.current), [])
 
-  const searchArt = async () => {
-    if (!artQuery.trim()) return
+  const searchArt = async (q) => {
+    const term = q ?? artQuery
+    if (!term.trim()) return
     setArtLoading(true)
     try {
-      const r = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(artQuery)}&unique=art&order=name`)
+      const r = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(term)}&unique=art&order=name`)
       const data = await r.json()
       setArtResults((data.data || []).filter(c => c.image_uris?.art_crop).slice(0, 20))
     } catch { setArtResults([]) }
     setArtLoading(false)
+  }
+
+  const handleArtQueryChange = (v) => {
+    setArtQuery(v)
+    clearTimeout(artTimerRef.current)
+    if (v.trim().length < 2) { setArtResults([]); return }
+    artTimerRef.current = setTimeout(() => searchArt(v), 350)
   }
 
   const handleSubmit = async () => {
@@ -1251,11 +1271,9 @@ function HostSetupScreen({ session, config, decks, onSubmit, onCancel, nickname 
               <input className={styles.hostArtInput}
                 placeholder="Card name…"
                 value={artQuery}
-                onChange={e => setArtQuery(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && searchArt()} />
-              <button className={styles.hostArtBtn} onClick={searchArt} disabled={artLoading}>
-                {artLoading ? '…' : '→'}
-              </button>
+                onChange={e => handleArtQueryChange(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { clearTimeout(artTimerRef.current); searchArt() } }} />
+              {artLoading && <span style={{ alignSelf: 'center', color: 'var(--text-faint)', fontSize: '0.88rem' }}>…</span>}
             </div>
             {artResults.length > 0 && (
               <div className={styles.hostArtGrid}>
@@ -1775,7 +1793,7 @@ function EndGameDialog({ players, onSave, onCancel }) {
         <div className={styles.endActions}>
           <button className={styles.endContinueBtn} onClick={onCancel}>← Continue Playing</button>
           <button className={styles.endSaveBtn} onClick={() => onSave({ placements, notes })}>
-            💾 Save & New Game
+            💾 Save & Finish Game
           </button>
         </div>
       </div>

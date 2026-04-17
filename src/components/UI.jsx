@@ -1,4 +1,5 @@
-import { Children, isValidElement, useState, useRef, useEffect, useLayoutEffect } from 'react'
+import { Children, isValidElement, useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import styles from './UI.module.css'
 
 function ChevronIcon({ open = false }) {
@@ -87,7 +88,56 @@ export function Input({ value, onChange, placeholder, type = 'text', className =
   )
 }
 
-export function Select({ value, onChange, children, className = '', style, disabled = false, title = 'Select option', menuDirection = 'down' }) {
+function SelectBody({ options, value, handleSelect, close, searchable }) {
+  const [filter, setFilter] = useState('')
+  const inputRef = useRef(null)
+  useEffect(() => { if (searchable) inputRef.current?.focus() }, [searchable])
+
+  const visible = (searchable && filter.trim())
+    ? options.filter(o => String(o.label).toLowerCase().includes(filter.toLowerCase()))
+    : options
+
+  return (
+    <>
+      {searchable && (
+        <input
+          ref={inputRef}
+          type="text"
+          className={styles.selectSearch}
+          value={filter}
+          onChange={e => setFilter(e.target.value)}
+          placeholder="Filter…"
+          onClick={e => e.stopPropagation()}
+        />
+      )}
+      <div className={styles.responsiveMenuList}>
+        {visible.map(option => (
+          <button
+            key={String(option.value)}
+            type="button"
+            disabled={option.disabled}
+            className={`${styles.responsiveMenuAction} ${String(option.value) === String(value) ? styles.responsiveMenuActionActive : ''} ${option.disabled ? styles.selectOptionDisabled : ''}`}
+            onClick={() => {
+              if (option.disabled) return
+              handleSelect(option.value)
+              close()
+            }}
+          >
+            <span>{option.label}</span>
+            <span className={styles.responsiveMenuCheck} aria-hidden="true">
+              {String(option.value) === String(value) ? '✓' : ''}
+            </span>
+          </button>
+        ))}
+        {visible.length === 0 && (
+          <div className={styles.selectSearchEmpty}>No matches</div>
+        )}
+      </div>
+    </>
+  )
+}
+
+export function Select({ value, onChange, children, className = '', style, disabled = false, title = 'Select option', menuDirection = 'down', portal = false, searchable = false }) {
   const rawOptions = Children.toArray(children)
     .filter(child => isValidElement(child) && child.type === 'option')
     .map(child => ({
@@ -122,6 +172,7 @@ export function Select({ value, onChange, children, className = '', style, disab
       direction={menuDirection}
       wrapClassName={styles.selectWrap}
       panelClassName={styles.selectPanel}
+      portal={portal}
       trigger={({ open, toggle }) => (
         <button
           type="button"
@@ -138,26 +189,13 @@ export function Select({ value, onChange, children, className = '', style, disab
       )}
     >
       {({ close }) => (
-        <div className={styles.responsiveMenuList}>
-          {options.map(option => (
-            <button
-              key={String(option.value)}
-              type="button"
-              disabled={option.disabled}
-              className={`${styles.responsiveMenuAction} ${String(option.value) === String(value) ? styles.responsiveMenuActionActive : ''} ${option.disabled ? styles.selectOptionDisabled : ''}`}
-              onClick={() => {
-                if (option.disabled) return
-                handleSelect(option.value)
-                close()
-              }}
-            >
-              <span>{option.label}</span>
-              <span className={styles.responsiveMenuCheck} aria-hidden="true">
-                {String(option.value) === String(value) ? '✓' : ''}
-              </span>
-            </button>
-          ))}
-        </div>
+        <SelectBody
+          options={options}
+          value={value}
+          handleSelect={handleSelect}
+          close={close}
+          searchable={searchable}
+        />
       )}
     </ResponsiveMenu>
   )
@@ -344,6 +382,7 @@ export function ResponsiveMenu({
   panelClassName = '',
   closeLabel = 'Done',
   onOpenChange,
+  portal = false,
 }) {
   const [rendered, setRendered] = useState(false)
   const [closing, setClosing] = useState(false)
@@ -389,13 +428,16 @@ export function ResponsiveMenu({
     if (!rendered) return
     if (typeof window !== 'undefined' && window.innerWidth <= 640) return
     const close = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) closeMenu()
+      if (ref.current && !ref.current.contains(e.target) &&
+          !(portal && panelRef.current && panelRef.current.contains(e.target))) {
+        closeMenu()
+      }
     }
     document.addEventListener('mousedown', close)
     return () => {
       document.removeEventListener('mousedown', close)
     }
-  }, [rendered])
+  }, [rendered, portal])
 
   useLayoutEffect(() => {
     if (!rendered) return
@@ -403,9 +445,38 @@ export function ResponsiveMenu({
     const updateDesktopBounds = () => {
       if (typeof window === 'undefined') return
       if (window.innerWidth <= 640) {
-        setDesktopPanelStyle(null)
+        setDesktopPanelStyle(portal ? { zIndex: 750 } : null)
         return
       }
+
+      if (portal) {
+        const wrapEl = ref.current
+        if (!wrapEl) return
+        const wrapRect = wrapEl.getBoundingClientRect()
+        const bottomGap = 16
+        const sideGap = 8
+        const nextStyle = { position: 'fixed', zIndex: 750 }
+
+        if (direction === 'up') {
+          nextStyle.bottom = Math.floor(window.innerHeight - wrapRect.top + 6)
+          nextStyle.maxHeight = `${Math.min(360, Math.max(180, Math.floor(wrapRect.top - bottomGap - 6)))}px`
+        } else {
+          nextStyle.top = Math.floor(wrapRect.bottom + 6)
+          nextStyle.maxHeight = `${Math.min(360, Math.max(180, Math.floor(window.innerHeight - wrapRect.bottom - bottomGap - 6)))}px`
+        }
+
+        if (align === 'left') {
+          nextStyle.left = Math.max(sideGap, Math.floor(wrapRect.left))
+          nextStyle.right = 'auto'
+        } else {
+          nextStyle.right = Math.max(sideGap, Math.floor(window.innerWidth - wrapRect.right))
+          nextStyle.left = 'auto'
+        }
+
+        setDesktopPanelStyle(nextStyle)
+        return
+      }
+
       const panelEl = panelRef.current
       if (!panelEl) return
       const rect = panelEl.getBoundingClientRect()
@@ -436,7 +507,7 @@ export function ResponsiveMenu({
       window.removeEventListener('resize', updateDesktopBounds)
       window.removeEventListener('scroll', updateDesktopBounds, true)
     }
-  }, [rendered, align, direction])
+  }, [rendered, align, direction, portal])
 
   useEffect(() => () => clearCloseTimeout(), [])
 
@@ -472,39 +543,41 @@ export function ResponsiveMenu({
     closeMenu()
   }
 
+  const panelMarkup = rendered && (
+    <>
+      <button
+        ref={backdropRef}
+        type="button"
+        className={`${styles.responsiveMenuBackdrop} ${closing ? styles.responsiveMenuBackdropClosing : ''}`}
+        aria-label={`Close ${title}`}
+        onMouseDown={handleBackdropPointerDown}
+        onClick={e => { e.stopPropagation(); closeMenu() }}
+      />
+      <div
+        ref={panelRef}
+        className={`${styles.responsiveMenuPanel} ${align === 'left' ? styles.responsiveMenuPanelLeft : ''} ${direction === 'up' ? styles.responsiveMenuPanelUp : ''} ${closing ? styles.responsiveMenuPanelClosing : ''} ${panelClassName}`}
+        style={desktopPanelStyle || undefined}
+        onClick={e => e.stopPropagation()}
+      >
+        <div className={styles.responsiveMenuHeader}>
+          <div className={styles.responsiveMenuHeaderTop}>
+            <span className={styles.responsiveMenuTitle}>{title}</span>
+            <button type="button" className={styles.responsiveMenuClose} onClick={closeMenu} aria-label={closeLabel}>
+              <CloseIcon />
+            </button>
+          </div>
+        </div>
+        <div className={styles.responsiveMenuBody}>
+          {typeof children === 'function' ? children({ close: closeMenu }) : children}
+        </div>
+      </div>
+    </>
+  )
+
   return (
     <div ref={ref} className={`${styles.responsiveMenuWrap} ${open ? styles.responsiveMenuWrapOpen : ''} ${wrapClassName}`}>
       {trigger({ open, setOpen, toggle: toggleMenu, close: closeMenu })}
-      {rendered && (
-        <>
-          <button
-            ref={backdropRef}
-            type="button"
-            className={`${styles.responsiveMenuBackdrop} ${closing ? styles.responsiveMenuBackdropClosing : ''}`}
-            aria-label={`Close ${title}`}
-            onMouseDown={handleBackdropPointerDown}
-            onClick={e => { e.stopPropagation(); closeMenu() }}
-          />
-          <div
-            ref={panelRef}
-            className={`${styles.responsiveMenuPanel} ${align === 'left' ? styles.responsiveMenuPanelLeft : ''} ${direction === 'up' ? styles.responsiveMenuPanelUp : ''} ${closing ? styles.responsiveMenuPanelClosing : ''} ${panelClassName}`}
-            style={desktopPanelStyle || undefined}
-            onClick={e => e.stopPropagation()}
-          >
-            <div className={styles.responsiveMenuHeader}>
-              <div className={styles.responsiveMenuHeaderTop}>
-                <span className={styles.responsiveMenuTitle}>{title}</span>
-                <button type="button" className={styles.responsiveMenuClose} onClick={closeMenu} aria-label={closeLabel}>
-                  <CloseIcon />
-                </button>
-              </div>
-            </div>
-            <div className={styles.responsiveMenuBody}>
-              {typeof children === 'function' ? children({ close: closeMenu }) : children}
-            </div>
-          </div>
-        </>
-      )}
+      {portal ? (rendered && createPortal(panelMarkup, document.body)) : panelMarkup}
     </div>
   )
 }

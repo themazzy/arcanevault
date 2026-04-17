@@ -100,6 +100,53 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
   )
 }
 
+function CommunityDeckTile({ deck, meta, fmt, isOwn, navigate }) {
+  const colors    = meta.commanderColorIdentity || []
+  const commander = meta.commanderName || null
+  const tags      = meta.tags || []
+  const art       = meta.coverArtUri || null
+
+  return (
+    <div className={styles.card} onClick={() => navigate(`/d/${deck.id}`)}>
+      {art && <div className={styles.deckArt} style={{ backgroundImage: `url(${art})` }} />}
+      <div className={styles.cardContent}>
+        <div className={styles.cardTop}>
+          <div className={styles.cardBadges}>
+            <span className={styles.formatBadge}>{fmt?.label || 'Builder'}</span>
+            {isOwn && <span className={styles.collectionBadge}>Yours</span>}
+          </div>
+          <div className={styles.cardName}>{deck.name}</div>
+          {commander && <div className={styles.cardSub}>{commander}</div>}
+        </div>
+        <div className={styles.cardBottom}>
+          {colors.length > 0 && (
+            <div className={styles.cardColors}>
+              {colors.map(c => (
+                <span key={c} className={styles.colorPip} style={{ background: COLOR_LABEL[c] || '#888' }} />
+              ))}
+            </div>
+          )}
+          {tags.length > 0 && (
+            <div className={styles.cardTags}>
+              {tags.slice(0, 3).map(t => (
+                <span key={t} className={styles.cardTag}>{t}</span>
+              ))}
+            </div>
+          )}
+          <div className={styles.cardActions}>
+            <button
+              className={styles.viewBtn}
+              onClick={e => { e.stopPropagation(); navigate(`/d/${deck.id}`) }}
+            >
+              View
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function BuilderPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -114,6 +161,14 @@ export default function BuilderPage() {
   const [confirmState, setConfirmState] = useState(null) // { message, resolve }
   const confirmAsync = (message) => new Promise(resolve => setConfirmState({ message, resolve }))
   const handleConfirm = (result) => { confirmState?.resolve(result); setConfirmState(null) }
+
+  // Page-level tab: 'my' | 'community'
+  const [pageTab, setPageTab]             = useState('my')
+  const [communityDecks, setCommunityDecks] = useState([])
+  const [communityLoading, setCommunityLoading] = useState(false)
+  const [communityLoaded,  setCommunityLoaded]  = useState(false)
+  const [communitySearch,  setCommunitySearch]  = useState('')
+  const [communityFormat,  setCommunityFormat]  = useState('all')
 
   // Filter/sort state
   const [search, setSearch]       = useState('')
@@ -142,6 +197,25 @@ export default function BuilderPage() {
     })
     setDecks(nonGroupDecks)
     setLoading(false)
+  }
+
+  async function loadCommunityDecks() {
+    if (communityLoaded) return
+    setCommunityLoading(true)
+    try {
+      const { data } = await sb.from('folders')
+        .select('id,name,description,user_id,updated_at')
+        .eq('type', 'builder_deck')
+        .ilike('description', '%"is_public":true%')
+        .order('updated_at', { ascending: false })
+        .limit(100)
+      setCommunityDecks(data || [])
+      setCommunityLoaded(true)
+    } catch {
+      setCommunityDecks([])
+    } finally {
+      setCommunityLoading(false)
+    }
   }
 
   async function createDeck() {
@@ -237,98 +311,179 @@ export default function BuilderPage() {
       return 0 // updated_at already sorted from DB
     })
 
+  const filteredCommunity = communityDecks.filter(d => {
+    const meta = parseDeckMeta(d.description)
+    if (communitySearch && !d.name.toLowerCase().includes(communitySearch.toLowerCase())) return false
+    if (communityFormat !== 'all' && meta.format !== communityFormat) return false
+    return true
+  })
+
   return (
     <div className={styles.page}>
       <SectionHeader
-        title="My Decks"
-        subtitle="Build and manage your MTG decks"
-        action={<Button onClick={() => setShowNew(true)}>+ New Deck</Button>}
+        title={pageTab === 'my' ? 'My Decks' : 'Deck Browser'}
+        subtitle={pageTab === 'my' ? 'Build and manage your MTG decks' : 'Browse and copy public decks from the community'}
+        action={pageTab === 'my' ? <Button onClick={() => setShowNew(true)}>+ New Deck</Button> : null}
       />
 
-      {/* Filter bar */}
-      <div className={styles.filterBar}>
-        <input
-          className={styles.filterInput}
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Search decks…"
-        />
-        <div className={styles.filterGroup}>
-          {[['all','All'],['builder','Builder'],['collection','Collection']].map(([v, label]) => (
-            <button key={v}
-              className={`${styles.filterPill}${typeFilter === v ? ' '+styles.filterPillActive : ''}`}
-              onClick={() => setTypeFilter(v)}>
-              {label}
-            </button>
-          ))}
-        </div>
-        <div className={styles.filterGroup}>
-          <span className={styles.sortLabel}>Sort:</span>
-          {[['updated','Recent'],['name','Name'],['format','Format']].map(([v, label]) => (
-            <button key={v}
-              className={`${styles.sortPill}${sortBy === v ? ' '+styles.sortPillActive : ''}`}
-              onClick={() => setSortBy(v)}>
-              {label}
-            </button>
-          ))}
-        </div>
-        <div className={styles.filterGroup}>
-          <button
-            className={`${styles.sortPill}${selectMode ? ' '+styles.sortPillActive : ''}`}
-            onClick={toggleSelectMode}>
-            {selectMode ? '✕ Cancel' : 'Select'}
-          </button>
-        </div>
+      {/* Page-level tab bar */}
+      <div className={styles.pageTabBar}>
+        <button
+          className={`${styles.pageTab}${pageTab === 'my' ? ' ' + styles.pageTabActive : ''}`}
+          onClick={() => setPageTab('my')}
+        >
+          My Decks
+        </button>
+        <button
+          className={`${styles.pageTab}${pageTab === 'community' ? ' ' + styles.pageTabActive : ''}`}
+          onClick={() => { setPageTab('community'); loadCommunityDecks() }}
+        >
+          Deck Browser
+        </button>
       </div>
 
-      {/* Bulk action bar */}
-      {selectMode && selectedIds.size > 0 && (
-        <div className={styles.bulkBar}>
-          <span>{selectedIds.size} selected</span>
-          <button onClick={() => setSelectedIds(new Set(filtered.map(d => d.id)))}>Select all</button>
-          <button onClick={() => setSelectedIds(new Set())}>Deselect</button>
-          <button className={styles.bulkDelete} onClick={bulkDelete}>Delete {selectedIds.size}</button>
-          <button onClick={toggleSelectMode}>✕ Cancel</button>
+      {/* ── My Decks tab ── */}
+      {pageTab === 'my' && <>
+        {/* Filter bar */}
+        <div className={styles.filterBar}>
+          <input
+            className={styles.filterInput}
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search decks…"
+          />
+          <div className={styles.filterGroup}>
+            {[['all','All'],['builder','Builder'],['collection','Collection']].map(([v, label]) => (
+              <button key={v}
+                className={`${styles.filterPill}${typeFilter === v ? ' '+styles.filterPillActive : ''}`}
+                onClick={() => setTypeFilter(v)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className={styles.filterGroup}>
+            <span className={styles.sortLabel}>Sort:</span>
+            {[['updated','Recent'],['name','Name'],['format','Format']].map(([v, label]) => (
+              <button key={v}
+                className={`${styles.sortPill}${sortBy === v ? ' '+styles.sortPillActive : ''}`}
+                onClick={() => setSortBy(v)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className={styles.filterGroup}>
+            <button
+              className={`${styles.sortPill}${selectMode ? ' '+styles.sortPillActive : ''}`}
+              onClick={toggleSelectMode}>
+              {selectMode ? '✕ Cancel' : 'Select'}
+            </button>
+          </div>
         </div>
-      )}
 
-      {loading && <EmptyState>Loading…</EmptyState>}
+        {/* Bulk action bar */}
+        {selectMode && selectedIds.size > 0 && (
+          <div className={styles.bulkBar}>
+            <span>{selectedIds.size} selected</span>
+            <button onClick={() => setSelectedIds(new Set(filtered.map(d => d.id)))}>Select all</button>
+            <button onClick={() => setSelectedIds(new Set())}>Deselect</button>
+            <button className={styles.bulkDelete} onClick={bulkDelete}>Delete {selectedIds.size}</button>
+            <button onClick={toggleSelectMode}>✕ Cancel</button>
+          </div>
+        )}
 
-      {!loading && filtered.length === 0 && decks.length === 0 && (
-        <EmptyState>
-          No decks yet.<br />
-          Create one to start planning your perfect deck.
-        </EmptyState>
-      )}
+        {loading && <EmptyState>Loading…</EmptyState>}
 
-      {!loading && filtered.length === 0 && decks.length > 0 && (
-        <EmptyState>No decks match your filter.</EmptyState>
-      )}
+        {!loading && filtered.length === 0 && decks.length === 0 && (
+          <EmptyState>
+            No decks yet.<br />
+            Create one to start planning your perfect deck.
+          </EmptyState>
+        )}
 
-      {!loading && filtered.length > 0 && (
-        <div className={styles.grid}>
-          {filtered.map(deck => {
-            const meta = parseDeckMeta(deck.description)
-            const fmt  = FORMATS.find(f => f.id === (meta.format || 'commander'))
-            const colors = meta.commanderColorIdentity || []
-            return (
-              <DeckTile
-                key={deck.id}
-                deck={deck}
-                meta={meta}
-                fmt={fmt}
-                colors={colors}
-                selectMode={selectMode}
-                isSelected={selectedIds.has(deck.id)}
-                onToggleSelect={toggleSelected}
-                onEnterSelectMode={() => setSelectMode(true)}
-                onDelete={deleteDeck}
-                navigate={navigate}
-              />
-            )
-          })}
+        {!loading && filtered.length === 0 && decks.length > 0 && (
+          <EmptyState>No decks match your filter.</EmptyState>
+        )}
+
+        {!loading && filtered.length > 0 && (
+          <div className={styles.grid}>
+            {filtered.map(deck => {
+              const meta = parseDeckMeta(deck.description)
+              const fmt  = FORMATS.find(f => f.id === (meta.format || 'commander'))
+              const colors = meta.commanderColorIdentity || []
+              return (
+                <DeckTile
+                  key={deck.id}
+                  deck={deck}
+                  meta={meta}
+                  fmt={fmt}
+                  colors={colors}
+                  selectMode={selectMode}
+                  isSelected={selectedIds.has(deck.id)}
+                  onToggleSelect={toggleSelected}
+                  onEnterSelectMode={() => setSelectMode(true)}
+                  onDelete={deleteDeck}
+                  navigate={navigate}
+                />
+              )
+            })}
+          </div>
+        )}
+      </>}
+
+      {/* ── Community / Deck Browser tab ── */}
+      {pageTab === 'community' && <>
+        {/* Community filter bar */}
+        <div className={styles.filterBar}>
+          <input
+            className={styles.filterInput}
+            value={communitySearch}
+            onChange={e => setCommunitySearch(e.target.value)}
+            placeholder="Search community decks…"
+          />
+          <div className={styles.filterGroup}>
+            {[['all','All Formats'],['commander','Commander'],['standard','Standard'],['modern','Modern'],['pioneer','Pioneer'],['legacy','Legacy']].map(([v, label]) => (
+              <button key={v}
+                className={`${styles.filterPill}${communityFormat === v ? ' '+styles.filterPillActive : ''}`}
+                onClick={() => setCommunityFormat(v)}>
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
-      )}
+
+        {communityLoading && <EmptyState>Loading community decks…</EmptyState>}
+
+        {!communityLoading && !communityLoaded && (
+          <EmptyState>Loading…</EmptyState>
+        )}
+
+        {!communityLoading && communityLoaded && filteredCommunity.length === 0 && (
+          <EmptyState>
+            No public decks found{communitySearch || communityFormat !== 'all' ? ' matching your filter' : ''}.<br />
+            Be the first — open a deck in the builder and enable &quot;Public&quot; in the Stats tab.
+          </EmptyState>
+        )}
+
+        {!communityLoading && filteredCommunity.length > 0 && (
+          <div className={styles.grid}>
+            {filteredCommunity.map(deck => {
+              const meta   = parseDeckMeta(deck.description)
+              const fmt    = FORMATS.find(f => f.id === (meta.format || 'commander'))
+              const isOwn  = deck.user_id === user?.id
+              return (
+                <CommunityDeckTile
+                  key={deck.id}
+                  deck={deck}
+                  meta={meta}
+                  fmt={fmt}
+                  isOwn={isOwn}
+                  navigate={navigate}
+                />
+              )
+            })}
+          </div>
+        )}
+      </>}
 
       {confirmState && (
         <div className={styles.confirmOverlay} onClick={() => handleConfirm(false)}>

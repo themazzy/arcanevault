@@ -65,6 +65,56 @@
   color: var(--text);
 }
 
+/* Visibility toggle (Public / Private) */
+.visibilityToggleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  user-select: none;
+}
+
+.toggleTrack {
+  width: 32px;
+  height: 18px;
+  border-radius: 9px;
+  background: rgba(255,255,255,0.12);
+  position: relative;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.toggleTrackOn {
+  background: var(--gold);
+}
+
+.toggleThumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  transition: left 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+}
+
+.toggleTrackOn .toggleThumb {
+  left: 16px;
+}
+
+.toggleLabel {
+  font-size: 0.8rem;
+  color: var(--text-faint);
+  transition: color 0.2s;
+}
+
+.toggleLabelOn {
+  color: var(--gold);
+}
+
 /* Commander picker */
 .cmdSection {
   position: relative;
@@ -144,7 +194,7 @@
   gap: 8px;
   padding: 8px 10px;
   cursor: pointer;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  border-bottom: 1px solid var(--s-border);
   transition: background 0.1s;
 }
 
@@ -215,7 +265,7 @@
 
 .searchInput {
   flex: 1;
-  background: rgba(255,255,255,0.05);
+  background: var(--s2);
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text);
@@ -225,7 +275,7 @@
   outline: none;
 }
 
-.searchInput:focus { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.3); }
+.searchInput:focus { background: var(--s-medium); border-color: var(--s-border2); }
 
 
 .typeFilters {
@@ -236,8 +286,8 @@
 
 .typePill {
   min-height: 30px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.16);
+  background: var(--s2);
+  border: 1px solid var(--s-border2);
   border-radius: 4px;
   color: var(--text-dim);
   font-size: 0.72rem;
@@ -248,7 +298,7 @@
   transition: all 0.12s;
 }
 
-.typePill:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.28); color: var(--text); }
+.typePill:hover { background: var(--s-medium); border-color: var(--s-border2); color: var(--text); }
 
 .typePillActive {
   background: rgba(201,168,76,0.18);
@@ -293,7 +343,7 @@
   align-items: center;
   gap: 8px;
   padding: 6px 4px;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  border-bottom: 1px solid var(--s-border);
   transition: background 0.1s;
   border-radius: 3px;
   cursor: default;
@@ -427,7 +477,7 @@
 }
 
 .recsCatSection {
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  border-bottom: 1px solid var(--s-border);
 }
 
 .recsCatHeader {
@@ -473,7 +523,7 @@
   align-items: center;
   gap: 8px;
   padding: 6px 4px;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  border-bottom: 1px solid var(--s-border);
   border-radius: 3px;
   transition: background 0.1s;
 }
@@ -654,15 +704,15 @@
 
 .headerBtn,
 .headerLink {
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.16);
+  background: var(--s2);
+  border: 1px solid var(--s-border2);
   color: var(--text-dim);
 }
 
 .headerBtn:hover:not(:disabled),
 .headerLink:hover {
-  background: rgba(255,255,255,0.09);
-  border-color: rgba(255,255,255,0.28);
+  background: var(--s-medium);
+  border-color: var(--s-border2);
   color: var(--text);
   text-decoration: none;
 }
@@ -685,8 +735,8 @@
 }
 
 .importBtn {
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.16);
+  background: var(--s2);
+  border: 1px solid var(--s-border2);
   border-radius: 4px;
   color: var(--text-dim);
   min-height: 30px;
@@ -701,8 +751,8 @@
 }
 
 .importBtn:hover {
-  background: rgba(255,255,255,0.09);
-  border-color: rgba(255,255,255,0.28);
+  background: var(--s-medium);
+  border-color: var(--s-border2);
   color: var(--text);
 }
 
@@ -904,7 +954,7 @@
   gap: 8px;
   padding: 0 4px 6px 12px;
   margin-bottom: 2px;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
+  border-bottom: 1px solid var(--s-border);
   color: var(--text-faint);
   font-size: 0.64rem;
   letter-spacing: 0.06em;
@@ -1541,7 +1591,7 @@
   flex-shrink: 0;
   margin: 8px 10px 0;
   background: var(--s2);
-  border: 1px solid rgba(255,255,255,0.09);
+  border: 1px solid var(--s-border2);
   border-radius: 7px;
   overflow: hidden;
   align-self: stretch;
@@ -1585,8 +1635,8 @@
   display: inline-flex;
   align-items: center;
   min-height: 30px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.16);
+  background: var(--s2);
+  border: 1px solid var(--s-border2);
   border-radius: 4px;
   color: var(--text-dim);
   cursor: pointer;
@@ -1597,7 +1647,7 @@
   transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
 
-.viewBtn:hover { color: var(--text); background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.28); }
+.viewBtn:hover { color: var(--text); background: var(--s-medium); border-color: var(--s-border2); }
 
 .viewBtnActive {
   background: rgba(201,168,76,0.18);
@@ -1607,8 +1657,8 @@
 
 .sortPill {
   min-height: 30px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.16);
+  background: var(--s2);
+  border: 1px solid var(--s-border2);
   border-radius: 4px;
   color: var(--text-dim);
   cursor: pointer;
@@ -1619,7 +1669,7 @@
   transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
 
-.sortPill:hover { color: var(--text); background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.28); }
+.sortPill:hover { color: var(--text); background: var(--s-medium); border-color: var(--s-border2); }
 
 .sortPillActive {
   background: rgba(201,168,76,0.18);
@@ -1637,6 +1687,7 @@
 [data-theme-mode="light"] .searchInput {
   background: rgba(255,251,245,0.94);
   border-color: rgba(116,82,24,0.24);
+  color: var(--text-dim);
 }
 
 [data-theme-mode="light"] .tab:hover,
@@ -1649,6 +1700,7 @@
 [data-theme-mode="light"] .searchInput:focus {
   background: rgba(255,246,235,0.98);
   border-color: rgba(116,82,24,0.38);
+  color: var(--text);
 }
 
 [data-theme-mode="light"] .tabActive,
@@ -1658,6 +1710,28 @@
 [data-theme-mode="light"] .sortPillActive {
   background: rgba(141,93,0,0.14);
   border-color: rgba(141,93,0,0.34);
+}
+
+[data-theme-mode="light"] .toggleTrack {
+  background: rgba(102,74,26,0.18);
+}
+
+[data-theme-mode="light"] .inclusionBar {
+  background: rgba(102,74,26,0.12);
+}
+
+[data-theme-mode="light"] .ownBar {
+  background: rgba(102,74,26,0.12);
+}
+
+[data-theme-mode="light"] .qtyBtn:hover {
+  background: rgba(102,74,26,0.12);
+  color: var(--text);
+}
+
+[data-theme-mode="light"] .columnMenuCheck {
+  border-color: rgba(102,74,26,0.22);
+  background: rgba(255,253,248,0.9);
 }
 
 /* ── Compact list view ──────────────────────────────────────────────── */
@@ -1877,7 +1951,6 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-left: auto;
   background: none;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -1896,6 +1969,8 @@
 
 .columnMenuWrap {
   position: relative;
+  display: inline-flex;
+  align-items: center;
 }
 
 .columnMenuBackdrop {
