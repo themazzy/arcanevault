@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
 import { maskEmailAddress, THEMES, useSettings } from '../components/SettingsContext'
@@ -217,6 +218,7 @@ function CacheStatus({ ttlH, onClear }) {
 
 export default function SettingsPage() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const settings = useSettings()
   const { open: openWizard } = useSetupWizard()
   const [emailNew, setEmailNew] = useState('')
@@ -615,6 +617,54 @@ export default function SettingsPage() {
           <Button variant="danger" size="sm" onClick={() => sb.auth.signOut({ scope: 'global' })}>
             Sign Out All
           </Button>
+        </SettingRow>
+        <SettingRow
+          label="Request Account Deletion"
+          description="Opens the tracked deletion-request form for this account."
+          onRowClick={() => navigate('/delete-account')}
+        >
+          <Button variant="danger" size="sm" onClick={() => navigate('/delete-account')}>
+            Delete Request Form
+          </Button>
+        </SettingRow>
+      </div>
+
+      <div className={styles.section}>
+        <div className={styles.sectionTitle}>Legal & Privacy</div>
+        <SettingRow
+          label="Legal Hub"
+          description="Open the overview page for privacy, browser storage, credits, and deletion."
+          onRowClick={() => navigate('/legal')}
+        >
+          <Button size="sm" onClick={() => navigate('/legal')}>Open Legal Hub</Button>
+        </SettingRow>
+        <SettingRow
+          label="Privacy Policy"
+          description="Read what account, collection, feedback, and public sharing data are used for."
+          onRowClick={() => navigate('/privacy')}
+        >
+          <Button size="sm" onClick={() => navigate('/privacy')}>Privacy Policy</Button>
+        </SettingRow>
+        <SettingRow
+          label="Cookies & Local Storage"
+          description="Review session persistence, local storage, IndexedDB, and cache behavior."
+          onRowClick={() => navigate('/storage')}
+        >
+          <Button size="sm" onClick={() => navigate('/storage')}>Storage Notice</Button>
+        </SettingRow>
+        <SettingRow
+          label="Credits & Fan Content Notice"
+          description="Third-party services, source credits, and the unofficial Wizards disclaimer."
+          onRowClick={() => navigate('/credits')}
+        >
+          <Button size="sm" onClick={() => navigate('/credits')}>Credits</Button>
+        </SettingRow>
+        <SettingRow
+          label="Admin Console"
+          description="Open the deletion-request review queue. Access is restricted to allowlisted admin users."
+          onRowClick={() => navigate('/admin')}
+        >
+          <Button size="sm" onClick={() => navigate('/admin')}>Admin</Button>
         </SettingRow>
       </div>
 

@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from './Auth'
 import { Modal } from './UI'
@@ -275,6 +276,11 @@ export default function FeedbackModal({ onClose }) {
         maxLength={120}
       />
       <p className={styles.contactHint}>So I can follow up with you if needed.</p>
+      <p className={styles.disclosure}>
+        Feedback submissions include your message, your signed-in account email if available, optional contact
+        details, optional screenshot uploads, and browser/device diagnostics to help reproduce the issue. Read
+        more in the <Link to="/privacy" className={styles.disclosureLink} onClick={onClose}>Privacy Policy</Link>.
+      </p>
       {submitError ? <p className={styles.errorText}>{submitError}</p> : null}
 
       <div className={styles.actions}>

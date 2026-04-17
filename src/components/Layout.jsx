@@ -10,7 +10,7 @@ import styles from './Layout.module.css'
 import {
   HomeIcon, CollectionIcon, DecksIcon, BuilderIcon, BindersIcon,
   WishlistsIcon, TradingIcon, StatsIcon, LifeIcon, ScannerIcon,
-  SettingsIcon, MenuIcon, CloseIcon, BugIcon,
+  SettingsIcon, MenuIcon, CloseIcon, BugIcon, InfoIcon,
 } from '../icons'
 
 const TABS = [
@@ -157,6 +157,13 @@ export default function Layout({ children }) {
                   <span>Bug</span>
                 </button>
                 <NavLink
+                  to="/help"
+                  className={({ isActive }) => `${styles.settingsLink}${isActive ? ' ' + styles.settingsActive : ''}`}
+                  title="Help"
+                >
+                  <InfoIcon size={18} />
+                </NavLink>
+                <NavLink
                   to="/settings"
                   className={({ isActive }) => `${styles.settingsLink}${isActive ? ' ' + styles.settingsActive : ''}`}
                   title="Settings"
@@ -207,6 +214,14 @@ export default function Layout({ children }) {
               </NavLink>
             ))}
             <div className={styles.mobileNavFooter}>
+              <NavLink
+                to="/help"
+                className={({ isActive }) => `${styles.mobileNavLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}
+                onClick={() => setMenuOpen(false)}
+              >
+                <InfoIcon size={17} />
+                Help
+              </NavLink>
               <NavLink
                 to="/settings"
                 className={({ isActive }) => `${styles.mobileNavLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}

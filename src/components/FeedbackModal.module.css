@@ -200,16 +200,26 @@
 
 .uploadHint,
 .contactHint,
+.disclosure,
 .errorText {
   font-size: 0.75rem;
   margin-top: 4px;
 }
 
 .uploadHint,
-.contactHint {
+.contactHint,
+.disclosure {
   color: var(--text-faint);
   margin-bottom: 20px;
   font-style: italic;
+}
+
+.disclosureLink {
+  color: var(--gold);
+}
+
+.disclosureLink:hover {
+  color: var(--text);
 }
 
 .errorText {

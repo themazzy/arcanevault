@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { fetchCardsByNames } from '../lib/deckBuilderApi'
 import styles from './Auth.module.css'
@@ -523,6 +524,12 @@ export function LoginPage({ forcedMode = null }) {
                   ? 'We will send the reset link to the email address above.'
                   : 'Use your account to keep your collection, decks, and settings in sync.'}
             </div>
+            <div className={styles.legalLinks}>
+              <Link className={styles.legalLink} to="/privacy">Privacy</Link>
+              <Link className={styles.legalLink} to="/storage">Storage</Link>
+              <Link className={styles.legalLink} to="/credits">Credits</Link>
+              <Link className={styles.legalLink} to="/delete-account">Delete Account</Link>
+            </div>
           </form>
         </div>
       </section>
@@ -682,6 +689,11 @@ export function LoginPage({ forcedMode = null }) {
           Create Account
         </button>
         <p className={styles.footerSmall}>Use one account to keep your collection, decks, and wishlists together.</p>
+        <div className={styles.footerLegal}>
+          <Link className={styles.footerLegalLink} to="/privacy">Privacy Policy</Link>
+          <Link className={styles.footerLegalLink} to="/storage">Cookies and Local Storage</Link>
+          <Link className={styles.footerLegalLink} to="/credits">Credits</Link>
+        </div>
       </footer>
 
     </div>
