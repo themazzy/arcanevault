@@ -124,12 +124,21 @@ class DatabaseService {
   async init(onProgress) {
     this._onProgress = onProgress   // always wire latest caller into ongoing stream
     if (this._initialized) {
-      this._emitProgress({
-        loadedCount: this._hashes.length,
-        totalCount: this._status.totalCount || this._hashes.length,
-        phase: this._fullyLoaded ? 'ready' : this._status.phase,
-      })
-      return this
+      // Re-init if in-memory data is significantly incomplete — happens when the
+      // background _continueWebLoad exited early due to network errors skipping pages.
+      const total = this._status.totalCount
+      const incomplete = total > 0 && this._hashes.length < Math.floor(total * 0.98)
+      if (!incomplete) {
+        this._emitProgress({
+          loadedCount: this._hashes.length,
+          totalCount: total || this._hashes.length,
+          phase: this._fullyLoaded ? 'ready' : this._status.phase,
+        })
+        return this
+      }
+      // Fall through to re-init. Partial IDB rows are kept (see _loadWebCache).
+      this._initialized = false
+      this._fullyLoaded = false
     }
     if (this._initPromise) {
       await this._initPromise
@@ -423,7 +432,12 @@ class DatabaseService {
     }
 
     // Cache is missing, stale, or incomplete (e.g. interrupted download).
-    if (cachedRows.length > 0) {
+    // Only clear IDB when we have MORE rows than remote — that means cards were
+    // deleted from the remote DB and IDB has stale rows.
+    // For partial downloads (fewer rows than expected), keep what we have: the
+    // re-download will upsert on top of existing rows, filling in the gaps without
+    // re-fetching pages that were already cached successfully.
+    if (cachedRows.length > 0 && remoteTotal > 0 && cachedRows.length > remoteTotal) {
       await clearScannerHashEntries().catch(() => {})
     }
 
