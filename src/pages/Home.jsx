@@ -1346,57 +1346,39 @@ function RecentlyViewedSection({ onCardClick }) {
   )
 }
 
-// ── Changelog / WIP panel ────────────────────────────────────────────────────
-const CHANGELOG = [
+// ── Changelog panel ──────────────────────────────────────────────────────────
+const CL_CACHE_KEY = 'av_changelog_data'
+const CL_CACHE_TTL = 60 * 60 * 1000 // 1 hour
+
+const CHANGELOG_DEFAULT = [
   {
-    version: '2026-04-02',
+    version: 'Apr 2, 2026',
     label: 'Latest',
     updates: [
-      'Collection decks now use normalized deck allocations, with deck loading, deck deletion, and collection moves fixed around the new model',
-      'Deck Builder sync and Make Collection Deck now support alternate owned printings, foil-aware matching, and explicit printing selection',
-      'Deck Builder badges, mobile layout, grid controls, DFC previews, and combos tab visibility were improved',
-    ],
-  },
-  {
-    version: '2026-03-31',
-    label: 'Previous',
-    updates: [
-      'Collection loading and folder membership sync were rebuilt for much faster IDB-first rendering',
-      'Collection ownership and per-folder quantity tracking were tightened so cards, badges, and bulk actions stay accurate',
-      'Wishlists now use the shared card browser patterns, including grid-first browsing and wishlist-only bulk move',
-    ],
-  },
-  {
-    version: '2026-03-31',
-    label: 'Earlier',
-    updates: [
-      'Card Scanner now identifies MTG cards from camera input using perceptual hashing and OpenCV detection',
-      'Scanner is available directly from the main navigation and keeps a local hash database for faster repeat use',
-      'Scanned cards can be opened straight into the add-card flow from scanner history',
-    ],
-  },
-  {
-    version: '2026-03-26',
-    label: 'Older',
-    updates: [
-      'Shared lobby setup now includes seat swapping plus richer host/player deck configuration',
-      'Deck win-loss tracking and preferred nickname support were added to Life Tracker setup',
-      'Bug reporting and OLED theme polish were added to the app shell',
-    ],
-  },
-  {
-    version: 'WIP',
-    label: 'In Progress',
-    wip: true,
-    updates: [
-      'Price history chart per card in card detail view',
-      'Price alert system for threshold notifications',
-      'Broader offline-first syncing beyond the current settings and scanner caches',
+      'Collection decks are more reliable — adding, removing, and moving cards between decks works correctly',
+      'When building a deck, you can now pick which printing or foil version of a card to use from your collection',
+      'Deck Builder got a cleaner layout on mobile with better card images and improved tabs',
     ],
   },
 ]
 
-function ChangelogPanel() {
+async function fetchChangelog() {
+  try {
+    const raw = localStorage.getItem(CL_CACHE_KEY)
+    if (raw) {
+      const { ts, data } = JSON.parse(raw)
+      if (Date.now() - ts < CL_CACHE_TTL) return data
+    }
+    const { data, error } = await sb.from('app_config').select('value').eq('key', 'changelog').maybeSingle()
+    if (error || !data?.value?.length) return CHANGELOG_DEFAULT
+    localStorage.setItem(CL_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: data.value }))
+    return data.value
+  } catch {
+    return CHANGELOG_DEFAULT
+  }
+}
+
+function ChangelogPanel({ entries }) {
   const [open, setOpen] = useState(() => {
     try { return localStorage.getItem('av_changelog_open') !== 'false' } catch { return true }
   })
@@ -1408,25 +1390,27 @@ function ChangelogPanel() {
     })
   }
 
+  const list = entries?.length ? entries : CHANGELOG_DEFAULT
+
   return (
     <div className={styles.changelog}>
       <button className={styles.changelogHeader} onClick={toggle}>
-        <span className={styles.changelogTitle}>Updates &amp; Roadmap</span>
+        <span className={styles.changelogTitle}>What's New</span>
         <span className={styles.changelogChevron}>{open ? <ChevronUpIcon size={10} /> : <ChevronDownIcon size={10} />}</span>
       </button>
       {open && (
         <div className={styles.changelogBody}>
-          {CHANGELOG.map(section => (
-            <div key={`${section.version}-${section.label}`} className={styles.changelogSection}>
+          {list.map((section, idx) => (
+            <div key={`${section.version}-${idx}`} className={styles.changelogSection}>
               <div className={styles.changelogSectionHead}>
-                <span className={`${styles.changelogBadge} ${section.wip ? styles.changelogBadgeWip : styles.changelogBadgeLatest}`}>
+                <span className={styles.changelogBadge}>
                   {section.label}
                 </span>
                 <span className={styles.changelogDate}>{section.version}</span>
               </div>
               <ul className={styles.changelogList}>
-                {section.updates.map((item, i) => (
-                  <li key={i} className={styles.changelogItem}>{item}</li>
+                {(section.updates || []).map((item, i) => (
+                  <li key={i} className={styles.changelogItem} dangerouslySetInnerHTML={{ __html: item }} />
                 ))}
               </ul>
             </div>
@@ -1443,9 +1427,12 @@ export default function HomePage() {
   const { price_source }       = useSettings()
   const [collData, setCollData]   = useState(null)
   const [collLoading, setCollLoading] = useState(false)
+  const [changelog, setChangelog] = useState(CHANGELOG_DEFAULT)
   // Shared card-detail modal for hScroll sections
   const [modalCard, setModalCard] = useState(null)
   const [modalLoading, setModalLoading] = useState(false)
+
+  useEffect(() => { fetchChangelog().then(setChangelog) }, [])
 
   useEffect(() => {
     if (!user) return
@@ -1492,7 +1479,7 @@ export default function HomePage() {
         <div className={styles.heroSub}>Your Magic: The Gathering collection manager</div>
       </div>
 
-      <ChangelogPanel />
+      <ChangelogPanel entries={changelog} />
       <CardLookupSection />
       {user && <CollectionSnapshot data={collData} loading={collLoading} priceSource={price_source} />}
       <RecentlyViewedSection onCardClick={openCard} />

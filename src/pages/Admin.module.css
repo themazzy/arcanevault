@@ -546,6 +546,212 @@
   background: rgba(196,96,96,0.08);
 }
 
+/* ── Changelog editor ─────────────────────────────────────────────────────── */
+.clEditorList {
+  display: grid;
+  gap: 12px;
+}
+
+.clEditorEntry {
+  background: var(--s-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.clEditorEntryTop {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.clEditorRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  flex: 1;
+}
+
+.clEditorField {
+  display: grid;
+  gap: 6px;
+}
+
+.clEditorLabel {
+  font-family: var(--font-display);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.clEditorInput {
+  padding: 8px 10px;
+  background: var(--s-subtle);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text);
+  font-size: 0.88rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.clEditorInput:focus {
+  outline: none;
+  border-color: var(--border-hi);
+  box-shadow: var(--input-focus);
+}
+
+.clBulletList {
+  display: grid;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.clAddBullet {
+  align-self: start;
+  padding: 5px 12px;
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.clAddBullet:hover {
+  color: var(--text-dim);
+  border-color: var(--border-hi);
+}
+
+.bulletRow {
+  display: grid;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--s-subtle);
+}
+
+.rtToolbar {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--s-border);
+  background: var(--s1);
+}
+
+.rtBtn {
+  min-width: 26px;
+  height: 24px;
+  padding: 0 7px;
+  background: var(--s3);
+  border: 1px solid var(--s-border2);
+  border-radius: 5px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.82rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.13s;
+}
+
+.rtBtn:hover {
+  background: var(--s4);
+}
+
+.rtBold {
+  font-weight: 700;
+}
+
+.rtItalic {
+  font-style: italic;
+}
+
+.rtReset {
+  color: var(--text-faint);
+  font-size: 0.7rem;
+  margin-left: auto;
+}
+
+.rtSelect {
+  height: 24px;
+  padding: 0 5px;
+  background: var(--s3);
+  border: 1px solid var(--s-border2);
+  border-radius: 5px;
+  color: var(--text);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.rtColor {
+  width: 26px;
+  height: 24px;
+  padding: 1px 2px;
+  border: 1px solid var(--s-border2);
+  border-radius: 5px;
+  background: var(--s3);
+  cursor: pointer;
+}
+
+.bulletEditable {
+  min-height: 30px;
+  padding: 7px 10px;
+  color: var(--text);
+  font-size: 0.88rem;
+  line-height: 1.55;
+  outline: none;
+  word-break: break-word;
+}
+
+.bulletRemove {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--s-border);
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 1rem;
+  transition: color 0.13s, background 0.13s;
+}
+
+.bulletRemove:hover {
+  color: var(--red);
+  background: rgba(196,96,96,0.06);
+}
+
+.clEditorRemove {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  margin-top: 22px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.clEditorRemove:hover {
+  color: var(--red);
+  border-color: rgba(196,96,96,0.4);
+}
+
 @media (max-width: 1180px) {
   .summaryGrid {
     grid-template-columns: repeat(3, minmax(0, 1fr));

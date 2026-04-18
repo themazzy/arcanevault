@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Input, Modal, SectionHeader, Select as UISelect } from '../components/UI'
 import { useAuth } from '../components/Auth'
 import { sb } from '../lib/supabase'
@@ -114,6 +114,248 @@ async function getFunctionAuthHeaders() {
   if (apiKey) headers.apikey = apiKey
   if (token) headers.Authorization = `Bearer ${token}`
   return headers
+}
+
+// ── Changelog Editor ─────────────────────────────────────────────────────────
+const CL_DEFAULT = [
+  {
+    version: 'Apr 2, 2026',
+    label: 'Latest',
+    updates: [
+      'Collection decks are more reliable — adding, removing, and moving cards between decks works correctly',
+      'When building a deck, you can now pick which printing or foil version of a card to use from your collection',
+      'Deck Builder got a cleaner layout on mobile with better card images and improved tabs',
+    ],
+  },
+]
+
+let _bulletSeq = 0
+const newBulletId = () => `b${++_bulletSeq}`
+
+function normEntry(e) {
+  const updates = e.updates || []
+  return {
+    version: e.version || '',
+    label: e.label || '',
+    updates: [...updates],
+    _ids: updates.map(() => newBulletId()),
+  }
+}
+
+function BulletEditor({ initialHtml, onChange, onRemove }) {
+  const ref = useRef(null)
+  const initRef = useRef(initialHtml)
+
+  useEffect(() => {
+    if (ref.current) ref.current.innerHTML = initRef.current
+  }, [])
+
+  const exec = (cmd, val) => {
+    ref.current?.focus()
+    // execCommand is deprecated but has no viable replacement for inline rich-text editing
+    document.execCommand(cmd, false, val ?? null)
+    if (ref.current) onChange(ref.current.innerHTML)
+  }
+
+  return (
+    <div className={styles.bulletRow}>
+      <div className={styles.rtToolbar}>
+        <button
+          type="button"
+          className={`${styles.rtBtn} ${styles.rtBold}`}
+          onMouseDown={e => { e.preventDefault(); exec('bold') }}
+          title="Bold"
+        >B</button>
+        <button
+          type="button"
+          className={`${styles.rtBtn} ${styles.rtItalic}`}
+          onMouseDown={e => { e.preventDefault(); exec('italic') }}
+          title="Italic"
+        >I</button>
+        <select
+          className={styles.rtSelect}
+          defaultValue=""
+          onChange={e => { if (e.target.value) exec('fontSize', e.target.value); e.target.value = '' }}
+          title="Font size"
+        >
+          <option value="" disabled>Size</option>
+          <option value="2">Small</option>
+          <option value="3">Normal</option>
+          <option value="4">Large</option>
+          <option value="5">XL</option>
+        </select>
+        <input
+          type="color"
+          className={styles.rtColor}
+          defaultValue="#c9a84c"
+          onChange={e => exec('foreColor', e.target.value)}
+          title="Text color"
+        />
+        <button
+          type="button"
+          className={`${styles.rtBtn} ${styles.rtReset}`}
+          onMouseDown={e => { e.preventDefault(); exec('removeFormat') }}
+          title="Clear formatting"
+        >✕</button>
+      </div>
+      <div
+        ref={ref}
+        contentEditable
+        suppressContentEditableWarning
+        onInput={() => ref.current && onChange(ref.current.innerHTML)}
+        className={styles.bulletEditable}
+      />
+      <button
+        type="button"
+        className={styles.bulletRemove}
+        onClick={onRemove}
+        title="Remove bullet"
+      >×</button>
+    </div>
+  )
+}
+
+function ChangelogEditorSection() {
+  const [entries, setEntries] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving]   = useState(false)
+  const [status, setStatus]   = useState(null)
+
+  useEffect(() => {
+    async function load() {
+      const { data, error } = await sb.from('app_config').select('value').eq('key', 'changelog').maybeSingle()
+      const source = (!error && Array.isArray(data?.value) && data.value.length) ? data.value : CL_DEFAULT
+      setEntries(source.map(normEntry))
+      setLoading(false)
+    }
+    load()
+  }, [])
+
+  const addEntry = () =>
+    setEntries(prev => [{ version: '', label: '', updates: [''], _ids: [newBulletId()] }, ...prev])
+
+  const removeEntry = idx =>
+    setEntries(prev => prev.filter((_, i) => i !== idx))
+
+  const updateField = (idx, field, value) =>
+    setEntries(prev => prev.map((e, i) => i === idx ? { ...e, [field]: value } : e))
+
+  const addBullet = (entryIdx) =>
+    setEntries(prev => prev.map((e, i) => i !== entryIdx ? e : {
+      ...e,
+      updates: [...e.updates, ''],
+      _ids: [...e._ids, newBulletId()],
+    }))
+
+  const removeBullet = (entryIdx, bulletIdx) =>
+    setEntries(prev => prev.map((e, i) => i !== entryIdx ? e : {
+      ...e,
+      updates: e.updates.filter((_, j) => j !== bulletIdx),
+      _ids: e._ids.filter((_, j) => j !== bulletIdx),
+    }))
+
+  const updateBullet = (entryIdx, bulletIdx, html) =>
+    setEntries(prev => prev.map((e, i) => i !== entryIdx ? e : {
+      ...e,
+      updates: e.updates.map((u, j) => j === bulletIdx ? html : u),
+    }))
+
+  const save = async () => {
+    setSaving(true)
+    setStatus(null)
+    const toSave = entries.map(({ _ids, ...e }) => e)
+    const { error } = await sb.from('app_config').upsert(
+      { key: 'changelog', value: toSave, updated_at: new Date().toISOString() },
+      { onConflict: 'key' }
+    )
+    setStatus(error ? 'error' : 'saved')
+    if (!error) localStorage.removeItem('av_changelog_data')
+    setSaving(false)
+  }
+
+  return (
+    <div className={styles.sectionBlock}>
+      <div className={styles.sectionTitleRow}>
+        <div>
+          <div className={styles.sectionTitle}>Changelog</div>
+          <div className={styles.panelSub}>Controls the "What's New" banner on the home page</div>
+        </div>
+        <div className={styles.heroActions}>
+          <Button size="sm" onClick={addEntry}>+ Entry</Button>
+          <Button size="sm" onClick={save} disabled={saving || loading}>
+            {saving ? 'Saving…' : 'Publish'}
+          </Button>
+        </div>
+      </div>
+
+      {status === 'saved' && (
+        <div className={`${styles.alertCard} ${styles.alertSuccess}`}>
+          <div className={styles.alertMessage}>Published — home page updates within an hour or on next refresh.</div>
+        </div>
+      )}
+      {status === 'error' && (
+        <div className={`${styles.alertCard} ${styles.alertDanger}`}>
+          <div className={styles.alertMessage}>Save failed — check your connection or Supabase RLS policy.</div>
+        </div>
+      )}
+
+      {loading ? (
+        <div className={styles.emptyState}>Loading changelog…</div>
+      ) : (
+        <div className={styles.clEditorList}>
+          {entries.length === 0 && (
+            <div className={styles.hint}>No entries yet. Click "+ Entry" to add one.</div>
+          )}
+          {entries.map((entry, idx) => (
+            <div key={idx} className={styles.clEditorEntry}>
+              <div className={styles.clEditorEntryTop}>
+                <div className={styles.clEditorRow}>
+                  <div className={styles.clEditorField}>
+                    <label className={styles.clEditorLabel}>Date shown</label>
+                    <input
+                      className={styles.clEditorInput}
+                      value={entry.version}
+                      onChange={e => updateField(idx, 'version', e.target.value)}
+                      placeholder="e.g. Apr 2, 2026"
+                    />
+                  </div>
+                  <div className={styles.clEditorField}>
+                    <label className={styles.clEditorLabel}>Badge label</label>
+                    <input
+                      className={styles.clEditorInput}
+                      value={entry.label}
+                      onChange={e => updateField(idx, 'label', e.target.value)}
+                      placeholder="e.g. Latest"
+                    />
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className={styles.clEditorRemove}
+                  onClick={() => removeEntry(idx)}
+                  title="Remove this entry"
+                >×</button>
+              </div>
+              <div className={styles.clBulletList}>
+                <label className={styles.clEditorLabel} style={{ marginTop: 10 }}>Bullets</label>
+                {entry.updates.map((html, bIdx) => (
+                  <BulletEditor
+                    key={entry._ids[bIdx]}
+                    initialHtml={html}
+                    onChange={h => updateBullet(idx, bIdx, h)}
+                    onRemove={() => removeBullet(idx, bIdx)}
+                  />
+                ))}
+                <button type="button" className={styles.clAddBullet} onClick={() => addBullet(idx)}>
+                  + bullet
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function AdminPage() {
@@ -634,6 +876,8 @@ export default function AdminPage() {
           </>
         )}
       </div>
+
+      <ChangelogEditorSection />
 
       <div className={styles.sectionBlock}>
         <div className={styles.sectionTitleRow}>
