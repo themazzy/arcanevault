@@ -3457,21 +3457,19 @@ export default function DeckBuilderPage() {
                     </div>
                     <div className={styles.visualCardBottom}>
                       <div className={styles.visualCardName}>{dc.name}</div>
-                      <div className={styles.visualCardMeta}>
-                        <OwnershipBadge
-                          ownedQty={ownedFoilMap.get(`${dc.scryfall_id}|${dc.foil ? '1' : '0'}`) ?? 0}
-                          ownedFoilAlt={ownedFoilMap.get(`${dc.scryfall_id}|${dc.foil ? '0' : '1'}`) ?? 0}
-                          ownedAlt={ownedNameMap.get((dc.name || '').toLowerCase()) ?? 0}
-                          ownedInDeck={allocationSetHas(inOtherDeckSet, dc)}
-                          inCollDeck={allocationSetHas(collDeckSfSet, dc)}
-                        />
-                        <div className={styles.visualCardControls}>
-                          <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} />
-                          <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, -1) }}>−</button>
-                          <span className={styles.visualCardCount}>{dc.qty}</span>
-                          <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, +1) }}>+</button>
-                          <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); removeCardFromDeck(dc.id) }}>✕</button>
-                        </div>
+                      <OwnershipBadge
+                        ownedQty={ownedFoilMap.get(`${dc.scryfall_id}|${dc.foil ? '1' : '0'}`) ?? 0}
+                        ownedFoilAlt={ownedFoilMap.get(`${dc.scryfall_id}|${dc.foil ? '0' : '1'}`) ?? 0}
+                        ownedAlt={ownedNameMap.get((dc.name || '').toLowerCase()) ?? 0}
+                        ownedInDeck={allocationSetHas(inOtherDeckSet, dc)}
+                        inCollDeck={allocationSetHas(collDeckSfSet, dc)}
+                      />
+                      <div className={styles.visualCardControls}>
+                        <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} />
+                        <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, -1) }}>−</button>
+                        <span className={styles.visualCardCount}>{dc.qty}</span>
+                        <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, +1) }}>+</button>
+                        <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); removeCardFromDeck(dc.id) }}>✕</button>
                       </div>
                     </div>
                   </div>

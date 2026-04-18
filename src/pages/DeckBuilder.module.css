@@ -1898,30 +1898,11 @@
   text-overflow: ellipsis;
 }
 
-.visualCardMeta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 3px;
-  min-width: 0;
-}
-
-.visualCardMeta .stateBadge {
-  font-size: 0.5rem;
-  padding: 1px 4px;
-  letter-spacing: 0.02em;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex-shrink: 1;
-}
-
 .visualCardControls {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 2px;
-  flex-shrink: 0;
 }
 
 .visualCardBtn {
