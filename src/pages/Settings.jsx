@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
+import { isCurrentUserAdmin } from '../lib/admin'
 import { maskEmailAddress, THEMES, useSettings } from '../components/SettingsContext'
 import { useSetupWizard } from '../components/SetupWizard'
 import { clearScryfallCache, PRICE_SOURCES } from '../lib/scryfall'
@@ -227,6 +228,11 @@ export default function SettingsPage() {
   const [emailMsg, setEmailMsg] = useState('')
   const [emailError, setEmailError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
+
+  useEffect(() => {
+    isCurrentUserAdmin(user?.id).then(setIsAdmin)
+  }, [user?.id])
 
   const lastSyncAge = settings.lastSyncedAt
     ? formatAge(Date.now() - new Date(settings.lastSyncedAt).getTime())
@@ -286,6 +292,19 @@ export default function SettingsPage() {
   return (
     <div className={styles.page}>
       <SectionHeader title="Settings" />
+
+      {isAdmin && (
+        <div className={styles.section}>
+          <div className={styles.sectionTitle}>Admin</div>
+          <SettingRow
+            label="Admin Console"
+            description="Open the deletion-request review queue. Access is restricted to allowlisted admin users."
+            onRowClick={() => navigate('/admin')}
+          >
+            <Button size="sm" onClick={() => navigate('/admin')}>Admin</Button>
+          </SettingRow>
+        </div>
+      )}
 
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Appearance</div>
@@ -658,13 +677,6 @@ export default function SettingsPage() {
           onRowClick={() => navigate('/credits')}
         >
           <Button size="sm" onClick={() => navigate('/credits')}>Credits</Button>
-        </SettingRow>
-        <SettingRow
-          label="Admin Console"
-          description="Open the deletion-request review queue. Access is restricted to allowlisted admin users."
-          onRowClick={() => navigate('/admin')}
-        >
-          <Button size="sm" onClick={() => navigate('/admin')}>Admin</Button>
         </SettingRow>
       </div>
 

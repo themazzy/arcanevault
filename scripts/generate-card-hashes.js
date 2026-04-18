@@ -13,8 +13,13 @@
  *
  * Usage:
  *   VITE_SUPABASE_URL=https://xxx.supabase.co \
- *   VITE_SUPABASE_ANON_KEY=your-key \
+ *   SUPABASE_SERVICE_KEY=your-service-key \
  *   node scripts/generate-card-hashes.js
+ *
+ * Flags:
+ *   --reseed      Reprocess all cards (ignore existing rows). Required when
+ *                 the hash algorithm changes.
+ *   --concurrency N  Override parallel download count (default: 20).
  */
 
 import 'dotenv/config'
@@ -26,11 +31,14 @@ import { computeHashFromGray, hashToHex, rgbToGray32x32, rgbToSaturation32x32 } 
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY
-const BATCH_SIZE = 50
-const CONCURRENCY = 4
-// Pass --reseed to reprocess all cards (ignores existing rows). Required when
-// the hash algorithm changes (e.g. CLAHE tile size, new color hash column).
+const BATCH_SIZE   = 100
 const FORCE_RESEED = process.argv.includes('--reseed')
+
+// Parse --concurrency N from argv, default 20
+const concurrencyArgIdx = process.argv.indexOf('--concurrency')
+const CONCURRENCY = concurrencyArgIdx !== -1
+  ? Math.max(1, parseInt(process.argv[concurrencyArgIdx + 1], 10) || 20)
+  : 20
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
   console.error('Set VITE_SUPABASE_URL and SUPABASE_SERVICE_KEY (service role key required to write card_hashes)')
@@ -39,29 +47,37 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY)
 
+/**
+ * Two Sharp passes connected via raw pixel buffer (no intermediate PNG encode/decode).
+ * Sharp does not support two resize() calls in one pipeline — the second overrides
+ * the first, making the extract coordinates invalid. Raw transfer avoids the codec cost.
+ */
 async function computePHashHex(imageBuffer) {
-  // Output raw RGB (not sharp's built-in grayscale) so we can apply the
-  // exact same BT.709 formula used by the live scanner in the browser.
-  // sharp.blur(1.0) is a Gaussian approximation with σ=1.0, which differs slightly
-  // from the browser's cv.GaussianBlur 5×5 kernel (σ=1.0, clipped at 2.5σ).
-  // After the 32×32 resize the difference is sub-bit and does not affect hash quality.
-  const { data } = await sharp(imageBuffer)
-    .blur(1.0)
-    .resize(32, 32, { fit: 'fill', kernel: 'lanczos3' })
+  // Pass 1: resize to card dims → extract art region → raw pixels
+  const { data: artRaw, info: artInfo } = await sharp(imageBuffer)
+    .resize(CARD_W, CARD_H, { fit: 'fill' })
+    .extract({ left: ART_X, top: ART_Y, width: ART_W, height: ART_H })
     .removeAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true })
 
-  const grayU8 = rgbToGray32x32(data, 3)
-  const hash = computeHashFromGray(grayU8)
-  const hex = hashToHex(hash)
+  // Pass 2: blur → resize to 32×32 → raw pixels (input from raw buffer, no decode)
+  const { data } = await sharp(artRaw, {
+    raw: { width: artInfo.width, height: artInfo.height, channels: artInfo.channels },
+  })
+    .blur(1.0)
+    .resize(32, 32, { fit: 'fill', kernel: 'lanczos3' })
+    .raw()
+    .toBuffer({ resolveWithObject: true })
 
-  // Color hash — HSV saturation channel
-  const satU8 = rgbToSaturation32x32(data, 3)
+  const grayU8 = rgbToGray32x32(data, artInfo.channels)
+  const hash   = computeHashFromGray(grayU8)
+  const hex    = hashToHex(hash)
+
+  const satU8     = rgbToSaturation32x32(data, artInfo.channels)
   const colorHash = computeHashFromGray(satU8)
-  const hex2 = hashToHex(colorHash)
+  const hex2      = hashToHex(colorHash)
 
-  // Convert Uint32Array(8) back to BigInt for the DB BIGINT columns
   const bigints = []
   for (let i = 0; i < 8; i += 2) {
     bigints.push((BigInt(hash[i + 1] >>> 0) << 32n) | BigInt(hash[i] >>> 0))
@@ -71,25 +87,17 @@ async function computePHashHex(imageBuffer) {
 }
 
 async function fetchImage(url) {
-  const res = await fetch(url, { timeout: 15000 })
+  const res = await fetch(url, { timeout: 20000 })
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`)
   return Buffer.from(await res.arrayBuffer())
 }
 
-function getCardImageUris(card) {
+function getCardImageUri(card) {
   const face = card.card_faces?.find(f => f.image_uris?.normal) ?? card.card_faces?.[0] ?? null
   return {
-    imageUri: card.image_uris?.normal ?? face?.image_uris?.normal ?? null,
+    imageUri:   card.image_uris?.normal   ?? face?.image_uris?.normal   ?? null,
     artCropUri: card.image_uris?.art_crop ?? face?.image_uris?.art_crop ?? null,
   }
-}
-
-async function extractScannerArtCrop(fullCardBuffer) {
-  return sharp(fullCardBuffer)
-    .resize(CARD_W, CARD_H, { fit: 'fill' })
-    .extract({ left: ART_X, top: ART_Y, width: ART_W, height: ART_H })
-    .png()
-    .toBuffer()
 }
 
 function toInt64(n) {
@@ -99,12 +107,26 @@ function toInt64(n) {
     : Number(signed)
 }
 
+/**
+ * Worker-pool: keeps CONCURRENCY tasks always in flight rather than waiting
+ * for the slowest card in each fixed-size chunk before starting the next batch.
+ */
+async function workerPool(items, concurrency, fn) {
+  const iter = items[Symbol.iterator]()
+  const worker = async () => {
+    for (let cur = iter.next(); !cur.done; cur = iter.next()) {
+      await fn(cur.value)
+    }
+  }
+  await Promise.all(Array.from({ length: concurrency }, worker))
+}
+
 async function main() {
   console.log('Downloading Scryfall default_cards bulk data...')
-  const bulkRes = await fetch('https://api.scryfall.com/bulk-data/default-cards')
+  const bulkRes  = await fetch('https://api.scryfall.com/bulk-data/default-cards')
   const bulkMeta = await bulkRes.json()
   const cardsRes = await fetch(bulkMeta.download_uri)
-  const cards = await cardsRes.json()
+  const cards    = await cardsRes.json()
   console.log(`Loaded ${cards.length} cards from Scryfall.`)
 
   let existing = new Set()
@@ -116,76 +138,76 @@ async function main() {
         .from('card_hashes')
         .select('scryfall_id')
         .range(page * 1000, page * 1000 + 999)
-
       if (!data?.length) break
-      data.forEach(row => existing.add(row.scryfall_id))
+      data.forEach(r => existing.add(r.scryfall_id))
       page++
       if (data.length < 1000) break
     }
-    console.log(`${existing.size} cards already in Supabase - will skip.`)
+    console.log(`${existing.size} cards already in Supabase — will skip.`)
   } else {
     console.log('--reseed: processing all cards (ignoring existing rows).')
   }
 
   const todo = cards.filter(card => {
-    const { imageUri } = getCardImageUris(card)
-    return imageUri && !existing.has(card.id)
+    const { imageUri } = getCardImageUri(card)
+    return imageUri && !card.digital && !existing.has(card.id)
   })
-  console.log(`Processing ${todo.length} new cards...`)
+  console.log(`Processing ${todo.length} new cards with concurrency=${CONCURRENCY}...`)
 
-  let done = 0
+  let done   = 0
   let errors = 0
+  let lastLog = 0
   const batch = []
 
   const flush = async () => {
     if (!batch.length) return
-    const { error } = await sb.from('card_hashes').upsert(batch, { onConflict: 'scryfall_id' })
+    const rows = batch.splice(0)
+    const { error } = await sb.from('card_hashes').upsert(rows, { onConflict: 'scryfall_id' })
     if (error) console.error('Upsert error:', error.message)
-    batch.length = 0
   }
 
-  for (let i = 0; i < todo.length; i += CONCURRENCY) {
-    const chunk = todo.slice(i, i + CONCURRENCY)
-    await Promise.all(chunk.map(async (card) => {
-      try {
-        const { imageUri, artCropUri } = getCardImageUris(card)
-        if (!imageUri) throw new Error('No usable full-card image')
+  const processCard = async (card) => {
+    try {
+      const { imageUri, artCropUri } = getCardImageUri(card)
+      if (!imageUri) throw new Error('No usable full-card image')
 
-        const fullCardBuffer = await fetchImage(imageUri)
-        const scannerCropBuffer = await extractScannerArtCrop(fullCardBuffer)
-        const { hex, hex2, p1, p2, p3, p4 } = await computePHashHex(scannerCropBuffer)
+      const imageBuffer = await fetchImage(imageUri)
+      const { hex, hex2, p1, p2, p3, p4 } = await computePHashHex(imageBuffer)
 
-        batch.push({
-          scryfall_id: card.id,
-          oracle_id: card.oracle_id ?? null,
-          name: card.name,
-          set_code: card.set,
-          collector_number: card.collector_number,
-          hash_part_1: toInt64(p1),
-          hash_part_2: toInt64(p2),
-          hash_part_3: toInt64(p3),
-          hash_part_4: toInt64(p4),
-          phash_hex: hex,
-          phash_hex2: hex2,
-          image_uri: imageUri,
-          art_crop_uri: artCropUri,
-        })
-        done++
-      } catch (e) {
-        errors++
-        console.warn(`  x ${card.name} (${card.id}): ${e.message}`)
-      }
-    }))
+      batch.push({
+        scryfall_id:      card.id,
+        oracle_id:        card.oracle_id ?? null,
+        name:             card.name,
+        set_code:         card.set,
+        collector_number: card.collector_number,
+        hash_part_1:      toInt64(p1),
+        hash_part_2:      toInt64(p2),
+        hash_part_3:      toInt64(p3),
+        hash_part_4:      toInt64(p4),
+        phash_hex:        hex,
+        phash_hex2:       hex2,
+        image_uri:        imageUri,
+        art_crop_uri:     artCropUri,
+      })
+      done++
 
-    if (batch.length >= BATCH_SIZE) await flush()
+      if (batch.length >= BATCH_SIZE) await flush()
+    } catch (e) {
+      errors++
+      console.warn(`  x ${card.name} (${card.id}): ${e.message}`)
+    }
 
-    if ((i + CONCURRENCY) % 200 === 0 || i + CONCURRENCY >= todo.length) {
-      const pct = Math.round((Math.min(i + CONCURRENCY, todo.length) / todo.length) * 100)
-      console.log(`  ${Math.min(i + CONCURRENCY, todo.length)}/${todo.length} (${pct}%) - ${done} ok, ${errors} errors`)
+    const total = done + errors
+    if (total - lastLog >= 200 || total === todo.length) {
+      lastLog = total
+      const pct = Math.round((total / todo.length) * 100)
+      console.log(`  ${total}/${todo.length} (${pct}%) — ${done} ok, ${errors} errors`)
     }
   }
 
+  await workerPool(todo, CONCURRENCY, processCard)
   await flush()
+
   console.log(`\nDone. ${done} hashes uploaded, ${errors} errors.`)
 }
 

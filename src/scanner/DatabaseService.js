@@ -33,7 +33,8 @@ const NATIVE_CHUNK     = 5000
 const BAND_MASK        = 0x3F  // 6-bit bands
 // Bump to invalidate IDB cache when stored hash schema changes (e.g. new columns).
 // v3: added .order('scryfall_id') to paginated fetches for consistent pagination.
-const CACHE_VERSION    = 3
+// v4: CLAHE 4×4 tile grid + BT.601 grayscale — all hashes reseeded.
+const CACHE_VERSION    = 4
 // [wordIndex, shift] — 16 bands of 6 bits across the 8 Uint32 words
 const BAND_SPECS = [
   [0, 0], [0, 16], [1, 0], [1, 16],
