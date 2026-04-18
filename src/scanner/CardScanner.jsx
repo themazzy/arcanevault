@@ -572,70 +572,63 @@ export default function CardScanner({ onMatch, onClose }) {
   }, [setPickerOpen, setPickerSets.length])
 
   // ── Tracking frame corner detection ──────────────────────────────────────────
-  // Web-only. Runs at ~15fps (every 2nd rAF frame) and emits the 4 detected card
-  // corners in screen space so the SVG tracking overlay can snap to them.
-  // Uses scanningRef so the loop doesn't restart on every scan cycle.
+  // Web-only. Async setTimeout loop so each detection (3-pass OpenCV, ~50-100ms)
+  // completes fully before React renders the state update, then waits before
+  // starting the next detection. rAF-based approach blocked painting between calls.
   useEffect(() => {
     if (isNative || !isReady || !cameraStarted || anyOverlayOpen) {
       setDetectedCorners(null)
       return
     }
 
-    let frameCount = 0
-    let animHandle = null
     let stopped = false
     let missCount = 0
-    const MISS_THRESHOLD = 5 // ~330ms at 15fps before frame disappears
+    const MISS_THRESHOLD = 5  // ~330ms at ~15fps before frame disappears
+    const DETECT_INTERVAL = 66 // ms between detections (~15fps)
 
-    const loop = () => {
+    const detect = async () => {
       if (stopped) return
-      frameCount++
-      animHandle = requestAnimationFrame(loop)
 
-      // ~15fps on a 30fps camera feed
-      if (frameCount % 2 !== 0) return
+      // Skip while a full scan is running to avoid concurrent OpenCV calls.
+      if (!scanningRef.current) {
+        try {
+          const vid = videoRef.current
+          if (vid?.videoWidth) {
+            const sw = Math.round(vid.videoWidth / 2)
+            const sh = Math.round(vid.videoHeight / 2)
+            const { ctx: smallCtx } = getSmallFrameCanvas(sw, sh)
+            smallCtx.drawImage(vid, 0, 0, sw, sh)
+            const smallImageData = smallCtx.getImageData(0, 0, sw, sh)
 
-      const vid = videoRef.current
-      if (!vid?.videoWidth) return
+            const corners = detectCardCorners(smallImageData, sw, sh)
 
-      // Skip while a scan is actively running to avoid concurrent OpenCV calls.
-      if (scanningRef.current) return
-
-      const sw = Math.round(vid.videoWidth / 2)
-      const sh = Math.round(vid.videoHeight / 2)
-      const { ctx: smallCtx } = getSmallFrameCanvas(sw, sh)
-      smallCtx.drawImage(vid, 0, 0, sw, sh)
-      let smallImageData
-      try { smallImageData = smallCtx.getImageData(0, 0, sw, sh) } catch { return }
-
-      const corners = detectCardCorners(smallImageData, sw, sh)
-
-      if (corners?.length === 4) {
-        missCount = 0
-        // Map corners: small-frame → full video → screen (object-fit: cover).
-        const videoW = vid.videoWidth, videoH = vid.videoHeight
-        const screenW = window.innerWidth, screenH = window.innerHeight
-        const smallScaleX = videoW / sw
-        const smallScaleY = videoH / sh
-        const coverScale  = Math.max(screenW / videoW, screenH / videoH)
-        const offsetX = (screenW - videoW * coverScale) / 2
-        const offsetY = (screenH - videoH * coverScale) / 2
-        setDetectedCorners(corners.map(p => ({
-          x: p.x * smallScaleX * coverScale + offsetX,
-          y: p.y * smallScaleY * coverScale + offsetY,
-        })))
-      } else {
-        // Only clear after several consecutive misses — prevents flicker from
-        // momentary detection dropouts while a card is held in frame.
-        missCount++
-        if (missCount >= MISS_THRESHOLD) setDetectedCorners(null)
+            if (corners?.length === 4) {
+              missCount = 0
+              const videoW = vid.videoWidth, videoH = vid.videoHeight
+              const screenW = window.innerWidth, screenH = window.innerHeight
+              const smallScaleX = videoW / sw
+              const smallScaleY = videoH / sh
+              const coverScale  = Math.max(screenW / videoW, screenH / videoH)
+              const offsetX = (screenW - videoW * coverScale) / 2
+              const offsetY = (screenH - videoH * coverScale) / 2
+              setDetectedCorners(corners.map(p => ({
+                x: p.x * smallScaleX * coverScale + offsetX,
+                y: p.y * smallScaleY * coverScale + offsetY,
+              })))
+            } else {
+              missCount++
+              if (missCount >= MISS_THRESHOLD) setDetectedCorners(null)
+            }
+          }
+        } catch { /* ignore individual frame errors */ }
       }
+
+      if (!stopped) setTimeout(detect, DETECT_INTERVAL)
     }
 
-    animHandle = requestAnimationFrame(loop)
+    detect()
     return () => {
       stopped = true
-      if (animHandle) cancelAnimationFrame(animHandle)
       setDetectedCorners(null)
     }
   }, [isNative, isReady, cameraStarted, anyOverlayOpen])
