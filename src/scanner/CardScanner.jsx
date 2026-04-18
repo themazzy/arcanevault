@@ -471,6 +471,7 @@ export default function CardScanner({ onMatch, onClose }) {
   const [autoScan, setAutoScan] = useState(() => {
     try { return localStorage.getItem('arcanevault_scanner_autoscan') === '1' } catch { return false }
   })
+  const [autoScanPaused, setAutoScanPaused] = useState(false)
   const [preferFoil, setPreferFoil] = useState(() => {
     try { return localStorage.getItem('arcanevault_scanner_prefer_foil') === '1' } catch { return false }
   })
@@ -508,6 +509,7 @@ export default function CardScanner({ onMatch, onClose }) {
   useEffect(() => {
     autoScanRef.current = autoScan
     try { localStorage.setItem('arcanevault_scanner_autoscan', autoScan ? '1' : '0') } catch {}
+    if (!autoScan) setAutoScanPaused(false)
   }, [autoScan])
   useEffect(() => { scanningRef.current = scanning }, [scanning])
   useEffect(() => {
@@ -1355,12 +1357,12 @@ export default function CardScanner({ onMatch, onClose }) {
   // Pauses automatically when any overlay is open.
   // Must be defined after handleScan (useCallback const — TDZ applies).
   useEffect(() => {
-    if (!autoScan || !isReady || scanning) return
+    if (!autoScan || autoScanPaused || !isReady || scanning) return
     if (addFlowOpen || basketExpanded || manualSearchOpen || settingsOpen || setPickerOpen || printingPickerFor !== null) return
     const cooldown = scanResult === 'found' ? 1000 : 350
     const timer = setTimeout(() => { handleScan() }, cooldown)
     return () => clearTimeout(timer)
-  }, [autoScan, isReady, scanning, addFlowOpen, basketExpanded, manualSearchOpen, settingsOpen, setPickerOpen, printingPickerFor, handleScan, scanResult])
+  }, [autoScan, autoScanPaused, isReady, scanning, addFlowOpen, basketExpanded, manualSearchOpen, settingsOpen, setPickerOpen, printingPickerFor, handleScan, scanResult])
 
   // ── Derived ────────────────────────────────────────────────────────────────
 
@@ -1697,18 +1699,21 @@ export default function CardScanner({ onMatch, onClose }) {
             </div>
           )}
 
-          {/* Scan button / auto-scan indicator */}
+          {/* Scan button / auto-scan pause-resume */}
           <div className={styles.btnRow}>
             {isReady && !autoScan && (
               <button className={styles.primaryBtn} onClick={handleScan} disabled={scanning}>
-                {scanning ? 'Scanning...' : 'Scan'}
+                Scan
               </button>
             )}
             {isReady && autoScan && (
-              <div className={`${styles.autoScanBadge} ${scanning ? styles.autoScanBadgeActive : ''}`}>
+              <button
+                className={`${styles.autoScanPauseBtn} ${autoScanPaused ? styles.autoScanPauseBtnPaused : ''}`}
+                onClick={() => setAutoScanPaused(v => !v)}
+              >
                 <span className={styles.autoScanDot} />
-                {scanning ? 'Scanning…' : 'Auto-scan on'}
-              </div>
+                {autoScanPaused ? 'Resume' : 'Pause'}
+              </button>
             )}
           </div>
         </div>

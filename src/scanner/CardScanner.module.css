@@ -1714,8 +1714,8 @@
   background: var(--gold, #c9a84c);
 }
 
-/* ── Auto-scan status badge (replaces scan button) ── */
-.autoScanBadge {
+/* ── Auto-scan pause / resume button ── */
+.autoScanPauseBtn {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1723,44 +1723,47 @@
   justify-content: center;
   padding: 10px 16px;
   border-radius: 12px;
-  border: 1px solid rgba(255,255,255,0.1);
-  background: rgba(255,255,255,0.05);
-  color: rgba(255,255,255,0.5);
+  border: 1px solid rgba(93,186,112,0.35);
+  background: rgba(93,186,112,0.08);
+  color: rgba(93,186,112,0.85);
   font-family: var(--font-display);
   font-size: 0.72rem;
   letter-spacing: 0.06em;
   min-height: 42px;
-  transition: color 0.2s, border-color 0.2s, background 0.2s;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.autoScanPauseBtn:hover {
+  background: rgba(93,186,112,0.14);
+  border-color: rgba(93,186,112,0.55);
 }
 
-.autoScanBadgeActive {
-  color: var(--gold, #c9a84c);
-  border-color: rgba(201,168,76,0.4);
+.autoScanPauseBtnPaused {
+  border-color: rgba(201,168,76,0.35);
   background: rgba(201,168,76,0.08);
+  color: rgba(201,168,76,0.85);
+}
+.autoScanPauseBtnPaused:hover {
+  background: rgba(201,168,76,0.14);
+  border-color: rgba(201,168,76,0.55);
 }
 
 .autoScanDot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: rgba(255,255,255,0.3);
+  background: currentColor;
   flex-shrink: 0;
-  transition: background 0.2s;
+  opacity: 0.8;
 }
 
-.autoScanBadge:not(.autoScanBadgeActive) .autoScanDot {
+.autoScanPauseBtn:not(.autoScanPauseBtnPaused) .autoScanDot {
   animation: autoScanPulse 2s ease-in-out infinite;
-  background: rgba(93,186,112,0.7);
-}
-
-.autoScanBadgeActive .autoScanDot {
-  animation: autoScanPulse 0.7s ease-in-out infinite;
-  background: var(--gold, #c9a84c);
 }
 
 @keyframes autoScanPulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50%       { opacity: 0.4; transform: scale(0.75); }
+  0%, 100% { opacity: 0.8; transform: scale(1); }
+  50%       { opacity: 0.3; transform: scale(0.7); }
 }
 
 /* ── Locked set badge (inside reticle) ── */
