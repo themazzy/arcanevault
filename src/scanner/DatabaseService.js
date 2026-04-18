@@ -32,7 +32,8 @@ const PAGE_SIZE        = 1000
 const NATIVE_CHUNK     = 5000
 const BAND_MASK        = 0x3F  // 6-bit bands
 // Bump to invalidate IDB cache when stored hash schema changes (e.g. new columns).
-const CACHE_VERSION    = 2
+// v3: added .order('scryfall_id') to paginated fetches for consistent pagination.
+const CACHE_VERSION    = 3
 // [wordIndex, shift] — 16 bands of 6 bits across the 8 Uint32 words
 const BAND_SPECS = [
   [0, 0], [0, 16], [1, 0], [1, 16],
@@ -493,6 +494,7 @@ class DatabaseService {
       .from('card_hashes')
       .select('scryfall_id,name,set_code,collector_number,phash_hex,phash_hex2,image_uri')
       .not('phash_hex', 'is', null)
+      .order('scryfall_id')
       .range(from, to)
     if (error) throw error
     return data ?? []
@@ -509,7 +511,9 @@ class DatabaseService {
 
   async _continueWebLoad(startPage, totalCount = 0) {
     const BATCH = 8   // fetch 8 pages in parallel
+    const MAX_CONSECUTIVE_ERRORS = 3
     let page = startPage
+    let consecutiveErrors = 0
 
     while (true) {
       const results = await Promise.all(
@@ -523,7 +527,12 @@ class DatabaseService {
 
       let reachedEnd = false
       for (const data of results) {
-        if (data === null) continue        // transient error — skip page, don't stop
+        if (data === null) {
+          consecutiveErrors++
+          if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) { reachedEnd = true; break }
+          continue        // transient error — skip page, don't stop
+        }
+        consecutiveErrors = 0
         if (!data.length) { reachedEnd = true; break }
         const augmented = augmentWithParsed(data)
         const startIdx = this._hashes.length

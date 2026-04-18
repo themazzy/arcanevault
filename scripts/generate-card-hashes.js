@@ -25,7 +25,7 @@ import { ART_H, ART_W, ART_X, ART_Y, CARD_H, CARD_W } from '../src/scanner/const
 import { computeHashFromGray, hashToHex, rgbToGray32x32, rgbToSaturation32x32 } from '../src/scanner/hashCore.js'
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL
-const SUPABASE_KEY = process.env.VITE_SUPABASE_ANON_KEY
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY
 const BATCH_SIZE = 50
 const CONCURRENCY = 4
 // Pass --reseed to reprocess all cards (ignores existing rows). Required when
@@ -33,7 +33,7 @@ const CONCURRENCY = 4
 const FORCE_RESEED = process.argv.includes('--reseed')
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
-  console.error('Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY')
+  console.error('Set VITE_SUPABASE_URL and SUPABASE_SERVICE_KEY (service role key required to write card_hashes)')
   process.exit(1)
 }
 
@@ -42,6 +42,9 @@ const sb = createClient(SUPABASE_URL, SUPABASE_KEY)
 async function computePHashHex(imageBuffer) {
   // Output raw RGB (not sharp's built-in grayscale) so we can apply the
   // exact same BT.709 formula used by the live scanner in the browser.
+  // sharp.blur(1.0) is a Gaussian approximation with σ=1.0, which differs slightly
+  // from the browser's cv.GaussianBlur 5×5 kernel (σ=1.0, clipped at 2.5σ).
+  // After the 32×32 resize the difference is sub-bit and does not affect hash quality.
   const { data } = await sharp(imageBuffer)
     .blur(1.0)
     .resize(32, 32, { fit: 'fill', kernel: 'lanczos3' })

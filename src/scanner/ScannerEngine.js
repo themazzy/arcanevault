@@ -3,6 +3,8 @@
  */
 
 import {
+  CARD_W,
+  CARD_H,
   ART_H as SHARED_ART_H,
   ART_W as SHARED_ART_W,
   ART_X as SHARED_ART_X,
@@ -66,13 +68,21 @@ export function waitForOpenCV(timeoutMs = 20000) {
 }
 
 function orderPoints(pts) {
+  // Angle-based ordering: sort corners by their angle from centroid so
+  // axis-aligned cards (where quadrant filtering puts two corners in one bucket)
+  // are handled correctly. Angles: TL ≈ -3π/4, TR ≈ -π/4, BR ≈ π/4, BL ≈ 3π/4.
   const cx = pts.reduce((s, p) => s + p.x, 0) / 4
   const cy = pts.reduce((s, p) => s + p.y, 0) / 4
-  const tl = pts.filter(p => p.x <= cx && p.y <= cy).sort((a, b) => a.x - b.x)[0]
-  const tr = pts.filter(p => p.x > cx && p.y <= cy).sort((a, b) => b.x - a.x)[0]
-  const br = pts.filter(p => p.x > cx && p.y > cy).sort((a, b) => b.x - a.x)[0]
-  const bl = pts.filter(p => p.x <= cx && p.y > cy).sort((a, b) => a.x - b.x)[0]
-  return [tl ?? pts[0], tr ?? pts[1], br ?? pts[2], bl ?? pts[3]]
+  const sorted = pts.slice().sort((a, b) =>
+    Math.atan2(a.y - cy, a.x - cx) - Math.atan2(b.y - cy, b.x - cx)
+  )
+  // atan2 order starting from ~-π: left-top, right-top, right-bottom, left-bottom
+  // Rotate so TL is first: find the index of the top-left (min x+y sum)
+  const tlIdx = sorted.reduce((mi, p, i, a) =>
+    (p.x + p.y) < (a[mi].x + a[mi].y) ? i : mi, 0)
+  const reordered = []
+  for (let i = 0; i < 4; i++) reordered.push(sorted[(tlIdx + i) % 4])
+  return reordered  // [TL, TR, BR, BL]
 }
 
 function polygonArea(pts) {
@@ -259,9 +269,6 @@ export function detectCardCorners(imageData, width, height) {
   }
 }
 
-const CARD_W = 500
-const CARD_H = 700
-
 // source: HTMLCanvasElement (preferred — no putImageData cost) or ImageData fallback.
 export function cropCardFromReticle(
   source,
@@ -379,28 +386,36 @@ export function rotateCard180(imageData) {
   return new ImageData(out, width, height)
 }
 
-export function computePHash256(artImageData) {
+/**
+ * Shared preprocessing: GaussianBlur + INTER_LANCZOS4 resize to 32×32.
+ * Returns the raw RGBA byte array (Uint8ClampedArray, length 4096).
+ * Called once per art crop; all four hash variants reuse the result,
+ * eliminating duplicate expensive OpenCV operations per fallback.
+ */
+function resizeArtTo32(artImageData) {
   if (!isOpenCVReady()) throw new Error('OpenCV not ready')
   const cv = window.cv
   const src = cv.matFromImageData(artImageData)
   if (!src || src.empty()) throw new Error('matFromImageData failed')
   const blurred = new cv.Mat()
   const resized = new cv.Mat()
-
   try {
     cv.GaussianBlur(src, blurred, new cv.Size(5, 5), 1.0)
     cv.resize(blurred, resized, new cv.Size(32, 32), 0, 0, cv.INTER_LANCZOS4)
     if (resized.empty()) throw new Error('resize to 32x32 failed')
-
     const rgba = resized.data
     if (!rgba || rgba.length < 4096) throw new Error(`resized.data invalid (len=${rgba?.length})`)
-
-    return computeHashFromGray(rgbToGray32x32(rgba, 4))
+    return rgba.slice()  // copy out before Mat is deleted
   } finally {
     src.delete()
     blurred.delete()
     resized.delete()
   }
+}
+
+export function computePHash256(artImageData) {
+  const rgba = resizeArtTo32(artImageData)
+  return computeHashFromGray(rgbToGray32x32(rgba, 4))
 }
 
 /**
@@ -409,24 +424,8 @@ export function computePHash256(artImageData) {
  * typically caused by foil specular reflections. Does not affect stored DB hashes.
  */
 export function computePHash256Foil(artImageData) {
-  if (!isOpenCVReady()) throw new Error('OpenCV not ready')
-  const cv = window.cv
-  const src = cv.matFromImageData(artImageData)
-  if (!src || src.empty()) throw new Error('matFromImageData failed')
-  const blurred = new cv.Mat()
-  const resized = new cv.Mat()
-  try {
-    cv.GaussianBlur(src, blurred, new cv.Size(5, 5), 1.0)
-    cv.resize(blurred, resized, new cv.Size(32, 32), 0, 0, cv.INTER_LANCZOS4)
-    if (resized.empty()) throw new Error('resize to 32x32 failed')
-    const rgba = resized.data
-    if (!rgba || rgba.length < 4096) throw new Error(`resized.data invalid (len=${rgba?.length})`)
-    return computeHashFromGrayGlare(rgbToGray32x32(rgba, 4))
-  } finally {
-    src.delete()
-    blurred.delete()
-    resized.delete()
-  }
+  const rgba = resizeArtTo32(artImageData)
+  return computeHashFromGrayGlare(rgbToGray32x32(rgba, 4))
 }
 
 /**
@@ -435,27 +434,11 @@ export function computePHash256Foil(artImageData) {
  * Does not affect stored DB hashes — client-side fallback only.
  */
 export function computePHash256Dark(artImageData) {
-  if (!isOpenCVReady()) throw new Error('OpenCV not ready')
-  const cv = window.cv
-  const src = cv.matFromImageData(artImageData)
-  if (!src || src.empty()) throw new Error('matFromImageData failed')
-  const blurred = new cv.Mat()
-  const resized = new cv.Mat()
-  try {
-    cv.GaussianBlur(src, blurred, new cv.Size(5, 5), 1.0)
-    cv.resize(blurred, resized, new cv.Size(32, 32), 0, 0, cv.INTER_LANCZOS4)
-    if (resized.empty()) throw new Error('resize to 32x32 failed')
-    const rgba = resized.data
-    if (!rgba || rgba.length < 4096) throw new Error(`resized.data invalid (len=${rgba?.length})`)
-    const gray = rgbToGray32x32(rgba, 4)
-    const mean = gray.reduce((s, v) => s + v, 0) / gray.length
-    if (mean >= 80) return null  // not dark art — skip this fallback
-    return computeHashFromGrayDark(gray)
-  } finally {
-    src.delete()
-    blurred.delete()
-    resized.delete()
-  }
+  const rgba = resizeArtTo32(artImageData)
+  const gray = rgbToGray32x32(rgba, 4)
+  const mean = gray.reduce((s, v) => s + v, 0) / gray.length
+  if (mean >= 80) return null  // not dark art — skip this fallback
+  return computeHashFromGrayDark(gray)
 }
 
 /**
@@ -465,23 +448,24 @@ export function computePHash256Dark(artImageData) {
  * Stored as phash_hex2 in the DB; used client-side for combined-distance re-ranking.
  */
 export function computePHash256Color(artImageData) {
-  if (!isOpenCVReady()) throw new Error('OpenCV not ready')
-  const cv = window.cv
-  const src = cv.matFromImageData(artImageData)
-  if (!src || src.empty()) throw new Error('matFromImageData failed')
-  const blurred = new cv.Mat()
-  const resized = new cv.Mat()
-  try {
-    cv.GaussianBlur(src, blurred, new cv.Size(5, 5), 1.0)
-    cv.resize(blurred, resized, new cv.Size(32, 32), 0, 0, cv.INTER_LANCZOS4)
-    if (resized.empty()) throw new Error('resize to 32x32 failed')
-    const rgba = resized.data
-    if (!rgba || rgba.length < 4096) throw new Error(`resized.data invalid (len=${rgba?.length})`)
-    return computeHashFromGray(rgbToSaturation32x32(rgba, 4))
-  } finally {
-    src.delete()
-    blurred.delete()
-    resized.delete()
+  const rgba = resizeArtTo32(artImageData)
+  return computeHashFromGray(rgbToSaturation32x32(rgba, 4))
+}
+
+/**
+ * Compute all four hash variants from a single art crop in one OpenCV pass.
+ * Returns { hash, foilHash, darkHash, colorHash } — caller uses whichever are non-null.
+ * Saves 3× blur+resize vs calling each function individually.
+ */
+export function computeAllHashes(artImageData) {
+  const rgba = resizeArtTo32(artImageData)
+  const gray = rgbToGray32x32(rgba, 4)
+  const mean = gray.reduce((s, v) => s + v, 0) / gray.length
+  return {
+    hash:      computeHashFromGray(gray),
+    foilHash:  computeHashFromGrayGlare(gray),
+    darkHash:  mean < 80 ? computeHashFromGrayDark(gray) : null,
+    colorHash: computeHashFromGray(rgbToSaturation32x32(rgba, 4)),
   }
 }
 

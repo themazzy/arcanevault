@@ -185,7 +185,7 @@ function dct2d(matrix, N) {
  * Compute a 256-bit perceptual hash from 32×32 grayscale pixels.
  * Returns Uint32Array(8).
  *
- * Pipeline: percentileCap(0.98) → CLAHE(4×4, clip=40) → 2D-DCT →
+ * Pipeline: percentileCap(0.98) → CLAHE(2×2, clip=40) → 2D-DCT →
  *           top-left 16×16 coefficients → median threshold → 256 bits
  */
 export function computeHashFromGray(grayU8) {
