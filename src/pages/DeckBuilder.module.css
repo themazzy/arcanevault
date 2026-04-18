@@ -1887,6 +1887,7 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
+  align-items: flex-start;
 }
 
 .visualCardName {
@@ -1896,6 +1897,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  align-self: stretch;
 }
 
 .visualCardControls {
@@ -1903,6 +1905,7 @@
   align-items: center;
   justify-content: flex-end;
   gap: 2px;
+  align-self: stretch;
 }
 
 .visualCardBtn {
