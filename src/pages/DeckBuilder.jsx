@@ -612,6 +612,7 @@ function MakeDeckModal({ deckCards, userId, inOtherDeckSet, onConfirm, onClose }
   const [exactVersionOnly, setExactVersionOnly] = useState(true)
   const [pullFromOtherDecks, setPullFromOtherDecks] = useState(false)
   const [wishlists, setWishlists] = useState([])
+  const [missingAction, setMissingAction] = useState('skip') // 'skip' | 'add' | 'wishlist'
   const [selectedWishlistId, setSelectedWishlistId] = useState('')
   const [newWishlistName, setNewWishlistName] = useState('')
   const [chosenOtherCardIds, setChosenOtherCardIds] = useState({})
@@ -622,7 +623,7 @@ function MakeDeckModal({ deckCards, userId, inOtherDeckSet, onConfirm, onClose }
       // Use IDB (same source as the green bar) so counts are consistent
       const collCards = await getLocalCards(userId)
       const items = planDeckAllocations(
-        deckCards.filter(dc => !dc.is_commander),
+        deckCards,
         collCards || []
       )
       const { data: wls } = await sb.from('folders').select('id, name').eq('user_id', userId).eq('type', 'list').order('name')
@@ -648,7 +649,10 @@ function MakeDeckModal({ deckCards, userId, inOtherDeckSet, onConfirm, onClose }
   const exactCount    = filtered.filter(i => i.missingQty === 0 && i.addOther === 0 && i.totalAdd > 0).length
   const fallbackCount = filtered.filter(i => i.addOther > 0).length
   const missingCount  = missingItems.length
-  const wishlistReady = missingCount === 0 || !selectedWishlistId ? true : selectedWishlistId === 'new' ? !!newWishlistName.trim() : true
+  const wishlistReady = missingCount === 0
+    || missingAction === 'skip'
+    || missingAction === 'add'
+    || (selectedWishlistId ? (selectedWishlistId === 'new' ? !!newWishlistName.trim() : true) : true)
   const canConfirm    = addItems.length > 0 && wishlistReady
 
   return (
@@ -704,21 +708,40 @@ function MakeDeckModal({ deckCards, userId, inOtherDeckSet, onConfirm, onClose }
             </div>
             {missingCount > 0 && (
               <div style={{ padding:'12px 20px', borderTop:'1px solid var(--border)' }}>
-                <div style={{ fontSize:'0.82rem', color:'var(--text-dim)', marginBottom:8 }}>
-                  Add {missingItems.reduce((s, i) => s + i.missingQty, 0)} missing card{missingCount !== 1 ? 's' : ''} to wishlist:
+                <div style={{ fontSize:'0.82rem', color:'var(--text-dim)', marginBottom:10 }}>
+                  {missingItems.reduce((s, i) => s + i.missingQty, 0)} missing card{missingCount !== 1 ? 's' : ''}:
                 </div>
-                <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-                  <Select value={selectedWishlistId} onChange={e => setSelectedWishlistId(e.target.value)}
-                    menuDirection="up"
-                    style={{ background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:4, padding:'6px 10px', color:'var(--text)', fontSize:'0.84rem', flex:1, minWidth:0 }}
-                    title="Select wishlist">
-                    <option value="">— Skip missing —</option>
-                    {wishlists.map(wl => <option key={wl.id} value={wl.id}>{wl.name}</option>)}
-                    <option value="new">+ Create new wishlist…</option>
-                  </Select>
-                  {selectedWishlistId === 'new' && (
-                    <input autoFocus placeholder="Wishlist name…" value={newWishlistName} onChange={e => setNewWishlistName(e.target.value)}
-                      style={{ background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:4, padding:'6px 10px', color:'var(--text)', fontSize:'0.84rem', flex:1 }} />
+                <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                  {[
+                    ['skip', 'Skip missing cards',     'They will not be added to the deck'],
+                    ['add',  'Add to collection',      'Creates owned copies placed directly in this deck'],
+                    ['wishlist', 'Add to wishlist',    'Save to a wishlist for future tracking'],
+                  ].map(([value, label, sub]) => (
+                    <label key={value} style={{ display:'flex', alignItems:'flex-start', gap:8, cursor:'pointer' }}>
+                      <input type="radio" name="missingAction" value={value} checked={missingAction === value}
+                        onChange={() => setMissingAction(value)}
+                        style={{ accentColor:'var(--gold)', marginTop:2, flexShrink:0 }} />
+                      <span>
+                        <div style={{ fontSize:'0.84rem', color:'var(--text-dim)' }}>{label}</div>
+                        <div style={{ fontSize:'0.75rem', color:'var(--text-faint)' }}>{sub}</div>
+                      </span>
+                    </label>
+                  ))}
+                  {missingAction === 'wishlist' && (
+                    <div style={{ display:'flex', gap:8, alignItems:'center', paddingLeft:24 }}>
+                      <Select value={selectedWishlistId} onChange={e => setSelectedWishlistId(e.target.value)}
+                        menuDirection="up"
+                        style={{ background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:4, padding:'6px 10px', color:'var(--text)', fontSize:'0.84rem', flex:1, minWidth:0 }}
+                        title="Select wishlist">
+                        <option value="">— Choose wishlist —</option>
+                        {wishlists.map(wl => <option key={wl.id} value={wl.id}>{wl.name}</option>)}
+                        <option value="new">+ Create new wishlist…</option>
+                      </Select>
+                      {selectedWishlistId === 'new' && (
+                        <input autoFocus placeholder="Wishlist name…" value={newWishlistName} onChange={e => setNewWishlistName(e.target.value)}
+                          style={{ background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:4, padding:'6px 10px', color:'var(--text)', fontSize:'0.84rem', flex:1 }} />
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
@@ -730,8 +753,9 @@ function MakeDeckModal({ deckCards, userId, inOtherDeckSet, onConfirm, onClose }
                   addItems,
                   missingItems,
                   printingSelections: buildChosenPrintingSelections(filtered, chosenOtherCardIds),
-                  wishlistId: selectedWishlistId === 'new' ? null : (selectedWishlistId || null),
-                  wishlistName: selectedWishlistId === 'new' ? newWishlistName.trim() : null,
+                  addMissing: missingAction === 'add',
+                  wishlistId: missingAction === 'wishlist' && selectedWishlistId !== 'new' ? (selectedWishlistId || null) : null,
+                  wishlistName: missingAction === 'wishlist' && selectedWishlistId === 'new' ? newWishlistName.trim() : null,
                 })}
                 disabled={!canConfirm}
                 style={{ background:'rgba(74,154,90,0.15)', border:'1px solid rgba(74,154,90,0.4)', borderRadius:4, padding:'7px 16px', color:'var(--green, #4a9a5a)', fontSize:'0.83rem', cursor:'pointer', opacity:canConfirm ? 1 : 0.45 }}>
@@ -2772,7 +2796,7 @@ export default function DeckBuilderPage() {
     }
   }
 
-  async function handleMakeDeck({ addItems, missingItems, printingSelections, wishlistId, wishlistName }) {
+  async function handleMakeDeck({ addItems, missingItems, printingSelections, addMissing, wishlistId, wishlistName }) {
     if (makeDeckRunning) return
     setMakeDeckRunning(true)
     setShowMakeDeck(false)
@@ -2795,6 +2819,29 @@ export default function DeckBuilderPage() {
         await reassignPlacementsToDeck(deckId, allocationRows)
       }
 
+      if (addMissing && missingItems.length > 0) {
+        const cardInserts = missingItems.map(i => ({
+          id: crypto.randomUUID(),
+          user_id: user.id,
+          name: i.dc.name,
+          set_code: i.dc.set_code || null,
+          collector_number: i.dc.collector_number || null,
+          scryfall_id: i.dc.scryfall_id || null,
+          foil: i.dc.foil ?? false,
+          qty: i.missingQty,
+          language: 'en',
+          condition: 'NM',
+        }))
+        const { data: createdCards, error: cardErr } = await sb.from('cards').insert(cardInserts).select('id')
+        if (cardErr) throw cardErr
+        const newAllocRows = (createdCards || []).map((card, idx) => ({
+          id: crypto.randomUUID(),
+          card_id: card.id,
+          qty: missingItems[idx].missingQty,
+        }))
+        await upsertDeckAllocations(deckId, user.id, newAllocRows)
+      }
+
       let targetWishlistId = wishlistId
       if (!targetWishlistId && wishlistName) {
         const { data: wl, error: wlErr } = await sb.from('folders').insert({ user_id: user.id, type: 'list', name: wishlistName, description: '{}' }).select().single()
@@ -2812,7 +2859,8 @@ export default function DeckBuilderPage() {
       const addCount = addItems.reduce((s, i) => s + i.totalAdd, 0)
       const misCount = missingItems.reduce((s, i) => s + i.missingQty, 0)
       let msg = `${addCount} card${addCount !== 1 ? 's' : ''} added to collection deck`
-      if (targetWishlistId && misCount > 0) msg += `, ${misCount} added to wishlist`
+      if (addMissing && misCount > 0) msg += `, ${misCount} missing card${misCount !== 1 ? 's' : ''} added to collection`
+      else if (targetWishlistId && misCount > 0) msg += `, ${misCount} added to wishlist`
       setMakeDeckMsg(msg)
       setMakeDeckDone(true)
     } catch (err) {
