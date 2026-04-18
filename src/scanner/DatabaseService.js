@@ -103,6 +103,7 @@ class DatabaseService {
   _fullyLoaded = false
   _loadPromise = Promise.resolve()
   _initPromise = null
+  _onProgress  = null
   _status = {
     loadedCount: 0,
     totalCount: 0,
@@ -111,18 +112,19 @@ class DatabaseService {
     source: 'none',
   }
 
-  _emitProgress(onProgress, patch = {}) {
+  _emitProgress(patch = {}) {
     this._status = { ...this._status, ...patch }
     const total = this._status.totalCount || this._status.loadedCount || 0
     this._status.progress = total > 0
       ? Math.max(0, Math.min(100, Math.round((this._status.loadedCount / total) * 100)))
       : 0
-    onProgress?.({ ...this._status })
+    this._onProgress?.({ ...this._status })
   }
 
   async init(onProgress) {
+    this._onProgress = onProgress   // always wire latest caller into ongoing stream
     if (this._initialized) {
-      this._emitProgress(onProgress, {
+      this._emitProgress({
         loadedCount: this._hashes.length,
         totalCount: this._status.totalCount || this._hashes.length,
         phase: this._fullyLoaded ? 'ready' : this._status.phase,
@@ -131,7 +133,7 @@ class DatabaseService {
     }
     if (this._initPromise) {
       await this._initPromise
-      this._emitProgress(onProgress, {
+      this._emitProgress({
         loadedCount: this._hashes.length,
         totalCount: this._status.totalCount || this._hashes.length,
         phase: this._fullyLoaded ? 'ready' : this._status.phase,
@@ -142,7 +144,7 @@ class DatabaseService {
     this._initPromise = (async () => {
       this._isNative = Capacitor.isNativePlatform()
       if (this._isNative) await this._initSQLite()
-      await this._loadCache(onProgress)
+      await this._loadCache()
       this._initialized = true
       return this
     })()
@@ -186,6 +188,7 @@ class DatabaseService {
   async sync(onProgress) {
     if (this._syncing) return
     this._syncing = true
+    await this._loadPromise   // wait for any background streaming to finish before clearing
     try {
       let page  = 0
       let total = 0
@@ -245,20 +248,20 @@ class DatabaseService {
 
   // ── Load into memory ───────────────────────────────────────────────────────
 
-  async _loadCache(onProgress) {
+  async _loadCache() {
     this._hashes = []
     this._bandIndex = BAND_SPECS.map(() => new Map())
     this._fullyLoaded = false
     if (this._isNative && this._db) {
-      await this._loadNativeCache(onProgress)
+      await this._loadNativeCache()
     } else {
-      await this._loadWebCache(onProgress)
+      await this._loadWebCache()
     }
   }
 
   // ── Native path: IDB pre-parsed cache → chunked SQLite fallback ────────────
 
-  async _loadNativeCache(onProgress) {
+  async _loadNativeCache() {
     // Check IDB for pre-parsed cache (populated on previous runs)
     const cachedRows = await getAllScannerHashEntries().catch(() => [])
     const sqliteCount = Number(await getMeta('scanner_sqlite_count').catch(() => 0)) || 0
@@ -267,7 +270,7 @@ class DatabaseService {
       this._hashes = cachedRows.map(rowToHash).filter(Boolean)
       this._rebuildIndex()
       this._fullyLoaded = true
-      this._emitProgress(onProgress, {
+      this._emitProgress({
         loadedCount: this._hashes.length,
         totalCount: this._hashes.length,
         phase: 'ready',
@@ -283,7 +286,7 @@ class DatabaseService {
     ).catch(() => ({ values: [] }))
     const total = countRes.values?.[0]?.cnt ?? 0
 
-    this._emitProgress(onProgress, {
+    this._emitProgress({
       loadedCount: 0,
       totalCount: total,
       phase: 'loading hashes',
@@ -303,7 +306,7 @@ class DatabaseService {
     this._rebuildIndex()
     await putScannerHashEntries(augmented).catch(() => {})
 
-    this._emitProgress(onProgress, {
+    this._emitProgress({
       loadedCount: this._hashes.length,
       totalCount: total,
       phase: firstChunk.length === NATIVE_CHUNK ? 'loading hashes' : 'ready',
@@ -318,11 +321,11 @@ class DatabaseService {
     }
 
     // Stream remainder in background
-    this._loadPromise = this._continueNativeLoad(NATIVE_CHUNK, onProgress, total)
+    this._loadPromise = this._continueNativeLoad(NATIVE_CHUNK, total)
       .finally(async () => {
         this._fullyLoaded = true
         await setMeta('scanner_sqlite_count', total).catch(() => {})
-        this._emitProgress(onProgress, {
+        this._emitProgress({
           loadedCount: this._hashes.length,
           totalCount: total,
           phase: 'ready',
@@ -339,7 +342,7 @@ class DatabaseService {
     return res.values ?? []
   }
 
-  async _continueNativeLoad(startOffset, onProgress, total) {
+  async _continueNativeLoad(startOffset, total) {
     let offset = startOffset
     while (true) {
       const chunk = await this._fetchSQLiteChunk(offset)
@@ -351,7 +354,7 @@ class DatabaseService {
         this._addToIndex(this._hashes[i], i)
       }
       await putScannerHashEntries(augmented).catch(() => {})
-      this._emitProgress(onProgress, {
+      this._emitProgress({
         loadedCount: this._hashes.length,
         totalCount: total,
         phase: chunk.length < NATIVE_CHUNK ? 'finalizing' : 'loading hashes',
@@ -365,8 +368,8 @@ class DatabaseService {
 
   // ── Web path: IDB cache → Supabase network fallback ───────────────────────
 
-  async _loadWebCache(onProgress) {
-    this._emitProgress(onProgress, { phase: 'checking cache', source: 'idb', loadedCount: 0 })
+  async _loadWebCache() {
+    this._emitProgress({ phase: 'connecting', source: 'idb', loadedCount: 0 })
 
     // Invalidate IDB cache when the stored hash schema changes (CACHE_VERSION bump).
     const storedVersion = Number(await getMeta('scanner_cache_version').catch(() => 0)) || 0
@@ -385,7 +388,7 @@ class DatabaseService {
       getMeta('scanner_hash_total_count').then(v => Number(v) || 0).catch(() => 0),
       this._fetchTotalCount()
         .then(count => {
-          if (count > 0) this._emitProgress(onProgress, { totalCount: count })
+          if (count > 0) this._emitProgress({ totalCount: count })
           return count
         })
         .catch(() => 0),
@@ -399,7 +402,7 @@ class DatabaseService {
     if (hasCompleteCache) {
       // Yield to main thread so React can paint "building index" before the
       // synchronous map+rebuildIndex blocks the thread.
-      this._emitProgress(onProgress, {
+      this._emitProgress({
         loadedCount: cachedRows.length,
         totalCount: expectedTotal,
         phase: 'building index',
@@ -409,7 +412,7 @@ class DatabaseService {
       this._hashes = cachedRows.map(rowToHash).filter(Boolean)
       this._rebuildIndex()
       this._fullyLoaded = true
-      this._emitProgress(onProgress, {
+      this._emitProgress({
         loadedCount: this._hashes.length,
         totalCount: expectedTotal,
         phase: 'ready',
@@ -426,7 +429,7 @@ class DatabaseService {
 
     const totalCount = expectedTotal
     // Emit 0/N so the user sees the full count before page 0 arrives.
-    this._emitProgress(onProgress, {
+    this._emitProgress({
       loadedCount: 0,
       totalCount,
       phase: 'downloading hashes',
@@ -445,7 +448,7 @@ class DatabaseService {
       augmentedFirst.length ? putScannerHashEntries(augmentedFirst).catch(() => {}) : Promise.resolve(),
       totalCount ? setMeta('scanner_hash_total_count', totalCount).catch(() => {}) : Promise.resolve(),
     ])
-    this._emitProgress(onProgress, {
+    this._emitProgress({
       loadedCount: this._hashes.length,
       totalCount: totalCount || this._hashes.length,
       phase: firstNetworkPage.length === PAGE_SIZE ? 'downloading hashes' : 'ready',
@@ -453,10 +456,10 @@ class DatabaseService {
     })
 
     if (firstNetworkPage.length === PAGE_SIZE) {
-      this._loadPromise = this._continueWebLoad(1, onProgress, totalCount)
+      this._loadPromise = this._continueWebLoad(1, totalCount)
         .finally(() => {
           this._fullyLoaded = true
-          this._emitProgress(onProgress, {
+          this._emitProgress({
             loadedCount: this._hashes.length,
             totalCount: totalCount || this._hashes.length,
             phase: 'ready',
@@ -490,19 +493,23 @@ class DatabaseService {
     return count ?? 0
   }
 
-  async _continueWebLoad(startPage, onProgress, totalCount = 0) {
+  async _continueWebLoad(startPage, totalCount = 0) {
     const BATCH = 8   // fetch 8 pages in parallel
     let page = startPage
 
     while (true) {
       const results = await Promise.all(
         Array.from({ length: BATCH }, (_, i) =>
-          this._fetchWebPage(page + i).catch(() => [])
+          this._fetchWebPage(page + i).catch(err => {
+            console.warn('[DatabaseService] page fetch error, skipping:', err?.message ?? err)
+            return null   // null = transient error; [] = genuine end-of-data
+          })
         )
       )
 
       let reachedEnd = false
       for (const data of results) {
+        if (data === null) continue        // transient error — skip page, don't stop
         if (!data.length) { reachedEnd = true; break }
         const augmented = augmentWithParsed(data)
         const startIdx = this._hashes.length
@@ -512,7 +519,7 @@ class DatabaseService {
         }
         await putScannerHashEntries(augmented).catch(() => {})
         // Emit after every page so the progress bar advances smoothly
-        this._emitProgress(onProgress, {
+        this._emitProgress({
           loadedCount: this._hashes.length,
           totalCount: totalCount || this._hashes.length,
           phase: 'downloading hashes',

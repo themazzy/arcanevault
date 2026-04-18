@@ -493,14 +493,14 @@ export default function CardScanner({ onMatch, onClose }) {
   const [setPickerLoading, setSetPickerLoading] = useState(false)
   const [setPickerSearch, setSetPickerSearch] = useState('')
 
-  const isReady = cvReady && dbReady
+  const isReady = cvReady && dbReady && cameraStarted
   const anyOverlayOpen = basketExpanded || addFlowOpen || manualSearchOpen || settingsOpen || setPickerOpen || printingPickerFor !== null
   const availableFlashModes = flashModes.includes('torch')
     ? flashModes.filter(m => m === 'off' || m === 'torch')
     : flashModes
   const flashSupported = availableFlashModes.includes('torch') || availableFlashModes.includes('on')
   const flashEnabled = flashMode === 'torch' || flashMode === 'on'
-  const hashProgressVisible = !!hashLoadInfo && (!databaseService.isFullyLoaded || preparing)
+  const hashProgressVisible = !!hashLoadInfo && hashLoadInfo.phase !== 'idle' && hashLoadInfo.phase !== 'ready'
 
   // Persist basket to localStorage whenever it changes
   useEffect(() => { savePending(pendingCards) }, [pendingCards])
@@ -645,6 +645,7 @@ export default function CardScanner({ onMatch, onClose }) {
           setHashLoadInfo(status)
           setCardCount(status.loadedCount ?? 0)
         })
+        await databaseService.waitUntilFullyLoaded()
         if (!mountedRef.current) return
         setCardCount(databaseService.cardCount)
         setHashLoadInfo(databaseService.status)
@@ -1462,7 +1463,17 @@ export default function CardScanner({ onMatch, onClose }) {
             )}
             {!errorMsg && hashProgressVisible && (
               <div className={styles.loadingPill}>
-                <span>{hashLoadInfo?.phase ?? 'Loading'} {hashLoadInfo?.totalCount ? `${(hashLoadInfo.loadedCount ?? 0).toLocaleString()}/${hashLoadInfo.totalCount.toLocaleString()}` : ''}</span>
+                <span>
+                  {({
+                    'connecting':          'Connecting…',
+                    'checking cache':      'Connecting…',
+                    'downloading hashes':  'Loading database',
+                    'loading hashes':      'Loading database',
+                    'building index':      'Building index',
+                    'finalizing':          'Finalizing',
+                  }[hashLoadInfo?.phase] ?? 'Loading…')}
+                  {hashLoadInfo?.totalCount ? ` ${(hashLoadInfo.loadedCount ?? 0).toLocaleString()}/${hashLoadInfo.totalCount.toLocaleString()}` : ''}
+                </span>
                 <div className={styles.loadingPillBar}>
                   <div className={styles.loadingPillFill} style={{ width: `${hashLoadInfo?.progress ?? 0}%` }} />
                 </div>
@@ -1560,9 +1571,8 @@ export default function CardScanner({ onMatch, onClose }) {
 
         {/* Status elements fixed at frame center — spinner, scan line, set lock badge */}
         <div className={styles.frameCenterContent}>
-          {preparing && !errorMsg && <div className={styles.preparingSpinner}>+</div>}
+          {preparing && !errorMsg && !hashProgressVisible && <div className={styles.preparingSpinner}>+</div>}
           {scanning && <div className={styles.pausedLabel}>Scanning...</div>}
-          {isReady && !scanning && !preparing && <div className={styles.scanLine} />}
           {lockSet && lockedSets.size > 0 && (
             <div className={styles.lockedSetBadge}>
               <span className={styles.lockedSetIcon}>⬡</span>

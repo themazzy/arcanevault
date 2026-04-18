@@ -234,21 +234,6 @@
   to   { transform: translate(-50%, -50%) rotate(360deg); }
 }
 
-/* Animated scan line */
-.scanLine {
-  position: absolute;
-  left: 8px; right: 8px;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, rgba(201,168,76,0.9), transparent);
-  border-radius: 1px;
-  animation: scanSwipe 1.8s ease-in-out infinite;
-}
-@keyframes scanSwipe {
-  0%   { top: 10%;   opacity: 0; }
-  10%  { opacity: 1; }
-  90%  { opacity: 1; }
-  100% { top: 90%;  opacity: 0; }
-}
 
 @keyframes toastIn {
   from { transform: translateY(12px); opacity: 0; }
