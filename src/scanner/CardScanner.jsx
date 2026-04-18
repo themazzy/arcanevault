@@ -584,6 +584,8 @@ export default function CardScanner({ onMatch, onClose }) {
     let frameCount = 0
     let animHandle = null
     let stopped = false
+    let missCount = 0
+    const MISS_THRESHOLD = 5 // ~330ms at 15fps before frame disappears
 
     const loop = () => {
       if (stopped) return
@@ -609,6 +611,7 @@ export default function CardScanner({ onMatch, onClose }) {
       const corners = detectCardCorners(smallImageData, sw, sh)
 
       if (corners?.length === 4) {
+        missCount = 0
         // Map corners: small-frame → full video → screen (object-fit: cover).
         const videoW = vid.videoWidth, videoH = vid.videoHeight
         const screenW = window.innerWidth, screenH = window.innerHeight
@@ -622,7 +625,10 @@ export default function CardScanner({ onMatch, onClose }) {
           y: p.y * smallScaleY * coverScale + offsetY,
         })))
       } else {
-        setDetectedCorners(null)
+        // Only clear after several consecutive misses — prevents flicker from
+        // momentary detection dropouts while a card is held in frame.
+        missCount++
+        if (missCount >= MISS_THRESHOLD) setDetectedCorners(null)
       }
     }
 
