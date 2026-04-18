@@ -20,6 +20,8 @@ import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { fetchDeckAllocations, upsertDeckAllocations } from '../lib/deckData'
 import { getDeckAllocations, getCardsByIds, replaceDeckAllocations } from '../lib/db'
 
+const CAN_HOVER = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover) and (pointer: fine)').matches
+
 // ── Constants (kept for grouping/categorization used in views below) ──────────
 
 const TYPE_ORDER = ['Commander', 'Creatures', 'Planeswalkers', 'Battles', 'Instants',
@@ -339,8 +341,8 @@ function StackCard({ card, sf, idx, priceSource, selectMode, isSelected, totalQt
         if (!selectMode) return onSelect(card)
         onToggleSelect(card.id, totalQty)
       }}
-      onMouseEnter={() => !selectMode && img && onHover?.(img)}
-      onMouseLeave={e => { if (!selectMode) onHoverEnd?.(); lpLeave?.(e) }}
+      onMouseEnter={CAN_HOVER && !selectMode && img ? () => onHover?.(img) : undefined}
+      onMouseLeave={e => { if (CAN_HOVER && !selectMode) onHoverEnd?.(); lpLeave?.(e) }}
       title={card.name}
       {...lpRest}>
       {selectMode && (
@@ -438,8 +440,8 @@ function DeckListRow({ card, sfCard, priceSource, onClick, onHover, onHoverEnd, 
   return (
     <div className={`${styles.deckRow} ${isSelected ? styles.deckRowSelected : ''} ${selectMode ? styles.deckRowSelectMode : ''}`}
       onClick={onClick}
-      onMouseEnter={() => !selectMode && img && onHover?.(img)}
-      onMouseLeave={e => { if (!selectMode) onHoverEnd?.(); lpLeave?.(e) }}
+      onMouseEnter={CAN_HOVER && !selectMode && img ? () => onHover?.(img) : undefined}
+      onMouseLeave={e => { if (CAN_HOVER && !selectMode) onHoverEnd?.(); lpLeave?.(e) }}
       {...lpRest}>
       {/* First column: checkbox or inline qty adjuster */}
       {selectMode && isSelected && totalQty > 1
@@ -528,8 +530,8 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, totalQty, onS
         if (!selectMode) return onSelect(card)
         onToggleSelect(card.id, totalQty)
       }}
-      onMouseEnter={() => !selectMode && img && onHover?.(img)}
-      onMouseLeave={e => { if (!selectMode) onHoverEnd?.(); lpLeave?.(e) }}
+      onMouseEnter={CAN_HOVER && !selectMode && img ? () => onHover?.(img) : undefined}
+      onMouseLeave={e => { if (CAN_HOVER && !selectMode) onHoverEnd?.(); lpLeave?.(e) }}
       {...lpRest}>
       {selectMode && (
         <div className={`${styles.rowCheckbox} ${isSelected ? styles.rowCheckboxChecked : ''}`}
