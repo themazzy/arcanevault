@@ -1419,7 +1419,7 @@ export default function DeckBuilderPage() {
   const [deckGameResults,        setDeckGameResults]        = useState([])
   const [deckGameResultsLoading, setDeckGameResultsLoading] = useState(false)
   const [deckGameResultsLoaded,  setDeckGameResultsLoaded]  = useState(false)
-  const [deckView,    setDeckView]    = useState('list')   // 'list' | 'compact' | 'visual'
+  const [deckView,    setDeckView]    = useState('list')   // 'list' | 'compact' | 'grid'
   const [showRight, setShowRight] = useState(false)
   const [deckSort,    setDeckSort]    = useState('type')   // 'name' | 'cmc' | 'color' | 'type'
   const [groupByType, setGroupByType] = useState(default_grouping !== 'none')
@@ -3342,7 +3342,7 @@ export default function DeckBuilderPage() {
                   {[
                     ['list',    ListViewIcon],
                     ['compact', StacksViewIcon],
-                    ['visual',  GridViewIcon],
+                    ['grid',  GridViewIcon],
                   ].map(([v, ViewIcon]) => (
                     <button key={v} className={`${styles.viewBtn}${deckView === v ? ' '+styles.viewBtnActive : ''}`}
                       onClick={() => setDeckView(v)} title={v}>
@@ -3445,12 +3445,9 @@ export default function DeckBuilderPage() {
               }
 
               const renderCard = (dc) => {
-                if (deckView === 'visual') return (
+                if (deckView === 'grid') return (
                   <div key={dc.id} className={`${styles.visualCard}${dc.is_commander ? ' '+styles.isCommander : ''}`}
-                    onClick={() => openDeckCardDetail(dc)}
-                    onMouseEnter={CAN_HOVER ? e => showHoverPreviewForDeckCard(dc, e) : undefined}
-                    onMouseLeave={CAN_HOVER ? () => clearHoverPreview() : undefined}
-                    onMouseMove={CAN_HOVER ? e => setHoverPos({ x: e.clientX, y: e.clientY }) : undefined}>
+                    onClick={() => openDeckCardDetail(dc)}>
                     <div className={styles.visualImgWrap}>
                       {dc.image_uri
                         ? <img src={dc.image_uri} alt={dc.name} className={styles.visualCardImg} loading="lazy" />
@@ -3547,7 +3544,7 @@ export default function DeckBuilderPage() {
                         <span className={styles.groupName}>{group}</span>
                         <span className={styles.groupCount}>{groupQty}</span>
                       </div>
-                      {!collapsed && (deckView === 'visual'
+                      {!collapsed && (deckView === 'grid'
                         ? <div className={styles.visualGrid} style={{ '--deckbuilder-grid-min': `${visualCardMinWidth}px` }}>{cards.map(dc => renderCard(dc))}</div>
                         : (
                           <>
@@ -3574,7 +3571,7 @@ export default function DeckBuilderPage() {
               }
 
               // Flat (no grouping)
-              if (deckView === 'visual') {
+              if (deckView === 'grid') {
                 return <div className={styles.visualGrid} style={{ '--deckbuilder-grid-min': `${visualCardMinWidth}px` }}>{sortedDeckCards.map(dc => renderCard(dc))}</div>
               }
               return (
