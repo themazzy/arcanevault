@@ -16,6 +16,7 @@ import uiStyles from '../components/UI.module.css'
 import { ChevronDownIcon, ChevronUpIcon, GridViewIcon, ListViewIcon, StacksViewIcon, TableViewIcon, TextViewIcon } from '../icons'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
 import { useLongPress } from '../hooks/useLongPress'
+import { lastInputWasTouch } from '../lib/inputType'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { fetchDeckAllocations, upsertDeckAllocations } from '../lib/deckData'
 import { getDeckAllocations, getCardsByIds, replaceDeckAllocations } from '../lib/db'
@@ -341,7 +342,7 @@ function StackCard({ card, sf, idx, priceSource, selectMode, isSelected, totalQt
         if (!selectMode) return onSelect(card)
         onToggleSelect(card.id, totalQty)
       }}
-      onMouseEnter={CAN_HOVER && !selectMode && img ? () => onHover?.(img) : undefined}
+      onMouseEnter={CAN_HOVER && !lastInputWasTouch && !selectMode && img ? () => onHover?.(img) : undefined}
       onMouseLeave={e => { if (CAN_HOVER && !selectMode) onHoverEnd?.(); lpLeave?.(e) }}
       title={card.name}
       {...lpRest}>
@@ -440,7 +441,7 @@ function DeckListRow({ card, sfCard, priceSource, onClick, onHover, onHoverEnd, 
   return (
     <div className={`${styles.deckRow} ${isSelected ? styles.deckRowSelected : ''} ${selectMode ? styles.deckRowSelectMode : ''}`}
       onClick={onClick}
-      onMouseEnter={CAN_HOVER && !selectMode && img ? () => onHover?.(img) : undefined}
+      onMouseEnter={CAN_HOVER && !lastInputWasTouch && !selectMode && img ? () => onHover?.(img) : undefined}
       onMouseLeave={e => { if (CAN_HOVER && !selectMode) onHoverEnd?.(); lpLeave?.(e) }}
       {...lpRest}>
       {/* First column: checkbox or inline qty adjuster */}
@@ -530,7 +531,7 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, totalQty, onS
         if (!selectMode) return onSelect(card)
         onToggleSelect(card.id, totalQty)
       }}
-      onMouseEnter={CAN_HOVER && !selectMode && img ? () => onHover?.(img) : undefined}
+      onMouseEnter={CAN_HOVER && !lastInputWasTouch && !selectMode && img ? () => onHover?.(img) : undefined}
       onMouseLeave={e => { if (CAN_HOVER && !selectMode) onHoverEnd?.(); lpLeave?.(e) }}
       {...lpRest}>
       {selectMode && (

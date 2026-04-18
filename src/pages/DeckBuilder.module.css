@@ -1816,32 +1816,25 @@
 }
 
 .visualCard {
-  position: relative;
-  border-radius: 5px;
-  overflow: hidden;
-  aspect-ratio: 5/7;
   cursor: pointer;
-  background: var(--s2);
-  border: 1px solid var(--border);
-  transition: transform 0.15s, border-color 0.15s;
 }
 
-.visualCard:hover {
-  transform: scale(1.04);
-  border-color: rgba(201,168,76,0.5);
-  z-index: 2;
+.visualImgWrap {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  aspect-ratio: 63/88;
+  background: var(--s-subtle);
+  border: 1px solid rgba(180,140,60,0.1);
+  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
 }
 
-.visualCardTop {
-  position: absolute;
-  top: 4px;
-  left: 4px;
-  right: 4px;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 4px;
-  z-index: 2;
+@media (hover: hover) and (pointer: fine) {
+  .visualCard:hover .visualImgWrap {
+    transform: translateY(-5px) scale(1.025);
+    box-shadow: 0 16px 40px rgba(0,0,0,0.65), 0 0 22px rgba(201,168,76,0.14);
+    border-color: rgba(201,168,76,0.22);
+  }
 }
 
 .visualCardImg {
@@ -1866,63 +1859,64 @@
 
 .visualCardQty {
   position: absolute;
-  bottom: 3px;
-  right: 4px;
-  font-size: 0.68rem;
-  background: rgba(0,0,0,0.75);
+  top: 5px;
+  right: 5px;
+  background: var(--glass-medium, rgba(0,0,0,0.65));
+  border: 1px solid rgba(201,168,76,0.4);
   color: var(--gold);
-  padding: 1px 4px;
-  border-radius: 3px;
+  font-family: var(--font-display);
+  font-size: 0.66rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 10px;
+  z-index: 2;
 }
 
 .visualCardFoil {
   position: absolute;
-  top: 3px;
-  left: 4px;
+  top: 5px;
+  left: 5px;
   font-size: 0.65rem;
   color: rgba(201,168,76,0.9);
   text-shadow: 0 0 6px rgba(201,168,76,0.6);
+  z-index: 2;
 }
 
 .visualCardBottom {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 18px 5px 5px;
-  background: linear-gradient(to top, rgba(7,8,11,0.96), rgba(7,8,11,0.74), transparent);
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  padding: 6px 3px 3px;
 }
 
 .visualCardName {
-  color: #fff;
-  font-size: 0.62rem;
-  font-weight: 600;
-  line-height: 1.2;
-  text-shadow: 0 2px 10px rgba(0,0,0,0.6);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  font-size: var(--card-name-size, 0.67rem);
+  color: var(--gold);
+  font-family: var(--font-display);
+  white-space: nowrap;
   overflow: hidden;
-  min-height: 2.35em;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.visualCardMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  min-width: 0;
 }
 
 .visualCardControls {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 4px;
+  gap: 2px;
+  flex-shrink: 0;
 }
 
 .visualCardBtn {
   width: 22px;
   height: 22px;
   border-radius: 5px;
-  border: 1px solid rgba(255,255,255,0.16);
-  background: rgba(8,10,15,0.72);
+  border: 1px solid var(--s-border2);
+  background: var(--s3);
   color: var(--text);
   font-size: 0.8rem;
   cursor: pointer;
@@ -1933,7 +1927,7 @@
 }
 
 .visualCardBtn:hover {
-  background: rgba(18,22,30,0.9);
+  background: var(--s4);
   border-color: rgba(201,168,76,0.36);
   color: var(--gold);
 }
@@ -2263,4 +2257,14 @@
 .isCommander {
   background: rgba(201,168,76,0.06) !important;
   border-left: 2px solid rgba(201,168,76,0.5);
+}
+
+.visualCard.isCommander {
+  background: none !important;
+  border-left: none;
+}
+
+.isCommander .visualImgWrap {
+  border-color: rgba(201,168,76,0.55);
+  box-shadow: 0 0 14px rgba(201,168,76,0.2);
 }
