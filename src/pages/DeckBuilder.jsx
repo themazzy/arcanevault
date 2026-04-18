@@ -26,6 +26,8 @@ import { formatPrice, getPrice } from '../lib/scryfall'
 import { getPublicAppUrl } from '../lib/publicUrl'
 import { ListViewIcon, StacksViewIcon, GridViewIcon, SettingsIcon } from '../icons'
 
+const CAN_HOVER = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover) and (pointer: fine)').matches
+
 // Upgrade a Scryfall CDN image to large quality regardless of stored size variant
 function toLargeImg(uri) {
   if (!uri) return uri
@@ -163,9 +165,9 @@ function RecRow({ rec, imageUri, ownedQty, onAdd, onHoverEnter, onHoverLeave, on
       className={styles.recRow}
       style={{ cursor: 'pointer' }}
       onClick={() => onOpenDetail?.(rec.name)}
-      onMouseEnter={e => largeUri && onHoverEnter?.(largeUri, e)}
-      onMouseMove={e => onHoverMove?.(e)}
-      onMouseLeave={() => onHoverLeave?.()}
+      onMouseEnter={CAN_HOVER && largeUri ? e => onHoverEnter?.(largeUri, e) : undefined}
+      onMouseMove={CAN_HOVER ? e => onHoverMove?.(e) : undefined}
+      onMouseLeave={CAN_HOVER ? () => onHoverLeave?.() : undefined}
     >
       {imageUri
         ? <img className={styles.recThumb} src={imageUri} alt="" loading="lazy" />
@@ -2415,6 +2417,7 @@ export default function DeckBuilderPage() {
   }
 
   async function showHoverPreviewForDeckCard(dc, e) {
+    if (!CAN_HOVER) return
     const fallback = dc.image_uri ? [toLargeImg(dc.image_uri)] : []
     const hoverKey = dc.id || dc.scryfall_id || dc.name
     hoverPreviewKey.current = hoverKey
@@ -3214,9 +3217,9 @@ export default function DeckBuilderPage() {
                               imageUri={recImages[rec.name] || null}
                               ownedQty={ownedMap.get(rec.slug) ?? 0}
                               onAdd={addCardToDeck}
-                              onHoverEnter={(uri, e) => { setHoverImages(uri ? [uri] : []); setHoverPos({ x: e.clientX, y: e.clientY }) }}
-                              onHoverMove={e => setHoverPos({ x: e.clientX, y: e.clientY })}
-                              onHoverLeave={() => clearHoverPreview()}
+                              onHoverEnter={CAN_HOVER ? (uri, e) => { setHoverImages(uri ? [uri] : []); setHoverPos({ x: e.clientX, y: e.clientY }) } : undefined}
+                              onHoverMove={CAN_HOVER ? e => setHoverPos({ x: e.clientX, y: e.clientY }) : undefined}
+                              onHoverLeave={CAN_HOVER ? () => clearHoverPreview() : undefined}
                               onOpenDetail={openCardDetailByName}
                             />
                           ))}
@@ -3426,9 +3429,9 @@ export default function DeckBuilderPage() {
                 inCollDeck:  allocationSetHas(collDeckSfSet, dc),
                 onChangeQty: changeQty,
                 onRemove:    removeCardFromDeck,
-                onMouseEnter: e => showHoverPreviewForDeckCard(dc, e),
-                onMouseLeave: () => clearHoverPreview(),
-                onMouseMove:  e => setHoverPos({ x: e.clientX, y: e.clientY }),
+                onMouseEnter: CAN_HOVER ? e => showHoverPreviewForDeckCard(dc, e) : undefined,
+                onMouseLeave: CAN_HOVER ? () => clearHoverPreview() : undefined,
+                onMouseMove:  CAN_HOVER ? e => setHoverPos({ x: e.clientX, y: e.clientY }) : undefined,
                 onPickVersion: (dc, options = {}) => setVersionPickCard({ ...dc, ...options }),
                 onToggleFoil:  toggleFoil,
                 onSetCommander: setCardAsCommander,
@@ -3444,9 +3447,9 @@ export default function DeckBuilderPage() {
                 if (deckView === 'visual') return (
                   <div key={dc.id} className={`${styles.visualCard}${dc.is_commander ? ' '+styles.isCommander : ''}`}
                     onClick={() => openDeckCardDetail(dc)}
-                    onMouseEnter={e => showHoverPreviewForDeckCard(dc, e)}
-                    onMouseLeave={() => clearHoverPreview()}
-                    onMouseMove={e => setHoverPos({ x: e.clientX, y: e.clientY })}>
+                    onMouseEnter={CAN_HOVER ? e => showHoverPreviewForDeckCard(dc, e) : undefined}
+                    onMouseLeave={CAN_HOVER ? () => clearHoverPreview() : undefined}
+                    onMouseMove={CAN_HOVER ? e => setHoverPos({ x: e.clientX, y: e.clientY }) : undefined}>
                     {dc.image_uri
                       ? <img src={dc.image_uri} alt={dc.name} className={styles.visualCardImg} loading="lazy" />
                       : <div className={styles.visualCardPlaceholder}>{dc.name}</div>}
@@ -3479,9 +3482,9 @@ export default function DeckBuilderPage() {
                     <span className={styles.compactName}
                       style={{ cursor: 'pointer' }}
                       onClick={() => openDeckCardDetail(dc)}
-                      onMouseEnter={e => showHoverPreviewForDeckCard(dc, e)}
-                      onMouseLeave={() => clearHoverPreview()}
-                      onMouseMove={e => setHoverPos({ x: e.clientX, y: e.clientY })}>
+                      onMouseEnter={CAN_HOVER ? e => showHoverPreviewForDeckCard(dc, e) : undefined}
+                      onMouseLeave={CAN_HOVER ? () => clearHoverPreview() : undefined}
+                      onMouseMove={CAN_HOVER ? e => setHoverPos({ x: e.clientX, y: e.clientY }) : undefined}>
                       {dc.name}
                     </span>
                     {dc.foil && <span className={styles.foilBadge} title="Foil">✦</span>}
