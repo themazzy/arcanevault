@@ -1428,20 +1428,7 @@ export default function CardScanner({ onMatch, onClose }) {
     }, 220)
   }, [closing, onClose])
 
-  // Tracking frame — compute display corners for SVG overlay.
-  // Uses detected corners when available, falls back to static center position.
   const CORNER_ROTATIONS = [0, 90, 180, 270]
-  const trackingCorners = detectedCorners ?? (() => {
-    const cx = window.innerWidth / 2
-    const cy = window.innerHeight / 2 - 8
-    const w = 280, h = 392
-    return [
-      { x: cx - w / 2, y: cy - h / 2 },
-      { x: cx + w / 2, y: cy - h / 2 },
-      { x: cx + w / 2, y: cy + h / 2 },
-      { x: cx - w / 2, y: cy + h / 2 },
-    ]
-  })()
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -1553,15 +1540,22 @@ export default function CardScanner({ onMatch, onClose }) {
           </div>
         )}
 
+        {/* Idle ring — visible while scanning with no card detected */}
+        {!detectedCorners && !preparing && (
+          <div className={styles.scanIdleRing} aria-hidden="true" />
+        )}
+
         {/* Tracking frame SVG — corners snap to detected card at ~15fps */}
         <svg className={styles.trackingOverlay} aria-hidden="true">
-          <polygon
-            className={`${styles.trackingPoly} ${scanResult === 'found' ? styles.trackingPolyMatch : ''} ${!detectedCorners ? styles.trackingPolyFaint : ''}`}
-            points={detectedCorners ? detectedCorners.map(p => `${p.x},${p.y}`).join(' ') : ''}
-          />
-          {trackingCorners.map((pt, i) => (
+          {detectedCorners && (
+            <polygon
+              className={`${styles.trackingPoly} ${scanResult === 'found' ? styles.trackingPolyMatch : ''}`}
+              points={detectedCorners.map(p => `${p.x},${p.y}`).join(' ')}
+            />
+          )}
+          {detectedCorners && detectedCorners.map((pt, i) => (
             <g key={i}
-              className={`${styles.trackingCornerGroup} ${scanResult === 'found' ? styles.trackingCornerMatch : ''} ${!detectedCorners ? styles.trackingCornerFaint : ''} ${scanning ? styles.trackingCornerScanning : ''}`}
+              className={`${styles.trackingCornerGroup} ${scanResult === 'found' ? styles.trackingCornerMatch : ''} ${scanning ? styles.trackingCornerScanning : ''}`}
               style={{ transform: `translate(${pt.x}px, ${pt.y}px) rotate(${CORNER_ROTATIONS[i]}deg)` }}
             >
               <path d="M0,0 L16,0 M0,0 L0,16" className={styles.trackingCorner} />
