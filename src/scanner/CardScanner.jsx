@@ -19,7 +19,7 @@
  *
  * ── Auto-scan ─────────────────────────────────────────────────────────────
  * Toggle in gear menu; persisted to localStorage 'arcanevault_scanner_autoscan'.
- * Cooldowns: 1800 ms after match, 600 ms after miss.
+ * Cooldowns: 1000 ms after match, 350 ms after miss.
  * Pauses automatically when any overlay is open (basket, add-flow, settings).
  */
 
@@ -31,7 +31,7 @@ import { databaseService } from './DatabaseService'
 import {
   waitForOpenCV,
   detectCardCorners, warpCard, cropArtRegion, cropCardFromReticle,
-  computePHash256, computePHash256Foil, computePHash256Dark, computePHash256Color, rotateCard180,
+  computeAllHashes, rotateCard180,
 } from './ScannerEngine'
 import { useAuth } from '../components/Auth'
 import { formatPriceMeta, getPriceWithMeta, sfGet } from '../lib/scryfall'
@@ -44,6 +44,8 @@ const MATCH_THRESHOLD        = 122
 const MATCH_MIN_GAP          = 8
 const MATCH_STRONG_THRESHOLD = 134
 const MATCH_STRONG_SINGLE    = 108
+const AUTOSCAN_COOLDOWN_MATCH_MS = 1000
+const AUTOSCAN_COOLDOWN_MISS_MS  = 350
 const PRIMARY_CROP_VARIANTS = [
   { xOffset: 0, yOffset: 0 },
   { xOffset: 0, yOffset: -10 },
@@ -259,21 +261,17 @@ async function batchSaveCards({ userId, cards, folderId, folderType }) {
     if (updateErr) throw new Error(updateErr.message)
   }
 
+  const savedRows = [...updateRows]
+
   if (insertRows.length) {
-    const { error: insertErr } = await sb.from('cards')
+    const { data: inserted, error: insertErr } = await sb.from('cards')
       .insert(insertRows)
+      .select('id,set_code,collector_number,foil,language,condition,card_print_id')
     if (insertErr) throw new Error(insertErr.message)
+    savedRows.push(...(inserted || []))
   }
 
-  // Re-query to get IDs
-  let savedQuery = sb.from('cards')
-    .select('id,set_code,collector_number,foil,language,condition,card_print_id')
-    .eq('user_id', userId)
-  if (existingFilter) savedQuery = savedQuery.or(existingFilter)
-  const { data: saved, error: savedErr } = await savedQuery
-  if (savedErr) throw new Error(savedErr.message)
-
-  const savedByKey = new Map((saved || []).map(c => [getOwnedCardKey(c), c]))
+  const savedByKey = new Map(savedRows.map(c => [getOwnedCardKey(c), c]))
   const table = folderType === 'deck' ? 'deck_allocations' : 'folder_cards'
   const fk    = folderType === 'deck' ? 'deck_id' : 'folder_id'
 
@@ -1009,7 +1007,7 @@ export default function CardScanner({ onMatch, onClose }) {
       collNum:  sf.collector_number,
       imageUri: getCardImg(sf),
     })
-    closePrintingPicker()
+    if (printingPickerFor) closePrintingPicker()
     addFlowTgl.hide()
     manualTgl.hide()
     manualSearchRequestRef.current += 1
@@ -1017,7 +1015,7 @@ export default function CardScanner({ onMatch, onClose }) {
     setManualSearchResults([])
     setManualSearchLoading(false)
     basketTgl.hide()
-  }, [addToPending, closePrintingPicker, addFlowTgl.hide, manualTgl.hide, basketTgl.hide])
+  }, [addToPending, printingPickerFor, closePrintingPicker, addFlowTgl.hide, manualTgl.hide, basketTgl.hide])
 
   // ── Add flow ───────────────────────────────────────────────────────────────
 
@@ -1171,39 +1169,27 @@ export default function CardScanner({ onMatch, onClose }) {
     const shouldExpand = () => !best || best.distance > MATCH_THRESHOLD || bestGap < MATCH_MIN_GAP
 
     const tryMatch = (cardImg, sourceLabel, variants) => {
-      // Color hash computed once per image (robust to small crop shifts).
-      // Null if OpenCV isn't ready or art crop fails — matching gracefully degrades.
-      let colorHash = null
-      try {
-        const defaultCrop = cropArtRegion(cardImg)
-        if (defaultCrop) colorHash = computePHash256Color(defaultCrop)
-      } catch { /* non-critical */ }
-
       for (const variant of variants) {
         const artCrop = cropArtRegion(cardImg, variant)
         if (!artCrop) continue
-        const hash = computePHash256(artCrop)
+        // Single blur+resize pass produces all four hash variants including colorHash.
+        let hashes
+        try { hashes = computeAllHashes(artCrop) } catch { continue }
+        const { hash, foilHash, darkHash, colorHash } = hashes
         if (!hash) continue
-        const { best: c, second: r, candidateCount, totalCount } = databaseService.findBestTwoWithStats(hash, colorHash)
+        const { best: c, second: r, candidateCount, totalCount } = databaseService.findBestTwoWithStats(hash, colorHash ?? null)
         if (updateBest(c, r, candidateCount, totalCount, variant, sourceLabel)) return
         if (c && c.distance > MATCH_THRESHOLD) {
           // Foil fallback: aggressive glare suppression for blown highlights.
-          try {
-            const foilHash = computePHash256Foil(artCrop)
-            if (foilHash) {
-              const foilStats = databaseService.findBestTwoWithStats(foilHash, colorHash)
-              if (updateBest(foilStats.best, foilStats.second, foilStats.candidateCount, foilStats.totalCount, variant, `${sourceLabel}+foil`)) return
-            }
-          } catch { /* non-critical */ }
-          // Dark art fallback: stretch low dynamic range for dark-art cards (Swamp, etc).
-          // computePHash256Dark returns null when mean brightness ≥ 80 (not dark art).
-          try {
-            const darkHash = computePHash256Dark(artCrop)
-            if (darkHash) {
-              const darkStats = databaseService.findBestTwoWithStats(darkHash, colorHash)
-              if (updateBest(darkStats.best, darkStats.second, darkStats.candidateCount, darkStats.totalCount, variant, `${sourceLabel}+dark`)) return
-            }
-          } catch { /* non-critical */ }
+          if (foilHash) {
+            const foilStats = databaseService.findBestTwoWithStats(foilHash, colorHash)
+            if (updateBest(foilStats.best, foilStats.second, foilStats.candidateCount, foilStats.totalCount, variant, `${sourceLabel}+foil`)) return
+          }
+          // Dark art fallback: null when mean brightness ≥ 80 (not dark art — skipped).
+          if (darkHash) {
+            const darkStats = databaseService.findBestTwoWithStats(darkHash, colorHash)
+            if (updateBest(darkStats.best, darkStats.second, darkStats.candidateCount, darkStats.totalCount, variant, `${sourceLabel}+dark`)) return
+          }
         }
       }
     }
@@ -1253,6 +1239,7 @@ export default function CardScanner({ onMatch, onClose }) {
 
   const handleScan = useCallback(async () => {
     if (!isReady || scanning || !mountedRef.current) return
+    scanningRef.current = true  // block detection loop before any async OpenCV work
     setScanning(true)
     setScanResult(null)
     const scanStart = Date.now()
@@ -1340,13 +1327,14 @@ export default function CardScanner({ onMatch, onClose }) {
         addToPending(match, { foil: preferFoil })
       }
       // In manual mode, close any open overlay — result shows in the bottom bar only
-      if (!isAutoScan) basketTgl.hide()
+      if (!isAutoScan && basketTgl.on) basketTgl.hide()
       try { await Haptics.impact({ style: ImpactStyle.Medium }) } catch {}
       onMatch?.(match)
     } catch (e) {
       if (DEBUG && mountedRef.current) setDebugInfo(d => ({ ...(d||{}), decision: `error: ${e.message}` }))
       setScanResult('error')
     } finally {
+      scanningRef.current = false
       if (mountedRef.current) setScanning(false)
     }
   }, [isReady, scanning, scanSingleFrame, addToPending, onMatch, lockSet, lockedSets, preferFoil])
@@ -1359,7 +1347,7 @@ export default function CardScanner({ onMatch, onClose }) {
   useEffect(() => {
     if (!autoScan || autoScanPaused || !isReady || scanning) return
     if (addFlowOpen || basketExpanded || manualSearchOpen || settingsOpen || setPickerOpen || printingPickerFor !== null) return
-    const cooldown = scanResult === 'found' ? 1000 : 350
+    const cooldown = scanResult === 'found' ? AUTOSCAN_COOLDOWN_MATCH_MS : AUTOSCAN_COOLDOWN_MISS_MS
     const timer = setTimeout(() => { handleScan() }, cooldown)
     return () => clearTimeout(timer)
   }, [autoScan, autoScanPaused, isReady, scanning, addFlowOpen, basketExpanded, manualSearchOpen, settingsOpen, setPickerOpen, printingPickerFor, handleScan, scanResult])
