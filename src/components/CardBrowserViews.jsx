@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Badge, ResponsiveMenu } from './UI'
 import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
 import { useLongPress } from '../hooks/useLongPress'
+import { lastInputWasTouch } from '../lib/inputType'
 import uiStyles from './UI.module.css'
 import styles from '../pages/DeckBrowser.module.css'
 import { GridViewIcon, StacksViewIcon, TextViewIcon, TableViewIcon } from '../icons'
@@ -199,7 +200,7 @@ function TextRow({ card, sfCard, selectMode, isSelected, onToggleSelect, onEnter
     <div
       className={`${styles.textRow}${isSelected ? ` ${styles.textRowSelected}` : ''}${selectMode ? ` ${styles.textRowSelectable}` : ''}`}
       onClick={handleClick}
-      onMouseEnter={CAN_HOVER && !selectMode && img ? () => onHover?.(img) : undefined}
+      onMouseEnter={CAN_HOVER && !lastInputWasTouch && !selectMode && img ? () => onHover?.(img) : undefined}
       onMouseLeave={e => { if (CAN_HOVER && !selectMode) onHoverEnd?.(); lpLeave?.(e) }}
       {...lpRest}
     >
@@ -269,7 +270,7 @@ function TableRow({ card, sf, priceSource, isSelected, selectMode, onClick, onEn
   const unitPrice = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
   const price = unitPrice != null ? unitPrice * totalQty : null
   const mc = sf?.mana_cost || sf?.card_faces?.[0]?.mana_cost || ''
-  const hoverEnter = CAN_HOVER && !selectMode && img ? () => onHover?.(img) : undefined
+  const hoverEnter = CAN_HOVER && !lastInputWasTouch && !selectMode && img ? () => onHover?.(img) : undefined
   const hoverLeave = CAN_HOVER && !selectMode ? () => onHoverEnd?.() : undefined
   const typeLine = (sf?.type_line || '-').split('â€”')[0].trim()
   const setCode = (card.set_code || sf?.set || '-').toUpperCase()
@@ -595,7 +596,7 @@ function StackCard({ card, sf, idx, priceSource, selectMode, isSelected, onSelec
     onToggleSelect?.(key, totalQty)
   }, { delay: 500 })
   const { onMouseLeave: lpLeave, fired: lpFired, ...lpRest } = longPress
-  const handleMouseEnter = CAN_HOVER && !selectMode && img
+  const handleMouseEnter = CAN_HOVER && !lastInputWasTouch && !selectMode && img
     ? () => {
         const rect = cardRef.current?.getBoundingClientRect()
         if (rect) {

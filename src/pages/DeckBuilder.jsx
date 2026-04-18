@@ -25,6 +25,7 @@ import { planDeckAllocations } from '../lib/deckAllocationPlanner'
 import { formatPrice, getPrice } from '../lib/scryfall'
 import { getPublicAppUrl } from '../lib/publicUrl'
 import { ListViewIcon, StacksViewIcon, GridViewIcon, SettingsIcon } from '../icons'
+import { lastInputWasTouch } from '../lib/inputType'
 
 const CAN_HOVER = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover) and (pointer: fine)').matches
 
@@ -165,7 +166,7 @@ function RecRow({ rec, imageUri, ownedQty, onAdd, onHoverEnter, onHoverLeave, on
       className={styles.recRow}
       style={{ cursor: 'pointer' }}
       onClick={() => onOpenDetail?.(rec.name)}
-      onMouseEnter={CAN_HOVER && largeUri ? e => onHoverEnter?.(largeUri, e) : undefined}
+      onMouseEnter={CAN_HOVER && !lastInputWasTouch && largeUri ? e => onHoverEnter?.(largeUri, e) : undefined}
       onMouseMove={CAN_HOVER ? e => onHoverMove?.(e) : undefined}
       onMouseLeave={CAN_HOVER ? () => onHoverLeave?.() : undefined}
     >
@@ -2417,7 +2418,7 @@ export default function DeckBuilderPage() {
   }
 
   async function showHoverPreviewForDeckCard(dc, e) {
-    if (!CAN_HOVER) return
+    if (!CAN_HOVER || lastInputWasTouch) return
     const fallback = dc.image_uri ? [toLargeImg(dc.image_uri)] : []
     const hoverKey = dc.id || dc.scryfall_id || dc.name
     hoverPreviewKey.current = hoverKey
@@ -3217,7 +3218,7 @@ export default function DeckBuilderPage() {
                               imageUri={recImages[rec.name] || null}
                               ownedQty={ownedMap.get(rec.slug) ?? 0}
                               onAdd={addCardToDeck}
-                              onHoverEnter={CAN_HOVER ? (uri, e) => { setHoverImages(uri ? [uri] : []); setHoverPos({ x: e.clientX, y: e.clientY }) } : undefined}
+                              onHoverEnter={CAN_HOVER && !lastInputWasTouch ? (uri, e) => { setHoverImages(uri ? [uri] : []); setHoverPos({ x: e.clientX, y: e.clientY }) } : undefined}
                               onHoverMove={CAN_HOVER ? e => setHoverPos({ x: e.clientX, y: e.clientY }) : undefined}
                               onHoverLeave={CAN_HOVER ? () => clearHoverPreview() : undefined}
                               onOpenDetail={openCardDetailByName}
@@ -3450,28 +3451,30 @@ export default function DeckBuilderPage() {
                     onMouseEnter={CAN_HOVER ? e => showHoverPreviewForDeckCard(dc, e) : undefined}
                     onMouseLeave={CAN_HOVER ? () => clearHoverPreview() : undefined}
                     onMouseMove={CAN_HOVER ? e => setHoverPos({ x: e.clientX, y: e.clientY }) : undefined}>
-                    {dc.image_uri
-                      ? <img src={dc.image_uri} alt={dc.name} className={styles.visualCardImg} loading="lazy" />
-                      : <div className={styles.visualCardPlaceholder}>{dc.name}</div>}
-                    {dc.qty > 1 && <span className={styles.visualCardQty}>×{dc.qty}</span>}
-                    {dc.foil && <span className={styles.visualCardFoil} title="Foil">✦</span>}
-                    <div className={styles.visualCardTop}>
-                      <OwnershipBadge
-                        ownedQty={ownedFoilMap.get(`${dc.scryfall_id}|${dc.foil ? '1' : '0'}`) ?? 0}
-                        ownedFoilAlt={ownedFoilMap.get(`${dc.scryfall_id}|${dc.foil ? '0' : '1'}`) ?? 0}
-                        ownedAlt={ownedNameMap.get((dc.name || '').toLowerCase()) ?? 0}
-                        ownedInDeck={allocationSetHas(inOtherDeckSet, dc)}
-                        inCollDeck={allocationSetHas(collDeckSfSet, dc)}
-                      />
-                      <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} />
+                    <div className={styles.visualImgWrap}>
+                      {dc.image_uri
+                        ? <img src={dc.image_uri} alt={dc.name} className={styles.visualCardImg} loading="lazy" />
+                        : <div className={styles.visualCardPlaceholder}>{dc.name}</div>}
+                      {dc.qty > 1 && <span className={styles.visualCardQty}>×{dc.qty}</span>}
+                      {dc.foil && <span className={styles.visualCardFoil} title="Foil">✦</span>}
                     </div>
                     <div className={styles.visualCardBottom}>
                       <div className={styles.visualCardName}>{dc.name}</div>
-                      <div className={styles.visualCardControls}>
-                        <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, -1) }}>−</button>
-                        <span className={styles.visualCardCount}>{dc.qty}</span>
-                        <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, +1) }}>+</button>
-                        <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); removeCardFromDeck(dc.id) }}>✕</button>
+                      <div className={styles.visualCardMeta}>
+                        <OwnershipBadge
+                          ownedQty={ownedFoilMap.get(`${dc.scryfall_id}|${dc.foil ? '1' : '0'}`) ?? 0}
+                          ownedFoilAlt={ownedFoilMap.get(`${dc.scryfall_id}|${dc.foil ? '0' : '1'}`) ?? 0}
+                          ownedAlt={ownedNameMap.get((dc.name || '').toLowerCase()) ?? 0}
+                          ownedInDeck={allocationSetHas(inOtherDeckSet, dc)}
+                          inCollDeck={allocationSetHas(collDeckSfSet, dc)}
+                        />
+                        <div className={styles.visualCardControls}>
+                          <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} />
+                          <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, -1) }}>−</button>
+                          <span className={styles.visualCardCount}>{dc.qty}</span>
+                          <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, +1) }}>+</button>
+                          <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); removeCardFromDeck(dc.id) }}>✕</button>
+                        </div>
                       </div>
                     </div>
                   </div>
