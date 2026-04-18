@@ -384,7 +384,7 @@ stability voting (up to STABILITY_SAMPLES=3 frames, SAMPLE_DELAY_MS=40)
 `computePHash256` pipeline (client + `generate-card-hashes.js` must be identical):
 1. `GaussianBlur` σ=1.0 on art crop (424×248)
 2. `resize` to 32×32 with INTER_LANCZOS4
-3. BT.709 grayscale (`rgbToGray32x32`)
+3. BT.601 grayscale (`rgbToGray32x32`) — weights: 0.299 R, 0.587 G, 0.114 B
 4. `percentileCap(0.98)` — glare suppression
 5. `CLAHE(tileGrid=4×4, clipLimit=40)`
 6. 2D-DCT via `dct2d()` with **precomputed cosine/norm tables** (built at module load in `hashCore.js` — do not add `Math.cos` calls back to the inner loop)

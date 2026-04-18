@@ -827,7 +827,7 @@ export default function CardScanner({ onMatch, onClose }) {
       }
 
       try {
-        const q = `oracleid:${latestPrintingData.oracle_id} unique:prints`
+        const q = `oracleid:${latestPrintingData.oracle_id} unique:prints not:digital`
         const data = await sfGet(`/cards/search?q=${encodeURIComponent(q)}&order=released&dir=desc`)
         if (cancelled) return
 
@@ -855,7 +855,7 @@ export default function CardScanner({ onMatch, onClose }) {
     ;(async () => {
       for (const oracleId of missingOracleIds) {
         try {
-          const q = `oracleid:${oracleId} unique:prints`
+          const q = `oracleid:${oracleId} unique:prints not:digital`
           const data = await sfGet(`/cards/search?q=${encodeURIComponent(q)}&order=released&dir=desc`)
           if (cancelled) return
           const available = new Set((data?.data || []).map(card => card?.lang).filter(Boolean))
@@ -933,7 +933,7 @@ export default function CardScanner({ onMatch, onClose }) {
     setPrintingPickerResults([])
     setPrintingPickerSearch('')
     try {
-      const encodedName = encodeURIComponent(`!"${card.name}"`)
+      const encodedName = encodeURIComponent(`!"${card.name}" not:digital`)
       const data = await sfGet(`/cards/search?q=${encodedName}&unique=prints&order=released&dir=desc`)
       if (mountedRef.current) setPrintingPickerResults(data?.data ?? [])
     } catch { /* ignore */ }
