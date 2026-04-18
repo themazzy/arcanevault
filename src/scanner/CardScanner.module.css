@@ -1757,15 +1757,6 @@
   opacity: 0.8;
 }
 
-.autoScanPauseBtn:not(.autoScanPauseBtnPaused) .autoScanDot {
-  animation: autoScanPulse 2s ease-in-out infinite;
-}
-
-@keyframes autoScanPulse {
-  0%, 100% { opacity: 0.8; transform: scale(1); }
-  50%       { opacity: 0.3; transform: scale(0.7); }
-}
-
 /* ── Locked set badge (inside reticle) ── */
 .lockedSetBadge {
   display: flex;
