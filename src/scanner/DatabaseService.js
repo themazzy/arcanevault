@@ -19,6 +19,7 @@ import { sb } from '../lib/supabase'
 import {
   clearScannerHashEntries,
   getAllScannerHashEntries,
+  getScannerHashCount,
   getMeta,
   putScannerHashEntries,
   setMeta,
@@ -154,7 +155,15 @@ class DatabaseService {
 
     this._initPromise = (async () => {
       this._isNative = Capacitor.isNativePlatform()
-      if (this._isNative) await this._initSQLite()
+      if (this._isNative) {
+        this._emitProgress({
+          loadedCount: 0,
+          totalCount: 0,
+          phase: 'preparing native storage',
+          source: 'native',
+        })
+        await this._initSQLite()
+      }
       await this._loadCache()
       this._initialized = true
       return this
@@ -169,6 +178,12 @@ class DatabaseService {
 
   async _initSQLite() {
     if (this._db) return
+    this._emitProgress({
+      loadedCount: 0,
+      totalCount: 0,
+      phase: 'opening local database',
+      source: 'native',
+    })
     this._sqlite = new SQLiteConnection(CapacitorSQLite)
     const isConn = (await this._sqlite.isConnection(DB_NAME, false)).result
     this._db = isConn
@@ -273,11 +288,23 @@ class DatabaseService {
   // ── Native path: IDB pre-parsed cache → chunked SQLite fallback ────────────
 
   async _loadNativeCache() {
-    // Check IDB for pre-parsed cache (populated on previous runs)
-    const cachedRows = await getAllScannerHashEntries().catch(() => [])
-    const sqliteCount = Number(await getMeta('scanner_sqlite_count').catch(() => 0)) || 0
+    this._emitProgress({
+      loadedCount: 0,
+      totalCount: 0,
+      phase: 'checking cache',
+      source: 'native',
+    })
 
-    if (cachedRows.length > 0 && sqliteCount > 0 && cachedRows.length >= sqliteCount) {
+    const sqliteCount = Number(await getMeta('scanner_sqlite_count').catch(() => 0)) || 0
+    const cachedCount = sqliteCount > 0
+      ? Number(await getScannerHashCount().catch(() => 0)) || 0
+      : 0
+
+    // Only load the full IDB cache when counts suggest it is complete.
+    // This avoids pulling every cached hash row into the WebView just to
+    // discover that native storage is empty or incomplete.
+    if (sqliteCount > 0 && cachedCount >= sqliteCount) {
+      const cachedRows = await getAllScannerHashEntries().catch(() => [])
       this._hashes = cachedRows.map(rowToHash).filter(Boolean)
       this._rebuildIndex()
       this._fullyLoaded = true
@@ -292,6 +319,12 @@ class DatabaseService {
     }
 
     // Get total from SQLite
+    this._emitProgress({
+      loadedCount: 0,
+      totalCount: sqliteCount,
+      phase: 'reading local database',
+      source: 'sqlite',
+    })
     const countRes = await this._db.query(
       'SELECT COUNT(*) as cnt FROM card_hashes WHERE phash_hex IS NOT NULL'
     ).catch(() => ({ values: [] }))

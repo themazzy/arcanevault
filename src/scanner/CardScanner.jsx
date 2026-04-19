@@ -126,6 +126,10 @@ function getSetName(setIcons, code) {
 let _uidCounter = Date.now()
 function nextUid() { return String(++_uidCounter) }
 
+function getAutoScanCardSignature(match, foil = false) {
+  return `${String(match?.name || '').trim().toLocaleLowerCase()}|${foil ? 1 : 0}`
+}
+
 const CONDITIONS = ['NM', 'LP', 'MP', 'HP', 'DMG']
 const CONDITION_DB = { NM: 'near_mint', LP: 'lightly_played', MP: 'moderately_played', HP: 'heavily_played', DMG: 'damaged' }
 function cycleCondition(current) {
@@ -387,7 +391,7 @@ export default function CardScanner({ onMatch, onClose }) {
   const mountedRef        = useRef(true)
   const autoScanRef = useRef(false)
   const scanningRef = useRef(false)
-  const lastAutoScanIdRef = useRef(null)
+  const lastAutoScanSignatureRef = useRef(null)
   const lastSoundCardUidRef = useRef(null)
   const sessionStatsRef = useRef({ attempts: 0, hits: 0, totalMs: 0 })
   const [sessionStatsDisplay, setSessionStatsDisplay] = useState({ attempts: 0, hits: 0, totalMs: 0 })
@@ -1301,7 +1305,7 @@ export default function CardScanner({ onMatch, onClose }) {
 
       const elapsed = Date.now() - scanStart
       if (!match) {
-        if (isAutoScan) lastAutoScanIdRef.current = null
+        if (isAutoScan) lastAutoScanSignatureRef.current = null
         sessionStatsRef.current.attempts++
         sessionStatsRef.current.totalMs += elapsed
         setSessionStatsDisplay({ ...sessionStatsRef.current })
@@ -1323,11 +1327,13 @@ export default function CardScanner({ onMatch, onClose }) {
       sessionStatsRef.current.totalMs += elapsed
       setSessionStatsDisplay({ ...sessionStatsRef.current })
       setScanResult('found')
-      // In auto-scan mode, skip adding if this is the same card as the last scan
-      // (prevents quantity inflation when a card sits in frame across multiple cycles)
-      const isDuplicate = isAutoScan && match.id === lastAutoScanIdRef.current
+      // In auto-scan mode, skip adding if this is the same card as the last scan,
+      // even if the matcher flips between different printings of that card while
+      // the physical card is still sitting in frame.
+      const autoScanSignature = getAutoScanCardSignature(match, preferFoil)
+      const isDuplicate = isAutoScan && autoScanSignature === lastAutoScanSignatureRef.current
       if (!isDuplicate) {
-        if (isAutoScan) lastAutoScanIdRef.current = match.id
+        if (isAutoScan) lastAutoScanSignatureRef.current = autoScanSignature
         addToPending(match, { foil: preferFoil })
       }
       // In manual mode, close any open overlay — result shows in the bottom bar only
@@ -1425,8 +1431,11 @@ export default function CardScanner({ onMatch, onClose }) {
   const startupPhaseTitle = errorMsg
     ? 'Scanner startup failed'
     : ({
+        'preparing native storage': 'Preparing local scanner storage',
+        'opening local database': 'Opening local scanner database',
         connecting: 'Checking local cache',
         'checking cache': 'Checking local cache',
+        'reading local database': 'Checking downloaded card fingerprints',
         'downloading hashes': 'Downloading card fingerprints',
         'loading hashes': 'Downloading card fingerprints',
         'building index': 'Preparing the search index',
@@ -1437,8 +1446,11 @@ export default function CardScanner({ onMatch, onClose }) {
   const startupPhaseBody = errorMsg
     ? errorMsg
     : ({
+        'preparing native storage': 'ArcaneVault is preparing the native storage layer used by the scanner on this device before it checks for cached card fingerprints.',
+        'opening local database': 'The scanner is opening its on-device database so it can reuse previously downloaded card fingerprints instead of fetching them again.',
         connecting: 'ArcaneVault is checking whether this device already has the card fingerprint database cached locally.',
         'checking cache': 'ArcaneVault is checking whether this device already has the card fingerprint database cached locally.',
+        'reading local database': 'ArcaneVault is reading the local fingerprint database to see whether hashes are already available on this device.',
         'downloading hashes': 'First load on a device can take a while because the scanner downloads the card fingerprint database before it can match cards reliably.',
         'loading hashes': 'ArcaneVault is loading the downloaded fingerprint database into memory so scans can stay fast once startup completes.',
         'building index': 'The scanner is building its local search index so card lookups are accurate and responsive.',
@@ -1555,7 +1567,7 @@ export default function CardScanner({ onMatch, onClose }) {
 
               <div className={styles.startupChecklist}>
                 <div className={styles.startupStep}>
-                  <span className={`${styles.startupStepDot} ${(hashLoadInfo?.phase === 'connecting' || hashLoadInfo?.phase === 'checking cache' || hashesReady) ? styles.startupStepDotDone : ''}`}>1</span>
+                  <span className={`${styles.startupStepDot} ${(['preparing native storage', 'opening local database', 'connecting', 'checking cache', 'reading local database'].includes(hashLoadInfo?.phase) || hashesReady) ? styles.startupStepDotDone : ''}`}>1</span>
                   <div>
                     <div className={styles.startupStepTitle}>Check local cache</div>
                     <div className={styles.startupStepBody}>Reuse any hashes already stored on this device before downloading more.</div>
