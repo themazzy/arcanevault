@@ -23,7 +23,7 @@ import {
   putScannerHashEntries,
   setMeta,
 } from '../lib/db'
-import { HASH_WORDS, hexToHash, hammingDistance } from './hashCore'
+import { hexToHash, hammingDistance } from './hashCore'
 
 export { hammingDistance }
 
@@ -31,37 +31,19 @@ const DB_NAME          = 'arcanevault_hashes'
 const PAGE_SIZE        = 1000
 const NATIVE_CHUNK     = 5000
 const BAND_MASK        = 0x3F  // 6-bit bands
-// Minimum popcount for the query colorHash before the color channel is
-// allowed to influence combined distance. Desaturated art (basic lands,
-// grey-scale planeswalkers) produces near-empty colorHashes; blending them
-// in just adds noise. Scale with hash size - 50 of 384 ~= 13%.
-const COLOR_MIN_BITS   = 50
 // Bump to invalidate IDB cache when stored hash schema changes (e.g. new columns).
 // v3: added .order('scryfall_id') to paginated fetches for consistent pagination.
 // v4: CLAHE 4×4 tile grid + BT.601 grayscale — all hashes reseeded.
-// v5: 384-bit zigzag hashes + full-card hash column, requires reseed.
-// v6: force IDB flush after reseed — stale pre-reseed v5 hashes caused zero matches.
-const CACHE_VERSION    = 6
-const BAND_SPECS = Array.from({ length: HASH_WORDS }, (_, wordIdx) => ([
-  [wordIdx, 0],
-  [wordIdx, 16],
-])).flat()
-const HASH_SELECT_COLUMNS = 'scryfall_id,name,set_code,collector_number,phash_hex,phash_hex2,phash_hex_full,image_uri,art_crop_uri'
+const CACHE_VERSION    = 4
+// [wordIndex, shift] — 16 bands of 6 bits across the 8 Uint32 words
+const BAND_SPECS = [
+  [0, 0], [0, 16], [1, 0], [1, 16],
+  [2, 0], [2, 16], [3, 0], [3, 16],
+  [4, 0], [4, 16], [5, 0], [5, 16],
+  [6, 0], [6, 16], [7, 0], [7, 16],
+]
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-/** Hamming weight (set-bit count) of a Uint32Array. */
-function popcountHash(hash) {
-  let count = 0
-  for (let i = 0; i < hash.length; i++) {
-    let v = hash[i] >>> 0
-    v = v - ((v >>> 1) & 0x55555555)
-    v = (v & 0x33333333) + ((v >>> 2) & 0x33333333)
-    v = (v + (v >>> 4)) & 0x0f0f0f0f
-    count += (v * 0x01010101) >>> 24
-  }
-  return count
-}
 
 /**
  * Augment raw Supabase/SQLite rows with a pre-parsed hash_u32 field so that
@@ -73,12 +55,10 @@ function augmentWithParsed(rows) {
     const hash = hexToHash(r.phash_hex)
     if (!hash) return r
     const colorHash = r.phash_hex2 ? hexToHash(r.phash_hex2) : null
-    const fullHash = r.phash_hex_full ? hexToHash(r.phash_hex_full) : null
     return {
       ...r,
       hash_u32: Array.from(hash),
       ...(colorHash ? { hash_u32_color: Array.from(colorHash) } : {}),
-      ...(fullHash ? { hash_u32_full: Array.from(fullHash) } : {}),
     }
   })
 }
@@ -101,12 +81,6 @@ function rowToHash(r) {
   } else if (r.phash_hex2) {
     hashColor = hexToHash(r.phash_hex2)
   }
-  let hashFull = null
-  if (r.hash_u32_full) {
-    hashFull = new Uint32Array(r.hash_u32_full)
-  } else if (r.phash_hex_full) {
-    hashFull = hexToHash(r.phash_hex_full)
-  }
   return {
     id:        r.scryfall_id,
     name:      r.name,
@@ -115,7 +89,6 @@ function rowToHash(r) {
     imageUri:  r.image_uri,
     hash,
     hashColor,
-    hashFull,
   }
 }
 
@@ -124,7 +97,6 @@ function rowToHash(r) {
 class DatabaseService {
   _hashes      = []
   _bandIndex   = BAND_SPECS.map(() => new Map())
-  _bandIndexFull = BAND_SPECS.map(() => new Map())
   _sqlite      = null
   _db          = null
   _isNative    = false
@@ -167,10 +139,6 @@ class DatabaseService {
         return this
       }
       // Fall through to re-init. Partial IDB rows are kept (see _loadWebCache).
-      // Wait for any in-flight background download to finish before resetting
-      // _hashes — otherwise the old task and new task both write concurrently,
-      // causing hashes to accumulate unboundedly across re-opens.
-      await this._loadPromise.catch(() => {})
       this._initialized = false
       this._fullyLoaded = false
     }
@@ -215,7 +183,6 @@ class DatabaseService {
         collector_number TEXT,
         phash_hex        TEXT,
         phash_hex2       TEXT,
-        phash_hex_full   TEXT,
         image_uri        TEXT,
         art_crop_uri     TEXT,
         synced_at        INTEGER DEFAULT 0
@@ -225,7 +192,6 @@ class DatabaseService {
     `)
     // Migration: add phash_hex2 to existing SQLite DBs that predate this column.
     await this._db.execute(`ALTER TABLE card_hashes ADD COLUMN phash_hex2 TEXT`).catch(() => {})
-    await this._db.execute(`ALTER TABLE card_hashes ADD COLUMN phash_hex_full TEXT`).catch(() => {})
   }
 
   // ── Sync from Supabase ─────────────────────────────────────────────────────
@@ -243,7 +209,7 @@ class DatabaseService {
         const to   = from + PAGE_SIZE - 1
         const { data, error } = await sb
           .from('card_hashes')
-          .select(HASH_SELECT_COLUMNS)
+          .select('scryfall_id,name,set_code,collector_number,phash_hex,phash_hex2,image_uri,art_crop_uri')
           .not('phash_hex', 'is', null)
           .range(from, to)
 
@@ -263,19 +229,13 @@ class DatabaseService {
       await setMeta('scanner_sqlite_count', 0).catch(() => {})
 
       await this._loadCache()
-      await setMeta('scanner_last_sync_ts', Date.now()).catch(() => {})
     } finally {
       this._syncing = false
     }
   }
 
-  async getLastSyncTs() {
-    const v = await getMeta('scanner_last_sync_ts').catch(() => null)
-    return typeof v === 'number' ? v : null
-  }
-
   async _upsertBatch(rows) {
-    const placeholders = rows.map(() => '(?,?,?,?,?,?,?,?,?,?)').join(',')
+    const placeholders = rows.map(() => '(?,?,?,?,?,?,?,?,?)').join(',')
     const values = []
     for (const r of rows) {
       values.push(
@@ -284,7 +244,6 @@ class DatabaseService {
         r.collector_number ?? null,
         r.phash_hex        ?? null,
         r.phash_hex2       ?? null,
-        r.phash_hex_full   ?? null,
         r.image_uri        ?? null,
         r.art_crop_uri     ?? null,
         Date.now(),
@@ -292,7 +251,7 @@ class DatabaseService {
     }
     await this._db.run(
       `INSERT OR REPLACE INTO card_hashes
-         (scryfall_id,name,set_code,collector_number,phash_hex,phash_hex2,phash_hex_full,image_uri,art_crop_uri,synced_at)
+         (scryfall_id,name,set_code,collector_number,phash_hex,phash_hex2,image_uri,art_crop_uri,synced_at)
        VALUES ${placeholders}`,
       values,
     )
@@ -303,7 +262,6 @@ class DatabaseService {
   async _loadCache() {
     this._hashes = []
     this._bandIndex = BAND_SPECS.map(() => new Map())
-    this._bandIndexFull = BAND_SPECS.map(() => new Map())
     this._fullyLoaded = false
     if (this._isNative && this._db) {
       await this._loadNativeCache()
@@ -315,17 +273,6 @@ class DatabaseService {
   // ── Native path: IDB pre-parsed cache → chunked SQLite fallback ────────────
 
   async _loadNativeCache() {
-    const storedVersion = Number(await getMeta('scanner_cache_version').catch(() => 0)) || 0
-    if (storedVersion !== CACHE_VERSION) {
-      await clearScannerHashEntries().catch(() => {})
-      await this._db.execute('DELETE FROM card_hashes').catch(() => {})
-      await Promise.all([
-        setMeta('scanner_cache_version', CACHE_VERSION).catch(() => {}),
-        setMeta('scanner_sqlite_count', 0).catch(() => {}),
-        setMeta('scanner_hash_total_count', 0).catch(() => {}),
-      ])
-    }
-
     // Check IDB for pre-parsed cache (populated on previous runs)
     const cachedRows = await getAllScannerHashEntries().catch(() => [])
     const sqliteCount = Number(await getMeta('scanner_sqlite_count').catch(() => 0)) || 0
@@ -400,7 +347,7 @@ class DatabaseService {
 
   async _fetchSQLiteChunk(offset) {
     const res = await this._db.query(
-      'SELECT scryfall_id,name,set_code,collector_number,phash_hex,phash_hex2,phash_hex_full,image_uri,art_crop_uri FROM card_hashes WHERE phash_hex IS NOT NULL LIMIT ? OFFSET ?',
+      'SELECT scryfall_id,name,set_code,collector_number,phash_hex,phash_hex2,image_uri FROM card_hashes WHERE phash_hex IS NOT NULL LIMIT ? OFFSET ?',
       [NATIVE_CHUNK, offset]
     ).catch(() => ({ values: [] }))
     return res.values ?? []
@@ -546,34 +493,12 @@ class DatabaseService {
     const to   = from + PAGE_SIZE - 1
     const { data, error } = await sb
       .from('card_hashes')
-      .select(HASH_SELECT_COLUMNS)
+      .select('scryfall_id,name,set_code,collector_number,phash_hex,phash_hex2,image_uri')
       .not('phash_hex', 'is', null)
       .order('scryfall_id')
       .range(from, to)
     if (error) throw error
     return data ?? []
-  }
-
-  /**
-   * Lightweight remote vs local count check. Returns immediately — does NOT
-   * trigger a sync. Callers decide whether to follow up with sync().
-   */
-  async checkForUpdates() {
-    if (!this._initialized || this._syncing) {
-      return { hasUpdates: false, delta: 0, localTotal: this._hashes.length, remoteTotal: this._hashes.length }
-    }
-    try {
-      const remoteTotal = await this._fetchTotalCount()
-      const localTotal  = this._hashes.length
-      return {
-        hasUpdates: remoteTotal > localTotal,
-        delta: Math.max(0, remoteTotal - localTotal),
-        localTotal,
-        remoteTotal,
-      }
-    } catch {
-      return { hasUpdates: false, delta: 0, localTotal: this._hashes.length, remoteTotal: this._hashes.length }
-    }
   }
 
   async _fetchTotalCount() {
@@ -653,20 +578,21 @@ class DatabaseService {
     return [best, second]
   }
 
-  // colorHash: optional saturation hash from computeAllHashes().
-  // When provided and the query has enough saturation signal (≥COLOR_MIN_BITS),
-  // combined distance = 0.65 * luma + 0.35 * color, giving color-identity cards
-  // (lands, reprints) a tiebreaker over look-alike art.
-  findBestTwoWithStats(hash, colorHash = null, fullHash = null) {
+  // colorHash: optional Uint32Array(8) from computePHash256Color.
+  // When provided, combined distance = 0.65 * luma + 0.35 * color, giving
+  // color-identity cards (lands, reprints) a tiebreaker over look-alike art.
+  findBestTwoWithStats(hash, colorHash = null) {
     if (!this._hashes.length) {
       return { best: null, second: null, candidateCount: 0, totalCount: 0 }
     }
-    const candidates = this._getCandidates(hash, fullHash)
-    const useColor = colorHash && popcountHash(colorHash) >= COLOR_MIN_BITS
+    const candidates = this._getCandidates(hash)
     let best = null, second = null
     let bestDist = Infinity, secondDist = Infinity
     for (const card of candidates) {
-      const d = this._scoreCard(card, hash, colorHash, fullHash, useColor)
+      const lumaDist = hammingDistance(hash, card.hash)
+      const d = (colorHash && card.hashColor)
+        ? Math.round(0.65 * lumaDist + 0.35 * hammingDistance(colorHash, card.hashColor))
+        : lumaDist
       if (d < bestDist) {
         second = best; secondDist = bestDist
         best = card;   bestDist   = d
@@ -682,90 +608,36 @@ class DatabaseService {
     }
   }
 
-  /**
-   * Last-resort full linear scan. Bypasses the LSH band index which requires
-   * ≥2 band hits and can silently drop heavily distorted scans even when the
-   * true Hamming distance would be acceptable.
-   *
-   * Cost: ~80–150ms on a 30k-card DB. Only call after all art-crop / rotation
-   * / reticle fallbacks have failed to produce a confident match.
-   */
-  findBestTwoFullScan(hash, colorHash = null, fullHash = null) {
-    if (!this._hashes.length) {
-      return { best: null, second: null, candidateCount: 0, totalCount: 0 }
-    }
-    const useColor = colorHash && popcountHash(colorHash) >= COLOR_MIN_BITS
-    let best = null, second = null
-    let bestDist = Infinity, secondDist = Infinity
-    for (const card of this._hashes) {
-      const d = this._scoreCard(card, hash, colorHash, fullHash, useColor)
-      if (d < bestDist) {
-        second = best; secondDist = bestDist
-        best = card;   bestDist   = d
-      } else if (d < secondDist) {
-        second = card; secondDist = d
-      }
-    }
-    return {
-      best: best ? { ...best, distance: bestDist } : null,
-      second: second ? { ...second, distance: secondDist } : null,
-      candidateCount: this._hashes.length,
-      totalCount: this._hashes.length,
-    }
-  }
-
   // ── Index ──────────────────────────────────────────────────────────────────
 
   /** Full rebuild — O(N). Use only when rebuilding from scratch. */
   _rebuildIndex() {
     this._bandIndex = BAND_SPECS.map(() => new Map())
-    this._bandIndexFull = BAND_SPECS.map(() => new Map())
     this._hashes.forEach((card, idx) => this._addToIndex(card, idx))
   }
 
   /** Incremental insert — O(1). Use when appending a single card. */
   _addToIndex(card, idx) {
-    this._addHashToIndex(this._bandIndex, card.hash, idx)
-    if (card.hashFull) this._addHashToIndex(this._bandIndexFull, card.hashFull, idx)
-  }
-
-  _addHashToIndex(index, hash, idx) {
     BAND_SPECS.forEach(([wordIdx, shift], bandIdx) => {
-      const key = (hash[wordIdx] >>> shift) & BAND_MASK
-      const bucket = index[bandIdx].get(key)
+      const key = (card.hash[wordIdx] >>> shift) & BAND_MASK
+      const bucket = this._bandIndex[bandIdx].get(key)
       if (bucket) bucket.push(idx)
-      else index[bandIdx].set(key, [idx])
+      else this._bandIndex[bandIdx].set(key, [idx])
     })
   }
 
-  _accumulateBandHits(hitCounts, index, hash) {
-    if (!hash) return
+  _getCandidates(hash) {
+    if (!this._bandIndex.length || this._hashes.length <= 2000) return this._hashes
+
+    const hitCounts = new Map()
     BAND_SPECS.forEach(([wordIdx, shift], bandIdx) => {
       const key = (hash[wordIdx] >>> shift) & BAND_MASK
-      const bucket = index[bandIdx].get(key)
+      const bucket = this._bandIndex[bandIdx].get(key)
       if (!bucket) return
       for (const idx of bucket) {
         hitCounts.set(idx, (hitCounts.get(idx) ?? 0) + 1)
       }
     })
-  }
-
-  _scoreCard(card, hash, colorHash, fullHash, useColor) {
-    const artDist = hammingDistance(hash, card.hash)
-    const fullDist = fullHash && card.hashFull ? hammingDistance(fullHash, card.hashFull) : Infinity
-    let distance = Math.min(artDist, fullDist)
-    if (useColor && card.hashColor) {
-      distance = Math.round(0.65 * distance + 0.35 * hammingDistance(colorHash, card.hashColor))
-    }
-    return distance
-  }
-
-  _getCandidates(hash, fullHash = null) {
-    if (!this._bandIndex.length || this._hashes.length <= 2000) return this._hashes
-
-    const hitCounts = new Map()
-    this._accumulateBandHits(hitCounts, this._bandIndex, hash)
-    if (fullHash) this._accumulateBandHits(hitCounts, this._bandIndexFull, fullHash)
 
     let candidates = [...hitCounts.entries()]
       .filter(([, count]) => count >= 2)
