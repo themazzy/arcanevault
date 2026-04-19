@@ -42,10 +42,10 @@ import { useSettings } from '../components/SettingsContext'
 import styles from './CardScanner.module.css'
 import { playMatchSound } from './scanSounds'
 
-const MATCH_THRESHOLD        = 130
+const MATCH_THRESHOLD        = 122
 const MATCH_MIN_GAP          = 8
-const MATCH_STRONG_THRESHOLD = 142
-const MATCH_STRONG_SINGLE    = 116
+const MATCH_STRONG_THRESHOLD = 134
+const MATCH_STRONG_SINGLE    = 108
 const AUTOSCAN_COOLDOWN_MATCH_MS = 1000
 const AUTOSCAN_COOLDOWN_MISS_MS  = 350
 const PRIMARY_CROP_VARIANTS = [
