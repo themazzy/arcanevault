@@ -89,12 +89,9 @@ const CARD_LANGUAGES = [
   ['ct', 'SC'],
 ]
 
-// ── Module-level scratch canvases — reused across frames to avoid per-frame
-//    GPU canvas allocation which causes memory pressure on native (Android/iOS).
+// ── Module-level scratch canvas for pre-downscaled corner detection frames ───
 let _smallFrameCanvas = null
 let _smallFrameCtx   = null
-let _nativeFrameCanvas = null
-let _nativeFrameCtx   = null
 
 function getSmallFrameCanvas(w, h) {
   if (!_smallFrameCanvas) {
@@ -104,16 +101,6 @@ function getSmallFrameCanvas(w, h) {
   if (_smallFrameCanvas.width  !== w) _smallFrameCanvas.width  = w
   if (_smallFrameCanvas.height !== h) _smallFrameCanvas.height = h
   return { canvas: _smallFrameCanvas, ctx: _smallFrameCtx }
-}
-
-function getNativeFrameCanvas(w, h) {
-  if (!_nativeFrameCanvas) {
-    _nativeFrameCanvas = document.createElement('canvas')
-    _nativeFrameCtx    = _nativeFrameCanvas.getContext('2d', { willReadFrequently: true })
-  }
-  if (_nativeFrameCanvas.width  !== w) _nativeFrameCanvas.width  = w
-  if (_nativeFrameCanvas.height !== h) _nativeFrameCanvas.height = h
-  return { canvas: _nativeFrameCanvas, ctx: _nativeFrameCtx }
 }
 
 // ── Pending basket helpers ────────────────────────────────────────────────────
@@ -1171,9 +1158,9 @@ export default function CardScanner({ onMatch, onClose }) {
         image.src = 'data:image/jpeg;base64,' + value
       })
       const w = img.width, h = img.height
-      // Reuse a single module-level canvas instead of allocating a new one per
-      // frame — avoids GPU texture accumulation that caused scanner slowdown.
-      const { canvas, ctx } = getNativeFrameCanvas(w, h)
+      const canvas = document.createElement('canvas')
+      canvas.width = w; canvas.height = h
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })
       ctx.drawImage(img, 0, 0)
       // Small frame for corner detection (GPU-downscaled)
       const sw = Math.round(w / 2), sh = Math.round(h / 2)
