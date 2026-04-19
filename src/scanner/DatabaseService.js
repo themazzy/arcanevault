@@ -111,6 +111,7 @@ class DatabaseService {
   _syncing     = false
   _fullyLoaded = false
   _loadPromise = Promise.resolve()
+  _mirrorWritePromise = Promise.resolve()
   _initPromise = null
   _onProgress  = null
   _status = {
@@ -221,6 +222,7 @@ class DatabaseService {
     if (this._syncing) return
     this._syncing = true
     await this._loadPromise   // wait for any background streaming to finish before clearing
+    await this._mirrorWritePromise.catch(() => {})
     try {
       let page  = 0
       let total = 0
@@ -278,12 +280,21 @@ class DatabaseService {
     )
   }
 
+  _queueScannerHashMirror(entries) {
+    if (!entries?.length) return
+    this._mirrorWritePromise = this._mirrorWritePromise
+      .catch(() => {})
+      .then(() => putScannerHashEntries(entries))
+      .catch(() => {})
+  }
+
   // ── Load into memory ───────────────────────────────────────────────────────
 
   async _loadCache() {
     this._hashes = []
     this._bandIndex = BAND_SPECS.map(() => new Map())
     this._fullyLoaded = false
+    this._mirrorWritePromise = Promise.resolve()
     if (this._isNative && this._db) {
       await this._loadNativeCache()
     } else {
@@ -354,7 +365,7 @@ class DatabaseService {
     const augmented = augmentWithParsed(firstChunk)
     this._hashes = augmented.map(rowToHash).filter(Boolean)
     this._rebuildIndex()
-    await putScannerHashEntries(augmented).catch(() => {})
+    this._queueScannerHashMirror(augmented)
 
     this._emitProgress({
       loadedCount: this._hashes.length,
@@ -403,7 +414,7 @@ class DatabaseService {
       for (let i = startIdx; i < this._hashes.length; i++) {
         this._addToIndex(this._hashes[i], i)
       }
-      await putScannerHashEntries(augmented).catch(() => {})
+      this._queueScannerHashMirror(augmented)
       this._emitProgress({
         loadedCount: this._hashes.length,
         totalCount: total,
