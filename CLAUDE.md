@@ -366,33 +366,47 @@ warpCard(imageData, scaledCorners)  →  500×700 ImageData
 
 cropArtRegion(warpedCard)           →  art crop (ART_X=38, ART_Y=66, ART_W=424, ART_H=248)
 
-computePHash256(artCrop)            →  Uint32Array(8) — 256-bit pHash
+computeAllHashes(artCrop, warped)   →  { hash, foilHash, darkHash, colorHash, fullHash }
+                                      hash/color/full are 384-bit `Uint32Array(12)` values
 
-databaseService.findBestTwoWithStats(hash)   ← LSH band index + Hamming distance
+databaseService.findBestTwoWithStats(hash, colorHash, fullHash)
+                                    ← art-hash / full-card-hash candidate match via LSH + Hamming distance
+databaseService.findBestTwoFullScan(hash, colorHash, fullHash)
+                                    ← last-resort linear scan (bypasses LSH)
 
-stability voting (up to STABILITY_SAMPLES=3 frames, SAMPLE_DELAY_MS=40)
+blur gate (frameSharpness < BLUR_THRESHOLD=25 → skipped, doesn't count)
+stability voting (valid samples up to STABILITY_SAMPLES=5, SAMPLE_DELAY_MS=70)
 ```
 
-**Reticle fallback**: when no corners are found, `cropCardFromReticle(srcCanvas, w, h, vw, vh)` crops the reticle region directly from the camera canvas — pass `srcCanvas` (HTMLCanvasElement) to skip the expensive `putImageData` copy.
+**Reticle fallback**: when corners don't produce a decisive match, `cropCardFromReticle(srcCanvas, w, h, vw, vh)` crops the reticle region directly from the camera canvas. Reticle-sourced matches are accepted by a stricter rule in `shouldAcceptMatch` to prevent false positives from incidental objects in the zone.
 
-**180° rotation fallback**: after each warp/reticle pass, if no decisive match, `rotateCard180(warpedCard)` is tried — catches cards held upside-down.
+**180° / 90° / 270° rotation fallbacks**: after the upright pass, `rotateCard180(warpedCard)` then `rotateCornersCW/CCW(corners)` + re-warp are tried — catches cards held upside-down or landscape (tokens, split cards).
 
-**Foil fallback**: when standard hash distance > `MATCH_THRESHOLD`, `computePHash256Foil(artCrop)` re-hashes with `percentileCap(0.92)` (aggressive glare suppression). Does not affect stored DB hashes.
+**Foil + dark fallbacks**: `computeAllHashes()` returns a `foilHash` (aggressive glare suppression, `percentileCap(0.92)`) and optional `darkHash` (linear floor-stretch; null when mean brightness ≥ 110). Used when the primary match fails. Client-side only — does not affect stored DB hashes.
+
+**Full-card fallback hash**: `computeAllHashes()` also returns `fullHash`, computed from the entire warped 500×700 card instead of the fixed art box. The matcher compares both the art hash and full-card hash and uses the lower distance. This is what recovers borderless, showcase, token, and other non-standard layouts.
+
+**Full linear-scan fallback**: when every crop/rotation/reticle pass still misses `MATCH_THRESHOLD`, `findBestTwoFullScan` re-queries without the LSH index. ~80–150ms on a 30k DB — last-resort only.
+
+**Desaturated-art guard**: color-hash is only blended into combined distance when the query's `colorHash` popcount ≥ `COLOR_MIN_BITS` (50 for the 384-bit hash). Prevents uninformative near-empty color hashes (basics, grey-scale planeswalkers) from dragging matches.
 
 #### Hash algorithm — must match seed script exactly
 
-`computePHash256` pipeline (client + `generate-card-hashes.js` must be identical):
-1. `GaussianBlur` σ=1.0 on art crop (424×248)
-2. `resize` to 32×32 with INTER_LANCZOS4
-3. BT.601 grayscale (`rgbToGray32x32`) — weights: 0.299 R, 0.587 G, 0.114 B
+Art-crop pipeline (client + `generate-card-hashes.js` must be identical):
+1. Convert raw RGB(A) art pixels to planar grayscale in `preprocessArtTo32x32Gray()` — weights: 0.299 R, 0.587 G, 0.114 B
+2. `gaussianBlur5()` — shared pure-JS 5×5 blur, σ≈1.0
+3. `resizeTo32x32()` — shared pure-JS bilinear downsample
 4. `percentileCap(0.98)` — glare suppression
 5. `CLAHE(tileGrid=4×4, clipLimit=40)`
 6. 2D-DCT via `dct2d()` with **precomputed cosine/norm tables** (built at module load in `hashCore.js` — do not add `Math.cos` calls back to the inner loop)
-7. Top-left 16×16 DCT coefficients → median threshold → 256-bit hash
+7. First 384 DCT coefficients in JPEG-style zigzag order
+8. Mean threshold (excluding DC from the mean) → 384-bit hash (`Uint32Array(12)`, 96-char hex)
 
-**If any step changes, truncate `card_hashes` and re-seed.** `computePHash256Foil` uses `percentileCap(0.92)` instead of 0.98 — client-side only, never changes stored hashes.
+Full-card hash pipeline uses the same preprocess + DCT path, but runs over the entire warped 500×700 card and stores the result in `phash_hex_full`.
 
-**BigInt precision**: Supabase BIGINT returned as JS Number loses bits >53. Read `phash_hex TEXT` (64 hex chars) exclusively.
+**If any step changes, truncate `card_hashes` and re-seed.** The foil variant uses `percentileCap(0.92)` instead of 0.98 — client-side only, never changes stored hashes.
+
+**Legacy BIGINT precision**: old `hash_part_*` BIGINT columns lose precision in JS and should not be read. Use `phash_hex`, `phash_hex2`, and `phash_hex_full` TEXT columns exclusively (`phash_hex*` are 96 hex chars in v5).
 
 ### Life Tracker (`LifeTracker.jsx`)
 
@@ -431,7 +445,7 @@ Host creates a session → others visit `/join/:code` on their own device → ho
 - `game_results` — deck win/loss history: `session_id, user_id, deck_id, deck_name, format, player_count, placement`
 - `feedback` — user bug reports & feature requests: `type ('bug'|'feature'), description, contact, user_id`
 - `feedback_attachments` — optional screenshots linked to `feedback`; files live in the `assets` storage bucket
-- `card_hashes` — pHash records for scanner: `scryfall_id, name, set_code, collector_number, image_uri, hash_part_1..4 (bigint), phash_hex (text)`; read-only RLS for all users
+- `card_hashes` — pHash records for scanner: `scryfall_id, name, set_code, collector_number, image_uri, art_crop_uri, phash_hex, phash_hex2, phash_hex_full`; read-only RLS for all users. Legacy `hash_part_*` columns are being retired.
 
 ---
 
