@@ -40,7 +40,8 @@ const COLOR_MIN_BITS   = 50
 // v3: added .order('scryfall_id') to paginated fetches for consistent pagination.
 // v4: CLAHE 4×4 tile grid + BT.601 grayscale — all hashes reseeded.
 // v5: 384-bit zigzag hashes + full-card hash column, requires reseed.
-const CACHE_VERSION    = 5
+// v6: force IDB flush after reseed — stale pre-reseed v5 hashes caused zero matches.
+const CACHE_VERSION    = 6
 const BAND_SPECS = Array.from({ length: HASH_WORDS }, (_, wordIdx) => ([
   [wordIdx, 0],
   [wordIdx, 16],
@@ -166,6 +167,10 @@ class DatabaseService {
         return this
       }
       // Fall through to re-init. Partial IDB rows are kept (see _loadWebCache).
+      // Wait for any in-flight background download to finish before resetting
+      // _hashes — otherwise the old task and new task both write concurrently,
+      // causing hashes to accumulate unboundedly across re-opens.
+      await this._loadPromise.catch(() => {})
       this._initialized = false
       this._fullyLoaded = false
     }
