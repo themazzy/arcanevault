@@ -32,6 +32,8 @@ const DB_NAME          = 'arcanevault_hashes'
 const PAGE_SIZE        = 1000
 const NATIVE_CHUNK     = 5000
 const BAND_MASK        = 0x3F  // 6-bit bands
+const WEB_PAGE_RETRY_ATTEMPTS = 3
+const WEB_PAGE_RETRY_BASE_MS  = 250
 // Bump to invalidate IDB cache when stored hash schema changes (e.g. new columns).
 // v3: added .order('scryfall_id') to paginated fetches for consistent pagination.
 // v4: CLAHE 4×4 tile grid + BT.601 grayscale — all hashes reseeded.
@@ -91,6 +93,10 @@ function rowToHash(r) {
     hash,
     hashColor,
   }
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 // ── Service ───────────────────────────────────────────────────────────────────
@@ -488,7 +494,10 @@ class DatabaseService {
     await new Promise(r => setTimeout(r, 0))
 
     // Stage 2: fetch page 0 — user sees the bar advance from 0 → ~10%.
-    const firstNetworkPage = await this._fetchWebPage(0).catch(() => [])
+    const firstNetworkPage = await this._fetchWebPageWithRetry(0).catch(error => {
+      console.warn('[DatabaseService] initial page fetch failed after retries:', error?.message ?? error)
+      return []
+    })
 
     const augmentedFirst = augmentWithParsed(firstNetworkPage)
     this._hashes = augmentedFirst.map(rowToHash).filter(Boolean)
@@ -500,23 +509,26 @@ class DatabaseService {
     this._emitProgress({
       loadedCount: this._hashes.length,
       totalCount: totalCount || this._hashes.length,
-      phase: firstNetworkPage.length === PAGE_SIZE ? 'downloading hashes' : 'ready',
+      phase: firstNetworkPage.length === PAGE_SIZE
+        ? 'downloading hashes'
+        : (totalCount > 0 && firstNetworkPage.length === 0 ? 'network retry needed' : 'ready'),
       source: 'network',
     })
 
     if (firstNetworkPage.length === PAGE_SIZE) {
       this._loadPromise = this._continueWebLoad(1, totalCount)
-        .finally(() => {
-          this._fullyLoaded = true
+        .then(loadedCount => {
+          const complete = !totalCount || loadedCount >= totalCount
+          this._fullyLoaded = complete
           this._emitProgress({
             loadedCount: this._hashes.length,
             totalCount: totalCount || this._hashes.length,
-            phase: 'ready',
+            phase: complete ? 'ready' : this._status.phase,
             source: 'network',
           })
         })
     } else {
-      this._fullyLoaded = true
+      this._fullyLoaded = !(totalCount > 0 && firstNetworkPage.length === 0)
       this._loadPromise = Promise.resolve(this._hashes.length)
     }
   }
@@ -534,6 +546,20 @@ class DatabaseService {
     return data ?? []
   }
 
+  async _fetchWebPageWithRetry(page, attempts = WEB_PAGE_RETRY_ATTEMPTS) {
+    let lastError = null
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        return await this._fetchWebPage(page)
+      } catch (error) {
+        lastError = error
+        if (attempt >= attempts) break
+        await sleep(WEB_PAGE_RETRY_BASE_MS * attempt)
+      }
+    }
+    throw lastError ?? new Error(`Failed to fetch hash page ${page}`)
+  }
+
   async _fetchTotalCount() {
     const { count, error } = await sb
       .from('card_hashes')
@@ -545,28 +571,30 @@ class DatabaseService {
 
   async _continueWebLoad(startPage, totalCount = 0) {
     const BATCH = 8   // fetch 8 pages in parallel
-    const MAX_CONSECUTIVE_ERRORS = 3
     let page = startPage
-    let consecutiveErrors = 0
+    let haltedByError = false
 
     while (true) {
       const results = await Promise.all(
         Array.from({ length: BATCH }, (_, i) =>
-          this._fetchWebPage(page + i).catch(err => {
-            console.warn('[DatabaseService] page fetch error, skipping:', err?.message ?? err)
-            return null   // null = transient error; [] = genuine end-of-data
-          })
+          this._fetchWebPageWithRetry(page + i)
+            .then(data => ({ page: page + i, data, error: null }))
+            .catch(error => ({ page: page + i, data: null, error }))
         )
       )
 
       let reachedEnd = false
-      for (const data of results) {
-        if (data === null) {
-          consecutiveErrors++
-          if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) { reachedEnd = true; break }
-          continue        // transient error — skip page, don't stop
+      for (const result of results) {
+        if (result.error) {
+          haltedByError = true
+          reachedEnd = true
+          console.warn(
+            `[DatabaseService] page fetch failed after retries; stopping at page ${result.page}:`,
+            result.error?.message ?? result.error
+          )
+          break
         }
-        consecutiveErrors = 0
+        const { data } = result
         if (!data.length) { reachedEnd = true; break }
         const augmented = augmentWithParsed(data)
         const startIdx = this._hashes.length
@@ -590,6 +618,15 @@ class DatabaseService {
     }
 
     await setMeta('scanner_hash_total_count', totalCount || this._hashes.length).catch(() => {})
+    if (haltedByError) {
+      this._emitProgress({
+        loadedCount: this._hashes.length,
+        totalCount: totalCount || this._hashes.length,
+        phase: 'network retry needed',
+        source: 'network',
+      })
+      return this._hashes.length
+    }
     return this._hashes.length
   }
 
