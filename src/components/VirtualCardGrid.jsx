@@ -21,6 +21,8 @@ const DENSITY_MIN_WIDTH   = { cozy: 210, comfortable: 168, compact: 128 }
 const DENSITY_CARD_HEIGHT = { cozy: 375, comfortable: 325, compact: 260 }
 const OVERSCAN = 3
 const ROW_SIDE_INSET = 10
+const MOBILE_GRID_BREAKPOINT = 430
+const MOBILE_DENSITY_COLS = { cozy: 1, comfortable: 2, compact: 3 }
 
 const TYPE_COLOR  = { binder: 'rgba(201,168,76,0.18)', deck: 'rgba(138,111,196,0.18)', list: 'rgba(100,180,100,0.15)' }
 const TYPE_BORDER = { binder: 'rgba(201,168,76,0.35)', deck: 'rgba(138,111,196,0.35)', list: 'rgba(100,180,100,0.3)' }
@@ -152,6 +154,10 @@ export default function VirtualCardGrid({
   const measureCols = useCallback(() => {
     if (!parentRef.current) return
     const w = parentRef.current.offsetWidth
+    if (w <= MOBILE_GRID_BREAKPOINT) {
+      setCols(MOBILE_DENSITY_COLS[density] || 2)
+      return
+    }
     setCols(Math.max(1, Math.floor(w / minW)))
   }, [minW])
 
