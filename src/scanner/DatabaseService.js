@@ -419,6 +419,7 @@ class DatabaseService {
         this._addToIndex(this._hashes[i], i)
       }
       await putScannerHashEntries(augmented).catch(() => {})
+      await new Promise(r => setTimeout(r, 0))
       this._emitProgress({
         loadedCount: this._hashes.length,
         totalCount: total,
@@ -645,6 +646,10 @@ class DatabaseService {
       await putScannerHashEntries(augmented).catch(() => {})
 
       cursor = data[data.length - 1].scryfall_id
+
+      // Yield to the event loop so the main thread can process UI events
+      // (React renders, touch input) between batches.
+      await new Promise(r => setTimeout(r, 0))
 
       this._emitProgress({
         loadedCount: this._hashes.length,
