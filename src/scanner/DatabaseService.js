@@ -235,27 +235,26 @@ class DatabaseService {
     this._syncing = true
     await this._loadPromise   // wait for any background streaming to finish before clearing
     try {
-      let cursor = null
-      let total  = 0
+      let page  = 0
+      let total = 0
 
       while (true) {
-        let query = sb
+        const from = page * PAGE_SIZE
+        const to   = from + PAGE_SIZE - 1
+        const { data, error } = await sb
           .from('card_hashes')
           .select(HASH_SELECT_COLUMNS)
           .not('phash_hex', 'is', null)
-          .order('scryfall_id')
-          .limit(PAGE_SIZE)
-        if (cursor) query = query.gt('scryfall_id', cursor)
+          .range(from, to)
 
-        const { data, error } = await query
         if (error) throw error
         if (!data?.length) break
 
         if (this._isNative && this._db) await this._upsertBatch(data)
 
-        cursor = data[data.length - 1].scryfall_id
         total += data.length
         onProgress?.(total)
+        page++
         if (data.length < PAGE_SIZE) break
       }
 
@@ -419,7 +418,6 @@ class DatabaseService {
         this._addToIndex(this._hashes[i], i)
       }
       await putScannerHashEntries(augmented).catch(() => {})
-      await new Promise(r => setTimeout(r, 0))
       this._emitProgress({
         loadedCount: this._hashes.length,
         totalCount: total,
@@ -445,9 +443,10 @@ class DatabaseService {
       await setMeta('scanner_hash_total_count', 0).catch(() => {})
     }
 
-    // Load IDB rows, stored total, and remote total in parallel.
-    // IDB rows are ordered by scryfall_id (keyPath), so cachedRows[last].scryfall_id
-    // is the exact cursor to resume a previously interrupted download.
+    // Stage 1: IDB cache + counts only — fast, no page data yet.
+    // _fetchTotalCount() is a Supabase network call and slower than the IDB
+    // reads. We emit the count as a side-effect the moment it resolves so the
+    // UI shows "checking cache 0/N" instead of a blank shimmer during the wait.
     const [cachedRows, cachedTotal, remoteTotal] = await Promise.all([
       getAllScannerHashEntries().catch(() => []),
       getMeta('scanner_hash_total_count').then(v => Number(v) || 0).catch(() => 0),
@@ -460,6 +459,8 @@ class DatabaseService {
     ])
 
     const expectedTotal = remoteTotal || cachedTotal
+    // If the remote count exceeds what we have locally, treat cache as stale
+    // so newly-added sets are picked up on every startup.
     const hasCompleteCache = expectedTotal > 0 && cachedRows.length >= expectedTotal
 
     if (hasCompleteCache) {
@@ -485,60 +486,33 @@ class DatabaseService {
       return
     }
 
-    // Only clear IDB when remote has FEWER rows (deleted cards) — stale.
-    // For partial downloads, keep what we have and resume from the last cursor.
+    // Cache is missing, stale, or incomplete (e.g. interrupted download).
+    // Only clear IDB when we have MORE rows than remote — that means cards were
+    // deleted from the remote DB and IDB has stale rows.
+    // For partial downloads (fewer rows than expected), keep what we have: the
+    // re-download will upsert on top of existing rows, filling in the gaps without
+    // re-fetching pages that were already cached successfully.
     if (cachedRows.length > 0 && remoteTotal > 0 && cachedRows.length > remoteTotal) {
       await clearScannerHashEntries().catch(() => {})
-    } else if (cachedRows.length > 0) {
-      // Partial cache: load into memory immediately so scanning works while
-      // the remainder downloads in the background.
-      this._emitProgress({
-        loadedCount: cachedRows.length,
-        totalCount: expectedTotal,
-        phase: 'building index',
-        source: 'idb cache',
-      })
-      await new Promise(r => setTimeout(r, 0))
-      this._hashes = cachedRows.map(rowToHash).filter(Boolean)
-      this._rebuildIndex()
-      this._emitProgress({
-        loadedCount: this._hashes.length,
-        totalCount: expectedTotal,
-        phase: 'resuming download',
-        source: 'idb cache',
-      })
     }
 
     const totalCount = expectedTotal
+    // Emit 0/N so the user sees the full count before page 0 arrives.
+    this._emitProgress({
+      loadedCount: 0,
+      totalCount,
+      phase: 'downloading hashes',
+      source: 'network',
+    })
+    // Yield so React paints the "0/N" state before we block on the network.
+    await new Promise(r => setTimeout(r, 0))
 
-    // Derive resume cursor from the last row stored in IDB (scryfall_id key order).
-    // This is exact: IDB rows are always the leading K rows of the ordered Supabase
-    // result, so the last row's ID is precisely where the download should continue.
-    const resumeCursor = cachedRows.length > 0
-      ? (cachedRows[cachedRows.length - 1]?.scryfall_id ?? null)
-      : null
+    // Stage 2: fetch page 0 — user sees the bar advance from 0 → ~10%.
+    const firstNetworkPage = await this._fetchWebPage(0).catch(() => [])
 
-    if (!resumeCursor) {
-      this._emitProgress({
-        loadedCount: 0,
-        totalCount,
-        phase: 'downloading hashes',
-        source: 'network',
-      })
-      await new Promise(r => setTimeout(r, 0))
-    }
-
-    const firstNetworkPage = await this._fetchWebPageCursor(resumeCursor).catch(() => [])
     const augmentedFirst = augmentWithParsed(firstNetworkPage)
-    const firstStart = this._hashes.length
-    this._hashes.push(...augmentedFirst.map(rowToHash).filter(Boolean))
-    for (let i = firstStart; i < this._hashes.length; i++) {
-      this._addToIndex(this._hashes[i], i)
-    }
-    const newCursor = firstNetworkPage.length > 0
-      ? firstNetworkPage[firstNetworkPage.length - 1].scryfall_id
-      : resumeCursor
-
+    this._hashes = augmentedFirst.map(rowToHash).filter(Boolean)
+    this._rebuildIndex()
     await Promise.all([
       augmentedFirst.length ? putScannerHashEntries(augmentedFirst).catch(() => {}) : Promise.resolve(),
       totalCount ? setMeta('scanner_hash_total_count', totalCount).catch(() => {}) : Promise.resolve(),
@@ -551,7 +525,7 @@ class DatabaseService {
     })
 
     if (firstNetworkPage.length === PAGE_SIZE) {
-      this._loadPromise = this._continueWebLoad(newCursor, totalCount)
+      this._loadPromise = this._continueWebLoad(1, totalCount)
         .finally(() => {
           this._fullyLoaded = true
           this._emitProgress({
@@ -567,19 +541,15 @@ class DatabaseService {
     }
   }
 
-  // Cursor-based page fetch: O(log N) regardless of position because PostgreSQL
-  // can seek directly to the cursor via the scryfall_id primary key index.
-  // Replaces offset-based _fetchWebPage which degraded to O(N) at high offsets
-  // and timed out on Supabase around row 60k.
-  async _fetchWebPageCursor(afterId = null) {
-    let query = sb
+  async _fetchWebPage(page) {
+    const from = page * PAGE_SIZE
+    const to   = from + PAGE_SIZE - 1
+    const { data, error } = await sb
       .from('card_hashes')
       .select(HASH_SELECT_COLUMNS)
       .not('phash_hex', 'is', null)
       .order('scryfall_id')
-      .limit(PAGE_SIZE)
-    if (afterId) query = query.gt('scryfall_id', afterId)
-    const { data, error } = await query
+      .range(from, to)
     if (error) throw error
     return data ?? []
   }
@@ -615,50 +585,50 @@ class DatabaseService {
     return count ?? 0
   }
 
-  // Sequential cursor-based background loader. Each fetch is O(log N) via the
-  // primary key index — no timeout risk regardless of total row count.
-  async _continueWebLoad(startCursor, totalCount = 0) {
+  async _continueWebLoad(startPage, totalCount = 0) {
+    const BATCH = 8   // fetch 8 pages in parallel
     const MAX_CONSECUTIVE_ERRORS = 3
-    let cursor = startCursor
+    let page = startPage
     let consecutiveErrors = 0
 
     while (true) {
-      let data
-      try {
-        data = await this._fetchWebPageCursor(cursor)
+      const results = await Promise.all(
+        Array.from({ length: BATCH }, (_, i) =>
+          this._fetchWebPage(page + i).catch(err => {
+            console.warn('[DatabaseService] page fetch error, skipping:', err?.message ?? err)
+            return null   // null = transient error; [] = genuine end-of-data
+          })
+        )
+      )
+
+      let reachedEnd = false
+      for (const data of results) {
+        if (data === null) {
+          consecutiveErrors++
+          if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) { reachedEnd = true; break }
+          continue        // transient error — skip page, don't stop
+        }
         consecutiveErrors = 0
-      } catch (err) {
-        console.warn('[DatabaseService] page fetch error:', err?.message ?? err)
-        consecutiveErrors++
-        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) break
-        await new Promise(r => setTimeout(r, 500 * consecutiveErrors))
-        continue
+        if (!data.length) { reachedEnd = true; break }
+        const augmented = augmentWithParsed(data)
+        const startIdx = this._hashes.length
+        this._hashes.push(...augmented.map(rowToHash).filter(Boolean))
+        for (let i = startIdx; i < this._hashes.length; i++) {
+          this._addToIndex(this._hashes[i], i)
+        }
+        await putScannerHashEntries(augmented).catch(() => {})
+        // Emit after every page so the progress bar advances smoothly
+        this._emitProgress({
+          loadedCount: this._hashes.length,
+          totalCount: totalCount || this._hashes.length,
+          phase: 'downloading hashes',
+          source: 'network',
+        })
+        if (data.length < PAGE_SIZE) { reachedEnd = true; break }
       }
 
-      if (!data.length) break
-
-      const augmented = augmentWithParsed(data)
-      const startIdx = this._hashes.length
-      this._hashes.push(...augmented.map(rowToHash).filter(Boolean))
-      for (let i = startIdx; i < this._hashes.length; i++) {
-        this._addToIndex(this._hashes[i], i)
-      }
-      await putScannerHashEntries(augmented).catch(() => {})
-
-      cursor = data[data.length - 1].scryfall_id
-
-      // Yield to the event loop so the main thread can process UI events
-      // (React renders, touch input) between batches.
-      await new Promise(r => setTimeout(r, 0))
-
-      this._emitProgress({
-        loadedCount: this._hashes.length,
-        totalCount: totalCount || this._hashes.length,
-        phase: data.length < PAGE_SIZE ? 'finalizing' : 'downloading hashes',
-        source: 'network',
-      })
-
-      if (data.length < PAGE_SIZE) break
+      if (reachedEnd) break
+      page += BATCH
     }
 
     await setMeta('scanner_hash_total_count', totalCount || this._hashes.length).catch(() => {})
