@@ -42,10 +42,10 @@ import { useSettings } from '../components/SettingsContext'
 import styles from './CardScanner.module.css'
 import { playMatchSound } from './scanSounds'
 
-const MATCH_THRESHOLD        = 122
+const MATCH_THRESHOLD        = 130
 const MATCH_MIN_GAP          = 8
-const MATCH_STRONG_THRESHOLD = 134
-const MATCH_STRONG_SINGLE    = 108
+const MATCH_STRONG_THRESHOLD = 142
+const MATCH_STRONG_SINGLE    = 116
 const AUTOSCAN_COOLDOWN_MATCH_MS = 1000
 const AUTOSCAN_COOLDOWN_MISS_MS  = 350
 const PRIMARY_CROP_VARIANTS = [
@@ -89,9 +89,12 @@ const CARD_LANGUAGES = [
   ['ct', 'SC'],
 ]
 
-// ── Module-level scratch canvas for pre-downscaled corner detection frames ───
+// ── Module-level scratch canvases — reused across frames to avoid per-frame
+//    GPU canvas allocation which causes memory pressure on native (Android/iOS).
 let _smallFrameCanvas = null
 let _smallFrameCtx   = null
+let _nativeFrameCanvas = null
+let _nativeFrameCtx   = null
 
 function getSmallFrameCanvas(w, h) {
   if (!_smallFrameCanvas) {
@@ -101,6 +104,16 @@ function getSmallFrameCanvas(w, h) {
   if (_smallFrameCanvas.width  !== w) _smallFrameCanvas.width  = w
   if (_smallFrameCanvas.height !== h) _smallFrameCanvas.height = h
   return { canvas: _smallFrameCanvas, ctx: _smallFrameCtx }
+}
+
+function getNativeFrameCanvas(w, h) {
+  if (!_nativeFrameCanvas) {
+    _nativeFrameCanvas = document.createElement('canvas')
+    _nativeFrameCtx    = _nativeFrameCanvas.getContext('2d', { willReadFrequently: true })
+  }
+  if (_nativeFrameCanvas.width  !== w) _nativeFrameCanvas.width  = w
+  if (_nativeFrameCanvas.height !== h) _nativeFrameCanvas.height = h
+  return { canvas: _nativeFrameCanvas, ctx: _nativeFrameCtx }
 }
 
 // ── Pending basket helpers ────────────────────────────────────────────────────
@@ -1158,9 +1171,9 @@ export default function CardScanner({ onMatch, onClose }) {
         image.src = 'data:image/jpeg;base64,' + value
       })
       const w = img.width, h = img.height
-      const canvas = document.createElement('canvas')
-      canvas.width = w; canvas.height = h
-      const ctx = canvas.getContext('2d', { willReadFrequently: true })
+      // Reuse a single module-level canvas instead of allocating a new one per
+      // frame — avoids GPU texture accumulation that caused scanner slowdown.
+      const { canvas, ctx } = getNativeFrameCanvas(w, h)
       ctx.drawImage(img, 0, 0)
       // Small frame for corner detection (GPU-downscaled)
       const sw = Math.round(w / 2), sh = Math.round(h / 2)
