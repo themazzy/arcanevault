@@ -17,10 +17,13 @@ const NON_DRAGGABLE_IMG_PROPS = {
   },
 }
 
-const DENSITY_MIN_WIDTH   = { cozy: 210, comfortable: 168, compact: 128 }
-const DENSITY_CARD_HEIGHT = { cozy: 375, comfortable: 325, compact: 260 }
+const DENSITY_MIN_WIDTH = { cozy: 210, comfortable: 168, compact: 128 }
+const DENSITY_BASE_ROW_HEIGHT = { cozy: 375, comfortable: 325, compact: 260 }
 const OVERSCAN = 3
 const ROW_SIDE_INSET = 10
+const ROW_GAP = 14
+const CARD_ASPECT_RATIO = 88 / 63
+const CARD_INFO_HEIGHT = 92
 const MOBILE_GRID_BREAKPOINT = 430
 const MOBILE_DENSITY_COLS = { cozy: 1, comfortable: 2, compact: 3 }
 
@@ -147,19 +150,28 @@ export default function VirtualCardGrid({
 }) {
   const parentRef = useRef(null)
   const [cols, setCols] = useState(4)
+  const [rowHeight, setRowHeight] = useState(DENSITY_BASE_ROW_HEIGHT[density] || 310)
 
   const minW  = DENSITY_MIN_WIDTH[density]   || 168
-  const cardH = DENSITY_CARD_HEIGHT[density] || 310
+  const baseRowHeight = DENSITY_BASE_ROW_HEIGHT[density] || 310
 
   const measureCols = useCallback(() => {
     if (!parentRef.current) return
     const w = parentRef.current.offsetWidth
-    if (w <= MOBILE_GRID_BREAKPOINT) {
-      setCols(MOBILE_DENSITY_COLS[density] || 2)
-      return
-    }
-    setCols(Math.max(1, Math.floor(w / minW)))
-  }, [minW])
+    const nextCols = w <= MOBILE_GRID_BREAKPOINT
+      ? (MOBILE_DENSITY_COLS[density] || 2)
+      : Math.max(1, Math.floor(w / minW))
+
+    const availableWidth = Math.max(0, w - (ROW_SIDE_INSET * 2) - (ROW_GAP * (nextCols - 1)))
+    const cardWidth = availableWidth > 0 ? availableWidth / nextCols : minW
+    const nextRowHeight = Math.max(
+      baseRowHeight,
+      Math.ceil(cardWidth * CARD_ASPECT_RATIO + CARD_INFO_HEIGHT),
+    )
+
+    setCols(nextCols)
+    setRowHeight(nextRowHeight)
+  }, [baseRowHeight, density, minW])
 
   useEffect(() => {
     measureCols()
@@ -178,7 +190,7 @@ export default function VirtualCardGrid({
   const virtualizer = useVirtualizer({
     count: rowCount,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => cardH + 14,
+    estimateSize: () => rowHeight + ROW_GAP,
     overscan: OVERSCAN,
   })
 
@@ -196,10 +208,10 @@ export default function VirtualCardGrid({
                 top: vRow.start,
                 left: ROW_SIDE_INSET,
                 right: ROW_SIDE_INSET,
-                height: cardH,
+                height: rowHeight,
                 display: 'grid',
                 gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-                gap: 14,
+                gap: ROW_GAP,
               }}
             >
               {rowCards.map(card => {
