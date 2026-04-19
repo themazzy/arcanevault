@@ -872,6 +872,8 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onT
 }
 
 const DENSITY_MIN_WIDTH = { cozy: 210, comfortable: 160, compact: 128 }
+const MOBILE_GRID_BREAKPOINT = 430
+const MOBILE_DENSITY_COLS = { cozy: 1, comfortable: 2, compact: 3 }
 const STACK_MIN_COLUMN_WIDTH = 88
 const STACK_GAP_PX = 12
 
@@ -881,7 +883,11 @@ function estimateStackGroupWeight(cardCount, hideHeaders) {
 
 function GridView({ cards, sfMap, priceSource, onSelect, selectMode, selectedCards, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, density, groups, groupOrder, groupBy, collapsedGroups, onToggleGroup }) {
   const minW = DENSITY_MIN_WIDTH[density] || 160
-  const gridStyle = { gridTemplateColumns: `repeat(auto-fill, minmax(${minW}px, 1fr))` }
+  const isSmallScreen = typeof window !== 'undefined' && window.innerWidth <= MOBILE_GRID_BREAKPOINT
+  const mobileCols = MOBILE_DENSITY_COLS[density] || 2
+  const gridStyle = isSmallScreen
+    ? { gridTemplateColumns: `repeat(${mobileCols}, minmax(0, 1fr))` }
+    : { gridTemplateColumns: `repeat(auto-fill, minmax(${minW}px, 1fr))` }
 
   const renderCards = (cardList) => cardList.map(card => {
     const key = getDisplayKey(card)
