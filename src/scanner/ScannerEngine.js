@@ -10,14 +10,7 @@ import {
   ART_X as SHARED_ART_X,
   ART_Y as SHARED_ART_Y,
 } from './constants'
-import {
-  computeHashFromGray,
-  computeHashFromGrayDark,
-  computeHashFromGrayGlare,
-  hashToHex as _hashToHex,
-  preprocessArtTo32x32Gray,
-  preprocessArtTo32x32Sat,
-} from './hashCore'
+import { computeHashFromGray, computeHashFromGrayGlare, computeHashFromGrayDark, rgbToGray32x32, rgbToSaturation32x32, hashToHex as _hashToHex } from './hashCore'
 
 // ── Reusable scratch canvases (avoids per-frame createElement overhead) ───────
 let _cardCanvas = null, _cardCtx = null
@@ -375,93 +368,6 @@ export function cropArtRegion(cardImageData, { xOffset = 0, yOffset = 0, inset =
 }
 
 /**
- * Laplacian-variance sharpness score on a grayscale version of the frame.
- * Higher = sharper. Typical: >50 sharp, <20 blurry. Returns Infinity if
- * OpenCV isn't ready (fail-open — never block scans on a missing gate).
- */
-export function frameSharpness(imageData) {
-  if (!isOpenCVReady()) return Infinity
-  const cv = window.cv
-  const src = cv.matFromImageData(imageData)
-  const gray = new cv.Mat()
-  const lap = new cv.Mat()
-  const mean = new cv.Mat()
-  const stddev = new cv.Mat()
-  try {
-    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY)
-    cv.Laplacian(gray, lap, cv.CV_64F)
-    cv.meanStdDev(lap, mean, stddev)
-    const sd = stddev.doubleAt(0, 0)
-    return sd * sd
-  } catch {
-    return Infinity
-  } finally {
-    src.delete(); gray.delete(); lap.delete(); mean.delete(); stddev.delete()
-  }
-}
-
-/**
- * Rotate the four detected corner points 90° clockwise relative to the card
- * frame. Cheaper than rotating warped pixels: `warpCard` still produces an
- * upright 500×700 output, but the card is interpreted as if held landscape.
- *
- * Corners are [TL, TR, BR, BL]. Rotating the source frame 90° CW means what
- * was TL becomes TR, TR→BR, BR→BL, BL→TL — i.e. shift by one slot.
- */
-export function rotateCornersCW(pts) {
-  if (!pts || pts.length !== 4) return null
-  return [pts[3], pts[0], pts[1], pts[2]]
-}
-
-/** Counter-clockwise counterpart of rotateCornersCW. */
-export function rotateCornersCCW(pts) {
-  if (!pts || pts.length !== 4) return null
-  return [pts[1], pts[2], pts[3], pts[0]]
-}
-
-/**
- * Rotate an ImageData 90° clockwise. Output dimensions are (height × width).
- * Used for the reticle fallback where no corners exist — we can't pre-rotate
- * corner coordinates, so we rotate the warped pixels instead.
- */
-export function rotateCard90CW(imageData) {
-  const { width: w, height: h, data } = imageData
-  const out = new Uint8ClampedArray(data.length)
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const src = (y * w + x) * 4
-      const nx = h - 1 - y
-      const ny = x
-      const dst = (ny * h + nx) * 4
-      out[dst]     = data[src]
-      out[dst + 1] = data[src + 1]
-      out[dst + 2] = data[src + 2]
-      out[dst + 3] = data[src + 3]
-    }
-  }
-  return new ImageData(out, h, w)
-}
-
-/** Counter-clockwise counterpart of rotateCard90CW. */
-export function rotateCard90CCW(imageData) {
-  const { width: w, height: h, data } = imageData
-  const out = new Uint8ClampedArray(data.length)
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const src = (y * w + x) * 4
-      const nx = y
-      const ny = w - 1 - x
-      const dst = (ny * h + nx) * 4
-      out[dst]     = data[src]
-      out[dst + 1] = data[src + 1]
-      out[dst + 2] = data[src + 2]
-      out[dst + 3] = data[src + 3]
-    }
-  }
-  return new ImageData(out, h, w)
-}
-
-/**
  * Rotate an ImageData 180° in pure JS (no OpenCV needed).
  * Used as a fallback for upside-down cards.
  */
@@ -480,47 +386,86 @@ export function rotateCard180(imageData) {
   return new ImageData(out, width, height)
 }
 
-/** Hashes the entire warped card. Used for borderless / full-art / token cards. */
-export function computeFullCardHash(warpedCardImageData) {
-  const gray = preprocessArtTo32x32Gray(
-    warpedCardImageData.data,
-    warpedCardImageData.width,
-    warpedCardImageData.height,
-    4
-  )
-  return computeHashFromGray(gray)
+/**
+ * Shared preprocessing: GaussianBlur + INTER_LANCZOS4 resize to 32×32.
+ * Returns the raw RGBA byte array (Uint8ClampedArray, length 4096).
+ * Called once per art crop; all four hash variants reuse the result,
+ * eliminating duplicate expensive OpenCV operations per fallback.
+ */
+function resizeArtTo32(artImageData) {
+  if (!isOpenCVReady()) throw new Error('OpenCV not ready')
+  const cv = window.cv
+  const src = cv.matFromImageData(artImageData)
+  if (!src || src.empty()) throw new Error('matFromImageData failed')
+  const blurred = new cv.Mat()
+  const resized = new cv.Mat()
+  try {
+    cv.GaussianBlur(src, blurred, new cv.Size(5, 5), 1.0)
+    cv.resize(blurred, resized, new cv.Size(32, 32), 0, 0, cv.INTER_LANCZOS4)
+    if (resized.empty()) throw new Error('resize to 32x32 failed')
+    const rgba = resized.data
+    if (!rgba || rgba.length < 4096) throw new Error(`resized.data invalid (len=${rgba?.length})`)
+    return rgba.slice()  // copy out before Mat is deleted
+  } finally {
+    src.delete()
+    blurred.delete()
+    resized.delete()
+  }
+}
+
+export function computePHash256(artImageData) {
+  const rgba = resizeArtTo32(artImageData)
+  return computeHashFromGray(rgbToGray32x32(rgba, 4))
 }
 
 /**
- * Compute all hash variants from a single art crop using the shared pure-JS
- * preprocess pipeline so the client and seed script stay bit-identical.
- *
- * luma   (hash)      - primary match
- * glare  (foilHash)  - aggressive percentileCap(0.92) for blown highlights
- * dark   (darkHash)  - linear floor-stretch for dim art; null when mean >= 110
- * color  (colorHash) - saturation channel; used for re-ranking ties
- * full   (fullHash)  - full-card hash for non-standard layouts
+ * Variant of computePHash256 with aggressive glare suppression (percentileCap 0.92).
+ * Used as a client-side fallback when the standard hash scores poorly on a given frame,
+ * typically caused by foil specular reflections. Does not affect stored DB hashes.
  */
-export function computeAllHashes(artImageData, warpedCard = null) {
-  const gray = preprocessArtTo32x32Gray(
-    artImageData.data,
-    artImageData.width,
-    artImageData.height,
-    4
-  )
+export function computePHash256Foil(artImageData) {
+  const rgba = resizeArtTo32(artImageData)
+  return computeHashFromGrayGlare(rgbToGray32x32(rgba, 4))
+}
+
+/**
+ * Variant of computePHash256 for dark art. Stretches the low dynamic range before hashing.
+ * Returns null when the art crop isn't dark (mean brightness ≥ 80) — caller skips in that case.
+ * Does not affect stored DB hashes — client-side fallback only.
+ */
+export function computePHash256Dark(artImageData) {
+  const rgba = resizeArtTo32(artImageData)
+  const gray = rgbToGray32x32(rgba, 4)
   const mean = gray.reduce((s, v) => s + v, 0) / gray.length
-  const sat = preprocessArtTo32x32Sat(
-    artImageData.data,
-    artImageData.width,
-    artImageData.height,
-    4
-  )
+  if (mean >= 80) return null  // not dark art — skip this fallback
+  return computeHashFromGrayDark(gray)
+}
+
+/**
+ * Compute a 256-bit perceptual hash of the HSV saturation channel of the art crop.
+ * Captures color identity independently of luminance — helps distinguish cards with
+ * similar art composition but different color palettes (e.g. land reprints).
+ * Stored as phash_hex2 in the DB; used client-side for combined-distance re-ranking.
+ */
+export function computePHash256Color(artImageData) {
+  const rgba = resizeArtTo32(artImageData)
+  return computeHashFromGray(rgbToSaturation32x32(rgba, 4))
+}
+
+/**
+ * Compute all four hash variants from a single art crop in one OpenCV pass.
+ * Returns { hash, foilHash, darkHash, colorHash } — caller uses whichever are non-null.
+ * Saves 3× blur+resize vs calling each function individually.
+ */
+export function computeAllHashes(artImageData) {
+  const rgba = resizeArtTo32(artImageData)
+  const gray = rgbToGray32x32(rgba, 4)
+  const mean = gray.reduce((s, v) => s + v, 0) / gray.length
   return {
     hash:      computeHashFromGray(gray),
     foilHash:  computeHashFromGrayGlare(gray),
-    darkHash:  mean < 110 ? computeHashFromGrayDark(gray) : null,
-    colorHash: computeHashFromGray(sat),
-    fullHash:  warpedCard ? computeFullCardHash(warpedCard) : null,
+    darkHash:  mean < 80 ? computeHashFromGrayDark(gray) : null,
+    colorHash: computeHashFromGray(rgbToSaturation32x32(rgba, 4)),
   }
 }
 

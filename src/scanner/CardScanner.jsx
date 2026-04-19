@@ -32,8 +32,6 @@ import {
   waitForOpenCV,
   detectCardCorners, warpCard, cropArtRegion, cropCardFromReticle,
   computeAllHashes, rotateCard180,
-  rotateCornersCW, rotateCornersCCW,
-  frameSharpness,
 } from './ScannerEngine'
 import { useAuth } from '../components/Auth'
 import { formatPriceMeta, getPriceWithMeta, sfGet } from '../lib/scryfall'
@@ -49,28 +47,15 @@ const MATCH_STRONG_SINGLE    = 108
 const AUTOSCAN_COOLDOWN_MATCH_MS = 1000
 const AUTOSCAN_COOLDOWN_MISS_MS  = 350
 const PRIMARY_CROP_VARIANTS = [
-  { xOffset:   0, yOffset:   0 },                // center (fast path)
-  { xOffset:   0, yOffset: -10 },
-  { xOffset:   0, yOffset:  10 },
-  { xOffset: -10, yOffset:   0 },
-  { xOffset:  10, yOffset:   0 },
-  { xOffset:   0, yOffset: -20 },
-  { xOffset:   0, yOffset:  20 },
-  { xOffset: -15, yOffset: -10 },
-  { xOffset:  15, yOffset: -10 },
-  { xOffset:   0, yOffset:   0, inset:  6 },
-  { xOffset:   0, yOffset:   0, inset: 12 },
+  { xOffset: 0, yOffset: 0 },
+  { xOffset: 0, yOffset: -10 },
+  { xOffset: 0, yOffset: 10 },
+  { xOffset: 0, yOffset: 0, inset: 6 },
 ]
 const FAST_PRIMARY_VARIANTS = [PRIMARY_CROP_VARIANTS[0]]
-const STABILITY_SAMPLES   = 5
+const STABILITY_SAMPLES   = 3
 const STABILITY_REQUIRED  = 2
-const SAMPLE_DELAY_MS     = 70
-// Laplacian-variance threshold — frames below this score are treated as blurry
-// (autofocus hunt, motion, out-of-plane). Skipped without counting against the
-// sample budget; see B2/B3 in scannerv5.md.
-const BLUR_THRESHOLD      = 25
-// Cap retries so a consistently-blurry viewfinder can't loop forever.
-const MAX_FRAME_ATTEMPTS  = STABILITY_SAMPLES * 2
+const SAMPLE_DELAY_MS     = 40
 const DEBUG               = false
 const NATIVE_CAPTURE_SETTLE_MS = 120
 const PENDING_KEY         = 'arcanevault_scan_basket'
@@ -315,22 +300,8 @@ async function batchSaveCards({ userId, cards, folderId, folderType }) {
 const normalizeName = (value = '') =>
   value.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim()
 
-function shouldAcceptMatch({ best, gap, stableCount, sameNameCluster = false, source = '' }) {
+function shouldAcceptMatch({ best, gap, stableCount, sameNameCluster = false }) {
   if (!best) return { accepted: false, reason: 'no best candidate' }
-  const isReticle = typeof source === 'string' && source.startsWith('reticle')
-
-  // Reticle-sourced matches require decisive confidence — the reticle zone can
-  // contain incidental objects that aren't the intended card.
-  if (isReticle) {
-    if (stableCount >= STABILITY_REQUIRED && sameNameCluster && best.distance <= MATCH_THRESHOLD)
-      return { accepted: true, reason: 'reticle stable same-name cluster' }
-    if (stableCount >= STABILITY_REQUIRED && best.distance <= MATCH_THRESHOLD && gap >= MATCH_MIN_GAP)
-      return { accepted: true, reason: 'reticle stable threshold match' }
-    if (stableCount >= 1 && best.distance <= MATCH_STRONG_SINGLE && gap >= MATCH_MIN_GAP)
-      return { accepted: true, reason: 'reticle single strong frame' }
-    return { accepted: false, reason: `reticle requires decisive confidence (d=${best.distance}, gap=${gap})` }
-  }
-
   if (stableCount >= STABILITY_REQUIRED && best.distance <= MATCH_THRESHOLD && gap >= MATCH_MIN_GAP)
     return { accepted: true, reason: 'stable threshold match' }
   if (stableCount >= STABILITY_REQUIRED && sameNameCluster && best.distance <= MATCH_THRESHOLD)
@@ -427,6 +398,7 @@ export default function CardScanner({ onMatch, onClose }) {
   const [cvReady, setCvReady]     = useState(false)
   const [dbReady, setDbReady]     = useState(false)
   const [preparing, setPreparing] = useState(true)
+  const [startupDismissed, setStartupDismissed] = useState(false)
   const [errorMsg, setErrorMsg]   = useState(null)
   const [scanning, setScanning]   = useState(false)
   const [scanResult, setScanResult] = useState(null)   // 'found' | 'notfound' | null
@@ -434,11 +406,10 @@ export default function CardScanner({ onMatch, onClose }) {
   const [cardCount, setCardCount] = useState(0)
   const [debugInfo, setDebugInfo] = useState(null)
   const [hashLoadInfo, setHashLoadInfo] = useState(databaseService.status)
-  const [lastSyncTs, setLastSyncTs] = useState(null)
-  const [manualSyncing, setManualSyncing] = useState(false)
   const [flashModes, setFlashModes] = useState([])
   const [flashMode, setFlashMode]   = useState('off')
   const [cameraStarted, setCameraStarted] = useState(false)
+  const [cameraRestartTick, setCameraRestartTick] = useState(0)
   const [setIcons, setSetIcons] = useState(() => loadSetIconCache())
   const [latestPrintingData, setLatestPrintingData] = useState(null)
   const [latestLanguageOptions, setLatestLanguageOptions] = useState([['en', 'EN']])
@@ -523,13 +494,16 @@ export default function CardScanner({ onMatch, onClose }) {
   const [setPickerSearch, setSetPickerSearch] = useState('')
 
   const isReady = cvReady && dbReady && cameraStarted
-  const anyOverlayOpen = basketExpanded || addFlowOpen || manualSearchOpen || settingsOpen || setPickerOpen || printingPickerFor !== null
   const availableFlashModes = flashModes.includes('torch')
     ? flashModes.filter(m => m === 'off' || m === 'torch')
     : flashModes
   const flashSupported = availableFlashModes.includes('torch') || availableFlashModes.includes('on')
   const flashEnabled = flashMode === 'torch' || flashMode === 'on'
   const hashProgressVisible = !!hashLoadInfo && hashLoadInfo.phase !== 'idle' && hashLoadInfo.phase !== 'ready'
+  const hashesReady = !!hashLoadInfo && hashLoadInfo.phase === 'ready' && cardCount > 0
+  const startupCanContinue = hashesReady && cvReady && cameraStarted && !errorMsg
+  const showStartupModal = !startupDismissed
+  const anyOverlayOpen = showStartupModal || basketExpanded || addFlowOpen || manualSearchOpen || settingsOpen || setPickerOpen || printingPickerFor !== null
 
   // Persist basket to localStorage whenever it changes
   useEffect(() => { savePending(pendingCards) }, [pendingCards])
@@ -691,25 +665,7 @@ export default function CardScanner({ onMatch, onClose }) {
           setCardCount(databaseService.cardCount)
           setHashLoadInfo(databaseService.status)
           if (databaseService.cardCount > 0) setDbReady(true)
-        } else {
-          // Background update check — non-blocking. If remote has more hashes
-          // than local, fire a sync without gating scanner readiness on it.
-          databaseService.checkForUpdates().then(({ hasUpdates, delta }) => {
-            if (!hasUpdates || !mountedRef.current) return
-            console.info(`[scanner] remote DB has ${delta} new hashes — syncing in background`)
-            databaseService.sync(status => {
-              if (!mountedRef.current) return
-              setHashLoadInfo(status)
-              setCardCount(status.loadedCount ?? 0)
-            }).then(() => {
-              if (!mountedRef.current) return
-              setCardCount(databaseService.cardCount)
-              databaseService.getLastSyncTs().then(ts => mountedRef.current && setLastSyncTs(ts))
-            }).catch(() => {})
-          })
         }
-
-        databaseService.getLastSyncTs().then(ts => mountedRef.current && setLastSyncTs(ts))
 
         await cvPromise
         if (!mountedRef.current) return
@@ -776,7 +732,7 @@ export default function CardScanner({ onMatch, onClose }) {
       if (isNative) CameraPreview.stop().catch(() => {})
       else videoRef.current?.srcObject?.getTracks().forEach(t => t.stop())
     }
-  }, [isNative])
+  }, [cameraRestartTick, isNative])
 
   useEffect(() => {
     if (!cameraStarted) return
@@ -1187,19 +1143,11 @@ export default function CardScanner({ onMatch, onClose }) {
     }
   }, [isNative])
 
-  const scanSingleFrame = useCallback(async () => {
+  const scanSingleFrame = useCallback(async ({ cornersOnly = false } = {}) => {
     const frame = await captureFrame()
     if (!frame) return { status: 'error', stage: 'no frame', best: null, second: null, candidateCount: 0, totalCount: 0 }
 
     const { imageData, srcCanvas, w, h, smallImageData, sw, sh } = frame
-
-    // Blur gate: skip blurry frames before expensive OpenCV/hash work. Uses the
-    // small frame (half-res) to keep the gate itself cheap (~1–2ms).
-    const sharpness = frameSharpness(smallImageData)
-    if (sharpness < BLUR_THRESHOLD) {
-      return { status: 'blurry', stage: `sharpness ${sharpness.toFixed(0)}`, best: null, second: null, candidateCount: 0, totalCount: databaseService.cardCount, sharpness }
-    }
-
     // Corner detection runs on the pre-downscaled (sw×sh) frame — cheaper matFromImageData,
     // cheaper cvtColor, no OpenCV resize. Scale corners back to full-res coords for warpCard.
     const cornersSmall = detectCardCorners(smallImageData, sw, sh)
@@ -1210,49 +1158,41 @@ export default function CardScanner({ onMatch, onClose }) {
     let bestStats = { candidateCount: 0, totalCount: databaseService.cardCount }
     let bestVariant = null, bestSource = corners ? 'corners' : 'no corners'
     let bestGap = 0
-    // Hash bundle of the best-scoring variant so far - reused by the full-scan
-    // fallback to avoid recomputing when LSH drops the correct card.
-    let bestHashForFullScan = null
 
-    const updateBest = (candidate, runnerUp, candidateCount, totalCount, variant, sourceLabel, queryHashes = null) => {
+    const updateBest = (candidate, runnerUp, candidateCount, totalCount, variant, sourceLabel) => {
       if (!candidate) return false
-      const gap = runnerUp ? runnerUp.distance - candidate.distance : ((candidate?.hash?.length ?? 12) * 32)
+      const gap = runnerUp ? runnerUp.distance - candidate.distance : 256
       if (!best || candidate.distance < best.distance) {
         best = candidate; second = runnerUp
         bestStats = { candidateCount, totalCount }
         bestVariant = variant; bestSource = sourceLabel; bestGap = gap
-        if (queryHashes?.hash) bestHashForFullScan = queryHashes
       }
       return isDecisiveCandidate(best, bestGap)
     }
 
     const shouldExpand = () => !best || best.distance > MATCH_THRESHOLD || bestGap < MATCH_MIN_GAP
 
-    const tryMatch = (cardImg, warpedForFull, sourceLabel, variants) => {
+    const tryMatch = (cardImg, sourceLabel, variants) => {
       for (const variant of variants) {
         const artCrop = cropArtRegion(cardImg, variant)
         if (!artCrop) continue
         // Single blur+resize pass produces all four hash variants including colorHash.
         let hashes
-        try { hashes = computeAllHashes(artCrop, warpedForFull) } catch { continue }
-        const { hash, foilHash, darkHash, colorHash, fullHash } = hashes
+        try { hashes = computeAllHashes(artCrop) } catch { continue }
+        const { hash, foilHash, darkHash, colorHash } = hashes
         if (!hash) continue
-        const queryHashes = { hash, colorHash: colorHash ?? null, fullHash: fullHash ?? null }
-        const { best: c, second: r, candidateCount, totalCount } =
-          databaseService.findBestTwoWithStats(hash, colorHash ?? null, fullHash ?? null)
-        if (updateBest(c, r, candidateCount, totalCount, variant, sourceLabel, queryHashes)) return
+        const { best: c, second: r, candidateCount, totalCount } = databaseService.findBestTwoWithStats(hash, colorHash ?? null)
+        if (updateBest(c, r, candidateCount, totalCount, variant, sourceLabel)) return
         if (c && c.distance > MATCH_THRESHOLD) {
           // Foil fallback: aggressive glare suppression for blown highlights.
           if (foilHash) {
-            const foilQueryHashes = { hash: foilHash, colorHash: colorHash ?? null, fullHash: fullHash ?? null }
-            const foilStats = databaseService.findBestTwoWithStats(foilHash, colorHash ?? null, fullHash ?? null)
-            if (updateBest(foilStats.best, foilStats.second, foilStats.candidateCount, foilStats.totalCount, variant, `${sourceLabel}+foil`, foilQueryHashes)) return
+            const foilStats = databaseService.findBestTwoWithStats(foilHash, colorHash)
+            if (updateBest(foilStats.best, foilStats.second, foilStats.candidateCount, foilStats.totalCount, variant, `${sourceLabel}+foil`)) return
           }
-          // Dark art fallback: null when mean brightness ≥ cutoff (not dark art — skipped).
+          // Dark art fallback: null when mean brightness ≥ 80 (not dark art — skipped).
           if (darkHash) {
-            const darkQueryHashes = { hash: darkHash, colorHash: colorHash ?? null, fullHash: fullHash ?? null }
-            const darkStats = databaseService.findBestTwoWithStats(darkHash, colorHash ?? null, fullHash ?? null)
-            if (updateBest(darkStats.best, darkStats.second, darkStats.candidateCount, darkStats.totalCount, variant, `${sourceLabel}+dark`, darkQueryHashes)) return
+            const darkStats = databaseService.findBestTwoWithStats(darkHash, colorHash)
+            if (updateBest(darkStats.best, darkStats.second, darkStats.candidateCount, darkStats.totalCount, variant, `${sourceLabel}+dark`)) return
           }
         }
       }
@@ -1261,60 +1201,36 @@ export default function CardScanner({ onMatch, onClose }) {
     if (corners) {
       const warped = warpCard(imageData, corners)
       if (warped) {
-        tryMatch(warped, warped, 'corners', FAST_PRIMARY_VARIANTS)
-        if (shouldExpand()) tryMatch(warped, warped, 'corners', PRIMARY_CROP_VARIANTS.slice(1))
+        tryMatch(warped, 'corners', FAST_PRIMARY_VARIANTS)
+        if (shouldExpand()) tryMatch(warped, 'corners', PRIMARY_CROP_VARIANTS.slice(1))
         // 180° rotation fallback — cards held upside-down on a table are common.
         // Only runs when the upright pass didn't produce a decisive match.
         if (shouldExpand()) {
           const warped180 = rotateCard180(warped)
-          tryMatch(warped180, warped180, 'corners+rot180', FAST_PRIMARY_VARIANTS)
-          if (shouldExpand()) tryMatch(warped180, warped180, 'corners+rot180', PRIMARY_CROP_VARIANTS.slice(1))
-        }
-        // 90° / 270° rotation fallbacks — cards held sideways (tokens, split cards).
-        // Rotate the source corners (cheap) instead of warped pixels; warpCard then
-        // produces an upright 500×700 output regardless of physical orientation.
-        if (shouldExpand()) {
-          for (const [rotFn, label] of [[rotateCornersCW, 'corners+rot90'], [rotateCornersCCW, 'corners+rot270']]) {
-            if (!shouldExpand()) break
-            const rotated = rotFn(corners)
-            if (!rotated) continue
-            const warpedRot = warpCard(imageData, rotated)
-            if (!warpedRot) continue
-            tryMatch(warpedRot, warpedRot, label, FAST_PRIMARY_VARIANTS)
-            if (shouldExpand()) tryMatch(warpedRot, warpedRot, label, PRIMARY_CROP_VARIANTS.slice(1))
-          }
+          tryMatch(warped180, 'corners+rot180', FAST_PRIMARY_VARIANTS)
+          if (shouldExpand()) tryMatch(warped180, 'corners+rot180', PRIMARY_CROP_VARIANTS.slice(1))
         }
       }
     }
-    // Reticle fallback: blind-crop the center of the frame. Runs whenever the
-    // corners branch doesn't produce a decisive match. Reticle-sourced matches
-    // are gated by a stricter acceptance rule in `shouldAcceptMatch` to prevent
-    // false positives from incidental objects in the reticle zone.
-    if (shouldExpand()) {
+    // Reticle fallback: blind-crop the center of the frame. Useful for manual scan
+    // when edge detection misses the card, but disabled in auto-scan (cornersOnly) to
+    // prevent false positives from incidental objects in the reticle zone.
+    if (!cornersOnly && shouldExpand()) {
       const reticle = cropCardFromReticle(srcCanvas ?? imageData, w, h, window.innerWidth, window.innerHeight)
       if (reticle) {
-        tryMatch(reticle, reticle, 'reticle', FAST_PRIMARY_VARIANTS)
-        if (shouldExpand()) tryMatch(reticle, reticle, 'reticle', PRIMARY_CROP_VARIANTS.slice(1))
+        tryMatch(reticle, 'reticle', FAST_PRIMARY_VARIANTS)
+        if (shouldExpand()) tryMatch(reticle, 'reticle', PRIMARY_CROP_VARIANTS.slice(1))
         if (shouldExpand()) {
           const reticle180 = rotateCard180(reticle)
-          tryMatch(reticle180, reticle180, 'reticle+rot180', FAST_PRIMARY_VARIANTS)
-          if (shouldExpand()) tryMatch(reticle180, reticle180, 'reticle+rot180', PRIMARY_CROP_VARIANTS.slice(1))
+          tryMatch(reticle180, 'reticle+rot180', FAST_PRIMARY_VARIANTS)
+          if (shouldExpand()) tryMatch(reticle180, 'reticle+rot180', PRIMARY_CROP_VARIANTS.slice(1))
         }
       }
-    }
-
-    // Last-resort linear scan: if every crop/rotation/reticle pass failed to
-    // find a match within MATCH_THRESHOLD, the LSH band index may have dropped
-    // the correct card (requires ≥2 band hits). Re-query without the index.
-    if (bestHashForFullScan && (!best || best.distance > MATCH_THRESHOLD)) {
-      const { best: fb, second: fs, candidateCount, totalCount } =
-        databaseService.findBestTwoFullScan(bestHashForFullScan.hash, bestHashForFullScan.colorHash, bestHashForFullScan.fullHash)
-      updateBest(fb, fs, candidateCount, totalCount, bestVariant, `${bestSource}+fullscan`)
     }
 
     if (!best) return { status: 'notfound', stage: 'no candidate', best: null, second: null, candidateCount: bestStats.candidateCount, totalCount: bestStats.totalCount, source: bestSource }
 
-    const gap = second ? second.distance - best.distance : ((best?.hash?.length ?? 12) * 32)
+    const gap = second ? second.distance - best.distance : 256
     const sameNameCluster = !!(best?.name && second?.name && normalizeName(best.name) === normalizeName(second.name))
     return {
       status: best.distance <= MATCH_THRESHOLD && (gap >= MATCH_MIN_GAP || sameNameCluster) ? 'found' : 'notfound',
@@ -1339,23 +1255,12 @@ export default function CardScanner({ onMatch, onClose }) {
       const frameSummaries = []
       const isAutoScan = autoScanRef.current
 
-      // Blurry frames don't count toward the sample budget. Cap total attempts
-      // at MAX_FRAME_ATTEMPTS so a perpetually-blurry viewfinder can't spin.
-      let validSamples = 0
-      for (let attempt = 0; attempt < MAX_FRAME_ATTEMPTS && validSamples < STABILITY_SAMPLES; attempt++) {
-        const result = await scanSingleFrame()
-        if (result.status === 'blurry') {
-          frameSummaries.push(`${attempt+1}:blurry(${result.sharpness?.toFixed?.(0) ?? '?'})`)
-          if (attempt < MAX_FRAME_ATTEMPTS - 1) await sleep(SAMPLE_DELAY_MS)
-          continue
-        }
-        validSamples++
-        frameSummaries.push(result.best ? `${validSamples}:${result.best.distance}/${result.gap??'?'}` : `${validSamples}:${result.stage}`)
+      for (let i = 0; i < STABILITY_SAMPLES; i++) {
+        const result = await scanSingleFrame({ cornersOnly: isAutoScan })
+        frameSummaries.push(result.best ? `${i+1}:${result.best.distance}/${result.gap??'?'}` : `${i+1}:${result.stage}`)
         if (result.best && (!bestObserved || result.best.distance < bestObserved.distance)) {
           bestObserved = result.best
-          bestObservedGap = result.second
-            ? result.second.distance - result.best.distance
-            : ((result.best?.hash?.length ?? 12) * 32)
+          bestObservedGap = result.second ? result.second.distance - result.best.distance : 256
           bestObservedCandidates = result.candidateCount
           bestObservedVariant = result.variant
           bestObservedSource = result.source
@@ -1371,7 +1276,7 @@ export default function CardScanner({ onMatch, onClose }) {
         const stableVote = getStableVote(votes)
         if (stableVote?.count >= STABILITY_REQUIRED) break
         if (isDecisiveCandidate(result.best, result.gap ?? 0)) break
-        if (validSamples < STABILITY_SAMPLES && attempt < MAX_FRAME_ATTEMPTS - 1) await sleep(SAMPLE_DELAY_MS)
+        if (i < STABILITY_SAMPLES - 1) await sleep(SAMPLE_DELAY_MS)
       }
 
       const stableVote = getStableVote(votes)
@@ -1380,7 +1285,6 @@ export default function CardScanner({ onMatch, onClose }) {
         gap: bestObservedGap ?? 0,
         stableCount: stableVote?.count ?? 0,
         sameNameCluster: bestObservedSameNameCluster,
-        source: bestObservedSource ?? '',
       })
       const match = acceptance.accepted ? (stableVote?.best ?? bestObserved) : null
 
@@ -1509,26 +1413,6 @@ export default function CardScanner({ onMatch, onClose }) {
     }
   }, null)
 
-  const handleManualSync = useCallback(async () => {
-    if (manualSyncing || databaseService.isSyncing) return
-    setManualSyncing(true)
-    try {
-      await databaseService.sync(status => {
-        if (!mountedRef.current) return
-        setHashLoadInfo(status)
-        setCardCount(status.loadedCount ?? 0)
-      })
-      if (!mountedRef.current) return
-      setCardCount(databaseService.cardCount)
-      const ts = await databaseService.getLastSyncTs()
-      if (mountedRef.current) setLastSyncTs(ts)
-    } catch (e) {
-      console.warn('[scanner] manual sync failed:', e?.message ?? e)
-    } finally {
-      if (mountedRef.current) setManualSyncing(false)
-    }
-  }, [manualSyncing])
-
   const handleClose = useCallback(() => {
     if (closing) return
     setClosing(true)
@@ -1538,6 +1422,33 @@ export default function CardScanner({ onMatch, onClose }) {
   }, [closing, onClose])
 
   const CORNER_ROTATIONS = [0, 90, 180, 270]
+  const startupPhaseTitle = errorMsg
+    ? 'Scanner startup failed'
+    : ({
+        connecting: 'Checking local cache',
+        'checking cache': 'Checking local cache',
+        'downloading hashes': 'Downloading card fingerprints',
+        'loading hashes': 'Downloading card fingerprints',
+        'building index': 'Preparing the search index',
+        finalizing: 'Finalizing scanner data',
+        ready: !cvReady ? 'Loading vision engine' : (!cameraStarted ? 'Starting camera' : 'Scanner ready'),
+      }[hashLoadInfo?.phase] ?? (preparing ? 'Preparing scanner' : 'Scanner ready'))
+
+  const startupPhaseBody = errorMsg
+    ? errorMsg
+    : ({
+        connecting: 'ArcaneVault is checking whether this device already has the card fingerprint database cached locally.',
+        'checking cache': 'ArcaneVault is checking whether this device already has the card fingerprint database cached locally.',
+        'downloading hashes': 'First load on a device can take a while because the scanner downloads the card fingerprint database before it can match cards reliably.',
+        'loading hashes': 'ArcaneVault is loading the downloaded fingerprint database into memory so scans can stay fast once startup completes.',
+        'building index': 'The scanner is building its local search index so card lookups are accurate and responsive.',
+        finalizing: 'Finishing the last setup steps and saving the cache for later launches.',
+        ready: !cvReady
+          ? 'The card database is ready. The scanner is now loading the vision engine.'
+          : (!cameraStarted
+            ? 'The card database is ready. The scanner is starting the camera feed.'
+            : 'Everything is ready. Continue to open the live scanner.'),
+      }[hashLoadInfo?.phase] ?? 'Preparing the scanner environment.')
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -1556,27 +1467,6 @@ export default function CardScanner({ onMatch, onClose }) {
           <div className={styles.statusRow}>
             {errorMsg && (
               <div className={styles.statusPill}>Error: {errorMsg}</div>
-            )}
-            {!errorMsg && hashProgressVisible && (
-              <div className={styles.loadingPill}>
-                <span>
-                  {({
-                    'connecting':          'Connecting…',
-                    'checking cache':      'Connecting…',
-                    'downloading hashes':  'Loading database',
-                    'loading hashes':      'Loading database',
-                    'building index':      'Building index',
-                    'finalizing':          'Finalizing',
-                  }[hashLoadInfo?.phase] ?? 'Loading…')}
-                  {hashLoadInfo?.totalCount ? ` ${(hashLoadInfo.loadedCount ?? 0).toLocaleString()}/${hashLoadInfo.totalCount.toLocaleString()}` : ''}
-                </span>
-                <div className={styles.loadingPillBar}>
-                  <div className={styles.loadingPillFill} style={{ width: `${hashLoadInfo?.progress ?? 0}%` }} />
-                </div>
-              </div>
-            )}
-            {!errorMsg && !hashProgressVisible && preparing && (
-              <div className={styles.loadingPill}>Starting…</div>
             )}
           </div>
           <div className={styles.controlMenu}>
@@ -1639,6 +1529,67 @@ export default function CardScanner({ onMatch, onClose }) {
           </div>
         </div>
 
+        {showStartupModal && (
+          <div className={styles.startupModal} role="dialog" aria-modal="true" aria-labelledby="scanner-startup-title">
+            <div className={styles.startupCard}>
+              <div className={styles.startupEyebrow}>Card Scanner Setup</div>
+              <h1 id="scanner-startup-title" className={styles.startupTitle}>Preparing the scanner</h1>
+              <p className={styles.startupIntro}>
+                First load on a device can take a while because ArcaneVault downloads and caches the card fingerprint database before scanning begins.
+              </p>
+
+              <div className={styles.startupProgressBlock}>
+                <div className={styles.startupProgressHeader}>
+                  <span className={styles.startupProgressTitle}>{startupPhaseTitle}</span>
+                  <span className={styles.startupProgressMeta}>
+                    {hashLoadInfo?.totalCount
+                      ? `${(hashLoadInfo.loadedCount ?? 0).toLocaleString()} / ${hashLoadInfo.totalCount.toLocaleString()}`
+                      : (startupCanContinue ? 'Ready' : 'Starting')}
+                  </span>
+                </div>
+                <div className={styles.startupProgressBar}>
+                  <div className={styles.startupProgressFill} style={{ width: `${startupCanContinue ? 100 : (hashLoadInfo?.progress ?? 0)}%` }} />
+                </div>
+                <p className={styles.startupPhaseBody}>{startupPhaseBody}</p>
+              </div>
+
+              <div className={styles.startupChecklist}>
+                <div className={styles.startupStep}>
+                  <span className={`${styles.startupStepDot} ${(hashLoadInfo?.phase === 'connecting' || hashLoadInfo?.phase === 'checking cache' || hashesReady) ? styles.startupStepDotDone : ''}`}>1</span>
+                  <div>
+                    <div className={styles.startupStepTitle}>Check local cache</div>
+                    <div className={styles.startupStepBody}>Reuse any hashes already stored on this device before downloading more.</div>
+                  </div>
+                </div>
+                <div className={styles.startupStep}>
+                  <span className={`${styles.startupStepDot} ${(hashProgressVisible || hashesReady) ? styles.startupStepDotDone : ''}`}>2</span>
+                  <div>
+                    <div className={styles.startupStepTitle}>Load card fingerprints</div>
+                    <div className={styles.startupStepBody}>Download and prepare the card fingerprint database used for card matching.</div>
+                  </div>
+                </div>
+                <div className={styles.startupStep}>
+                  <span className={`${styles.startupStepDot} ${(cvReady && cameraStarted) ? styles.startupStepDotDone : ''}`}>3</span>
+                  <div>
+                    <div className={styles.startupStepTitle}>Start camera and vision engine</div>
+                    <div className={styles.startupStepBody}>Finish loading OpenCV and start the live camera feed.</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className={styles.startupActions}>
+                <button
+                  className={styles.startupContinueBtn}
+                  onClick={() => setStartupDismissed(true)}
+                  disabled={!startupCanContinue}
+                >
+                  {startupCanContinue ? 'Continue to scanner' : 'Preparing scanner...'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Targeting reticle */}
         {pendingCards.length > 0 && (
           <div className={styles.scannedValueBadge}>
@@ -1674,7 +1625,7 @@ export default function CardScanner({ onMatch, onClose }) {
 
         {/* Status elements fixed at frame center — spinner, scan line, set lock badge */}
         <div className={styles.frameCenterContent}>
-          {preparing && !errorMsg && !hashProgressVisible && <div className={styles.preparingSpinner}>+</div>}
+          {preparing && !errorMsg && !hashProgressVisible && !showStartupModal && <div className={styles.preparingSpinner}>+</div>}
           {scanning && <div className={styles.pausedLabel}>Scanning...</div>}
           {lockSet && lockedSets.size > 0 && (
             <div className={styles.lockedSetBadge}>
@@ -2176,23 +2127,6 @@ export default function CardScanner({ onMatch, onClose }) {
 
           <div className={styles.settingsRow}>
             <div className={styles.settingsRowLabel}>
-              <span className={styles.settingsRowTitle}>Card database</span>
-              <span className={styles.settingsRowDesc}>
-                {cardCount.toLocaleString()} cards loaded
-                {lastSyncTs ? ` · Last synced ${new Date(lastSyncTs).toLocaleString()}` : ''}
-              </span>
-            </div>
-            <button
-              className={styles.settingsInlineBtn}
-              onClick={handleManualSync}
-              disabled={manualSyncing || databaseService.isSyncing}
-            >
-              {manualSyncing || databaseService.isSyncing ? 'Syncing…' : 'Refresh'}
-            </button>
-          </div>
-
-          <div className={styles.settingsRow}>
-            <div className={styles.settingsRowLabel}>
               <span className={styles.settingsRowTitle}>Prefer foils</span>
               <span className={styles.settingsRowDesc}>Scanned cards are pre-selected as foil when available</span>
             </div>
@@ -2356,3 +2290,4 @@ export default function CardScanner({ onMatch, onClose }) {
     </div>
   )
 }
+

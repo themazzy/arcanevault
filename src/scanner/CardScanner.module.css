@@ -66,6 +66,162 @@
   );
 }
 
+.startupModal {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(24px + env(safe-area-inset-top, 0px)) 20px calc(24px + env(safe-area-inset-bottom, 0px));
+  background:
+    radial-gradient(circle at top, rgba(201,168,76,0.16), transparent 38%),
+    linear-gradient(180deg, rgba(7,10,16,0.96) 0%, rgba(7,10,16,0.985) 100%);
+  backdrop-filter: blur(18px);
+}
+
+.startupCard {
+  width: min(560px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 24px;
+  border-radius: 24px;
+  border: 1px solid var(--s-border2, rgba(255,255,255,0.14));
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02)),
+    rgba(8,11,18,0.92);
+  box-shadow: 0 24px 80px rgba(0,0,0,0.45);
+}
+
+.startupEyebrow {
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+.startupTitle {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(1.8rem, 4vw, 2.4rem);
+  line-height: 1.05;
+  color: #fff;
+}
+
+.startupIntro,
+.startupPhaseBody,
+.startupStepBody {
+  margin: 0;
+  color: rgba(255,255,255,0.74);
+  line-height: 1.55;
+}
+
+.startupProgressBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: rgba(255,255,255,0.035);
+  border: 1px solid var(--s-border, rgba(255,255,255,0.1));
+}
+
+.startupProgressHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.startupProgressTitle,
+.startupProgressMeta,
+.startupStepTitle {
+  color: #fff;
+  font-weight: 700;
+}
+
+.startupProgressMeta {
+  font-size: 0.9rem;
+  color: rgba(255,255,255,0.82);
+  white-space: nowrap;
+}
+
+.startupProgressBar {
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255,255,255,0.08);
+}
+
+.startupProgressFill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(201,168,76,0.95), rgba(93,186,112,0.95));
+  transition: width 0.3s ease;
+}
+
+.startupChecklist {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.startupStep {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.startupStepDot {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 0.86rem;
+  color: rgba(255,255,255,0.75);
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.04);
+}
+
+.startupStepDotDone {
+  color: #101611;
+  border-color: rgba(93,186,112,0.95);
+  background: rgba(93,186,112,0.95);
+}
+
+.startupActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.startupContinueBtn {
+  min-width: 220px;
+  border: 0;
+  border-radius: 14px;
+  padding: 13px 18px;
+  font-family: var(--font-display);
+  font-size: 0.92rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #161109;
+  background: linear-gradient(180deg, #e1c06d 0%, #c9a84c 100%);
+  box-shadow: 0 10px 30px rgba(201,168,76,0.26);
+}
+
+.startupContinueBtn:disabled {
+  cursor: default;
+  color: rgba(255,255,255,0.6);
+  background: rgba(255,255,255,0.1);
+  box-shadow: none;
+}
+
 /* ── Top bar — close button always top-right; status pill only when needed ── */
 @keyframes scannerShellIn {
   from {
