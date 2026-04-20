@@ -1276,7 +1276,6 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
   return (
     <Modal onClose={onClose} allowOverflow={false}>
       <div className={styles.detailShell}>
-        {img && <div className={styles.detailArtBleed} style={{ backgroundImage: `url(${img})` }} aria-hidden="true" />}
         <div className={styles.detailHero}>
           <div className={styles.detailArtCol}>
             <div className={styles.detailArtWrap}>
