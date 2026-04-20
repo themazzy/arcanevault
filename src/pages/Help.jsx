@@ -4,7 +4,7 @@ import styles from './Help.module.css'
 
 const TOC = [
   { id: 'faq', label: 'Common Questions' },
-  { id: 'overview', label: 'What ArcaneVault Is For' },
+  { id: 'overview', label: 'What UntapHub Is For' },
   { id: 'home', label: 'Home Screen' },
   { id: 'collection-model', label: 'Collection, Binders, Decks, and Wishlists' },
   { id: 'scanner', label: 'Scanner' },
@@ -35,7 +35,7 @@ const FAQS = [
   },
   {
     q: 'Why do my cards show up on one device before another?',
-    a: 'ArcaneVault may open from saved local data first and then refresh in the background. If you want an immediate recheck, use manual sync in Settings.',
+    a: 'UntapHub may open from saved local data first and then refresh in the background. If you want an immediate recheck, use manual sync in Settings.',
   },
   {
     q: 'Why is the scanner missing a card?',
@@ -98,8 +98,8 @@ export default function HelpPage() {
 
       <div className={styles.hero}>
         <div className={styles.heroCopy}>
-          <span className={styles.eyebrow}>ArcaneVault Guide</span>
-          <h1 className={styles.title}>A full guide to using ArcaneVault</h1>
+          <span className={styles.eyebrow}>UntapHub Guide</span>
+          <h1 className={styles.title}>A full guide to using UntapHub</h1>
           <p className={styles.lead}>
             This page explains how the app is organized, how to add and manage cards, how
             deck planning differs from owned decks, how wishlists stay separate from your
@@ -126,9 +126,9 @@ export default function HelpPage() {
 
       <div className={styles.content}>
         <section id="overview" className={styles.section}>
-          <h2>What ArcaneVault Is For</h2>
+          <h2>What UntapHub Is For</h2>
           <p>
-            ArcaneVault is a Magic: The Gathering collection app built around four main jobs:
+            UntapHub is a Magic: The Gathering collection app built around four main jobs:
             keeping track of the cards you own, organizing those cards into useful groups,
             planning decks, and helping you during games.
           </p>
@@ -190,7 +190,7 @@ export default function HelpPage() {
           </div>
 
           <Callout kind="note" title="The most important ownership rule">
-            ArcaneVault treats your owned collection and your wanted cards as different things.
+            UntapHub treats your owned collection and your wanted cards as different things.
             If a card is on a Wishlist, that does not mean you own it. If a card is in Deckbuilder,
             that does not automatically mean it belongs to a real owned deck yet.
           </Callout>
@@ -244,7 +244,7 @@ export default function HelpPage() {
         <section id="collection-model" className={styles.section}>
           <h2>Collection, Binders, Decks, and Wishlists</h2>
           <p>
-            This is the part of ArcaneVault that matters most for keeping your data accurate.
+            This is the part of UntapHub that matters most for keeping your data accurate.
             Your collection is not just every card name you have touched anywhere in the app.
             It represents the cards you own and have placed into your actual collection spaces.
           </p>
@@ -373,7 +373,7 @@ export default function HelpPage() {
             <article className={styles.infoCard}>
               <h3>Quantity behavior</h3>
               <p>
-                When you have multiple copies of a card, ArcaneVault lets you work with some
+                When you have multiple copies of a card, UntapHub lets you work with some
                 copies without always selecting every copy. That makes partial moves and cleanup
                 much easier.
               </p>
@@ -391,7 +391,7 @@ export default function HelpPage() {
         <section id="binders" className={styles.section}>
           <h2>Binders</h2>
           <p>
-            Binders are one of the strongest organizing tools in ArcaneVault. They let you
+            Binders are one of the strongest organizing tools in UntapHub. They let you
             structure owned cards in a way that matches how you think about your collection
             in real life.
           </p>
@@ -412,7 +412,7 @@ export default function HelpPage() {
               <h3>Why Binders matter</h3>
               <p>
                 They keep your collection understandable. If your physical storage already has
-                a structure, matching that structure in ArcaneVault makes the app more useful
+                a structure, matching that structure in UntapHub makes the app more useful
                 every single day.
               </p>
             </article>
@@ -436,7 +436,7 @@ export default function HelpPage() {
           <h2>Decks</h2>
           <p>
             Decks are for decks you actually own. Once a planned list becomes real and you want
-            ArcaneVault to treat it as an owned deck in your collection, this is where it belongs.
+            UntapHub to treat it as an owned deck in your collection, this is where it belongs.
           </p>
           <p>
             A Deck is useful for more than just storing cards together. It also lets you review
@@ -556,7 +556,7 @@ export default function HelpPage() {
         <section id="search-filters" className={styles.section}>
           <h2>Search, Filters, Sorting, and Views</h2>
           <p>
-            ArcaneVault includes strong browsing tools because large collections become hard to
+            UntapHub includes strong browsing tools because large collections become hard to
             use without them. Search, filters, sorting, grouping, and view modes work together
             to help you get to the cards you want quickly.
           </p>
@@ -592,7 +592,7 @@ export default function HelpPage() {
         <section id="imports" className={styles.section}>
           <h2>Imports and Linked Deck Sources</h2>
           <p>
-            ArcaneVault can help you bring lists in from outside sources so you do not have to
+            UntapHub can help you bring lists in from outside sources so you do not have to
             rebuild every deck by hand. This is especially useful when you already keep lists on
             external deck sites or when someone shares a list with you.
           </p>
@@ -627,7 +627,7 @@ export default function HelpPage() {
         <section id="stats-prices" className={styles.section}>
           <h2>Stats and Prices</h2>
           <p>
-            ArcaneVault is not only for storage. It also helps you understand your collection.
+            UntapHub is not only for storage. It also helps you understand your collection.
             Stats pages and value-aware views make it easier to review high-value cards, top decks,
             price changes, and how your collection is distributed.
           </p>
@@ -713,7 +713,7 @@ export default function HelpPage() {
           </div>
 
           <p>
-            If you use Decks in ArcaneVault, Life Tracker becomes even more useful because you can
+            If you use Decks in UntapHub, Life Tracker becomes even more useful because you can
             connect games to the decks you actually play. This is one of the best reasons to keep
             owned decks properly organized in the app.
           </p>
@@ -729,12 +729,12 @@ export default function HelpPage() {
         <section id="settings-sync" className={styles.section}>
           <h2>Settings and Sync</h2>
           <p>
-            Settings let you tailor ArcaneVault to how you play and browse. You can change
+            Settings let you tailor UntapHub to how you play and browse. You can change
             appearance options, value behavior, display density, motion and accessibility
             preferences, nickname and profile details, and sync behavior.
           </p>
           <p>
-            ArcaneVault is also designed to feel quick when it opens. Because of that, it may
+            UntapHub is also designed to feel quick when it opens. Because of that, it may
             show what it already has ready first and then quietly refresh in the background.
             That is normal. It is meant to help the app feel responsive instead of forcing you
             to wait every time you open a page.
@@ -764,7 +764,7 @@ export default function HelpPage() {
 
           <Callout kind="note" title="Why something can look delayed">
             The app may briefly show saved local data before it finishes catching up. That does not
-            usually mean anything is wrong. It means ArcaneVault is opening quickly and then refreshing.
+            usually mean anything is wrong. It means UntapHub is opening quickly and then refreshing.
           </Callout>
 
           <Callout kind="tip" title="Choose a price source early">

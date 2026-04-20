@@ -6,14 +6,14 @@ export default function PrivacyPage() {
   return (
     <div className={styles.page}>
       <SectionHeader title="Privacy Policy" />
-      <Link to="/" className={styles.backLink}>← Back to ArcaneVault</Link>
+      <Link to="/" className={styles.backLink}>← Back to UntapHub</Link>
 
       <div className={styles.hero}>
         <div className={styles.heroCard}>
           <div className={styles.eyebrow}>Privacy Policy</div>
-          <h1 className={styles.title}>How ArcaneVault handles your data</h1>
+          <h1 className={styles.title}>How UntapHub handles your data</h1>
           <p className={styles.lead}>
-            ArcaneVault stores the information needed to sync your collection, preserve your settings,
+            UntapHub stores the information needed to sync your collection, preserve your settings,
             and support optional features like feedback reports and public sharing links. The app is
             built to keep most reads local and use Supabase as the sync backend.
           </p>
@@ -34,7 +34,7 @@ export default function PrivacyPage() {
         <section className={styles.section}>
           <h2>Controller and privacy contact</h2>
           <p>
-            ArcaneVault is the app named in this policy and is the service these disclosures apply to.
+            UntapHub is the app named in this policy and is the service these disclosures apply to.
             At the current stage of the project, privacy and account-data requests can be submitted through
             the in-app feedback form or through the public <Link to="/delete-account" className={styles.inlineLink}>Delete Account</Link>{' '}
             page.
@@ -90,7 +90,7 @@ export default function PrivacyPage() {
         <section className={styles.section}>
           <h2>How the app stores data</h2>
           <p>
-            ArcaneVault is designed IDB-first. In practice, that means IndexedDB on your device is the
+            UntapHub is designed IDB-first. In practice, that means IndexedDB on your device is the
             main local store for collection reads, while Supabase is used as the account system and sync
             backend. Settings are also written to local storage immediately and then synced to Supabase.
           </p>

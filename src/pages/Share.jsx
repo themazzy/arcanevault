@@ -79,17 +79,17 @@ export default function SharePage() {
   // Unauthenticated: prompt sign-in instead of cryptic "not found"
   if (!user) return (
     <div className={styles.screen}>
-      <div className={styles.logo}>ARCANE<span>VAULT</span></div>
+      <div className={styles.logo}>UNTAP<span>HUB</span></div>
       <div className={styles.loginPrompt}>
         <p className={styles.loginMsg}>Sign in to view this shared collection.</p>
-        <a href="/login" className={styles.loginBtn}>Sign In to ArcaneVault</a>
+        <a href="/login" className={styles.loginBtn}>Sign In to UntapHub</a>
       </div>
     </div>
   )
 
   if (notFound) return (
     <div className={styles.screen}>
-      <div className={styles.logo}>ARCANE<span>VAULT</span></div>
+      <div className={styles.logo}>UNTAP<span>HUB</span></div>
       <EmptyState>This link is invalid or has been removed.</EmptyState>
     </div>
   )
@@ -101,7 +101,7 @@ export default function SharePage() {
   return (
     <div className={styles.screen}>
       <header className={styles.header}>
-        <div className={styles.logo}>ARCANE<span>VAULT</span></div>
+        <div className={styles.logo}>UNTAP<span>HUB</span></div>
         <div className={styles.folderInfo}>
           <div className={styles.folderName}>{folder?.name}</div>
           <div className={styles.folderType}>{folder?.type}</div>

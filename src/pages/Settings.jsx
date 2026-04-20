@@ -81,7 +81,7 @@ function ThemePicker({ value, onChange }) {
           >
             <div className={styles.swatchPreview} style={{ background: bg }}>
               <div className={styles.swatchNav} style={{ borderColor: `${accent}30` }}>
-                <div className={styles.swatchLogo} style={{ color: accent }}>AV</div>
+                <div className={styles.swatchLogo} style={{ color: accent }}>UH</div>
                 <div className={styles.swatchNavDots}>
                   <div className={styles.swatchDot} style={{ background: accent }} />
                   <div className={styles.swatchDot} style={{ background: `${hi}88` }} />
@@ -602,11 +602,11 @@ export default function SettingsPage() {
         <div className={styles.accountCard}>
           <div className={styles.accountEyebrow}>Signed in as</div>
           <div className={styles.accountEmail}>{maskEmailAddress(user?.email, true)}</div>
-          <div className={styles.accountSub}>This email is currently bound to your Arcane Vault sign-in.</div>
+          <div className={styles.accountSub}>This email is currently bound to your UntapHub sign-in.</div>
         </div>
         <SettingRow
           label="Change Email"
-          description="Send a confirmation email to switch your Arcane Vault login to a new address."
+          description="Send a confirmation email to switch your UntapHub login to a new address."
         >
           <div className={styles.pwForm}>
             <input
@@ -632,7 +632,7 @@ export default function SettingsPage() {
           {pwError && <div className={styles.pwError}>{pwError}</div>}
           {pwMsg && <div className={styles.pwMsg}>{pwMsg}</div>}
         </SettingRow>
-        <SettingRow label="Sign Out Everywhere" description="Ends this Arcane Vault session on all devices where you are currently signed in.">
+        <SettingRow label="Sign Out Everywhere" description="Ends this UntapHub session on all devices where you are currently signed in.">
           <Button variant="danger" size="sm" onClick={() => sb.auth.signOut({ scope: 'global' })}>
             Sign Out All
           </Button>
@@ -683,7 +683,7 @@ export default function SettingsPage() {
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Support</div>
         <div className={styles.supportCard}>
-          <div className={styles.supportEyebrow}>Keep Arcane Vault growing</div>
+          <div className={styles.supportEyebrow}>Keep UntapHub growing</div>
           <div className={styles.supportTitle}>Support development</div>
           <div className={styles.supportText}>
             If the app is useful to you, this section can point people toward direct support options. Placeholder links are wired in for now and can be replaced later.
