@@ -1343,11 +1343,43 @@
 
 @media (max-width: 600px) {
   .winrateEntry {
-    grid-template-columns: 32px 1fr auto;
+    grid-template-columns: 32px minmax(0, 1fr);
     gap: 10px;
     padding: 12px 14px 12px 18px;
   }
-  .winrateEntryRank { font-size: 0.85rem; }
+  .winrateEntryRank {
+    grid-row: 1 / span 2;
+    align-self: start;
+    font-size: 0.85rem;
+    padding-top: 2px;
+  }
+  .winrateEntryMain {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .winrateEntryHead {
+    align-items: flex-start;
+  }
+  .winrateDeckName {
+    flex: none;
+    width: 100%;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    line-height: 1.25;
+  }
+  .winrateDeckMeta {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .winrateEntryScore {
+    grid-column: 2;
+    grid-row: 2;
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: flex-start;
+    min-width: 0;
+  }
   .winrateRateBig { font-size: 1.45rem; }
   .winratePlacementGrid { grid-template-columns: repeat(2, 1fr); }
 }
