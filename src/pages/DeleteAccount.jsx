@@ -57,7 +57,7 @@ export default function DeleteAccountPage() {
   return (
     <div className={styles.page}>
       <SectionHeader title="Delete Account" />
-      <Link to="/" className={styles.backLink}>← Back to ArcaneVault</Link>
+      <Link to="/" className={styles.backLink}>← Back to UntapHub</Link>
 
       <div className={styles.hero}>
         <div className={styles.heroCard}>
@@ -84,8 +84,8 @@ export default function DeleteAccountPage() {
           <h2 className={styles.statusTitle}>Current status</h2>
           <p>
             {user
-              ? `Signed in as ${user.email}. This request will be linked to your current ArcaneVault account.`
-              : 'You are not signed in. Submit the email address tied to the ArcaneVault account you want deleted.'}
+              ? `Signed in as ${user.email}. This request will be linked to your current UntapHub account.`
+              : 'You are not signed in. Submit the email address tied to the UntapHub account you want deleted.'}
           </p>
         </section>
 
@@ -102,7 +102,7 @@ export default function DeleteAccountPage() {
               placeholder="you@example.com"
             />
             <div className={styles.hint}>
-              This should match the account email that owns the synced ArcaneVault data.
+              This should match the account email that owns the synced UntapHub data.
             </div>
           </div>
 

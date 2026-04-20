@@ -1,5 +1,5 @@
 /**
- * ArcaneVault local IndexedDB layer
+ * UntapHub local IndexedDB layer
  *
  * Stores:
  *   scryfall    — Scryfall card data (prices, types, images, etc.)

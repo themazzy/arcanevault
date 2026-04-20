@@ -16,14 +16,14 @@ export default function CreditsPage() {
   return (
     <div className={styles.page}>
       <SectionHeader title="Credits and Fan Content Notice" />
-      <Link to="/" className={styles.backLink}>← Back to ArcaneVault</Link>
+      <Link to="/" className={styles.backLink}>← Back to UntapHub</Link>
 
       <div className={styles.hero}>
         <div className={styles.heroCard}>
           <div className={styles.eyebrow}>Credits and Attribution</div>
           <h1 className={styles.title}>Third-party sources and unofficial status</h1>
           <p className={styles.lead}>
-            ArcaneVault depends on third-party services and public card data sources. It is also an
+            UntapHub depends on third-party services and public card data sources. It is also an
             unofficial fan-made application and is not presented as an official Wizards product.
           </p>
         </div>
@@ -41,7 +41,7 @@ export default function CreditsPage() {
         <section className={styles.section}>
           <h2>Fan content notice</h2>
           <p>
-            ArcaneVault is an unofficial fan project for Magic: The Gathering collectors and players.
+            UntapHub is an unofficial fan project for Magic: The Gathering collectors and players.
             It is not endorsed by, affiliated with, sponsored by, or specifically approved by Wizards
             of the Coast or Hasbro.
           </p>

@@ -347,7 +347,7 @@ export function LoginPage({ forcedMode = null }) {
       {/* ── Hero ── */}
       <section className={styles.hero}>
         <div className={styles.heroLeft}>
-          <div className={styles.heroLogo}>ARCANE<span>VAULT</span></div>
+          <div className={styles.heroLogo}>UNTAP<span>HUB</span></div>
           <h1 className={styles.tagline}>
             Your Magic collection,<br />finally organised.
           </h1>
@@ -399,7 +399,7 @@ export function LoginPage({ forcedMode = null }) {
                   ? 'Forgot your password?'
                   : mode === 'login'
                     ? 'Welcome back'
-                    : 'Join ArcaneVault'}
+                    : 'Join UntapHub'}
             </div>
             <div className={styles.formSub}>
               {mode === 'recovery'
@@ -560,7 +560,7 @@ export function LoginPage({ forcedMode = null }) {
           <div className={styles.sectionLabel}>Everything you need</div>
           <h2 className={styles.sectionTitle}>Built for serious collectors</h2>
           <p className={styles.sectionDesc}>
-            ArcaneVault brings together every tool a Magic: The Gathering player needs
+            UntapHub brings together every tool a Magic: The Gathering player needs
             — from first scan to deck tournament-ready.
           </p>
         </div>
@@ -680,7 +680,7 @@ export function LoginPage({ forcedMode = null }) {
 
       {/* ── Footer CTA ── */}
       <footer className={styles.footerCta}>
-        <div className={styles.footerLogo}>ARCANE<span>VAULT</span></div>
+        <div className={styles.footerLogo}>UNTAP<span>HUB</span></div>
         <p className={styles.footerText}>Your Magic collection deserves a proper home.</p>
         <button
           className={styles.footerBtn}

@@ -77,7 +77,7 @@ function SetupWizardModal({ onClose, isManual }) {
     <div className={styles.overlay} role="dialog" aria-modal="true" aria-label="Setup wizard">
       <div className={styles.modal}>
         <div className={styles.header}>
-          <div className={styles.headerLogo}>ARCANE<span>VAULT</span></div>
+          <div className={styles.headerLogo}>UNTAP<span>HUB</span></div>
           <div className={styles.progressRow}>
             <div className={styles.steps}>
               {STEPS.map((s, i) => (
@@ -141,7 +141,7 @@ function WelcomeStep() {
   return (
     <div className={styles.stepContent}>
       <div className={styles.welcomeGlyph}>⬡</div>
-      <h2 className={styles.stepTitle}>Welcome to Arcane Vault</h2>
+      <h2 className={styles.stepTitle}>Welcome to UntapHub</h2>
       <p className={styles.stepDesc}>
         Your personal Magic: The Gathering collection tracker. Let&apos;s spend a moment personalising the experience — you can change everything later in Settings.
       </p>

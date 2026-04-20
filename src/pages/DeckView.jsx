@@ -316,23 +316,23 @@ export default function DeckViewPage() {
   // ── Loading / error states ─────────────────────────────────────────────────
   if (loading) return (
     <div className={styles.signinPage}>
-      <div className={styles.signinLogo}>ARCANE<span>VAULT</span></div>
+      <div className={styles.signinLogo}>UNTAP<span>HUB</span></div>
       <div className={styles.signinMsg} style={{ fontStyle: 'italic' }}>Loading deck…</div>
     </div>
   )
 
   if (error === 'sign-in') return (
     <div className={styles.signinPage}>
-      <div className={styles.signinLogo}>ARCANE<span>VAULT</span></div>
+      <div className={styles.signinLogo}>UNTAP<span>HUB</span></div>
       <div className={styles.signinMsg}>Sign in to view this deck.</div>
-      <Link to="/login" className={styles.signinLink}>Sign In to ArcaneVault</Link>
+      <Link to="/login" className={styles.signinLink}>Sign In to UntapHub</Link>
     </div>
   )
 
   if (error) return (
     <div className={styles.signinPage}>
       <div className={styles.signinMsg}>{error}</div>
-      <Link to="/" className={styles.signinLink}>Go to ArcaneVault</Link>
+      <Link to="/" className={styles.signinLink}>Go to UntapHub</Link>
     </div>
   )
 
@@ -345,7 +345,7 @@ export default function DeckViewPage() {
 
       {/* ── Top bar ── */}
       <div className={styles.topBar}>
-        <Link to="/" className={styles.logo}>ARCANE<span>VAULT</span></Link>
+        <Link to="/" className={styles.logo}>UNTAP<span>HUB</span></Link>
 
         <div className={styles.topActions}>
           {!user ? (

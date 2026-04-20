@@ -6,7 +6,7 @@ const legalLinks = [
   {
     to: '/privacy',
     title: 'Privacy Policy',
-    body: 'What ArcaneVault stores, why it stores it, who processes it, and how to request deletion or export.',
+    body: 'What UntapHub stores, why it stores it, who processes it, and how to request deletion or export.',
   },
   {
     to: '/storage',
@@ -29,14 +29,14 @@ export default function LegalPage() {
   return (
     <div className={styles.page}>
       <SectionHeader title="Legal" />
-      <Link to="/" className={styles.backLink}>← Back to ArcaneVault</Link>
+      <Link to="/" className={styles.backLink}>← Back to UntapHub</Link>
 
       <div className={styles.hero}>
         <div className={styles.heroCard}>
           <div className={styles.eyebrow}>Legal and Privacy</div>
-          <h1 className={styles.title}>Transparency for how ArcaneVault works</h1>
+          <h1 className={styles.title}>Transparency for how UntapHub works</h1>
           <p className={styles.lead}>
-            ArcaneVault is a personal collection tracker. These pages explain the app&apos;s privacy
+            UntapHub is a personal collection tracker. These pages explain the app&apos;s privacy
             model, local storage behavior, third-party sources, and how to request account deletion.
             They are written to be readable by users first, not only by lawyers.
           </p>

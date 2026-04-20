@@ -144,7 +144,7 @@ export default function Layout({ children }) {
         <>
           <header className={styles.header}>
             <div className={styles.headerTop}>
-              <div className={styles.logo}>ARCANE<span>VAULT</span></div>
+              <div className={styles.logo}>UNTAP<span>HUB</span></div>
 
               <div className={styles.userBar}>
                 <span className={styles.userName}>{displayEmail}</span>
@@ -200,7 +200,7 @@ export default function Layout({ children }) {
           <div className={`${styles.mobileOverlay}${menuOpen ? ` ${styles.mobileOverlayOpen}` : ''}`} onClick={() => setMenuOpen(false)} />
 
           <div className={`${styles.mobileNav} ${menuOpen ? styles.mobileNavOpen : ''}`}>
-            <div className={styles.mobileNavLogo}>ARCANE<span>VAULT</span></div>
+            <div className={styles.mobileNavLogo}>UNTAP<span>HUB</span></div>
             {TABS.map(t => (
               <NavLink
                 key={t.to}
