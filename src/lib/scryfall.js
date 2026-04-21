@@ -48,12 +48,37 @@ export function sfUrl(url) {
 // User-Agent cannot be set from browser JS (forbidden header) — browser sends its own.
 const SF_HEADERS = { 'Accept': 'application/json' }
 let _lastSfCall = 0
+let _sfQueue = Promise.resolve()
+
+function getRetryDelayMs(res) {
+  const retryAfter = res.headers?.get?.('Retry-After')
+  if (!retryAfter) return 1000
+  const seconds = Number.parseFloat(retryAfter)
+  if (Number.isFinite(seconds)) return Math.max(1000, seconds * 1000)
+  const dateMs = Date.parse(retryAfter)
+  return Number.isFinite(dateMs) ? Math.max(1000, dateMs - Date.now()) : 1000
+}
+
+async function runScryfallRequest(fn, { minDelayMs = DELAY_MS, retries = 2 } = {}) {
+  const task = _sfQueue.then(async () => {
+    const wait = Math.max(0, minDelayMs - (Date.now() - _lastSfCall))
+    if (wait) await new Promise(r => setTimeout(r, wait))
+    _lastSfCall = Date.now()
+
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      const res = await fn()
+      if (res.status !== 429 || attempt === retries) return res
+      await new Promise(r => setTimeout(r, getRetryDelayMs(res)))
+      _lastSfCall = Date.now()
+    }
+  })
+  _sfQueue = task.catch(() => {})
+  return task
+}
+
 export async function sfGet(url) {
-  const wait = Math.max(0, 100 - (Date.now() - _lastSfCall))
-  if (wait) await new Promise(r => setTimeout(r, wait))
-  _lastSfCall = Date.now()
   try {
-    const res = await fetch(sfUrl(url), { headers: SF_HEADERS })
+    const res = await runScryfallRequest(() => fetch(sfUrl(url), { headers: SF_HEADERS }))
     if (!res.ok) return null
     return res.json()
   } catch {
@@ -150,14 +175,11 @@ export async function getInstantCache(cacheTtlMs = DEFAULT_TTL_MS) {
 
 export async function fetchScryfallBatch(identifiers) {
   try {
-    const wait = Math.max(0, 100 - (Date.now() - _lastSfCall))
-    if (wait) await new Promise(r => setTimeout(r, wait))
-    _lastSfCall = Date.now()
-    const res = await fetch(sfUrl(`${SF_API_ORIGIN}/cards/collection`), {
+    const res = await runScryfallRequest(() => fetch(sfUrl(`${SF_API_ORIGIN}/cards/collection`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify({ identifiers })
-    })
+    }))
     if (!res.ok) return []
     return (await res.json()).data || []
   } catch { return [] }

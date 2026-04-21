@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { sb } from '../lib/supabase'
 import { getScryfallKey, getPrice, formatPrice, getInstantCache } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
-import { getLocalCards, putCards, deleteCard, deleteAllCards, getAllLocalFolderCards, putFolderCards, getLocalFolders, putFolders, setMeta, getMeta, deleteFolder as deleteLocalFolder, replaceLocalFolderCards, getAllDeckAllocationsForUser, putDeckAllocations, replaceDeckAllocations } from '../lib/db'
+import { getLocalCards, putCards, deleteCard, deleteAllCards, getAllLocalFolderCards, putFolderCards, getLocalFolders, putFolders, setMeta, getMeta, deleteFolder as deleteLocalFolder, replaceLocalFolderCards, getAllDeckAllocationsForUser, putDeckAllocations, replaceDeckAllocations, deleteDeckAllocationsByCardIds, deleteFolderCardsByCardIds } from '../lib/db'
 import { parseManaboxCSV } from '../lib/csvParser'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
 import { useAuth } from '../components/Auth'
@@ -916,6 +916,8 @@ export default function CollectionPage() {
         setError(placementErr.message)
         return
       }
+      if (card._displayFolder.type === 'deck') await deleteDeckAllocationsByCardIds([card.id])
+      else await deleteFolderCardsByCardIds([card.id])
       setCardFolderMap(prev => {
         const next = { ...prev }
         next[card.id] = (next[card.id] || []).filter(folder => folder.id !== card._displayFolder.id)
@@ -939,6 +941,8 @@ export default function CollectionPage() {
         return
       }
       await deleteCard(card.id)
+      await deleteDeckAllocationsByCardIds([card.id])
+      await deleteFolderCardsByCardIds([card.id])
       setCards(prev => prev.filter(c => c.id !== card.id))
     }
     await setMeta(`folder_cards_full_sync_${user.id}`, 0)
@@ -1257,8 +1261,9 @@ export default function CollectionPage() {
         <ImportModal
           userId={user.id}
           folderType="binder"
-          folders={folders.filter(f => f.type === 'binder')}
+          folders={folders.filter(f => ['binder', 'deck', 'list'].includes(f.type))}
           initialText={importModalText || undefined}
+          allowTypeSelection
           onClose={() => setShowImportModal(false)}
           onSaved={() => { setShowImportModal(false); loadCards() }}
         />

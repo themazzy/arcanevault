@@ -1,123 +1,214 @@
-import { useState, useRef, useCallback } from 'react'
+import { Fragment, useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { sb } from '../lib/supabase'
 import { Modal, ResponsiveMenu } from './UI'
-import { parseTextDecklist, importDeckFromUrl } from '../lib/deckBuilderApi'
-import { parseManaboxCSV } from '../lib/csvParser'
-import { fetchScryfallBatch } from '../lib/scryfall'
+import { importDeckFromUrl } from '../lib/deckBuilderApi'
+import {
+  aggregateResolvedRows,
+  fetchPaperPrintings,
+  normalizeImportedDeckCards,
+  parseImportText,
+  resolveImportEntries,
+  summarizeImportRows,
+} from '../lib/importFlow'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
 import { putCards, putDeckAllocations, putFolderCards, putFolders } from '../lib/db'
 import styles from './ImportModal.module.css'
 import uiStyles from './UI.module.css'
 
 const NOUN = { binder: 'Binder', deck: 'Deck', list: 'Wishlist' }
+const TYPE_OPTIONS = [
+  { id: 'binder', label: 'Binder' },
+  { id: 'deck', label: 'Deck' },
+  { id: 'list', label: 'Wishlist' },
+]
+const PAGE_SIZE = 250
 
-/**
- * Resolve cards using the Scryfall /cards/collection endpoint.
- * Entries with setCode + collectorNumber use exact-printing identifiers;
- * name-only entries fall back to { name }.
- * Returns a map of lookupKey → sf card.
- */
-async function resolveCards(parsed) {
-  const identifiers = parsed.map(c =>
-    c.setCode && c.collectorNumber
-      ? { set: c.setCode, collector_number: c.collectorNumber }
-      : { name: c.name }
-  )
-
-  const results = new Map() // lookupKey → sfCard
-
-  for (let i = 0; i < identifiers.length; i += 75) {
-    const batch = identifiers.slice(i, i + 75)
-    const data = await fetchScryfallBatch(batch)
-    for (const sf of data) {
-          // Key by full name
-          results.set(sf.name.toLowerCase(), sf)
-          // Also key by front-face name for DFCs ("Brazen Borrower // Petty Theft" → "brazen borrower")
-          const frontFace = sf.name.split(' // ')[0].toLowerCase()
-          if (frontFace !== sf.name.toLowerCase()) results.set(frontFace, sf)
-          // Key by set+collector for exact-printing lookup
-          if (sf.set && sf.collector_number) {
-            results.set(`${sf.set}-${sf.collector_number}`, sf)
-          }
-    }
-    if (i + 75 < identifiers.length) await new Promise(r => setTimeout(r, 150))
-  }
-  return results
+function pluralize(count, singular, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`
 }
 
-// Detect format and return [{ name, qty, foil, setCode?, collectorNumber? }]
-function parseInput(text) {
-  const firstLine = text.trim().split('\n')[0] || ''
-  if (firstLine.includes(',') && /\bname\b/i.test(firstLine)) {
-    // Manabox / generic CSV
-    const { cards } = parseManaboxCSV(text)
-    const map = new Map()
-    for (const c of cards) {
-      const key = c.name.toLowerCase() + (c.foil ? '|foil' : '')
-      const ex = map.get(key)
-      map.set(key, ex
-        ? { ...ex, qty: ex.qty + c.qty }
-        : { name: c.name, qty: c.qty, foil: c.foil,
-            setCode: c.set_code || null, collectorNumber: c.collector_number || null })
-    }
-    return [...map.values()]
-  }
-  // Plain decklist — now returns setCode, collectorNumber, foil too
-  return parseTextDecklist(text).map(c => ({
-    name: c.name, qty: c.qty, foil: c.foil ?? false,
-    setCode: c.setCode || null, collectorNumber: c.collectorNumber || null,
-  }))
+function formatLocationSummary(stats) {
+  const parts = []
+  if (stats.deck) parts.push(pluralize(stats.deck, 'deck'))
+  if (stats.binder) parts.push(pluralize(stats.binder, 'binder'))
+  if (stats.list) parts.push(pluralize(stats.list, 'wishlist', 'wishlists'))
+  if (!parts.length) return ''
+  if (parts.length === 1) return parts[0]
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`
+}
+
+function getFolderTypeLabel(type) {
+  if (type === 'deck') return 'deck'
+  if (type === 'list') return 'wishlist'
+  return 'binder'
+}
+
+function formatSet(row) {
+  const setCode = row.resolvedSetCode || row.setCode
+  const collectorNumber = row.resolvedCollectorNumber || row.collectorNumber
+  if (!setCode) return ''
+  return `${setCode.toUpperCase()}${collectorNumber ? ` ${collectorNumber}` : ''}`
+}
+
+function missingLabel(row) {
+  return `${row.lineNumber ? `Line ${row.lineNumber}: ` : ''}${row.name}${row.setCode ? ` (${row.setCode.toUpperCase()}${row.collectorNumber ? ` ${row.collectorNumber}` : ''})` : ''} - ${row.reason || 'Not found'}`
 }
 
 export default function ImportModal({
   userId, folderType, folders: initialFolders, defaultFolderId,
   onClose, onSaved,
-  /** Optional initial text (e.g. from a dropped .txt file) */
   initialText,
+  allowTypeSelection = false,
 }) {
-  const noun = NOUN[folderType] || folderType
-  const [step, setStep]         = useState(initialText ? 'preview' : 'input')
-  const [inputTab, setInputTab] = useState('text') // 'text' | 'url'
-  const [text, setText]         = useState(initialText || '')
-  const [importUrl, setImportUrl]   = useState('')
+  const [activeFolderType, setActiveFolderType] = useState(folderType || 'binder')
+  const noun = NOUN[activeFolderType] || activeFolderType
+  const initialImport = useMemo(
+    () => initialText ? parseImportText(initialText) : { entries: [], folders: {} },
+    [initialText]
+  )
+  const initialEntries = initialImport.entries
+  const [step, setStep] = useState(initialText ? 'preview' : 'input')
+  const [text, setText] = useState(initialText || '')
+  const [importUrl, setImportUrl] = useState('')
   const [urlLoading, setUrlLoading] = useState(false)
-  const [urlError, setUrlError]     = useState('')
-  const [parsed, setParsed]     = useState(() => initialText ? parseInput(initialText) : [])
-  const [folders, setFolders]           = useState(initialFolders || [])
-  const [folderId, setFolderId]         = useState(defaultFolderId || '')
+  const [urlError, setUrlError] = useState('')
+  const [parsed, setParsed] = useState(initialEntries)
+  const [sourceFolders, setSourceFolders] = useState(initialImport.folders || {})
+  const [resolvedRows, setResolvedRows] = useState([])
+  const [resolving, setResolving] = useState(false)
+  const [resolveError, setResolveError] = useState('')
+  const [resolveProgress, setResolveProgress] = useState({ done: 0, total: 0 })
+  const [folders, setFolders] = useState(initialFolders || [])
+  const [folderId, setFolderId] = useState(defaultFolderId || '')
   const [folderSearch, setFolderSearch] = useState('')
-  const [newName, setNewName]           = useState('')
-  const [creating, setCreating]         = useState(false)
-  const [progress, setProgress]         = useState(0)
-  const [total, setTotal]               = useState(0)
-  const [missed, setMissed]             = useState([])
-  const [imported, setImported]         = useState(0)
+  const [newName, setNewName] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [progress, setProgress] = useState(0)
+  const [total, setTotal] = useState(0)
+  const [missed, setMissed] = useState([])
+  const [imported, setImported] = useState(0)
+  const [editingIndex, setEditingIndex] = useState(null)
+  const [editPrintings, setEditPrintings] = useState([])
+  const [editPrintingsLoading, setEditPrintingsLoading] = useState(false)
+  const [editSelectedPrinting, setEditSelectedPrinting] = useState(null)
+  const [editFoil, setEditFoil] = useState(false)
+  const [previewPage, setPreviewPage] = useState(0)
+  const [previewPageEditing, setPreviewPageEditing] = useState(false)
+  const [previewPageInput, setPreviewPageInput] = useState('')
   const fileRef = useRef(null)
 
-  const selectedFolderName = folders.find(f => f.id === folderId)?.name || ''
-  const filteredFolders = folders.filter(f =>
+  const previewRows = resolvedRows.length ? resolvedRows : parsed
+  const previewSummary = summarizeImportRows(previewRows)
+  const hasSourceFolders = Object.keys(sourceFolders || {}).length > 0
+  const destinationFolders = hasSourceFolders
+    ? folders
+    : folders.filter(f => f.type === activeFolderType)
+  const selectedFolderName = destinationFolders.find(f => f.id === folderId)?.name || ''
+  const destinationCount = hasSourceFolders
+    ? new Set(previewRows.map(row => row.sourceLocation).filter(location => sourceFolders[location])).size
+    : (folderId ? 1 : 0)
+  const destinationLabel = noun.toLowerCase()
+  const matchedPreviewRows = resolvedRows.filter(row => row.status === 'matched')
+  const canImport = !resolving && matchedPreviewRows.length > 0 && (hasSourceFolders || !!folderId)
+  const filteredFolders = destinationFolders.filter(f =>
     !folderSearch.trim() || f.name.toLowerCase().includes(folderSearch.toLowerCase())
   )
+  const locationStats = previewRows.reduce((stats, row) => {
+    const folder = sourceFolders[row.sourceLocation]
+    if (!folder) return stats
+    stats[folder.type || 'binder'].add(folder.name)
+    return stats
+  }, { binder: new Set(), deck: new Set(), list: new Set() })
+  const locationSummary = hasSourceFolders
+    ? formatLocationSummary({
+        binder: locationStats.binder.size,
+        deck: locationStats.deck.size,
+        list: locationStats.list.size,
+      })
+    : (folderId ? pluralize(1, destinationLabel, `${destinationLabel}s`) : '')
+  const importCardCount = previewSummary.matchedCopies || previewSummary.totalCopies
+  const importButtonLabel = locationSummary
+    ? `Import ${importCardCount} cards into ${locationSummary}`
+    : `Import ${importCardCount} cards`
+  const parseStatus = resolving
+    ? {
+        tone: 'busy',
+        text: `Parsing data${resolveProgress.total ? ` (${resolveProgress.done}/${resolveProgress.total})` : ''}...`,
+      }
+    : resolveError
+      ? { tone: 'error', text: resolveError }
+      : resolvedRows.length
+        ? {
+            tone: previewSummary.missingRows ? 'error' : 'success',
+            text: previewSummary.missingRows
+              ? `Parsing finished with ${previewSummary.missingRows} unresolved row${previewSummary.missingRows === 1 ? '' : 's'}.`
+              : `Parsing complete: ${previewSummary.matchedCopies} card${previewSummary.matchedCopies === 1 ? '' : 's'} matched.`,
+          }
+        : null
+  const previewPageCount = Math.max(1, Math.ceil(previewRows.length / PAGE_SIZE))
+  const safePreviewPage = Math.min(previewPage, previewPageCount - 1)
+  const previewStart = safePreviewPage * PAGE_SIZE
+  const previewSlice = previewRows.slice(previewStart, previewStart + PAGE_SIZE)
 
-  // When defaultFolderId is provided and we have only one folder, the destination
-  // is pre-determined — skip the picker UI.
-  const destinationFixed = !!defaultFolderId && folders.length <= 1
+  const destinationFixed = !!defaultFolderId && destinationFolders.length <= 1
+
+  const startPreviewPageEdit = () => {
+    setPreviewPageInput(String(safePreviewPage + 1))
+    setPreviewPageEditing(true)
+  }
+
+  const applyPreviewPageInput = () => {
+    const nextPage = Number.parseInt(previewPageInput, 10)
+    if (Number.isFinite(nextPage)) {
+      setPreviewPage(Math.max(0, Math.min(previewPageCount - 1, nextPage - 1)))
+    }
+    setPreviewPageEditing(false)
+  }
+
+  const resolvePreview = useCallback(async (entries) => {
+    setResolving(true)
+    setResolveError('')
+    setResolvedRows([])
+    setResolveProgress({ done: 0, total: 0 })
+    try {
+      const rows = await resolveImportEntries(entries, (done, total) => setResolveProgress({ done, total }))
+      setResolvedRows(rows)
+    } catch (e) {
+      setResolveError(e.message || 'Could not resolve cards.')
+    }
+    setResolving(false)
+  }, [])
+
+  useEffect(() => {
+    if (initialText && initialEntries.length) resolvePreview(initialEntries)
+    // Initial text is parsed once when the modal opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleFile = (e) => {
     const file = e.target.files[0]
     if (!file) return
     const reader = new FileReader()
-    reader.onload = ev => setText(ev.target.result)
+    reader.onload = ev => {
+      setText(ev.target.result)
+      setResolvedRows([])
+      setSourceFolders({})
+      setResolveError('')
+      setPreviewPage(0)
+    }
     reader.readAsText(file)
-    // Reset input so the same file can be re-selected
     e.target.value = ''
   }
 
   const handleParse = () => {
-    const result = parseInput(text)
-    if (!result.length) return
-    setParsed(result)
+    const result = parseImportText(text)
+    if (!result.entries.length) return
+    setParsed(result.entries)
+    setSourceFolders(result.folders || {})
+    setFolderId(defaultFolderId || '')
+    setPreviewPage(0)
     setStep('preview')
+    resolvePreview(result.entries)
   }
 
   const handleUrlFetch = async () => {
@@ -126,13 +217,13 @@ export default function ImportModal({
     setUrlError('')
     try {
       const result = await importDeckFromUrl(importUrl.trim())
-      const converted = result.cards.map(c => ({
-        name: c.name, qty: c.qty, foil: c.foil ?? false,
-        setCode: c.setCode || null, collectorNumber: c.collectorNumber || null,
-      }))
+      const converted = normalizeImportedDeckCards(result.cards)
       if (!converted.length) throw new Error('No cards found in the deck.')
       setParsed(converted)
+      setSourceFolders({})
+      setPreviewPage(0)
       setStep('preview')
+      resolvePreview(converted)
     } catch (e) {
       setUrlError(e.message)
     }
@@ -142,7 +233,7 @@ export default function ImportModal({
   const handleCreateFolder = async () => {
     if (!newName.trim()) return
     const { data } = await sb.from('folders')
-      .insert({ name: newName.trim(), type: folderType, user_id: userId })
+      .insert({ name: newName.trim(), type: activeFolderType, user_id: userId })
       .select().single()
     if (data) {
       await putFolders([data])
@@ -153,68 +244,309 @@ export default function ImportModal({
     }
   }
 
+  const editHasFoil = !!(
+    editSelectedPrinting?.finishes?.includes('foil') ||
+    editSelectedPrinting?.finishes?.includes('etched') ||
+    editSelectedPrinting?.prices?.eur_foil ||
+    editSelectedPrinting?.prices?.usd_foil
+  )
+
+  const getPrintingImage = (printing) =>
+    printing?.image_uris?.small || printing?.card_faces?.[0]?.image_uris?.small || null
+
+  const handleStartEdit = async (row, index) => {
+    setEditingIndex(index)
+    setEditPrintings([])
+    setEditSelectedPrinting(row.sfCard || null)
+    setEditFoil(!!row.foil)
+    setEditPrintingsLoading(true)
+    setResolveError('')
+    try {
+      const printings = await fetchPaperPrintings(row.resolvedName || row.name)
+      const selected = printings.find(printing => printing.id === row.sfCard?.id)
+        || printings.find(printing => printing.set === (row.resolvedSetCode || row.setCode) && printing.collector_number === (row.resolvedCollectorNumber || row.collectorNumber))
+        || row.sfCard
+        || printings[0]
+        || null
+      setEditPrintings(printings)
+      setEditSelectedPrinting(selected)
+      const selectedHasFoil = !!(
+        selected?.finishes?.includes('foil') ||
+        selected?.finishes?.includes('etched') ||
+        selected?.prices?.eur_foil ||
+        selected?.prices?.usd_foil
+      )
+      setEditFoil(!!row.foil && selectedHasFoil)
+    } catch (e) {
+      setResolveError(e.message || 'Could not load printings.')
+    }
+    setEditPrintingsLoading(false)
+  }
+
+  const handleCancelEdit = () => {
+    setEditingIndex(null)
+    setEditPrintings([])
+    setEditSelectedPrinting(null)
+    setEditFoil(false)
+  }
+
+  const handleApplyEdit = async (index) => {
+    const current = previewRows[index]
+    if (!current || !editSelectedPrinting) return
+    const selectedHasFoil = !!(
+      editSelectedPrinting.finishes?.includes('foil') ||
+      editSelectedPrinting.finishes?.includes('etched') ||
+      editSelectedPrinting.prices?.eur_foil ||
+      editSelectedPrinting.prices?.usd_foil
+    )
+
+    const nextEntry = {
+      ...current,
+      setCode: editSelectedPrinting.set || null,
+      collectorNumber: editSelectedPrinting.collector_number || null,
+      foil: !!editFoil && selectedHasFoil,
+      sfCard: undefined,
+      status: undefined,
+      reason: undefined,
+      resolvedName: undefined,
+      resolvedSetCode: undefined,
+      resolvedCollectorNumber: undefined,
+      exactPrinting: undefined,
+    }
+
+    setResolving(true)
+    setResolveError('')
+    try {
+      const resolved = {
+        ...nextEntry,
+        sfCard: editSelectedPrinting,
+        resolvedName: editSelectedPrinting.name || nextEntry.name,
+        resolvedSetCode: editSelectedPrinting.set || nextEntry.setCode || null,
+        resolvedCollectorNumber: editSelectedPrinting.collector_number || nextEntry.collectorNumber || null,
+        exactPrinting: true,
+        status: 'matched',
+        reason: null,
+      }
+      setParsed(prev => prev.map((row, rowIndex) => rowIndex === index ? nextEntry : row))
+      setResolvedRows(prev => {
+        const base = prev.length ? prev : previewRows
+        return base.map((row, rowIndex) => rowIndex === index ? resolved : row)
+      })
+      handleCancelEdit()
+    } catch (e) {
+      setResolveError(e.message || 'Could not apply edited printing.')
+    }
+    setResolving(false)
+  }
+
   const handleImport = useCallback(async () => {
-    if (!folderId || !parsed.length) return
+    if ((!folderId && !hasSourceFolders) || !parsed.length) return
     setStep('importing')
     setTotal(parsed.length)
     setProgress(0)
 
     const errs = []
-    let count = 0
+    let importedCopies = 0
+    let importedRows = 0
 
     try {
-      // Resolve all cards via Scryfall collection endpoint (supports exact-printing lookup)
-      const sfMap = await resolveCards(parsed)
-      if (!sfMap.size) throw new Error('Scryfall card lookup is temporarily unavailable.')
+      const rows = resolvedRows.length ? resolvedRows : await resolveImportEntries(parsed)
+      const matchedRows = rows.filter(row => row.status === 'matched' && row.sfCard)
+      for (const row of rows.filter(row => row.status !== 'matched')) errs.push(missingLabel(row))
+      setProgress(rows.length)
+      if (!matchedRows.length) throw new Error('No cards could be matched in Scryfall.')
 
-      // Helper: find the best Scryfall match for a parsed entry
-      const resolveSf = (c) => {
-        if (c.setCode && c.collectorNumber) {
-          const byPrint = sfMap.get(`${c.setCode}-${c.collectorNumber}`)
-          if (byPrint) return byPrint
-        }
-        return sfMap.get(c.name.toLowerCase()) || null
-      }
-
-      if (folderType === 'list') {
-        const items = []
-        const resolvedPrints = []
-        for (const c of parsed) {
-          const sf = resolveSf(c)
-          if (!sf) { errs.push(c.name); setProgress(p => p + 1); continue }
-          resolvedPrints.push(sf)
-          items.push({
-            folder_id: folderId, user_id: userId, name: sf.name, set_code: sf.set,
-            collector_number: sf.collector_number, scryfall_id: sf.id,
-            foil: c.foil, qty: c.qty,
+      if (hasSourceFolders) {
+        const folderSpecsByKey = new Map()
+        for (const row of matchedRows) {
+          const sourceFolder = sourceFolders[row.sourceLocation]
+          if (!sourceFolder) {
+            errs.push(`${row.name} - Missing source location`)
+            continue
+          }
+          const type = sourceFolder.type || 'binder'
+          folderSpecsByKey.set(`${type}|${sourceFolder.name}`, {
+            name: sourceFolder.name,
+            type,
           })
-          count++
-          setProgress(p => p + 1)
         }
+
+        const folderSpecs = [...folderSpecsByKey.values()]
+        const folderRowsByKey = new Map()
+        if (folderSpecs.length) {
+          const { data: savedFolders, error: folderError } = await sb.from('folders')
+            .upsert(
+              folderSpecs.map(folder => ({ user_id: userId, name: folder.name, type: folder.type })),
+              { onConflict: 'user_id,name,type' }
+            )
+            .select('*')
+          if (folderError) throw folderError
+          if (savedFolders?.length) {
+            await putFolders(savedFolders)
+            for (const folder of savedFolders) {
+              folderRowsByKey.set(`${folder.type}|${folder.name}`, folder)
+            }
+            setFolders(prev => {
+              const byKey = new Map(prev.map(folder => [`${folder.type}|${folder.name}`, folder]))
+              for (const folder of savedFolders) byKey.set(`${folder.type}|${folder.name}`, folder)
+              return [...byKey.values()]
+            })
+          }
+        }
+
+        const getTargetFolder = (row) => {
+          const sourceFolder = sourceFolders[row.sourceLocation]
+          if (!sourceFolder) return null
+          return folderRowsByKey.get(`${sourceFolder.type || 'binder'}|${sourceFolder.name}`) || null
+        }
+
+        const listRows = matchedRows.filter(row => getTargetFolder(row)?.type === 'list')
+        const ownedRows = matchedRows.filter(row => {
+          const target = getTargetFolder(row)
+          return target && target.type !== 'list'
+        })
+        const printByScryfallId = await ensureCardPrints(matchedRows.map(row => row.sfCard))
+
+        if (listRows.length) {
+          const items = aggregateResolvedRows(
+            listRows,
+            row => {
+              const target = getTargetFolder(row)
+              return `${target.id}-${row.sfCard.id}-${row.foil ? 'foil' : 'normal'}`
+            },
+            row => {
+              const target = getTargetFolder(row)
+              const sf = row.sfCard
+              return {
+                folder_id: target.id, user_id: userId, name: sf.name, set_code: sf.set,
+                collector_number: sf.collector_number, scryfall_id: sf.id,
+                card_print_id: getCardPrint(printByScryfallId, {
+                  set_code: sf.set,
+                  collector_number: sf.collector_number,
+                  scryfall_id: sf.id,
+                })?.id || null,
+                foil: row.foil, qty: row.qty,
+              }
+            }
+          )
+          if (items.length) {
+            await sb.from('list_items').upsert(items, { onConflict: 'folder_id,card_print_id,foil' })
+            importedRows += items.length
+            importedCopies += items.reduce((sum, item) => sum + item.qty, 0)
+          }
+        }
+
+        if (ownedRows.length) {
+          const cardRows = aggregateResolvedRows(
+            ownedRows,
+            row => `${row.sfCard.id}-${row.foil ? 'foil' : 'normal'}-${row.language || 'en'}-${row.condition || 'near_mint'}`,
+            row => {
+              const sf = row.sfCard
+              return {
+                user_id: userId, name: sf.name, set_code: sf.set,
+                collector_number: sf.collector_number, scryfall_id: sf.id,
+                foil: row.foil, qty: row.qty, condition: row.condition || 'near_mint',
+                language: row.language || 'en', purchase_price: row.purchasePrice || 0,
+              }
+            }
+          )
+          const hydratedRows = cardRows.map(row => withCardPrint(row, getCardPrint(printByScryfallId, row)))
+          const { data: upserted } = await sb.from('cards')
+            .upsert(hydratedRows, { onConflict: 'user_id,card_print_id,foil,language,condition', ignoreDuplicates: false })
+            .select('*')
+          if (upserted?.length) {
+            await putCards(upserted)
+            const cardKeyToId = {}
+            for (const row of upserted) {
+              cardKeyToId[`${row.card_print_id || `${row.set_code}-${row.collector_number}`}-${row.foil}-${row.language}-${row.condition}`] = row.id
+            }
+
+            const placementMap = new Map()
+            for (const row of ownedRows) {
+              const target = getTargetFolder(row)
+              if (!target) continue
+              const sf = row.sfCard
+              const cardPrintId = getCardPrint(printByScryfallId, {
+                set_code: sf.set,
+                collector_number: sf.collector_number,
+                scryfall_id: sf.id,
+              })?.id || null
+              const cardKey = `${cardPrintId || `${sf.set}-${sf.collector_number}`}-${row.foil}-${row.language || 'en'}-${row.condition || 'near_mint'}`
+              const cardId = cardKeyToId[cardKey]
+              if (!cardId) continue
+              const placementKey = `${target.type}|${target.id}|${cardId}`
+              const existing = placementMap.get(placementKey)
+              if (existing) existing.qty += row.qty
+              else {
+                placementMap.set(placementKey, target.type === 'deck'
+                  ? { deck_id: target.id, user_id: userId, card_id: cardId, qty: row.qty }
+                  : { folder_id: target.id, card_id: cardId, qty: row.qty }
+                )
+              }
+            }
+
+            const deckPlacements = []
+            const binderPlacements = []
+            for (const [key, placement] of placementMap.entries()) {
+              if (key.startsWith('deck|')) deckPlacements.push(placement)
+              else binderPlacements.push(placement)
+            }
+
+            if (deckPlacements.length) {
+              const { data: savedDeckPlacements } = await sb.from('deck_allocations')
+                .upsert(deckPlacements, { onConflict: 'deck_id,card_id', ignoreDuplicates: true })
+                .select('*')
+              if (savedDeckPlacements?.length) await putDeckAllocations(savedDeckPlacements)
+            }
+            if (binderPlacements.length) {
+              const { data: savedBinderPlacements } = await sb.from('folder_cards')
+                .upsert(binderPlacements, { onConflict: 'folder_id,card_id', ignoreDuplicates: true })
+                .select('*')
+              if (savedBinderPlacements?.length) await putFolderCards(savedBinderPlacements)
+            }
+            importedRows += placementMap.size
+            importedCopies += [...placementMap.values()].reduce((sum, placement) => sum + placement.qty, 0)
+          }
+        }
+      } else if (activeFolderType === 'list') {
+        const items = aggregateResolvedRows(
+          matchedRows,
+          row => `${row.sfCard.id}-${row.foil ? 'foil' : 'normal'}`,
+          row => {
+            const sf = row.sfCard
+            return {
+              folder_id: folderId, user_id: userId, name: sf.name, set_code: sf.set,
+              collector_number: sf.collector_number, scryfall_id: sf.id,
+              foil: row.foil, qty: row.qty,
+            }
+          }
+        )
         if (items.length) {
-          const printByScryfallId = await ensureCardPrints(resolvedPrints)
+          const printByScryfallId = await ensureCardPrints(matchedRows.map(row => row.sfCard))
           const hydratedItems = items.map(item => ({
             ...item,
             card_print_id: getCardPrint(printByScryfallId, item)?.id || null,
           }))
           await sb.from('list_items').upsert(hydratedItems, { onConflict: 'folder_id,card_print_id,foil' })
+          importedRows = items.length
+          importedCopies = items.reduce((sum, item) => sum + item.qty, 0)
         }
       } else {
-        const cardRows = []
-        const resolvedPrints = []
-        for (const c of parsed) {
-          const sf = resolveSf(c)
-          if (!sf) { errs.push(c.name); setProgress(p => p + 1); continue }
-          resolvedPrints.push(sf)
-          cardRows.push({
-            user_id: userId, name: sf.name, set_code: sf.set,
-            collector_number: sf.collector_number, scryfall_id: sf.id,
-            foil: c.foil, qty: c.qty, condition: 'near_mint', language: 'en', purchase_price: 0,
-          })
-          setProgress(p => p + 1)
-        }
+        const cardRows = aggregateResolvedRows(
+          matchedRows,
+          row => `${row.sfCard.id}-${row.foil ? 'foil' : 'normal'}-${row.language || 'en'}-${row.condition || 'near_mint'}`,
+          row => {
+            const sf = row.sfCard
+            return {
+              user_id: userId, name: sf.name, set_code: sf.set,
+              collector_number: sf.collector_number, scryfall_id: sf.id,
+              foil: row.foil, qty: row.qty, condition: row.condition || 'near_mint',
+              language: row.language || 'en', purchase_price: row.purchasePrice || 0,
+            }
+          }
+        )
         if (cardRows.length) {
-          const printByScryfallId = await ensureCardPrints(resolvedPrints)
+          const printByScryfallId = await ensureCardPrints(matchedRows.map(row => row.sfCard))
           const hydratedRows = cardRows.map(row => withCardPrint(row, getCardPrint(printByScryfallId, row)))
           const { data: upserted } = await sb.from('cards')
             .upsert(hydratedRows, { onConflict: 'user_id,card_print_id,foil,language,condition', ignoreDuplicates: false })
@@ -222,28 +554,28 @@ export default function ImportModal({
           if (upserted) {
             await putCards(upserted)
             const cardKeyToId = {}
-            for (const r of upserted) {
-              cardKeyToId[`${r.card_print_id || `${r.set_code}-${r.collector_number}`}-${r.foil}-${r.language}-${r.condition}`] = r.id
+            for (const row of upserted) {
+              cardKeyToId[`${row.card_print_id || `${row.set_code}-${row.collector_number}`}-${row.foil}-${row.language}-${row.condition}`] = row.id
             }
             const placementRows = []
             for (const row of hydratedRows) {
               const cardKey = `${row.card_print_id || `${row.set_code}-${row.collector_number}`}-${row.foil}-${row.language}-${row.condition}`
-              const cid = cardKeyToId[cardKey]
-              if (cid) {
-                placementRows.push(
-                  folderType === 'deck'
-                    ? { deck_id: folderId, user_id: userId, card_id: cid, qty: row.qty }
-                    : { folder_id: folderId, card_id: cid, qty: row.qty }
-                )
-                count++
-              }
+              const cardId = cardKeyToId[cardKey]
+              if (!cardId) continue
+              placementRows.push(
+                activeFolderType === 'deck'
+                  ? { deck_id: folderId, user_id: userId, card_id: cardId, qty: row.qty }
+                  : { folder_id: folderId, card_id: cardId, qty: row.qty }
+              )
+              importedRows++
+              importedCopies += row.qty
             }
             if (placementRows.length) {
-              const { data: savedPlacements } = await sb.from(folderType === 'deck' ? 'deck_allocations' : 'folder_cards')
-                .upsert(placementRows, { onConflict: `${folderType === 'deck' ? 'deck_id' : 'folder_id'},card_id`, ignoreDuplicates: true })
+              const { data: savedPlacements } = await sb.from(activeFolderType === 'deck' ? 'deck_allocations' : 'folder_cards')
+                .upsert(placementRows, { onConflict: `${activeFolderType === 'deck' ? 'deck_id' : 'folder_id'},card_id`, ignoreDuplicates: true })
                 .select('*')
               if (savedPlacements?.length) {
-                if (folderType === 'deck') await putDeckAllocations(savedPlacements)
+                if (activeFolderType === 'deck') await putDeckAllocations(savedPlacements)
                 else await putFolderCards(savedPlacements)
               }
             }
@@ -251,59 +583,44 @@ export default function ImportModal({
         }
       }
     } catch (e) {
-      errs.push('Import error: ' + e.message)
+      errs.push(`Import error: ${e.message}`)
     }
 
     setMissed(errs)
-    setImported(count)
+    setImported(importedCopies || importedRows)
     setStep('done')
-  }, [folderId, parsed, folderType, userId])
+  }, [folderId, parsed, resolvedRows, activeFolderType, userId, hasSourceFolders, sourceFolders])
 
   return (
     <Modal onClose={onClose}>
       <div className={styles.wrap}>
-        <h2 className={styles.title}>Import to {noun}</h2>
+        <h2 className={styles.title}>{allowTypeSelection ? 'Import Cards' : `Import to ${noun}`}</h2>
 
-        {/* ── Step: Input ── */}
         {step === 'input' && (
           <>
             {/*
-              URL IMPORT TAB — disabled until server-side proxy is available.
-              These APIs (Archidekt, Moxfield, MTGGoldfish) all require a server-side
-              proxy to bypass CORS / spoof Origin headers. The Vite dev proxy in
-              vite.config.js handles this locally, but on static hosting (GitHub Pages
-              or any plain file server) there is no server component to proxy through.
-              To re-enable: migrate to hosting with serverless functions (Netlify, Vercel,
-              Cloudflare Workers) and port the vite.config.js proxy routes to edge functions,
-              then uncomment the tab switcher and URL tab below.
-
-              State needed: inputTab, setInputTab, importUrl, setImportUrl,
-                            urlLoading, setUrlLoading, urlError, setUrlError
-              Handler needed: handleUrlFetch (already implemented above, just not wired up)
-              CSS needed: .inputTabs, .inputTab, .inputTabActive, .urlInput, .urlError
-                          (already in ImportModal.module.css, just not visible)
-
-            <div className={styles.inputTabs}>
-              {[['text', '📋 Paste / Upload'], ['url', '🔗 URL']].map(([id, label]) => (
-                <button key={id} className={`${styles.inputTab} ${inputTab === id ? styles.inputTabActive : ''}`}
-                  onClick={() => { setInputTab(id); setUrlError('') }}>
-                  {label}
-                </button>
-              ))}
-            </div>
+              URL import is disabled until production has a server-side proxy.
+              Keep handleUrlFetch and URL state here so the shared flow can be reused
+              once Archidekt, Moxfield, and MTGGoldfish are supported outside dev.
             */}
 
             <p className={styles.hint}>
               Paste a decklist or Manabox CSV, or upload a <em>.csv</em> / <em>.txt</em> file.<br />
               <span className={styles.hintFormats}>
-                Supported: <code>4 Lightning Bolt</code> · <code>4 Lightning Bolt (M10) 155</code> · <code>4 *F* Sol Ring</code>
+                Supported: <code>4 Lightning Bolt</code> / <code>4 Lightning Bolt (M10) 155</code> / <code>4 *F* Sol Ring</code>
               </span>
             </p>
             <textarea
               className={styles.textarea}
               placeholder={'4 Forest\n1 Sol Ring\n4 Lightning Bolt (M10) 155\n// comments are ignored'}
               value={text}
-              onChange={e => setText(e.target.value)}
+              onChange={e => {
+                setText(e.target.value)
+                setResolvedRows([])
+                setSourceFolders({})
+                setResolveError('')
+                setPreviewPage(0)
+              }}
               rows={10}
               autoFocus
             />
@@ -313,55 +630,49 @@ export default function ImportModal({
                 Upload file
               </button>
               <button className={styles.parseBtn} onClick={handleParse} disabled={!text.trim()}>
-                Parse →
+                Parse
               </button>
             </div>
-
-            {/* URL tab content — also disabled, keep for when proxy is available:
-            {inputTab === 'url' && (
-              <>
-                <p className={styles.hint}>
-                  Paste a deck link from Archidekt, Moxfield, or MTGGoldfish.
-                </p>
-                <input autoFocus className={styles.urlInput}
-                  value={importUrl}
-                  onChange={e => { setImportUrl(e.target.value); setUrlError('') }}
-                  onKeyDown={async e => { if (e.key === 'Enter') await handleUrlFetch() }}
-                  placeholder="https://archidekt.com/decks/12345/…"
-                />
-                {urlError && <p className={styles.urlError}>{urlError}</p>}
-                <div className={styles.inputRow}>
-                  <button className={styles.parseBtn} onClick={handleUrlFetch}
-                    disabled={urlLoading || !importUrl.trim()}>
-                    {urlLoading ? 'Fetching…' : 'Fetch →'}
-                  </button>
-                </div>
-              </>
-            )}
-            */}
           </>
         )}
 
-        {/* ── Step: Preview ── */}
         {step === 'preview' && (
           <>
-            <p className={styles.hint}>{parsed.length} cards found. {destinationFixed ? `Importing into: ${folders[0]?.name || noun}` : `Choose a destination:`}</p>
+            {allowTypeSelection && !hasSourceFolders && !destinationFixed && (
+              <div className={styles.inputTabs}>
+                {TYPE_OPTIONS.map(option => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    className={`${styles.inputTab} ${activeFolderType === option.id ? styles.inputTabActive : ''}`}
+                    onClick={() => {
+                      setActiveFolderType(option.id)
+                      setFolderId('')
+                      setFolderSearch('')
+                      setCreating(false)
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            )}
 
-            {/* Folder picker — only shown when destination is not pre-fixed */}
-            {!destinationFixed && (
+            {!hasSourceFolders && !destinationFixed && (
               !creating ? (
                 <div className={styles.pickerRow}>
                   <ResponsiveMenu
                     title={`Select ${noun}`}
                     align="left"
                     wrapClassName={styles.folderCombo}
+                    portal
                     onOpenChange={(open) => { if (!open) setFolderSearch('') }}
                     trigger={({ open, toggle }) => (
                       <button type="button" className={styles.folderComboBtn} onClick={toggle}>
                         <span className={!folderId ? styles.folderComboBtnPlaceholder : ''}>
-                          {selectedFolderName || `Choose ${noun.toLowerCase()}…`}
+                          {selectedFolderName || `Choose ${noun.toLowerCase()}...`}
                         </span>
-                        <span className={styles.folderComboArrow}>{open ? '▲' : '▼'}</span>
+                        <span className={styles.folderComboArrow}>{open ? '^' : 'v'}</span>
                       </button>
                     )}
                   >
@@ -372,18 +683,18 @@ export default function ImportModal({
                           className={styles.folderDropSearch}
                           value={folderSearch}
                           onChange={e => setFolderSearch(e.target.value)}
-                          placeholder={`Search ${noun.toLowerCase()}s…`}
+                          placeholder={`Search ${noun.toLowerCase()}s...`}
                           onMouseDown={e => e.stopPropagation()}
                         />
                         <div className={uiStyles.responsiveMenuList}>
                           {filteredFolders.length > 0
-                            ? filteredFolders.map(f => (
+                            ? filteredFolders.map(folder => (
                                 <button
-                                  key={f.id}
-                                  className={`${uiStyles.responsiveMenuAction} ${folderId === f.id ? uiStyles.responsiveMenuActionActive : ''}`}
+                                  key={folder.id}
+                                  className={`${uiStyles.responsiveMenuAction} ${folderId === folder.id ? uiStyles.responsiveMenuActionActive : ''}`}
                                   onMouseDown={e => { e.preventDefault(); e.stopPropagation() }}
-                                  onClick={e => { e.preventDefault(); e.stopPropagation(); setFolderId(f.id); setFolderSearch(''); close() }}
-                                >{f.name}</button>
+                                  onClick={e => { e.preventDefault(); e.stopPropagation(); setFolderId(folder.id); setFolderSearch(''); close() }}
+                                >{folder.name}</button>
                               ))
                             : <div className={styles.folderDropEmpty}>
                                 {folderSearch
@@ -404,69 +715,204 @@ export default function ImportModal({
                   <input
                     autoFocus
                     className={styles.newInput}
-                    placeholder={`${noun} name…`}
+                    placeholder={`${noun} name...`}
                     value={newName}
                     onChange={e => setNewName(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter') handleCreateFolder(); if (e.key === 'Escape') setCreating(false) }}
                   />
                   <button className={styles.parseBtn} onClick={handleCreateFolder} disabled={!newName.trim()}>Create</button>
-                  <button className={styles.fileBtn} onClick={() => setCreating(false)}>✕</button>
+                  <button className={styles.fileBtn} onClick={() => setCreating(false)}>Cancel</button>
                 </div>
               )
             )}
 
-            {/* Card list preview */}
-            <div className={styles.previewList}>
-              {parsed.slice(0, 50).map((c, i) => (
-                <div key={i} className={styles.previewRow}>
-                  <span className={styles.previewQty}>×{c.qty}</span>
-                  <span className={styles.previewName}>{c.name}</span>
-                  {c.setCode && (
-                    <span className={styles.previewSet}>
-                      {c.setCode.toUpperCase()}{c.collectorNumber ? ` ${c.collectorNumber}` : ''}
-                    </span>
+            <div className={styles.summaryGrid}>
+              <div className={styles.summaryItem}><strong>{previewSummary.totalCopies}</strong><span>Total copies</span></div>
+              <div className={styles.summaryItem}><strong>{previewSummary.uniqueNames}</strong><span>Unique cards</span></div>
+              <div className={styles.summaryItem}>
+                <strong>{destinationCount}</strong>
+                <span>{hasSourceFolders ? 'Source destinations' : `Importing to ${destinationCount} ${destinationCount === 1 ? destinationLabel : `${destinationLabel}s`}`}</span>
+              </div>
+              <div className={previewSummary.missingRows ? styles.summaryWarn : styles.summaryItem}>
+                <strong>{previewSummary.missingRows}</strong><span>Unresolved rows</span>
+              </div>
+            </div>
+
+            {previewSummary.sourceLocations.length > 0 && (
+              <p className={styles.hint}>
+                Source locations: {previewSummary.sourceLocations.length} location{previewSummary.sourceLocations.length === 1 ? '' : 's'} from CSV
+              </p>
+            )}
+            {parseStatus && (
+              <p className={`${styles.parseStatus} ${styles[`parseStatus_${parseStatus.tone}`]}`}>
+                {parseStatus.text}
+              </p>
+            )}
+
+            {previewRows.length > PAGE_SIZE && (
+              <div className={styles.previewPager}>
+                <button
+                  type="button"
+                  className={styles.fileBtn}
+                  onClick={() => setPreviewPage(page => Math.max(0, page - 1))}
+                  disabled={safePreviewPage === 0}
+                >
+                  Previous
+                </button>
+                <div className={styles.previewPageStatus}>
+                  <span>Page</span>
+                  {previewPageEditing ? (
+                    <input
+                      className={styles.previewPageInput}
+                      value={previewPageInput}
+                      onChange={e => setPreviewPageInput(e.target.value.replace(/\D/g, ''))}
+                      onBlur={applyPreviewPageInput}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') applyPreviewPageInput()
+                        if (e.key === 'Escape') setPreviewPageEditing(false)
+                      }}
+                      inputMode="numeric"
+                      autoFocus
+                    />
+                  ) : (
+                    <button type="button" className={styles.previewPageNumber} onClick={startPreviewPageEdit}>
+                      {safePreviewPage + 1}
+                    </button>
                   )}
-                  {c.foil && <span className={styles.previewFoil}>✦</span>}
+                  <span>of {previewPageCount}</span>
+                  <span className={styles.previewPageRange}>
+                    {previewStart + 1}-{Math.min(previewStart + PAGE_SIZE, previewRows.length)} of {previewRows.length}
+                  </span>
                 </div>
-              ))}
-              {parsed.length > 50 && (
-                <div className={styles.previewMore}>…and {parsed.length - 50} more</div>
-              )}
+                <button
+                  type="button"
+                  className={styles.fileBtn}
+                  onClick={() => setPreviewPage(page => Math.min(previewPageCount - 1, page + 1))}
+                  disabled={safePreviewPage >= previewPageCount - 1}
+                >
+                  Next
+                </button>
+              </div>
+            )}
+
+            <div className={styles.previewList}>
+              {previewSlice.map((row, pageIndex) => {
+                const index = previewStart + pageIndex
+                return (
+                <Fragment key={`${row.name}-${index}`}>
+                  <div className={`${styles.previewRow} ${row.status === 'missing' ? styles.previewRowMissing : ''}`}>
+                    <span className={styles.previewQty}>x{row.qty}</span>
+                    <span className={styles.previewName}>{row.resolvedName || row.name}</span>
+                    {formatSet(row) && <span className={styles.previewSet}>{formatSet(row)}</span>}
+                    {row.sourceLocation && (
+                      <span className={styles.previewLocation}>
+                        {sourceFolders[row.sourceLocation]?.type ? `${getFolderTypeLabel(sourceFolders[row.sourceLocation].type)}: ` : ''}{row.sourceLocation}
+                      </span>
+                    )}
+                    {row.exactPrinting && <span className={styles.previewExact}>exact</span>}
+                    {row.foil && <span className={styles.previewFoil}>foil</span>}
+                    {row.status === 'missing' && <span className={styles.previewMissing}>missing</span>}
+                    <button type="button" className={styles.previewEditBtn} onClick={() => handleStartEdit(row, index)}>
+                      Edit
+                    </button>
+                  </div>
+                  {editingIndex === index && (
+                    <div className={styles.editPanel}>
+                      <div className={styles.editHeader}>
+                        <span>Choose printing</span>
+                        <div className={styles.editActions}>
+                          <button type="button" className={styles.fileBtn} onClick={handleCancelEdit}>Cancel</button>
+                          <button type="button" className={styles.parseBtn} onClick={() => handleApplyEdit(index)} disabled={resolving || !editSelectedPrinting}>
+                            Apply
+                          </button>
+                        </div>
+                      </div>
+                      {editPrintingsLoading ? (
+                        <div className={styles.editLoading}>Loading printings...</div>
+                      ) : (
+                        <div className={styles.printingGrid}>
+                          {editPrintings.map(printing => {
+                            const image = getPrintingImage(printing)
+                            return (
+                              <button
+                                key={printing.id}
+                                type="button"
+                                className={`${styles.printingCard} ${editSelectedPrinting?.id === printing.id ? styles.printingCardActive : ''}`}
+                                onClick={() => {
+                                  setEditSelectedPrinting(printing)
+                                  const hasFoil = !!(
+                                    printing.finishes?.includes('foil') ||
+                                    printing.finishes?.includes('etched') ||
+                                    printing.prices?.eur_foil ||
+                                    printing.prices?.usd_foil
+                                  )
+                                  if (!hasFoil) setEditFoil(false)
+                                }}
+                                title={`${printing.set_name || printing.set} ${printing.collector_number}`}
+                              >
+                                {image
+                                  ? <img src={image} alt={printing.name} className={styles.printingImage} loading="lazy" />
+                                  : <div className={styles.printingImageEmpty} />
+                                }
+                                <span className={styles.printingSet}>{printing.set?.toUpperCase()}</span>
+                                <span className={styles.printingMeta}>#{printing.collector_number}</span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                      <div className={styles.editBottom}>
+                        <button
+                          type="button"
+                          className={`${styles.foilSwitch} ${editFoil ? styles.foilSwitchOn : ''}`}
+                          onClick={() => editHasFoil && setEditFoil(value => !value)}
+                          disabled={!editHasFoil}
+                          aria-pressed={editFoil}
+                        >
+                          <span className={styles.foilSwitchText}>Foil</span>
+                          <span className={styles.foilSwitchTrack}>
+                            <span className={styles.foilSwitchKnob} />
+                          </span>
+                        </button>
+                        {!editHasFoil && <span className={styles.noFoilText}>No foil version for this printing</span>}
+                      </div>
+                    </div>
+                  )}
+                </Fragment>
+              )})}
             </div>
 
             <div className={styles.actionRow}>
-              <button className={styles.fileBtn} onClick={() => setStep('input')}>← Back</button>
-              <button className={styles.parseBtn} onClick={handleImport} disabled={!folderId}>
-                Import {parsed.length} cards
+              <button className={styles.fileBtn} onClick={() => setStep('input')}>Back</button>
+              <button className={styles.parseBtn} onClick={handleImport} disabled={!canImport || resolving}>
+                {importButtonLabel}
               </button>
             </div>
           </>
         )}
 
-        {/* ── Step: Importing ── */}
         {step === 'importing' && (
           <div className={styles.progressWrap}>
-            <div className={styles.progressLabel}>Importing… {progress} / {total}</div>
+            <div className={styles.progressLabel}>Importing... {progress} / {total}</div>
             <div className={styles.progressBar}>
               <div className={styles.progressFill} style={{ width: total ? `${(progress / total) * 100}%` : '0%' }} />
             </div>
           </div>
         )}
 
-        {/* ── Step: Done ── */}
         {step === 'done' && (
           <>
             <p className={styles.doneMsg}>
               {imported > 0
-                ? <span className={styles.success}>✓ {imported} cards imported successfully.</span>
+                ? <span className={styles.success}>{imported} copies imported successfully.</span>
                 : <span style={{ color: 'var(--text-dim)' }}>No cards were imported.</span>
               }
             </p>
             {missed.length > 0 && (
               <>
-                <p className={styles.hint}>{missed.length} card{missed.length > 1 ? 's' : ''} not found in Scryfall:</p>
+                <p className={styles.hint}>{missed.length} issue{missed.length > 1 ? 's' : ''} found during import:</p>
                 <div className={styles.missedList}>
-                  {missed.map((n, i) => <div key={i} className={styles.missedItem}>{n}</div>)}
+                  {missed.map((name, index) => <div key={index} className={styles.missedItem}>{name}</div>)}
                 </div>
               </>
             )}
