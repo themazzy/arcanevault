@@ -7,7 +7,6 @@ import uiStyles from './UI.module.css'
 import { FolderTypeIcon } from './Icons'
 import { sb } from '../lib/supabase'
 import { putCards } from '../lib/db'
-import { useAuth } from './Auth'
 import { useLongPress } from '../hooks/useLongPress'
 
 const NON_DRAGGABLE_IMG_PROPS = {
@@ -450,7 +449,7 @@ async function fetchRulings(scryfallId, setCode, collectorNumber) {
   } catch { return [] }
 }
 
-function LegacyCardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, allFolders = [], priceSource = 'cardmarket_trend', onSave }) {
+function LegacyCardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, priceSource = 'cardmarket_trend', onSave }) {
   if (!card) return null
 
   const navigate = useNavigate()
@@ -473,7 +472,6 @@ function LegacyCardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, al
   const [editBuyPrice,   setEditBuyPrice]   = useState(parseFloat(card.purchase_price) || 0)
   const [buyPriceEdit,   setBuyPriceEdit]   = useState(false)
   const [buyPriceInput,  setBuyPriceInput]  = useState('')
-  const [moveFolderText, setMoveFolderText] = useState('')
   const [saving,         setSaving]         = useState(false)
   const [saved,          setSaved]          = useState(false)
   const [saveError,      setSaveError]      = useState('')
@@ -549,24 +547,6 @@ function LegacyCardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, al
     setSaved(true)
     setTimeout(() => setSaved(false), 2500)
     setSaving(false)
-  }
-
-  const handleMoveToFolder = async () => {
-    const matched = allFolders.find(f => f.name.toLowerCase() === moveFolderText.toLowerCase() || f.id === moveFolderText)
-    if (!matched) return
-    const qty = editQty || 1
-    const { error } = await sb.from('folder_cards')
-      .upsert({ folder_id: matched.id, card_id: card.id, qty }, { onConflict: 'folder_id,card_id' })
-    if (!error) {
-      // Remove from all current folders (move semantics)
-      if (folders?.length) {
-        await sb.from('folder_cards').delete()
-          .eq('card_id', card.id)
-          .in('folder_id', folders.filter(f => f.id !== matched.id).map(f => f.id))
-      }
-      setMoveFolderText('')
-      onSave?.(card)
-    }
   }
 
   // P&L: always compare in EUR (purchase_price is stored in EUR)
@@ -960,34 +940,6 @@ function LegacyCardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, al
                 {saveError && <span style={{ fontSize: '0.78rem', color: '#e08878' }}>{saveError}</span>}
               </div>
 
-              {/* ── Move to deck / binder ── */}
-              {allFolders.length > 0 && (
-                <div className={styles.editGroup} style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,0.07)' }}>
-                  <span className={styles.editLabel}>Move to</span>
-                  <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <input
-                      list="moveFolderList"
-                      name="card-detail-move-folder"
-                      className={styles.editSelect}
-                      style={{ flex: 1, minWidth: 140 }}
-                      value={moveFolderText}
-                      onChange={e => setMoveFolderText(e.target.value)}
-                      placeholder="Type or select deck / binder…"
-                    />
-                    <datalist id="moveFolderList">
-                      {allFolders.filter(f => f.type !== 'list').map(f => (
-                        <option key={f.id} value={f.name}>{f.name} ({f.type})</option>
-                      ))}
-                    </datalist>
-                    <button className={styles.addToFolderBtn}
-                      onClick={handleMoveToFolder}
-                      disabled={!moveFolderText || !allFolders.find(f => f.name.toLowerCase() === moveFolderText.toLowerCase())}>
-                      Move
-                    </button>
-                  </div>
-                </div>
-              )}
-
               {/* ── Static info ── */}
               <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                 <div className={styles.detailInfoRow}>
@@ -1060,11 +1012,10 @@ function LegacyCardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, al
 }
 
 
-export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, allFolders = [], priceSource = 'cardmarket_trend', onSave, currentFolderId = null, currentFolderType = null, readOnly = false }) {
+export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, deleteQty = null, folders, priceSource = 'cardmarket_trend', onSave, currentFolderId = null, currentFolderType = null, readOnly = false }) {
   if (!card) return null
 
   const navigate = useNavigate()
-  const { user } = useAuth()
   const [activeTab, setActiveTab] = useState('card')
   const [face, setFace] = useState(0)
 
@@ -1087,8 +1038,6 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
   const [editBuyPrice, setEditBuyPrice] = useState(parseFloat(card.purchase_price) || 0)
   const [buyPriceEdit, setBuyPriceEdit] = useState(false)
   const [buyPriceInput, setBuyPriceInput] = useState('')
-  const [moveFolderText, setMoveFolderText] = useState('')
-  const [moveFolderSearch, setMoveFolderSearch] = useState('')
   const [printings, setPrintings] = useState(null)
   const [loadingPrintings, setLoadingPrintings] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -1137,6 +1086,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
   const currentFolders = folders?.filter(Boolean) || []
   const scopedFolderType = currentFolderType || currentFolders[0]?.type || null
   const displayQty = currentFolderId && card._folder_qty != null ? card._folder_qty : (card.qty || 1)
+  const deleteCount = deleteQty ?? displayQty
   const hasFoilVersion = card.foil ||
     fullCard?.finishes?.includes('foil') ||
     fullCard?.prices?.eur_foil != null ||
@@ -1173,6 +1123,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
     setSaving(true)
     setSaveError('')
     let folderQty = card._folder_qty
+    let ownedQty = editQty
 
     if (currentFolderId && card._folder_qty != null) {
       const table = scopedFolderType === 'deck' ? 'deck_allocations' : 'folder_cards'
@@ -1187,6 +1138,20 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
         return
       }
       folderQty = editQty
+      ownedQty = Math.max(0, (card.qty || 0) - (card._folder_qty || 0) + editQty)
+
+      const cardUpdates = {
+        qty: ownedQty,
+        foil: editFoil,
+        condition: editCondition,
+        language: editLanguage,
+      }
+      const { error: cardError } = await sb.from('cards').update(cardUpdates).eq('id', card.id)
+      if (cardError) {
+        setSaveError(cardError.message)
+        setSaving(false)
+        return
+      }
     } else {
       const updates = { qty: editQty, foil: editFoil, condition: editCondition, language: editLanguage }
       const { error } = await sb.from('cards').update(updates).eq('id', card.id)
@@ -1195,11 +1160,12 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
         setSaving(false)
         return
       }
+      ownedQty = editQty
     }
 
     const updatedCard = {
       ...card,
-      qty: currentFolderId && card._folder_qty != null ? card.qty : editQty,
+      qty: ownedQty,
       foil: editFoil,
       condition: editCondition,
       language: editLanguage,
@@ -1210,33 +1176,6 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
     setSaved(true)
     setTimeout(() => setSaved(false), 2500)
     setSaving(false)
-  }
-
-  const handleMoveToFolder = async (targetFolder) => {
-    const matched = targetFolder || allFolders.find(f => f.name.toLowerCase() === moveFolderText.toLowerCase() || f.id === moveFolderText)
-    if (!matched) return
-    const qty = editQty || 1
-    const targetTable = matched.type === 'deck' ? 'deck_allocations' : 'folder_cards'
-    const targetKey = matched.type === 'deck' ? 'deck_id' : 'folder_id'
-    const targetPayload = matched.type === 'deck'
-      ? { deck_id: matched.id, user_id: user?.id || card.user_id, card_id: card.id, qty }
-      : { folder_id: matched.id, card_id: card.id, qty }
-    const { error } = await sb.from(targetTable)
-      .upsert(targetPayload, { onConflict: `${targetKey},card_id` })
-    if (!error) {
-      if (folders?.length) {
-        for (const existingFolder of folders.filter(f => f.id !== matched.id)) {
-          const sourceTable = existingFolder.type === 'deck' ? 'deck_allocations' : 'folder_cards'
-          const sourceKey = existingFolder.type === 'deck' ? 'deck_id' : 'folder_id'
-          await sb.from(sourceTable).delete()
-            .eq('card_id', card.id)
-            .eq(sourceKey, existingFolder.id)
-        }
-      }
-      setMoveFolderText('')
-      setMoveFolderSearch('')
-      onSave?.(card)
-    }
   }
 
   const loadPrintings = async () => {
@@ -1625,11 +1564,10 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
                 </div>
               </div>
 
-              {allFolders.length > 0 && (
+              {currentFolders.length > 0 && (
                 <div className={styles.detailSubsection}>
-                  {currentFolders.length > 0 && (
-                    <div>
-                      <div className={styles.locationSubLabel}>Current location</div>
+                  <div>
+                    <div className={styles.locationSubLabel}>Current location</div>
                     <div className={styles.folderPills}>
                       {currentFolders.map((f, i) => {
                         const path = f.type === 'deck' ? '/decks' : f.type === 'binder' ? '/binders' : '/lists'
@@ -1641,54 +1579,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
                         )
                       })}
                     </div>
-                    </div>
-                  )}
-                  <ResponsiveMenu
-                    title="Move to another Binder / Deck"
-                    align="left"
-                    panelClassName={styles.moveFolderPanel}
-                    onOpenChange={open => { if (!open) setMoveFolderSearch('') }}
-                    trigger={({ toggle }) => (
-                      <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.purple}`} onClick={toggle}>
-                        Move to another Binder / Deck
-                      </button>
-                    )}
-                  >
-                    {({ close }) => {
-                      const q = moveFolderSearch.toLowerCase()
-                      const filtered = allFolders.filter(f => f.type !== 'list' && (!q || f.name.toLowerCase().includes(q)))
-                      return (
-                        <>
-                          <div className={styles.moveFolderSearch}>
-                            <input
-                              autoFocus
-                              name="card-detail-folder-search"
-                              className={styles.moveFolderSearchInput}
-                              value={moveFolderSearch}
-                              onChange={e => setMoveFolderSearch(e.target.value)}
-                              placeholder="Search folders…"
-                            />
-                          </div>
-                          <div className={styles.moveFolderList}>
-                            {filtered.length === 0
-                              ? <div className={styles.moveFolderEmpty}>No folders found</div>
-                              : filtered.map(f => (
-                                <button
-                                  key={f.id}
-                                  className={`${styles.moveFolderItem}${currentFolders.some(cf => cf.id === f.id) ? ' ' + styles.moveFolderItemCurrent : ''}`}
-                                  onClick={() => { handleMoveToFolder(f); close() }}
-                                >
-                                  <FolderTypeIcon type={f.type} size={12} />
-                                  <span className={styles.moveFolderItemName}>{f.name}</span>
-                                  {currentFolders.some(cf => cf.id === f.id) && <span className={styles.moveFolderItemBadge}>current</span>}
-                                </button>
-                              ))
-                            }
-                          </div>
-                        </>
-                      )
-                    }}
-                  </ResponsiveMenu>
+                  </div>
                 </div>
               )}
 
@@ -1712,7 +1603,9 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
 
               {onDelete && (
                 <div className={styles.detailSubsection}>
-                  <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.danger}`} onClick={onDelete}>Delete Card</button>
+                  <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.danger}`} onClick={onDelete}>
+                    Delete {deleteCount} Card{deleteCount === 1 ? '' : 's'}
+                  </button>
                 </div>
               )}
             </div>

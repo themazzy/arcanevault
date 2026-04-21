@@ -18,7 +18,7 @@ import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { getPublicAppUrl } from '../lib/publicUrl'
-import { getLocalFolderCards, getAllLocalFolderCards, getDeckAllocations, getCardsByIds } from '../lib/db'
+import { getLocalFolderCards, getAllLocalFolderCards, getDeckAllocations, getCardsByIds, putCards, putFolderCards, putDeckAllocations } from '../lib/db'
 
 
 // ── Sort dropdown (custom, dark-themed — native <option> can't be styled) ─────
@@ -512,6 +512,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
   const [groupBy, setGroupBy]         = useState('none')
   const [hoverImg, setHoverImg]       = useState(null)
   const [hoverPos, setHoverPos]       = useState({ x: 0, y: 0 })
+  const [reloadKey, setReloadKey]     = useState(0)
   const isAllView = !folder
   const browserTitle = title || folder?.name || `All ${noun} Cards`
   const folderIds = useMemo(() => folders.map(f => f.id), [folders])
@@ -554,7 +555,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
       setLoading(false)
     }
     load()
-  }, [folder?.id, folderIds, folders, isAllView])
+  }, [folder?.id, folderIds, folders, isAllView, reloadKey])
 
   // Phase B: load prices in background after cards are visible
   useEffect(() => {
@@ -843,8 +844,15 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
           defaultFolderType={folder?.type || folders[0]?.type || 'binder'}
           defaultFolderId={folder?.id || null}
           onClose={() => setShowAddCard(false)}
-          onSaved={async () => {
+          onSaved={async (result) => {
+            if (result?.cards?.length) await putCards(result.cards)
+            if (result?.placements?.length) {
+              const targetType = result.folder?.type || folder?.type
+              if (targetType === 'deck') await putDeckAllocations(result.placements)
+              else await putFolderCards(result.placements)
+            }
             setShowAddCard(false)
+            setReloadKey(v => v + 1)
             onCardAdded?.()
           }}
         />

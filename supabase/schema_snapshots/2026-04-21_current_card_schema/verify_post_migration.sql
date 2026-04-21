@@ -1,7 +1,6 @@
 -- ArcaneVault post-migration verification
 -- Run after applying:
 --   20260402000003_card_prints_and_deck_allocations.sql
---   20260421000001_card_schema_full_migration.sql
 --
 -- Purpose:
 -- - confirm new tables/views exist
@@ -33,12 +32,7 @@ union all
 select
   'view_exists',
   to_regclass('public.deck_allocations_view') is not null,
-  'public.deck_allocations_view'
-union all
-select
-  'view_exists',
-  to_regclass('public.list_items_view') is not null,
-  'public.list_items_view';
+  'public.deck_allocations_view';
 
 -- 2. High-level row counts
 select 'card_prints' as dataset, count(*) as row_count from public.card_prints
@@ -49,35 +43,28 @@ select 'deck_cards', count(*) from public.deck_cards
 union all
 select 'deck_allocations', count(*) from public.deck_allocations
 union all
-select 'folder_cards', count(*) from public.folder_cards
-union all
-select 'list_items', count(*) from public.list_items;
+select 'folder_cards', count(*) from public.folder_cards;
 
 -- 3. Backfill coverage for normalized foreign keys
 select
   'cards_missing_card_print_id' as metric,
   count(*) as affected_rows
 from public.cards
-where card_print_id is null
+where scryfall_id is not null
+  and card_print_id is null
 union all
 select
   'deck_cards_missing_card_print_id',
   count(*)
 from public.deck_cards
-where card_print_id is null
-union all
-select
-  'list_items_missing_card_print_id',
-  count(*)
-from public.list_items
-where card_print_id is null;
+where scryfall_id is not null
+  and card_print_id is null;
 
 -- 4. Duplicate print identity should not exist
 select
   scryfall_id,
   count(*) as duplicate_count
 from public.card_prints
-where scryfall_id is not null
 group by scryfall_id
 having count(*) > 1
 order by duplicate_count desc, scryfall_id
@@ -98,14 +85,6 @@ select
 from public.deck_cards dc
 left join public.card_prints cp on cp.id = dc.card_print_id
 where dc.card_print_id is not null
-  and cp.id is null
-union all
-select
-  'list_items_bad_card_print_fk',
-  count(*)
-from public.list_items li
-left join public.card_prints cp on cp.id = li.card_print_id
-where li.card_print_id is not null
   and cp.id is null
 union all
 select
@@ -136,7 +115,7 @@ order by da.created_at desc
 limit 50;
 
 -- 7. Legacy deck-content rows still living in folder_cards
--- Should be zero after 20260421000001.
+-- These may exist during transition, but should trend toward zero for deck composition.
 select
   f.id as deck_id,
   f.name as deck_name,
@@ -178,48 +157,8 @@ order by deck_name;
 select * from public.owned_cards_view limit 5;
 select * from public.deck_cards_view limit 5;
 select * from public.deck_allocations_view limit 5;
-select * from public.list_items_view limit 5;
 
--- 10. Quantity reconciliation: placement totals should equal owned qty after automatic repair.
-with placement_totals as (
-  select c.id, c.qty as owned_qty, coalesce(fc.qty, 0) + coalesce(da.qty, 0) as placement_qty
-  from public.cards c
-  left join (
-    select card_id, sum(qty) as qty
-    from public.folder_cards
-    group by card_id
-  ) fc on fc.card_id = c.id
-  left join (
-    select card_id, sum(qty) as qty
-    from public.deck_allocations
-    group by card_id
-  ) da on da.card_id = c.id
-)
-select *
-from placement_totals
-where owned_qty <> placement_qty
-limit 100;
-
--- 11. Null-safe duplicate checks should return no rows.
-select user_id, card_print_id, foil, language, condition, count(*) as rows
-from public.cards
-group by user_id, card_print_id, foil, language, condition
-having count(*) > 1
-limit 100;
-
-select folder_id, card_print_id, foil, count(*) as rows
-from public.list_items
-group by folder_id, card_print_id, foil
-having count(*) > 1
-limit 100;
-
-select deck_id, card_print_id, foil, board, count(*) as rows
-from public.deck_cards
-group by deck_id, card_print_id, foil, board
-having count(*) > 1
-limit 100;
-
--- 12. Optional per-user quick audit
+-- 10. Optional per-user quick audit
 -- Replace the UUID and run manually when needed.
 -- select
 --   'owned_cards' as dataset, count(*) from public.owned_cards_view where user_id = '00000000-0000-0000-0000-000000000000'

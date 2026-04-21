@@ -36,6 +36,7 @@ import {
 import { useAuth } from '../components/Auth'
 import { formatPriceMeta, getPriceWithMeta, sfGet } from '../lib/scryfall'
 import { sb } from '../lib/supabase'
+import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
 import { useSettings } from '../components/SettingsContext'
 import styles from './CardScanner.module.css'
 import { playMatchSound } from './scanSounds'
@@ -184,26 +185,8 @@ async function batchSaveCards({ userId, cards, folderId, folderType }) {
     }, new Map()).values()
   )
 
-  const scryfallIds = [...new Set(aggregatedOwned.map(c => c.scryfall_id).filter(Boolean))]
-  if (scryfallIds.length) {
-    const { data: printRows, error: printErr } = await sb
-      .from('card_prints')
-      .select('id,scryfall_id,set_code,collector_number,name')
-      .in('scryfall_id', scryfallIds)
-    if (printErr) throw new Error(printErr.message)
-
-    const printByScryfallId = new Map((printRows || []).map(row => [row.scryfall_id, row]))
-    aggregatedOwned = aggregatedOwned.map(row => {
-      const print = row.scryfall_id ? printByScryfallId.get(row.scryfall_id) : null
-      return print ? {
-        ...row,
-        card_print_id: print.id,
-        name: print.name || row.name,
-        set_code: print.set_code || row.set_code,
-        collector_number: print.collector_number || row.collector_number,
-      } : row
-    })
-  }
+  const printByScryfallId = await ensureCardPrints(cards)
+  aggregatedOwned = aggregatedOwned.map(row => withCardPrint(row, getCardPrint(printByScryfallId, row)))
 
   if (folderType === 'list') {
     const aggregatedItems = Array.from(
@@ -234,11 +217,12 @@ async function batchSaveCards({ userId, cards, folderId, folderType }) {
       set_code: c.set_code,
       collector_number: c.collector_number,
       scryfall_id: c.scryfall_id,
+      card_print_id: getCardPrint(printByScryfallId, c)?.id || null,
       foil: c.foil,
       qty: c.qty ?? 1,
     }))
     const { error } = await sb.from('list_items')
-      .upsert(items, { onConflict: 'folder_id,set_code,collector_number,foil' })
+      .upsert(items, { onConflict: 'folder_id,card_print_id,foil' })
     if (error) throw new Error(error.message)
     return
   }

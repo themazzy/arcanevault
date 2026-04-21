@@ -4,6 +4,7 @@ import { getScryfallKey, getPrice, formatPrice, getInstantCache } from '../lib/s
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getLocalCards, putCards, deleteCard, deleteAllCards, getAllLocalFolderCards, putFolderCards, getLocalFolders, putFolders, setMeta, getMeta, deleteFolder as deleteLocalFolder, replaceLocalFolderCards, getAllDeckAllocationsForUser, putDeckAllocations, replaceDeckAllocations } from '../lib/db'
 import { parseManaboxCSV } from '../lib/csvParser'
+import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
@@ -35,13 +36,35 @@ function OrphanModal({ cards, folders, userId, onAssigned, onDeleted }) {
     try {
       const isDeck = folder.type === 'deck'
       const table  = isDeck ? 'deck_allocations' : 'folder_cards'
-      const rows   = cards.map(c => isDeck
-        ? { id: crypto.randomUUID(), deck_id: folder.id, card_id: c.id, user_id: userId, qty: c.qty || 1 }
-        : { id: crypto.randomUUID(), folder_id: folder.id, card_id: c.id, qty: c.qty || 1 }
-      )
-      const { error: err } = await sb.from(table).insert(rows)
+      const fk = isDeck ? 'deck_id' : 'folder_id'
+      const qtyByCardId = new Map()
+      for (const card of cards) {
+        qtyByCardId.set(card.id, (qtyByCardId.get(card.id) || 0) + (card.qty || 1))
+      }
+
+      const cardIds = [...qtyByCardId.keys()]
+      const { data: existingRows, error: existingErr } = await sb.from(table)
+        .select('card_id,qty')
+        .eq(fk, folder.id)
+        .in('card_id', cardIds)
+      if (existingErr) throw existingErr
+
+      const existingQtyByCardId = new Map((existingRows || []).map(row => [row.card_id, row.qty || 0]))
+      const rows = cardIds.map(cardId => {
+        const qty = Math.max(existingQtyByCardId.get(cardId) || 0, qtyByCardId.get(cardId) || 1)
+        return isDeck
+          ? { deck_id: folder.id, card_id: cardId, user_id: userId, qty }
+          : { folder_id: folder.id, card_id: cardId, qty }
+      })
+
+      const { data: savedRows, error: err } = await sb.from(table)
+        .upsert(rows, { onConflict: `${fk},card_id` })
+        .select('*')
       if (err) throw err
-      onAssigned(cards, folder)
+      if (isDeck) await putDeckAllocations(savedRows || [])
+      else await putFolderCards(savedRows || [])
+      await setMeta(`folder_cards_full_sync_${userId}`, 0)
+      onAssigned(cards, folder, savedRows || [])
     } catch (e) {
       setError(e.message)
       setBusy(false)
@@ -159,9 +182,11 @@ export default function CollectionPage() {
   const [folders, setFolders] = useState([])
   const [cardFolderMap, setCardFolderMap] = useState({})
   const [folderMembershipLoading, setFolderMembershipLoading] = useState(true)
+  const [folderMembershipReloadKey, setFolderMembershipReloadKey] = useState(0)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [orphanCards, setOrphanCards] = useState([])
   const workerReqId  = useRef(0)
+  const cardsLoadSeq = useRef(0)
   const enrichingRef = useRef(false)
 
   useEffect(() => {
@@ -184,6 +209,8 @@ export default function CollectionPage() {
 
   // ── Load cards — IDB first, Supabase sync in background ──────────────────────
   const loadCards = useCallback(async () => {
+    const loadSeq = ++cardsLoadSeq.current
+    const isCurrentLoad = () => loadSeq === cardsLoadSeq.current
     setLoading(true)
 
     // 1. Read from IDB immediately — instant render even offline
@@ -195,14 +222,16 @@ export default function CollectionPage() {
     const canHydrateFromIdb = localCards.length && (!navigator.onLine || localCardsFresh)
     if (canHydrateFromIdb) {
       console.log(`[Collection] IDB: ${localCards.length} cards (offline-ready)`)
-      setCards(localCards)
-      setLoading(false)
-      startEnrichment(localCards)
+      if (isCurrentLoad()) {
+        setCards(localCards)
+        setLoading(false)
+        startEnrichment(localCards)
+      }
     }
 
     // 2. Sync from Supabase (skip if offline)
     if (!navigator.onLine) {
-      if (!localCards.length) setLoading(false)
+      if (!localCards.length && isCurrentLoad()) setLoading(false)
       return
     }
 
@@ -218,11 +247,16 @@ export default function CollectionPage() {
         .order('name')
         .order('id')
         .range(pageFrom, pageFrom + PAGE - 1)
-      if (err) { setError(err.message); break }
+      if (err) {
+        if (isCurrentLoad()) setError(err.message)
+        break
+      }
       if (data?.length) allCards.push(...data)
       if (!data || data.length < PAGE) { fetchComplete = true; break }
       pageFrom += PAGE
     }
+
+    if (!isCurrentLoad()) return
 
     if (fetchComplete && !allCards.length) {
       if (localCards.length) {
@@ -230,8 +264,10 @@ export default function CollectionPage() {
         await deleteAllCards(user.id)
       }
       await setMeta(`cards_synced_${user.id}`, Date.now())
-      setCards([])
-      setFiltered([])
+      if (isCurrentLoad()) {
+        setCards([])
+        setFiltered([])
+      }
     } else if (allCards.length && fetchComplete) {
       // Prune IDB entries that no longer exist in Supabase (deleted cards)
       if (localCards.length) {
@@ -245,6 +281,7 @@ export default function CollectionPage() {
       // Persist to IDB for next offline load
       await putCards(allCards)
       await setMeta(`cards_synced_${user.id}`, Date.now())
+      if (!isCurrentLoad()) return
       setCards(allCards)
       if (!canHydrateFromIdb) {
         startEnrichment(allCards)
@@ -253,12 +290,14 @@ export default function CollectionPage() {
         const newCards = allCards.filter(c => !localIds.has(c.id))
         if (newCards.length) {
           console.log(`[Collection] ${newCards.length} new cards synced from Supabase`)
-          loadCardMapWithSharedPrices(allCards, { cacheTtlMs: ttlMsRef.current }).then(setSfMap)
+          loadCardMapWithSharedPrices(allCards, { cacheTtlMs: ttlMsRef.current }).then(map => {
+            if (isCurrentLoad()) setSfMap(map)
+          })
         }
       }
     }
 
-    setLoading(false)
+    if (isCurrentLoad()) setLoading(false)
   }, [user.id])
 
   useEffect(() => { loadCards() }, [loadCards])
@@ -389,7 +428,7 @@ export default function CollectionPage() {
       setFolderMembershipLoading(false)
     }
     loadFolderMembership()
-  }, [user.id])
+  }, [user.id, folderMembershipReloadKey])
 
   // ── Debounce search ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -419,7 +458,25 @@ export default function CollectionPage() {
     if (loading || folderMembershipLoading || !isOnline || !cards.length || orphanCheckDone.current) return
     orphanCheckDone.current = true
     const orphans = cards.filter(c => !cardFolderMap[c.id]?.length)
-    if (orphans.length) setOrphanCards(orphans)
+    if (!orphans.length) return
+
+    let cancelled = false
+    ;(async () => {
+      try {
+        console.log(`[Collection] Pruning ${orphans.length} unplaced collection cards`)
+        const prunedIds = await pruneUnplacedCards(orphans.map(c => c.id))
+        if (!cancelled && prunedIds.length) {
+          const pruned = new Set(prunedIds)
+          setCards(prev => prev.filter(c => !pruned.has(c.id)))
+          setFiltered(prev => prev.filter(c => !pruned.has(c.id)))
+        }
+      } catch (err) {
+        console.warn('[Collection] Could not prune unplaced cards:', err.message)
+        if (!cancelled) setOrphanCards(orphans)
+      }
+    })()
+
+    return () => { cancelled = true }
   }, [loading, folderMembershipLoading, cards, cardFolderMap, isOnline])
 
   // ── Scryfall enrichment ──────────────────────────────────────────────────────
@@ -470,17 +527,21 @@ export default function CollectionPage() {
       else deduped[c._localId] = { ...c }
     }
     const dedupedCards = Object.values(deduped)
+    const printByScryfallId = await ensureCardPrints(dedupedCards)
+    const dedupedCardsWithPrints = dedupedCards.map(card =>
+      withCardPrint(card, getCardPrint(printByScryfallId, card))
+    )
 
     const CARD_BATCH = 200
-    for (let i = 0; i < dedupedCards.length; i += CARD_BATCH) {
-      const batch = dedupedCards.slice(i, i + CARD_BATCH).map(c => {
+    for (let i = 0; i < dedupedCardsWithPrints.length; i += CARD_BATCH) {
+      const batch = dedupedCardsWithPrints.slice(i, i + CARD_BATCH).map(c => {
         const c2 = { ...c, user_id: user.id }
         delete c2._localId; delete c2._binderName; return c2
       })
       const { error: err } = await sb.from('cards')
-        .upsert(batch, { onConflict: 'user_id,set_code,collector_number,foil,language,condition', ignoreDuplicates: false })
+        .upsert(batch, { onConflict: 'user_id,card_print_id,foil,language,condition', ignoreDuplicates: false })
       if (err) { setError(`Import error: ${err.message}`); setImporting(false); return }
-      setProgLabel(`Saving cards… (${Math.min(i + CARD_BATCH, dedupedCards.length)} / ${dedupedCards.length})`)
+      setProgLabel(`Saving cards… (${Math.min(i + CARD_BATCH, dedupedCardsWithPrints.length)} / ${dedupedCardsWithPrints.length})`)
     }
 
     // ── Step 2: Fetch all DB cards to build a lookup map (set-col-foil-lang-cond → id) ─
@@ -488,7 +549,7 @@ export default function CollectionPage() {
     let allDbCards = [], dbFrom = 0
     while (true) {
       const { data: page } = await sb.from('cards')
-        .select('id,set_code,collector_number,foil,language,condition')
+        .select('id,set_code,collector_number,foil,language,condition,card_print_id')
         .eq('user_id', user.id)
         .order('id')
         .range(dbFrom, dbFrom + 999)
@@ -499,7 +560,7 @@ export default function CollectionPage() {
     // Key: "set_code-collector_number-foil-language-condition" (foil is boolean → "true"/"false")
     const cardKeyMap = {}
     for (const c of allDbCards) {
-      cardKeyMap[`${c.set_code}-${c.collector_number}-${c.foil}-${c.language}-${c.condition}`] = c.id
+      cardKeyMap[`${c.card_print_id || `${c.set_code}-${c.collector_number}`}-${c.foil}-${c.language}-${c.condition}`] = c.id
     }
 
     // ── Step 3: Create folders and link their cards ──────────────────────────
@@ -526,11 +587,12 @@ export default function CollectionPage() {
           name: c.name, set_code: c.set_code,
           collector_number: c.collector_number,
           scryfall_id: c.scryfall_id || null,
+          card_print_id: getCardPrint(printByScryfallId, c)?.id || null,
           foil: c.foil, qty: c.qty,
         }))
         if (items.length) {
           const { error: lie } = await sb.from('list_items')
-            .upsert(items, { onConflict: 'folder_id,set_code,collector_number,foil', ignoreDuplicates: false })
+            .upsert(items, { onConflict: 'folder_id,card_print_id,foil', ignoreDuplicates: false })
           if (lie) { console.error(`[Import] list_items failed for "${folder.name}":`, lie.message); folderFail++ }
           else folderOk++
         }
@@ -542,7 +604,8 @@ export default function CollectionPage() {
       const qtyByCardId = {}
       let missed = 0
       for (const c of folder.cards) {
-        const key = `${c.set_code}-${c.collector_number}-${c.foil}-${c.language}-${c.condition}`
+        const cardPrintId = getCardPrint(printByScryfallId, c)?.id || null
+        const key = `${cardPrintId || `${c.set_code}-${c.collector_number}`}-${c.foil}-${c.language}-${c.condition}`
         const cid = cardKeyMap[key]
         if (!cid) {
           console.warn(`[Import] No DB row for "${c.name}" (${key}) in "${folder.name}"`)
@@ -604,7 +667,7 @@ export default function CollectionPage() {
     }
 
     // ── Done ────────────────────────────────────────────────────────────────
-    let msg = `Done — ${dedupedCards.length} cards, ${folderOk}/${folderList.length} folders linked`
+    let msg = `Done — ${dedupedCardsWithPrints.length} cards, ${folderOk}/${folderList.length} folders linked`
     if (totalMissed > 0) msg += ` (${totalMissed} card rows not matched)`
     if (folderFail > 0) setError(`${folderFail} folder(s) failed to link — check the browser console for details.`)
     setProgLabel(msg)
@@ -836,28 +899,52 @@ export default function CollectionPage() {
   }
 
   const handleDelete = async (card) => {
+    setError('')
     const selectedQty = card._folder_qty || card.qty || 1
     const nextOwnedQty = (cards.find(c => c.id === card.id)?.qty || card.qty || 1) - selectedQty
+    const remainingFolders = card._displayFolder
+      ? (cardFolderMap[card.id] || []).filter(folder => folder.id !== card._displayFolder.id)
+      : []
     if (card._displayFolder) {
       const sourceTable = card._displayFolder.type === 'deck' ? 'deck_allocations' : 'folder_cards'
       const sourceKey = card._displayFolder.type === 'deck' ? 'deck_id' : 'folder_id'
-      await sb.from(sourceTable).delete().eq(sourceKey, card._displayFolder.id).eq('card_id', card.id)
+      const { error: placementErr } = await sb.from(sourceTable)
+        .delete()
+        .eq(sourceKey, card._displayFolder.id)
+        .eq('card_id', card.id)
+      if (placementErr) {
+        setError(placementErr.message)
+        return
+      }
       setCardFolderMap(prev => {
         const next = { ...prev }
         next[card.id] = (next[card.id] || []).filter(folder => folder.id !== card._displayFolder.id)
+        if (!next[card.id]?.length) delete next[card.id]
         return next
       })
     }
-    if (nextOwnedQty > 0) {
-      await sb.from('cards').update({ qty: nextOwnedQty }).eq('id', card.id)
+    if (nextOwnedQty > 0 && remainingFolders.length > 0) {
+      const { error: cardErr } = await sb.from('cards').update({ qty: nextOwnedQty }).eq('id', card.id)
+      if (cardErr) {
+        setError(cardErr.message)
+        return
+      }
       const updatedCard = { ...(cards.find(c => c.id === card.id) || card), qty: nextOwnedQty }
       await putCards([updatedCard])
       setCards(prev => prev.map(c => c.id === card.id ? updatedCard : c))
     } else {
-      await sb.from('cards').delete().eq('id', card.id)
+      const { error: cardErr } = await sb.from('cards').delete().eq('id', card.id)
+      if (cardErr) {
+        setError(cardErr.message)
+        return
+      }
       await deleteCard(card.id)
       setCards(prev => prev.filter(c => c.id !== card.id))
     }
+    await setMeta(`folder_cards_full_sync_${user.id}`, 0)
+    orphanCheckDone.current = false
+    setFolderMembershipReloadKey(v => v + 1)
+    await loadCards()
     setDetailCardKey(null)
   }
 
@@ -867,16 +954,27 @@ export default function CollectionPage() {
     if (updatedCard._displayFolder?.id && updatedCard._folder_qty != null) {
       setCardFolderMap(prev => {
         const next = { ...prev }
-        next[updatedCard.id] = (next[updatedCard.id] || []).map(folder =>
-          folder.id === updatedCard._displayFolder.id
-            ? { ...folder, qty: updatedCard._folder_qty }
-            : folder
-        )
+        const folderEntry = {
+          id: updatedCard._displayFolder.id,
+          name: updatedCard._displayFolder.name,
+          type: updatedCard._displayFolder.type,
+          qty: updatedCard._folder_qty,
+        }
+        if (updatedCard._replaceFolders) {
+          next[updatedCard.id] = [folderEntry]
+        } else {
+          const current = next[updatedCard.id] || []
+          next[updatedCard.id] = current.some(folder => folder.id === folderEntry.id)
+            ? current.map(folder => folder.id === folderEntry.id ? folderEntry : folder)
+            : [...current, folderEntry]
+        }
         return next
       })
+      await setMeta(`folder_cards_full_sync_${user.id}`, 0)
+      setFolderMembershipReloadKey(v => v + 1)
     }
     await putCards([updatedCard])
-  }, [])
+  }, [user.id])
 
   const displayCardsRef = useRef([])
 
@@ -989,11 +1087,12 @@ export default function CollectionPage() {
           })
         })
       } else {
+        const folderQty = folders?.[0]?.qty || card.qty
         result.push({
           ...card,
           _displayKey: card.id,
           _displayFolder: folders?.[0] || null,
-          _folder_qty: usingPlacementView ? (folders?.[0]?.qty || card.qty) : card.qty,
+          _folder_qty: folderQty,
         })
       }
     }
@@ -1111,12 +1210,12 @@ export default function CollectionPage() {
         <CardDetail
           card={selectedCard} sfCard={selectedSf}
           folders={selectedCard._displayFolder ? [selectedCard._displayFolder] : (cardFolderMap[selectedCard.id] || [])}
-          allFolders={folders}
           priceSource={price_source}
           currentFolderId={selectedCard._displayFolder?.id ?? null}
           currentFolderType={selectedCard._displayFolder?.type ?? null}
           onClose={() => setDetailCardKey(null)}
           onDelete={() => handleDelete(selectedCard)}
+          deleteQty={selectedCard._folder_qty || selectedCard.qty || 1}
           onSave={handleCardSave}
         />
       )}
@@ -1124,7 +1223,33 @@ export default function CollectionPage() {
       {showAdd && (
         <AddCardModal userId={user.id}
           onClose={() => setShowAdd(false)}
-          onSaved={() => { setShowAdd(false); loadCards() }}
+          onSaved={async (result) => {
+            if (result?.folder && result?.placements?.length) {
+              const placementByCardId = new Map(result.placements.map(row => [row.card_id, row]))
+              setCardFolderMap(prev => {
+                const next = { ...prev }
+                for (const row of result.placements) {
+                  next[row.card_id] = [
+                    ...(next[row.card_id] || []).filter(f => f.id !== result.folder.id),
+                    {
+                      id: result.folder.id,
+                      name: result.folder.name,
+                      type: result.folder.type,
+                      qty: placementByCardId.get(row.card_id)?.qty || row.qty || 1,
+                    },
+                  ]
+                }
+                return next
+              })
+              if (result.folder.type === 'deck') await putDeckAllocations(result.placements)
+              else await putFolderCards(result.placements)
+            }
+            await setMeta(`folder_cards_full_sync_${user.id}`, 0)
+            orphanCheckDone.current = false
+            setFolderMembershipReloadKey(v => v + 1)
+            setShowAdd(false)
+            loadCards()
+          }}
         />
       )}
 
@@ -1154,11 +1279,14 @@ export default function CollectionPage() {
           cards={orphanCards}
           folders={folders}
           userId={user.id}
-          onAssigned={(assigned, folder) => {
-            const assignedSet = new Set(assigned.map(c => c.id))
+          onAssigned={(assigned, folder, savedRows = []) => {
+            const savedByCardId = new Map(savedRows.map(row => [row.card_id, row]))
             setCardFolderMap(prev => {
               const next = { ...prev }
-              for (const c of assigned) next[c.id] = [{ id: folder.id, name: folder.name, type: folder.type, qty: c.qty || 1 }]
+              for (const c of assigned) {
+                const saved = savedByCardId.get(c.id)
+                next[c.id] = [{ id: folder.id, name: folder.name, type: folder.type, qty: saved?.qty || c.qty || 1 }]
+              }
               return next
             })
             setOrphanCards([])

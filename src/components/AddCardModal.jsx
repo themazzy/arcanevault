@@ -3,6 +3,7 @@ import { sb } from '../lib/supabase'
 import { Modal, Button, ErrorBox, ResponsiveMenu } from './UI'
 import { useSettings } from './SettingsContext'
 import { getPrice, formatPrice, getPriceSource, sfGet } from '../lib/scryfall'
+import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
 import styles from './AddCardModal.module.css'
 import uiStyles from './UI.module.css'
 
@@ -34,9 +35,9 @@ function getCardImage(printing, size = 'normal') {
 }
 
 function getOwnedCardKey(card) {
+  const printPart = card.card_print_id ? `print:${card.card_print_id}` : `set:${card.set_code}|${card.collector_number}`
   return [
-    card.set_code,
-    card.collector_number,
+    printPart,
     card.foil ? 1 : 0,
     card.language || 'en',
     card.condition || 'near_mint',
@@ -354,11 +355,21 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
 
   const createNewFolder = async () => {
     if (!newFolderName.trim() || !userId) return
-    const { data } = await sb.from('folders').insert({
-      user_id: userId, type: destTab, name: newFolderName.trim(),
-    }).select().single()
+    setError('')
+    const { data, error: folderErr } = await sb.from('folders')
+      .upsert({
+        user_id: userId,
+        type: destTab,
+        name: newFolderName.trim(),
+      }, { onConflict: 'user_id,name,type' })
+      .select()
+      .single()
+    if (folderErr) {
+      setError(folderErr.message)
+      return
+    }
     if (data) {
-      setFolders(prev => [...prev, data])
+      setFolders(prev => prev.some(f => f.id === data.id) ? prev : [...prev, data])
       setSelectedFolder(data.id)
       setFolderSearch(data.name)
       setCreatingFolder(false)
@@ -374,6 +385,7 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
     try {
       // Wishlist (list_items) save — only in folder mode
       if (folderMode && destTab === 'list' && selectedFolder) {
+        const printByScryfallId = await ensureCardPrints(queue.map(item => item.printing))
         const items = queue.map(item => ({
           folder_id: selectedFolder,
           user_id: userId,
@@ -381,21 +393,25 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
           set_code: item.printing.set,
           collector_number: item.printing.collector_number,
           scryfall_id: item.printing.id || null,
+          card_print_id: getCardPrint(printByScryfallId, item.printing)?.id || null,
           foil: item.foil,
           qty: item.qty,
         }))
-        const { error: err } = await sb.from('list_items')
-          .upsert(items, { onConflict: 'folder_id,set_code,collector_number,foil' })
+        const { data: savedItems, error: err } = await sb.from('list_items')
+          .upsert(items, { onConflict: 'folder_id,card_print_id,foil' })
+          .select('*')
         if (err) { setError(err.message); setSaving(false); return }
-        onSaved()
+        onSaved({ listItems: savedItems || [], folder: folders.find(f => f.id === selectedFolder) || null })
         setSaving(false)
         return
       }
 
       // Binder / Deck / Collection save
+      const printByScryfallId = await ensureCardPrints(queue.map(item => item.printing))
       const aggregated = Array.from(
         queue.reduce((map, item) => {
-          const card = {
+          const print = getCardPrint(printByScryfallId, item.printing)
+          const card = withCardPrint({
             user_id: userId,
             name: item.printing.name,
             set_code: item.printing.set,
@@ -407,7 +423,7 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
             language: item.language,
             purchase_price: item.purchasePrice,
             currency: 'EUR',
-          }
+          }, print)
           const key = getOwnedCardKey(card)
           const prev = map.get(key)
           if (prev) {
@@ -424,7 +440,7 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
 
       const setCodes = [...new Set(aggregated.map(c => c.set_code))]
       const { data: existingCards, error: existingCardsErr } = await sb.from('cards')
-        .select('id,user_id,name,set_code,collector_number,scryfall_id,foil,qty,condition,language,purchase_price,currency')
+        .select('id,user_id,name,set_code,collector_number,scryfall_id,foil,qty,condition,language,purchase_price,currency,card_print_id')
         .eq('user_id', userId)
         .in('set_code', setCodes)
       if (existingCardsErr) { setError(existingCardsErr.message); setSaving(false); return }
@@ -437,17 +453,22 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
           : card
       })
 
-      const { error: err } = await sb.from('cards')
-        .upsert(cards, { onConflict: 'user_id,set_code,collector_number,foil,language,condition' })
+      const { data: upsertedCards, error: err } = await sb.from('cards')
+        .upsert(cards, { onConflict: 'user_id,card_print_id,foil,language,condition' })
+        .select('id,user_id,name,set_code,collector_number,scryfall_id,foil,qty,condition,language,purchase_price,currency,card_print_id,added_at')
       if (err) { setError(err.message); setSaving(false); return }
 
       const folderTarget = folderMode ? selectedFolder : (destTab !== 'collection' ? selectedFolder : null)
       if (folderTarget) {
         const folderType = folders.find(f => f.id === folderTarget)?.type || destTab
-        const { data: saved, error: savedErr } = await sb.from('cards')
-          .select('id,set_code,collector_number,foil,language,condition')
-          .eq('user_id', userId).in('set_code', setCodes)
-        if (savedErr) { setError(savedErr.message); setSaving(false); return }
+        let saved = upsertedCards || []
+        if (!saved.length) {
+          const { data: fetchedSaved, error: savedErr } = await sb.from('cards')
+            .select('id,user_id,name,set_code,collector_number,scryfall_id,foil,qty,condition,language,purchase_price,currency,card_print_id,added_at')
+            .eq('user_id', userId).in('set_code', setCodes)
+          if (savedErr) { setError(savedErr.message); setSaving(false); return }
+          saved = fetchedSaved || []
+        }
         if (saved?.length) {
           const savedByKey = new Map(saved.map(card => [getOwnedCardKey(card), card]))
           const placementTable = folderType === 'deck' ? 'deck_allocations' : 'folder_cards'
@@ -472,11 +493,26 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
                 : { ...base, folder_id: folderTarget }
             })
             .filter(Boolean)
-          if (links.length) {
-            const { error: linkSaveErr } = await sb.from(placementTable)
-              .upsert(links, { onConflict: `${placementKey},card_id` })
-            if (linkSaveErr) { setError(linkSaveErr.message); setSaving(false); return }
+          if (links.length !== aggregated.length) {
+            setError('Card was saved, but its destination placement could not be matched. Please retry the save.')
+            setSaving(false)
+            return
           }
+          let savedLinks = []
+          if (links.length) {
+            const { data: linkRows, error: linkSaveErr } = await sb.from(placementTable)
+              .upsert(links, { onConflict: `${placementKey},card_id` })
+              .select('*')
+            if (linkSaveErr) { setError(linkSaveErr.message); setSaving(false); return }
+            savedLinks = linkRows || []
+          }
+          onSaved({ cards: saved, placements: savedLinks, folder: folders.find(f => f.id === folderTarget) || null })
+          setSaving(false)
+          return
+        } else {
+          setError('Card was saved, but the saved row could not be loaded for placement.')
+          setSaving(false)
+          return
         }
       }
       onSaved()
