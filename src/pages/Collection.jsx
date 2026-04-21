@@ -498,8 +498,8 @@ export default function CollectionPage() {
   // ── Import ───────────────────────────────────────────────────────────────────
   const handleImport = useCallback(async (file) => {
     setError('')
-    if (file?.name.endsWith('.txt')) {
-      // .txt files → open ImportModal (decklist → choose binder destination)
+    if (file?.name.endsWith('.txt') || file?.name.endsWith('.csv')) {
+      // Text and CSV imports use ImportModal so imports are additive and never clear locations.
       const text = await file.text()
       setImportModalText(text)
       setShowImportModal(true)
@@ -1265,7 +1265,14 @@ export default function CollectionPage() {
           initialText={importModalText || undefined}
           allowTypeSelection
           onClose={() => setShowImportModal(false)}
-          onSaved={() => { setShowImportModal(false); loadCards() }}
+          onSaved={async () => {
+            setShowImportModal(false)
+            orphanCheckDone.current = false
+            await setMeta(`cards_synced_${user.id}`, 0)
+            await setMeta(`folder_cards_full_sync_${user.id}`, 0)
+            setFolderMembershipReloadKey(v => v + 1)
+            await loadCards()
+          }}
         />
       )}
 

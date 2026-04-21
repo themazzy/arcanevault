@@ -12,6 +12,7 @@ import {
 } from '../lib/importFlow'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
 import { putCards, putDeckAllocations, putFolderCards, putFolders } from '../lib/db'
+import { CheckIcon, CloseIcon } from '../icons'
 import styles from './ImportModal.module.css'
 import uiStyles from './UI.module.css'
 
@@ -21,7 +22,19 @@ const TYPE_OPTIONS = [
   { id: 'deck', label: 'Deck' },
   { id: 'list', label: 'Wishlist' },
 ]
-const PAGE_SIZE = 250
+const PAGE_SIZE = 100
+const IMPORT_WRITE_BATCH = 500
+const IMPORT_LOOKUP_BATCH = 75
+
+function chunkRows(rows, size = IMPORT_WRITE_BATCH) {
+  const chunks = []
+  for (let i = 0; i < rows.length; i += size) chunks.push(rows.slice(i, i + size))
+  return chunks
+}
+
+function queryBatchSizeForKeyFields(keyFields) {
+  return keyFields.includes('card_print_id') ? IMPORT_LOOKUP_BATCH : IMPORT_WRITE_BATCH
+}
 
 function pluralize(count, singular, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`
@@ -41,6 +54,64 @@ function getFolderTypeLabel(type) {
   if (type === 'deck') return 'deck'
   if (type === 'list') return 'wishlist'
   return 'binder'
+}
+
+async function upsertInBatches(table, rows, options, selectColumns = '*', onBatchDone) {
+  const saved = []
+  const batches = chunkRows(rows)
+  for (let i = 0; i < batches.length; i++) {
+    const batch = batches[i]
+    const { data, error } = await sb.from(table)
+      .upsert(batch, options)
+      .select(selectColumns)
+    if (error) throw error
+    if (data?.length) saved.push(...data)
+    onBatchDone?.({ batchIndex: i + 1, batchCount: batches.length, rowsDone: Math.min((i + 1) * IMPORT_WRITE_BATCH, rows.length), rowCount: rows.length })
+  }
+  return saved
+}
+
+function rowKey(row, keyFields) {
+  return keyFields.map(field => String(row[field] ?? '')).join('|')
+}
+
+async function additiveUpsertInBatches(table, rows, keyFields, options, selectColumns = '*', onBatchDone) {
+  const saved = []
+  const batches = chunkRows(rows, queryBatchSizeForKeyFields(keyFields))
+
+  for (let i = 0; i < batches.length; i++) {
+    const mergedByKey = new Map()
+    for (const row of batches[i]) {
+      const key = rowKey(row, keyFields)
+      const existing = mergedByKey.get(key)
+      mergedByKey.set(key, existing ? { ...existing, qty: (existing.qty || 0) + (row.qty || 0) } : row)
+    }
+    const batch = [...mergedByKey.values()]
+
+    let query = sb.from(table).select(`id,qty,${keyFields.join(',')}`)
+    for (const field of keyFields) {
+      const values = [...new Set(batch.map(row => row[field]).filter(value => value !== null && value !== undefined))]
+      if (!values.length) continue
+      query = query.in(field, values)
+    }
+
+    const { data: existingRows, error: existingError } = await query
+    if (existingError) throw existingError
+
+    const existingByKey = new Map((existingRows || []).map(row => [rowKey(row, keyFields), row]))
+    const rowsToSave = batch.map(row => {
+      const existing = existingByKey.get(rowKey(row, keyFields))
+      return existing
+        ? { ...row, id: existing.id, qty: (existing.qty || 0) + (row.qty || 0) }
+        : row
+    })
+
+    const batchSaved = await upsertInBatches(table, rowsToSave, options, selectColumns)
+    if (batchSaved?.length) saved.push(...batchSaved)
+    onBatchDone?.({ batchIndex: i + 1, batchCount: batches.length, rowsDone: Math.min((i + 1) * IMPORT_WRITE_BATCH, rows.length), rowCount: rows.length })
+  }
+
+  return saved
 }
 
 function formatSet(row) {
@@ -85,6 +156,7 @@ export default function ImportModal({
   const [creating, setCreating] = useState(false)
   const [progress, setProgress] = useState(0)
   const [total, setTotal] = useState(0)
+  const [progressPhase, setProgressPhase] = useState('')
   const [missed, setMissed] = useState([])
   const [imported, setImported] = useState(0)
   const [editingIndex, setEditingIndex] = useState(null)
@@ -339,10 +411,23 @@ export default function ImportModal({
     setResolving(false)
   }
 
+  const beginImportProgress = useCallback((phase, rowCount) => {
+    setProgressPhase(phase)
+    setTotal(Math.max(1, Math.ceil((rowCount || 0) / IMPORT_WRITE_BATCH)))
+    setProgress(0)
+  }, [])
+
+  const trackImportBatch = useCallback((phase) => ({ batchIndex, batchCount }) => {
+    setProgressPhase(phase)
+    setTotal(batchCount)
+    setProgress(batchIndex)
+  }, [])
+
   const handleImport = useCallback(async () => {
     if ((!folderId && !hasSourceFolders) || !parsed.length) return
     setStep('importing')
-    setTotal(parsed.length)
+    setProgressPhase('Preparing import')
+    setTotal(1)
     setProgress(0)
 
     const errs = []
@@ -350,10 +435,11 @@ export default function ImportModal({
     let importedRows = 0
 
     try {
+      setProgressPhase(resolvedRows.length ? 'Preparing matched cards' : 'Parsing data')
       const rows = resolvedRows.length ? resolvedRows : await resolveImportEntries(parsed)
       const matchedRows = rows.filter(row => row.status === 'matched' && row.sfCard)
       for (const row of rows.filter(row => row.status !== 'matched')) errs.push(missingLabel(row))
-      setProgress(rows.length)
+      setProgress(1)
       if (!matchedRows.length) throw new Error('No cards could be matched in Scryfall.')
 
       if (hasSourceFolders) {
@@ -374,6 +460,9 @@ export default function ImportModal({
         const folderSpecs = [...folderSpecsByKey.values()]
         const folderRowsByKey = new Map()
         if (folderSpecs.length) {
+          setProgressPhase('Saving destinations')
+          setTotal(1)
+          setProgress(0)
           const { data: savedFolders, error: folderError } = await sb.from('folders')
             .upsert(
               folderSpecs.map(folder => ({ user_id: userId, name: folder.name, type: folder.type })),
@@ -392,6 +481,7 @@ export default function ImportModal({
               return [...byKey.values()]
             })
           }
+          setProgress(1)
         }
 
         const getTargetFolder = (row) => {
@@ -405,6 +495,7 @@ export default function ImportModal({
           const target = getTargetFolder(row)
           return target && target.type !== 'list'
         })
+        beginImportProgress('Saving print data', matchedRows.length)
         const printByScryfallId = await ensureCardPrints(matchedRows.map(row => row.sfCard))
 
         if (listRows.length) {
@@ -430,7 +521,15 @@ export default function ImportModal({
             }
           )
           if (items.length) {
-            await sb.from('list_items').upsert(items, { onConflict: 'folder_id,card_print_id,foil' })
+            beginImportProgress('Saving wishlist items', items.length)
+            await additiveUpsertInBatches(
+              'list_items',
+              items,
+              ['folder_id', 'card_print_id', 'foil'],
+              { onConflict: 'folder_id,card_print_id,foil' },
+              '*',
+              trackImportBatch('Saving wishlist items')
+            )
             importedRows += items.length
             importedCopies += items.reduce((sum, item) => sum + item.qty, 0)
           }
@@ -451,10 +550,17 @@ export default function ImportModal({
             }
           )
           const hydratedRows = cardRows.map(row => withCardPrint(row, getCardPrint(printByScryfallId, row)))
-          const { data: upserted } = await sb.from('cards')
-            .upsert(hydratedRows, { onConflict: 'user_id,card_print_id,foil,language,condition', ignoreDuplicates: false })
-            .select('*')
+          beginImportProgress('Saving owned cards', hydratedRows.length)
+          const upserted = await additiveUpsertInBatches(
+            'cards',
+            hydratedRows,
+            ['user_id', 'card_print_id', 'foil', 'language', 'condition'],
+            { onConflict: 'user_id,card_print_id,foil,language,condition', ignoreDuplicates: false },
+            '*',
+            trackImportBatch('Saving owned cards')
+          )
           if (upserted?.length) {
+            setProgressPhase('Updating local cache')
             await putCards(upserted)
             const cardKeyToId = {}
             for (const row of upserted) {
@@ -493,15 +599,27 @@ export default function ImportModal({
             }
 
             if (deckPlacements.length) {
-              const { data: savedDeckPlacements } = await sb.from('deck_allocations')
-                .upsert(deckPlacements, { onConflict: 'deck_id,card_id', ignoreDuplicates: true })
-                .select('*')
+              beginImportProgress('Saving deck placements', deckPlacements.length)
+              const savedDeckPlacements = await additiveUpsertInBatches(
+                'deck_allocations',
+                deckPlacements,
+                ['deck_id', 'card_id'],
+                { onConflict: 'deck_id,card_id', ignoreDuplicates: false },
+                '*',
+                trackImportBatch('Saving deck placements')
+              )
               if (savedDeckPlacements?.length) await putDeckAllocations(savedDeckPlacements)
             }
             if (binderPlacements.length) {
-              const { data: savedBinderPlacements } = await sb.from('folder_cards')
-                .upsert(binderPlacements, { onConflict: 'folder_id,card_id', ignoreDuplicates: true })
-                .select('*')
+              beginImportProgress('Saving binder placements', binderPlacements.length)
+              const savedBinderPlacements = await additiveUpsertInBatches(
+                'folder_cards',
+                binderPlacements,
+                ['folder_id', 'card_id'],
+                { onConflict: 'folder_id,card_id', ignoreDuplicates: false },
+                '*',
+                trackImportBatch('Saving binder placements')
+              )
               if (savedBinderPlacements?.length) await putFolderCards(savedBinderPlacements)
             }
             importedRows += placementMap.size
@@ -522,12 +640,21 @@ export default function ImportModal({
           }
         )
         if (items.length) {
+          beginImportProgress('Saving print data', matchedRows.length)
           const printByScryfallId = await ensureCardPrints(matchedRows.map(row => row.sfCard))
           const hydratedItems = items.map(item => ({
             ...item,
             card_print_id: getCardPrint(printByScryfallId, item)?.id || null,
           }))
-          await sb.from('list_items').upsert(hydratedItems, { onConflict: 'folder_id,card_print_id,foil' })
+          beginImportProgress('Saving wishlist items', hydratedItems.length)
+          await additiveUpsertInBatches(
+            'list_items',
+            hydratedItems,
+            ['folder_id', 'card_print_id', 'foil'],
+            { onConflict: 'folder_id,card_print_id,foil' },
+            '*',
+            trackImportBatch('Saving wishlist items')
+          )
           importedRows = items.length
           importedCopies = items.reduce((sum, item) => sum + item.qty, 0)
         }
@@ -546,12 +673,20 @@ export default function ImportModal({
           }
         )
         if (cardRows.length) {
+          beginImportProgress('Saving print data', matchedRows.length)
           const printByScryfallId = await ensureCardPrints(matchedRows.map(row => row.sfCard))
           const hydratedRows = cardRows.map(row => withCardPrint(row, getCardPrint(printByScryfallId, row)))
-          const { data: upserted } = await sb.from('cards')
-            .upsert(hydratedRows, { onConflict: 'user_id,card_print_id,foil,language,condition', ignoreDuplicates: false })
-            .select('*')
+          beginImportProgress('Saving owned cards', hydratedRows.length)
+          const upserted = await additiveUpsertInBatches(
+            'cards',
+            hydratedRows,
+            ['user_id', 'card_print_id', 'foil', 'language', 'condition'],
+            { onConflict: 'user_id,card_print_id,foil,language,condition', ignoreDuplicates: false },
+            '*',
+            trackImportBatch('Saving owned cards')
+          )
           if (upserted) {
+            setProgressPhase('Updating local cache')
             await putCards(upserted)
             const cardKeyToId = {}
             for (const row of upserted) {
@@ -571,9 +706,15 @@ export default function ImportModal({
               importedCopies += row.qty
             }
             if (placementRows.length) {
-              const { data: savedPlacements } = await sb.from(activeFolderType === 'deck' ? 'deck_allocations' : 'folder_cards')
-                .upsert(placementRows, { onConflict: `${activeFolderType === 'deck' ? 'deck_id' : 'folder_id'},card_id`, ignoreDuplicates: true })
-                .select('*')
+              beginImportProgress(activeFolderType === 'deck' ? 'Saving deck placements' : 'Saving binder placements', placementRows.length)
+              const savedPlacements = await additiveUpsertInBatches(
+                activeFolderType === 'deck' ? 'deck_allocations' : 'folder_cards',
+                placementRows,
+                activeFolderType === 'deck' ? ['deck_id', 'card_id'] : ['folder_id', 'card_id'],
+                { onConflict: `${activeFolderType === 'deck' ? 'deck_id' : 'folder_id'},card_id`, ignoreDuplicates: false },
+                '*',
+                trackImportBatch(activeFolderType === 'deck' ? 'Saving deck placements' : 'Saving binder placements')
+              )
               if (savedPlacements?.length) {
                 if (activeFolderType === 'deck') await putDeckAllocations(savedPlacements)
                 else await putFolderCards(savedPlacements)
@@ -589,7 +730,7 @@ export default function ImportModal({
     setMissed(errs)
     setImported(importedCopies || importedRows)
     setStep('done')
-  }, [folderId, parsed, resolvedRows, activeFolderType, userId, hasSourceFolders, sourceFolders])
+  }, [folderId, parsed, resolvedRows, activeFolderType, userId, hasSourceFolders, sourceFolders, beginImportProgress, trackImportBatch])
 
   return (
     <Modal onClose={onClose}>
@@ -801,16 +942,25 @@ export default function ImportModal({
                 return (
                 <Fragment key={`${row.name}-${index}`}>
                   <div className={`${styles.previewRow} ${row.status === 'missing' ? styles.previewRowMissing : ''}`}>
-                    <span className={styles.previewQty}>x{row.qty}</span>
-                    <span className={styles.previewName}>{row.resolvedName || row.name}</span>
+                    <span className={styles.previewQty}>
+                      {row.status === 'missing'
+                        ? <CloseIcon size={12} className={`${styles.previewStatusIcon} ${styles.previewStatusIconMissing}`} />
+                        : row.status === 'matched'
+                          ? <CheckIcon size={12} className={`${styles.previewStatusIcon} ${styles.previewStatusIconMatched}`} />
+                          : null
+                      }
+                      <span>x{row.qty}</span>
+                    </span>
+                    <span className={styles.previewName}>
+                      <span className={styles.previewNameText}>{row.resolvedName || row.name}</span>
+                      {row.foil && <span className={styles.previewFoil}>Foil</span>}
+                    </span>
                     {formatSet(row) && <span className={styles.previewSet}>{formatSet(row)}</span>}
                     {row.sourceLocation && (
                       <span className={styles.previewLocation}>
                         {sourceFolders[row.sourceLocation]?.type ? `${getFolderTypeLabel(sourceFolders[row.sourceLocation].type)}: ` : ''}{row.sourceLocation}
                       </span>
                     )}
-                    {row.exactPrinting && <span className={styles.previewExact}>exact</span>}
-                    {row.foil && <span className={styles.previewFoil}>foil</span>}
                     {row.status === 'missing' && <span className={styles.previewMissing}>missing</span>}
                     <button type="button" className={styles.previewEditBtn} onClick={() => handleStartEdit(row, index)}>
                       Edit
@@ -893,7 +1043,10 @@ export default function ImportModal({
 
         {step === 'importing' && (
           <div className={styles.progressWrap}>
-            <div className={styles.progressLabel}>Importing... {progress} / {total}</div>
+            <div className={styles.progressLabel}>
+              <strong>{progressPhase || 'Importing'}</strong>
+              <span>{progress} / {total}</span>
+            </div>
             <div className={styles.progressBar}>
               <div className={styles.progressFill} style={{ width: total ? `${(progress / total) * 100}%` : '0%' }} />
             </div>

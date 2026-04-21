@@ -213,18 +213,44 @@
 .previewRow:last-child { border-bottom: none; }
 .previewRowMissing { background: rgba(196,96,96,0.05); }
 .previewQty {
-  flex: 0 0 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  flex: 0 0 44px;
   font-family: var(--font-display);
   color: var(--text-faint);
   font-size: 0.75rem;
   text-align: right;
 }
+.previewStatusIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+.previewStatusIconMatched {
+  color: var(--green);
+}
+.previewStatusIconMissing {
+  color: var(--red, #e07070);
+}
 .previewName {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   flex: 1 1 180px;
   min-width: 0;
   color: var(--text);
   overflow-wrap: anywhere;
   line-height: 1.25;
+}
+.previewNameText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .previewSet {
   flex: 0 1 auto;
@@ -246,7 +272,6 @@
   border-radius: 3px;
   padding: 1px 5px;
 }
-.previewExact,
 .previewFoil,
 .previewMissing {
   flex-shrink: 0;
@@ -254,11 +279,6 @@
   padding: 1px 5px;
   font-size: 0.65rem;
   line-height: 1.3;
-}
-.previewExact {
-  color: var(--green);
-  background: rgba(93,186,112,0.09);
-  border: 1px solid rgba(93,186,112,0.28);
 }
 .previewFoil {
   color: #c8a0ff;
@@ -433,7 +453,27 @@
 
 /* Progress */
 .progressWrap { display: flex; flex-direction: column; gap: 10px; padding: 20px 0; }
-.progressLabel { font-size: 0.85rem; color: var(--text-dim); text-align: center; }
+.progressLabel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+.progressLabel strong {
+  min-width: 0;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.progressLabel span {
+  flex-shrink: 0;
+  color: var(--text-faint);
+  font-family: var(--font-display);
+  font-size: 0.76rem;
+}
 .progressBar { width: 100%; height: 6px; background: var(--s3); border-radius: 3px; overflow: hidden; }
 .progressFill { height: 100%; background: var(--gold); border-radius: 3px; transition: width 0.1s; }
 
@@ -475,7 +515,7 @@
   .previewPageStatus { order: -1; flex: 0 0 100%; }
   .previewRow {
     display: grid;
-    grid-template-columns: 30px minmax(0, 1fr) auto;
+    grid-template-columns: 42px minmax(0, 1fr) 96px;
     align-items: center;
     gap: 5px 7px;
     padding: 6px 8px;
@@ -483,7 +523,7 @@
   .previewQty {
     grid-column: 1;
     grid-row: 1;
-    flex-basis: 30px;
+    flex-basis: 42px;
   }
   .previewName {
     grid-column: 2;
@@ -493,10 +533,11 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  .previewNameText {
+    white-space: nowrap;
+  }
   .previewSet,
   .previewLocation,
-  .previewExact,
-  .previewFoil,
   .previewMissing {
     grid-row: 2;
     justify-self: start;
@@ -504,12 +545,12 @@
   }
   .previewSet { grid-column: 2; }
   .previewLocation {
-    grid-column: 2 / 4;
-    margin-left: 44px;
-    max-width: calc(100% - 44px);
+    grid-column: 3;
+    grid-row: 2;
+    justify-self: end;
+    margin-left: 0;
+    max-width: 96px;
   }
-  .previewExact,
-  .previewFoil,
   .previewMissing {
     grid-column: 3;
     justify-self: end;
@@ -528,17 +569,14 @@
 
 @media (max-width: 380px) {
   .previewRow {
-    grid-template-columns: 28px minmax(0, 1fr) auto;
+    grid-template-columns: 40px minmax(0, 1fr) 84px;
   }
-  .previewQty { flex-basis: 28px; }
+  .previewQty { flex-basis: 40px; }
   .previewSet { grid-column: 2; }
   .previewLocation {
-    grid-column: 2 / 4;
-    margin-left: 36px;
-    max-width: calc(100% - 36px);
+    grid-column: 3;
+    max-width: 84px;
   }
-  .previewExact,
-  .previewFoil,
   .previewMissing {
     grid-column: 3;
   }

@@ -1,5 +1,14 @@
 import { sb } from './supabase'
 
+const CARD_PRINT_UPSERT_BATCH = 500
+const CARD_PRINT_QUERY_BATCH = 500
+
+function chunkRows(rows, size) {
+  const chunks = []
+  for (let i = 0; i < rows.length; i += size) chunks.push(rows.slice(i, i + size))
+  return chunks
+}
+
 function getCardImage(card, size = 'normal') {
   if (!card) return null
   if (card.image_uris?.[size]) return card.image_uris[size]
@@ -51,12 +60,16 @@ export async function ensureCardPrints(cards) {
   const result = new Map()
   const payloads = [...payloadByScryfallId.values()]
   if (payloads.length) {
-    const { data, error } = await sb
-      .from('card_prints')
-      .upsert(payloads, { onConflict: 'scryfall_id' })
-      .select('id,scryfall_id,set_code,collector_number,name')
+    const data = []
+    for (const batch of chunkRows(payloads, CARD_PRINT_UPSERT_BATCH)) {
+      const { data: batchData, error } = await sb
+        .from('card_prints')
+        .upsert(batch, { onConflict: 'scryfall_id' })
+        .select('id,scryfall_id,set_code,collector_number,name')
 
-    if (error) throw error
+      if (error) throw error
+      if (batchData?.length) data.push(...batchData)
+    }
     for (const row of data || []) {
       if (row.scryfall_id) result.set(row.scryfall_id, row)
       const key = printLookupKey(row)
@@ -70,33 +83,39 @@ export async function ensureCardPrints(cards) {
     const names = [...new Set(fallbackPayloads.map(row => row.name).filter(Boolean))]
     let existing = []
     if (setCodes.length) {
-      const { data, error } = await sb
-        .from('card_prints')
-        .select('id,scryfall_id,set_code,collector_number,name')
-        .in('set_code', setCodes)
-      if (error) throw error
-      existing = data || []
+      for (const batch of chunkRows(setCodes, CARD_PRINT_QUERY_BATCH)) {
+        const { data, error } = await sb
+          .from('card_prints')
+          .select('id,scryfall_id,set_code,collector_number,name')
+          .in('set_code', batch)
+        if (error) throw error
+        if (data?.length) existing.push(...data)
+      }
     }
     if (names.length) {
-      const { data, error } = await sb
-        .from('card_prints')
-        .select('id,scryfall_id,set_code,collector_number,name')
-        .in('name', names)
-      if (error) throw error
-      existing = [...existing, ...(data || [])]
+      for (const batch of chunkRows(names, CARD_PRINT_QUERY_BATCH)) {
+        const { data, error } = await sb
+          .from('card_prints')
+          .select('id,scryfall_id,set_code,collector_number,name')
+          .in('name', batch)
+        if (error) throw error
+        if (data?.length) existing.push(...data)
+      }
     }
 
     const existingByPrint = new Map(existing.map(row => [printLookupKey(row), row]).filter(([key]) => key))
     const missing = fallbackPayloads.filter(row => !existingByPrint.has(printLookupKey(row)))
     if (missing.length) {
-      const { data, error } = await sb
-        .from('card_prints')
-        .insert(missing)
-        .select('id,scryfall_id,set_code,collector_number,name')
-      if (error) throw error
-      for (const row of data || []) {
-        const key = printLookupKey(row)
-        if (key) existingByPrint.set(key, row)
+      for (const batch of chunkRows(missing, CARD_PRINT_UPSERT_BATCH)) {
+        const { data, error } = await sb
+          .from('card_prints')
+          .insert(batch)
+          .select('id,scryfall_id,set_code,collector_number,name')
+        if (error) throw error
+        for (const row of data || []) {
+          const key = printLookupKey(row)
+          if (key) existingByPrint.set(key, row)
+        }
       }
     }
 
