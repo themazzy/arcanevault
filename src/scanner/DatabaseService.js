@@ -37,7 +37,8 @@ const WEB_PAGE_RETRY_BASE_MS  = 250
 // Bump to invalidate IDB cache when stored hash schema changes (e.g. new columns).
 // v3: added .order('scryfall_id') to paginated fetches for consistent pagination.
 // v4: CLAHE 4×4 tile grid + BT.601 grayscale — all hashes reseeded.
-const CACHE_VERSION    = 4
+// v5: BT.709 grayscale + scanner hash pipeline reseed marker.
+const CACHE_VERSION    = 5
 // [wordIndex, shift] — 16 bands of 6 bits across the 8 Uint32 words
 const BAND_SPECS = [
   [0, 0], [0, 16], [1, 0], [1, 16],
@@ -114,6 +115,10 @@ class DatabaseService {
   _mirrorWritePromise = Promise.resolve()
   _initPromise = null
   _onProgress  = null
+  _matchWorker = null
+  _workerSeq = 1
+  _workerPending = new Map()
+  _workerFailed = false
   _status = {
     loadedCount: 0,
     totalCount: 0,
@@ -280,6 +285,70 @@ class DatabaseService {
     )
   }
 
+  _serializeHashForWorker(card) {
+    return {
+      id: card.id,
+      name: card.name,
+      setCode: card.setCode,
+      collNum: card.collNum,
+      imageUri: card.imageUri,
+      hash: Array.from(card.hash),
+      hashColor: card.hashColor ? Array.from(card.hashColor) : null,
+    }
+  }
+
+  _ensureMatchWorker() {
+    if (this._workerFailed || typeof Worker === 'undefined') return null
+    if (this._matchWorker) return this._matchWorker
+    try {
+      this._matchWorker = new Worker(new URL('./hashMatchWorker.js', import.meta.url), { type: 'module' })
+      this._matchWorker.onmessage = event => {
+        const { id, ok, result, error } = event.data || {}
+        const pending = this._workerPending.get(id)
+        if (!pending) return
+        this._workerPending.delete(id)
+        if (ok) pending.resolve(result)
+        else pending.reject(new Error(error || 'Hash match worker failed'))
+      }
+      this._matchWorker.onerror = error => {
+        this._workerFailed = true
+        for (const pending of this._workerPending.values()) {
+          pending.reject(new Error(error?.message || 'Hash match worker failed'))
+        }
+        this._workerPending.clear()
+        this._matchWorker?.terminate()
+        this._matchWorker = null
+      }
+      return this._matchWorker
+    } catch {
+      this._workerFailed = true
+      return null
+    }
+  }
+
+  _postMatchWorker(type, payload) {
+    const worker = this._ensureMatchWorker()
+    if (!worker) return Promise.reject(new Error('Hash match worker unavailable'))
+    const id = this._workerSeq++
+    return new Promise((resolve, reject) => {
+      this._workerPending.set(id, { resolve, reject })
+      worker.postMessage({ id, type, payload })
+    })
+  }
+
+  _resetMatchWorkerData() {
+    this._postMatchWorker('reset', {
+      hashes: this._hashes.map(card => this._serializeHashForWorker(card)),
+    }).catch(() => {})
+  }
+
+  _appendMatchWorkerData(cards) {
+    if (!cards?.length) return
+    this._postMatchWorker('append', {
+      hashes: cards.map(card => this._serializeHashForWorker(card)),
+    }).catch(() => {})
+  }
+
   _queueScannerHashMirror(entries) {
     if (!entries?.length) return
     this._mirrorWritePromise = this._mirrorWritePromise
@@ -293,6 +362,7 @@ class DatabaseService {
   async _loadCache() {
     this._hashes = []
     this._bandIndex = BAND_SPECS.map(() => new Map())
+    this._resetMatchWorkerData()
     this._fullyLoaded = false
     this._mirrorWritePromise = Promise.resolve()
     if (this._isNative && this._db) {
@@ -324,6 +394,7 @@ class DatabaseService {
       const cachedRows = await getAllScannerHashEntries().catch(() => [])
       this._hashes = cachedRows.map(rowToHash).filter(Boolean)
       this._rebuildIndex()
+      this._resetMatchWorkerData()
       this._fullyLoaded = true
       this._emitProgress({
         loadedCount: this._hashes.length,
@@ -365,6 +436,7 @@ class DatabaseService {
     const augmented = augmentWithParsed(firstChunk)
     this._hashes = augmented.map(rowToHash).filter(Boolean)
     this._rebuildIndex()
+    this._resetMatchWorkerData()
     this._queueScannerHashMirror(augmented)
 
     this._emitProgress({
@@ -410,10 +482,12 @@ class DatabaseService {
       if (!chunk.length) break
       const augmented = augmentWithParsed(chunk)
       const startIdx = this._hashes.length
-      this._hashes.push(...augmented.map(rowToHash).filter(Boolean))
+      const parsed = augmented.map(rowToHash).filter(Boolean)
+      this._hashes.push(...parsed)
       for (let i = startIdx; i < this._hashes.length; i++) {
         this._addToIndex(this._hashes[i], i)
       }
+      this._appendMatchWorkerData(parsed)
       this._queueScannerHashMirror(augmented)
       this._emitProgress({
         loadedCount: this._hashes.length,
@@ -472,6 +546,7 @@ class DatabaseService {
       await new Promise(r => setTimeout(r, 0))
       this._hashes = cachedRows.map(rowToHash).filter(Boolean)
       this._rebuildIndex()
+      this._resetMatchWorkerData()
       this._fullyLoaded = true
       this._emitProgress({
         loadedCount: this._hashes.length,
@@ -513,6 +588,7 @@ class DatabaseService {
     const augmentedFirst = augmentWithParsed(firstNetworkPage)
     this._hashes = augmentedFirst.map(rowToHash).filter(Boolean)
     this._rebuildIndex()
+    this._resetMatchWorkerData()
     await Promise.all([
       augmentedFirst.length ? putScannerHashEntries(augmentedFirst).catch(() => {}) : Promise.resolve(),
       totalCount ? setMeta('scanner_hash_total_count', totalCount).catch(() => {}) : Promise.resolve(),
@@ -609,10 +685,12 @@ class DatabaseService {
         if (!data.length) { reachedEnd = true; break }
         const augmented = augmentWithParsed(data)
         const startIdx = this._hashes.length
-        this._hashes.push(...augmented.map(rowToHash).filter(Boolean))
+        const parsed = augmented.map(rowToHash).filter(Boolean)
+        this._hashes.push(...parsed)
         for (let i = startIdx; i < this._hashes.length; i++) {
           this._addToIndex(this._hashes[i], i)
         }
+        this._appendMatchWorkerData(parsed)
         await putScannerHashEntries(augmented).catch(() => {})
         // Emit after every page so the progress bar advances smoothly
         this._emitProgress({
@@ -662,33 +740,92 @@ class DatabaseService {
   // colorHash: optional Uint32Array(8) from computePHash256Color.
   // When provided, combined distance = 0.65 * luma + 0.35 * color, giving
   // color-identity cards (lands, reprints) a tiebreaker over look-alike art.
-  findBestTwoWithStats(hash, colorHash = null) {
+  findBestTwoWithStats(hash, colorHash = null, opts = {}) {
     if (!this._hashes.length) {
       return { best: null, second: null, candidateCount: 0, totalCount: 0 }
     }
-    const candidates = this._getCandidates(hash)
-    let best = null, second = null
-    let bestDist = Infinity, secondDist = Infinity
-    for (const card of candidates) {
-      const lumaDist = hammingDistance(hash, card.hash)
-      const d = (colorHash && card.hashColor)
-        ? Math.round(0.65 * lumaDist + 0.35 * hammingDistance(colorHash, card.hashColor))
-        : lumaDist
-      if (d < bestDist) {
-        second = best; secondDist = bestDist
-        best = card;   bestDist   = d
-      } else if (d < secondDist) {
-        second = card; secondDist = d
+    const {
+      allowedSets = null,
+      allowSetFallback = false,
+      broadFallbackOnWeak = false,
+      weakDistance = 122,
+      weakGap = 8,
+    } = opts
+    const allowed = allowedSets?.size
+      ? card => card.setCode && allowedSets.has(String(card.setCode).toLowerCase())
+      : null
+    const rank = (cards) => {
+      let best = null, second = null
+      let bestDist = Infinity, secondDist = Infinity
+      for (const card of cards) {
+        const lumaDist = hammingDistance(hash, card.hash)
+        const d = (colorHash && card.hashColor)
+          ? Math.round(0.65 * lumaDist + 0.35 * hammingDistance(colorHash, card.hashColor))
+          : lumaDist
+        if (d < bestDist) {
+          second = best; secondDist = bestDist
+          best = card;   bestDist   = d
+        } else if (d < secondDist) {
+          second = card; secondDist = d
+        }
+      }
+      return {
+        best: best ? { ...best, distance: bestDist } : null,
+        second: second ? { ...second, distance: secondDist } : null,
+        candidateCount: cards.length,
       }
     }
+    const isWeak = ({ best, second }) => {
+      if (!best) return true
+      const gap = second ? second.distance - best.distance : 256
+      return best.distance > weakDistance || gap < weakGap
+    }
+    const baseCandidates = this._getCandidates(hash)
+    const rankWithFallback = (pool, candidates, source) => {
+      let result = rank(candidates)
+      let fallback = source
+      if (broadFallbackOnWeak && isWeak(result) && candidates.length < pool.length) {
+        result = rank(pool)
+        fallback = `${source}+broad`
+      }
+      return { ...result, fallback }
+    }
+
+    let pool = allowed ? this._hashes.filter(allowed) : this._hashes
+    let candidates = allowed ? baseCandidates.filter(allowed) : baseCandidates
+    let ranked = rankWithFallback(pool, candidates.length ? candidates : pool, allowed ? 'locked-set' : 'indexed')
+
+    if (allowed && allowSetFallback && isWeak(ranked)) {
+      ranked = rankWithFallback(this._hashes, baseCandidates, 'all-sets-fallback')
+    }
+
     return {
-      best: best ? { ...best, distance: bestDist } : null,
-      second: second ? { ...second, distance: secondDist } : null,
-      candidateCount: candidates.length,
+      best: ranked.best,
+      second: ranked.second,
+      candidateCount: ranked.candidateCount,
       totalCount: this._hashes.length,
+      fallback: ranked.fallback,
     }
   }
 
+  async findBestTwoWithStatsAsync(hash, colorHash = null, opts = {}) {
+    if (!this._hashes.length) {
+      return { best: null, second: null, candidateCount: 0, totalCount: 0 }
+    }
+    const workerOpts = {
+      ...opts,
+      allowedSets: opts.allowedSets?.size ? [...opts.allowedSets] : null,
+    }
+    try {
+      return await this._postMatchWorker('match', {
+        hash: Array.from(hash),
+        colorHash: colorHash ? Array.from(colorHash) : null,
+        opts: workerOpts,
+      })
+    } catch {
+      return this.findBestTwoWithStats(hash, colorHash, opts)
+    }
+  }
   // ── Index ──────────────────────────────────────────────────────────────────
 
   /** Full rebuild — O(N). Use only when rebuilding from scratch. */

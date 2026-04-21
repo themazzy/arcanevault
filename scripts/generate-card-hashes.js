@@ -33,6 +33,7 @@ const SUPABASE_URL = process.env.VITE_SUPABASE_URL
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY
 const BATCH_SIZE   = 100
 const FORCE_RESEED = process.argv.includes('--reseed')
+const HASH_PIPELINE_VERSION = 5
 
 // Parse --concurrency N from argv, default 20
 const concurrencyArgIdx = process.argv.indexOf('--concurrency')
@@ -51,11 +52,17 @@ const sb = createClient(SUPABASE_URL, SUPABASE_KEY)
  * Two Sharp passes connected via raw pixel buffer (no intermediate PNG encode/decode).
  * Sharp does not support two resize() calls in one pipeline — the second overrides
  * the first, making the extract coordinates invalid. Raw transfer avoids the codec cost.
+ *
+ * Pipeline v5 uses shared BT.709 grayscale and keeps the live scanner as the
+ * source of truth. Run with --reseed so cached browser/native hash stores
+ * invalidate with CACHE_VERSION=5.
+ * Sharp's strongest Lanczos kernel is lanczos3; the browser scanner still uses
+ * OpenCV INTER_LANCZOS4, so reseed any time either side changes.
  */
 async function computePHashHex(imageBuffer) {
   // Pass 1: resize to card dims → extract art region → raw pixels
   const { data: artRaw, info: artInfo } = await sharp(imageBuffer)
-    .resize(CARD_W, CARD_H, { fit: 'fill' })
+    .resize(CARD_W, CARD_H, { fit: 'fill', kernel: 'lanczos3' })
     .extract({ left: ART_X, top: ART_Y, width: ART_W, height: ART_H })
     .removeAlpha()
     .raw()
@@ -122,6 +129,7 @@ async function workerPool(items, concurrency, fn) {
 }
 
 async function main() {
+  console.log(`Hash pipeline v${HASH_PIPELINE_VERSION}; use --reseed after scanner hash changes.`)
   console.log('Downloading Scryfall default_cards bulk data...')
   const bulkRes  = await fetch('https://api.scryfall.com/bulk-data/default-cards')
   const bulkMeta = await bulkRes.json()
@@ -146,6 +154,12 @@ async function main() {
     console.log(`${existing.size} cards already in Supabase — will skip.`)
   } else {
     console.log('--reseed: processing all cards (ignoring existing rows).')
+    console.log('--reseed: clearing existing card_hashes rows before upload...')
+    const { error } = await sb
+      .from('card_hashes')
+      .delete()
+      .not('scryfall_id', 'is', null)
+    if (error) throw new Error(`Could not clear card_hashes before reseed: ${error.message}`)
   }
 
   const todo = cards.filter(card => {

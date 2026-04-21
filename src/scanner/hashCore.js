@@ -275,16 +275,14 @@ export function computeHashFromGrayDark(grayU8) {
 }
 
 /**
- * Convert 32×32 grayscale Uint8Array from raw RGB(A) buffer using BT.601 weights.
- * BT.601 (0.299 R, 0.587 G, 0.114 B) weights red more than BT.709, which better
- * separates red-heavy vs green-heavy MTG card art in the luma channel.
+ * Convert 32×32 grayscale Uint8Array from raw RGB(A) buffer using BT.709 weights.
  * Works with both 3-channel (RGB) and 4-channel (RGBA) input.
  */
 export function rgbToGray32x32(rgbData, channels = 4) {
   const grayU8 = new Uint8Array(1024)
   for (let i = 0; i < 1024; i++) {
     const off = i * channels
-    grayU8[i] = Math.round(0.299 * rgbData[off] + 0.587 * rgbData[off + 1] + 0.114 * rgbData[off + 2])
+    grayU8[i] = Math.round(0.2126 * rgbData[off] + 0.7152 * rgbData[off + 1] + 0.0722 * rgbData[off + 2])
   }
   return grayU8
 }
