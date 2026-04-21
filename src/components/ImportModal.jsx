@@ -4,6 +4,7 @@ import { Modal, ResponsiveMenu } from './UI'
 import { parseTextDecklist, importDeckFromUrl } from '../lib/deckBuilderApi'
 import { parseManaboxCSV } from '../lib/csvParser'
 import { fetchScryfallBatch } from '../lib/scryfall'
+import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
 import { putCards, putDeckAllocations, putFolderCards, putFolders } from '../lib/db'
 import styles from './ImportModal.module.css'
 import uiStyles from './UI.module.css'
@@ -177,9 +178,11 @@ export default function ImportModal({
 
       if (folderType === 'list') {
         const items = []
+        const resolvedPrints = []
         for (const c of parsed) {
           const sf = resolveSf(c)
           if (!sf) { errs.push(c.name); setProgress(p => p + 1); continue }
+          resolvedPrints.push(sf)
           items.push({
             folder_id: folderId, user_id: userId, name: sf.name, set_code: sf.set,
             collector_number: sf.collector_number, scryfall_id: sf.id,
@@ -189,13 +192,20 @@ export default function ImportModal({
           setProgress(p => p + 1)
         }
         if (items.length) {
-          await sb.from('list_items').upsert(items, { onConflict: 'folder_id,set_code,collector_number,foil' })
+          const printByScryfallId = await ensureCardPrints(resolvedPrints)
+          const hydratedItems = items.map(item => ({
+            ...item,
+            card_print_id: getCardPrint(printByScryfallId, item)?.id || null,
+          }))
+          await sb.from('list_items').upsert(hydratedItems, { onConflict: 'folder_id,card_print_id,foil' })
         }
       } else {
         const cardRows = []
+        const resolvedPrints = []
         for (const c of parsed) {
           const sf = resolveSf(c)
           if (!sf) { errs.push(c.name); setProgress(p => p + 1); continue }
+          resolvedPrints.push(sf)
           cardRows.push({
             user_id: userId, name: sf.name, set_code: sf.set,
             collector_number: sf.collector_number, scryfall_id: sf.id,
@@ -204,18 +214,20 @@ export default function ImportModal({
           setProgress(p => p + 1)
         }
         if (cardRows.length) {
+          const printByScryfallId = await ensureCardPrints(resolvedPrints)
+          const hydratedRows = cardRows.map(row => withCardPrint(row, getCardPrint(printByScryfallId, row)))
           const { data: upserted } = await sb.from('cards')
-            .upsert(cardRows, { onConflict: 'user_id,set_code,collector_number,foil,language,condition', ignoreDuplicates: false })
+            .upsert(hydratedRows, { onConflict: 'user_id,card_print_id,foil,language,condition', ignoreDuplicates: false })
             .select('*')
           if (upserted) {
             await putCards(upserted)
             const cardKeyToId = {}
             for (const r of upserted) {
-              cardKeyToId[`${r.set_code}-${r.collector_number}-${r.foil}-${r.language}-${r.condition}`] = r.id
+              cardKeyToId[`${r.card_print_id || `${r.set_code}-${r.collector_number}`}-${r.foil}-${r.language}-${r.condition}`] = r.id
             }
             const placementRows = []
-            for (const row of cardRows) {
-              const cardKey = `${row.set_code}-${row.collector_number}-${row.foil}-${row.language}-${row.condition}`
+            for (const row of hydratedRows) {
+              const cardKey = `${row.card_print_id || `${row.set_code}-${row.collector_number}`}-${row.foil}-${row.language}-${row.condition}`
               const cid = cardKeyToId[cardKey]
               if (cid) {
                 placementRows.push(

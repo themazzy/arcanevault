@@ -377,6 +377,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
         set_code: item.set_code || null,
         collector_number: item.collector_number || null,
         scryfall_id: item.scryfall_id || null,
+        card_print_id: item.card_print_id || null,
         foil: item.foil ?? false,
         qty: selQty,
       })
@@ -387,7 +388,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
 
     if (upserts.length) {
       const { error } = await sb.from('list_items')
-        .upsert(upserts, { onConflict: 'folder_id,set_code,collector_number,foil' })
+        .upsert(upserts, { onConflict: 'folder_id,card_print_id,foil' })
       if (error) return
     }
     if (toDelete.length) await sb.from('list_items').delete().in('id', toDelete)

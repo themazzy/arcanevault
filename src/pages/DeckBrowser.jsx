@@ -19,7 +19,7 @@ import { useLongPress } from '../hooks/useLongPress'
 import { lastInputWasTouch } from '../lib/inputType'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { fetchDeckAllocations, upsertDeckAllocations } from '../lib/deckData'
-import { getDeckAllocations, getCardsByIds, replaceDeckAllocations } from '../lib/db'
+import { getDeckAllocations, getCardsByIds, replaceDeckAllocations, putCards, putDeckAllocations } from '../lib/db'
 
 const CAN_HOVER = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover) and (pointer: fine)').matches
 
@@ -1023,26 +1023,11 @@ export default function DeckBrowser({ folder, onBack }) {
           defaultFolderType="deck"
           defaultFolderId={folder.id}
           onClose={() => setShowAddCard(false)}
-          onSaved={async () => {
+          onSaved={async (result) => {
+            if (result?.cards?.length) await putCards(result.cards)
+            if (result?.placements?.length) await putDeckAllocations(result.placements)
             setShowAddCard(false)
-            const data = await fetchDeckAllocations(folder.id)
-            if (data) {
-              const cardList = data.map(row => ({
-                id: row.card_id,
-                scryfall_id: row.scryfall_id,
-                name: row.name,
-                set_code: row.set_code,
-                collector_number: row.collector_number,
-                foil: row.foil,
-                condition: row.condition,
-                language: row.language,
-                _folder_qty: row.qty,
-                _allocation_id: row.id,
-              }))
-              setCards(cardList)
-              const map = await loadCardMapWithSharedPrices(cardList)
-              if (map) setSfMap({ ...map })
-            }
+            await loadCards()
           }}
         />
       )}
