@@ -37,6 +37,7 @@ import { useAuth } from '../components/Auth'
 import { formatPriceMeta, getPriceWithMeta, sfGet } from '../lib/scryfall'
 import { sb } from '../lib/supabase'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
+import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { useSettings } from '../components/SettingsContext'
 import styles from './CardScanner.module.css'
 import { playMatchSound } from './scanSounds'
@@ -157,6 +158,7 @@ function getOwnedCardKey(c) {
 
 async function batchSaveCards({ userId, cards, folderId, folderType }) {
   if (!cards.length || !folderId) return
+  const destinationType = folderType === 'deck' || folderType === 'builder_deck' ? 'deck' : folderType
 
   let aggregatedOwned = Array.from(
     cards.reduce((map, c) => {
@@ -188,7 +190,7 @@ async function batchSaveCards({ userId, cards, folderId, folderType }) {
   const printByScryfallId = await ensureCardPrints(cards)
   aggregatedOwned = aggregatedOwned.map(row => withCardPrint(row, getCardPrint(printByScryfallId, row)))
 
-  if (folderType === 'list') {
+  if (destinationType === 'list') {
     const aggregatedItems = Array.from(
       cards.reduce((map, c) => {
         const key = [c.setCode, c.collNum, c.foil ? 1 : 0].join('|')
@@ -262,18 +264,20 @@ async function batchSaveCards({ userId, cards, folderId, folderType }) {
   }
 
   const savedRows = [...updateRows]
+  const insertedCardIds = []
 
   if (insertRows.length) {
     const { data: inserted, error: insertErr } = await sb.from('cards')
       .insert(insertRows)
       .select('id,set_code,collector_number,foil,language,condition,card_print_id')
     if (insertErr) throw new Error(insertErr.message)
+    insertedCardIds.push(...(inserted || []).map(row => row.id).filter(Boolean))
     savedRows.push(...(inserted || []))
   }
 
   const savedByKey = new Map(savedRows.map(c => [getOwnedCardKey(c), c]))
-  const table = folderType === 'deck' ? 'deck_allocations' : 'folder_cards'
-  const fk    = folderType === 'deck' ? 'deck_id' : 'folder_id'
+  const table = destinationType === 'deck' ? 'deck_allocations' : 'folder_cards'
+  const fk    = destinationType === 'deck' ? 'deck_id' : 'folder_id'
 
   const { data: existLinks, error: linksErr } = await sb.from(table).select('card_id,qty').eq(fk, folderId)
   if (linksErr) throw new Error(linksErr.message)
@@ -284,14 +288,22 @@ async function batchSaveCards({ userId, cards, folderId, folderType }) {
     const sc = savedByKey.get(key)
     if (!sc) return null
     const base = { card_id: sc.id, qty: (existLinkQty.get(sc.id) || 0) + (c.qty ?? 1) }
-    return folderType === 'deck'
+    return destinationType === 'deck'
       ? { ...base, deck_id: folderId, user_id: userId }
       : { ...base, folder_id: folderId }
   }).filter(Boolean)
 
+  if (links.length !== owned.length) {
+    if (insertedCardIds.length) await pruneUnplacedCards(insertedCardIds)
+    throw new Error('Card was saved, but its destination placement could not be matched. Please retry the save.')
+  }
+
   if (links.length) {
     const { error: linkErr } = await sb.from(table).upsert(links, { onConflict: `${fk},card_id` })
-    if (linkErr) throw new Error(linkErr.message)
+    if (linkErr) {
+      if (insertedCardIds.length) await pruneUnplacedCards(insertedCardIds)
+      throw new Error(linkErr.message)
+    }
   }
 }
 
@@ -407,6 +419,7 @@ export default function CardScanner({ onMatch, onClose }) {
   const isNative = Capacitor.isNativePlatform()
 
   const videoRef          = useRef(null)
+  const cameraStreamRef   = useRef(null)
   const canvasRef         = useRef(null)
   const mountedRef        = useRef(true)
   const autoScanRef = useRef(false)
@@ -715,10 +728,12 @@ export default function CardScanner({ onMatch, onClose }) {
 
   // ── Camera start/stop ──────────────────────────────────────────────────────
   useEffect(() => {
-    let started = false
+    let cancelled = false
+    let nativeStarted = false
+    let localStream = null
     ;(async () => {
       try {
-        if (mountedRef.current) { setErrorMsg(null); setCameraStarted(false) }
+        if (mountedRef.current && !cancelled) { setErrorMsg(null); setCameraStarted(false) }
         if (isNative) {
           await CameraPreview.start({
             position: 'rear', toBack: true,
@@ -726,22 +741,35 @@ export default function CardScanner({ onMatch, onClose }) {
             disableAudio: true, enableHighResolution: true,
             enableZoom: true, tapFocus: true,
           })
+          nativeStarted = true
           const startedState = await CameraPreview.isCameraStarted().catch(() => ({ value: true }))
-          if (!mountedRef.current) return
+          if (!mountedRef.current || cancelled) return
           setCameraStarted(!!startedState?.value)
           const supported = await CameraPreview.getSupportedFlashModes().catch(() => ({ result: [] }))
-          if (!mountedRef.current) return
+          if (!mountedRef.current || cancelled) return
           setFlashModes(Array.isArray(supported?.result) ? supported.result : [])
           const desiredFlash = (supported?.result || []).includes(flashMode)
             ? flashMode : ((supported?.result || []).includes('off') ? 'off' : '')
-          if (desiredFlash && mountedRef.current) setFlashMode(desiredFlash)
+          if (desiredFlash && mountedRef.current && !cancelled) setFlashMode(desiredFlash)
         } else {
           const stream = await navigator.mediaDevices.getUserMedia({
             video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
           })
-          if (videoRef.current && mountedRef.current) {
-            videoRef.current.srcObject = stream
-            await videoRef.current.play()
+          localStream = stream
+          if (videoRef.current && mountedRef.current && !cancelled) {
+            if (cameraStreamRef.current && cameraStreamRef.current !== stream) {
+              cameraStreamRef.current.getTracks().forEach(t => t.stop())
+            }
+            cameraStreamRef.current = stream
+            const video = videoRef.current
+            video.srcObject = stream
+            try {
+              await video.play()
+            } catch (playError) {
+              if (cancelled || cameraStreamRef.current !== stream) return
+              throw playError
+            }
+            if (!mountedRef.current || cancelled || cameraStreamRef.current !== stream) return
             const track = stream.getVideoTracks()[0]
             if (track) {
               const caps = track.getCapabilities?.() ?? {}
@@ -757,15 +785,23 @@ export default function CardScanner({ onMatch, onClose }) {
             return
           }
         }
-        started = true
       } catch (e) {
-        if (mountedRef.current) { setErrorMsg('Camera: ' + e.message); setCameraStarted(false) }
+        if (mountedRef.current && !cancelled) { setErrorMsg('Camera: ' + e.message); setCameraStarted(false) }
       }
     })()
     return () => {
-      if (!started) return
-      if (isNative) CameraPreview.stop().catch(() => {})
-      else videoRef.current?.srcObject?.getTracks().forEach(t => t.stop())
+      cancelled = true
+      if (isNative) {
+        if (nativeStarted) CameraPreview.stop().catch(() => {})
+        return
+      }
+      const stream = localStream || cameraStreamRef.current
+      if (stream) stream.getTracks().forEach(t => t.stop())
+      if (cameraStreamRef.current === stream) cameraStreamRef.current = null
+      if (videoRef.current?.srcObject === stream) {
+        videoRef.current.pause()
+        videoRef.current.srcObject = null
+      }
     }
   }, [cameraRestartTick, isNative])
 

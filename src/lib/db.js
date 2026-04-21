@@ -353,6 +353,30 @@ export async function deleteDeckAllocationsByIds(ids) {
   ])
 }
 
+export async function deleteDeckAllocationsByCardIds(cardIds) {
+  const uniqueIds = [...new Set((cardIds || []).filter(Boolean))]
+  if (!uniqueIds.length) return
+  const db = await getDb()
+  const tx = db.transaction('deck_allocations', 'readwrite')
+  for (const cardId of uniqueIds) {
+    const rows = await tx.store.index('card_id').getAll(cardId)
+    for (const row of rows) await tx.store.delete(row.id)
+  }
+  await tx.done
+}
+
+export async function deleteFolderCardsByCardIds(cardIds) {
+  const uniqueIds = [...new Set((cardIds || []).filter(Boolean))]
+  if (!uniqueIds.length) return
+  const db = await getDb()
+  const tx = db.transaction('folder_cards', 'readwrite')
+  for (const cardId of uniqueIds) {
+    const rows = await tx.store.index('card_id').getAll(cardId)
+    for (const row of rows) await tx.store.delete(row.id)
+  }
+  await tx.done
+}
+
 export async function replaceDeckAllocations(deckIds, rows) {
   const ids = [...new Set((deckIds || []).filter(Boolean))]
   const db = await getDb()

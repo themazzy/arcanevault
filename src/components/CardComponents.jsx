@@ -1630,6 +1630,8 @@ const COLORS = [
   { id: 'M', symbol: '★', title: 'Multicolor', bg: '#6a5010', fg: '#f8d878' },
 ]
 
+const COLOR_SYMBOL_IDS = new Set(['W', 'U', 'B', 'R', 'G', 'C'])
+
 const RARITIES = [
   { id: 'common',   label: 'Common',   color: '#6a6a7a' },
   { id: 'uncommon', label: 'Uncommon', color: '#8ab0c8' },
@@ -2113,7 +2115,17 @@ export function FilterBar({
                         active={filters.colors.includes(c.id)}
                         onClick={() => set('colors', toggle(filters.colors, c.id))}
                         style={filters.colors.includes(c.id) ? { background: c.bg, borderColor: c.fg, color: c.fg, minWidth: 28, textAlign: 'center' } : { minWidth: 28, textAlign: 'center' }}
-                      ><span title={c.title}>{c.symbol}</span></Chip>
+                      >
+                        <span title={c.title}>
+                          {COLOR_SYMBOL_IDS.has(c.id) ? (
+                            <img
+                              src={symbolUrl(c.id)}
+                              alt={c.title}
+                              style={{ width: 18, height: 18, pointerEvents: 'none', verticalAlign: 'middle' }}
+                            />
+                          ) : c.symbol}
+                        </span>
+                      </Chip>
                     ))}
                   </div>
                 </div>
