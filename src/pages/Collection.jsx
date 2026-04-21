@@ -223,7 +223,15 @@ export default function CollectionPage() {
       pageFrom += PAGE
     }
 
-    if (allCards.length && fetchComplete) {
+    if (fetchComplete && !allCards.length) {
+      if (localCards.length) {
+        console.log(`[Collection] Supabase returned no cards; clearing ${localCards.length} local cards`)
+        await deleteAllCards(user.id)
+      }
+      await setMeta(`cards_synced_${user.id}`, Date.now())
+      setCards([])
+      setFiltered([])
+    } else if (allCards.length && fetchComplete) {
       // Prune IDB entries that no longer exist in Supabase (deleted cards)
       if (localCards.length) {
         const sbIds = new Set(allCards.map(c => c.id))
@@ -710,33 +718,59 @@ export default function CollectionPage() {
     }
 
     const existingQtyByCardId = Object.fromEntries((existingRows.data || []).map(row => [row.card_id, row.qty || 0]))
-    const payload = selectedRows.map(row => (
+    const destinationAddByCardId = new Map()
+    const sourceMoveByKey = new Map()
+
+    for (const row of selectedRows) {
+      const sourceFolder = row.sourceFolder
+      if (sourceFolder?.id === folder.id) continue
+
+      destinationAddByCardId.set(row.card_id, (destinationAddByCardId.get(row.card_id) || 0) + row.qty)
+
+      if (!sourceFolder) continue
+      const sourceKey = `${sourceFolder.type}:${sourceFolder.id}:${row.card_id}`
+      const existing = sourceMoveByKey.get(sourceKey)
+      if (existing) {
+        existing.qty += row.qty
+      } else {
+        sourceMoveByKey.set(sourceKey, {
+          card_id: row.card_id,
+          sourceFolder,
+          sourceQty: row.sourceQty,
+          qty: row.qty,
+        })
+      }
+    }
+
+    const payload = [...destinationAddByCardId.entries()].map(([cardId, qty]) => (
       folder.type === 'deck'
         ? {
             deck_id: folder.id,
             user_id: user.id,
-            card_id: row.card_id,
-            qty: row.qty + (existingQtyByCardId[row.card_id] || 0),
+            card_id: cardId,
+            qty: qty + (existingQtyByCardId[cardId] || 0),
           }
         : {
             folder_id: folder.id,
-            card_id: row.card_id,
-            qty: row.qty + (existingQtyByCardId[row.card_id] || 0),
+            card_id: cardId,
+            qty: qty + (existingQtyByCardId[cardId] || 0),
           }
     ))
 
-    const { error: moveErr } = await sb
-      .from(placementTable)
-      .upsert(payload, { onConflict: `${placementKey},card_id` })
+    if (payload.length) {
+      const { error: moveErr } = await sb
+        .from(placementTable)
+        .upsert(payload, { onConflict: `${placementKey},card_id` })
 
-    if (moveErr) {
-      setError(moveErr.message)
-      return
+      if (moveErr) {
+        setError(moveErr.message)
+        return
+      }
     }
 
-    for (const row of selectedRows) {
+    const sourceMoves = [...sourceMoveByKey.values()]
+    for (const row of sourceMoves) {
       const sourceFolder = row.sourceFolder
-      if (!sourceFolder || sourceFolder.id === folder.id) continue
 
       const sourceTable = sourceFolder.type === 'deck' ? 'deck_allocations' : 'folder_cards'
       const sourceKey = sourceFolder.type === 'deck' ? 'deck_id' : 'folder_id'
@@ -767,27 +801,32 @@ export default function CollectionPage() {
       }
     }
 
+    await setMeta(`folder_cards_full_sync_${user.id}`, 0)
+
     setCardFolderMap(prev => {
       const next = { ...prev }
-      for (const row of selectedRows) {
+      for (const row of sourceMoves) {
         const current = [...(next[row.card_id] || [])]
-        if (row.sourceFolder && row.sourceFolder.id !== folder.id) {
-          const sourceIdx = current.findIndex(entry => entry.id === row.sourceFolder.id)
-          if (sourceIdx >= 0) {
-            const remaining = row.sourceQty - row.qty
-            if (remaining > 0) {
-              current[sourceIdx] = { ...current[sourceIdx], qty: remaining }
-            } else {
-              current.splice(sourceIdx, 1)
-            }
+        const sourceIdx = current.findIndex(entry => entry.id === row.sourceFolder.id)
+        if (sourceIdx >= 0) {
+          const remaining = row.sourceQty - row.qty
+          if (remaining > 0) {
+            current[sourceIdx] = { ...current[sourceIdx], qty: remaining }
+          } else {
+            current.splice(sourceIdx, 1)
           }
         }
+        if (current.length) next[row.card_id] = current
+        else delete next[row.card_id]
+      }
+      for (const [cardId, addedQty] of destinationAddByCardId.entries()) {
+        const current = [...(next[cardId] || [])]
         const existingIdx = current.findIndex(entry => entry.id === folder.id)
-        const nextQty = row.qty + (existingQtyByCardId[row.card_id] || 0)
+        const nextQty = addedQty + (existingQtyByCardId[cardId] || 0)
         const folderEntry = { id: folder.id, name: folder.name, type: folder.type, qty: nextQty }
         if (existingIdx >= 0) current[existingIdx] = folderEntry
         else current.push(folderEntry)
-        next[row.card_id] = current
+        next[cardId] = current
       }
       return next
     })
@@ -934,6 +973,9 @@ export default function CollectionPage() {
       const folders = usingPlacementView
         ? allFolders.filter(matchesLocationFilter)
         : allFolders
+      if (usingPlacementView && allFolders.length > 0 && folders.length === 0) {
+        continue
+      }
       if (folders && folders.length > 1) {
         // One tile per folder membership — badge hidden, each tile is independently selectable
         folders.forEach((f) => {
