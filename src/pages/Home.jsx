@@ -377,6 +377,8 @@ function AdvancedSearchPanel({ adv, set }) {
         </Select>
         {adv.cmcOp && (
           <input className={styles.advInput} style={{ width: 54 }}
+            id="card-search-cmc"
+            name="cmc"
             type="number" min="0" step="1" placeholder="0"
             value={adv.cmcVal}
             onChange={e => set(prev => ({ ...prev, cmcVal: e.target.value }))} />
@@ -409,6 +411,8 @@ function AdvancedSearchPanel({ adv, set }) {
       <div className={styles.advRow}>
         <span className={styles.advLabel}>Text</span>
         <input className={styles.advInput} style={{ flex: 1 }}
+          id="card-search-oracle"
+          name="oracle"
           placeholder='Oracle text contains… (e.g. "draw a card")' {...inp('oracle')} />
       </div>
     </div>
@@ -770,6 +774,8 @@ function CardLookupSection() {
       <form className={styles.searchForm} onSubmit={handleSearch}>
         <div className={styles.searchWrap}>
           <input className={styles.searchInput}
+            id="card-search-query"
+            name="query"
             placeholder="Card name or search query…"
             value={query} onChange={handleInput}
             onFocus={() => suggestions.length && setShowSuggs(true)}
@@ -1475,7 +1481,7 @@ export default function HomePage() {
   return (
     <div className={styles.home}>
       <div className={styles.hero}>
-        <div className={styles.heroTitle}>ARCANE<span className={styles.heroAccent}>VAULT</span></div>
+        <div className={styles.heroTitle}>UNTAP<span className={styles.heroAccent}>HUB</span></div>
         <div className={styles.heroSub}>Your Magic: The Gathering collection manager</div>
       </div>
 

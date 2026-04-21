@@ -203,6 +203,7 @@ function MoveToDialog({ folders, onMoveToFolder, onCreateFolder, onClose, allowe
 
       <input
         ref={searchRef}
+        name="move-destination-search"
         className={styles.moveDialogSearch}
         value={search}
         onChange={e => setSearch(e.target.value)}
@@ -231,6 +232,7 @@ function MoveToDialog({ folders, onMoveToFolder, onCreateFolder, onClose, allowe
           <div className={styles.moveDialogCreateForm}>
             <input
               ref={createRef}
+              name="move-destination-name"
               className={styles.moveDialogCreateInput}
               value={createName}
               onChange={e => setCreateName(e.target.value)}
@@ -903,6 +905,7 @@ function LegacyCardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, al
                 <div className={styles.qtyEditor}>
                   <button className={styles.qtyBtn} onClick={() => setEditQty(q => Math.max(1, q - 1))}>−</button>
                   <input className={styles.qtyInput} type="number" min="1" value={editQty}
+                    name="card-detail-quantity"
                     onChange={e => setEditQty(Math.max(1, parseInt(e.target.value) || 1))} />
                   <button className={styles.qtyBtn} onClick={() => setEditQty(q => q + 1)}>+</button>
                 </div>
@@ -938,6 +941,7 @@ function LegacyCardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, al
                 ) : (
                   <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
                     <input autoFocus type="number" min="0" step="0.01" value={buyPriceInput}
+                      name="card-detail-buy-price"
                       onChange={e => setBuyPriceInput(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter') saveBuyPrice(); if (e.key === 'Escape') setBuyPriceEdit(false) }}
                       placeholder="0.00"
@@ -963,6 +967,7 @@ function LegacyCardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, al
                   <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
                     <input
                       list="moveFolderList"
+                      name="card-detail-move-folder"
                       className={styles.editSelect}
                       style={{ flex: 1, minWidth: 140 }}
                       value={moveFolderText}
@@ -1516,7 +1521,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
                       <span className={styles.editLabel}>Quantity</span>
                       <div className={styles.qtyEditor}>
                         <button className={styles.qtyBtn} onClick={() => setEditQty(q => Math.max(1, q - 1))}>−</button>
-                        <input className={styles.qtyInput} type="number" min="1" value={editQty} onChange={e => setEditQty(Math.max(1, parseInt(e.target.value) || 1))} />
+                        <input className={styles.qtyInput} type="number" min="1" name="card-detail-quantity" value={editQty} onChange={e => setEditQty(Math.max(1, parseInt(e.target.value) || 1))} />
                         <button className={styles.qtyBtn} onClick={() => setEditQty(q => q + 1)}>+</button>
                       </div>
                     </div>
@@ -1556,7 +1561,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
                       </div>
                     ) : (
                       <div className={styles.inlineEditor}>
-                        <input autoFocus type="number" min="0" step="0.01" value={buyPriceInput} className={styles.buyPriceInput}
+                        <input autoFocus type="number" min="0" step="0.01" name="card-detail-buy-price" value={buyPriceInput} className={styles.buyPriceInput}
                           onChange={e => setBuyPriceInput(e.target.value)}
                           onKeyDown={e => { if (e.key === 'Enter') saveBuyPrice(); if (e.key === 'Escape') setBuyPriceEdit(false) }}
                           placeholder="0.00" />
@@ -1657,6 +1662,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, folders, a
                           <div className={styles.moveFolderSearch}>
                             <input
                               autoFocus
+                              name="card-detail-folder-search"
                               className={styles.moveFolderSearchInput}
                               value={moveFolderSearch}
                               onChange={e => setMoveFolderSearch(e.target.value)}
@@ -1840,9 +1846,10 @@ function FilterSection({ label, children, fullWidth }) {
   )
 }
 
-function TextFilter({ value, onChange, placeholder }) {
+function TextFilter({ value, onChange, placeholder, name = 'text-filter' }) {
   return (
     <input
+      name={name}
       className={styles.textFilter}
       value={value}
       onChange={e => onChange(e.target.value)}
@@ -1880,6 +1887,7 @@ export function NumericFilter({ opKey, valKey, val2Key, filters, set }) {
         <div className={styles.rangeRow}>
           {op === 'in' ? (
             <input className={styles.rangeInput} type="text"
+              name={valKey}
               placeholder="e.g. 1, 2, 3"
               style={{ width: '100%' }}
               value={filters[valKey] || ''}
@@ -1887,12 +1895,14 @@ export function NumericFilter({ opKey, valKey, val2Key, filters, set }) {
           ) : (
             <>
               <input className={styles.rangeInput} type="number" min="0" step="1"
+                name={valKey}
                 placeholder={op === 'between' ? 'Min' : 'Value'}
                 value={filters[valKey] || ''}
                 onChange={e => set(valKey, e.target.value)} />
               {op === 'between' && <>
                 <span className={styles.rangeSep}>—</span>
                 <input className={styles.rangeInput} type="number" min="0" step="1"
+                  name={val2Key}
                   placeholder="Max"
                   value={filters[val2Key] || ''}
                   onChange={e => set(val2Key, e.target.value)} />
@@ -1939,7 +1949,7 @@ async function loadTypeCatalog() {
 }
 
 // ── Type line tag filter ──────────────────────────────────────────────────────
-export function TypeLineFilter({ selected, onChange }) {
+export function TypeLineFilter({ selected, onChange, name = 'type-line-filter' }) {
   const [query,   setQuery]   = useState('')
   const [open,    setOpen]    = useState(false)
   const [catalog, setCatalog] = useState([])
@@ -1977,6 +1987,7 @@ export function TypeLineFilter({ selected, onChange }) {
         </div>
       )}
       <input
+        name={name}
         className={styles.setSearchInput}
         placeholder={selected.length ? 'Add another type…' : 'e.g. Creature, Human, Legendary…'}
         value={query}
@@ -2041,6 +2052,7 @@ function SetDropdown({ sets, selected, onChange }) {
         </div>
       )}
       <input
+        name="set-filter-search"
         className={styles.setSearchInput}
         placeholder={selected.length ? 'Add more sets…' : 'Type set name or code…'}
         value={query}
@@ -2117,8 +2129,9 @@ export function FilterBar({
     <div className={styles.filterWrap}>
       <div className={styles.filterBar}>
         <input className={styles.searchInput} placeholder="Search cards, sets…"
+          name="card-search"
           value={search} onChange={e => setSearch(e.target.value)} />
-        <select className={styles.filterSelect} value={sort} onChange={e => setSort(e.target.value)}>
+        <select className={styles.filterSelect} name="card-sort" value={sort} onChange={e => setSort(e.target.value)}>
           <option value="name">Name A→Z</option>
           <option value="price_desc">Price ↓</option>
           <option value="price_asc">Price ↑</option>
@@ -2258,12 +2271,14 @@ export function FilterBar({
               <TypeLineFilter
                 selected={Array.isArray(filters.typeLine) ? filters.typeLine : []}
                 onChange={v => set('typeLine', v)}
+                name="type-line-filter"
               />
             </FilterSection>
 
             {/* Oracle text */}
             <FilterSection label="Oracle Text">
               <TextFilter value={filters.oracleText} onChange={v => set('oracleText', v)}
+                name="oracle-text-filter"
                 placeholder="e.g. flying, draw a card" />
             </FilterSection>
 
@@ -2287,11 +2302,13 @@ export function FilterBar({
               <div className={styles.rangeRow}>
                 <span className={styles.rangeLabel}>Min</span>
                 <input className={styles.rangeInput} type="number" min="0" step="0.01"
+                  name="price-min"
                   placeholder="0.00" value={filters.priceMin}
                   onChange={e => set('priceMin', e.target.value)} />
                 <span className={styles.rangeSep}>—</span>
                 <span className={styles.rangeLabel}>Max</span>
                 <input className={styles.rangeInput} type="number" min="0" step="0.01"
+                  name="price-max"
                   placeholder="∞" value={filters.priceMax}
                   onChange={e => set('priceMax', e.target.value)} />
               </div>
@@ -2300,6 +2317,7 @@ export function FilterBar({
             {/* Artist */}
             <FilterSection label="Artist">
               <TextFilter value={filters.artist} onChange={v => set('artist', v)}
+                name="artist-filter"
                 placeholder="Artist name…" />
             </FilterSection>
 
@@ -2347,6 +2365,7 @@ export function FilterBar({
               </div>
               <div style={{ marginTop: 10 }}>
                 <TextFilter value={filters.folderName} onChange={v => set('folderName', v)}
+                  name="folder-name-filter"
                   placeholder="Binder or deck name…" />
               </div>
             </FilterSection>

@@ -207,11 +207,13 @@ export default function FeedbackModal({ onClose }) {
         </button>
       </div>
 
-      <label className={styles.label}>
+      <label className={styles.label} htmlFor="feedback-description">
         {type === 'bug' ? 'What went wrong?' : 'What would you like to see?'}
         <span className={styles.required}> *</span>
       </label>
       <textarea
+        id="feedback-description"
+        name="description"
         className={styles.textarea}
         value={description}
         onChange={(event) => setDescription(event.target.value)}
@@ -225,11 +227,13 @@ export default function FeedbackModal({ onClose }) {
       />
       <div className={styles.charCount}>{description.length}/2000</div>
 
-      <label className={styles.label}>
+      <label className={styles.label} htmlFor="feedback-screenshot">
         Screenshot <span className={styles.optional}>(optional)</span>
       </label>
       <div className={styles.uploadBlock}>
         <input
+          id="feedback-screenshot"
+          name="screenshot"
           ref={fileInputRef}
           className={styles.uploadInput}
           type="file"
@@ -264,10 +268,12 @@ export default function FeedbackModal({ onClose }) {
       </p>
       {fileError ? <p className={styles.errorText}>{fileError}</p> : null}
 
-      <label className={styles.label}>
+      <label className={styles.label} htmlFor="feedback-contact">
         Discord or Email <span className={styles.optional}>(optional)</span>
       </label>
       <input
+        id="feedback-contact"
+        name="contact"
         className={styles.input}
         type="text"
         placeholder="your#1234 or you@email.com"

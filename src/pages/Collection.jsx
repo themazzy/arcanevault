@@ -86,6 +86,7 @@ function OrphanModal({ cards, folders, userId, onAssigned, onDeleted }) {
 
         <div style={{ padding: '14px 20px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 10 }}>
           <select
+            name="unassigned-card-destination"
             value={selectedFolderId}
             onChange={e => setSelectedFolderId(e.target.value)}
             disabled={busy}

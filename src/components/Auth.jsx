@@ -423,6 +423,8 @@ export function LoginPage({ forcedMode = null }) {
               >Create Account</button>
             </div>}
             {mode !== 'recovery' && <input
+              id="auth-email"
+              name="email"
               className={styles.input}
               type="email"
               placeholder="Email address"
@@ -435,6 +437,8 @@ export function LoginPage({ forcedMode = null }) {
             />}
             {mode === 'recovery' && (
               <input
+                id="auth-recovery-email"
+                name="email"
                 type="email"
                 autoComplete="username"
                 value={user?.email || email}
@@ -455,6 +459,8 @@ export function LoginPage({ forcedMode = null }) {
               />
             )}
             {mode !== 'forgot' && <input
+              id="auth-password"
+              name={mode === 'recovery' ? 'new-password' : 'password'}
               className={styles.input}
               type="password"
               placeholder={mode === 'recovery' ? 'New password' : 'Password'}
@@ -466,6 +472,8 @@ export function LoginPage({ forcedMode = null }) {
             />}
             {(mode === 'register' || mode === 'recovery') && (
               <input
+                id="auth-confirm-password"
+                name="confirm-password"
                 className={styles.input}
                 type="password"
                 placeholder={mode === 'recovery' ? 'Confirm new password' : 'Confirm password'}
