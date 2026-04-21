@@ -419,6 +419,80 @@
 }
 
 /* ── Theme picker ────────────────────────────────────────────────────────── */
+.dangerPanel {
+  margin: 18px 20px 20px;
+  padding: 16px;
+  border: 1px solid rgba(196,96,96,0.28);
+  border-radius: 7px;
+  background:
+    linear-gradient(180deg, rgba(196,96,96,0.08), rgba(196,96,96,0.03)),
+    var(--overlay);
+}
+
+.dangerIntro {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dangerTitle {
+  font-family: var(--font-display);
+  color: var(--red);
+  font-size: 0.9rem;
+  letter-spacing: 0.04em;
+}
+
+.dangerText {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.clearButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.confirmPanel {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid rgba(196,96,96,0.24);
+  border-radius: 6px;
+  background: rgba(0,0,0,0.14);
+}
+
+.confirmWarning {
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.confirmWarning strong {
+  color: var(--red);
+  font-family: var(--font-display);
+  letter-spacing: 0.04em;
+}
+
+.confirmControls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.dangerSuccess,
+.dangerError {
+  margin-top: 12px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.dangerSuccess { color: var(--green); }
+.dangerError { color: var(--red); }
+
 .themeRow {
   padding: 20px;
   display: flex;

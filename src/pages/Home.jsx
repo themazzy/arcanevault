@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { getInstantCache, getPrice, formatPrice, getImageUri, sfGet } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
-import { getLocalCards, getLocalFolders, getAllLocalFolderCards, putCards } from '../lib/db'
+import { getLocalCards, getLocalFolders, getAllLocalFolderCards, getAllDeckAllocationsForUser, putCards } from '../lib/db'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { Select } from '../components/UI'
@@ -62,14 +62,17 @@ async function loadCollectionData(userId) {
 
   const folderIds = allFolders.map(f => f.id)
 
-  // Get folder_cards from IDB; fall back to Supabase if IDB is cold
-  let allFc = folderIds.length ? await getAllLocalFolderCards(folderIds) : []
-  if (!allFc.length && folderIds.length) {
+  const deckIds = allFolders.filter(f => f.type === 'deck').map(f => f.id)
+  const placementFolderIds = allFolders.filter(f => f.type !== 'deck').map(f => f.id)
+
+  // Get folder_cards and deck_allocations from IDB; fall back to Supabase if IDB is cold
+  let allFc = placementFolderIds.length ? await getAllLocalFolderCards(placementFolderIds) : []
+  if (!allFc.length && placementFolderIds.length) {
     let from = 0
     while (true) {
       const { data: page, error } = await sb.from('folder_cards')
         .select('id, folder_id, card_id, qty')
-        .in('folder_id', folderIds)
+        .in('folder_id', placementFolderIds)
         .range(from, from + 999)
       if (error) { console.warn('[Home] folder_cards fallback error:', error.message); break }
       if (page?.length) allFc = [...allFc, ...page]
@@ -78,9 +81,26 @@ async function loadCollectionData(userId) {
     }
   }
 
+  let allDa = deckIds.length ? await getAllDeckAllocationsForUser(userId) : []
+  if (!allDa.length && deckIds.length) {
+    let from = 0
+    while (true) {
+      const { data: page, error } = await sb.from('deck_allocations')
+        .select('id, deck_id, card_id, qty, user_id')
+        .eq('user_id', userId)
+        .in('deck_id', deckIds)
+        .range(from, from + 999)
+      if (error) { console.warn('[Home] deck_allocations fallback error:', error.message); break }
+      if (page?.length) allDa = [...allDa, ...page]
+      if (!page || page.length < 1000) break
+      from += 1000
+    }
+  }
+
   // Join in memory
   const cardById  = Object.fromEntries(allCards.map(c => [c.id, c]))
   const cardRows  = allFc.map(r => ({ ...r, cards: cardById[r.card_id] || null }))
+  const deckRows = allDa.map(r => ({ ...r, cards: cardById[r.card_id] || null }))
 
   // Recently added — unique cards newest first
   const seen = new Set()
@@ -93,7 +113,7 @@ async function loadCollectionData(userId) {
     safeSfMap = await loadCardMapWithSharedPrices(allCards)
   }
 
-  return { folders: allFolders, cards: allCards, cardRows, sfMap: safeSfMap, recentCards }
+  return { folders: allFolders, cards: allCards, cardRows, deckRows, sfMap: safeSfMap, recentCards }
 }
 
 // Syncs cards from Supabase into IDB and returns updated cards array if anything changed.
@@ -1140,17 +1160,17 @@ function TopValuedDecks({ data, loading, priceSource }) {
 
   const topDecks = useMemo(() => {
     if (!data) return []
-    const { folders, cardRows, sfMap } = data
+    const { folders, deckRows = [], sfMap } = data
     const deckVal = {}
     for (const f of folders.filter(f => f.type === 'deck')) deckVal[f.id] = { folder: f, value: 0, qty: 0 }
-    for (const row of cardRows) {
-      if (!deckVal[row.folder_id]) continue
+    for (const row of deckRows) {
+      if (!deckVal[row.deck_id]) continue
       const card = row.cards
       if (!card) continue
       const sf = sfMap[`${card.set_code}-${card.collector_number}`]
       const p  = getPrice(sf, card.foil, { price_source: priceSource })
-      if (p != null) deckVal[row.folder_id].value += p * (row.qty || 1)
-      deckVal[row.folder_id].qty += row.qty || 1
+      if (p != null) deckVal[row.deck_id].value += p * (row.qty || 1)
+      deckVal[row.deck_id].qty += row.qty || 1
     }
     return Object.values(deckVal).sort((a, b) => b.value - a.value).slice(0, 6)
   }, [data, priceSource])
