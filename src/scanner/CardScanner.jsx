@@ -52,12 +52,24 @@ const PRIMARY_CROP_VARIANTS = [
   { xOffset: 0, yOffset: 10 },
   { xOffset: 0, yOffset: 0, inset: 6 },
 ]
+const MARGINAL_CROP_VARIANTS = [
+  { xOffset: -8, yOffset: 0 },
+  { xOffset: 8, yOffset: 0 },
+  { xOffset: -8, yOffset: -8 },
+  { xOffset: 8, yOffset: -8 },
+  { xOffset: -8, yOffset: 8 },
+  { xOffset: 8, yOffset: 8 },
+]
 const FAST_PRIMARY_VARIANTS = [PRIMARY_CROP_VARIANTS[0]]
 const STABILITY_SAMPLES   = 3
 const STABILITY_REQUIRED  = 2
 const SAMPLE_DELAY_MS     = 40
 const DEBUG               = false
 const NATIVE_CAPTURE_SETTLE_MS = 120
+const NATIVE_CAPTURE_QUALITY = 80
+const TRACK_INTERVAL_MS = 66
+const TRACK_INTERVAL_AUTOSCAN_MS = 180
+const TRACKED_CORNERS_MAX_AGE_MS = 150
 const PENDING_KEY         = 'arcanevault_scan_basket'
 const SET_ICON_CACHE_KEY  = 'arcanevault_scan_set_icons'
 const CARD_LANGUAGES = [
@@ -324,10 +336,7 @@ function shouldAcceptMatch({ best, gap, stableCount, sameNameCluster = false }) 
 
 function isDecisiveCandidate(best, gap) {
   if (!best) return false
-  return (
-    (best.distance <= MATCH_THRESHOLD && gap >= MATCH_MIN_GAP) ||
-    (best.distance <= MATCH_STRONG_SINGLE && gap >= MATCH_MIN_GAP)
-  )
+  return best.distance <= MATCH_STRONG_SINGLE && gap >= MATCH_MIN_GAP
 }
 
 function getStableVote(votes) {
@@ -335,6 +344,33 @@ function getStableVote(votes) {
     if (b.count !== a.count) return b.count - a.count
     return a.best.distance - b.best.distance
   })[0] ?? null
+}
+
+function isUsableArtCrop(artCrop) {
+  if (!artCrop?.data?.length) return false
+  const { data, width, height } = artCrop
+  const stepX = Math.max(1, Math.floor(width / 64))
+  const stepY = Math.max(1, Math.floor(height / 64))
+  let count = 0
+  let sum = 0
+  let edge = 0
+  for (let y = stepY; y < height; y += stepY) {
+    for (let x = stepX; x < width; x += stepX) {
+      const idx = (y * width + x) * 4
+      const left = (y * width + x - stepX) * 4
+      const up = ((y - stepY) * width + x) * 4
+      const g = 0.2126 * data[idx] + 0.7152 * data[idx + 1] + 0.0722 * data[idx + 2]
+      const gl = 0.2126 * data[left] + 0.7152 * data[left + 1] + 0.0722 * data[left + 2]
+      const gu = 0.2126 * data[up] + 0.7152 * data[up + 1] + 0.0722 * data[up + 2]
+      sum += g
+      edge += Math.abs(g - gl) + Math.abs(g - gu)
+      count++
+    }
+  }
+  if (!count) return false
+  const mean = sum / count
+  const edgeEnergy = edge / (count * 2)
+  return mean > 8 && mean < 248 && edgeEnergy > 1.2
 }
 
 
@@ -392,6 +428,7 @@ export default function CardScanner({ onMatch, onClose }) {
   const autoScanRef = useRef(false)
   const scanningRef = useRef(false)
   const lastAutoScanSignatureRef = useRef(null)
+  const lastTrackedCornersRef = useRef(null)
   const lastSoundCardUidRef = useRef(null)
   const sessionStatsRef = useRef({ attempts: 0, hits: 0, totalMs: 0 })
   const [sessionStatsDisplay, setSessionStatsDisplay] = useState({ attempts: 0, hits: 0, totalMs: 0 })
@@ -592,7 +629,7 @@ export default function CardScanner({ onMatch, onClose }) {
     let stopped = false
     let missCount = 0
     const MISS_THRESHOLD = 5  // ~330ms at ~15fps before frame disappears
-    const DETECT_INTERVAL = 66 // ms between detections (~15fps)
+    const getDetectInterval = () => autoScanRef.current ? TRACK_INTERVAL_AUTOSCAN_MS : TRACK_INTERVAL_MS
 
     const detect = async () => {
       if (stopped) return
@@ -612,6 +649,14 @@ export default function CardScanner({ onMatch, onClose }) {
 
             if (corners?.length === 4) {
               missCount = 0
+              lastTrackedCornersRef.current = {
+                corners,
+                sw,
+                sh,
+                videoW: vid.videoWidth,
+                videoH: vid.videoHeight,
+                ts: performance.now(),
+              }
               const videoW = vid.videoWidth, videoH = vid.videoHeight
               const screenW = window.innerWidth, screenH = window.innerHeight
               const smallScaleX = videoW / sw
@@ -625,18 +670,20 @@ export default function CardScanner({ onMatch, onClose }) {
               })))
             } else {
               missCount++
+              lastTrackedCornersRef.current = null
               if (missCount >= MISS_THRESHOLD) setDetectedCorners(null)
             }
           }
         } catch { /* ignore individual frame errors */ }
       }
 
-      if (!stopped) setTimeout(detect, DETECT_INTERVAL)
+      if (!stopped) setTimeout(detect, getDetectInterval())
     }
 
     detect()
     return () => {
       stopped = true
+      lastTrackedCornersRef.current = null
       setDetectedCorners(null)
     }
   }, [isNative, isReady, cameraStarted, anyOverlayOpen])
@@ -1110,7 +1157,7 @@ export default function CardScanner({ onMatch, onClose }) {
   const captureFrame = useCallback(async () => {
     if (isNative) {
       await sleep(NATIVE_CAPTURE_SETTLE_MS)
-      const { value } = await CameraPreview.captureSample({ quality: 92 })
+      const { value } = await CameraPreview.captureSample({ quality: NATIVE_CAPTURE_QUALITY })
       const img = await new Promise((resolve, reject) => {
         const image = new Image()
         image.onload = () => resolve(image)
@@ -1127,8 +1174,8 @@ export default function CardScanner({ onMatch, onClose }) {
       const { ctx: smallCtx } = getSmallFrameCanvas(sw, sh)
       smallCtx.drawImage(img, 0, 0, sw, sh)
       const smallImageData = smallCtx.getImageData(0, 0, sw, sh)
-      const imageData = ctx.getImageData(0, 0, w, h)
-      return { imageData, srcCanvas: canvas, w, h, smallImageData, sw, sh }
+      const getImageData = () => ctx.getImageData(0, 0, w, h)
+      return { getImageData, srcCanvas: canvas, w, h, smallImageData, sw, sh }
     } else {
       const vid = videoRef.current
       if (!vid?.videoWidth) return null
@@ -1143,18 +1190,27 @@ export default function CardScanner({ onMatch, onClose }) {
       const { ctx: smallCtx } = getSmallFrameCanvas(sw, sh)
       smallCtx.drawImage(vid, 0, 0, sw, sh)
       const smallImageData = smallCtx.getImageData(0, 0, sw, sh)
-      return { imageData: ctx2d.getImageData(0, 0, w, h), srcCanvas: canvas, w, h, smallImageData, sw, sh }
+      const getImageData = () => ctx2d.getImageData(0, 0, w, h)
+      return { getImageData, srcCanvas: canvas, w, h, smallImageData, sw, sh }
     }
   }, [isNative])
 
-  const scanSingleFrame = useCallback(async ({ cornersOnly = false } = {}) => {
+  const scanSingleFrame = useCallback(async ({ cornersOnly = false, allowedSets = null } = {}) => {
     const frame = await captureFrame()
     if (!frame) return { status: 'error', stage: 'no frame', best: null, second: null, candidateCount: 0, totalCount: 0 }
 
-    const { imageData, srcCanvas, w, h, smallImageData, sw, sh } = frame
+    const { getImageData, srcCanvas, w, h, smallImageData, sw, sh } = frame
     // Corner detection runs on the pre-downscaled (sw×sh) frame — cheaper matFromImageData,
     // cheaper cvtColor, no OpenCV resize. Scale corners back to full-res coords for warpCard.
-    const cornersSmall = detectCardCorners(smallImageData, sw, sh)
+    const tracked = lastTrackedCornersRef.current
+    const trackedFresh = tracked &&
+      !isNative &&
+      performance.now() - tracked.ts <= TRACKED_CORNERS_MAX_AGE_MS &&
+      tracked.sw === sw &&
+      tracked.sh === sh &&
+      tracked.videoW === w &&
+      tracked.videoH === h
+    const cornersSmall = trackedFresh ? tracked.corners : detectCardCorners(smallImageData, sw, sh)
     const scaleX = w / sw, scaleY = h / sh
     const corners = cornersSmall?.map(p => ({ x: p.x * scaleX, y: p.y * scaleY })) ?? null
 
@@ -1163,56 +1219,68 @@ export default function CardScanner({ onMatch, onClose }) {
     let bestVariant = null, bestSource = corners ? 'corners' : 'no corners'
     let bestGap = 0
 
-    const updateBest = (candidate, runnerUp, candidateCount, totalCount, variant, sourceLabel) => {
+    const updateBest = (candidate, runnerUp, candidateCount, totalCount, variant, sourceLabel, fallback) => {
       if (!candidate) return false
       const gap = runnerUp ? runnerUp.distance - candidate.distance : 256
       if (!best || candidate.distance < best.distance) {
         best = candidate; second = runnerUp
         bestStats = { candidateCount, totalCount }
-        bestVariant = variant; bestSource = sourceLabel; bestGap = gap
+        bestVariant = variant; bestSource = fallback ? `${sourceLabel}:${fallback}` : sourceLabel; bestGap = gap
       }
       return isDecisiveCandidate(best, bestGap)
     }
 
     const shouldExpand = () => !best || best.distance > MATCH_THRESHOLD || bestGap < MATCH_MIN_GAP
+    const shouldTryMarginalVariants = () => !best || best.distance > MATCH_STRONG_THRESHOLD || bestGap < MATCH_MIN_GAP
+    const matchOpts = {
+      allowedSets,
+      allowSetFallback: !!allowedSets?.size,
+      broadFallbackOnWeak: true,
+      weakDistance: MATCH_THRESHOLD,
+      weakGap: MATCH_MIN_GAP,
+    }
 
-    const tryMatch = (cardImg, sourceLabel, variants) => {
+    const tryMatch = async (cardImg, sourceLabel, variants) => {
       for (const variant of variants) {
         const artCrop = cropArtRegion(cardImg, variant)
         if (!artCrop) continue
+        if (!isUsableArtCrop(artCrop)) continue
         // Single blur+resize pass produces all four hash variants including colorHash.
         let hashes
         try { hashes = computeAllHashes(artCrop) } catch { continue }
         const { hash, foilHash, darkHash, colorHash } = hashes
         if (!hash) continue
-        const { best: c, second: r, candidateCount, totalCount } = databaseService.findBestTwoWithStats(hash, colorHash ?? null)
-        if (updateBest(c, r, candidateCount, totalCount, variant, sourceLabel)) return
+        const { best: c, second: r, candidateCount, totalCount, fallback } = await databaseService.findBestTwoWithStatsAsync(hash, colorHash ?? null, matchOpts)
+        if (updateBest(c, r, candidateCount, totalCount, variant, sourceLabel, fallback)) return
         if (c && c.distance > MATCH_THRESHOLD) {
           // Foil fallback: aggressive glare suppression for blown highlights.
           if (foilHash) {
-            const foilStats = databaseService.findBestTwoWithStats(foilHash, colorHash)
-            if (updateBest(foilStats.best, foilStats.second, foilStats.candidateCount, foilStats.totalCount, variant, `${sourceLabel}+foil`)) return
+            const foilStats = await databaseService.findBestTwoWithStatsAsync(foilHash, colorHash, matchOpts)
+            if (updateBest(foilStats.best, foilStats.second, foilStats.candidateCount, foilStats.totalCount, variant, `${sourceLabel}+foil`, foilStats.fallback)) return
           }
           // Dark art fallback: null when mean brightness ≥ 80 (not dark art — skipped).
           if (darkHash) {
-            const darkStats = databaseService.findBestTwoWithStats(darkHash, colorHash)
-            if (updateBest(darkStats.best, darkStats.second, darkStats.candidateCount, darkStats.totalCount, variant, `${sourceLabel}+dark`)) return
+            const darkStats = await databaseService.findBestTwoWithStatsAsync(darkHash, colorHash, matchOpts)
+            if (updateBest(darkStats.best, darkStats.second, darkStats.candidateCount, darkStats.totalCount, variant, `${sourceLabel}+dark`, darkStats.fallback)) return
           }
         }
       }
     }
 
     if (corners) {
+      const imageData = getImageData()
       const warped = warpCard(imageData, corners)
       if (warped) {
-        tryMatch(warped, 'corners', FAST_PRIMARY_VARIANTS)
-        if (shouldExpand()) tryMatch(warped, 'corners', PRIMARY_CROP_VARIANTS.slice(1))
+        await tryMatch(warped, trackedFresh ? 'tracked-corners' : 'corners', FAST_PRIMARY_VARIANTS)
+        if (shouldExpand()) await tryMatch(warped, 'corners', PRIMARY_CROP_VARIANTS.slice(1))
+        if (shouldTryMarginalVariants()) await tryMatch(warped, 'corners', MARGINAL_CROP_VARIANTS)
         // 180° rotation fallback — cards held upside-down on a table are common.
         // Only runs when the upright pass didn't produce a decisive match.
         if (shouldExpand()) {
           const warped180 = rotateCard180(warped)
-          tryMatch(warped180, 'corners+rot180', FAST_PRIMARY_VARIANTS)
-          if (shouldExpand()) tryMatch(warped180, 'corners+rot180', PRIMARY_CROP_VARIANTS.slice(1))
+          await tryMatch(warped180, 'corners+rot180', FAST_PRIMARY_VARIANTS)
+          if (shouldExpand()) await tryMatch(warped180, 'corners+rot180', PRIMARY_CROP_VARIANTS.slice(1))
+          if (shouldTryMarginalVariants()) await tryMatch(warped180, 'corners+rot180', MARGINAL_CROP_VARIANTS)
         }
       }
     }
@@ -1220,14 +1288,16 @@ export default function CardScanner({ onMatch, onClose }) {
     // when edge detection misses the card, but disabled in auto-scan (cornersOnly) to
     // prevent false positives from incidental objects in the reticle zone.
     if (!cornersOnly && shouldExpand()) {
-      const reticle = cropCardFromReticle(srcCanvas ?? imageData, w, h, window.innerWidth, window.innerHeight)
+      const reticle = cropCardFromReticle(srcCanvas, w, h, window.innerWidth, window.innerHeight)
       if (reticle) {
-        tryMatch(reticle, 'reticle', FAST_PRIMARY_VARIANTS)
-        if (shouldExpand()) tryMatch(reticle, 'reticle', PRIMARY_CROP_VARIANTS.slice(1))
+        await tryMatch(reticle, 'reticle', FAST_PRIMARY_VARIANTS)
+        if (shouldExpand()) await tryMatch(reticle, 'reticle', PRIMARY_CROP_VARIANTS.slice(1))
+        if (shouldTryMarginalVariants()) await tryMatch(reticle, 'reticle', MARGINAL_CROP_VARIANTS)
         if (shouldExpand()) {
           const reticle180 = rotateCard180(reticle)
-          tryMatch(reticle180, 'reticle+rot180', FAST_PRIMARY_VARIANTS)
-          if (shouldExpand()) tryMatch(reticle180, 'reticle+rot180', PRIMARY_CROP_VARIANTS.slice(1))
+          await tryMatch(reticle180, 'reticle+rot180', FAST_PRIMARY_VARIANTS)
+          if (shouldExpand()) await tryMatch(reticle180, 'reticle+rot180', PRIMARY_CROP_VARIANTS.slice(1))
+          if (shouldTryMarginalVariants()) await tryMatch(reticle180, 'reticle+rot180', MARGINAL_CROP_VARIANTS)
         }
       }
     }
@@ -1243,7 +1313,7 @@ export default function CardScanner({ onMatch, onClose }) {
       candidateCount: bestStats.candidateCount, totalCount: bestStats.totalCount,
       variant: bestVariant, source: bestSource,
     }
-  }, [captureFrame])
+  }, [captureFrame, isNative])
 
   const handleScan = useCallback(async () => {
     if (!isReady || scanning || !mountedRef.current) return
@@ -1258,9 +1328,12 @@ export default function CardScanner({ onMatch, onClose }) {
       let bestObservedSource = null, bestObservedSameNameCluster = false
       const frameSummaries = []
       const isAutoScan = autoScanRef.current
+      const allowedSets = lockSet && lockedSets.size > 0
+        ? new Set([...lockedSets].map(code => String(code).toLowerCase()))
+        : null
 
       for (let i = 0; i < STABILITY_SAMPLES; i++) {
-        const result = await scanSingleFrame({ cornersOnly: isAutoScan })
+        const result = await scanSingleFrame({ cornersOnly: isAutoScan, allowedSets })
         frameSummaries.push(result.best ? `${i+1}:${result.best.distance}/${result.gap??'?'}` : `${i+1}:${result.stage}`)
         if (result.best && (!bestObserved || result.best.distance < bestObserved.distance)) {
           bestObserved = result.best
@@ -1306,15 +1379,6 @@ export default function CardScanner({ onMatch, onClose }) {
       const elapsed = Date.now() - scanStart
       if (!match) {
         if (isAutoScan) lastAutoScanSignatureRef.current = null
-        sessionStatsRef.current.attempts++
-        sessionStatsRef.current.totalMs += elapsed
-        setSessionStatsDisplay({ ...sessionStatsRef.current })
-        setScanResult('notfound')
-        return
-      }
-
-      // Lock-set filtering: reject matches not in the locked set list.
-      if (lockSet && lockedSets.size > 0 && !lockedSets.has(match.setCode)) {
         sessionStatsRef.current.attempts++
         sessionStatsRef.current.totalMs += elapsed
         setSessionStatsDisplay({ ...sessionStatsRef.current })
