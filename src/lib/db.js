@@ -258,6 +258,28 @@ export async function deleteFolder(id) {
 
 // ── Folder Cards ──────────────────────────────────────────────────────────────
 
+export async function deleteLocalFoldersAndPlacements(folderIds) {
+  const ids = [...new Set((folderIds || []).filter(Boolean))]
+  if (!ids.length) return
+
+  const db = await getDb()
+  const [folderCards, deckAllocations] = await Promise.all([
+    Promise.all(ids.map(id => db.getAllFromIndex('folder_cards', 'folder_id', id))),
+    Promise.all(ids.map(id => db.getAllFromIndex('deck_allocations', 'deck_id', id))),
+  ])
+
+  const tx = db.transaction(['folders', 'folder_cards', 'deck_allocations'], 'readwrite')
+  const foldersStore = tx.objectStore('folders')
+  const folderCardsStore = tx.objectStore('folder_cards')
+  const deckAllocationsStore = tx.objectStore('deck_allocations')
+
+  for (const id of ids) foldersStore.delete(id)
+  for (const row of folderCards.flat()) folderCardsStore.delete(row.id)
+  for (const row of deckAllocations.flat()) deckAllocationsStore.delete(row.id)
+
+  await tx.done
+}
+
 export async function getLocalFolderCards(folderId) {
   const db = await getDb()
   return db.getAllFromIndex('folder_cards', 'folder_id', folderId)

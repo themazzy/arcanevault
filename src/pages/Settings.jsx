@@ -6,11 +6,49 @@ import { isCurrentUserAdmin } from '../lib/admin'
 import { maskEmailAddress, THEMES, useSettings } from '../components/SettingsContext'
 import { useSetupWizard } from '../components/SetupWizard'
 import { clearScryfallCache, PRICE_SOURCES } from '../lib/scryfall'
-import { getDbStats } from '../lib/db'
+import { deleteLocalFoldersAndPlacements, getDbStats, setMeta } from '../lib/db'
+import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { Button, SectionHeader, Select as UISelect } from '../components/UI'
 import styles from './Settings.module.css'
 
 const APP_VERSION = __APP_VERSION__
+const CLEAR_BATCH_SIZE = 100
+
+const CLEAR_TARGETS = [
+  {
+    key: 'binder',
+    label: 'Binders',
+    folderType: 'binder',
+    placementTable: 'folder_cards',
+    placementKey: 'folder_id',
+    placementSelect: 'id,card_id',
+    placementLabel: 'binder card placements',
+  },
+  {
+    key: 'deck',
+    label: 'Decks',
+    folderType: 'deck',
+    placementTable: 'deck_allocations',
+    placementKey: 'deck_id',
+    placementSelect: 'id,card_id',
+    placementLabel: 'deck allocations',
+  },
+  {
+    key: 'list',
+    label: 'Wishlists',
+    folderType: 'list',
+    placementTable: 'list_items',
+    placementKey: 'folder_id',
+    placementSelect: 'id',
+    placementLabel: 'wishlist items',
+  },
+]
+
+function chunk(items, size = CLEAR_BATCH_SIZE) {
+  const chunks = []
+  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size))
+  return chunks
+}
 
 function formatAge(ms) {
   if (ms < 60000) return 'just now'
@@ -213,6 +251,176 @@ function CacheStatus({ ttlH, onClear }) {
           {cleared ? 'Cleared' : 'Clear Local Metadata'}
         </Button>
       </div>
+    </div>
+  )
+}
+
+async function fetchFoldersForClear(userId, folderType) {
+  const rows = []
+  let from = 0
+  while (true) {
+    const { data, error } = await sb.from('folders')
+      .select('id,name,type,user_id')
+      .eq('user_id', userId)
+      .eq('type', folderType)
+      .order('id')
+      .range(from, from + 999)
+
+    if (error) throw error
+    if (data?.length) rows.push(...data)
+    if (!data || data.length < 1000) break
+    from += 1000
+  }
+  return rows
+}
+
+async function fetchPlacementRows(target, folderIds) {
+  const rows = []
+  for (const ids of chunk(folderIds)) {
+    let from = 0
+    while (true) {
+      const { data, error } = await sb.from(target.placementTable)
+        .select(target.placementSelect)
+        .in(target.placementKey, ids)
+        .order('id')
+        .range(from, from + 999)
+
+      if (error) throw error
+      if (data?.length) rows.push(...data)
+      if (!data || data.length < 1000) break
+      from += 1000
+    }
+  }
+  return rows
+}
+
+async function clearFolderType(userId, target) {
+  const folders = await fetchFoldersForClear(userId, target.folderType)
+  const folderIds = folders.map(folder => folder.id)
+  if (!folderIds.length) {
+    return { folderCount: 0, placementCount: 0, orphanCount: 0 }
+  }
+
+  const placementRows = await fetchPlacementRows(target, folderIds)
+  const affectedCardIds = placementRows.map(row => row.card_id).filter(Boolean)
+
+  for (const ids of chunk(folderIds)) {
+    const { error } = await sb.from(target.placementTable).delete().in(target.placementKey, ids)
+    if (error) throw error
+  }
+
+  for (const ids of chunk(folderIds)) {
+    const { error } = await sb.from('folders')
+      .delete()
+      .eq('user_id', userId)
+      .in('id', ids)
+    if (error) throw error
+  }
+
+  const orphanIds = affectedCardIds.length ? await pruneUnplacedCards(affectedCardIds) : []
+  await deleteLocalFoldersAndPlacements(folderIds)
+  await setMeta(`folder_cards_full_sync_${userId}`, 0)
+  await setMeta(`folder_cards_delta_sync_${userId}`, null)
+
+  return {
+    folderCount: folderIds.length,
+    placementCount: placementRows.length,
+    orphanCount: orphanIds.length,
+  }
+}
+
+function ClearCollectionData({ userId }) {
+  const [targetKey, setTargetKey] = useState('')
+  const [confirmText, setConfirmText] = useState('')
+  const [busyKey, setBusyKey] = useState('')
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+
+  const target = CLEAR_TARGETS.find(item => item.key === targetKey) || null
+  const isBusy = !!busyKey
+  const canClear = target && confirmText === 'Confirm' && !isBusy && userId
+
+  const startConfirm = (key) => {
+    setTargetKey(key)
+    setConfirmText('')
+    setMessage('')
+    setError('')
+  }
+
+  const handleClear = async () => {
+    if (!canClear) return
+    setBusyKey(target.key)
+    setMessage('')
+    setError('')
+    try {
+      const result = await clearFolderType(userId, target)
+      const orphanText = target.key === 'list'
+        ? ''
+        : `, and deleted ${result.orphanCount.toLocaleString()} unplaced owned card${result.orphanCount === 1 ? '' : 's'}`
+      setMessage(
+        result.folderCount
+          ? `Cleared ${result.folderCount.toLocaleString()} ${target.label.toLowerCase()}, ${result.placementCount.toLocaleString()} ${target.placementLabel}${orphanText}.`
+          : `No ${target.label.toLowerCase()} found.`
+      )
+      setTargetKey('')
+      setConfirmText('')
+    } catch (err) {
+      setError(err.message || `Could not clear ${target.label.toLowerCase()}.`)
+    } finally {
+      setBusyKey('')
+    }
+  }
+
+  return (
+    <div className={styles.dangerPanel}>
+      <div className={styles.dangerIntro}>
+        <div className={styles.dangerTitle}>Clear collection locations</div>
+        <div className={styles.dangerText}>
+          This permanently deletes the selected binders, decks, or wishlists and everything stored in those locations.
+          Cards that are only in deleted binders or decks are removed from your collection.
+        </div>
+      </div>
+
+      <div className={styles.clearButtons}>
+        {CLEAR_TARGETS.map(item => (
+          <Button
+            key={item.key}
+            variant="danger"
+            size="sm"
+            onClick={() => startConfirm(item.key)}
+            disabled={!userId || isBusy}
+          >
+            {busyKey === item.key ? `Clearing ${item.label}...` : `Clear ${item.label}`}
+          </Button>
+        ))}
+      </div>
+
+      {target && (
+        <div className={styles.confirmPanel}>
+          <div className={styles.confirmWarning}>
+            Type <strong>Confirm</strong> to permanently clear all {target.label.toLowerCase()}.
+          </div>
+          <div className={styles.confirmControls}>
+            <input
+              className={styles.input}
+              value={confirmText}
+              onChange={e => setConfirmText(e.target.value)}
+              placeholder="Confirm"
+              autoComplete="off"
+              disabled={isBusy}
+            />
+            <Button variant="danger" size="sm" onClick={handleClear} disabled={!canClear}>
+              {isBusy ? 'Working...' : `Delete ${target.label}`}
+            </Button>
+            <Button size="sm" onClick={() => startConfirm('')} disabled={isBusy}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {message && <div className={styles.dangerSuccess}>{message}</div>}
+      {error && <div className={styles.dangerError}>{error}</div>}
     </div>
   )
 }
@@ -537,6 +745,11 @@ export default function SettingsPage() {
         <div className={styles.cachePanelWrap}>
           <CacheStatus ttlH={settings.cache_ttl_h} />
         </div>
+      </div>
+
+      <div className={styles.section}>
+        <div className={styles.sectionTitle}>Collection Management</div>
+        <ClearCollectionData userId={user?.id} />
       </div>
 
       <div className={styles.section}>
