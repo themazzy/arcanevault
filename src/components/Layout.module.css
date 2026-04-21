@@ -162,27 +162,22 @@
 }
 .mobileSignOut:hover { color: var(--gold); }
 
-@media (max-width: 1180px) {
-  .header { padding: 0 22px; }
-  .main { padding: 20px 22px; }
-  .tab { padding: 11px 14px; }
-  .userBar { gap: 10px; }
-  .userName {
-    max-width: 180px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-}
-
-@media (max-width: 980px) {
+@media (max-width: 1420px) {
   .tabs { display: none; }
   .userBar { display: none; }
   .hamburger { display: flex; }
   .headerTop { padding: 8px 0; }
+  .logo { font-size: 1.15rem; }
+}
+
+@media (max-width: 1180px) {
+  .header { padding: 0 22px; }
+  .main { padding: 20px 22px; }
+}
+
+@media (max-width: 980px) {
   .header { padding: 0 14px; }
   .main { padding: 14px 12px; }
-  .logo { font-size: 1.15rem; }
 }
 
 @media (max-width: 768px) {

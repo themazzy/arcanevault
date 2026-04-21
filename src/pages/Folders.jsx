@@ -178,9 +178,11 @@ async function fetchFolderPlacementRows(folder) {
 }
 
 async function upsertPlacementRows(targetFolder, rows) {
-  if (!targetFolder || !rows?.length) return
+  if (!targetFolder) throw new Error('Transfer target was not found.')
+  if (!rows?.length) return []
   const cardIds = [...new Set(rows.map(row => row.card_id).filter(Boolean))]
-  if (!cardIds.length) return
+  if (!cardIds.length) return []
+  const savedRows = []
 
   if (targetFolder.type === 'deck') {
     const { data: existingRows, error } = await sb.from('deck_allocations')
@@ -194,17 +196,24 @@ async function upsertPlacementRows(targetFolder, rows) {
     for (const row of rows) {
       const existing = existingMap.get(row.card_id)
       if (existing) {
-        const { error: updateErr } = await sb.from('deck_allocations').update({ qty: (existing.qty || 0) + (row.qty || 0) }).eq('id', existing.id)
+        const { data: updated, error: updateErr } = await sb.from('deck_allocations')
+          .update({ qty: (existing.qty || 0) + (row.qty || 0) })
+          .eq('id', existing.id)
+          .select('*')
+          .single()
         if (updateErr) throw updateErr
+        if (updated) savedRows.push(updated)
       } else {
         inserts.push({ id: crypto.randomUUID(), deck_id: targetFolder.id, user_id: targetFolder.user_id, card_id: row.card_id, qty: row.qty || 0 })
       }
     }
     if (inserts.length) {
-      const { error: insertErr } = await sb.from('deck_allocations').insert(inserts)
+      const { data: inserted, error: insertErr } = await sb.from('deck_allocations').insert(inserts).select('*')
       if (insertErr) throw insertErr
+      savedRows.push(...(inserted || []))
     }
-    return
+    if (savedRows.length === 0 && rows.length > 0) throw new Error('No deck placements were transferred.')
+    return savedRows
   }
 
   const { data: existingRows, error } = await sb.from('folder_cards')
@@ -218,16 +227,24 @@ async function upsertPlacementRows(targetFolder, rows) {
   for (const row of rows) {
     const existing = existingMap.get(row.card_id)
     if (existing) {
-      const { error: updateErr } = await sb.from('folder_cards').update({ qty: (existing.qty || 0) + (row.qty || 0) }).eq('id', existing.id)
+      const { data: updated, error: updateErr } = await sb.from('folder_cards')
+        .update({ qty: (existing.qty || 0) + (row.qty || 0) })
+        .eq('id', existing.id)
+        .select('*')
+        .single()
       if (updateErr) throw updateErr
+      if (updated) savedRows.push(updated)
     } else {
       inserts.push({ folder_id: targetFolder.id, card_id: row.card_id, qty: row.qty || 0 })
     }
   }
   if (inserts.length) {
-    const { error: insertErr } = await sb.from('folder_cards').insert(inserts)
+    const { data: inserted, error: insertErr } = await sb.from('folder_cards').insert(inserts).select('*')
     if (insertErr) throw insertErr
+    savedRows.push(...(inserted || []))
   }
+  if (savedRows.length === 0 && rows.length > 0) throw new Error('No binder placements were transferred.')
+  return savedRows
 }
 
 // ── GroupSection ──────────────────────────────────────────────────────────────
@@ -919,9 +936,10 @@ function DeleteFolderModal({ folder, userId, onDone, onCancel }) {
   const [createName, setCreateName] = useState('')
   const [busy, setBusy]         = useState(false)
   const [loaded, setLoaded]     = useState(false)
+  const [error, setError]       = useState('')
 
   useEffect(() => {
-    sb.from('folders').select('id, name, type').eq('user_id', userId).in('type', ['binder', 'deck']).order('name')
+    sb.from('folders').select('id, name, type, user_id').eq('user_id', userId).in('type', ['binder', 'deck']).order('name')
       .then(({ data }) => {
         setAllFolders((data || []).filter(f => f.id !== folder.id))
         setLoaded(true)
@@ -943,7 +961,7 @@ function DeleteFolderModal({ folder, userId, onDone, onCancel }) {
     setBusy(true)
     const { data, error } = await sb.from('folders')
       .insert({ user_id: folder.user_id, name, type: mode })
-      .select('id, name, type')
+      .select('id, name, type, user_id')
       .single()
     setBusy(false)
     if (error || !data) return
@@ -953,21 +971,29 @@ function DeleteFolderModal({ folder, userId, onDone, onCancel }) {
   }
 
   const handleConfirm = async () => {
+    setError('')
     setBusy(true)
-    if (mode === 'binder' || mode === 'deck') {
-      const targetFolder = allFolders.find(f => f.id === targetId)
-      const rows = await fetchFolderPlacementRows(folder)
-      if (targetFolder) await upsertPlacementRows(targetFolder, rows)
-    } else if (mode === 'delete') {
-      const rows = await fetchFolderPlacementRows(folder)
-      const ids = rows.map(r => r.card_id)
+    try {
+      if (mode === 'binder' || mode === 'deck') {
+        const targetFolder = allFolders.find(f => f.id === targetId)
+        const rows = await fetchFolderPlacementRows(folder)
+        const savedRows = await upsertPlacementRows({ ...targetFolder, user_id: targetFolder?.user_id || userId }, rows)
+        if (targetFolder?.type === 'deck') await putDeckAllocations(savedRows)
+        else await putFolderCards(savedRows)
+      } else if (mode === 'delete') {
+        const rows = await fetchFolderPlacementRows(folder)
+        const ids = rows.map(r => r.card_id)
+        await sb.from('folders').delete().eq('id', folder.id)
+        if (ids.length) await pruneUnplacedCards(ids)
+        onDone()
+        return
+      }
       await sb.from('folders').delete().eq('id', folder.id)
-      if (ids.length) await pruneUnplacedCards(ids)
       onDone()
-      return
+    } catch (err) {
+      setError(err.message || 'Could not delete this folder.')
+      setBusy(false)
     }
-    await sb.from('folders').delete().eq('id', folder.id)
-    onDone()
   }
 
   const opts = [
@@ -1033,7 +1059,9 @@ function DeleteFolderModal({ folder, userId, onDone, onCancel }) {
             </>
           )}
 
-          <Button variant="danger" block
+          {error && <p style={{ color: '#e07070', fontSize: '0.82rem', margin: '10px 0 0' }}>{error}</p>}
+
+          <Button variant="danger" block style={{ marginTop: 16 }}
             disabled={!canConfirm || busy}
             onClick={handleConfirm}>
             {busy ? 'Working…' : 'Confirm Delete'}
@@ -1052,11 +1080,12 @@ function BulkDeleteModal({ nonEmpty, empty, userId, onDone, onCancel }) {
   const [createName, setCreateName] = useState('')
   const [busy, setBusy]         = useState(false)
   const [loaded, setLoaded]     = useState(false)
+  const [error, setError]       = useState('')
 
   const allSelectedIds = useMemo(() => new Set([...nonEmpty, ...empty].map(f => f.id)), [nonEmpty, empty])
 
   useEffect(() => {
-    sb.from('folders').select('id, name, type').eq('user_id', userId).in('type', ['binder', 'deck']).order('name')
+    sb.from('folders').select('id, name, type, user_id').eq('user_id', userId).in('type', ['binder', 'deck']).order('name')
       .then(({ data }) => {
         setAllFolders((data || []).filter(f => !allSelectedIds.has(f.id)))
         setLoaded(true)
@@ -1079,7 +1108,7 @@ function BulkDeleteModal({ nonEmpty, empty, userId, onDone, onCancel }) {
     setBusy(true)
     const { data, error } = await sb.from('folders')
       .insert({ user_id: ownerId, name, type: mode })
-      .select('id, name, type')
+      .select('id, name, type, user_id')
       .single()
     setBusy(false)
     if (error || !data) return
@@ -1089,25 +1118,33 @@ function BulkDeleteModal({ nonEmpty, empty, userId, onDone, onCancel }) {
   }
 
   const handleConfirm = async () => {
+    setError('')
     setBusy(true)
-    for (const folder of nonEmpty) {
-      if (mode === 'binder' || mode === 'deck') {
-        const targetFolder = allFolders.find(f => f.id === targetId)
-        const rows = await fetchFolderPlacementRows(folder)
-        if (targetFolder) await upsertPlacementRows(targetFolder, rows)
-      } else if (mode === 'delete') {
-        const rows = await fetchFolderPlacementRows(folder)
-        folder._deleteCardIds = rows.map(r => r.card_id)
+    try {
+      for (const folder of nonEmpty) {
+        if (mode === 'binder' || mode === 'deck') {
+          const targetFolder = allFolders.find(f => f.id === targetId)
+          const rows = await fetchFolderPlacementRows(folder)
+          const savedRows = await upsertPlacementRows({ ...targetFolder, user_id: targetFolder?.user_id || userId }, rows)
+          if (targetFolder?.type === 'deck') await putDeckAllocations(savedRows)
+          else await putFolderCards(savedRows)
+        } else if (mode === 'delete') {
+          const rows = await fetchFolderPlacementRows(folder)
+          folder._deleteCardIds = rows.map(r => r.card_id)
+        }
       }
+      for (const folder of [...nonEmpty, ...empty]) {
+        await sb.from('folders').delete().eq('id', folder.id)
+      }
+      if (mode === 'delete') {
+        const ids = nonEmpty.flatMap(folder => folder._deleteCardIds || [])
+        if (ids.length) await pruneUnplacedCards(ids)
+      }
+      onDone([...allSelectedIds])
+    } catch (err) {
+      setError(err.message || 'Could not delete these folders.')
+      setBusy(false)
     }
-    for (const folder of [...nonEmpty, ...empty]) {
-      await sb.from('folders').delete().eq('id', folder.id)
-    }
-    if (mode === 'delete') {
-      const ids = nonEmpty.flatMap(folder => folder._deleteCardIds || [])
-      if (ids.length) await pruneUnplacedCards(ids)
-    }
-    onDone([...allSelectedIds])
   }
 
   const opts = [
@@ -1179,7 +1216,9 @@ function BulkDeleteModal({ nonEmpty, empty, userId, onDone, onCancel }) {
             </>
           )}
 
-          <Button variant="danger" block
+          {error && <p style={{ color: '#e07070', fontSize: '0.82rem', margin: '10px 0 0' }}>{error}</p>}
+
+          <Button variant="danger" block style={{ marginTop: 16 }}
             disabled={!canConfirm || busy}
             onClick={handleConfirm}>
             {busy ? 'Working…' : `Delete ${nonEmpty.length + empty.length} folders`}

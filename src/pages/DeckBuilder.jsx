@@ -8,8 +8,9 @@ import {
   parseDeckMeta, serializeDeckMeta, getCardImageUri, nameToSlug,
   searchCards, searchCommanders, fetchCardsByNames, fetchCardsByScryfallIds, getDeckBuilderCardMeta,
   fetchEdhrecCommander, makeDebouncer,
-  importDeckFromUrl, parseTextDecklist,
+  importDeckFromUrl,
 } from '../lib/deckBuilderApi'
+import { normalizeImportedDeckCards, parseImportText, resolveImportEntries } from '../lib/importFlow'
 import {
   getLocalCards, getDeckCards, putDeckCards, deleteDeckCardLocal, getMeta, setMeta, getScryfallEntry,
 } from '../lib/db'
@@ -2300,26 +2301,26 @@ export default function DeckBuilderPage() {
 
       if (importTab === 'url') {
         const result = await importDeckFromUrl(importUrl)
-        parsed = result.cards
+        parsed = normalizeImportedDeckCards(result.cards)
         importedName = result.name
       } else {
-        parsed = parseTextDecklist(importText)
+        parsed = parseImportText(importText).entries
       }
 
       if (!parsed.length) throw new Error('No cards found in the import.')
 
-      // Batch-fetch Scryfall data for all card names
-      const names = [...new Set(parsed.map(c => c.name))]
-      const sfCards = await fetchCardsByNames(names)
-      const sfByName = new Map(sfCards.map(c => [c.name.toLowerCase(), c]))
+      const resolvedRows = await resolveImportEntries(parsed)
+      const matchedRows = resolvedRows.filter(row => row.status === 'matched' && row.sfCard)
+      const missedRows = resolvedRows.filter(row => row.status !== 'matched')
+      if (!matchedRows.length) throw new Error('No cards could be matched in Scryfall.')
 
       // Build deck_cards rows
       const now = new Date().toISOString()
       const newRows = []
       let commanderSet = false
 
-      for (const entry of parsed) {
-        const sf = sfByName.get(entry.name.toLowerCase())
+      for (const entry of matchedRows) {
+        const sf = entry.sfCard
         const meta = getDeckBuilderCardMeta(sf)
         const isCmd = entry.isCommander && !commanderSet
         if (isCmd) commanderSet = true
@@ -2329,9 +2330,9 @@ export default function DeckBuilderPage() {
           deck_id:          deckId,
           user_id:          user.id,
           scryfall_id:      meta.scryfall_id,
-          name:             entry.name,
-          set_code:         entry.setCode ?? meta.set_code,
-          collector_number: entry.collectorNumber ?? meta.collector_number,
+          name:             entry.resolvedName || entry.name,
+          set_code:         entry.resolvedSetCode ?? entry.setCode ?? meta.set_code,
+          collector_number: entry.resolvedCollectorNumber ?? entry.collectorNumber ?? meta.collector_number,
           type_line:        meta.type_line,
           mana_cost:        meta.mana_cost,
           cmc:              meta.cmc,
@@ -2357,7 +2358,9 @@ export default function DeckBuilderPage() {
       }
 
       setDeckCards(prev => [...prev, ...newRows])
-      setImportDone(`Imported ${newRows.length} card${newRows.length !== 1 ? 's' : ''}`)
+      const importedCopies = newRows.reduce((sum, row) => sum + (row.qty || 0), 0)
+      const skipped = missedRows.length ? `, skipped ${missedRows.length} unresolved row${missedRows.length !== 1 ? 's' : ''}` : ''
+      setImportDone(`Imported ${importedCopies} card${importedCopies !== 1 ? 's' : ''}${skipped}`)
       setImportUrl('')
       setImportText('')
     } catch (err) {

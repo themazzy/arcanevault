@@ -349,10 +349,17 @@ export function parseTextDecklist(text) {
 
     // Extract set code + optional collector number from the end of the line:
     //   "(M10) 155" or "[M10] 155" or "(M10)" or "[M10]"
+    //   "(plst) IKO-250" means the concrete printed card is IKO #250.
     // Set codes are 2-6 alphanumeric chars; collector numbers may have a trailing letter (e.g. 155a)
     let setCode = null
     let collectorNumber = null
-    const setMatch = rest.match(/\s+[\(\[]([A-Za-z0-9]{2,6})[\)\]]\s*(\d+[a-z]?)?\s*$/)
+    const sourcePrintMatch = rest.match(/\s+[\(\[]([A-Za-z0-9]{2,6})[\)\]]\s+([A-Za-z0-9]{2,6})-(\d+[a-z]?)\s*$/)
+    if (sourcePrintMatch) {
+      setCode = sourcePrintMatch[2].toLowerCase()
+      collectorNumber = sourcePrintMatch[3] || null
+      rest = rest.slice(0, sourcePrintMatch.index).trim()
+    }
+    const setMatch = !sourcePrintMatch && rest.match(/\s+[\(\[]([A-Za-z0-9]{2,6})[\)\]]\s*(\d+[a-z]?)?\s*$/)
     if (setMatch) {
       setCode = setMatch[1].toLowerCase()
       collectorNumber = setMatch[2] || null
