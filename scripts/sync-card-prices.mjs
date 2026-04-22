@@ -9,7 +9,19 @@ const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
 const BULK_DATA_TYPE = 'all_cards'
 const UPSERT_BATCH_SIZE = 500
+const DELETE_BATCH_SIZE = 500
 const BULK_DOWNLOAD_PATH = path.join(process.cwd(), '.tmp', 'scryfall-all-cards.json')
+const PRICE_COLUMNS = `
+  scryfall_id,
+  set_code,
+  collector_number,
+  snapshot_date,
+  price_regular_eur,
+  price_foil_eur,
+  price_regular_usd,
+  price_foil_usd,
+  updated_at
+`
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   console.error('Missing SUPABASE_URL and/or SUPABASE_SERVICE_ROLE_KEY.')
@@ -166,11 +178,47 @@ async function upsertRows(rows) {
   }
 }
 
+async function upsertLiveRows(rows) {
+  for (let i = 0; i < rows.length; i += UPSERT_BATCH_SIZE) {
+    const batch = rows.slice(i, i + UPSERT_BATCH_SIZE)
+    const { error } = await sb
+      .from('card_prices')
+      .upsert(batch, { onConflict: 'scryfall_id,snapshot_date' })
+    if (error) throw error
+  }
+}
+
+async function clearRows(table, label, applyFilter) {
+  let cleared = 0
+
+  while (true) {
+    const selectQuery = applyFilter(
+      sb
+        .from(table)
+        .select('scryfall_id')
+        .order('scryfall_id', { ascending: true })
+        .limit(DELETE_BATCH_SIZE)
+    )
+    const { data, error: selectError } = await selectQuery
+    if (selectError) throw selectError
+    if (!data?.length) break
+
+    const ids = data.map(row => row.scryfall_id)
+    const deleteQuery = applyFilter(sb.from(table).delete().in('scryfall_id', ids))
+    const { error: deleteError } = await deleteQuery
+    if (deleteError) throw deleteError
+
+    cleared += data.length
+    if (cleared % 5000 === 0) {
+      console.log(`[Price Sync] Cleared ${cleared.toLocaleString()} ${label} rows so far.`)
+    }
+  }
+
+  console.log(`[Price Sync] Cleared ${cleared.toLocaleString()} ${label} rows.`)
+}
+
 async function clearStageRows(label, applyFilter) {
-  const query = applyFilter(sb.from('card_prices_stage').delete())
-  const { error } = await query
-  if (error) throw error
-  console.log(`[Price Sync] Cleared ${label} staging rows.`)
+  await clearRows('card_prices_stage', `${label} staging`, applyFilter)
 }
 
 async function clearStageRowsBestEffort(label, applyFilter) {
@@ -179,6 +227,45 @@ async function clearStageRowsBestEffort(label, applyFilter) {
   } catch (error) {
     console.warn(`[Price Sync] Could not clear ${label} staging rows:`, error.message)
   }
+}
+
+async function publishStagedRows(snapshotDate, retentionCutoff) {
+  await clearRows(
+    'card_prices',
+    `rows for ${snapshotDate} live`,
+    query => query.eq('snapshot_date', snapshotDate)
+  )
+
+  let published = 0
+  let offset = 0
+
+  while (true) {
+    const { data, error } = await sb
+      .from('card_prices_stage')
+      .select(PRICE_COLUMNS)
+      .eq('snapshot_date', snapshotDate)
+      .order('scryfall_id', { ascending: true })
+      .range(offset, offset + UPSERT_BATCH_SIZE - 1)
+
+    if (error) throw error
+    if (!data?.length) break
+
+    await upsertLiveRows(data)
+    published += data.length
+    offset += data.length
+
+    if (published % 5000 === 0) {
+      console.log(`[Price Sync] Published ${published.toLocaleString()} rows so far.`)
+    }
+  }
+
+  await clearRows(
+    'card_prices',
+    `stale live rows before ${retentionCutoff}`,
+    query => query.lt('snapshot_date', retentionCutoff)
+  )
+
+  console.log(`[Price Sync] Published ${published.toLocaleString()} staged rows for ${snapshotDate}.`)
 }
 
 async function main() {
@@ -200,11 +287,7 @@ async function main() {
     console.log(`[Price Sync] Finished staging ${processed.toLocaleString()} rows (${skipped.toLocaleString()} skipped).`)
 
     console.log(`[Price Sync] Publishing staged rows for ${snapshotDate}...`)
-    const { error: publishError } = await sb.rpc('publish_card_prices', {
-      p_snapshot_date: snapshotDate,
-      p_retention_cutoff: retentionCutoff,
-    })
-    if (publishError) throw publishError
+    await publishStagedRows(snapshotDate, retentionCutoff)
   } finally {
     await clearStageRowsBestEffort(`rows for ${snapshotDate}`, query => query.eq('snapshot_date', snapshotDate))
     try {
