@@ -1057,7 +1057,7 @@ export default function ImportModal({
           <>
             <p className={styles.doneMsg}>
               {imported > 0
-                ? <span className={styles.success}>{imported} copies imported successfully.</span>
+                ? <span className={styles.success}>{imported} card{imported === 1 ? '' : 's'} imported successfully.</span>
                 : <span style={{ color: 'var(--text-dim)' }}>No cards were imported.</span>
               }
             </p>
