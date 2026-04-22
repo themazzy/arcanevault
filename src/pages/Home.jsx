@@ -6,9 +6,8 @@ import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getLocalCards, getLocalFolders, getAllLocalFolderCards, getAllDeckAllocationsForUser, putCards } from '../lib/db'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
-import { Select } from '../components/UI'
 import styles from './Home.module.css'
-import { TypeLineFilter } from '../components/CardComponents'
+import { EMPTY_FILTERS, FilterBar } from '../components/CardComponents'
 import { CloseIcon, CheckIcon, WarningIcon, BannedIcon, ChevronDownIcon, ChevronUpIcon, ChevronRightIcon, DiceIcon, ImageIcon } from '../icons'
 
 // ── Recently Viewed (localStorage + custom event for live update) ─────────────
@@ -179,8 +178,21 @@ async function fetchPrintings(cardName) {
   const data = await sfGet(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(q)}&unique=prints&order=released`)
   return data?.data || []
 }
-async function fetchSearchResults(q, nextPageUrl = null) {
-  const url = nextPageUrl || `https://api.scryfall.com/cards/search?q=${encodeURIComponent(q)}&order=name&unique=cards`
+function getScryfallSort(sort) {
+  switch (sort) {
+    case 'released': return { order: 'released', dir: 'desc' }
+    case 'set': return { order: 'set', dir: 'auto' }
+    case 'rarity': return { order: 'rarity', dir: 'auto' }
+    case 'cmc_asc': return { order: 'cmc', dir: 'asc' }
+    case 'cmc_desc': return { order: 'cmc', dir: 'desc' }
+    case 'price_desc': return { order: 'eur', dir: 'desc' }
+    case 'price_asc': return { order: 'eur', dir: 'asc' }
+    default: return { order: 'name', dir: 'auto' }
+  }
+}
+async function fetchSearchResults(q, nextPageUrl = null, sort = 'name') {
+  const { order, dir } = getScryfallSort(sort)
+  const url = nextPageUrl || `https://api.scryfall.com/cards/search?q=${encodeURIComponent(q)}&order=${order}&dir=${dir}&unique=cards`
   const json = await sfGet(url)
   if (!json) return { data: [], nextPage: null, total: 0 }
   return { data: json.data || [], nextPage: json.next_page || null, total: json.total_cards || 0 }
@@ -286,157 +298,58 @@ async function fetchUpcomingSets() {
     .slice(0, 8)
 }
 
-// ── Advanced search helpers ───────────────────────────────────────────────────
-const ADV_COLORS = [
-  { id: 'W', label: 'W', title: 'White',    img: 'W' },
-  { id: 'U', label: 'U', title: 'Blue',     img: 'U' },
-  { id: 'B', label: 'B', title: 'Black',    img: 'B' },
-  { id: 'R', label: 'R', title: 'Red',      img: 'R' },
-  { id: 'G', label: 'G', title: 'Green',    img: 'G' },
-  { id: 'C', label: 'C', title: 'Colorless',img: 'C' },
-]
-const ADV_RARITIES = [
-  { id: 'common',   label: 'Common' },
-  { id: 'uncommon', label: 'Uncommon' },
-  { id: 'rare',     label: 'Rare' },
-  { id: 'mythic',   label: 'Mythic' },
-]
-const ADV_FORMATS = [
-  'commander','standard','pioneer','modern','legacy','vintage','pauper','oathbreaker'
-]
-const EMPTY_ADV = {
-  colors: [], colorMode: 'includes',
-  types: [],
-  cmcOp: '', cmcVal: '',
-  rarity: '',
-  oracle: '',
-  format: '',
-}
-
-function buildScryfallQuery(name, adv) {
+// ── Lookup filter helpers ─────────────────────────────────────────────────────
+function buildLookupQuery(search, filters) {
   const tokens = []
-  if (name?.trim()) tokens.push(name.trim())
-  if (adv.colors.length) {
-    const c = adv.colors.join('')
-    if (adv.colorMode === 'exactly')  tokens.push(`c=${c}`)
-    else if (adv.colorMode === 'at_least') tokens.push(`c>=${c}`)
-    else tokens.push(`c:${c}`)
+  if (search?.trim()) tokens.push(search.trim())
+
+  if (filters.foil === 'foil') tokens.push('is:foil')
+  if (filters.foil === 'nonfoil') tokens.push('is:nonfoil')
+  if (filters.foil === 'etched') tokens.push('is:etched')
+
+  if (filters.colors?.length) {
+    const selected = filters.colors.filter(c => ['W','U','B','R','G'].includes(c))
+    if (selected.length) {
+      const colorString = selected.join('')
+      if (filters.colorMode === 'exact') tokens.push(`id=${colorString}`)
+      else if (filters.colorMode === 'including') tokens.push(`id>=${colorString}`)
+      else tokens.push(`id:${colorString}`)
+    }
+    if (filters.colors.includes('C')) tokens.push('id:c')
+    if (filters.colors.includes('M')) tokens.push('id>1')
   }
-  adv.types?.forEach(t => tokens.push(`t:${t}`))
-  if (adv.cmcOp && adv.cmcVal !== '') tokens.push(`cmc${adv.cmcOp}${adv.cmcVal}`)
-  if (adv.rarity)          tokens.push(`r:${adv.rarity}`)
-  if (adv.oracle?.trim())  tokens.push(`o:"${adv.oracle.trim()}"`)
-  if (adv.format)          tokens.push(`f:${adv.format}`)
+
+  if (filters.colorCountMin > 0) tokens.push(`colors>=${filters.colorCountMin}`)
+  if (filters.colorCountMax < 5) tokens.push(`colors<=${filters.colorCountMax}`)
+  filters.rarity?.forEach(r => tokens.push(`rarity:${r}`))
+  filters.typeLine?.forEach(t => tokens.push(`type:"${t}"`))
+  if (filters.oracleText?.trim()) tokens.push(`oracle:"${filters.oracleText.trim()}"`)
+  if (filters.artist?.trim()) tokens.push(`artist:"${filters.artist.trim()}"`)
+  filters.formats?.forEach(f => tokens.push(`format:${f}`))
+  filters.sets?.forEach(s => tokens.push(`set:${s}`))
+
+  const numericFilters = [
+    ['cmc', filters.cmcOp, filters.cmcMin, filters.cmcMax],
+    ['pow', filters.powerOp, filters.powerVal, filters.powerVal2],
+    ['tou', filters.toughOp, filters.toughVal, filters.toughVal2],
+  ]
+  for (const [field, op, val, val2] of numericFilters) {
+    if (!op || op === 'any') continue
+    if (op === 'between') {
+      if (val !== '') tokens.push(`${field}>=${val}`)
+      if (val2 !== '') tokens.push(`${field}<=${val2}`)
+    } else if (op === 'in') {
+      String(val || '').split(',').map(v => v.trim()).filter(Boolean).forEach(v => tokens.push(`${field}:${v}`))
+    } else if (val !== '') {
+      tokens.push(`${field}${op}${val}`)
+    }
+  }
+
   return tokens.join(' ')
 }
 
-function hasAdvFilters(adv) {
-  return adv.colors.length > 0 || adv.types?.length > 0 || adv.cmcVal !== '' || adv.rarity || adv.oracle || adv.format
-}
-
-// ── Advanced Search Panel ─────────────────────────────────────────────────────
-function AdvancedSearchPanel({ adv, set }) {
-  const toggle = (key, val) => set(prev => ({
-    ...prev,
-    [key]: prev[key].includes(val) ? prev[key].filter(x => x !== val) : [...prev[key], val]
-  }))
-
-  const inp = (key) => ({
-    value: adv[key],
-    onChange: e => set(prev => ({ ...prev, [key]: e.target.value }))
-  })
-
-  return (
-    <div className={styles.advPanel}>
-      {/* Colors */}
-      <div className={styles.advRow}>
-        <span className={styles.advLabel}>Color</span>
-        <div className={styles.advColorWrap}>
-          {ADV_COLORS.map(c => (
-            <button key={c.id}
-              className={`${styles.advColorBtn} ${adv.colors.includes(c.id) ? styles.advColorBtnActive : ''}`}
-              onClick={() => toggle('colors', c.id)}
-              title={c.title}>
-              <img src={`https://svgs.scryfall.io/card-symbols/${c.img}.svg`} alt={c.title}
-                style={{ width: 18, height: 18, pointerEvents: 'none' }} />
-            </button>
-          ))}
-          {adv.colors.length > 0 && (
-            <Select className={styles.advSelect} style={{ marginLeft: 6 }}
-              value={adv.colorMode}
-              onChange={e => set(prev => ({ ...prev, colorMode: e.target.value }))}
-              title="Select color mode">
-              <option value="includes">Includes</option>
-              <option value="exactly">Exactly</option>
-              <option value="at_least">At least</option>
-            </Select>
-          )}
-        </div>
-      </div>
-
-      {/* Type & CMC row */}
-      <div className={styles.advRow} style={{ flexWrap: 'wrap', gap: 8 }}>
-        <span className={styles.advLabel}>Type</span>
-        <div style={{ flex: 1, minWidth: 180 }}>
-          <TypeLineFilter
-            selected={adv.types}
-            onChange={types => set(prev => ({ ...prev, types }))}
-          />
-        </div>
-        <span className={styles.advLabel} style={{ marginLeft: 4 }}>CMC</span>
-        <Select className={styles.advSelect}
-          value={adv.cmcOp}
-          onChange={e => set(prev => ({ ...prev, cmcOp: e.target.value }))}
-          title="Select CMC filter">
-          <option value="">Any</option>
-          <option value="=">= (equal)</option>
-          <option value="<">{'< (less)'}</option>
-          <option value="<=">{'≤ (max)'}</option>
-          <option value=">">{'> (more)'}</option>
-          <option value=">=">{'>= (min)'}</option>
-        </Select>
-        {adv.cmcOp && (
-          <input className={styles.advInput} style={{ width: 54 }}
-            id="card-search-cmc"
-            name="cmc"
-            type="number" min="0" step="1" placeholder="0"
-            value={adv.cmcVal}
-            onChange={e => set(prev => ({ ...prev, cmcVal: e.target.value }))} />
-        )}
-      </div>
-
-      {/* Rarity & Format row */}
-      <div className={styles.advRow}>
-        <span className={styles.advLabel}>Rarity</span>
-        <div className={styles.advChips}>
-          {ADV_RARITIES.map(r => (
-            <button key={r.id}
-              className={`${styles.advChip} ${adv.rarity === r.id ? styles.advChipActive : ''}`}
-              onClick={() => set(prev => ({ ...prev, rarity: prev.rarity === r.id ? '' : r.id }))}>
-              {r.label}
-            </button>
-          ))}
-        </div>
-        <span className={styles.advLabel} style={{ marginLeft: 10 }}>Format</span>
-        <Select className={styles.advSelect}
-          value={adv.format}
-          onChange={e => set(prev => ({ ...prev, format: e.target.value }))}
-          title="Select format">
-          <option value="">Any</option>
-          {ADV_FORMATS.map(f => <option key={f} value={f}>{f.charAt(0).toUpperCase() + f.slice(1)}</option>)}
-        </Select>
-      </div>
-
-      {/* Oracle text */}
-      <div className={styles.advRow}>
-        <span className={styles.advLabel}>Text</span>
-        <input className={styles.advInput} style={{ flex: 1 }}
-          id="card-search-oracle"
-          name="oracle"
-          placeholder='Oracle text contains… (e.g. "draw a card")' {...inp('oracle')} />
-      </div>
-    </div>
-  )
+function hasLookupFilters(filters) {
+  return buildLookupQuery('', filters).trim().length > 0
 }
 
 // ── Mana symbol renderer ──────────────────────────────────────────────────────
@@ -701,9 +614,22 @@ function CardLookupSection() {
   const [currentQuery, setCurrentQuery] = useState('')
   const [mode, setMode]           = useState('idle')
   const [loading, setLoading]     = useState(false)
-  const [showAdv, setShowAdv]     = useState(false)
-  const [advFilters, setAdvFilters] = useState({ ...EMPTY_ADV })
+  const [sort, setSort]           = useState('name')
+  const [filters, setFilters]     = useState({ ...EMPTY_FILTERS })
+  const [lookupSets, setLookupSets] = useState([])
   const debounce = useRef(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetchScryfallSetsMap().then(map => {
+      if (cancelled) return
+      const sets = Object.entries(map || {})
+        .map(([code, meta]) => ({ code, name: meta?.name || code.toUpperCase() }))
+        .sort((a, b) => a.name.localeCompare(b.name))
+      setLookupSets(sets)
+    })
+    return () => { cancelled = true }
+  }, [])
 
   const handleInput = e => {
     const v = e.target.value
@@ -724,25 +650,15 @@ function CardLookupSection() {
   }
 
   const handleSearch = async e => {
-    e.preventDefault()
-    const hasAdv = hasAdvFilters(advFilters)
-    // Always use search endpoint when advanced filters are active
-    if (hasAdv || (showAdv && hasAdv)) {
-      const q = buildScryfallQuery(query, advFilters)
-      if (!q.trim()) return
-      setShowSuggs(false); setCard(null); setLoading(true); setMode('idle')
-      setCurrentQuery(q)
-      const { data, nextPage: np, total } = await fetchSearchResults(q)
-      setResults(data); setNextPage(np); setTotalCards(total)
-      setMode('results'); setLoading(false)
-      return
-    }
-    if (!query.trim()) return
+    e?.preventDefault?.()
+    const hasFilters = hasLookupFilters(filters)
+    if (!query.trim() && !hasFilters) return
     setShowSuggs(false); setCard(null); setLoading(true); setMode('idle')
-    const exact = await fetchByName(query.trim())
+    const exact = !hasFilters ? await fetchByName(query.trim()) : null
     if (exact) { setCard(exact); setMode('card'); addRecentlyViewed(exact); setLoading(false); return }
-    setCurrentQuery(query.trim())
-    const { data, nextPage: np, total } = await fetchSearchResults(query.trim())
+    const scryfallQuery = buildLookupQuery(query, filters)
+    setCurrentQuery(scryfallQuery)
+    const { data, nextPage: np, total } = await fetchSearchResults(scryfallQuery, null, sort)
     setResults(data); setNextPage(np); setTotalCards(total)
     setMode('results'); setLoading(false)
   }
@@ -750,7 +666,7 @@ function CardLookupSection() {
   const handleLoadMore = async () => {
     if (!nextPage || loadingMore) return
     setLoadingMore(true)
-    const { data, nextPage: np } = await fetchSearchResults(null, nextPage)
+    const { data, nextPage: np } = await fetchSearchResults(null, nextPage, sort)
     setResults(prev => [...prev, ...data]); setNextPage(np)
     setLoadingMore(false)
   }
@@ -758,28 +674,14 @@ function CardLookupSection() {
   const handleClear = () => {
     setCard(null); setResults([]); setNextPage(null); setTotalCards(0)
     setMode('idle'); setQuery(''); setCurrentQuery('')
-    setAdvFilters({ ...EMPTY_ADV })
+    setFilters({ ...EMPTY_FILTERS })
   }
-
-  const activeAdvCount = [
-    advFilters.colors.length > 0,
-    (advFilters.types?.length ?? 0) > 0,
-    !!advFilters.cmcVal,
-    !!advFilters.rarity,
-    !!advFilters.oracle,
-    !!advFilters.format,
-  ].filter(Boolean).length
 
   return (
     <section className={styles.section}>
       <div className={styles.sectionHeader}>
         <h2 className={styles.sectionTitle}>Card Lookup</h2>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button
-            className={`${styles.advToggleBtn} ${showAdv ? styles.advToggleBtnActive : ''}`}
-            onClick={() => setShowAdv(v => !v)}>
-            {showAdv ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />} Filters{activeAdvCount > 0 ? ` (${activeAdvCount})` : ''}
-          </button>
           {mode !== 'idle' && (
             <button className={styles.clearBtn} onClick={handleClear}>Clear</button>
           )}
@@ -787,42 +689,41 @@ function CardLookupSection() {
       </div>
       <p className={styles.sectionDesc}>Search any Magic card — browse art, oracle text, prices and rulings.</p>
 
-      {showAdv && (
-        <AdvancedSearchPanel adv={advFilters} set={setAdvFilters} />
-      )}
-
-      <form className={styles.searchForm} onSubmit={handleSearch}>
-        <div className={styles.searchWrap}>
-          <input className={styles.searchInput}
-            id="card-search-query"
-            name="query"
-            placeholder="Card name or search query…"
-            value={query} onChange={handleInput}
-            onFocus={() => suggestions.length && setShowSuggs(true)}
-            onBlur={() => setTimeout(() => setShowSuggs(false), 160)}
-            autoComplete="off"
-          />
-          {showSuggs && (
-            <ul className={styles.suggList}>
-              {suggestions.map(c => (
-                <li key={c.id} className={styles.suggItem} onMouseDown={() => pickSuggestion(c)}>
-                  <img
-                    src={getCardImage(c, 'small')}
-                    alt=""
-                    className={styles.suggThumb}
-                  />
-                  <span className={styles.suggName}>{c.name}</span>
-                  <span className={styles.suggSet}>{c.set_name}</span>
-                </li>
-              ))}
-            </ul>
+      <div className={styles.lookupFilterWrap}>
+        <FilterBar
+          mode="lookup"
+          search={query}
+          setSearch={value => handleInput({ target: { value } })}
+          sort={sort}
+          setSort={setSort}
+          filters={filters}
+          setFilters={setFilters}
+          sets={lookupSets}
+          onSearchSubmit={handleSearch}
+          extra={(
+            <button className={styles.searchBtn} type="button"
+              onClick={handleSearch}
+              disabled={loading || (!query.trim() && !hasLookupFilters(filters))}>
+              {loading ? '...' : 'Search'}
+            </button>
           )}
-        </div>
-        <button className={styles.searchBtn} type="submit"
-          disabled={loading || (!query.trim() && !hasAdvFilters(advFilters))}>
-          {loading ? '…' : 'Search'}
-        </button>
-      </form>
+        />
+        {showSuggs && (
+          <ul className={styles.suggList}>
+            {suggestions.map(c => (
+              <li key={c.id} className={styles.suggItem} onMouseDown={() => pickSuggestion(c)}>
+                <img
+                  src={getCardImage(c, 'small')}
+                  alt=""
+                  className={styles.suggThumb}
+                />
+                <span className={styles.suggName}>{c.name}</span>
+                <span className={styles.suggSet}>{c.set_name}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
       {loading && <div className={styles.loadingMsg}>Searching Scryfall…</div>}
       {!loading && mode === 'card' && card && (
         <CardView card={card} onClose={() => { setCard(null); setMode('idle') }} />

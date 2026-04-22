@@ -1693,27 +1693,29 @@ export const EMPTY_FILTERS = {
   location: 'all',
 }
 
-function countActive(f) {
+const LOOKUP_HIDDEN_FILTERS = new Set(['conditions', 'languages', 'quantity', 'location', 'folderName', 'specials', 'price'])
+
+function countActive(f, hiddenFilters = new Set()) {
   return [
-    f.foil !== 'all' ? 1 : 0,
+    !hiddenFilters.has('foil') && f.foil !== 'all' ? 1 : 0,
     f.colors.length,
     f.rarity.length,
     (Array.isArray(f.typeLine) ? f.typeLine.length : (f.typeLine ? 1 : 0)),
     f.oracleText ? 1 : 0,
     f.artist     ? 1 : 0,
-    f.folderName ? 1 : 0,
-    f.conditions.length,
-    f.languages.length,
+    !hiddenFilters.has('folderName') && f.folderName ? 1 : 0,
+    !hiddenFilters.has('conditions') ? f.conditions.length : 0,
+    !hiddenFilters.has('languages') ? f.languages.length : 0,
     f.sets.length,
     f.formats.length,
     f.cmcOp !== 'any' ? 1 : 0,
     f.powerOp !== 'any' ? 1 : 0,
     f.toughOp !== 'any' ? 1 : 0,
-    (f.priceMin || f.priceMax) ? 1 : 0,
+    !hiddenFilters.has('price') && (f.priceMin || f.priceMax) ? 1 : 0,
     (f.colorCountMin > 0 || f.colorCountMax < 5) ? 1 : 0,
-    f.quantity !== 'any' ? 1 : 0,
-    f.specials.length,
-    f.location !== 'all' ? 1 : 0,
+    !hiddenFilters.has('quantity') && f.quantity !== 'any' ? 1 : 0,
+    !hiddenFilters.has('specials') ? f.specials.length : 0,
+    !hiddenFilters.has('location') && f.location !== 'all' ? 1 : 0,
   ].reduce((a, b) => a + b, 0)
 }
 
@@ -1732,7 +1734,8 @@ function Chip({ active, onClick, children, style }) {
   )
 }
 
-function FilterSection({ label, children, fullWidth }) {
+function FilterSection({ label, children, fullWidth, hidden = false }) {
+  if (hidden) return null
   return (
     <div className={styles.fsection} style={fullWidth ? { gridColumn: '1 / -1' } : {}}>
       <div className={styles.fsectionLabel}>{label}</div>
@@ -1984,9 +1987,12 @@ export function FilterBar({
   filters, setFilters,
   extra, selectMode, onToggleSelectMode,
   sets = [], languages = [],
+  mode = 'collection',
+  onSearchSubmit,
 }) {
   const [open, setOpen] = useState(false)
-  const activeCount = countActive(filters)
+  const hiddenFilters = mode === 'lookup' ? LOOKUP_HIDDEN_FILTERS : new Set()
+  const activeCount = countActive(filters, hiddenFilters)
   const set = (key, val) => setFilters(f => ({ ...f, [key]: val }))
   const clear = () => setFilters({ ...EMPTY_FILTERS })
   const sortOptions = [
@@ -2002,7 +2008,9 @@ export function FilterBar({
     ['rarity', 'Rarity'],
     ['added', 'Recently Added'],
   ]
-  const currentSortLabel = sortOptions.find(([v]) => v === sort)?.[1] || 'Sort'
+  const lookupSortOptions = sortOptions.filter(([v]) => !['pl_desc', 'pl_asc', 'qty', 'added'].includes(v))
+  const visibleSortOptions = mode === 'lookup' ? lookupSortOptions : sortOptions
+  const currentSortLabel = visibleSortOptions.find(([v]) => v === sort)?.[1] || 'Sort'
   const Chevron = ({ open = false }) => (
     <svg
       className={`${styles.filterChevron}${open ? ` ${styles.filterChevronOpen}` : ''}`}
@@ -2025,19 +2033,25 @@ export function FilterBar({
       <div className={styles.filterBar}>
         <input className={styles.searchInput} placeholder="Search cards, sets…"
           name="card-search"
-          value={search} onChange={e => setSearch(e.target.value)} />
+          value={search} onChange={e => setSearch(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              onSearchSubmit?.()
+            }
+          }} />
         <select className={styles.filterSelect} name="card-sort" value={sort} onChange={e => setSort(e.target.value)}>
           <option value="name">Name A→Z</option>
           <option value="price_desc">Price ↓</option>
           <option value="price_asc">Price ↑</option>
-          <option value="pl_desc">P&L ↓</option>
-          <option value="pl_asc">P&L ↑</option>
+          {mode !== 'lookup' && <option value="pl_desc">P&L ↓</option>}
+          {mode !== 'lookup' && <option value="pl_asc">P&L ↑</option>}
           <option value="cmc_asc">Mana Value ↑</option>
           <option value="cmc_desc">Mana Value ↓</option>
-          <option value="qty">Quantity</option>
+          {mode !== 'lookup' && <option value="qty">Quantity</option>}
           <option value="set">Set</option>
           <option value="rarity">Rarity</option>
-          <option value="added">Recently Added</option>
+          {mode !== 'lookup' && <option value="added">Recently Added</option>}
         </select>
         <ResponsiveMenu
           title="Sort Cards"
@@ -2052,7 +2066,7 @@ export function FilterBar({
         >
           {({ close }) => (
             <div className={uiStyles.responsiveMenuList}>
-              {sortOptions.map(([value, label]) => (
+              {visibleSortOptions.map(([value, label]) => (
                 <button
                   key={value}
                   className={`${uiStyles.responsiveMenuAction} ${sort === value ? uiStyles.responsiveMenuActionActive : ''}`}
@@ -2093,7 +2107,7 @@ export function FilterBar({
             </FilterSection>
 
             {/* Condition */}
-            <FilterSection label="Condition">
+            <FilterSection label="Condition" hidden={hiddenFilters.has('conditions')}>
               <div className={styles.chips}>
                 {CONDITIONS.map(c => (
                   <Chip key={c.id} active={filters.conditions.includes(c.id)}
@@ -2203,7 +2217,7 @@ export function FilterBar({
             </FilterSection>
 
             {/* Price */}
-            <FilterSection label="Price">
+            <FilterSection label="Price" hidden={hiddenFilters.has('price')}>
               <div className={styles.rangeRow}>
                 <span className={styles.rangeLabel}>Min</span>
                 <input className={styles.rangeInput} type="number" min="0" step="0.01"
@@ -2239,7 +2253,7 @@ export function FilterBar({
             </FilterSection>
 
             {/* Language */}
-            {languages.length > 1 && (
+            {!hiddenFilters.has('languages') && languages.length > 1 && (
               <FilterSection label="Language">
                 <div className={styles.chips}>
                   {languages.map(l => (
@@ -2253,7 +2267,7 @@ export function FilterBar({
             )}
 
             {/* Quantity */}
-            <FilterSection label="Quantity">
+            <FilterSection label="Quantity" hidden={hiddenFilters.has('quantity')}>
               <div className={styles.chips}>
                 {[['any','Any'],['dupes','Duplicates (qty > 1)'],['single','Singles (qty = 1)']].map(([v,l]) => (
                   <Chip key={v} active={filters.quantity === v} onClick={() => set('quantity', v)}>{l}</Chip>
@@ -2262,7 +2276,7 @@ export function FilterBar({
             </FilterSection>
 
             {/* Location */}
-            <FilterSection label="Location">
+            <FilterSection label="Location" hidden={hiddenFilters.has('location')}>
               <div className={styles.chips}>
                 {[['all','Any'],['binder','In a binder'],['deck','In a deck']].map(([v,l]) => (
                   <Chip key={v} active={filters.location === v} onClick={() => set('location', v)}>{l}</Chip>
@@ -2276,7 +2290,7 @@ export function FilterBar({
             </FilterSection>
 
             {/* Special */}
-            <FilterSection label="Special">
+            <FilterSection label="Special" hidden={hiddenFilters.has('specials')}>
               <div className={styles.chips}>
                 {SPECIAL_OPTS.map(s => (
                   <Chip key={s.id} active={filters.specials.includes(s.id)}
