@@ -227,9 +227,9 @@ These only exist during `npm run dev`. Production deploy on GitHub Pages cannot 
 | `src/lib/scryfall.js` | Scryfall metadata and image cache plus batch lookup helpers |
 | `src/lib/sharedCardPrices.js` | Applies shared Supabase daily prices onto cached Scryfall card data |
 | `src/lib/filterWorker.js` | Web worker for filtering and sorting |
-| `src/scanner/DatabaseService.js` | pHash DB: SQLite native plus Supabase fallback on web, LSH band index, IDB pre-parsed cache |
-| `src/scanner/ScannerEngine.js` | OpenCV.js card detection, perspective warp, art crop, reticle crop, 180-degree rotation, pHash |
-| `src/scanner/hashCore.js` | Pure JS pHash core with precomputed DCT cosine table, CLAHE, percentileCap, Hamming distance |
+| `src/scanner/DatabaseService.js` | pHash DB: SQLite native plus Supabase fallback on web, LSH band index, IDB pre-parsed cache, hash match worker |
+| `src/scanner/ScannerEngine.js` | OpenCV.js card detection, perspective warp, art crop, reticle crop, 180-degree rotation, pHash wrappers |
+| `src/scanner/hashCore.js` | Pure JS pHash core with precomputed DCT cosine table, CLAHE, percentileCap, mean-threshold hash, benchmark-only median variant, Hamming distance |
 | `src/scanner/constants.js` | Shared card and art dimensions |
 | `src/scanner/CardScanner.jsx` | Full-screen scanner UI |
 | `src/pages/Scanner.jsx` | Route wrapper for `CardScanner` at `/scanner` |
@@ -340,6 +340,8 @@ captureFrame()
 
 detectCardCorners()
   -> 3-pass corner detection
+  -> hybrid quad scoring prefers larger centered portrait card-shaped quads
+  -> sideways/landscape quads are rejected
 
 warpCard()
   -> 500x700 ImageData
@@ -355,11 +357,23 @@ databaseService.findBestTwoWithStats(hash)
 stability voting
 ```
 
-Reticle fallback: when no corners found, `cropCardFromReticle(srcCanvas, w, h, vw, vh)` crops from camera canvas directly. Pass `srcCanvas` to skip expensive `putImageData` copy.
+Reticle fallback: when no corners found during manual scan, `cropCardFromReticle(srcCanvas, w, h, vw, vh)` crops from camera canvas directly. Pass `srcCanvas` to skip expensive `putImageData` copy. Auto-scan keeps reticle fallback disabled to avoid incidental-object false positives.
 
 180-degree rotation fallback: after each warp or reticle pass, if no decisive match, run `rotateCard180(warpedCard)`.
 
 Foil fallback: if standard hash distance exceeds `MATCH_THRESHOLD`, `computePHash256Foil(artCrop)` re-hashes with stronger glare suppression. Stored DB hashes do not change.
+
+Runtime hash matching runs through `src/scanner/hashMatchWorker.js` when available, with a synchronous fallback in `DatabaseService.js`.
+
+Auto-scan details:
+- `scanningRef` is the scan concurrency lock. Do not rely only on React `scanning` state for mutual exclusion.
+- Stability voting stores gap/source/variant metadata per voted card bucket; acceptance must use metadata from the accepted bucket.
+- Duplicate suppression resets only after repeated no-match/card-left frames, not after a single miss.
+- Recent corner quads may be cached briefly during auto-scan to reduce repeated contour detection.
+
+Scanner debug/benchmark tools:
+- `scanner-test-cases.md` holds the manual scanner validation checklist.
+- `npm run benchmark:scanner-hash -- <image-path-or-url> [...]` compares current mean-threshold pHash against a benchmark-only median-threshold variant. This does not change runtime scanner behavior.
 
 Hash algorithm must match seed script exactly:
 1. `GaussianBlur` sigma `1.0` on art crop
@@ -368,7 +382,9 @@ Hash algorithm must match seed script exactly:
 4. `percentileCap(0.98)`
 5. `CLAHE(tileGrid=4x4, clipLimit=40)`
 6. 2D DCT via `dct2d()` with precomputed cosine and norm tables
-7. Top-left `16x16` DCT coefficients, median threshold, 256-bit hash
+7. Top-left `16x16` DCT coefficients, mean threshold excluding DC, 256-bit hash
+
+`computeHashFromGrayMedian()` exists only for Scanner V6 benchmarking. Do not switch runtime hashing from mean to median without bumping cache/hash versions and reseeding `card_hashes`.
 
 If any step changes, truncate `card_hashes` and re-seed.
 

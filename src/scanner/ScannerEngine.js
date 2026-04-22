@@ -10,7 +10,7 @@ import {
   ART_X as SHARED_ART_X,
   ART_Y as SHARED_ART_Y,
 } from './constants'
-import { computeHashFromGray, computeHashFromGrayGlare, computeHashFromGrayDark, rgbToGray32x32, rgbToSaturation32x32, hashToHex as _hashToHex } from './hashCore'
+import { computeHashFromGray, computeHashFromGrayGlare, computeHashFromGrayDark, rgbToGray32x32, rgbToSaturation32x32 } from './hashCore'
 
 // ── Reusable scratch canvases (avoids per-frame createElement overhead) ───────
 let _cardCanvas = null, _cardCtx = null
@@ -46,9 +46,9 @@ function getSrcCanvas(w, h) {
 }
 
 export function isOpenCVReady() {
-  return typeof window !== 'undefined' &&
-         typeof window.cv !== 'undefined' &&
-         typeof window.cv.Mat !== 'undefined'
+  return typeof globalThis !== 'undefined' &&
+         typeof globalThis.cv !== 'undefined' &&
+         typeof globalThis.cv.Mat !== 'undefined'
 }
 
 export function waitForOpenCV(timeoutMs = 20000) {
@@ -110,22 +110,38 @@ function quadMetrics(pts) {
   const extent = polyArea / Math.max(1, boundsW * boundsH)
   const edgeBalance = Math.min(topW, botW) / Math.max(1, Math.max(topW, botW))
   const sideBalance = Math.min(leftH, rightH) / Math.max(1, Math.max(leftH, rightH))
-  return { ordered, ratio, polyArea, extent, edgeBalance, sideBalance }
+  const cx = ordered.reduce((sum, p) => sum + p.x, 0) / 4
+  const cy = ordered.reduce((sum, p) => sum + p.y, 0) / 4
+  return { ordered, ratio, polyArea, extent, edgeBalance, sideBalance, avgW, avgH, cx, cy }
 }
 
-function scoreQuadCandidate(pts, minArea) {
+function scoreQuadCandidate(pts, minArea, frameWidth, frameHeight) {
   if (!pts || pts.length !== 4) return null
   const metrics = quadMetrics(pts)
   if (!Number.isFinite(metrics.ratio) || metrics.polyArea < minArea) return null
+  if (metrics.avgH < metrics.avgW * 1.08) return null
   if (metrics.ratio < 0.55 || metrics.ratio > 0.84) return null
   if (metrics.extent < 0.58) return null
 
   const ratioScore = 1 - Math.min(1, Math.abs(metrics.ratio - 0.716) / 0.12)
-  const areaScore = Math.min(1, metrics.polyArea / (minArea * 4))
   const shapeScore = (metrics.extent + metrics.edgeBalance + metrics.sideBalance) / 3
-  const score = areaScore * 0.45 + ratioScore * 0.35 + shapeScore * 0.2
+  const frameArea = Math.max(1, frameWidth * frameHeight)
+  const areaRatio = metrics.polyArea / frameArea
+  const centerDx = (metrics.cx - frameWidth / 2) / Math.max(1, frameWidth / 2)
+  const centerDy = (metrics.cy - frameHeight / 2) / Math.max(1, frameHeight / 2)
+  const centerDistance = Math.hypot(centerDx, centerDy) / Math.SQRT2
+  const centerScore = 1 - Math.min(1, centerDistance)
+  const baseScore = ratioScore * 0.48 + shapeScore * 0.34 + centerScore * 0.18
 
-  return { pts: metrics.ordered, score, area: metrics.polyArea }
+  return {
+    pts: metrics.ordered,
+    score: baseScore,
+    area: metrics.polyArea,
+    areaRatio,
+    ratioScore,
+    shapeScore,
+    centerScore,
+  }
 }
 
 function approxToPoints(approx) {
@@ -188,7 +204,7 @@ function findBestQuad(cv, gray, width, height, cannyLo = -1, cannyHi = -1, blurS
     cv.findContours(dilated, contours, hier, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
 
     const minArea = width * height * 0.05
-    let bestCandidate = null
+    const candidates = []
 
     for (let i = 0; i < contours.size(); i++) {
       const cnt = contours.get(i)
@@ -204,7 +220,7 @@ function findBestQuad(cv, gray, width, height, cannyLo = -1, cannyHi = -1, blurS
         const pts = approxToPoints(approx)
         approx.delete()
         if (!pts) continue
-        const scored = scoreQuadCandidate(pts, minArea)
+        const scored = scoreQuadCandidate(pts, minArea, width, height)
         if (scored && (!candidate || scored.score > candidate.score)) {
           candidate = scored
         }
@@ -212,11 +228,30 @@ function findBestQuad(cv, gray, width, height, cannyLo = -1, cannyHi = -1, blurS
 
       if (!candidate) {
         const rectPts = minAreaRectPoints(cv, cnt)
-        const scored = scoreQuadCandidate(rectPts, minArea)
+        const scored = scoreQuadCandidate(rectPts, minArea, width, height)
         if (scored) candidate = scored
       }
 
-      if (candidate && (!bestCandidate || candidate.score > bestCandidate.score)) {
+      if (candidate) candidates.push(candidate)
+    }
+
+    if (!candidates.length) return null
+    const largestArea = Math.max(...candidates.map(c => c.area))
+    let bestCandidate = null
+    for (const candidate of candidates) {
+      // Full-art and borderless cards often expose strong inner rectangular
+      // contours. Prefer larger, centered card-shaped quads after the basic
+      // shape checks so inner artwork boxes do not beat the physical card edge.
+      const relativeAreaScore = largestArea > 0 ? candidate.area / largestArea : 0
+      const frameAreaScore = Math.min(1, Math.sqrt(candidate.areaRatio / 0.32))
+      const finalScore =
+        relativeAreaScore * 0.38 +
+        frameAreaScore * 0.12 +
+        candidate.ratioScore * 0.22 +
+        candidate.shapeScore * 0.18 +
+        candidate.centerScore * 0.10
+      candidate.score = finalScore
+      if (!bestCandidate || candidate.score > bestCandidate.score) {
         bestCandidate = candidate
       }
     }
@@ -236,7 +271,7 @@ function findBestQuad(cv, gray, width, height, cannyLo = -1, cannyHi = -1, blurS
 // caller must scale back to full-frame coords.
 export function detectCardCorners(imageData, width, height) {
   if (!isOpenCVReady()) return null
-  const cv = window.cv
+  const cv = globalThis.cv
   const src = cv.matFromImageData(imageData)
   const gray = new cv.Mat()
 
@@ -299,7 +334,7 @@ export function cropCardFromReticle(
 
   // Use canvas directly (GPU drawImage) when available; fall back to putImageData for ImageData input.
   let drawSource
-  if (source instanceof HTMLCanvasElement) {
+  if (typeof HTMLCanvasElement !== 'undefined' && source instanceof HTMLCanvasElement) {
     drawSource = source
   } else {
     const { canvas: srcCanvas, ctx: srcCtx } = getSrcCanvas(frameWidth, frameHeight)
@@ -315,7 +350,7 @@ export function cropCardFromReticle(
 
 export function warpCard(imageData, corners) {
   if (!isOpenCVReady() || !corners || corners.length !== 4) return null
-  const cv = window.cv
+  const cv = globalThis.cv
   const src = cv.matFromImageData(imageData)
   const dst = new cv.Mat()
 
@@ -335,9 +370,7 @@ export function warpCard(imageData, corners) {
     dstPts.delete()
     M.delete()
 
-    const { canvas, ctx } = getCardCanvas()
-    cv.imshow(canvas, dst)
-    return ctx.getImageData(0, 0, CARD_W, CARD_H)
+    return new ImageData(new Uint8ClampedArray(dst.data), CARD_W, CARD_H)
   } finally {
     src.delete()
     dst.delete()
@@ -346,7 +379,7 @@ export function warpCard(imageData, corners) {
 
 export function cropArtRegion(cardImageData, { xOffset = 0, yOffset = 0, inset = 0 } = {}) {
   if (!isOpenCVReady()) return null
-  const cv = window.cv
+  const cv = globalThis.cv
   const src = cv.matFromImageData(cardImageData)
   const width = Math.max(40, Math.min(CARD_W, SHARED_ART_W - inset * 2))
   const height = Math.max(40, Math.min(CARD_H, SHARED_ART_H - inset * 2))
@@ -358,10 +391,9 @@ export function cropArtRegion(cardImageData, { xOffset = 0, yOffset = 0, inset =
   try {
     const rect = new cv.Rect(x, y, width, height)
     const roi = src.roi(rect)
-    const { canvas, ctx } = getArtCanvas()
-    cv.imshow(canvas, roi)
+    const out = new ImageData(new Uint8ClampedArray(roi.data), width, height)
     roi.delete()
-    return ctx.getImageData(0, 0, SHARED_ART_W, SHARED_ART_H)
+    return out
   } finally {
     src.delete()
   }
@@ -394,7 +426,7 @@ export function rotateCard180(imageData) {
  */
 function resizeArtTo32(artImageData) {
   if (!isOpenCVReady()) throw new Error('OpenCV not ready')
-  const cv = window.cv
+  const cv = globalThis.cv
   const src = cv.matFromImageData(artImageData)
   if (!src || src.empty()) throw new Error('matFromImageData failed')
   const blurred = new cv.Mat()
@@ -419,40 +451,6 @@ export function computePHash256(artImageData) {
 }
 
 /**
- * Variant of computePHash256 with aggressive glare suppression (percentileCap 0.92).
- * Used as a client-side fallback when the standard hash scores poorly on a given frame,
- * typically caused by foil specular reflections. Does not affect stored DB hashes.
- */
-export function computePHash256Foil(artImageData) {
-  const rgba = resizeArtTo32(artImageData)
-  return computeHashFromGrayGlare(rgbToGray32x32(rgba, 4))
-}
-
-/**
- * Variant of computePHash256 for dark art. Stretches the low dynamic range before hashing.
- * Returns null when the art crop isn't dark (mean brightness ≥ 80) — caller skips in that case.
- * Does not affect stored DB hashes — client-side fallback only.
- */
-export function computePHash256Dark(artImageData) {
-  const rgba = resizeArtTo32(artImageData)
-  const gray = rgbToGray32x32(rgba, 4)
-  const mean = gray.reduce((s, v) => s + v, 0) / gray.length
-  if (mean >= 80) return null  // not dark art — skip this fallback
-  return computeHashFromGrayDark(gray)
-}
-
-/**
- * Compute a 256-bit perceptual hash of the HSV saturation channel of the art crop.
- * Captures color identity independently of luminance — helps distinguish cards with
- * similar art composition but different color palettes (e.g. land reprints).
- * Stored as phash_hex2 in the DB; used client-side for combined-distance re-ranking.
- */
-export function computePHash256Color(artImageData) {
-  const rgba = resizeArtTo32(artImageData)
-  return computeHashFromGray(rgbToSaturation32x32(rgba, 4))
-}
-
-/**
  * Compute all four hash variants from a single art crop in one OpenCV pass.
  * Returns { hash, foilHash, darkHash, colorHash } — caller uses whichever are non-null.
  * Saves 3× blur+resize vs calling each function individually.
@@ -469,6 +467,3 @@ export function computeAllHashes(artImageData) {
   }
 }
 
-export function hashToHex(hash) {
-  return _hashToHex(hash)
-}
