@@ -315,6 +315,69 @@
   overflow: visible;
 }
 
+.frameReticle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 280px;
+  height: 392px;
+  transform: translate(-50%, -52%);
+  pointer-events: none;
+  opacity: 0.92;
+}
+
+.frameReticle::before,
+.frameReticle::after {
+  content: "";
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  border-top: 1px solid rgba(201,168,76,0.18);
+}
+
+.frameReticle::before { top: 50%; }
+.frameReticle::after { top: calc(50% + 1px); }
+
+.reticleCorner {
+  position: absolute;
+  width: 38px;
+  height: 38px;
+  border-color: rgba(201,168,76,0.76);
+  filter: drop-shadow(0 0 8px rgba(201,168,76,0.28));
+}
+
+.reticleCornerTl {
+  top: 0;
+  left: 0;
+  border-top: 2px solid;
+  border-left: 2px solid;
+  border-top-left-radius: 10px;
+}
+
+.reticleCornerTr {
+  top: 0;
+  right: 0;
+  border-top: 2px solid;
+  border-right: 2px solid;
+  border-top-right-radius: 10px;
+}
+
+.reticleCornerBr {
+  right: 0;
+  bottom: 0;
+  border-right: 2px solid;
+  border-bottom: 2px solid;
+  border-bottom-right-radius: 10px;
+}
+
+.reticleCornerBl {
+  bottom: 0;
+  left: 0;
+  border-bottom: 2px solid;
+  border-left: 2px solid;
+  border-bottom-left-radius: 10px;
+}
+
 .trackingPoly {
   fill: none;
   stroke: rgba(201,168,76,0.82);
@@ -330,7 +393,7 @@
 
 /* Corner bracket accents — sit on top of the polygon frame */
 .trackingCornerGroup {
-  transition: transform 0.08s ease-out;
+  transition: transform 0.14s cubic-bezier(.18,.8,.22,1);
   animation: cornerAppear 0.2s ease-out both;
 }
 .trackingCorner {
@@ -377,6 +440,7 @@
 
 /* Small portrait phones — tighten control menu */
 @media (max-height: 850px) and (max-width: 430px) {
+  .frameReticle,
   .frameCenterContent {
     width: 240px;
     height: 336px;
@@ -2138,9 +2202,10 @@
   .scannerOverlay,
   .scannerOverlayClosing,
   .topBar,
+  .frameReticle,
   .trackingCorner,
   .trackingCornerGroup,
-  .scanPulse,
+  .scanIdleRing,
   .spinner,
   .bottomBar,
   .saveNotice,

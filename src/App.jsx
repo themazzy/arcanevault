@@ -1,32 +1,34 @@
+import { Suspense, lazy } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth, LoginPage } from './components/Auth'
 import { SettingsProvider } from './components/SettingsContext'
 import { SetupWizardProvider } from './components/SetupWizard'
 import Layout from './components/Layout'
-import HomePage from './pages/Home'
-import CollectionPage from './pages/Collection'
-import FoldersPage from './pages/Folders'
-import ListsPage from './pages/Lists'
-import StatsPage from './pages/Stats'
-import SharePage from './pages/Share'
-import JoinGamePage from './pages/JoinGame'
-import JoinTournamentPage from './pages/JoinTournament'
-import SettingsPage from './pages/Settings'
-import HelpPage from './pages/Help'
-import AdminPage from './pages/Admin'
-import LegalPage from './pages/Legal'
-import PrivacyPage from './pages/Privacy'
-import StorageNoticePage from './pages/StorageNotice'
-import CreditsPage from './pages/Credits'
-import DeleteAccountPage from './pages/DeleteAccount'
-import LifeTrackerPage from './pages/LifeTracker'
-import BuilderPage from './pages/Builder'
-import DeckBuilderPage from './pages/DeckBuilder'
-import DeckViewPage from './pages/DeckView'
-import TradingPage from './pages/Trading'
-import TournamentsPage from './pages/Tournaments'
-import ScannerPage from './pages/Scanner'
-import PokemonCollectionPage from './pages/PokemonCollection'
+
+const HomePage = lazy(() => import('./pages/Home'))
+const CollectionPage = lazy(() => import('./pages/Collection'))
+const FoldersPage = lazy(() => import('./pages/Folders'))
+const ListsPage = lazy(() => import('./pages/Lists'))
+const StatsPage = lazy(() => import('./pages/Stats'))
+const SharePage = lazy(() => import('./pages/Share'))
+const JoinGamePage = lazy(() => import('./pages/JoinGame'))
+const JoinTournamentPage = lazy(() => import('./pages/JoinTournament'))
+const SettingsPage = lazy(() => import('./pages/Settings'))
+const HelpPage = lazy(() => import('./pages/Help'))
+const AdminPage = lazy(() => import('./pages/Admin'))
+const LegalPage = lazy(() => import('./pages/Legal'))
+const PrivacyPage = lazy(() => import('./pages/Privacy'))
+const StorageNoticePage = lazy(() => import('./pages/StorageNotice'))
+const CreditsPage = lazy(() => import('./pages/Credits'))
+const DeleteAccountPage = lazy(() => import('./pages/DeleteAccount'))
+const LifeTrackerPage = lazy(() => import('./pages/LifeTracker'))
+const BuilderPage = lazy(() => import('./pages/Builder'))
+const DeckBuilderPage = lazy(() => import('./pages/DeckBuilder'))
+const DeckViewPage = lazy(() => import('./pages/DeckView'))
+const TradingPage = lazy(() => import('./pages/Trading'))
+const TournamentsPage = lazy(() => import('./pages/Tournaments'))
+const ScannerPage = lazy(() => import('./pages/Scanner'))
+const PokemonCollectionPage = lazy(() => import('./pages/PokemonCollection'))
 
 function PrivateApp() {
   const { user, authEvent } = useAuth()
@@ -36,25 +38,27 @@ function PrivateApp() {
     <SettingsProvider>
       <SetupWizardProvider>
       <Layout>
-        <Routes>
-          <Route path="/"            element={<HomePage />} />
-          <Route path="/collection"  element={<CollectionPage />} />
-          <Route path="/decks"       element={<FoldersPage key="decks"   type="deck" />} />
-          <Route path="/binders"     element={<FoldersPage key="binders" type="binder" />} />
-          <Route path="/lists"       element={<ListsPage />} />
-          <Route path="/trading"     element={<TradingPage />} />
-          <Route path="/stats"       element={<StatsPage />} />
-          <Route path="/life"        element={<LifeTrackerPage />} />
-          <Route path="/tournaments" element={<TournamentsPage />} />
-          <Route path="/pokemon"     element={<PokemonCollectionPage />} />
-          <Route path="/settings"    element={<SettingsPage />} />
-          <Route path="/help"        element={<HelpPage />} />
-          <Route path="/admin"       element={<AdminPage />} />
-          <Route path="/builder"     element={<BuilderPage />} />
-          <Route path="/builder/:id" element={<DeckBuilderPage />} />
-          <Route path="/scanner"     element={<ScannerPage />} />
-          <Route path="*"            element={<Navigate to="/" />} />
-        </Routes>
+        <Suspense fallback={null}>
+          <Routes>
+            <Route path="/"            element={<HomePage />} />
+            <Route path="/collection"  element={<CollectionPage />} />
+            <Route path="/decks"       element={<FoldersPage key="decks"   type="deck" />} />
+            <Route path="/binders"     element={<FoldersPage key="binders" type="binder" />} />
+            <Route path="/lists"       element={<ListsPage />} />
+            <Route path="/trading"     element={<TradingPage />} />
+            <Route path="/stats"       element={<StatsPage />} />
+            <Route path="/life"        element={<LifeTrackerPage />} />
+            <Route path="/tournaments" element={<TournamentsPage />} />
+            <Route path="/pokemon"     element={<PokemonCollectionPage />} />
+            <Route path="/settings"    element={<SettingsPage />} />
+            <Route path="/help"        element={<HelpPage />} />
+            <Route path="/admin"       element={<AdminPage />} />
+            <Route path="/builder"     element={<BuilderPage />} />
+            <Route path="/builder/:id" element={<DeckBuilderPage />} />
+            <Route path="/scanner"     element={<ScannerPage />} />
+            <Route path="*"            element={<Navigate to="/" />} />
+          </Routes>
+        </Suspense>
       </Layout>
       </SetupWizardProvider>
     </SettingsProvider>
@@ -68,18 +72,20 @@ export default function App() {
       future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
     >
       <AuthProvider>
-        <Routes>
-          <Route path="/legal" element={<LegalPage />} />
-          <Route path="/privacy" element={<PrivacyPage />} />
-          <Route path="/storage" element={<StorageNoticePage />} />
-          <Route path="/credits" element={<CreditsPage />} />
-          <Route path="/delete-account" element={<DeleteAccountPage />} />
-          <Route path="/share/:token" element={<SharePage />} />
-          <Route path="/d/:id" element={<DeckViewPage />} />
-          <Route path="/join/:code" element={<JoinGamePage />} />
-          <Route path="/join-tournament/:code" element={<JoinTournamentPage />} />
-          <Route path="/*" element={<PrivateApp />} />
-        </Routes>
+        <Suspense fallback={null}>
+          <Routes>
+            <Route path="/legal" element={<LegalPage />} />
+            <Route path="/privacy" element={<PrivacyPage />} />
+            <Route path="/storage" element={<StorageNoticePage />} />
+            <Route path="/credits" element={<CreditsPage />} />
+            <Route path="/delete-account" element={<DeleteAccountPage />} />
+            <Route path="/share/:token" element={<SharePage />} />
+            <Route path="/d/:id" element={<DeckViewPage />} />
+            <Route path="/join/:code" element={<JoinGamePage />} />
+            <Route path="/join-tournament/:code" element={<JoinTournamentPage />} />
+            <Route path="/*" element={<PrivateApp />} />
+          </Routes>
+        </Suspense>
       </AuthProvider>
     </BrowserRouter>
   )
