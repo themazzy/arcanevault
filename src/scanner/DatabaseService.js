@@ -34,6 +34,7 @@ const NATIVE_CHUNK     = 5000
 const BAND_MASK        = 0x3F  // 6-bit bands
 const WEB_PAGE_RETRY_ATTEMPTS = 3
 const WEB_PAGE_RETRY_BASE_MS  = 250
+const NATIVE_SQLITE_STARTUP_TIMEOUT_MS = 3000
 // Bump to invalidate IDB cache when stored hash schema changes (e.g. new columns).
 // v3: added .order('scryfall_id') to paginated fetches for consistent pagination.
 // v4: CLAHE 4×4 tile grid + BT.601 grayscale — all hashes reseeded.
@@ -174,7 +175,12 @@ class DatabaseService {
           phase: 'preparing native storage',
           source: 'native',
         })
-        await this._initSQLite()
+        const loadedNativeMirror = await this._loadCompleteNativeMirror()
+        if (loadedNativeMirror) {
+          this._initialized = true
+          return this
+        }
+        await this._initSQLiteForStartup()
       }
       await this._loadCache()
       this._initialized = true
@@ -198,11 +204,11 @@ class DatabaseService {
     })
     this._sqlite = new SQLiteConnection(CapacitorSQLite)
     const isConn = (await this._sqlite.isConnection(DB_NAME, false)).result
-    this._db = isConn
+    const db = isConn
       ? await this._sqlite.retrieveConnection(DB_NAME, false)
       : await this._sqlite.createConnection(DB_NAME, false, 'no-encryption', 1, false)
-    await this._db.open()
-    await this._db.execute(`
+    await db.open()
+    await db.execute(`
       CREATE TABLE IF NOT EXISTS card_hashes (
         scryfall_id      TEXT PRIMARY KEY,
         name             TEXT NOT NULL,
@@ -218,10 +224,37 @@ class DatabaseService {
         WHERE phash_hex IS NOT NULL;
     `)
     // Migration: add phash_hex2 to existing SQLite DBs that predate this column.
-    await this._db.execute(`ALTER TABLE card_hashes ADD COLUMN phash_hex2 TEXT`).catch(() => {})
+    await db.execute(`ALTER TABLE card_hashes ADD COLUMN phash_hex2 TEXT`).catch(() => {})
+    this._db = db
   }
 
   // ── Sync from Supabase ─────────────────────────────────────────────────────
+
+  async _initSQLiteForStartup() {
+    if (this._db) return true
+    const openPromise = this._initSQLite()
+      .then(() => true)
+      .catch(error => {
+        console.warn('[DatabaseService] native SQLite startup failed:', error?.message ?? error)
+        this._db = null
+        return false
+      })
+
+    const opened = await Promise.race([
+      openPromise,
+      sleep(NATIVE_SQLITE_STARTUP_TIMEOUT_MS).then(() => false),
+    ])
+
+    if (!opened) {
+      this._emitProgress({
+        loadedCount: 0,
+        totalCount: 0,
+        phase: 'connecting',
+        source: 'idb',
+      })
+    }
+    return opened
+  }
 
   async sync(onProgress) {
     if (this._syncing) return
@@ -373,6 +406,51 @@ class DatabaseService {
   }
 
   // ── Native path: IDB pre-parsed cache → chunked SQLite fallback ────────────
+
+  async _loadCompleteNativeMirror() {
+    this._hashes = []
+    this._bandIndex = BAND_SPECS.map(() => new Map())
+    this._resetMatchWorkerData()
+    this._fullyLoaded = false
+    this._mirrorWritePromise = Promise.resolve()
+
+    this._emitProgress({
+      loadedCount: 0,
+      totalCount: 0,
+      phase: 'checking cache',
+      source: 'native',
+    })
+
+    const sqliteCount = Number(await getMeta('scanner_sqlite_count').catch(() => 0)) || 0
+    if (sqliteCount <= 0) return false
+
+    const cachedCount = Number(await getScannerHashCount().catch(() => 0)) || 0
+    if (cachedCount < sqliteCount) return false
+
+    const cachedRows = await getAllScannerHashEntries().catch(() => [])
+    if (cachedRows.length < sqliteCount) return false
+
+    this._emitProgress({
+      loadedCount: cachedRows.length,
+      totalCount: sqliteCount,
+      phase: 'building index',
+      source: 'idb cache',
+    })
+    await new Promise(r => setTimeout(r, 0))
+
+    this._hashes = cachedRows.map(rowToHash).filter(Boolean)
+    this._rebuildIndex()
+    this._resetMatchWorkerData()
+    this._fullyLoaded = true
+    this._loadPromise = Promise.resolve(this._hashes.length)
+    this._emitProgress({
+      loadedCount: this._hashes.length,
+      totalCount: sqliteCount,
+      phase: 'ready',
+      source: 'idb cache',
+    })
+    return this._hashes.length > 0
+  }
 
   async _loadNativeCache() {
     this._emitProgress({
