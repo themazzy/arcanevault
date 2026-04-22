@@ -69,12 +69,6 @@ const SAMPLE_DELAY_MS     = 40
 const DEBUG               = false
 const NATIVE_CAPTURE_SETTLE_MS = 120
 const NATIVE_CAPTURE_QUALITY = 80
-const TRACK_INTERVAL_MS = 66
-const TRACK_INTERVAL_AUTOSCAN_MS = 180
-const TRACK_INTERVAL_NATIVE_MS = 360
-const TRACKED_CORNERS_MAX_AGE_MS = 150
-const TRACKING_SMOOTHING_ALPHA = 0.32
-const TRACKING_SNAP_DISTANCE_PX = 96
 const PENDING_KEY         = 'arcanevault_scan_basket'
 const SET_ICON_CACHE_KEY  = 'arcanevault_scan_set_icons'
 const CARD_LANGUAGES = [
@@ -375,30 +369,6 @@ function isUsableArtCrop(artCrop) {
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
-function smoothCorners(previous, next) {
-  if (!previous || previous.length !== 4 || !next || next.length !== 4) return next
-  return next.map((pt, i) => {
-    const prev = previous[i]
-    const dx = pt.x - prev.x
-    const dy = pt.y - prev.y
-    if (Math.hypot(dx, dy) > TRACKING_SNAP_DISTANCE_PX) return pt
-    return {
-      x: prev.x + dx * TRACKING_SMOOTHING_ALPHA,
-      y: prev.y + dy * TRACKING_SMOOTHING_ALPHA,
-    }
-  })
-}
-
-function mapFrameCornersToViewport(corners, frameWidth, frameHeight, viewportWidth, viewportHeight) {
-  const coverScale = Math.max(viewportWidth / frameWidth, viewportHeight / frameHeight)
-  const offsetX = (viewportWidth - frameWidth * coverScale) / 2
-  const offsetY = (viewportHeight - frameHeight * coverScale) / 2
-  return corners.map(p => ({
-    x: p.x * coverScale + offsetX,
-    y: p.y * coverScale + offsetY,
-  }))
-}
-
 function getCardImg(sf) {
   if (!sf) return null
   if (sf.image_uris?.normal) return sf.image_uris.normal
@@ -452,8 +422,6 @@ export default function CardScanner({ onMatch, onClose }) {
   const autoScanRef = useRef(false)
   const scanningRef = useRef(false)
   const lastAutoScanSignatureRef = useRef(null)
-  const lastTrackedCornersRef = useRef(null)
-  const smoothedCornersRef = useRef(null)
   const lastSoundCardUidRef = useRef(null)
   const sessionStatsRef = useRef({ attempts: 0, hits: 0, totalMs: 0 })
   const [sessionStatsDisplay, setSessionStatsDisplay] = useState({ attempts: 0, hits: 0, totalMs: 0 })
@@ -468,7 +436,6 @@ export default function CardScanner({ onMatch, onClose }) {
   const [errorMsg, setErrorMsg]   = useState(null)
   const [scanning, setScanning]   = useState(false)
   const [scanResult, setScanResult] = useState(null)   // 'found' | 'notfound' | null
-  const [detectedCorners, setDetectedCorners] = useState(null) // [{x,y}×4] screen px or null
   const [cardCount, setCardCount] = useState(0)
   const [debugInfo, setDebugInfo] = useState(null)
   const [hashLoadInfo, setHashLoadInfo] = useState(databaseService.status)
@@ -546,9 +513,6 @@ export default function CardScanner({ onMatch, onClose }) {
   const [scanSounds, setScanSounds] = useState(() => {
     try { return localStorage.getItem('arcanevault_scanner_sounds') !== '0' } catch { return true }
   })
-  const [nativeCornerTracking, setNativeCornerTracking] = useState(() => {
-    try { return localStorage.getItem('arcanevault_scanner_native_corner_tracking') !== '0' } catch { return true }
-  })
   const [minPriceThreshold, setMinPriceThreshold] = useState(() => {
     try { return parseFloat(localStorage.getItem('arcanevault_scanner_min_price') || '0') || 0 } catch { return 0 }
   })
@@ -593,13 +557,6 @@ export default function CardScanner({ onMatch, onClose }) {
   useEffect(() => {
     try { localStorage.setItem('arcanevault_scanner_sounds', scanSounds ? '1' : '0') } catch {}
   }, [scanSounds])
-  useEffect(() => {
-    try { localStorage.setItem('arcanevault_scanner_native_corner_tracking', nativeCornerTracking ? '1' : '0') } catch {}
-    if (!nativeCornerTracking && isNative) {
-      smoothedCornersRef.current = null
-      setDetectedCorners(null)
-    }
-  }, [nativeCornerTracking, isNative])
   useEffect(() => {
     try { localStorage.setItem('arcanevault_scanner_min_price', String(minPriceThreshold)) } catch {}
   }, [minPriceThreshold])
@@ -650,84 +607,6 @@ export default function CardScanner({ onMatch, onClose }) {
     })()
     return () => { cancelled = true }
   }, [setPickerOpen, setPickerSets.length])
-
-  // ── Tracking frame corner detection ──────────────────────────────────────────
-  // Web-only. Async setTimeout loop so each detection (3-pass OpenCV, ~50-100ms)
-  // completes fully before React renders the state update, then waits before
-  // starting the next detection. rAF-based approach blocked painting between calls.
-  useEffect(() => {
-    if (isNative || !isReady || !cameraStarted || anyOverlayOpen) {
-      smoothedCornersRef.current = null
-      setDetectedCorners(null)
-      return
-    }
-
-    let stopped = false
-    let missCount = 0
-    const MISS_THRESHOLD = 5  // ~330ms at ~15fps before frame disappears
-    const getDetectInterval = () => autoScanRef.current ? TRACK_INTERVAL_AUTOSCAN_MS : TRACK_INTERVAL_MS
-
-    const detect = async () => {
-      if (stopped) return
-
-      // Skip while a full scan is running to avoid concurrent OpenCV calls.
-      if (!scanningRef.current) {
-        try {
-          const vid = videoRef.current
-          if (vid?.videoWidth) {
-            const sw = Math.round(vid.videoWidth / 2)
-            const sh = Math.round(vid.videoHeight / 2)
-            const { ctx: smallCtx } = getSmallFrameCanvas(sw, sh)
-            smallCtx.drawImage(vid, 0, 0, sw, sh)
-            const smallImageData = smallCtx.getImageData(0, 0, sw, sh)
-
-            const corners = detectCardCorners(smallImageData, sw, sh)
-
-            if (corners?.length === 4) {
-              missCount = 0
-              lastTrackedCornersRef.current = {
-                corners,
-                sw,
-                sh,
-                videoW: vid.videoWidth,
-                videoH: vid.videoHeight,
-                ts: performance.now(),
-              }
-              const videoW = vid.videoWidth, videoH = vid.videoHeight
-              const screenW = window.innerWidth, screenH = window.innerHeight
-              const smallScaleX = videoW / sw
-              const smallScaleY = videoH / sh
-              const frameCorners = corners.map(p => ({
-                x: p.x * smallScaleX,
-                y: p.y * smallScaleY,
-              }))
-              const screenCorners = mapFrameCornersToViewport(frameCorners, videoW, videoH, screenW, screenH)
-              const smoothed = smoothCorners(smoothedCornersRef.current, screenCorners)
-              smoothedCornersRef.current = smoothed
-              setDetectedCorners(smoothed)
-            } else {
-              missCount++
-              lastTrackedCornersRef.current = null
-              if (missCount >= MISS_THRESHOLD) {
-                smoothedCornersRef.current = null
-                setDetectedCorners(null)
-              }
-            }
-          }
-        } catch { /* ignore individual frame errors */ }
-      }
-
-      if (!stopped) setTimeout(detect, getDetectInterval())
-    }
-
-    detect()
-    return () => {
-      stopped = true
-      lastTrackedCornersRef.current = null
-      smoothedCornersRef.current = null
-      setDetectedCorners(null)
-    }
-  }, [isNative, isReady, cameraStarted, anyOverlayOpen])
 
   // ── Init DB + OpenCV ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -1259,64 +1138,6 @@ export default function CardScanner({ onMatch, onClose }) {
     }
   }, [isNative])
 
-  // Native camera preview renders behind the WebView, so there is no cheap live
-  // video element to sample. Use slower capture samples only when enabled.
-  useEffect(() => {
-    if (!isNative || !nativeCornerTracking || !isReady || !cameraStarted || anyOverlayOpen) {
-      if (isNative) {
-        smoothedCornersRef.current = null
-        setDetectedCorners(null)
-      }
-      return
-    }
-
-    let stopped = false
-    let missCount = 0
-    const MISS_THRESHOLD = 3
-
-    const detect = async () => {
-      if (stopped) return
-
-      if (!scanningRef.current) {
-        try {
-          const frame = await captureFrame()
-          if (frame && !stopped) {
-            const { smallImageData, sw, sh, w, h } = frame
-            const cornersSmall = detectCardCorners(smallImageData, sw, sh)
-            if (cornersSmall?.length === 4) {
-              missCount = 0
-              const scaleX = w / sw
-              const scaleY = h / sh
-              const frameCorners = cornersSmall.map(p => ({
-                x: p.x * scaleX,
-                y: p.y * scaleY,
-              }))
-              const screenCorners = mapFrameCornersToViewport(frameCorners, w, h, window.innerWidth, window.innerHeight)
-              const smoothed = smoothCorners(smoothedCornersRef.current, screenCorners)
-              smoothedCornersRef.current = smoothed
-              setDetectedCorners(smoothed)
-            } else {
-              missCount++
-              if (missCount >= MISS_THRESHOLD) {
-                smoothedCornersRef.current = null
-                setDetectedCorners(null)
-              }
-            }
-          }
-        } catch { /* ignore individual native tracking frame errors */ }
-      }
-
-      if (!stopped) setTimeout(detect, TRACK_INTERVAL_NATIVE_MS)
-    }
-
-    detect()
-    return () => {
-      stopped = true
-      smoothedCornersRef.current = null
-      setDetectedCorners(null)
-    }
-  }, [isNative, nativeCornerTracking, isReady, cameraStarted, anyOverlayOpen, captureFrame])
-
   const scanSingleFrame = useCallback(async ({ cornersOnly = false, allowedSets = null } = {}) => {
     const frame = await captureFrame()
     if (!frame) return { status: 'error', stage: 'no frame', best: null, second: null, candidateCount: 0, totalCount: 0 }
@@ -1324,15 +1145,7 @@ export default function CardScanner({ onMatch, onClose }) {
     const { getImageData, srcCanvas, w, h, smallImageData, sw, sh } = frame
     // Corner detection runs on the pre-downscaled (sw×sh) frame — cheaper matFromImageData,
     // cheaper cvtColor, no OpenCV resize. Scale corners back to full-res coords for warpCard.
-    const tracked = lastTrackedCornersRef.current
-    const trackedFresh = tracked &&
-      !isNative &&
-      performance.now() - tracked.ts <= TRACKED_CORNERS_MAX_AGE_MS &&
-      tracked.sw === sw &&
-      tracked.sh === sh &&
-      tracked.videoW === w &&
-      tracked.videoH === h
-    const cornersSmall = trackedFresh ? tracked.corners : detectCardCorners(smallImageData, sw, sh)
+    const cornersSmall = detectCardCorners(smallImageData, sw, sh)
     const scaleX = w / sw, scaleY = h / sh
     const corners = cornersSmall?.map(p => ({ x: p.x * scaleX, y: p.y * scaleY })) ?? null
 
@@ -1613,7 +1426,6 @@ export default function CardScanner({ onMatch, onClose }) {
     }, 220)
   }, [closing, onClose])
 
-  const CORNER_ROTATIONS = [0, 90, 180, 270]
   const startupPhaseTitle = errorMsg
     ? 'Scanner startup failed'
     : ({
@@ -1804,29 +1616,6 @@ export default function CardScanner({ onMatch, onClose }) {
             </span>
           </div>
         )}
-
-        {/* Idle ring — visible while scanning with no card detected */}
-        {!detectedCorners && !preparing && (
-          <div className={styles.scanIdleRing} aria-hidden="true" />
-        )}
-
-        {/* Tracking frame SVG — corners snap to detected card at ~15fps */}
-        <svg className={styles.trackingOverlay} aria-hidden="true">
-          {detectedCorners && (
-            <polygon
-              className={`${styles.trackingPoly} ${scanResult === 'found' ? styles.trackingPolyMatch : ''}`}
-              points={detectedCorners.map(p => `${p.x},${p.y}`).join(' ')}
-            />
-          )}
-          {detectedCorners && detectedCorners.map((pt, i) => (
-            <g key={i}
-              className={`${styles.trackingCornerGroup} ${scanResult === 'found' ? styles.trackingCornerMatch : ''} ${scanning ? styles.trackingCornerScanning : ''}`}
-              style={{ transform: `translate(${pt.x}px, ${pt.y}px) rotate(${CORNER_ROTATIONS[i]}deg)` }}
-            >
-              <path d="M0,0 L16,0 M0,0 L0,16" className={styles.trackingCorner} />
-            </g>
-          ))}
-        </svg>
 
         {/* Status elements fixed at frame center — spinner, scan line, set lock badge */}
         <div className={styles.frameCenterContent}>
@@ -2353,20 +2142,6 @@ export default function CardScanner({ onMatch, onClose }) {
               <span className={styles.toggleThumb} />
             </button>
           </div>
-
-          {isNative && (
-            <div className={styles.settingsRow}>
-              <div className={styles.settingsRowLabel}>
-                <span className={styles.settingsRowTitle}>Card tracking frame</span>
-                <span className={styles.settingsRowDesc}>Show the live corner frame around detected cards</span>
-              </div>
-              <button role="switch" aria-checked={nativeCornerTracking}
-                className={`${styles.toggle} ${nativeCornerTracking ? styles.toggleOn : ''}`}
-                onClick={() => setNativeCornerTracking(v => !v)}>
-                <span className={styles.toggleThumb} />
-              </button>
-            </div>
-          )}
 
           <div className={styles.settingsRow}>
             <div className={styles.settingsRowLabel}>
