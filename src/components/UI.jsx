@@ -454,22 +454,47 @@ export function ResponsiveMenu({
         if (!wrapEl) return
         const wrapRect = wrapEl.getBoundingClientRect()
         const bottomGap = 16
+        const topGap = 16
         const sideGap = 8
         const nextStyle = { position: 'fixed', zIndex: 750 }
+        const gap = 6
+        const availableBelow = Math.floor(window.innerHeight - wrapRect.bottom - bottomGap - gap)
+        const availableAbove = Math.floor(wrapRect.top - topGap - gap)
+        const openUp = direction === 'up'
+          ? availableAbove >= 180 || availableAbove >= availableBelow
+          : availableBelow < 180 && availableAbove > availableBelow
 
-        if (direction === 'up') {
-          nextStyle.bottom = Math.floor(window.innerHeight - wrapRect.top + 6)
-          nextStyle.maxHeight = `${Math.min(360, Math.max(180, Math.floor(wrapRect.top - bottomGap - 6)))}px`
+        if (openUp) {
+          nextStyle.bottom = Math.max(bottomGap, Math.floor(window.innerHeight - wrapRect.top + gap))
+          nextStyle.top = 'auto'
+          nextStyle.maxHeight = `${Math.min(360, Math.max(120, availableAbove))}px`
         } else {
-          nextStyle.top = Math.floor(wrapRect.bottom + 6)
-          nextStyle.maxHeight = `${Math.min(360, Math.max(180, Math.floor(window.innerHeight - wrapRect.bottom - bottomGap - 6)))}px`
+          nextStyle.top = Math.min(
+            Math.max(topGap, Math.floor(wrapRect.bottom + gap)),
+            Math.max(topGap, window.innerHeight - bottomGap - 120)
+          )
+          nextStyle.bottom = 'auto'
+          nextStyle.maxHeight = `${Math.min(360, Math.max(120, availableBelow))}px`
         }
 
-        if (align === 'left') {
-          nextStyle.left = Math.max(sideGap, Math.floor(wrapRect.left))
+        const panelWidth = Math.min(320, Math.max(180, window.innerWidth - (sideGap * 2)))
+        const availableRight = window.innerWidth - wrapRect.left - sideGap
+        const availableLeft = wrapRect.right - sideGap
+        const openLeft = align === 'left'
+          ? availableRight >= panelWidth || availableRight >= availableLeft
+          : availableLeft < panelWidth && availableRight > availableLeft
+
+        if (openLeft) {
+          nextStyle.left = Math.min(
+            Math.max(sideGap, Math.floor(wrapRect.left)),
+            Math.max(sideGap, window.innerWidth - sideGap - panelWidth)
+          )
           nextStyle.right = 'auto'
         } else {
-          nextStyle.right = Math.max(sideGap, Math.floor(window.innerWidth - wrapRect.right))
+          nextStyle.right = Math.min(
+            Math.max(sideGap, Math.floor(window.innerWidth - wrapRect.right)),
+            Math.max(sideGap, window.innerWidth - sideGap - panelWidth)
+          )
           nextStyle.left = 'auto'
         }
 

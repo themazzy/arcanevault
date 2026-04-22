@@ -389,20 +389,27 @@ export async function importFromArchidekt(deckId) {
 
   // Find the premier category (Commander slot)
   const premierCats = new Set(
-    (data.categories || []).filter(c => c.isPremier).map(c => c.name)
+    (data.categories || []).filter(c => c.isPremier).map(c => String(c.name || '').toLowerCase())
   )
 
   const FORMAT_MAP = { 3: 'commander', 1: 'standard', 2: 'modern', 11: 'pioneer', 4: 'legacy', 5: 'vintage', 10: 'pauper', 14: 'brawl' }
+  const getArchidektBoard = (categories = []) => {
+    const names = categories.map(cat => String(cat?.name || cat || '').trim().toLowerCase())
+    if (names.some(name => name.includes('maybeboard') || name === 'maybe' || name.includes('maybe board'))) return 'maybe'
+    if (names.some(name => name.includes('sideboard') || name.includes('side board'))) return 'side'
+    return 'main'
+  }
 
   const cards = (data.cards || [])
     .filter(c => !c.deletedAt)
     .map(c => {
-      const isCommander = (c.categories || []).some(cat => premierCats.has(cat))
+      const isCommander = (c.categories || []).some(cat => premierCats.has(String(cat?.name || cat || '').toLowerCase()))
+      const board = isCommander ? 'main' : getArchidektBoard(c.categories || [])
       return {
         name:             c.card?.oracleCard?.name || '',
         qty:              c.quantity || 1,
         isCommander,
-        board:            'main',
+        board,
         scryfallId:       c.card?.uid || null,
         setCode:          c.card?.edition?.editioncode || null,
         collectorNumber:  c.card?.collectorNumber || null,
