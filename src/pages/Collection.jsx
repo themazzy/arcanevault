@@ -33,6 +33,15 @@ function hasActiveCollectionFilters(filters) {
   })
 }
 
+function isNetworkLikeError(err) {
+  const message = String(err?.message || err || '').toLowerCase()
+  return message.includes('failed to fetch')
+    || message.includes('network')
+    || message.includes('offline')
+    || message.includes('timeout')
+    || message.includes('load failed')
+}
+
 function ConnectionStatusBadge({ isOnline, loading, folderMembershipLoading, enriching, importing }) {
   const [visible, setVisible] = useState(false)
   const [exiting, setExiting] = useState(false)
@@ -234,6 +243,7 @@ export default function CollectionPage() {
   const [folders, setFolders] = useState([])
   const [cardFolderMap, setCardFolderMap] = useState({})
   const [folderMembershipLoading, setFolderMembershipLoading] = useState(true)
+  const [folderMembershipSynced, setFolderMembershipSynced] = useState(false)
   const [folderMembershipReloadKey, setFolderMembershipReloadKey] = useState(0)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [orphanCards, setOrphanCards] = useState([])
@@ -241,6 +251,13 @@ export default function CollectionPage() {
   const cardsLoadSeq = useRef(0)
   const enrichingRef = useRef(false)
   const canSeedFilteredRef = useRef(true)
+
+  const blockOfflineChange = useCallback(() => {
+    if (isOnline && navigator.onLine) return false
+    setIsOnline(false)
+    setError('You are offline. Collection changes are disabled until you reconnect.')
+    return true
+  }, [isOnline])
 
   useEffect(() => {
     canSeedFilteredRef.current = !search && !hasActiveCollectionFilters(filters)
@@ -253,7 +270,11 @@ export default function CollectionPage() {
   // Track online status
   useEffect(() => {
     const on  = () => setIsOnline(true)
-    const off = () => setIsOnline(false)
+    const off = () => {
+      setIsOnline(false)
+      setFolderMembershipSynced(false)
+      setOrphanCards([])
+    }
     window.addEventListener('online',  on)
     window.addEventListener('offline', off)
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off) }
@@ -305,7 +326,11 @@ export default function CollectionPage() {
         .order('id')
         .range(pageFrom, pageFrom + PAGE - 1)
       if (err) {
-        if (isCurrentLoad()) setError(err.message)
+        if (isNetworkLikeError(err)) {
+          if (isCurrentLoad()) setIsOnline(false)
+        } else if (isCurrentLoad()) {
+          setError(err.message)
+        }
         break
       }
       if (data?.length) allCards.push(...data)
@@ -364,6 +389,7 @@ export default function CollectionPage() {
   useEffect(() => {
     const loadFolderMembership = async () => {
       setFolderMembershipLoading(true)
+      setFolderMembershipSynced(false)
       const buildCardFolderMap = (folderRows, linkRows) => {
         const folderById = Object.fromEntries(folderRows.map(f => [f.id, f]))
         const map = {}
@@ -395,14 +421,21 @@ export default function CollectionPage() {
       }
 
       // Sync folders from Supabase
-      const { data: foldersData } = await sb.from('folders')
+      const { data: foldersData, error: foldersError } = await sb.from('folders')
         .select('id,name,type,updated_at').eq('user_id', user.id).order('name')
+      if (foldersError) {
+        console.warn('[Collection] Folder sync unavailable, keeping local folder data:', foldersError.message)
+        if (isNetworkLikeError(foldersError)) setIsOnline(false)
+        setFolderMembershipLoading(false)
+        return
+      }
       if (!foldersData?.length) {
         if (localFolders.length) {
           await Promise.all(localFolders.map(folder => deleteLocalFolder(folder.id)))
         }
         setFolders([])
         setCardFolderMap({})
+        setFolderMembershipSynced(true)
         setFolderMembershipLoading(false)
         return
       }
@@ -431,6 +464,7 @@ export default function CollectionPage() {
           getAllDeckAllocationsForUser(user.id),
         ])
         setCardFolderMap(buildCardFolderMap(foldersData, [...allFc, ...allDa]))
+        setFolderMembershipSynced(true)
         setFolderMembershipLoading(false)
         return
       }
@@ -471,10 +505,19 @@ export default function CollectionPage() {
         return rows
       }
 
-      const [allFc, allDa] = await Promise.all([
-        placementFolderIds.length ? fetchFolderCards(placementFolderIds) : Promise.resolve([]),
-        deckIds.length ? fetchDeckAllocations(deckIds, user.id) : Promise.resolve([]),
-      ])
+      let allFc = []
+      let allDa = []
+      try {
+        ;[allFc, allDa] = await Promise.all([
+          placementFolderIds.length ? fetchFolderCards(placementFolderIds) : Promise.resolve([]),
+          deckIds.length ? fetchDeckAllocations(deckIds, user.id) : Promise.resolve([]),
+        ])
+      } catch (err) {
+        console.warn('[Collection] Placement sync unavailable, keeping local placement data:', err.message)
+        if (isNetworkLikeError(err)) setIsOnline(false)
+        setFolderMembershipLoading(false)
+        return
+      }
 
       await replaceLocalFolderCards(placementFolderIds, allFc)
       await replaceDeckAllocations(deckIds, allDa)
@@ -483,6 +526,7 @@ export default function CollectionPage() {
       await setMeta(fullSyncKey, syncedAt)
       await setMeta(deltaSyncKey, new Date(Date.now() - FOLDER_CARDS_DELTA_OVERLAP_MS).toISOString())
       setCardFolderMap(buildCardFolderMap(foldersData, [...allFc, ...allDa]))
+      setFolderMembershipSynced(true)
       setFolderMembershipLoading(false)
     }
     loadFolderMembership()
@@ -513,7 +557,7 @@ export default function CollectionPage() {
   // ── Orphan detection — runs once per mount after both syncs complete ─────────
   const orphanCheckDone = useRef(false)
   useEffect(() => {
-    if (loading || folderMembershipLoading || !isOnline || !cards.length || orphanCheckDone.current) return
+    if (loading || folderMembershipLoading || !isOnline || !folderMembershipSynced || !cards.length || orphanCheckDone.current) return
     orphanCheckDone.current = true
     const orphans = cards.filter(c => !cardFolderMap[c.id]?.length)
     if (!orphans.length) return
@@ -530,12 +574,16 @@ export default function CollectionPage() {
         }
       } catch (err) {
         console.warn('[Collection] Could not prune unplaced cards:', err.message)
+        if (isNetworkLikeError(err) || !navigator.onLine) {
+          if (!cancelled) setIsOnline(false)
+          return
+        }
         if (!cancelled) setOrphanCards(orphans)
       }
     })()
 
     return () => { cancelled = true }
-  }, [loading, folderMembershipLoading, cards, cardFolderMap, isOnline])
+  }, [loading, folderMembershipLoading, folderMembershipSynced, cards, cardFolderMap, isOnline])
 
   // ── Scryfall enrichment ──────────────────────────────────────────────────────
   const startEnrichment = useCallback(async (rawCards) => {
@@ -555,6 +603,7 @@ export default function CollectionPage() {
 
   // ── Import ───────────────────────────────────────────────────────────────────
   const handleImport = useCallback(async (file) => {
+    if (blockOfflineChange()) return
     setError('')
     if (file?.name.endsWith('.txt') || file?.name.endsWith('.csv')) {
       // Text and CSV imports use ImportModal so imports are additive and never clear locations.
@@ -732,10 +781,11 @@ export default function CollectionPage() {
     setTimeout(() => setProgLabel(''), 8000)
     setImporting(false)
     await loadCards()
-  }, [user.id, loadCards])
+  }, [user.id, loadCards, blockOfflineChange])
 
   // ── Bulk delete ──────────────────────────────────────────────────────────────
   const handleBulkDelete = async () => {
+    if (blockOfflineChange()) return
     const placementRows = []
     const selectedQtyByCardId = new Map()
     for (const key of selected) {
@@ -811,6 +861,7 @@ export default function CollectionPage() {
   }
 
   const handleMoveToFolder = async (folder) => {
+    if (blockOfflineChange()) return
     const selectedRows = []
     for (const key of selected) {
       const card = displayCards.find(c => (c._displayKey || c.id) === key)
@@ -957,6 +1008,7 @@ export default function CollectionPage() {
   }
 
   const handleDelete = async (card) => {
+    if (blockOfflineChange()) return
     setError('')
     const selectedQty = card._folder_qty || card.qty || 1
     const nextOwnedQty = (cards.find(c => c.id === card.id)?.qty || card.qty || 1) - selectedQty
@@ -1185,13 +1237,6 @@ export default function CollectionPage() {
     )
   }
 
-  const statusItems = [
-    loading ? 'Loading collection…' : null,
-    folderMembershipLoading ? 'Loading locations and badges…' : null,
-    enriching ? (progLabel || 'Refreshing card data…') : null,
-    importing ? (progLabel || 'Importing collection…') : null,
-  ].filter(Boolean)
-
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <SectionHeader
@@ -1199,7 +1244,14 @@ export default function CollectionPage() {
         action={
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {!isOnline && <span style={{ fontSize: '0.72rem', color: '#e0a852', border: '1px solid rgba(224,168,82,0.3)', borderRadius: 3, padding: '3px 8px' }}>Offline</span>}
-            <Button variant="purple" onClick={() => setShowAdd(true)}>+ Add Card</Button>
+            <Button
+              variant="purple"
+              onClick={() => { if (!blockOfflineChange()) setShowAdd(true) }}
+              disabled={!isOnline}
+              title={!isOnline ? 'Reconnect to add cards' : undefined}
+            >
+              + Add Card
+            </Button>
           </div>
         }
       />
@@ -1208,7 +1260,11 @@ export default function CollectionPage() {
         <div className={styles.emptyCollectionActions}>
           <DropZone
             onFile={handleImport}
-            onActivate={() => { setImportModalText(''); setShowImportModal(true) }}
+            onActivate={() => {
+              if (blockOfflineChange()) return
+              setImportModalText('')
+              setShowImportModal(true)
+            }}
             accept=".csv,.txt"
             title="Import Your Collection"
             subtitle="Open the import flow, or drop a CSV or decklist file here." />
@@ -1230,7 +1286,18 @@ export default function CollectionPage() {
           sets={availableSets} languages={availableLanguages}
           extra={
             <div style={{ display: 'flex', gap: 6 }}>
-              <button className={styles.importBtn} onClick={() => { setImportModalText(''); setShowImportModal(true) }}>↑ Import</button>
+              <button
+                className={styles.importBtn}
+                onClick={() => {
+                  if (blockOfflineChange()) return
+                  setImportModalText('')
+                  setShowImportModal(true)
+                }}
+                disabled={!isOnline}
+                title={!isOnline ? 'Reconnect to import cards' : undefined}
+              >
+                ↑ Import
+              </button>
               <button className={styles.importBtn} onClick={() => setShowExport(true)}>↓ Export</button>
             </div>
           }
@@ -1238,13 +1305,6 @@ export default function CollectionPage() {
       )}
 
       <ErrorBox>{error}</ErrorBox>
-      {statusItems.length > 0 && (
-        <div className={styles.statusBar}>
-          {statusItems.map((item, index) => (
-            <span key={`${item}:${index}`} className={styles.statusChip}>{item}</span>
-          ))}
-        </div>
-      )}
       {(enriching || importing) && <ProgressBar value={progress} label={progLabel} />}
 
       {cards.length > 0 && <>
@@ -1255,7 +1315,7 @@ export default function CollectionPage() {
           </span>
         </div>
 
-        {selectMode && selected.size > 0 && (
+        {isOnline && selectMode && selected.size > 0 && (
           <BulkActionBar
             selected={selected} selectedQty={selectedQty}
             total={displayCards.reduce((s, c) => s + (c.qty || 1), 0)}
@@ -1306,13 +1366,14 @@ export default function CollectionPage() {
           currentFolderId={selectedCard._displayFolder?.id ?? null}
           currentFolderType={selectedCard._displayFolder?.type ?? null}
           onClose={() => setDetailCardKey(null)}
-          onDelete={() => handleDelete(selectedCard)}
+          onDelete={isOnline ? () => handleDelete(selectedCard) : undefined}
           deleteQty={selectedCard._folder_qty || selectedCard.qty || 1}
-          onSave={handleCardSave}
+          onSave={isOnline ? handleCardSave : undefined}
+          readOnly={!isOnline}
         />
       )}
 
-      {showAdd && (
+      {showAdd && isOnline && (
         <AddCardModal userId={user.id}
           onClose={() => setShowAdd(false)}
           onSaved={async (result) => {
@@ -1345,7 +1406,7 @@ export default function CollectionPage() {
         />
       )}
 
-      {showImportModal && user && (
+      {showImportModal && user && isOnline && (
         <ImportModal
           userId={user.id}
           folderType="binder"
@@ -1374,7 +1435,7 @@ export default function CollectionPage() {
         />
       )}
 
-      {orphanCards.length > 0 && (
+      {orphanCards.length > 0 && isOnline && folderMembershipSynced && (
         <OrphanModal
           cards={orphanCards}
           folders={folders}

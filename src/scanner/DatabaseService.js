@@ -34,7 +34,6 @@ const NATIVE_CHUNK     = 5000
 const BAND_MASK        = 0x3F  // 6-bit bands
 const WEB_PAGE_RETRY_ATTEMPTS = 3
 const WEB_PAGE_RETRY_BASE_MS  = 250
-const NATIVE_SQLITE_STARTUP_TIMEOUT_MS = 3000
 // Bump to invalidate IDB cache when stored hash schema changes (e.g. new columns).
 // v3: added .order('scryfall_id') to paginated fetches for consistent pagination.
 // v4: CLAHE 4×4 tile grid + BT.601 grayscale — all hashes reseeded.
@@ -120,7 +119,6 @@ class DatabaseService {
   _workerSeq = 1
   _workerPending = new Map()
   _workerFailed = false
-  _sqliteInitAttemptId = 0
   _status = {
     loadedCount: 0,
     totalCount: 0,
@@ -176,12 +174,7 @@ class DatabaseService {
           phase: 'preparing native storage',
           source: 'native',
         })
-        const loadedNativeMirror = await this._loadCompleteNativeMirror()
-        if (loadedNativeMirror) {
-          this._initialized = true
-          return this
-        }
-        await this._initSQLiteForStartup()
+        await this._initSQLite()
       }
       await this._loadCache()
       this._initialized = true
@@ -195,7 +188,7 @@ class DatabaseService {
     }
   }
 
-  async _initSQLite(attemptId = null) {
+  async _initSQLite() {
     if (this._db) return
     this._emitProgress({
       loadedCount: 0,
@@ -203,13 +196,13 @@ class DatabaseService {
       phase: 'opening local database',
       source: 'native',
     })
-    const sqlite = new SQLiteConnection(CapacitorSQLite)
-    const isConn = (await sqlite.isConnection(DB_NAME, false)).result
-    const db = isConn
-      ? await sqlite.retrieveConnection(DB_NAME, false)
-      : await sqlite.createConnection(DB_NAME, false, 'no-encryption', 1, false)
-    await db.open()
-    await db.execute(`
+    this._sqlite = new SQLiteConnection(CapacitorSQLite)
+    const isConn = (await this._sqlite.isConnection(DB_NAME, false)).result
+    this._db = isConn
+      ? await this._sqlite.retrieveConnection(DB_NAME, false)
+      : await this._sqlite.createConnection(DB_NAME, false, 'no-encryption', 1, false)
+    await this._db.open()
+    await this._db.execute(`
       CREATE TABLE IF NOT EXISTS card_hashes (
         scryfall_id      TEXT PRIMARY KEY,
         name             TEXT NOT NULL,
@@ -225,44 +218,10 @@ class DatabaseService {
         WHERE phash_hex IS NOT NULL;
     `)
     // Migration: add phash_hex2 to existing SQLite DBs that predate this column.
-    await db.execute(`ALTER TABLE card_hashes ADD COLUMN phash_hex2 TEXT`).catch(() => {})
-    if (attemptId !== null && attemptId !== this._sqliteInitAttemptId) {
-      if (typeof db.close === 'function') await db.close().catch(() => {})
-      return
-    }
-    this._sqlite = sqlite
-    this._db = db
+    await this._db.execute(`ALTER TABLE card_hashes ADD COLUMN phash_hex2 TEXT`).catch(() => {})
   }
 
   // ── Sync from Supabase ─────────────────────────────────────────────────────
-
-  async _initSQLiteForStartup() {
-    if (this._db) return true
-    const attemptId = ++this._sqliteInitAttemptId
-    const openPromise = this._initSQLite(attemptId)
-      .then(() => this._db !== null && attemptId === this._sqliteInitAttemptId)
-      .catch(error => {
-        console.warn('[DatabaseService] native SQLite startup failed:', error?.message ?? error)
-        if (attemptId === this._sqliteInitAttemptId) this._db = null
-        return false
-      })
-
-    const opened = await Promise.race([
-      openPromise,
-      sleep(NATIVE_SQLITE_STARTUP_TIMEOUT_MS).then(() => false),
-    ])
-
-    if (!opened) {
-      if (attemptId === this._sqliteInitAttemptId) this._sqliteInitAttemptId++
-      this._emitProgress({
-        loadedCount: 0,
-        totalCount: 0,
-        phase: 'connecting',
-        source: 'idb',
-      })
-    }
-    return opened
-  }
 
   async sync(onProgress) {
     if (this._syncing) return
@@ -390,26 +349,6 @@ class DatabaseService {
     }).catch(() => {})
   }
 
-  _appendUniqueHashRows(rows) {
-    if (!rows?.length) return 0
-    const existing = new Set(this._hashes.map(card => card.id))
-    const parsed = []
-    for (const row of rows) {
-      const card = rowToHash(row)
-      if (!card || existing.has(card.id)) continue
-      existing.add(card.id)
-      parsed.push(card)
-    }
-    if (!parsed.length) return 0
-    const startIdx = this._hashes.length
-    this._hashes.push(...parsed)
-    for (let i = startIdx; i < this._hashes.length; i++) {
-      this._addToIndex(this._hashes[i], i)
-    }
-    this._appendMatchWorkerData(parsed)
-    return parsed.length
-  }
-
   _queueScannerHashMirror(entries) {
     if (!entries?.length) return
     this._mirrorWritePromise = this._mirrorWritePromise
@@ -434,51 +373,6 @@ class DatabaseService {
   }
 
   // ── Native path: IDB pre-parsed cache → chunked SQLite fallback ────────────
-
-  async _loadCompleteNativeMirror() {
-    this._hashes = []
-    this._bandIndex = BAND_SPECS.map(() => new Map())
-    this._resetMatchWorkerData()
-    this._fullyLoaded = false
-    this._mirrorWritePromise = Promise.resolve()
-
-    this._emitProgress({
-      loadedCount: 0,
-      totalCount: 0,
-      phase: 'checking cache',
-      source: 'native',
-    })
-
-    const sqliteCount = Number(await getMeta('scanner_sqlite_count').catch(() => 0)) || 0
-    if (sqliteCount <= 0) return false
-
-    const cachedCount = Number(await getScannerHashCount().catch(() => 0)) || 0
-    if (cachedCount < sqliteCount) return false
-
-    const cachedRows = await getAllScannerHashEntries().catch(() => [])
-    if (cachedRows.length < sqliteCount) return false
-
-    this._emitProgress({
-      loadedCount: cachedRows.length,
-      totalCount: sqliteCount,
-      phase: 'building index',
-      source: 'idb cache',
-    })
-    await new Promise(r => setTimeout(r, 0))
-
-    this._hashes = cachedRows.map(rowToHash).filter(Boolean)
-    this._rebuildIndex()
-    this._resetMatchWorkerData()
-    this._fullyLoaded = true
-    this._loadPromise = Promise.resolve(this._hashes.length)
-    this._emitProgress({
-      loadedCount: this._hashes.length,
-      totalCount: sqliteCount,
-      phase: 'ready',
-      source: 'idb cache',
-    })
-    return this._hashes.length > 0
-  }
 
   async _loadNativeCache() {
     this._emitProgress({
@@ -670,34 +564,19 @@ class DatabaseService {
     // For partial downloads (fewer rows than expected), keep what we have: the
     // re-download will upsert on top of existing rows, filling in the gaps without
     // re-fetching pages that were already cached successfully.
-    let partialCachedRows = cachedRows
     if (cachedRows.length > 0 && remoteTotal > 0 && cachedRows.length > remoteTotal) {
       await clearScannerHashEntries().catch(() => {})
-      partialCachedRows = []
     }
 
     const totalCount = expectedTotal
-    if (partialCachedRows.length > 0) {
-      this._emitProgress({
-        loadedCount: partialCachedRows.length,
-        totalCount: totalCount || partialCachedRows.length,
-        phase: 'building partial index',
-        source: 'idb cache',
-      })
-      await new Promise(r => setTimeout(r, 0))
-      this._hashes = partialCachedRows.map(rowToHash).filter(Boolean)
-      this._rebuildIndex()
-      this._resetMatchWorkerData()
-    }
-
-    // Emit cached/N so the user sees available local rows before page 0 arrives.
+    // Emit 0/N so the user sees the full count before page 0 arrives.
     this._emitProgress({
-      loadedCount: this._hashes.length,
+      loadedCount: 0,
       totalCount,
       phase: 'downloading hashes',
-      source: this._hashes.length ? 'idb cache + network' : 'network',
+      source: 'network',
     })
-    // Yield so React paints the initial state before we block on the network.
+    // Yield so React paints the "0/N" state before we block on the network.
     await new Promise(r => setTimeout(r, 0))
 
     // Stage 2: fetch page 0 — user sees the bar advance from 0 → ~10%.
@@ -707,7 +586,9 @@ class DatabaseService {
     })
 
     const augmentedFirst = augmentWithParsed(firstNetworkPage)
-    const addedFirst = this._appendUniqueHashRows(augmentedFirst)
+    this._hashes = augmentedFirst.map(rowToHash).filter(Boolean)
+    this._rebuildIndex()
+    this._resetMatchWorkerData()
     await Promise.all([
       augmentedFirst.length ? putScannerHashEntries(augmentedFirst).catch(() => {}) : Promise.resolve(),
       totalCount ? setMeta('scanner_hash_total_count', totalCount).catch(() => {}) : Promise.resolve(),
@@ -718,7 +599,7 @@ class DatabaseService {
       phase: firstNetworkPage.length === PAGE_SIZE
         ? 'downloading hashes'
         : (totalCount > 0 && firstNetworkPage.length === 0 ? 'network retry needed' : 'ready'),
-      source: this._hashes.length && !addedFirst ? 'idb cache' : 'network',
+      source: 'network',
     })
 
     if (firstNetworkPage.length === PAGE_SIZE) {
@@ -734,7 +615,7 @@ class DatabaseService {
           })
         })
     } else {
-      this._fullyLoaded = this._hashes.length > 0 && !(totalCount > 0 && this._hashes.length < totalCount)
+      this._fullyLoaded = !(totalCount > 0 && firstNetworkPage.length === 0)
       this._loadPromise = Promise.resolve(this._hashes.length)
     }
   }
@@ -803,7 +684,13 @@ class DatabaseService {
         const { data } = result
         if (!data.length) { reachedEnd = true; break }
         const augmented = augmentWithParsed(data)
-        this._appendUniqueHashRows(augmented)
+        const startIdx = this._hashes.length
+        const parsed = augmented.map(rowToHash).filter(Boolean)
+        this._hashes.push(...parsed)
+        for (let i = startIdx; i < this._hashes.length; i++) {
+          this._addToIndex(this._hashes[i], i)
+        }
+        this._appendMatchWorkerData(parsed)
         await putScannerHashEntries(augmented).catch(() => {})
         // Emit after every page so the progress bar advances smoothly
         this._emitProgress({
@@ -850,7 +737,7 @@ class DatabaseService {
     return [best, second]
   }
 
-  // colorHash: optional Uint32Array(8) saturation hash from computeAllHashes().
+  // colorHash: optional Uint32Array(8) from computePHash256Color.
   // When provided, combined distance = 0.65 * luma + 0.35 * color, giving
   // color-identity cards (lands, reprints) a tiebreaker over look-alike art.
   findBestTwoWithStats(hash, colorHash = null, opts = {}) {

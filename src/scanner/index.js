@@ -4,5 +4,5 @@ export { hexToHash, hashToHex, computeHashFromGray, rgbToGray32x32 } from './has
 export {
   isOpenCVReady, waitForOpenCV,
   detectCardCorners, warpCard, cropArtRegion, cropCardFromReticle,
-  computePHash256, computeAllHashes,
+  computePHash256,
 } from './ScannerEngine'
