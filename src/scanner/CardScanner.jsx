@@ -48,9 +48,6 @@ const MATCH_STRONG_THRESHOLD = 134
 const MATCH_STRONG_SINGLE    = 108
 const AUTOSCAN_COOLDOWN_MATCH_MS = 1000
 const AUTOSCAN_COOLDOWN_MISS_MS  = 350
-const AUTOSCAN_LEAVE_MISS_FRAMES = 2
-const AUTOSCAN_CACHED_CORNERS_MS = 450
-const HASH_FALLBACK_PLAUSIBLE_DISTANCE = 150
 const PRIMARY_CROP_VARIANTS = [
   { xOffset: 0, yOffset: 0 },
   { xOffset: 0, yOffset: -10 },
@@ -72,6 +69,12 @@ const SAMPLE_DELAY_MS     = 40
 const DEBUG               = false
 const NATIVE_CAPTURE_SETTLE_MS = 120
 const NATIVE_CAPTURE_QUALITY = 80
+const TRACK_INTERVAL_MS = 66
+const TRACK_INTERVAL_AUTOSCAN_MS = 180
+const TRACK_INTERVAL_NATIVE_MS = 360
+const TRACKED_CORNERS_MAX_AGE_MS = 150
+const TRACKING_SMOOTHING_ALPHA = 0.32
+const TRACKING_SNAP_DISTANCE_PX = 96
 const PENDING_KEY         = 'arcanevault_scan_basket'
 const SET_ICON_CACHE_KEY  = 'arcanevault_scan_set_icons'
 const CARD_LANGUAGES = [
@@ -91,8 +94,6 @@ const CARD_LANGUAGES = [
 // ── Module-level scratch canvas for pre-downscaled corner detection frames ───
 let _smallFrameCanvas = null
 let _smallFrameCtx   = null
-let _nativeFrameCanvas = null
-let _nativeFrameCtx = null
 
 function getSmallFrameCanvas(w, h) {
   if (!_smallFrameCanvas) {
@@ -102,16 +103,6 @@ function getSmallFrameCanvas(w, h) {
   if (_smallFrameCanvas.width  !== w) _smallFrameCanvas.width  = w
   if (_smallFrameCanvas.height !== h) _smallFrameCanvas.height = h
   return { canvas: _smallFrameCanvas, ctx: _smallFrameCtx }
-}
-
-function getNativeFrameCanvas(w, h) {
-  if (!_nativeFrameCanvas) {
-    _nativeFrameCanvas = document.createElement('canvas')
-    _nativeFrameCtx = _nativeFrameCanvas.getContext('2d', { willReadFrequently: true })
-  }
-  if (_nativeFrameCanvas.width !== w) _nativeFrameCanvas.width = w
-  if (_nativeFrameCanvas.height !== h) _nativeFrameCanvas.height = h
-  return { canvas: _nativeFrameCanvas, ctx: _nativeFrameCtx }
 }
 
 // ── Pending basket helpers ────────────────────────────────────────────────────
@@ -354,30 +345,6 @@ function getStableVote(votes) {
   })[0] ?? null
 }
 
-function scanResultToVote(result) {
-  if (!result?.best) return null
-  const gap = result.gap ?? (result.second ? result.second.distance - result.best.distance : 256)
-  return {
-    count: 1,
-    best: result.best,
-    gap,
-    sameNameCluster: !!result.sameNameCluster,
-    source: result.source,
-    variant: result.variant,
-    candidateCount: result.candidateCount,
-    totalCount: result.totalCount,
-    timings: result.timings,
-  }
-}
-
-function mergeTimings(total, next) {
-  if (!total || !next) return total
-  for (const key of ['capture', 'detect', 'warp', 'reticle', 'cropHashMatch', 'total', 'frames']) {
-    total[key] = (total[key] || 0) + (next[key] || 0)
-  }
-  return total
-}
-
 function isUsableArtCrop(artCrop) {
   if (!artCrop?.data?.length) return false
   const { data, width, height } = artCrop
@@ -407,29 +374,29 @@ function isUsableArtCrop(artCrop) {
 
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
-const nowMs = () => (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()
-const newScanTimings = () => DEBUG
-  ? { capture: 0, detect: 0, warp: 0, reticle: 0, cropHashMatch: 0, frames: 0 }
-  : null
-const addTiming = (timings, key, start) => {
-  if (timings) timings[key] = (timings[key] || 0) + (nowMs() - start)
+
+function smoothCorners(previous, next) {
+  if (!previous || previous.length !== 4 || !next || next.length !== 4) return next
+  return next.map((pt, i) => {
+    const prev = previous[i]
+    const dx = pt.x - prev.x
+    const dy = pt.y - prev.y
+    if (Math.hypot(dx, dy) > TRACKING_SNAP_DISTANCE_PX) return pt
+    return {
+      x: prev.x + dx * TRACKING_SMOOTHING_ALPHA,
+      y: prev.y + dy * TRACKING_SMOOTHING_ALPHA,
+    }
+  })
 }
-const warnScanWorkerFallback = (error) => {
-  if (typeof console === 'undefined') return
-  const message = error?.message || String(error || 'unknown error')
-  console.warn(`[scanner] scan worker disabled; using main-thread fallback. ${message}`)
-}
-const formatTimings = (timings) => {
-  if (!timings) return ''
-  const parts = [
-    ['cap', timings.capture],
-    ['det', timings.detect],
-    ['warp', timings.warp],
-    ['ret', timings.reticle],
-    ['chm', timings.cropHashMatch],
-    ['tot', timings.total],
-  ]
-  return parts.map(([label, value]) => `${label}${Math.round(value || 0)}`).join(' ')
+
+function mapFrameCornersToViewport(corners, frameWidth, frameHeight, viewportWidth, viewportHeight) {
+  const coverScale = Math.max(viewportWidth / frameWidth, viewportHeight / frameHeight)
+  const offsetX = (viewportWidth - frameWidth * coverScale) / 2
+  const offsetY = (viewportHeight - frameHeight * coverScale) / 2
+  return corners.map(p => ({
+    x: p.x * coverScale + offsetX,
+    y: p.y * coverScale + offsetY,
+  }))
 }
 
 function getCardImg(sf) {
@@ -485,18 +452,13 @@ export default function CardScanner({ onMatch, onClose }) {
   const autoScanRef = useRef(false)
   const scanningRef = useRef(false)
   const lastAutoScanSignatureRef = useRef(null)
-  const autoScanMissFramesRef = useRef(0)
-  const cachedCornersRef = useRef(null)
+  const lastTrackedCornersRef = useRef(null)
+  const smoothedCornersRef = useRef(null)
   const lastSoundCardUidRef = useRef(null)
   const sessionStatsRef = useRef({ attempts: 0, hits: 0, totalMs: 0 })
   const [sessionStatsDisplay, setSessionStatsDisplay] = useState({ attempts: 0, hits: 0, totalMs: 0 })
   const manualSearchRequestRef = useRef(0)
   const setIconFetchesRef = useRef(new Set())
-  const scanWorkerRef = useRef(null)
-  const scanWorkerSeqRef = useRef(1)
-  const scanWorkerPendingRef = useRef(new Map())
-  const scanWorkerFailedRef = useRef(false)
-  const scanWorkerWarnedRef = useRef(false)
 
   // ── Scanner state ──────────────────────────────────────────────────────────
   const [cvReady, setCvReady]     = useState(false)
@@ -506,9 +468,9 @@ export default function CardScanner({ onMatch, onClose }) {
   const [errorMsg, setErrorMsg]   = useState(null)
   const [scanning, setScanning]   = useState(false)
   const [scanResult, setScanResult] = useState(null)   // 'found' | 'notfound' | null
+  const [detectedCorners, setDetectedCorners] = useState(null) // [{x,y}×4] screen px or null
   const [cardCount, setCardCount] = useState(0)
   const [debugInfo, setDebugInfo] = useState(null)
-  const [scanWorkerStatus, setScanWorkerStatus] = useState('idle')
   const [hashLoadInfo, setHashLoadInfo] = useState(databaseService.status)
   const [flashModes, setFlashModes] = useState([])
   const [flashMode, setFlashMode]   = useState('off')
@@ -584,6 +546,9 @@ export default function CardScanner({ onMatch, onClose }) {
   const [scanSounds, setScanSounds] = useState(() => {
     try { return localStorage.getItem('arcanevault_scanner_sounds') !== '0' } catch { return true }
   })
+  const [nativeCornerTracking, setNativeCornerTracking] = useState(() => {
+    try { return localStorage.getItem('arcanevault_scanner_native_corner_tracking') !== '0' } catch { return true }
+  })
   const [minPriceThreshold, setMinPriceThreshold] = useState(() => {
     try { return parseFloat(localStorage.getItem('arcanevault_scanner_min_price') || '0') || 0 } catch { return 0 }
   })
@@ -628,6 +593,13 @@ export default function CardScanner({ onMatch, onClose }) {
   useEffect(() => {
     try { localStorage.setItem('arcanevault_scanner_sounds', scanSounds ? '1' : '0') } catch {}
   }, [scanSounds])
+  useEffect(() => {
+    try { localStorage.setItem('arcanevault_scanner_native_corner_tracking', nativeCornerTracking ? '1' : '0') } catch {}
+    if (!nativeCornerTracking && isNative) {
+      smoothedCornersRef.current = null
+      setDetectedCorners(null)
+    }
+  }, [nativeCornerTracking, isNative])
   useEffect(() => {
     try { localStorage.setItem('arcanevault_scanner_min_price', String(minPriceThreshold)) } catch {}
   }, [minPriceThreshold])
@@ -679,6 +651,84 @@ export default function CardScanner({ onMatch, onClose }) {
     return () => { cancelled = true }
   }, [setPickerOpen, setPickerSets.length])
 
+  // ── Tracking frame corner detection ──────────────────────────────────────────
+  // Web-only. Async setTimeout loop so each detection (3-pass OpenCV, ~50-100ms)
+  // completes fully before React renders the state update, then waits before
+  // starting the next detection. rAF-based approach blocked painting between calls.
+  useEffect(() => {
+    if (isNative || !isReady || !cameraStarted || anyOverlayOpen) {
+      smoothedCornersRef.current = null
+      setDetectedCorners(null)
+      return
+    }
+
+    let stopped = false
+    let missCount = 0
+    const MISS_THRESHOLD = 5  // ~330ms at ~15fps before frame disappears
+    const getDetectInterval = () => autoScanRef.current ? TRACK_INTERVAL_AUTOSCAN_MS : TRACK_INTERVAL_MS
+
+    const detect = async () => {
+      if (stopped) return
+
+      // Skip while a full scan is running to avoid concurrent OpenCV calls.
+      if (!scanningRef.current) {
+        try {
+          const vid = videoRef.current
+          if (vid?.videoWidth) {
+            const sw = Math.round(vid.videoWidth / 2)
+            const sh = Math.round(vid.videoHeight / 2)
+            const { ctx: smallCtx } = getSmallFrameCanvas(sw, sh)
+            smallCtx.drawImage(vid, 0, 0, sw, sh)
+            const smallImageData = smallCtx.getImageData(0, 0, sw, sh)
+
+            const corners = detectCardCorners(smallImageData, sw, sh)
+
+            if (corners?.length === 4) {
+              missCount = 0
+              lastTrackedCornersRef.current = {
+                corners,
+                sw,
+                sh,
+                videoW: vid.videoWidth,
+                videoH: vid.videoHeight,
+                ts: performance.now(),
+              }
+              const videoW = vid.videoWidth, videoH = vid.videoHeight
+              const screenW = window.innerWidth, screenH = window.innerHeight
+              const smallScaleX = videoW / sw
+              const smallScaleY = videoH / sh
+              const frameCorners = corners.map(p => ({
+                x: p.x * smallScaleX,
+                y: p.y * smallScaleY,
+              }))
+              const screenCorners = mapFrameCornersToViewport(frameCorners, videoW, videoH, screenW, screenH)
+              const smoothed = smoothCorners(smoothedCornersRef.current, screenCorners)
+              smoothedCornersRef.current = smoothed
+              setDetectedCorners(smoothed)
+            } else {
+              missCount++
+              lastTrackedCornersRef.current = null
+              if (missCount >= MISS_THRESHOLD) {
+                smoothedCornersRef.current = null
+                setDetectedCorners(null)
+              }
+            }
+          }
+        } catch { /* ignore individual frame errors */ }
+      }
+
+      if (!stopped) setTimeout(detect, getDetectInterval())
+    }
+
+    detect()
+    return () => {
+      stopped = true
+      lastTrackedCornersRef.current = null
+      smoothedCornersRef.current = null
+      setDetectedCorners(null)
+    }
+  }, [isNative, isReady, cameraStarted, anyOverlayOpen])
+
   // ── Init DB + OpenCV ───────────────────────────────────────────────────────
   useEffect(() => {
     mountedRef.current = true
@@ -717,12 +767,7 @@ export default function CardScanner({ onMatch, onClose }) {
         if (mountedRef.current) setErrorMsg(e.message)
       }
     })()
-    return () => {
-      mountedRef.current = false
-      scanWorkerRef.current?.terminate()
-      scanWorkerRef.current = null
-      scanWorkerPendingRef.current.clear()
-    }
+    return () => { mountedRef.current = false }
   }, [])
 
   // ── Camera start/stop ──────────────────────────────────────────────────────
@@ -1173,57 +1218,6 @@ export default function CardScanner({ onMatch, onClose }) {
 
   // ── Capture + scan logic ───────────────────────────────────────────────────
 
-  const ensureScanWorker = useCallback(() => {
-    if (scanWorkerFailedRef.current || typeof Worker === 'undefined') return null
-    if (scanWorkerRef.current) return scanWorkerRef.current
-    try {
-      const worker = new Worker(new URL('./scanWorker.js', import.meta.url), { type: 'module' })
-      worker.onmessage = event => {
-        const { id, ok, result, error } = event.data || {}
-        const pending = scanWorkerPendingRef.current.get(id)
-        if (!pending) return
-        scanWorkerPendingRef.current.delete(id)
-        if (ok) pending.resolve(result)
-        else pending.reject(new Error(error || 'Scan worker failed'))
-      }
-      worker.onerror = error => {
-        scanWorkerFailedRef.current = true
-        setScanWorkerStatus('fallback')
-        if (!scanWorkerWarnedRef.current) {
-          scanWorkerWarnedRef.current = true
-          warnScanWorkerFallback(error)
-        }
-        for (const pending of scanWorkerPendingRef.current.values()) {
-          pending.reject(new Error(error?.message || 'Scan worker failed'))
-        }
-        scanWorkerPendingRef.current.clear()
-        worker.terminate()
-        scanWorkerRef.current = null
-      }
-      scanWorkerRef.current = worker
-      setScanWorkerStatus('ready')
-      return worker
-    } catch (error) {
-      scanWorkerFailedRef.current = true
-      setScanWorkerStatus('fallback')
-      if (!scanWorkerWarnedRef.current) {
-        scanWorkerWarnedRef.current = true
-        warnScanWorkerFallback(error)
-      }
-      return null
-    }
-  }, [])
-
-  const postScanWorker = useCallback((type, payload) => {
-    const worker = ensureScanWorker()
-    if (!worker) return Promise.reject(new Error('Scan worker unavailable'))
-    const id = scanWorkerSeqRef.current++
-    return new Promise((resolve, reject) => {
-      scanWorkerPendingRef.current.set(id, { resolve, reject })
-      worker.postMessage({ id, type, payload })
-    })
-  }, [ensureScanWorker])
-
   const captureFrame = useCallback(async () => {
     if (isNative) {
       await sleep(NATIVE_CAPTURE_SETTLE_MS)
@@ -1235,7 +1229,9 @@ export default function CardScanner({ onMatch, onClose }) {
         image.src = 'data:image/jpeg;base64,' + value
       })
       const w = img.width, h = img.height
-      const { canvas, ctx } = getNativeFrameCanvas(w, h)
+      const canvas = document.createElement('canvas')
+      canvas.width = w; canvas.height = h
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })
       ctx.drawImage(img, 0, 0)
       // Small frame for corner detection (GPU-downscaled)
       const sw = Math.round(w / 2), sh = Math.round(h / 2)
@@ -1263,32 +1259,82 @@ export default function CardScanner({ onMatch, onClose }) {
     }
   }, [isNative])
 
-  const scanSingleFrame = useCallback(async ({ cornersOnly = false, allowedSets = null, useCachedCorners = false } = {}) => {
-    const timings = newScanTimings()
-    const frameStart = nowMs()
-    const captureStart = nowMs()
+  // Native camera preview renders behind the WebView, so there is no cheap live
+  // video element to sample. Use slower capture samples only when enabled.
+  useEffect(() => {
+    if (!isNative || !nativeCornerTracking || !isReady || !cameraStarted || anyOverlayOpen) {
+      if (isNative) {
+        smoothedCornersRef.current = null
+        setDetectedCorners(null)
+      }
+      return
+    }
+
+    let stopped = false
+    let missCount = 0
+    const MISS_THRESHOLD = 3
+
+    const detect = async () => {
+      if (stopped) return
+
+      if (!scanningRef.current) {
+        try {
+          const frame = await captureFrame()
+          if (frame && !stopped) {
+            const { smallImageData, sw, sh, w, h } = frame
+            const cornersSmall = detectCardCorners(smallImageData, sw, sh)
+            if (cornersSmall?.length === 4) {
+              missCount = 0
+              const scaleX = w / sw
+              const scaleY = h / sh
+              const frameCorners = cornersSmall.map(p => ({
+                x: p.x * scaleX,
+                y: p.y * scaleY,
+              }))
+              const screenCorners = mapFrameCornersToViewport(frameCorners, w, h, window.innerWidth, window.innerHeight)
+              const smoothed = smoothCorners(smoothedCornersRef.current, screenCorners)
+              smoothedCornersRef.current = smoothed
+              setDetectedCorners(smoothed)
+            } else {
+              missCount++
+              if (missCount >= MISS_THRESHOLD) {
+                smoothedCornersRef.current = null
+                setDetectedCorners(null)
+              }
+            }
+          }
+        } catch { /* ignore individual native tracking frame errors */ }
+      }
+
+      if (!stopped) setTimeout(detect, TRACK_INTERVAL_NATIVE_MS)
+    }
+
+    detect()
+    return () => {
+      stopped = true
+      smoothedCornersRef.current = null
+      setDetectedCorners(null)
+    }
+  }, [isNative, nativeCornerTracking, isReady, cameraStarted, anyOverlayOpen, captureFrame])
+
+  const scanSingleFrame = useCallback(async ({ cornersOnly = false, allowedSets = null } = {}) => {
     const frame = await captureFrame()
-    addTiming(timings, 'capture', captureStart)
-    if (!frame) return { status: 'error', stage: 'no frame', best: null, second: null, candidateCount: 0, totalCount: 0, timings }
+    if (!frame) return { status: 'error', stage: 'no frame', best: null, second: null, candidateCount: 0, totalCount: 0 }
 
     const { getImageData, srcCanvas, w, h, smallImageData, sw, sh } = frame
     // Corner detection runs on the pre-downscaled (sw×sh) frame — cheaper matFromImageData,
     // cheaper cvtColor, no OpenCV resize. Scale corners back to full-res coords for warpCard.
+    const tracked = lastTrackedCornersRef.current
+    const trackedFresh = tracked &&
+      !isNative &&
+      performance.now() - tracked.ts <= TRACKED_CORNERS_MAX_AGE_MS &&
+      tracked.sw === sw &&
+      tracked.sh === sh &&
+      tracked.videoW === w &&
+      tracked.videoH === h
+    const cornersSmall = trackedFresh ? tracked.corners : detectCardCorners(smallImageData, sw, sh)
     const scaleX = w / sw, scaleY = h / sh
-    const cached = useCachedCorners && cachedCornersRef.current &&
-      cachedCornersRef.current.w === w &&
-      cachedCornersRef.current.h === h &&
-      nowMs() - cachedCornersRef.current.ts <= AUTOSCAN_CACHED_CORNERS_MS
-        ? cachedCornersRef.current.corners
-        : null
-    let corners = cached
-    if (!corners) {
-      const detectStart = nowMs()
-      const cornersSmall = detectCardCorners(smallImageData, sw, sh)
-      addTiming(timings, 'detect', detectStart)
-      corners = cornersSmall?.map(p => ({ x: p.x * scaleX, y: p.y * scaleY })) ?? null
-      if (corners) cachedCornersRef.current = { corners, w, h, ts: nowMs() }
-    }
+    const corners = cornersSmall?.map(p => ({ x: p.x * scaleX, y: p.y * scaleY })) ?? null
 
     let best = null, second = null
     let bestStats = { candidateCount: 0, totalCount: databaseService.cardCount }
@@ -1316,114 +1362,38 @@ export default function CardScanner({ onMatch, onClose }) {
       weakGap: MATCH_MIN_GAP,
     }
 
-    const tryWorkerAttempts = async () => {
-      if (!corners || scanWorkerFailedRef.current) return false
-      try {
-        setScanWorkerStatus('running')
-        const imageData = getImageData()
-        const result = await postScanWorker('scanFrame', {
-          imageData,
-          smallImageData,
-          w,
-          h,
-          sw,
-          sh,
-          cachedCorners: corners,
-        })
-        setScanWorkerStatus('active')
-        if (result?.corners) cachedCornersRef.current = { corners: result.corners, w, h, ts: nowMs() }
-        if (!result?.attempts?.length) return false
-        for (const attempt of result.attempts) {
-          if (!attempt.hash) continue
-          const hash = new Uint32Array(attempt.hash)
-          const colorHash = attempt.colorHash ? new Uint32Array(attempt.colorHash) : null
-          const { best: c, second: r, candidateCount, totalCount, fallback } =
-            await databaseService.findBestTwoWithStatsAsync(hash, colorHash, matchOpts)
-          if (updateBest(c, r, candidateCount, totalCount, attempt.variant, attempt.sourceLabel, fallback)) return true
-          if (c && c.distance > MATCH_THRESHOLD && c.distance <= HASH_FALLBACK_PLAUSIBLE_DISTANCE) {
-            if (attempt.foilHash) {
-              const foilStats = await databaseService.findBestTwoWithStatsAsync(new Uint32Array(attempt.foilHash), colorHash, matchOpts)
-              if (updateBest(foilStats.best, foilStats.second, foilStats.candidateCount, foilStats.totalCount, attempt.variant, `${attempt.sourceLabel}+foil`, foilStats.fallback)) return true
-            }
-            if (attempt.darkHash) {
-              const darkStats = await databaseService.findBestTwoWithStatsAsync(new Uint32Array(attempt.darkHash), colorHash, matchOpts)
-              if (updateBest(darkStats.best, darkStats.second, darkStats.candidateCount, darkStats.totalCount, attempt.variant, `${attempt.sourceLabel}+dark`, darkStats.fallback)) return true
-            }
-          }
-        }
-        return true
-      } catch (error) {
-        scanWorkerFailedRef.current = true
-        setScanWorkerStatus('fallback')
-        if (!scanWorkerWarnedRef.current) {
-          scanWorkerWarnedRef.current = true
-          warnScanWorkerFallback(error)
-        }
-        scanWorkerRef.current?.terminate()
-        scanWorkerRef.current = null
-        return false
-      }
-    }
-
     const tryMatch = async (cardImg, sourceLabel, variants) => {
       for (const variant of variants) {
-        const matchStart = nowMs()
         const artCrop = cropArtRegion(cardImg, variant)
-        if (!artCrop) {
-          addTiming(timings, 'cropHashMatch', matchStart)
-          continue
-        }
-        if (!isUsableArtCrop(artCrop)) {
-          addTiming(timings, 'cropHashMatch', matchStart)
-          continue
-        }
+        if (!artCrop) continue
+        if (!isUsableArtCrop(artCrop)) continue
         // Single blur+resize pass produces all four hash variants including colorHash.
         let hashes
-        try { hashes = computeAllHashes(artCrop) } catch {
-          addTiming(timings, 'cropHashMatch', matchStart)
-          continue
-        }
+        try { hashes = computeAllHashes(artCrop) } catch { continue }
         const { hash, foilHash, darkHash, colorHash } = hashes
-        if (!hash) {
-          addTiming(timings, 'cropHashMatch', matchStart)
-          continue
-        }
+        if (!hash) continue
         const { best: c, second: r, candidateCount, totalCount, fallback } = await databaseService.findBestTwoWithStatsAsync(hash, colorHash ?? null, matchOpts)
-        if (updateBest(c, r, candidateCount, totalCount, variant, sourceLabel, fallback)) {
-          addTiming(timings, 'cropHashMatch', matchStart)
-          return
-        }
-        if (c && c.distance > MATCH_THRESHOLD && c.distance <= HASH_FALLBACK_PLAUSIBLE_DISTANCE) {
+        if (updateBest(c, r, candidateCount, totalCount, variant, sourceLabel, fallback)) return
+        if (c && c.distance > MATCH_THRESHOLD) {
           // Foil fallback: aggressive glare suppression for blown highlights.
           if (foilHash) {
             const foilStats = await databaseService.findBestTwoWithStatsAsync(foilHash, colorHash, matchOpts)
-            if (updateBest(foilStats.best, foilStats.second, foilStats.candidateCount, foilStats.totalCount, variant, `${sourceLabel}+foil`, foilStats.fallback)) {
-              addTiming(timings, 'cropHashMatch', matchStart)
-              return
-            }
+            if (updateBest(foilStats.best, foilStats.second, foilStats.candidateCount, foilStats.totalCount, variant, `${sourceLabel}+foil`, foilStats.fallback)) return
           }
           // Dark art fallback: null when mean brightness ≥ 80 (not dark art — skipped).
           if (darkHash) {
             const darkStats = await databaseService.findBestTwoWithStatsAsync(darkHash, colorHash, matchOpts)
-            if (updateBest(darkStats.best, darkStats.second, darkStats.candidateCount, darkStats.totalCount, variant, `${sourceLabel}+dark`, darkStats.fallback)) {
-              addTiming(timings, 'cropHashMatch', matchStart)
-              return
-            }
+            if (updateBest(darkStats.best, darkStats.second, darkStats.candidateCount, darkStats.totalCount, variant, `${sourceLabel}+dark`, darkStats.fallback)) return
           }
         }
-        addTiming(timings, 'cropHashMatch', matchStart)
       }
     }
 
-    const workerHandled = await tryWorkerAttempts()
-
-    if (corners && !workerHandled) {
-      const warpStart = nowMs()
+    if (corners) {
       const imageData = getImageData()
       const warped = warpCard(imageData, corners)
-      addTiming(timings, 'warp', warpStart)
       if (warped) {
-        await tryMatch(warped, 'corners', FAST_PRIMARY_VARIANTS)
+        await tryMatch(warped, trackedFresh ? 'tracked-corners' : 'corners', FAST_PRIMARY_VARIANTS)
         if (shouldExpand()) await tryMatch(warped, 'corners', PRIMARY_CROP_VARIANTS.slice(1))
         if (shouldTryMarginalVariants()) await tryMatch(warped, 'corners', MARGINAL_CROP_VARIANTS)
         // 180° rotation fallback — cards held upside-down on a table are common.
@@ -1440,9 +1410,7 @@ export default function CardScanner({ onMatch, onClose }) {
     // when edge detection misses the card, but disabled in auto-scan (cornersOnly) to
     // prevent false positives from incidental objects in the reticle zone.
     if (!cornersOnly && shouldExpand()) {
-      const reticleStart = nowMs()
       const reticle = cropCardFromReticle(srcCanvas, w, h, window.innerWidth, window.innerHeight)
-      addTiming(timings, 'reticle', reticleStart)
       if (reticle) {
         await tryMatch(reticle, 'reticle', FAST_PRIMARY_VARIANTS)
         if (shouldExpand()) await tryMatch(reticle, 'reticle', PRIMARY_CROP_VARIANTS.slice(1))
@@ -1456,15 +1424,7 @@ export default function CardScanner({ onMatch, onClose }) {
       }
     }
 
-    if (timings) {
-      timings.total = nowMs() - frameStart
-      timings.frames = 1
-    }
-
-    if (!best) {
-      if (!corners) cachedCornersRef.current = null
-      return { status: 'notfound', stage: 'no candidate', best: null, second: null, candidateCount: bestStats.candidateCount, totalCount: bestStats.totalCount, source: bestSource, hasCorners: !!corners, timings }
-    }
+    if (!best) return { status: 'notfound', stage: 'no candidate', best: null, second: null, candidateCount: bestStats.candidateCount, totalCount: bestStats.totalCount, source: bestSource }
 
     const gap = second ? second.distance - best.distance : 256
     const sameNameCluster = !!(best?.name && second?.name && normalizeName(best.name) === normalizeName(second.name))
@@ -1473,40 +1433,44 @@ export default function CardScanner({ onMatch, onClose }) {
       stage: `dist ${best.distance}, gap ${gap}`,
       best, second, gap, sameNameCluster,
       candidateCount: bestStats.candidateCount, totalCount: bestStats.totalCount,
-      variant: bestVariant, source: bestSource, hasCorners: !!corners, timings,
+      variant: bestVariant, source: bestSource,
     }
-  }, [captureFrame, isNative, postScanWorker])
+  }, [captureFrame, isNative])
 
   const handleScan = useCallback(async () => {
-    if (!isReady || scanningRef.current || !mountedRef.current) return
+    if (!isReady || scanning || !mountedRef.current) return
     scanningRef.current = true  // block detection loop before any async OpenCV work
     setScanning(true)
     setScanResult(null)
-    const scanStart = nowMs()
+    const scanStart = Date.now()
     try {
       const votes = new Map()
-      let bestObserved = null
-      const scanTimings = newScanTimings()
+      let bestObserved = null, bestObservedGap = null
+      let bestObservedCandidates = null, bestObservedVariant = null
+      let bestObservedSource = null, bestObservedSameNameCluster = false
+      const frameSummaries = []
       const isAutoScan = autoScanRef.current
       const allowedSets = lockSet && lockedSets.size > 0
         ? new Set([...lockedSets].map(code => String(code).toLowerCase()))
         : null
 
       for (let i = 0; i < STABILITY_SAMPLES; i++) {
-        const result = await scanSingleFrame({ cornersOnly: isAutoScan, allowedSets, useCachedCorners: isAutoScan })
-        mergeTimings(scanTimings, result.timings)
-        const vote = scanResultToVote(result)
-        if (vote && (!bestObserved || vote.best.distance < bestObserved.best.distance)) {
-          bestObserved = vote
+        const result = await scanSingleFrame({ cornersOnly: isAutoScan, allowedSets })
+        frameSummaries.push(result.best ? `${i+1}:${result.best.distance}/${result.gap??'?'}` : `${i+1}:${result.stage}`)
+        if (result.best && (!bestObserved || result.best.distance < bestObserved.distance)) {
+          bestObserved = result.best
+          bestObservedGap = result.second ? result.second.distance - result.best.distance : 256
+          bestObservedCandidates = result.candidateCount
+          bestObservedVariant = result.variant
+          bestObservedSource = result.source
+          bestObservedSameNameCluster = !!result.sameNameCluster
         }
-        if (vote && (result.status === 'found' || vote.best.distance <= MATCH_STRONG_THRESHOLD)) {
-          const prev = votes.get(vote.best.id)
-          if (prev) {
-            const bestBucket = vote.best.distance < prev.best.distance ? vote : prev
-            votes.set(vote.best.id, { ...bestBucket, count: prev.count + 1 })
-          } else {
-            votes.set(vote.best.id, vote)
-          }
+        if (result.status === 'found' && result.best) {
+          const prev = votes.get(result.best.id) ?? { count: 0, best: result.best }
+          votes.set(result.best.id, {
+            count: prev.count + 1,
+            best: result.best.distance < prev.best.distance ? result.best : prev.best,
+          })
         }
         const stableVote = getStableVote(votes)
         if (stableVote?.count >= STABILITY_REQUIRED) break
@@ -1515,38 +1479,28 @@ export default function CardScanner({ onMatch, onClose }) {
       }
 
       const stableVote = getStableVote(votes)
-      const selectedVote = stableVote ?? bestObserved
       const acceptance = shouldAcceptMatch({
-        best: selectedVote?.best,
-        gap: selectedVote?.gap ?? 0,
-        stableCount: selectedVote?.count ?? 0,
-        sameNameCluster: !!selectedVote?.sameNameCluster,
+        best: stableVote?.best ?? bestObserved,
+        gap: bestObservedGap ?? 0,
+        stableCount: stableVote?.count ?? 0,
+        sameNameCluster: bestObservedSameNameCluster,
       })
-      const match = acceptance.accepted ? selectedVote?.best : null
+      const match = acceptance.accepted ? (stableVote?.best ?? bestObserved) : null
 
       if (DEBUG && mountedRef.current) {
-        if (scanTimings) scanTimings.total = nowMs() - scanStart
         setDebugInfo({
-          dist: selectedVote?.best?.distance ?? '-',
-          gap:  selectedVote?.gap ?? '-',
-          src:  selectedVote?.source ?? '-',
-          votes: selectedVote?.count ?? 0,
+          dist: bestObserved?.distance ?? '-',
+          gap:  bestObservedGap ?? '-',
+          src:  bestObservedSource ?? '-',
+          votes: stableVote?.count ?? 0,
           decision: acceptance.reason,
-          worker: scanWorkerStatus,
-          timings: formatTimings(scanTimings),
           name: match?.name ?? '',
         })
       }
 
-      const elapsed = nowMs() - scanStart
+      const elapsed = Date.now() - scanStart
       if (!match) {
-        if (isAutoScan) {
-          autoScanMissFramesRef.current += 1
-          if (autoScanMissFramesRef.current >= AUTOSCAN_LEAVE_MISS_FRAMES) {
-            lastAutoScanSignatureRef.current = null
-            cachedCornersRef.current = null
-          }
-        }
+        if (isAutoScan) lastAutoScanSignatureRef.current = null
         sessionStatsRef.current.attempts++
         sessionStatsRef.current.totalMs += elapsed
         setSessionStatsDisplay({ ...sessionStatsRef.current })
@@ -1559,7 +1513,6 @@ export default function CardScanner({ onMatch, onClose }) {
       sessionStatsRef.current.totalMs += elapsed
       setSessionStatsDisplay({ ...sessionStatsRef.current })
       setScanResult('found')
-      if (isAutoScan) autoScanMissFramesRef.current = 0
       // In auto-scan mode, skip adding if this is the same card as the last scan,
       // even if the matcher flips between different printings of that card while
       // the physical card is still sitting in frame.
@@ -1580,7 +1533,7 @@ export default function CardScanner({ onMatch, onClose }) {
       scanningRef.current = false
       if (mountedRef.current) setScanning(false)
     }
-  }, [isReady, scanSingleFrame, addToPending, onMatch, lockSet, lockedSets, preferFoil, scanWorkerStatus])
+  }, [isReady, scanning, scanSingleFrame, addToPending, onMatch, lockSet, lockedSets, preferFoil])
 
   // ── Auto-scan loop ────────────────────────────────────────────────────────
   // Re-runs whenever scanning goes idle. Schedules the next handleScan() call
@@ -1660,6 +1613,7 @@ export default function CardScanner({ onMatch, onClose }) {
     }, 220)
   }, [closing, onClose])
 
+  const CORNER_ROTATIONS = [0, 90, 180, 270]
   const startupPhaseTitle = errorMsg
     ? 'Scanner startup failed'
     : ({
@@ -1834,6 +1788,14 @@ export default function CardScanner({ onMatch, onClose }) {
           </div>
         )}
 
+        {/* Targeting reticle */}
+        <div className={styles.frameReticle} aria-hidden="true">
+          <span className={`${styles.reticleCorner} ${styles.reticleCornerTl}`} />
+          <span className={`${styles.reticleCorner} ${styles.reticleCornerTr}`} />
+          <span className={`${styles.reticleCorner} ${styles.reticleCornerBr}`} />
+          <span className={`${styles.reticleCorner} ${styles.reticleCornerBl}`} />
+        </div>
+
         {pendingCards.length > 0 && (
           <div className={styles.scannedValueBadge}>
             <span className={styles.scannedValueBadgeLabel}>Scanned Value</span>
@@ -1842,6 +1804,29 @@ export default function CardScanner({ onMatch, onClose }) {
             </span>
           </div>
         )}
+
+        {/* Idle ring — visible while scanning with no card detected */}
+        {!detectedCorners && !preparing && (
+          <div className={styles.scanIdleRing} aria-hidden="true" />
+        )}
+
+        {/* Tracking frame SVG — corners snap to detected card at ~15fps */}
+        <svg className={styles.trackingOverlay} aria-hidden="true">
+          {detectedCorners && (
+            <polygon
+              className={`${styles.trackingPoly} ${scanResult === 'found' ? styles.trackingPolyMatch : ''}`}
+              points={detectedCorners.map(p => `${p.x},${p.y}`).join(' ')}
+            />
+          )}
+          {detectedCorners && detectedCorners.map((pt, i) => (
+            <g key={i}
+              className={`${styles.trackingCornerGroup} ${scanResult === 'found' ? styles.trackingCornerMatch : ''} ${scanning ? styles.trackingCornerScanning : ''}`}
+              style={{ transform: `translate(${pt.x}px, ${pt.y}px) rotate(${CORNER_ROTATIONS[i]}deg)` }}
+            >
+              <path d="M0,0 L16,0 M0,0 L0,16" className={styles.trackingCorner} />
+            </g>
+          ))}
+        </svg>
 
         {/* Status elements fixed at frame center — spinner, scan line, set lock badge */}
         <div className={styles.frameCenterContent}>
@@ -1868,13 +1853,11 @@ export default function CardScanner({ onMatch, onClose }) {
         {DEBUG && debugInfo && (
           <div className={styles.debugStrip}>
             {debugInfo.dist}d {debugInfo.gap}g {debugInfo.src} {debugInfo.votes}v | {debugInfo.decision}{debugInfo.name ? ` - ${debugInfo.name}` : ''}
-            {debugInfo.worker ? ` | worker:${debugInfo.worker}` : ''}
-            {debugInfo.timings ? ` | ${debugInfo.timings}` : ''}
           </div>
         )}
         {DEBUG && !debugInfo && (
           <div className={styles.debugStrip}>
-            hashes: {cardCount.toLocaleString()} {databaseService.isFullyLoaded ? 'yes' : '...'} | CV: {cvReady ? 'yes' : '...'} | DB: {dbReady ? 'yes' : '...'} | worker:{scanWorkerStatus}
+            hashes: {cardCount.toLocaleString()} {databaseService.isFullyLoaded ? 'yes' : '...'} | CV: {cvReady ? 'yes' : '...'} | DB: {dbReady ? 'yes' : '...'}
           </div>
         )}
 
@@ -2370,6 +2353,20 @@ export default function CardScanner({ onMatch, onClose }) {
               <span className={styles.toggleThumb} />
             </button>
           </div>
+
+          {isNative && (
+            <div className={styles.settingsRow}>
+              <div className={styles.settingsRowLabel}>
+                <span className={styles.settingsRowTitle}>Card tracking frame</span>
+                <span className={styles.settingsRowDesc}>Show the live corner frame around detected cards</span>
+              </div>
+              <button role="switch" aria-checked={nativeCornerTracking}
+                className={`${styles.toggle} ${nativeCornerTracking ? styles.toggleOn : ''}`}
+                onClick={() => setNativeCornerTracking(v => !v)}>
+                <span className={styles.toggleThumb} />
+              </button>
+            </div>
+          )}
 
           <div className={styles.settingsRow}>
             <div className={styles.settingsRowLabel}>

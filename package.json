@@ -8,7 +8,6 @@
     "build": "vite build",
     "preview": "vite preview",
     "postinstall": "node scripts/patch-camera-preview.js",
-    "benchmark:scanner-hash": "node scripts/benchmark-scanner-hash.mjs",
     "sync:prices": "node scripts/sync-card-prices.mjs",
     "sync": "npm run build && npx cap sync",
     "sync:android": "npm run build && npx cap sync android",

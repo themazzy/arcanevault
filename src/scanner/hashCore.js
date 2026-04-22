@@ -216,36 +216,6 @@ export function computeHashFromGray(grayU8) {
 }
 
 /**
- * Benchmark-only median-threshold variant of computeHashFromGray.
- * Do not use for runtime scanning unless card_hashes is reseeded with the same algorithm.
- */
-export function computeHashFromGrayMedian(grayU8) {
-  if (grayU8.length !== 1024) throw new Error(`Expected 1024 gray pixels, got ${grayU8.length}`)
-
-  const capped = percentileCap(grayU8, 0.98)
-  const equalized = applyCLAHE(capped, 32, 32, 4, 4)
-
-  const pixels = new Float64Array(1024)
-  for (let i = 0; i < 1024; i++) pixels[i] = equalized[i]
-
-  const dct = dct2d(pixels, 32)
-
-  const coeffs = new Float64Array(256)
-  for (let y = 0; y < 16; y++)
-    for (let x = 0; x < 16; x++)
-      coeffs[y * 16 + x] = dct[y * 32 + x]
-
-  const sorted = Array.from(coeffs.slice(1)).sort((a, b) => a - b)
-  const median = sorted[Math.floor(sorted.length / 2)]
-
-  const hash = new Uint32Array(8)
-  for (let i = 0; i < 256; i++) {
-    if (coeffs[i] > median) hash[i >>> 5] |= 1 << (i & 31)
-  }
-  return hash
-}
-
-/**
  * Variant of computeHashFromGray with aggressive glare suppression (percentileCap 0.92).
  * Used as a fallback when the standard hash scores poorly — helps foil cards under
  * uneven lighting where specular hotspots dominate more than 2% of the art pixels.
