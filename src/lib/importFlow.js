@@ -29,6 +29,8 @@ function makeImportKey(entry) {
     entry.language || 'en',
     entry.condition || 'near_mint',
     entry.sourceLocation || '',
+    entry.board || 'main',
+    entry.isCommander ? 'commander' : '',
   ].join('|')
 }
 
@@ -49,6 +51,8 @@ function mergeEntries(entries) {
       condition: entry.condition || 'near_mint',
       language: entry.language || 'en',
       sourceLocation: entry.sourceLocation || null,
+      board: entry.board || 'main',
+      isCommander: !!entry.isCommander,
       lineNumber: entry.lineNumber || null,
     }
 

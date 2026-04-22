@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
@@ -29,6 +30,26 @@ import { ListViewIcon, StacksViewIcon, GridViewIcon, SettingsIcon } from '../ico
 import { lastInputWasTouch } from '../lib/inputType'
 
 const CAN_HOVER = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover) and (pointer: fine)').matches
+const BOARD_ORDER = ['main', 'side', 'maybe']
+const BOARD_LABELS = {
+  main: 'Mainboard',
+  side: 'Sideboard',
+  maybe: 'Maybeboard',
+}
+const BOARD_FILTERS = [
+  { id: 'all', label: 'All' },
+  { id: 'main', label: 'Main' },
+  { id: 'side', label: 'Side' },
+  { id: 'maybe', label: 'Maybe' },
+]
+
+function normalizeBoard(board) {
+  return BOARD_ORDER.includes(board) ? board : 'main'
+}
+
+function normalizeCardName(name) {
+  return String(name || '').trim().toLowerCase()
+}
 
 // Upgrade a Scryfall CDN image to large quality regardless of stored size variant
 function toLargeImg(uri) {
@@ -214,11 +235,47 @@ function canBeCommander(dc) {
 }
 
 // ── Edit dropdown (⚙) shared by list + compact views ─────────────────────────
-function EditMenu({ dc, isEDH, onSetCommander, onToggleFoil, onPickVersion }) {
+function DeckCardActionsMenuBody({ dc, isEDH, onSetCommander, onToggleFoil, onPickVersion, onMoveBoard, close }) {
+  const currentBoard = normalizeBoard(dc.board)
+  const boardOptions = BOARD_ORDER.filter(board => board !== currentBoard && !(dc.is_commander && board !== 'main'))
+  return (
+    <div className={uiStyles.responsiveMenuList}>
+      {isEDH && dc.is_commander && (
+        <button className={uiStyles.responsiveMenuAction} onClick={() => { onSetCommander(dc, false); close() }}>
+          <span>Unset as Commander</span>
+        </button>
+      )}
+      {isEDH && !dc.is_commander && canBeCommander(dc) && (
+        <button className={uiStyles.responsiveMenuAction} onClick={() => { onSetCommander(dc, true); close() }}>
+          <span>Set as Commander</span>
+        </button>
+      )}
+      {boardOptions.map(board => (
+        <button key={board} className={uiStyles.responsiveMenuAction} onClick={() => { onMoveBoard?.(dc.id, board); close() }}>
+          <span>Move to {BOARD_LABELS[board]}</span>
+        </button>
+      ))}
+      <button className={uiStyles.responsiveMenuAction} onClick={() => { onToggleFoil(dc.id); close() }}>
+        <span>{dc.foil ? 'Remove Foil' : 'Mark as Foil'}</span>
+      </button>
+      <button className={uiStyles.responsiveMenuAction} onClick={() => { onPickVersion(dc); close() }}>
+        <span>Change Version</span>
+      </button>
+      {dc.qty > 1 && (
+        <button className={uiStyles.responsiveMenuAction} onClick={() => { onPickVersion(dc, { splitOne: true }); close() }}>
+          <span>Split 1x To Other Version</span>
+        </button>
+      )}
+    </div>
+  )
+}
+
+/*
   return (
     <ResponsiveMenu
       title="Card Actions"
       wrapClassName={styles.editMenuCell}
+      portal
       trigger={({ toggle }) => (
         <button
           className={styles.editBtn}
@@ -239,6 +296,11 @@ function EditMenu({ dc, isEDH, onSetCommander, onToggleFoil, onPickVersion }) {
               <span>♛ Set as Commander</span>
             </button>
           )}
+          {boardOptions.map(board => (
+            <button key={board} className={uiStyles.responsiveMenuAction} onClick={() => { onMoveBoard?.(dc.id, board); close() }}>
+              <span>Move to {BOARD_LABELS[board]}</span>
+            </button>
+          ))}
           <button className={uiStyles.responsiveMenuAction} onClick={() => { onToggleFoil(dc.id); close() }}>
             <span>{dc.foil ? '✦ Remove Foil' : '◇ Mark as Foil'}</span>
           </button>
@@ -257,10 +319,40 @@ function EditMenu({ dc, isEDH, onSetCommander, onToggleFoil, onPickVersion }) {
 }
 
 // ── Deck card row in right panel ──────────────────────────────────────────────
-function DeckCardRow({ dc, ownedQty, ownedFoilAlt, ownedAlt, ownedInDeck, inCollDeck, onChangeQty, onRemove, onMouseEnter, onMouseLeave, onMouseMove, onPickVersion, onToggleFoil, onSetCommander, isEDH, visibleColumns, listGridTemplate }) {
+*/
+function EditMenu({ dc, isEDH, onSetCommander, onToggleFoil, onPickVersion, onMoveBoard }) {
+  return (
+    <ResponsiveMenu
+      title="Card Actions"
+      wrapClassName={styles.editMenuCell}
+      portal
+      trigger={({ toggle }) => (
+        <button
+          className={styles.editBtn}
+          onClick={e => { e.stopPropagation(); toggle() }}
+          title="Edit"
+        ><SettingsIcon size={13} /></button>
+      )}
+    >
+      {({ close }) => (
+        <DeckCardActionsMenuBody
+          dc={dc}
+          isEDH={isEDH}
+          onSetCommander={onSetCommander}
+          onToggleFoil={onToggleFoil}
+          onPickVersion={onPickVersion}
+          onMoveBoard={onMoveBoard}
+          close={close}
+        />
+      )}
+    </ResponsiveMenu>
+  )
+}
+
+function DeckCardRow({ dc, ownedQty, ownedFoilAlt, ownedAlt, ownedInDeck, inCollDeck, onChangeQty, onRemove, onMouseEnter, onMouseLeave, onMouseMove, onContextMenu, onPickVersion, onToggleFoil, onSetCommander, onMoveBoard, isEDH, visibleColumns, listGridTemplate }) {
   const setLabel = dc.set_code ? `${String(dc.set_code).toUpperCase()}${dc.collector_number ? ` #${dc.collector_number}` : ''}` : '—'
   return (
-    <div className={`${styles.deckCardRow}${dc.is_commander ? ' ' + styles.isCommander : ''}`} style={{ '--deck-list-columns': listGridTemplate }}>
+    <div className={`${styles.deckCardRow}${dc.is_commander ? ' ' + styles.isCommander : ''}`} style={{ '--deck-list-columns': listGridTemplate }} onContextMenu={onContextMenu}>
       <div className={styles.deckCardLeft}>
         {dc.image_uri
           ? <img className={styles.deckThumb} src={dc.image_uri} alt="" loading="lazy" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove} />
@@ -275,7 +367,7 @@ function DeckCardRow({ dc, ownedQty, ownedFoilAlt, ownedAlt, ownedInDeck, inColl
           <OwnershipBadge ownedQty={ownedQty} ownedFoilAlt={ownedFoilAlt} ownedAlt={ownedAlt} ownedInDeck={ownedInDeck} inCollDeck={inCollDeck} />
         </div>
       )}
-      {visibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} />}
+      {visibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} />}
       {visibleColumns.qty && (
         <div className={styles.qtyControls}>
           <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, -1)}>−</button>
@@ -290,13 +382,13 @@ function DeckCardRow({ dc, ownedQty, ownedFoilAlt, ownedAlt, ownedInDeck, inColl
 
 function DeckCardRowV2({
   dc, ownedQty, ownedFoilAlt, ownedAlt, ownedInDeck, inCollDeck,
-  onChangeQty, onRemove, onMouseEnter, onMouseLeave, onMouseMove,
-  onPickVersion, onToggleFoil, onSetCommander, isEDH,
+  onChangeQty, onRemove, onMouseEnter, onMouseLeave, onMouseMove, onContextMenu,
+  onPickVersion, onToggleFoil, onSetCommander, onMoveBoard, isEDH,
   visibleColumns, listGridTemplate, priceLabel, onOpenDetail,
 }) {
   const setLabel = dc.set_code ? `${String(dc.set_code).toUpperCase()}${dc.collector_number ? ` #${dc.collector_number}` : ''}` : '—'
   return (
-    <div className={`${styles.deckCardRow}${dc.is_commander ? ' ' + styles.isCommander : ''}`} style={{ '--deck-list-columns': listGridTemplate }}>
+    <div className={`${styles.deckCardRow}${dc.is_commander ? ' ' + styles.isCommander : ''}`} style={{ '--deck-list-columns': listGridTemplate }} onContextMenu={onContextMenu}>
       <div className={styles.deckCardLeft} style={{ cursor: 'pointer' }} onClick={() => onOpenDetail?.(dc)}>
         {dc.image_uri
           ? <img className={styles.deckThumb} src={dc.image_uri} alt="" loading="lazy" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove} />
@@ -314,7 +406,7 @@ function DeckCardRowV2({
           <OwnershipBadge ownedQty={ownedQty} ownedFoilAlt={ownedFoilAlt} ownedAlt={ownedAlt} ownedInDeck={ownedInDeck} inCollDeck={inCollDeck} />
         </div>
       )}
-      {visibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} />}
+      {visibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} />}
       {visibleColumns.qty && (
         <div className={styles.qtyControls}>
           <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, -1)}>−</button>
@@ -381,7 +473,7 @@ function ComboCardThumb({ name, inDeck, existingUri, onAdd, onOpenDetail }) {
             {adding ? '…' : '+ Add'}
           </button>
         )}
-      </div>
+        </div>
       <div style={{ fontSize: '0.64rem', color: inDeck ? 'var(--text-faint)' : '#e08878', textAlign: 'center', maxWidth: 110, lineHeight: 1.2, wordBreak: 'break-word' }}>
         {inDeck ? name : `⊕ ${name}`}
       </div>
@@ -810,7 +902,7 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
       ])
       const collMap = new Map()
       for (const row of allocations || []) collMap.set(row.card_id, row)
-      const builderCards = deckCards.filter(dc => dc.board !== 'side')
+      const builderCards = deckCards.filter(dc => normalizeBoard(dc.board) !== 'maybe')
       const allocationMatchesDeckCard = (dc, row) => {
         if (dc.scryfall_id && row.scryfall_id) return dc.scryfall_id === row.scryfall_id && !!dc.foil === !!row.foil
         return (dc.name || '').trim().toLowerCase() === (row.name || '').trim().toLowerCase() && !!dc.foil === !!row.foil
@@ -1381,6 +1473,7 @@ export default function DeckBuilderPage() {
 
   // Card detail modal (read-only, used throughout the builder)
   const [detailCard, setDetailCard] = useState(null) // { card, sfCard }
+  const [contextMenu, setContextMenu] = useState(null) // { dc, x, y }
 
   // Search
   const [searchQuery,   setSearchQuery]   = useState('')
@@ -1422,18 +1515,24 @@ export default function DeckBuilderPage() {
   const [deckGameResultsLoaded,  setDeckGameResultsLoaded]  = useState(false)
   const [deckView,    setDeckView]    = useState('list')   // 'list' | 'compact' | 'grid'
   const [showRight, setShowRight] = useState(false)
+  const [leftCollapsed, setLeftCollapsed] = useState(false)
   const [deckSort,    setDeckSort]    = useState('type')   // 'name' | 'cmc' | 'color' | 'type'
   const [groupByType, setGroupByType] = useState(default_grouping !== 'none')
   const [visibleColumns, setVisibleColumns] = useState(DEFAULT_LIST_COLUMNS)
   const [compactVisibleColumns, setCompactVisibleColumns] = useState(DEFAULT_COMPACT_COLUMNS)
   const [builderSfMap, setBuilderSfMap] = useState({})
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
+  const [deckSearch, setDeckSearch] = useState('')
+  const [boardFilter, setBoardFilter] = useState('all')
+  const [warningsOpen, setWarningsOpen] = useState(false)
+  const [syncStatus, setSyncStatus] = useState({ loading: false, dirty: false, count: 0, unavailable: false })
 
   // Combos (Commander Spellbook)
   const [combosIncluded, setCombosIncluded] = useState([])
   const [combosAlmost,   setCombosAlmost]   = useState([])
   const [combosLoading,  setCombosLoading]  = useState(false)
   const [combosFetched,  setCombosFetched]  = useState(false)
+  const [comboSectionsOpen, setComboSectionsOpen] = useState({ complete: true, incomplete: true })
 
   // Import
   const [showImport,    setShowImport]    = useState(false)
@@ -1721,6 +1820,7 @@ export default function DeckBuilderPage() {
   const isEDH          = format?.isEDH ?? false
   const commanderCards = useMemo(() => deckCards.filter(dc => dc.is_commander), [deckCards])
   const commanderCard  = commanderCards[0] ?? null
+  const mainDeckCards  = useMemo(() => deckCards.filter(dc => normalizeBoard(dc.board) === 'main'), [deckCards])
 
   // Auto-collapse format/commander section on mobile once commander is set
   useEffect(() => {
@@ -1767,6 +1867,67 @@ export default function DeckBuilderPage() {
 
   const isCollectionDeck = deck?.type === 'deck'
 
+  const deckWarnings = useMemo(() => {
+    const warnings = []
+    const playableCards = deckCards.filter(dc => normalizeBoard(dc.board) !== 'maybe')
+    const mainQty = mainDeckCards.reduce((sum, dc) => sum + (dc.qty || 0), 0)
+    const sideQty = deckCards.filter(dc => normalizeBoard(dc.board) === 'side').reduce((sum, dc) => sum + (dc.qty || 0), 0)
+    const maybeQty = deckCards.filter(dc => normalizeBoard(dc.board) === 'maybe').reduce((sum, dc) => sum + (dc.qty || 0), 0)
+    const formatId = format?.id || 'commander'
+
+    if (mainQty > deckSize) warnings.push({ key: 'size-over', level: 'error', text: `Mainboard has ${mainQty}/${deckSize} cards.` })
+    if (mainQty < deckSize) warnings.push({ key: 'size-under', level: 'info', text: `Mainboard has ${mainQty}/${deckSize} cards.` })
+    if (isEDH && commanderCards.length === 0) warnings.push({ key: 'no-commander', level: 'error', text: 'Commander format needs a commander.' })
+    if (isEDH && commanderCards.length > 2) warnings.push({ key: 'too-many-commanders', level: 'error', text: `${commanderCards.length} commanders are marked.` })
+    if (isEDH && sideQty > 0) warnings.push({ key: 'sideboard-edh', level: 'info', text: `Sideboard has ${sideQty} card${sideQty === 1 ? '' : 's'} and sync includes it, but Commander deck stats and combos ignore it.` })
+    if (maybeQty > 0) warnings.push({ key: 'maybeboard', level: 'info', text: `Maybeboard has ${maybeQty} card${maybeQty === 1 ? '' : 's'} and is ignored by stats, combos, and collection sync.` })
+
+    if (isEDH && colorIdentity.length > 0) {
+      for (const dc of playableCards) {
+        if (dc.is_commander) continue
+        const outside = (dc.color_identity || []).filter(color => !colorIdentity.includes(color))
+        if (outside.length) warnings.push({ key: `color:${dc.id}`, level: 'error', text: `${dc.name} is outside commander color identity (${outside.join('')}).` })
+      }
+    }
+
+    const nameQty = new Map()
+    for (const dc of playableCards) {
+      const name = normalizeCardName(dc.name)
+      if (!name) continue
+      nameQty.set(name, (nameQty.get(name) || 0) + (dc.qty || 0))
+    }
+    if (isEDH) {
+      for (const [name, qty] of nameQty) {
+        if (qty <= 1) continue
+        const sample = playableCards.find(dc => normalizeCardName(dc.name) === name)
+        const typeLine = String(sample?.type_line || '').toLowerCase()
+        if (!typeLine.includes('basic land')) {
+          warnings.push({ key: `duplicate:${name}`, level: 'error', text: `${sample?.name || name} has ${qty} copies in a singleton format.` })
+        }
+      }
+    }
+
+    let unknownLegalityCount = 0
+    for (const dc of playableCards) {
+      const sf = dc.set_code && dc.collector_number ? builderSfMap[`${dc.set_code}-${dc.collector_number}`] : null
+      const legality = sf?.legalities?.[formatId]
+      if (!sf?.legalities) {
+        unknownLegalityCount += 1
+        continue
+      }
+      if (legality === 'not_legal' || legality === 'banned') {
+        warnings.push({ key: `legality:${dc.id}`, level: 'error', text: `${dc.name} is ${legality.replace('_', ' ')} in ${format?.label || formatId}.` })
+      } else if (legality === 'restricted' && (dc.qty || 0) > 1) {
+        warnings.push({ key: `restricted:${dc.id}`, level: 'error', text: `${dc.name} is restricted in ${format?.label || formatId}.` })
+      }
+    }
+    if (unknownLegalityCount > 0) {
+      warnings.push({ key: 'unknown-legality', level: 'info', text: `Legality data is unavailable for ${unknownLegalityCount} card${unknownLegalityCount === 1 ? '' : 's'}.` })
+    }
+
+    return warnings
+  }, [builderSfMap, colorIdentity, commanderCards, deckCards, deckSize, format, isEDH, mainDeckCards])
+
   // Open card detail modal from a deck_card or Scryfall card object
   const openDeckCardDetail = useCallback((dc) => {
     setDetailCard({ card: dc, sfCard: null })
@@ -1778,6 +1939,10 @@ export default function DeckBuilderPage() {
       card: { scryfall_id: c.id, set_code: c.set, collector_number: c.collector_number, name: c.name, qty: 1, foil: false },
       sfCard: c,
     })
+  }, [])
+
+  const toggleComboSection = useCallback((section) => {
+    setComboSectionsOpen(prev => ({ ...prev, [section]: !prev[section] }))
   }, [])
 
   // Open card detail modal by card name (recs / combos — no scryfall_id available)
@@ -1794,9 +1959,24 @@ export default function DeckBuilderPage() {
   }, [])
 
 
+  const visibleDeckCards = useMemo(() => {
+    const q = deckSearch.trim().toLowerCase()
+    return deckCards.filter(dc => {
+      if (boardFilter !== 'all' && normalizeBoard(dc.board) !== boardFilter) return false
+      if (!q) return true
+      return [
+        dc.name,
+        dc.type_line,
+        dc.mana_cost,
+        dc.set_code,
+        dc.collector_number,
+      ].some(value => String(value || '').toLowerCase().includes(q))
+    })
+  }, [deckCards, deckSearch, boardFilter])
+
   const sortedDeckCards = useMemo(() => {
-    if (deckSort === 'type') return deckCards // type uses grouped rendering
-    const cards = [...deckCards]
+    if (deckSort === 'type') return visibleDeckCards // type uses grouped rendering
+    const cards = [...visibleDeckCards]
     if (deckSort === 'name') return cards.sort((a, b) => a.name.localeCompare(b.name))
     if (deckSort === 'cmc')  return cards.sort((a, b) => (a.cmc ?? 0) - (b.cmc ?? 0) || a.name.localeCompare(b.name))
     if (deckSort === 'color') return cards.sort((a, b) => {
@@ -1804,8 +1984,8 @@ export default function DeckBuilderPage() {
       const cb = (b.color_identity || []).join('')
       return ca.localeCompare(cb) || a.name.localeCompare(b.name)
     })
-    return deckCards
-  }, [deckCards, deckSort])
+    return visibleDeckCards
+  }, [visibleDeckCards, deckSort])
 
   // Combined image map: deck cards + rec images (for combo thumbnails)
   const deckImagesMap = useMemo(() => {
@@ -2052,7 +2232,7 @@ export default function DeckBuilderPage() {
 
     // Check if already in deck (non-foil — this function always adds non-foil cards)
     const existing = deckCards.find(dc =>
-      ((scryfallId && dc.scryfall_id === scryfallId) || dc.name === name) && !dc.foil
+      ((scryfallId && dc.scryfall_id === scryfallId) || dc.name === name) && !dc.foil && normalizeBoard(dc.board) === 'main'
     )
 
     const flashAddFeedback = (cardName, scryfallId, qtyAdded = 1) => {
@@ -2192,16 +2372,55 @@ export default function DeckBuilderPage() {
     await sb.from('deck_cards').update({ foil: newFoil, updated_at: new Date().toISOString() }).eq('id', deckCardId)
   }
 
+  async function moveCardToBoard(deckCardId, board) {
+    const nextBoard = normalizeBoard(board)
+    const card = deckCardsRef.current.find(dc => dc.id === deckCardId)
+    if (!card || normalizeBoard(card.board) === nextBoard) return
+    if (card.is_commander && nextBoard !== 'main') return
+
+    const matchingTarget = deckCardsRef.current.find(dc =>
+      dc.id !== deckCardId &&
+      normalizeBoard(dc.board) === nextBoard &&
+      !!dc.foil === !!card.foil &&
+      ((card.scryfall_id && dc.scryfall_id === card.scryfall_id) ||
+        (!card.scryfall_id && (dc.name || '').toLowerCase() === (card.name || '').toLowerCase()))
+    )
+
+    if (matchingTarget) {
+      const updatedTarget = {
+        ...matchingTarget,
+        qty: (matchingTarget.qty || 0) + (card.qty || 0),
+        updated_at: new Date().toISOString(),
+      }
+      setDeckCards(prev => prev
+        .filter(dc => dc.id !== deckCardId)
+        .map(dc => dc.id === matchingTarget.id ? updatedTarget : dc)
+      )
+      putDeckCards([updatedTarget]).catch(() => {})
+      deleteDeckCardLocal(deckCardId).catch(() => {})
+      await Promise.all([
+        sb.from('deck_cards').update({ qty: updatedTarget.qty, updated_at: updatedTarget.updated_at }).eq('id', matchingTarget.id),
+        sb.from('deck_cards').delete().eq('id', deckCardId),
+      ])
+      return
+    }
+
+    const updated = { ...card, board: nextBoard, updated_at: new Date().toISOString() }
+    setDeckCards(prev => prev.map(dc => dc.id === deckCardId ? updated : dc))
+    putDeckCards([updated]).catch(() => {})
+    await sb.from('deck_cards').update({ board: nextBoard, updated_at: updated.updated_at }).eq('id', deckCardId)
+  }
+
   async function setCardAsCommander(dc, nextIsCommander = true) {
     if (!nextIsCommander) {
       await unsetCommander(dc.id)
       return
     }
     const alreadyHasCmd = deckCardsRef.current.some(c => c.is_commander)
-    const updated = { ...dc, is_commander: true }
+    const updated = { ...dc, is_commander: true, board: 'main' }
     setDeckCards(prev => prev.map(c => c.id === dc.id ? updated : c))
     putDeckCards([updated]).catch(() => {})
-    await sb.from('deck_cards').update({ is_commander: true, updated_at: new Date().toISOString() }).eq('id', dc.id)
+    await sb.from('deck_cards').update({ is_commander: true, board: 'main', updated_at: new Date().toISOString() }).eq('id', dc.id)
     // Update deck meta
     const newMeta = alreadyHasCmd
       ? { ...deckMeta, partnerName: dc.name, partnerScryfallId: dc.scryfall_id }
@@ -2257,7 +2476,7 @@ export default function DeckBuilderPage() {
     try {
       const body = {
         commanders: commanderCard ? [{ card: commanderCard.name }] : [],
-        main: deckCards.filter(dc => !dc.is_commander).map(dc => ({ card: dc.name })),
+        main: deckCards.filter(dc => !dc.is_commander && normalizeBoard(dc.board) === 'main').map(dc => ({ card: dc.name })),
       }
       // Dev: use Vite proxy (spoof Origin). Prod: use Supabase Edge Function.
       const combosUrl = import.meta.env.DEV
@@ -2341,7 +2560,7 @@ export default function DeckBuilderPage() {
           qty:              entry.qty,
           foil:             entry.foil ?? false,
           is_commander:     isCmd,
-          board:            entry.board || 'main',
+          board:            isCmd ? 'main' : normalizeBoard(entry.board),
           created_at:       now,
           updated_at:       now,
         })
@@ -2359,8 +2578,15 @@ export default function DeckBuilderPage() {
 
       setDeckCards(prev => [...prev, ...newRows])
       const importedCopies = newRows.reduce((sum, row) => sum + (row.qty || 0), 0)
+      const boardSummary = BOARD_ORDER
+        .map(board => {
+          const qty = newRows.filter(row => normalizeBoard(row.board) === board).reduce((sum, row) => sum + (row.qty || 0), 0)
+          return qty ? `${qty} ${BOARD_LABELS[board].toLowerCase()}` : null
+        })
+        .filter(Boolean)
+        .join(', ')
       const skipped = missedRows.length ? `, skipped ${missedRows.length} unresolved row${missedRows.length !== 1 ? 's' : ''}` : ''
-      setImportDone(`Imported ${importedCopies} card${importedCopies !== 1 ? 's' : ''}${skipped}`)
+      setImportDone(`Imported ${importedCopies} card${importedCopies !== 1 ? 's' : ''}${boardSummary ? ` (${boardSummary})` : ''}${skipped}`)
       setImportUrl('')
       setImportText('')
     } catch (err) {
@@ -2464,6 +2690,40 @@ export default function DeckBuilderPage() {
     setHoverImages([])
   }
 
+  const closeContextMenu = useCallback(() => setContextMenu(null), [])
+
+  const openDeckCardContextMenu = useCallback((dc, e) => {
+    if (!CAN_HOVER || lastInputWasTouch) return
+    e.preventDefault()
+    e.stopPropagation()
+    clearHoverPreview()
+
+    const menuWidth = 240
+    const menuHeight = dc.qty > 1 ? 280 : 236
+    const gap = 8
+    const x = Math.min(Math.max(gap, e.clientX), Math.max(gap, window.innerWidth - menuWidth - gap))
+    const y = Math.min(Math.max(gap, e.clientY), Math.max(gap, window.innerHeight - menuHeight - gap))
+    setContextMenu({ dc, x, y })
+  }, [])
+
+  useEffect(() => {
+    if (!contextMenu) return
+    const close = () => setContextMenu(null)
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') close()
+    }
+    document.addEventListener('mousedown', close)
+    document.addEventListener('scroll', close, true)
+    window.addEventListener('resize', close)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      document.removeEventListener('scroll', close, true)
+      window.removeEventListener('resize', close)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [contextMenu])
+
   function getAllocationDeckId() {
     return isCollectionDeck ? deckId : (deckMeta.linked_deck_id || null)
   }
@@ -2484,6 +2744,53 @@ export default function DeckBuilderPage() {
         .flatMap(row => deckAllocationKeys(row))
     ))
   }
+
+  useEffect(() => {
+    const targetDeckId = getAllocationDeckId()
+    if (!targetDeckId || !user?.id) {
+      setSyncStatus({ loading: false, dirty: false, count: 0, unavailable: true })
+      return
+    }
+
+    let cancelled = false
+    const timer = setTimeout(async () => {
+      setSyncStatus(prev => ({ ...prev, loading: true, unavailable: false }))
+      try {
+        const { data, error } = await sb
+          .from('deck_allocations_view')
+          .select('scryfall_id,name,foil,qty')
+          .eq('deck_id', targetDeckId)
+        if (error) throw error
+
+        const makeKey = (row) => row.scryfall_id
+          ? `sf:${row.scryfall_id}|${row.foil ? '1' : '0'}`
+          : `name:${normalizeCardName(row.name)}|${row.foil ? '1' : '0'}`
+        const desired = new Map()
+        for (const dc of deckCards.filter(card => normalizeBoard(card.board) !== 'maybe')) {
+          const key = makeKey(dc)
+          desired.set(key, (desired.get(key) || 0) + (dc.qty || 0))
+        }
+        const current = new Map()
+        for (const row of data || []) {
+          const key = makeKey(row)
+          current.set(key, (current.get(key) || 0) + (row.qty || 0))
+        }
+        const keys = new Set([...desired.keys(), ...current.keys()])
+        let count = 0
+        for (const key of keys) {
+          if ((desired.get(key) || 0) !== (current.get(key) || 0)) count += 1
+        }
+        if (!cancelled) setSyncStatus({ loading: false, dirty: count > 0, count, unavailable: false })
+      } catch {
+        if (!cancelled) setSyncStatus({ loading: false, dirty: false, count: 0, unavailable: true })
+      }
+    }, 300)
+
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [deckCards, deckMeta.linked_deck_id, deckId, isCollectionDeck, user?.id])
 
   function matchesAllocationRow(dc, row) {
     const sameF = (dc.foil ?? false) === (row.foil ?? false)
@@ -2862,6 +3169,7 @@ export default function DeckBuilderPage() {
 
       setDeck(prev => ({ ...prev, type: 'deck' }))
       await refreshAllocationIndicators(deckId)
+      setSyncStatus({ loading: false, dirty: false, count: 0, unavailable: false })
 
       const addCount = addItems.reduce((s, i) => s + i.totalAdd, 0)
       const misCount = missingItems.reduce((s, i) => s + i.missingQty, 0)
@@ -2947,6 +3255,7 @@ export default function DeckBuilderPage() {
       }
 
       await refreshAllocationIndicators(targetDeckId)
+      setSyncStatus({ loading: false, dirty: false, count: 0, unavailable: false })
       setSyncMsg('Sync complete')
       setSyncDone(true)
     } catch (err) {
@@ -2967,7 +3276,7 @@ export default function DeckBuilderPage() {
   )
 
   return (
-    <div className={`${styles.page}${showRight ? ' ' + styles.showRight : ''}`}>
+    <div className={`${styles.page}${showRight ? ' ' + styles.showRight : ''}${leftCollapsed ? ' ' + styles.leftCollapsed : ''}`}>
       {/* Mobile two-tab toggle */}
       <div className={styles.mobilePanelToggle}>
         <button
@@ -2981,57 +3290,93 @@ export default function DeckBuilderPage() {
       </div>
 
       <div className={styles.deckHeader}>
-        <input
-          className={styles.deckNameInput}
-          value={deckName}
-          onChange={e => setDeckName(e.target.value)}
-          onBlur={saveNameBlur}
-        />
-        <div className={styles.deckMeta}>
-          {saving && <span className={styles.savingDot} />}
+        <div className={styles.deckTitleBlock}>
+          <input
+            className={styles.deckNameInput}
+            value={deckName}
+            onChange={e => setDeckName(e.target.value)}
+            onBlur={saveNameBlur}
+          />
+          <div className={styles.deckMeta}>
+            <span>{format?.label ?? 'Deck'}</span>
+            <span>·</span>
+            <span>{deckMeta.is_public ? 'Public' : 'Private'}</span>
+            {saving && <span className={styles.savingDot} />}
+          </div>
         </div>
         <div className={styles.headerActions}>
           {(isCollectionDeck || deckMeta.linked_deck_id) && (
             <button className={styles.headerBtnPrimary} onClick={() => setShowSync(true)} disabled={syncRunning} title="Sync collection">
               <span className={styles.btnIcon}>{syncRunning ? '…' : '↺'}</span>
-              <span className={styles.btnLabel}>{syncRunning ? 'Syncing...' : 'Sync'}</span>
+              <span className={styles.btnLabel}>{syncRunning ? 'Syncing...' : syncStatus.dirty ? `Sync ${syncStatus.count}` : 'Synced'}</span>
             </button>
           )}
-          <button className={styles.headerBtn} onClick={() => { setShowImport(true); setImportDone(null); setImportError(null) }} title="Import decklist">
-            <span className={styles.btnIcon}>↓</span>
-            <span className={styles.btnLabel}>Import</span>
-          </button>
-          <button className={styles.headerBtn} onClick={() => setShowExport(true)} title="Export decklist">
-            <span className={styles.btnIcon}>↑</span>
-            <span className={styles.btnLabel}>Export</span>
-          </button>
-          <button
-            className={styles.headerBtn}
-            onClick={() => {
-              navigator.clipboard.writeText(getPublicAppUrl(`/d/${deckId}`))
-              setShareCopied(true)
-              setTimeout(() => setShareCopied(false), 2000)
-            }}
-            title="Copy shareable link"
+          <ResponsiveMenu
+            title="Deck Actions"
+            wrapClassName={styles.headerActionsMenu}
+            align="right"
+            trigger={({ toggle }) => (
+              <button className={styles.headerBtn} onClick={toggle} title="Deck actions">
+                <span className={styles.btnLabel}>Deck Actions</span>
+              </button>
+            )}
           >
-            <span className={styles.btnIcon}>{shareCopied ? '✓' : '⎘'}</span>
-            <span className={styles.btnLabel}>{shareCopied ? 'Copied' : 'Share'}</span>
-          </button>
+            {({ close }) => (
+              <div className={uiStyles.responsiveMenuList}>
+                <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowImport(true); setImportDone(null); setImportError(null); close() }}>
+                  <span>Import</span>
+                </button>
+                <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowExport(true); close() }}>
+                  <span>Export</span>
+                </button>
+                <button
+                  className={uiStyles.responsiveMenuAction}
+                  onClick={() => {
+                    navigator.clipboard.writeText(getPublicAppUrl(`/d/${deckId}`))
+                    setShareCopied(true)
+                    setTimeout(() => setShareCopied(false), 2000)
+                    close()
+                  }}
+                >
+                  <span>{shareCopied ? 'Copied Share Link' : 'Share'}</span>
+                </button>
+                <Link className={uiStyles.responsiveMenuAction} to="/builder" onClick={close}>
+                  <span>Back to Decks</span>
+                </Link>
+              </div>
+            )}
+          </ResponsiveMenu>
           {!isCollectionDeck && !deckMeta.linked_deck_id && (
             <button className={styles.headerBtnPrimary} onClick={() => setShowMakeDeck(true)} disabled={makeDeckRunning} title="Make Collection Deck">
               <span className={styles.btnIcon}>{makeDeckRunning ? '…' : '⊕'}</span>
               <span className={styles.btnLabel}>{makeDeckRunning ? 'Creating...' : 'Make Collection Deck'}</span>
             </button>
           )}
-          <Link className={styles.headerLink} to="/builder" title="Back to Decks">
-            <span className={styles.btnIcon}>←</span>
-            <span className={styles.btnLabel}>Back to Decks</span>
-          </Link>
         </div>
       </div>
 
       {/* ── LEFT PANEL ─────────────────────────────────────────── */}
       <div className={styles.left}>
+        <button
+          type="button"
+          className={styles.leftCollapseBtn}
+          onClick={() => setLeftCollapsed(v => !v)}
+          title={leftCollapsed ? 'Expand search panel' : 'Collapse search panel'}
+          aria-label={leftCollapsed ? 'Expand search panel' : 'Collapse search panel'}
+        >
+          {leftCollapsed ? '›' : '‹'}
+        </button>
+        {leftCollapsed && (
+          <button
+            type="button"
+            className={styles.leftRail}
+            onClick={() => setLeftCollapsed(false)}
+            title="Expand search panel"
+          >
+            <span>Search</span>
+          </button>
+        )}
+        <div className={styles.leftContent}>
         {/* Mobile panel toggle — rendered outside the left panel so it stays visible */}
         <div className={styles.leftTop}>
           {/* Mobile toggle for format/commander — hidden on desktop via CSS */}
@@ -3239,6 +3584,7 @@ export default function DeckBuilderPage() {
       </div>
 
       {/* ── RIGHT PANEL ────────────────────────────────────────── */}
+      </div>
       <div className={styles.right}>
         {/* Commander art display — supports partners */}
         {commanderCards.length > 0 && (
@@ -3306,7 +3652,7 @@ export default function DeckBuilderPage() {
         )}
 
         {/* Right panel tab bar */}
-        <div className={styles.tabBar}>
+        <div className={`${styles.tabBar} ${styles.rightTabBar}`}>
           {[
             { id: 'deck',   label: 'Deck',   badge: `${totalCards}/${deckSize}`, over: totalCards > deckSize },
             { id: 'stats',  label: 'Stats',  badge: null },
@@ -3314,7 +3660,7 @@ export default function DeckBuilderPage() {
           ].filter(Boolean).map(({ id, label, badge, over }) => (
             <button
               key={id}
-              className={`${styles.tab}${rightTab === id ? ' ' + styles.tabActive : ''}`}
+              className={`${styles.tab} ${styles.rightTab}${rightTab === id ? ' ' + styles.tabActive : ''}`}
               onClick={() => {
                 setRightTab(id)
                 if (id === 'stats') loadDeckGameResults()
@@ -3334,6 +3680,28 @@ export default function DeckBuilderPage() {
             </button>
           ))}
         </div>
+
+        {deckWarnings.length > 0 && (
+          <div className={styles.warningPanel}>
+            <button className={styles.warningToggle} onClick={() => setWarningsOpen(v => !v)}>
+              <span>{deckWarnings.filter(w => w.level === 'error').length ? 'Deck Warnings' : 'Deck Notes'}</span>
+              <span className={styles.warningCount}>{deckWarnings.length}</span>
+              <span className={`${styles.groupArrow}${!warningsOpen ? ' ' + styles.groupArrowCollapsed : ''}`}>▾</span>
+            </button>
+            {warningsOpen && (
+              <div className={styles.warningList}>
+                {deckWarnings.slice(0, 12).map(w => (
+                  <div key={w.key} className={`${styles.warningItem}${w.level === 'error' ? ' ' + styles.warningItemError : ''}`}>
+                    {w.text}
+                  </div>
+                ))}
+                {deckWarnings.length > 12 && (
+                  <div className={styles.warningItem}>+ {deckWarnings.length - 12} more</div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Deck list tab */}
         {rightTab === 'deck' && (
@@ -3413,14 +3781,42 @@ export default function DeckBuilderPage() {
               </div>
             )}
 
+            {deckCards.length > 0 && (
+              <div className={styles.deckFilterBar}>
+                <input
+                  className={styles.deckSearchInput}
+                  value={deckSearch}
+                  onChange={e => setDeckSearch(e.target.value)}
+                  placeholder="Search deck..."
+                />
+                <div className={styles.boardFilterGroup}>
+                  {BOARD_FILTERS.map(filter => (
+                    <button
+                      key={filter.id}
+                      className={`${styles.boardFilterBtn}${boardFilter === filter.id ? ' ' + styles.boardFilterBtnActive : ''}`}
+                      onClick={() => setBoardFilter(filter.id)}
+                    >
+                      {filter.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {deckCards.length === 0 && (
               <div style={{ color: 'var(--text-faint)', fontSize: '0.85rem', padding: '24px 0', textAlign: 'center' }}>
                 Add cards using the search on the left.
               </div>
             )}
 
-            {/* Render cards — supports all view × sort × group combinations */}
-            {deckCards.length > 0 && (() => {
+            {deckCards.length > 0 && visibleDeckCards.length === 0 && (
+              <div style={{ color: 'var(--text-faint)', fontSize: '0.85rem', padding: '24px 0', textAlign: 'center' }}>
+                No cards match the current deck filters.
+              </div>
+            )}
+
+            {/* Render cards - supports all view x sort x group combinations */}
+            {visibleDeckCards.length > 0 && (() => {
               const deckRowProps = (dc) => {
                 const fkExact = `${dc.scryfall_id}|${dc.foil ? '1' : '0'}`
                 const fkAlt   = `${dc.scryfall_id}|${dc.foil ? '0' : '1'}`
@@ -3436,9 +3832,11 @@ export default function DeckBuilderPage() {
                 onMouseEnter: CAN_HOVER ? e => showHoverPreviewForDeckCard(dc, e) : undefined,
                 onMouseLeave: CAN_HOVER ? () => clearHoverPreview() : undefined,
                 onMouseMove:  CAN_HOVER ? e => setHoverPos({ x: e.clientX, y: e.clientY }) : undefined,
+                onContextMenu: CAN_HOVER ? e => openDeckCardContextMenu(dc, e) : undefined,
                 onPickVersion: (dc, options = {}) => setVersionPickCard({ ...dc, ...options }),
                 onToggleFoil:  toggleFoil,
                 onSetCommander: setCardAsCommander,
+                onMoveBoard: moveCardToBoard,
                 isEDH,
                 visibleColumns,
                 listGridTemplate,
@@ -3450,7 +3848,8 @@ export default function DeckBuilderPage() {
               const renderCard = (dc) => {
                 if (deckView === 'grid') return (
                   <div key={dc.id} className={`${styles.visualCard}${dc.is_commander ? ' '+styles.isCommander : ''}`}
-                    onClick={() => openDeckCardDetail(dc)}>
+                    onClick={() => openDeckCardDetail(dc)}
+                    onContextMenu={CAN_HOVER ? e => openDeckCardContextMenu(dc, e) : undefined}>
                     <div className={styles.visualImgWrap}>
                       {dc.image_uri
                         ? <img src={dc.image_uri} alt={dc.name} className={styles.visualCardImg} loading="lazy" />
@@ -3468,7 +3867,7 @@ export default function DeckBuilderPage() {
                         inCollDeck={allocationSetHas(collDeckSfSet, dc)}
                       />
                       <div className={styles.visualCardControls}>
-                        <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} />
+                        <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} onMoveBoard={moveCardToBoard} />
                         <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, -1) }}>−</button>
                         <span className={styles.visualCardCount}>{dc.qty}</span>
                         <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, +1) }}>+</button>
@@ -3478,7 +3877,7 @@ export default function DeckBuilderPage() {
                   </div>
                 )
                 if (deckView === 'compact') return (
-                  <div key={dc.id} className={`${styles.compactRow}${dc.is_commander ? ' '+styles.isCommander : ''}`}>
+                  <div key={dc.id} className={`${styles.compactRow}${dc.is_commander ? ' '+styles.isCommander : ''}`} onContextMenu={CAN_HOVER ? e => openDeckCardContextMenu(dc, e) : undefined}>
                     <span className={styles.compactQty}>{dc.qty}</span>
                     <span className={styles.compactName}
                       style={{ cursor: 'pointer' }}
@@ -3502,7 +3901,7 @@ export default function DeckBuilderPage() {
                         inCollDeck={allocationSetHas(collDeckSfSet, dc)}
                       />
                     )}
-                    {compactVisibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} />}
+                    {compactVisibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} onMoveBoard={moveCardToBoard} />}
                     {compactVisibleColumns.qty && (
                       <div className={styles.qtyControls}>
                         <button className={styles.qtyBtn} onClick={() => changeQty(dc.id, -1)}>−</button>
@@ -3517,82 +3916,89 @@ export default function DeckBuilderPage() {
                 return <DeckCardRowV2 key={dc.id} {...deckRowProps(dc)} />
               }
 
-              if (groupByType) {
-                // Group sortedDeckCards by type (preserving sort order within groups)
-                const groupMap = new Map(TYPE_GROUPS.map(g => [g, []]))
-                for (const dc of sortedDeckCards) {
-                  const g = dc.is_commander ? 'Commander' : classifyCardType(dc.type_line)
-                  const target = groupMap.has(g) ? g : 'Other'
-                  groupMap.get(target).push(dc)
-                }
-                return TYPE_GROUPS.map(group => {
-                  const cards = groupMap.get(group)
-                  if (!cards?.length) return null
-                  const groupQty = cards.reduce((s, dc) => s + dc.qty, 0)
-                  const collapsed = collapsedGroups.has(group)
-                  return (
-                    <div key={group} className={styles.deckGroup}>
-                      <div
-                        className={styles.groupHeader}
-                        onClick={() => setCollapsedGroups(prev => {
-                          const next = new Set(prev)
-                          next.has(group) ? next.delete(group) : next.add(group)
-                          return next
-                        })}
-                        style={{ cursor: 'pointer' }}
-                      >
-                        <span className={`${styles.groupArrow}${collapsed ? ' ' + styles.groupArrowCollapsed : ''}`}>▾</span>
-                        <span className={styles.groupName}>{group}</span>
-                        <span className={styles.groupCount}>{groupQty}</span>
+              const renderListHeader = () => deckView === 'list' && (
+                <div className={styles.deckListHeader} style={{ '--deck-list-columns': listGridTemplate }}>
+                  <span className={styles.deckListHeaderCard}>Card</span>
+                  {visibleColumns.set && <span className={styles.deckListHeaderSet}>Set</span>}
+                  {visibleColumns.manaValue && <span className={styles.deckListHeaderMetric}>Mana Value</span>}
+                  {visibleColumns.cmc && <span className={styles.deckListHeaderMetric}>CMC</span>}
+                  {visibleColumns.price && <span className={styles.deckListHeaderMetric}>Price</span>}
+                  {visibleColumns.status && <span className={styles.deckListHeaderStatus}>Status</span>}
+                  {visibleColumns.actions && <span className={styles.deckListHeaderActions}>Actions</span>}
+                  {visibleColumns.qty && <span className={styles.deckListHeaderQty}>Qty</span>}
+                  {visibleColumns.remove && <span className={styles.deckListHeaderRemove}>Remove</span>}
+                </div>
+              )
+
+              const renderCardSet = (cards, board) => {
+                if (groupByType) {
+                  const groupMap = new Map(TYPE_GROUPS.map(g => [g, []]))
+                  for (const dc of cards) {
+                    const g = dc.is_commander ? 'Commander' : classifyCardType(dc.type_line)
+                    const target = groupMap.has(g) ? g : 'Other'
+                    groupMap.get(target).push(dc)
+                  }
+                  return TYPE_GROUPS.map(group => {
+                    const groupCards = groupMap.get(group)
+                    if (!groupCards?.length) return null
+                    const groupQty = groupCards.reduce((s, dc) => s + dc.qty, 0)
+                    const collapsedKey = `${board}:${group}`
+                    const collapsed = collapsedGroups.has(collapsedKey)
+                    return (
+                      <div key={collapsedKey} className={styles.deckGroup}>
+                        <div
+                          className={styles.groupHeader}
+                          onClick={() => setCollapsedGroups(prev => {
+                            const next = new Set(prev)
+                            next.has(collapsedKey) ? next.delete(collapsedKey) : next.add(collapsedKey)
+                            return next
+                          })}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          <span className={`${styles.groupArrow}${collapsed ? ' ' + styles.groupArrowCollapsed : ''}`}>▾</span>
+                          <span className={styles.groupName}>{group}</span>
+                          <span className={styles.groupCount}>{groupQty}</span>
+                        </div>
+                        {!collapsed && (deckView === 'grid'
+                          ? <div className={styles.visualGrid} style={{ '--deckbuilder-grid-min': `${visualCardMinWidth}px` }}>{groupCards.map(dc => renderCard(dc))}</div>
+                          : (
+                            <>
+                              {renderListHeader()}
+                              {groupCards.map(dc => renderCard(dc))}
+                            </>
+                          )
+                        )}
                       </div>
-                      {!collapsed && (deckView === 'grid'
-                        ? <div className={styles.visualGrid} style={{ '--deckbuilder-grid-min': `${visualCardMinWidth}px` }}>{cards.map(dc => renderCard(dc))}</div>
-                        : (
-                          <>
-                            {deckView === 'list' && (
-                              <div className={styles.deckListHeader} style={{ '--deck-list-columns': listGridTemplate }}>
-                                <span className={styles.deckListHeaderCard}>Card</span>
-                                {visibleColumns.set && <span className={styles.deckListHeaderSet}>Set</span>}
-                                {visibleColumns.manaValue && <span className={styles.deckListHeaderMetric}>Mana Value</span>}
-                                {visibleColumns.cmc && <span className={styles.deckListHeaderMetric}>CMC</span>}
-                                {visibleColumns.price && <span className={styles.deckListHeaderMetric}>Price</span>}
-                                {visibleColumns.status && <span className={styles.deckListHeaderStatus}>Status</span>}
-                                {visibleColumns.actions && <span className={styles.deckListHeaderActions}>Actions</span>}
-                                {visibleColumns.qty && <span className={styles.deckListHeaderQty}>Qty</span>}
-                                {visibleColumns.remove && <span className={styles.deckListHeaderRemove}>Remove</span>}
-                              </div>
-                            )}
-                            {cards.map(dc => renderCard(dc))}
-                          </>
-                        )
-                      )}
-                    </div>
-                  )
-                })
+                    )
+                  })
+                }
+
+                if (deckView === 'grid') {
+                  return <div className={styles.visualGrid} style={{ '--deckbuilder-grid-min': `${visualCardMinWidth}px` }}>{cards.map(dc => renderCard(dc))}</div>
+                }
+
+                return (
+                  <>
+                    {renderListHeader()}
+                    {cards.map(dc => renderCard(dc))}
+                  </>
+                )
               }
 
-              // Flat (no grouping)
-              if (deckView === 'grid') {
-                return <div className={styles.visualGrid} style={{ '--deckbuilder-grid-min': `${visualCardMinWidth}px` }}>{sortedDeckCards.map(dc => renderCard(dc))}</div>
-              }
-              return (
-                <>
-                  {deckView === 'list' && (
-                    <div className={styles.deckListHeader} style={{ '--deck-list-columns': listGridTemplate }}>
-                      <span className={styles.deckListHeaderCard}>Card</span>
-                      {visibleColumns.set && <span className={styles.deckListHeaderSet}>Set</span>}
-                      {visibleColumns.manaValue && <span className={styles.deckListHeaderMetric}>Mana Value</span>}
-                      {visibleColumns.cmc && <span className={styles.deckListHeaderMetric}>CMC</span>}
-                      {visibleColumns.price && <span className={styles.deckListHeaderMetric}>Price</span>}
-                      {visibleColumns.status && <span className={styles.deckListHeaderStatus}>Status</span>}
-                      {visibleColumns.actions && <span className={styles.deckListHeaderActions}>Actions</span>}
-                      {visibleColumns.qty && <span className={styles.deckListHeaderQty}>Qty</span>}
-                      {visibleColumns.remove && <span className={styles.deckListHeaderRemove}>Remove</span>}
+              return BOARD_ORDER.map(board => {
+                const cards = sortedDeckCards.filter(dc => normalizeBoard(dc.board) === board)
+                if (!cards.length) return null
+                const boardQty = cards.reduce((sum, dc) => sum + (dc.qty || 0), 0)
+                return (
+                  <section key={board} className={styles.boardSection}>
+                    <div className={styles.boardHeader}>
+                      <span className={styles.boardName}>{BOARD_LABELS[board]}</span>
+                      <span className={styles.boardCount}>{boardQty}</span>
                     </div>
-                  )}
-                  {sortedDeckCards.map(dc => renderCard(dc))}
-                </>
-              )
+                    {renderCardSet(cards, board)}
+                  </section>
+                )
+              })
             })()}
           </div>
         )}
@@ -3607,7 +4013,7 @@ export default function DeckBuilderPage() {
             {/* ── Deck composition stats ── */}
             {deckCards.length > 0
               ? <DeckStats
-                  cards={normalizeDeckBuilderCards(deckCards)}
+                  cards={normalizeDeckBuilderCards(mainDeckCards)}
                   bracketOverride={statsBracketOverride}
                   onBracketOverride={setStatsBracketOverride}
                 />
@@ -3644,30 +4050,34 @@ export default function DeckBuilderPage() {
               <>
                 {combosIncluded.length > 0 ? (
                   <div>
-                    <div style={{ fontFamily: 'var(--font-display)', fontSize: '0.68rem', color: 'var(--gold)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>
-                      ✓ Complete Combos ({combosIncluded.length})
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <button className={styles.comboSectionHeader} onClick={() => toggleComboSection('complete')}>
+                      <span className={`${styles.groupArrow}${!comboSectionsOpen.complete ? ' ' + styles.groupArrowCollapsed : ''}`}>▾</span>
+                      <span>Complete Combos</span>
+                      <span className={styles.comboSectionCount}>{combosIncluded.length}</span>
+                    </button>
+                    {comboSectionsOpen.complete && <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                       {combosIncluded.map((c, i) => (
                         <ComboResultCard key={i} combo={c} highlight deckCardNames={deckCards.map(dc => dc.name)} deckImages={deckImagesMap} onAddCard={name => addCardToDeck({ name })} onOpenDetail={openCardDetailByName} />
                       ))}
-                    </div>
+                    </div>}
                   </div>
                 ) : (
                   <div style={{ color: 'var(--text-faint)', fontSize: '0.82rem' }}>No complete combos found in this deck.</div>
                 )}
                 {combosAlmost.length > 0 && (
                   <div>
-                    <div style={{ fontFamily: 'var(--font-display)', fontSize: '0.68rem', color: 'var(--text-dim)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>
-                      ⋯ Missing 1 Card ({combosAlmost.length})
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <button className={styles.comboSectionHeader} onClick={() => toggleComboSection('incomplete')}>
+                      <span className={`${styles.groupArrow}${!comboSectionsOpen.incomplete ? ' ' + styles.groupArrowCollapsed : ''}`}>▾</span>
+                      <span>Incomplete Combos</span>
+                      <span className={styles.comboSectionCount}>{combosAlmost.length}</span>
+                    </button>
+                    {comboSectionsOpen.incomplete && <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                       {combosAlmost.slice(0, 20).map((c, i) => (
                         <ComboResultCard key={i} combo={c} highlight={false} deckCardNames={deckCards.map(dc => dc.name)} deckImages={deckImagesMap} onAddCard={name => addCardToDeck({ name })} onOpenDetail={openCardDetailByName} />
                       ))}
-                    </div>
-                    {combosAlmost.length > 20 && (
-                      <div style={{ color: 'var(--text-faint)', fontSize: '0.78rem' }}>+ {combosAlmost.length - 20} more partial combos</div>
+                    </div>}
+                    {comboSectionsOpen.incomplete && combosAlmost.length > 20 && (
+                      <div style={{ color: 'var(--text-faint)', fontSize: '0.78rem' }}>+ {combosAlmost.length - 20} more incomplete combos</div>
                     )}
                   </div>
                 )}
@@ -3758,6 +4168,27 @@ export default function DeckBuilderPage() {
       {/* Floating card preview */}
       <FloatingPreview imageUris={hoverImages} x={hoverPos.x} y={hoverPos.y} />
 
+      {contextMenu && createPortal(
+        <div
+          className={styles.cardContextMenu}
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onMouseDown={e => e.stopPropagation()}
+          onClick={e => e.stopPropagation()}
+          onContextMenu={e => e.preventDefault()}
+        >
+          <DeckCardActionsMenuBody
+            dc={contextMenu.dc}
+            isEDH={isEDH}
+            onSetCommander={setCardAsCommander}
+            onToggleFoil={toggleFoil}
+            onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })}
+            onMoveBoard={moveCardToBoard}
+            close={closeContextMenu}
+          />
+        </div>,
+        document.body
+      )}
+
       {/* ── Import modal ──────────────────────────────────────────── */}
       {showImport && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
@@ -3799,13 +4230,13 @@ export default function DeckBuilderPage() {
             {importTab === 'text' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <p style={{ fontSize: '0.78rem', color: 'var(--text-faint)', margin: 0 }}>
-                  Paste a decklist in standard format. Optionally prefix with <code style={{ color: 'var(--gold)' }}>Commander:</code> section.
+                  Paste a decklist in standard format. Supports <code style={{ color: 'var(--gold)' }}>Commander:</code>, <code style={{ color: 'var(--gold)' }}>Sideboard:</code>, and <code style={{ color: 'var(--gold)' }}>Maybeboard:</code> sections.
                 </p>
                 <textarea
                   autoFocus
                   value={importText}
                   onChange={e => setImportText(e.target.value)}
-                  placeholder={"Commander:\n1 Sheoldred, the Apocalypse\n\nDeck:\n1 Sol Ring\n1 Swamp\n..."}
+                  placeholder={"Commander:\n1 Sheoldred, the Apocalypse\n\nDeck:\n1 Sol Ring\n1 Swamp\n\nSideboard:\n1 Duress\n\nMaybeboard:\n1 Bitterblossom"}
                   rows={10}
                   style={{ background: 'var(--s3)', border: '1px solid var(--border)', borderRadius: 4, padding: '8px 12px', color: 'var(--text)', fontSize: '0.83rem', outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
                 />

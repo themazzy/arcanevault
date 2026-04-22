@@ -86,6 +86,12 @@
   background-image: none !important;
 }
 
+.mainDeckBuilder {
+  max-width: none;
+  padding-left: clamp(12px, 1.4vw, 28px);
+  padding-right: clamp(12px, 1.4vw, 28px);
+}
+
 /* ── Hamburger (mobile only) ── */
 .hamburger {
   display: none;
