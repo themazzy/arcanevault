@@ -219,13 +219,13 @@ export function EmptyState({ children }) {
   return <div className={styles.empty}>{children}</div>
 }
 
-export function DropZone({ onFile, title, subtitle }) {
+export function DropZone({ onFile, title, subtitle, onActivate, accept = '.csv' }) {
   const [dragover, setDragover] = useState(false)
   const ref = useRef()
   return (
     <div
       className={`${styles.dropZone}${dragover ? ' ' + styles.dragover : ''}`}
-      onClick={() => ref.current?.click()}
+      onClick={() => onActivate ? onActivate() : ref.current?.click()}
       onDragOver={e => { e.preventDefault(); setDragover(true) }}
       onDragLeave={() => setDragover(false)}
       onDrop={e => { e.preventDefault(); setDragover(false); onFile(e.dataTransfer.files[0]) }}
@@ -233,7 +233,7 @@ export function DropZone({ onFile, title, subtitle }) {
       <div className={styles.dropIcon}>⬡</div>
       <div className={styles.dropTitle}>{title}</div>
       <div className={styles.dropSub} dangerouslySetInnerHTML={{ __html: subtitle }} />
-      <input ref={ref} type="file" accept=".csv" style={{ display: 'none' }}
+      <input ref={ref} type="file" accept={accept} style={{ display: 'none' }}
         onChange={e => e.target.files[0] && onFile(e.target.files[0])} />
     </div>
   )

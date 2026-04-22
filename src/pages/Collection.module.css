@@ -18,6 +18,130 @@
   letter-spacing: 0.02em;
 }
 
+.connectionBadge {
+  position: fixed;
+  left: max(14px, env(safe-area-inset-left));
+  bottom: max(14px, env(safe-area-inset-bottom));
+  z-index: 80;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg2) 92%, transparent);
+  border: 1px solid var(--s-border2);
+  color: var(--text-dim);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.28);
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  pointer-events: none;
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+
+.connectionBadge_exit {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.connectionDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 3px rgba(100,180,100,0.14);
+}
+
+.connectionBadge_online .connectionDot {
+  background: var(--green);
+  box-shadow: 0 0 0 3px rgba(100,180,100,0.14);
+}
+
+.connectionBadge_offline {
+  color: #e0a852;
+  border-color: rgba(224,168,82,0.32);
+}
+
+.connectionBadge_offline .connectionDot {
+  background: #e0a852;
+  box-shadow: 0 0 0 3px rgba(224,168,82,0.16);
+}
+
+.connectionBadge_loading {
+  color: var(--gold);
+  border-color: rgba(201,168,76,0.34);
+}
+
+.connectionBadge_loading .connectionDot {
+  background: var(--gold);
+  box-shadow: 0 0 0 3px rgba(201,168,76,0.16);
+}
+
+.emptyCollectionActions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.scannerQuickBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: min(100%, 520px);
+  padding: 12px 14px;
+  border-radius: 4px;
+  background: var(--s-subtle);
+  border: 1px solid var(--s-border);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.scannerQuickBox:hover {
+  background: var(--s-medium);
+  border-color: var(--s-border2);
+  text-decoration: none;
+}
+
+.scannerQuickText {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.scannerQuickLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  height: var(--control-height);
+  padding: 6px var(--control-padding-x);
+  border-radius: 4px;
+  background: var(--s-subtle);
+  border: 1px solid var(--s-border);
+  color: var(--text-dim);
+  font-family: var(--font-display);
+  font-size: var(--control-font-size);
+  letter-spacing: var(--control-letter-spacing);
+  text-transform: uppercase;
+  text-decoration: none;
+}
+
+.scannerQuickBox:hover .scannerQuickLink {
+  background: var(--s-medium);
+  border-color: var(--s-border2);
+  color: var(--text);
+}
+
 .gridHeader {
   display: flex; justify-content: space-between; align-items: center;
   margin-bottom: 14px; color: var(--text-dim); font-size: 0.82rem;
