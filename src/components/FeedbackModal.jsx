@@ -98,18 +98,19 @@ export default function FeedbackModal({ onClose }) {
     setSubmitError('')
 
     try {
-      const { data: feedback, error: feedbackError } = await sb
-        .from('feedback')
-        .insert({
-          type,
-          description: description.trim(),
-          contact: contact.trim() || null,
-          user_id: user?.id || null,
-          user_email: user?.email || null,
-          device_info: collectDeviceInfo(),
-        })
-        .select('id')
-        .single()
+      const payload = {
+        type,
+        description: description.trim(),
+        contact: contact.trim() || null,
+        user_id: user?.id || null,
+        user_email: user?.email || null,
+        device_info: collectDeviceInfo(),
+      }
+
+      const insertQuery = sb.from('feedback').insert(payload)
+      const { data: feedback, error: feedbackError } = user?.id
+        ? await insertQuery.select('id').single()
+        : await insertQuery
 
       if (feedbackError) throw feedbackError
 
