@@ -166,38 +166,52 @@ async function upsertRows(rows) {
   }
 }
 
+async function clearStageRows(label, applyFilter) {
+  const query = applyFilter(sb.from('card_prices_stage').delete())
+  const { error } = await query
+  if (error) throw error
+  console.log(`[Price Sync] Cleared ${label} staging rows.`)
+}
+
+async function clearStageRowsBestEffort(label, applyFilter) {
+  try {
+    await clearStageRows(label, applyFilter)
+  } catch (error) {
+    console.warn(`[Price Sync] Could not clear ${label} staging rows:`, error.message)
+  }
+}
+
 async function main() {
   const snapshotDate = isoDateUtc(0)
   const retentionCutoff = isoDateUtc(-1)
 
-  console.log(`[Price Sync] Clearing staging rows for ${snapshotDate}...`)
-  const { error: stageDeleteError } = await sb
-    .from('card_prices_stage')
-    .delete()
-    .eq('snapshot_date', snapshotDate)
-  if (stageDeleteError) throw stageDeleteError
-
-  console.log(`[Price Sync] Fetching Scryfall ${BULK_DATA_TYPE} manifest...`)
-  const downloadUrl = await getBulkDownloadUrl()
-
-  console.log('[Price Sync] Downloading bulk card data to disk...')
-  await downloadBulkFile(downloadUrl, BULK_DOWNLOAD_PATH)
-
-  console.log('[Price Sync] Streaming bulk card data...')
-  const { processed, skipped } = await processBulkFile(snapshotDate)
-  console.log(`[Price Sync] Finished staging ${processed.toLocaleString()} rows (${skipped.toLocaleString()} skipped).`)
-
-  console.log(`[Price Sync] Publishing staged rows for ${snapshotDate}...`)
-  const { error: publishError } = await sb.rpc('publish_card_prices', {
-    p_snapshot_date: snapshotDate,
-    p_retention_cutoff: retentionCutoff,
-  })
-  if (publishError) throw publishError
-
   try {
-    fs.rmSync(BULK_DOWNLOAD_PATH, { force: true })
-    fs.rmSync(path.dirname(BULK_DOWNLOAD_PATH), { recursive: true, force: true })
-  } catch {}
+    await clearStageRows(`stale rows before ${snapshotDate}`, query => query.lt('snapshot_date', snapshotDate))
+    await clearStageRows(`rows for ${snapshotDate}`, query => query.eq('snapshot_date', snapshotDate))
+
+    console.log(`[Price Sync] Fetching Scryfall ${BULK_DATA_TYPE} manifest...`)
+    const downloadUrl = await getBulkDownloadUrl()
+
+    console.log('[Price Sync] Downloading bulk card data to disk...')
+    await downloadBulkFile(downloadUrl, BULK_DOWNLOAD_PATH)
+
+    console.log('[Price Sync] Streaming bulk card data...')
+    const { processed, skipped } = await processBulkFile(snapshotDate)
+    console.log(`[Price Sync] Finished staging ${processed.toLocaleString()} rows (${skipped.toLocaleString()} skipped).`)
+
+    console.log(`[Price Sync] Publishing staged rows for ${snapshotDate}...`)
+    const { error: publishError } = await sb.rpc('publish_card_prices', {
+      p_snapshot_date: snapshotDate,
+      p_retention_cutoff: retentionCutoff,
+    })
+    if (publishError) throw publishError
+  } finally {
+    await clearStageRowsBestEffort(`rows for ${snapshotDate}`, query => query.eq('snapshot_date', snapshotDate))
+    try {
+      fs.rmSync(BULK_DOWNLOAD_PATH, { force: true })
+      fs.rmSync(path.dirname(BULK_DOWNLOAD_PATH), { recursive: true, force: true })
+    } catch {}
+  }
 
   console.log('[Price Sync] Complete.')
 }
