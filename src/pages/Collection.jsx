@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { getScryfallKey, getPrice, formatPrice, getInstantCache } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
@@ -22,6 +23,57 @@ const FOLDER_CARDS_DELTA_OVERLAP_MS = 30 * 1000
 const LOCAL_COLLECTION_FRESH_MS = 5 * 60 * 1000
 
 const worker = new Worker(new URL('../lib/filterWorker.js', import.meta.url), { type: 'module' })
+
+function hasActiveCollectionFilters(filters) {
+  return Object.keys(EMPTY_FILTERS).some(key => {
+    const current = filters?.[key]
+    const empty = EMPTY_FILTERS[key]
+    if (Array.isArray(empty)) return Array.isArray(current) && current.length > 0
+    return current !== empty
+  })
+}
+
+function ConnectionStatusBadge({ isOnline, loading, folderMembershipLoading, enriching, importing }) {
+  const [visible, setVisible] = useState(false)
+  const [exiting, setExiting] = useState(false)
+  let tone = 'online'
+  let label = 'Online'
+  const isBusy = loading || folderMembershipLoading || enriching || importing
+
+  if (!isOnline) {
+    tone = 'offline'
+    label = 'Offline'
+  } else if (isBusy) {
+    tone = 'loading'
+    label = 'Loading data'
+  }
+
+  useEffect(() => {
+    if (!isOnline || isBusy) {
+      setVisible(true)
+      setExiting(false)
+      return undefined
+    }
+
+    setVisible(true)
+    setExiting(false)
+    const exitTimer = setTimeout(() => setExiting(true), 2000)
+    const hideTimer = setTimeout(() => setVisible(false), 2400)
+    return () => {
+      clearTimeout(exitTimer)
+      clearTimeout(hideTimer)
+    }
+  }, [isOnline, isBusy])
+
+  if (!visible) return null
+
+  return (
+    <div className={`${styles.connectionBadge} ${styles[`connectionBadge_${tone}`]}${exiting ? ' ' + styles.connectionBadge_exit : ''}`}>
+      <span className={styles.connectionDot} />
+      {label}
+    </div>
+  )
+}
 
 function OrphanModal({ cards, folders, userId, onAssigned, onDeleted }) {
   const [selectedFolderId, setSelectedFolderId] = useState('')
@@ -188,6 +240,11 @@ export default function CollectionPage() {
   const workerReqId  = useRef(0)
   const cardsLoadSeq = useRef(0)
   const enrichingRef = useRef(false)
+  const canSeedFilteredRef = useRef(true)
+
+  useEffect(() => {
+    canSeedFilteredRef.current = !search && !hasActiveCollectionFilters(filters)
+  }, [search, filters])
 
   useEffect(() => {
     if (settingsLoaded) setSort(default_sort || 'name')
@@ -219,19 +276,19 @@ export default function CollectionPage() {
       getMeta(`cards_synced_${user.id}`),
     ])
     const localCardsFresh = !!cardsSyncedAt && (Date.now() - Number(cardsSyncedAt) <= LOCAL_COLLECTION_FRESH_MS)
-    const canHydrateFromIdb = localCards.length && (!navigator.onLine || localCardsFresh)
-    if (canHydrateFromIdb) {
-      console.log(`[Collection] IDB: ${localCards.length} cards (offline-ready)`)
+    const hydratedFromIdb = localCards.length > 0
+    if (hydratedFromIdb) {
+      console.log(`[Collection] IDB: ${localCards.length} cards (${localCardsFresh ? 'fresh' : 'stale'}, rendering immediately)`)
       if (isCurrentLoad()) {
         setCards(localCards)
-        setLoading(false)
+        if (canSeedFilteredRef.current) setFiltered(localCards)
         startEnrichment(localCards)
       }
     }
 
     // 2. Sync from Supabase (skip if offline)
     if (!navigator.onLine) {
-      if (!localCards.length && isCurrentLoad()) setLoading(false)
+      if (isCurrentLoad()) setLoading(false)
       return
     }
 
@@ -283,7 +340,8 @@ export default function CollectionPage() {
       await setMeta(`cards_synced_${user.id}`, Date.now())
       if (!isCurrentLoad()) return
       setCards(allCards)
-      if (!canHydrateFromIdb) {
+      if (canSeedFilteredRef.current) setFiltered(allCards)
+      if (!hydratedFromIdb) {
         startEnrichment(allCards)
       } else {
         const localIds = new Set(localCards.map(c => c.id))
@@ -1108,7 +1166,24 @@ export default function CollectionPage() {
   const selectedCard = detailCardKey ? displayCards.find(c => (c._displayKey || c.id) === detailCardKey) : null
   const selectedSf   = selectedCard ? sfMap[getScryfallKey(selectedCard)] : null
 
-  if (loading && !cards.length) return <EmptyState>Loading your collection…</EmptyState>
+  const floatingStatusBadge = (
+    <ConnectionStatusBadge
+      isOnline={isOnline}
+      loading={loading}
+      folderMembershipLoading={folderMembershipLoading}
+      enriching={enriching}
+      importing={importing}
+    />
+  )
+
+  if (loading && !cards.length) {
+    return (
+      <>
+        <EmptyState>Loading your collection...</EmptyState>
+        {floatingStatusBadge}
+      </>
+    )
+  }
 
   const statusItems = [
     loading ? 'Loading collection…' : null,
@@ -1130,9 +1205,22 @@ export default function CollectionPage() {
       />
 
       {cards.length === 0 ? (
-        <DropZone onFile={handleImport}
-          title="Import Your Collection"
-          subtitle='Drop a Manabox CSV here, or click to browse. Use ↑ Import above to add a decklist.' />
+        <div className={styles.emptyCollectionActions}>
+          <DropZone
+            onFile={handleImport}
+            onActivate={() => { setImportModalText(''); setShowImportModal(true) }}
+            accept=".csv,.txt"
+            title="Import Your Collection"
+            subtitle="Open the import flow, or drop a CSV or decklist file here." />
+          <Link to="/scanner" className={styles.scannerQuickBox}>
+            <div>
+              <div className={styles.scannerQuickText}>Or you can scan your cards.</div>
+            </div>
+            <span className={styles.scannerQuickLink}>
+              Open Scanner
+            </span>
+          </Link>
+        </div>
       ) : (
         <FilterBar
           search={searchInput} setSearch={setSearchInput}
@@ -1310,6 +1398,8 @@ export default function CollectionPage() {
           }}
         />
       )}
+
+      {floatingStatusBadge}
     </div>
   )
 }
