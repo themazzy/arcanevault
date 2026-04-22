@@ -695,6 +695,10 @@
 .scryfallLink:hover { color: var(--gold-dim); }
 
 /* ── Search form ──────────────────────────────────────────────────────────── */
+.lookupFilterWrap {
+  position: relative;
+  margin-bottom: 18px;
+}
 .searchForm { display: flex; gap: 8px; margin-bottom: 18px; }
 .searchWrap { flex: 1; position: relative; }
 .searchInput {
