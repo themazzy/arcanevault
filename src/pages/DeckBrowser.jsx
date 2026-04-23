@@ -15,6 +15,7 @@ import styles from './DeckBrowser.module.css'
 import uiStyles from '../components/UI.module.css'
 import { ChevronDownIcon, ChevronUpIcon, GridViewIcon, ListViewIcon, StacksViewIcon, TableViewIcon, TextViewIcon } from '../icons'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
+import { getSyncState, markLinkedPairUnsynced } from '../lib/deckSync'
 import { useLongPress } from '../hooks/useLongPress'
 import { lastInputWasTouch } from '../lib/inputType'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
@@ -611,6 +612,7 @@ export default function DeckBrowser({ folder, onBack }) {
   const [loading, setLoading]       = useState(true)
   const [detailCardId, setDetailCardId] = useState(null)
   const [allFolders, setAllFolders] = useState([])
+  const [linkedDirty, setLinkedDirty] = useState(false)
   const [viewMode, setViewMode]     = useState('grid')
   const [groupBy, setGroupBy]       = useState('none')
   const [bracketOverride, setBracketOverride] = useState(null)
@@ -630,6 +632,15 @@ export default function DeckBrowser({ folder, onBack }) {
   const handleHover    = useCallback((img) => setHoverImg(img), [])
   const handleHoverEnd = useCallback(() => setHoverImg(null), [])
   const handleMouseMove = useCallback((e) => setHoverPos({ x: e.clientX, y: e.clientY }), [])
+  const markCurrentLinkedDeckUnsynced = useCallback(async () => {
+    const deckMeta = parseDeckMeta(folder.description || '{}')
+    if (!folder?.id || !deckMeta.linked_builder_id) return
+    await markLinkedPairUnsynced({
+      builderDeckId: deckMeta.linked_builder_id,
+      collectionDeckId: folder.id,
+    })
+    setLinkedDirty(true)
+  }, [folder])
 
   const loadCards = useCallback(async () => {
     setLoading(true)
@@ -752,6 +763,7 @@ export default function DeckBrowser({ folder, onBack }) {
       for (const { allocId, remaining } of toUpdate) {
         await sb.from('deck_allocations').update({ qty: remaining }).eq('id', allocId)
       }
+      await markCurrentLinkedDeckUnsynced()
       setCards(prev => prev.map(c => {
         if (!selectedCards.has(c.id)) return c
         const totalQty = c._folder_qty || c.qty || 1
@@ -790,6 +802,7 @@ export default function DeckBrowser({ folder, onBack }) {
       for (const { allocId, remaining } of toUpdate) {
         await sb.from('deck_allocations').update({ qty: remaining }).eq('id', allocId)
       }
+      await markCurrentLinkedDeckUnsynced()
       setCards(prev => prev.map(c => {
         if (!selectedCards.has(c.id)) return c
         const totalQty = c._folder_qty || c.qty || 1
@@ -850,11 +863,16 @@ export default function DeckBrowser({ folder, onBack }) {
   const selectedSf   = selectedCard ? sfMap[getScryfallKey(selectedCard)] : null
   const handleCardSave = useCallback((updatedCard) => {
     setCards(prev => prev.map(c => c.id === updatedCard.id ? { ...c, ...updatedCard } : c))
-  }, [])
+    void markCurrentLinkedDeckUnsynced()
+  }, [markCurrentLinkedDeckUnsynced])
 
   if (loading) return <EmptyState>Loading deck…</EmptyState>
 
   const deckMeta = parseDeckMeta(folder.description || '{}')
+  const builderDeckId = deckMeta.linked_builder_id || folder.id
+  const syncState = getSyncState(deckMeta)
+  const isUnsynced = linkedDirty || !!(syncState.unsynced_builder || syncState.unsynced_collection)
+  const openLinkedSync = () => navigate(`/builder/${builderDeckId}`, { state: { openSync: true, source: 'collection-deck' } })
   // Use only the explicitly-set bg_url for the header background.
   // coverArtUri is the builder-deck commander art — it is not a user-chosen
   // background for the collection deck view and should not bleed through here.
@@ -873,6 +891,11 @@ export default function DeckBrowser({ folder, onBack }) {
           <div className={styles.headerMeta}>
             <span>{totalQty} cards</span>
             <span className={styles.deckValue}>{formatPrice(totalValue, price_source)}</span>
+            {deckMeta.linked_builder_id && (
+              <span className={styles.deckValue} style={{ color: isUnsynced ? '#e0b04c' : 'var(--text-faint)' }}>
+                {isUnsynced ? 'Unsynced' : 'Synced'}
+              </span>
+            )}
             <div className={styles.headerActionsDesktop}>
               <button className={styles.addCardsBtn} onClick={() => setShowImport(true)}>
                 ↑ Import
@@ -883,8 +906,8 @@ export default function DeckBrowser({ folder, onBack }) {
               <button className={styles.addCardsBtn} onClick={() => setShowAddCard(true)}>
                 + Add Cards
               </button>
-              <button className={styles.editInBuilderBtn} onClick={() => navigate(`/builder/${folder.id}`)}>
-                ⚔ Edit in Builder
+              <button className={styles.editInBuilderBtn} onClick={() => { deckMeta.linked_builder_id ? openLinkedSync() : navigate(`/builder/${builderDeckId}`) }}>
+                {deckMeta.linked_builder_id ? (isUnsynced ? 'Unsynced' : 'Synced') : 'Edit in Builder'}
               </button>
             </div>
             <div className={styles.headerActionsMobile}>
@@ -914,8 +937,8 @@ export default function DeckBrowser({ folder, onBack }) {
                       <span>Add Cards</span>
                     </button>
                     <button className={uiStyles.responsiveMenuAction}
-                      onClick={() => { navigate(`/builder/${folder.id}`); close() }}>
-                      <span>Edit in Builder</span>
+                      onClick={() => { deckMeta.linked_builder_id ? openLinkedSync() : navigate(`/builder/${builderDeckId}`); close() }}>
+                      <span>{deckMeta.linked_builder_id ? (isUnsynced ? 'Unsynced' : 'Synced') : 'Edit in Builder'}</span>
                     </button>
                   </div>
                 )}
@@ -1026,6 +1049,7 @@ export default function DeckBrowser({ folder, onBack }) {
           onSaved={async (result) => {
             if (result?.cards?.length) await putCards(result.cards)
             if (result?.placements?.length) await putDeckAllocations(result.placements)
+            await markCurrentLinkedDeckUnsynced()
             setShowAddCard(false)
             await loadCards()
           }}
@@ -1038,7 +1062,7 @@ export default function DeckBrowser({ folder, onBack }) {
           folders={[folder]}
           defaultFolderId={folder.id}
           onClose={() => setShowImport(false)}
-          onSaved={() => { setShowImport(false); loadCards() }}
+          onSaved={async () => { await markCurrentLinkedDeckUnsynced(); setShowImport(false); await loadCards() }}
         />
       )}
       {showExport && (

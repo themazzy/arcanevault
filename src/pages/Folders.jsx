@@ -19,6 +19,8 @@ import { useLongPress } from '../hooks/useLongPress'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { getPublicAppUrl } from '../lib/publicUrl'
 import { getLocalFolderCards, getAllLocalFolderCards, getDeckAllocations, getCardsByIds, putCards, putFolderCards, putDeckAllocations } from '../lib/db'
+import { parseDeckMeta } from '../lib/deckBuilderApi'
+import { unlinkPairedDeck } from '../lib/deckSync'
 
 
 // ── Sort dropdown (custom, dark-themed — native <option> can't be styled) ─────
@@ -974,6 +976,13 @@ function DeleteFolderModal({ folder, userId, onDone, onCancel }) {
     setError('')
     setBusy(true)
     try {
+      const folderMeta = parseDeckMeta(folder.description || '{}')
+      const linkedBuilderId = folder.type === 'deck' ? folderMeta.linked_builder_id : null
+      const unlinkCounterpart = async () => {
+        if (!linkedBuilderId) return
+        const { data: counterpart } = await sb.from('folders').select('*').eq('id', linkedBuilderId).maybeSingle()
+        if (counterpart) await unlinkPairedDeck({ counterpart })
+      }
       if (mode === 'binder' || mode === 'deck') {
         const targetFolder = allFolders.find(f => f.id === targetId)
         const rows = await fetchFolderPlacementRows(folder)
@@ -983,11 +992,13 @@ function DeleteFolderModal({ folder, userId, onDone, onCancel }) {
       } else if (mode === 'delete') {
         const rows = await fetchFolderPlacementRows(folder)
         const ids = rows.map(r => r.card_id)
+        await unlinkCounterpart()
         await sb.from('folders').delete().eq('id', folder.id)
         if (ids.length) await pruneUnplacedCards(ids)
         onDone()
         return
       }
+      await unlinkCounterpart()
       await sb.from('folders').delete().eq('id', folder.id)
       onDone()
     } catch (err) {
@@ -1121,7 +1132,10 @@ function BulkDeleteModal({ nonEmpty, empty, userId, onDone, onCancel }) {
     setError('')
     setBusy(true)
     try {
+      const linkedBuilderIds = new Set()
       for (const folder of nonEmpty) {
+        const folderMeta = parseDeckMeta(folder.description || '{}')
+        if (folder.type === 'deck' && folderMeta.linked_builder_id) linkedBuilderIds.add(folderMeta.linked_builder_id)
         if (mode === 'binder' || mode === 'deck') {
           const targetFolder = allFolders.find(f => f.id === targetId)
           const rows = await fetchFolderPlacementRows(folder)
@@ -1132,6 +1146,10 @@ function BulkDeleteModal({ nonEmpty, empty, userId, onDone, onCancel }) {
           const rows = await fetchFolderPlacementRows(folder)
           folder._deleteCardIds = rows.map(r => r.card_id)
         }
+      }
+      for (const linkedBuilderId of linkedBuilderIds) {
+        const { data: counterpart } = await sb.from('folders').select('*').eq('id', linkedBuilderId).maybeSingle()
+        if (counterpart) await unlinkPairedDeck({ counterpart })
       }
       for (const folder of [...nonEmpty, ...empty]) {
         await sb.from('folders').delete().eq('id', folder.id)

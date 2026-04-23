@@ -4,6 +4,7 @@ import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
 import { Button, Modal, EmptyState, SectionHeader, ResponsiveMenu } from '../components/UI'
 import { parseDeckMeta, FORMATS } from '../lib/deckBuilderApi'
+import { unlinkPairedDeck, getSyncState } from '../lib/deckSync'
 import styles from './Builder.module.css'
 import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
@@ -46,6 +47,8 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
   const { fired: lpFired, ...lpRest } = longPress
   // If a collection deck has a linked builder deck, open the builder version instead
   const effectiveId = (deck.type === 'deck' && meta.linked_builder_id) ? meta.linked_builder_id : deck.id
+  const syncState = getSyncState(meta)
+  const isUnsynced = !!(syncState.unsynced_builder || syncState.unsynced_collection)
   return (
     <div
       className={`${styles.card}${isSelected ? ' ' + styles.cardSelected : ''}`}
@@ -75,6 +78,9 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
             )}
             {(meta.linked_deck_id || meta.linked_builder_id) && (
               <span className={styles.formatBadge} style={{ opacity: 0.7 }}>↔</span>
+            )}
+            {isUnsynced && (
+              <span className={styles.formatBadge} style={{ color: '#e0b04c', borderColor: 'rgba(224,176,76,0.32)' }}>Unsynced</span>
             )}
           </div>
           <div className={styles.cardName}>{deck.name}</div>
@@ -250,6 +256,11 @@ export default function BuilderPage() {
     } else {
       if (!await confirmAsync('Delete this builder deck? This cannot be undone.')) return
       setDecks(d => d.filter(x => x.id !== id))
+      const meta = parseDeckMeta(deck?.description || '{}')
+      if (meta.linked_deck_id) {
+        const { data: counterpart } = await sb.from('folders').select('*').eq('id', meta.linked_deck_id).maybeSingle()
+        if (counterpart) await unlinkPairedDeck({ counterpart })
+      }
       await sb.from('deck_cards').delete().eq('deck_id', id)
       await sb.from('folders').delete().eq('id', id).eq('user_id', user.id)
     }
@@ -286,6 +297,12 @@ export default function BuilderPage() {
       await sb.from('folders').update({ description: JSON.stringify(meta) }).eq('id', id).eq('user_id', user.id)
     }
     for (const id of builderIds) {
+      const deck = decks.find(d => d.id === id)
+      const meta = parseDeckMeta(deck?.description || '{}')
+      if (meta.linked_deck_id) {
+        const { data: counterpart } = await sb.from('folders').select('*').eq('id', meta.linked_deck_id).maybeSingle()
+        if (counterpart) await unlinkPairedDeck({ counterpart })
+      }
       await sb.from('deck_cards').delete().eq('deck_id', id)
       await sb.from('folders').delete().eq('id', id).eq('user_id', user.id)
     }

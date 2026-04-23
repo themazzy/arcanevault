@@ -1,5 +1,24 @@
 import { sb } from './supabase'
 
+export function mergeAllocationRows(rows) {
+  const merged = new Map()
+
+  for (const row of rows || []) {
+    if (!row?.card_id || !(row.qty > 0)) continue
+    const existing = merged.get(row.card_id)
+    if (existing) {
+      existing.qty += row.qty
+      continue
+    }
+    merged.set(row.card_id, {
+      ...row,
+      qty: row.qty,
+    })
+  }
+
+  return [...merged.values()]
+}
+
 export async function fetchDeckCards(deckId) {
   const { data, error } = await sb
     .from('deck_cards_view')
@@ -32,9 +51,10 @@ export async function fetchDeckAllocationsForUser(userId) {
 }
 
 export async function upsertDeckAllocations(deckId, userId, rows) {
-  if (!rows?.length) return
+  const mergedRows = mergeAllocationRows(rows)
+  if (!mergedRows.length) return
 
-  const payload = rows.map(row => ({
+  const payload = mergedRows.map(row => ({
     id: row.id,
     deck_id: deckId,
     user_id: userId,
