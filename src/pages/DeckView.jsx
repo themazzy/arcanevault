@@ -245,6 +245,7 @@ export default function DeckViewPage() {
   // ── Derived values ─────────────────────────────────────────────────────────
   const isOwner    = user && deck?.user_id === user.id
   const isViewer   = user && deck?.user_id !== user.id
+  const builderEditId = deck?.type === 'deck' && deckMeta?.linked_builder_id ? deckMeta.linked_builder_id : id
   const format     = FORMATS.find(f => f.id === deckMeta.format)
   const totalCards = useMemo(() => cards.reduce((s, c) => s + c.qty, 0), [cards])
 
@@ -354,7 +355,7 @@ export default function DeckViewPage() {
               <Link to="/login" className={styles.actionLink}>Create Account</Link>
             </>
           ) : isOwner ? (
-            <Link to={`/builder/${id}`} className={styles.actionLink}>⚔ Edit in Builder</Link>
+            <Link to={`/builder/${builderEditId}`} className={styles.actionLink}>⚔ Edit in Builder</Link>
           ) : (
             <>
               <Link to="/" className={styles.topLink}>← My Vault</Link>

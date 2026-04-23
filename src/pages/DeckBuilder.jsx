@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+﻿import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, useNavigate, Link, useLocation } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
@@ -22,11 +22,34 @@ import { CardDetail } from '../components/CardComponents'
 import DeckStats, { normalizeDeckBuilderCards } from '../components/DeckStats'
 import ExportModal from '../components/ExportModal'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
-import { fetchDeckAllocations, fetchDeckAllocationsForUser, fetchDeckCards, upsertDeckAllocations } from '../lib/deckData'
+import { fetchDeckAllocations, fetchDeckAllocationsForUser, fetchDeckCards, mergeAllocationRows, upsertDeckAllocations } from '../lib/deckData'
 import { planDeckAllocations } from '../lib/deckAllocationPlanner'
+import { getCardLegalityWarnings } from '../lib/deckLegality'
+import {
+  buildSyncDiff,
+  buildSyncSnapshot,
+  getSyncState,
+  getLogicalKey,
+  persistLinkedSyncSnapshot,
+  summarizeSyncDiff,
+  withLinkedPair,
+} from '../lib/deckSync'
 import { formatPrice, getPrice } from '../lib/scryfall'
 import { getPublicAppUrl } from '../lib/publicUrl'
-import { ListViewIcon, StacksViewIcon, GridViewIcon, SettingsIcon } from '../icons'
+import {
+  ListViewIcon,
+  StacksViewIcon,
+  GridViewIcon,
+  SettingsIcon,
+  TableViewIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  CollectionIcon,
+  MenuIcon,
+  AddIcon,
+} from '../icons'
 import { lastInputWasTouch } from '../lib/inputType'
 
 const CAN_HOVER = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover) and (pointer: fine)').matches
@@ -63,7 +86,7 @@ function toArtCropImg(uri) {
   return uri.replace(/\/(small|normal|large|png|border_crop)\//, '/art_crop/')
 }
 
-// ── Color identity helpers ────────────────────────────────────────────────────
+// â”€â”€ Color identity helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const PIP_COLORS = { W: '#f8f0d8', U: '#4488cc', B: '#8855aa', R: '#cc4444', G: '#44884a', C: '#aaaaaa' }
 
 function ColorPip({ color }) {
@@ -81,6 +104,14 @@ function manaSymbolUrl(sym) {
 function ManaCostInline({ cost, size = 14 }) {
   if (!cost) return <span>&mdash;</span>
   const sides = String(cost).split(' // ')
+  const symbolCount = (String(cost).match(/\{[^}]+\}/g) || []).length
+  const effectiveSize = symbolCount >= 5
+    ? Math.max(9, size - 4)
+    : symbolCount >= 4
+      ? Math.max(10, size - 3)
+      : symbolCount >= 3
+        ? Math.max(11, size - 2)
+        : size
   return (
     <span className={styles.manaCostInline}>
       {sides.map((side, sideIndex) => (
@@ -93,7 +124,7 @@ function ManaCostInline({ cost, size = 14 }) {
               src={manaSymbolUrl(sym)}
               alt={sym}
               loading="lazy"
-              style={{ width: size, height: size }}
+              style={{ width: effectiveSize, height: effectiveSize }}
             />
           ))}
         </span>
@@ -130,7 +161,7 @@ function allocationSetHas(set, cardLike) {
   return deckAllocationKeys(cardLike).some(key => set.has(key))
 }
 
-// ── Floating card preview ─────────────────────────────────────────────────────
+// â”€â”€ Floating card preview â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function FloatingPreview({ imageUris, x, y }) {
   if (!imageUris?.length) return null
   const width = imageUris.length > 1 ? 400 : 300
@@ -147,18 +178,41 @@ function FloatingPreview({ imageUris, x, y }) {
   )
 }
 
-// ── Single card row in search results ─────────────────────────────────────────
-function SearchResultRow({ card, ownedQty, onAdd, addFeedback, onOpenDetail }) {
+function WarningTooltip({ tooltip }) {
+  if (!tooltip) return null
+  const left = Math.min(tooltip.x + 14, window.innerWidth - 320)
+  const top = Math.min(tooltip.y + 14, window.innerHeight - 160)
+  return createPortal(
+    <div className={styles.warningTooltip} style={{ left, top }}>
+      <div className={styles.warningTooltipTitle}>{tooltip.summary}</div>
+      <div className={styles.warningTooltipBody}>{tooltip.detail}</div>
+    </div>,
+    document.body
+  )
+}
+
+// â”€â”€ Single card row in search results â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+function SearchResultRow({ card, ownedQty, onAdd, addFeedback, onOpenDetail, onHoverEnter, onHoverLeave, onHoverMove, legalityWarnings = [] }) {
   const img = getCardImageUri(card, 'small')
+  const largeUri = img ? img.replace('/small/', '/normal/') : null
+  const warningTitle = legalityWarnings.map(w => w.text).join('\n')
+  const warningText = legalityWarnings.map(w => w.text).join(' ')
+  const hoverableProps = CAN_HOVER && !lastInputWasTouch && largeUri
+    ? {
+        onMouseEnter: e => onHoverEnter?.(largeUri, e),
+        onMouseMove: e => onHoverMove?.(e),
+        onMouseLeave: () => onHoverLeave?.(),
+      }
+    : {}
   return (
-    <div className={styles.searchRow} onClick={() => onOpenDetail?.(card)} style={{ cursor: 'pointer' }}>
+    <div className={styles.searchRow}>
       {img
-        ? <img className={styles.searchThumb} src={img} alt="" loading="lazy" />
+        ? <img className={styles.searchThumb} src={img} alt="" loading="lazy" onClick={() => onOpenDetail?.(card)} style={{ cursor: 'pointer' }} {...hoverableProps} />
         : <div className={styles.searchThumbPlaceholder} />
       }
       <div className={styles.searchInfo}>
         <div className={styles.searchName}>
-          <span>{card.name}</span>
+          <span style={{ cursor: 'pointer' }} onClick={() => onOpenDetail?.(card)} {...hoverableProps}>{card.name}</span>
           {addFeedback?.count > 0 && (
             <span style={{ marginLeft:8, color:'var(--green)', fontSize:'0.74rem', fontWeight:600 }}>
               {`+${addFeedback.count}`}
@@ -166,38 +220,52 @@ function SearchResultRow({ card, ownedQty, onAdd, addFeedback, onOpenDetail }) {
           )}
         </div>
         <div className={styles.searchType}>{card.type_line}</div>
+        {legalityWarnings.length > 0 && (
+          <div className={styles.searchWarningDetail}>{warningText}</div>
+        )}
         </div>
       <div className={styles.searchMeta}>
-        {ownedQty > 0 && <span className={styles.ownedBadge}>✓ {ownedQty}x</span>}
+        {legalityWarnings.length > 0 && (
+          <span className={styles.searchWarningBadge} title={warningTitle} aria-label={warningTitle}>Warning</span>
+        )}
+        {ownedQty > 0 && <span className={styles.ownedBadge}>OK {ownedQty}x</span>}
       </div>
       <button className={styles.addBtn} onClick={e => { e.stopPropagation(); onAdd(card) }} title="Add to deck">+</button>
     </div>
   )
 }
 
-// ── Single card row in EDHRec recommendations ─────────────────────────────────
+// â”€â”€ Single card row in EDHRec recommendations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function RecRow({ rec, imageUri, ownedQty, onAdd, onHoverEnter, onHoverLeave, onHoverMove, onOpenDetail }) {
   const inclusionPct = rec.potentialDecks > 0
     ? Math.round((rec.inclusion / rec.potentialDecks) * 100)
     : (rec.inclusion ?? 0)
   const synergyPct = Math.round((rec.synergy ?? 0) * 100)
-  // Scryfall CDN URLs have the size in the path — swap small → normal for hover preview
+  // Scryfall CDN URLs have the size in the path - swap small -> normal for hover preview
   const largeUri = imageUri ? imageUri.replace('/small/', '/normal/') : null
+  const hoverableProps = CAN_HOVER && !lastInputWasTouch && largeUri
+    ? {
+        onMouseEnter: e => onHoverEnter?.(largeUri, e),
+        onMouseMove: e => onHoverMove?.(e),
+        onMouseLeave: () => onHoverLeave?.(),
+      }
+    : {}
   return (
-    <div
-      className={styles.recRow}
-      style={{ cursor: 'pointer' }}
-      onClick={() => onOpenDetail?.(rec.name)}
-      onMouseEnter={CAN_HOVER && !lastInputWasTouch && largeUri ? e => onHoverEnter?.(largeUri, e) : undefined}
-      onMouseMove={CAN_HOVER ? e => onHoverMove?.(e) : undefined}
-      onMouseLeave={CAN_HOVER ? () => onHoverLeave?.() : undefined}
-    >
+    <div className={styles.recRow}>
       {imageUri
-        ? <img className={styles.recThumb} src={imageUri} alt="" loading="lazy" />
+        ? <img
+            className={styles.recThumb}
+            src={imageUri}
+            alt=""
+            loading="lazy"
+            onClick={() => onOpenDetail?.(rec.name)}
+            style={{ cursor: 'pointer' }}
+            {...hoverableProps}
+          />
         : <div className={styles.recThumbPlaceholder} />
       }
       <div className={styles.recInfo}>
-        <div className={styles.recName}>{rec.name}</div>
+        <div className={styles.recName} onClick={() => onOpenDetail?.(rec.name)} style={{ cursor: 'pointer' }} {...hoverableProps}>{rec.name}</div>
         <div className={styles.recMeta}>
           {rec.type && <span className={styles.recType}>{rec.type}</span>}
           {rec.cmc != null && rec.cmc > 0 && <span className={styles.recCmc}>{rec.cmc} CMC</span>}
@@ -213,12 +281,12 @@ function RecRow({ rec, imageUri, ownedQty, onAdd, onHoverEnter, onHoverLeave, on
           {synergyPct !== 0 && (
             <span
               className={synergyPct > 0 ? styles.synergyPos : styles.synergyNeg}
-              title={`${synergyPct > 0 ? '+' : ''}${synergyPct}% synergy — appears ${Math.abs(synergyPct)}% ${synergyPct > 0 ? 'more' : 'less'} often in this commander's decks than average`}
+              title={`${synergyPct > 0 ? '+' : ''}${synergyPct}% synergy - appears ${Math.abs(synergyPct)}% ${synergyPct > 0 ? 'more' : 'less'} often in this commander's decks than average`}
             >
               {synergyPct > 0 ? '+' : ''}{synergyPct}
             </span>
           )}
-          {ownedQty > 0 && <span className={styles.ownedBadge}>✓</span>}
+          {ownedQty > 0 && <span className={styles.ownedBadge}>OK</span>}
         </div>
       </div>
       <button className={styles.addBtn} onClick={e => { e.stopPropagation(); onAdd(rec) }} title="Add to deck">+</button>
@@ -226,15 +294,15 @@ function RecRow({ rec, imageUri, ownedQty, onAdd, onHoverEnter, onHoverLeave, on
   )
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function canBeCommander(dc) {
-  if (!dc.type_line) return true // unknown type — allow the option
+  if (!dc.type_line) return true // unknown type â€” allow the option
   const tl = dc.type_line.toLowerCase()
   return tl.includes('legendary creature') ||
     (tl.includes('legendary') && tl.includes('planeswalker'))
 }
 
-// ── Edit dropdown (⚙) shared by list + compact views ─────────────────────────
+// â”€â”€ Edit dropdown (âš™) shared by list + compact views â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function DeckCardActionsMenuBody({ dc, isEDH, onSetCommander, onToggleFoil, onPickVersion, onMoveBoard, close }) {
   const currentBoard = normalizeBoard(dc.board)
   const boardOptions = BOARD_ORDER.filter(board => board !== currentBoard && !(dc.is_commander && board !== 'main'))
@@ -293,7 +361,7 @@ function DeckCardActionsMenuBody({ dc, isEDH, onSetCommander, onToggleFoil, onPi
           )}
           {isEDH && !dc.is_commander && canBeCommander(dc) && (
             <button className={uiStyles.responsiveMenuAction} onClick={() => { onSetCommander(dc, true); close() }}>
-              <span>♛ Set as Commander</span>
+              <span>Set as Commander</span>
             </button>
           )}
           {boardOptions.map(board => (
@@ -302,7 +370,7 @@ function DeckCardActionsMenuBody({ dc, isEDH, onSetCommander, onToggleFoil, onPi
             </button>
           ))}
           <button className={uiStyles.responsiveMenuAction} onClick={() => { onToggleFoil(dc.id); close() }}>
-            <span>{dc.foil ? '✦ Remove Foil' : '◇ Mark as Foil'}</span>
+        <span>{dc.foil ? 'Remove Foil' : 'Mark as Foil'}</span>
           </button>
           <button className={uiStyles.responsiveMenuAction} onClick={() => { onPickVersion(dc); close() }}>
             <span><SettingsIcon size={12} /> Change Version</span>
@@ -318,7 +386,7 @@ function DeckCardActionsMenuBody({ dc, isEDH, onSetCommander, onToggleFoil, onPi
   )
 }
 
-// ── Deck card row in right panel ──────────────────────────────────────────────
+// â”€â”€ Deck card row in right panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 */
 function EditMenu({ dc, isEDH, onSetCommander, onToggleFoil, onPickVersion, onMoveBoard }) {
   return (
@@ -349,17 +417,19 @@ function EditMenu({ dc, isEDH, onSetCommander, onToggleFoil, onPickVersion, onMo
   )
 }
 
-function DeckCardRow({ dc, ownedQty, ownedFoilAlt, ownedAlt, ownedInDeck, inCollDeck, onChangeQty, onRemove, onMouseEnter, onMouseLeave, onMouseMove, onContextMenu, onPickVersion, onToggleFoil, onSetCommander, onMoveBoard, isEDH, visibleColumns, listGridTemplate }) {
-  const setLabel = dc.set_code ? `${String(dc.set_code).toUpperCase()}${dc.collector_number ? ` #${dc.collector_number}` : ''}` : '—'
+function DeckCardRow({ dc, ownedQty, ownedFoilAlt, ownedAlt, ownedInDeck, inCollDeck, onChangeQty, onRemove, onMouseEnter, onMouseLeave, onMouseMove, onContextMenu, onPickVersion, onToggleFoil, onSetCommander, onMoveBoard, isEDH, visibleColumns, listGridTemplate, legalityWarnings = [] }) {
+  const setLabel = dc.set_code ? `${String(dc.set_code).toUpperCase()}${dc.collector_number ? ` #${dc.collector_number}` : ''}` : '-'
+  const warningTitle = legalityWarnings.map(w => w.text).join('\n')
   return (
-    <div className={`${styles.deckCardRow}${dc.is_commander ? ' ' + styles.isCommander : ''}`} style={{ '--deck-list-columns': listGridTemplate }} onContextMenu={onContextMenu}>
+    <div className={`${styles.deckCardRow}${dc.is_commander ? ' ' + styles.isCommander : ''}${legalityWarnings.length ? ' ' + styles.deckCardIllegal : ''}`} title={warningTitle || undefined} style={{ '--deck-list-columns': listGridTemplate }} onContextMenu={onContextMenu}>
       <div className={styles.deckCardLeft}>
         {dc.image_uri
           ? <img className={styles.deckThumb} src={dc.image_uri} alt="" loading="lazy" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove} />
           : <div className={styles.deckThumbPlaceholder} />
         }
         <span className={styles.deckCardName} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove}>{dc.name}</span>
-        {dc.foil && <span className={styles.foilBadge} title="Foil">✦</span>}
+        {legalityWarnings.length > 0 && <span className={styles.illegalMark} title={warningTitle}>!</span>}
+        {dc.foil && <span className={styles.foilBadge} title="Foil">*</span>}
       </div>
       {visibleColumns.set && <div className={styles.deckCardSet}>{setLabel}</div>}
       {visibleColumns.status && (
@@ -370,12 +440,12 @@ function DeckCardRow({ dc, ownedQty, ownedFoilAlt, ownedAlt, ownedInDeck, inColl
       {visibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} />}
       {visibleColumns.qty && (
         <div className={styles.qtyControls}>
-          <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, -1)}>−</button>
+          <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, -1)}>-</button>
           <span className={styles.qtyVal}>{dc.qty}</span>
           <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, +1)}>+</button>
         </div>
       )}
-      {visibleColumns.remove && <button className={styles.removeBtn} onClick={() => onRemove(dc.id)}>✕</button>}
+      {visibleColumns.remove && <button className={styles.removeBtn} onClick={() => onRemove(dc.id)}>x</button>}
     </div>
   )
 }
@@ -384,22 +454,23 @@ function DeckCardRowV2({
   dc, ownedQty, ownedFoilAlt, ownedAlt, ownedInDeck, inCollDeck,
   onChangeQty, onRemove, onMouseEnter, onMouseLeave, onMouseMove, onContextMenu,
   onPickVersion, onToggleFoil, onSetCommander, onMoveBoard, isEDH,
-  visibleColumns, listGridTemplate, priceLabel, onOpenDetail,
+  visibleColumns, listGridTemplate, priceLabel, onOpenDetail, legalityWarnings = [],
 }) {
-  const setLabel = dc.set_code ? `${String(dc.set_code).toUpperCase()}${dc.collector_number ? ` #${dc.collector_number}` : ''}` : '—'
+  const setLabel = dc.set_code ? `${String(dc.set_code).toUpperCase()}${dc.collector_number ? ` #${dc.collector_number}` : ''}` : '-'
   return (
-    <div className={`${styles.deckCardRow}${dc.is_commander ? ' ' + styles.isCommander : ''}`} style={{ '--deck-list-columns': listGridTemplate }} onContextMenu={onContextMenu}>
+    <div className={`${styles.deckCardRow}${dc.is_commander ? ' ' + styles.isCommander : ''}${legalityWarnings.length ? ' ' + styles.deckCardIllegal : ''}`} title={(legalityWarnings.map(w => w.text).join('\n')) || undefined} style={{ '--deck-list-columns': listGridTemplate }} onContextMenu={onContextMenu}>
       <div className={styles.deckCardLeft} style={{ cursor: 'pointer' }} onClick={() => onOpenDetail?.(dc)}>
         {dc.image_uri
           ? <img className={styles.deckThumb} src={dc.image_uri} alt="" loading="lazy" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove} />
           : <div className={styles.deckThumbPlaceholder} />
         }
         <span className={styles.deckCardName} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove}>{dc.name}</span>
-        {dc.foil && <span className={styles.foilBadge} title="Foil">✦</span>}
+        {legalityWarnings.length > 0 && <span className={styles.illegalMark} title={legalityWarnings.map(w => w.text).join('\n')}>!</span>}
+        {dc.foil && <span className={styles.foilBadge} title="Foil">*</span>}
       </div>
       {visibleColumns.set && <div className={styles.deckCardSet}>{setLabel}</div>}
       {visibleColumns.manaValue && <div className={styles.deckCardMetric}><ManaCostInline cost={dc.mana_cost} size={14} /></div>}
-      {visibleColumns.cmc && <div className={styles.deckCardMetric}>{dc.cmc ?? '—'}</div>}
+      {visibleColumns.cmc && <div className={styles.deckCardMetric}>{dc.cmc ?? '-'}</div>}
       {visibleColumns.price && <div className={styles.deckCardMetric}>{priceLabel}</div>}
       {visibleColumns.status && (
         <div className={styles.deckCardStatus}>
@@ -409,17 +480,17 @@ function DeckCardRowV2({
       {visibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} />}
       {visibleColumns.qty && (
         <div className={styles.qtyControls}>
-          <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, -1)}>−</button>
+          <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, -1)}>-</button>
           <span className={styles.qtyVal}>{dc.qty}</span>
           <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, +1)}>+</button>
         </div>
       )}
-      {visibleColumns.remove && <button className={styles.removeBtn} onClick={() => onRemove(dc.id)}>✕</button>}
+      {visibleColumns.remove && <button className={styles.removeBtn} onClick={() => onRemove(dc.id)}>x</button>}
     </div>
   )
 }
 
-// ── Combo components ──────────────────────────────────────────────────────────
+// â”€â”€ Combo components â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const _comboImgCache = {}
 
 function useComboCardImage(name, existingUri) {
@@ -470,12 +541,12 @@ function ComboCardThumb({ name, inDeck, existingUri, onAdd, onOpenDetail }) {
               backdropFilter: 'blur(4px)',
             }}
           >
-            {adding ? '…' : '+ Add'}
+            {adding ? '...' : '+ Add'}
           </button>
         )}
         </div>
       <div style={{ fontSize: '0.64rem', color: inDeck ? 'var(--text-faint)' : '#e08878', textAlign: 'center', maxWidth: 110, lineHeight: 1.2, wordBreak: 'break-word' }}>
-        {inDeck ? name : `⊕ ${name}`}
+        {inDeck ? name : `Add ${name}`}
       </div>
     </div>
   )
@@ -511,7 +582,7 @@ function ComboResultCard({ combo, highlight, deckCardNames, deckImages, onAddCar
   )
 }
 
-// ── Basic lands set ───────────────────────────────────────────────────────────
+// â”€â”€ Basic lands set â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const BASIC_LANDS = new Set(['Island', 'Plains', 'Forest', 'Mountain', 'Swamp', 'Wastes'])
 const DEFAULT_LIST_COLUMNS = {
   set: false,
@@ -534,27 +605,27 @@ const DEFAULT_COMPACT_COLUMNS = {
   remove: true,
 }
 
-// ── Make Deck row ─────────────────────────────────────────────────────────────
+// â”€â”€ Make Deck row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function MakeDeckRow({ item }) {
   const { dc, neededQty, addExact, addOther, totalAdd, missingQty } = item
   const img = dc.image_uri
   let statusColor, statusIcon, statusDetail
   if (totalAdd === 0) {
-    statusColor = '#e07070'; statusIcon = '✗'; statusDetail = 'not owned'
+    statusColor = '#e07070'; statusIcon = 'x'; statusDetail = 'not owned'
   } else if (missingQty === 0 && addOther === 0) {
-    statusColor = 'var(--green, #4a9a5a)'; statusIcon = '✓'; statusDetail = `${totalAdd}× exact`
+    statusColor = 'var(--green, #4a9a5a)'; statusIcon = 'OK'; statusDetail = `${totalAdd}x exact`
   } else {
-    statusColor = '#c9a84c'; statusIcon = '↔'
+    statusColor = '#c9a84c'; statusIcon = 'Alt'
     const parts = []
-    if (addExact > 0) parts.push(`${addExact}× exact`)
-    if (addOther > 0) parts.push(`${addOther}× other print`)
-    if (missingQty > 0) parts.push(`${missingQty}× missing`)
+    if (addExact > 0) parts.push(`${addExact}x exact`)
+    if (addOther > 0) parts.push(`${addOther}x other print`)
+    if (missingQty > 0) parts.push(`${missingQty}x missing`)
     statusDetail = parts.join(', ')
   }
   const allocationDetail = (item.allocations || [])
     .map(row => {
       const print = row.set_code && row.collector_number ? `${String(row.set_code).toUpperCase()} #${row.collector_number}` : 'owned print'
-      return `${row.qty}× ${print}${row.foil ? ' foil' : ''}`
+      return `${row.qty}x ${print}${row.foil ? ' foil' : ''}`
     })
     .join(', ')
   return (
@@ -565,7 +636,7 @@ function MakeDeckRow({ item }) {
       }
       <div style={{ flex:1, minWidth:0 }}>
         <span style={{ fontSize:'0.84rem', color:'var(--text)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', display:'block' }}>
-          {neededQty > 1 ? `${neededQty}× ` : ''}{dc.name}
+          {neededQty > 1 ? `${neededQty}x ` : ''}{dc.name}
         </span>
         {allocationDetail && (
           <span style={{ fontSize:'0.72rem', color:'var(--text-faint)', display:'block', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
@@ -631,6 +702,119 @@ function buildChosenPrintingSelections(items, chosenOtherCardIds) {
     .filter(Boolean)
 }
 
+function formatOwnedPrinting(row) {
+  if (!row) return 'owned printing'
+  const setPart = row.set_code ? String(row.set_code).toUpperCase() : null
+  const numberPart = row.collector_number ? `#${row.collector_number}` : null
+  const parts = [setPart, numberPart].filter(Boolean)
+  const label = parts.length ? parts.join(' ') : 'owned printing'
+  return row.foil ? `${label} foil` : label
+}
+
+function formatQtyLabel(qty, suffix = 'copy') {
+  if (qty === 1) return `${qty} ${suffix}`
+  return `${qty} ${suffix === 'copy' ? 'copies' : `${suffix}s`}`
+}
+
+function getResolutionSummary(row, resolution) {
+  const name = row.builder?.name || row.collection?.name || 'Card'
+  if (resolution === 'builder') {
+    if ((row.builderQty || 0) > (row.collectionQty || 0)) {
+      return `${name}: add ${row.builderQty - row.collectionQty} to Collection Deck`
+    }
+    if ((row.builderQty || 0) < (row.collectionQty || 0)) {
+      return `${name}: remove ${row.collectionQty - row.builderQty} from Collection Deck`
+    }
+    return `${name}: keep Deck Builder version`
+  }
+  if (resolution === 'collection') {
+    if ((row.collectionQty || 0) > (row.builderQty || 0)) {
+      return `${name}: add ${row.collectionQty - row.builderQty} to Deck Builder`
+    }
+    if ((row.collectionQty || 0) < (row.builderQty || 0)) {
+      return `${name}: remove ${row.builderQty - row.collectionQty} from Deck Builder`
+    }
+    return `${name}: keep Collection Deck version`
+  }
+  return `${name}: leave unresolved for now`
+}
+
+function getDecisionCategory(row, builderOnly, collectionOnly) {
+  if (builderOnly.some(item => item.key === row.key)) return 'builderOnly'
+  if (collectionOnly.some(item => item.key === row.key)) return 'collectionOnly'
+  return 'conflict'
+}
+
+function getDecisionPreview(row, resolution, context = {}) {
+  const {
+    addedByKey = new Map(),
+    changedByKey = new Map(),
+    removedByKey = new Map(),
+    selectedMoveTarget = null,
+  } = context
+
+  const name = row.builder?.name || row.collection?.name || 'Card'
+  if (resolution === 'keep') return `${name} stays unchanged in both places for now.`
+  if (resolution === 'collection') {
+    if ((row.collectionQty || 0) === (row.builderQty || 0)) return `${name} already matches the current Collection Deck.`
+    return `Deck Builder will change from ${row.builderQty || 0} to ${row.collectionQty || 0}. Collection cards stay where they are.`
+  }
+
+  const addItem = addedByKey.get(row.key)
+  if (addItem) {
+    if (addItem.totalAdd > 0 && addItem.missingQty > 0) {
+      return `Move ${addItem.totalAdd} owned ${addItem.totalAdd === 1 ? 'copy' : 'copies'} into Collection Deck. ${addItem.missingQty} ${addItem.missingQty === 1 ? 'copy is' : 'copies are'} still missing.`
+    }
+    if (addItem.totalAdd > 0) {
+      return `Move ${addItem.totalAdd} owned ${addItem.totalAdd === 1 ? 'copy' : 'copies'} into Collection Deck.`
+    }
+    if (addItem.missingQty > 0) {
+      return `${addItem.missingQty} ${addItem.missingQty === 1 ? 'copy is' : 'copies are'} missing, so no collection copies can move in.`
+    }
+  }
+
+  const changedItem = changedByKey.get(row.key)
+  if (changedItem) {
+    if (changedItem.newQty > changedItem.oldQty) {
+      const delta = changedItem.newQty - changedItem.oldQty
+      return `Increase Collection Deck by ${delta} ${delta === 1 ? 'copy' : 'copies'}.`
+    }
+    if (changedItem.newQty < changedItem.oldQty) {
+      const delta = changedItem.oldQty - changedItem.newQty
+      const destLabel = selectedMoveTarget
+        ? `${selectedMoveTarget.type === 'binder' ? 'Binder' : 'Deck'}: ${selectedMoveTarget.name}`
+        : 'your chosen destination'
+      return `Move ${delta} ${delta === 1 ? 'copy' : 'copies'} out of Collection Deck to ${destLabel}.`
+    }
+  }
+
+  const removedItem = removedByKey.get(row.key)
+  if (removedItem) {
+    const delta = removedItem.allocRow?.qty || 0
+    const destLabel = selectedMoveTarget
+      ? `${selectedMoveTarget.type === 'binder' ? 'Binder' : 'Deck'}: ${selectedMoveTarget.name}`
+      : 'your chosen destination'
+    return `Move all ${delta} ${delta === 1 ? 'copy' : 'copies'} out of Collection Deck to ${destLabel}.`
+  }
+
+  return `${name} will follow the Deck Builder version.`
+}
+
+function findCommanderTransferHint(row, currentDeckCards) {
+  if (row?.builder?.is_commander) return { is_commander: true }
+
+  const name = String(row?.collection?.name || row?.builder?.name || '').trim().toLowerCase()
+  if (!name) return { is_commander: false }
+
+  const matchingCommander = (currentDeckCards || []).find(card =>
+    card?.is_commander && String(card.name || '').trim().toLowerCase() === name
+  )
+
+  return matchingCommander
+    ? { is_commander: true }
+    : { is_commander: false }
+}
+
 function PrintingPickerModal({ cardName, options, selectedCardId, onSelect, onClose }) {
   const [details, setDetails] = useState([])
 
@@ -660,7 +844,7 @@ function PrintingPickerModal({ cardName, options, selectedCardId, onSelect, onCl
       <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, width:760, maxWidth:'95vw', maxHeight:'88vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
         <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <span style={{ fontFamily:'var(--font-display)', color:'var(--gold)', fontSize:'1rem' }}>Choose owned printing</span>
-          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.2rem', cursor:'pointer' }}>✕</button>
+          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.2rem', cursor:'pointer' }}>x</button>
         </div>
         <div style={{ padding:'12px 20px', color:'var(--text-dim)', fontSize:'0.84rem' }}>
           Select which owned printing to use for {cardName}.
@@ -690,7 +874,7 @@ function PrintingPickerModal({ cardName, options, selectedCardId, onSelect, onCl
                 {option.set_code ? `${String(option.set_code).toUpperCase()} #${option.collector_number || '?'}` : 'Owned printing'}
               </div>
               <div style={{ fontSize:'0.73rem', color:'var(--text-faint)' }}>
-                {option.available_qty}× available{option.foil ? ' • foil' : ''}
+                {`${option.available_qty}x available${option.foil ? ' / foil' : ''}`}
               </div>
             </button>
           ))}
@@ -700,7 +884,7 @@ function PrintingPickerModal({ cardName, options, selectedCardId, onSelect, onCl
   )
 }
 
-// ── Make Deck modal ────────────────────────────────────────────────────────────
+// â”€â”€ Make Deck modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function MakeDeckModal({ deckCards, userId, inOtherDeckSet, onConfirm, onClose }) {
   const [loading, setLoading] = useState(true)
   const [previewItems, setPreviewItems] = useState([])
@@ -757,10 +941,10 @@ function MakeDeckModal({ deckCards, userId, inOtherDeckSet, onConfirm, onClose }
       <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, width:560, maxWidth:'95vw', maxHeight:'90vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
         <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <span style={{ fontFamily:'var(--font-display)', color:'var(--gold)', fontSize:'1rem' }}>Make Collection Deck</span>
-          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.2rem', cursor:'pointer' }}>✕</button>
+          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.2rem', cursor:'pointer' }}>x</button>
         </div>
         {loading ? (
-          <div style={{ padding:40, textAlign:'center', color:'var(--text-faint)', fontSize:'0.85rem' }}>Checking your collection…</div>
+          <div style={{ padding:40, textAlign:'center', color:'var(--text-faint)', fontSize:'0.85rem' }}>Checking your collection...</div>
         ) : (
           <>
             <div style={{ padding:'10px 20px', borderBottom:'1px solid var(--border)', display:'flex', flexDirection:'column', gap:8 }}>
@@ -779,9 +963,9 @@ function MakeDeckModal({ deckCards, userId, inOtherDeckSet, onConfirm, onClose }
               ))}
             </div>
             <div style={{ padding:'8px 20px', background:'var(--s1)', borderBottom:'1px solid var(--border)', display:'flex', gap:16, fontSize:'0.81rem', flexWrap:'wrap' }}>
-              <span style={{ color:'var(--green, #4a9a5a)' }}>✓ {exactCount} exact</span>
-              {fallbackCount > 0 && <span style={{ color:'#c9a84c' }}>↔ {fallbackCount} different printing</span>}
-              {missingCount > 0 && <span style={{ color:'#e07070' }}>✗ {missingCount} missing</span>}
+              <span style={{ color:'var(--green, #4a9a5a)' }}>OK {exactCount} exact</span>
+              {fallbackCount > 0 && <span style={{ color:'#c9a84c' }}>Alt {fallbackCount} different printing</span>}
+              {missingCount > 0 && <span style={{ color:'#e07070' }}>x {missingCount} missing</span>}
             </div>
             <div style={{ flex:1, overflowY:'auto', minHeight:0 }}>
               {filtered.length === 0
@@ -829,12 +1013,12 @@ function MakeDeckModal({ deckCards, userId, inOtherDeckSet, onConfirm, onClose }
                         menuDirection="up"
                         style={{ background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:4, padding:'6px 10px', color:'var(--text)', fontSize:'0.84rem', flex:1, minWidth:0 }}
                         title="Select wishlist">
-                        <option value="">— Choose wishlist —</option>
+                        <option value="">Choose wishlist</option>
                         {wishlists.map(wl => <option key={wl.id} value={wl.id}>{wl.name}</option>)}
-                        <option value="new">+ Create new wishlist…</option>
+                        <option value="new">+ Create new wishlist...</option>
                       </Select>
                       {selectedWishlistId === 'new' && (
-                        <input autoFocus placeholder="Wishlist name…" value={newWishlistName} onChange={e => setNewWishlistName(e.target.value)}
+                        <input autoFocus placeholder="Wishlist name..." value={newWishlistName} onChange={e => setNewWishlistName(e.target.value)}
                           style={{ background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:4, padding:'6px 10px', color:'var(--text)', fontSize:'0.84rem', flex:1 }} />
                       )}
                     </div>
@@ -877,10 +1061,12 @@ function MakeDeckModal({ deckCards, userId, inOtherDeckSet, onConfirm, onClose }
   )
 }
 
-// ── Sync modal ────────────────────────────────────────────────────────────────
+// â”€â”€ Sync modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onConfirm, onClose }) {
   const [loading, setLoading] = useState(true)
   const [baseDiff, setBaseDiff] = useState(null)
+  const [reviewDiff, setReviewDiff] = useState(null)
+  const [resolutions, setResolutions] = useState({})
   const [folders, setFolders] = useState([])
   const [wishlists, setWishlists] = useState([])
   const [exactVersionOnly, setExactVersionOnly] = useState(true)
@@ -894,6 +1080,7 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
     async function load() {
       const targetDeckId = isCollectionDeck ? deckId : deckMeta.linked_deck_id
       if (!targetDeckId) { setLoading(false); return }
+      const baseline = getSyncState(deckMeta).last_sync_snapshot || { builder_cards: [], collection_cards: [] }
       const [collCards, { data: allocations }, { data: foldersData }, { data: wls }] = await Promise.all([
         getLocalCards(userId),
         sb.from('deck_allocations_view').select('*').eq('deck_id', targetDeckId),
@@ -973,7 +1160,8 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
           desiredByCardId.set(row.card_id, (desiredByCardId.get(row.card_id) || 0) + row.qty)
         }
       }
-      const added = [], changed = []
+      const added = []
+      const changed = []
       for (const item of planned) {
         const newExactAllocations = item.exactAllocations.filter(row => !collMap.has(row.card_id))
         const newOtherAllocations = item.otherAllocations.filter(row => !collMap.has(row.card_id))
@@ -990,11 +1178,7 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
           owned: item.totalAdd > 0,
         }
 
-        if (addCandidate.totalAdd > 0 || item.missingQty > 0) {
-          added.push({
-            ...addCandidate,
-          })
-        }
+        if (addCandidate.totalAdd > 0 || item.missingQty > 0) added.push({ ...addCandidate })
         for (const row of item.allocations) {
           const desiredQty = desiredByCardId.get(row.card_id)
           const existing = collMap.get(row.card_id)
@@ -1008,8 +1192,42 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
         if (!desiredByCardId.has(cardId)) removed.push({ cardId, allocRow: fcRow, name: fcRow.name || '?' })
       }
       setBaseDiff({ added, changed, removed, targetDeckId })
+
+      const allocationRowsByKey = new Map()
+      for (const row of allocations || []) {
+        const key = getLogicalKey(row)
+        const list = allocationRowsByKey.get(key) || []
+        list.push(row)
+        allocationRowsByKey.set(key, list)
+      }
+
+      const nextReviewDiff = buildSyncDiff({
+        baseline,
+        builderCards: deckCards.filter(dc => normalizeBoard(dc.board) !== 'maybe'),
+        collectionCards: allocations || [],
+      })
+      const withRows = list => list.map(row => ({
+        ...row,
+        allocationRows: allocationRowsByKey.get(row.key) || [],
+      }))
+      const normalizedReview = {
+        builderOnly: withRows(nextReviewDiff.builderOnly),
+        collectionOnly: withRows(nextReviewDiff.collectionOnly),
+        conflicts: withRows(nextReviewDiff.conflicts),
+        targetDeckId,
+        allocations: allocations || [],
+      }
+      setReviewDiff(normalizedReview)
+      setResolutions(() => {
+        const next = {}
+        for (const row of normalizedReview.builderOnly) next[row.key] = 'builder'
+        for (const row of normalizedReview.collectionOnly) next[row.key] = 'collection'
+        for (const row of normalizedReview.conflicts) next[row.key] = 'keep'
+        return next
+      })
       setFolders(foldersData || [])
       setWishlists(wls || [])
+      if ((foldersData || []).length === 1) setGlobalDest(foldersData[0].id)
       setLoading(false)
     }
     load()
@@ -1022,7 +1240,7 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
   if (loading) return (
     <div style={overlay}>
       <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, padding:32, color:'var(--text-faint)', fontSize:'0.9rem' }}>
-        Comparing deck with collection…
+        Comparing deck with collection...
       </div>
     </div>
   )
@@ -1031,38 +1249,75 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
     if (!baseDiff) return null
     const normalizedAdded = (baseDiff.added || []).map(item => {
       const chosen = buildChosenAllocations(item, exactVersionOnly, chosenOtherCardIds[item.dc.id])
-      return {
-        ...item,
-        ...chosen,
-      }
+      return { ...item, ...chosen }
     })
     return { ...baseDiff, added: normalizedAdded }
   })()
 
   const { added = [], changed = [], removed = [] } = diff || {}
-  const ownedAdded   = added.filter(i => i.totalAdd > 0)
-  const unownedAdded = added.filter(i => i.missingQty > 0)
-  const hasChanges   = ownedAdded.length || removed.length || changed.length || unownedAdded.length
+  const builderOnly = reviewDiff?.builderOnly || []
+  const collectionOnly = reviewDiff?.collectionOnly || []
+  const conflicts = reviewDiff?.conflicts || []
+  const reviewRows = [...builderOnly, ...collectionOnly, ...conflicts]
+  const selectedBuilderKeys = new Set(reviewRows.filter(row => resolutions[row.key] === 'builder').map(row => row.key))
+  const selectedCollectionRows = reviewRows.filter(row => resolutions[row.key] === 'collection')
+  const unresolvedRows = reviewRows.filter(row => (resolutions[row.key] || 'keep') === 'keep')
+  const ownedAdded = added.filter(i => selectedBuilderKeys.has(getLogicalKey(i.dc)) && i.totalAdd > 0)
+  const unownedAdded = added.filter(i => selectedBuilderKeys.has(getLogicalKey(i.dc)) && i.missingQty > 0)
+  const changedSelected = changed.filter(i => selectedBuilderKeys.has(getLogicalKey(i.dc)))
+  const removedSelected = removed.filter(r => selectedBuilderKeys.has(getLogicalKey(r.allocRow)))
+  const hasChanges = reviewRows.length > 0
   const movedOwnedRows = [
-    ...changed
+    ...changedSelected
       .filter(i => i.newQty < i.oldQty)
       .map(i => ({
         key: `changed:${i.allocRow.id}`,
         name: i.dc.name,
         qty: i.oldQty - i.newQty,
       })),
-    ...removed.map(r => ({
+    ...removedSelected.map(r => ({
       key: `removed:${r.allocRow.id}`,
       name: r.name,
       qty: r.allocRow.qty || 0,
     })),
   ]
+  const builderUpdateRows = selectedCollectionRows.filter(row => (row.collectionQty || 0) !== (row.builderQty || 0))
+  const commanderRiskRows = [
+    ...builderUpdateRows.filter(row => !!row.builder?.is_commander && !(row.collectionQty > 0)),
+    ...unresolvedRows.filter(row => !!row.builder?.is_commander),
+  ]
+  const selectedMoveTarget = folders.find(folder => folder.id === globalDest) || null
+  const canConfirm = (movedOwnedRows.length === 0 || !!globalDest)
+    && (wishlistId !== 'new' || !!newWishlistName.trim())
+  const addedByKey = new Map(added.map(item => [getLogicalKey(item.dc), item]))
+  const changedByKey = new Map(changed.map(item => [getLogicalKey(item.dc), item]))
+  const removedByKey = new Map(removed.map(item => [getLogicalKey(item.allocRow), item]))
+  const increaseRows = changedSelected.filter(item => item.newQty > item.oldQty)
+  const decreaseRows = changedSelected.filter(item => item.newQty < item.oldQty)
+  const incomingExactCount = ownedAdded.filter(item => item.addExact > 0 && item.addOther === 0).length
+  const incomingAltCount = ownedAdded.filter(item => item.addOther > 0).length
+  const collectionImpactCount = ownedAdded.length + changedSelected.length + removedSelected.length
+  const builderImpactCount = builderUpdateRows.length
+  const wishlistCount = wishlistId ? unownedAdded.length : 0
+  const actionCount = collectionImpactCount + builderImpactCount + unresolvedRows.length + wishlistCount
+  const decisionRows = reviewRows.map(row => ({
+    ...row,
+    resolution: resolutions[row.key] || 'keep',
+    category: getDecisionCategory(row, builderOnly, collectionOnly),
+    summary: getDecisionPreview(row, resolutions[row.key] || 'keep', {
+      addedByKey,
+      changedByKey,
+      removedByKey,
+      selectedMoveTarget,
+    }),
+    printing: formatOwnedPrinting(row.builder || row.collection),
+  }))
 
   if (!hasChanges) return (
     <div style={overlay} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, padding:32, width:380, display:'flex', flexDirection:'column', gap:16 }}>
-        <span style={{ fontFamily:'var(--font-display)', color:'var(--gold)' }}>Sync to Collection</span>
-        <p style={{ color:'var(--text-dim)', fontSize:'0.85rem', margin:0 }}>No changes — your collection deck is up to date.</p>
+        <span style={{ fontFamily:'var(--font-display)', color:'var(--gold)' }}>Update Collection Deck</span>
+        <p style={{ color:'var(--text-dim)', fontSize:'0.85rem', margin:0 }}>No sync differences found.</p>
         <div style={{ display:'flex', justifyContent:'flex-end' }}>
           <button onClick={onClose} style={{ background:'none', border:'1px solid var(--border)', borderRadius:4, padding:'7px 16px', color:'var(--text-dim)', fontSize:'0.83rem', cursor:'pointer' }}>Close</button>
         </div>
@@ -1070,122 +1325,247 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
     </div>
   )
 
-  const canConfirm = movedOwnedRows.length === 0 || !!globalDest
-
   return (
     <div style={overlay} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, width:560, maxWidth:'95vw', maxHeight:'90vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
+      <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, width:760, maxWidth:'96vw', maxHeight:'90vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
         <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-          <span style={{ fontFamily:'var(--font-display)', color:'var(--gold)', fontSize:'1rem' }}>Sync to Collection</span>
-          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.2rem', cursor:'pointer' }}>✕</button>
+          <span style={{ fontFamily:'var(--font-display)', color:'var(--gold)', fontSize:'1rem' }}>Update Collection Deck</span>
+          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.2rem', cursor:'pointer' }}>x</button>
         </div>
         <div style={{ flex:1, overflowY:'auto', minHeight:0, padding:'16px 20px', display:'flex', flexDirection:'column', gap:16 }}>
+          <div style={{ padding:'12px 14px', border:'1px solid var(--border)', borderRadius:8, background:'var(--s1)', display:'flex', flexDirection:'column', gap:6 }}>
+            <div style={{ color:'var(--text)', fontSize:'0.86rem' }}>
+              This screen updates the owned copies assigned to this Collection Deck.
+            </div>
+            <div style={{ color:'var(--text-faint)', fontSize:'0.76rem', lineHeight:1.5 }}>
+              Inspired by ManaBox’s collection-deck flow: review the collection-card movement first, then decide whether any deck-list differences should follow the Collection Deck instead.
+            </div>
+          </div>
+
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))', gap:10 }}>
+            <div style={{ padding:'12px', border:'1px solid var(--border)', borderRadius:8, background:'var(--bg3)' }}>
+              <div style={{ color:'var(--text-faint)', fontSize:'0.72rem', textTransform:'uppercase', letterSpacing:'0.06em' }}>Move Into Deck</div>
+              <div style={{ color:'var(--text)', fontSize:'1.1rem', marginTop:4 }}>{ownedAdded.length + increaseRows.length}</div>
+              <div style={{ color:'var(--text-faint)', fontSize:'0.74rem', marginTop:4 }}>
+                {incomingExactCount > 0 ? `${incomingExactCount} exact` : '0 exact'}
+                {incomingAltCount > 0 ? ` · ${incomingAltCount} other version` : ''}
+              </div>
+            </div>
+            <div style={{ padding:'12px', border:'1px solid var(--border)', borderRadius:8, background:'var(--bg3)' }}>
+              <div style={{ color:'var(--text-faint)', fontSize:'0.72rem', textTransform:'uppercase', letterSpacing:'0.06em' }}>Move Out Of Deck</div>
+              <div style={{ color:'var(--text)', fontSize:'1.1rem', marginTop:4 }}>{decreaseRows.length + removedSelected.length}</div>
+              <div style={{ color:'var(--text-faint)', fontSize:'0.74rem', marginTop:4 }}>
+                {movedOwnedRows.reduce((sum, row) => sum + row.qty, 0)} total copies
+              </div>
+            </div>
+            <div style={{ padding:'12px', border:'1px solid var(--border)', borderRadius:8, background:'var(--bg3)' }}>
+              <div style={{ color:'var(--text-faint)', fontSize:'0.72rem', textTransform:'uppercase', letterSpacing:'0.06em' }}>Missing Cards</div>
+              <div style={{ color:'var(--text)', fontSize:'1.1rem', marginTop:4 }}>{unownedAdded.length}</div>
+              <div style={{ color:'var(--text-faint)', fontSize:'0.74rem', marginTop:4 }}>
+                {wishlistCount > 0 ? `${wishlistCount} to wishlist` : 'no collection move'}
+              </div>
+            </div>
+            <div style={{ padding:'12px', border:'1px solid var(--border)', borderRadius:8, background:'var(--bg3)' }}>
+              <div style={{ color:'var(--text-faint)', fontSize:'0.72rem', textTransform:'uppercase', letterSpacing:'0.06em' }}>Deck List Only</div>
+              <div style={{ color:'var(--text)', fontSize:'1.1rem', marginTop:4 }}>{builderImpactCount}</div>
+              <div style={{ color:'var(--text-faint)', fontSize:'0.74rem', marginTop:4 }}>collection cards stay put</div>
+            </div>
+          </div>
+
+          <div>
+            <div style={secLabel}>Card Decisions</div>
+            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+              {decisionRows.map(row => {
+                const name = row.builder?.name || row.collection?.name || 'Card'
+                const label = row.category === 'builderOnly'
+                  ? 'Needed by Deck Builder'
+                  : row.category === 'collectionOnly'
+                    ? 'Only in Collection Deck'
+                    : 'Different quantities'
+                return (
+                  <div key={row.key} style={{ display:'grid', gridTemplateColumns:'minmax(0,1fr) 220px', gap:12, alignItems:'center', padding:'10px 12px', border:'1px solid var(--border)', borderRadius:8, background:'var(--bg3)' }}>
+                    <div style={{ minWidth:0, display:'flex', flexDirection:'column', gap:4 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:8, minWidth:0 }}>
+                        <span style={{ color:'var(--text)', fontSize:'0.85rem', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{name}</span>
+                        {row.builder?.is_commander && (
+                          <span style={{ color:'var(--gold)', fontSize:'0.7rem', border:'1px solid rgba(201,168,76,0.35)', borderRadius:999, padding:'2px 8px', flexShrink:0 }}>Commander</span>
+                        )}
+                        <span style={{ color:'var(--text-faint)', fontSize:'0.72rem', border:'1px solid var(--border)', borderRadius:999, padding:'2px 8px', flexShrink:0 }}>{label}</span>
+                      </div>
+                      <div style={{ color:'var(--text-faint)', fontSize:'0.74rem' }}>
+                        {row.printing} · Deck Builder {row.builderQty ?? 0} · Collection Deck {row.collectionQty ?? 0}
+                      </div>
+                      <div style={{ color: row.resolution === 'keep' ? 'var(--text-faint)' : 'var(--text-dim)', fontSize:'0.76rem', lineHeight:1.45 }}>
+                        {row.summary}
+                      </div>
+                    </div>
+                    <Select
+                      value={row.resolution}
+                      onChange={e => setResolutions(prev => ({ ...prev, [row.key]: e.target.value }))}
+                      style={{ ...s, width:'100%' }}
+                      title="Sync decision"
+                    >
+                      <option value="builder">Use Deck Builder</option>
+                      <option value="collection">Use Collection Deck</option>
+                      <option value="keep">Keep for now</option>
+                    </Select>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
           <div>
             <label style={{ display:'flex', alignItems:'flex-start', gap:8, cursor:'pointer' }}>
               <input type="checkbox" checked={exactVersionOnly} onChange={e => setExactVersionOnly(e.target.checked)} style={{ accentColor:'var(--gold)', marginTop:2, flexShrink:0 }} />
               <span>
                 <div style={{ fontSize:'0.84rem', color:'var(--text-dim)' }}>Use specified version only</div>
-                <div style={{ fontSize:'0.75rem', color:'var(--text-faint)' }}>Won't substitute a different printing during sync</div>
+                <div style={{ fontSize:'0.75rem', color:'var(--text-faint)' }}>Exact version first. If off, another owned printing can be used, like ManaBox.</div>
               </span>
             </label>
           </div>
-          {ownedAdded.length > 0 && (
+
+          {commanderRiskRows.length > 0 && (
             <div>
-              <div style={secLabel}>Adding to collection deck ({ownedAdded.length})</div>
-              {ownedAdded.map(i => (
-                <div key={i.dc.id} style={{ display:'flex', flexDirection:'column', gap:2, padding:'3px 0', fontSize:'0.84rem', color:'var(--text)' }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', gap:8 }}>
-                    <span>{i.totalAdd > 1 ? `${i.totalAdd}× ` : ''}{i.dc.name}</span>
-                    <span style={{ color:'var(--green, #4a9a5a)', fontSize:'0.78rem' }}>✓ owned</span>
+              <div style={secLabel}>Commander Attention</div>
+              <div style={{ padding:'10px 12px', border:'1px solid rgba(201,168,76,0.28)', borderRadius:8, background:'rgba(201,168,76,0.08)', display:'flex', flexDirection:'column', gap:6 }}>
+                {commanderRiskRows.map(row => (
+                  <div key={`commander-${row.key}`} style={{ color:'var(--text-dim)', fontSize:'0.8rem' }}>
+                    {(row.builder?.name || row.collection?.name || 'Card')}: collection choices may remove or leave unresolved commander status in Deck Builder.
                   </div>
-                  {!!i.allocations?.length && (
-                    <div style={{ color:'var(--text-faint)', fontSize:'0.74rem' }}>
-                      Uses: {i.allocations.map(row => {
-                        const print = row.set_code && row.collector_number ? `${String(row.set_code).toUpperCase()} #${row.collector_number}` : 'owned print'
-                        return `${row.qty}× ${print}${row.foil ? ' foil' : ''}`
-                      }).join(', ')}
-                    </div>
-                  )}
-                  {!exactVersionOnly && (i.otherCandidates?.length || 0) > 1 && (
-                    <div>
-                      <button
-                        onClick={() => setPickerItem(i)}
-                        style={{ background:'none', border:'1px solid var(--border)', borderRadius:4, padding:'5px 10px', color:'var(--text-dim)', fontSize:'0.76rem', cursor:'pointer', marginTop:4 }}>
-                        Choose owned printing
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           )}
-          {changed.length > 0 && (
+
+          {(ownedAdded.length > 0 || increaseRows.length > 0) && (
             <div>
-              <div style={secLabel}>Quantity changes ({changed.length})</div>
-              {changed.map(i => (
-                <div key={i.dc.id} style={{ display:'flex', justifyContent:'space-between', padding:'3px 0', fontSize:'0.84rem', color:'var(--text)' }}>
-                  <span>{i.dc.name}</span>
-                  <span style={{ color:'var(--text-dim)', fontSize:'0.78rem' }}>{i.oldQty} → {i.newQty}</span>
-                </div>
-              ))}
+              <div style={secLabel}>What Will Move Into This Collection Deck</div>
+              <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                {ownedAdded.map(i => (
+                  <div key={i.dc.id} style={{ padding:'10px 12px', border:'1px solid var(--border)', borderRadius:8, background:'var(--bg3)', display:'flex', flexDirection:'column', gap:5 }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', gap:8, fontSize:'0.84rem', color:'var(--text)' }}>
+                      <span>{i.dc.name}</span>
+                      <span style={{ color:'var(--green, #4a9a5a)' }}>{formatQtyLabel(i.totalAdd)}</span>
+                    </div>
+                    {!!i.allocations?.length && (
+                      <div style={{ color:'var(--text-faint)', fontSize:'0.74rem' }}>
+                        Uses: {i.allocations.map(row => `${row.qty}x ${formatOwnedPrinting(row)}`).join(', ')}
+                      </div>
+                    )}
+                    {!exactVersionOnly && (i.otherCandidates?.length || 0) > 1 && (
+                      <div>
+                        <button
+                          onClick={() => setPickerItem(i)}
+                          style={{ background:'none', border:'1px solid var(--border)', borderRadius:4, padding:'5px 10px', color:'var(--text-dim)', fontSize:'0.76rem', cursor:'pointer' }}>
+                          Choose owned printing
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {increaseRows.map(i => (
+                  <div key={`inc-${i.cardId}:${i.dc.id}`} style={{ display:'flex', justifyContent:'space-between', padding:'8px 10px', border:'1px solid var(--border)', borderRadius:8, background:'var(--bg3)', fontSize:'0.84rem', color:'var(--text)' }}>
+                    <span>{i.dc.name}</span>
+                    <span style={{ color:'var(--text-dim)', fontSize:'0.78rem' }}>{`add ${i.newQty - i.oldQty}`}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
-          {removed.length > 0 && (
-            <div>
-              <div style={secLabel}>Removed from owned allocation ({removed.length})</div>
-              {removed.map(r => (
-                <div key={r.allocRow.id} style={{ display:'flex', justifyContent:'space-between', padding:'3px 0', fontSize:'0.84rem', color:'var(--text)' }}>
-                  <span>{r.name}</span>
-                  <span style={{ color:'var(--text-faint)', fontSize:'0.78rem' }}>move required</span>
-                </div>
-              ))}
-            </div>
-          )}
+
           {movedOwnedRows.length > 0 && (
             <div>
-              <div style={secLabel}>Move removed owned copies to</div>
+              <div style={secLabel}>What Will Move Out Of This Collection Deck</div>
+              <div style={{ color:'var(--text-faint)', fontSize:'0.74rem', marginBottom:8 }}>
+                Choose where the removed owned copies should go.
+              </div>
               <Select value={globalDest} onChange={e => setGlobalDest(e.target.value)} style={{ ...s, width:'100%' }} title="Select destination" portal searchable>
-                <option value="">— Select binder or deck —</option>
+                <option value="">Select binder or deck</option>
                 {folders.map(folder => (
                   <option key={folder.id} value={folder.id}>
                     {folder.type === 'binder' ? 'Binder' : 'Deck'}: {folder.name}
                   </option>
                 ))}
               </Select>
+              {selectedMoveTarget && (
+                <div style={{ color:'var(--text-faint)', fontSize:'0.74rem', marginTop:8 }}>
+                  Removed owned copies will move to {selectedMoveTarget.type === 'binder' ? 'Binder' : 'Deck'}: {selectedMoveTarget.name}
+                </div>
+              )}
               <div style={{ display:'flex', flexDirection:'column', gap:4, marginTop:10 }}>
                 {movedOwnedRows.map(row => (
                   <div key={row.key} style={{ display:'flex', justifyContent:'space-between', fontSize:'0.8rem', color:'var(--text-dim)' }}>
                     <span>{row.name}</span>
-                    <span>{row.qty}×</span>
+                    <span>{row.qty}x</span>
                   </div>
                 ))}
               </div>
             </div>
           )}
+
           {unownedAdded.length > 0 && (
             <div>
-              <div style={secLabel}>Not owned — add to wishlist? ({unownedAdded.length})</div>
+              <div style={secLabel}>Missing Cards</div>
               <div style={{ display:'flex', flexDirection:'column', gap:4, marginBottom:10 }}>
                 {unownedAdded.map(item => (
                   <div key={item.dc.id} style={{ display:'flex', justifyContent:'space-between', fontSize:'0.84rem', color:'var(--text)' }}>
                     <span>{item.dc.name}</span>
                     <span style={{ color:'var(--text-faint)', fontSize:'0.78rem' }}>
-                      {item.missingQty || item.dc.qty || 1}×
+                      {item.missingQty || item.dc.qty || 1}x
                     </span>
                   </div>
                 ))}
               </div>
-                <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-                  <Select value={wishlistId} onChange={e => setWishlistId(e.target.value)} style={{ ...s, flex:1 }} title="Select wishlist">
-                  <option value="">— Skip —</option>
+              <div style={{ color:'var(--text-faint)', fontSize:'0.74rem', marginBottom:8 }}>
+                These cards are not owned, so they will not be placed into the Collection Deck.
+              </div>
+              <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                <Select value={wishlistId} onChange={e => setWishlistId(e.target.value)} style={{ ...s, flex:1 }} title="Select wishlist">
+                  <option value="">Skip</option>
                   {wishlists.map(wl => <option key={wl.id} value={wl.id}>{wl.name}</option>)}
-                  <option value="new">+ Create new wishlist…</option>
+                  <option value="new">+ Create new wishlist...</option>
                 </Select>
                 {wishlistId === 'new' && (
-                  <input autoFocus value={newWishlistName} onChange={e => setNewWishlistName(e.target.value)}
-                    placeholder="Wishlist name…"
-                    style={{ background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:4, padding:'5px 8px', color:'var(--text)', fontSize:'0.83rem', flex:1 }} />
+                  <input
+                    autoFocus
+                    value={newWishlistName}
+                    onChange={e => setNewWishlistName(e.target.value)}
+                    placeholder="Wishlist name..."
+                    style={{ background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:4, padding:'5px 8px', color:'var(--text)', fontSize:'0.83rem', flex:1 }}
+                  />
                 )}
+              </div>
+            </div>
+          )}
+
+          {builderUpdateRows.length > 0 && (
+            <div>
+              <div style={secLabel}>Deck List Changes Only</div>
+              <div style={{ color:'var(--text-faint)', fontSize:'0.74rem', marginBottom:8 }}>
+                These decisions change the Deck Builder list to match the current Collection Deck. No collection cards will move.
+              </div>
+              <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                {builderUpdateRows.map(row => (
+                  <div key={`builder-${row.key}`} style={{ display:'flex', justifyContent:'space-between', gap:8, padding:'8px 10px', border:'1px solid var(--border)', borderRadius:8, background:'var(--bg3)', fontSize:'0.84rem', color:'var(--text)' }}>
+                    <span>{row.collection?.name || row.builder?.name || 'Card'}</span>
+                    <span style={{ color:'var(--text-dim)', fontSize:'0.78rem' }}>{`Deck Builder ${row.builderQty ?? 0} to ${row.collectionQty ?? 0}`}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {unresolvedRows.length > 0 && (
+            <div>
+              <div style={secLabel}>Keep Separate For Now</div>
+              <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                {unresolvedRows.map(row => (
+                  <div key={`keep-${row.key}`} style={{ display:'flex', justifyContent:'space-between', fontSize:'0.8rem', color:'var(--text-dim)' }}>
+                    <span>{row.builder?.name || row.collection?.name || 'Card'}</span>
+                    <span>no change</span>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -1204,23 +1584,29 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
         )}
         <div style={{ padding:'12px 20px', borderTop:'1px solid var(--border)', display:'flex', gap:8, justifyContent:'space-between', alignItems:'center' }}>
           <span style={{ fontSize:'0.79rem', color:'var(--text-faint)' }}>
-            {movedOwnedRows.length > 0 ? 'Owned cards must be reassigned to another binder or deck before sync can finish.' : ''}
+            {movedOwnedRows.length > 0 ? 'Choose a destination for removed collection cards before continuing.' : ''}
           </span>
           <div style={{ display:'flex', gap:8 }}>
             <button onClick={onClose} style={{ background:'none', border:'1px solid var(--border)', borderRadius:4, padding:'7px 16px', color:'var(--text-dim)', fontSize:'0.83rem', cursor:'pointer' }}>Cancel</button>
             <button
               disabled={!canConfirm}
               onClick={() => canConfirm && onConfirm({
-                diff,
-                addItems: ownedAdded,
-                missingItems: unownedAdded,
-                printingSelections: buildChosenPrintingSelections(added, chosenOtherCardIds),
-                moveDestinationId: globalDest || null,
-                wishlistId: wishlistId === 'new' ? null : (wishlistId || null),
-                wishlistName: wishlistId === 'new' ? newWishlistName.trim() : null,
+                diff: reviewDiff,
+                resolutions,
+                builderPlan: {
+                  addItems: ownedAdded,
+                  missingItems: unownedAdded,
+                  changedItems: changedSelected,
+                  removedItems: removedSelected,
+                  printingSelections: buildChosenPrintingSelections(added.filter(i => selectedBuilderKeys.has(getLogicalKey(i.dc))), chosenOtherCardIds),
+                  moveDestinationId: globalDest || null,
+                  wishlistId: wishlistId === 'new' ? null : (wishlistId || null),
+                  wishlistName: wishlistId === 'new' ? newWishlistName.trim() : null,
+                },
+                collectionSelections: selectedCollectionRows,
               })}
               style={{ background:'rgba(74,154,90,0.15)', border:'1px solid rgba(74,154,90,0.4)', borderRadius:4, padding:'7px 16px', color:'var(--green, #4a9a5a)', fontSize:'0.83rem', cursor:canConfirm ? 'pointer' : 'not-allowed', opacity:canConfirm ? 1 : 0.45 }}>
-              Apply Sync
+              {`Apply ${actionCount} Decision${actionCount === 1 ? '' : 's'}`}
             </button>
           </div>
         </div>
@@ -1253,7 +1639,7 @@ function MoveOwnedCardsModal({ title, message, items, folders, onConfirm, onClos
       <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, width:520, maxWidth:'94vw', display:'flex', flexDirection:'column', overflow:'hidden' }}>
         <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <span style={{ fontFamily:'var(--font-display)', color:'var(--gold)', fontSize:'1rem' }}>{title}</span>
-          <button onClick={onClose} disabled={busy} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.2rem', cursor:busy ? 'default' : 'pointer' }}>✕</button>
+          <button onClick={onClose} disabled={busy} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.2rem', cursor:busy ? 'default' : 'pointer' }}>x</button>
         </div>
         <div style={{ padding:'16px 20px', display:'flex', flexDirection:'column', gap:14 }}>
           <p style={{ margin:0, color:'var(--text-dim)', fontSize:'0.84rem', lineHeight:1.6 }}>{message}</p>
@@ -1261,12 +1647,12 @@ function MoveOwnedCardsModal({ title, message, items, folders, onConfirm, onClos
             {items.map(item => (
               <div key={item.key} style={{ display:'flex', justifyContent:'space-between', fontSize:'0.84rem', color:'var(--text)' }}>
                 <span>{item.name}</span>
-                <span style={{ color:'var(--text-faint)' }}>{item.qty}×</span>
+                <span style={{ color:'var(--text-faint)' }}>{item.qty}x</span>
               </div>
             ))}
           </div>
           <Select value={targetId} onChange={e => setTargetId(e.target.value)} style={inputStyle} title="Select destination" portal searchable>
-            <option value="">— Select binder or deck —</option>
+            <option value="">Select binder or deck</option>
             {folders.map(folder => (
               <option key={folder.id} value={folder.id}>
                 {folder.type === 'binder' ? 'Binder' : 'Deck'}: {folder.name}
@@ -1285,7 +1671,7 @@ function MoveOwnedCardsModal({ title, message, items, folders, onConfirm, onClos
             onClick={handleConfirm}
             disabled={!canConfirm}
             style={{ background:'rgba(74,154,90,0.15)', border:'1px solid rgba(74,154,90,0.4)', borderRadius:4, padding:'7px 16px', color:'var(--green, #4a9a5a)', fontSize:'0.83rem', cursor:canConfirm ? 'pointer' : 'not-allowed', opacity:canConfirm ? 1 : 0.45 }}>
-            {busy ? 'Moving…' : 'Move & Continue'}
+            {busy ? 'Moving...' : 'Move & Continue'}
           </button>
         </div>
       </div>
@@ -1293,7 +1679,7 @@ function MoveOwnedCardsModal({ title, message, items, folders, onConfirm, onClos
   )
 }
 
-// ── Version picker modal ──────────────────────────────────────────────────────
+// â”€â”€ Version picker modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function VersionPickerModal({ dc, ownedMap, onSelect, onClose }) {
   const [printings, setPrintings] = useState([])
   const [loading,   setLoading]   = useState(true)
@@ -1323,12 +1709,12 @@ function VersionPickerModal({ dc, ownedMap, onSelect, onClose }) {
       <div style={{ background:'var(--bg-card,#1e1e1e)', border:'1px solid var(--border)', borderRadius:8, padding:20, width:560, maxWidth:'96vw', maxHeight:'80vh', display:'flex', flexDirection:'column', gap:14 }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <span style={{ fontFamily:'var(--font-display)', color:'var(--gold)', fontSize:'0.95rem' }}>
-            Choose version — {dc.name}
+            Choose version - {dc.name}
           </span>
-          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.1rem', cursor:'pointer' }}>✕</button>
+          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.1rem', cursor:'pointer' }}>x</button>
         </div>
         {loading
-          ? <div style={{ color:'var(--text-faint)', fontSize:'0.85rem', padding:'20px 0', textAlign:'center' }}>Loading printings…</div>
+          ? <div style={{ color:'var(--text-faint)', fontSize:'0.85rem', padding:'20px 0', textAlign:'center' }}>Loading printings...</div>
           : (
             <div style={{ overflowY:'auto', display:'flex', flexWrap:'wrap', gap:10 }}>
               {printings.map(p => {
@@ -1351,7 +1737,7 @@ function VersionPickerModal({ dc, ownedMap, onSelect, onClose }) {
                       {p.set_name}
                     </div>
                     {isOwned && (
-                      <div style={{ fontSize:'0.58rem', color:'var(--green)', fontWeight:600 }}>✓ owned</div>
+                      <div style={{ fontSize:'0.58rem', color:'var(--green)', fontWeight:600 }}>Owned</div>
                     )}
                   </button>
                 )
@@ -1364,7 +1750,7 @@ function VersionPickerModal({ dc, ownedMap, onSelect, onClose }) {
   )
 }
 
-// ── Deck win-rate mini widget (shown in stats tab) ────────────────────────────
+// â”€â”€ Deck win-rate mini widget (shown in stats tab) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function DeckWinrateMini({ results, loading, deckName }) {
   const games  = results.length
   const wins   = results.filter(r => Number(r.placement) === 1).length
@@ -1379,7 +1765,7 @@ function DeckWinrateMini({ results, loading, deckName }) {
   if (loading) return (
     <div>
       <div style={sectionLabel}>Win Rate</div>
-      <div style={{ color: 'var(--text-faint)', fontSize: '0.8rem' }}>Loading…</div>
+      <div style={{ color: 'var(--text-faint)', fontSize: '0.8rem' }}>Loading...</div>
     </div>
   )
 
@@ -1409,7 +1795,7 @@ function DeckWinrateMini({ results, loading, deckName }) {
         <div style={{ flex: 1, background: 'var(--s2)', borderRadius: 6, padding: '10px 12px', borderTop: '2px solid var(--s-border2)' }}>
           <div style={{ fontSize: '1rem', fontWeight: 700, lineHeight: 1 }}>
             <span style={{ color: 'var(--green)' }}>{wins}W</span>
-            <span style={{ color: 'var(--text-faint)', fontSize: '0.8rem', margin: '0 3px' }}>·</span>
+            <span style={{ color: 'var(--text-faint)', fontSize: '0.8rem', margin: '0 3px' }}>&middot;</span>
             <span style={{ color: '#e07070' }}>{losses}L</span>
           </div>
           <div style={{ fontSize: '0.7rem', color: 'var(--text-faint)', marginTop: 3 }}>Record</div>
@@ -1446,12 +1832,13 @@ function DeckWinrateMini({ results, loading, deckName }) {
   )
 }
 
-// ── Main DeckBuilder component ────────────────────────────────────────────────
+// â”€â”€ Main DeckBuilder component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export default function DeckBuilderPage() {
   const { id: deckId } = useParams()
   const { user }       = useAuth()
   const { grid_density, price_source, default_grouping } = useSettings()
   const navigate       = useNavigate()
+  const location       = useLocation()
 
   // Deck state
   const [deck,       setDeck]       = useState(null)
@@ -1513,7 +1900,7 @@ export default function DeckBuilderPage() {
   const [deckGameResults,        setDeckGameResults]        = useState([])
   const [deckGameResultsLoading, setDeckGameResultsLoading] = useState(false)
   const [deckGameResultsLoaded,  setDeckGameResultsLoaded]  = useState(false)
-  const [deckView,    setDeckView]    = useState('list')   // 'list' | 'compact' | 'grid'
+  const [deckView,    setDeckView]    = useState('list')   // 'list' | 'compact' | 'stacks' | 'grid'
   const [showRight, setShowRight] = useState(false)
   const [leftCollapsed, setLeftCollapsed] = useState(false)
   const [deckSort,    setDeckSort]    = useState('type')   // 'name' | 'cmc' | 'color' | 'type'
@@ -1525,6 +1912,11 @@ export default function DeckBuilderPage() {
   const [deckSearch, setDeckSearch] = useState('')
   const [boardFilter, setBoardFilter] = useState('all')
   const [warningsOpen, setWarningsOpen] = useState(false)
+  const [warningTooltip, setWarningTooltip] = useState(null)
+  const [isMobileWarnings, setIsMobileWarnings] = useState(() => (
+    typeof window !== 'undefined' ? window.innerWidth <= 900 : false
+  ))
+  const [cmdArtHidden, setCmdArtHidden] = useState(false)
   const [syncStatus, setSyncStatus] = useState({ loading: false, dirty: false, count: 0, unavailable: false })
 
   // Combos (Commander Spellbook)
@@ -1567,6 +1959,7 @@ export default function DeckBuilderPage() {
 
   // Refs
   const deckCardsRef    = useRef(deckCards)
+  const deckMetaRef     = useRef(deckMeta)
   const searchDebounce  = useRef(makeDebouncer(350))
   const cmdDebounce     = useRef(makeDebouncer(300))
   const qtyTimers       = useRef(new Map())
@@ -1578,6 +1971,7 @@ export default function DeckBuilderPage() {
   const hoverPreviewKey = useRef(null)
   const hoverPreviewTimer = useRef(null)
   const importingRef = useRef(false)
+  const lastDeckScrollTopRef = useRef(0)
   useEffect(() => () => { importingRef.current = false }, [])
 
   useEffect(() => {
@@ -1611,8 +2005,23 @@ export default function DeckBuilderPage() {
   }, [compactVisibleColumns])
 
   useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+    const onResize = () => setIsMobileWarnings(window.innerWidth <= 900)
+    onResize()
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  useEffect(() => {
     setGroupByType(default_grouping !== 'none')
   }, [default_grouping])
+
+  useEffect(() => {
+    if (rightTab !== 'deck') {
+      setCmdArtHidden(false)
+      lastDeckScrollTopRef.current = 0
+    }
+  }, [rightTab])
 
   useEffect(() => {
     let cancelled = false
@@ -1635,8 +2044,9 @@ export default function DeckBuilderPage() {
   }, [deckCards])
 
   useEffect(() => { deckCardsRef.current = deckCards }, [deckCards])
+  useEffect(() => { deckMetaRef.current = deckMeta }, [deckMeta])
 
-  // ── Load on mount ───────────────────────────────────────────────────────────
+  // â”€â”€ Load on mount â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
     if (!deckId) return
     ;(async () => {
@@ -1659,6 +2069,7 @@ export default function DeckBuilderPage() {
         }
         setDeck(folder)
         setDeckMeta(meta)
+        deckMetaRef.current = meta
         setDeckName(folder.name)
         setCmdDescription(meta.deckDescription || '')
         setCmdTags(meta.tags || [])
@@ -1684,9 +2095,9 @@ export default function DeckBuilderPage() {
             const meta = getDeckBuilderCardMeta(fetched)
 
             // Only update printing-identity fields (scryfall_id, set, image) when:
-            // - resolved via the card's own ID (safe — same card), OR
+            // - resolved via the card's own ID (safe â€” same card), OR
             // - the row genuinely has no printing info yet (name-only, e.g. text import)
-            // Never overwrite an existing scryfall_id with a name lookup — that
+            // Never overwrite an existing scryfall_id with a name lookup â€” that
             // would silently reassign to whatever Scryfall currently returns as
             // the "newest" printing (e.g. an upcoming set reprint).
             const canUpdatePrinting = !!resolvedById || !row.scryfall_id
@@ -1815,7 +2226,7 @@ export default function DeckBuilderPage() {
     })()
   }, [deckId, user.id])
 
-  // ── Computed ─────────────────────────────────────────────────────────────────
+  // â”€â”€ Computed â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const format         = useMemo(() => FORMATS.find(f => f.id === deckMeta.format), [deckMeta.format])
   const isEDH          = format?.isEDH ?? false
   const commanderCards = useMemo(() => deckCards.filter(dc => dc.is_commander), [deckCards])
@@ -1852,11 +2263,11 @@ export default function DeckBuilderPage() {
   const setActiveColumns = deckView === 'compact' ? setCompactVisibleColumns : setVisibleColumns
 
   const getDeckCardPriceLabel = useCallback((dc) => {
-    if (!dc?.set_code || !dc?.collector_number) return '—'
+    if (!dc?.set_code || !dc?.collector_number) return 'â€”'
     const sf = builderSfMap[`${dc.set_code}-${dc.collector_number}`]
-    if (!sf) return '—'
+    if (!sf) return 'â€”'
     const price = getPrice(sf, dc.foil, { price_source })
-    return price != null ? formatPrice(price, price_source) : '—'
+    return price != null ? formatPrice(price, price_source) : 'â€”'
   }, [builderSfMap, price_source])
   const colorIdentity  = useMemo(() => {
     const cols = new Set()
@@ -1874,19 +2285,21 @@ export default function DeckBuilderPage() {
     const sideQty = deckCards.filter(dc => normalizeBoard(dc.board) === 'side').reduce((sum, dc) => sum + (dc.qty || 0), 0)
     const maybeQty = deckCards.filter(dc => normalizeBoard(dc.board) === 'maybe').reduce((sum, dc) => sum + (dc.qty || 0), 0)
     const formatId = format?.id || 'commander'
+    const formatLabel = format?.label || formatId
+    const pushWarning = (warning) => warnings.push(warning)
 
-    if (mainQty > deckSize) warnings.push({ key: 'size-over', level: 'error', text: `Mainboard has ${mainQty}/${deckSize} cards.` })
-    if (mainQty < deckSize) warnings.push({ key: 'size-under', level: 'info', text: `Mainboard has ${mainQty}/${deckSize} cards.` })
-    if (isEDH && commanderCards.length === 0) warnings.push({ key: 'no-commander', level: 'error', text: 'Commander format needs a commander.' })
-    if (isEDH && commanderCards.length > 2) warnings.push({ key: 'too-many-commanders', level: 'error', text: `${commanderCards.length} commanders are marked.` })
-    if (isEDH && sideQty > 0) warnings.push({ key: 'sideboard-edh', level: 'info', text: `Sideboard has ${sideQty} card${sideQty === 1 ? '' : 's'} and sync includes it, but Commander deck stats and combos ignore it.` })
-    if (maybeQty > 0) warnings.push({ key: 'maybeboard', level: 'info', text: `Maybeboard has ${maybeQty} card${maybeQty === 1 ? '' : 's'} and is ignored by stats, combos, and collection sync.` })
+    if (mainQty > deckSize) pushWarning({ key: 'size-over', level: 'error', summary: `Mainboard ${mainQty}/${deckSize}`, detail: `Mainboard is over size by ${mainQty - deckSize} card${mainQty - deckSize === 1 ? '' : 's'}.` })
+    if (mainQty < deckSize) pushWarning({ key: 'size-under', level: 'error', summary: `Mainboard ${mainQty}/${deckSize}`, detail: `Mainboard is short by ${deckSize - mainQty} card${deckSize - mainQty === 1 ? '' : 's'}.` })
+    if (isEDH && commanderCards.length === 0) pushWarning({ key: 'no-commander', level: 'error', summary: 'Commander missing', detail: 'Commander format requires a commander before the deck is legal.' })
+    if (isEDH && commanderCards.length > 2) pushWarning({ key: 'too-many-commanders', level: 'error', summary: `${commanderCards.length} commanders marked`, detail: 'Commander format allows at most two commanders, and only when the pair is valid together.' })
+    if (isEDH && sideQty > 0) pushWarning({ key: 'sideboard-edh', level: 'info', summary: `Sideboard ${sideQty}`, detail: `Sideboard has ${sideQty} card${sideQty === 1 ? '' : 's'}. Collection sync includes it, but Commander stats and combo checks ignore it.` })
+    if (maybeQty > 0) pushWarning({ key: 'maybeboard', level: 'info', summary: `Maybeboard ${maybeQty}`, detail: `Maybeboard has ${maybeQty} card${maybeQty === 1 ? '' : 's'} and is excluded from stats, combos, and collection sync.` })
 
     if (isEDH && colorIdentity.length > 0) {
       for (const dc of playableCards) {
         if (dc.is_commander) continue
         const outside = (dc.color_identity || []).filter(color => !colorIdentity.includes(color))
-        if (outside.length) warnings.push({ key: `color:${dc.id}`, level: 'error', text: `${dc.name} is outside commander color identity (${outside.join('')}).` })
+        if (outside.length) pushWarning({ key: `color:${dc.id}`, level: 'error', summary: `${dc.name}: off-color`, detail: `${dc.name} is outside the commander's color identity because it includes ${outside.join('')}.` })
       }
     }
 
@@ -1902,7 +2315,7 @@ export default function DeckBuilderPage() {
         const sample = playableCards.find(dc => normalizeCardName(dc.name) === name)
         const typeLine = String(sample?.type_line || '').toLowerCase()
         if (!typeLine.includes('basic land')) {
-          warnings.push({ key: `duplicate:${name}`, level: 'error', text: `${sample?.name || name} has ${qty} copies in a singleton format.` })
+          pushWarning({ key: `duplicate:${name}`, level: 'error', summary: `${sample?.name || name}: ${qty} copies`, detail: `${sample?.name || name} exceeds singleton limits for this format.` })
         }
       }
     }
@@ -1916,17 +2329,76 @@ export default function DeckBuilderPage() {
         continue
       }
       if (legality === 'not_legal' || legality === 'banned') {
-        warnings.push({ key: `legality:${dc.id}`, level: 'error', text: `${dc.name} is ${legality.replace('_', ' ')} in ${format?.label || formatId}.` })
+        pushWarning({ key: `legality:${dc.id}`, level: 'error', summary: `${dc.name}: ${legality.replace('_', ' ')}`, detail: `${dc.name} is ${legality.replace('_', ' ')} in ${formatLabel}.` })
       } else if (legality === 'restricted' && (dc.qty || 0) > 1) {
-        warnings.push({ key: `restricted:${dc.id}`, level: 'error', text: `${dc.name} is restricted in ${format?.label || formatId}.` })
+        pushWarning({ key: `restricted:${dc.id}`, level: 'error', summary: `${dc.name}: restricted`, detail: `${dc.name} is restricted in ${formatLabel}, so only one copy is allowed.` })
       }
     }
     if (unknownLegalityCount > 0) {
-      warnings.push({ key: 'unknown-legality', level: 'info', text: `Legality data is unavailable for ${unknownLegalityCount} card${unknownLegalityCount === 1 ? '' : 's'}.` })
+      pushWarning({ key: 'unknown-legality', level: 'info', summary: `Legality unknown: ${unknownLegalityCount}`, detail: `Legality data is unavailable for ${unknownLegalityCount} card${unknownLegalityCount === 1 ? '' : 's'}.` })
     }
 
     return warnings
   }, [builderSfMap, colorIdentity, commanderCards, deckCards, deckSize, format, isEDH, mainDeckCards])
+
+  const visibleDeckWarnings = useMemo(
+    () => deckWarnings.filter(w => w.level === 'error'),
+    [deckWarnings]
+  )
+
+  const deckCardLegalityWarnings = useMemo(() => {
+    const warningsById = new Map()
+    const playableCards = deckCards.filter(dc => normalizeBoard(dc.board) !== 'maybe')
+    const formatId = format?.id || 'commander'
+    const addWarnings = (id, warnings) => {
+      if (!id || !warnings?.length) return
+      warningsById.set(id, [...(warningsById.get(id) || []), ...warnings])
+    }
+
+    for (const dc of playableCards) {
+      const sf = dc.set_code && dc.collector_number ? builderSfMap[`${dc.set_code}-${dc.collector_number}`] : null
+      if (!dc.is_commander) {
+        addWarnings(dc.id, getCardLegalityWarnings({
+          card: { ...dc, legalities: sf?.legalities || dc.legalities },
+          formatId,
+          formatLabel: format?.label,
+          isEDH,
+          commanderColorIdentity: colorIdentity,
+        }))
+      }
+
+      const legality = sf?.legalities?.[formatId]
+      if (legality === 'restricted' && (dc.qty || 0) > 1) {
+        addWarnings(dc.id, [{
+          reason: 'restricted',
+          text: `${dc.name} is restricted in ${format?.label || formatId}.`,
+        }])
+      }
+    }
+
+    if (isEDH) {
+      const nameGroups = new Map()
+      for (const dc of playableCards) {
+        const name = normalizeCardName(dc.name)
+        if (!name) continue
+        nameGroups.set(name, [...(nameGroups.get(name) || []), dc])
+      }
+      for (const [name, cards] of nameGroups) {
+        const qty = cards.reduce((sum, dc) => sum + (dc.qty || 0), 0)
+        if (qty <= 1) continue
+        const typeLine = String(cards[0]?.type_line || '').toLowerCase()
+        if (typeLine.includes('basic land')) continue
+        for (const dc of cards) {
+          addWarnings(dc.id, [{
+            reason: 'duplicate',
+            text: `${dc.name} has ${qty} copies in a singleton format.`,
+          }])
+        }
+      }
+    }
+
+    return warningsById
+  }, [builderSfMap, colorIdentity, deckCards, format, isEDH])
 
   // Open card detail modal from a deck_card or Scryfall card object
   const openDeckCardDetail = useCallback((dc) => {
@@ -1945,7 +2417,7 @@ export default function DeckBuilderPage() {
     setComboSectionsOpen(prev => ({ ...prev, [section]: !prev[section] }))
   }, [])
 
-  // Open card detail modal by card name (recs / combos — no scryfall_id available)
+  // Open card detail modal by card name (recs / combos â€” no scryfall_id available)
   const openCardDetailByName = useCallback(async (name) => {
     try {
       const res = await fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}`)
@@ -2016,7 +2488,24 @@ export default function DeckBuilderPage() {
     })).filter(c => c.cards.length > 0)
   }, [recs, deckNameSet, recsOwnedOnly, ownedNameMap])
 
-  // ── Format change ─────────────────────────────────────────────────────────
+  const handleDeckListScroll = useCallback((e) => {
+    const nextTop = e.currentTarget.scrollTop
+    const prevTop = lastDeckScrollTopRef.current
+    lastDeckScrollTopRef.current = nextTop
+    if (nextTop <= 8) {
+      setCmdArtHidden(false)
+      return
+    }
+    if (nextTop > 72 && nextTop > prevTop) {
+      setCmdArtHidden(true)
+      return
+    }
+    if (nextTop < prevTop - 20) {
+      setCmdArtHidden(false)
+    }
+  }, [])
+
+  // â”€â”€ Format change â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async function handleFormatChange(fmtId) {
     const newMeta = { ...deckMeta, format: fmtId }
     if (!FORMATS.find(f => f.id === fmtId)?.isEDH) {
@@ -2027,11 +2516,20 @@ export default function DeckBuilderPage() {
     await saveMeta(newMeta)
   }
 
-  // ── Save helpers ──────────────────────────────────────────────────────────
+  // â”€â”€ Save helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  function withPersistentMetaFields(meta, base = deckMetaRef.current) {
+    const next = { ...(meta || {}) }
+    if (base?.sync_state) next.sync_state = base.sync_state
+    if (next.linked_deck_id == null && base?.linked_deck_id) next.linked_deck_id = base.linked_deck_id
+    if (next.linked_builder_id == null && base?.linked_builder_id) next.linked_builder_id = base.linked_builder_id
+    return next
+  }
+
   async function saveMeta(meta) {
     clearTimeout(saveMetaTimer.current)
     saveMetaTimer.current = setTimeout(async () => {
-      await sb.from('folders').update({ description: serializeDeckMeta(meta) }).eq('id', deckId)
+      const nextMeta = withPersistentMetaFields(meta)
+      await sb.from('folders').update({ description: serializeDeckMeta(nextMeta) }).eq('id', deckId)
     }, 600)
   }
 
@@ -2070,7 +2568,7 @@ export default function DeckBuilderPage() {
   async function togglePublic() {
     const newMeta = { ...deckMeta, is_public: !deckMeta.is_public }
     setDeckMeta(newMeta)
-    await sb.from('folders').update({ description: serializeDeckMeta(newMeta) }).eq('id', deckId)
+    await sb.from('folders').update({ description: serializeDeckMeta(withPersistentMetaFields(newMeta)) }).eq('id', deckId)
   }
 
   async function loadDeckGameResults() {
@@ -2092,7 +2590,7 @@ export default function DeckBuilderPage() {
     }
   }
 
-  // ── Commander search ──────────────────────────────────────────────────────
+  // â”€â”€ Commander search â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   function handleCmdQuery(q) {
     setCmdQuery(q)
     setShowCmdPicker(true)
@@ -2119,7 +2617,7 @@ export default function DeckBuilderPage() {
     }
     setDeckMeta(newMeta)
 
-    // Remove any existing commander — use ref to avoid stale closure
+    // Remove any existing commander â€” use ref to avoid stale closure
     const existingCmd = deckCardsRef.current.find(dc => dc.is_commander)
     if (existingCmd) {
       await removeCardFromDeck(existingCmd.id)
@@ -2147,7 +2645,7 @@ export default function DeckBuilderPage() {
       updated_at:       new Date().toISOString(),
     }
 
-    // Update state and persist — read ref again for current non-commander cards
+    // Update state and persist â€” read ref again for current non-commander cards
     const nonCmdCards = deckCardsRef.current.filter(dc => !dc.is_commander)
     setDeckCards([cmdRow, ...nonCmdCards])
     // Upsert all rows: this handles collection decks where non-commander cards came from the
@@ -2158,11 +2656,11 @@ export default function DeckBuilderPage() {
 
     // Save meta immediately (not debounced) so navigation away won't lose the commander
     clearTimeout(saveMetaTimer.current)
-    await sb.from('folders').update({ description: serializeDeckMeta(newMeta) }).eq('id', deckId)
+    await sb.from('folders').update({ description: serializeDeckMeta(withPersistentMetaFields(newMeta)) }).eq('id', deckId)
 
   }
 
-  // ── Card search ───────────────────────────────────────────────────────────
+  // â”€â”€ Card search â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const doSearch = useCallback(async (q, page = 1) => {
     setSearchLoading(true)
     setSearchError(false)
@@ -2170,7 +2668,6 @@ export default function DeckBuilderPage() {
     const { cards, hasMore, error } = await searchCards({
       query: q,
       format: deckMeta.format,
-      colorIdentity: isEDH && colorIdentity.length ? colorIdentity : undefined,
       page,
     })
     if (page === 1) setSearchResults(cards)
@@ -2178,14 +2675,14 @@ export default function DeckBuilderPage() {
     setSearchHasMore(hasMore)
     if (error) setSearchError(true)
     setSearchLoading(false)
-  }, [deckMeta.format, isEDH, colorIdentity])
+  }, [deckMeta.format])
 
   function handleSearchInput(q) {
     setSearchQuery(q)
     searchDebounce.current(() => doSearch(q, 1))
   }
 
-  // ── Add / remove / qty ────────────────────────────────────────────────────
+  // â”€â”€ Add / remove / qty â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async function addCardToDeck(sfCardOrRec) {
     // Determine if it's a full Scryfall card or an EDHRec rec object
     const isSfCard = !!sfCardOrRec.set
@@ -2203,7 +2700,7 @@ export default function DeckBuilderPage() {
       colorId    = meta.color_identity
       imageUri   = meta.image_uri
     } else {
-      // EDHRec rec — enrich from scryfall cache or fetch
+      // EDHRec rec â€” enrich from scryfall cache or fetch
       name       = sfCardOrRec.name
       scryfallId = null
       setCode    = null
@@ -2230,7 +2727,7 @@ export default function DeckBuilderPage() {
       } catch {}
     }
 
-    // Check if already in deck (non-foil — this function always adds non-foil cards)
+    // Check if already in deck (non-foil â€” this function always adds non-foil cards)
     const existing = deckCards.find(dc =>
       ((scryfallId && dc.scryfall_id === scryfallId) || dc.name === name) && !dc.foil && normalizeBoard(dc.board) === 'main'
     )
@@ -2294,37 +2791,6 @@ export default function DeckBuilderPage() {
       return
     }
 
-    if (delta < 0) {
-      getOwnedMoveRowsForDeckCard(current, nextQty)
-        .then(rows => {
-          if (!rows.length) {
-            setDeckCards(prev => prev.map(dc => dc.id === deckCardId ? { ...dc, qty: nextQty } : dc))
-            if (qtyTimers.current.has(deckCardId)) clearTimeout(qtyTimers.current.get(deckCardId))
-            const timer = setTimeout(async () => {
-              const latest = deckCardsRef.current.find(dc => dc.id === deckCardId)
-              if (!latest || latest.qty <= 0) return
-              await sb.from('deck_cards').update({ qty: latest.qty, updated_at: new Date().toISOString() }).eq('id', deckCardId)
-              qtyTimers.current.delete(deckCardId)
-            }, 600)
-            qtyTimers.current.set(deckCardId, timer)
-            return
-          }
-
-          promptToMoveOwnedCopies({
-            title: 'Move owned copy',
-            message: 'This card is assigned to this deck in your collection. Choose where to move the owned copy before reducing it in the decklist.',
-            items: rows,
-            onComplete: async () => {
-              setDeckCards(prev => prev.map(dc => dc.id === deckCardId ? { ...dc, qty: nextQty } : dc))
-              await sb.from('deck_cards').update({ qty: nextQty, updated_at: new Date().toISOString() }).eq('id', deckCardId)
-            },
-          }).catch(err => {
-            console.error('[DeckBuilder move decrease]', err)
-          })
-        })
-      return
-    }
-
     setDeckCards(prev => prev.map(dc => {
       if (dc.id !== deckCardId) return dc
       return { ...dc, qty: nextQty }
@@ -2343,21 +2809,6 @@ export default function DeckBuilderPage() {
   async function removeCardFromDeck(deckCardId) {
     const current = deckCardsRef.current.find(dc => dc.id === deckCardId)
     if (!current) return
-
-    const rows = await getOwnedMoveRowsForDeckCard(current, 0)
-    if (rows.length) {
-      await promptToMoveOwnedCopies({
-        title: 'Move owned copy',
-        message: 'This card is assigned to this deck in your collection. Choose where to move the owned copy before removing it from the decklist.',
-        items: rows,
-        onComplete: async () => {
-          setDeckCards(prev => prev.filter(dc => dc.id !== deckCardId))
-          await sb.from('deck_cards').delete().eq('id', deckCardId)
-          deleteDeckCardLocal(deckCardId).catch(() => {})
-        },
-      })
-      return
-    }
 
     setDeckCards(prev => prev.filter(dc => dc.id !== deckCardId))
     await sb.from('deck_cards').delete().eq('id', deckCardId)
@@ -2432,9 +2883,9 @@ export default function DeckBuilderPage() {
           commanderColorIdentity: dc.color_identity ?? [],
         }
     setDeckMeta(newMeta)
-    // Save meta immediately (not debounced) — navigating away quickly would lose the commander name otherwise
+    // Save meta immediately (not debounced) â€” navigating away quickly would lose the commander name otherwise
     clearTimeout(saveMetaTimer.current)
-    await sb.from('folders').update({ description: serializeDeckMeta(newMeta) }).eq('id', deckId)
+    await sb.from('folders').update({ description: serializeDeckMeta(withPersistentMetaFields(newMeta)) }).eq('id', deckId)
     // Recs are loaded lazily when the Recommendations tab is opened
   }
 
@@ -2443,7 +2894,7 @@ export default function DeckBuilderPage() {
     await sb.from('deck_cards').update({ is_commander: false }).eq('id', deckCardId)
   }
 
-  // ── EDHRec recommendations ────────────────────────────────────────────────
+  // â”€â”€ EDHRec recommendations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async function loadRecs(commanderName) {
     setRecsLoading(true)
     setRecsError(null)
@@ -2469,7 +2920,7 @@ export default function DeckBuilderPage() {
     setRecImages(imgMap)
   }
 
-  // ── Commander Spellbook combos ────────────────────────────────────────────
+  // â”€â”€ Commander Spellbook combos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async function fetchCombos() {
     if (combosLoading) return
     setCombosLoading(true)
@@ -2505,8 +2956,8 @@ export default function DeckBuilderPage() {
     setCombosLoading(false)
   }
 
-  // ── Convert to collection deck ────────────────────────────────────────────
-  // ── Deck import ──────────────────────────────────────────────────────────
+  // â”€â”€ Convert to collection deck â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â”€â”€ Deck import â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async function handleImport() {
     if (importingRef.current) return
     importingRef.current = true
@@ -2747,40 +3198,24 @@ export default function DeckBuilderPage() {
 
   useEffect(() => {
     const targetDeckId = getAllocationDeckId()
+    const syncState = getSyncState(deckMeta)
+    const baseline = syncState.last_sync_snapshot || { builder_cards: [], collection_cards: [] }
     if (!targetDeckId || !user?.id) {
       setSyncStatus({ loading: false, dirty: false, count: 0, unavailable: true })
       return
     }
-
     let cancelled = false
     const timer = setTimeout(async () => {
       setSyncStatus(prev => ({ ...prev, loading: true, unavailable: false }))
       try {
-        const { data, error } = await sb
-          .from('deck_allocations_view')
-          .select('scryfall_id,name,foil,qty')
-          .eq('deck_id', targetDeckId)
-        if (error) throw error
-
-        const makeKey = (row) => row.scryfall_id
-          ? `sf:${row.scryfall_id}|${row.foil ? '1' : '0'}`
-          : `name:${normalizeCardName(row.name)}|${row.foil ? '1' : '0'}`
-        const desired = new Map()
-        for (const dc of deckCards.filter(card => normalizeBoard(card.board) !== 'maybe')) {
-          const key = makeKey(dc)
-          desired.set(key, (desired.get(key) || 0) + (dc.qty || 0))
-        }
-        const current = new Map()
-        for (const row of data || []) {
-          const key = makeKey(row)
-          current.set(key, (current.get(key) || 0) + (row.qty || 0))
-        }
-        const keys = new Set([...desired.keys(), ...current.keys()])
-        let count = 0
-        for (const key of keys) {
-          if ((desired.get(key) || 0) !== (current.get(key) || 0)) count += 1
-        }
-        if (!cancelled) setSyncStatus({ loading: false, dirty: count > 0, count, unavailable: false })
+        const currentAllocations = await fetchDeckAllocations(targetDeckId)
+        const diff = buildSyncDiff({
+          baseline,
+          builderCards: deckCards.filter(card => normalizeBoard(card.board) !== 'maybe'),
+          collectionCards: currentAllocations || [],
+        })
+        const summary = summarizeSyncDiff(diff)
+        if (!cancelled) setSyncStatus({ loading: false, dirty: summary.dirty, count: summary.total, unavailable: false, diff })
       } catch {
         if (!cancelled) setSyncStatus({ loading: false, dirty: false, count: 0, unavailable: true })
       }
@@ -2790,7 +3225,15 @@ export default function DeckBuilderPage() {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [deckCards, deckMeta.linked_deck_id, deckId, isCollectionDeck, user?.id])
+  }, [deckCards, deckMeta, deckId, isCollectionDeck, user?.id])
+
+  useEffect(() => {
+    if (!location.state?.openSync) return
+    if (loading) return
+    if (!(isCollectionDeck || deckMeta.linked_deck_id)) return
+    setShowSync(true)
+    navigate(location.pathname, { replace: true, state: {} })
+  }, [location.state, location.pathname, loading, isCollectionDeck, deckMeta.linked_deck_id, navigate])
 
   function matchesAllocationRow(dc, row) {
     const sameF = (dc.foil ?? false) === (row.foil ?? false)
@@ -3115,22 +3558,39 @@ export default function DeckBuilderPage() {
     setMakeDeckRunning(true)
     setShowMakeDeck(false)
     try {
-      // Transform this builder deck into a collection deck in-place (no new folder)
-      const { error: typeErr } = await sb.from('folders').update({ type: 'deck' }).eq('id', deckId)
-      if (typeErr) throw typeErr
+      const builderMeta = parseDeckMeta(deck.description)
+      const { data: newCollectionDeck, error: createDeckErr } = await sb
+        .from('folders')
+        .insert({
+          user_id: user.id,
+          type: 'deck',
+          name: deck.name,
+          description: serializeDeckMeta({ format: builderMeta.format || 'commander' }),
+        })
+        .select()
+        .single()
+      if (createDeckErr || !newCollectionDeck) throw createDeckErr || new Error('Failed to create linked collection deck.')
+
+      const linkedBuilderMeta = withLinkedPair(builderMeta, { linkedDeckId: newCollectionDeck.id })
+      const linkedCollectionMeta = withLinkedPair(parseDeckMeta(newCollectionDeck.description), { linkedBuilderId: deckId })
+      await Promise.all([
+        sb.from('folders').update({ description: serializeDeckMeta(linkedBuilderMeta) }).eq('id', deckId),
+        sb.from('folders').update({ description: serializeDeckMeta(linkedCollectionMeta) }).eq('id', newCollectionDeck.id),
+      ])
+      setDeckMeta(linkedBuilderMeta)
       await applyExplicitPrintingSelections(printingSelections)
 
       if (addItems.length > 0) {
-        const allocationRows = addItems
+        const allocationRows = mergeAllocationRows(addItems
           .flatMap(item => (item.allocations || []).map(row => ({
             id: crypto.randomUUID(),
             card_id: row.card_id,
             qty: row.qty,
-          })))
+          }))))
 
         await syncDeckRowsToAllocatedPrintings(addItems)
-        await upsertDeckAllocations(deckId, user.id, allocationRows)
-        await reassignPlacementsToDeck(deckId, allocationRows)
+        await upsertDeckAllocations(newCollectionDeck.id, user.id, allocationRows)
+        await reassignPlacementsToDeck(newCollectionDeck.id, allocationRows)
       }
 
       if (addMissing && missingItems.length > 0) {
@@ -3153,7 +3613,7 @@ export default function DeckBuilderPage() {
           card_id: card.id,
           qty: missingItems[idx].missingQty,
         }))
-        await upsertDeckAllocations(deckId, user.id, newAllocRows)
+        await upsertDeckAllocations(newCollectionDeck.id, user.id, newAllocRows)
       }
 
       let targetWishlistId = wishlistId
@@ -3167,9 +3627,22 @@ export default function DeckBuilderPage() {
         await sb.from('list_items').insert(listInserts)
       }
 
-      setDeck(prev => ({ ...prev, type: 'deck' }))
-      await refreshAllocationIndicators(deckId)
-      setSyncStatus({ loading: false, dirty: false, count: 0, unavailable: false })
+      const allocationRows = await fetchDeckAllocations(newCollectionDeck.id)
+      const initialSnapshot = buildSyncSnapshot({
+        builderCards: deckCardsRef.current.filter(card => normalizeBoard(card.board) !== 'maybe'),
+        collectionCards: allocationRows || [],
+      })
+      const { builderNext } = await persistLinkedSyncSnapshot({
+        builderDeckId: deckId,
+        collectionDeckId: newCollectionDeck.id,
+        builderMeta: linkedBuilderMeta,
+        collectionMeta: linkedCollectionMeta,
+        snapshot: initialSnapshot,
+        hasUnresolved: false,
+      })
+      setDeckMeta(builderNext)
+      await refreshAllocationIndicators(newCollectionDeck.id)
+      setSyncStatus({ loading: false, dirty: false, count: 0, unavailable: false, diff: null })
 
       const addCount = addItems.reduce((s, i) => s + i.totalAdd, 0)
       const misCount = missingItems.reduce((s, i) => s + i.missingQty, 0)
@@ -3186,35 +3659,165 @@ export default function DeckBuilderPage() {
     setMakeDeckRunning(false)
   }
 
-  async function handleSync({ diff, addItems, missingItems, printingSelections, moveDestinationId, wishlistId, wishlistName }) {
+  function buildCommanderMetaFromCards(cards, currentMeta) {
+    const commanderRows = (cards || []).filter(card => card.is_commander)
+    const nextMeta = { ...currentMeta }
+    const primary = commanderRows[0] || null
+    const partner = commanderRows[1] || null
+
+    if (!primary) {
+      delete nextMeta.commanderName
+      delete nextMeta.commanderScryfallId
+      delete nextMeta.commanderColorIdentity
+      delete nextMeta.coverArtUri
+      delete nextMeta.partnerName
+      delete nextMeta.partnerScryfallId
+      return nextMeta
+    }
+
+    nextMeta.commanderName = primary.name
+    nextMeta.commanderScryfallId = primary.scryfall_id || null
+    nextMeta.commanderColorIdentity = primary.color_identity ?? []
+    nextMeta.coverArtUri = primary.image_uri ? toArtCropImg(primary.image_uri) : (currentMeta?.coverArtUri || null)
+
+    if (partner) {
+      nextMeta.partnerName = partner.name
+      nextMeta.partnerScryfallId = partner.scryfall_id || null
+    } else {
+      delete nextMeta.partnerName
+      delete nextMeta.partnerScryfallId
+    }
+
+    return nextMeta
+  }
+
+  async function applyCollectionSelectionsToBuilder(rows) {
+    if (!rows?.length) return { nextDeckCards: deckCardsRef.current, nextMeta: deckMeta }
+    const now = new Date().toISOString()
+    const currentDeckCards = [...deckCardsRef.current]
+    const updates = []
+    const inserts = []
+    const deletes = []
+    const nextDeckCards = [...currentDeckCards]
+
+    for (const row of rows) {
+      const desiredQty = row.collectionQty || 0
+      const matching = nextDeckCards.filter(dc => getLogicalKey(dc) === row.key)
+      const currentQty = matching.reduce((sum, dc) => sum + (dc.qty || 0), 0)
+      if (currentQty === desiredQty) continue
+
+      if (desiredQty <= 0) {
+        for (const dc of matching) {
+          deletes.push(dc.id)
+        }
+        for (let i = nextDeckCards.length - 1; i >= 0; i -= 1) {
+          if (getLogicalKey(nextDeckCards[i]) === row.key) nextDeckCards.splice(i, 1)
+        }
+        continue
+      }
+
+      if (matching.length === 0) {
+        const base = row.collection || row.builder || {}
+        const commanderHint = findCommanderTransferHint(row, currentDeckCards)
+        const newRow = {
+          id: crypto.randomUUID(),
+          deck_id: deckId,
+          user_id: user.id,
+          card_print_id: base.card_print_id || null,
+          scryfall_id: base.scryfall_id || null,
+          name: base.name || 'Unknown Card',
+          set_code: base.set_code || null,
+          collector_number: base.collector_number || null,
+          type_line: base.type_line || null,
+          mana_cost: base.mana_cost || null,
+          cmc: base.cmc ?? null,
+          color_identity: base.color_identity || [],
+          image_uri: base.image_uri || null,
+          qty: desiredQty,
+          foil: base.foil ?? false,
+          is_commander: !!commanderHint.is_commander,
+          board: base.board || 'main',
+          created_at: now,
+          updated_at: now,
+        }
+        inserts.push(newRow)
+        nextDeckCards.push(newRow)
+        continue
+      }
+
+      let remaining = desiredQty
+      const sorted = [...matching].sort((a, b) => {
+        if (!!a.is_commander !== !!b.is_commander) return a.is_commander ? -1 : 1
+        return (b.qty || 0) - (a.qty || 0)
+      })
+      for (let idx = 0; idx < sorted.length; idx += 1) {
+        const dc = sorted[idx]
+        const nextQty = idx === 0 ? remaining : 0
+        remaining -= nextQty
+        if (nextQty > 0) {
+          updates.push({ id: dc.id, qty: nextQty, updated_at: now })
+          const target = nextDeckCards.find(item => item.id === dc.id)
+          if (target) target.qty = nextQty
+        } else {
+          deletes.push(dc.id)
+        }
+      }
+      for (let i = nextDeckCards.length - 1; i >= 0; i -= 1) {
+        if (deletes.includes(nextDeckCards[i].id)) nextDeckCards.splice(i, 1)
+      }
+    }
+
+    for (const row of updates) {
+      await sb.from('deck_cards').update({ qty: row.qty, updated_at: row.updated_at }).eq('id', row.id)
+    }
+    if (inserts.length) await sb.from('deck_cards').insert(inserts)
+    for (const id of deletes) {
+      await sb.from('deck_cards').delete().eq('id', id)
+      deleteDeckCardLocal(id).catch(() => {})
+    }
+    if (inserts.length) putDeckCards(inserts).catch(() => {})
+
+    const nextMeta = buildCommanderMetaFromCards(nextDeckCards, deckMeta)
+    if (serializeDeckMeta(nextMeta) !== serializeDeckMeta(deckMeta)) {
+      setDeckMeta(nextMeta)
+      await sb.from('folders').update({ description: serializeDeckMeta(nextMeta) }).eq('id', deckId)
+    }
+
+    deckCardsRef.current = nextDeckCards
+    setDeckCards(nextDeckCards)
+    return { nextDeckCards, nextMeta }
+  }
+
+  async function handleSync({ diff, resolutions, builderPlan, collectionSelections }) {
     if (syncRunning) return
     setSyncRunning(true)
     setShowSync(false)
     try {
       const targetDeckId = diff?.targetDeckId || getAllocationDeckId()
       if (!targetDeckId) throw new Error('No linked collection deck to sync.')
+      const { addItems = [], missingItems = [], changedItems = [], removedItems = [], printingSelections = [], moveDestinationId = null, wishlistId = null, wishlistName = null } = builderPlan || {}
+      const ownedAdded = addItems
+      const unownedAdded = missingItems
       await applyExplicitPrintingSelections(printingSelections)
-      const { added, changed, removed } = diff
-      const ownedAdded = addItems || []
-      const unownedAdded = missingItems || []
 
       if (ownedAdded.length > 0) {
-        const addedRows = ownedAdded.flatMap(i => (i.allocations || []).map(row => ({
+        const addedRows = mergeAllocationRows(ownedAdded.flatMap(i => (i.allocations || []).map(row => ({
           id: crypto.randomUUID(),
           card_id: row.card_id,
           qty: row.qty,
-        })))
+        }))))
         await syncDeckRowsToAllocatedPrintings(ownedAdded)
         await upsertDeckAllocations(targetDeckId, user.id, addedRows)
         await reassignPlacementsToDeck(targetDeckId, addedRows)
       }
-      const increased = changed.filter(c => c.newQty > c.oldQty)
-      const decreased = changed.filter(c => c.newQty < c.oldQty)
+      const increased = changedItems.filter(c => c.newQty > c.oldQty)
+      const decreased = changedItems.filter(c => c.newQty < c.oldQty)
       for (const c of increased) {
         await sb.from('deck_allocations').update({ qty: c.newQty }).eq('id', c.allocRow.id)
       }
-      const increasedRows = increased
+      const increasedRows = mergeAllocationRows(increased
         .map(c => ({ card_id: c.cardId, qty: c.newQty - c.oldQty }))
+      )
       if (increasedRows.length > 0) {
         await reassignPlacementsToDeck(targetDeckId, increasedRows)
       }
@@ -3227,7 +3830,7 @@ export default function DeckBuilderPage() {
           name: c.dc.name,
           allocRow: c.allocRow,
         })),
-        ...removed.map(r => ({
+        ...removedItems.map(r => ({
           key: `removed:${r.allocRow.id}`,
           card_id: r.cardId,
           qty: r.allocRow.qty || 0,
@@ -3254,9 +3857,68 @@ export default function DeckBuilderPage() {
         await sb.from('list_items').insert(listInserts)
       }
 
+      const collectionApplyResult = collectionSelections?.length
+        ? await applyCollectionSelectionsToBuilder(collectionSelections)
+        : { nextDeckCards: deckCardsRef.current, nextMeta: deckMeta }
+      const nextBuilderCards = collectionApplyResult.nextDeckCards
+      const nextBuilderMeta = collectionApplyResult.nextMeta
+
+      const allocationRows = await fetchDeckAllocations(targetDeckId)
+      const currentSnapshot = buildSyncSnapshot({
+        builderCards: nextBuilderCards.filter(card => normalizeBoard(card.board) !== 'maybe'),
+        collectionCards: allocationRows || [],
+      })
+      const hasUnresolved = Object.values(resolutions || {}).some(value => value === 'keep')
+      const previousSnapshot = getSyncState(deckMeta).last_sync_snapshot || { builder_cards: [], collection_cards: [] }
+      const unresolvedKeys = new Set(
+        [...(diff?.builderOnly || []), ...(diff?.collectionOnly || []), ...(diff?.conflicts || [])]
+          .filter(row => (resolutions?.[row.key] || 'keep') === 'keep')
+          .map(row => row.key)
+      )
+      const currentBuilderMap = new Map((currentSnapshot.builder_cards || []).map(row => [row.key, row]))
+      const currentCollectionMap = new Map((currentSnapshot.collection_cards || []).map(row => [row.key, row]))
+      const previousBuilderMap = new Map((previousSnapshot.builder_cards || []).map(row => [row.key, row]))
+      const previousCollectionMap = new Map((previousSnapshot.collection_cards || []).map(row => [row.key, row]))
+      const snapshot = {
+        builder_cards: [...new Set([...currentBuilderMap.keys(), ...previousBuilderMap.keys()])]
+          .map(key => unresolvedKeys.has(key) ? previousBuilderMap.get(key) : currentBuilderMap.get(key))
+          .filter(Boolean),
+        collection_cards: [...new Set([...currentCollectionMap.keys(), ...previousCollectionMap.keys()])]
+          .map(key => unresolvedKeys.has(key) ? previousCollectionMap.get(key) : currentCollectionMap.get(key))
+          .filter(Boolean),
+      }
+      let collectionFolderMeta = null
+      if (isCollectionDeck) {
+        collectionFolderMeta = parseDeckMeta(deck.description || '{}')
+      } else {
+        const { data: collectionFolder, error: collectionFolderErr } = await sb
+          .from('folders')
+          .select('description')
+          .eq('id', targetDeckId)
+          .maybeSingle()
+        if (collectionFolderErr) throw collectionFolderErr
+        collectionFolderMeta = collectionFolder?.description
+          ? parseDeckMeta(collectionFolder.description)
+          : { format: deckMeta.format || 'commander' }
+      }
+      const { builderNext } = await persistLinkedSyncSnapshot({
+        builderDeckId: deckId,
+        collectionDeckId: targetDeckId,
+        builderMeta: nextBuilderMeta,
+        collectionMeta: withLinkedPair(collectionFolderMeta, { linkedBuilderId: deckId }),
+        snapshot,
+        hasUnresolved,
+      })
+      setDeckMeta(builderNext)
       await refreshAllocationIndicators(targetDeckId)
-      setSyncStatus({ loading: false, dirty: false, count: 0, unavailable: false })
-      setSyncMsg('Sync complete')
+      const nextDiff = buildSyncDiff({
+        baseline: snapshot,
+        builderCards: nextBuilderCards.filter(card => normalizeBoard(card.board) !== 'maybe'),
+        collectionCards: allocationRows || [],
+      })
+      const nextSummary = summarizeSyncDiff(nextDiff)
+      setSyncStatus({ loading: false, dirty: hasUnresolved || nextSummary.dirty, count: nextSummary.total, unavailable: false, diff: nextDiff })
+      setSyncMsg(hasUnresolved ? 'Sync applied. Some differences were kept.' : 'Sync complete')
       setSyncDone(true)
     } catch (err) {
       console.error('[Sync]', err)
@@ -3266,14 +3928,25 @@ export default function DeckBuilderPage() {
     setSyncRunning(false)
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
-  if (loading) return <div style={{ padding: 40, color: 'var(--text-faint)' }}>Loading deck…</div>
+  // â”€â”€ Render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  if (loading) return <div style={{ padding: 40, color: 'var(--text-faint)' }}>Loading deck...</div>
   if (loadError) return (
     <div style={{ padding: 40 }}>
       <div style={{ color: '#e07070', marginBottom: 12 }}>{loadError}</div>
-      <Link to="/builder" style={{ color: 'var(--gold)', fontSize: '0.9rem' }}>← Back to Builder</Link>
+      <Link to="/builder" style={{ color: 'var(--gold)', fontSize: '0.9rem' }}>&lt;- Back to Builder</Link>
     </div>
   )
+
+  const syncLabel = syncRunning
+    ? 'Applying...'
+    : syncStatus.dirty
+      ? `Unsynced (${syncStatus.count || 0})`
+      : 'Synced'
+  const syncLabelMobile = syncRunning
+    ? 'Applying'
+    : syncStatus.dirty
+      ? `${syncStatus.count || 0} Unsynced`
+      : 'Synced'
 
   return (
     <div className={`${styles.page}${showRight ? ' ' + styles.showRight : ''}${leftCollapsed ? ' ' + styles.leftCollapsed : ''}`}>
@@ -3282,11 +3955,11 @@ export default function DeckBuilderPage() {
         <button
           className={`${styles.mobilePanelBtn} ${!showRight ? styles.mobilePanelBtnActive : ''}`}
           onClick={() => setShowRight(false)}
-        >🔍 Search</button>
+        >Search</button>
         <button
           className={`${styles.mobilePanelBtn} ${showRight ? styles.mobilePanelBtnActive : ''}`}
           onClick={() => setShowRight(true)}
-        >📋 Deck</button>
+        >Deck</button>
       </div>
 
       <div className={styles.deckHeader}>
@@ -3299,7 +3972,7 @@ export default function DeckBuilderPage() {
           />
           <div className={styles.deckMeta}>
             <span>{format?.label ?? 'Deck'}</span>
-            <span>·</span>
+            <span>&middot;</span>
             <span>{deckMeta.is_public ? 'Public' : 'Private'}</span>
             {saving && <span className={styles.savingDot} />}
           </div>
@@ -3307,8 +3980,9 @@ export default function DeckBuilderPage() {
         <div className={styles.headerActions}>
           {(isCollectionDeck || deckMeta.linked_deck_id) && (
             <button className={styles.headerBtnPrimary} onClick={() => setShowSync(true)} disabled={syncRunning} title="Sync collection">
-              <span className={styles.btnIcon}>{syncRunning ? '…' : '↺'}</span>
-              <span className={styles.btnLabel}>{syncRunning ? 'Syncing...' : syncStatus.dirty ? `Sync ${syncStatus.count}` : 'Synced'}</span>
+              <span className={styles.btnIcon} aria-hidden="true"><CollectionIcon size={14} /></span>
+              <span className={styles.btnLabel}>{syncLabel}</span>
+              <span className={styles.btnLabelMobile}>{syncLabelMobile}</span>
             </button>
           )}
           <ResponsiveMenu
@@ -3317,7 +3991,9 @@ export default function DeckBuilderPage() {
             align="right"
             trigger={({ toggle }) => (
               <button className={styles.headerBtn} onClick={toggle} title="Deck actions">
+                <span className={styles.btnIcon} aria-hidden="true"><MenuIcon size={14} /></span>
                 <span className={styles.btnLabel}>Deck Actions</span>
+                <span className={styles.btnLabelMobile}>Actions</span>
               </button>
             )}
           >
@@ -3348,14 +4024,15 @@ export default function DeckBuilderPage() {
           </ResponsiveMenu>
           {!isCollectionDeck && !deckMeta.linked_deck_id && (
             <button className={styles.headerBtnPrimary} onClick={() => setShowMakeDeck(true)} disabled={makeDeckRunning} title="Make Collection Deck">
-              <span className={styles.btnIcon}>{makeDeckRunning ? '…' : '⊕'}</span>
+              <span className={styles.btnIcon} aria-hidden="true"><AddIcon size={14} /></span>
               <span className={styles.btnLabel}>{makeDeckRunning ? 'Creating...' : 'Make Collection Deck'}</span>
+              <span className={styles.btnLabelMobile}>{makeDeckRunning ? 'Creating...' : 'Make Deck'}</span>
             </button>
           )}
         </div>
       </div>
 
-      {/* ── LEFT PANEL ─────────────────────────────────────────── */}
+      {/* â”€â”€ LEFT PANEL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <div className={styles.left}>
         <button
           type="button"
@@ -3364,7 +4041,7 @@ export default function DeckBuilderPage() {
           title={leftCollapsed ? 'Expand search panel' : 'Collapse search panel'}
           aria-label={leftCollapsed ? 'Expand search panel' : 'Collapse search panel'}
         >
-          {leftCollapsed ? '›' : '‹'}
+          {leftCollapsed ? <ChevronRightIcon size={14} /> : <ChevronLeftIcon size={14} />}
         </button>
         {leftCollapsed && (
           <button
@@ -3377,18 +4054,20 @@ export default function DeckBuilderPage() {
           </button>
         )}
         <div className={styles.leftContent}>
-        {/* Mobile panel toggle — rendered outside the left panel so it stays visible */}
+        {/* Mobile panel toggle â€” rendered outside the left panel so it stays visible */}
         <div className={styles.leftTop}>
-          {/* Mobile toggle for format/commander — hidden on desktop via CSS */}
+          {/* Mobile toggle for format/commander â€” hidden on desktop via CSS */}
           <div className={styles.leftTopToggle} onClick={() => setLeftTopOpen(v => !v)}>
             <div className={styles.leftTopToggleSummary}>
               <span>{format?.label ?? 'Format'}</span>
-              {commanderCard && <span className={styles.leftTopToggleCmdr}>· {commanderCard.name}</span>}
+              {commanderCard && <span className={styles.leftTopToggleCmdr}>&middot; {commanderCard.name}</span>}
             </div>
-            <span className={styles.leftTopToggleChevron}>{leftTopOpen ? '▲' : '▼'}</span>
+            <span className={styles.leftTopToggleChevron} aria-hidden="true">
+              {leftTopOpen ? <ChevronUpIcon size={12} /> : <ChevronDownIcon size={12} />}
+            </span>
           </div>
 
-          {/* Collapsible content — always visible on desktop, animated on mobile */}
+          {/* Collapsible content â€” always visible on desktop, animated on mobile */}
           <div className={`${styles.leftTopContent} ${!leftTopOpen ? styles.leftTopContentCollapsed : ''}`}>
             {/* Format selector */}
             <div className={styles.formatRow}>
@@ -3423,7 +4102,7 @@ export default function DeckBuilderPage() {
                       value={cmdQuery}
                       onChange={e => handleCmdQuery(e.target.value)}
                       onBlur={() => setTimeout(() => setShowCmdPicker(false), 200)}
-                      placeholder="Search for a commander…"
+                      placeholder="Search for a commander..."
                     />
                     {showCmdPicker && cmdResults.length > 0 && (
                       <div className={styles.cmdDropdown}>
@@ -3487,13 +4166,13 @@ export default function DeckBuilderPage() {
                 className={styles.searchInput}
                 value={searchQuery}
                 onChange={e => handleSearchInput(e.target.value)}
-                placeholder="Search cards…"
+                placeholder="Search cards..."
               />
             </div>
             <div className={styles.searchResults}>
-              {searchLoading && searchPage === 1 && <div className={styles.searchEmpty}>Searching…</div>}
+              {searchLoading && searchPage === 1 && <div className={styles.searchEmpty}>Searching...</div>}
               {!searchLoading && searchError && (
-                <div className={styles.searchEmpty}>Scryfall is unavailable — try again in a moment.</div>
+                <div className={styles.searchEmpty}>Scryfall is unavailable. Try again in a moment.</div>
               )}
               {!searchLoading && !searchError && searchResults.length === 0 && searchQuery && (
                 <div className={styles.searchEmpty}>No results. Try a different query.</div>
@@ -3506,14 +4185,24 @@ export default function DeckBuilderPage() {
                   key={c.id}
                   card={c}
                   ownedQty={ownedMap.get(c.id) ?? 0}
+                  legalityWarnings={getCardLegalityWarnings({
+                    card: c,
+                    formatId: format?.id || deckMeta.format,
+                    formatLabel: format?.label,
+                    isEDH,
+                    commanderColorIdentity: colorIdentity,
+                  })}
                   addFeedback={addFeedback?.key === (c.id || c.name) ? addFeedback : null}
                   onAdd={addCardToDeck}
                   onOpenDetail={openSearchCardDetail}
+                  onHoverEnter={CAN_HOVER && !lastInputWasTouch ? (uri, e) => { setHoverImages(uri ? [uri] : []); setHoverPos({ x: e.clientX, y: e.clientY }) } : undefined}
+                  onHoverMove={CAN_HOVER ? e => setHoverPos({ x: e.clientX, y: e.clientY }) : undefined}
+                  onHoverLeave={CAN_HOVER ? () => setHoverImages([]) : undefined}
                 />
               ))}
               {searchHasMore && (
                 <button className={styles.loadMore} onClick={() => doSearch(searchQuery, searchPage + 1)}>
-                  {searchLoading ? 'Loading…' : 'Load more'}
+                  {searchLoading ? 'Loading...' : 'Load more'}
                 </button>
               )}
             </div>
@@ -3536,7 +4225,7 @@ export default function DeckBuilderPage() {
                     Owned only
                   </button>
                 </div>
-                {recsLoading && <div className={styles.recsLoading}>Loading recommendations…</div>}
+                {recsLoading && <div className={styles.recsLoading}>Loading recommendations...</div>}
                 {recsError && <div className={styles.recsError}>Recommendations unavailable for this commander.</div>}
                 {!recsLoading && !recsError && recs?.categories && (
                   <div className={styles.recsList}>
@@ -3555,7 +4244,9 @@ export default function DeckBuilderPage() {
                               return next
                             })}
                           >
-                            <span className={`${styles.groupArrow}${collapsed ? ' ' + styles.groupArrowCollapsed : ''}`}>▾</span>
+                            <span className={`${styles.groupArrow}${collapsed ? ' ' + styles.groupArrowCollapsed : ''}`} aria-hidden="true">
+                              <ChevronDownIcon size={12} />
+                            </span>
                             <span className={styles.recsCatName}>{cat.header}</span>
                             <span className={styles.recsCatCount}>{cat.cards.length}</span>
                           </button>
@@ -3583,12 +4274,12 @@ export default function DeckBuilderPage() {
         )}
       </div>
 
-      {/* ── RIGHT PANEL ────────────────────────────────────────── */}
+      {/* â”€â”€ RIGHT PANEL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       </div>
       <div className={styles.right}>
-        {/* Commander art display — supports partners */}
+        {/* Commander art display â€” supports partners */}
         {commanderCards.length > 0 && (
-          <div className={styles.cmdArt}>
+          <div className={`${styles.cmdArt}${cmdArtHidden ? ' ' + styles.cmdArtHidden : ''}`}>
             {/* Blurred background layer */}
             <div className={styles.cmdArtBg}
               style={{ backgroundImage: `url(${toArtCropImg(commanderCards[0].image_uri)})` }} />
@@ -3609,7 +4300,7 @@ export default function DeckBuilderPage() {
               </span>
               <div className={styles.cmdArtMeta}>
                 {format && <span>{format.label}</span>}
-                {format && <span>·</span>}
+                {format && <span>&middot;</span>}
                 <span style={{ color: totalCards > deckSize ? '#e07070' : 'var(--text-dim)' }}>
                   {totalCards}/{deckSize} cards
                 </span>
@@ -3622,14 +4313,14 @@ export default function DeckBuilderPage() {
                 value={cmdDescription}
                 onChange={e => setCmdDescription(e.target.value)}
                 onBlur={e => saveDescription(e.target.value)}
-                placeholder="Add description…"
+                placeholder="Add description..."
                 rows={2}
               />
               <div className={styles.cmdTagRow}>
                 {cmdTags.map(tag => (
                   <span key={tag} className={styles.cmdTag}>
                     {tag}
-                    <button className={styles.cmdTagRemove} onClick={() => removeTag(tag)}>×</button>
+                    <button className={styles.cmdTagRemove} onClick={() => removeTag(tag)}>x</button>
                   </span>
                 ))}
                 <input
@@ -3638,7 +4329,7 @@ export default function DeckBuilderPage() {
                   onChange={e => setNewTagInput(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(newTagInput) } }}
                   onBlur={() => { if (newTagInput.trim()) addTag(newTagInput) }}
-                  placeholder={cmdTags.length === 0 ? 'Add tags…' : '+'}
+                  placeholder={cmdTags.length === 0 ? 'Add tags...' : '+'}
                 />
               </div>
             </div>
@@ -3681,23 +4372,34 @@ export default function DeckBuilderPage() {
           ))}
         </div>
 
-        {deckWarnings.length > 0 && (
+        {visibleDeckWarnings.length > 0 && (
           <div className={styles.warningPanel}>
-            <button className={styles.warningToggle} onClick={() => setWarningsOpen(v => !v)}>
-              <span>{deckWarnings.filter(w => w.level === 'error').length ? 'Deck Warnings' : 'Deck Notes'}</span>
-              <span className={styles.warningCount}>{deckWarnings.length}</span>
-              <span className={`${styles.groupArrow}${!warningsOpen ? ' ' + styles.groupArrowCollapsed : ''}`}>▾</span>
-            </button>
-            {warningsOpen && (
+            {isMobileWarnings && (
+              <button className={styles.warningToggle} onClick={() => setWarningsOpen(v => !v)}>
+                <span className={`${styles.groupArrow}${!warningsOpen ? ' ' + styles.groupArrowCollapsed : ''} ${styles.warningChevron}`} aria-hidden="true">
+                  <ChevronDownIcon size={12} />
+                </span>
+              </button>
+            )}
+            {(!isMobileWarnings || warningsOpen) && (
               <div className={styles.warningList}>
-                {deckWarnings.slice(0, 12).map(w => (
-                  <div key={w.key} className={`${styles.warningItem}${w.level === 'error' ? ' ' + styles.warningItemError : ''}`}>
-                    {w.text}
+                {visibleDeckWarnings.map(w => (
+                  <div
+                    key={w.key}
+                    className={`${styles.warningItem}${w.level === 'error' ? ' ' + styles.warningItemError : ''}`}
+                    onMouseEnter={CAN_HOVER ? e => setWarningTooltip({ summary: w.summary || w.text, detail: w.detail || w.text, x: e.clientX, y: e.clientY }) : undefined}
+                    onMouseMove={CAN_HOVER ? e => setWarningTooltip(prev => prev ? { ...prev, x: e.clientX, y: e.clientY } : prev) : undefined}
+                    onMouseLeave={CAN_HOVER ? () => setWarningTooltip(null) : undefined}
+                    onFocus={CAN_HOVER ? e => {
+                      const rect = e.currentTarget.getBoundingClientRect()
+                      setWarningTooltip({ summary: w.summary || w.text, detail: w.detail || w.text, x: rect.left, y: rect.bottom })
+                    } : undefined}
+                    onBlur={CAN_HOVER ? () => setWarningTooltip(null) : undefined}
+                    tabIndex={CAN_HOVER ? 0 : -1}
+                  >
+                    {w.summary || w.text}
                   </div>
                 ))}
-                {deckWarnings.length > 12 && (
-                  <div className={styles.warningItem}>+ {deckWarnings.length - 12} more</div>
-                )}
               </div>
             )}
           </div>
@@ -3705,15 +4407,16 @@ export default function DeckBuilderPage() {
 
         {/* Deck list tab */}
         {rightTab === 'deck' && (
-          <div className={styles.deckList}>
+          <div className={styles.deckList} onScroll={handleDeckListScroll}>
             {/* View / Sort / Group toolbar */}
             {deckCards.length > 0 && (
               <div className={styles.deckToolbar}>
                 <div className={styles.toolbarGroup}>
                   {[
                     ['list',    ListViewIcon],
-                    ['compact', StacksViewIcon],
-                    ['grid',  GridViewIcon],
+                    ['compact', TableViewIcon],
+                    ['stacks',  StacksViewIcon],
+                    ['grid',    GridViewIcon],
                   ].map(([v, ViewIcon]) => (
                     <button key={v} className={`${styles.viewBtn}${deckView === v ? ' '+styles.viewBtnActive : ''}`}
                       onClick={() => setDeckView(v)} title={v}>
@@ -3722,7 +4425,7 @@ export default function DeckBuilderPage() {
                   ))}
                 </div>
                 <div className={styles.toolbarGroup}>
-                  {[['name','A–Z'],['cmc','CMC'],['color','Color'],['type','Type']].map(([s, label]) => (
+                  {[['name','A-Z'],['cmc','CMC'],['color','Color'],['type','Type']].map(([s, label]) => (
                     <button key={s} className={`${styles.sortPill}${deckSort === s ? ' '+styles.sortPillActive : ''}`}
                       onClick={() => setDeckSort(s)}>
                       {label}
@@ -3770,7 +4473,7 @@ export default function DeckBuilderPage() {
                               />
                               <span className={styles.columnMenuLabel}>{label}</span>
                               <span className={styles.columnMenuCheck} aria-hidden="true">
-                                {activeColumns[key] ? '✓' : ''}
+                                {activeColumns[key] ? 'OK' : ''}
                               </span>
                             </label>
                           ))}
@@ -3842,20 +4545,24 @@ export default function DeckBuilderPage() {
                 listGridTemplate,
                 priceLabel: getDeckCardPriceLabel(dc),
                 onOpenDetail: openDeckCardDetail,
+                legalityWarnings: deckCardLegalityWarnings.get(dc.id) || [],
                 }
               }
 
               const renderCard = (dc) => {
+                const legalityWarnings = deckCardLegalityWarnings.get(dc.id) || []
+                const warningTitle = legalityWarnings.map(w => w.text).join('\n')
                 if (deckView === 'grid') return (
-                  <div key={dc.id} className={`${styles.visualCard}${dc.is_commander ? ' '+styles.isCommander : ''}`}
+                  <div key={dc.id} className={`${styles.visualCard}${dc.is_commander ? ' '+styles.isCommander : ''}${legalityWarnings.length ? ' '+styles.visualCardIllegal : ''}`}
+                    title={warningTitle || undefined}
                     onClick={() => openDeckCardDetail(dc)}
                     onContextMenu={CAN_HOVER ? e => openDeckCardContextMenu(dc, e) : undefined}>
                     <div className={styles.visualImgWrap}>
                       {dc.image_uri
                         ? <img src={dc.image_uri} alt={dc.name} className={styles.visualCardImg} loading="lazy" />
                         : <div className={styles.visualCardPlaceholder}>{dc.name}</div>}
-                      {dc.qty > 1 && <span className={styles.visualCardQty}>×{dc.qty}</span>}
-                      {dc.foil && <span className={styles.visualCardFoil} title="Foil">✦</span>}
+                      {dc.qty > 1 && <span className={styles.visualCardQty}>x{dc.qty}</span>}
+                      {dc.foil && <span className={styles.visualCardFoil} title="Foil">*</span>}
                     </div>
                     <div className={styles.visualCardBottom}>
                       <div className={styles.visualCardName}>{dc.name}</div>
@@ -3868,16 +4575,44 @@ export default function DeckBuilderPage() {
                       />
                       <div className={styles.visualCardControls}>
                         <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} onMoveBoard={moveCardToBoard} />
-                        <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, -1) }}>−</button>
+                        <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, -1) }}>-</button>
                         <span className={styles.visualCardCount}>{dc.qty}</span>
                         <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, +1) }}>+</button>
-                        <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); removeCardFromDeck(dc.id) }}>✕</button>
+                        <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); removeCardFromDeck(dc.id) }}>x</button>
                       </div>
                     </div>
                   </div>
                 )
+                if (deckView === 'stacks') return (
+                  <div
+                    key={dc.id}
+                    className={`${styles.stackCard}${dc.is_commander ? ' '+styles.isCommander : ''}${legalityWarnings.length ? ' '+styles.stackCardIllegal : ''}`}
+                    title={warningTitle || dc.name}
+                    onClick={() => openDeckCardDetail(dc)}
+                    onContextMenu={CAN_HOVER ? e => openDeckCardContextMenu(dc, e) : undefined}
+                    onMouseEnter={CAN_HOVER ? e => showHoverPreviewForDeckCard(dc, e) : undefined}
+                    onMouseLeave={CAN_HOVER ? () => clearHoverPreview() : undefined}
+                    onMouseMove={CAN_HOVER ? e => setHoverPos({ x: e.clientX, y: e.clientY }) : undefined}
+                  >
+                    <div className={styles.stackImgWrap}>
+                      {dc.image_uri
+                        ? <img src={dc.image_uri} alt={dc.name} className={styles.stackCardImg} loading="lazy" />
+                        : <div className={styles.stackCardPlaceholder}>{dc.name}</div>}
+                      {legalityWarnings.length > 0 && <span className={styles.stackWarn} title={warningTitle}>!</span>}
+                      {dc.qty > 1 && <span className={styles.stackQty}>×{dc.qty}</span>}
+                      {dc.foil && <span className={styles.stackFoil} title="Foil">*</span>}
+                    </div>
+                    <div className={styles.stackCardControls} onClick={ev => ev.stopPropagation()}>
+                      <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} onMoveBoard={moveCardToBoard} />
+                      <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, -1) }}>-</button>
+                      <span className={styles.stackControlCount}>{dc.qty}</span>
+                      <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, +1) }}>+</button>
+                      <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); removeCardFromDeck(dc.id) }}>x</button>
+                    </div>
+                  </div>
+                )
                 if (deckView === 'compact') return (
-                  <div key={dc.id} className={`${styles.compactRow}${dc.is_commander ? ' '+styles.isCommander : ''}`} onContextMenu={CAN_HOVER ? e => openDeckCardContextMenu(dc, e) : undefined}>
+                  <div key={dc.id} className={`${styles.compactRow}${dc.is_commander ? ' '+styles.isCommander : ''}${legalityWarnings.length ? ' '+styles.deckCardIllegal : ''}`} title={warningTitle || undefined} onContextMenu={CAN_HOVER ? e => openDeckCardContextMenu(dc, e) : undefined}>
                     <span className={styles.compactQty}>{dc.qty}</span>
                     <span className={styles.compactName}
                       style={{ cursor: 'pointer' }}
@@ -3887,10 +4622,10 @@ export default function DeckBuilderPage() {
                       onMouseMove={CAN_HOVER ? e => setHoverPos({ x: e.clientX, y: e.clientY }) : undefined}>
                       {dc.name}
                     </span>
-                    {dc.foil && <span className={styles.foilBadge} title="Foil">✦</span>}
-                    {compactVisibleColumns.set && <span className={styles.compactMeta}>{dc.set_code ? `${String(dc.set_code).toUpperCase()}${dc.collector_number ? ` #${dc.collector_number}` : ''}` : '—'}</span>}
+                    {dc.foil && <span className={styles.foilBadge} title="Foil">*</span>}
+                    {compactVisibleColumns.set && <span className={styles.compactMeta}>{dc.set_code ? `${String(dc.set_code).toUpperCase()}${dc.collector_number ? ` #${dc.collector_number}` : ''}` : '-'}</span>}
                     {compactVisibleColumns.manaValue && <span className={styles.compactMeta}><ManaCostInline cost={dc.mana_cost} size={13} /></span>}
-                    {compactVisibleColumns.cmc && <span className={styles.compactMeta}>{dc.cmc ?? '—'}</span>}
+                    {compactVisibleColumns.cmc && <span className={styles.compactMeta}>{dc.cmc ?? '-'}</span>}
                     {compactVisibleColumns.price && <span className={styles.compactMeta}>{getDeckCardPriceLabel(dc)}</span>}
                     {compactVisibleColumns.status && (
                       <OwnershipBadge
@@ -3904,12 +4639,12 @@ export default function DeckBuilderPage() {
                     {compactVisibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} onMoveBoard={moveCardToBoard} />}
                     {compactVisibleColumns.qty && (
                       <div className={styles.qtyControls}>
-                        <button className={styles.qtyBtn} onClick={() => changeQty(dc.id, -1)}>−</button>
+                        <button className={styles.qtyBtn} onClick={() => changeQty(dc.id, -1)}>-</button>
                         <span className={styles.qtyVal}>{dc.qty}</span>
                         <button className={styles.qtyBtn} onClick={() => changeQty(dc.id, +1)}>+</button>
                       </div>
                     )}
-                    {compactVisibleColumns.remove && <button className={styles.removeBtn} onClick={() => removeCardFromDeck(dc.id)}>✕</button>}
+                    {compactVisibleColumns.remove && <button className={styles.removeBtn} onClick={() => removeCardFromDeck(dc.id)}>x</button>}
                   </div>
                 )
                 // list view
@@ -3930,7 +4665,51 @@ export default function DeckBuilderPage() {
                 </div>
               )
 
+              const renderStacks = (cards, board) => {
+                const groups = groupByType
+                  ? TYPE_GROUPS
+                      .map(group => {
+                        const groupCards = cards.filter(dc => (dc.is_commander ? 'Commander' : classifyCardType(dc.type_line)) === group)
+                        return groupCards.length ? { group, cards: groupCards } : null
+                      })
+                      .filter(Boolean)
+                  : [{ group: BOARD_LABELS[board], cards }]
+
+                return (
+                  <div className={styles.stacksWrap}>
+                    {groups.map(({ group, cards: groupCards }) => {
+                      const groupQty = groupCards.reduce((s, dc) => s + dc.qty, 0)
+                      const collapsedKey = `${board}:stack:${group}`
+                      const collapsed = collapsedGroups.has(collapsedKey)
+                      return (
+                        <div key={collapsedKey} className={styles.stackColumn}>
+                          <div className={styles.stackGroup}>
+                            <button
+                              className={styles.stackGroupHeader}
+                              onClick={() => setCollapsedGroups(prev => {
+                                const next = new Set(prev)
+                                next.has(collapsedKey) ? next.delete(collapsedKey) : next.add(collapsedKey)
+                                return next
+                              })}
+                            >
+                              <span className={`${styles.groupArrow}${collapsed ? ' ' + styles.groupArrowCollapsed : ''}`} aria-hidden="true">
+                                <ChevronDownIcon size={12} />
+                              </span>
+                              <span className={styles.stackGroupTitle}>{group}</span>
+                              <span className={styles.stackGroupCount}>{groupQty}</span>
+                            </button>
+                            {!collapsed && <div className={styles.stackCards}>{groupCards.map(dc => renderCard(dc))}</div>}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              }
+
               const renderCardSet = (cards, board) => {
+                if (deckView === 'stacks') return renderStacks(cards, board)
+
                 if (groupByType) {
                   const groupMap = new Map(TYPE_GROUPS.map(g => [g, []]))
                   for (const dc of cards) {
@@ -3955,7 +4734,9 @@ export default function DeckBuilderPage() {
                           })}
                           style={{ cursor: 'pointer' }}
                         >
-                          <span className={`${styles.groupArrow}${collapsed ? ' ' + styles.groupArrowCollapsed : ''}`}>▾</span>
+                          <span className={`${styles.groupArrow}${collapsed ? ' ' + styles.groupArrowCollapsed : ''}`} aria-hidden="true">
+                            <ChevronDownIcon size={12} />
+                          </span>
                           <span className={styles.groupName}>{group}</span>
                           <span className={styles.groupCount}>{groupQty}</span>
                         </div>
@@ -4007,10 +4788,10 @@ export default function DeckBuilderPage() {
         {rightTab === 'stats' && (
           <div style={{ flex: 1, overflowY: 'auto', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 18 }}>
 
-            {/* ── Winrate section ── */}
+            {/* â”€â”€ Winrate section â”€â”€ */}
             <DeckWinrateMini results={deckGameResults} loading={deckGameResultsLoading} deckName={deckName} />
 
-            {/* ── Deck composition stats ── */}
+            {/* â”€â”€ Deck composition stats â”€â”€ */}
             {deckCards.length > 0
               ? <DeckStats
                   cards={normalizeDeckBuilderCards(mainDeckCards)}
@@ -4036,14 +4817,14 @@ export default function DeckBuilderPage() {
             {deckCards.length > 0 && !combosFetched && !combosLoading && (
               <div style={{ textAlign: 'center', paddingTop: 40 }}>
                 <button onClick={fetchCombos} style={{ background: 'rgba(201,168,76,0.12)', border: '1px solid rgba(201,168,76,0.35)', borderRadius: 4, color: 'var(--gold)', padding: '9px 22px', fontSize: '0.85rem', cursor: 'pointer', fontFamily: 'var(--font-display)', letterSpacing: '0.05em' }}>
-                  ⟳ Find Combos
+                  Find Combos
                 </button>
                 <div style={{ fontSize: '0.73rem', color: 'var(--text-faint)', marginTop: 8 }}>via Commander Spellbook</div>
               </div>
             )}
             {combosLoading && (
               <div style={{ color: 'var(--text-faint)', textAlign: 'center', paddingTop: 40, fontSize: '0.85rem' }}>
-                ⟳ Checking Commander Spellbook…
+                Checking Commander Spellbook...
               </div>
             )}
             {combosFetched && !combosLoading && (
@@ -4051,7 +4832,9 @@ export default function DeckBuilderPage() {
                 {combosIncluded.length > 0 ? (
                   <div>
                     <button className={styles.comboSectionHeader} onClick={() => toggleComboSection('complete')}>
-                      <span className={`${styles.groupArrow}${!comboSectionsOpen.complete ? ' ' + styles.groupArrowCollapsed : ''}`}>▾</span>
+                      <span className={`${styles.groupArrow}${!comboSectionsOpen.complete ? ' ' + styles.groupArrowCollapsed : ''}`} aria-hidden="true">
+                        <ChevronDownIcon size={12} />
+                      </span>
                       <span>Complete Combos</span>
                       <span className={styles.comboSectionCount}>{combosIncluded.length}</span>
                     </button>
@@ -4067,7 +4850,9 @@ export default function DeckBuilderPage() {
                 {combosAlmost.length > 0 && (
                   <div>
                     <button className={styles.comboSectionHeader} onClick={() => toggleComboSection('incomplete')}>
-                      <span className={`${styles.groupArrow}${!comboSectionsOpen.incomplete ? ' ' + styles.groupArrowCollapsed : ''}`}>▾</span>
+                      <span className={`${styles.groupArrow}${!comboSectionsOpen.incomplete ? ' ' + styles.groupArrowCollapsed : ''}`} aria-hidden="true">
+                        <ChevronDownIcon size={12} />
+                      </span>
                       <span>Incomplete Combos</span>
                       <span className={styles.comboSectionCount}>{combosAlmost.length}</span>
                     </button>
@@ -4082,7 +4867,7 @@ export default function DeckBuilderPage() {
                   </div>
                 )}
                 <button onClick={fetchCombos} style={{ alignSelf: 'flex-start', background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: 4, padding: '5px 12px', color: 'var(--text-faint)', fontSize: '0.78rem', cursor: 'pointer' }}>
-                  ⟳ Refresh
+                  Refresh
                 </button>
               </>
             )}
@@ -4093,17 +4878,17 @@ export default function DeckBuilderPage() {
         <div className={styles.deckFooter}>
           {makeDeckDone || syncDone ? (
             <>
-              <div className={styles.convertDone}>✓ {makeDeckDone ? makeDeckMsg : syncMsg}</div>
+              <div className={styles.convertDone}>OK {makeDeckDone ? makeDeckMsg : syncMsg}</div>
               {makeDeckDone && (
                 <Link to="/decks" style={{ fontSize:'0.82rem', color:'var(--gold)', textDecoration:'none' }}>
-                  View in Decks →
+                  View in Decks {'->'}
                 </Link>
               )}
             </>
           ) : (
             <>
               {!isCollectionDeck && deckMeta.linked_deck_id && (
-                <div style={{ fontSize:'0.74rem', color:'var(--text-faint)', textAlign:'center', marginTop:2 }}>↔ linked to collection deck</div>
+                <div style={{ fontSize:'0.74rem', color:'var(--text-faint)', textAlign:'center', marginTop:2 }}>&lt;&gt; linked to collection deck</div>
               )}
             </>
           )}
@@ -4189,19 +4974,19 @@ export default function DeckBuilderPage() {
         document.body
       )}
 
-      {/* ── Import modal ──────────────────────────────────────────── */}
+      {/* â”€â”€ Import modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       {showImport && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           onClick={e => { if (e.target === e.currentTarget) setShowImport(false) }}>
           <div style={{ background: 'var(--bg-card, #1e1e1e)', border: '1px solid var(--border)', borderRadius: 8, padding: 24, width: 480, maxWidth: '95vw', display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontFamily: 'var(--font-display)', color: 'var(--gold)', fontSize: '1rem' }}>Import Deck</span>
-              <button onClick={() => setShowImport(false)} style={{ background: 'none', border: 'none', color: 'var(--text-faint)', fontSize: '1.1rem', cursor: 'pointer' }}>✕</button>
+              <button onClick={() => setShowImport(false)} style={{ background: 'none', border: 'none', color: 'var(--text-faint)', fontSize: '1.1rem', cursor: 'pointer' }}>x</button>
             </div>
 
             {/* Tab switcher */}
             <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)' }}>
-              {[['url', '🔗 URL'], ['text', '📋 Paste List'], ['file', '📂 Upload File']].map(([id, label]) => (
+              {[['url', 'URL'], ['text', 'Paste List'], ['file', 'Upload File']].map(([id, label]) => (
                 <button key={id} onClick={() => setImportTab(id)}
                   style={{ flex: 1, padding: '7px 0', background: 'none', border: 'none', borderBottom: importTab === id ? '2px solid var(--gold)' : '2px solid transparent', color: importTab === id ? 'var(--gold)' : 'var(--text-dim)', fontSize: '0.83rem', cursor: 'pointer', marginBottom: -1 }}>
                   {label}
@@ -4219,11 +5004,11 @@ export default function DeckBuilderPage() {
                   value={importUrl}
                   onChange={e => setImportUrl(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleImport()}
-                  placeholder="https://archidekt.com/decks/12345/…"
+                  placeholder="https://archidekt.com/decks/12345/..."
                   style={{ background: 'var(--s3)', border: '1px solid var(--border)', borderRadius: 4, padding: '8px 12px', color: 'var(--text)', fontSize: '0.88rem', outline: 'none' }}
                 />
                 <p style={{ fontSize: '0.72rem', color: 'var(--text-faint)', margin: 0 }}>
-                  ⚠ Moxfield may require logging in — if it fails, use Paste List instead.
+                  Moxfield may require logging in. If it fails, use Paste List instead.
                 </p>
               </div>
             )}
@@ -4263,7 +5048,7 @@ export default function DeckBuilderPage() {
                 <button
                   onClick={() => importFileRef.current?.click()}
                   style={{ background: 'var(--s3)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-dim)', padding: '10px 16px', fontSize: '0.83rem', cursor: 'pointer', textAlign: 'left' }}>
-                  {importText ? `✓ File loaded — ${importText.split('\n').filter(Boolean).length} lines` : 'Choose file…'}
+                  {importText ? `OK File loaded - ${importText.split('\n').filter(Boolean).length} lines` : 'Choose file...'}
                 </button>
                 {importText && (
                   <textarea
@@ -4277,7 +5062,7 @@ export default function DeckBuilderPage() {
             )}
 
             {importError && <p style={{ color: '#e07070', fontSize: '0.82rem', margin: 0 }}>{importError}</p>}
-            {importDone  && <p style={{ color: 'var(--green)', fontSize: '0.82rem', margin: 0 }}>✓ {importDone}</p>}
+            {importDone  && <p style={{ color: 'var(--green)', fontSize: '0.82rem', margin: 0 }}>OK {importDone}</p>}
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button onClick={() => setShowImport(false)}
@@ -4288,7 +5073,7 @@ export default function DeckBuilderPage() {
                 <button onClick={handleImport}
                   disabled={importing || (importTab === 'url' ? !importUrl.trim() : !importText.trim())}
                   style={{ background: 'rgba(201,168,76,0.15)', border: '1px solid rgba(201,168,76,0.4)', borderRadius: 4, color: 'var(--gold)', padding: '7px 18px', fontSize: '0.83rem', cursor: 'pointer', opacity: importing ? 0.6 : 1 }}>
-                  {importing ? 'Importing…' : 'Import'}
+                  {importing ? 'Importing...' : 'Import'}
                 </button>
               )}
             </div>
@@ -4306,6 +5091,8 @@ export default function DeckBuilderPage() {
           onClose={() => setDetailCard(null)}
         />
       )}
+      <WarningTooltip tooltip={warningTooltip} />
     </div>
   )
 }
+
