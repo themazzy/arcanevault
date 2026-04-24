@@ -14,13 +14,13 @@ import { CardBrowserViewControls, CardBrowserContent } from '../components/CardB
 import styles from './DeckBrowser.module.css'
 import uiStyles from '../components/UI.module.css'
 import { ChevronDownIcon, ChevronUpIcon, GridViewIcon, ListViewIcon, StacksViewIcon, TableViewIcon, TextViewIcon } from '../icons'
-import { parseDeckMeta } from '../lib/deckBuilderApi'
-import { getSyncState, markLinkedPairUnsynced } from '../lib/deckSync'
+import { parseDeckMeta, serializeDeckMeta } from '../lib/deckBuilderApi'
+import { getSyncState, markLinkedPairUnsynced, withLinkedPair, writeSyncState } from '../lib/deckSync'
 import { useLongPress } from '../hooks/useLongPress'
 import { lastInputWasTouch } from '../lib/inputType'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { fetchDeckAllocations, upsertDeckAllocations } from '../lib/deckData'
-import { getDeckAllocations, getCardsByIds, replaceDeckAllocations, putCards, putDeckAllocations } from '../lib/db'
+import { getDeckAllocations, getCardsByIds, replaceDeckAllocations, putCards, putDeckAllocations, putFolderCards, replaceLocalFolderCards } from '../lib/db'
 
 const CAN_HOVER = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover) and (pointer: fine)').matches
 
@@ -613,6 +613,10 @@ export default function DeckBrowser({ folder, onBack }) {
   const [detailCardId, setDetailCardId] = useState(null)
   const [allFolders, setAllFolders] = useState([])
   const [linkedDirty, setLinkedDirty] = useState(false)
+  const [folderDescription, setFolderDescription] = useState(folder?.description || '{}')
+  const [creatingBuilderLink, setCreatingBuilderLink] = useState(false)
+  const linkedBuilderIdRef = useRef(parseDeckMeta(folder?.description || '{}').linked_builder_id || null)
+  const isUnsyncedRef = useRef(false)
   const [viewMode, setViewMode]     = useState('grid')
   const [groupBy, setGroupBy]       = useState('none')
   const [bracketOverride, setBracketOverride] = useState(null)
@@ -633,14 +637,111 @@ export default function DeckBrowser({ folder, onBack }) {
   const handleHoverEnd = useCallback(() => setHoverImg(null), [])
   const handleMouseMove = useCallback((e) => setHoverPos({ x: e.clientX, y: e.clientY }), [])
   const markCurrentLinkedDeckUnsynced = useCallback(async () => {
-    const deckMeta = parseDeckMeta(folder.description || '{}')
-    if (!folder?.id || !deckMeta.linked_builder_id) return
+    const builderId = linkedBuilderIdRef.current
+    if (!folder?.id || !builderId) return
     await markLinkedPairUnsynced({
-      builderDeckId: deckMeta.linked_builder_id,
+      builderDeckId: builderId,
       collectionDeckId: folder.id,
     })
     setLinkedDirty(true)
   }, [folder])
+
+  const openInBuilder = useCallback(async () => {
+    const meta = parseDeckMeta(folderDescription || '{}')
+    setCreatingBuilderLink(true)
+    try {
+      // If this deck was hidden from Builder overview (X button), restore it
+      if (meta.hideFromBuilder) {
+        delete meta.hideFromBuilder
+        await sb.from('folders').update({ description: serializeDeckMeta(meta) }).eq('id', folder.id)
+      }
+
+      // If a link exists, verify the builder deck still exists before navigating
+      if (meta.linked_builder_id) {
+        const { data: existing } = await sb.from('folders').select('id').eq('id', meta.linked_builder_id).maybeSingle()
+        if (existing?.id) {
+          linkedBuilderIdRef.current = meta.linked_builder_id
+          setCreatingBuilderLink(false)
+          navigate(`/builder/${meta.linked_builder_id}`, { state: { openSync: isUnsyncedRef.current, source: 'collection-deck' } })
+          return
+        }
+        // Builder deck was deleted — clear the stale link and fall through to re-create
+        const cleared = { ...meta }
+        delete cleared.linked_builder_id
+        delete cleared.sync_state
+        await sb.from('folders').update({ description: serializeDeckMeta(cleared) }).eq('id', folder.id)
+        Object.assign(meta, cleared)
+        delete meta.linked_builder_id
+      }
+
+      // Check for deck_cards already stored under the collection deck ID (from previous "Edit in Builder" sessions)
+      const { data: existingCards } = await sb.from('deck_cards').select('id').eq('deck_id', folder.id)
+      const hasExistingCards = (existingCards?.length ?? 0) > 0
+
+      // Create the paired builder_deck folder
+      const builderInitMeta = withLinkedPair({ format: meta.format || null }, { linkedDeckId: folder.id })
+      const { data: builderFolder, error: builderErr } = await sb
+        .from('folders')
+        .insert({ user_id: user.id, name: folder.name, type: 'builder_deck', description: serializeDeckMeta(builderInitMeta) })
+        .select()
+        .single()
+      if (builderErr || !builderFolder) throw builderErr || new Error('Failed to create builder deck')
+
+      const now = new Date().toISOString()
+      if (hasExistingCards) {
+        // Migrate deck_cards from the old collection-deck path to the new builder deck
+        const { error: migErr } = await sb.from('deck_cards')
+          .update({ deck_id: builderFolder.id, updated_at: now })
+          .eq('deck_id', folder.id)
+        if (migErr) throw new Error('[DeckBrowser] deck_cards migration failed: ' + migErr.message)
+      } else {
+        // Create deck_cards fresh from current allocations
+        const allocations = await fetchDeckAllocations(folder.id)
+        if (allocations.length) {
+          const rows = allocations.map(row => ({
+            id: crypto.randomUUID(),
+            deck_id: builderFolder.id,
+            user_id: user.id,
+            card_print_id: row.card_print_id || null,
+            scryfall_id: row.scryfall_id || null,
+            name: row.name,
+            set_code: row.set_code || null,
+            collector_number: row.collector_number || null,
+            type_line: row.type_line || null,
+            mana_cost: row.mana_cost || null,
+            cmc: row.cmc ?? null,
+            color_identity: row.color_identity || [],
+            image_uri: row.image_uri || null,
+            qty: row.qty || 1,
+            foil: row.foil ?? false,
+            is_commander: false,
+            board: 'main',
+            created_at: now,
+            updated_at: now,
+          }))
+          const { error: insertErr } = await sb.from('deck_cards').insert(rows)
+          if (insertErr) throw new Error('[DeckBrowser] deck_cards insert failed: ' + insertErr.message)
+        }
+      }
+
+      // Link collection deck → builder deck (mark unsynced if we migrated existing edits)
+      const updatedCollectionMeta = writeSyncState(
+        withLinkedPair(meta, { linkedBuilderId: builderFolder.id }),
+        { unsynced_builder: hasExistingCards, unsynced_collection: false },
+      )
+      const { error: linkErr } = await sb.from('folders')
+        .update({ description: serializeDeckMeta(updatedCollectionMeta) })
+        .eq('id', folder.id)
+      if (linkErr) throw new Error('Failed to save builder link')
+
+      linkedBuilderIdRef.current = builderFolder.id
+      navigate(`/builder/${builderFolder.id}`)
+    } catch (e) {
+      console.error('[DeckBrowser] failed to open in builder:', e)
+    } finally {
+      setCreatingBuilderLink(false)
+    }
+  }, [folder, folderDescription, user, navigate])
 
   const loadCards = useCallback(async () => {
     setLoading(true)
@@ -703,6 +804,14 @@ export default function DeckBrowser({ folder, onBack }) {
 
   useEffect(() => { loadCards() }, [loadCards])
 
+  useEffect(() => {
+    let cancelled = false
+    sb.from('folders').select('description').eq('id', folder.id).maybeSingle().then(({ data }) => {
+      if (!cancelled && data?.description != null) setFolderDescription(data.description)
+    })
+    return () => { cancelled = true }
+  }, [folder.id])
+
   // Fetch all folders for "Move to" dropdown (RLS filters by user automatically)
   useEffect(() => {
     let cancelled = false
@@ -763,6 +872,10 @@ export default function DeckBrowser({ folder, onBack }) {
       for (const { allocId, remaining } of toUpdate) {
         await sb.from('deck_allocations').update({ qty: remaining }).eq('id', allocId)
       }
+      const freshAllocs = await fetchDeckAllocations(folder.id)
+      await replaceDeckAllocations([folder.id], (freshAllocs || []).map(r => ({
+        id: r.id, deck_id: r.deck_id, user_id: r.user_id, card_id: r.card_id, qty: r.qty,
+      }))).catch(() => {})
       await markCurrentLinkedDeckUnsynced()
       setCards(prev => prev.map(c => {
         if (!selectedCards.has(c.id)) return c
@@ -792,16 +905,29 @@ export default function DeckBrowser({ folder, onBack }) {
     try {
       if (targetFolder.type === 'deck') {
         await upsertDeckAllocations(targetFolder.id, user.id, insertRows)
+        const freshDestAllocs = await fetchDeckAllocations(targetFolder.id)
+        await replaceDeckAllocations([targetFolder.id], (freshDestAllocs || []).map(r => ({
+          id: r.id, deck_id: r.deck_id, user_id: r.user_id, card_id: r.card_id, qty: r.qty,
+        }))).catch(() => {})
       } else {
         await sb.from('folder_cards').upsert(
           insertRows.map(row => ({ folder_id: targetFolder.id, card_id: row.card_id, qty: row.qty })),
           { onConflict: 'folder_id,card_id', ignoreDuplicates: true }
         )
+        const { data: freshDestFc } = await sb.from('folder_cards')
+          .select('id, folder_id, card_id, qty, updated_at')
+          .eq('folder_id', targetFolder.id)
+          .in('card_id', insertRows.map(r => r.card_id))
+        if (freshDestFc?.length) await putFolderCards(freshDestFc).catch(() => {})
       }
       if (toDelete.length) await sb.from('deck_allocations').delete().eq('deck_id', folder.id).in('id', toDelete.filter(Boolean))
       for (const { allocId, remaining } of toUpdate) {
         await sb.from('deck_allocations').update({ qty: remaining }).eq('id', allocId)
       }
+      const freshSourceAllocs = await fetchDeckAllocations(folder.id)
+      await replaceDeckAllocations([folder.id], (freshSourceAllocs || []).map(r => ({
+        id: r.id, deck_id: r.deck_id, user_id: r.user_id, card_id: r.card_id, qty: r.qty,
+      }))).catch(() => {})
       await markCurrentLinkedDeckUnsynced()
       setCards(prev => prev.map(c => {
         if (!selectedCards.has(c.id)) return c
@@ -868,11 +994,10 @@ export default function DeckBrowser({ folder, onBack }) {
 
   if (loading) return <EmptyState>Loading deck…</EmptyState>
 
-  const deckMeta = parseDeckMeta(folder.description || '{}')
-  const builderDeckId = deckMeta.linked_builder_id || folder.id
+  const deckMeta = parseDeckMeta(folderDescription || '{}')
   const syncState = getSyncState(deckMeta)
   const isUnsynced = linkedDirty || !!(syncState.unsynced_builder || syncState.unsynced_collection)
-  const openLinkedSync = () => navigate(`/builder/${builderDeckId}`, { state: { openSync: true, source: 'collection-deck' } })
+  isUnsyncedRef.current = isUnsynced
   // Use only the explicitly-set bg_url for the header background.
   // coverArtUri is the builder-deck commander art — it is not a user-chosen
   // background for the collection deck view and should not bleed through here.
@@ -892,9 +1017,9 @@ export default function DeckBrowser({ folder, onBack }) {
             <span>{totalQty} cards</span>
             <span className={styles.deckValue}>{formatPrice(totalValue, price_source)}</span>
             {deckMeta.linked_builder_id && (
-              <span className={styles.deckValue} style={{ color: isUnsynced ? '#e0b04c' : 'var(--text-faint)' }}>
-                {isUnsynced ? 'Unsynced' : 'Synced'}
-              </span>
+              <button className={styles.editInBuilderBtn} onClick={openInBuilder} disabled={creatingBuilderLink}>
+                {creatingBuilderLink ? 'Opening…' : isUnsynced ? 'Unsynced changes' : 'Open in Deckbuilder'}
+              </button>
             )}
             <div className={styles.headerActionsDesktop}>
               <button className={styles.addCardsBtn} onClick={() => setShowImport(true)}>
@@ -906,8 +1031,8 @@ export default function DeckBrowser({ folder, onBack }) {
               <button className={styles.addCardsBtn} onClick={() => setShowAddCard(true)}>
                 + Add Cards
               </button>
-              <button className={styles.editInBuilderBtn} onClick={() => { deckMeta.linked_builder_id ? openLinkedSync() : navigate(`/builder/${builderDeckId}`) }}>
-                {deckMeta.linked_builder_id ? (isUnsynced ? 'Unsynced' : 'Synced') : 'Edit in Builder'}
+              <button className={styles.editInBuilderBtn} onClick={openInBuilder} disabled={creatingBuilderLink}>
+                {creatingBuilderLink ? 'Opening…' : deckMeta.linked_builder_id ? (isUnsynced ? 'Unsynced changes' : 'Open in Deckbuilder') : 'Edit in Builder'}
               </button>
             </div>
             <div className={styles.headerActionsMobile}>
@@ -937,8 +1062,9 @@ export default function DeckBrowser({ folder, onBack }) {
                       <span>Add Cards</span>
                     </button>
                     <button className={uiStyles.responsiveMenuAction}
-                      onClick={() => { deckMeta.linked_builder_id ? openLinkedSync() : navigate(`/builder/${builderDeckId}`); close() }}>
-                      <span>{deckMeta.linked_builder_id ? (isUnsynced ? 'Unsynced' : 'Synced') : 'Edit in Builder'}</span>
+                      disabled={creatingBuilderLink}
+                      onClick={() => { openInBuilder(); close() }}>
+                      <span>{creatingBuilderLink ? 'Opening…' : deckMeta.linked_builder_id ? (isUnsynced ? 'Unsynced changes' : 'Open in Deckbuilder') : 'Edit in Builder'}</span>
                     </button>
                   </div>
                 )}

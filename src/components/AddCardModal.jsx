@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { sb } from '../lib/supabase'
+import { putCards } from '../lib/db'
 import { Modal, Button, ErrorBox, ResponsiveMenu } from './UI'
 import { useSettings } from './SettingsContext'
 import { getPrice, formatPrice, getPriceSource, sfGet } from '../lib/scryfall'
@@ -122,12 +123,13 @@ function EditForm({ card, onClose, onSaved }) {
 
   const save = async () => {
     setSaving(true); setError('')
-    const { error: err } = await sb.from('cards').update({
-      qty: parseInt(qty) || 1, condition, language, foil,
-      purchase_price: parseFloat(purchasePrice) || 0,
-    }).eq('id', card.id)
-    if (err) setError(err.message)
-    else onSaved()
+    const updates = { qty: parseInt(qty) || 1, condition, language, foil, purchase_price: parseFloat(purchasePrice) || 0 }
+    const { error: err } = await sb.from('cards').update(updates).eq('id', card.id)
+    if (err) { setError(err.message) }
+    else {
+      await putCards([{ ...card, ...updates }]).catch(() => {})
+      onSaved()
+    }
     setSaving(false)
   }
 
