@@ -14,6 +14,7 @@ import {
 import { normalizeImportedDeckCards, parseImportText, resolveImportEntries } from '../lib/importFlow'
 import {
   getLocalCards, getDeckCards, putDeckCards, deleteDeckCardLocal, getMeta, setMeta, getScryfallEntry,
+  deleteDeckAllocationsByIds, replaceDeckAllocations, putDeckAllocations, putFolderCards,
 } from '../lib/db'
 import styles from './DeckBuilder.module.css'
 import uiStyles from '../components/UI.module.css'
@@ -49,6 +50,7 @@ import {
   CollectionIcon,
   MenuIcon,
   AddIcon,
+  CheckIcon,
 } from '../icons'
 import { lastInputWasTouch } from '../lib/inputType'
 
@@ -2182,7 +2184,9 @@ export default function DeckBuilderPage() {
             }))
             const { error: hydrateErr } = await sb.from('deck_cards').insert(hydratedRows)
             if (hydrateErr) throw hydrateErr
-            cardList = await enrichDeckCardsWithMetadata(hydratedRows)
+            // Re-fetch from view so we get the same enriched data as on a page reload
+            const refetched = await fetchDeckCards(deckId)
+            cardList = await enrichDeckCardsWithMetadata(refetched.length ? refetched : hydratedRows)
           }
         } else {
           cardList = await enrichDeckCardsWithMetadata(cardList)
@@ -2191,33 +2195,39 @@ export default function DeckBuilderPage() {
         setDeckCards(cardList)
         putDeckCards(cardList).catch(() => {})
 
-        // Build owned maps from IDB
-        const owned = await getLocalCards(user.id)
-        const map     = new Map()
-        const nameMap = new Map()
-        const foilMap = new Map()
-        for (const c of owned) {
-          if (c.scryfall_id) {
-            map.set(c.scryfall_id, (map.get(c.scryfall_id) ?? 0) + (c.qty || 1))
-            const fk = `${c.scryfall_id}|${c.foil ? '1' : '0'}`
-            foilMap.set(fk, (foilMap.get(fk) ?? 0) + (c.qty || 1))
+        // Build owned maps — failures here must not block the deck display
+        try {
+          const owned = await getLocalCards(user.id)
+          const map     = new Map()
+          const nameMap = new Map()
+          const foilMap = new Map()
+          for (const c of owned) {
+            if (c.scryfall_id) {
+              map.set(c.scryfall_id, (map.get(c.scryfall_id) ?? 0) + (c.qty || 1))
+              const fk = `${c.scryfall_id}|${c.foil ? '1' : '0'}`
+              foilMap.set(fk, (foilMap.get(fk) ?? 0) + (c.qty || 1))
+            }
+            const n = (c.name || '').toLowerCase()
+            if (n) nameMap.set(n, (nameMap.get(n) ?? 0) + (c.qty || 1))
           }
-          const n = (c.name || '').toLowerCase()
-          if (n) nameMap.set(n, (nameMap.get(n) ?? 0) + (c.qty || 1))
+          setOwnedMap(map)
+          setOwnedNameMap(nameMap)
+          setOwnedFoilMap(foilMap)
+
+          // For linked builder decks, allocations live on the paired collection deck
+          const allocDeckId = meta.linked_deck_id || (folder.type === 'deck' ? deckId : null) || deckId
+          const thisAllocations = await fetchDeckAllocations(allocDeckId)
+          setCollDeckSfSet(new Set((thisAllocations || []).flatMap(row => deckAllocationKeys(row))))
+
+          const allAllocations = await fetchDeckAllocationsForUser(user.id)
+          setInOtherDeckSet(new Set(
+            (allAllocations || [])
+              .filter(row => row.deck_id !== deckId && row.deck_id !== allocDeckId)
+              .flatMap(row => deckAllocationKeys(row))
+          ))
+        } catch (ownedErr) {
+          console.error('[DeckBuilder] owned card indicators failed to load:', ownedErr)
         }
-        setOwnedMap(map)
-        setOwnedNameMap(nameMap)
-        setOwnedFoilMap(foilMap)
-
-        const thisAllocations = await fetchDeckAllocations(deckId)
-        setCollDeckSfSet(new Set((thisAllocations || []).flatMap(row => deckAllocationKeys(row))))
-
-        const allAllocations = await fetchDeckAllocationsForUser(user.id)
-        setInOtherDeckSet(new Set(
-          (allAllocations || [])
-            .filter(row => row.deck_id !== deckId)
-            .flatMap(row => deckAllocationKeys(row))
-        ))
       } catch (err) {
         setLoadError('Failed to load deck')
         console.error(err)
@@ -2227,7 +2237,7 @@ export default function DeckBuilderPage() {
   }, [deckId, user.id])
 
   // â”€â”€ Computed â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  const format         = useMemo(() => FORMATS.find(f => f.id === deckMeta.format), [deckMeta.format])
+  const format         = useMemo(() => FORMATS.find(f => f.id === (deckMeta.format || 'commander')), [deckMeta.format])
   const isEDH          = format?.isEDH ?? false
   const commanderCards = useMemo(() => deckCards.filter(dc => dc.is_commander), [deckCards])
   const commanderCard  = commanderCards[0] ?? null
@@ -3287,7 +3297,7 @@ export default function DeckBuilderPage() {
   }
 
   async function moveOwnedCopiesOutOfDeck(rows, destination) {
-    if (!rows?.length || !destination?.id) return
+    if (!rows?.length || !destination?.id) return { deletedAllocIds: [], updatedAllocs: [] }
 
     const movesByAllocation = new Map()
     for (const row of rows) {
@@ -3350,18 +3360,29 @@ export default function DeckBuilderPage() {
         const { error: insertErr } = await sb.from('folder_cards').insert(inserts)
         if (insertErr) throw insertErr
       }
+      const { data: freshRows } = await sb
+        .from('folder_cards')
+        .select('id, folder_id, card_id, qty, updated_at')
+        .eq('folder_id', destination.id)
+        .in('card_id', cardIds)
+      if (freshRows?.length) putFolderCards(freshRows).catch(() => {})
     }
 
+    const deletedAllocIds = []
+    const updatedAllocs = []
     for (const row of normalizedRows) {
       const nextQty = (row.allocRow.qty || 0) - row.qty
       if (nextQty > 0) {
         const { error } = await sb.from('deck_allocations').update({ qty: nextQty }).eq('id', row.allocRow.id)
         if (error) throw error
+        updatedAllocs.push({ ...row.allocRow, qty: nextQty })
       } else {
         const { error } = await sb.from('deck_allocations').delete().eq('id', row.allocRow.id)
         if (error) throw error
+        deletedAllocIds.push(row.allocRow.id)
       }
     }
+    return { deletedAllocIds, updatedAllocs }
   }
 
   async function promptToMoveOwnedCopies({ title, message, items, onComplete }) {
@@ -3372,7 +3393,13 @@ export default function DeckBuilderPage() {
       items,
       folders,
       onConfirm: async (destination) => {
-        await moveOwnedCopiesOutOfDeck(items, destination)
+        const { deletedAllocIds, updatedAllocs } = await moveOwnedCopiesOutOfDeck(items, destination)
+        await deleteDeckAllocationsByIds(deletedAllocIds).catch(() => {})
+        if (updatedAllocs.length) await putDeckAllocations(updatedAllocs).catch(() => {})
+        const freshAllocs = await fetchDeckAllocations(getAllocationDeckId())
+        await replaceDeckAllocations([getAllocationDeckId()], (freshAllocs || []).map(row => ({
+          id: row.id, deck_id: row.deck_id, user_id: row.user_id, card_id: row.card_id, qty: row.qty,
+        }))).catch(() => {})
         await onComplete?.(destination)
         await refreshAllocationIndicators()
         setPendingOwnedMove(null)
@@ -3776,6 +3803,7 @@ export default function DeckBuilderPage() {
       deleteDeckCardLocal(id).catch(() => {})
     }
     if (inserts.length) putDeckCards(inserts).catch(() => {})
+    if (updates.length) putDeckCards(nextDeckCards.filter(dc => updates.some(u => u.id === dc.id))).catch(() => {})
 
     const nextMeta = buildCommanderMetaFromCards(nextDeckCards, deckMeta)
     if (serializeDeckMeta(nextMeta) !== serializeDeckMeta(deckMeta)) {
@@ -3844,7 +3872,9 @@ export default function DeckBuilderPage() {
           ? (await loadMoveTargets(targetDeckId)).find(folder => folder.id === moveDestinationId)
           : null
         if (!destination) throw new Error('Select a destination for removed owned cards.')
-        await moveOwnedCopiesOutOfDeck(moveRows, destination)
+        const { deletedAllocIds, updatedAllocs } = await moveOwnedCopiesOutOfDeck(moveRows, destination)
+        await deleteDeckAllocationsByIds(deletedAllocIds).catch(() => {})
+        if (updatedAllocs.length) await putDeckAllocations(updatedAllocs).catch(() => {})
       }
 
       let targetWishlistId = wishlistId
@@ -3864,6 +3894,9 @@ export default function DeckBuilderPage() {
       const nextBuilderMeta = collectionApplyResult.nextMeta
 
       const allocationRows = await fetchDeckAllocations(targetDeckId)
+      await replaceDeckAllocations([targetDeckId], (allocationRows || []).map(row => ({
+        id: row.id, deck_id: row.deck_id, user_id: row.user_id, card_id: row.card_id, qty: row.qty,
+      }))).catch(() => {})
       const currentSnapshot = buildSyncSnapshot({
         builderCards: nextBuilderCards.filter(card => normalizeBoard(card.board) !== 'maybe'),
         collectionCards: allocationRows || [],
@@ -4424,14 +4457,36 @@ export default function DeckBuilderPage() {
                     </button>
                   ))}
                 </div>
-                <div className={styles.toolbarGroup}>
-                  {[['name','A-Z'],['cmc','CMC'],['color','Color'],['type','Type']].map(([s, label]) => (
-                    <button key={s} className={`${styles.sortPill}${deckSort === s ? ' '+styles.sortPillActive : ''}`}
-                      onClick={() => setDeckSort(s)}>
-                      {label}
+                <ResponsiveMenu
+                  title="Sort By"
+                  wrapClassName={styles.columnMenuWrap}
+                  trigger={({ toggle }) => (
+                    <button
+                      className={`${styles.groupToggle}${deckSort ? ' '+styles.groupToggleActive : ''}`}
+                      onClick={toggle}
+                      title="Sort cards"
+                    >
+                      {({ name: 'A–Z', cmc: 'CMC', color: 'Color', type: 'Type' })[deckSort] ?? 'Sort'}
                     </button>
-                  ))}
-                </div>
+                  )}
+                >
+                  {({ close }) => (
+                    <div className={uiStyles.responsiveMenuList}>
+                      {[['name','A–Z'],['cmc','Mana Value'],['color','Color'],['type','Type']].map(([s, label]) => (
+                        <button
+                          key={s}
+                          className={`${styles.columnMenuItem} ${deckSort === s ? styles.columnMenuItemActive : ''}`}
+                          onClick={() => { setDeckSort(s); close?.() }}
+                        >
+                          <span className={styles.columnMenuLabel}>{label}</span>
+                          <span className={styles.columnMenuCheck} aria-hidden="true">
+                            {deckSort === s ? <CheckIcon size={11} /> : ''}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </ResponsiveMenu>
                 <button
                   className={`${styles.groupToggle}${groupByType ? ' '+styles.groupToggleActive : ''}`}
                   onClick={() => setGroupByType(v => !v)}
@@ -4473,7 +4528,7 @@ export default function DeckBuilderPage() {
                               />
                               <span className={styles.columnMenuLabel}>{label}</span>
                               <span className={styles.columnMenuCheck} aria-hidden="true">
-                                {activeColumns[key] ? 'OK' : ''}
+                                {activeColumns[key] ? <CheckIcon size={11} /> : ''}
                               </span>
                             </label>
                           ))}
