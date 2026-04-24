@@ -51,9 +51,8 @@ export function DecksIcon(p) {
 export function BuilderIcon(p) {
   return (
     <Icon {...p}>
-      <path d="M3 13L2 14l1-4 7.5-7.5 3 3L3 13Z" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" strokeLinejoin="round" />
-      <path d="M10.5 2.5l3 3" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" strokeLinecap="round" />
-      <path d="M13.5 1.5l1 1-1.5 1.5-1-1 1.5-1.5Z" stroke={p.color ?? 'currentColor'} strokeWidth="1.0" strokeLinejoin="round" />
+      <path d="M11 2L13 4L7 10L2 14L5 8Z" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" strokeLinejoin="round" />
+      <line x1="10" y1="3" x2="12" y2="5" stroke={p.color ?? 'currentColor'} strokeWidth="1.0" strokeLinecap="round" />
     </Icon>
   )
 }
@@ -154,9 +153,8 @@ export function CloseIcon(p) {
 export function EditIcon(p) {
   return (
     <Icon {...p}>
-      <path d="M3 13L2 14l1-4 7-7 3 3-7 7Z" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" strokeLinejoin="round" />
-      <path d="M10 3l3 3" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" strokeLinecap="round" />
-      <path d="M12.5 1.5l2 2-1.5 1.5-2-2 1.5-1.5Z" stroke={p.color ?? 'currentColor'} strokeWidth="1.0" strokeLinejoin="round" />
+      <path d="M11 2L13 4L7 10L2 14L5 8Z" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" strokeLinejoin="round" />
+      <line x1="10" y1="3" x2="12" y2="5" stroke={p.color ?? 'currentColor'} strokeWidth="1.0" strokeLinecap="round" />
     </Icon>
   )
 }
