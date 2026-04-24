@@ -2925,6 +2925,16 @@
   background: rgba(201,168,76,0.14);
 }
 
+.columnMenuItemActive .columnMenuCheck {
+  border-color: rgba(201,168,76,0.42);
+  background: rgba(201,168,76,0.18);
+  color: var(--gold);
+}
+
+.columnMenuItemActive .columnMenuLabel {
+  color: var(--gold);
+}
+
 .columnMenuItem:hover {
   background: color-mix(in srgb, var(--s2) 84%, var(--gold) 16%);
   border-color: color-mix(in srgb, var(--gold) 26%, transparent);

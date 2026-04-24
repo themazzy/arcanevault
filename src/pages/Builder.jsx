@@ -8,6 +8,7 @@ import { unlinkPairedDeck, getSyncState } from '../lib/deckSync'
 import styles from './Builder.module.css'
 import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
+import { CheckIcon, DeleteIcon, EditIcon, ChevronDownIcon } from '../icons'
 
 const COLOR_LABEL = { W: '#f8f0d8', U: '#4488cc', B: '#8855aa', R: '#cc4444', G: '#44884a', C: '#aaaaaa' }
 
@@ -45,44 +46,45 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
     onToggleSelect?.(deck.id)
   }, { delay: 500 })
   const { fired: lpFired, ...lpRest } = longPress
-  // If a collection deck has a linked builder deck, open the builder version instead
   const effectiveId = (deck.type === 'deck' && meta.linked_builder_id) ? meta.linked_builder_id : deck.id
   const syncState = getSyncState(meta)
-  const isUnsynced = !!(syncState.unsynced_builder || syncState.unsynced_collection)
+  const hasValidLink = !!(meta.linked_deck_id || meta.linked_builder_id)
+  const isUnsynced = hasValidLink && !!(syncState.unsynced_builder || syncState.unsynced_collection)
+  const isCollection = deck.type === 'deck'
+
   return (
     <div
       className={`${styles.card}${isSelected ? ' ' + styles.cardSelected : ''}`}
       onClick={() => {
-        if (lpFired.current) {
-          lpFired.current = false
-          return
-        }
+        if (lpFired.current) { lpFired.current = false; return }
         selectMode ? onToggleSelect(deck.id) : navigate(`/builder/${effectiveId}`)
       }}
-      {...lpRest}>
+      {...lpRest}
+    >
       <DeckArtBackground meta={meta} deckType={deck.type} />
       <div className={styles.cardContent}>
         {selectMode && (
           <div className={`${styles.deckCheckbox}${isSelected ? ' ' + styles.deckCheckboxChecked : ''}`}>
-            {isSelected && '✓'}
+            {isSelected && <CheckIcon size={11} />}
           </div>
         )}
+
         <div className={styles.cardTop}>
           <div className={styles.cardBadges}>
-            {deck.type === 'deck'
+            {isCollection
               ? <span className={styles.collectionBadge}>Collection</span>
               : <span className={styles.formatBadge}>{fmt?.label || 'Builder'}</span>
             }
-            {deck.type === 'deck' && fmt && (
+            {isCollection && fmt && (
               <span className={styles.formatBadge}>{fmt.label}</span>
             )}
-            {(meta.linked_deck_id || meta.linked_builder_id) && (
-              <span className={styles.formatBadge} style={{ opacity: 0.7 }}>↔</span>
-            )}
             {isUnsynced && (
-              <span className={styles.formatBadge} style={{ color: '#e0b04c', borderColor: 'rgba(224,176,76,0.32)' }}>Unsynced</span>
+              <span className={styles.unsyncedBadge}>Unsynced</span>
             )}
           </div>
+        </div>
+
+        <div className={styles.cardBottom}>
           <div className={styles.cardName}>{deck.name}</div>
           {meta.commanderName && (
             <div className={styles.commanderName}>{meta.commanderName}</div>
@@ -94,13 +96,26 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
               ))}
             </div>
           )}
+          {!selectMode && (
+            <div className={styles.cardActions}>
+              <Link
+                to={`/builder/${effectiveId}`}
+                state={isUnsynced ? { openSync: true, source: 'builder' } : undefined}
+                className={styles.editLink}
+                onClick={e => e.stopPropagation()}
+              >
+                <EditIcon size={12} /> Edit
+              </Link>
+              <button
+                className={styles.deleteBtn}
+                onClick={e => { e.stopPropagation(); onDelete(deck.id) }}
+                title="Delete deck"
+              >
+                <DeleteIcon size={13} />
+              </button>
+            </div>
+          )}
         </div>
-        {!selectMode && (
-          <div className={styles.cardActions}>
-            <Link to={`/builder/${effectiveId}`} className={styles.editLink}>Edit Deck →</Link>
-            <button className={styles.deleteBtn} onClick={e => { e.stopPropagation(); onDelete(deck.id) }}>✕</button>
-          </div>
-        )}
       </div>
     </div>
   )
@@ -121,12 +136,12 @@ function CommunityDeckTile({ deck, meta, fmt, isOwn, navigate }) {
             <span className={styles.formatBadge}>{fmt?.label || 'Builder'}</span>
             {isOwn && <span className={styles.collectionBadge}>Yours</span>}
           </div>
-          <div className={styles.cardName}>{deck.name}</div>
-          {commander && <div className={styles.cardSub}>{commander}</div>}
         </div>
         <div className={styles.cardBottom}>
+          <div className={styles.cardName}>{deck.name}</div>
+          {commander && <div className={styles.commanderName}>{commander}</div>}
           {colors.length > 0 && (
-            <div className={styles.cardColors}>
+            <div className={styles.colorPips}>
               {colors.map(c => (
                 <span key={c} className={styles.colorPip} style={{ background: COLOR_LABEL[c] || '#888' }} />
               ))}
@@ -141,10 +156,10 @@ function CommunityDeckTile({ deck, meta, fmt, isOwn, navigate }) {
           )}
           <div className={styles.cardActions}>
             <button
-              className={styles.viewBtn}
+              className={styles.editLink}
               onClick={e => { e.stopPropagation(); navigate(`/d/${deck.id}`) }}
             >
-              View
+              <EditIcon size={12} /> View
             </button>
           </div>
         </div>
@@ -152,6 +167,9 @@ function CommunityDeckTile({ deck, meta, fmt, isOwn, navigate }) {
     </div>
   )
 }
+
+const SORT_LABELS = { updated: 'Recent', name: 'Name', format: 'Format' }
+const TYPE_LABELS = [['all', 'All'], ['builder', 'Builder'], ['collection', 'Collection']]
 
 export default function BuilderPage() {
   const { user } = useAuth()
@@ -163,25 +181,21 @@ export default function BuilderPage() {
   const [newFormat, setNewFormat] = useState('commander')
   const [creating, setCreating]   = useState(false)
 
-  // Styled confirm dialog
-  const [confirmState, setConfirmState] = useState(null) // { message, resolve }
+  const [confirmState, setConfirmState] = useState(null)
   const confirmAsync = (message) => new Promise(resolve => setConfirmState({ message, resolve }))
   const handleConfirm = (result) => { confirmState?.resolve(result); setConfirmState(null) }
 
-  // Page-level tab: 'my' | 'community'
-  const [pageTab, setPageTab]             = useState('my')
+  const [pageTab, setPageTab]               = useState('my')
   const [communityDecks, setCommunityDecks] = useState([])
   const [communityLoading, setCommunityLoading] = useState(false)
   const [communityLoaded,  setCommunityLoaded]  = useState(false)
   const [communitySearch,  setCommunitySearch]  = useState('')
   const [communityFormat,  setCommunityFormat]  = useState('all')
 
-  // Filter/sort state
-  const [search, setSearch]       = useState('')
-  const [typeFilter, setTypeFilter] = useState('all') // 'all' | 'builder' | 'collection'
-  const [sortBy, setSortBy]       = useState('updated') // 'updated' | 'name' | 'format'
+  const [search, setSearch]         = useState('')
+  const [typeFilter, setTypeFilter] = useState('all')
+  const [sortBy, setSortBy]         = useState('updated')
 
-  // Selection state
   const [selectMode, setSelectMode]   = useState(false)
   const [selectedIds, setSelectedIds] = useState(new Set())
 
@@ -194,11 +208,12 @@ export default function BuilderPage() {
       .eq('user_id', user.id)
       .in('type', ['builder_deck', 'deck'])
       .order('updated_at', { ascending: false })
-    // Exclude group folders and collection decks hidden from builder
     const nonGroupDecks = (data || []).filter(f => {
       try {
         const m = JSON.parse(f.description || '{}')
-        return !m.isGroup && !m.hideFromBuilder
+        if (m.isGroup || m.hideFromBuilder) return false
+        if (f.type === 'builder_deck' && m.linked_deck_id) return false
+        return true
       } catch { return true }
     })
     setDecks(nonGroupDecks)
@@ -319,13 +334,13 @@ export default function BuilderPage() {
       return true
     })
     .sort((a, b) => {
-      if (sortBy === 'name')    return a.name.localeCompare(b.name)
+      if (sortBy === 'name')   return a.name.localeCompare(b.name)
       if (sortBy === 'format') {
         const ma = parseDeckMeta(a.description)
         const mb = parseDeckMeta(b.description)
         return (ma.format || '').localeCompare(mb.format || '')
       }
-      return 0 // updated_at already sorted from DB
+      return 0
     })
 
   const filteredCommunity = communityDecks.filter(d => {
@@ -348,20 +363,15 @@ export default function BuilderPage() {
         <button
           className={`${styles.pageTab}${pageTab === 'my' ? ' ' + styles.pageTabActive : ''}`}
           onClick={() => setPageTab('my')}
-        >
-          My Decks
-        </button>
+        >My Decks</button>
         <button
           className={`${styles.pageTab}${pageTab === 'community' ? ' ' + styles.pageTabActive : ''}`}
           onClick={() => { setPageTab('community'); loadCommunityDecks() }}
-        >
-          Deck Browser
-        </button>
+        >Deck Browser</button>
       </div>
 
       {/* ── My Decks tab ── */}
       {pageTab === 'my' && <>
-        {/* Filter bar */}
         <div className={styles.filterBar}>
           <input
             className={styles.filterInput}
@@ -370,41 +380,52 @@ export default function BuilderPage() {
             placeholder="Search decks…"
           />
           <div className={styles.filterGroup}>
-            {[['all','All'],['builder','Builder'],['collection','Collection']].map(([v, label]) => (
+            {TYPE_LABELS.map(([v, label]) => (
               <button key={v}
-                className={`${styles.filterPill}${typeFilter === v ? ' '+styles.filterPillActive : ''}`}
+                className={`${styles.filterPill}${typeFilter === v ? ' ' + styles.filterPillActive : ''}`}
                 onClick={() => setTypeFilter(v)}>
                 {label}
               </button>
             ))}
           </div>
-          <div className={styles.filterGroup}>
-            <span className={styles.sortLabel}>Sort:</span>
-            {[['updated','Recent'],['name','Name'],['format','Format']].map(([v, label]) => (
-              <button key={v}
-                className={`${styles.sortPill}${sortBy === v ? ' '+styles.sortPillActive : ''}`}
-                onClick={() => setSortBy(v)}>
-                {label}
+          <ResponsiveMenu
+            title="Sort By"
+            wrapClassName={styles.sortMenuWrap}
+            trigger={({ toggle }) => (
+              <button className={`${styles.filterPill} ${styles.filterPillActive}`} onClick={toggle}>
+                {SORT_LABELS[sortBy]} <ChevronDownIcon size={10} />
               </button>
-            ))}
-          </div>
-          <div className={styles.filterGroup}>
-            <button
-              className={`${styles.sortPill}${selectMode ? ' '+styles.sortPillActive : ''}`}
-              onClick={toggleSelectMode}>
-              {selectMode ? '✕ Cancel' : 'Select'}
-            </button>
-          </div>
+            )}
+          >
+            {({ close }) => (
+              <div className={uiStyles.responsiveMenuList}>
+                {Object.entries(SORT_LABELS).map(([v, label]) => (
+                  <button key={v}
+                    className={`${uiStyles.responsiveMenuAction} ${sortBy === v ? uiStyles.responsiveMenuActionActive : ''}`}
+                    onClick={() => { setSortBy(v); close() }}>
+                    <span>{label}</span>
+                    <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">
+                      {sortBy === v ? <CheckIcon size={11} /> : ''}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </ResponsiveMenu>
+          <button
+            className={`${styles.filterPill}${selectMode ? ' ' + styles.filterPillActive : ''}`}
+            onClick={toggleSelectMode}>
+            {selectMode ? 'Cancel' : 'Select'}
+          </button>
         </div>
 
-        {/* Bulk action bar */}
         {selectMode && selectedIds.size > 0 && (
           <div className={styles.bulkBar}>
             <span>{selectedIds.size} selected</span>
             <button onClick={() => setSelectedIds(new Set(filtered.map(d => d.id)))}>Select all</button>
             <button onClick={() => setSelectedIds(new Set())}>Deselect</button>
             <button className={styles.bulkDelete} onClick={bulkDelete}>Delete {selectedIds.size}</button>
-            <button onClick={toggleSelectMode}>✕ Cancel</button>
+            <button onClick={toggleSelectMode}>Cancel</button>
           </div>
         )}
 
@@ -424,8 +445,8 @@ export default function BuilderPage() {
         {!loading && filtered.length > 0 && (
           <div className={styles.grid}>
             {filtered.map(deck => {
-              const meta = parseDeckMeta(deck.description)
-              const fmt  = FORMATS.find(f => f.id === (meta.format || 'commander'))
+              const meta   = parseDeckMeta(deck.description)
+              const fmt    = FORMATS.find(f => f.id === (meta.format || 'commander'))
               const colors = meta.commanderColorIdentity || []
               return (
                 <DeckTile
@@ -449,7 +470,6 @@ export default function BuilderPage() {
 
       {/* ── Community / Deck Browser tab ── */}
       {pageTab === 'community' && <>
-        {/* Community filter bar */}
         <div className={styles.filterBar}>
           <input
             className={styles.filterInput}
@@ -458,9 +478,9 @@ export default function BuilderPage() {
             placeholder="Search community decks…"
           />
           <div className={styles.filterGroup}>
-            {[['all','All Formats'],['commander','Commander'],['standard','Standard'],['modern','Modern'],['pioneer','Pioneer'],['legacy','Legacy']].map(([v, label]) => (
+            {[['all','All'],['commander','Commander'],['standard','Standard'],['modern','Modern'],['pioneer','Pioneer'],['legacy','Legacy']].map(([v, label]) => (
               <button key={v}
-                className={`${styles.filterPill}${communityFormat === v ? ' '+styles.filterPillActive : ''}`}
+                className={`${styles.filterPill}${communityFormat === v ? ' ' + styles.filterPillActive : ''}`}
                 onClick={() => setCommunityFormat(v)}>
                 {label}
               </button>
@@ -469,10 +489,7 @@ export default function BuilderPage() {
         </div>
 
         {communityLoading && <EmptyState>Loading community decks…</EmptyState>}
-
-        {!communityLoading && !communityLoaded && (
-          <EmptyState>Loading…</EmptyState>
-        )}
+        {!communityLoading && !communityLoaded && <EmptyState>Loading…</EmptyState>}
 
         {!communityLoading && communityLoaded && filteredCommunity.length === 0 && (
           <EmptyState>
@@ -484,9 +501,9 @@ export default function BuilderPage() {
         {!communityLoading && filteredCommunity.length > 0 && (
           <div className={styles.grid}>
             {filteredCommunity.map(deck => {
-              const meta   = parseDeckMeta(deck.description)
-              const fmt    = FORMATS.find(f => f.id === (meta.format || 'commander'))
-              const isOwn  = deck.user_id === user?.id
+              const meta  = parseDeckMeta(deck.description)
+              const fmt   = FORMATS.find(f => f.id === (meta.format || 'commander'))
+              const isOwn = deck.user_id === user?.id
               return (
                 <CommunityDeckTile
                   key={deck.id}
@@ -558,7 +575,9 @@ export default function BuilderPage() {
                       onClick={() => { setNewFormat(f.id); close() }}
                     >
                       <span>{f.label}</span>
-                      <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{f.id === newFormat ? '✓' : ''}</span>
+                      <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">
+                        {f.id === newFormat ? <CheckIcon size={11} /> : ''}
+                      </span>
                     </button>
                   ))}
                 </div>
