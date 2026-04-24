@@ -72,6 +72,7 @@
 
   /* Navigation & popup backgrounds */
   --nav-bg:    rgba(8,6,16,0.94);
+  --nav-h:     74px;
   --popup-bg:  var(--bg3);
   --ambient-1: rgba(139,90,43,0.055);
   --ambient-2: rgba(80,60,120,0.075);

@@ -579,7 +579,7 @@ function TableView({ cards, sfMap, priceSource, groups, groupOrder, groupBy, onS
   )
 }
 
-function StackCard({ card, sf, idx, priceSource, selectMode, isSelected, onSelect, onToggleSelect, onAdjustQty, splitState, onHoverPreview, onHoverPreviewEnd, onEnterSelectMode }) {
+function StackCard({ card, sf, idx, stackIdx, isPushedDown, priceSource, selectMode, isSelected, onSelect, onToggleSelect, onAdjustQty, splitState, onHoverPreview, onHoverPreviewEnd, onPinPreview, onHoverStart, onHoverEnd, onEnterSelectMode }) {
   const img = sf?.image_uris?.normal || sf?.card_faces?.[0]?.image_uris?.normal
   const totalQty = card._folder_qty ?? card.qty ?? 1
   const scryfallPrice = getPrice(sf, card.foil, { price_source: priceSource })
@@ -596,41 +596,44 @@ function StackCard({ card, sf, idx, priceSource, selectMode, isSelected, onSelec
     onToggleSelect?.(key, totalQty)
   }, { delay: 500 })
   const { onMouseLeave: lpLeave, fired: lpFired, ...lpRest } = longPress
+
+  const getPreviewPos = () => {
+    if (!img || !cardRef.current) return null
+    const rect = cardRef.current.getBoundingClientRect()
+    const pad = 14, previewWidth = 200, previewHeight = previewWidth * (88 / 63)
+    const roomRight = window.innerWidth - rect.right
+    const roomLeft = rect.left
+    const side = roomRight >= previewWidth + pad ? 'right' : roomLeft >= previewWidth + pad ? 'left' : roomRight >= roomLeft ? 'right' : 'left'
+    const top = Math.max(12, Math.min(rect.top, window.innerHeight - previewHeight - 12))
+    const left = side === 'right' ? rect.right + pad : rect.left - previewWidth - pad
+    return { img, top, left: Math.max(12, Math.min(left, window.innerWidth - previewWidth - 12)), width: previewWidth }
+  }
+
   const handleMouseEnter = CAN_HOVER && !lastInputWasTouch && !selectMode && img
     ? () => {
-        const rect = cardRef.current?.getBoundingClientRect()
-        if (rect) {
-          const pad = 12
-          const previewWidth = rect.width * 1.55
-          const previewHeight = previewWidth * (88 / 63)
-          const roomRight = window.innerWidth - rect.right
-          const roomLeft = rect.left
-          const nextSide = roomRight >= previewWidth + pad
-            ? 'right'
-            : roomLeft >= previewWidth + pad
-              ? 'left'
-              : roomRight >= roomLeft ? 'right' : 'left'
-          if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
-          const top = Math.max(12, Math.min(rect.top, window.innerHeight - previewHeight - 12))
-          const left = nextSide === 'right'
-            ? rect.right + pad
-            : rect.left - previewWidth - pad
-          hoverTimerRef.current = setTimeout(() => onHoverPreview?.({
-            img,
-            top,
-            left: Math.max(12, Math.min(left, window.innerWidth - previewWidth - 12)),
-            width: previewWidth,
-          }), 110)
-        }
+        onHoverStart?.()
+        if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
+        hoverTimerRef.current = setTimeout(() => {
+          const pos = getPreviewPos()
+          if (pos) onHoverPreview?.(pos)
+        }, 90)
       }
     : undefined
+
   const handleMouseLeave = e => {
-    if (hoverTimerRef.current) {
-      clearTimeout(hoverTimerRef.current)
-      hoverTimerRef.current = null
-    }
+    if (hoverTimerRef.current) { clearTimeout(hoverTimerRef.current); hoverTimerRef.current = null }
+    onHoverEnd?.()
     onHoverPreviewEnd?.()
     lpLeave?.(e)
+  }
+
+  const handleContextMenu = e => {
+    e.preventDefault()
+    const pos = getPreviewPos()
+    if (pos) onPinPreview?.(pos)
+    // Clear push immediately — right-click triggers browser button-capture
+    // which prevents mouseleave from firing until the button is released.
+    onHoverEnd?.()
   }
 
   useEffect(() => () => {
@@ -639,21 +642,19 @@ function StackCard({ card, sf, idx, priceSource, selectMode, isSelected, onSelec
 
   return (
     <div
+      {...lpRest}
       ref={cardRef}
-      className={`${styles.stackCard} ${isSelected ? styles.stackCardSelected : ''}`}
+      className={`${styles.stackCard}${isSelected ? ` ${styles.stackCardSelected}` : ''}${isPushedDown ? ` ${styles.stackCardPushedDown}` : ''}`}
       style={{ zIndex: idx }}
       onClick={() => {
-        if (lpFired.current) {
-          lpFired.current = false
-          return
-        }
+        if (lpFired.current) { lpFired.current = false; return }
         if (!selectMode) return onSelect?.(card)
         onToggleSelect?.(key, totalQty)
       }}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
+      onContextMenu={handleContextMenu}
       title={card.name}
-      {...lpRest}
     >
       {selectMode && (
         <div className={`${styles.rowCheckbox} ${isSelected ? styles.rowCheckboxChecked : ''}`} style={{ position: 'absolute', top: 4, left: 4, zIndex: 10 }}>
@@ -661,7 +662,9 @@ function StackCard({ card, sf, idx, priceSource, selectMode, isSelected, onSelec
         </div>
       )}
       <div className={styles.stackImgWrap}>
-        {img ? <img src={img} alt={card.name} className={styles.stackCardImg} loading="lazy" {...NON_DRAGGABLE_IMG_PROPS} /> : <div className={styles.stackCardPlaceholder}>{card.name}</div>}
+        {img
+          ? <img src={img} alt={card.name} className={styles.stackCardImg} loading="lazy" {...NON_DRAGGABLE_IMG_PROPS} />
+          : <div className={styles.stackCardPlaceholder}>{card.name}</div>}
         {totalQty > 1 && !isSelected && <div className={styles.stackQty}>×{totalQty}</div>}
         {card.foil && <div className={styles.stackFoil}><Badge variant="foil">Foil</Badge></div>}
         {selectMode && isSelected && totalQty > 1 && (
@@ -672,15 +675,6 @@ function StackCard({ card, sf, idx, priceSource, selectMode, isSelected, onSelec
           </div>
         )}
       </div>
-      <div className={styles.stackNameRow}>
-        <div className={styles.stackCardName}>{card.name}</div>
-        {card.foil && <span className={styles.foilMark}>✦</span>}
-      </div>
-      {card._folderName && (
-        <div style={{ fontSize: '0.6rem', color: 'var(--gold-dim)', textAlign: 'center', padding: '0 2px', lineHeight: 1.2 }}>
-          {card._folderName}
-        </div>
-      )}
       {price != null && (
         <div className={isBuyFallback ? styles.stackPriceFallback : styles.stackPrice}>
           {formatPrice(price, priceSource)}
@@ -691,21 +685,19 @@ function StackCard({ card, sf, idx, priceSource, selectMode, isSelected, onSelec
 }
 
 function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, selectMode, selectedCards, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, hideHeaders, collapsedGroups, onToggleGroup }) {
-  const wrapRef = useRef(null)
-  const [wrapWidth, setWrapWidth] = useState(0)
   const [activePreview, setActivePreview] = useState(null)
+  const [pinnedPreview, setPinnedPreview] = useState(null)
+  // { group, stackIdx } — which card is currently being hovered (mouse only)
+  const [hoverState, setHoverState] = useState(null)
 
   useEffect(() => {
-    if (!wrapRef.current || typeof ResizeObserver === 'undefined') return
-    const node = wrapRef.current
-    const observer = new ResizeObserver(entries => {
-      const nextWidth = entries[0]?.contentRect?.width ?? node.clientWidth ?? 0
-      setWrapWidth(nextWidth)
-    })
-    observer.observe(node)
-    setWrapWidth(node.clientWidth || 0)
-    return () => observer.disconnect()
-  }, [])
+    if (!pinnedPreview) return
+    const onKey = e => { if (e.key === 'Escape') setPinnedPreview(null) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [pinnedPreview])
+
+  const displayPreview = pinnedPreview ?? activePreview
 
   const stackGroups = useMemo(() => (
     groupOrder
@@ -717,82 +709,56 @@ function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, selectMo
       }))
   ), [groupOrder, groups])
 
-  const columnCount = useMemo(() => {
-    if (wrapWidth <= 0) return 1
-    const maxColumns = Math.max(stackGroups.length, 1)
-    if (wrapWidth <= 480) return 1
-    if (wrapWidth <= 760) return 2
-    return Math.min(maxColumns, 6)
-  }, [stackGroups.length, wrapWidth])
-
-  const columnWidth = useMemo(() => {
-    if (wrapWidth <= 0) return STACK_MIN_COLUMN_WIDTH
-    const baselineColumns = wrapWidth <= 480 ? 1 : wrapWidth <= 760 ? 2 : 6
-    const available = wrapWidth - Math.max(baselineColumns - 1, 0) * STACK_GAP_PX
-    return Math.min(220, Math.max(88, Math.floor(available / baselineColumns)))
-  }, [wrapWidth])
-
-  const columns = useMemo(() => {
-    const next = Array.from({ length: columnCount }, () => ({ weight: 0, groups: [] }))
-    for (const item of stackGroups) {
-      const target = next.reduce((best, column, index, arr) => (
-        column.weight < arr[best].weight ? index : best
-      ), 0)
-      next[target].groups.push(item)
-      next[target].weight += estimateStackGroupWeight(item.cards.length, hideHeaders)
-    }
-    return next.map(column => column.groups).filter(column => column.length)
-  }, [columnCount, hideHeaders, stackGroups])
-
   return (
-    <div
-      ref={wrapRef}
-      className={styles.stacksWrap}
-      style={{ '--stack-gap': `${STACK_GAP_PX}px`, '--stack-col-w': `${columnWidth}px` }}
-    >
-      {columns.map((column, columnIdx) => (
-        <div key={`stack-col-${columnIdx}`} className={styles.stackColumn}>
-          {column.map(({ group, cards, total }) => (
-            <div key={group} className={styles.stackGroup}>
-              {!hideHeaders && (
-                <button className={`${styles.stackGroupHeader} ${styles.groupHeaderToggleBtn}`} onClick={() => onToggleGroup?.(group)}>
-                  <span className={`${styles.groupArrow}${collapsedGroups?.has(group) ? ` ${styles.groupArrowCollapsed}` : ''}`}>▾</span>
-                  <span className={styles.groupHeaderTitle} style={{ color: CAT_COLORS[group] || 'var(--gold-dim)' }}>{group}</span>
-                  <span className={styles.stackGroupCount}>{total}</span>
-                </button>
-              )}
-              {!collapsedGroups?.has(group) && (
-                <div className={styles.stackCards}>
-                  {cards.map((card, idx) => {
-                    const key = getDisplayKey(card)
-                    return (
-                      <StackCard
-                        key={key}
-                        card={card}
-                        sf={sfMap[getScryfallKey(card)]}
-                        idx={idx + 1}
-                        priceSource={priceSource}
-                        selectMode={selectMode}
-                        isSelected={selectedCards?.has(key)}
-                        onSelect={onSelect}
-                        onToggleSelect={onToggleSelect}
-                        onAdjustQty={onAdjustQty}
-                        splitState={splitState}
-                        onHoverPreview={setActivePreview}
-                        onHoverPreviewEnd={() => setActivePreview(null)}
-                        onEnterSelectMode={onEnterSelectMode}
-                      />
-                    )
-                  })}
-                </div>
-              )}
+    <div className={styles.stacksWrap} onClick={() => setPinnedPreview(null)}>
+      {stackGroups.map(({ group, cards, total }) => (
+        <div key={group} className={styles.stackGroup}>
+          {!hideHeaders && (
+            <button className={`${styles.stackGroupHeader} ${styles.groupHeaderToggleBtn}`} onClick={() => onToggleGroup?.(group)}>
+              <span className={`${styles.groupArrow}${collapsedGroups?.has(group) ? ` ${styles.groupArrowCollapsed}` : ''}`}>▾</span>
+              <span className={styles.groupHeaderTitle} style={{ color: CAT_COLORS[group] || 'var(--gold-dim)' }}>{group}</span>
+              <span className={styles.stackGroupCount}>{total}</span>
+            </button>
+          )}
+          {!collapsedGroups?.has(group) && (
+            <div className={styles.stackCards}>
+              {cards.map((card, idx) => {
+                const key = getDisplayKey(card)
+                const isPushedDown = hoverState !== null && hoverState.group === group && idx > hoverState.stackIdx
+                return (
+                  <StackCard
+                    key={key}
+                    card={card}
+                    sf={sfMap[getScryfallKey(card)]}
+                    idx={idx + 1}
+                    stackIdx={idx}
+                    isPushedDown={isPushedDown}
+                    priceSource={priceSource}
+                    selectMode={selectMode}
+                    isSelected={selectedCards?.has(key)}
+                    onSelect={onSelect}
+                    onToggleSelect={onToggleSelect}
+                    onAdjustQty={onAdjustQty}
+                    splitState={splitState}
+                    onHoverPreview={setActivePreview}
+                    onHoverPreviewEnd={() => setActivePreview(null)}
+                    onPinPreview={setPinnedPreview}
+                    onHoverStart={() => setHoverState({ group, stackIdx: idx })}
+                    onHoverEnd={() => setHoverState(null)}
+                    onEnterSelectMode={onEnterSelectMode}
+                  />
+                )
+              })}
             </div>
-          ))}
-      </div>
+          )}
+        </div>
       ))}
-      {activePreview?.img && (
-        <div className={styles.stackHoverPreview} style={{ top: `${activePreview.top}px`, left: `${activePreview.left}px`, width: `${activePreview.width}px` }}>
-          <img src={activePreview.img} alt="" className={styles.stackHoverPreviewImg} loading="lazy" {...NON_DRAGGABLE_IMG_PROPS} />
+      {displayPreview?.img && (
+        <div
+          className={`${styles.stackHoverPreview}${pinnedPreview ? ` ${styles.stackHoverPreviewPinned}` : ''}`}
+          style={{ top: `${displayPreview.top}px`, left: `${displayPreview.left}px`, width: `${displayPreview.width}px` }}
+        >
+          <img src={displayPreview.img} alt="" className={styles.stackHoverPreviewImg} loading="lazy" {...NON_DRAGGABLE_IMG_PROPS} />
         </div>
       )}
     </div>
@@ -874,12 +840,6 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onT
 const DENSITY_MIN_WIDTH = { cozy: 210, comfortable: 160, compact: 128 }
 const MOBILE_GRID_BREAKPOINT = 430
 const MOBILE_DENSITY_COLS = { cozy: 1, comfortable: 2, compact: 3 }
-const STACK_MIN_COLUMN_WIDTH = 88
-const STACK_GAP_PX = 12
-
-function estimateStackGroupWeight(cardCount, hideHeaders) {
-  return (hideHeaders ? 0 : 1.2) + Math.max(cardCount, 1) * 0.34
-}
 
 function GridView({ cards, sfMap, priceSource, onSelect, selectMode, selectedCards, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, density, groups, groupOrder, groupBy, collapsedGroups, onToggleGroup }) {
   const minW = DENSITY_MIN_WIDTH[density] || 160

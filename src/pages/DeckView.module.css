@@ -16,7 +16,7 @@
 /* ── Top navigation bar ────────────────────────────────────────────────────── */
 .topBar {
   position: sticky;
-  top: 0;
+  top: var(--nav-h);
   z-index: 20;
   background: var(--nav-bg);
   border-bottom: 1px solid rgba(201,168,76,0.1);
@@ -232,8 +232,8 @@
 /* ── Left panel: deck list ─────────────────────────────────────────────────── */
 .deckListPanel {
   position: sticky;
-  top: 60px;
-  max-height: calc(100vh - 80px);
+  top: calc(var(--nav-h) + 60px);
+  max-height: calc(100vh - var(--nav-h) - 60px - 20px);
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(201,168,76,0.18) transparent;
@@ -447,8 +447,8 @@
 /* ── Right sidebar: stats + combos stacked ─────────────────────────────────── */
 .sidebar {
   position: sticky;
-  top: 60px;
-  max-height: calc(100vh - 80px);
+  top: calc(var(--nav-h) + 60px);
+  max-height: calc(100vh - var(--nav-h) - 60px - 20px);
   overflow-y: auto;
   display: flex;
   flex-direction: column;

@@ -383,6 +383,7 @@ export function ResponsiveMenu({
   closeLabel = 'Done',
   onOpenChange,
   portal = false,
+  forceSheet = false,
 }) {
   const [rendered, setRendered] = useState(false)
   const [closing, setClosing] = useState(false)
@@ -426,7 +427,7 @@ export function ResponsiveMenu({
 
   useEffect(() => {
     if (!rendered) return
-    if (typeof window !== 'undefined' && window.innerWidth <= 640) return
+    if (forceSheet || (typeof window !== 'undefined' && window.innerWidth <= 640)) return
     const close = (e) => {
       if (ref.current && !ref.current.contains(e.target) &&
           !(portal && panelRef.current && panelRef.current.contains(e.target))) {
@@ -444,7 +445,7 @@ export function ResponsiveMenu({
 
     const updateDesktopBounds = () => {
       if (typeof window === 'undefined') return
-      if (window.innerWidth <= 640) {
+      if (forceSheet || window.innerWidth <= 640) {
         setDesktopPanelStyle(portal ? { zIndex: 750 } : null)
         return
       }
@@ -573,14 +574,14 @@ export function ResponsiveMenu({
       <button
         ref={backdropRef}
         type="button"
-        className={`${styles.responsiveMenuBackdrop} ${closing ? styles.responsiveMenuBackdropClosing : ''}`}
+        className={`${styles.responsiveMenuBackdrop} ${forceSheet ? styles.responsiveMenuBackdropForceSheet : ''} ${closing ? styles.responsiveMenuBackdropClosing : ''}`}
         aria-label={`Close ${title}`}
         onMouseDown={handleBackdropPointerDown}
         onClick={e => { e.stopPropagation(); closeMenu() }}
       />
       <div
         ref={panelRef}
-        className={`${styles.responsiveMenuPanel} ${align === 'left' ? styles.responsiveMenuPanelLeft : ''} ${direction === 'up' ? styles.responsiveMenuPanelUp : ''} ${closing ? styles.responsiveMenuPanelClosing : ''} ${panelClassName}`}
+        className={`${styles.responsiveMenuPanel} ${align === 'left' ? styles.responsiveMenuPanelLeft : ''} ${direction === 'up' ? styles.responsiveMenuPanelUp : ''} ${forceSheet ? styles.responsiveMenuPanelForceSheet : ''} ${closing ? styles.responsiveMenuPanelClosing : ''} ${panelClassName}`}
         style={desktopPanelStyle || undefined}
         onClick={e => e.stopPropagation()}
       >

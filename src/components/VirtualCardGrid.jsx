@@ -147,6 +147,7 @@ export default function VirtualCardGrid({
   priceSource = 'cardmarket_trend',
   showPrice = true, density = 'comfortable',
   cardFolders,
+  onScroll,
 }) {
   const parentRef = useRef(null)
   const [cols, setCols] = useState(4)
@@ -195,7 +196,7 @@ export default function VirtualCardGrid({
   })
 
   return (
-    <div ref={parentRef} className={styles.scroll}>
+    <div ref={parentRef} className={styles.scroll} onScroll={onScroll}>
       <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
         {virtualizer.getVirtualItems().map(vRow => {
           const startIdx = vRow.index * cols
