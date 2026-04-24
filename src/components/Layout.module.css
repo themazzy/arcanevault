@@ -28,9 +28,12 @@
   pointer-events: auto;
 }
 
-/* scrolled: dock to top edge, collapse margin */
+/* scrolled: dock to top edge — side padding matches .main at each breakpoint */
 .scrolled.headerWrap {
-  padding: env(safe-area-inset-top, 0px) 16px 0;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: 0;
+  padding-left: 40px;
+  padding-right: 40px;
 }
 
 /* ── Glass pill header ── */
@@ -126,6 +129,7 @@
 .main {
   flex: 1;
   overflow-y: auto;
+  scrollbar-gutter: stable both-edges;
   min-height: 0;
   padding: calc(var(--nav-h) + 16px) 40px 28px;
   max-width: 1600px;
@@ -177,12 +181,13 @@
   top: 0; left: -100%;
   width: 76%; max-width: 300px;
   height: 100dvh;
-  background: var(--bg2);
-  border-right: 1px solid rgba(201,168,76,0.2);
+  background: var(--nav-bg);
+  backdrop-filter: blur(18px) saturate(130%);
+  border-right: 1px solid var(--s-border);
   z-index: 500;
   display: flex; flex-direction: column;
-  transition: left 0.25s cubic-bezier(.4,0,.2,1);
-  box-shadow: 4px 0 32px rgba(0,0,0,0.6);
+  transition: left 0.3s cubic-bezier(.4,0,.2,1);
+  box-shadow: 6px 0 40px rgba(0,0,0,0.55), 1px 0 0 rgba(201,168,76,0.08);
   overflow-y: auto;
 }
 .mobileNavOpen { left: 0; }
@@ -235,21 +240,25 @@
 
 @media (max-width: 1180px) {
   .headerWrap { padding-left: 10px; padding-right: 10px; }
+  .scrolled.headerWrap { padding-left: 22px; padding-right: 22px; }
   .main { padding: calc(var(--nav-h) + 12px) 22px 20px; }
 }
 
 @media (max-width: 980px) {
   .headerWrap { padding-left: 8px; padding-right: 8px; }
+  .scrolled.headerWrap { padding-left: 12px; padding-right: 12px; }
   .main { padding: calc(var(--nav-h) + 10px) 12px 14px; }
 }
 
 @media (max-width: 768px) {
   .headerWrap { padding-left: 8px; padding-right: 8px; }
+  .scrolled.headerWrap { padding-left: 10px; padding-right: 10px; }
   .main { padding: calc(var(--nav-h) + 8px) 10px 12px; }
 }
 
 @media (max-width: 480px) {
   .headerWrap { padding-left: 6px; padding-right: 6px; }
+  .scrolled.headerWrap { padding-left: 8px; padding-right: 8px; }
   .main { padding: calc(var(--nav-h) + 6px) 8px 8px; }
 }
 
