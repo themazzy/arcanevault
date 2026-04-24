@@ -2023,8 +2023,14 @@ export function FilterBar({
   sets = [], languages = [],
   mode = 'collection',
   onSearchSubmit,
+  hideActionsMobile = false,
+  hideSortFilterMobile = false,
+  filterOpen: controlledOpen,
+  onFilterOpenChange,
 }) {
-  const [open, setOpen] = useState(false)
+  const [internalOpen, setInternalOpen] = useState(false)
+  const open = controlledOpen !== undefined ? controlledOpen : internalOpen
+  const setOpen = onFilterOpenChange ?? setInternalOpen
   const hiddenFilters = mode === 'lookup' ? LOOKUP_HIDDEN_FILTERS : new Set()
   const activeCount = countActive(filters, hiddenFilters)
   const set = (key, val) => setFilters(f => ({ ...f, [key]: val }))
@@ -2074,61 +2080,82 @@ export function FilterBar({
               onSearchSubmit?.()
             }
           }} />
-        <select className={styles.filterSelect} name="card-sort" value={sort} onChange={e => setSort(e.target.value)}>
-          <option value="name">Name A→Z</option>
-          <option value="price_desc">Price ↓</option>
-          <option value="price_asc">Price ↑</option>
-          {mode !== 'lookup' && <option value="pl_desc">P&L ↓</option>}
-          {mode !== 'lookup' && <option value="pl_asc">P&L ↑</option>}
-          <option value="cmc_asc">Mana Value ↑</option>
-          <option value="cmc_desc">Mana Value ↓</option>
-          {mode !== 'lookup' && <option value="qty">Quantity</option>}
-          <option value="set">Set</option>
-          <option value="rarity">Rarity</option>
-          {mode !== 'lookup' && <option value="added">Recently Added</option>}
-        </select>
-        <ResponsiveMenu
-          title="Sort Cards"
-          align="left"
-          wrapClassName={styles.filterSortMobile}
-          trigger={({ open, toggle }) => (
-            <button className={styles.filterSortBtn} onClick={toggle}>
-              <span>{currentSortLabel}</span>
-              <Chevron open={open} />
-            </button>
+        <div className={`${styles.filterSortGroup}${hideSortFilterMobile ? ' ' + styles.filterSortGroupHideMobile : ''}`}>
+          <select className={styles.filterSelect} name="card-sort" value={sort} onChange={e => setSort(e.target.value)}>
+            <option value="name">Name A→Z</option>
+            <option value="price_desc">Price ↓</option>
+            <option value="price_asc">Price ↑</option>
+            {mode !== 'lookup' && <option value="pl_desc">P&L ↓</option>}
+            {mode !== 'lookup' && <option value="pl_asc">P&L ↑</option>}
+            <option value="cmc_asc">Mana Value ↑</option>
+            <option value="cmc_desc">Mana Value ↓</option>
+            {mode !== 'lookup' && <option value="qty">Quantity</option>}
+            <option value="set">Set</option>
+            <option value="rarity">Rarity</option>
+            {mode !== 'lookup' && <option value="added">Recently Added</option>}
+          </select>
+          <ResponsiveMenu
+            title="Sort Cards"
+            align="left"
+            wrapClassName={styles.filterSortMobile}
+            trigger={({ open, toggle }) => (
+              <button className={styles.filterSortBtn} onClick={toggle}>
+                <span>{currentSortLabel}</span>
+                <Chevron open={open} />
+              </button>
+            )}
+          >
+            {({ close }) => (
+              <div className={uiStyles.responsiveMenuList}>
+                {visibleSortOptions.map(([value, label]) => (
+                  <button
+                    key={value}
+                    className={`${uiStyles.responsiveMenuAction} ${sort === value ? uiStyles.responsiveMenuActionActive : ''}`}
+                    onClick={() => { setSort(value); close() }}
+                  >
+                    <span>{label}</span>
+                    <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{sort === value ? '✓' : ''}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </ResponsiveMenu>
+          <button
+            className={`${styles.filterToggle}${open ? ' ' + styles.filterToggleOpen : ''}${activeCount ? ' ' + styles.filterToggleActive : ''}`}
+            onClick={() => setOpen(v => !v)}
+          >
+            <span>{activeCount > 0 ? `Filters (${activeCount})` : 'Filters'}</span>
+            <Chevron open={open} />
+          </button>
+        </div>
+        <div className={`${styles.filterBarActions}${hideActionsMobile ? ' ' + styles.filterBarActionsHideMobile : ''}`}>
+          {extra}
+          {onToggleSelectMode && (
+            <button className={`${styles.selectModeBtn}${selectMode ? ' ' + styles.selectModeActive : ''}`}
+              onClick={onToggleSelectMode}>{selectMode ? '✓ Selecting' : '☐ Select'}</button>
           )}
-        >
-          {({ close }) => (
-            <div className={uiStyles.responsiveMenuList}>
-              {visibleSortOptions.map(([value, label]) => (
-                <button
-                  key={value}
-                  className={`${uiStyles.responsiveMenuAction} ${sort === value ? uiStyles.responsiveMenuActionActive : ''}`}
-                  onClick={() => { setSort(value); close() }}
-                >
-                  <span>{label}</span>
-                  <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{sort === value ? '✓' : ''}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </ResponsiveMenu>
-        <button
-          className={`${styles.filterToggle}${open ? ' ' + styles.filterToggleOpen : ''}${activeCount ? ' ' + styles.filterToggleActive : ''}`}
-          onClick={() => setOpen(v => !v)}
-        >
-          <span>{activeCount > 0 ? `Filters (${activeCount})` : 'Filters'}</span>
-          <Chevron open={open} />
-        </button>
-        {extra}
-        {onToggleSelectMode && (
-          <button className={`${styles.selectModeBtn}${selectMode ? ' ' + styles.selectModeActive : ''}`}
-            onClick={onToggleSelectMode}>{selectMode ? '✓ Selecting' : '☐ Select'}</button>
-        )}
+        </div>
       </div>
 
       {open && (
+        <div className={styles.filterBackdrop} onClick={() => setOpen(false)} />
+      )}
+      {open && (
         <div className={styles.filterPanel}>
+          <div className={styles.filterSheetHeader}>
+            <span className={styles.filterSheetTitle}>Filters{activeCount > 0 ? ` (${activeCount})` : ''}</span>
+            <div className={styles.filterSheetHeaderActions}>
+              {activeCount > 0 && (
+                <button className={styles.filterSheetClear} onClick={clear}>Clear all</button>
+              )}
+              <button className={styles.filterSheetClose} onClick={() => setOpen(false)}>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="3" y1="3" x2="11" y2="11" /><line x1="11" y1="3" x2="3" y2="11" />
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div className={styles.filterSheetBody}>
           <div className={styles.filterGrid}>
 
             {/* Printing / Foil */}
@@ -2344,12 +2371,7 @@ export function FilterBar({
             )}
 
           </div>
-
-          {activeCount > 0 && (
-            <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.06)', marginTop: 4 }}>
-              <button className={styles.clearFilters} onClick={clear}>✕ Clear all filters ({activeCount})</button>
-            </div>
-          )}
+          </div>
         </div>
       )}
     </div>

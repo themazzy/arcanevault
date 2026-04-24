@@ -1911,6 +1911,7 @@ export default function DeckBuilderPage() {
   const [compactVisibleColumns, setCompactVisibleColumns] = useState(DEFAULT_COMPACT_COLUMNS)
   const [builderSfMap, setBuilderSfMap] = useState({})
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
+  const [stackHoverState, setStackHoverState] = useState(null) // { group, stackIdx }
   const [deckSearch, setDeckSearch] = useState('')
   const [boardFilter, setBoardFilter] = useState('all')
   const [warningsOpen, setWarningsOpen] = useState(false)
@@ -4618,7 +4619,7 @@ export default function DeckBuilderPage() {
                 }
               }
 
-              const renderCard = (dc) => {
+              const renderCard = (dc, stackContext = null) => {
                 const legalityWarnings = deckCardLegalityWarnings.get(dc.id) || []
                 const warningTitle = legalityWarnings.map(w => w.text).join('\n')
                 if (deckView === 'grid') return (
@@ -4652,34 +4653,49 @@ export default function DeckBuilderPage() {
                     </div>
                   </div>
                 )
-                if (deckView === 'stacks') return (
-                  <div
-                    key={dc.id}
-                    className={`${styles.stackCard}${dc.is_commander ? ' '+styles.isCommander : ''}${legalityWarnings.length ? ' '+styles.stackCardIllegal : ''}`}
-                    title={warningTitle || dc.name}
-                    onClick={() => openDeckCardDetail(dc)}
-                    onContextMenu={CAN_HOVER ? e => openDeckCardContextMenu(dc, e) : undefined}
-                    onMouseEnter={CAN_HOVER ? e => showHoverPreviewForDeckCard(dc, e) : undefined}
-                    onMouseLeave={CAN_HOVER ? () => clearHoverPreview() : undefined}
-                    onMouseMove={CAN_HOVER ? e => setHoverPos({ x: e.clientX, y: e.clientY }) : undefined}
-                  >
-                    <div className={styles.stackImgWrap}>
-                      {dc.image_uri
-                        ? <img src={dc.image_uri} alt={dc.name} className={styles.stackCardImg} loading="lazy" />
-                        : <div className={styles.stackCardPlaceholder}>{dc.name}</div>}
-                      {legalityWarnings.length > 0 && <span className={styles.stackWarn} title={warningTitle}>!</span>}
-                      {dc.qty > 1 && <span className={styles.stackQty}>×{dc.qty}</span>}
-                      {dc.foil && <span className={styles.stackFoil} title="Foil">*</span>}
+                if (deckView === 'stacks') {
+                  const isPushedDown = stackHoverState
+                    && stackHoverState.group === stackContext?.group
+                    && stackContext?.idx > stackHoverState.stackIdx
+                  return (
+                    <div
+                      key={dc.id}
+                      className={`${styles.stackCard}${dc.is_commander ? ' '+styles.isCommander : ''}${legalityWarnings.length ? ' '+styles.stackCardIllegal : ''}${isPushedDown ? ' '+styles.stackCardPushedDown : ''}`}
+                      style={{ zIndex: stackContext?.idx ?? 0 }}
+                      title={warningTitle || dc.name}
+                      onClick={() => openDeckCardDetail(dc)}
+                      onContextMenu={CAN_HOVER ? e => {
+                        openDeckCardContextMenu(dc, e)
+                        setStackHoverState(null)
+                      } : undefined}
+                      onMouseEnter={CAN_HOVER && !lastInputWasTouch ? e => {
+                        setStackHoverState({ group: stackContext?.group, stackIdx: stackContext?.idx ?? 0 })
+                        showHoverPreviewForDeckCard(dc, e)
+                      } : undefined}
+                      onMouseLeave={CAN_HOVER ? () => {
+                        setStackHoverState(null)
+                        clearHoverPreview()
+                      } : undefined}
+                      onMouseMove={CAN_HOVER ? e => setHoverPos({ x: e.clientX, y: e.clientY }) : undefined}
+                    >
+                      <div className={styles.stackImgWrap}>
+                        {dc.image_uri
+                          ? <img src={dc.image_uri} alt={dc.name} className={styles.stackCardImg} loading="lazy" />
+                          : <div className={styles.stackCardPlaceholder}>{dc.name}</div>}
+                        {legalityWarnings.length > 0 && <span className={styles.stackWarn} title={warningTitle}>!</span>}
+                        {dc.qty > 1 && <span className={styles.stackQty}>×{dc.qty}</span>}
+                        {dc.foil && <span className={styles.stackFoil} title="Foil">*</span>}
+                      </div>
+                      <div className={styles.stackCardControls} onClick={ev => ev.stopPropagation()}>
+                        <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} onMoveBoard={moveCardToBoard} />
+                        <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, -1) }}>-</button>
+                        <span className={styles.stackControlCount}>{dc.qty}</span>
+                        <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, +1) }}>+</button>
+                        <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); removeCardFromDeck(dc.id) }}>x</button>
+                      </div>
                     </div>
-                    <div className={styles.stackCardControls} onClick={ev => ev.stopPropagation()}>
-                      <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} onMoveBoard={moveCardToBoard} />
-                      <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, -1) }}>-</button>
-                      <span className={styles.stackControlCount}>{dc.qty}</span>
-                      <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, +1) }}>+</button>
-                      <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); removeCardFromDeck(dc.id) }}>x</button>
-                    </div>
-                  </div>
-                )
+                  )
+                }
                 if (deckView === 'compact') return (
                   <div key={dc.id} className={`${styles.compactRow}${dc.is_commander ? ' '+styles.isCommander : ''}${legalityWarnings.length ? ' '+styles.deckCardIllegal : ''}`} title={warningTitle || undefined} onContextMenu={CAN_HOVER ? e => openDeckCardContextMenu(dc, e) : undefined}>
                     <span className={styles.compactQty}>{dc.qty}</span>
@@ -4767,7 +4783,7 @@ export default function DeckBuilderPage() {
                               <span className={styles.stackGroupTitle}>{group}</span>
                               <span className={styles.stackGroupCount}>{groupQty}</span>
                             </button>
-                            {!collapsed && <div className={styles.stackCards}>{groupCards.map(dc => renderCard(dc))}</div>}
+                            {!collapsed && <div className={styles.stackCards}>{groupCards.map((dc, idx) => renderCard(dc, { group, idx }))}</div>}
                           </div>
                         </div>
                       )

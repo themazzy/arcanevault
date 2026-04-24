@@ -10,11 +10,12 @@ import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
 import VirtualCardGrid from '../components/VirtualCardGrid'
-import { DropZone, ProgressBar, ErrorBox, EmptyState, SectionHeader, Button } from '../components/UI'
+import { DropZone, ProgressBar, ErrorBox, EmptyState, SectionHeader, Button, ResponsiveMenu } from '../components/UI'
 import AddCardModal from '../components/AddCardModal'
 import ExportModal from '../components/ExportModal'
 import ImportModal from '../components/ImportModal'
 import styles from './Collection.module.css'
+import uiStyles from '../components/UI.module.css'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
 
 const DEBOUNCE_MS = 300
@@ -235,6 +236,8 @@ export default function CollectionPage() {
   const [showAdd, setShowAdd] = useState(false)
   const [showExport, setShowExport] = useState(false)
   const [showImportModal, setShowImportModal] = useState(false)
+  const [gridScrolled, setGridScrolled] = useState(false)
+  const [filterOpen, setFilterOpen] = useState(false)
   const [importModalText, setImportModalText] = useState('')
   const [importing, setImporting] = useState(false)
   const [selectMode, setSelectMode] = useState(false)
@@ -1108,6 +1111,14 @@ export default function CollectionPage() {
 
   const displayCardsRef = useRef([])
 
+  const SORT_OPTIONS = [
+    ['name', 'Name A→Z'], ['price_desc', 'Price ↓'], ['price_asc', 'Price ↑'],
+    ['pl_desc', 'P&L ↓'], ['pl_asc', 'P&L ↑'], ['cmc_asc', 'Mana ↑'],
+    ['cmc_desc', 'Mana ↓'], ['qty', 'Quantity'], ['set', 'Set'],
+    ['rarity', 'Rarity'], ['added', 'Recently Added'],
+  ]
+  const currentSortLabel = SORT_OPTIONS.find(([v]) => v === sort)?.[1] ?? 'Sort'
+
   const toggleSelectMode = () => { setSelectMode(v => !v); setSelected(new Set()); setSplitState(new Map()) }
   const clearSelect = () => { setSelected(new Set()); setSplitState(new Map()); setSelectMode(false) }
   const toggleSelect = useCallback((id, totalQty) => {
@@ -1255,22 +1266,24 @@ export default function CollectionPage() {
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <SectionHeader
-        title={`Collection${cards.length ? ` · ${cards.length} cards` : ''}`}
-        action={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {!isOnline && <span style={{ fontSize: '0.72rem', color: '#e0a852', border: '1px solid rgba(224,168,82,0.3)', borderRadius: 3, padding: '3px 8px' }}>Offline</span>}
-            <Button
-              variant="purple"
-              onClick={() => { if (!blockOfflineChange()) setShowAdd(true) }}
-              disabled={!isOnline}
-              title={!isOnline ? 'Reconnect to add cards' : undefined}
-            >
-              + Add Card
-            </Button>
-          </div>
-        }
-      />
+      <div className={styles.collectionHeader}>
+        <SectionHeader
+          title={`Collection${cards.length ? ` · ${cards.length} cards` : ''}`}
+          action={
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {!isOnline && <span style={{ fontSize: '0.72rem', color: '#e0a852', border: '1px solid rgba(224,168,82,0.3)', borderRadius: 3, padding: '3px 8px' }}>Offline</span>}
+              <Button
+                variant="purple"
+                onClick={() => { if (!blockOfflineChange()) setShowAdd(true) }}
+                disabled={!isOnline}
+                title={!isOnline ? 'Reconnect to add cards' : undefined}
+              >
+                + Add Card
+              </Button>
+            </div>
+          }
+        />
+      </div>
 
       {cards.length === 0 ? (
         <div className={styles.emptyCollectionActions}>
@@ -1294,30 +1307,45 @@ export default function CollectionPage() {
           </Link>
         </div>
       ) : (
+        <>
+        <div className={`${styles.mobileTopActions}${gridScrolled ? ' ' + styles.mobileTopActionsHidden : ''}`}>
+          <Button
+            variant="purple"
+            onClick={() => { if (!blockOfflineChange()) setShowAdd(true) }}
+            disabled={!isOnline}
+            title={!isOnline ? 'Reconnect to add cards' : undefined}
+          >+ Add Card</Button>
+          <button
+            className={styles.importBtn}
+            onClick={() => { if (blockOfflineChange()) return; setImportModalText(''); setShowImportModal(true) }}
+            disabled={!isOnline}
+            title={!isOnline ? 'Reconnect to import cards' : undefined}
+          >↑ Import</button>
+          <button className={styles.importBtn} onClick={() => setShowExport(true)}>↓ Export</button>
+        </div>
+
         <FilterBar
           search={searchInput} setSearch={setSearchInput}
           sort={sort} setSort={setSort}
           filters={filters} setFilters={setFilters}
           selectMode={selectMode} onToggleSelectMode={toggleSelectMode}
           sets={availableSets} languages={availableLanguages}
+          filterOpen={filterOpen} onFilterOpenChange={setFilterOpen}
+          hideActionsMobile
+          hideSortFilterMobile={gridScrolled}
           extra={
             <div style={{ display: 'flex', gap: 6 }}>
               <button
                 className={styles.importBtn}
-                onClick={() => {
-                  if (blockOfflineChange()) return
-                  setImportModalText('')
-                  setShowImportModal(true)
-                }}
+                onClick={() => { if (blockOfflineChange()) return; setImportModalText(''); setShowImportModal(true) }}
                 disabled={!isOnline}
                 title={!isOnline ? 'Reconnect to import cards' : undefined}
-              >
-                ↑ Import
-              </button>
+              >↑ Import</button>
               <button className={styles.importBtn} onClick={() => setShowExport(true)}>↓ Export</button>
             </div>
           }
         />
+        </>
       )}
 
       <ErrorBox>{error}</ErrorBox>
@@ -1368,10 +1396,45 @@ export default function CollectionPage() {
             priceSource={price_source}
             showPrice={show_price} density={grid_density}
             cardFolders={cardFolderMap}
+            onScroll={e => setGridScrolled(e.currentTarget.scrollTop > 50)}
           />
         </div>
 
         {filtered.length === 0 && !enriching && <EmptyState>No cards match your filters.</EmptyState>}
+
+        <div className={`${styles.mobileBar}${gridScrolled ? ' ' + styles.mobileBarVisible : ''}`}>
+          <ResponsiveMenu
+            title="Sort Cards"
+            forceSheet
+            portal
+            trigger={({ open, toggle }) => (
+              <button className={`${styles.mobileBarSort}${open ? ' ' + styles.mobileBarSortOpen : ''}`} onClick={toggle}>
+                {currentSortLabel} ▾
+              </button>
+            )}
+          >
+            {({ close }) => (
+              <div className={uiStyles.responsiveMenuList}>
+                {SORT_OPTIONS.map(([value, label]) => (
+                  <button
+                    key={value}
+                    className={`${uiStyles.responsiveMenuAction}${sort === value ? ' ' + uiStyles.responsiveMenuActionActive : ''}`}
+                    onClick={() => { setSort(value); close() }}
+                  >
+                    <span>{label}</span>
+                    <span className={uiStyles.responsiveMenuCheck}>{sort === value ? '✓' : ''}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </ResponsiveMenu>
+          <button
+            className={`${styles.mobileBarFilters}${filterOpen ? ' ' + styles.mobileBarFiltersOpen : ''}${hasActiveCollectionFilters(filters) ? ' ' + styles.mobileBarFiltersActive : ''}`}
+            onClick={() => setFilterOpen(v => !v)}
+          >
+            {hasActiveCollectionFilters(filters) ? 'Filters •' : 'Filters'}
+          </button>
+        </div>
       </>}
 
       {selectedCard && (

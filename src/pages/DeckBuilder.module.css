@@ -2515,16 +2515,21 @@
 .stacksWrap {
   display: flex;
   align-items: flex-start;
+  flex-wrap: nowrap;
   gap: 12px;
   overflow-x: auto;
   overflow-y: visible;
-  padding: 4px 0 16px;
+  padding: 4px 2px 40px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(201,168,76,0.22) transparent;
+  --stack-col-w: 130px;
+  --stack-overlap: 0.75;
 }
 
 .stackColumn {
-  flex: 0 0 clamp(92px, 14vw, 156px);
-  width: clamp(92px, 14vw, 156px);
-  min-width: clamp(92px, 14vw, 156px);
+  flex: 0 0 var(--stack-col-w, 130px);
+  width: var(--stack-col-w, 130px);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -2535,6 +2540,8 @@
   flex-direction: column;
   gap: 8px;
   min-width: 0;
+  overflow: visible;
+  isolation: isolate;
 }
 
 .stackGroupHeader {
@@ -2551,6 +2558,8 @@
   cursor: pointer;
   font-family: var(--font-display);
   font-size: 0.66rem;
+  position: relative;
+  z-index: 50;
 }
 
 .stackGroupTitle {
@@ -2574,22 +2583,27 @@
 .stackCards {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   padding-top: 0;
 }
 
 .stackCard {
   position: relative;
-  width: 84%;
-  margin-top: calc(clamp(92px, 14vw, 156px) * -1.05);
+  width: 100%;
+  margin-top: calc(var(--stack-col-w, 130px) * (88 / 63) * var(--stack-overlap, 0.75) * -1);
   cursor: pointer;
   overflow: visible;
   z-index: 0;
-  transition: margin-top 0.18s ease, margin-bottom 0.18s ease, transform 0.18s ease, z-index 0s linear 0.18s;
+  transition: transform 0.14s ease, filter 0.14s ease;
+  will-change: transform;
 }
 
 .stackCard:first-child {
   margin-top: 0;
+}
+
+.stackCardPushedDown {
+  transform: translateY(calc(var(--stack-col-w, 130px) * (88 / 63) * var(--stack-overlap, 0.75)));
 }
 
 .stackImgWrap {
@@ -2739,11 +2753,8 @@
 @media (hover: hover) and (pointer: fine) {
   .stackCard:hover,
   .stackCard:focus-within {
-    z-index: 8;
-    margin-top: calc(clamp(92px, 14vw, 156px) * -0.72);
-    margin-bottom: 34px;
-    transform: translateY(-4px);
-    transition-delay: 0s;
+    z-index: 200 !important;
+    filter: brightness(1.1);
   }
 
   .stackCard:hover .stackImgWrap,
@@ -2757,6 +2768,10 @@
     transform: translateY(0);
     pointer-events: auto;
   }
+}
+
+@media (max-width: 640px) {
+  .stacksWrap { --stack-col-w: 108px; gap: 10px; }
 }
 
 /* ── Group toggle ────────────────────────────────────────────── */

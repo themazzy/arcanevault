@@ -97,7 +97,7 @@
 
 .tocCard {
   position: sticky;
-  top: 18px;
+  top: calc(var(--nav-h) + 18px);
   align-self: start;
   padding: 18px;
 }

@@ -14,15 +14,15 @@ import {
 } from '../icons'
 
 const TABS = [
-  { to: '/', label: 'Home',       Icon: HomeIcon },
+  { to: '/', label: 'Home',         Icon: HomeIcon },
   { to: '/collection', label: 'Collection', Icon: CollectionIcon },
-  { to: '/decks', label: 'Decks',       Icon: DecksIcon },
-  { to: '/builder', label: 'Deckbuilder', Icon: BuilderIcon },
-  { to: '/binders', label: 'Binders',    Icon: BindersIcon },
-  { to: '/lists', label: 'Wishlists',  Icon: WishlistsIcon },
-  { to: '/trading', label: 'Trading',    Icon: TradingIcon },
-  { to: '/stats', label: 'Stats',      Icon: StatsIcon },
-  { to: '/life', label: 'Life',       Icon: LifeIcon },
+  { to: '/decks', label: 'Decks',         Icon: DecksIcon },
+  { to: '/builder', label: 'Builder',     Icon: BuilderIcon },
+  { to: '/binders', label: 'Binders',     Icon: BindersIcon },
+  { to: '/lists', label: 'Wishlists',   Icon: WishlistsIcon },
+  { to: '/trading', label: 'Trading',     Icon: TradingIcon },
+  { to: '/stats', label: 'Stats',       Icon: StatsIcon },
+  { to: '/life', label: 'Life',        Icon: LifeIcon },
   { to: '/scanner', label: 'Scanner',    Icon: ScannerIcon },
 ]
 
@@ -37,9 +37,11 @@ export default function Layout({ children }) {
   const isNativeScannerRoute = isNative && isScannerRoute
   const [menuOpen, setMenuOpen] = useState(false)
   const [showFeedback, setShowFeedback] = useState(false)
+  const [scrolled, setScrolled] = useState(false)
 
   const backPressedRef = useRef(false)
   const backTimerRef = useRef(null)
+  const mainRef = useRef(null)
 
   useEffect(() => {
     if (!isNative) return
@@ -132,6 +134,14 @@ export default function Layout({ children }) {
     }
   }, [keep_screen_awake])
 
+  useEffect(() => {
+    const el = mainRef.current
+    if (!el) return
+    const onScroll = () => setScrolled(el.scrollTop > 30)
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [])
+
   const signOut = async () => {
     await sb.auth.signOut()
     navigate('/')
@@ -143,9 +153,32 @@ export default function Layout({ children }) {
     <div className={`${styles.app} ${isNativeScannerRoute ? styles.appScanner : ''}`}>
       {!isNativeScannerRoute && (
         <>
-          <header className={styles.header}>
-            <div className={styles.headerTop}>
+          <div className={`${styles.headerWrap}${scrolled ? ' ' + styles.scrolled : ''}`}>
+            <header className={styles.header}>
               <div className={styles.logo}>UNTAP<span>HUB</span></div>
+
+              <nav className={styles.tabs}>
+                {TABS.filter(t => t.to !== '/scanner').map(t => (
+                  <NavLink
+                    key={t.to}
+                    to={t.to}
+                    end={t.to === '/'}
+                    className={({ isActive }) => `${styles.tab}${isActive ? ' ' + styles.active : ''}`}
+                  >
+                    <t.Icon size={12} />
+                    {t.label}
+                  </NavLink>
+                ))}
+              </nav>
+
+              <div className={styles.spacer} />
+
+              <NavLink
+                to="/scanner"
+                className={({ isActive }) => `${styles.scanBtn}${isActive ? ' ' + styles.scanBtnActive : ''}`}
+              >
+                <ScannerIcon size={13} />Scan
+              </NavLink>
 
               <div className={styles.userBar}>
                 <span className={styles.userName}>{displayEmail}</span>
@@ -181,22 +214,8 @@ export default function Layout({ children }) {
               >
                 {menuOpen ? <CloseIcon size={20} /> : <MenuIcon size={22} />}
               </button>
-            </div>
-
-            <nav className={styles.tabs}>
-              {TABS.map(t => (
-                <NavLink
-                  key={t.to}
-                  to={t.to}
-                  end={t.to === '/'}
-                  className={({ isActive }) => `${styles.tab}${isActive ? ' ' + styles.active : ''}`}
-                >
-                  <t.Icon size={12} />
-                  {t.label}
-                </NavLink>
-              ))}
-            </nav>
-          </header>
+            </header>
+          </div>
 
           <div className={`${styles.mobileOverlay}${menuOpen ? ` ${styles.mobileOverlayOpen}` : ''}`} onClick={() => setMenuOpen(false)} />
 
@@ -245,7 +264,7 @@ export default function Layout({ children }) {
         </>
       )}
 
-      <main className={`${styles.main} ${isNativeScannerRoute ? styles.mainScanner : ''} ${isDeckBuilderRoute ? styles.mainDeckBuilder : ''}`}>
+      <main ref={mainRef} className={`${styles.main} ${isNativeScannerRoute ? styles.mainScanner : ''} ${isDeckBuilderRoute ? styles.mainDeckBuilder : ''}`}>
         {children}
       </main>
 
