@@ -679,6 +679,9 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
       await sb.from('folder_cards').update({ qty: remaining }).eq('folder_id', folderId).eq('card_id', id)
     }
     if (toDelete.length) await pruneUnplacedCards([...new Set(toDelete.map(row => row.id))])
+    const { data: freshFc } = await sb.from('folder_cards')
+      .select('id, folder_id, card_id, qty, updated_at').eq('folder_id', folder.id)
+    await replaceLocalFolderCards([folder.id], freshFc || []).catch(() => {})
     setCards(prev => prev.map(c => {
       if (!selectedCards.has(getCardKey(c))) return c
       const totalQty = c._folder_qty || c.qty || 1
@@ -712,6 +715,10 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
     for (const { id, folderId, remaining } of toUpdate) {
       await sb.from('folder_cards').update({ qty: remaining }).eq('folder_id', folderId).eq('card_id', id)
     }
+    const affectedFolderIds = [...new Set([folder.id, targetFolder.id].filter(Boolean))]
+    const { data: freshFc } = await sb.from('folder_cards')
+      .select('id, folder_id, card_id, qty, updated_at').in('folder_id', affectedFolderIds)
+    await replaceLocalFolderCards(affectedFolderIds, freshFc || []).catch(() => {})
     setCards(prev => prev.map(c => {
       if (!selectedCards.has(getCardKey(c))) return c
       const totalQty = c._folder_qty || c.qty || 1

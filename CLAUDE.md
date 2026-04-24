@@ -170,6 +170,25 @@ Owned collection cards cannot exist without at least one binder or collection-de
 - Collection deck sync and "Make Collection Deck" must operate on exact owned `cards.id` rows, not just card names.
 - Foil and non-foil must be treated as different exact matches in allocation logic.
 
+#### Linked Deck Pairs
+
+A builder deck (`builder_deck`) and a collection deck (`deck`) can be linked as a pair. Linking is stored in each folder's description meta blob (managed by `parseDeckMeta` / `serializeDeckMeta` in `deckBuilderApi.js`):
+
+- `linked_deck_id` — stored on the builder deck, points to the paired collection deck `folder.id`
+- `linked_builder_id` — stored on the collection deck, points to the paired builder deck `folder.id`
+- `sync_state` — `{ version, last_sync_at, last_sync_snapshot, unsynced_builder, unsynced_collection }` — tracks per-pair drift
+
+Key helpers in `src/lib/deckSync.js`:
+- `getLinkedDeckIds(folderOrMeta)` — extracts both IDs from either a folder row or a parsed meta object
+- `getSyncState(folderOrMeta)` — returns current sync state with safe defaults
+- `withLinkedPair(meta, { linkedDeckId, linkedBuilderId })` / `clearLinkedPair(meta, side)` — immutably update link fields
+- `writeSyncState(meta, syncState)` — immutably update sync_state
+- `normalizeBuilderCards(rows)` / `normalizeCollectionCards(rows)` — canonicalize cards for diff comparison
+
+In `Builder.jsx`, clicking a collection deck that has `linked_builder_id` navigates to the builder version at `/builder/<linked_builder_id>` instead of the collection deck view.
+
+Format legality and commander color identity checks are in `src/lib/deckLegality.js` via `getCardLegalityWarnings({ card, formatId, formatLabel, isEDH, commanderColorIdentity })`.
+
 ### Wishlist Rules
 
 Wishlists are not part of owned collection inventory.
@@ -188,6 +207,8 @@ Wishlists are not part of owned collection inventory.
 ### Routing
 
 React Router v6. `BrowserRouter` in `src/App.jsx` uses `basename="/arcanevault"` for GitHub Pages compatibility. Public routes: `/login`, `/share/:token`, `/join/:code`. All other routes require auth and are wrapped in `PrivateApp`.
+
+Builder routes: `/builder` → `Builder.jsx` (deck index); `/builder/:id` → `DeckBuilder.jsx` (deck editor). A linked collection deck navigates to `/builder/<linked_builder_id>` rather than `/deck/<id>`.
 
 ### Vite Proxies (dev only)
 
@@ -220,6 +241,9 @@ These are only active during `npm run dev`. Production deploys on GitHub Pages c
 | `scripts/generate-card-hashes.js` | Node.js seed script: downloads Scryfall art crops, computes pHashes, uploads to Supabase |
 | `src/lib/fx.js` | EUR↔USD conversion via frankfurter.app (6 h IDB cache) |
 | `src/lib/deckBuilderApi.js` | Deck builder helpers + external API calls |
+| `src/lib/deckSync.js` | Linked deck sync: `getLinkedDeckIds()`, `getSyncState()`, `withLinkedPair()`, `clearLinkedPair()`, `writeSyncState()`, `normalizeBuilderCards()` |
+| `src/lib/deckLegality.js` | `getCardLegalityWarnings()` — format legality + commander color identity checks |
+| `src/lib/importFlow.js` | Import pipeline: `parseImportText()`, `resolveImportEntries()`, `summarizeImportRows()`, `aggregateResolvedRows()`, `fetchPaperPrintings()` |
 | `src/lib/csvParser.js` | Manabox CSV → cards + folders |
 | `src/components/CardComponents.jsx` | `FilterBar`, `CardDetail`, `CardGrid`, `EMPTY_FILTERS`, `applyFilterSort`, `BulkActionBar` |
 | `src/components/VirtualCardGrid.jsx` | Virtualised card grid (@tanstack/react-virtual) |
@@ -231,6 +255,9 @@ These are only active during `npm run dev`. Production deploys on GitHub Pages c
 | `src/pages/Home.jsx` | Dashboard — collection snapshot, card lookup, recently viewed, news |
 | `src/pages/Folders.jsx` | Binders index + `FolderBrowser` (inline grid/list view toggle, `BinderListView`) |
 | `src/pages/Lists.jsx` | Wishlists index + `ListBrowser` (inline list/grid view toggle, `WishlistGrid`) |
+| `src/pages/Builder.jsx` | Builder deck index — deck tiles with art backgrounds, linked-pair sync badges, select mode |
+| `src/pages/DeckBuilder.jsx` | Full deck builder UI at `/builder/:id` — card list, boards, import, linked sync |
+| `src/pages/DeckBuilder.module.css` | Styles for DeckBuilder — do not confuse with `DeckView.module.css` |
 | `src/pages/DeckBrowser.jsx` | Card browser inside a deck — list/stacks/grid/text/table views |
 | `src/pages/DeckView.jsx` | Shared deck view page (collection decks + builder decks) |
 | `src/pages/DeckView.module.css` | Styles for DeckView — do not confuse with `DeckBuilder.module.css` |

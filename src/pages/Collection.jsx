@@ -931,13 +931,18 @@ export default function CollectionPage() {
     ))
 
     if (payload.length) {
-      const { error: moveErr } = await sb
+      const { data: upsertedRows, error: moveErr } = await sb
         .from(placementTable)
         .upsert(payload, { onConflict: `${placementKey},card_id` })
+        .select('id, folder_id, deck_id, card_id, user_id, qty')
 
       if (moveErr) {
         setError(moveErr.message)
         return
+      }
+      if (upsertedRows?.length) {
+        if (folder.type === 'deck') await putDeckAllocations(upsertedRows).catch(() => {})
+        else await putFolderCards(upsertedRows).catch(() => {})
       }
     }
 
@@ -975,6 +980,17 @@ export default function CollectionPage() {
     }
 
     await setMeta(`folder_cards_full_sync_${user.id}`, 0)
+
+    const sourceBinderIds = [...new Set(sourceMoves.filter(r => r.sourceFolder.type !== 'deck').map(r => r.sourceFolder.id))]
+    const sourceDeckIds = [...new Set(sourceMoves.filter(r => r.sourceFolder.type === 'deck').map(r => r.sourceFolder.id))]
+    if (sourceBinderIds.length) {
+      const { data: freshFc } = await sb.from('folder_cards').select('id, folder_id, card_id, qty, updated_at').in('folder_id', sourceBinderIds)
+      await replaceLocalFolderCards(sourceBinderIds, freshFc || []).catch(() => {})
+    }
+    if (sourceDeckIds.length) {
+      const { data: freshDa } = await sb.from('deck_allocations').select('id, deck_id, user_id, card_id, qty').in('deck_id', sourceDeckIds)
+      await replaceDeckAllocations(sourceDeckIds, freshDa || []).catch(() => {})
+    }
 
     setCardFolderMap(prev => {
       const next = { ...prev }
