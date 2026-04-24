@@ -17,7 +17,7 @@ const TABS = [
   { to: '/', label: 'Home',         Icon: HomeIcon },
   { to: '/collection', label: 'Collection', Icon: CollectionIcon },
   { to: '/decks', label: 'Decks',         Icon: DecksIcon },
-  { to: '/builder', label: 'Builder',     Icon: BuilderIcon },
+  { to: '/builder', label: 'Deck Builder', Icon: BuilderIcon },
   { to: '/binders', label: 'Binders',     Icon: BindersIcon },
   { to: '/lists', label: 'Wishlists',   Icon: WishlistsIcon },
   { to: '/trading', label: 'Trading',     Icon: TradingIcon },
