@@ -1043,9 +1043,15 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, deleteQty 
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState('')
+  const [flipPhase, setFlipPhase] = useState('idle')
+  const flipTimers = useRef([])
 
-  const cachedImg = getImageUri(sfCard, 'normal')
-  const fullImg = getImageUri(fullCard, 'large') || getImageUri(fullCard, 'normal') || scryfallLargeUrl(card.scryfall_id)
+  const cachedImg = sfCard?.card_faces?.[face]?.image_uris
+    ? (sfCard.card_faces[face].image_uris.normal || sfCard.card_faces[face].image_uris.small || null)
+    : getImageUri(sfCard, 'normal')
+  const fullImg = fullCard?.card_faces?.[face]?.image_uris
+    ? (fullCard.card_faces[face].image_uris.large || fullCard.card_faces[face].image_uris.normal || fullCard.card_faces[face].image_uris.small || null)
+    : (getImageUri(fullCard, 'large') || getImageUri(fullCard, 'normal') || scryfallLargeUrl(card.scryfall_id))
   const [img, setImg] = useState(cachedImg)
   const [imgLoaded, setImgLoaded] = useState(false)
 
@@ -1057,6 +1063,8 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, deleteQty 
     image.onload = () => { setImg(fullImg); setImgLoaded(true) }
     image.src = fullImg
   }, [cachedImg, fullImg])
+
+  useEffect(() => () => { flipTimers.current.forEach(clearTimeout) }, [])
 
   useEffect(() => {
     setFace(0)
@@ -1105,6 +1113,18 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, deleteQty 
   const eurPrice = getPrice(eurLiveSfCard, card.foil, { price_source: 'cardmarket_trend' })
   const pl = eurPrice != null && editBuyPrice > 0 ? (eurPrice - editBuyPrice) * displayQty : null
   const plPct = eurPrice != null && editBuyPrice > 0 ? ((eurPrice - editBuyPrice) / editBuyPrice) * 100 : null
+
+  const handleFlip = () => {
+    if (flipPhase !== 'idle' || !hasFaces) return
+    setFlipPhase('out')
+    const t1 = setTimeout(() => {
+      setFace(prev => (prev + 1) % faces.length)
+      setFlipPhase('in')
+      const t2 = setTimeout(() => setFlipPhase('idle'), 200)
+      flipTimers.current.push(t2)
+    }, 200)
+    flipTimers.current.push(t1)
+  }
 
   const saveBuyPrice = async () => {
     const parsed = parseFloat(buyPriceInput)
@@ -1224,11 +1244,25 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, deleteQty 
           <div className={styles.detailArtCol}>
             <div className={styles.detailArtWrap}>
               {img
-                ? <img className={styles.detailCardImg} src={img} alt={card.name} style={{ opacity: imgLoaded || img === cachedImg ? 1 : 0.7 }} />
+                ? <img
+                    className={`${styles.detailCardImg} ${flipPhase === 'out' ? styles.cardFlipOut : flipPhase === 'in' ? styles.cardFlipIn : ''}`}
+                    src={img}
+                    alt={card.name}
+                    style={{ opacity: imgLoaded || img === cachedImg ? 1 : 0.7 }}
+                  />
                 : <div className={styles.imgPlaceholder}>{card.name}</div>}
               {card.foil && <div className={styles.detailFoilBadge}><Badge variant="foil">Foil</Badge></div>}
             </div>
-            {hasFaces && <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.ghost}`} style={{ alignSelf: 'flex-start' }} onClick={() => setFace(prev => (prev + 1) % faces.length)}>Flip Face</button>}
+            {hasFaces && (
+              <button
+                className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.ghost}`}
+                style={{ alignSelf: 'flex-start' }}
+                onClick={handleFlip}
+                disabled={flipPhase !== 'idle'}
+              >
+                Flip Face
+              </button>
+            )}
           </div>
 
           <div className={styles.detailSummary}>

@@ -983,6 +983,7 @@
   box-shadow: 0 12px 36px rgba(0,0,0,0.65), 0 0 0 1px rgba(180,140,60,0.18);
   background: var(--s2);
   aspect-ratio: 63 / 88;
+  perspective: 800px;
 }
 
 .detailCardImg {
@@ -991,6 +992,26 @@
   object-fit: cover;
   display: block;
   transition: opacity 0.3s;
+  transform-origin: center center;
+  backface-visibility: hidden;
+}
+
+.cardFlipOut {
+  animation: cardFlipOut 0.2s ease-in forwards;
+}
+
+.cardFlipIn {
+  animation: cardFlipIn 0.2s ease-out forwards;
+}
+
+@keyframes cardFlipOut {
+  from { transform: rotateY(0deg); }
+  to   { transform: rotateY(90deg); }
+}
+
+@keyframes cardFlipIn {
+  from { transform: rotateY(-90deg); }
+  to   { transform: rotateY(0deg); }
 }
 
 .detailFoilBadge {
