@@ -20,7 +20,7 @@ const NON_DRAGGABLE_IMG_PROPS = {
 const DENSITY_MIN_WIDTH = { cozy: 210, comfortable: 168, compact: 128 }
 const DENSITY_BASE_ROW_HEIGHT = { cozy: 375, comfortable: 325, compact: 260 }
 const OVERSCAN = 3
-const ROW_SIDE_INSET = 10
+const ROW_SIDE_INSET = 4
 const ROW_GAP = 14
 const CARD_ASPECT_RATIO = 88 / 63
 const CARD_INFO_HEIGHT = 92
@@ -50,7 +50,7 @@ function FolderTags({ folders }) {
 }
 
 function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, totalQty, onToggleSelect, onEnterSelectMode, onAdjustQty, splitState, priceSource, showPrice, density, cardFolders }) {
-  const img     = getImageUri(sfCard, 'normal')
+  const img     = getImageUri(sfCard, density === 'compact' ? 'small' : 'normal')
   const displayQty = card._folder_qty ?? card.qty ?? 1
   const priceMeta = getPriceWithMeta(sfCard, card.foil, { price_source: priceSource })
   const buyPrice = parseFloat(card.purchase_price) || null

@@ -4629,7 +4629,7 @@ export default function DeckBuilderPage() {
                     onContextMenu={CAN_HOVER ? e => openDeckCardContextMenu(dc, e) : undefined}>
                     <div className={styles.visualImgWrap}>
                       {dc.image_uri
-                        ? <img src={dc.image_uri} alt={dc.name} className={styles.visualCardImg} loading="lazy" />
+                        ? <img src={grid_density === 'compact' ? dc.image_uri?.replace(/\/(normal|large|png|border_crop|art_crop)\//, '/small/') : dc.image_uri} alt={dc.name} className={styles.visualCardImg} loading="lazy" />
                         : <div className={styles.visualCardPlaceholder}>{dc.name}</div>}
                       {dc.qty > 1 && <span className={styles.visualCardQty}>x{dc.qty}</span>}
                       {dc.foil && <span className={styles.visualCardFoil} title="Foil">*</span>}
