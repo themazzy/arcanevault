@@ -2051,6 +2051,7 @@ export default function DeckBuilderPage() {
   // â”€â”€ Load on mount â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
     if (!deckId) return
+    let ignore = false
     ;(async () => {
       setLoading(true)
       try {
@@ -2164,9 +2165,9 @@ export default function DeckBuilderPage() {
             .from('deck_cards').select('id').eq('deck_id', deckId).limit(1)
           const tableIsEmpty = !(rawExisting?.length)
 
-          if (tableIsEmpty) {
+          if (tableIsEmpty && !ignore) {
             const allocations = await fetchDeckAllocations(deckId)
-            if ((allocations || []).length > 0) {
+            if ((allocations || []).length > 0 && !ignore) {
               const now = new Date().toISOString()
               const hydratedRows = allocations.map(row => ({
                 id: crypto.randomUUID(),
@@ -2190,7 +2191,8 @@ export default function DeckBuilderPage() {
                 updated_at: now,
               }))
               const { error: hydrateErr } = await sb.from('deck_cards').insert(hydratedRows)
-              if (hydrateErr) throw hydrateErr
+              // 23505 = duplicate key: StrictMode re-run or race — rows exist, re-fetch handles it
+              if (hydrateErr && hydrateErr.code !== '23505') throw hydrateErr
             }
           }
 
@@ -2238,11 +2240,14 @@ export default function DeckBuilderPage() {
           console.error('[DeckBuilder] owned card indicators failed to load:', ownedErr)
         }
       } catch (err) {
-        setLoadError('Failed to load deck')
-        console.error(err)
+        if (!ignore) {
+          setLoadError('Failed to load deck')
+          console.error(err)
+        }
       }
-      setLoading(false)
+      if (!ignore) setLoading(false)
     })()
+    return () => { ignore = true }
   }, [deckId, user.id])
 
   // â”€â”€ Computed â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
