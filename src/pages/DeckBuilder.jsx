@@ -2182,8 +2182,9 @@ export default function DeckBuilderPage() {
               created_at: now,
               updated_at: now,
             }))
-            const { error: hydrateErr } = await sb.from('deck_cards').insert(hydratedRows)
-            if (hydrateErr) throw hydrateErr
+            const { error: hydrateErr } = await sb.from('deck_cards')
+              .upsert(hydratedRows, { ignoreDuplicates: true })
+            if (hydrateErr && hydrateErr.code !== '23505') throw hydrateErr
             // Re-fetch from view so we get the same enriched data as on a page reload
             const refetched = await fetchDeckCards(deckId)
             cardList = await enrichDeckCardsWithMetadata(refetched.length ? refetched : hydratedRows)
