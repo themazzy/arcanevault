@@ -2158,37 +2158,45 @@ export default function DeckBuilderPage() {
 
         let cardList = await fetchDeckCards(deckId)
         if (folder.type === 'deck' && cardList.length === 0) {
-          const allocations = await fetchDeckAllocations(deckId)
-          if ((allocations || []).length > 0) {
-            const now = new Date().toISOString()
-            const hydratedRows = allocations.map(row => ({
-              id: crypto.randomUUID(),
-              deck_id: deckId,
-              user_id: user.id,
-              card_print_id: row.card_print_id || null,
-              scryfall_id: row.scryfall_id || null,
-              name: row.name,
-              set_code: row.set_code || null,
-              collector_number: row.collector_number || null,
-              type_line: row.type_line || null,
-              mana_cost: row.mana_cost || null,
-              cmc: row.cmc ?? null,
-              color_identity: row.color_identity || [],
-              image_uri: row.image_uri || null,
-              qty: row.qty || 1,
-              foil: row.foil ?? false,
-              is_commander: false,
-              board: 'main',
-              created_at: now,
-              updated_at: now,
-            }))
-            const { error: hydrateErr } = await sb.from('deck_cards')
-              .upsert(hydratedRows, { ignoreDuplicates: true })
-            if (hydrateErr && hydrateErr.code !== '23505') throw hydrateErr
-            // Re-fetch from view so we get the same enriched data as on a page reload
-            const refetched = await fetchDeckCards(deckId)
-            cardList = await enrichDeckCardsWithMetadata(refetched.length ? refetched : hydratedRows)
+          // The view may exclude rows that exist in the raw table (join mismatch).
+          // Check the table directly before deciding to hydrate from allocations.
+          const { data: rawExisting } = await sb
+            .from('deck_cards').select('id').eq('deck_id', deckId).limit(1)
+          const tableIsEmpty = !(rawExisting?.length)
+
+          if (tableIsEmpty) {
+            const allocations = await fetchDeckAllocations(deckId)
+            if ((allocations || []).length > 0) {
+              const now = new Date().toISOString()
+              const hydratedRows = allocations.map(row => ({
+                id: crypto.randomUUID(),
+                deck_id: deckId,
+                user_id: user.id,
+                card_print_id: row.card_print_id || null,
+                scryfall_id: row.scryfall_id || null,
+                name: row.name,
+                set_code: row.set_code || null,
+                collector_number: row.collector_number || null,
+                type_line: row.type_line || null,
+                mana_cost: row.mana_cost || null,
+                cmc: row.cmc ?? null,
+                color_identity: row.color_identity || [],
+                image_uri: row.image_uri || null,
+                qty: row.qty || 1,
+                foil: row.foil ?? false,
+                is_commander: false,
+                board: 'main',
+                created_at: now,
+                updated_at: now,
+              }))
+              const { error: hydrateErr } = await sb.from('deck_cards').insert(hydratedRows)
+              if (hydrateErr) throw hydrateErr
+            }
           }
+
+          // Re-fetch from view so we get enriched data regardless of insert path
+          const refetched = await fetchDeckCards(deckId)
+          cardList = await enrichDeckCardsWithMetadata(refetched)
         } else {
           cardList = await enrichDeckCardsWithMetadata(cardList)
         }
