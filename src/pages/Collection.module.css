@@ -228,7 +228,7 @@
 }
 
 @media (max-width: 640px) {
-  .gridViewport { padding: 0 8px; }
+  .gridViewport { padding: 0 2px; }
 }
 
 .importBtn {

@@ -12,7 +12,9 @@
       if (isScanner) {
         document.documentElement.setAttribute('data-scanner', 'true');
       }
-      var cached = localStorage.getItem('arcanevault_theme_cache');
+      // Don't apply saved theme on the login page — show default always
+      var isLogin = /\/(login|join\/|share\/)/.test(window.location.pathname);
+      var cached = !isLogin && localStorage.getItem('arcanevault_theme_cache');
       if (cached) {
         var t = JSON.parse(cached);
         var root = document.documentElement;

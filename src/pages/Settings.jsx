@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
 import { isCurrentUserAdmin } from '../lib/admin'
-import { maskEmailAddress, THEMES, useSettings } from '../components/SettingsContext'
+import { maskEmailAddress, THEMES, PREMIUM_THEMES, useSettings } from '../components/SettingsContext'
 import { useSetupWizard } from '../components/SetupWizard'
 import { clearScryfallCache, PRICE_SOURCES } from '../lib/scryfall'
 import { deleteLocalFoldersAndPlacements, getDbStats, setMeta } from '../lib/db'
@@ -93,17 +93,19 @@ function Toggle({ value, onChange }) {
   )
 }
 
-function ThemePicker({ value, onChange }) {
+function ThemePicker({ value, onChange, premium }) {
   return (
     <div className={styles.themeGrid}>
       {Object.entries(THEMES).map(([id, theme]) => {
         const active = value === id
+        const isPremiumTheme = PREMIUM_THEMES.has(id)
+        const isLocked = isPremiumTheme && !premium
         const { bg, accent, hi, text } = theme.preview
         const mutedText = `${text}88`
         return (
           <button
             key={id}
-            className={`${styles.themeSwatch}${active ? ' ' + styles.themeSwatchActive : ''}`}
+            className={`${styles.themeSwatch}${active ? ' ' + styles.themeSwatchActive : ''}${isLocked ? ' ' + styles.themeSwatchLocked : ''}`}
             style={{
               '--swatch-bg': bg,
               '--swatch-accent': accent,
@@ -114,8 +116,8 @@ function ThemePicker({ value, onChange }) {
               '--swatch-label-bg': `color-mix(in srgb, ${bg} 84%, #101010 16%)`,
               '--swatch-name-color': active ? accent : text,
             }}
-            onClick={() => onChange(id)}
-            title={theme.name}
+            onClick={() => !isLocked && onChange(id)}
+            title={isLocked ? `${theme.name} — Unlock Premium to use` : theme.name}
           >
             <div className={styles.swatchPreview} style={{ background: bg }}>
               <div className={styles.swatchNav} style={{ borderColor: `${accent}30` }}>
@@ -151,9 +153,19 @@ function ThemePicker({ value, onChange }) {
                 ))}
               </div>
               {active && <div className={styles.swatchActiveCheck} style={{ color: accent }}>✓</div>}
+              {isLocked && (
+                <div className={styles.swatchLockOverlay}>
+                  <span className={styles.swatchLockIcon}>🔒</span>
+                </div>
+              )}
             </div>
             <div className={styles.swatchLabel}>
-              <div className={styles.swatchName}>{theme.name}</div>
+              <div className={styles.swatchName}>
+                {theme.name}
+                {isPremiumTheme && (
+                  <span className={`${styles.premiumStar}${isLocked ? ' ' + styles.premiumStarLocked : ''}`}>✦</span>
+                )}
+              </div>
               <div className={styles.swatchLore}>{theme.lore}</div>
             </div>
             <div className={styles.swatchColorBar}>
@@ -438,9 +450,28 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
 
+  // Nickname availability check
+  const [nicknameStatus, setNicknameStatus] = useState('')
+  const nicknameTimer = useRef(null)
+
   useEffect(() => {
     isCurrentUserAdmin(user?.id).then(setIsAdmin)
   }, [user?.id])
+
+  const handleNicknameChange = (val) => {
+    set('nickname', val)
+    clearTimeout(nicknameTimer.current)
+    if (!val.trim()) { setNicknameStatus(''); return }
+    // Already their own saved nickname — no need to check
+    if (val.trim().toLowerCase() === (settings.nickname || '').toLowerCase()) {
+      setNicknameStatus(''); return
+    }
+    setNicknameStatus('checking')
+    nicknameTimer.current = setTimeout(async () => {
+      const { data } = await sb.rpc('is_username_available', { p_username: val.trim() })
+      setNicknameStatus(data ? 'available' : 'taken')
+    }, 600)
+  }
 
   const lastSyncAge = settings.lastSyncedAt
     ? formatAge(Date.now() - new Date(settings.lastSyncedAt).getTime())
@@ -522,7 +553,7 @@ export default function SettingsPage() {
             <div className={styles.rowTitle}>Colour Theme</div>
             <div className={styles.rowDesc}>Choose the colour palette for the entire app. Saved to your account and synced across devices.</div>
           </div>
-          <ThemePicker value={settings.theme || 'shadow'} onChange={v => set('theme', v)} />
+          <ThemePicker value={settings.theme || 'shadow'} onChange={v => set('theme', v)} premium={settings.premium} />
         </div>
 
         {THEMES[settings.theme || 'shadow']?.mode !== 'light' && (
@@ -754,16 +785,28 @@ export default function SettingsPage() {
 
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Profile</div>
-        <SettingRow label="Preferred Nickname" description="Used as your public in-app identity and auto-fills tournament and game lobby flows.">
-          <input
-            className={styles.input}
-            type="text"
-            placeholder="Your in-game name"
-            value={settings.nickname ?? ''}
-            onChange={e => set('nickname', e.target.value)}
-            maxLength={24}
-          />
+        <SettingRow label="Nickname" description="Your identity across the app — multiplayer lobbies, tournaments, and your public profile URL.">
+          <div className={styles.usernameRow}>
+            <input
+              className={styles.input}
+              type="text"
+              placeholder="Your in-game name"
+              value={settings.nickname ?? ''}
+              onChange={e => handleNicknameChange(e.target.value)}
+              maxLength={24}
+            />
+            {nicknameStatus === 'checking'  && <span className={styles.usernameHint}>Checking…</span>}
+            {nicknameStatus === 'available' && <span className={styles.usernameOk}>✓ Available</span>}
+            {nicknameStatus === 'taken'     && <span className={styles.usernameTaken}>Taken</span>}
+          </div>
         </SettingRow>
+        {settings.nickname && (
+          <SettingRow label="Your Profile" description="View and customise your public profile page.">
+            <Button size="sm" onClick={() => navigate(`/profile/${encodeURIComponent(settings.nickname)}`)}>
+              View Profile
+            </Button>
+          </SettingRow>
+        )}
       </div>
 
       <div className={styles.section}>
@@ -897,41 +940,56 @@ export default function SettingsPage() {
         <div className={styles.sectionTitle}>Support</div>
         <div className={styles.supportCard}>
           <div className={styles.supportEyebrow}>Keep UntapHub growing</div>
-          <div className={styles.supportTitle}>Support development</div>
+          <div className={styles.supportTitle}>Unlock Premium Themes</div>
           <div className={styles.supportText}>
-            If the app is useful to you, this section can point people toward direct support options. Placeholder links are wired in for now and can be replaced later.
+            Support development and unlock three exclusive themes — Obsidian Night, Crimson Court, and Verdant Realm. Each features atmospheric ambient glows, unique scrollbar and selection colours, and a distinct visual identity. One-time payment, yours forever.
           </div>
-          <div className={styles.supportGrid}>
-            <button
-              type="button"
-              className={styles.supportBadge}
-            >
-              <span className={styles.supportBadgeIcon}>☕</span>
-              <span className={styles.supportBadgeBody}>
-                <span className={styles.supportBadgeLabel}>Buy Me a Coffee</span>
-                <span className={styles.supportBadgeMeta}>Placeholder link</span>
-              </span>
-            </button>
-            <button
-              type="button"
-              className={styles.supportBadge}
-            >
-              <span className={styles.supportBadgeIcon}>◎</span>
-              <span className={styles.supportBadgeBody}>
-                <span className={styles.supportBadgeLabel}>PayPal</span>
-                <span className={styles.supportBadgeMeta}>Placeholder link</span>
-              </span>
-            </button>
-            <button
-              type="button"
-              className={styles.supportBadge}
-            >
-              <span className={styles.supportBadgeIcon}>P</span>
-              <span className={styles.supportBadgeBody}>
-                <span className={styles.supportBadgeLabel}>Patreon</span>
-                <span className={styles.supportBadgeMeta}>Placeholder link</span>
-              </span>
-            </button>
+
+          {settings.premium ? (
+            <div className={styles.premiumUnlocked}>
+              <span className={styles.premiumUnlockedStar}>✦</span>
+              <div>
+                <div className={styles.premiumUnlockedTitle}>Premium Unlocked</div>
+                <div className={styles.premiumUnlockedSub}>Obsidian Night · Crimson Court · Verdant Realm are available in the theme picker above.</div>
+              </div>
+            </div>
+          ) : (
+            <div className={styles.stripeWrap}>
+              <a
+                href="STRIPE_PAYMENT_LINK_PLACEHOLDER"
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.stripeBtn}
+                onClick={e => {
+                  if (e.currentTarget.href.includes('STRIPE_PAYMENT_LINK_PLACEHOLDER')) {
+                    e.preventDefault()
+                    alert('Stripe payment link not configured yet.')
+                  }
+                }}
+              >
+                <span className={styles.stripeBtnStar}>✦</span>
+                Unlock Premium Themes — €3
+              </a>
+              <div className={styles.stripeNote}>One-time · Secured by Stripe · No subscription</div>
+            </div>
+          )}
+
+          <div className={styles.premiumThemeRow}>
+            {[
+              { id: 'obsidian', accent: '#b08fff', bg: '#000000', name: 'Obsidian Night' },
+              { id: 'crimson_court', accent: '#cc2244', bg: '#0d0103', name: 'Crimson Court' },
+              { id: 'verdant_realm', accent: '#3dba74', bg: '#020d05', name: 'Verdant Realm' },
+            ].map(({ id, accent, bg, name }) => (
+              <div
+                key={id}
+                className={`${styles.premiumThemePill}${settings.premium ? '' : ' ' + styles.premiumThemePillLocked}`}
+                style={{ '--pill-accent': accent, '--pill-bg': bg }}
+              >
+                <span className={styles.premiumThemePillDot} style={{ background: accent }} />
+                <span className={styles.premiumThemePillName}>{name}</span>
+                {!settings.premium && <span className={styles.premiumThemePillLock}>🔒</span>}
+              </div>
+            ))}
           </div>
         </div>
       </div>

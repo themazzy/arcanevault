@@ -1016,11 +1016,6 @@ export default function DeckBrowser({ folder, onBack }) {
           <div className={styles.headerMeta}>
             <span>{totalQty} cards</span>
             <span className={styles.deckValue}>{formatPrice(totalValue, price_source)}</span>
-            {deckMeta.linked_builder_id && (
-              <button className={styles.editInBuilderBtn} onClick={openInBuilder} disabled={creatingBuilderLink}>
-                {creatingBuilderLink ? 'Opening…' : isUnsynced ? 'Unsynced changes' : 'Open in Deckbuilder'}
-              </button>
-            )}
             <div className={styles.headerActionsDesktop}>
               <button className={styles.addCardsBtn} onClick={() => setShowImport(true)}>
                 ↑ Import

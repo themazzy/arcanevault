@@ -240,6 +240,8 @@
   transition: opacity 0.3s;
 }
 .card:hover .deckArt { opacity: 0.38; }
+:global([data-theme-mode="light"]) .deckArt { opacity: 0.45; mix-blend-mode: multiply; }
+:global([data-theme-mode="light"]) .card:hover .deckArt { opacity: 0.58; }
 
 /* Content overlay */
 .cardContent {
@@ -325,20 +327,42 @@
   white-space: nowrap;
 }
 
+.publicBadge {
+  display: inline-block;
+  font-size: 0.62rem;
+  color: #4a8fc9;
+  background: rgba(74,143,201,0.12);
+  border: 1px solid rgba(74,143,201,0.3);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.creatorNick {
+  font-size: 0.67rem;
+  color: var(--text-faint);
+  margin-top: 1px;
+}
+.creatorNickLink {
+  color: var(--gold);
+  text-decoration: none;
+}
+.creatorNickLink:hover { text-decoration: underline; }
+
 /* Color pips */
 .colorPips {
   display: flex;
-  gap: 3px;
+  gap: 2px;
   margin-top: 2px;
+  align-items: center;
 }
 
 .colorPip {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
+  width: 14px;
+  height: 14px;
   display: inline-block;
-  border: 1px solid rgba(0,0,0,0.35);
   flex-shrink: 0;
+  object-fit: contain;
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,0.5));
 }
 
 /* Action row */
@@ -347,6 +371,15 @@
   align-items: center;
   justify-content: space-between;
   margin-top: 6px;
+  gap: 4px;
+}
+
+.editedDate {
+  font-size: 0.62rem;
+  color: var(--text-faint);
+  margin-left: auto;
+  margin-right: 4px;
+  white-space: nowrap;
 }
 
 .editLink {

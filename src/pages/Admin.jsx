@@ -7,6 +7,146 @@ import styles from './Admin.module.css'
 
 const STATUS_OPTIONS = ['pending', 'in_review', 'completed', 'rejected']
 
+async function setPremiumForUser(userId, grant) {
+  const { error } = await sb.from('user_settings')
+    .update({ premium: grant, updated_at: new Date().toISOString() })
+    .eq('user_id', userId)
+  if (error) throw error
+}
+
+async function loadResolvedFeedbackIds() {
+  const { data } = await sb.from('app_config').select('value').eq('key', 'feedback_resolved').maybeSingle()
+  return Array.isArray(data?.value) ? data.value : []
+}
+
+async function setFeedbackResolved(resolvedIds) {
+  await sb.from('app_config').upsert(
+    { key: 'feedback_resolved', value: resolvedIds, updated_at: new Date().toISOString() },
+    { onConflict: 'key' }
+  )
+}
+
+function FeedbackSection() {
+  const [items, setItems] = useState([])
+  const [resolvedIds, setResolvedIds] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [typeFilter, setTypeFilter] = useState('all')
+  const [showResolved, setShowResolved] = useState(false)
+  const [busy, setBusy] = useState(null)
+
+  const load = async () => {
+    setLoading(true)
+    const [{ data }, resolved] = await Promise.all([
+      sb.from('feedback').select('*').order('created_at', { ascending: false }),
+      loadResolvedFeedbackIds(),
+    ])
+    setItems(data || [])
+    setResolvedIds(resolved)
+    setLoading(false)
+  }
+
+  useEffect(() => { load() }, [])
+
+  const markResolved = async (id) => {
+    setBusy(id)
+    const next = [...new Set([...resolvedIds, id])]
+    await setFeedbackResolved(next)
+    setResolvedIds(next)
+    setBusy(null)
+  }
+
+  const markUnresolved = async (id) => {
+    setBusy(id)
+    const next = resolvedIds.filter(r => r !== id)
+    await setFeedbackResolved(next)
+    setResolvedIds(next)
+    setBusy(null)
+  }
+
+  const deleteFeedback = async (id) => {
+    if (!confirm('Delete this feedback entry? This cannot be undone.')) return
+    setBusy(id)
+    await sb.from('feedback').delete().eq('id', id)
+    setItems(prev => prev.filter(item => item.id !== id))
+    setResolvedIds(prev => prev.filter(r => r !== id))
+    setBusy(null)
+  }
+
+  const filtered = items.filter(item => {
+    if (typeFilter !== 'all' && item.type !== typeFilter) return false
+    const isResolved = resolvedIds.includes(item.id)
+    if (!showResolved && isResolved) return false
+    return true
+  })
+
+  return (
+    <div className={styles.sectionBlock}>
+      <div className={styles.sectionTitleRow}>
+        <div>
+          <div className={styles.sectionTitle}>Feedback Queue</div>
+          <div className={styles.panelSub}>{items.length} total · {resolvedIds.length} resolved</div>
+        </div>
+        <div className={styles.heroActions}>
+          <Button size="sm" onClick={load}>Refresh</Button>
+        </div>
+      </div>
+
+      <div className={styles.filters} style={{ marginBottom: 8 }}>
+        <UISelect value={typeFilter} onChange={e => setTypeFilter(e.target.value)} title="Type filter">
+          <option value="all">All types</option>
+          <option value="bug">Bug reports</option>
+          <option value="feature">Feature requests</option>
+        </UISelect>
+        <label className={styles.resolvedToggleLabel}>
+          <input type="checkbox" checked={showResolved} onChange={e => setShowResolved(e.target.checked)} />
+          Show resolved
+        </label>
+      </div>
+
+      {loading ? (
+        <div className={styles.emptyState}>Loading feedback...</div>
+      ) : filtered.length === 0 ? (
+        <div className={styles.emptyState}>No feedback matches the current filters.</div>
+      ) : (
+        <div className={styles.feedbackList}>
+          {filtered.map(item => {
+            const isResolved = resolvedIds.includes(item.id)
+            return (
+              <div key={item.id} className={`${styles.feedbackItem}${isResolved ? ' ' + styles.feedbackItemResolved : ''}`}>
+                <div className={styles.feedbackTop}>
+                  <span className={`${styles.badge} ${item.type === 'bug' ? styles.badgePending : styles.badgeReview}`}>
+                    {item.type}
+                  </span>
+                  {isResolved && <span className={`${styles.badge} ${styles.badgeCompleted}`}>done</span>}
+                  <span className={styles.activityMeta}>{formatDate(item.created_at)}</span>
+                </div>
+                <div className={styles.feedbackBody}>{item.description}</div>
+                {item.contact && (
+                  <div className={styles.activityMeta}>Contact: {item.contact}</div>
+                )}
+                <div className={styles.feedbackActions}>
+                  {isResolved ? (
+                    <Button size="sm" onClick={() => markUnresolved(item.id)} disabled={busy === item.id}>
+                      {busy === item.id ? '...' : 'Mark Open'}
+                    </Button>
+                  ) : (
+                    <Button size="sm" variant="secondary" onClick={() => markResolved(item.id)} disabled={busy === item.id}>
+                      {busy === item.id ? '...' : 'Mark Done'}
+                    </Button>
+                  )}
+                  <Button size="sm" variant="danger" onClick={() => deleteFeedback(item.id)} disabled={busy === item.id}>
+                    Delete
+                  </Button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function formatDate(ts) {
   if (!ts) return '-'
   const d = new Date(ts)
@@ -358,6 +498,122 @@ function ChangelogEditorSection() {
   )
 }
 
+const SETTINGS_FIELDS = [
+  { key: 'premium',          label: 'Premium',           type: 'boolean', highlight: true },
+  { key: 'theme',            label: 'Theme',             type: 'select',  options: ['shadow','azorius','dimir','rakdos','gruul','selesnya','orzhov','izzet','golgari','boros','simic','obsidian','crimson_court','verdant_realm'] },
+  { key: 'oled_mode',        label: 'OLED Mode',         type: 'boolean' },
+  { key: 'higher_contrast',  label: 'Higher Contrast',   type: 'boolean' },
+  { key: 'reduce_motion',    label: 'Reduce Motion',     type: 'boolean' },
+  { key: 'body_font',        label: 'Body Font',         type: 'select',  options: ['serif','sans'] },
+  { key: 'font_size',        label: 'Font Size',         type: 'number' },
+  { key: 'font_weight',      label: 'Font Weight',       type: 'number' },
+  { key: 'card_name_size',   label: 'Card Name Size',    type: 'select',  options: ['compact','default','large'] },
+  { key: 'grid_density',     label: 'Grid Density',      type: 'select',  options: ['cozy','comfortable','compact'] },
+  { key: 'price_source',     label: 'Price Source',      type: 'text' },
+  { key: 'show_price',       label: 'Show Price',        type: 'boolean' },
+  { key: 'default_sort',     label: 'Default Sort',      type: 'text' },
+  { key: 'default_grouping', label: 'Default Grouping',  type: 'select',  options: ['type','none'] },
+  { key: 'cache_ttl_h',      label: 'Cache TTL (hours)', type: 'number' },
+  { key: 'binder_sort',      label: 'Binder Sort',       type: 'text' },
+  { key: 'deck_sort',        label: 'Deck Sort',         type: 'text' },
+  { key: 'list_sort',        label: 'List Sort',         type: 'text' },
+  { key: 'nickname',         label: 'Nickname',          type: 'text' },
+  { key: 'anonymize_email',  label: 'Anonymize Email',   type: 'boolean' },
+  { key: 'keep_screen_awake',label: 'Keep Screen Awake', type: 'boolean' },
+  { key: 'show_sync_errors', label: 'Show Sync Errors',  type: 'boolean' },
+]
+
+function UserSettingsEditor({ userId, settings, onSaved }) {
+  const [draft, setDraft] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [status, setStatus] = useState(null)
+
+  useEffect(() => {
+    setDraft(settings ? { ...settings } : null)
+    setStatus(null)
+  }, [userId, settings])
+
+  if (!draft) return <div className={styles.hint}>This user has no synced user_settings row yet.</div>
+
+  const set = (key, value) => setDraft(prev => ({ ...prev, [key]: value }))
+
+  const save = async () => {
+    setSaving(true)
+    setStatus(null)
+    const { user_id, updated_at, currency, price_type, ...editable } = draft
+    const { error } = await sb.from('user_settings')
+      .update({ ...editable, updated_at: new Date().toISOString() })
+      .eq('user_id', userId)
+    if (error) {
+      setStatus({ ok: false, msg: error.message })
+    } else {
+      setStatus({ ok: true, msg: 'Saved' })
+      onSaved?.()
+    }
+    setSaving(false)
+  }
+
+  const isDirty = JSON.stringify(draft) !== JSON.stringify(settings)
+
+  return (
+    <div className={styles.settingsEditor}>
+      <div className={styles.settingsEditorGrid}>
+        {SETTINGS_FIELDS.map(({ key, label, type, options, highlight }) => {
+          const value = draft[key]
+          return (
+            <div key={key} className={`${styles.settingsEditorRow}${highlight ? ' ' + styles.settingsEditorRowHighlight : ''}`}>
+              <div className={styles.settingsEditorLabel}>{label}</div>
+              <div className={styles.settingsEditorControl}>
+                {type === 'boolean' ? (
+                  <button
+                    type="button"
+                    className={`${styles.seToggle}${value ? ' ' + styles.seToggleOn : ''}`}
+                    onClick={() => set(key, !value)}
+                  >
+                    <span className={styles.seToggleKnob} />
+                  </button>
+                ) : type === 'select' ? (
+                  <UISelect
+                    className={styles.seSelect}
+                    value={value ?? ''}
+                    onChange={e => set(key, e.target.value)}
+                    title={label}
+                  >
+                    {options.map(o => <option key={o} value={o}>{o}</option>)}
+                  </UISelect>
+                ) : type === 'number' ? (
+                  <input
+                    type="number"
+                    className={styles.seInput}
+                    value={value ?? ''}
+                    onChange={e => set(key, Number(e.target.value))}
+                  />
+                ) : (
+                  <input
+                    type="text"
+                    className={styles.seInput}
+                    value={value ?? ''}
+                    onChange={e => set(key, e.target.value)}
+                  />
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className={styles.settingsEditorFooter}>
+        {status && (
+          <span className={status.ok ? styles.seStatusOk : styles.seStatusErr}>{status.msg}</span>
+        )}
+        <Button size="sm" onClick={save} disabled={saving || !isDirty}>
+          {saving ? 'Saving…' : 'Save Changes'}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 export default function AdminPage() {
   const { user } = useAuth()
   const [isAdmin, setIsAdmin] = useState(null)
@@ -384,6 +640,7 @@ export default function AdminPage() {
   const [impactLoading, setImpactLoading] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [confirmText, setConfirmText] = useState('')
+  const [premiumBusy, setPremiumBusy] = useState(false)
 
   const loadDashboard = async () => {
     setDashboardLoading(true)
@@ -879,6 +1136,8 @@ export default function AdminPage() {
 
       <ChangelogEditorSection />
 
+      <FeedbackSection />
+
       <div className={styles.sectionBlock}>
         <div className={styles.sectionTitleRow}>
           <div>
@@ -1214,6 +1473,48 @@ export default function AdminPage() {
                         {selectedUserDetail.admin_membership?.active ? 'Active admin' : 'Standard user'}
                       </div>
                     </div>
+                    <div className={styles.metaCard}>
+                      <div className={styles.metaLabel}>Premium Status</div>
+                      <div className={styles.metaValue}>
+                        {selectedUserDetail.settings?.premium ? '✦ Premium' : 'Standard'}
+                      </div>
+                    </div>
+                  </div>
+                  <div className={styles.actionRow} style={{ marginTop: 10 }}>
+                    {selectedUserDetail.settings?.premium ? (
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        disabled={premiumBusy}
+                        onClick={async () => {
+                          setPremiumBusy(true)
+                          try {
+                            await setPremiumForUser(selectedUserDetail.id, false)
+                            await loadUsers({ searchTerm: userSearch, nextSelectedUserId: selectedUserDetail.id })
+                          } finally {
+                            setPremiumBusy(false)
+                          }
+                        }}
+                      >
+                        {premiumBusy ? 'Saving...' : 'Revoke Premium'}
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        disabled={premiumBusy}
+                        onClick={async () => {
+                          setPremiumBusy(true)
+                          try {
+                            await setPremiumForUser(selectedUserDetail.id, true)
+                            await loadUsers({ searchTerm: userSearch, nextSelectedUserId: selectedUserDetail.id })
+                          } finally {
+                            setPremiumBusy(false)
+                          }
+                        }}
+                      >
+                        {premiumBusy ? 'Saving...' : '✦ Grant Premium'}
+                      </Button>
+                    )}
                   </div>
                 </div>
 
@@ -1231,11 +1532,11 @@ export default function AdminPage() {
 
                 <div className={styles.detailSection}>
                   <div className={styles.detailTitle}>Settings</div>
-                  {selectedUserDetail.settings ? (
-                    <pre className={styles.timelineDetails}>{JSON.stringify(selectedUserDetail.settings, null, 2)}</pre>
-                  ) : (
-                    <div className={styles.hint}>This user has no synced `user_settings` row yet.</div>
-                  )}
+                  <UserSettingsEditor
+                    userId={selectedUserDetail.id}
+                    settings={selectedUserDetail.settings}
+                    onSaved={() => loadUsers({ searchTerm: userSearch, nextSelectedUserId: selectedUserDetail.id })}
+                  />
                 </div>
 
                 <div className={styles.detailSection}>

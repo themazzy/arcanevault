@@ -6,7 +6,6 @@ import { parseDeckMeta, serializeDeckMeta, FORMATS, groupDeckCards, TYPE_GROUPS 
 import DeckStats, { normalizeDeckBuilderCards } from '../components/DeckStats'
 import styles from './DeckView.module.css'
 import uiStyles from '../components/UI.module.css'
-import { fetchDeckCards } from '../lib/deckData'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getPrice, formatPrice } from '../lib/scryfall'
 import { ResponsiveMenu } from '../components/UI'
@@ -132,11 +131,12 @@ export default function DeckViewPage() {
   const navigate = useNavigate()
 
   // ── All state up top (before any conditional returns) ─────────────────────
-  const [deck, setDeck]         = useState(null)
-  const [deckMeta, setDeckMeta] = useState({})
-  const [cards, setCards]       = useState([])
-  const [loading, setLoading]   = useState(true)
-  const [error, setError]       = useState(null)
+  const [deck, setDeck]             = useState(null)
+  const [deckMeta, setDeckMeta]     = useState({})
+  const [cards, setCards]           = useState([])
+  const [loading, setLoading]       = useState(true)
+  const [error, setError]           = useState(null)
+  const [creatorNick, setCreatorNick] = useState(null)
 
   const [detailCard, setDetailCard] = useState(null)
   const [viewMode, setViewMode]     = useState('grid')
@@ -170,10 +170,18 @@ export default function DeckViewPage() {
       setDeck(folder)
       setDeckMeta(parseDeckMeta(folder.description))
 
-      const deckCards = await fetchDeckCards(id)
-      setCards(deckCards || [])
+      // Fetch creator nickname via security-definer RPC (bypasses user_settings RLS)
+      sb.rpc('get_user_nickname', { p_user_id: folder.user_id })
+        .then(({ data }) => { if (data) setCreatorNick(data) })
+        .catch(() => {})
+
+      // Use security-definer RPC: bypasses cards RLS for collection decks
+      // so visitors who are not the owner still see the full card list.
+      const { data: rpcCards } = await sb.rpc('get_deck_cards_for_view', { p_deck_id: id })
+      const deckCards = Array.isArray(rpcCards) ? rpcCards : (rpcCards || [])
+      setCards(deckCards)
       setLoading(false)
-      if (deckCards?.length) {
+      if (deckCards.length) {
         loadCardMapWithSharedPrices(deckCards).then(setSfMap).catch(() => {})
       }
     })()
@@ -355,7 +363,9 @@ export default function DeckViewPage() {
               <Link to="/login" className={styles.actionLink}>Create Account</Link>
             </>
           ) : isOwner ? (
-            <Link to={`/builder/${builderEditId}`} className={styles.actionLink}>⚔ Edit in Builder</Link>
+            <>
+              <Link to={`/builder/${builderEditId}`} className={styles.actionLink}>⚔ Edit in Builder</Link>
+            </>
           ) : (
             <>
               <Link to="/" className={styles.topLink}>← My Vault</Link>
@@ -367,6 +377,14 @@ export default function DeckViewPage() {
       {/* ── Deck header ── */}
       <div className={styles.deckHeader}>
         <h1 className={styles.deckTitle}>{deck.name}</h1>
+        {creatorNick && (
+          <div className={styles.deckCreator}>
+            by{' '}
+            <Link to={`/profile/${encodeURIComponent(creatorNick)}`} className={styles.deckCreatorLink}>
+              {creatorNick}
+            </Link>
+          </div>
+        )}
         <div className={styles.deckMeta}>
           {format && <span className={styles.formatBadge}>{format.label}</span>}
           {format && <span className={styles.metaDot}>·</span>}

@@ -70,6 +70,12 @@
   --s-border2: rgba(255,255,255,0.12);
   --overlay:   rgba(0,0,0,0.20);
 
+  /* Skeleton shimmer — overridden per premium theme */
+  --shimmer-base: var(--s2);
+  --shimmer-hi:   var(--s3);
+  /* Nav header accent glow — overridden per premium theme */
+  --nav-glow: transparent;
+
   /* Navigation & popup backgrounds */
   --nav-bg:    rgba(8,6,16,0.94);
   --nav-h:     74px;
@@ -166,6 +172,122 @@
   --bg: #061117;
   --bg2: #0a1820;
   --bg3: #0e2029;
+}
+
+/* ── Premium theme bg overrides ─────────────────────────────────────────── */
+:root[data-theme="obsidian"] {
+  --bg: #000000;
+  --bg2: #050508;
+  --bg3: #0b0910;
+}
+:root[data-theme="crimson_court"] {
+  --bg: #0d0103;
+  --bg2: #160308;
+  --bg3: #1e040b;
+}
+:root[data-theme="verdant_realm"] {
+  --bg: #020d05;
+  --bg2: #071509;
+  --bg3: #0e1e11;
+}
+
+/* ── Premium ambient overlay ─────────────────────────────────────────────── */
+#av-premium-ambient {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0;
+  transition: opacity 1.2s ease, background 1.5s ease;
+}
+
+#av-premium-ambient[data-theme="obsidian"] {
+  animation: av-obsidian-pulse 9s ease-in-out infinite;
+}
+#av-premium-ambient[data-theme="crimson_court"] {
+  animation: av-crimson-breathe 11s ease-in-out infinite;
+}
+#av-premium-ambient[data-theme="verdant_realm"] {
+  animation: av-verdant-glow 8s ease-in-out infinite;
+}
+
+@keyframes av-obsidian-pulse {
+  0%, 100% { opacity: 0.80; }
+  50%       { opacity: 1.00; }
+}
+@keyframes av-crimson-breathe {
+  0%, 100% { opacity: 0.70; }
+  50%       { opacity: 1.00; }
+}
+@keyframes av-verdant-glow {
+  0%, 100% { opacity: 0.75; }
+  50%       { opacity: 1.00; }
+}
+
+/* Premium theme — custom scrollbar colours */
+[data-theme="obsidian"] ::-webkit-scrollbar-thumb { background: rgba(176,143,255,0.35); border-radius: 4px; }
+[data-theme="obsidian"] ::-webkit-scrollbar-thumb:hover { background: rgba(176,143,255,0.60); }
+[data-theme="obsidian"] ::selection { background: rgba(176,143,255,0.32); color: #e8e0f8; }
+
+[data-theme="crimson_court"] ::-webkit-scrollbar-thumb { background: rgba(200,34,68,0.38); border-radius: 4px; }
+[data-theme="crimson_court"] ::-webkit-scrollbar-thumb:hover { background: rgba(200,34,68,0.60); }
+[data-theme="crimson_court"] ::selection { background: rgba(200,34,68,0.30); color: #f0d8d0; }
+
+[data-theme="verdant_realm"] ::-webkit-scrollbar-thumb { background: rgba(61,186,116,0.36); border-radius: 4px; }
+[data-theme="verdant_realm"] ::-webkit-scrollbar-thumb:hover { background: rgba(61,186,116,0.58); }
+[data-theme="verdant_realm"] ::selection { background: rgba(61,186,116,0.28); color: #d8f0e0; }
+
+/* ── Premium animated dot-grid overlay ─────────────────────────────────── */
+#av-premium-ambient::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, var(--premium-dot) 1px, transparent 1px);
+  background-size: 28px 28px;
+  opacity: 0.55;
+  animation: av-dot-drift 80s linear infinite;
+}
+#av-premium-ambient[data-theme="obsidian"]  { --premium-dot: rgba(176,143,255,0.08); }
+#av-premium-ambient[data-theme="crimson_court"] { --premium-dot: rgba(200,34,68,0.08); }
+#av-premium-ambient[data-theme="verdant_realm"] { --premium-dot: rgba(61,186,116,0.07); }
+
+@keyframes av-dot-drift {
+  from { background-position: 0 0; }
+  to   { background-position: 280px 280px; }
+}
+
+/* ── Premium focus rings ──────────────────────────────────────────────────── */
+[data-theme="obsidian"] *:focus-visible      { outline-color: rgba(176,143,255,0.75) !important; box-shadow: 0 0 0 3px rgba(160,128,255,0.22) !important; }
+[data-theme="crimson_court"] *:focus-visible { outline-color: rgba(204,34,68,0.75) !important;   box-shadow: 0 0 0 3px rgba(200,34,68,0.22) !important; }
+[data-theme="verdant_realm"] *:focus-visible { outline-color: rgba(61,186,116,0.75) !important;  box-shadow: 0 0 0 3px rgba(50,180,100,0.22) !important; }
+
+/* ── Premium placeholder text ─────────────────────────────────────────────── */
+[data-theme="obsidian"] ::placeholder      { color: rgba(176,143,255,0.38); }
+[data-theme="crimson_court"] ::placeholder { color: rgba(200,34,68,0.42); }
+[data-theme="verdant_realm"] ::placeholder { color: rgba(61,186,116,0.40); }
+
+/* ── Premium scrollbar track ─────────────────────────────────────────────── */
+[data-theme="obsidian"] ::-webkit-scrollbar-track      { background: rgba(176,143,255,0.04); }
+[data-theme="crimson_court"] ::-webkit-scrollbar-track { background: rgba(200,34,68,0.04); }
+[data-theme="verdant_realm"] ::-webkit-scrollbar-track { background: rgba(61,186,116,0.04); }
+
+/* ── Premium shimmer variables ───────────────────────────────────────────── */
+[data-theme="obsidian"]      { --shimmer-base: rgba(160,128,255,0.06); --shimmer-hi: rgba(176,143,255,0.14); --nav-glow: 0 0 28px rgba(176,143,255,0.18); --card-shimmer: rgba(176,143,255,0.14); }
+[data-theme="crimson_court"] { --shimmer-base: rgba(200,34,68,0.06);   --shimmer-hi: rgba(220,60,90,0.14);   --nav-glow: 0 0 28px rgba(200,34,68,0.18);  --card-shimmer: rgba(220,60,90,0.14); }
+[data-theme="verdant_realm"] { --shimmer-base: rgba(50,180,100,0.06);  --shimmer-hi: rgba(70,210,140,0.14);  --nav-glow: 0 0 28px rgba(61,186,116,0.16); --card-shimmer: rgba(80,210,140,0.14); }
+
+/* ── Premium section divider lines ──────────────────────────────────────── */
+[data-theme="obsidian"]      [class*="sectionLabel"]::after,
+[data-theme="crimson_court"] [class*="sectionLabel"]::after,
+[data-theme="verdant_realm"] [class*="sectionLabel"]::after {
+  background: linear-gradient(90deg, transparent 0%, var(--gold) 40%, transparent 100%);
+  opacity: 0.28;
+  animation: av-divider-sweep 4s ease-in-out infinite;
+}
+
+@keyframes av-divider-sweep {
+  0%, 100% { opacity: 0.20; }
+  50%       { opacity: 0.45; }
 }
 
 /* ── Light theme overrides ───────────────────────────────────────────────── */
@@ -325,6 +447,9 @@ summary:focus-visible {
   --s3: rgba(255,255,255,0.06);
   --s4: rgba(255,255,255,0.08);
 }
+
+/* ── Global shimmer keyframes (referenced by CSS module skeleton classes) */
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
 /* ── OLED mode ───────────────────────────────────────────────────────────────
    [data-oled="true"] is set on <html> by applyTheme() in SettingsContext. */

@@ -201,7 +201,7 @@
 .setSkeleton {
   height: 36px;
   border-radius: 6px;
-  background: linear-gradient(90deg, var(--s2) 25%, var(--s3) 50%, var(--s2) 75%);
+  background: linear-gradient(90deg, var(--shimmer-base) 25%, var(--shimmer-hi) 50%, var(--shimmer-base) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
 }
