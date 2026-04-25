@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
@@ -191,12 +191,36 @@ export default function ProfilePage() {
   const [draftBlocks, setDraftBlocks] = useState([])
   const [saving, setSaving]           = useState(false)
 
-  const dragSrcIdx  = useRef(null)
-  const [dragOverIdx, setDragOverIdx] = useState(null)
+  const dragItemRef = useRef(null)
+  const bentoGridRef = useRef(null)
+  const layoutRectsRef = useRef(new Map())
+  const [draggingId, setDraggingId] = useState(null)
+  const [dropSlotIdx, setDropSlotIdx] = useState(null)
+  const [trayDropActive, setTrayDropActive] = useState(false)
 
   const decodedUsername = decodeURIComponent(username)
   const isOwn = user && settings.nickname &&
     decodedUsername.toLowerCase() === settings.nickname.toLowerCase()
+  const ownProfileFallback = useMemo(() => ({
+    user_id:      user?.id,
+    nickname:     settings.nickname,
+    bio:          settings.profile_bio || '',
+    accent:       settings.profile_accent || '',
+    premium:      settings.premium,
+    bento_config: settings.profile_config || DEFAULT_BENTO_CONFIG,
+    stats:        null,
+    top_card:     null,
+    joined_at:    null,
+    collection_value: null,
+    public_deck_count: null,
+  }), [
+    user?.id,
+    settings.nickname,
+    settings.profile_bio,
+    settings.profile_accent,
+    settings.premium,
+    settings.profile_config,
+  ])
 
   // ── Load ───────────────────────────────────────────────────────────────────
   const loadProfile = useCallback(async () => {
@@ -205,21 +229,10 @@ export default function ProfilePage() {
 
     const { data, error } = await sb.rpc('get_public_profile', { p_username: decodedUsername })
     if (error || !data) {
-      if (isOwn) {
         // Migration may not have run yet — fall back to local settings
-        setProfile({
-          user_id:      user.id,
-          nickname:     settings.nickname,
-          bio:          settings.profile_bio || '',
-          accent:       settings.profile_accent || '',
-          premium:      settings.premium,
-          bento_config: settings.profile_config || DEFAULT_BENTO_CONFIG,
-          stats:        null,
-          top_card:     null,
-          joined_at:    null,
-          collection_value: null,
-          public_deck_count: null,
-        })
+      if (isOwn) {
+        setProfile(ownProfileFallback)
+        setPublicDecks([])
       } else {
         setNotFound(true)
       }
@@ -232,7 +245,7 @@ export default function ProfilePage() {
       .then(({ data: decks }) => setPublicDecks(decks || []))
       .catch(() => {})
     setLoading(false)
-  }, [isOwn, decodedUsername, user, settings])
+  }, [decodedUsername, isOwn, ownProfileFallback])
 
   useEffect(() => { loadProfile() }, [loadProfile])
 
@@ -272,28 +285,111 @@ export default function ProfilePage() {
     setSaving(false)
   }
 
-  // ── Drag-to-reorder ────────────────────────────────────────────────────────
-  function onDragStart(idx) { dragSrcIdx.current = idx }
-  function onDragOver(e, idx) { e.preventDefault(); setDragOverIdx(idx) }
-  function onDrop(idx) {
-    const src = dragSrcIdx.current
-    if (src == null || src === idx) { dragSrcIdx.current = null; setDragOverIdx(null); return }
-    const next = [...draftBlocks]
-    const [moved] = next.splice(src, 1)
-    next.splice(idx, 0, moved)
-    setDraftBlocks(next)
-    dragSrcIdx.current = null
-    setDragOverIdx(null)
+  // ── Drag-to-place blocks ───────────────────────────────────────────────────
+  function resetDragState() {
+    dragItemRef.current = null
+    setDraggingId(null)
+    setDropSlotIdx(null)
+    setTrayDropActive(false)
   }
-  function onDragEnd() { dragSrcIdx.current = null; setDragOverIdx(null) }
-  function toggleBlock(idx) {
-    setDraftBlocks(prev => prev.map((b, i) => i === idx ? { ...b, enabled: !b.enabled } : b))
+
+  function placeBlockAtSlot(blockId, slotIdx) {
+    setDraftBlocks(prev => {
+      const current = prev.find(b => b.id === blockId)
+      if (!current) return prev
+
+      const withoutMoved = prev.filter(b => b.id !== blockId)
+      const enabledBlocks = withoutMoved.filter(b => b.enabled)
+      const insertBeforeId = enabledBlocks[slotIdx]?.id
+      const insertIdx = insertBeforeId
+        ? withoutMoved.findIndex(b => b.id === insertBeforeId)
+        : withoutMoved.reduce((last, b, i) => b.enabled ? i : last, -1) + 1
+
+      const next = [...withoutMoved]
+      next.splice(Math.max(0, insertIdx), 0, { ...current, enabled: true })
+      return next
+    })
+  }
+
+  function hideBlock(blockId) {
+    setDraftBlocks(prev => prev.map(b => b.id === blockId ? { ...b, enabled: false } : b))
+  }
+
+  function onBlockDragStart(e, blockId) {
+    dragItemRef.current = { id: blockId }
+    setDraggingId(blockId)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', blockId)
+  }
+
+  function onSlotDragOver(e, slotIdx) {
+    if (!dragItemRef.current) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setDropSlotIdx(slotIdx)
+    setTrayDropActive(false)
+  }
+
+  function onSlotDrop(e, slotIdx) {
+    e.preventDefault()
+    const item = dragItemRef.current
+    if (item?.id) placeBlockAtSlot(item.id, slotIdx)
+    resetDragState()
+  }
+
+  function onTrayDragOver(e) {
+    if (!dragItemRef.current) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setDropSlotIdx(null)
+    setTrayDropActive(true)
+  }
+
+  function onTrayDrop(e) {
+    e.preventDefault()
+    const item = dragItemRef.current
+    if (item?.id) hideBlock(item.id)
+    resetDragState()
   }
 
   // ── Render helpers ─────────────────────────────────────────────────────────
   const blocks      = editMode ? draftBlocks : mergeBlocks(profile?.bento_config?.blocks)
+  const enabledBlocks = useMemo(() => blocks.filter(block => block.enabled), [blocks])
+  const availableBlocks = useMemo(() => blocks.filter(block => !block.enabled), [blocks])
+  const visibleBlocks = editMode ? enabledBlocks : blocks.filter(block => block.enabled)
+  const draggedBlockSpan = draggingId ? BLOCK_DEFS[draggingId]?.span : null
+  const showDropSlots = editMode && !!draggingId
   const accentColor = (editMode ? draftAccent : profile?.accent) || 'var(--gold)'
   const displayName = profile?.nickname || username
+
+  useLayoutEffect(() => {
+    if (!editMode || !bentoGridRef.current) return
+    const nodes = Array.from(bentoGridRef.current.querySelectorAll('[data-layout-key]'))
+    const nextRects = new Map()
+
+    nodes.forEach(node => {
+      const key = node.getAttribute('data-layout-key')
+      if (!key) return
+      const next = node.getBoundingClientRect()
+      const prev = layoutRectsRef.current.get(key)
+      nextRects.set(key, next)
+
+      if (!prev) return
+      const dx = prev.left - next.left
+      const dy = prev.top - next.top
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return
+
+      node.animate(
+        [
+          { transform: `translate(${dx}px, ${dy}px)` },
+          { transform: 'translate(0, 0)' },
+        ],
+        { duration: 170, easing: 'cubic-bezier(0.2, 0, 0, 1)' }
+      )
+    })
+
+    layoutRectsRef.current = nextRects
+  }, [editMode, draggingId, dropSlotIdx, visibleBlocks, draggedBlockSpan])
 
   function renderBlock(block) {
     const { stats, top_card, joined_at, collection_value, public_deck_count } = profile || {}
@@ -325,6 +421,15 @@ export default function ProfilePage() {
     if (span === 'full')  return styles.blockFull
     if (span === 'third') return styles.blockThird
     return styles.blockHalf
+  }
+
+  function dropSlotClass(idx) {
+    const smallSlot = draggedBlockSpan !== 'full'
+    return [
+      styles.dropSlot,
+      smallSlot ? styles.dropSlotSmall : '',
+      dropSlotIdx === idx ? styles.dropSlotActive : '',
+    ].filter(Boolean).join(' ')
   }
 
   if (loading) return (
@@ -384,44 +489,94 @@ export default function ProfilePage() {
       </div>
 
       {/* ── Bento grid ── */}
-      <div className={`${styles.bento}${editMode ? ' ' + styles.bentoEdit : ''}`}>
-        {editMode && (
-          <div className={styles.editHint}>Drag blocks to reorder · Toggle visibility</div>
-        )}
+      <div className={`${styles.bentoEditor}${editMode ? ' ' + styles.bentoEditorActive : ''}`}>
+        <div ref={bentoGridRef} className={`${styles.bento}${editMode ? ' ' + styles.bentoEdit : ''}`}>
+          {editMode && (
+            <div className={styles.editHint} data-layout-key="edit-hint">Drag profile cards into an outlined position. Drop cards in Available to remove them from the grid.</div>
+          )}
+          {showDropSlots && (
+            <>
+              <div
+                className={dropSlotClass(0)}
+                data-layout-key="slot-0"
+                onDragOver={(e) => onSlotDragOver(e, 0)}
+                onDrop={(e) => onSlotDrop(e, 0)}
+                aria-hidden="true"
+              />
+            </>
+          )}
 
-        {blocks.map((block, idx) => {
+          {visibleBlocks.map((block, idx) => {
           const def = BLOCK_DEFS[block.id]
           if (!def) return null
-          if (!editMode && !block.enabled) return null
+          const isDragging = draggingId === block.id
 
-          const dragOverClass = dragOverIdx === idx ? styles.blockDragOver : ''
-
-          return (
+          return [
             <div
               key={block.id}
-              className={`${styles.blockOuter} ${spanClass(block.id)} ${dragOverClass}`}
+              className={`${styles.blockOuter} ${spanClass(block.id)} ${isDragging ? styles.blockDragging : ''}`}
+              data-layout-key={`block-${block.id}`}
               draggable={editMode}
-              onDragStart={() => onDragStart(idx)}
-              onDragOver={(e) => onDragOver(e, idx)}
-              onDrop={() => onDrop(idx)}
-              onDragEnd={onDragEnd}
+                onDragStart={(e) => onBlockDragStart(e, block.id)}
+              onDragEnd={resetDragState}
             >
               {editMode && (
                 <div className={styles.blockEditBar}>
                   <span className={styles.blockDragHandle}>⠿</span>
                   <span className={styles.blockEditLabel}>{def.label}</span>
-                  <button
-                    className={`${styles.blockToggle}${block.enabled ? ' ' + styles.blockToggleOn : ''}`}
-                    onClick={() => toggleBlock(idx)}
-                  >
-                    {block.enabled ? 'Visible' : 'Hidden'}
-                  </button>
                 </div>
               )}
-              {block.enabled && renderBlock(block)}
+              {renderBlock(block)}
             </div>
-          )
-        })}
+            ,
+            showDropSlots && (
+              <div
+                key={`slot-${idx + 1}`}
+                className={dropSlotClass(idx + 1)}
+                data-layout-key={`slot-${idx + 1}`}
+                onDragOver={(e) => onSlotDragOver(e, idx + 1)}
+                onDrop={(e) => onSlotDrop(e, idx + 1)}
+                aria-hidden="true"
+              />
+            ),
+          ]
+          })}
+        </div>
+
+        {editMode && (
+          <aside
+            className={`${styles.availablePanel} ${trayDropActive ? styles.availablePanelActive : ''}`}
+            onDragOver={onTrayDragOver}
+            onDragLeave={() => setTrayDropActive(false)}
+            onDrop={onTrayDrop}
+          >
+            <div className={styles.availableTitle}>Available</div>
+            <div className={styles.availableSub}>Drag cards here to hide them from the profile.</div>
+            <div className={styles.availableList}>
+              {availableBlocks.length === 0 ? (
+                <div className={styles.availableEmpty}>All cards are on the grid.</div>
+              ) : availableBlocks.map(block => {
+                const def = BLOCK_DEFS[block.id]
+                if (!def) return null
+                return (
+                  <div
+                    key={block.id}
+                    className={`${styles.availableItem} ${draggingId === block.id ? styles.availableItemDragging : ''}`}
+                    draggable
+                    onDragStart={(e) => onBlockDragStart(e, block.id)}
+                    onDragEnd={resetDragState}
+                  >
+                    <span className={styles.blockDragHandle}>⠿</span>
+                    <span className={styles.availableItemText}>
+                      <span className={styles.availableItemName}>{def.label}</span>
+                      <span className={styles.availableItemSpan}>{def.span}</span>
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </aside>
+        )}
       </div>
     </div>
   )
