@@ -1,0 +1,29 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="_card.css"><title>Nav</title></head><body>
+<style>
+.nav { display:flex; align-items:center; gap:18px; height:60px; padding:0 22px; background:rgba(8,6,16,0.92); backdrop-filter:blur(14px) saturate(130%); border:1px solid var(--s-border); border-radius:10px; }
+.nav .brand { font-family:'Cinzel',serif; font-weight:700; font-size:14px; letter-spacing:0.18em; color:var(--text); }
+.nav .links { display:flex; gap:18px; margin-left:8px; }
+.nav .link { display:flex; align-items:center; gap:6px; font-family:'Cinzel',serif; font-weight:600; font-size:0.7rem; letter-spacing:0.1em; color:var(--text-dim); text-transform:uppercase; cursor:pointer; transition:color 0.15s; }
+.nav .link:hover { color:var(--text); }
+.nav .link.active { color:var(--gold); }
+.nav .spacer { flex:1; }
+.nav .btn { display:inline-flex; align-items:center; gap:6px; height:30px; padding:0 12px; border-radius:6px; border:1px solid rgba(201,168,76,0.45); background:rgba(201,168,76,0.12); color:var(--gold); font-family:'Cinzel',serif; font-weight:600; font-size:0.7rem; letter-spacing:0.08em; text-transform:uppercase; }
+.nav img { filter:brightness(0) saturate(100%) invert(70%) sepia(20%) saturate(400%) hue-rotate(355deg); }
+.nav .link.active img { filter:brightness(0) saturate(100%) invert(80%) sepia(50%) saturate(500%) hue-rotate(355deg); }
+</style>
+<div class="col" style="gap:12px">
+  <div class="label">Top navigation · desktop · glass</div>
+  <div class="nav">
+    <span class="brand">UNTAP&nbsp;HUB</span>
+    <span class="links">
+      <span class="link active"><img src="../assets/icons/home.svg" width="14"/>Home</span>
+      <span class="link"><img src="../assets/icons/collection.svg" width="14"/>Collection</span>
+      <span class="link"><img src="../assets/icons/binders.svg" width="14"/>Binders</span>
+      <span class="link"><img src="../assets/icons/decks.svg" width="14"/>Decks</span>
+      <span class="link"><img src="../assets/icons/stats.svg" width="14"/>Stats</span>
+    </span>
+    <span class="spacer"></span>
+    <span class="btn"><img src="../assets/icons/scanner.svg" width="14"/>Scan</span>
+  </div>
+</div>
+</body></html>

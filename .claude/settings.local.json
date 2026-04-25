@@ -65,7 +65,12 @@
       "mcp__mempalace__mempalace_add_drawer",
       "mcp__mempalace__mempalace_kg_add",
       "mcp__mempalace__mempalace_search",
-      "mcp__mempalace__mempalace_status"
+      "mcp__mempalace__mempalace_status",
+      "Bash(node --input-type=module)",
+      "Bash(npx --yes acorn --ecma2020 --module src/pages/Collection.jsx)",
+      "Bash(node -e ' *)",
+      "Bash(node -e \"require\\('fs'\\).readFileSync\\('src/pages/Collection.jsx','utf8'\\)\")",
+      "Bash(npx supabase *)"
     ]
   }
 }
