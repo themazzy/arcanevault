@@ -10,7 +10,20 @@ import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 import { CheckIcon, DeleteIcon, EditIcon, ChevronDownIcon } from '../icons'
 
-const COLOR_LABEL = { W: '#f8f0d8', U: '#4488cc', B: '#8855aa', R: '#cc4444', G: '#44884a', C: '#aaaaaa' }
+const MANA_SYMBOL_URL = c => `https://svgs.scryfall.io/card-symbols/${c}.svg`
+
+function fmtRelDate(iso) {
+  if (!iso) return null
+  const diff = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 2) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(diff / 3600000)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(diff / 86400000)
+  if (days < 7) return `${days}d ago`
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
 
 // Session-level image cache
 const _artCache = {}
@@ -81,6 +94,9 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
             {isUnsynced && (
               <span className={styles.unsyncedBadge}>Unsynced</span>
             )}
+            {meta.is_public && (
+              <span className={styles.publicBadge}>Public</span>
+            )}
           </div>
         </div>
 
@@ -92,7 +108,7 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
           {colors.length > 0 && (
             <div className={styles.colorPips}>
               {colors.map(c => (
-                <span key={c} className={styles.colorPip} style={{ background: COLOR_LABEL[c] || '#666' }} title={c} />
+                <img key={c} className={styles.colorPip} src={MANA_SYMBOL_URL(c)} alt={c} title={c} />
               ))}
             </div>
           )}
@@ -106,6 +122,7 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
               >
                 <EditIcon size={12} /> Edit
               </Link>
+              <div className={styles.editedDate}>{fmtRelDate(deck.updated_at)}</div>
               <button
                 className={styles.deleteBtn}
                 onClick={e => { e.stopPropagation(); onDelete(deck.id) }}
@@ -121,8 +138,14 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
   )
 }
 
-function CommunityDeckTile({ deck, meta, fmt, isOwn, navigate }) {
-  const colors    = meta.commanderColorIdentity || []
+const COMMUNITY_COLOR_ORDER = ['W', 'U', 'B', 'R', 'G', 'C']
+
+function CommunityDeckTile({ deck, meta, fmt, isOwn, creatorNick, navigate }) {
+  // Prefer colors aggregated from actual deck cards; fall back to stored commander identity
+  const rawColors = deck.deck_color_identity
+  const colors = rawColors && rawColors.length > 0
+    ? COMMUNITY_COLOR_ORDER.filter(c => rawColors.includes(c))
+    : (meta.commanderColorIdentity || [])
   const commander = meta.commanderName || null
   const tags      = meta.tags || []
   const art       = meta.coverArtUri || null
@@ -133,9 +156,14 @@ function CommunityDeckTile({ deck, meta, fmt, isOwn, navigate }) {
       <div className={styles.cardContent}>
         <div className={styles.cardTop}>
           <div className={styles.cardBadges}>
-            <span className={styles.formatBadge}>{fmt?.label || 'Builder'}</span>
+            {deck.type === 'deck'
+              ? <span className={styles.collectionBadge}>Collection</span>
+              : <span className={styles.formatBadge}>{fmt?.label || 'Builder'}</span>
+            }
+            {deck.type === 'deck' && fmt && <span className={styles.formatBadge}>{fmt.label}</span>}
             {isOwn && <span className={styles.collectionBadge}>Yours</span>}
           </div>
+          {creatorNick && !isOwn && <div className={styles.creatorNick}>by <Link to={`/profile/${encodeURIComponent(creatorNick)}`} className={styles.creatorNickLink} onClick={e => e.stopPropagation()}>{creatorNick}</Link></div>}
         </div>
         <div className={styles.cardBottom}>
           <div className={styles.cardName}>{deck.name}</div>
@@ -143,7 +171,7 @@ function CommunityDeckTile({ deck, meta, fmt, isOwn, navigate }) {
           {colors.length > 0 && (
             <div className={styles.colorPips}>
               {colors.map(c => (
-                <span key={c} className={styles.colorPip} style={{ background: COLOR_LABEL[c] || '#888' }} />
+                <img key={c} className={styles.colorPip} src={MANA_SYMBOL_URL(c)} alt={c} title={c} />
               ))}
             </div>
           )}
@@ -161,6 +189,7 @@ function CommunityDeckTile({ deck, meta, fmt, isOwn, navigate }) {
             >
               <EditIcon size={12} /> View
             </button>
+            <div className={styles.editedDate}>{fmtRelDate(deck.updated_at)}</div>
           </div>
         </div>
       </div>
@@ -187,6 +216,7 @@ export default function BuilderPage() {
 
   const [pageTab, setPageTab]               = useState('my')
   const [communityDecks, setCommunityDecks] = useState([])
+  const [communityNicks, setCommunityNicks] = useState({})
   const [communityLoading, setCommunityLoading] = useState(false)
   const [communityLoaded,  setCommunityLoaded]  = useState(false)
   const [communitySearch,  setCommunitySearch]  = useState('')
@@ -194,21 +224,20 @@ export default function BuilderPage() {
 
   const [search, setSearch]         = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
+  const [visFilter, setVisFilter]   = useState('all')
   const [sortBy, setSortBy]         = useState('updated')
 
   const [selectMode, setSelectMode]   = useState(false)
   const [selectedIds, setSelectedIds] = useState(new Set())
 
+  const COLOR_ORDER = ['W', 'U', 'B', 'R', 'G', 'C']
+
   useEffect(() => { loadDecks() }, [])
 
   async function loadDecks() {
     setLoading(true)
-    const { data } = await sb.from('folders')
-      .select('*')
-      .eq('user_id', user.id)
-      .in('type', ['builder_deck', 'deck'])
-      .order('updated_at', { ascending: false })
-    const nonGroupDecks = (data || []).filter(f => {
+    const { data } = await sb.rpc('get_my_decks', { p_user_id: user.id })
+    const nonGroupDecks = (Array.isArray(data) ? data : []).filter(f => {
       try {
         const m = JSON.parse(f.description || '{}')
         if (m.isGroup || m.hideFromBuilder) return false
@@ -221,17 +250,20 @@ export default function BuilderPage() {
   }
 
   async function loadCommunityDecks() {
-    if (communityLoaded) return
+    if (communityLoading) return
     setCommunityLoading(true)
     try {
-      const { data } = await sb.from('folders')
-        .select('id,name,description,user_id,updated_at')
-        .eq('type', 'builder_deck')
-        .ilike('description', '%"is_public":true%')
-        .order('updated_at', { ascending: false })
-        .limit(100)
-      setCommunityDecks(data || [])
+      const { data } = await sb.rpc('get_community_decks')
+      const decks = Array.isArray(data) ? data : []
+      setCommunityDecks(decks)
       setCommunityLoaded(true)
+      // Batch-fetch nicknames for all unique creators
+      const uniqueIds = [...new Set(decks.map(d => d.user_id).filter(Boolean))]
+      Promise.all(uniqueIds.map(id =>
+        sb.rpc('get_user_nickname', { p_user_id: id }).then(({ data: nick }) => [id, nick])
+      )).then(pairs => {
+        setCommunityNicks(Object.fromEntries(pairs.filter(([, nick]) => nick)))
+      }).catch(() => {})
     } catch {
       setCommunityDecks([])
     } finally {
@@ -331,6 +363,11 @@ export default function BuilderPage() {
       if (search && !d.name.toLowerCase().includes(search.toLowerCase())) return false
       if (typeFilter === 'builder' && d.type !== 'builder_deck') return false
       if (typeFilter === 'collection' && d.type !== 'deck') return false
+      if (visFilter !== 'all') {
+        const isPublic = !!(parseDeckMeta(d.description).is_public)
+        if (visFilter === 'public' && !isPublic) return false
+        if (visFilter === 'private' && isPublic) return false
+      }
       return true
     })
     .sort((a, b) => {
@@ -384,6 +421,15 @@ export default function BuilderPage() {
               <button key={v}
                 className={`${styles.filterPill}${typeFilter === v ? ' ' + styles.filterPillActive : ''}`}
                 onClick={() => setTypeFilter(v)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className={styles.filterGroup}>
+            {[['all','All'],['public','Public'],['private','Private']].map(([v, label]) => (
+              <button key={v}
+                className={`${styles.filterPill}${visFilter === v ? ' ' + styles.filterPillActive : ''}`}
+                onClick={() => setVisFilter(v)}>
                 {label}
               </button>
             ))}
@@ -445,9 +491,12 @@ export default function BuilderPage() {
         {!loading && filtered.length > 0 && (
           <div className={styles.grid}>
             {filtered.map(deck => {
-              const meta   = parseDeckMeta(deck.description)
-              const fmt    = FORMATS.find(f => f.id === (meta.format || 'commander'))
-              const colors = meta.commanderColorIdentity || []
+              const meta      = parseDeckMeta(deck.description)
+              const fmt       = FORMATS.find(f => f.id === (meta.format || 'commander'))
+              const rawColors = deck.deck_color_identity
+              const colors    = rawColors && rawColors.length > 0
+                ? COLOR_ORDER.filter(c => rawColors.includes(c))
+                : (meta.commanderColorIdentity || [])
               return (
                 <DeckTile
                   key={deck.id}
@@ -511,6 +560,7 @@ export default function BuilderPage() {
                   meta={meta}
                   fmt={fmt}
                   isOwn={isOwn}
+                  creatorNick={communityNicks[deck.user_id] || null}
                   navigate={navigate}
                 />
               )

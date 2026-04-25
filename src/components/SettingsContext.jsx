@@ -301,9 +301,78 @@ export const THEMES = {
     glow: '0 0 18px rgba(68,184,176,0.18)',
     focus: '0 0 0 3px rgba(68,184,176,0.12)',
   }),
+
+  // ── Premium themes ──────────────────────────────────────────────────────────
+  obsidian: createDarkTheme({
+    name: 'Obsidian Night',
+    lore: 'Pure void, electric violet, and distant nebulae',
+    bg: '#000000',
+    bg2: '#050508',
+    bg3: '#0b0910',
+    accent: '#b08fff',
+    accentDim: '#8060d0',
+    hi: '#60b0ff',
+    text: '#e8e0f8',
+    textDim: '#a098c8',
+    textFaint: '#6a6090',
+    border: 'rgba(160,128,255,0.18)',
+    borderHi: 'rgba(176,143,255,0.52)',
+    glow: '0 0 28px rgba(160,128,255,0.32)',
+    focus: '0 0 0 3px rgba(160,128,255,0.18)',
+  }),
+  crimson_court: createDarkTheme({
+    name: 'Crimson Court',
+    lore: 'Blood velvet, vampire halls, and aged gold candlelight',
+    bg: '#0d0103',
+    bg2: '#160308',
+    bg3: '#1e040b',
+    accent: '#cc2244',
+    accentDim: '#991833',
+    hi: '#d4903a',
+    text: '#f0d8d0',
+    textDim: '#c09080',
+    textFaint: '#906068',
+    border: 'rgba(180,28,58,0.22)',
+    borderHi: 'rgba(204,34,68,0.55)',
+    glow: '0 0 28px rgba(200,30,60,0.34)',
+    focus: '0 0 0 3px rgba(200,30,60,0.18)',
+  }),
+  verdant_realm: createDarkTheme({
+    name: 'Verdant Realm',
+    lore: 'Bioluminescent spores, forest void, and emerald heartwood',
+    bg: '#020d05',
+    bg2: '#071509',
+    bg3: '#0e1e11',
+    accent: '#3dba74',
+    accentDim: '#2e9059',
+    hi: '#7fd4a0',
+    text: '#d8f0e0',
+    textDim: '#88b898',
+    textFaint: '#608070',
+    border: 'rgba(50,170,100,0.20)',
+    borderHi: 'rgba(61,186,116,0.50)',
+    glow: '0 0 28px rgba(50,180,100,0.28)',
+    focus: '0 0 0 3px rgba(50,180,100,0.14)',
+  }),
+}
+
+export const PREMIUM_THEMES = new Set(['obsidian', 'crimson_court', 'verdant_realm'])
+
+const DEFAULT_BENTO_CONFIG = {
+  blocks: [
+    { id: 'bio',        enabled: true  },
+    { id: 'total',      enabled: true  },
+    { id: 'unique',     enabled: true  },
+    { id: 'since',      enabled: true  },
+    { id: 'value',      enabled: false },
+    { id: 'deck_count', enabled: true  },
+    { id: 'crown',      enabled: false },
+    { id: 'decks',      enabled: true  },
+  ],
 }
 
 const DEFAULTS = {
+  premium: false,
   price_source: 'cardmarket_trend',
   default_sort: 'name',
   grid_density: 'comfortable',
@@ -325,7 +394,13 @@ const DEFAULTS = {
   default_grouping: 'type',
   keep_screen_awake: false,
   show_sync_errors: false,
+  // Profile
+  profile_bio: '',
+  profile_accent: '',
+  profile_config: DEFAULT_BENTO_CONFIG,
 }
+
+export { DEFAULT_BENTO_CONFIG }
 
 const OLED_VARS = {
   '--bg': '#000000',
@@ -386,6 +461,37 @@ function cacheThemeVars(themeId, oledMode) {
   } catch {}
 }
 
+function injectPremiumAmbient(themeId) {
+  const isPremium = PREMIUM_THEMES.has(themeId)
+  let el = document.getElementById('av-premium-ambient')
+
+  if (!isPremium) {
+    if (el) {
+      el.style.opacity = '0'
+      setTimeout(() => el?.remove(), 1200)
+    }
+    return
+  }
+
+  if (!el) {
+    el = document.createElement('div')
+    el.id = 'av-premium-ambient'
+    el.setAttribute('aria-hidden', 'true')
+    el.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:0;transition:opacity 1.2s ease,background 1.5s ease;opacity:0;'
+    document.body.appendChild(el)
+  }
+
+  const gradients = {
+    obsidian: 'radial-gradient(ellipse 55% 45% at 15% 20%, rgba(160,128,255,0.09) 0%, transparent 60%), radial-gradient(ellipse 50% 40% at 85% 80%, rgba(96,176,255,0.07) 0%, transparent 60%)',
+    crimson_court: 'radial-gradient(ellipse 45% 60% at 5% 50%, rgba(200,34,68,0.10) 0%, transparent 50%), radial-gradient(ellipse 40% 55% at 95% 50%, rgba(212,144,58,0.08) 0%, transparent 50%)',
+    verdant_realm: 'radial-gradient(ellipse 50% 45% at 25% 75%, rgba(61,186,116,0.10) 0%, transparent 55%), radial-gradient(ellipse 45% 40% at 75% 25%, rgba(127,212,160,0.08) 0%, transparent 55%)',
+  }
+
+  el.style.background = gradients[themeId] || ''
+  el.dataset.theme = themeId
+  requestAnimationFrame(() => { if (el) el.style.opacity = '1' })
+}
+
 export function applyTheme(themeId, oledMode) {
   const theme = THEMES[themeId] || THEMES.shadow
   const root = document.documentElement
@@ -416,6 +522,7 @@ export function applyTheme(themeId, oledMode) {
     root.removeAttribute('data-oled')
   }
 
+  injectPremiumAmbient(themeId)
   cacheThemeVars(themeId, oledMode)
 }
 
@@ -431,6 +538,7 @@ export function maskEmailAddress(email, hidden) {
 
 const SettingsContext = createContext({
   ...DEFAULTS,
+  premium: false,
   save: () => {},
   loaded: false,
   syncNow: async () => ({ ok: false }),
@@ -478,15 +586,15 @@ export function SettingsProvider({ children }) {
 
   useEffect(() => {
     const root = document.documentElement
-    root.style.setProperty('--user-font-weight', String(settings.font_weight ?? 420))
-    root.style.setProperty('--user-font-size', `${settings.font_size ?? 16}px`)
-  }, [settings.font_weight, settings.font_size])
+    root.style.setProperty('--user-font-weight', user ? String(settings.font_weight ?? 420) : '420')
+    root.style.setProperty('--user-font-size', user ? `${settings.font_size ?? 16}px` : '16px')
+  }, [user, settings.font_weight, settings.font_size])
 
   useEffect(() => {
     const root = document.documentElement
-    if (settings.body_font === 'sans') root.setAttribute('data-font', 'sans')
+    if (user && settings.body_font === 'sans') root.setAttribute('data-font', 'sans')
     else root.removeAttribute('data-font')
-  }, [settings.body_font])
+  }, [user, settings.body_font])
 
   useEffect(() => {
     const root = document.documentElement
@@ -495,16 +603,18 @@ export function SettingsProvider({ children }) {
       default: { base: '0.68rem', tight: '0.60rem', list: '0.88rem' },
       large:   { base: '0.76rem', tight: '0.68rem', list: '0.96rem' },
     }
-    const next = sizes[settings.card_name_size] || sizes.default
+    const next = user ? (sizes[settings.card_name_size] || sizes.default) : sizes.default
     root.style.setProperty('--card-name-size', next.base)
     root.style.setProperty('--card-name-size-tight', next.tight)
     root.style.setProperty('--card-name-size-list', next.list)
-  }, [settings.card_name_size])
+  }, [user, settings.card_name_size])
 
   useEffect(() => {
-    applyTheme(settings.theme, settings.oled_mode)
+    const themeId = user ? settings.theme : 'shadow'
+    const oledMode = user ? settings.oled_mode : false
+    applyTheme(themeId, oledMode)
 
-    if (settings.higher_contrast) {
+    if (user && settings.higher_contrast) {
       const root = document.documentElement
       const theme = THEMES[settings.theme] || THEMES.shadow
       const contrastVars = theme.mode === 'light' ? LIGHT_CONTRAST_VARS : DARK_CONTRAST_VARS
@@ -512,19 +622,45 @@ export function SettingsProvider({ children }) {
         root.style.setProperty(key, value)
       })
     }
-  }, [settings.theme, settings.oled_mode, settings.higher_contrast])
+  }, [user, settings.theme, settings.oled_mode, settings.higher_contrast])
 
   useEffect(() => {
     const root = document.documentElement
-    if (settings.reduce_motion) root.setAttribute('data-reduce-motion', 'true')
+    if (user && settings.reduce_motion) root.setAttribute('data-reduce-motion', 'true')
     else root.removeAttribute('data-reduce-motion')
-  }, [settings.reduce_motion])
+  }, [user, settings.reduce_motion])
 
   useEffect(() => {
     const root = document.documentElement
-    if (settings.higher_contrast) root.setAttribute('data-high-contrast', 'true')
+    if (user && settings.higher_contrast) root.setAttribute('data-high-contrast', 'true')
     else root.removeAttribute('data-high-contrast')
-  }, [settings.higher_contrast])
+  }, [user, settings.higher_contrast])
+
+  // Detect Stripe Payment Link success redirect (?premium_unlocked=true)
+  useEffect(() => {
+    if (!user?.id) return
+    const params = new URLSearchParams(window.location.search)
+    if (!params.get('premium_unlocked')) return
+
+    params.delete('premium_unlocked')
+    const newSearch = params.toString()
+    const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : '') + window.location.hash
+    window.history.replaceState({}, '', newUrl)
+
+    const grant = async () => {
+      // Optimistic local update
+      setSettings(prev => {
+        const next = { ...prev, premium: true }
+        saveLocal(next)
+        return next
+      })
+      await sb.from('user_settings').upsert(
+        { user_id: user.id, premium: true, updated_at: new Date().toISOString() },
+        { onConflict: 'user_id' }
+      )
+    }
+    grant()
+  }, [user?.id])
 
   const performSync = useCallback(async (next) => {
     if (!user) return { ok: false, skipped: true }
@@ -535,7 +671,7 @@ export function SettingsProvider({ children }) {
         price_source, default_sort, grid_density, show_price, cache_ttl_h,
         binder_sort, deck_sort, list_sort, font_weight, font_size, body_font, theme, oled_mode, nickname,
         anonymize_email, reduce_motion, higher_contrast, card_name_size, default_grouping,
-        keep_screen_awake, show_sync_errors,
+        keep_screen_awake, show_sync_errors, premium,
       } = next
       const { error } = await sb.from('user_settings').upsert(
         {
@@ -543,7 +679,7 @@ export function SettingsProvider({ children }) {
           price_source, default_sort, grid_density, show_price, cache_ttl_h,
           binder_sort, deck_sort, list_sort, font_weight, font_size, body_font, theme, oled_mode, nickname,
           anonymize_email, reduce_motion, higher_contrast, card_name_size, default_grouping,
-          keep_screen_awake, show_sync_errors,
+          keep_screen_awake, show_sync_errors, premium,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'user_id' }

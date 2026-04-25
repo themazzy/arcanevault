@@ -28,7 +28,7 @@ const TABS = [
 
 export default function Layout({ children }) {
   const { user } = useAuth()
-  const { keep_screen_awake } = useSettings()
+  const { keep_screen_awake, premium } = useSettings()
   const navigate = useNavigate()
   const location = useLocation()
   const isNative = Capacitor.isNativePlatform()
@@ -181,6 +181,7 @@ export default function Layout({ children }) {
               </NavLink>
 
               <div className={styles.userBar}>
+                {premium && <span className={styles.premiumBadge}>✦ Premium</span>}
                 <span className={styles.userName}>{displayEmail}</span>
                 <button
                   className={styles.feedbackBtn}

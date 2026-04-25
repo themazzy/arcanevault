@@ -922,7 +922,7 @@
 /* Skeleton */
 .skeletonLayout { display: grid; grid-template-columns: 240px 1fr; gap: 26px; }
 .skeletonImg, .skeletonBody {
-  background: linear-gradient(90deg, var(--s2) 25%, var(--s3) 50%, var(--s2) 75%);
+  background: linear-gradient(90deg, var(--shimmer-base) 25%, var(--shimmer-hi) 50%, var(--shimmer-base) 75%);
   background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 8px;
 }
 .skeletonImg { aspect-ratio: 5/7; }

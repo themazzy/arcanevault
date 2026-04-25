@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
 import { sb } from '../lib/supabase'
 import { useAuth } from './Auth'
 import { useSettings, THEMES } from './SettingsContext'
@@ -54,9 +54,25 @@ function SetupWizardModal({ onClose, isManual }) {
   const settings = useSettings()
   const [step, setStep] = useState(0)
   const [nickname, setNickname] = useState(settings.nickname || '')
+  const [nicknameStatus, setNicknameStatus] = useState('')
+  const nicknameTimer = useRef(null)
   const [finishing, setFinishing] = useState(false)
 
   const isLast = step === STEPS.length - 1
+
+  const handleNicknameChange = (val) => {
+    setNickname(val)
+    clearTimeout(nicknameTimer.current)
+    if (!val.trim()) { setNicknameStatus(''); return }
+    if (val.trim().toLowerCase() === (settings.nickname || '').toLowerCase()) {
+      setNicknameStatus(''); return
+    }
+    setNicknameStatus('checking')
+    nicknameTimer.current = setTimeout(async () => {
+      const { data } = await sb.rpc('is_username_available', { p_username: val.trim() })
+      setNicknameStatus(data ? 'available' : 'taken')
+    }, 600)
+  }
 
   const complete = async () => {
     setFinishing(true)
@@ -100,7 +116,7 @@ function SetupWizardModal({ onClose, isManual }) {
           {step === 1 && <ThemeStep settings={settings} />}
           {step === 2 && <TextStep settings={settings} />}
           {step === 3 && <PriceStep settings={settings} />}
-          {step === 4 && <ProfileStep nickname={nickname} onChange={setNickname} />}
+          {step === 4 && <ProfileStep nickname={nickname} onChange={handleNicknameChange} status={nicknameStatus} />}
           {step === 5 && <DoneStep />}
         </div>
 
@@ -421,11 +437,11 @@ function PriceStep({ settings }) {
   )
 }
 
-function ProfileStep({ nickname, onChange }) {
+function ProfileStep({ nickname, onChange, status }) {
   return (
     <div className={styles.stepContent}>
       <h2 className={styles.stepTitle}>What should we call you?</h2>
-      <p className={styles.stepDesc}>Your nickname appears in multiplayer lobbies and tournaments. You can leave it blank and set it later.</p>
+      <p className={styles.stepDesc}>Your nickname is your identity across the app and your public profile URL. You can leave it blank and set it later.</p>
       <input
         className={styles.nicknameInput}
         type="text"
@@ -435,7 +451,12 @@ function ProfileStep({ nickname, onChange }) {
         maxLength={24}
         autoFocus
       />
-      <div className={styles.nicknameMeta}>{nickname.length} / 24 characters</div>
+      <div className={styles.nicknameMeta}>
+        <span>{nickname.length} / 24 characters</span>
+        {status === 'checking'  && <span className={styles.nicknameChecking}>Checking…</span>}
+        {status === 'available' && <span className={styles.nicknameAvailable}>✓ Available</span>}
+        {status === 'taken'     && <span className={styles.nicknameTaken}>Already taken — try another</span>}
+      </div>
     </div>
   )
 }

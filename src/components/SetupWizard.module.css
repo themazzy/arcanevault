@@ -319,9 +319,14 @@
 .nicknameMeta {
   font-size: 0.75rem;
   color: var(--text-faint);
-  text-align: right;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-top: -8px;
 }
+.nicknameChecking { color: var(--text-faint); font-style: italic; }
+.nicknameAvailable { color: var(--green); }
+.nicknameTaken { color: var(--red); }
 
 /* ── Toggle ── */
 .toggle {
@@ -467,7 +472,7 @@
   padding: 4px;
 }
 .densityCardImgSkeleton {
-  background: linear-gradient(90deg, var(--s2) 25%, var(--s3) 50%, var(--s2) 75%);
+  background: linear-gradient(90deg, var(--shimmer-base) 25%, var(--shimmer-hi) 50%, var(--shimmer-base) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.4s infinite;
 }

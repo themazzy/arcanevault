@@ -23,7 +23,7 @@ window.addEventListener('unhandledrejection', e => _pushArcaneError('unhandledre
 // Register Service Worker for image caching
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js')
+    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`)
       .then(reg => reg.active?.postMessage('trim'))
       .catch(() => {})
   })

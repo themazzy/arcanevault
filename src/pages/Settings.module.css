@@ -104,6 +104,27 @@
 .input:focus { border-color: var(--border-hi); box-shadow: var(--input-focus); }
 .input::placeholder { color: var(--text-faint); }
 .pwError { font-size: 0.8rem; color: var(--red); margin-top: 6px; }
+
+/* Username row */
+.usernameRow { display: flex; align-items: center; gap: 8px; }
+.usernameHint, .usernameOk, .usernameTaken, .usernameInvalid {
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+.usernameHint  { color: var(--text-faint); }
+.usernameOk    { color: var(--green); }
+.usernameTaken { color: var(--red); }
+.usernameInvalid { color: var(--text-faint); }
+.usernameSaveBtn {
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid rgba(201,168,76,0.35);
+  background: rgba(201,168,76,0.12);
+  color: var(--gold);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+.usernameSaveBtn:hover { background: rgba(201,168,76,0.22); }
 .pwMsg { font-size: 0.8rem; color: var(--green); margin-top: 6px; }
 
 .appVersion {
@@ -836,4 +857,165 @@
   .supportGrid {
     grid-template-columns: 1fr;
   }
+}
+
+/* ── Premium lock overlay on theme swatch ────────────────────────────────── */
+.themeSwatchLocked {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.themeSwatchLocked:hover {
+  transform: none;
+  border-color: color-mix(in srgb, var(--swatch-text, #ffffff) 10%, transparent);
+  box-shadow: none;
+}
+
+.swatchLockOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.45);
+  backdrop-filter: blur(2px);
+  border-radius: 2px;
+}
+
+.swatchLockIcon {
+  font-size: 1.1rem;
+  filter: drop-shadow(0 0 6px rgba(0,0,0,0.8));
+}
+
+/* Star badge on premium theme name */
+.premiumStar {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 0.55rem;
+  color: var(--swatch-accent, var(--gold));
+  vertical-align: middle;
+  opacity: 0.9;
+}
+.premiumStarLocked {
+  opacity: 0.5;
+}
+
+/* ── Premium unlock section ──────────────────────────────────────────────── */
+.premiumUnlocked {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(201,168,76,0.35);
+  background:
+    linear-gradient(135deg, rgba(201,168,76,0.12) 0%, rgba(138,111,196,0.08) 100%),
+    var(--overlay);
+}
+
+.premiumUnlockedStar {
+  font-size: 1.5rem;
+  color: var(--gold);
+  flex-shrink: 0;
+  filter: drop-shadow(0 0 8px rgba(201,168,76,0.5));
+}
+
+.premiumUnlockedTitle {
+  font-family: var(--font-display);
+  font-size: 0.88rem;
+  letter-spacing: 0.06em;
+  color: var(--gold);
+}
+
+.premiumUnlockedSub {
+  margin-top: 3px;
+  font-size: 0.76rem;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* Stripe button */
+.stripeWrap {
+  margin-top: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.stripeBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 22px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, rgba(201,168,76,0.22) 0%, rgba(138,111,196,0.18) 100%);
+  border: 1px solid rgba(201,168,76,0.45);
+  color: var(--gold);
+  font-family: var(--font-display);
+  font-size: 0.88rem;
+  letter-spacing: 0.06em;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+  box-shadow: 0 4px 18px rgba(201,168,76,0.12);
+}
+.stripeBtn:hover {
+  transform: translateY(-2px);
+  background: linear-gradient(135deg, rgba(201,168,76,0.30) 0%, rgba(138,111,196,0.25) 100%);
+  border-color: rgba(201,168,76,0.65);
+  box-shadow: 0 8px 28px rgba(201,168,76,0.22);
+}
+
+.stripeBtnStar {
+  font-size: 0.9rem;
+  opacity: 0.85;
+}
+
+.stripeNote {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+}
+
+/* Premium theme preview pills below the button */
+.premiumThemeRow {
+  margin-top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.premiumThemePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pill-bg, #000) 60%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pill-accent, var(--gold)) 40%, transparent);
+  font-size: 0.75rem;
+  color: var(--pill-accent, var(--gold));
+  transition: opacity 0.2s;
+}
+
+.premiumThemePillLocked {
+  opacity: 0.55;
+}
+
+.premiumThemePillDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.premiumThemePillName {
+  font-family: var(--font-display);
+  letter-spacing: 0.04em;
+}
+
+.premiumThemePillLock {
+  font-size: 0.65rem;
+  opacity: 0.7;
 }
