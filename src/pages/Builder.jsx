@@ -221,6 +221,8 @@ export default function BuilderPage() {
   const [communityLoaded,  setCommunityLoaded]  = useState(false)
   const [communitySearch,  setCommunitySearch]  = useState('')
   const [communityFormat,  setCommunityFormat]  = useState('all')
+  const [communityPage,    setCommunityPage]    = useState(1)
+  const COMMUNITY_PAGE_SIZE = 36
 
   const [search, setSearch]         = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
@@ -386,6 +388,8 @@ export default function BuilderPage() {
     if (communityFormat !== 'all' && meta.format !== communityFormat) return false
     return true
   })
+  const communityTotalPages = Math.max(1, Math.ceil(filteredCommunity.length / COMMUNITY_PAGE_SIZE))
+  const communityPageDecks  = filteredCommunity.slice((communityPage - 1) * COMMUNITY_PAGE_SIZE, communityPage * COMMUNITY_PAGE_SIZE)
 
   return (
     <div className={styles.page}>
@@ -523,14 +527,14 @@ export default function BuilderPage() {
           <input
             className={styles.filterInput}
             value={communitySearch}
-            onChange={e => setCommunitySearch(e.target.value)}
+            onChange={e => { setCommunitySearch(e.target.value); setCommunityPage(1) }}
             placeholder="Search community decks…"
           />
           <div className={styles.filterGroup}>
             {[['all','All'],['commander','Commander'],['standard','Standard'],['modern','Modern'],['pioneer','Pioneer'],['legacy','Legacy']].map(([v, label]) => (
               <button key={v}
                 className={`${styles.filterPill}${communityFormat === v ? ' ' + styles.filterPillActive : ''}`}
-                onClick={() => setCommunityFormat(v)}>
+                onClick={() => { setCommunityFormat(v); setCommunityPage(1) }}>
                 {label}
               </button>
             ))}
@@ -548,24 +552,43 @@ export default function BuilderPage() {
         )}
 
         {!communityLoading && filteredCommunity.length > 0 && (
-          <div className={styles.grid}>
-            {filteredCommunity.map(deck => {
-              const meta  = parseDeckMeta(deck.description)
-              const fmt   = FORMATS.find(f => f.id === (meta.format || 'commander'))
-              const isOwn = deck.user_id === user?.id
-              return (
-                <CommunityDeckTile
-                  key={deck.id}
-                  deck={deck}
-                  meta={meta}
-                  fmt={fmt}
-                  isOwn={isOwn}
-                  creatorNick={communityNicks[deck.user_id] || null}
-                  navigate={navigate}
-                />
-              )
-            })}
-          </div>
+          <>
+            <div className={styles.grid}>
+              {communityPageDecks.map(deck => {
+                const meta  = parseDeckMeta(deck.description)
+                const fmt   = FORMATS.find(f => f.id === (meta.format || 'commander'))
+                const isOwn = deck.user_id === user?.id
+                return (
+                  <CommunityDeckTile
+                    key={deck.id}
+                    deck={deck}
+                    meta={meta}
+                    fmt={fmt}
+                    isOwn={isOwn}
+                    creatorNick={communityNicks[deck.user_id] || null}
+                    navigate={navigate}
+                  />
+                )
+              })}
+            </div>
+            {communityTotalPages > 1 && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '16px 0' }}>
+                <button
+                  onClick={() => setCommunityPage(p => Math.max(1, p - 1))}
+                  disabled={communityPage === 1}
+                  style={{ padding: '5px 14px', background: 'var(--s3)', border: '1px solid var(--s-border2)', borderRadius: 6, color: 'var(--text)', cursor: communityPage === 1 ? 'default' : 'pointer', opacity: communityPage === 1 ? 0.4 : 1 }}
+                >←</button>
+                <span style={{ fontSize: '0.82rem', color: 'var(--text-dim)' }}>
+                  Page {communityPage} of {communityTotalPages}
+                </span>
+                <button
+                  onClick={() => setCommunityPage(p => Math.min(communityTotalPages, p + 1))}
+                  disabled={communityPage === communityTotalPages}
+                  style={{ padding: '5px 14px', background: 'var(--s3)', border: '1px solid var(--s-border2)', borderRadius: 6, color: 'var(--text)', cursor: communityPage === communityTotalPages ? 'default' : 'pointer', opacity: communityPage === communityTotalPages ? 0.4 : 1 }}
+                >→</button>
+              </div>
+            )}
+          </>
         )}
       </>}
 
