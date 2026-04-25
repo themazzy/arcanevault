@@ -13,7 +13,7 @@ const BLOCK_DEFS = {
   since:      { label: 'Member Since',     span: 'third' },
   value:      { label: 'Est. Value',       span: 'third' },
   deck_count: { label: 'Public Decks',     span: 'third' },
-  crown:      { label: 'Crown Jewel',      span: 'half' },
+  crown:      { label: 'Crown Jewel',      span: 'third' },
   decks:      { label: 'Deck Showcase',    span: 'full' },
 }
 
@@ -191,16 +191,102 @@ export default function ProfilePage() {
   const [draftBlocks, setDraftBlocks] = useState([])
   const [saving, setSaving]           = useState(false)
 
-  const dragItemRef = useRef(null)
   const bentoGridRef = useRef(null)
   const layoutRectsRef = useRef(new Map())
+  const trayRef = useRef(null)
+  const blockElemsRef = useRef({})
+  const dragRef = useRef(null) // { id, dropBeforeId, trayActive }
   const [draggingId, setDraggingId] = useState(null)
-  const [dropSlotIdx, setDropSlotIdx] = useState(null)
+  const [ghostPos, setGhostPos] = useState(null)
+  const [dropBeforeId, setDropBeforeId] = useState(null)
   const [trayDropActive, setTrayDropActive] = useState(false)
 
+  // ── Pointer drag + edge-scroll ─────────────────────────────────────────────
+  useEffect(() => {
+    if (!draggingId) return
+
+    const EDGE_ZONE = 80, MAX_SPEED = 8
+    let rafId, lastY = 0
+    const step = () => {
+      const vh = window.innerHeight
+      let s = 0
+      if (lastY < EDGE_ZONE) s = -MAX_SPEED * (1 - lastY / EDGE_ZONE)
+      else if (lastY > vh - EDGE_ZONE) s = MAX_SPEED * (1 - (vh - lastY) / EDGE_ZONE)
+      if (s) window.scrollBy(0, s)
+      rafId = requestAnimationFrame(step)
+    }
+    rafId = requestAnimationFrame(step)
+
+    function findTarget(x, y) {
+      const tray = trayRef.current
+      if (tray) {
+        const r = tray.getBoundingClientRect()
+        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return 'tray'
+      }
+      for (const [id, el] of Object.entries(blockElemsRef.current)) {
+        if (!el || id === draggingId) continue
+        const r = el.getBoundingClientRect()
+        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return id
+      }
+      return '__end__'
+    }
+
+    function onMove(e) {
+      lastY = e.clientY
+      setGhostPos({ x: e.clientX, y: e.clientY })
+      const target = findTarget(e.clientX, e.clientY)
+      if (!dragRef.current) return
+      if (target === 'tray') {
+        dragRef.current.dropBeforeId = null
+        dragRef.current.trayActive = true
+        setDropBeforeId(null); setTrayDropActive(true)
+      } else {
+        dragRef.current.dropBeforeId = target
+        dragRef.current.trayActive = false
+        setDropBeforeId(target); setTrayDropActive(false)
+      }
+    }
+
+    function onUp() {
+      const drag = dragRef.current
+      if (drag) {
+        if (drag.trayActive) {
+          setDraftBlocks(prev => prev.map(b => b.id === drag.id ? { ...b, enabled: false } : b))
+        } else if (drag.dropBeforeId) {
+          setDraftBlocks(prev => {
+            const cur = prev.find(b => b.id === drag.id)
+            if (!cur) return prev
+            const rest = prev.filter(b => b.id !== drag.id)
+            const appendEnd = () => {
+              const li = rest.reduce((l, b, i) => b.enabled ? i : l, -1)
+              const n = [...rest]; n.splice(li + 1, 0, { ...cur, enabled: true }); return n
+            }
+            if (drag.dropBeforeId === '__end__') return appendEnd()
+            const idx = rest.findIndex(b => b.id === drag.dropBeforeId)
+            if (idx === -1) return appendEnd()
+            const n = [...rest]; n.splice(idx, 0, { ...cur, enabled: true }); return n
+          })
+        }
+      }
+      dragRef.current = null
+      setDraggingId(null); setGhostPos(null); setDropBeforeId(null); setTrayDropActive(false)
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+    return () => {
+      cancelAnimationFrame(rafId)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+    }
+  }, [draggingId])
+
   const decodedUsername = decodeURIComponent(username)
-  const isOwn = user && settings.nickname &&
-    decodedUsername.toLowerCase() === settings.nickname.toLowerCase()
+  const isOwn = !!(user && settings.nickname &&
+    decodedUsername.toLowerCase() === settings.nickname.toLowerCase())
+
   const ownProfileFallback = useMemo(() => ({
     user_id:      user?.id,
     nickname:     settings.nickname,
@@ -221,6 +307,9 @@ export default function ProfilePage() {
     settings.premium,
     settings.profile_config,
   ])
+  // Keep a ref so loadProfile can read the latest fallback without depending on it
+  const ownProfileFallbackRef = useRef(ownProfileFallback)
+  useEffect(() => { ownProfileFallbackRef.current = ownProfileFallback }, [ownProfileFallback])
 
   // ── Load ───────────────────────────────────────────────────────────────────
   const loadProfile = useCallback(async () => {
@@ -229,9 +318,9 @@ export default function ProfilePage() {
 
     const { data, error } = await sb.rpc('get_public_profile', { p_username: decodedUsername })
     if (error || !data) {
-        // Migration may not have run yet — fall back to local settings
+      // Migration may not have run yet — fall back to local settings
       if (isOwn) {
-        setProfile(ownProfileFallback)
+        setProfile(ownProfileFallbackRef.current)
         setPublicDecks([])
       } else {
         setNotFound(true)
@@ -245,7 +334,7 @@ export default function ProfilePage() {
       .then(({ data: decks }) => setPublicDecks(decks || []))
       .catch(() => {})
     setLoading(false)
-  }, [decodedUsername, isOwn, ownProfileFallback])
+  }, [decodedUsername, isOwn])
 
   useEffect(() => { loadProfile() }, [loadProfile])
 
@@ -285,71 +374,17 @@ export default function ProfilePage() {
     setSaving(false)
   }
 
-  // ── Drag-to-place blocks ───────────────────────────────────────────────────
-  function resetDragState() {
-    dragItemRef.current = null
-    setDraggingId(null)
-    setDropSlotIdx(null)
-    setTrayDropActive(false)
-  }
-
-  function placeBlockAtSlot(blockId, slotIdx) {
-    setDraftBlocks(prev => {
-      const current = prev.find(b => b.id === blockId)
-      if (!current) return prev
-
-      const withoutMoved = prev.filter(b => b.id !== blockId)
-      const enabledBlocks = withoutMoved.filter(b => b.enabled)
-      const insertBeforeId = enabledBlocks[slotIdx]?.id
-      const insertIdx = insertBeforeId
-        ? withoutMoved.findIndex(b => b.id === insertBeforeId)
-        : withoutMoved.reduce((last, b, i) => b.enabled ? i : last, -1) + 1
-
-      const next = [...withoutMoved]
-      next.splice(Math.max(0, insertIdx), 0, { ...current, enabled: true })
-      return next
-    })
-  }
-
+  // ── Drag helpers ───────────────────────────────────────────────────────────
   function hideBlock(blockId) {
     setDraftBlocks(prev => prev.map(b => b.id === blockId ? { ...b, enabled: false } : b))
   }
 
-  function onBlockDragStart(e, blockId) {
-    dragItemRef.current = { id: blockId }
+  function onDragHandlePointerDown(e, blockId) {
+    if (e.button !== 0) return
+    e.preventDefault()
+    dragRef.current = { id: blockId, dropBeforeId: null, trayActive: false }
     setDraggingId(blockId)
-    e.dataTransfer.effectAllowed = 'move'
-    e.dataTransfer.setData('text/plain', blockId)
-  }
-
-  function onSlotDragOver(e, slotIdx) {
-    if (!dragItemRef.current) return
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
-    setDropSlotIdx(slotIdx)
-    setTrayDropActive(false)
-  }
-
-  function onSlotDrop(e, slotIdx) {
-    e.preventDefault()
-    const item = dragItemRef.current
-    if (item?.id) placeBlockAtSlot(item.id, slotIdx)
-    resetDragState()
-  }
-
-  function onTrayDragOver(e) {
-    if (!dragItemRef.current) return
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
-    setDropSlotIdx(null)
-    setTrayDropActive(true)
-  }
-
-  function onTrayDrop(e) {
-    e.preventDefault()
-    const item = dragItemRef.current
-    if (item?.id) hideBlock(item.id)
-    resetDragState()
+    setGhostPos({ x: e.clientX, y: e.clientY })
   }
 
   // ── Render helpers ─────────────────────────────────────────────────────────
@@ -357,8 +392,6 @@ export default function ProfilePage() {
   const enabledBlocks = useMemo(() => blocks.filter(block => block.enabled), [blocks])
   const availableBlocks = useMemo(() => blocks.filter(block => !block.enabled), [blocks])
   const visibleBlocks = editMode ? enabledBlocks : blocks.filter(block => block.enabled)
-  const draggedBlockSpan = draggingId ? BLOCK_DEFS[draggingId]?.span : null
-  const showDropSlots = editMode && !!draggingId
   const accentColor = (editMode ? draftAccent : profile?.accent) || 'var(--gold)'
   const displayName = profile?.nickname || username
 
@@ -389,7 +422,7 @@ export default function ProfilePage() {
     })
 
     layoutRectsRef.current = nextRects
-  }, [editMode, draggingId, dropSlotIdx, visibleBlocks, draggedBlockSpan])
+  }, [editMode, draggingId, visibleBlocks])
 
   function renderBlock(block) {
     const { stats, top_card, joined_at, collection_value, public_deck_count } = profile || {}
@@ -421,15 +454,6 @@ export default function ProfilePage() {
     if (span === 'full')  return styles.blockFull
     if (span === 'third') return styles.blockThird
     return styles.blockHalf
-  }
-
-  function dropSlotClass(idx) {
-    const smallSlot = draggedBlockSpan !== 'full'
-    return [
-      styles.dropSlot,
-      smallSlot ? styles.dropSlotSmall : '',
-      dropSlotIdx === idx ? styles.dropSlotActive : '',
-    ].filter(Boolean).join(' ')
   }
 
   if (loading) return (
@@ -492,63 +516,48 @@ export default function ProfilePage() {
       <div className={`${styles.bentoEditor}${editMode ? ' ' + styles.bentoEditorActive : ''}`}>
         <div ref={bentoGridRef} className={`${styles.bento}${editMode ? ' ' + styles.bentoEdit : ''}`}>
           {editMode && (
-            <div className={styles.editHint} data-layout-key="edit-hint">Drag profile cards into an outlined position. Drop cards in Available to remove them from the grid.</div>
-          )}
-          {showDropSlots && (
-            <>
-              <div
-                className={dropSlotClass(0)}
-                data-layout-key="slot-0"
-                onDragOver={(e) => onSlotDragOver(e, 0)}
-                onDrop={(e) => onSlotDrop(e, 0)}
-                aria-hidden="true"
-              />
-            </>
+            <div className={styles.editHint} data-layout-key="edit-hint">Drag cards to reorder. Use ✕ to move a card to Available.</div>
           )}
 
-          {visibleBlocks.map((block, idx) => {
-          const def = BLOCK_DEFS[block.id]
-          if (!def) return null
-          const isDragging = draggingId === block.id
+          {visibleBlocks.map((block) => {
+            const def = BLOCK_DEFS[block.id]
+            if (!def) return null
+            const isDragging = draggingId === block.id
+            const isDropTarget = editMode && !!draggingId && dropBeforeId === block.id
 
-          return [
-            <div
-              key={block.id}
-              className={`${styles.blockOuter} ${spanClass(block.id)} ${isDragging ? styles.blockDragging : ''}`}
-              data-layout-key={`block-${block.id}`}
-              draggable={editMode}
-                onDragStart={(e) => onBlockDragStart(e, block.id)}
-              onDragEnd={resetDragState}
-            >
-              {editMode && (
-                <div className={styles.blockEditBar}>
-                  <span className={styles.blockDragHandle}>⠿</span>
-                  <span className={styles.blockEditLabel}>{def.label}</span>
-                </div>
-              )}
-              {renderBlock(block)}
-            </div>
-            ,
-            showDropSlots && (
+            return (
               <div
-                key={`slot-${idx + 1}`}
-                className={dropSlotClass(idx + 1)}
-                data-layout-key={`slot-${idx + 1}`}
-                onDragOver={(e) => onSlotDragOver(e, idx + 1)}
-                onDrop={(e) => onSlotDrop(e, idx + 1)}
-                aria-hidden="true"
-              />
-            ),
-          ]
+                key={block.id}
+                ref={el => { blockElemsRef.current[block.id] = el }}
+                className={`${styles.blockOuter} ${spanClass(block.id)} ${isDragging ? styles.blockDragging : ''} ${isDropTarget ? styles.blockDropTarget : ''}`}
+                data-layout-key={`block-${block.id}`}
+              >
+                {editMode && (
+                  <div
+                    className={styles.blockEditBar}
+                    onPointerDown={e => onDragHandlePointerDown(e, block.id)}
+                  >
+                    <span className={styles.blockDragHandle}>⠿</span>
+                    <span className={styles.blockEditLabel}>{def.label}</span>
+                    <button
+                      className={styles.blockRemoveBtn}
+                      onPointerDown={e => e.stopPropagation()}
+                      onClick={e => { e.stopPropagation(); hideBlock(block.id) }}
+                      title="Remove from grid"
+                      aria-label={`Remove ${def.label}`}
+                    >✕</button>
+                  </div>
+                )}
+                {renderBlock(block)}
+              </div>
+            )
           })}
         </div>
 
         {editMode && (
           <aside
+            ref={trayRef}
             className={`${styles.availablePanel} ${trayDropActive ? styles.availablePanelActive : ''}`}
-            onDragOver={onTrayDragOver}
-            onDragLeave={() => setTrayDropActive(false)}
-            onDrop={onTrayDrop}
           >
             <div className={styles.availableTitle}>Available</div>
             <div className={styles.availableSub}>Drag cards here to hide them from the profile.</div>
@@ -562,9 +571,7 @@ export default function ProfilePage() {
                   <div
                     key={block.id}
                     className={`${styles.availableItem} ${draggingId === block.id ? styles.availableItemDragging : ''}`}
-                    draggable
-                    onDragStart={(e) => onBlockDragStart(e, block.id)}
-                    onDragEnd={resetDragState}
+                    onPointerDown={e => onDragHandlePointerDown(e, block.id)}
                   >
                     <span className={styles.blockDragHandle}>⠿</span>
                     <span className={styles.availableItemText}>
@@ -578,6 +585,17 @@ export default function ProfilePage() {
           </aside>
         )}
       </div>
+
+      {editMode && ghostPos && draggingId && (
+        <div
+          className={styles.dragGhost}
+          style={{ transform: `translate(${ghostPos.x + 14}px, ${ghostPos.y - 10}px)` }}
+          aria-hidden="true"
+        >
+          <span>⠿</span>
+          {BLOCK_DEFS[draggingId]?.label || draggingId}
+        </div>
+      )}
     </div>
   )
 }
