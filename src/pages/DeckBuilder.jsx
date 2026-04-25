@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useNavigate, Link, useLocation } from 'react-router-dom'
 import { sb } from '../lib/supabase'
@@ -6,7 +6,7 @@ import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import {
   FORMATS, TYPE_GROUPS, classifyCardType,
-  parseDeckMeta, serializeDeckMeta, getCardImageUri, nameToSlug,
+  parseDeckMeta, serializeDeckMeta, getCardImageUri,
   searchCards, searchCommanders, fetchCardsByNames, fetchCardsByScryfallIds, getDeckBuilderCardMeta,
   fetchEdhrecCommander, makeDebouncer,
   importDeckFromUrl,
@@ -22,7 +22,6 @@ import { ResponsiveMenu, Select } from '../components/UI'
 import { CardDetail } from '../components/CardComponents'
 import DeckStats, { normalizeDeckBuilderCards, getCardCategory, CAT_COLORS, CAT_ORDER } from '../components/DeckStats'
 import ExportModal from '../components/ExportModal'
-import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { fetchDeckAllocations, fetchDeckAllocationsForUser, fetchDeckCards, mergeAllocationRows, upsertDeckAllocations } from '../lib/deckData'
 import { planDeckAllocations } from '../lib/deckAllocationPlanner'
 import { getCardLegalityWarnings } from '../lib/deckLegality'
@@ -196,7 +195,7 @@ function WarningTooltip({ tooltip }) {
 }
 
 // â”€â”€ Single card row in search results â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-function SearchResultRow({ card, ownedQty, onAdd, addFeedback, onOpenDetail, onHoverEnter, onHoverLeave, onHoverMove, legalityWarnings = [] }) {
+const SearchResultRow = memo(function SearchResultRow({ card, ownedQty, onAdd, addFeedback, onOpenDetail, onHoverEnter, onHoverLeave, onHoverMove, legalityWarnings = [] }) {
   const img = getCardImageUri(card, 'small')
   const largeUri = img ? img.replace('/small/', '/normal/') : null
   const warningTitle = legalityWarnings.map(w => w.text).join('\n')
@@ -237,6 +236,24 @@ function SearchResultRow({ card, ownedQty, onAdd, addFeedback, onOpenDetail, onH
       <button className={styles.addBtn} onClick={e => { e.stopPropagation(); onAdd(card) }} title="Add to deck">+</button>
     </div>
   )
+}, areSearchResultRowPropsEqual)
+
+function areSearchResultRowPropsEqual(prev, next) {
+  if (
+    prev.card !== next.card ||
+    prev.ownedQty !== next.ownedQty ||
+    prev.addFeedback !== next.addFeedback ||
+    prev.onAdd !== next.onAdd ||
+    prev.onOpenDetail !== next.onOpenDetail ||
+    prev.onHoverEnter !== next.onHoverEnter ||
+    prev.onHoverLeave !== next.onHoverLeave ||
+    prev.onHoverMove !== next.onHoverMove
+  ) return false
+
+  const prevWarnings = prev.legalityWarnings || []
+  const nextWarnings = next.legalityWarnings || []
+  if (prevWarnings.length !== nextWarnings.length) return false
+  return prevWarnings.every((warning, index) => warning.text === nextWarnings[index]?.text)
 }
 
 // â”€â”€ Single card row in EDHRec recommendations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -342,56 +359,6 @@ function DeckCardActionsMenuBody({ dc, isEDH, onSetCommander, onToggleFoil, onPi
   )
 }
 
-/*
-  return (
-    <ResponsiveMenu
-      title="Card Actions"
-      wrapClassName={styles.editMenuCell}
-      portal
-      trigger={({ toggle }) => (
-        <button
-          className={styles.editBtn}
-          onClick={e => { e.stopPropagation(); toggle() }}
-          title="Edit"
-        ><SettingsIcon size={13} /></button>
-      )}
-    >
-      {({ close }) => (
-        <div className={uiStyles.responsiveMenuList}>
-          {isEDH && dc.is_commander && (
-            <button className={uiStyles.responsiveMenuAction} onClick={() => { onSetCommander(dc, false); close() }}>
-              <span>Unset as Commander</span>
-            </button>
-          )}
-          {isEDH && !dc.is_commander && canBeCommander(dc) && (
-            <button className={uiStyles.responsiveMenuAction} onClick={() => { onSetCommander(dc, true); close() }}>
-              <span>Set as Commander</span>
-            </button>
-          )}
-          {boardOptions.map(board => (
-            <button key={board} className={uiStyles.responsiveMenuAction} onClick={() => { onMoveBoard?.(dc.id, board); close() }}>
-              <span>Move to {BOARD_LABELS[board]}</span>
-            </button>
-          ))}
-          <button className={uiStyles.responsiveMenuAction} onClick={() => { onToggleFoil(dc.id); close() }}>
-        <span>{dc.foil ? 'Remove Foil' : 'Mark as Foil'}</span>
-          </button>
-          <button className={uiStyles.responsiveMenuAction} onClick={() => { onPickVersion(dc); close() }}>
-            <span><SettingsIcon size={12} /> Change Version</span>
-          </button>
-          {dc.qty > 1 && (
-            <button className={uiStyles.responsiveMenuAction} onClick={() => { onPickVersion(dc, { splitOne: true }); close() }}>
-              <span>Split 1x To Other Version</span>
-            </button>
-          )}
-        </div>
-      )}
-    </ResponsiveMenu>
-  )
-}
-
-// â”€â”€ Deck card row in right panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-*/
 function EditMenu({ dc, isEDH, onSetCommander, onToggleFoil, onPickVersion, onMoveBoard }) {
   return (
     <ResponsiveMenu
@@ -418,39 +385,6 @@ function EditMenu({ dc, isEDH, onSetCommander, onToggleFoil, onPickVersion, onMo
         />
       )}
     </ResponsiveMenu>
-  )
-}
-
-function DeckCardRow({ dc, ownedQty, ownedFoilAlt, ownedAlt, ownedInDeck, inCollDeck, onChangeQty, onRemove, onMouseEnter, onMouseLeave, onMouseMove, onContextMenu, onPickVersion, onToggleFoil, onSetCommander, onMoveBoard, isEDH, visibleColumns, listGridTemplate, legalityWarnings = [] }) {
-  const setLabel = dc.set_code ? `${String(dc.set_code).toUpperCase()}${dc.collector_number ? ` #${dc.collector_number}` : ''}` : '-'
-  const warningTitle = legalityWarnings.map(w => w.text).join('\n')
-  return (
-    <div className={`${styles.deckCardRow}${dc.is_commander ? ' ' + styles.isCommander : ''}${legalityWarnings.length ? ' ' + styles.deckCardIllegal : ''}`} title={warningTitle || undefined} style={{ '--deck-list-columns': listGridTemplate }} onContextMenu={onContextMenu}>
-      <div className={styles.deckCardLeft}>
-        {dc.image_uri
-          ? <img className={styles.deckThumb} src={dc.image_uri} alt="" loading="lazy" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove} />
-          : <div className={styles.deckThumbPlaceholder} />
-        }
-        <span className={styles.deckCardName} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove}>{dc.name}</span>
-        {legalityWarnings.length > 0 && <span className={styles.illegalMark} title={warningTitle}>!</span>}
-        {dc.foil && <span className={styles.foilBadge} title="Foil">*</span>}
-      </div>
-      {visibleColumns.set && <div className={styles.deckCardSet}>{setLabel}</div>}
-      {visibleColumns.status && (
-        <div className={styles.deckCardStatus}>
-          <OwnershipBadge ownedQty={ownedQty} ownedFoilAlt={ownedFoilAlt} ownedAlt={ownedAlt} ownedInDeck={ownedInDeck} inCollDeck={inCollDeck} />
-        </div>
-      )}
-      {visibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} />}
-      {visibleColumns.qty && (
-        <div className={styles.qtyControls}>
-          <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, -1)}>-</button>
-          <span className={styles.qtyVal}>{dc.qty}</span>
-          <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, +1)}>+</button>
-        </div>
-      )}
-      {visibleColumns.remove && <button className={styles.removeBtn} onClick={() => onRemove(dc.id)}>x</button>}
-    </div>
   )
 }
 
@@ -495,21 +429,20 @@ function DeckCardRowV2({
 }
 
 // â”€â”€ Combo components â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-const _comboImgCache = {}
-
 function useComboCardImage(name, existingUri) {
-  const [img, setImg] = useState(existingUri || (_comboImgCache[name] ?? null))
+  const cache = useRef({})
+  const [img, setImg] = useState(existingUri || (cache.current[name] ?? null))
   useEffect(() => {
-    if (existingUri || !name || _comboImgCache[name] !== undefined) return
-    _comboImgCache[name] = null
+    if (existingUri || !name || cache.current[name] !== undefined) return
+    cache.current[name] = null
     fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=json`)
       .then(r => r.ok ? r.json() : null)
       .then(d => {
         const url = d?.image_uris?.large || d?.card_faces?.[0]?.image_uris?.large || d?.image_uris?.normal || d?.card_faces?.[0]?.image_uris?.normal || null
-        _comboImgCache[name] = url
+        cache.current[name] = url
         if (url) setImg(url)
       })
-      .catch(() => { _comboImgCache[name] = null })
+      .catch(() => { cache.current[name] = null })
   }, [name, existingUri])
   return existingUri || img
 }
@@ -720,29 +653,6 @@ function formatQtyLabel(qty, suffix = 'copy') {
   return `${qty} ${suffix === 'copy' ? 'copies' : `${suffix}s`}`
 }
 
-function getResolutionSummary(row, resolution) {
-  const name = row.builder?.name || row.collection?.name || 'Card'
-  if (resolution === 'builder') {
-    if ((row.builderQty || 0) > (row.collectionQty || 0)) {
-      return `${name}: add ${row.builderQty - row.collectionQty} to Collection Deck`
-    }
-    if ((row.builderQty || 0) < (row.collectionQty || 0)) {
-      return `${name}: remove ${row.collectionQty - row.builderQty} from Collection Deck`
-    }
-    return `${name}: keep Deck Builder version`
-  }
-  if (resolution === 'collection') {
-    if ((row.collectionQty || 0) > (row.builderQty || 0)) {
-      return `${name}: add ${row.collectionQty - row.builderQty} to Deck Builder`
-    }
-    if ((row.collectionQty || 0) < (row.builderQty || 0)) {
-      return `${name}: remove ${row.builderQty - row.collectionQty} from Deck Builder`
-    }
-    return `${name}: keep Collection Deck version`
-  }
-  return `${name}: leave unresolved for now`
-}
-
 function getDecisionCategory(row, builderOnly, collectionOnly) {
   if (builderOnly.some(item => item.key === row.key)) return 'builderOnly'
   if (collectionOnly.some(item => item.key === row.key)) return 'collectionOnly'
@@ -902,6 +812,8 @@ function MakeDeckModal({ deckCards, userId, inOtherDeckSet, onConfirm, onClose }
   const [chosenOtherCardIds, setChosenOtherCardIds] = useState({})
   const [pickerItem, setPickerItem] = useState(null)
 
+  // Intentional: modal mounts fresh on each open - one-shot load from current props snapshot.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     async function load() {
       // Use IDB (same source as the green bar) so counts are consistent
@@ -1080,6 +992,8 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
   const [chosenOtherCardIds, setChosenOtherCardIds] = useState({})
   const [pickerItem, setPickerItem] = useState(null)
 
+  // Intentional: modal mounts fresh on each open - one-shot load from current props snapshot.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     async function load() {
       const targetDeckId = isCollectionDeck ? deckId : deckMeta.linked_deck_id
@@ -1981,6 +1895,14 @@ export default function DeckBuilderPage() {
   useEffect(() => () => { importingRef.current = false }, [])
 
   useEffect(() => {
+    return () => {
+      clearTimeout(saveMetaTimer.current)
+      clearTimeout(addFeedbackTimer.current)
+      for (const timer of qtyTimers.current.values()) clearTimeout(timer)
+    }
+  }, [])
+
+  useEffect(() => {
     let ignore = false
     getMeta('deckbuilder_visible_columns_v1')
       .then(saved => {
@@ -2268,17 +2190,12 @@ export default function DeckBuilderPage() {
       setLeftTopOpen(false)
     }
   }, [commanderCard])
-  const partnerCard    = commanderCards[1] ?? null
   const totalCards     = useMemo(() => deckCards.reduce((s, dc) => s + dc.qty, 0), [deckCards])
   const totalDeckPrice = useMemo(() => mainDeckCards.reduce((sum, dc) => {
     const sf = builderSfMap[`${dc.set_code}-${dc.collector_number}`]
     const p = sf ? getPrice(sf, dc.foil, { price_source }) : null
     return sum + (p != null ? p * (dc.qty || 1) : 0)
   }, 0), [mainDeckCards, builderSfMap, price_source])
-  const ownedCount     = useMemo(() => deckCards.filter(dc =>
-    (ownedMap.get(dc.scryfall_id) ?? 0) > 0 ||
-    (ownedNameMap.get((dc.name || '').toLowerCase()) ?? 0) > 0
-  ).length, [deckCards, ownedMap, ownedNameMap])
   const listGridTemplate = useMemo(() => {
     const cols = ['minmax(0, 1fr)']
     if (visibleColumns.set) cols.push('88px')
@@ -2294,6 +2211,13 @@ export default function DeckBuilderPage() {
 
   const activeColumns = deckView === 'compact' ? compactVisibleColumns : visibleColumns
   const setActiveColumns = deckView === 'compact' ? setCompactVisibleColumns : setVisibleColumns
+  const getCardOwnershipProps = useCallback((dc) => ({
+    ownedQty: ownedFoilMap.get(`${dc.scryfall_id}|${dc.foil ? '1' : '0'}`) ?? 0,
+    ownedFoilAlt: ownedFoilMap.get(`${dc.scryfall_id}|${dc.foil ? '0' : '1'}`) ?? 0,
+    ownedAlt: ownedNameMap.get((dc.name || '').toLowerCase()) ?? 0,
+    ownedInDeck: allocationSetHas(inOtherDeckSet, dc),
+    inCollDeck: allocationSetHas(collDeckSfSet, dc),
+  }), [ownedFoilMap, ownedNameMap, inOtherDeckSet, collDeckSfSet])
 
   const getDeckCardPriceLabel = useCallback((dc) => {
     if (!dc?.set_code || !dc?.collector_number) return 'â€”'
@@ -2302,6 +2226,16 @@ export default function DeckBuilderPage() {
     const price = getPrice(sf, dc.foil, { price_source })
     return price != null ? formatPrice(price, price_source) : 'â€”'
   }, [builderSfMap, price_source])
+  const handleSearchRowHoverEnter = useCallback((uri, e) => {
+    setHoverImages(uri ? [uri] : [])
+    setHoverPos({ x: e.clientX, y: e.clientY })
+  }, [])
+  const handleSearchRowHoverMove = useCallback((e) => {
+    setHoverPos({ x: e.clientX, y: e.clientY })
+  }, [])
+  const handleSearchRowHoverLeave = useCallback(() => {
+    setHoverImages([])
+  }, [])
   const colorIdentity  = useMemo(() => {
     const cols = new Set()
     for (const c of commanderCards) for (const col of (c.color_identity || [])) cols.add(col)
@@ -3288,7 +3222,7 @@ export default function DeckBuilderPage() {
       } catch {
         if (!cancelled) setSyncStatus({ loading: false, dirty: false, count: 0, unavailable: true })
       }
-    }, 300)
+    }, 1200)
 
     return () => {
       cancelled = true
@@ -3848,8 +3782,9 @@ export default function DeckBuilderPage() {
           deletes.push(dc.id)
         }
       }
+      const deletesSet = new Set(deletes)
       for (let i = nextDeckCards.length - 1; i >= 0; i -= 1) {
-        if (deletes.includes(nextDeckCards[i].id)) nextDeckCards.splice(i, 1)
+        if (deletesSet.has(nextDeckCards[i].id)) nextDeckCards.splice(i, 1)
       }
     }
 
@@ -4287,9 +4222,9 @@ export default function DeckBuilderPage() {
                   addFeedback={addFeedback?.key === (c.id || c.name) ? addFeedback : null}
                   onAdd={addCardToDeck}
                   onOpenDetail={openSearchCardDetail}
-                  onHoverEnter={CAN_HOVER && !lastInputWasTouch ? (uri, e) => { setHoverImages(uri ? [uri] : []); setHoverPos({ x: e.clientX, y: e.clientY }) } : undefined}
-                  onHoverMove={CAN_HOVER ? e => setHoverPos({ x: e.clientX, y: e.clientY }) : undefined}
-                  onHoverLeave={CAN_HOVER ? () => setHoverImages([]) : undefined}
+                  onHoverEnter={CAN_HOVER && !lastInputWasTouch ? handleSearchRowHoverEnter : undefined}
+                  onHoverMove={CAN_HOVER ? handleSearchRowHoverMove : undefined}
+                  onHoverLeave={CAN_HOVER ? handleSearchRowHoverLeave : undefined}
                 />
               ))}
               {searchHasMore && (
@@ -4503,8 +4438,7 @@ export default function DeckBuilderPage() {
         )}
 
         {/* Deck list tab */}
-        {rightTab === 'deck' && (
-          <div className={styles.deckList} onScroll={handleDeckListScroll}>
+        <div className={`${styles.deckList}${rightTab !== 'deck' ? ' ' + styles.tabPaneHidden : ''}`} onScroll={handleDeckListScroll}>
             {/* View / Sort / Group toolbar */}
             {deckCards.length > 0 && (
               <div className={styles.deckToolbar}>
@@ -4664,15 +4598,9 @@ export default function DeckBuilderPage() {
             {/* Render cards - supports all view x sort x group combinations */}
             {visibleDeckCards.length > 0 && (() => {
               const deckRowProps = (dc) => {
-                const fkExact = `${dc.scryfall_id}|${dc.foil ? '1' : '0'}`
-                const fkAlt   = `${dc.scryfall_id}|${dc.foil ? '0' : '1'}`
                 return {
                 dc,
-                ownedQty:     ownedFoilMap.get(fkExact) ?? 0,
-                ownedFoilAlt: ownedFoilMap.get(fkAlt)   ?? 0,
-                ownedAlt:     ownedNameMap.get((dc.name || '').toLowerCase()) ?? 0,
-                ownedInDeck: allocationSetHas(inOtherDeckSet, dc),
-                inCollDeck:  allocationSetHas(collDeckSfSet, dc),
+                ...getCardOwnershipProps(dc),
                 onChangeQty: changeQty,
                 onRemove:    removeCardFromDeck,
                 onMouseEnter: CAN_HOVER ? e => showHoverPreviewForDeckCard(dc, e) : undefined,
@@ -4711,11 +4639,7 @@ export default function DeckBuilderPage() {
                       <div className={styles.visualCardInfoRow}>
                         <span className={styles.visualCardPrice}>{getDeckCardPriceLabel(dc)}</span>
                         <OwnershipBadge
-                          ownedQty={ownedFoilMap.get(`${dc.scryfall_id}|${dc.foil ? '1' : '0'}`) ?? 0}
-                          ownedFoilAlt={ownedFoilMap.get(`${dc.scryfall_id}|${dc.foil ? '0' : '1'}`) ?? 0}
-                          ownedAlt={ownedNameMap.get((dc.name || '').toLowerCase()) ?? 0}
-                          ownedInDeck={allocationSetHas(inOtherDeckSet, dc)}
-                          inCollDeck={allocationSetHas(collDeckSfSet, dc)}
+                          {...getCardOwnershipProps(dc)}
                         />
                       </div>
                       <div className={styles.visualCardControls}>
@@ -4778,11 +4702,7 @@ export default function DeckBuilderPage() {
                         <div className={styles.stackCardInfo}>
                           <span className={styles.stackCardPrice}>{getDeckCardPriceLabel(dc)}</span>
                           <OwnershipBadge
-                            ownedQty={ownedFoilMap.get(`${dc.scryfall_id}|${dc.foil ? '1' : '0'}`) ?? 0}
-                            ownedFoilAlt={ownedFoilMap.get(`${dc.scryfall_id}|${dc.foil ? '0' : '1'}`) ?? 0}
-                            ownedAlt={ownedNameMap.get((dc.name || '').toLowerCase()) ?? 0}
-                            ownedInDeck={allocationSetHas(inOtherDeckSet, dc)}
-                            inCollDeck={allocationSetHas(collDeckSfSet, dc)}
+                            {...getCardOwnershipProps(dc)}
                           />
                         </div>
                         <div className={styles.stackControlsRow}>
@@ -4814,11 +4734,7 @@ export default function DeckBuilderPage() {
                     {compactVisibleColumns.price && <span className={styles.compactMeta}>{getDeckCardPriceLabel(dc)}</span>}
                     {compactVisibleColumns.status && (
                       <OwnershipBadge
-                        ownedQty={ownedFoilMap.get(`${dc.scryfall_id}|${dc.foil ? '1' : '0'}`) ?? 0}
-                        ownedFoilAlt={ownedFoilMap.get(`${dc.scryfall_id}|${dc.foil ? '0' : '1'}`) ?? 0}
-                        ownedAlt={ownedNameMap.get((dc.name || '').toLowerCase()) ?? 0}
-                        ownedInDeck={allocationSetHas(inOtherDeckSet, dc)}
-                        inCollDeck={allocationSetHas(collDeckSfSet, dc)}
+                        {...getCardOwnershipProps(dc)}
                       />
                     )}
                     {compactVisibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} onMoveBoard={moveCardToBoard} />}
@@ -4999,8 +4915,7 @@ export default function DeckBuilderPage() {
                 )
               })
             })()}
-          </div>
-        )}
+        </div>
 
         {/* Stats tab */}
         {rightTab === 'stats' && (
