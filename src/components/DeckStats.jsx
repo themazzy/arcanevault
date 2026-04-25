@@ -1,11 +1,12 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
+import { sfGet, getPrice, formatPrice } from '../lib/scryfall'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const TYPE_ORDER = ['Commander', 'Creatures', 'Planeswalkers', 'Battles', 'Instants',
   'Sorceries', 'Artifacts', 'Enchantments', 'Lands', 'Other']
 
-const CAT_ORDER = ['Ramp', 'Mana Rock', 'Card Draw', 'Removal', 'Board Wipe',
+export const CAT_ORDER = ['Ramp', 'Mana Rock', 'Card Draw', 'Removal', 'Board Wipe',
   'Counterspell', 'Tutor', 'Burn', 'Tokens', 'Graveyard', 'Protection',
   'Extra Turns', 'Combo', 'Creature', 'Artifact', 'Enchantment',
   'Instant', 'Sorcery', 'Planeswalker', 'Land', 'Other']
@@ -50,6 +51,116 @@ const BRACKET_META = {
 const LAND_SUBTYPE_COLOR = { forest: 'G', mountain: 'R', swamp: 'B', island: 'U', plains: 'W', wastes: 'C' }
 
 const BAR_MAX_PX = 72
+
+export const CAT_COLORS = {
+  'Ramp': '#4a9a5a', 'Mana Rock': '#5a8a9a', 'Card Draw': '#5a70bb', 'Removal': '#cc5555',
+  'Board Wipe': '#aa3333', 'Counterspell': '#4470cc', 'Tutor': '#9a5abb', 'Burn': '#e07020',
+  'Tokens': '#6a9a4a', 'Graveyard': '#7a4a8a', 'Protection': '#aaaaaa',
+  'Extra Turns': '#cc88aa', 'Combo': '#c9a84c', 'Creature': '#5a8a5a',
+  'Artifact': '#8a8a9a', 'Enchantment': '#7a6aaa', 'Instant': '#5555bb',
+  'Sorcery': '#9944aa', 'Planeswalker': '#cc7722', 'Land': '#6a7a5a', 'Other': '#666',
+}
+
+// Functional category classifier — works on raw (lowercased) oracle text + type line
+export function getCardCategory(oracle = '', typeLine = '', keywords = []) {
+  const o = oracle.toLowerCase()
+  const t = typeLine.toLowerCase()
+
+  if (/counter target (spell|creature spell|instant or sorcery|noncreature spell)/.test(o)) return 'Counterspell'
+  if (/search your library for a?.*(basic )?land/.test(o))                                  return 'Ramp'
+  if (t.includes('artifact') && /\{t\}.*add /.test(o))                                      return 'Mana Rock'
+  if (!t.includes('land') && /add \{[wubrg2c]/.test(o))                                     return 'Ramp'
+  if (/draw (two|three|four|\d+) cards|draw a card/.test(o))                                return 'Card Draw'
+  if (/(destroy|exile) all (creatures|permanents|nonland)/.test(o))                         return 'Board Wipe'
+  if (/search your library for a? ?(instant|sorcery|creature|artifact|enchantment|planeswalker)/.test(o) &&
+      !o.includes('basic land'))                                                              return 'Tutor'
+  if (/(exile|destroy) target (creature|permanent|artifact|enchantment|planeswalker)/.test(o)) return 'Removal'
+  if (/deals? \d+ damage to (any target|target player|each opponent|each player)/.test(o))  return 'Burn'
+  if (/create (a|one|two|three|four|\d+) .*token/.test(o))                                  return 'Tokens'
+  if (/return.*from (your |a )?(graveyard|exile)/.test(o))                                  return 'Graveyard'
+  if (/gains? hexproof|gains? indestructible|protection from/.test(o))                      return 'Protection'
+  if (/take an? extra turn/.test(o))                                                         return 'Extra Turns'
+  if (/infinite|win the game/.test(o))                                                       return 'Combo'
+
+  if (t.includes('land'))         return 'Land'
+  if (t.includes('creature'))     return 'Creature'
+  if (t.includes('planeswalker')) return 'Planeswalker'
+  if (t.includes('instant'))      return 'Instant'
+  if (t.includes('sorcery'))      return 'Sorcery'
+  if (t.includes('artifact'))     return 'Artifact'
+  if (t.includes('enchantment'))  return 'Enchantment'
+  return 'Other'
+}
+
+const COMMON_KEYWORDS = [
+  'Flying', 'First Strike', 'Double Strike', 'Deathtouch', 'Lifelink', 'Vigilance',
+  'Haste', 'Trample', 'Flash', 'Reach', 'Menace', 'Hexproof', 'Indestructible',
+  'Defender', 'Ward', 'Prowess', 'Cascade', 'Storm', 'Persist', 'Undying', 'Shroud',
+  'Wither', 'Infect', 'Convoke', 'Delve', 'Improvise', 'Kicker', 'Mutate', 'Surveil',
+  'Proliferate', 'Annihilator', 'Equip', 'Goad', 'Myriad', 'Riot', 'Cycling',
+  'Flashback', 'Jumpstart',
+]
+const KW_RE = new RegExp(`(?:^|\\n|, ?)(${COMMON_KEYWORDS.map(k => k.replace(/[-\s]/g, '[-\\s]')).join('|')})(?=\\n|$|,)`, 'gim')
+
+function getKeywordCounts(cards) {
+  const counts = {}
+  for (const card of cards) {
+    const qty = card.qty || 1
+    const seen = new Set()
+    // Prefer the structured keywords array when available
+    for (const kw of (card.keywords || [])) {
+      if (!seen.has(kw)) { seen.add(kw); counts[kw] = (counts[kw] || 0) + qty }
+    }
+    // Fall back to scanning oracle text for known keywords
+    if (!card.keywords?.length && card.oracle_text) {
+      for (const m of card.oracle_text.matchAll(KW_RE)) {
+        const kw = m[1]
+        if (!seen.has(kw)) { seen.add(kw); counts[kw] = (counts[kw] || 0) + qty }
+      }
+    }
+  }
+  return Object.entries(counts).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 14)
+}
+
+// Extract token type names from oracle text (returns deduplicated array)
+function extractTokenNames(oracle) {
+  if (!oracle) return []
+  const names = new Set()
+
+  // Named utility tokens (Treasure, Food, Clue, etc.)
+  const namedRe = /\b(Treasure|Food|Clue|Blood|Powerstone|Junk|Map|Shard|Incubator|Gold)\s+tokens?/g
+  let m
+  while ((m = namedRe.exec(oracle)) !== null) names.add(m[1])
+
+  // "create a X/Y [colors] [Subtype] creature/artifact creature token"
+  const creatureRe = /create\s+(?:a\s+|an\s+|one\s+|two\s+|three\s+|four\s+|five\s+|six\s+|x\s+|\d+\s+)*(?:tapped\s+|attacking\s+)?(?:[+\-]?\d+\/[+\-]?\d+\s+)?(?:(?:white|blue|black|red|green|colorless|silver|gold)\s+)*(?:legendary\s+|snow\s+)?([A-Z][a-zA-Z]*(?:\s+[A-Z][a-zA-Z]*)*)\s+(?:artifact\s+)?creature\s+tokens?/g
+  while ((m = creatureRe.exec(oracle)) !== null) {
+    const raw = m[1]?.trim()
+    if (!raw || /^(A|An|The|X|Your|Their|Each|All|Another|That|This|Copy|Token)$/.test(raw)) continue
+    const words = raw.split(/\s+/)
+    const name = words[words.length - 1]
+    if (name && name.length > 1) names.add(name)
+  }
+
+  // Role tokens
+  const roleRe = /\b(Blessed|Cursed|Wicked|Monster|Royal|Sorcerer|Young Hero)\s+Role\s+token/g
+  while ((m = roleRe.exec(oracle)) !== null) names.add(`${m[1]} Role`)
+
+  return [...names]
+}
+
+// Detect special non-token game pieces referenced in oracle text
+function extractExtras(oracle) {
+  if (!oracle) return []
+  const extras = new Set()
+  const t = oracle.toLowerCase()
+  if (/\bmonarch\b/.test(t)) extras.add('Monarch')
+  if (/\binitiative\b/.test(t)) extras.add('The Initiative')
+  if (/the ring tempts you/.test(t)) extras.add('The Ring')
+  if (/venture into the dungeon/.test(t)) extras.add('Dungeon')
+  if (/you get an? emblem/.test(t)) extras.add('Emblem')
+  return [...extras]
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -139,7 +250,9 @@ export function normalizeDeckBrowserCards(cards, sfMap) {
       mana_cost:      sf.mana_cost || sf.card_faces?.[0]?.mana_cost || '',
       cmc:            sf.cmc ?? 0,
       color_identity: sf.color_identity || [],
-      oracle_text:    sf.oracle_text || '',
+      oracle_text:    sf.oracle_text || (sf.card_faces?.map(f => f.oracle_text || '').join('\n')) || '',
+      keywords:       sf.keywords || [],
+      image_uri:      sf.image_uris?.normal || sf.image_uris?.small || '',
       qty:            c._folder_qty || c.qty || 1,
       is_commander:   false,
     }
@@ -148,19 +261,31 @@ export function normalizeDeckBrowserCards(cards, sfMap) {
 
 /**
  * Convert DeckBuilder deck_cards to normalized format.
- * deck_cards already have type_line, mana_cost, cmc, color_identity, qty, name, is_commander.
+ * Pass sfMap (keyed by "set_code-collector_number") to fill in oracle_text and keywords.
  */
-export function normalizeDeckBuilderCards(deckCards) {
-  return deckCards.map(dc => ({
-    name:           dc.name || '',
-    type_line:      dc.type_line || '',
-    mana_cost:      dc.mana_cost || '',
-    cmc:            dc.cmc ?? 0,
-    color_identity: dc.color_identity || [],
-    oracle_text:    dc.oracle_text || '',
-    qty:            dc.qty || 1,
-    is_commander:   dc.is_commander || false,
-  }))
+export function normalizeDeckBuilderCards(deckCards, sfMap, opts = {}) {
+  const { price_source } = opts
+  return deckCards.map(dc => {
+    const sfKey = dc.set_code && dc.collector_number ? `${dc.set_code}-${dc.collector_number}` : null
+    const sf = sfKey && sfMap ? (sfMap[sfKey] || {}) : {}
+    const oracleText = dc.oracle_text || sf.oracle_text
+      || (sf.card_faces?.map(f => f.oracle_text || '').join('\n')) || ''
+    const price = sf && Object.keys(sf).length ? (getPrice(sf, dc.foil, { price_source }) ?? null) : null
+    return {
+      name:           dc.name || sf.name || '',
+      type_line:      dc.type_line || sf.type_line || '',
+      mana_cost:      dc.mana_cost || sf.mana_cost || sf.card_faces?.[0]?.mana_cost || '',
+      cmc:            dc.cmc ?? sf.cmc ?? 0,
+      color_identity: dc.color_identity?.length ? dc.color_identity : (sf.color_identity || []),
+      oracle_text:    oracleText,
+      keywords:       sf.keywords || dc.keywords || [],
+      image_uri:      dc.image_uri || sf.image_uris?.normal || sf.image_uris?.small || '',
+      qty:            dc.qty || 1,
+      foil:           dc.foil || false,
+      price,
+      is_commander:   dc.is_commander || false,
+    }
+  })
 }
 
 // ── UI Sub-components ─────────────────────────────────────────────────────────
@@ -583,6 +708,265 @@ function TypeBreakdown({ typeCounts }) {
   )
 }
 
+function CategoryBreakdown({ catCounts }) {
+  const entries = CAT_ORDER
+    .map(cat => ({ cat, count: catCounts[cat] || 0 }))
+    .filter(e => e.count > 0)
+  if (!entries.length) return null
+  const maxVal = Math.max(1, ...entries.map(e => e.count))
+
+  return (
+    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 5, padding: '14px 14px 10px' }}>
+      <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-faint)', fontFamily: 'var(--font-display)', marginBottom: 12 }}>
+        Role Breakdown
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+        {entries.map(({ cat, count }) => (
+          <div key={cat} style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+            <div style={{ flex: '0 1 clamp(72px, 30vw, 100px)', fontSize: '0.72rem', color: CAT_COLORS[cat] || 'var(--text-dim)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {cat}
+            </div>
+            <div style={{ flex: 1, height: 7, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${(count / maxVal) * 100}%`, background: CAT_COLORS[cat] || 'rgba(201,168,76,0.5)', opacity: 0.7, borderRadius: 3, transition: 'width 0.4s ease', minWidth: 2 }} />
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', width: 22, textAlign: 'right', flexShrink: 0 }}>{count}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// Returns cards that have the given keyword ability
+function cardsWithKeyword(cards, kw) {
+  const re = new RegExp(`(?:^|\\n|, ?)${kw.replace(/[-\s]/g, '[-\\s]')}(?=\\n|$|,| )`, 'i')
+  return cards.filter(c =>
+    c.keywords?.some(k => k.toLowerCase() === kw.toLowerCase()) ||
+    (c.oracle_text && re.test(c.oracle_text))
+  )
+}
+
+function KeywordFrequency({ kwCounts, cards }) {
+  // Detect touch-only devices (no pointer hover capability)
+  const isTouch = useMemo(() => typeof window !== 'undefined' && window.matchMedia('(hover: none)').matches, [])
+
+  // popover: { kw, top, left, alignRight } | null
+  const [popover, setPopover] = useState(null)
+  const closeTimer = useRef(null)
+
+  const openPopover = (kw, e) => {
+    clearTimeout(closeTimer.current)
+    const rect = e.currentTarget.getBoundingClientRect()
+    const viewW = window.innerWidth
+    const left = rect.left
+    const alignRight = left + 300 > viewW
+    setPopover({ kw, top: rect.bottom + 6, left: alignRight ? rect.right : rect.left, alignRight })
+  }
+
+  const scheduleClose = () => {
+    closeTimer.current = setTimeout(() => setPopover(null), 120)
+  }
+
+  // Close on scroll / resize
+  useEffect(() => {
+    const close = () => setPopover(null)
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('resize', close)
+    return () => {
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('resize', close)
+      clearTimeout(closeTimer.current)
+    }
+  }, [])
+
+  const popoverCards = useMemo(
+    () => popover ? cardsWithKeyword(cards, popover.kw) : [],
+    [popover?.kw, cards]
+  )
+
+  if (!kwCounts.length) return null
+
+  const pillHandlers = isTouch
+    ? (kw) => ({ onClick: (e) => { popover?.kw === kw ? setPopover(null) : openPopover(kw, e) } })
+    : (kw) => ({
+        onMouseEnter: (e) => openPopover(kw, e),
+        onMouseLeave: scheduleClose,
+      })
+
+  return (
+    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 5, padding: '14px 14px 12px' }}>
+      <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-faint)', fontFamily: 'var(--font-display)', marginBottom: 10 }}>
+        Keywords
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px 6px' }}>
+        {kwCounts.map(([kw, count]) => {
+          const active = popover?.kw === kw
+          return (
+            <button key={kw} {...pillHandlers(kw)} style={{
+              background: active ? 'rgba(201,168,76,0.15)' : 'var(--s3)',
+              border: `1px solid ${active ? 'rgba(201,168,76,0.45)' : 'var(--s-border2)'}`,
+              borderRadius: 4, padding: '3px 9px', fontSize: '0.72rem',
+              color: active ? 'var(--gold)' : 'var(--text-dim)',
+              display: 'flex', alignItems: 'center', gap: 5,
+              cursor: 'pointer', transition: 'all 0.12s',
+            }}>
+              {kw}
+              <span style={{ fontFamily: 'var(--font-display)', fontSize: '0.68rem', opacity: 0.7 }}>×{count}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Fixed-position popover with card images */}
+      {popover && popoverCards.length > 0 && (
+        <div
+          onMouseEnter={() => !isTouch && clearTimeout(closeTimer.current)}
+          onMouseLeave={() => !isTouch && scheduleClose()}
+          style={{
+            position: 'fixed',
+            top: popover.top,
+            ...(popover.alignRight ? { right: window.innerWidth - popover.left } : { left: popover.left }),
+            zIndex: 9999,
+            background: 'var(--bg2)',
+            border: '1px solid var(--border-hi)',
+            borderRadius: 7,
+            padding: 10,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.55)',
+            display: 'flex', flexDirection: 'column', gap: 8,
+            maxWidth: 'min(340px, 92vw)',
+          }}
+        >
+          <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text-faint)', fontFamily: 'var(--font-display)' }}>
+            {popoverCards.reduce((s, c) => s + (c.qty || 1), 0)} card{popoverCards.reduce((s, c) => s + (c.qty || 1), 0) !== 1 ? 's' : ''} with {popover.kw}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {popoverCards.slice(0, 9).map((c, i) => (
+              <div key={i} style={{ position: 'relative', flexShrink: 0 }}>
+                {c.image_uri
+                  ? <img src={c.image_uri} alt={c.name} title={c.name}
+                      style={{ width: 64, height: 90, borderRadius: 4, objectFit: 'cover', display: 'block', border: '1px solid var(--s-border)' }} />
+                  : <div style={{ width: 64, height: 90, borderRadius: 4, background: 'var(--s2)', border: '1px solid var(--s-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 4 }}>
+                      <span style={{ fontSize: '0.58rem', color: 'var(--text-faint)', textAlign: 'center', lineHeight: 1.3 }}>{c.name}</span>
+                    </div>
+                }
+                {c.qty > 1 && (
+                  <span style={{ position: 'absolute', bottom: 3, right: 3, background: 'rgba(0,0,0,0.75)', color: '#fff', fontSize: '0.62rem', borderRadius: 3, padding: '1px 4px', fontFamily: 'var(--font-display)' }}>×{c.qty}</span>
+                )}
+              </div>
+            ))}
+            {popoverCards.length > 9 && (
+              <div style={{ width: 64, height: 90, borderRadius: 4, background: 'var(--s2)', border: '1px solid var(--s-border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-faint)', fontFamily: 'var(--font-display)' }}>+{popoverCards.length - 9}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PriceBreakdown({ totalPrice, avgPrice, priceByCategory, topCards, price_source }) {
+  if (totalPrice <= 0) return null
+
+  const catEntries = CAT_ORDER
+    .map(cat => ({ cat, total: priceByCategory[cat] || 0 }))
+    .filter(e => e.total > 0)
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 8)
+  const maxCatPrice = Math.max(1, ...catEntries.map(e => e.total))
+
+  return (
+    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 5, padding: '14px 14px 12px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-faint)', fontFamily: 'var(--font-display)' }}>
+        Price
+      </div>
+
+      {/* Summary pills */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 14px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <span style={{ fontSize: '0.64rem', color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Total</span>
+          <span style={{ fontFamily: 'var(--font-display)', fontSize: '0.95rem', color: 'var(--green)' }}>{formatPrice(totalPrice, price_source)}</span>
+        </div>
+        <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 14px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <span style={{ fontSize: '0.64rem', color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Avg / card</span>
+          <span style={{ fontFamily: 'var(--font-display)', fontSize: '0.95rem', color: 'var(--text)' }}>{formatPrice(avgPrice, price_source)}</span>
+        </div>
+      </div>
+
+      {/* Price by category bars */}
+      {catEntries.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          {catEntries.map(({ cat, total }) => (
+            <div key={cat} style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+              <div style={{ flex: '0 1 clamp(72px, 30vw, 100px)', fontSize: '0.72rem', color: CAT_COLORS[cat] || 'var(--text-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {cat}
+              </div>
+              <div style={{ flex: 1, height: 7, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${(total / maxCatPrice) * 100}%`, background: CAT_COLORS[cat] || 'rgba(201,168,76,0.5)', opacity: 0.7, borderRadius: 3, transition: 'width 0.4s ease', minWidth: 2 }} />
+              </div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--green)', width: 46, textAlign: 'right', flexShrink: 0 }}>{formatPrice(total, price_source)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Top expensive cards */}
+      {topCards.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-faint)', fontFamily: 'var(--font-display)' }}>Most Expensive</div>
+          {topCards.map((c, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+              <div style={{ width: 28, height: 20, borderRadius: 3, overflow: 'hidden', flexShrink: 0, background: 'var(--s2)' }}>
+                {c.image_uri && <img src={c.image_uri} alt={c.name} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 15%' }} />}
+              </div>
+              <div style={{ flex: 1, fontSize: '0.75rem', color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {c.name}{c.qty > 1 && <span style={{ color: 'var(--text-faint)', marginLeft: 4 }}>×{c.qty}</span>}
+              </div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--green)', fontFamily: 'var(--font-display)', flexShrink: 0 }}>{formatPrice(c.total, price_source)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TokensExtras({ allItems, tokenImages }) {
+  if (!allItems.length) return null
+  return (
+    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 5, padding: '14px 14px 12px' }}>
+      <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-faint)', fontFamily: 'var(--font-display)', marginBottom: 10 }}>
+        Tokens &amp; Extras
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {allItems.map(name => {
+          const imgUri = tokenImages[name]
+          return (
+            <div key={name} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+              <div style={{
+                width: 58, height: 82,
+                borderRadius: 4, overflow: 'hidden',
+                background: 'var(--s2)', border: '1px solid var(--s-border)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0,
+              }}>
+                {imgUri === undefined
+                  ? <div style={{ width: '100%', height: '100%', background: 'linear-gradient(90deg,var(--s2) 25%,var(--s3) 50%,var(--s2) 75%)', backgroundSize: '200%', animation: 'shimmer 1.5s infinite' }} />
+                  : imgUri
+                    ? <img src={imgUri} alt={name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                    : <span style={{ fontSize: '0.58rem', color: 'var(--text-faint)', textAlign: 'center', padding: 4, lineHeight: 1.3 }}>{name}</span>
+                }
+              </div>
+              <span style={{ fontSize: '0.6rem', color: 'var(--text-faint)', textAlign: 'center', maxWidth: 62, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ── Main DeckStats Component ──────────────────────────────────────────────────
 
 /**
@@ -592,8 +976,10 @@ function TypeBreakdown({ typeCounts }) {
  * @param {number|null} bracketOverride  - Manual bracket override (null = auto)
  * @param {Function} onBracketOverride  - Callback to set override
  */
-export default function DeckStats({ cards, bracketOverride, onBracketOverride }) {
+export default function DeckStats({ cards, bracketOverride, onBracketOverride, price_source }) {
   const [curveMode, setCurveMode] = useState('flat')
+  const [tokenImages, setTokenImages] = useState({}) // name → img uri | null
+  const fetchedRef = useRef(new Set())
 
   const bracketResult = useMemo(() => calcDeckBracket(cards.map(c => c.name)), [cards])
 
@@ -605,6 +991,7 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride })
     const costCards  = { W: 0, U: 0, B: 0, R: 0, G: 0 }
     const prodMana   = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 }
     const typeCounts = {}
+    const catCounts  = {}
 
     let nonLandCount = 0, cmcSum = 0
 
@@ -613,6 +1000,14 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride })
       const qty  = c.qty || 1
 
       typeCounts[type] = (typeCounts[type] || 0) + qty
+
+      // Functional category
+      const cat = getCardCategory(
+        (c.oracle_text || '').toLowerCase(),
+        (c.type_line || '').toLowerCase(),
+        c.keywords || [],
+      )
+      catCounts[cat] = (catCounts[cat] || 0) + qty
 
       // Production from all cards
       for (const color of getProducedColors(c)) {
@@ -656,12 +1051,76 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride })
     const totalProdMana = Object.values(prodMana).reduce((a, b) => a + b, 0)
     const avgCmc = nonLandCount > 0 ? (cmcSum / nonLandCount).toFixed(2) : '—'
 
-    return { curve, curveByColor, curveByType, costColors, costCards, prodMana, typeCounts, totalCostPips, totalProdMana, nonLandCount, avgCmc }
+    const kwCounts = getKeywordCounts(cards)
+    const combinedOracle = cards.map(c => c.oracle_text || '').join('\n')
+    const tokenNames = extractTokenNames(combinedOracle)
+    const extras = extractExtras(combinedOracle)
+
+    // Price stats
+    let totalPrice = 0, pricedCardCount = 0
+    const priceByCategory = {}
+    const priceByCard = []
+    for (const c of cards) {
+      const p = c.price
+      const qty = c.qty || 1
+      if (p != null && p > 0) {
+        const cardTotal = p * qty
+        totalPrice += cardTotal
+        pricedCardCount++
+        const cat = getCardCategory(
+          (c.oracle_text || '').toLowerCase(),
+          (c.type_line || '').toLowerCase(),
+          c.keywords || [],
+        )
+        priceByCategory[cat] = (priceByCategory[cat] || 0) + cardTotal
+        priceByCard.push({ name: c.name, price: p, qty, total: cardTotal, image_uri: c.image_uri })
+      }
+    }
+    priceByCard.sort((a, b) => b.total - a.total)
+    const topCards = priceByCard.slice(0, 5)
+    const avgPrice = pricedCardCount > 0 ? totalPrice / pricedCardCount : 0
+
+    return { curve, curveByColor, curveByType, costColors, costCards, prodMana, typeCounts, catCounts, totalCostPips, totalProdMana, nonLandCount, avgCmc, kwCounts, tokenNames, extras, totalPrice, avgPrice, priceByCategory, topCards }
   }, [cards])
 
-  const { curve, curveByColor, curveByType, costColors, costCards, prodMana, typeCounts, totalCostPips, totalProdMana, nonLandCount, avgCmc } = stats
+  // Scryfall queries for non-token extras
+  const EXTRA_QUERIES = {
+    'Monarch':        't:conspiracy !"Monarch" game:paper',
+    'The Initiative': '!"The Initiative" game:paper',
+    'The Ring':       '!"The Ring" game:paper',
+    'Dungeon':        't:dungeon game:paper',
+    'Emblem':         't:emblem game:paper',
+  }
+
+  // Fetch token + extra images from Scryfall — newest paper printing
+  useEffect(() => {
+    const allItems = [...stats.tokenNames, ...stats.extras]
+    const toFetch = allItems.filter(n => !fetchedRef.current.has(n))
+    if (!toFetch.length) return
+    toFetch.forEach(n => fetchedRef.current.add(n))
+
+    let active = true
+    ;(async () => {
+      const results = {}
+      for (const name of toFetch) {
+        if (!active) break
+        const rawQ = EXTRA_QUERIES[name] ?? `t:token !"${name}" game:paper`
+        const q = encodeURIComponent(rawQ)
+        const data = await sfGet(`/cards/search?q=${q}&order=released&dir=desc&unique=prints`)
+        results[name] = data?.data?.[0]?.image_uris?.small ?? null
+      }
+      if (active) setTokenImages(prev => ({ ...prev, ...results }))
+    })()
+
+    return () => { active = false }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stats.tokenNames, stats.extras])
+
+  const { curve, curveByColor, curveByType, costColors, costCards, prodMana, typeCounts, catCounts, totalCostPips, totalProdMana, nonLandCount, avgCmc, kwCounts, tokenNames, extras, totalPrice, avgPrice, priceByCategory, topCards } = stats
   const curveSegData = curveMode === 'color' ? curveByColor : curveByType
   const effectiveBracket = bracketOverride ?? bracketResult.bracket
+
+  const hasOracleData = cards.some(c => c.oracle_text)
 
   return (
     <div style={{
@@ -722,6 +1181,28 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride })
         />
         <TypeBreakdown typeCounts={typeCounts} />
       </div>
+
+      {/* Category breakdown + Keywords (only when oracle text is available) */}
+      {hasOracleData && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: 14, minWidth: 0 }}>
+          <CategoryBreakdown catCounts={catCounts} />
+          <KeywordFrequency kwCounts={kwCounts} cards={cards} />
+        </div>
+      )}
+
+      {/* Price breakdown */}
+      <PriceBreakdown
+        totalPrice={totalPrice}
+        avgPrice={avgPrice}
+        priceByCategory={priceByCategory}
+        topCards={topCards}
+        price_source={price_source}
+      />
+
+      {/* Tokens & Extras */}
+      {hasOracleData && (tokenNames.length > 0 || extras.length > 0) && (
+        <TokensExtras allItems={[...tokenNames, ...extras]} tokenImages={tokenImages} />
+      )}
     </div>
   )
 }

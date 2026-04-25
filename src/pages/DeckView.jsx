@@ -531,7 +531,7 @@ export default function DeckViewPage() {
             <div>
               <div className={styles.sectionLabel}>Stats</div>
               <DeckStats
-                cards={normalizeDeckBuilderCards(cards)}
+                cards={normalizeDeckBuilderCards(cards, sfMap)}
                 bracketOverride={statsBracketOverride}
                 onBracketOverride={isOwner ? setStatsBracketOverride : undefined}
               />
