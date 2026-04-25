@@ -20,7 +20,7 @@ import styles from './DeckBuilder.module.css'
 import uiStyles from '../components/UI.module.css'
 import { ResponsiveMenu, Select } from '../components/UI'
 import { CardDetail } from '../components/CardComponents'
-import DeckStats, { normalizeDeckBuilderCards } from '../components/DeckStats'
+import DeckStats, { normalizeDeckBuilderCards, getCardCategory, CAT_COLORS, CAT_ORDER } from '../components/DeckStats'
 import ExportModal from '../components/ExportModal'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { fetchDeckAllocations, fetchDeckAllocationsForUser, fetchDeckCards, mergeAllocationRows, upsertDeckAllocations } from '../lib/deckData'
@@ -55,6 +55,8 @@ import {
 import { lastInputWasTouch } from '../lib/inputType'
 
 const CAN_HOVER = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover) and (pointer: fine)').matches
+const RARITY_ORDER = ['mythic', 'rare', 'uncommon', 'common']
+const RARITY_COLORS = { mythic: '#e07020', rare: '#c9a84c', uncommon: '#a0a8b8', common: 'var(--text-faint)' }
 const BOARD_ORDER = ['main', 'side', 'maybe']
 const BOARD_LABELS = {
   main: 'Mainboard',
@@ -1903,15 +1905,16 @@ export default function DeckBuilderPage() {
   const [deckGameResultsLoading, setDeckGameResultsLoading] = useState(false)
   const [deckGameResultsLoaded,  setDeckGameResultsLoaded]  = useState(false)
   const [deckView,    setDeckView]    = useState('list')   // 'list' | 'compact' | 'stacks' | 'grid'
-  const [showRight, setShowRight] = useState(false)
+  const [showRight, setShowRight] = useState(() => typeof window !== 'undefined' && window.innerWidth <= 900)
   const [leftCollapsed, setLeftCollapsed] = useState(false)
   const [deckSort,    setDeckSort]    = useState('type')   // 'name' | 'cmc' | 'color' | 'type'
-  const [groupByType, setGroupByType] = useState(default_grouping !== 'none')
+  const [groupBy, setGroupBy] = useState(default_grouping === 'category' ? 'category' : default_grouping === 'none' ? 'none' : 'type')
   const [visibleColumns, setVisibleColumns] = useState(DEFAULT_LIST_COLUMNS)
   const [compactVisibleColumns, setCompactVisibleColumns] = useState(DEFAULT_COMPACT_COLUMNS)
   const [builderSfMap, setBuilderSfMap] = useState({})
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
   const [stackHoverState, setStackHoverState] = useState(null) // { group, stackIdx }
+  const [touchActiveStack, setTouchActiveStack] = useState(null) // { group, stackIdx, id }
   const [deckSearch, setDeckSearch] = useState('')
   const [boardFilter, setBoardFilter] = useState('all')
   const [warningsOpen, setWarningsOpen] = useState(false)
@@ -2016,7 +2019,7 @@ export default function DeckBuilderPage() {
   }, [])
 
   useEffect(() => {
-    setGroupByType(default_grouping !== 'none')
+    setGroupBy(default_grouping === 'category' ? 'category' : default_grouping === 'none' ? 'none' : 'type')
   }, [default_grouping])
 
   useEffect(() => {
@@ -2267,6 +2270,11 @@ export default function DeckBuilderPage() {
   }, [commanderCard])
   const partnerCard    = commanderCards[1] ?? null
   const totalCards     = useMemo(() => deckCards.reduce((s, dc) => s + dc.qty, 0), [deckCards])
+  const totalDeckPrice = useMemo(() => mainDeckCards.reduce((sum, dc) => {
+    const sf = builderSfMap[`${dc.set_code}-${dc.collector_number}`]
+    const p = sf ? getPrice(sf, dc.foil, { price_source }) : null
+    return sum + (p != null ? p * (dc.qty || 1) : 0)
+  }, 0), [mainDeckCards, builderSfMap, price_source])
   const ownedCount     = useMemo(() => deckCards.filter(dc =>
     (ownedMap.get(dc.scryfall_id) ?? 0) > 0 ||
     (ownedNameMap.get((dc.name || '').toLowerCase()) ?? 0) > 0
@@ -2474,15 +2482,51 @@ export default function DeckBuilderPage() {
   const sortedDeckCards = useMemo(() => {
     if (deckSort === 'type') return visibleDeckCards // type uses grouped rendering
     const cards = [...visibleDeckCards]
-    if (deckSort === 'name') return cards.sort((a, b) => a.name.localeCompare(b.name))
-    if (deckSort === 'cmc')  return cards.sort((a, b) => (a.cmc ?? 0) - (b.cmc ?? 0) || a.name.localeCompare(b.name))
+    if (deckSort === 'name')     return cards.sort((a, b) => a.name.localeCompare(b.name))
+    if (deckSort === 'cmc_asc')  return cards.sort((a, b) => (a.cmc ?? 0) - (b.cmc ?? 0) || a.name.localeCompare(b.name))
+    if (deckSort === 'cmc_desc') return cards.sort((a, b) => (b.cmc ?? 0) - (a.cmc ?? 0) || a.name.localeCompare(b.name))
     if (deckSort === 'color') return cards.sort((a, b) => {
       const ca = (a.color_identity || []).join('')
       const cb = (b.color_identity || []).join('')
       return ca.localeCompare(cb) || a.name.localeCompare(b.name)
     })
+    if (deckSort === 'price_desc' || deckSort === 'price') return cards.sort((a, b) => {
+      const sfA = builderSfMap[`${a.set_code}-${a.collector_number}`]
+      const sfB = builderSfMap[`${b.set_code}-${b.collector_number}`]
+      const pA = getPrice(sfA, a.foil, { price_source }) ?? -1
+      const pB = getPrice(sfB, b.foil, { price_source }) ?? -1
+      return pB - pA
+    })
+    if (deckSort === 'price_asc') return cards.sort((a, b) => {
+      const sfA = builderSfMap[`${a.set_code}-${a.collector_number}`]
+      const sfB = builderSfMap[`${b.set_code}-${b.collector_number}`]
+      const pA = getPrice(sfA, a.foil, { price_source }) ?? Infinity
+      const pB = getPrice(sfB, b.foil, { price_source }) ?? Infinity
+      return pA - pB
+    })
+    if (deckSort === 'set') return cards.sort((a, b) => {
+      const sfA = builderSfMap[`${a.set_code}-${a.collector_number}`]
+      const sfB = builderSfMap[`${b.set_code}-${b.collector_number}`]
+      const sA = sfA?.set_name || a.set_code || ''
+      const sB = sfB?.set_name || b.set_code || ''
+      return sA.localeCompare(sB) || a.name.localeCompare(b.name)
+    })
+    if (deckSort === 'rarity_desc' || deckSort === 'rarity') return cards.sort((a, b) => {
+      const sfA = builderSfMap[`${a.set_code}-${a.collector_number}`]
+      const sfB = builderSfMap[`${b.set_code}-${b.collector_number}`]
+      const rA = RARITY_ORDER.indexOf(sfA?.rarity || 'common')
+      const rB = RARITY_ORDER.indexOf(sfB?.rarity || 'common')
+      return rA - rB || a.name.localeCompare(b.name)
+    })
+    if (deckSort === 'rarity_asc') return cards.sort((a, b) => {
+      const sfA = builderSfMap[`${a.set_code}-${a.collector_number}`]
+      const sfB = builderSfMap[`${b.set_code}-${b.collector_number}`]
+      const rA = RARITY_ORDER.indexOf(sfA?.rarity || 'common')
+      const rB = RARITY_ORDER.indexOf(sfB?.rarity || 'common')
+      return rB - rA || a.name.localeCompare(b.name)
+    })
     return visibleDeckCards
-  }, [visibleDeckCards, deckSort])
+  }, [visibleDeckCards, deckSort, builderSfMap, price_source])
 
   // Combined image map: deck cards + rec images (for combo thumbnails)
   const deckImagesMap = useMemo(() => {
@@ -4352,6 +4396,8 @@ export default function DeckBuilderPage() {
                 <span style={{ color: totalCards > deckSize ? '#e07070' : 'var(--text-dim)' }}>
                   {totalCards}/{deckSize} cards
                 </span>
+                {totalDeckPrice > 0 && <span>&middot;</span>}
+                {totalDeckPrice > 0 && <span style={{ color: 'var(--green)' }}>{formatPrice(totalDeckPrice, price_source)}</span>}
               </div>
             </div>
             {/* Description + Tags */}
@@ -4384,7 +4430,10 @@ export default function DeckBuilderPage() {
             {/* Color pips */}
             {colorIdentity.length > 0 && (
               <div className={styles.cmdColorPips}>
-                {colorIdentity.map(c => <ColorPip key={c} color={c} />)}
+                {colorIdentity.map(c => (
+                  <img key={c} src={manaSymbolUrl(`{${c}}`)} alt={c} width={18} height={18}
+                    style={{ display: 'block', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.7))' }} />
+                ))}
               </div>
             )}
           </div>
@@ -4481,13 +4530,13 @@ export default function DeckBuilderPage() {
                       onClick={toggle}
                       title="Sort cards"
                     >
-                      {({ name: 'A–Z', cmc: 'CMC', color: 'Color', type: 'Type' })[deckSort] ?? 'Sort'}
+                      Sort
                     </button>
                   )}
                 >
                   {({ close }) => (
                     <div className={uiStyles.responsiveMenuList}>
-                      {[['name','A–Z'],['cmc','Mana Value'],['color','Color'],['type','Type']].map(([s, label]) => (
+                      {[['name','A–Z'],['cmc_asc','Mana Value ↑'],['cmc_desc','Mana Value ↓'],['color','Color'],['type','Type'],['rarity_desc','Rarity ↓'],['rarity_asc','Rarity ↑'],['set','Set'],['price_desc','Price ↓'],['price_asc','Price ↑']].map(([s, label]) => (
                         <button
                           key={s}
                           className={`${styles.columnMenuItem} ${deckSort === s ? styles.columnMenuItemActive : ''}`}
@@ -4502,12 +4551,36 @@ export default function DeckBuilderPage() {
                     </div>
                   )}
                 </ResponsiveMenu>
-                <button
-                  className={`${styles.groupToggle}${groupByType ? ' '+styles.groupToggleActive : ''}`}
-                  onClick={() => setGroupByType(v => !v)}
-                  title="Toggle type grouping">
-                  <ListViewIcon size={12} /> Grouped
-                </button>
+                <ResponsiveMenu
+                  title="Group By"
+                  wrapClassName={styles.columnMenuWrap}
+                  trigger={({ toggle }) => (
+                    <button
+                      className={`${styles.groupToggle}${groupBy !== 'none' ? ' '+styles.groupToggleActive : ''}`}
+                      onClick={toggle}
+                      title="Group cards"
+                    >
+                      <ListViewIcon size={12} /> Group
+                    </button>
+                  )}
+                >
+                  {({ close }) => (
+                    <div className={uiStyles.responsiveMenuList}>
+                      {[['none','None'],['type','By Type'],['category','By Category'],['rarity','By Rarity'],['set','By Set']].map(([v, label]) => (
+                        <button
+                          key={v}
+                          className={`${styles.columnMenuItem} ${groupBy === v ? styles.columnMenuItemActive : ''}`}
+                          onClick={() => { setGroupBy(v); close?.() }}
+                        >
+                          <span className={styles.columnMenuLabel}>{label}</span>
+                          <span className={styles.columnMenuCheck} aria-hidden="true">
+                            {groupBy === v ? <CheckIcon size={11} /> : ''}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </ResponsiveMenu>
                 {(deckView === 'list' || deckView === 'compact') && (
                   <ResponsiveMenu
                     title="Visible Columns"
@@ -4635,14 +4708,16 @@ export default function DeckBuilderPage() {
                       {dc.foil && <span className={styles.visualCardFoil} title="Foil">*</span>}
                     </div>
                     <div className={styles.visualCardBottom}>
-                      <div className={styles.visualCardName}>{dc.name}</div>
-                      <OwnershipBadge
-                        ownedQty={ownedFoilMap.get(`${dc.scryfall_id}|${dc.foil ? '1' : '0'}`) ?? 0}
-                        ownedFoilAlt={ownedFoilMap.get(`${dc.scryfall_id}|${dc.foil ? '0' : '1'}`) ?? 0}
-                        ownedAlt={ownedNameMap.get((dc.name || '').toLowerCase()) ?? 0}
-                        ownedInDeck={allocationSetHas(inOtherDeckSet, dc)}
-                        inCollDeck={allocationSetHas(collDeckSfSet, dc)}
-                      />
+                      <div className={styles.visualCardInfoRow}>
+                        <span className={styles.visualCardPrice}>{getDeckCardPriceLabel(dc)}</span>
+                        <OwnershipBadge
+                          ownedQty={ownedFoilMap.get(`${dc.scryfall_id}|${dc.foil ? '1' : '0'}`) ?? 0}
+                          ownedFoilAlt={ownedFoilMap.get(`${dc.scryfall_id}|${dc.foil ? '0' : '1'}`) ?? 0}
+                          ownedAlt={ownedNameMap.get((dc.name || '').toLowerCase()) ?? 0}
+                          ownedInDeck={allocationSetHas(inOtherDeckSet, dc)}
+                          inCollDeck={allocationSetHas(collDeckSfSet, dc)}
+                        />
+                      </div>
                       <div className={styles.visualCardControls}>
                         <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} onMoveBoard={moveCardToBoard} />
                         <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, -1) }}>-</button>
@@ -4654,16 +4729,29 @@ export default function DeckBuilderPage() {
                   </div>
                 )
                 if (deckView === 'stacks') {
-                  const isPushedDown = stackHoverState
-                    && stackHoverState.group === stackContext?.group
-                    && stackContext?.idx > stackHoverState.stackIdx
+                  const activeHover = stackHoverState || touchActiveStack
+                  const isPushedDown = activeHover
+                    && activeHover.group === stackContext?.group
+                    && stackContext?.idx > activeHover.stackIdx
+                  const isTouchActive = touchActiveStack?.id === dc.id
                   return (
                     <div
                       key={dc.id}
-                      className={`${styles.stackCard}${dc.is_commander ? ' '+styles.isCommander : ''}${legalityWarnings.length ? ' '+styles.stackCardIllegal : ''}${isPushedDown ? ' '+styles.stackCardPushedDown : ''}`}
-                      style={{ zIndex: stackContext?.idx ?? 0 }}
+                      className={`${styles.stackCard}${dc.is_commander ? ' '+styles.isCommander : ''}${legalityWarnings.length ? ' '+styles.stackCardIllegal : ''}${isPushedDown ? ' '+styles.stackCardPushedDown : ''}${isTouchActive ? ' '+styles.stackCardActive : ''}`}
+                      style={{ zIndex: isTouchActive ? 200 : (stackContext?.idx ?? 0) }}
                       title={warningTitle || dc.name}
-                      onClick={() => openDeckCardDetail(dc)}
+                      onClick={() => {
+                        if (!CAN_HOVER) {
+                          if (isTouchActive) {
+                            setTouchActiveStack(null)
+                            openDeckCardDetail(dc)
+                          } else {
+                            setTouchActiveStack({ group: stackContext?.group, stackIdx: stackContext?.idx ?? 0, id: dc.id })
+                          }
+                          return
+                        }
+                        openDeckCardDetail(dc)
+                      }}
                       onContextMenu={CAN_HOVER ? e => {
                         openDeckCardContextMenu(dc, e)
                         setStackHoverState(null)
@@ -4687,11 +4775,23 @@ export default function DeckBuilderPage() {
                         {dc.foil && <span className={styles.stackFoil} title="Foil">*</span>}
                       </div>
                       <div className={styles.stackCardControls} onClick={ev => ev.stopPropagation()}>
-                        <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} onMoveBoard={moveCardToBoard} />
-                        <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, -1) }}>-</button>
-                        <span className={styles.stackControlCount}>{dc.qty}</span>
-                        <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, +1) }}>+</button>
-                        <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); removeCardFromDeck(dc.id) }}>x</button>
+                        <div className={styles.stackCardInfo}>
+                          <span className={styles.stackCardPrice}>{getDeckCardPriceLabel(dc)}</span>
+                          <OwnershipBadge
+                            ownedQty={ownedFoilMap.get(`${dc.scryfall_id}|${dc.foil ? '1' : '0'}`) ?? 0}
+                            ownedFoilAlt={ownedFoilMap.get(`${dc.scryfall_id}|${dc.foil ? '0' : '1'}`) ?? 0}
+                            ownedAlt={ownedNameMap.get((dc.name || '').toLowerCase()) ?? 0}
+                            ownedInDeck={allocationSetHas(inOtherDeckSet, dc)}
+                            inCollDeck={allocationSetHas(collDeckSfSet, dc)}
+                          />
+                        </div>
+                        <div className={styles.stackControlsRow}>
+                          <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} onMoveBoard={moveCardToBoard} />
+                          <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, -1) }}>-</button>
+                          <span className={styles.stackControlCount}>{dc.qty}</span>
+                          <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, +1) }}>+</button>
+                          <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); removeCardFromDeck(dc.id) }}>x</button>
+                        </div>
                       </div>
                     </div>
                   )
@@ -4750,11 +4850,34 @@ export default function DeckBuilderPage() {
                 </div>
               )
 
+              const getDeckCardGroup = (dc) => {
+                const sf = dc.set_code && dc.collector_number ? (builderSfMap[`${dc.set_code}-${dc.collector_number}`] || {}) : {}
+                if (groupBy === 'category') {
+                  const oracle = ((sf.oracle_text || '') + (sf.card_faces || []).map(f => f.oracle_text || '').join('\n'))
+                  return getCardCategory(oracle.toLowerCase(), (sf.type_line || dc.type_line || '').toLowerCase(), sf.keywords || [])
+                }
+                if (groupBy === 'rarity') return sf.rarity || 'common'
+                if (groupBy === 'set') return sf.set_name || (dc.set_code ? dc.set_code.toUpperCase() : 'Unknown')
+                return dc.is_commander ? 'Commander' : classifyCardType(dc.type_line)
+              }
+
               const renderStacks = (cards, board) => {
-                const groups = groupByType
-                  ? TYPE_GROUPS
+                const groupOrder = groupBy === 'category'
+                  ? [...new Set(cards.map(getDeckCardGroup))]
+                      .sort((a, b) => {
+                        const ai = CAT_ORDER.indexOf(a); const bi = CAT_ORDER.indexOf(b)
+                        return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi)
+                      })
+                  : groupBy === 'rarity'
+                  ? RARITY_ORDER.filter(r => cards.some(dc => getDeckCardGroup(dc) === r))
+                  : groupBy === 'set'
+                  ? [...new Set(cards.map(getDeckCardGroup))].sort()
+                  : TYPE_GROUPS
+
+                const groups = groupBy !== 'none'
+                  ? groupOrder
                       .map(group => {
-                        const groupCards = cards.filter(dc => (dc.is_commander ? 'Commander' : classifyCardType(dc.type_line)) === group)
+                        const groupCards = cards.filter(dc => getDeckCardGroup(dc) === group)
                         return groupCards.length ? { group, cards: groupCards } : null
                       })
                       .filter(Boolean)
@@ -4795,19 +4918,28 @@ export default function DeckBuilderPage() {
               const renderCardSet = (cards, board) => {
                 if (deckView === 'stacks') return renderStacks(cards, board)
 
-                if (groupByType) {
-                  const groupMap = new Map(TYPE_GROUPS.map(g => [g, []]))
+                if (groupBy !== 'none') {
+                  const baseOrder = groupBy === 'category' ? CAT_ORDER
+                    : groupBy === 'rarity' ? RARITY_ORDER
+                    : groupBy === 'set' ? [...new Set(cards.map(getDeckCardGroup))].sort()
+                    : TYPE_GROUPS
+                  const groupMap = new Map(baseOrder.map(g => [g, []]))
                   for (const dc of cards) {
-                    const g = dc.is_commander ? 'Commander' : classifyCardType(dc.type_line)
-                    const target = groupMap.has(g) ? g : 'Other'
-                    groupMap.get(target).push(dc)
+                    const g = getDeckCardGroup(dc)
+                    if (!groupMap.has(g)) groupMap.set(g, [])
+                    groupMap.get(g).push(dc)
                   }
-                  return TYPE_GROUPS.map(group => {
-                    const groupCards = groupMap.get(group)
+                  return [...groupMap.entries()].map(([group, groupCards]) => {
                     if (!groupCards?.length) return null
                     const groupQty = groupCards.reduce((s, dc) => s + dc.qty, 0)
+                    const groupPrice = groupCards.reduce((sum, dc) => {
+                      const sf = builderSfMap[`${dc.set_code}-${dc.collector_number}`]
+                      const p = sf ? getPrice(sf, dc.foil, { price_source }) : null
+                      return sum + (p != null ? p * (dc.qty || 1) : 0)
+                    }, 0)
                     const collapsedKey = `${board}:${group}`
                     const collapsed = collapsedGroups.has(collapsedKey)
+                    const groupColor = groupBy === 'category' ? CAT_COLORS[group] : groupBy === 'rarity' ? RARITY_COLORS[group] : undefined
                     return (
                       <div key={collapsedKey} className={styles.deckGroup}>
                         <div
@@ -4822,7 +4954,8 @@ export default function DeckBuilderPage() {
                           <span className={`${styles.groupArrow}${collapsed ? ' ' + styles.groupArrowCollapsed : ''}`} aria-hidden="true">
                             <ChevronDownIcon size={12} />
                           </span>
-                          <span className={styles.groupName}>{group}</span>
+                          <span className={styles.groupName} style={groupColor ? { color: groupColor } : undefined}>{group}</span>
+                          {groupPrice > 0 && <span className={styles.groupPrice}>{formatPrice(groupPrice, price_source)}</span>}
                           <span className={styles.groupCount}>{groupQty}</span>
                         </div>
                         {!collapsed && (deckView === 'grid'
@@ -4879,7 +5012,8 @@ export default function DeckBuilderPage() {
             {/* â”€â”€ Deck composition stats â”€â”€ */}
             {deckCards.length > 0
               ? <DeckStats
-                  cards={normalizeDeckBuilderCards(mainDeckCards)}
+                  cards={normalizeDeckBuilderCards(mainDeckCards, builderSfMap, { price_source })}
+                  price_source={price_source}
                   bracketOverride={statsBracketOverride}
                   onBracketOverride={setStatsBracketOverride}
                 />
