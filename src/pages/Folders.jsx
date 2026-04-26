@@ -277,6 +277,7 @@ function GroupSection({ group, folders, folderMeta, priceSource, selectMode, sel
               if (e.key === 'Escape') setRenaming(false)
             }}
             onClick={e => e.stopPropagation()}
+            maxLength={50}
           />
         ) : (
           <span className={styles.groupName}>{group.name}</span>
@@ -445,6 +446,7 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
             value={renameVal}
             onChange={e => setRenameVal(e.target.value)}
             onKeyDown={handleRenameKey}
+            maxLength={100}
           />
           <div className={styles.renameBtns}>
             <button className={styles.renameConfirm} onClick={e => { e.stopPropagation(); confirmRename() }}>✓</button>
@@ -1066,6 +1068,7 @@ function DeleteFolderModal({ folder, userId, onDone, onCancel }) {
                     if (e.key === 'Enter') handleCreateTarget()
                   }}
                   placeholder={`Create new ${mode}…`}
+                  maxLength={100}
                 />
                 <Button
                   size="sm"
@@ -1230,6 +1233,7 @@ function BulkDeleteModal({ nonEmpty, empty, userId, onDone, onCancel }) {
                     if (e.key === 'Enter') handleCreateTarget()
                   }}
                   placeholder={`Create new ${mode}…`}
+                  maxLength={100}
                 />
                 <Button
                   size="sm"
@@ -1752,6 +1756,7 @@ export default function FoldersPage({ type }) {
                 if (e.key === 'Escape') setShowNewGroup(false)
               }}
               placeholder="Group name…"
+              maxLength={50}
             />
             <button
               className={styles.newGroupSaveBtn}
@@ -1856,6 +1861,7 @@ export default function FoldersPage({ type }) {
               onChange={e => setNewFolderName(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') createFolder(); if (e.key === 'Escape') setShowNewFolder(false) }}
               placeholder={`${noun} name…`}
+              maxLength={100}
             />
             <button className={styles.newGroupSaveBtn} disabled={!newFolderName.trim()} onClick={createFolder}>
               Create

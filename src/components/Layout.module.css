@@ -115,12 +115,37 @@
 
 /* ── User bar ── */
 .userBar { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-.userName { font-size: 0.78rem; color: var(--text-dim); font-style: italic; }
-.premiumBadge {
-  font-size: 0.62rem; font-family: var(--font-display); letter-spacing: 0.06em;
-  color: var(--gold); background: rgba(201,168,76,0.10); border: 1px solid rgba(201,168,76,0.28);
-  border-radius: 3px; padding: 1px 6px; line-height: 1.5;
-  animation: av-badge-pulse 3s ease-in-out infinite;
+.userName {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  text-decoration: none;
+  padding: 4px 9px;
+  border-radius: 5px;
+  border: 1px solid var(--s-border2);
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+.userName:hover {
+  color: var(--gold);
+  background: rgba(201,168,76,0.07);
+  border-color: rgba(201,168,76,0.3);
+  text-decoration: none;
+}
+.userNameInner {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.userNick { font-size: 0.78rem; }
+.supporterLabel {
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+  color: var(--gold);
+  opacity: 0.7;
+  text-transform: uppercase;
+  font-family: var(--font-display);
 }
 @keyframes av-badge-pulse {
   0%, 100% { opacity: 0.85; }

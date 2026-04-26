@@ -2056,6 +2056,7 @@ export default function CardScanner({ onMatch, onClose }) {
             placeholder={`Search ${addFlowFolderType}s…`}
             value={addFlowFolderSearch}
             onChange={e => setAddFlowFolderSearch(e.target.value)}
+            maxLength={100}
           />
           <button
             className={styles.inlineCreateBtn}

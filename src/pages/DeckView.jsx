@@ -163,12 +163,18 @@ export default function DeckViewPage() {
     ;(async () => {
       const { data: folder, error: ferr } = await sb.from('folders').select('*').eq('id', id).maybeSingle()
       if (ferr || !folder) {
-        setError(user ? 'Deck not found' : 'sign-in')
+        setError('Deck not found')
+        setLoading(false)
+        return
+      }
+      const meta = parseDeckMeta(folder.description)
+      if (!meta.is_public && folder.user_id !== user?.id) {
+        setError('Deck not found')
         setLoading(false)
         return
       }
       setDeck(folder)
-      setDeckMeta(parseDeckMeta(folder.description))
+      setDeckMeta(meta)
 
       // Fetch creator nickname via security-definer RPC (bypasses user_settings RLS)
       sb.rpc('get_user_nickname', { p_user_id: folder.user_id })
@@ -285,6 +291,12 @@ export default function DeckViewPage() {
   }, [cards, sfMap])
 
   // Build plain-text decklist for copy
+  const cardLine = (c) => {
+    let line = `${c.qty} ${c.name}`
+    if (c.set_code && c.collector_number) line += ` (${c.set_code.toUpperCase()}) ${c.collector_number}`
+    if (c.foil) line += ' *F*'
+    return line
+  }
   const buildDecklist = useCallback(() => {
     const commander = cards.filter(c => c.is_commander)
     const main      = cards.filter(c => !c.is_commander && c.board !== 'side' && c.board !== 'maybe')
@@ -292,7 +304,7 @@ export default function DeckViewPage() {
     const lines = []
     if (commander.length) {
       lines.push('// Commander')
-      commander.forEach(c => lines.push(`${c.qty} ${c.name}`))
+      commander.forEach(c => lines.push(cardLine(c)))
       lines.push('')
     }
     if (groupBy === 'type') {
@@ -300,19 +312,19 @@ export default function DeckViewPage() {
         const gc = groupedCards.get(group)?.filter(c => !c.is_commander && c.board !== 'side' && c.board !== 'maybe')
         if (!gc?.length) return
         lines.push(`// ${group}`)
-        sortCards(gc).forEach(c => lines.push(`${c.qty} ${c.name}`))
+        sortCards(gc).forEach(c => lines.push(cardLine(c)))
         lines.push('')
       })
     } else {
       if (main.length) {
         lines.push('// Main')
-        sortCards(main).forEach(c => lines.push(`${c.qty} ${c.name}`))
+        sortCards(main).forEach(c => lines.push(cardLine(c)))
         lines.push('')
       }
     }
     if (side.length) {
       lines.push('// Sideboard')
-      sortCards(side).forEach(c => lines.push(`${c.qty} ${c.name}`))
+      sortCards(side).forEach(c => lines.push(cardLine(c)))
     }
     return lines.join('\n').trim()
   }, [cards, groupBy, groupedCards, sortCards])
@@ -327,14 +339,6 @@ export default function DeckViewPage() {
     <div className={styles.signinPage}>
       <div className={styles.signinLogo}>UNTAP<span>HUB</span></div>
       <div className={styles.signinMsg} style={{ fontStyle: 'italic' }}>Loading deck…</div>
-    </div>
-  )
-
-  if (error === 'sign-in') return (
-    <div className={styles.signinPage}>
-      <div className={styles.signinLogo}>UNTAP<span>HUB</span></div>
-      <div className={styles.signinMsg}>Sign in to view this deck.</div>
-      <Link to="/login" className={styles.signinLink}>Sign In to UntapHub</Link>
     </div>
   )
 
@@ -374,6 +378,14 @@ export default function DeckViewPage() {
         </div>
       </div>
 
+      {/* ── Guest banner ── */}
+      {!user && (
+        <div className={styles.guestBanner}>
+          Want to try UntapHub?{' '}
+          <Link to="/login" className={styles.guestBannerLink}>Sign up.</Link>
+        </div>
+      )}
+
       {/* ── Deck header ── */}
       <div className={styles.deckHeader}>
         <h1 className={styles.deckTitle}>{deck.name}</h1>
@@ -397,22 +409,62 @@ export default function DeckViewPage() {
             </>
           )}
         </div>
-        {isViewer && (
+        {isViewer ? (
           <div className={styles.viewerBanner}>
             <div className={styles.viewerCopy}>
               <div className={styles.viewerEyebrow}>Shared Deck</div>
               <div className={styles.viewerText}>Copy this list straight into your deckbuilder.</div>
             </div>
+            <div className={styles.viewerActions}>
+              <button
+                onClick={copyDeck}
+                disabled={copying || copyDone}
+                className={`${styles.actionBtn}${copyDone ? ' ' + styles.actionBtnDone : ''}`}
+              >
+                {copyDone ? '✓ Added to Deckbuilder' : copying ? 'Copying…' : '＋ Copy to My Deckbuilder'}
+              </button>
+              <button
+                className={`${styles.actionBtn}${showDecklist ? ' ' + styles.actionBtnActive : ''}`}
+                onClick={() => setShowDecklist(v => !v)}
+              >
+                ⎘ Copy Decklist
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className={styles.deckHeaderActions}>
             <button
-              onClick={copyDeck}
-              disabled={copying || copyDone}
-              className={`${styles.actionBtn}${copyDone ? ' ' + styles.actionBtnDone : ''}`}
+              className={`${styles.actionBtn}${showDecklist ? ' ' + styles.actionBtnActive : ''}`}
+              onClick={() => setShowDecklist(v => !v)}
             >
-              {copyDone ? '✓ Added to Deckbuilder' : copying ? 'Copying…' : '＋ Copy to My Deckbuilder'}
+              ⎘ Copy Decklist
             </button>
           </div>
         )}
       </div>
+
+      {/* ── Inline decklist panel ── */}
+      {showDecklist && (() => {
+        const text = buildDecklist()
+        return (
+          <div className={styles.decklistInline}>
+            <div className={styles.decklistInlineHeader}>
+              <span className={styles.decklistTitle}>Decklist</span>
+              <button
+                className={`${styles.actionBtn}${decklistCopied ? ' ' + styles.actionBtnDone : ''}`}
+                onClick={() => {
+                  navigator.clipboard.writeText(text)
+                  setDecklistCopied(true)
+                  setTimeout(() => setDecklistCopied(false), 2000)
+                }}
+              >
+                {decklistCopied ? '✓ Copied' : '⎘ Copy'}
+              </button>
+            </div>
+            <pre className={styles.decklistText}>{text}</pre>
+          </div>
+        )
+      })()}
 
       {/* ── Body: deck list (dominant) + right sidebar ── */}
       <div className={styles.body}>
@@ -466,16 +518,6 @@ export default function DeckViewPage() {
                   onClick={() => setGroupBy('none')}
                 >Ungrouped</button>
               </div>
-              {/* Copy decklist */}
-              <button
-                className={styles.actionBtn}
-                onClick={isViewer ? copyDeck : () => setShowDecklist(true)}
-                disabled={isViewer && (copying || copyDone)}
-              >
-                {isViewer
-                  ? (copyDone ? '✓ Added to Deckbuilder' : copying ? 'Copying…' : '＋ Copy to My Deckbuilder')
-                  : '⎘ Copy Decklist'}
-              </button>
               {/* View toggle — all 5 modes */}
               <div className={styles.viewToggles}>
                 {[
@@ -539,34 +581,6 @@ export default function DeckViewPage() {
           )}
         </div>
       </div>
-      {/* ── Decklist modal ── */}
-      {showDecklist && (() => {
-        const text = buildDecklist()
-        return (
-          <div className={styles.decklistBackdrop} onClick={() => setShowDecklist(false)}>
-            <div className={styles.decklistModal} onClick={e => e.stopPropagation()}>
-              <div className={styles.decklistHeader}>
-                <span className={styles.decklistTitle}>Decklist</span>
-                <div className={styles.decklistHeaderActions}>
-                  <button
-                    className={`${styles.actionBtn}${decklistCopied ? ' ' + styles.actionBtnDone : ''}`}
-                    onClick={() => {
-                      navigator.clipboard.writeText(text).then(() => {
-                        setDecklistCopied(true)
-                        setTimeout(() => setDecklistCopied(false), 2000)
-                      })
-                    }}
-                  >
-                    {decklistCopied ? '✓ Copied' : '⎘ Copy'}
-                  </button>
-                  <button className={styles.decklistClose} onClick={() => setShowDecklist(false)}>×</button>
-                </div>
-              </div>
-              <pre className={styles.decklistText}>{text}</pre>
-            </div>
-          </div>
-        )
-      })()}
     </div>
   )
 }

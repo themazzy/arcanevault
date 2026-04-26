@@ -240,6 +240,7 @@ function MoveToDialog({ folders, onMoveToFolder, onCreateFolder, onClose, allowe
                 if (e.key === 'Escape') { setCreating(false); setCreateName('') }
               }}
               placeholder={`New ${destType} name…`}
+              maxLength={100}
             />
             <button
               className={styles.moveDialogCreateSave}
