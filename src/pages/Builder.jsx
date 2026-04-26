@@ -238,7 +238,8 @@ export default function BuilderPage() {
 
   async function loadDecks() {
     setLoading(true)
-    const { data } = await sb.rpc('get_my_decks', { p_user_id: user.id })
+    const { data } = await sb.rpc('get_my_decks')
+    // server already filters groups/hidden/paired — keep client guard for safety
     const nonGroupDecks = (Array.isArray(data) ? data : []).filter(f => {
       try {
         const m = JSON.parse(f.description || '{}')

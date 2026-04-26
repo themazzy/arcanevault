@@ -16,7 +16,7 @@
 /* ── Top navigation bar ────────────────────────────────────────────────────── */
 .topBar {
   position: sticky;
-  top: var(--nav-h);
+  top: 0;
   z-index: 20;
   background: var(--nav-bg);
   border-bottom: 1px solid rgba(201,168,76,0.1);
@@ -92,6 +92,11 @@
   color: #5dba70;
 }
 
+.actionBtnActive {
+  background: rgba(201,168,76,0.18);
+  border-color: rgba(201,168,76,0.48);
+}
+
 .signInBtn {
   background: var(--s-subtle);
   border: 1px solid var(--s-border2);
@@ -164,6 +169,18 @@
   align-items: center;
   font-size: 0.81rem;
   color: var(--text-dim, #9a8870);
+}
+
+.viewerActions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.deckHeaderActions {
+  margin-top: 16px;
 }
 
 .viewerBanner {
@@ -738,6 +755,22 @@
   font-style: italic;
 }
 
+/* ── Guest banner ──────────────────────────────────────────────────────────── */
+.guestBanner {
+  background: rgba(201,168,76,0.07);
+  border-bottom: 1px solid rgba(201,168,76,0.15);
+  padding: 9px 32px;
+  font-size: 0.82rem;
+  color: var(--text-dim, #9a8870);
+  text-align: center;
+}
+.guestBannerLink {
+  color: var(--gold, #c9a84c);
+  text-decoration: none;
+  font-weight: 500;
+}
+.guestBannerLink:hover { text-decoration: underline; }
+
 /* ── Sign-in splash page ───────────────────────────────────────────────────── */
 .signinPage {
   min-height: 100vh;
@@ -814,6 +847,23 @@
 .sortSelect option { background: var(--bg2, #1a1628); }
 
 /* ── Decklist modal ────────────────────────────────────────────────────────── */
+/* ── Inline decklist panel ─────────────────────────────────────────────────── */
+.decklistInline {
+  border-top: 1px solid rgba(201,168,76,0.1);
+  border-bottom: 1px solid rgba(201,168,76,0.1);
+  background: var(--bg2, #1a1628);
+  padding: 0 40px;
+}
+
+.decklistInlineHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--s-border);
+}
+
+/* ── Decklist modal (legacy, kept for reference) ───────────────────────────── */
 .decklistBackdrop {
   position: fixed;
   inset: 0;
@@ -877,7 +927,8 @@
 .decklistText {
   flex: 1;
   overflow-y: auto;
-  padding: 16px 18px;
+  max-height: 420px;
+  padding: 16px 0;
   margin: 0;
   font-family: 'Courier New', monospace;
   font-size: 0.8rem;

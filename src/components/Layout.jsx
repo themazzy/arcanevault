@@ -10,7 +10,7 @@ import styles from './Layout.module.css'
 import {
   HomeIcon, CollectionIcon, DecksIcon, BuilderIcon, BindersIcon,
   WishlistsIcon, TradingIcon, StatsIcon, LifeIcon, ScannerIcon,
-  SettingsIcon, MenuIcon, CloseIcon, BugIcon, InfoIcon,
+  SettingsIcon, MenuIcon, CloseIcon, BugIcon, InfoIcon, PlayerIcon,
 } from '../icons'
 
 const TABS = [
@@ -28,7 +28,7 @@ const TABS = [
 
 export default function Layout({ children }) {
   const { user } = useAuth()
-  const { keep_screen_awake, premium } = useSettings()
+  const { keep_screen_awake, premium, nickname } = useSettings()
   const navigate = useNavigate()
   const location = useLocation()
   const isNative = Capacitor.isNativePlatform()
@@ -181,8 +181,18 @@ export default function Layout({ children }) {
               </NavLink>
 
               <div className={styles.userBar}>
-                {premium && <span className={styles.premiumBadge}>✦ Premium</span>}
-                <span className={styles.userName}>{displayEmail}</span>
+                {nickname ? (
+                  <NavLink
+                    to={`/profile/${encodeURIComponent(nickname)}`}
+                    className={styles.userName}
+                  >
+                    <PlayerIcon size={13} />
+                    <span className={styles.userNameInner}>
+                      <span className={styles.userNick}>{nickname}</span>
+                      {premium && <span className={styles.supporterLabel}>supporter</span>}
+                    </span>
+                  </NavLink>
+                ) : null}
                 <button
                   className={styles.feedbackBtn}
                   onClick={() => setShowFeedback(true)}

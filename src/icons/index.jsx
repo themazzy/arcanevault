@@ -607,3 +607,12 @@ export function ImageIcon(p) {
     </Icon>
   )
 }
+
+export function PlayerIcon(p) {
+  return (
+    <Icon {...p}>
+      <circle cx="8" cy="5.5" r="2.5" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" />
+      <path d="M2.5 14c0-3.03 2.46-5.5 5.5-5.5s5.5 2.47 5.5 5.5" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" strokeLinecap="round" />
+    </Icon>
+  )
+}

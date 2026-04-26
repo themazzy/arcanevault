@@ -330,7 +330,7 @@ export default function ProfilePage() {
     }
 
     setProfile(data)
-    sb.rpc('get_public_decks', { p_user_id: data.user_id })
+    sb.rpc('get_public_decks', { p_username: decodedUsername })
       .then(({ data: decks }) => setPublicDecks(decks || []))
       .catch(() => {})
     setLoading(false)

@@ -452,13 +452,20 @@ export default function SettingsPage() {
 
   // Nickname availability check
   const [nicknameStatus, setNicknameStatus] = useState('')
+  const [nicknameError, setNicknameError]   = useState('')
   const nicknameTimer = useRef(null)
+  const NICKNAME_RE = /^[a-zA-Z0-9_-]*$/
 
   useEffect(() => {
     isCurrentUserAdmin(user?.id).then(setIsAdmin)
   }, [user?.id])
 
   const handleNicknameChange = (val) => {
+    setNicknameError('')
+    if (val && !NICKNAME_RE.test(val)) {
+      setNicknameError('Only letters, numbers, hyphens, and underscores are allowed.')
+      return
+    }
     set('nickname', val)
     clearTimeout(nicknameTimer.current)
     if (!val.trim()) { setNicknameStatus(''); return }
@@ -514,6 +521,10 @@ export default function SettingsPage() {
     const nextEmail = emailNew.trim()
     if (!nextEmail) {
       setEmailError('Enter the new email address you want to use.')
+      return
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail)) {
+      setEmailError('Enter a valid email address.')
       return
     }
     if (nextEmail.toLowerCase() === (user?.email || '').toLowerCase()) {
@@ -795,9 +806,10 @@ export default function SettingsPage() {
               onChange={e => handleNicknameChange(e.target.value)}
               maxLength={24}
             />
-            {nicknameStatus === 'checking'  && <span className={styles.usernameHint}>Checking…</span>}
-            {nicknameStatus === 'available' && <span className={styles.usernameOk}>✓ Available</span>}
-            {nicknameStatus === 'taken'     && <span className={styles.usernameTaken}>Taken</span>}
+            {nicknameError                   && <span className={styles.usernameTaken}>{nicknameError}</span>}
+            {!nicknameError && nicknameStatus === 'checking'  && <span className={styles.usernameHint}>Checking…</span>}
+            {!nicknameError && nicknameStatus === 'available' && <span className={styles.usernameOk}>✓ Available</span>}
+            {!nicknameError && nicknameStatus === 'taken'     && <span className={styles.usernameTaken}>Taken</span>}
           </div>
         </SettingRow>
         {settings.nickname && (
@@ -872,6 +884,7 @@ export default function SettingsPage() {
               autoComplete="email"
               value={emailNew}
               onChange={e => setEmailNew(e.target.value)}
+              maxLength={254}
             />
             <Button size="sm" onClick={handleChangeEmail} disabled={!emailNew.trim()}>Send Change Email</Button>
           </div>

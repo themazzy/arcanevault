@@ -70,7 +70,9 @@
       "Bash(npx --yes acorn --ecma2020 --module src/pages/Collection.jsx)",
       "Bash(node -e ' *)",
       "Bash(node -e \"require\\('fs'\\).readFileSync\\('src/pages/Collection.jsx','utf8'\\)\")",
-      "Bash(npx supabase *)"
+      "Bash(npx supabase *)",
+      "WebFetch(domain:www.freecodecamp.org)",
+      "Bash(git -C /c/Users/Jan/Desktop/arcanevault/arcanevault ls-files)"
     ]
   }
 }

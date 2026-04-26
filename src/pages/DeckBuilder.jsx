@@ -849,7 +849,7 @@ function MakeDeckModal({ deckCards, userId, inOtherDeckSet, onConfirm, onClose }
     || missingAction === 'skip'
     || missingAction === 'add'
     || (selectedWishlistId ? (selectedWishlistId === 'new' ? !!newWishlistName.trim() : true) : true)
-  const canConfirm    = addItems.length > 0 && wishlistReady
+  const canConfirm    = (addItems.length > 0 || missingAction === 'add') && wishlistReady
 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:700, display:'flex', alignItems:'center', justifyContent:'center' }}
@@ -935,6 +935,7 @@ function MakeDeckModal({ deckCards, userId, inOtherDeckSet, onConfirm, onClose }
                       </Select>
                       {selectedWishlistId === 'new' && (
                         <input autoFocus placeholder="Wishlist name..." value={newWishlistName} onChange={e => setNewWishlistName(e.target.value)}
+                          maxLength={100}
                           style={{ background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:4, padding:'6px 10px', color:'var(--text)', fontSize:'0.84rem', flex:1 }} />
                       )}
                     </div>
@@ -955,7 +956,7 @@ function MakeDeckModal({ deckCards, userId, inOtherDeckSet, onConfirm, onClose }
                 })}
                 disabled={!canConfirm}
                 style={{ background:'rgba(74,154,90,0.15)', border:'1px solid rgba(74,154,90,0.4)', borderRadius:4, padding:'7px 16px', color:'var(--green, #4a9a5a)', fontSize:'0.83rem', cursor:'pointer', opacity:canConfirm ? 1 : 0.45 }}>
-                Create Deck ({addItems.reduce((s, i) => s + i.totalAdd, 0)} cards)
+                Create Deck ({addItems.reduce((s, i) => s + i.totalAdd, 0) + (missingAction === 'add' ? missingItems.reduce((s, i) => s + i.missingQty, 0) : 0)} cards)
               </button>
             </div>
           </>
@@ -1450,6 +1451,7 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
                     value={newWishlistName}
                     onChange={e => setNewWishlistName(e.target.value)}
                     placeholder="Wishlist name..."
+                    maxLength={100}
                     style={{ background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:4, padding:'5px 8px', color:'var(--text)', fontSize:'0.83rem', flex:1 }}
                   />
                 )}
@@ -1753,7 +1755,7 @@ function DeckWinrateMini({ results, loading, deckName }) {
 // â”€â”€ Main DeckBuilder component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export default function DeckBuilderPage() {
   const { id: deckId } = useParams()
-  const { user }       = useAuth()
+  const { user, session } = useAuth()
   const { grid_density, price_source, default_grouping } = useSettings()
   const navigate       = useNavigate()
   const location       = useLocation()
@@ -2543,8 +2545,8 @@ export default function DeckBuilderPage() {
   }
 
   function addTag(raw) {
-    const tag = raw.trim()
-    if (!tag || cmdTags.includes(tag)) return
+    const tag = raw.trim().slice(0, 30)
+    if (!tag || cmdTags.includes(tag) || cmdTags.length >= 20) return
     const next = [...cmdTags, tag]
     setCmdTags(next)
     setNewTagInput('')
@@ -2942,7 +2944,7 @@ export default function DeckBuilderPage() {
           'Content-Type': 'application/json',
           ...(import.meta.env.DEV ? {} : {
             'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            'Authorization': `Bearer ${session?.access_token ?? import.meta.env.VITE_SUPABASE_ANON_KEY}`,
           }),
         },
         body: JSON.stringify(body),
@@ -3996,6 +3998,7 @@ export default function DeckBuilderPage() {
             value={deckName}
             onChange={e => setDeckName(e.target.value)}
             onBlur={saveNameBlur}
+            maxLength={100}
           />
           <div className={styles.deckMeta}>
             <span>{format?.label ?? 'Deck'}</span>
@@ -4344,6 +4347,7 @@ export default function DeckBuilderPage() {
                 onBlur={e => saveDescription(e.target.value)}
                 placeholder="Add description..."
                 rows={2}
+                maxLength={1000}
               />
               <div className={styles.cmdTagRow}>
                 {cmdTags.map(tag => (
@@ -4359,6 +4363,7 @@ export default function DeckBuilderPage() {
                   onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(newTagInput) } }}
                   onBlur={() => { if (newTagInput.trim()) addTag(newTagInput) }}
                   placeholder={cmdTags.length === 0 ? 'Add tags...' : '+'}
+                  maxLength={30}
                 />
               </div>
             </div>

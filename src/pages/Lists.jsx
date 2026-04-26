@@ -767,7 +767,7 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onRename,
       {renaming ? (
         <div className={styles.renameWrap} onClick={e => e.stopPropagation()}>
           <input ref={renameRef} className={styles.renameInput} value={renameVal}
-            onChange={e => setRenameVal(e.target.value)} onKeyDown={handleRenameKey} />
+            onChange={e => setRenameVal(e.target.value)} onKeyDown={handleRenameKey} maxLength={100} />
           <div className={styles.renameBtns}>
             <button className={styles.renameConfirm} onClick={e => { e.stopPropagation(); confirmRename() }}>✓</button>
             <button className={styles.renameCancel} onClick={e => { e.stopPropagation(); setRenaming(false) }}>✕</button>
@@ -810,7 +810,7 @@ function GroupSection({ group, folders, folderMeta, priceSource, selectMode, sel
               if (e.key === 'Enter') { onRenameGroup(group, renameVal.trim()); setRenaming(false) }
               if (e.key === 'Escape') setRenaming(false)
             }}
-            onClick={e => e.stopPropagation()} />
+            onClick={e => e.stopPropagation()} maxLength={50} />
         ) : (
           <span className={styles.groupName}>{group.name}</span>
         )}
@@ -1285,7 +1285,7 @@ export default function ListsPage() {
                 }
                 if (e.key === 'Escape') setShowNewGroup(false)
               }}
-              placeholder="Group name…" />
+              placeholder="Group name…" maxLength={50} />
             <button className={styles.newGroupSaveBtn} disabled={!newGroupName.trim()}
               onClick={() => { createGroup(newGroupName); setShowNewGroup(false); setNewGroupName('') }}>
               Create
