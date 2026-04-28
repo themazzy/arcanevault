@@ -14,7 +14,7 @@ import {
 import { normalizeImportedDeckCards, parseImportText, resolveImportEntries } from '../lib/importFlow'
 import {
   getLocalCards, getDeckCards, putDeckCards, deleteDeckCardLocal, getMeta, setMeta, getScryfallEntry,
-  deleteDeckAllocationsByIds, replaceDeckAllocations, putDeckAllocations, putFolderCards,
+  deleteDeckAllocationsByIds, replaceDeckAllocations, putDeckAllocations, putFolderCards, putCards,
 } from '../lib/db'
 import styles from './DeckBuilder.module.css'
 import uiStyles from '../components/UI.module.css'
@@ -36,6 +36,7 @@ import {
 } from '../lib/deckSync'
 import { formatPrice, getPrice } from '../lib/scryfall'
 import { getPublicAppUrl } from '../lib/publicUrl'
+import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
 import {
   ListViewIcon,
   StacksViewIcon,
@@ -75,6 +76,137 @@ function normalizeBoard(board) {
 
 function normalizeCardName(name) {
   return String(name || '').trim().toLowerCase()
+}
+
+function isGroupFolder(folder) {
+  try { return JSON.parse(folder?.description || '{}').isGroup === true } catch { return false }
+}
+
+function toCardPrintSource(row) {
+  return {
+    scryfall_id: row?.scryfall_id || null,
+    name: row?.name || null,
+    set_code: row?.set_code || row?.set || null,
+    collector_number: row?.collector_number || row?.collNum || null,
+    type_line: row?.type_line || null,
+    mana_cost: row?.mana_cost || null,
+    cmc: row?.cmc ?? null,
+    color_identity: row?.color_identity || [],
+    image_uri: row?.image_uri || null,
+    art_crop_uri: row?.art_crop_uri || null,
+  }
+}
+
+async function requireCardPrintIds(rows, context = 'Card') {
+  const needsPrint = (rows || []).filter(row => !row.card_print_id)
+  if (!needsPrint.length) return rows || []
+
+  const printMap = await ensureCardPrints(needsPrint.map(toCardPrintSource))
+  const hydrated = (rows || []).map(row => {
+    if (row.card_print_id) return row
+    return withCardPrint(row, getCardPrint(printMap, toCardPrintSource(row)))
+  })
+  const missing = hydrated.find(row => !row.card_print_id)
+  if (missing) throw new Error(`${context} could not resolve a card print for ${missing.name || 'unknown card'}.`)
+  return hydrated
+}
+
+function ownedCardKey(row) {
+  return [
+    row.card_print_id,
+    row.foil ? '1' : '0',
+    row.language || 'en',
+    row.condition || 'near_mint',
+  ].join('|')
+}
+
+async function additiveSaveOwnedCards(rows, context = 'Owned card') {
+  const hydratedRows = await requireCardPrintIds(rows, context)
+  const merged = new Map()
+  for (const row of hydratedRows) {
+    const key = ownedCardKey(row)
+    const existing = merged.get(key)
+    merged.set(key, existing ? { ...existing, qty: (existing.qty || 0) + (row.qty || 0) } : row)
+  }
+
+  const incomingRows = [...merged.values()]
+  if (!incomingRows.length) return []
+  const printIds = [...new Set(incomingRows.map(row => row.card_print_id))]
+  let existingRows = []
+  if (printIds.length) {
+    const { data, error } = await sb.from('cards')
+      .select('id,user_id,name,set_code,collector_number,scryfall_id,foil,qty,condition,language,purchase_price,currency,card_print_id,added_at')
+      .eq('user_id', incomingRows[0].user_id)
+      .in('card_print_id', printIds)
+    if (error) throw error
+    existingRows = data || []
+  }
+
+  const existingByKey = new Map(existingRows.map(row => [ownedCardKey(row), row]))
+  const rowsToSave = incomingRows.map(row => {
+    const existing = existingByKey.get(ownedCardKey(row))
+    return existing
+      ? {
+          ...existing,
+          ...row,
+          id: existing.id,
+          qty: (existing.qty || 0) + (row.qty || 0),
+          purchase_price: existing.purchase_price ?? row.purchase_price ?? 0,
+          currency: existing.currency || row.currency || 'EUR',
+        }
+      : row
+  })
+
+  const { data, error } = await sb.from('cards')
+    .upsert(rowsToSave, { onConflict: 'user_id,card_print_id,foil,language,condition' })
+    .select('id,user_id,name,set_code,collector_number,scryfall_id,foil,qty,condition,language,purchase_price,currency,card_print_id,added_at')
+  if (error) throw error
+  return data || []
+}
+
+async function additiveSaveWishlistItems(folderId, userId, rows, context = 'Wishlist item') {
+  const hydratedRows = await requireCardPrintIds(
+    (rows || []).map(row => ({ ...row, folder_id: folderId, user_id: userId })),
+    context
+  )
+  const merged = new Map()
+  for (const row of hydratedRows) {
+    const key = `${row.card_print_id}|${row.foil ? '1' : '0'}`
+    const existing = merged.get(key)
+    merged.set(key, existing ? { ...existing, qty: (existing.qty || 0) + (row.qty || 0) } : row)
+  }
+
+  const incomingRows = [...merged.values()]
+  if (!incomingRows.length) return []
+  const printIds = [...new Set(incomingRows.map(row => row.card_print_id))]
+  let existingRows = []
+  if (printIds.length) {
+    const { data, error } = await sb.from('list_items')
+      .select('card_print_id,foil,qty')
+      .eq('folder_id', folderId)
+      .in('card_print_id', printIds)
+    if (error) throw error
+    existingRows = data || []
+  }
+
+  const existingQtyByKey = new Map(existingRows.map(row => [`${row.card_print_id}|${row.foil ? '1' : '0'}`, row.qty || 0]))
+  const rowsToSave = incomingRows.map(row => ({
+    folder_id: row.folder_id,
+    user_id: row.user_id,
+    name: row.name,
+    set_code: row.set_code || null,
+    collector_number: row.collector_number || null,
+    scryfall_id: row.scryfall_id || null,
+    card_print_id: row.card_print_id,
+    foil: row.foil ?? false,
+    qty: (row.qty || 0) + (existingQtyByKey.get(`${row.card_print_id}|${row.foil ? '1' : '0'}`) || 0),
+  }))
+
+  const { data, error } = await sb.from('list_items')
+    .upsert(rowsToSave, { onConflict: 'folder_id,card_print_id,foil' })
+    .select('*')
+  if (error) throw error
+  return data || []
 }
 
 // Upgrade a Scryfall CDN image to large quality regardless of stored size variant
@@ -822,9 +954,9 @@ function MakeDeckModal({ deckCards, userId, inOtherDeckSet, onConfirm, onClose }
         deckCards,
         collCards || []
       )
-      const { data: wls } = await sb.from('folders').select('id, name').eq('user_id', userId).eq('type', 'list').order('name')
+      const { data: wls } = await sb.from('folders').select('id, name, description').eq('user_id', userId).eq('type', 'list').order('name')
       setPreviewItems(items)
-      setWishlists(wls || [])
+      setWishlists((wls || []).filter(folder => !isGroupFolder(folder)))
       setLoading(false)
     }
     load()
@@ -1003,8 +1135,8 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
       const [collCards, { data: allocations }, { data: foldersData }, { data: wls }] = await Promise.all([
         getLocalCards(userId),
         sb.from('deck_allocations_view').select('*').eq('deck_id', targetDeckId),
-        sb.from('folders').select('id, name, type').eq('user_id', userId).in('type', ['deck', 'binder']).neq('id', targetDeckId).order('name'),
-        sb.from('folders').select('id, name').eq('user_id', userId).eq('type', 'list').order('name'),
+        sb.from('folders').select('id, name, type, description').eq('user_id', userId).in('type', ['deck', 'binder']).neq('id', targetDeckId).order('name'),
+        sb.from('folders').select('id, name, description').eq('user_id', userId).eq('type', 'list').order('name'),
       ])
       const collMap = new Map()
       for (const row of allocations || []) collMap.set(row.card_id, row)
@@ -1144,9 +1276,10 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
         for (const row of normalizedReview.conflicts) next[row.key] = 'keep'
         return next
       })
-      setFolders(foldersData || [])
-      setWishlists(wls || [])
-      if ((foldersData || []).length === 1) setGlobalDest(foldersData[0].id)
+      const destinationFolders = (foldersData || []).filter(folder => !isGroupFolder(folder))
+      setFolders(destinationFolders)
+      setWishlists((wls || []).filter(folder => !isGroupFolder(folder)))
+      if (destinationFolders.length === 1) setGlobalDest(destinationFolders[0].id)
       setLoading(false)
     }
     load()
@@ -2759,7 +2892,7 @@ export default function DeckBuilderPage() {
       return
     }
 
-    const newRow = {
+    const [newRow] = await requireCardPrintIds([{
       id:               crypto.randomUUID(),
       deck_id:          deckId,
       user_id:          user.id,
@@ -2778,7 +2911,7 @@ export default function DeckBuilderPage() {
       board:            'main',
       created_at:       new Date().toISOString(),
       updated_at:       new Date().toISOString(),
-    }
+    }], 'Deck card')
 
     setDeckCards(prev => [...prev, newRow])
     await sb.from('deck_cards').insert(newRow)
@@ -3022,9 +3155,11 @@ export default function DeckBuilderPage() {
         })
       }
 
+      const hydratedRows = await requireCardPrintIds(newRows, 'Imported deck card')
+
       // Save to Supabase
-      await sb.from('deck_cards').insert(newRows)
-      putDeckCards(newRows).catch(() => {})
+      await sb.from('deck_cards').insert(hydratedRows)
+      putDeckCards(hydratedRows).catch(() => {})
 
       // Update deck name if blank and we have one from import
       if (importedName && (!deckName || deckName === 'New Deck')) {
@@ -3032,11 +3167,11 @@ export default function DeckBuilderPage() {
         await sb.from('folders').update({ name: importedName }).eq('id', deckId)
       }
 
-      setDeckCards(prev => [...prev, ...newRows])
-      const importedCopies = newRows.reduce((sum, row) => sum + (row.qty || 0), 0)
+      setDeckCards(prev => [...prev, ...hydratedRows])
+      const importedCopies = hydratedRows.reduce((sum, row) => sum + (row.qty || 0), 0)
       const boardSummary = BOARD_ORDER
         .map(board => {
-          const qty = newRows.filter(row => normalizeBoard(row.board) === board).reduce((sum, row) => sum + (row.qty || 0), 0)
+          const qty = hydratedRows.filter(row => normalizeBoard(row.board) === board).reduce((sum, row) => sum + (row.qty || 0), 0)
           return qty ? `${qty} ${BOARD_LABELS[board].toLowerCase()}` : null
         })
         .filter(Boolean)
@@ -3055,7 +3190,8 @@ export default function DeckBuilderPage() {
   async function updateCardVersion(versionTarget, sfCard) {
     const dcId = versionTarget?.id || versionTarget
     const meta = getDeckBuilderCardMeta(sfCard)
-    const updated = {
+    const [updated] = await requireCardPrintIds([{
+      name:             sfCard.name || versionTarget?.name || 'Unknown Card',
       scryfall_id:      meta.scryfall_id,
       set_code:         meta.set_code,
       collector_number: meta.collector_number,
@@ -3064,7 +3200,7 @@ export default function DeckBuilderPage() {
       cmc:              meta.cmc,
       color_identity:   meta.color_identity,
       image_uri:        meta.image_uri,
-    }
+    }], 'Deck card printing')
     if (versionTarget?.splitOne) {
       const original = deckCardsRef.current.find(d => d.id === dcId)
       if (!original || (original.qty || 0) < 2) return
@@ -3280,7 +3416,7 @@ export default function DeckBuilderPage() {
   async function loadMoveTargets(excludeDeckId) {
     const { data, error } = await sb
       .from('folders')
-      .select('id, name, type')
+      .select('id, name, type, description')
       .eq('user_id', user.id)
       .in('type', ['binder', 'deck'])
       .neq('id', excludeDeckId)
@@ -3288,7 +3424,7 @@ export default function DeckBuilderPage() {
       .order('name')
 
     if (error) throw error
-    return data || []
+    return (data || []).filter(folder => !isGroupFolder(folder))
   }
 
   async function moveOwnedCopiesOutOfDeck(rows, destination) {
@@ -3484,15 +3620,17 @@ export default function DeckBuilderPage() {
     const fetchedRows = scryfallIds.length ? await fetchCardsByScryfallIds(scryfallIds) : []
     const fetchedById = new Map(fetchedRows.map(card => [card.id, card]))
 
-    const updates = []
     const now = new Date().toISOString()
-    setDeckCards(prev => prev.map(dc => {
-      const desired = desiredByDeckCardId.get(dc.id)
-      if (!desired) return dc
+    const currentById = new Map(deckCardsRef.current.map(dc => [dc.id, dc]))
+    const updates = []
+    for (const [deckCardId, desired] of desiredByDeckCardId.entries()) {
+      const dc = currentById.get(deckCardId)
+      if (!dc) continue
       const fetched = desired.scryfall_id ? fetchedById.get(desired.scryfall_id) : null
       const meta = fetched ? getDeckBuilderCardMeta(fetched) : null
-      const next = {
-        ...dc,
+      const [next] = await requireCardPrintIds([{
+        card_print_id: desired.card_print_id || null,
+        name: desired.name || meta?.name || dc.name,
         scryfall_id: desired.scryfall_id || dc.scryfall_id || null,
         set_code: desired.set_code || meta?.set_code || dc.set_code || null,
         collector_number: desired.collector_number || meta?.collector_number || dc.collector_number || null,
@@ -3503,22 +3641,12 @@ export default function DeckBuilderPage() {
         image_uri: meta?.image_uri || dc.image_uri || null,
         foil: !!desired.foil,
         updated_at: now,
-      }
-      updates.push({
-        id: dc.id,
-        scryfall_id: next.scryfall_id,
-        set_code: next.set_code,
-        collector_number: next.collector_number,
-        type_line: next.type_line,
-        mana_cost: next.mana_cost,
-        cmc: next.cmc,
-        color_identity: next.color_identity,
-        image_uri: next.image_uri,
-        foil: next.foil,
-        updated_at: now,
-      })
-      return next
-    }))
+      }], 'Deck card printing')
+      updates.push({ id: dc.id, ...next })
+    }
+
+    const updateById = new Map(updates.map(update => [update.id, update]))
+    setDeckCards(prev => prev.map(dc => updateById.has(dc.id) ? { ...dc, ...updateById.get(dc.id) } : dc))
 
     for (const update of updates) {
       const { id, ...payload } = update
@@ -3534,15 +3662,18 @@ export default function DeckBuilderPage() {
     const fetchedRows = scryfallIds.length ? await fetchCardsByScryfallIds(scryfallIds) : []
     const fetchedById = new Map(fetchedRows.map(card => [card.id, card]))
     const now = new Date().toISOString()
+    const currentById = new Map(deckCardsRef.current.map(dc => [dc.id, dc]))
+    const updates = []
 
-    setDeckCards(prev => prev.map(dc => {
-      const selection = selections.find(row => row.deckCardId === dc.id)
-      if (!selection) return dc
+    for (const selection of selections) {
+      const dc = currentById.get(selection.deckCardId)
+      if (!dc) continue
       const candidate = selection.candidate
       const fetched = candidate.scryfall_id ? fetchedById.get(candidate.scryfall_id) : null
       const meta = fetched ? getDeckBuilderCardMeta(fetched) : null
-      return {
-        ...dc,
+      const [next] = await requireCardPrintIds([{
+        card_print_id: candidate.card_print_id || null,
+        name: candidate.name || meta?.name || dc.name,
         scryfall_id: candidate.scryfall_id || dc.scryfall_id || null,
         set_code: candidate.set_code || meta?.set_code || dc.set_code || null,
         collector_number: candidate.collector_number || meta?.collector_number || dc.collector_number || null,
@@ -3553,25 +3684,16 @@ export default function DeckBuilderPage() {
         image_uri: meta?.image_uri || dc.image_uri || null,
         foil: !!candidate.foil,
         updated_at: now,
-      }
-    }))
+      }], 'Deck card printing')
+      updates.push({ id: selection.deckCardId, ...next })
+    }
 
-    for (const selection of selections) {
-      const candidate = selection.candidate
-      const fetched = candidate.scryfall_id ? fetchedById.get(candidate.scryfall_id) : null
-      const meta = fetched ? getDeckBuilderCardMeta(fetched) : null
-      await sb.from('deck_cards').update({
-        scryfall_id: candidate.scryfall_id || null,
-        set_code: candidate.set_code || meta?.set_code || null,
-        collector_number: candidate.collector_number || meta?.collector_number || null,
-        type_line: meta?.type_line || null,
-        mana_cost: meta?.mana_cost || null,
-        cmc: meta?.cmc ?? null,
-        color_identity: meta?.color_identity || [],
-        image_uri: meta?.image_uri || null,
-        foil: !!candidate.foil,
-        updated_at: now,
-      }).eq('id', selection.deckCardId)
+    const updateById = new Map(updates.map(update => [update.id, update]))
+    setDeckCards(prev => prev.map(dc => updateById.has(dc.id) ? { ...dc, ...updateById.get(dc.id) } : dc))
+
+    for (const update of updates) {
+      const { id, ...payload } = update
+      await sb.from('deck_cards').update(payload).eq('id', id)
     }
   }
 
@@ -3617,24 +3739,32 @@ export default function DeckBuilderPage() {
 
       if (addMissing && missingItems.length > 0) {
         const cardInserts = missingItems.map(i => ({
-          id: crypto.randomUUID(),
           user_id: user.id,
           name: i.dc.name,
           set_code: i.dc.set_code || null,
           collector_number: i.dc.collector_number || null,
           scryfall_id: i.dc.scryfall_id || null,
+          card_print_id: i.dc.card_print_id || null,
           foil: i.dc.foil ?? false,
           qty: i.missingQty,
           language: 'en',
-          condition: 'NM',
+          condition: 'near_mint',
+          purchase_price: 0,
+          currency: 'EUR',
         }))
-        const { data: createdCards, error: cardErr } = await sb.from('cards').insert(cardInserts).select('id')
-        if (cardErr) throw cardErr
-        const newAllocRows = (createdCards || []).map((card, idx) => ({
+        const hydratedCardRows = await requireCardPrintIds(cardInserts, 'Missing owned card')
+        const savedCards = await additiveSaveOwnedCards(hydratedCardRows, 'Missing owned card')
+        if (savedCards.length) putCards(savedCards).catch(() => {})
+        const savedByKey = new Map(savedCards.map(card => [ownedCardKey(card), card]))
+        const newAllocRows = hydratedCardRows.map(row => {
+          const savedCard = savedByKey.get(ownedCardKey(row))
+          if (!savedCard) return null
+          return {
           id: crypto.randomUUID(),
-          card_id: card.id,
-          qty: missingItems[idx].missingQty,
-        }))
+            card_id: savedCard.id,
+            qty: row.qty,
+          }
+        }).filter(Boolean)
         await upsertDeckAllocations(newCollectionDeck.id, user.id, newAllocRows)
       }
 
@@ -3645,8 +3775,16 @@ export default function DeckBuilderPage() {
         targetWishlistId = wl?.id
       }
       if (targetWishlistId && missingItems.length > 0) {
-        const listInserts = missingItems.map(i => ({ id: crypto.randomUUID(), folder_id: targetWishlistId, user_id: user.id, name: i.dc.name, scryfall_id: i.dc.scryfall_id || null, set_code: i.dc.set_code || null, collector_number: i.dc.collector_number || null, foil: i.dc.foil ?? false, qty: i.missingQty }))
-        await sb.from('list_items').insert(listInserts)
+        const listInserts = missingItems.map(i => ({
+          name: i.dc.name,
+          scryfall_id: i.dc.scryfall_id || null,
+          set_code: i.dc.set_code || null,
+          collector_number: i.dc.collector_number || null,
+          card_print_id: i.dc.card_print_id || null,
+          foil: i.dc.foil ?? false,
+          qty: i.missingQty,
+        }))
+        await additiveSaveWishlistItems(targetWishlistId, user.id, listInserts, 'Missing wishlist item')
       }
 
       const allocationRows = await fetchDeckAllocations(newCollectionDeck.id)
@@ -3793,12 +3931,20 @@ export default function DeckBuilderPage() {
     for (const row of updates) {
       await sb.from('deck_cards').update({ qty: row.qty, updated_at: row.updated_at }).eq('id', row.id)
     }
-    if (inserts.length) await sb.from('deck_cards').insert(inserts)
+    if (inserts.length) {
+      const hydratedInserts = await requireCardPrintIds(inserts, 'Synced deck card')
+      const hydratedById = new Map(hydratedInserts.map(row => [row.id, row]))
+      for (let i = 0; i < nextDeckCards.length; i += 1) {
+        const hydrated = hydratedById.get(nextDeckCards[i].id)
+        if (hydrated) nextDeckCards[i] = hydrated
+      }
+      await sb.from('deck_cards').insert(hydratedInserts)
+    }
     for (const id of deletes) {
       await sb.from('deck_cards').delete().eq('id', id)
       deleteDeckCardLocal(id).catch(() => {})
     }
-    if (inserts.length) putDeckCards(inserts).catch(() => {})
+    if (inserts.length) putDeckCards(nextDeckCards.filter(dc => inserts.some(row => row.id === dc.id))).catch(() => {})
     if (updates.length) putDeckCards(nextDeckCards.filter(dc => updates.some(u => u.id === dc.id))).catch(() => {})
 
     const nextMeta = buildCommanderMetaFromCards(nextDeckCards, deckMeta)
@@ -3879,8 +4025,16 @@ export default function DeckBuilderPage() {
         targetWishlistId = wl?.id
       }
       if (targetWishlistId && unownedAdded.length > 0) {
-        const listInserts = unownedAdded.map(i => ({ id: crypto.randomUUID(), folder_id: targetWishlistId, user_id: user.id, name: i.dc.name, scryfall_id: i.dc.scryfall_id || null, set_code: i.dc.set_code || null, collector_number: i.dc.collector_number || null, foil: i.dc.foil ?? false, qty: i.missingQty || i.dc.qty }))
-        await sb.from('list_items').insert(listInserts)
+        const listInserts = unownedAdded.map(i => ({
+          name: i.dc.name,
+          scryfall_id: i.dc.scryfall_id || null,
+          set_code: i.dc.set_code || null,
+          collector_number: i.dc.collector_number || null,
+          card_print_id: i.dc.card_print_id || null,
+          foil: i.dc.foil ?? false,
+          qty: i.missingQty || i.dc.qty,
+        }))
+        await additiveSaveWishlistItems(targetWishlistId, user.id, listInserts, 'Sync wishlist item')
       }
 
       const collectionApplyResult = collectionSelections?.length

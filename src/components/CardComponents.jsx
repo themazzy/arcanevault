@@ -8,6 +8,7 @@ import { FolderTypeIcon } from './Icons'
 import { sb } from '../lib/supabase'
 import { putCards } from '../lib/db'
 import { useLongPress } from '../hooks/useLongPress'
+import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
 
 const NON_DRAGGABLE_IMG_PROPS = {
   draggable: false,
@@ -23,6 +24,10 @@ const NON_DRAGGABLE_IMG_PROPS = {
 const fmt = (v, currency = 'EUR') => {
   if (v == null || isNaN(v)) return '—'
   return currency === 'EUR' ? `€${v.toFixed(2)}` : `$${v.toFixed(2)}`
+}
+
+function isGroupFolder(folder) {
+  try { return JSON.parse(folder?.description || '{}').isGroup === true } catch { return false }
 }
 
 // Build full-size Scryfall image URL directly from scryfall_id
@@ -154,7 +159,7 @@ function MoveToDialog({ folders, onMoveToFolder, onCreateFolder, onClose, allowe
 
   const visible = useMemo(() =>
     (folders || [])
-      .filter(f => f.type === destType)
+      .filter(f => f.type === destType && !isGroupFolder(f))
       .filter(f => !search.trim() || f.name.toLowerCase().includes(search.toLowerCase().trim()))
   , [folders, destType, search])
 
@@ -1216,13 +1221,26 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, deleteQty 
   }
 
   const handleChangePrinting = async (newPrint) => {
-    const updates = { set_code: newPrint.set, collector_number: newPrint.collector_number, scryfall_id: newPrint.id }
-    const { error } = await sb.from('cards').update(updates).eq('id', card.id)
-    if (!error) {
+    setSaving(true)
+    setSaveError('')
+    try {
+      const printMap = await ensureCardPrints([newPrint])
+      const updates = withCardPrint({
+        name: newPrint.name || card.name,
+        set_code: newPrint.set,
+        collector_number: newPrint.collector_number,
+        scryfall_id: newPrint.id,
+      }, getCardPrint(printMap, newPrint))
+      const { error } = await sb.from('cards').update(updates).eq('id', card.id)
+      if (error) throw error
       const updatedCard = { ...card, ...updates }
       await putCards([updatedCard])
       onSave?.(updatedCard)
       onClose?.()
+    } catch (err) {
+      setSaveError(err.message || 'Could not change printing.')
+    } finally {
+      setSaving(false)
     }
   }
 

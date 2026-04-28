@@ -56,6 +56,10 @@ function getFolderTypeLabel(type) {
   return 'binder'
 }
 
+function isGroupFolder(folder) {
+  try { return JSON.parse(folder?.description || '{}').isGroup === true } catch { return false }
+}
+
 async function upsertInBatches(table, rows, options, selectColumns = '*', onBatchDone) {
   const saved = []
   const batches = chunkRows(rows)
@@ -149,7 +153,7 @@ export default function ImportModal({
   const [resolving, setResolving] = useState(false)
   const [resolveError, setResolveError] = useState('')
   const [resolveProgress, setResolveProgress] = useState({ done: 0, total: 0 })
-  const [folders, setFolders] = useState(initialFolders || [])
+  const [folders, setFolders] = useState((initialFolders || []).filter(folder => !isGroupFolder(folder)))
   const [folderId, setFolderId] = useState(defaultFolderId || '')
   const [folderSearch, setFolderSearch] = useState('')
   const [newName, setNewName] = useState('')
@@ -173,8 +177,8 @@ export default function ImportModal({
   const previewSummary = summarizeImportRows(previewRows)
   const hasSourceFolders = Object.keys(sourceFolders || {}).length > 0
   const destinationFolders = hasSourceFolders
-    ? folders
-    : folders.filter(f => f.type === activeFolderType)
+    ? folders.filter(folder => !isGroupFolder(folder))
+    : folders.filter(f => f.type === activeFolderType && !isGroupFolder(f))
   const selectedFolderName = destinationFolders.find(f => f.id === folderId)?.name || ''
   const destinationCount = hasSourceFolders
     ? new Set(previewRows.map(row => row.sourceLocation).filter(location => sourceFolders[location])).size
