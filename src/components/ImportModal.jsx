@@ -73,11 +73,16 @@ async function upsertInBatches(table, rows, options, selectColumns = '*', onBatc
       const { id, ...rest } = row
       return rest
     })
-    const { data, error } = await sb.from(table)
-      .upsert(batch, options)
-      .select(selectColumns)
-    if (error) throw error
-    if (data?.length) saved.push(...data)
+    const rowsWithId = batch.filter(row => row.id != null)
+    const rowsWithoutId = batch.filter(row => row.id == null)
+    for (const subBatch of [rowsWithId, rowsWithoutId]) {
+      if (!subBatch.length) continue
+      const { data, error } = await sb.from(table)
+        .upsert(subBatch, options)
+        .select(selectColumns)
+      if (error) throw error
+      if (data?.length) saved.push(...data)
+    }
     onBatchDone?.({ batchIndex: i + 1, batchCount: batches.length, rowsDone: Math.min((i + 1) * IMPORT_WRITE_BATCH, rows.length), rowCount: rows.length })
   }
   return saved
