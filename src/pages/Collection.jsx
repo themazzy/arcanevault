@@ -9,6 +9,7 @@ import { parseManaboxCSV } from '../lib/csvParser'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
+import { useToast } from '../components/ToastContext'
 import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
 import VirtualCardGrid from '../components/VirtualCardGrid'
 import { DropZone, ProgressBar, ErrorBox, EmptyState, SectionHeader, Button, ResponsiveMenu } from '../components/UI'
@@ -227,6 +228,7 @@ function OrphanModal({ cards, folders, userId, onAssigned, onDeleted }) {
 
 export default function CollectionPage() {
   const { user } = useAuth()
+  const toast = useToast()
   const { price_source, default_sort, grid_density, show_price, cache_ttl_h, loaded: settingsLoaded } = useSettings()
   const queryClient = useQueryClient()
 
@@ -1033,6 +1035,7 @@ export default function CollectionPage() {
     }).filter(Boolean))
     invalidateCollectionQueries()
     setSelected(new Set()); setSplitState(new Map()); setSelectMode(false)
+    toast.success(`Deleted ${selectedQty} ${selectedQty === 1 ? 'card' : 'cards'}.`)
   }
 
   const handleMoveToFolder = async (folder) => {
@@ -1228,6 +1231,10 @@ export default function CollectionPage() {
     queryClient.invalidateQueries({ queryKey: ['folderPlacements', user.id] })
     queryClient.invalidateQueries({ queryKey: ['sfMap', user.id] })
     setSelected(new Set()); setSplitState(new Map()); setSelectMode(false)
+    const movedQty = selectedRows.reduce((sum, row) => (
+      row.sourceFolder?.id === folder.id ? sum : sum + row.qty
+    ), 0)
+    if (movedQty > 0) toast.success(`Moved ${movedQty} ${movedQty === 1 ? 'card' : 'cards'} to ${folder.name}.`)
   }
 
   const handleDelete = async (card) => {
@@ -1282,6 +1289,7 @@ export default function CollectionPage() {
     orphanCheckDone.current = false
     invalidateCollectionQueries()
     setDetailCardKey(null)
+    toast.success(`Deleted ${selectedQty} ${selectedQty === 1 ? 'card' : 'cards'}.`)
   }
 
   const handleCardSave = useCallback(async (updatedCard) => {

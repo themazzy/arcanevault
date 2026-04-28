@@ -4,6 +4,7 @@ import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
+import { useToast } from '../components/ToastContext'
 import { EmptyState, SectionHeader, Modal, ResponsiveHeaderActions, ResponsiveMenu, Button } from '../components/UI'
 import { CardGrid, CardDetail, FilterBar, BulkActionBar, applyFilterSort, EMPTY_FILTERS } from '../components/CardComponents'
 import { useLongPress } from '../hooks/useLongPress'
@@ -202,6 +203,7 @@ function WishlistItem({ item, sfCard, priceSource, onDelete, selectMode, selecte
 function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
   const { price_source, default_sort, grid_density } = useSettings()
   const { user } = useAuth()
+  const toast = useToast()
   const [items, setItems]       = useState([])
   const [sfMap, setSfMap]       = useState({})
   const [allFolders, setAllFolders] = useState([])
@@ -335,9 +337,11 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
   const handleDelete = async (id) => {
     await sb.from('list_items').delete().eq('id', id)
     setItems(prev => prev.filter(i => i.id !== id))
+    toast.success('Deleted 1 wishlist item.')
   }
 
   const handleBulkDelete = async () => {
+    const deleteCount = [...selectedItems].reduce((sum, id) => sum + (splitState.get(id) ?? 1), 0)
     const toDelete = [], toUpdate = []
     for (const id of selectedItems) {
       const item = items.find(i => i.id === id)
@@ -356,6 +360,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
       return upd ? { ...i, qty: upd.remaining } : i
     }).filter(Boolean))
     setSelectedItems(new Set()); setSplitState(new Map()); setSelectMode(false)
+    toast.success(`Deleted ${deleteCount} ${deleteCount === 1 ? 'wishlist item' : 'wishlist items'}.`)
   }
 
   const handleMoveToWishlist = async (targetFolder) => {
@@ -423,6 +428,8 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
     setSplitState(new Map())
     setSelectMode(false)
     await reload()
+    const movedQty = incomingRows.reduce((sum, row) => sum + row.qty, 0)
+    if (movedQty > 0) toast.success(`Moved ${movedQty} ${movedQty === 1 ? 'item' : 'items'} to ${targetFolder.name}.`)
   }
 
   if (loading) return <EmptyState>Loading…</EmptyState>
