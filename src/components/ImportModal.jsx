@@ -25,6 +25,10 @@ const TYPE_OPTIONS = [
 const PAGE_SIZE = 100
 const IMPORT_WRITE_BATCH = 500
 const IMPORT_LOOKUP_BATCH = 75
+const PLACEMENT_SELECTS = {
+  deck_allocations: 'id,deck_id,user_id,card_id,qty',
+  folder_cards: 'id,folder_id,card_id,qty,updated_at',
+}
 
 function chunkRows(rows, size = IMPORT_WRITE_BATCH) {
   const chunks = []
@@ -613,7 +617,7 @@ export default function ImportModal({
                 deckPlacements,
                 ['deck_id', 'card_id'],
                 { onConflict: 'deck_id,card_id', ignoreDuplicates: false },
-                '*',
+                PLACEMENT_SELECTS.deck_allocations,
                 trackImportBatch('Saving deck placements')
               )
               if (savedDeckPlacements?.length) await putDeckAllocations(savedDeckPlacements)
@@ -625,7 +629,7 @@ export default function ImportModal({
                 binderPlacements,
                 ['folder_id', 'card_id'],
                 { onConflict: 'folder_id,card_id', ignoreDuplicates: false },
-                '*',
+                PLACEMENT_SELECTS.folder_cards,
                 trackImportBatch('Saving binder placements')
               )
               if (savedBinderPlacements?.length) await putFolderCards(savedBinderPlacements)
@@ -721,7 +725,7 @@ export default function ImportModal({
                 placementRows,
                 savingDeckPlacements ? ['deck_id', 'card_id'] : ['folder_id', 'card_id'],
                 { onConflict: `${savingDeckPlacements ? 'deck_id' : 'folder_id'},card_id`, ignoreDuplicates: false },
-                '*',
+                savingDeckPlacements ? PLACEMENT_SELECTS.deck_allocations : PLACEMENT_SELECTS.folder_cards,
                 trackImportBatch(savingDeckPlacements ? 'Saving deck placements' : 'Saving binder placements')
               )
               if (savedPlacements?.length) {
