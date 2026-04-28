@@ -8,7 +8,7 @@ import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import styles from './Home.module.css'
 import { EMPTY_FILTERS, FilterBar } from '../components/CardComponents'
-import { CloseIcon, CheckIcon, WarningIcon, BannedIcon, ChevronDownIcon, ChevronUpIcon, ChevronRightIcon, DiceIcon, ImageIcon } from '../icons'
+import { CloseIcon, CheckIcon, WarningIcon, BannedIcon, ChevronDownIcon, ChevronUpIcon, ChevronRightIcon, DiceIcon, ImageIcon, SearchIcon } from '../icons'
 
 // ── Recently Viewed (localStorage + custom event for live update) ─────────────
 const VIEWED_KEY = 'arcanevault_recently_viewed'
@@ -751,6 +751,27 @@ function CardLookupSection() {
 }
 
 // ── Random Card Section ───────────────────────────────────────────────────────
+function RulebookSection() {
+  const navigate = useNavigate()
+  return (
+    <section className={`${styles.section} ${styles.rulebookSection}`}>
+      <div className={styles.rulebookBody}>
+        <div className={styles.rulebookIcon}><SearchIcon size={18} /></div>
+        <div className={styles.rulebookCopy}>
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>Rulebook</h2>
+            <span className={styles.sectionCount}>Comprehensive Rules</span>
+          </div>
+          <p className={styles.sectionDesc}>Browse categories 1-9, numbered sections, glossary entries, and every rule from the bundled April 17, 2026 Comprehensive Rules.</p>
+        </div>
+        <button type="button" className={styles.rulebookButton} onClick={() => navigate('/rules')}>
+          Open <ChevronRightIcon size={13} />
+        </button>
+      </div>
+    </section>
+  )
+}
+
 function RandomCardSection() {
   const [card, setCard]       = useState(null)
   const [loading, setLoading] = useState(true)
@@ -1408,6 +1429,7 @@ export default function HomePage() {
 
       <ChangelogPanel entries={changelog} />
       <CardLookupSection />
+      <RulebookSection />
       {user && <CollectionSnapshot data={collData} loading={collLoading} priceSource={price_source} />}
       <RecentlyViewedSection onCardClick={openCard} />
       <RandomCardSection />

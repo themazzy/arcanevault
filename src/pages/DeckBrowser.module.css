@@ -404,6 +404,10 @@
   display: flex; align-items: center; justify-content: center;
   font-size: 0.68rem; color: var(--gold); pointer-events: none;
 }
+.gridCard > .rowCheckbox,
+.stackCard > .rowCheckbox {
+  display: none;
+}
 .rowCheckboxChecked { background: rgba(201,168,76,0.25); border-color: var(--gold); }
 .gridCardSelected .gridImgWrap { outline: 2px solid var(--gold); outline-offset: 2px; }
 .stackCardSelected { outline: 2px solid var(--gold); outline-offset: 2px; border-radius: 8px; }
@@ -488,7 +492,10 @@
   gap: 12px;
   margin-top: 4px;
 }
-.gridCard { cursor: pointer; }
+.gridCard {
+  position: relative;
+  cursor: pointer;
+}
 .gridImgWrap {
   position: relative; border-radius: 8px; overflow: hidden;
   aspect-ratio: 63/88; background: var(--s-subtle);
@@ -775,7 +782,7 @@
   gap: 14px;
   overflow-x: auto;
   overflow-y: visible;
-  padding: 4px 2px 40px;
+  padding: 6px 8px 40px;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
   scrollbar-color: rgba(201,168,76,0.22) transparent;
