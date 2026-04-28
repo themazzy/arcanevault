@@ -939,10 +939,13 @@ export default function CollectionPage() {
     ))
 
     if (payload.length) {
+      const selectColumns = folder.type === 'deck'
+        ? 'id, deck_id, card_id, user_id, qty'
+        : 'id, folder_id, card_id, qty, updated_at'
       const { data: upsertedRows, error: moveErr } = await sb
         .from(placementTable)
         .upsert(payload, { onConflict: `${placementKey},card_id` })
-        .select('id, folder_id, deck_id, card_id, user_id, qty')
+        .select(selectColumns)
 
       if (moveErr) {
         setError(moveErr.message)
