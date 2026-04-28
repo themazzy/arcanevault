@@ -201,7 +201,7 @@ async function upsertPlacementRows(targetFolder, rows) {
         const { data: updated, error: updateErr } = await sb.from('deck_allocations')
           .update({ qty: (existing.qty || 0) + (row.qty || 0) })
           .eq('id', existing.id)
-          .select('*')
+          .select('id,deck_id,user_id,card_id,qty')
           .single()
         if (updateErr) throw updateErr
         if (updated) savedRows.push(updated)
@@ -210,7 +210,7 @@ async function upsertPlacementRows(targetFolder, rows) {
       }
     }
     if (inserts.length) {
-      const { data: inserted, error: insertErr } = await sb.from('deck_allocations').insert(inserts).select('*')
+      const { data: inserted, error: insertErr } = await sb.from('deck_allocations').insert(inserts).select('id,deck_id,user_id,card_id,qty')
       if (insertErr) throw insertErr
       savedRows.push(...(inserted || []))
     }
@@ -232,7 +232,7 @@ async function upsertPlacementRows(targetFolder, rows) {
       const { data: updated, error: updateErr } = await sb.from('folder_cards')
         .update({ qty: (existing.qty || 0) + (row.qty || 0) })
         .eq('id', existing.id)
-        .select('*')
+        .select('id,folder_id,card_id,qty,updated_at')
         .single()
       if (updateErr) throw updateErr
       if (updated) savedRows.push(updated)
@@ -241,7 +241,7 @@ async function upsertPlacementRows(targetFolder, rows) {
     }
   }
   if (inserts.length) {
-    const { data: inserted, error: insertErr } = await sb.from('folder_cards').insert(inserts).select('*')
+    const { data: inserted, error: insertErr } = await sb.from('folder_cards').insert(inserts).select('id,folder_id,card_id,qty,updated_at')
     if (insertErr) throw insertErr
     savedRows.push(...(inserted || []))
   }

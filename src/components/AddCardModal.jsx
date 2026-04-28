@@ -528,9 +528,12 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
           }
           let savedLinks = []
           if (links.length) {
+            const linkReturnColumns = folderType === 'deck'
+              ? 'id,deck_id,user_id,card_id,qty'
+              : 'id,folder_id,card_id,qty,updated_at'
             const { data: linkRows, error: linkSaveErr } = await sb.from(placementTable)
               .upsert(links, { onConflict: `${placementKey},card_id` })
-              .select('*')
+              .select(linkReturnColumns)
             if (linkSaveErr) { setError(linkSaveErr.message); setSaving(false); return }
             savedLinks = linkRows || []
           }

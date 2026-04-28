@@ -125,7 +125,7 @@ function OrphanModal({ cards, folders, userId, onAssigned, onDeleted }) {
 
       const { data: savedRows, error: err } = await sb.from(table)
         .upsert(rows, { onConflict: `${fk},card_id` })
-        .select('*')
+        .select(isDeck ? 'id,deck_id,user_id,card_id,qty' : 'id,folder_id,card_id,qty,updated_at')
       if (err) throw err
       if (isDeck) await putDeckAllocations(savedRows || [])
       else await putFolderCards(savedRows || [])
