@@ -273,8 +273,9 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
       )
       return
     }
-    sb.from('folders').select('id, name, type').eq('user_id', user.id).eq('type', 'list').then(({ data }) => {
-      setAllFolders(isAllView ? (data || []) : (data || []).filter(f => f.id !== folder.id))
+    sb.from('folders').select('id, name, type, description').eq('user_id', user.id).eq('type', 'list').then(({ data }) => {
+      const regular = (data || []).filter(f => !isGroupFolder(f))
+      setAllFolders(isAllView ? regular : regular.filter(f => f.id !== folder.id))
     })
   }, [user.id, folder?.id, folders, isAllView])
 
@@ -360,7 +361,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
   const handleMoveToWishlist = async (targetFolder) => {
     const toDelete = []
     const toUpdate = []
-    const upserts = []
+    const upsertMap = new Map()
 
     for (const id of selectedItems) {
       const item = items.find(i => i.id === id)
@@ -370,23 +371,45 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
       const selQty = splitState.get(id) ?? 1
       const remaining = totalQty - selQty
 
-      upserts.push({
-        folder_id: targetFolder.id,
-        user_id: user.id,
-        name: item.name,
-        set_code: item.set_code || null,
-        collector_number: item.collector_number || null,
-        scryfall_id: item.scryfall_id || null,
-        card_print_id: item.card_print_id || null,
-        foil: item.foil ?? false,
-        qty: selQty,
-      })
+      const key = `${targetFolder.id}|${item.card_print_id || `${item.set_code}-${item.collector_number}`}|${item.foil ? 'foil' : 'normal'}`
+      const existing = upsertMap.get(key)
+      if (existing) {
+        existing.qty += selQty
+      } else {
+        upsertMap.set(key, {
+          folder_id: targetFolder.id,
+          user_id: user.id,
+          name: item.name,
+          set_code: item.set_code || null,
+          collector_number: item.collector_number || null,
+          scryfall_id: item.scryfall_id || null,
+          card_print_id: item.card_print_id || null,
+          foil: item.foil ?? false,
+          qty: selQty,
+        })
+      }
 
       if (remaining > 0) toUpdate.push({ id, remaining })
       else toDelete.push(id)
     }
 
-    if (upserts.length) {
+    const incomingRows = [...upsertMap.values()]
+    if (incomingRows.length) {
+      const printIds = [...new Set(incomingRows.map(row => row.card_print_id).filter(Boolean))]
+      let existingRows = []
+      if (printIds.length) {
+        const { data, error: existingError } = await sb.from('list_items')
+          .select('card_print_id,foil,qty')
+          .eq('folder_id', targetFolder.id)
+          .in('card_print_id', printIds)
+        if (existingError) return
+        existingRows = data || []
+      }
+      const existingQtyByKey = new Map(existingRows.map(row => [`${row.card_print_id}|${row.foil ? 'foil' : 'normal'}`, row.qty || 0]))
+      const upserts = incomingRows.map(row => ({
+        ...row,
+        qty: row.qty + (existingQtyByKey.get(`${row.card_print_id}|${row.foil ? 'foil' : 'normal'}`) || 0),
+      }))
       const { error } = await sb.from('list_items')
         .upsert(upserts, { onConflict: 'folder_id,card_print_id,foil' })
       if (error) return
@@ -396,14 +419,10 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
       await sb.from('list_items').update({ qty: remaining }).eq('id', id)
     }
 
-    setItems(prev => prev.map(i => {
-      if (toDelete.includes(i.id)) return null
-      const upd = toUpdate.find(u => u.id === i.id)
-      return upd ? { ...i, qty: upd.remaining } : i
-    }).filter(Boolean))
     setSelectedItems(new Set())
     setSplitState(new Map())
     setSelectMode(false)
+    await reload()
   }
 
   if (loading) return <EmptyState>Loading…</EmptyState>

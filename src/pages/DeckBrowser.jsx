@@ -19,10 +19,14 @@ import { getSyncState, markLinkedPairUnsynced, withLinkedPair, writeSyncState } 
 import { useLongPress } from '../hooks/useLongPress'
 import { lastInputWasTouch } from '../lib/inputType'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
-import { fetchDeckAllocations, upsertDeckAllocations } from '../lib/deckData'
+import { fetchDeckAllocations } from '../lib/deckData'
 import { getDeckAllocations, getCardsByIds, replaceDeckAllocations, putCards, putDeckAllocations, putFolderCards, replaceLocalFolderCards } from '../lib/db'
 
 const CAN_HOVER = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover) and (pointer: fine)').matches
+
+function isGroupFolder(folder) {
+  return parseDeckMeta(folder?.description || '{}').isGroup === true
+}
 
 // ── Constants (kept for grouping/categorization used in views below) ──────────
 
@@ -91,6 +95,74 @@ function getCardCategory(card, sfCard) {
   if (type.includes('artifact'))    return 'Artifact'
   if (type.includes('enchantment')) return 'Enchantment'
   return 'Other'
+}
+
+async function addPlacementRows(targetFolder, userId, rows) {
+  if (!targetFolder?.id || !rows?.length) return []
+  const cardIds = [...new Set(rows.map(row => row.card_id).filter(Boolean))]
+  if (!cardIds.length) return []
+
+  if (targetFolder.type === 'deck') {
+    const { data: existingRows, error } = await sb.from('deck_allocations')
+      .select('id, card_id, qty')
+      .eq('deck_id', targetFolder.id)
+      .in('card_id', cardIds)
+    if (error) throw error
+
+    const existingMap = new Map((existingRows || []).map(row => [row.card_id, row]))
+    const inserts = []
+    const saved = []
+    for (const row of rows) {
+      const existing = existingMap.get(row.card_id)
+      if (existing) {
+        const { data, error: updateErr } = await sb.from('deck_allocations')
+          .update({ qty: (existing.qty || 0) + (row.qty || 0) })
+          .eq('id', existing.id)
+          .select('*')
+          .single()
+        if (updateErr) throw updateErr
+        if (data) saved.push(data)
+      } else {
+        inserts.push({ id: crypto.randomUUID(), deck_id: targetFolder.id, user_id: userId, card_id: row.card_id, qty: row.qty || 0 })
+      }
+    }
+    if (inserts.length) {
+      const { data, error: insertErr } = await sb.from('deck_allocations').insert(inserts).select('*')
+      if (insertErr) throw insertErr
+      saved.push(...(data || []))
+    }
+    return saved
+  }
+
+  const { data: existingRows, error } = await sb.from('folder_cards')
+    .select('id, card_id, qty')
+    .eq('folder_id', targetFolder.id)
+    .in('card_id', cardIds)
+  if (error) throw error
+
+  const existingMap = new Map((existingRows || []).map(row => [row.card_id, row]))
+  const inserts = []
+  const saved = []
+  for (const row of rows) {
+    const existing = existingMap.get(row.card_id)
+    if (existing) {
+      const { data, error: updateErr } = await sb.from('folder_cards')
+        .update({ qty: (existing.qty || 0) + (row.qty || 0) })
+        .eq('id', existing.id)
+        .select('*')
+        .single()
+      if (updateErr) throw updateErr
+      if (data) saved.push(data)
+    } else {
+      inserts.push({ folder_id: targetFolder.id, card_id: row.card_id, qty: row.qty || 0 })
+    }
+  }
+  if (inserts.length) {
+    const { data, error: insertErr } = await sb.from('folder_cards').insert(inserts).select('*')
+    if (insertErr) throw insertErr
+    saved.push(...(data || []))
+  }
+  return saved
 }
 
 // ── Mana symbol (used in TableView and DeckListRow) ───────────────────────────
@@ -815,8 +887,8 @@ export default function DeckBrowser({ folder, onBack }) {
   // Fetch all folders for "Move to" dropdown (RLS filters by user automatically)
   useEffect(() => {
     let cancelled = false
-    sb.from('folders').select('id, name, type').then(({ data }) => {
-      if (!cancelled) setAllFolders(data || [])
+    sb.from('folders').select('id, name, type, description').eq('user_id', user.id).then(({ data }) => {
+      if (!cancelled) setAllFolders((data || []).filter(folder => !isGroupFolder(folder)))
     })
     return () => { cancelled = true }
   }, [user?.id])
@@ -904,16 +976,13 @@ export default function DeckBrowser({ folder, onBack }) {
     }
     try {
       if (targetFolder.type === 'deck') {
-        await upsertDeckAllocations(targetFolder.id, user.id, insertRows)
+        await addPlacementRows(targetFolder, user.id, insertRows)
         const freshDestAllocs = await fetchDeckAllocations(targetFolder.id)
         await replaceDeckAllocations([targetFolder.id], (freshDestAllocs || []).map(r => ({
           id: r.id, deck_id: r.deck_id, user_id: r.user_id, card_id: r.card_id, qty: r.qty,
         }))).catch(() => {})
       } else {
-        await sb.from('folder_cards').upsert(
-          insertRows.map(row => ({ folder_id: targetFolder.id, card_id: row.card_id, qty: row.qty })),
-          { onConflict: 'folder_id,card_id', ignoreDuplicates: true }
-        )
+        await addPlacementRows(targetFolder, user.id, insertRows)
         const { data: freshDestFc } = await sb.from('folder_cards')
           .select('id, folder_id, card_id, qty, updated_at')
           .eq('folder_id', targetFolder.id)

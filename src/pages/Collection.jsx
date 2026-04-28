@@ -34,6 +34,10 @@ function hasActiveCollectionFilters(filters) {
   })
 }
 
+function isGroupFolder(folder) {
+  try { return JSON.parse(folder?.description || '{}').isGroup === true } catch { return false }
+}
+
 function isNetworkLikeError(err) {
   const message = String(err?.message || err || '').toLowerCase()
   return message.includes('failed to fetch')
@@ -425,7 +429,7 @@ export default function CollectionPage() {
 
       // Sync folders from Supabase
       const { data: foldersData, error: foldersError } = await sb.from('folders')
-        .select('id,name,type,updated_at').eq('user_id', user.id).order('name')
+        .select('id,name,type,description,updated_at').eq('user_id', user.id).order('name')
       if (foldersError) {
         console.warn('[Collection] Folder sync unavailable, keeping local folder data:', foldersError.message)
         if (isNetworkLikeError(foldersError)) setIsOnline(false)
@@ -449,11 +453,12 @@ export default function CollectionPage() {
         await Promise.all(removedFolderIds.map(id => deleteLocalFolder(id)))
       }
 
-      setFolders(foldersData)
+      const placementFolders = foldersData.filter(folder => !isGroupFolder(folder))
+      setFolders(placementFolders)
       await putFolders(foldersData)
 
-      const placementFolderIds = foldersData.filter(f => f.type !== 'deck').map(f => f.id)
-      const deckIds = foldersData.filter(f => f.type === 'deck').map(f => f.id)
+      const placementFolderIds = placementFolders.filter(f => f.type === 'binder').map(f => f.id)
+      const deckIds = placementFolders.filter(f => f.type === 'deck').map(f => f.id)
       const fullSyncKey = `folder_cards_full_sync_${user.id}`
       const deltaSyncKey = `folder_cards_delta_sync_${user.id}`
 

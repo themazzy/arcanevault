@@ -388,16 +388,42 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
       // Wishlist (list_items) save — only in folder mode
       if (folderMode && destTab === 'list' && selectedFolder) {
         const printByScryfallId = await ensureCardPrints(queue.map(item => item.printing))
-        const items = queue.map(item => ({
-          folder_id: selectedFolder,
-          user_id: userId,
-          name: item.printing.name,
-          set_code: item.printing.set,
-          collector_number: item.printing.collector_number,
-          scryfall_id: item.printing.id || null,
-          card_print_id: getCardPrint(printByScryfallId, item.printing)?.id || null,
-          foil: item.foil,
-          qty: item.qty,
+        const itemMap = new Map()
+        for (const item of queue) {
+          const print = getCardPrint(printByScryfallId, item.printing)
+          const key = `${print?.id || item.printing.id || `${item.printing.set}-${item.printing.collector_number}`}-${item.foil ? 'foil' : 'normal'}`
+          const existing = itemMap.get(key)
+          if (existing) {
+            existing.qty += item.qty
+          } else {
+            itemMap.set(key, {
+              folder_id: selectedFolder,
+              user_id: userId,
+              name: item.printing.name,
+              set_code: item.printing.set,
+              collector_number: item.printing.collector_number,
+              scryfall_id: item.printing.id || null,
+              card_print_id: print?.id || null,
+              foil: item.foil,
+              qty: item.qty,
+            })
+          }
+        }
+        const incomingItems = [...itemMap.values()]
+        const printIds = [...new Set(incomingItems.map(item => item.card_print_id).filter(Boolean))]
+        let existingItems = []
+        if (printIds.length) {
+          const { data: rows, error: existingErr } = await sb.from('list_items')
+            .select('card_print_id,foil,qty')
+            .eq('folder_id', selectedFolder)
+            .in('card_print_id', printIds)
+          if (existingErr) { setError(existingErr.message); setSaving(false); return }
+          existingItems = rows || []
+        }
+        const existingQtyByKey = new Map(existingItems.map(item => [`${item.card_print_id}-${item.foil ? 'foil' : 'normal'}`, item.qty || 0]))
+        const items = incomingItems.map(item => ({
+          ...item,
+          qty: item.qty + (existingQtyByKey.get(`${item.card_print_id}-${item.foil ? 'foil' : 'normal'}`) || 0),
         }))
         const { data: savedItems, error: err } = await sb.from('list_items')
           .upsert(items, { onConflict: 'folder_id,card_print_id,foil' })
