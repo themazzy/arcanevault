@@ -60,17 +60,39 @@ export async function ensureCardPrints(cards) {
   const result = new Map()
   const payloads = [...payloadByScryfallId.values()]
   if (payloads.length) {
-    const data = []
-    for (const batch of chunkRows(payloads, CARD_PRINT_UPSERT_BATCH)) {
-      const { data: batchData, error } = await sb
+    const scryfallIds = payloads.map(p => p.scryfall_id)
+    // Fetch existing rows first
+    const existing = []
+    for (const batch of chunkRows(scryfallIds, CARD_PRINT_QUERY_BATCH)) {
+      const { data, error } = await sb
         .from('card_prints')
-        .upsert(batch, { onConflict: 'scryfall_id' })
         .select('id,scryfall_id,set_code,collector_number,name')
-
+        .in('scryfall_id', batch)
       if (error) throw error
-      if (batchData?.length) data.push(...batchData)
+      if (data?.length) existing.push(...data)
     }
-    for (const row of data || []) {
+    const existingIds = new Set(existing.map(r => r.scryfall_id))
+    const toInsert = payloads.filter(p => !existingIds.has(p.scryfall_id))
+
+    const inserted = []
+    for (const batch of chunkRows(toInsert, CARD_PRINT_UPSERT_BATCH)) {
+      const { data, error } = await sb
+        .from('card_prints')
+        .insert(batch)
+        .select('id,scryfall_id,set_code,collector_number,name')
+      if (error) {
+        const { data: recovered, error: recoverError } = await sb
+          .from('card_prints')
+          .select('id,scryfall_id,set_code,collector_number,name')
+          .in('scryfall_id', batch.map(row => row.scryfall_id))
+        if (recoverError || (recovered || []).length !== batch.length) throw error
+        inserted.push(...(recovered || []))
+        continue
+      }
+      if (data?.length) inserted.push(...data)
+    }
+
+    for (const row of [...existing, ...inserted]) {
       if (row.scryfall_id) result.set(row.scryfall_id, row)
       const key = printLookupKey(row)
       if (key) result.set(key, row)

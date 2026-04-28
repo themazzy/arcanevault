@@ -18,7 +18,7 @@ import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { getPublicAppUrl } from '../lib/publicUrl'
-import { getLocalFolderCards, getAllLocalFolderCards, getDeckAllocations, getCardsByIds, putCards, putFolderCards, putDeckAllocations } from '../lib/db'
+import { getLocalFolderCards, getAllLocalFolderCards, getDeckAllocations, getCardsByIds, putCards, putFolderCards, putDeckAllocations, replaceLocalFolderCards, replaceDeckAllocations } from '../lib/db'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
 import { unlinkPairedDeck } from '../lib/deckSync'
 
@@ -537,7 +537,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
   const isAllView = !folder
   const browserTitle = title || folder?.name || `All ${noun} Cards`
   const folderIds = useMemo(() => folders.map(f => f.id), [folders])
-  const moveFolders = useMemo(() => isAllView ? folders : folders.filter(f => f.id !== folder.id && !isGroupFolder(f)), [folders, isAllView, folder?.id])
+  const moveFolders = useMemo(() => allFolders.filter(f => !isGroupFolder(f) && f.id !== folder?.id), [allFolders, folder?.id])
   const getCardKey = useCallback((card) => card?._displayKey || card?.id, [])
   const handleHover = useCallback((img) => setHoverImg(img), [])
   const handleHoverEnd = useCallback(() => setHoverImg(null), [])
@@ -590,7 +590,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
 
   useEffect(() => {
     if (!user) return
-    sb.from('folders').select('id, name, type').eq('user_id', user.id)
+    sb.from('folders').select('id, name, type, description, user_id').eq('user_id', user.id)
       .then(({ data }) => setAllFolders(data || []))
   }, [user])
 
@@ -696,7 +696,9 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
 
   const handleMoveToFolder = async (targetFolder) => {
     const toDelete = [], toUpdate = []
-    const insertRows = []
+    const placementRows = []
+    const targetIsDeck = targetFolder.type === 'deck'
+
     for (const id of selectedCards) {
       const card = cards.find(c => getCardKey(c) === id)
       if (!card) continue
@@ -705,22 +707,44 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
       const totalQty = card?._folder_qty || card?.qty || 1
       const selQty = splitState.get(id) ?? 1
       const remaining = totalQty - selQty
-      insertRows.push({ folder_id: targetFolder.id, card_id: card.id, qty: selQty })
+      placementRows.push({ card_id: card.id, qty: selQty })
       remaining > 0
         ? toUpdate.push({ id: card.id, folderId: sourceFolderId, remaining })
         : toDelete.push({ id: card.id, folderId: sourceFolderId })
     }
-    if (insertRows.length) await sb.from('folder_cards').upsert(insertRows, { onConflict: 'folder_id,card_id', ignoreDuplicates: true })
+
+    if (placementRows.length) await upsertPlacementRows(
+      { ...targetFolder, user_id: targetFolder.user_id || user.id },
+      placementRows
+    )
+
     for (const row of toDelete) {
       await sb.from('folder_cards').delete().eq('folder_id', row.folderId).eq('card_id', row.id)
     }
     for (const { id, folderId, remaining } of toUpdate) {
       await sb.from('folder_cards').update({ qty: remaining }).eq('folder_id', folderId).eq('card_id', id)
     }
-    const affectedFolderIds = [...new Set([folder.id, targetFolder.id].filter(Boolean))]
-    const { data: freshFc } = await sb.from('folder_cards')
-      .select('id, folder_id, card_id, qty, updated_at').in('folder_id', affectedFolderIds)
-    await replaceLocalFolderCards(affectedFolderIds, freshFc || []).catch(() => {})
+
+    // Sync IDB for every source binder represented in the move.
+    const sourceFolderIds = [...new Set(
+      [...toDelete, ...toUpdate].map(row => row.folderId).filter(Boolean)
+    )]
+    if (sourceFolderIds.length) {
+      const { data: freshFc } = await sb.from('folder_cards')
+        .select('id, folder_id, card_id, qty, updated_at').in('folder_id', sourceFolderIds)
+      await replaceLocalFolderCards(sourceFolderIds, freshFc || []).catch(() => {})
+    }
+    // Sync IDB for target (binder or deck)
+    if (targetIsDeck) {
+      const { data: freshDa } = await sb.from('deck_allocations')
+        .select('id, deck_id, user_id, card_id, qty, updated_at').eq('deck_id', targetFolder.id)
+      await replaceDeckAllocations([targetFolder.id], freshDa || []).catch(() => {})
+    } else {
+      const { data: freshFc } = await sb.from('folder_cards')
+        .select('id, folder_id, card_id, qty, updated_at').eq('folder_id', targetFolder.id)
+      await replaceLocalFolderCards([targetFolder.id], freshFc || []).catch(() => {})
+    }
+
     setCards(prev => prev.map(c => {
       if (!selectedCards.has(getCardKey(c))) return c
       const totalQty = c._folder_qty || c.qty || 1

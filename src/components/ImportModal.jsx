@@ -198,6 +198,10 @@ export default function ImportModal({
         list: locationStats.list.size,
       })
     : (folderId ? pluralize(1, destinationLabel, `${destinationLabel}s`) : '')
+  const selectedDestinationFolder = hasSourceFolders
+    ? null
+    : folders.find(folder => folder.id === folderId) || null
+  const selectedDestinationType = selectedDestinationFolder?.type || activeFolderType
   const importCardCount = previewSummary.matchedCopies || previewSummary.totalCopies
   const importButtonLabel = locationSummary
     ? `Import ${importCardCount} cards into ${locationSummary}`
@@ -626,7 +630,7 @@ export default function ImportModal({
             importedCopies += [...placementMap.values()].reduce((sum, placement) => sum + placement.qty, 0)
           }
         }
-      } else if (activeFolderType === 'list') {
+      } else if (selectedDestinationType === 'list') {
         const items = aggregateResolvedRows(
           matchedRows,
           row => `${row.sfCard.id}-${row.foil ? 'foil' : 'normal'}`,
@@ -693,12 +697,13 @@ export default function ImportModal({
               cardKeyToId[`${row.card_print_id || `${row.set_code}-${row.collector_number}`}-${row.foil}-${row.language}-${row.condition}`] = row.id
             }
             const placementRows = []
+            const savingDeckPlacements = selectedDestinationType === 'deck'
             for (const row of hydratedRows) {
               const cardKey = `${row.card_print_id || `${row.set_code}-${row.collector_number}`}-${row.foil}-${row.language}-${row.condition}`
               const cardId = cardKeyToId[cardKey]
               if (!cardId) continue
               placementRows.push(
-                activeFolderType === 'deck'
+                savingDeckPlacements
                   ? { deck_id: folderId, user_id: userId, card_id: cardId, qty: row.qty }
                   : { folder_id: folderId, card_id: cardId, qty: row.qty }
               )
@@ -706,17 +711,17 @@ export default function ImportModal({
               importedCopies += row.qty
             }
             if (placementRows.length) {
-              beginImportProgress(activeFolderType === 'deck' ? 'Saving deck placements' : 'Saving binder placements', placementRows.length)
+              beginImportProgress(savingDeckPlacements ? 'Saving deck placements' : 'Saving binder placements', placementRows.length)
               const savedPlacements = await additiveUpsertInBatches(
-                activeFolderType === 'deck' ? 'deck_allocations' : 'folder_cards',
+                savingDeckPlacements ? 'deck_allocations' : 'folder_cards',
                 placementRows,
-                activeFolderType === 'deck' ? ['deck_id', 'card_id'] : ['folder_id', 'card_id'],
-                { onConflict: `${activeFolderType === 'deck' ? 'deck_id' : 'folder_id'},card_id`, ignoreDuplicates: false },
+                savingDeckPlacements ? ['deck_id', 'card_id'] : ['folder_id', 'card_id'],
+                { onConflict: `${savingDeckPlacements ? 'deck_id' : 'folder_id'},card_id`, ignoreDuplicates: false },
                 '*',
-                trackImportBatch(activeFolderType === 'deck' ? 'Saving deck placements' : 'Saving binder placements')
+                trackImportBatch(savingDeckPlacements ? 'Saving deck placements' : 'Saving binder placements')
               )
               if (savedPlacements?.length) {
-                if (activeFolderType === 'deck') await putDeckAllocations(savedPlacements)
+                if (savingDeckPlacements) await putDeckAllocations(savedPlacements)
                 else await putFolderCards(savedPlacements)
               }
             }
@@ -730,7 +735,7 @@ export default function ImportModal({
     setMissed(errs)
     setImported(importedCopies || importedRows)
     setStep('done')
-  }, [folderId, parsed, resolvedRows, activeFolderType, userId, hasSourceFolders, sourceFolders, beginImportProgress, trackImportBatch])
+  }, [folderId, parsed, resolvedRows, activeFolderType, selectedDestinationType, userId, hasSourceFolders, sourceFolders, beginImportProgress, trackImportBatch])
 
   return (
     <Modal onClose={onClose}>
