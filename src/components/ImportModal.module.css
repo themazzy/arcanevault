@@ -69,7 +69,7 @@
 }
 .folderComboBtn:hover { border-color: var(--border-hi); background: var(--s3); }
 .folderComboBtnPlaceholder { color: var(--text-faint); }
-.folderComboArrow { color: var(--text-faint); font-size: 0.62rem; flex-shrink: 0; }
+.folderComboArrow { display: inline-flex; align-items: center; justify-content: center; color: var(--text-faint); flex-shrink: 0; }
 
 /* Search input inside the dropdown / bottom sheet */
 .folderDropSearch {
