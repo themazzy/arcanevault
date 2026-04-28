@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Link } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { sb } from '../lib/supabase'
 import { getScryfallKey, getPrice, formatPrice, getInstantCache } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
@@ -17,6 +18,9 @@ import ImportModal from '../components/ImportModal'
 import styles from './Collection.module.css'
 import uiStyles from '../components/UI.module.css'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
+import { hydrateCollectionQueriesFromIdb } from '../lib/idbQueryBridge'
+import { fetchCollectionCards, fetchFolders, fetchFolderPlacements, fetchSfMap } from '../lib/collectionFetchers'
+import { isNetworkLikeError } from '../lib/networkUtils'
 
 const DEBOUNCE_MS = 300
 const FOLDER_CARDS_FULL_SYNC_MS = 10 * 60 * 1000
@@ -38,13 +42,17 @@ function isGroupFolder(folder) {
   try { return JSON.parse(folder?.description || '{}').isGroup === true } catch { return false }
 }
 
-function isNetworkLikeError(err) {
-  const message = String(err?.message || err || '').toLowerCase()
-  return message.includes('failed to fetch')
-    || message.includes('network')
-    || message.includes('offline')
-    || message.includes('timeout')
-    || message.includes('load failed')
+function buildCardFolderMap(folderRows, linkRows) {
+  const folderById = Object.fromEntries((folderRows || []).map(f => [f.id, f]))
+  const map = {}
+  for (const row of linkRows || []) {
+    const folderId = row.folder_id || row.deck_id
+    const folder = folderById[folderId]
+    if (!folder) continue
+    if (!map[row.card_id]) map[row.card_id] = []
+    map[row.card_id].push({ id: folder.id, name: folder.name, type: folder.type, qty: row.qty || 1 })
+  }
+  return map
 }
 
 function ConnectionStatusBadge({ isOnline, loading, folderMembershipLoading, enriching, importing }) {
@@ -220,6 +228,7 @@ function OrphanModal({ cards, folders, userId, onAssigned, onDeleted }) {
 export default function CollectionPage() {
   const { user } = useAuth()
   const { price_source, default_sort, grid_density, show_price, cache_ttl_h, loaded: settingsLoaded } = useSettings()
+  const queryClient = useQueryClient()
 
   const ttlMsRef = useRef(cache_ttl_h * 3600000)
   useEffect(() => { ttlMsRef.current = cache_ttl_h * 3600000 }, [cache_ttl_h])
@@ -258,6 +267,59 @@ export default function CollectionPage() {
   const cardsLoadSeq = useRef(0)
   const enrichingRef = useRef(false)
   const canSeedFilteredRef = useRef(true)
+  const hydratedQueriesRef = useRef(false)
+
+  useEffect(() => {
+    if (!user?.id || hydratedQueriesRef.current) return
+    hydratedQueriesRef.current = true
+    hydrateCollectionQueriesFromIdb(queryClient, user.id).catch(err => {
+      console.warn('[Collection] Could not hydrate React Query cache from IDB:', err.message)
+    })
+  }, [queryClient, user?.id])
+
+  const cardsQuery = useQuery({
+    queryKey: ['cards', user.id],
+    queryFn: () => fetchCollectionCards(user.id),
+    staleTime: LOCAL_COLLECTION_FRESH_MS,
+    enabled: !!user?.id,
+  })
+
+  const foldersQuery = useQuery({
+    queryKey: ['folders', user.id],
+    queryFn: () => fetchFolders(user.id),
+    staleTime: LOCAL_COLLECTION_FRESH_MS,
+    enabled: !!user?.id,
+  })
+
+  const placementsQuery = useQuery({
+    queryKey: ['folderPlacements', user.id],
+    queryFn: fetchFolderPlacements,
+    staleTime: FOLDER_CARDS_FULL_SYNC_MS,
+    enabled: !!user?.id,
+  })
+
+  const sfMapQuery = useQuery({
+    queryKey: ['sfMap', user.id],
+    queryFn: () => fetchSfMap(cards, ttlMsRef.current, (pct, lbl) => {
+      setProgress(pct)
+      setProgLabel(lbl)
+    }),
+    staleTime: ttlMsRef.current,
+    enabled: !!user?.id && cards.length > 0,
+    placeholderData: {},
+  })
+
+  const invalidateCollectionQueries = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['cards', user.id] })
+    queryClient.invalidateQueries({ queryKey: ['folders', user.id] })
+    queryClient.invalidateQueries({ queryKey: ['folderPlacements', user.id] })
+    queryClient.invalidateQueries({ queryKey: ['sfMap', user.id] })
+  }, [queryClient, user.id])
+
+  const loadCards = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: ['cards', user.id] })
+    await cardsQuery.refetch()
+  }, [cardsQuery, queryClient, user.id])
 
   const blockOfflineChange = useCallback(() => {
     if (isOnline && navigator.onLine) return false
@@ -287,13 +349,105 @@ export default function CollectionPage() {
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off) }
   }, [])
 
-  // ── Pre-fill sfMap from IDB/memory cache — avoids blank images on navigation ──
+  // ── React Query data bridge ──────────────────────────────────────────────────
   useEffect(() => {
-    getInstantCache(ttlMsRef.current).then(map => { if (map) setSfMap(map) })
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    if (!cardsQuery.isError) return
+    if (isNetworkLikeError(cardsQuery.error)) setIsOnline(false)
+    else setError(cardsQuery.error?.message || 'Could not load cards')
+  }, [cardsQuery.error, cardsQuery.isError])
+
+  useEffect(() => {
+    setLoading(cardsQuery.isFetching)
+  }, [cardsQuery.isFetching])
+
+  useEffect(() => {
+    if (!cardsQuery.isSuccess) return
+    let cancelled = false
+    ;(async () => {
+      const remoteCards = cardsQuery.data || []
+      const localCards = await getLocalCards(user.id)
+      if (cancelled) return
+
+      if (!remoteCards.length) {
+        if (localCards.length) await deleteAllCards(user.id)
+        await setMeta(`cards_synced_${user.id}`, Date.now())
+        if (!cancelled) {
+          setCards([])
+          setFiltered([])
+        }
+        return
+      }
+
+      if (localCards.length) {
+        const remoteIds = new Set(remoteCards.map(c => c.id))
+        const staleLocal = localCards.filter(c => !remoteIds.has(c.id))
+        if (staleLocal.length) await Promise.all(staleLocal.map(c => deleteCard(c.id)))
+      }
+      await putCards(remoteCards)
+      await setMeta(`cards_synced_${user.id}`, Date.now())
+      if (!cancelled) setCards(remoteCards)
+    })()
+    return () => { cancelled = true }
+  }, [cardsQuery.data, cardsQuery.dataUpdatedAt, cardsQuery.isSuccess, user.id])
+
+  useEffect(() => {
+    if (!foldersQuery.isError) return
+    if (isNetworkLikeError(foldersQuery.error)) setIsOnline(false)
+    else setError(foldersQuery.error?.message || 'Could not load folders')
+  }, [foldersQuery.error, foldersQuery.isError])
+
+  useEffect(() => {
+    if (!foldersQuery.isSuccess) return
+    let cancelled = false
+    ;(async () => {
+      const remoteFolders = foldersQuery.data || []
+      const localFolders = await getLocalFolders(user.id)
+      const remoteIds = new Set(remoteFolders.map(folder => folder.id))
+      const removed = localFolders.filter(folder => !remoteIds.has(folder.id))
+      if (removed.length) await Promise.all(removed.map(folder => deleteLocalFolder(folder.id)))
+      await putFolders(remoteFolders)
+      if (!cancelled) setFolders(remoteFolders)
+    })()
+    return () => { cancelled = true }
+  }, [foldersQuery.data, foldersQuery.dataUpdatedAt, foldersQuery.isSuccess, user.id])
+
+  useEffect(() => {
+    setFolderMembershipLoading(placementsQuery.isFetching)
+    if (placementsQuery.isSuccess) setFolderMembershipSynced(true)
+  }, [placementsQuery.isFetching, placementsQuery.isSuccess])
+
+  useEffect(() => {
+    if (!placementsQuery.isError) return
+    if (isNetworkLikeError(placementsQuery.error)) setIsOnline(false)
+    else setError(placementsQuery.error?.message || 'Could not load folder placements')
+  }, [placementsQuery.error, placementsQuery.isError])
+
+  useEffect(() => {
+    if (!placementsQuery.isSuccess) return
+    const placementFolders = folders.length ? folders : (foldersQuery.data || [])
+    const placementFolderIds = placementFolders.filter(f => f.type === 'binder').map(f => f.id)
+    const deckIds = placementFolders.filter(f => f.type === 'deck').map(f => f.id)
+    const folderCards = placementsQuery.data?.folderCards || []
+    const deckAllocations = placementsQuery.data?.deckAllocations || []
+    setCardFolderMap(buildCardFolderMap(placementFolders, [...folderCards, ...deckAllocations]))
+    replaceLocalFolderCards(placementFolderIds, folderCards).catch(() => {})
+    replaceDeckAllocations(deckIds, deckAllocations).catch(() => {})
+    setMeta(`folder_cards_full_sync_${user.id}`, new Date().toISOString()).catch(() => {})
+  }, [folders, foldersQuery.data, placementsQuery.data, placementsQuery.dataUpdatedAt, placementsQuery.isSuccess, user.id])
+
+  useEffect(() => {
+    setEnriching(sfMapQuery.isFetching)
+    if (sfMapQuery.isSuccess) {
+      setSfMap(sfMapQuery.data || {})
+      if (!sfMapQuery.isFetching) setProgLabel('')
+    }
+    if (sfMapQuery.isError && !isNetworkLikeError(sfMapQuery.error)) {
+      setError(sfMapQuery.error?.message || 'Could not load card metadata')
+    }
+  }, [sfMapQuery.data, sfMapQuery.error, sfMapQuery.isError, sfMapQuery.isFetching, sfMapQuery.isSuccess])
 
   // ── Load cards — IDB first, Supabase sync in background ──────────────────────
-  const loadCards = useCallback(async () => {
+  const loadCardsLegacy = useCallback(async () => {
     const loadSeq = ++cardsLoadSeq.current
     const isCurrentLoad = () => loadSeq === cardsLoadSeq.current
     setLoading(true)
@@ -390,10 +544,11 @@ export default function CollectionPage() {
     if (isCurrentLoad()) setLoading(false)
   }, [user.id])
 
-  useEffect(() => { loadCards() }, [loadCards])
+  // React Query now owns card fetching; keep legacy loader parked for rollback only.
 
   // ── Load folder membership ───────────────────────────────────────────────────
   useEffect(() => {
+    return
     const loadFolderMembership = async () => {
       setFolderMembershipLoading(true)
       setFolderMembershipSynced(false)
@@ -546,12 +701,22 @@ export default function CollectionPage() {
     return () => clearTimeout(t)
   }, [searchInput])
 
+  const sfMapForWorker = useMemo(() => {
+    if (!cards.length || !sfMap) return {}
+    const result = {}
+    for (const card of cards) {
+      const key = `${card.set_code}-${card.collector_number}`
+      if (sfMap[key]) result[key] = sfMap[key]
+    }
+    return result
+  }, [cards, sfMap])
+
   // ── Web Worker filtering ─────────────────────────────────────────────────────
   useEffect(() => {
     if (!cards.length) { setFiltered([]); return }
     const id = ++workerReqId.current
-    worker.postMessage({ id, cards, sfMap, search, sort, filters, priceSource: price_source, cardFolderMap })
-  }, [cards, sfMap, search, sort, filters, price_source, cardFolderMap])
+    worker.postMessage({ id, cards, sfMap: sfMapForWorker, search, sort, filters, priceSource: price_source, cardFolderMap })
+  }, [cards, sfMapForWorker, search, sort, filters, price_source, cardFolderMap])
 
   useEffect(() => {
     const handler = (e) => {
@@ -651,6 +816,7 @@ export default function CollectionPage() {
     for (let i = 0; i < dedupedCardsWithPrints.length; i += CARD_BATCH) {
       const batch = dedupedCardsWithPrints.slice(i, i + CARD_BATCH).map(c => {
         const c2 = { ...c, user_id: user.id }
+        if (c2.id == null) delete c2.id
         delete c2._localId; delete c2._binderName; return c2
       })
       const { error: err } = await sb.from('cards')
@@ -788,8 +954,8 @@ export default function CollectionPage() {
     setProgLabel(msg)
     setTimeout(() => setProgLabel(''), 8000)
     setImporting(false)
-    await loadCards()
-  }, [user.id, loadCards, blockOfflineChange])
+    invalidateCollectionQueries()
+  }, [user.id, invalidateCollectionQueries, blockOfflineChange])
 
   // ── Bulk delete ──────────────────────────────────────────────────────────────
   const handleBulkDelete = async () => {
@@ -865,6 +1031,7 @@ export default function CollectionPage() {
       const upd = toUpdate.find(u => u.id === c.id)
       return upd ? { ...c, qty: upd.remaining } : c
     }).filter(Boolean))
+    invalidateCollectionQueries()
     setSelected(new Set()); setSplitState(new Map()); setSelectMode(false)
   }
 
@@ -958,34 +1125,61 @@ export default function CollectionPage() {
     }
 
     const sourceMoves = [...sourceMoveByKey.values()]
+    const sourceGroups = new Map()
     for (const row of sourceMoves) {
       const sourceFolder = row.sourceFolder
-
       const sourceTable = sourceFolder.type === 'deck' ? 'deck_allocations' : 'folder_cards'
       const sourceKey = sourceFolder.type === 'deck' ? 'deck_id' : 'folder_id'
+      const groupKey = `${sourceTable}:${sourceFolder.id}`
+      const group = sourceGroups.get(groupKey) || {
+        sourceTable,
+        sourceKey,
+        sourceId: sourceFolder.id,
+        deleteCardIds: [],
+        updateCardIdsByQty: new Map(),
+      }
       const remaining = row.sourceQty - row.qty
 
       if (remaining > 0) {
-        const { error: sourceUpdateErr } = await sb
-          .from(sourceTable)
-          .update({ qty: remaining })
-          .eq(sourceKey, sourceFolder.id)
-          .eq('card_id', row.card_id)
-
-        if (sourceUpdateErr) {
-          setError(sourceUpdateErr.message)
-          return
-        }
+        const updateIds = group.updateCardIdsByQty.get(remaining) || []
+        updateIds.push(row.card_id)
+        group.updateCardIdsByQty.set(remaining, updateIds)
       } else {
+        group.deleteCardIds.push(row.card_id)
+      }
+
+      sourceGroups.set(groupKey, group)
+    }
+
+    const SOURCE_BATCH = 250
+    for (const group of sourceGroups.values()) {
+      for (let i = 0; i < group.deleteCardIds.length; i += SOURCE_BATCH) {
+        const cardIds = group.deleteCardIds.slice(i, i + SOURCE_BATCH)
         const { error: sourceDeleteErr } = await sb
-          .from(sourceTable)
+          .from(group.sourceTable)
           .delete()
-          .eq(sourceKey, sourceFolder.id)
-          .eq('card_id', row.card_id)
+          .eq(group.sourceKey, group.sourceId)
+          .in('card_id', cardIds)
 
         if (sourceDeleteErr) {
           setError(sourceDeleteErr.message)
           return
+        }
+      }
+
+      for (const [remaining, cardIdsForQty] of group.updateCardIdsByQty.entries()) {
+        for (let i = 0; i < cardIdsForQty.length; i += SOURCE_BATCH) {
+          const cardIds = cardIdsForQty.slice(i, i + SOURCE_BATCH)
+          const { error: sourceUpdateErr } = await sb
+            .from(group.sourceTable)
+            .update({ qty: remaining })
+            .eq(group.sourceKey, group.sourceId)
+            .in('card_id', cardIds)
+
+          if (sourceUpdateErr) {
+            setError(sourceUpdateErr.message)
+            return
+          }
         }
       }
     }
@@ -1031,6 +1225,8 @@ export default function CollectionPage() {
       return next
     })
 
+    queryClient.invalidateQueries({ queryKey: ['folderPlacements', user.id] })
+    queryClient.invalidateQueries({ queryKey: ['sfMap', user.id] })
     setSelected(new Set()); setSplitState(new Map()); setSelectMode(false)
   }
 
@@ -1084,8 +1280,7 @@ export default function CollectionPage() {
     }
     await setMeta(`folder_cards_full_sync_${user.id}`, 0)
     orphanCheckDone.current = false
-    setFolderMembershipReloadKey(v => v + 1)
-    await loadCards()
+    invalidateCollectionQueries()
     setDetailCardKey(null)
   }
 
@@ -1112,10 +1307,12 @@ export default function CollectionPage() {
         return next
       })
       await setMeta(`folder_cards_full_sync_${user.id}`, 0)
-      setFolderMembershipReloadKey(v => v + 1)
+      queryClient.invalidateQueries({ queryKey: ['folderPlacements', user.id] })
     }
     await putCards([updatedCard])
-  }, [user.id])
+    queryClient.invalidateQueries({ queryKey: ['cards', user.id] })
+    queryClient.invalidateQueries({ queryKey: ['sfMap', user.id] })
+  }, [queryClient, user.id])
 
   const displayCardsRef = useRef([])
 
@@ -1262,8 +1459,15 @@ export default function CollectionPage() {
       importing={importing}
     />
   )
+  const queryHasCardsPendingState = Array.isArray(cardsQuery.data) && cardsQuery.data.length > 0
+  const collectionInitialLoading = !cards.length && (
+    loading ||
+    cardsQuery.isPending ||
+    cardsQuery.isFetching ||
+    queryHasCardsPendingState
+  )
 
-  if (loading && !cards.length) {
+  if (collectionInitialLoading) {
     return (
       <>
         <EmptyState>Loading your collection...</EmptyState>
@@ -1293,7 +1497,7 @@ export default function CollectionPage() {
         />
       </div>
 
-      {cards.length === 0 ? (
+      {!collectionInitialLoading && cards.length === 0 ? (
         <div className={styles.emptyCollectionActions}>
           <DropZone
             onFile={handleImport}
@@ -1486,9 +1690,8 @@ export default function CollectionPage() {
             }
             await setMeta(`folder_cards_full_sync_${user.id}`, 0)
             orphanCheckDone.current = false
-            setFolderMembershipReloadKey(v => v + 1)
             setShowAdd(false)
-            loadCards()
+            invalidateCollectionQueries()
           }}
         />
       )}
@@ -1506,8 +1709,7 @@ export default function CollectionPage() {
             orphanCheckDone.current = false
             await setMeta(`cards_synced_${user.id}`, 0)
             await setMeta(`folder_cards_full_sync_${user.id}`, 0)
-            setFolderMembershipReloadKey(v => v + 1)
-            await loadCards()
+            invalidateCollectionQueries()
           }}
         />
       )}
@@ -1538,11 +1740,14 @@ export default function CollectionPage() {
               return next
             })
             setOrphanCards([])
+            queryClient.invalidateQueries({ queryKey: ['folderPlacements', user.id] })
           }}
           onDeleted={(deleted) => {
             const deletedSet = new Set(deleted.map(c => c.id))
             setCards(prev => prev.filter(c => !deletedSet.has(c.id)))
             setOrphanCards([])
+            queryClient.invalidateQueries({ queryKey: ['cards', user.id] })
+            queryClient.invalidateQueries({ queryKey: ['sfMap', user.id] })
           }}
         />
       )}
