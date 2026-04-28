@@ -5,6 +5,7 @@ import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { useSettings } from '../components/SettingsContext'
 import { useAuth } from '../components/Auth'
+import { useToast } from '../components/ToastContext'
 import { CardDetail, FilterBar, BulkActionBar, applyFilterSort, EMPTY_FILTERS } from '../components/CardComponents'
 import { EmptyState, Badge, ResponsiveMenu } from '../components/UI'
 import AddCardModal from '../components/AddCardModal'
@@ -679,6 +680,7 @@ export default function DeckBrowser({ folder, onBack }) {
   const navigate = useNavigate()
   const { price_source, default_sort, grid_density } = useSettings()
   const { user } = useAuth()
+  const toast = useToast()
   const [cards, setCards]           = useState([])
   const [sfMap, setSfMap]           = useState({})
   const [loading, setLoading]       = useState(true)
@@ -957,6 +959,7 @@ export default function DeckBrowser({ folder, onBack }) {
         return remaining > 0 ? { ...c, _folder_qty: remaining } : null
       }).filter(Boolean))
       clearSelect()
+      toast.success(`Deleted ${selectedQty} ${selectedQty === 1 ? 'card' : 'cards'}.`)
     } catch (e) {
       console.error('[DeckBrowser] bulk delete failed:', e)
       loadCards()
@@ -1006,6 +1009,8 @@ export default function DeckBrowser({ folder, onBack }) {
         return remaining > 0 ? { ...c, _folder_qty: remaining } : null
       }).filter(Boolean))
       clearSelect()
+      const movedQty = insertRows.reduce((sum, row) => sum + row.qty, 0)
+      toast.success(`Moved ${movedQty} ${movedQty === 1 ? 'card' : 'cards'} to ${targetFolder.name}.`)
     } catch (e) {
       console.error('[DeckBrowser] move to folder failed:', e)
       loadCards()

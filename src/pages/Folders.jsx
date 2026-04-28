@@ -5,6 +5,7 @@ import { getScryfallKey, getPrice, getPriceSource, formatPrice, sfGet } from '..
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
+import { useToast } from '../components/ToastContext'
 import { CardGrid, CardDetail, FilterBar, BulkActionBar, applyFilterSort, EMPTY_FILTERS } from '../components/CardComponents'
 import { EmptyState, SectionHeader, Button, Modal, ResponsiveHeaderActions, ResponsiveMenu, Select } from '../components/UI'
 import AddCardModal from '../components/AddCardModal'
@@ -516,6 +517,7 @@ function BinderListView({ cards, sfMap, priceSource }) {
 function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder', onBack, onCardAdded }) {
   const { price_source, default_sort, grid_density } = useSettings()
   const { user } = useAuth()
+  const toast = useToast()
   const [cards, setCards]             = useState([])
   const [sfMap, setSfMap]             = useState({})
   const [allFolders, setAllFolders]   = useState([])
@@ -692,6 +694,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
       return remaining > 0 ? { ...c, _folder_qty: remaining } : null
     }).filter(Boolean))
     clearSelect()
+    toast.success(`Deleted ${selectedQty} ${selectedQty === 1 ? 'card' : 'cards'}.`)
   }
 
   const handleMoveToFolder = async (targetFolder) => {
@@ -753,6 +756,8 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
       return remaining > 0 ? { ...c, _folder_qty: remaining } : null
     }).filter(Boolean))
     clearSelect()
+    const movedQty = placementRows.reduce((sum, row) => sum + row.qty, 0)
+    if (movedQty > 0) toast.success(`Moved ${movedQty} ${movedQty === 1 ? 'card' : 'cards'} to ${targetFolder.name}.`)
   }
 
   if (loading) return <EmptyState>Loading…</EmptyState>
