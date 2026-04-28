@@ -68,7 +68,11 @@ async function upsertInBatches(table, rows, options, selectColumns = '*', onBatc
   const saved = []
   const batches = chunkRows(rows)
   for (let i = 0; i < batches.length; i++) {
-    const batch = batches[i]
+    const batch = batches[i].map(row => {
+      if (row?.id != null) return row
+      const { id, ...rest } = row
+      return rest
+    })
     const { data, error } = await sb.from(table)
       .upsert(batch, options)
       .select(selectColumns)
@@ -111,7 +115,10 @@ async function additiveUpsertInBatches(table, rows, keyFields, options, selectCo
       const existing = existingByKey.get(rowKey(row, keyFields))
       return existing
         ? { ...row, id: existing.id, qty: (existing.qty || 0) + (row.qty || 0) }
-        : row
+        : (() => {
+            const { id, ...rest } = row
+            return rest
+          })()
     })
 
     const batchSaved = await upsertInBatches(table, rowsToSave, options, selectColumns)
