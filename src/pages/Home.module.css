@@ -33,6 +33,64 @@
 /* ── Layout ──────────────────────────────────────────────────────────────── */
 .home { max-width: 1100px; margin: 0 auto; }
 
+.rulebookSection {
+  padding: 18px 20px;
+}
+
+.rulebookBody {
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  align-items: center;
+  gap: 14px;
+}
+
+.rulebookIcon {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(201,168,76,0.24);
+  border-radius: 6px;
+  background: rgba(201,168,76,0.08);
+  color: var(--gold);
+}
+
+.rulebookCopy {
+  min-width: 0;
+}
+
+.rulebookCopy .sectionHeader {
+  margin-bottom: 6px;
+}
+
+.rulebookCopy .sectionDesc {
+  margin-bottom: 0;
+}
+
+.rulebookButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid rgba(201,168,76,0.3);
+  border-radius: 4px;
+  background: rgba(201,168,76,0.12);
+  color: var(--gold);
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.rulebookButton:hover {
+  background: rgba(201,168,76,0.2);
+  border-color: rgba(201,168,76,0.5);
+}
+
 /* ── Changelog / WIP panel ───────────────────────────────────────────────── */
 .changelog {
   margin: 0 16px 16px;
@@ -976,6 +1034,9 @@
   .legalGrid { grid-template-columns: 1fr 1fr; }
   .setsGrid { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); }
   .deckRow { grid-template-columns: 22px 1fr auto; }
+  .rulebookBody { grid-template-columns: 1fr; align-items: stretch; }
+  .rulebookIcon { display: none; }
+  .rulebookButton { width: 100%; }
 }
 @media (max-width: 440px) {
   .cvArtCol { flex-direction: column; min-width: 0; }

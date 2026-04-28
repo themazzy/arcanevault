@@ -33,6 +33,7 @@ const TournamentsPage = lazy(() => import('./pages/Tournaments'))
 const ScannerPage = lazy(() => import('./pages/Scanner'))
 const PokemonCollectionPage = lazy(() => import('./pages/PokemonCollection'))
 const ProfilePage = lazy(() => import('./pages/Profile'))
+const RulebookPage = lazy(() => import('./pages/Rulebook'))
 
 function PrivateApp() {
   const { user, authEvent } = useAuth()
@@ -56,6 +57,7 @@ function PrivateApp() {
             <Route path="/pokemon"     element={<PokemonCollectionPage />} />
             <Route path="/settings"    element={<SettingsPage />} />
             <Route path="/help"        element={<HelpPage />} />
+            <Route path="/rules"       element={<RulebookPage />} />
             <Route path="/admin"       element={<AdminPage />} />
             <Route path="/builder"     element={<BuilderPage />} />
             <Route path="/builder/:id" element={<DeckBuilderPage />} />
