@@ -65,9 +65,9 @@ function FeedbackSection() {
 
     const { data: attachmentRows, error } = await sb
       .from('feedback_attachments')
-      .select('id,feedback_id,file_key,file_name,mime_type,file_size,created_at')
+      .select('id,feedback_id,file_key,file_name,mime_type,file_size,uploaded_at')
       .in('feedback_id', feedbackIds)
-      .order('created_at', { ascending: true })
+      .order('uploaded_at', { ascending: true })
 
     if (error || !attachmentRows?.length) {
       setAttachmentsByFeedbackId({})
