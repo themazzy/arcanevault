@@ -486,9 +486,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
       {/* ── Control bar ── */}
       <div className={styles.binderControlBar}>
         <span className={styles.binderCount}>
-          {filtered.length < items.length
-            ? `${filtered.length} of ${items.length} cards`
-            : `${items.length} cards`} · {totalQty} total
+          Showing {filtered.length} of {items.length} unique · {totalQty} total cards
         </span>
         <CardBrowserViewControls
           viewMode={viewMode}
