@@ -1144,9 +1144,8 @@ export default function DeckBrowser({ folder, onBack }) {
         selectMode={selectMode} onToggleSelectMode={toggleSelectMode} />
 
       <div className={styles.controlBar}>
-        <span className={styles.countInfo}>{filtered.length < cards.length
-          ? `${filtered.length} of ${cards.length} cards`
-          : `${cards.length} cards`}
+        <span className={styles.countInfo}>
+          Showing {filtered.length} of {cards.length} unique · {totalQty} total cards
         </span>
         <CardBrowserViewControls
           viewMode={viewMode}

@@ -812,9 +812,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
       {/* ── Control bar ── */}
       <div className={styles.binderControlBar}>
         <span className={styles.binderCount}>
-          {filtered.length < cards.length
-            ? `${filtered.length} of ${cards.length} unique`
-            : `${cards.length} unique`} · {totalQty} total
+          Showing {filtered.length} of {cards.length} unique · {totalQty} total cards
         </span>
         <CardBrowserViewControls
           viewMode={viewMode}

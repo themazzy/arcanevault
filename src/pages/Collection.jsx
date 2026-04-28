@@ -1447,6 +1447,10 @@ export default function CollectionPage() {
 
   useEffect(() => { displayCardsRef.current = displayCards }, [displayCards])
 
+  const selectableDisplayQty = useMemo(() =>
+    displayCards.reduce((sum, card) => sum + (card._folder_qty ?? card.qty ?? 1), 0)
+  , [displayCards])
+
   const selectedCard = detailCardKey ? displayCards.find(c => (c._displayKey || c.id) === detailCardKey) : null
   const selectedSf   = selectedCard ? sfMap[getScryfallKey(selectedCard)] : null
 
@@ -1574,7 +1578,7 @@ export default function CollectionPage() {
         {isOnline && selectMode && selected.size > 0 && (
           <BulkActionBar
             selected={selected} selectedQty={selectedQty}
-            total={displayCards.reduce((s, c) => s + (c.qty || 1), 0)}
+            total={selectableDisplayQty}
             onSelectAll={() => {
               setSelected(new Set(displayCards.map(c => c._displayKey || c.id)))
               setSplitState(new Map(
