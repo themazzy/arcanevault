@@ -75,7 +75,6 @@ function PrivateApp() {
 export default function App() {
   return (
     <BrowserRouter
-      basename={import.meta.env.VITE_CAPACITOR ? '/' : '/arcanevault'}
       future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
     >
       <AuthProvider>
