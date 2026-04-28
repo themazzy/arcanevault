@@ -12,7 +12,7 @@ import {
 } from '../lib/importFlow'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
 import { putCards, putDeckAllocations, putFolderCards, putFolders } from '../lib/db'
-import { CheckIcon, CloseIcon } from '../icons'
+import { CheckIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon } from '../icons'
 import styles from './ImportModal.module.css'
 import uiStyles from './UI.module.css'
 
@@ -838,7 +838,9 @@ export default function ImportModal({
                         <span className={!folderId ? styles.folderComboBtnPlaceholder : ''}>
                           {selectedFolderName || `Choose ${noun.toLowerCase()}...`}
                         </span>
-                        <span className={styles.folderComboArrow}>{open ? '^' : 'v'}</span>
+                        <span className={styles.folderComboArrow}>
+                          {open ? <ChevronUpIcon size={12} /> : <ChevronDownIcon size={12} />}
+                        </span>
                       </button>
                     )}
                   >

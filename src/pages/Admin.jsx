@@ -6,6 +6,13 @@ import { isCurrentUserAdmin } from '../lib/admin'
 import styles from './Admin.module.css'
 
 const STATUS_OPTIONS = ['pending', 'in_review', 'completed', 'rejected']
+const ADMIN_TABS = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'feedback', label: 'Feedback' },
+  { id: 'users', label: 'Users' },
+  { id: 'deletions', label: 'Deletions' },
+  { id: 'content', label: 'Content' },
+]
 
 async function setPremiumForUser(userId, grant) {
   const { error } = await sb.from('user_settings')
@@ -28,11 +35,13 @@ async function setFeedbackResolved(resolvedIds) {
 
 function FeedbackSection() {
   const [items, setItems] = useState([])
+  const [attachmentsByFeedbackId, setAttachmentsByFeedbackId] = useState({})
   const [resolvedIds, setResolvedIds] = useState([])
   const [loading, setLoading] = useState(true)
   const [typeFilter, setTypeFilter] = useState('all')
   const [showResolved, setShowResolved] = useState(false)
   const [busy, setBusy] = useState(null)
+  const [previewAttachment, setPreviewAttachment] = useState(null)
 
   const load = async () => {
     setLoading(true)
@@ -40,9 +49,43 @@ function FeedbackSection() {
       sb.from('feedback').select('*').order('created_at', { ascending: false }),
       loadResolvedFeedbackIds(),
     ])
-    setItems(data || [])
+    const feedbackItems = data || []
+    setItems(feedbackItems)
     setResolvedIds(resolved)
+    await loadAttachments(feedbackItems)
     setLoading(false)
+  }
+
+  const loadAttachments = async (feedbackItems) => {
+    const feedbackIds = feedbackItems.map(item => item.id).filter(Boolean)
+    if (!feedbackIds.length) {
+      setAttachmentsByFeedbackId({})
+      return
+    }
+
+    const { data: attachmentRows, error } = await sb
+      .from('feedback_attachments')
+      .select('id,feedback_id,file_key,file_name,mime_type,file_size,created_at')
+      .in('feedback_id', feedbackIds)
+      .order('created_at', { ascending: true })
+
+    if (error || !attachmentRows?.length) {
+      setAttachmentsByFeedbackId({})
+      return
+    }
+
+    const signedRows = await Promise.all(attachmentRows.map(async (attachment) => {
+      const { data: signed } = await sb.storage
+        .from('assets')
+        .createSignedUrl(attachment.file_key, 60 * 60)
+      return { ...attachment, url: signed?.signedUrl || '' }
+    }))
+
+    setAttachmentsByFeedbackId(signedRows.reduce((acc, attachment) => {
+      if (!acc[attachment.feedback_id]) acc[attachment.feedback_id] = []
+      acc[attachment.feedback_id].push(attachment)
+      return acc
+    }, {}))
   }
 
   useEffect(() => { load() }, [])
@@ -124,6 +167,25 @@ function FeedbackSection() {
                 {item.contact && (
                   <div className={styles.activityMeta}>Contact: {item.contact}</div>
                 )}
+                {(attachmentsByFeedbackId[item.id] || []).length ? (
+                  <div className={styles.attachmentStrip}>
+                    {attachmentsByFeedbackId[item.id].map((attachment) => (
+                      <button
+                        key={attachment.id}
+                        type="button"
+                        className={styles.attachmentThumb}
+                        onClick={() => setPreviewAttachment(attachment)}
+                        title={attachment.file_name || 'Open screenshot'}
+                      >
+                        {attachment.url ? (
+                          <img src={attachment.url} alt={attachment.file_name || 'Feedback screenshot'} loading="lazy" />
+                        ) : (
+                          <span>Unavailable</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
                 <div className={styles.feedbackActions}>
                   {isResolved ? (
                     <Button size="sm" onClick={() => markUnresolved(item.id)} disabled={busy === item.id}>
@@ -143,6 +205,30 @@ function FeedbackSection() {
           })}
         </div>
       )}
+
+      {previewAttachment ? (
+        <div
+          className={styles.screenshotOverlay}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Feedback screenshot preview"
+          onClick={() => setPreviewAttachment(null)}
+        >
+          <button
+            type="button"
+            className={styles.screenshotClose}
+            onClick={() => setPreviewAttachment(null)}
+          >
+            Close
+          </button>
+          <img
+            className={styles.screenshotPreview}
+            src={previewAttachment.url}
+            alt={previewAttachment.file_name || 'Feedback screenshot'}
+            onClick={e => e.stopPropagation()}
+          />
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -641,6 +727,7 @@ export default function AdminPage() {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [confirmText, setConfirmText] = useState('')
   const [premiumBusy, setPremiumBusy] = useState(false)
+  const [activeTab, setActiveTab] = useState('overview')
 
   const loadDashboard = async () => {
     setDashboardLoading(true)
@@ -965,9 +1052,9 @@ export default function AdminPage() {
       <div className={styles.hero}>
         <div className={styles.heroCopy}>
           <div className={styles.eyebrow}>Admin Home</div>
-          <h1 className={styles.title}>Operations overview and deletion queue</h1>
+          <h1 className={styles.title}>Operations console</h1>
           <p className={styles.lead}>
-            Monitor top-level app health, recent user activity, support volume, and deletion operations from one place.
+            Monitor app health, support feedback, user accounts, privacy requests, and content updates by workspace.
           </p>
         </div>
         <div className={styles.heroActions}>
@@ -977,6 +1064,22 @@ export default function AdminPage() {
 
       {error ? <div className={styles.errorBox}>{error}</div> : null}
 
+      <div className={styles.tabBar} role="tablist" aria-label="Admin sections">
+        {ADMIN_TABS.map(tab => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            className={`${styles.tabButton}${activeTab === tab.id ? ` ${styles.tabButtonActive}` : ''}`}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'overview' ? (
       <div className={styles.sectionBlock}>
         <div className={styles.sectionTitleRow}>
           <div>
@@ -1133,11 +1236,13 @@ export default function AdminPage() {
           </>
         )}
       </div>
+      ) : null}
 
-      <ChangelogEditorSection />
+      {activeTab === 'content' ? <ChangelogEditorSection /> : null}
 
-      <FeedbackSection />
+      {activeTab === 'feedback' ? <FeedbackSection /> : null}
 
+      {activeTab === 'deletions' ? (
       <div className={styles.sectionBlock}>
         <div className={styles.sectionTitleRow}>
           <div>
@@ -1375,7 +1480,9 @@ export default function AdminPage() {
           </div>
         </div>
       </div>
+      ) : null}
 
+      {activeTab === 'users' ? (
       <div className={styles.sectionBlock}>
         <div className={styles.sectionTitleRow}>
           <div>
@@ -1601,6 +1708,7 @@ export default function AdminPage() {
           </div>
         </div>
       </div>
+      ) : null}
 
       {confirmOpen && selectedRequest ? (
         <Modal onClose={() => { if (!executing) setConfirmOpen(false) }}>
