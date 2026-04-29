@@ -26,7 +26,6 @@ import ExportModal from '../components/ExportModal'
 import { fetchDeckAllocations, fetchDeckAllocationsForUser, fetchDeckCards, mergeAllocationRows, upsertDeckAllocations } from '../lib/deckData'
 import { planDeckAllocations } from '../lib/deckAllocationPlanner'
 import { getCardLegalityWarnings } from '../lib/deckLegality'
-import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import {
   buildSyncDiff,
   buildSyncSnapshot,
@@ -2271,15 +2270,7 @@ export default function DeckBuilderPage() {
 
         // Build owned maps — failures here must not block the deck display
         try {
-          let owned = await getLocalCards(user.id)
-          const prunedIds = await pruneUnplacedCards((owned || []).map(card => card.id)).catch(err => {
-            console.warn('[DeckBuilder] ownership prune failed:', err)
-            return []
-          })
-          if (prunedIds.length) {
-            const prunedSet = new Set(prunedIds)
-            owned = (owned || []).filter(card => !prunedSet.has(card.id))
-          }
+          const owned = await getLocalCards(user.id)
           const map     = new Map()
           const nameMap = new Map()
           const foilMap = new Map()
