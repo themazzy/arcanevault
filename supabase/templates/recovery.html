@@ -3,34 +3,34 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Reset your DeckLoom password</title>
-    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Pro:wght@400;500;600&display=swap" rel="stylesheet" />
+    <title>Reset your Deck Loom password</title>
   </head>
-  <body style="margin:0;padding:0;background:#0a0a0f;color:#ddd0b8;font-family:'Crimson Pro',Georgia,'Times New Roman',serif;">
-    <div style="padding:32px 16px;background:linear-gradient(180deg,#0a0a0f 0%,#12101e 100%);">
-      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:620px;margin:0 auto;background:#14111d;border:1px solid rgba(201,168,76,0.22);border-radius:18px;overflow:hidden;">
+  <body style="margin:0;padding:0;background:#090a0d;color:#f4efe3;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+    <div style="padding:32px 16px;background:#090a0d;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:640px;margin:0 auto;background:#121318;border:1px solid #2c2b26;border-radius:14px;overflow:hidden;">
         <tr>
-          <td style="padding:28px 32px 12px;border-bottom:1px solid rgba(201,168,76,0.14);">
-            <div style="font-family:'Cinzel',Georgia,'Times New Roman',serif;font-size:12px;letter-spacing:3px;text-transform:uppercase;color:#8a6fc4;">DeckLoom</div>
-            <h1 style="margin:12px 0 0;font-family:'Cinzel',Georgia,'Times New Roman',serif;font-size:30px;line-height:1.15;color:#f2e7ca;">Reset your password</h1>
+          <td style="padding:28px 32px 22px;border-top:4px solid #d7b35d;border-bottom:1px solid #2c2b26;">
+            <div style="font-size:13px;line-height:1;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:#d7b35d;">Deck Loom</div>
+            <h1 style="margin:14px 0 0;font-size:28px;line-height:1.2;font-weight:800;color:#f8f3e7;">Reset your password</h1>
+            <p style="margin:10px 0 0;font-size:15px;line-height:1.6;color:#bdb7aa;">Use this secure link to choose a new password.</p>
           </td>
         </tr>
         <tr>
-          <td style="padding:28px 32px 8px;font-size:16px;line-height:1.7;color:#ddd0b8;">
-            <p style="margin:0 0 16px;">A password reset was requested for your DeckLoom account.</p>
-            <p style="margin:0 0 24px;">Use the secure link below to set a new password and get back to your decks, binders, and collection ledger.</p>
+          <td style="padding:30px 32px 8px;font-size:16px;line-height:1.65;color:#e9e1d0;">
+            <p style="margin:0 0 18px;">A password reset was requested for your Deck Loom account.</p>
+            <p style="margin:0 0 26px;">This link opens Deck Loom and lets you set a new password for your account.</p>
             <p style="margin:0 0 28px;">
-              <a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:14px 22px;background:#c9a84c;color:#0f0d09;text-decoration:none;border-radius:999px;font-weight:700;letter-spacing:0.03em;font-family:'Cinzel',Georgia,'Times New Roman',serif;">Reset password</a>
+              <a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:13px 20px;background:#d7b35d;color:#101114;text-decoration:none;border-radius:8px;font-size:15px;font-weight:800;">Reset password</a>
             </p>
-            <div style="padding:16px 18px;background:#100d18;border:1px solid rgba(138,111,196,0.24);border-radius:12px;">
-              <div style="font-size:13px;letter-spacing:1.2px;text-transform:uppercase;color:#8a6fc4;margin-bottom:8px;font-family:'Cinzel',Georgia,'Times New Roman',serif;">Need the raw link?</div>
-              <div style="font-size:13px;line-height:1.6;word-break:break-word;color:#b9ab8d;">{{ .ConfirmationURL }}</div>
+            <div style="padding:15px 16px;background:#0c0d11;border:1px solid #2c2b26;border-radius:10px;">
+              <div style="font-size:12px;line-height:1.4;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:#9f8ee8;margin-bottom:8px;">Fallback link</div>
+              <div style="font-size:13px;line-height:1.55;word-break:break-word;color:#bdb7aa;">{{ .ConfirmationURL }}</div>
             </div>
           </td>
         </tr>
         <tr>
-          <td style="padding:8px 32px 30px;font-size:13px;line-height:1.6;color:#a89878;">
-            If you did not request this change, you can ignore this email and keep your ward in place.
+          <td style="padding:18px 32px 30px;font-size:13px;line-height:1.6;color:#9e9788;">
+            If you did not request a password reset, you can ignore this email. Your current password will stay unchanged.
           </td>
         </tr>
       </table>

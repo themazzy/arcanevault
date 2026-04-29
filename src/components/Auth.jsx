@@ -7,16 +7,44 @@ import styles from './Auth.module.css'
 
 const AuthContext = createContext(null)
 export const useAuth = () => useContext(AuthContext)
+const RECOVERY_PENDING_KEY = 'deckloom_password_recovery_pending'
+
+function hasRecoveryRedirectHash() {
+  if (typeof window === 'undefined') return false
+  const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : ''
+  return new URLSearchParams(hash).get('type') === 'recovery'
+}
+
+function hasPendingRecovery() {
+  if (typeof window === 'undefined') return false
+  return hasRecoveryRedirectHash() || window.sessionStorage.getItem(RECOVERY_PENDING_KEY) === '1'
+}
+
+function markPendingRecovery() {
+  if (typeof window !== 'undefined') window.sessionStorage.setItem(RECOVERY_PENDING_KEY, '1')
+}
+
+function clearPendingRecovery() {
+  if (typeof window !== 'undefined') window.sessionStorage.removeItem(RECOVERY_PENDING_KEY)
+}
 
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(undefined)
-  const [authEvent, setAuthEvent] = useState(null)
+  const [authEvent, setAuthEvent] = useState(() => (
+    hasPendingRecovery() ? 'PASSWORD_RECOVERY' : null
+  ))
 
   useEffect(() => {
-    sb.auth.getSession().then(({ data: { session } }) => setSession(session))
+    const isRecoveryRedirect = hasRecoveryRedirectHash()
+    if (isRecoveryRedirect) markPendingRecovery()
+    sb.auth.getSession().then(({ data: { session } }) => {
+      setSession(session)
+      if (hasPendingRecovery()) setAuthEvent('PASSWORD_RECOVERY')
+    })
     const { data: { subscription } } = sb.auth.onAuthStateChange((event, s) => {
-      setAuthEvent(event)
       setSession(s)
+      if (event === 'PASSWORD_RECOVERY') markPendingRecovery()
+      setAuthEvent(event === 'PASSWORD_RECOVERY' || hasPendingRecovery() ? 'PASSWORD_RECOVERY' : event)
     })
     return () => subscription.unsubscribe()
   }, [])
@@ -26,7 +54,15 @@ export function AuthProvider({ children }) {
   )
 
   return (
-    <AuthContext.Provider value={{ session, user: session?.user || null, authEvent, clearAuthEvent: () => setAuthEvent(null) }}>
+    <AuthContext.Provider value={{
+      session,
+      user: session?.user || null,
+      authEvent,
+      clearAuthEvent: () => {
+        clearPendingRecovery()
+        setAuthEvent(null)
+      },
+    }}>
       {children}
     </AuthContext.Provider>
   )
@@ -316,7 +352,8 @@ export function LoginPage({ forcedMode = null }) {
       if (err) setError(err.message)
       else {
         clearAuthEvent?.()
-        setSuccess('Password updated. You can now continue with your new password.')
+        await sb.auth.signOut({ scope: 'local' })
+        setSuccess('Password updated. Sign in with your new password to continue.')
       }
     } else {
       const { error: err } = await sb.auth.signInWithPassword({ email, password })
