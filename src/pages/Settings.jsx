@@ -531,7 +531,10 @@ export default function SettingsPage() {
       setEmailError('That is already your current email address.')
       return
     }
-    const { error } = await sb.auth.updateUser({ email: nextEmail })
+    const { error } = await sb.auth.updateUser(
+      { email: nextEmail },
+      { emailRedirectTo: 'https://deckloom.app/' }
+    )
     if (error) setEmailError(error.message)
     else {
       setEmailMsg('Email change requested. Check your inbox for the confirmation email.')
