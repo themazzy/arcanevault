@@ -180,7 +180,7 @@ function ThemePicker({ value, onChange, premium }) {
   )
 }
 
-function CacheStatus({ ttlH, onClear }) {
+function CacheStatus({ onClear }) {
   const [info, setInfo] = useState(null)
   const [cleared, setCleared] = useState(false)
 
@@ -211,13 +211,6 @@ function CacheStatus({ ttlH, onClear }) {
     onClear?.()
   }
 
-  const ttlMs = ttlH * 3600000
-  const pct = info ? Math.min(100, Math.round((info.ageMs / ttlMs) * 100)) : 0
-  const isExpired = info ? info.ageMs > ttlMs : false
-  const expiresIn = info && !isExpired
-    ? formatAge(ttlMs - info.ageMs).replace(' ago', '')
-    : null
-
   return (
     <div className={styles.cachePanel}>
       {info ? (
@@ -229,20 +222,8 @@ function CacheStatus({ ttlH, onClear }) {
             </div>
             <div className={styles.cacheSummarySub}>
               <span>Updated {formatAge(info.ageMs)}</span>
-              <span className={isExpired ? styles.cacheExpired : styles.cacheOk}>
-                {isExpired ? 'Expired' : `Refreshes in ${expiresIn}`}
-              </span>
+              <span className={styles.cacheOk}>Available offline</span>
             </div>
-          </div>
-          <div className={styles.cacheBarWrap}>
-            <div
-              className={`${styles.cacheBar} ${isExpired ? styles.cacheBarExpired : ''}`}
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-          <div className={styles.cacheBarLabels}>
-            <span>Fresh</span>
-            <span>{isExpired ? 'Expired - missing metadata will refresh automatically' : `${ttlH}h local data TTL`}</span>
           </div>
         </>
       ) : (
@@ -782,13 +763,9 @@ export default function SettingsPage() {
       </div>
 
       <div className={styles.section}>
-        <div className={styles.sectionTitle}>Offline & Local Data</div>
-        <SettingRow label="Local Metadata Duration" description="How long card metadata is kept locally before missing details are refreshed automatically">
-          <Select value={String(settings.cache_ttl_h)} onChange={v => set('cache_ttl_h', parseInt(v))}
-            options={[['12', '12 hours'], ['24', '24 hours (default)'], ['48', '48 hours'], ['168', '1 week']]} />
-        </SettingRow>
+        <div className={styles.sectionTitle}>Local Cache</div>
         <div className={styles.cachePanelWrap}>
-          <CacheStatus ttlH={settings.cache_ttl_h} />
+          <CacheStatus />
         </div>
       </div>
 
