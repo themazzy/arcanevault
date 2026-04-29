@@ -15,12 +15,18 @@ const ADMIN_TABS = [
 ]
 
 async function setPremiumForUser(userId, grant) {
-  const { error } = await sb.from('user_settings')
-    .upsert(
-      { user_id: userId, premium: grant, updated_at: new Date().toISOString() },
-      { onConflict: 'user_id' }
-    )
+  const updatedAt = new Date().toISOString()
+  const { data, error } = await sb.from('user_settings')
+    .update({ premium: grant, updated_at: updatedAt })
+    .eq('user_id', userId)
+    .select('user_id')
+
   if (error) throw error
+  if (data?.length || !grant) return
+
+  const { error: insertError } = await sb.from('user_settings')
+    .insert({ user_id: userId, premium: true, updated_at: updatedAt })
+  if (insertError) throw insertError
 }
 
 async function loadResolvedFeedbackIds() {
