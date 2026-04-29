@@ -32,7 +32,7 @@ The cost of a 30-second clarification is always lower than building the wrong th
 
 ## Project Overview
 
-**ArcaneVault** is a personal Magic: The Gathering collection tracker hosted at **https://themazzy.github.io/arcanevault/**. Users catalog owned cards, organise them into binders/decks/wishlists, track prices and P&L, build decks, scan cards with camera OCR, and view collection analytics.
+**DeckLoom** is a personal Magic: The Gathering collection tracker hosted at **https://themazzy.github.io/arcanevault/**. Users catalog owned cards, organise them into binders/decks/wishlists, track prices and P&L, build decks, scan cards with camera OCR, and view collection analytics.
 
 **Stack:** React 18 + Vite + Supabase + IndexedDB
 

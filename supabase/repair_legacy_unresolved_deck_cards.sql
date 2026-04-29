@@ -1,4 +1,4 @@
--- ArcaneVault repair script for legacy unresolved deck_cards
+-- DeckLoom repair script for legacy unresolved deck_cards
 --
 -- Problem:
 -- Some older deck_cards rows have:

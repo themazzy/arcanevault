@@ -116,7 +116,7 @@ function createLightTheme(config) {
 export const THEMES = {
   shadow: createDarkTheme({
     name: 'Shadow',
-    lore: 'Original UntapHub gold and violet',
+    lore: 'Original DeckLoom gold and violet',
     bg: '#0a0a0f',
     bg2: '#0e0c1a',
     bg3: '#12101e',

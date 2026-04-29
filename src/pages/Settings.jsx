@@ -870,11 +870,11 @@ export default function SettingsPage() {
         <div className={styles.accountCard}>
           <div className={styles.accountEyebrow}>Signed in as</div>
           <div className={styles.accountEmail}>{maskEmailAddress(user?.email, true)}</div>
-          <div className={styles.accountSub}>This email is currently bound to your UntapHub sign-in.</div>
+          <div className={styles.accountSub}>This email is currently bound to your DeckLoom sign-in.</div>
         </div>
         <SettingRow
           label="Change Email"
-          description="Send a confirmation email to switch your UntapHub login to a new address."
+          description="Send a confirmation email to switch your DeckLoom login to a new address."
         >
           <div className={styles.pwForm}>
             <input
@@ -901,7 +901,7 @@ export default function SettingsPage() {
           {pwError && <div className={styles.pwError}>{pwError}</div>}
           {pwMsg && <div className={styles.pwMsg}>{pwMsg}</div>}
         </SettingRow>
-        <SettingRow label="Sign Out Everywhere" description="Ends this UntapHub session on all devices where you are currently signed in.">
+        <SettingRow label="Sign Out Everywhere" description="Ends this DeckLoom session on all devices where you are currently signed in.">
           <Button variant="danger" size="sm" onClick={() => sb.auth.signOut({ scope: 'global' })}>
             Sign Out All
           </Button>
@@ -952,7 +952,7 @@ export default function SettingsPage() {
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Support</div>
         <div className={styles.supportCard}>
-          <div className={styles.supportEyebrow}>Keep UntapHub growing</div>
+          <div className={styles.supportEyebrow}>Keep DeckLoom growing</div>
           <div className={styles.supportTitle}>Unlock Premium Themes</div>
           <div className={styles.supportText}>
             Support development and unlock three exclusive themes — Obsidian Night, Crimson Court, and Verdant Realm. Each features atmospheric ambient glows, unique scrollbar and selection colours, and a distinct visual identity. One-time payment, yours forever.

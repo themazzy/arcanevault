@@ -6,6 +6,7 @@ import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getLocalCards, getLocalFolders, getAllLocalFolderCards, getAllDeckAllocationsForUser, putCards } from '../lib/db'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
+import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './Home.module.css'
 import { EMPTY_FILTERS, FilterBar } from '../components/CardComponents'
 import { CloseIcon, CheckIcon, WarningIcon, BannedIcon, ChevronDownIcon, ChevronUpIcon, ChevronRightIcon, DiceIcon, ImageIcon, SearchIcon } from '../icons'
@@ -1423,7 +1424,10 @@ export default function HomePage() {
   return (
     <div className={styles.home}>
       <div className={styles.hero}>
-        <div className={styles.heroTitle}>UNTAP<span className={styles.heroAccent}>HUB</span></div>
+        <div className={styles.heroTitle}>
+          <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" />
+          <span className={styles.logoText}>Deck<span className={styles.heroAccent}>Loom</span></span>
+        </div>
         <div className={styles.heroSub}>Your Magic: The Gathering collection manager</div>
       </div>
 

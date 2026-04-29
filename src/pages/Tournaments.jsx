@@ -666,7 +666,7 @@ export default function TournamentsPage() {
           <div className={styles.kicker}>Tournament Organizer</div>
           <h1 className={styles.title}>Run local or shared events with join codes</h1>
           <p className={styles.subtitle}>
-            Build tournaments locally or open a shared Supabase-backed lobby so other UntapHub users can claim their seats before the event starts.
+            Build tournaments locally or open a shared Supabase-backed lobby so other DeckLoom users can claim their seats before the event starts.
           </p>
         </div>
         <div className={styles.heroActions}>
@@ -730,7 +730,7 @@ export default function TournamentsPage() {
                 </button>
                 <button className={styles.choiceCard} onClick={() => setSetupMode('shared')}>
                   <div className={styles.choiceTitle}>Shared lobby</div>
-                  <div className={styles.choiceBody}>Create a join code so UntapHub users can claim seats before the tournament starts.</div>
+                  <div className={styles.choiceBody}>Create a join code so DeckLoom users can claim seats before the tournament starts.</div>
                 </button>
               </div>
             </div>

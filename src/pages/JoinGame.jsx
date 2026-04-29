@@ -358,7 +358,7 @@ export default function JoinGamePage() {
       <div className={styles.centerBox}>
         <div className={styles.bigIcon}>🔐</div>
         <h2 className={styles.boxTitle}>Log In to Join</h2>
-        <p className={styles.boxSub}>You need an UntapHub account to join a lobby.</p>
+        <p className={styles.boxSub}>You need a DeckLoom account to join a lobby.</p>
         <Link to="/login" className={styles.loginLink}>Log In →</Link>
       </div>
     </div>

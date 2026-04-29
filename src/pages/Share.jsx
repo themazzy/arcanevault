@@ -5,6 +5,7 @@ import { useAuth } from '../components/Auth'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { CardGrid, CardDetail, FilterBar, applyFilterSort } from '../components/CardComponents'
 import { EmptyState, ProgressBar } from '../components/UI'
+import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './Share.module.css'
 
 export default function SharePage() {
@@ -79,17 +80,23 @@ export default function SharePage() {
   // Unauthenticated: prompt sign-in instead of cryptic "not found"
   if (!user) return (
     <div className={styles.screen}>
-      <div className={styles.logo}>UNTAP<span>HUB</span></div>
+      <div className={styles.logo}>
+        <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" />
+        <span className={styles.logoText}>Deck<span>Loom</span></span>
+      </div>
       <div className={styles.loginPrompt}>
         <p className={styles.loginMsg}>Sign in to view this shared collection.</p>
-        <a href="/login" className={styles.loginBtn}>Sign In to UntapHub</a>
+        <a href="/login" className={styles.loginBtn}>Sign In to DeckLoom</a>
       </div>
     </div>
   )
 
   if (notFound) return (
     <div className={styles.screen}>
-      <div className={styles.logo}>UNTAP<span>HUB</span></div>
+      <div className={styles.logo}>
+        <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" />
+        <span className={styles.logoText}>Deck<span>Loom</span></span>
+      </div>
       <EmptyState>This link is invalid or has been removed.</EmptyState>
     </div>
   )
@@ -101,7 +108,10 @@ export default function SharePage() {
   return (
     <div className={styles.screen}>
       <header className={styles.header}>
-        <div className={styles.logo}>UNTAP<span>HUB</span></div>
+        <div className={styles.logo}>
+          <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" />
+          <span className={styles.logoText}>Deck<span>Loom</span></span>
+        </div>
         <div className={styles.folderInfo}>
           <div className={styles.folderName}>{folder?.name}</div>
           <div className={styles.folderType}>{folder?.type}</div>

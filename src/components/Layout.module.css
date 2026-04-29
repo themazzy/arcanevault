@@ -63,6 +63,9 @@
 }
 
 .logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   font-family: 'Cinzel', Georgia, serif;
   font-size: 14px; font-weight: 700;
   letter-spacing: 0.18em; color: var(--gold);
@@ -70,7 +73,13 @@
   flex-shrink: 0;
   margin-right: 8px;
 }
-.logo span { color: var(--purple); text-shadow: 0 0 22px rgba(138,111,196,0.35); }
+.brandMark {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+.logoText span { color: var(--purple); text-shadow: 0 0 22px rgba(138,111,196,0.35); }
 
 /* ── Tab strip — inline with the logo ── */
 .tabs { display: flex; }
@@ -230,6 +239,9 @@
 }
 .mobileNavOpen { left: 0; }
 .mobileNavLogo {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   font-family: 'Cinzel', Georgia, serif;
   font-size: 1.1rem; font-weight: 700;
   letter-spacing: 0.08em; color: var(--gold);
@@ -237,7 +249,11 @@
   border-bottom: 1px solid rgba(201,168,76,0.12);
   flex-shrink: 0;
 }
-.mobileNavLogo span { color: var(--purple); }
+.mobileNavLogo .brandMark {
+  width: 30px;
+  height: 30px;
+}
+.mobileNavLogo .logoText span { color: var(--purple); }
 .mobileNavLink {
   display: flex; align-items: center;
   gap: 10px;

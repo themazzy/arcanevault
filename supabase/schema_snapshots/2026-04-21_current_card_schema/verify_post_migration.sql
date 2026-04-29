@@ -1,4 +1,4 @@
--- ArcaneVault post-migration verification
+-- DeckLoom post-migration verification
 -- Run after applying:
 --   20260402000003_card_prints_and_deck_allocations.sql
 --

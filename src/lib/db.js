@@ -1,5 +1,5 @@
 /**
- * UntapHub local IndexedDB layer
+ * DeckLoom local IndexedDB layer
  *
  * Stores:
  *   scryfall    — Scryfall card data (prices, types, images, etc.)

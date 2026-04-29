@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { fetchCardsByNames } from '../lib/deckBuilderApi'
+import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './Auth.module.css'
 
 const AuthContext = createContext(null)
@@ -347,7 +348,10 @@ export function LoginPage({ forcedMode = null }) {
       {/* ── Hero ── */}
       <section className={styles.hero}>
         <div className={styles.heroLeft}>
-          <div className={styles.heroLogo}>UNTAP<span>HUB</span></div>
+          <div className={styles.heroLogo}>
+            <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" />
+            <span className={styles.logoText}>Deck<span>Loom</span></span>
+          </div>
           <h1 className={styles.tagline}>
             Your Magic collection,<br />finally organised.
           </h1>
@@ -399,7 +403,7 @@ export function LoginPage({ forcedMode = null }) {
                   ? 'Forgot your password?'
                   : mode === 'login'
                     ? 'Welcome back'
-                    : 'Join UntapHub'}
+                    : 'Join DeckLoom'}
             </div>
             <div className={styles.formSub}>
               {mode === 'recovery'
@@ -407,7 +411,7 @@ export function LoginPage({ forcedMode = null }) {
                 : mode === 'forgot'
                   ? 'Enter your email and we will send you a recovery link'
                 : mode === 'login'
-                  ? 'Sign in to your vault'
+                  ? 'Sign in to DeckLoom'
                   : 'Start cataloguing your collection today'}
             </div>
             {mode !== 'recovery' && mode !== 'forgot' && <div className={styles.tabs}>
@@ -568,7 +572,7 @@ export function LoginPage({ forcedMode = null }) {
           <div className={styles.sectionLabel}>Everything you need</div>
           <h2 className={styles.sectionTitle}>Built for serious collectors</h2>
           <p className={styles.sectionDesc}>
-            UntapHub brings together every tool a Magic: The Gathering player needs
+            DeckLoom brings together every tool a Magic: The Gathering player needs
             — from first scan to deck tournament-ready.
           </p>
         </div>
@@ -688,7 +692,10 @@ export function LoginPage({ forcedMode = null }) {
 
       {/* ── Footer CTA ── */}
       <footer className={styles.footerCta}>
-        <div className={styles.footerLogo}>UNTAP<span>HUB</span></div>
+        <div className={styles.footerLogo}>
+          <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" />
+          <span className={styles.logoText}>Deck<span>Loom</span></span>
+        </div>
         <p className={styles.footerText}>Your Magic collection deserves a proper home.</p>
         <button
           className={styles.footerBtn}

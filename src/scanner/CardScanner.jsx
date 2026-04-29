@@ -1444,13 +1444,13 @@ export default function CardScanner({ onMatch, onClose }) {
   const startupPhaseBody = errorMsg
     ? errorMsg
     : ({
-        'preparing native storage': 'UntapHub is preparing the native storage layer used by the scanner on this device before it checks for cached card fingerprints.',
+        'preparing native storage': 'DeckLoom is preparing the native storage layer used by the scanner on this device before it checks for cached card fingerprints.',
         'opening local database': 'The scanner is opening its on-device database so it can reuse previously downloaded card fingerprints instead of fetching them again.',
-        connecting: 'UntapHub is checking whether this device already has the card fingerprint database cached locally.',
-        'checking cache': 'UntapHub is checking whether this device already has the card fingerprint database cached locally.',
-        'reading local database': 'UntapHub is reading the local fingerprint database to see whether hashes are already available on this device.',
+        connecting: 'DeckLoom is checking whether this device already has the card fingerprint database cached locally.',
+        'checking cache': 'DeckLoom is checking whether this device already has the card fingerprint database cached locally.',
+        'reading local database': 'DeckLoom is reading the local fingerprint database to see whether hashes are already available on this device.',
         'downloading hashes': 'First load on a device can take a while because the scanner downloads the card fingerprint database before it can match cards reliably.',
-        'loading hashes': 'UntapHub is loading the downloaded fingerprint database into memory so scans can stay fast once startup completes.',
+        'loading hashes': 'DeckLoom is loading the downloaded fingerprint database into memory so scans can stay fast once startup completes.',
         'building index': 'The scanner is building its local search index so card lookups are accurate and responsive.',
         finalizing: 'Finishing the last setup steps and saving the cache for later launches.',
         ready: !cvReady
@@ -1545,7 +1545,7 @@ export default function CardScanner({ onMatch, onClose }) {
               <div className={styles.startupEyebrow}>Card Scanner Setup</div>
               <h1 id="scanner-startup-title" className={styles.startupTitle}>Preparing the scanner</h1>
               <p className={styles.startupIntro}>
-                First load on a device can take a while because UntapHub downloads and caches the card fingerprint database before scanning begins.
+                First load on a device can take a while because DeckLoom downloads and caches the card fingerprint database before scanning begins.
               </p>
 
               <div className={styles.startupProgressBlock}>

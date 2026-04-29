@@ -89,7 +89,7 @@ async function fetchJson(url) {
   const res = await fetch(url, {
     headers: {
       Accept: 'application/json',
-      'User-Agent': 'ArcaneVaultPriceSync/1.0',
+      'User-Agent': 'DeckLoomPriceSync/1.0',
     },
   })
   if (!res.ok) throw new Error(`Request failed (${res.status}) for ${url}`)
@@ -108,7 +108,7 @@ async function downloadBulkFile(url, destination) {
   const res = await fetch(url, {
     headers: {
       Accept: 'application/json, application/octet-stream;q=0.9, */*;q=0.8',
-      'User-Agent': 'ArcaneVaultPriceSync/1.0',
+      'User-Agent': 'DeckLoomPriceSync/1.0',
     },
   })
   if (!res.ok || !res.body) throw new Error(`Bulk download failed (${res.status})`)

@@ -6,6 +6,7 @@ import { sb } from '../lib/supabase'
 import { useAuth } from './Auth'
 import { maskEmailAddress, useSettings } from './SettingsContext'
 import FeedbackModal from './FeedbackModal'
+import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './Layout.module.css'
 import {
   HomeIcon, CollectionIcon, DecksIcon, BuilderIcon, BindersIcon,
@@ -155,7 +156,10 @@ export default function Layout({ children }) {
         <>
           <div className={`${styles.headerWrap}${scrolled ? ' ' + styles.scrolled : ''}`}>
             <header className={styles.header}>
-              <div className={styles.logo}>UNTAP<span>HUB</span></div>
+              <div className={styles.logo}>
+                <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" />
+                <span className={styles.logoText}>Deck<span>Loom</span></span>
+              </div>
 
               <nav className={styles.tabs}>
                 {TABS.filter(t => t.to !== '/scanner').map(t => (
@@ -231,7 +235,10 @@ export default function Layout({ children }) {
           <div className={`${styles.mobileOverlay}${menuOpen ? ` ${styles.mobileOverlayOpen}` : ''}`} onClick={() => setMenuOpen(false)} />
 
           <div className={`${styles.mobileNav} ${menuOpen ? styles.mobileNavOpen : ''}`}>
-            <div className={styles.mobileNavLogo}>UNTAP<span>HUB</span></div>
+            <div className={styles.mobileNavLogo}>
+              <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" />
+              <span className={styles.logoText}>Deck<span>Loom</span></span>
+            </div>
             {TABS.map(t => (
               <NavLink
                 key={t.to}

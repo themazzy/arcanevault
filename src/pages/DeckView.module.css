@@ -31,6 +31,9 @@
 }
 
 .logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-family: 'Cinzel', Georgia, serif;
   color: var(--gold, #c9a84c);
   font-size: 1rem;
@@ -38,7 +41,13 @@
   letter-spacing: 0.14em;
   font-weight: 600;
 }
-.logo span { color: var(--text, #e8e0d0); }
+.brandMark {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+.logoText span { color: var(--text, #e8e0d0); }
 
 .topActions {
   display: flex;
@@ -784,12 +793,19 @@
   gap: 18px;
 }
 .signinLogo {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   font-family: 'Cinzel', Georgia, serif;
   font-size: 1.4rem;
   color: var(--gold, #c9a84c);
   letter-spacing: 0.12em;
 }
-.signinLogo span { color: var(--text, #e8e0d0); }
+.signinLogo .brandMark {
+  width: 36px;
+  height: 36px;
+}
+.signinLogo .logoText span { color: var(--text, #e8e0d0); }
 .signinMsg {
   color: var(--text-dim, #9a8870);
   font-size: 0.9rem;
