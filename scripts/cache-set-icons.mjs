@@ -13,7 +13,7 @@ function iconFilename(code) {
 async function fetchJson(url) {
   const res = await fetch(url, {
     headers: {
-      'User-Agent': 'ArcaneVault/1.0 (set icon cache)',
+      'User-Agent': 'DeckLoom/1.0 (set icon cache)',
       'Accept': 'application/json;q=0.9,*/*;q=0.8',
     },
   })
@@ -24,7 +24,7 @@ async function fetchJson(url) {
 async function fetchText(url) {
   const res = await fetch(url, {
     headers: {
-      'User-Agent': 'ArcaneVault/1.0 (set icon cache)',
+      'User-Agent': 'DeckLoom/1.0 (set icon cache)',
       'Accept': 'image/svg+xml,text/plain;q=0.9,*/*;q=0.8',
     },
   })

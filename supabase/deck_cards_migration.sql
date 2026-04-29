@@ -1,4 +1,4 @@
--- ArcaneVault: Deck Builder migration
+-- DeckLoom: Deck Builder migration
 -- Run this in the Supabase SQL editor (Dashboard > SQL Editor)
 -- Date: 2026-03-18
 

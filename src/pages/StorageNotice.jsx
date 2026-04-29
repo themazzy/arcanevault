@@ -6,14 +6,14 @@ export default function StorageNoticePage() {
   return (
     <div className={styles.page}>
       <SectionHeader title="Cookies and Local Storage" />
-      <Link to="/" className={styles.backLink}>← Back to UntapHub</Link>
+      <Link to="/" className={styles.backLink}>← Back to DeckLoom</Link>
 
       <div className={styles.hero}>
         <div className={styles.heroCard}>
           <div className={styles.eyebrow}>Cookies and Local Storage</div>
-          <h1 className={styles.title}>What the browser stores for UntapHub</h1>
+          <h1 className={styles.title}>What the browser stores for DeckLoom</h1>
           <p className={styles.lead}>
-            UntapHub currently relies on browser storage for session persistence, settings, cache, and
+            DeckLoom currently relies on browser storage for session persistence, settings, cache, and
             offline-first behavior. At the time of writing, the app does not use advertising cookies or
             analytics trackers, but it does use local browser storage that you should know about.
           </p>
@@ -70,7 +70,7 @@ export default function StorageNoticePage() {
         <section className={styles.section}>
           <h2>Cookie position</h2>
           <p>
-            UntapHub does not currently present a cookie banner because the app is not using an ad-tech
+            DeckLoom does not currently present a cookie banner because the app is not using an ad-tech
             or analytics-cookie stack at this time. That said, session persistence and similar browser
             storage still matter, which is why this notice exists.
           </p>

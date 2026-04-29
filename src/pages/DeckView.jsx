@@ -11,6 +11,7 @@ import { getPrice, formatPrice } from '../lib/scryfall'
 import { ResponsiveMenu } from '../components/UI'
 import { CardBrowserContent, CARD_BROWSER_VIEW_MODES } from '../components/CardBrowserViews'
 import { GridViewIcon, StacksViewIcon, TextViewIcon, TableViewIcon, CopyIcon, CheckIcon } from '../icons'
+import BRAND_MARK from '../icons/DeckLoom_logo.png'
 
 // ── Mana / symbol renderer ────────────────────────────────────────────────────
 // Converts Scryfall notation like {W}, {T}, {2/U}, {X} → inline SVG images.
@@ -337,7 +338,10 @@ export default function DeckViewPage() {
   // ── Loading / error states ─────────────────────────────────────────────────
   if (loading) return (
     <div className={styles.signinPage}>
-      <div className={styles.signinLogo}>UNTAP<span>HUB</span></div>
+      <div className={styles.signinLogo}>
+        <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" />
+        <span className={styles.logoText}>Deck<span>Loom</span></span>
+      </div>
       <div className={styles.signinMsg} style={{ fontStyle: 'italic' }}>Loading deck…</div>
     </div>
   )
@@ -345,7 +349,7 @@ export default function DeckViewPage() {
   if (error) return (
     <div className={styles.signinPage}>
       <div className={styles.signinMsg}>{error}</div>
-      <Link to="/" className={styles.signinLink}>Go to UntapHub</Link>
+      <Link to="/" className={styles.signinLink}>Go to DeckLoom</Link>
     </div>
   )
 
@@ -358,7 +362,10 @@ export default function DeckViewPage() {
 
       {/* ── Top bar ── */}
       <div className={styles.topBar}>
-        <Link to="/" className={styles.logo}>UNTAP<span>HUB</span></Link>
+        <Link to="/" className={styles.logo}>
+          <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" />
+          <span className={styles.logoText}>Deck<span>Loom</span></span>
+        </Link>
 
         <div className={styles.topActions}>
           {!user ? (
@@ -372,7 +379,7 @@ export default function DeckViewPage() {
             </>
           ) : (
             <>
-              <Link to="/" className={styles.topLink}>← My Vault</Link>
+              <Link to="/" className={styles.topLink}>← My DeckLoom</Link>
             </>
           )}
         </div>
@@ -381,7 +388,7 @@ export default function DeckViewPage() {
       {/* ── Guest banner ── */}
       {!user && (
         <div className={styles.guestBanner}>
-          Want to try UntapHub?{' '}
+          Want to try DeckLoom?{' '}
           <Link to="/login" className={styles.guestBannerLink}>Sign up.</Link>
         </div>
       )}

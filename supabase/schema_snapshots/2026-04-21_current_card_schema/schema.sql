@@ -1,4 +1,4 @@
--- ─── ARCANEVAULT SCHEMA v2 ───────────────────────────────────────────────────
+-- ─── DECKLOOM SCHEMA v2 ───────────────────────────────────────────────────
 -- Run in Supabase: Dashboard → SQL Editor → New query → Paste → Run
 -- If you ran v1 schema before, run the cleanup block first.
 
