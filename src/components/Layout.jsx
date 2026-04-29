@@ -12,6 +12,7 @@ import {
   HomeIcon, CollectionIcon, DecksIcon, BuilderIcon, BindersIcon,
   WishlistsIcon, TradingIcon, StatsIcon, LifeIcon, ScannerIcon,
   SettingsIcon, MenuIcon, CloseIcon, BugIcon, InfoIcon, PlayerIcon,
+  ChevronDownIcon,
 } from '../icons'
 
 const TABS = [
@@ -26,6 +27,9 @@ const TABS = [
   { to: '/life', label: 'Life',        Icon: LifeIcon },
   { to: '/scanner', label: 'Scanner',    Icon: ScannerIcon },
 ]
+
+const COLLECTION_NAV = TABS.filter(t => ['/collection', '/decks', '/binders'].includes(t.to))
+const DESKTOP_TABS = TABS.filter(t => !['/', '/collection', '/decks', '/binders', '/scanner'].includes(t.to))
 
 export default function Layout({ children }) {
   const { user } = useAuth()
@@ -148,7 +152,24 @@ export default function Layout({ children }) {
     navigate('/')
   }
 
+  const releaseMenuFocus = e => {
+    e.currentTarget.blur?.()
+  }
+
   const displayEmail = maskEmailAddress(user?.email, true)
+  const accountLabel = nickname || displayEmail || 'Account'
+  const profilePath = nickname ? `/profile/${encodeURIComponent(nickname)}` : '/settings'
+  const homeNav = [
+    { to: '/', label: 'Home', Icon: HomeIcon, end: true },
+    { to: '/rules', label: 'Rulebook', Icon: InfoIcon },
+    { to: profilePath, label: 'Profile', Icon: PlayerIcon },
+  ]
+  const homeNavActive = location.pathname === '/' || location.pathname === '/rules' || location.pathname.startsWith('/profile/')
+  const collectionNavActive = COLLECTION_NAV.some(t => (
+    t.to === '/collection'
+      ? location.pathname === t.to
+      : location.pathname === t.to || location.pathname.startsWith(`${t.to}/`)
+  ))
 
   return (
     <div className={`${styles.app} ${isNativeScannerRoute ? styles.appScanner : ''}`}>
@@ -162,7 +183,65 @@ export default function Layout({ children }) {
               </div>
 
               <nav className={styles.tabs}>
-                {TABS.filter(t => t.to !== '/scanner').map(t => (
+                <div
+                  className={styles.navMenuWrap}
+                >
+                  <NavLink
+                    to="/"
+                    end
+                    className={`${styles.tab} ${styles.navMenuButton}${homeNavActive ? ` ${styles.active}` : ''}`}
+                    onClick={releaseMenuFocus}
+                  >
+                    <HomeIcon size={12} />
+                    Home
+                    <ChevronDownIcon size={10} className={styles.navMenuCaret} />
+                  </NavLink>
+                  <div className={styles.navSubmenu} role="menu">
+                    {homeNav.map(t => (
+                      <NavLink
+                        key={`${t.label}-${t.to}`}
+                        to={t.to}
+                        end={t.end}
+                        role="menuitem"
+                        className={({ isActive }) => `${styles.navSubmenuItem}${isActive ? ' ' + styles.navSubmenuItemActive : ''}`}
+                        onClick={releaseMenuFocus}
+                      >
+                        <t.Icon size={14} />
+                        {t.label}
+                      </NavLink>
+                    ))}
+                  </div>
+                </div>
+                <div
+                  className={styles.navMenuWrap}
+                >
+                  <NavLink
+                    to="/collection"
+                    end
+                    className={`${styles.tab} ${styles.navMenuButton}${collectionNavActive ? ` ${styles.active}` : ''}`}
+                    onClick={releaseMenuFocus}
+                  >
+                    <CollectionIcon size={12} />
+                    Collection
+                    <ChevronDownIcon size={10} className={styles.navMenuCaret} />
+                  </NavLink>
+                  <div className={styles.navSubmenu} role="menu">
+                    {COLLECTION_NAV.map(t => (
+                      <NavLink
+                        key={t.to}
+                        to={t.to}
+                        end={t.to === '/collection'}
+                        role="menuitem"
+                        className={({ isActive }) => `${styles.navSubmenuItem}${isActive ? ' ' + styles.navSubmenuItemActive : ''}`}
+                        onClick={releaseMenuFocus}
+                      >
+                        <t.Icon size={14} />
+                        {t.label}
+                      </NavLink>
+                    ))}
+                  </div>
+                </div>
+                {DESKTOP_TABS.filter(t => t.to !== '/').map(t => (
                   <NavLink
                     key={t.to}
                     to={t.to}
@@ -184,42 +263,69 @@ export default function Layout({ children }) {
                 <ScannerIcon size={13} />Scan
               </NavLink>
 
-              <div className={styles.userBar}>
-                {nickname ? (
+              <div
+                className={`${styles.userBar} ${styles.accountMenuWrap}`}
+              >
+                <NavLink
+                  to={profilePath}
+                  className={styles.accountButton}
+                  onClick={releaseMenuFocus}
+                  title={accountLabel}
+                >
+                  <PlayerIcon size={13} />
+                  <span className={styles.userNameInner}>
+                    <span className={styles.userNick}>{accountLabel}</span>
+                    {premium && <span className={styles.supporterLabel}>supporter</span>}
+                  </span>
+                  <ChevronDownIcon size={10} className={styles.navMenuCaret} />
+                </NavLink>
+                <div className={`${styles.navSubmenu} ${styles.accountSubmenu}`} role="menu">
                   <NavLink
-                    to={`/profile/${encodeURIComponent(nickname)}`}
-                    className={styles.userName}
+                    to={profilePath}
+                    role="menuitem"
+                    className={({ isActive }) => `${styles.navSubmenuItem}${isActive ? ' ' + styles.navSubmenuItemActive : ''}`}
+                    onClick={releaseMenuFocus}
                   >
-                    <PlayerIcon size={13} />
-                    <span className={styles.userNameInner}>
-                      <span className={styles.userNick}>{nickname}</span>
-                      {premium && <span className={styles.supporterLabel}>supporter</span>}
-                    </span>
+                    <PlayerIcon size={14} />
+                    Profile
                   </NavLink>
-                ) : null}
-                <button
-                  className={styles.feedbackBtn}
-                  onClick={() => setShowFeedback(true)}
-                  title="Report a bug or request a feature"
-                >
-                  <span className={styles.feedbackIcon}><BugIcon size={13} /></span>
-                  <span>Bug</span>
-                </button>
-                <NavLink
-                  to="/help"
-                  className={({ isActive }) => `${styles.settingsLink}${isActive ? ' ' + styles.settingsActive : ''}`}
-                  title="Help"
-                >
-                  <InfoIcon size={18} />
-                </NavLink>
-                <NavLink
-                  to="/settings"
-                  className={({ isActive }) => `${styles.settingsLink}${isActive ? ' ' + styles.settingsActive : ''}`}
-                  title="Settings"
-                >
-                  <SettingsIcon size={18} />
-                </NavLink>
-                <button className={styles.signOut} onClick={signOut}>Sign out</button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={styles.navSubmenuItem}
+                    onClick={e => { releaseMenuFocus(e); setShowFeedback(true) }}
+                  >
+                    <BugIcon size={14} />
+                    Bug / Feature Request
+                  </button>
+                  <NavLink
+                    to="/help"
+                    role="menuitem"
+                    className={({ isActive }) => `${styles.navSubmenuItem}${isActive ? ' ' + styles.navSubmenuItemActive : ''}`}
+                    onClick={releaseMenuFocus}
+                  >
+                    <InfoIcon size={14} />
+                    Help
+                  </NavLink>
+                  <NavLink
+                    to="/settings"
+                    role="menuitem"
+                    className={({ isActive }) => `${styles.navSubmenuItem}${isActive ? ' ' + styles.navSubmenuItemActive : ''}`}
+                    onClick={releaseMenuFocus}
+                  >
+                    <SettingsIcon size={14} />
+                    Settings
+                  </NavLink>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={`${styles.navSubmenuItem} ${styles.accountSignOutItem}`}
+                    onClick={e => { releaseMenuFocus(e); signOut() }}
+                  >
+                    <CloseIcon size={14} />
+                    Sign out
+                  </button>
+                </div>
               </div>
 
               <button
