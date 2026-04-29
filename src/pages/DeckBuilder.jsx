@@ -2267,6 +2267,7 @@ export default function DeckBuilderPage() {
 
         setDeckCards(cardList)
         putDeckCards(cardList).catch(() => {})
+        if (!ignore) setLoading(false)
 
         // Build owned maps — failures here must not block the deck display
         try {
