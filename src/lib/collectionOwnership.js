@@ -50,3 +50,35 @@ export async function pruneUnplacedCards(cardIds) {
   await Promise.all(orphanIds.map(id => deleteCard(id)))
   return orphanIds
 }
+
+export async function getPlacedQtyByCardIds(cardIds) {
+  const uniqueIds = [...new Set((cardIds || []).filter(Boolean))]
+  const qtyByCardId = new Map()
+  if (!uniqueIds.length) return qtyByCardId
+
+  for (const ids of chunk(uniqueIds)) {
+    const { data, error } = await sb
+      .from('folder_cards')
+      .select('card_id, qty')
+      .in('card_id', ids)
+
+    if (error) throw error
+    for (const row of data || []) {
+      qtyByCardId.set(row.card_id, (qtyByCardId.get(row.card_id) || 0) + (row.qty || 0))
+    }
+  }
+
+  for (const ids of chunk(uniqueIds)) {
+    const { data, error } = await sb
+      .from('deck_allocations')
+      .select('card_id, qty')
+      .in('card_id', ids)
+
+    if (error) throw error
+    for (const row of data || []) {
+      qtyByCardId.set(row.card_id, (qtyByCardId.get(row.card_id) || 0) + (row.qty || 0))
+    }
+  }
+
+  return qtyByCardId
+}

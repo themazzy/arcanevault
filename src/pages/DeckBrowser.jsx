@@ -19,7 +19,7 @@ import { parseDeckMeta, serializeDeckMeta } from '../lib/deckBuilderApi'
 import { getSyncState, markLinkedPairUnsynced, withLinkedPair, writeSyncState } from '../lib/deckSync'
 import { useLongPress } from '../hooks/useLongPress'
 import { lastInputWasTouch } from '../lib/inputType'
-import { pruneUnplacedCards } from '../lib/collectionOwnership'
+import { getPlacedQtyByCardIds, pruneUnplacedCards } from '../lib/collectionOwnership'
 import { fetchDeckAllocations } from '../lib/deckData'
 import { getDeckAllocations, getCardsByIds, replaceDeckAllocations, putCards, putDeckAllocations, putFolderCards, replaceLocalFolderCards } from '../lib/db'
 
@@ -709,7 +709,12 @@ export default function DeckBrowser({ folder, onBack }) {
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 })
   const handleHover    = useCallback((img) => setHoverImg(img), [])
   const handleHoverEnd = useCallback(() => setHoverImg(null), [])
-  const handleMouseMove = useCallback((e) => setHoverPos({ x: e.clientX, y: e.clientY }), [])
+  const handleMouseMove = useCallback((e) => {
+    if (!hoverImg) return
+    const nextX = e.clientX
+    const nextY = e.clientY
+    setHoverPos(prev => (prev.x === nextX && prev.y === nextY ? prev : { x: nextX, y: nextY }))
+  }, [hoverImg])
   const markCurrentLinkedDeckUnsynced = useCallback(async () => {
     const builderId = linkedBuilderIdRef.current
     if (!folder?.id || !builderId) return
@@ -934,17 +939,40 @@ export default function DeckBrowser({ folder, onBack }) {
 
   const handleBulkDelete = async () => {
     const toDelete = [], toUpdate = []
+    const selectedQtyByCardId = new Map()
     for (const id of selectedCards) {
       const card = cards.find(c => c.id === id)
+      if (!card) continue
       const totalQty = card?._folder_qty || card?.qty || 1
       const selQty = splitState.get(id) ?? 1
       const remaining = totalQty - selQty
+      selectedQtyByCardId.set(card.id, (selectedQtyByCardId.get(card.id) || 0) + selQty)
       remaining > 0 ? toUpdate.push({ allocId: card?._allocation_id, remaining }) : toDelete.push(card?._allocation_id)
     }
     try {
       if (toDelete.length) await sb.from('deck_allocations').delete().eq('deck_id', folder.id).in('id', toDelete.filter(Boolean))
       for (const { allocId, remaining } of toUpdate) {
         await sb.from('deck_allocations').update({ qty: remaining }).eq('id', allocId)
+      }
+      const fullyRemovedCardIds = [...new Set(
+        [...selectedCards]
+          .map(id => cards.find(c => c.id === id))
+          .filter(card => card && ((card._folder_qty || card.qty || 1) - (splitState.get(card.id) ?? 1)) <= 0)
+          .map(card => card.id)
+      )]
+      const affectedCardIds = [...selectedQtyByCardId.keys()]
+      const prunedIds = fullyRemovedCardIds.length ? await pruneUnplacedCards(fullyRemovedCardIds) : []
+      const prunedSet = new Set(prunedIds)
+      const placedQtyByCardId = await getPlacedQtyByCardIds(affectedCardIds.filter(id => !prunedSet.has(id)))
+      for (const cardId of affectedCardIds) {
+        if (prunedSet.has(cardId)) continue
+        const card = cards.find(c => c.id === cardId)
+        if (!card) continue
+        const nextQty = placedQtyByCardId.get(cardId) || 0
+        if (nextQty <= 0) continue
+        const { error: cardErr } = await sb.from('cards').update({ qty: nextQty }).eq('id', cardId)
+        if (cardErr) throw cardErr
+        await putCards([{ ...card, qty: nextQty }]).catch(() => {})
       }
       const freshAllocs = await fetchDeckAllocations(folder.id)
       await replaceDeckAllocations([folder.id], (freshAllocs || []).map(r => ({
@@ -956,7 +984,8 @@ export default function DeckBrowser({ folder, onBack }) {
         const totalQty = c._folder_qty || c.qty || 1
         const selQty = splitState.get(c.id) ?? 1
         const remaining = totalQty - selQty
-        return remaining > 0 ? { ...c, _folder_qty: remaining } : null
+        if (remaining <= 0) return null
+        return { ...c, qty: placedQtyByCardId.get(c.id) || c.qty || 1, _folder_qty: remaining }
       }).filter(Boolean))
       clearSelect()
       toast.success(`Deleted ${selectedQty} ${selectedQty === 1 ? 'card' : 'cards'}.`)
@@ -1065,6 +1094,45 @@ export default function DeckBrowser({ folder, onBack }) {
     setCards(prev => prev.map(c => c.id === updatedCard.id ? { ...c, ...updatedCard } : c))
     void markCurrentLinkedDeckUnsynced()
   }, [markCurrentLinkedDeckUnsynced])
+
+  const handleDetailDelete = useCallback(async () => {
+    if (!selectedCard) return
+    try {
+      const { error } = await sb
+        .from('deck_allocations')
+        .delete()
+        .eq('deck_id', folder.id)
+        .eq('card_id', selectedCard.id)
+      if (error) throw error
+
+      const prunedIds = await pruneUnplacedCards([selectedCard.id])
+      const pruned = prunedIds.includes(selectedCard.id)
+      let nextQty = selectedCard.qty || 1
+      if (!pruned) {
+        const placedQtyByCardId = await getPlacedQtyByCardIds([selectedCard.id])
+        nextQty = placedQtyByCardId.get(selectedCard.id) || 0
+        if (nextQty > 0) {
+          const { error: cardErr } = await sb.from('cards').update({ qty: nextQty }).eq('id', selectedCard.id)
+          if (cardErr) throw cardErr
+          await putCards([{ ...selectedCard, qty: nextQty }]).catch(() => {})
+        }
+      }
+
+      const freshAllocs = await fetchDeckAllocations(folder.id)
+      await replaceDeckAllocations([folder.id], (freshAllocs || []).map(row => ({
+        id: row.id, deck_id: row.deck_id, user_id: row.user_id, card_id: row.card_id, qty: row.qty,
+      }))).catch(() => {})
+      await markCurrentLinkedDeckUnsynced()
+      setCards(prev => prev.filter(c => c.id !== selectedCard.id).map(c => (
+        c.id === selectedCard.id ? { ...c, qty: nextQty } : c
+      )))
+      setDetailCardId(null)
+      toast.success(`Deleted ${selectedCard._folder_qty || selectedCard.qty || 1} ${(selectedCard._folder_qty || selectedCard.qty || 1) === 1 ? 'card' : 'cards'}.`)
+    } catch (e) {
+      console.error('[DeckBrowser] detail delete failed:', e)
+      loadCards()
+    }
+  }, [selectedCard, folder.id, markCurrentLinkedDeckUnsynced, loadCards, toast])
 
   if (loading) return <EmptyState>Loading deck…</EmptyState>
 
@@ -1222,6 +1290,7 @@ export default function DeckBrowser({ folder, onBack }) {
           currentFolderId={folder.id}
           currentFolderType={folder.type}
           onSave={handleCardSave}
+          onDelete={handleDetailDelete}
           onClose={() => setDetailCardId(null)} />
       )}
 
