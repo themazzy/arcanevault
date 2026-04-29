@@ -126,6 +126,7 @@ async function downloadBulkFile(url, destination) {
 async function processBulkFile(snapshotDate) {
   let skipped = 0
   let processed = 0
+  let duplicateRows = 0
   let pendingRows = []
 
   const pipeline = fs
@@ -151,8 +152,9 @@ async function processBulkFile(snapshotDate) {
     })
 
     if (pendingRows.length >= UPSERT_BATCH_SIZE) {
-      await upsertRows(pendingRows)
-      processed += pendingRows.length
+      const result = await upsertRows(pendingRows)
+      processed += result.written
+      duplicateRows += result.duplicates
       pendingRows = []
       if (processed % 5000 === 0) {
         console.log(`[Price Sync] Upserted ${processed.toLocaleString()} rows so far.`)
@@ -161,30 +163,51 @@ async function processBulkFile(snapshotDate) {
   }
 
   if (pendingRows.length) {
-    await upsertRows(pendingRows)
-    processed += pendingRows.length
+    const result = await upsertRows(pendingRows)
+    processed += result.written
+    duplicateRows += result.duplicates
   }
 
-  return { processed, skipped }
+  return { processed, skipped, duplicateRows }
 }
 
 async function upsertRows(rows) {
+  let written = 0
+  let duplicates = 0
+
   for (let i = 0; i < rows.length; i += UPSERT_BATCH_SIZE) {
-    const batch = rows.slice(i, i + UPSERT_BATCH_SIZE)
+    const { batch, duplicateCount } = dedupePriceRows(rows.slice(i, i + UPSERT_BATCH_SIZE))
     const { error } = await sb
       .from('card_prices_stage')
       .upsert(batch, { onConflict: 'scryfall_id,snapshot_date' })
     if (error) throw error
+    written += batch.length
+    duplicates += duplicateCount
   }
+
+  return { written, duplicates }
 }
 
 async function upsertLiveRows(rows) {
   for (let i = 0; i < rows.length; i += UPSERT_BATCH_SIZE) {
-    const batch = rows.slice(i, i + UPSERT_BATCH_SIZE)
+    const { batch } = dedupePriceRows(rows.slice(i, i + UPSERT_BATCH_SIZE))
     const { error } = await sb
       .from('card_prices')
       .upsert(batch, { onConflict: 'scryfall_id,snapshot_date' })
     if (error) throw error
+  }
+}
+
+function dedupePriceRows(rows) {
+  const byConflictKey = new Map()
+
+  for (const row of rows) {
+    byConflictKey.set(`${row.scryfall_id}:${row.snapshot_date}`, row)
+  }
+
+  return {
+    batch: [...byConflictKey.values()],
+    duplicateCount: rows.length - byConflictKey.size,
   }
 }
 
@@ -283,8 +306,11 @@ async function main() {
     await downloadBulkFile(downloadUrl, BULK_DOWNLOAD_PATH)
 
     console.log('[Price Sync] Streaming bulk card data...')
-    const { processed, skipped } = await processBulkFile(snapshotDate)
+    const { processed, skipped, duplicateRows } = await processBulkFile(snapshotDate)
     console.log(`[Price Sync] Finished staging ${processed.toLocaleString()} rows (${skipped.toLocaleString()} skipped).`)
+    if (duplicateRows) {
+      console.log(`[Price Sync] Collapsed ${duplicateRows.toLocaleString()} duplicate rows while staging.`)
+    }
 
     console.log(`[Price Sync] Publishing staged rows for ${snapshotDate}...`)
     await publishStagedRows(snapshotDate, retentionCutoff)
