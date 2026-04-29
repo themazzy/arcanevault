@@ -16,8 +16,10 @@ const ADMIN_TABS = [
 
 async function setPremiumForUser(userId, grant) {
   const { error } = await sb.from('user_settings')
-    .update({ premium: grant, updated_at: new Date().toISOString() })
-    .eq('user_id', userId)
+    .upsert(
+      { user_id: userId, premium: grant, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' }
+    )
   if (error) throw error
 }
 

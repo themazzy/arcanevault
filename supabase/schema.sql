@@ -235,6 +235,26 @@ create table if not exists user_settings (
 alter table user_settings enable row level security;
 create policy "own settings" on user_settings for all
   using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "Admins can update any user_settings" on user_settings
+  for update to authenticated
+  using (
+    exists (
+      select 1
+      from admin_users
+      where admin_users.user_id = auth.uid()
+        and admin_users.active = true
+    )
+  );
+create policy "Admins can insert user_settings" on user_settings
+  for insert to authenticated
+  with check (
+    exists (
+      select 1
+      from admin_users
+      where admin_users.user_id = auth.uid()
+        and admin_users.active = true
+    )
+  );
 grant all on user_settings to authenticated;
 
 create table if not exists premium_purchases (
