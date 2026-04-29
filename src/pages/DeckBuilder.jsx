@@ -847,6 +847,63 @@ function getDecisionPreview(row, resolution, context = {}) {
   return `${name} will follow the Deck Builder version.`
 }
 
+function getDecisionOptionLabels(row, context = {}) {
+  const { addedByKey = new Map() } = context
+  if (row.category === 'builderOnly') {
+    const addItem = addedByKey.get(row.key)
+    const hasOwned = (addItem?.totalAdd || 0) > 0
+    const hasMissing = (addItem?.missingQty || 0) > 0
+    const builderLabel = hasOwned && hasMissing
+      ? 'Add owned copies, keep rest missing'
+      : hasOwned
+        ? 'Add owned copy to Collection Deck'
+        : 'Keep as missing in Deck Builder'
+    return {
+      builder: builderLabel,
+      collection: 'Remove from Deck Builder',
+      keep: 'Leave unsynced',
+    }
+  }
+
+  if (row.category === 'collectionOnly') {
+    return {
+      builder: 'Move out of Collection Deck',
+      collection: 'Add back to Deck Builder',
+      keep: 'Leave in Collection Deck only',
+    }
+  }
+
+  return {
+    builder: 'Match Collection Deck to Builder',
+    collection: 'Match Builder to Collection Deck',
+    keep: 'Leave quantity mismatch',
+  }
+}
+
+function getFolderKindLabel(folderOrType) {
+  const type = typeof folderOrType === 'string' ? folderOrType : folderOrType?.type
+  return type === 'binder' ? 'Binder' : type === 'deck' ? 'Deck' : 'Folder'
+}
+
+function formatPlacementLabel(folder) {
+  if (!folder) return 'Collection'
+  return `${getFolderKindLabel(folder)}: ${folder.name || 'Untitled'}`
+}
+
+function summarizePlacementParts(parts) {
+  const merged = new Map()
+  for (const part of parts || []) {
+    const key = `${part.type || ''}:${part.name || ''}`
+    const existing = merged.get(key) || { ...part, qty: 0 }
+    existing.qty += part.qty || 0
+    merged.set(key, existing)
+  }
+  const labels = [...merged.values()].map(part => `${part.qty}x ${formatPlacementLabel(part)}`)
+  if (!labels.length) return 'available collection placements'
+  if (labels.length <= 2) return labels.join(', ')
+  return `${labels.slice(0, 2).join(', ')} +${labels.length - 2} more`
+}
+
 function findCommanderTransferHint(row, currentDeckCards) {
   if (row?.builder?.is_commander) return { is_commander: true }
 
@@ -1206,6 +1263,80 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
           allocations: allocationsForDeck,
         }
       })
+
+      const folderById = new Map((foldersData || []).map(folder => [folder.id, folder]))
+      const allocationCardIds = [...new Set(planned.flatMap(item => (item.allocations || []).map(row => row.card_id).filter(Boolean)))]
+      const sourceRowsByCardId = new Map()
+      if (allocationCardIds.length > 0) {
+        const [{ data: folderPlacements, error: folderPlacementErr }, { data: deckPlacements, error: deckPlacementErr }] = await Promise.all([
+          sb.from('folder_cards')
+            .select('id, folder_id, card_id, qty')
+            .in('card_id', allocationCardIds),
+          sb.from('deck_allocations')
+            .select('id, deck_id, card_id, qty')
+            .in('card_id', allocationCardIds)
+            .neq('deck_id', targetDeckId),
+        ])
+        if (folderPlacementErr) throw folderPlacementErr
+        if (deckPlacementErr) throw deckPlacementErr
+
+        for (const row of folderPlacements || []) {
+          const folder = folderById.get(row.folder_id)
+          const list = sourceRowsByCardId.get(row.card_id) || []
+          list.push({
+            id: row.id,
+            rank: 0,
+            qty: row.qty || 0,
+            name: folder?.name || 'Unknown binder',
+            type: folder?.type || 'binder',
+          })
+          sourceRowsByCardId.set(row.card_id, list)
+        }
+        for (const row of deckPlacements || []) {
+          const folder = folderById.get(row.deck_id)
+          const list = sourceRowsByCardId.get(row.card_id) || []
+          list.push({
+            id: row.id,
+            rank: 1,
+            qty: row.qty || 0,
+            name: folder?.name || 'Unknown deck',
+            type: folder?.type || 'deck',
+          })
+          sourceRowsByCardId.set(row.card_id, list)
+        }
+        for (const [cardId, rows] of sourceRowsByCardId) {
+          sourceRowsByCardId.set(cardId, rows.sort((a, b) => a.rank - b.rank || (a.qty || 0) - (b.qty || 0)))
+        }
+      }
+
+      const sourceCursorByCardId = new Map([...sourceRowsByCardId.entries()].map(([cardId, rows]) => [
+        cardId,
+        rows.map(row => ({ ...row })),
+      ]))
+      const takeSourceParts = (cardId, qty) => {
+        const rows = sourceCursorByCardId.get(cardId) || []
+        const parts = []
+        let remaining = qty || 0
+        for (const row of rows) {
+          if (remaining <= 0) break
+          if ((row.qty || 0) <= 0) continue
+          const usedQty = Math.min(row.qty || 0, remaining)
+          parts.push({ type: row.type, name: row.name, qty: usedQty })
+          row.qty = (row.qty || 0) - usedQty
+          remaining -= usedQty
+        }
+        return parts
+      }
+      for (const item of planned) {
+        const annotate = row => ({
+          ...row,
+          sourceParts: takeSourceParts(row.card_id, row.qty),
+        })
+        item.exactAllocations = (item.exactAllocations || []).map(annotate)
+        item.otherAllocations = (item.otherAllocations || []).map(annotate)
+        item.allocations = [...item.exactAllocations, ...item.otherAllocations]
+      }
+
       const desiredByCardId = new Map()
       for (const item of planned) {
         for (const row of item.allocations) {
@@ -1346,9 +1477,6 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
   const changedByKey = new Map(changed.map(item => [getLogicalKey(item.dc), item]))
   const removedByKey = new Map(removed.map(item => [getLogicalKey(item.allocRow), item]))
   const increaseRows = changedSelected.filter(item => item.newQty > item.oldQty)
-  const decreaseRows = changedSelected.filter(item => item.newQty < item.oldQty)
-  const incomingExactCount = ownedAdded.filter(item => item.addExact > 0 && item.addOther === 0).length
-  const incomingAltCount = ownedAdded.filter(item => item.addOther > 0).length
   const collectionImpactCount = ownedAdded.length + changedSelected.length + removedSelected.length
   const builderImpactCount = builderUpdateRows.length
   const wishlistCount = wishlistId ? unownedAdded.length : 0
@@ -1365,6 +1493,12 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
     }),
     printing: formatOwnedPrinting(row.builder || row.collection),
   }))
+  const collectionDeckLabel = `Collection Deck${deckMeta?.name ? `: ${deckMeta.name}` : ''}`
+  const moveOutDestinationLabel = selectedMoveTarget ? formatPlacementLabel(selectedMoveTarget) : 'Select destination'
+  const moveInCopyCount = ownedAdded.reduce((sum, item) => sum + (item.totalAdd || 0), 0)
+    + increaseRows.reduce((sum, item) => sum + Math.max(0, (item.newQty || 0) - (item.oldQty || 0)), 0)
+  const moveOutCopyCount = movedOwnedRows.reduce((sum, row) => sum + (row.qty || 0), 0)
+  const missingCopyCount = unownedAdded.reduce((sum, item) => sum + (item.missingQty || 0), 0)
 
   if (!hasChanges) return (
     <div style={overlay} onClick={e => e.target === e.currentTarget && onClose()}>
@@ -1388,34 +1522,33 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
         <div style={{ flex:1, overflowY:'auto', minHeight:0, padding:'16px 20px', display:'flex', flexDirection:'column', gap:16 }}>
           <div style={{ padding:'12px 14px', border:'1px solid var(--border)', borderRadius:8, background:'var(--s1)', display:'flex', flexDirection:'column', gap:6 }}>
             <div style={{ color:'var(--text)', fontSize:'0.86rem' }}>
-              This screen updates the owned copies assigned to this Collection Deck.
+              Sync compares Deck Builder with {collectionDeckLabel}.
             </div>
             <div style={{ color:'var(--text-faint)', fontSize:'0.76rem', lineHeight:1.5 }}>
-              Inspired by ManaBox’s collection-deck flow: review the collection-card movement first, then decide whether any deck-list differences should follow the Collection Deck instead.
+              Use Deck Builder to move owned cards into or out of the Collection Deck. Use Collection Deck only when the builder list should change and owned cards should stay where they are.
             </div>
           </div>
 
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))', gap:10 }}>
-            <div style={{ padding:'12px', border:'1px solid var(--border)', borderRadius:8, background:'var(--bg3)' }}>
+            <div style={{ padding:'12px', border:'1px solid rgba(74,154,90,0.38)', borderRadius:8, background:'rgba(74,154,90,0.08)' }}>
               <div style={{ color:'var(--text-faint)', fontSize:'0.72rem', textTransform:'uppercase', letterSpacing:'0.06em' }}>Move Into Deck</div>
-              <div style={{ color:'var(--text)', fontSize:'1.1rem', marginTop:4 }}>{ownedAdded.length + increaseRows.length}</div>
+              <div style={{ color:'var(--text)', fontSize:'1.1rem', marginTop:4 }}>{moveInCopyCount}</div>
               <div style={{ color:'var(--text-faint)', fontSize:'0.74rem', marginTop:4 }}>
-                {incomingExactCount > 0 ? `${incomingExactCount} exact` : '0 exact'}
-                {incomingAltCount > 0 ? ` · ${incomingAltCount} other version` : ''}
+                from binders/decks to Collection Deck
               </div>
             </div>
-            <div style={{ padding:'12px', border:'1px solid var(--border)', borderRadius:8, background:'var(--bg3)' }}>
-              <div style={{ color:'var(--text-faint)', fontSize:'0.72rem', textTransform:'uppercase', letterSpacing:'0.06em' }}>Move Out Of Deck</div>
-              <div style={{ color:'var(--text)', fontSize:'1.1rem', marginTop:4 }}>{decreaseRows.length + removedSelected.length}</div>
+            <div style={{ padding:'12px', border:'1px solid rgba(224,112,32,0.38)', borderRadius:8, background:'rgba(224,112,32,0.08)' }}>
+              <div style={{ color:'var(--text-faint)', fontSize:'0.72rem', textTransform:'uppercase', letterSpacing:'0.06em' }}>Too Many In Deck</div>
+              <div style={{ color:'var(--text)', fontSize:'1.1rem', marginTop:4 }}>{moveOutCopyCount}</div>
               <div style={{ color:'var(--text-faint)', fontSize:'0.74rem', marginTop:4 }}>
-                {movedOwnedRows.reduce((sum, row) => sum + row.qty, 0)} total copies
+                from Collection Deck to chosen place
               </div>
             </div>
-            <div style={{ padding:'12px', border:'1px solid var(--border)', borderRadius:8, background:'var(--bg3)' }}>
+            <div style={{ padding:'12px', border:'1px solid rgba(224,92,92,0.38)', borderRadius:8, background:'rgba(224,92,92,0.08)' }}>
               <div style={{ color:'var(--text-faint)', fontSize:'0.72rem', textTransform:'uppercase', letterSpacing:'0.06em' }}>Missing Cards</div>
-              <div style={{ color:'var(--text)', fontSize:'1.1rem', marginTop:4 }}>{unownedAdded.length}</div>
+              <div style={{ color:'var(--text)', fontSize:'1.1rem', marginTop:4 }}>{missingCopyCount}</div>
               <div style={{ color:'var(--text-faint)', fontSize:'0.74rem', marginTop:4 }}>
-                {wishlistCount > 0 ? `${wishlistCount} to wishlist` : 'no collection move'}
+                not owned, optional wishlist
               </div>
             </div>
             <div style={{ padding:'12px', border:'1px solid var(--border)', borderRadius:8, background:'var(--bg3)' }}>
@@ -1435,6 +1568,7 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
                   : row.category === 'collectionOnly'
                     ? 'Only in Collection Deck'
                     : 'Different quantities'
+                const optionLabels = getDecisionOptionLabels(row, { addedByKey })
                 return (
                   <div key={row.key} style={{ display:'grid', gridTemplateColumns:'minmax(0,1fr) 220px', gap:12, alignItems:'center', padding:'10px 12px', border:'1px solid var(--border)', borderRadius:8, background:'var(--bg3)' }}>
                     <div style={{ minWidth:0, display:'flex', flexDirection:'column', gap:4 }}>
@@ -1456,11 +1590,11 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
                       value={row.resolution}
                       onChange={e => setResolutions(prev => ({ ...prev, [row.key]: e.target.value }))}
                       style={{ ...s, width:'100%' }}
-                      title="Sync decision"
+                      title="Action for this card"
                     >
-                      <option value="builder">Use Deck Builder</option>
-                      <option value="collection">Use Collection Deck</option>
-                      <option value="keep">Keep for now</option>
+                      <option value="builder">{optionLabels.builder}</option>
+                      <option value="collection">{optionLabels.collection}</option>
+                      <option value="keep">{optionLabels.keep}</option>
                     </Select>
                   </div>
                 )
@@ -1492,8 +1626,11 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
           )}
 
           {(ownedAdded.length > 0 || increaseRows.length > 0) && (
-            <div>
-              <div style={secLabel}>What Will Move Into This Collection Deck</div>
+            <div style={{ border:'1px solid rgba(74,154,90,0.28)', borderRadius:8, background:'rgba(74,154,90,0.05)', padding:12 }}>
+              <div style={secLabel}>Move Into Collection Deck</div>
+              <div style={{ color:'var(--text-faint)', fontSize:'0.74rem', marginBottom:10 }}>
+                Source: owned cards in binders or other decks. Destination: {collectionDeckLabel}.
+              </div>
               <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
                 {ownedAdded.map(i => (
                   <div key={i.dc.id} style={{ padding:'10px 12px', border:'1px solid var(--border)', borderRadius:8, background:'var(--bg3)', display:'flex', flexDirection:'column', gap:5 }}>
@@ -1502,9 +1639,14 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
                       <span style={{ color:'var(--green, #4a9a5a)' }}>{formatQtyLabel(i.totalAdd)}</span>
                     </div>
                     {!!i.allocations?.length && (
-                      <div style={{ color:'var(--text-faint)', fontSize:'0.74rem' }}>
-                        Uses: {i.allocations.map(row => `${row.qty}x ${formatOwnedPrinting(row)}`).join(', ')}
-                      </div>
+                      <>
+                        <div style={{ color:'var(--text-faint)', fontSize:'0.74rem' }}>
+                          From: {summarizePlacementParts(i.allocations.flatMap(row => row.sourceParts || []))}
+                        </div>
+                        <div style={{ color:'var(--text-faint)', fontSize:'0.74rem' }}>
+                          Printing: {i.allocations.map(row => `${row.qty}x ${formatOwnedPrinting(row)}`).join(', ')}
+                        </div>
+                      </>
                     )}
                     {!exactVersionOnly && (i.otherCandidates?.length || 0) > 1 && (
                       <div>
@@ -1518,9 +1660,14 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
                   </div>
                 ))}
                 {increaseRows.map(i => (
-                  <div key={`inc-${i.cardId}:${i.dc.id}`} style={{ display:'flex', justifyContent:'space-between', padding:'8px 10px', border:'1px solid var(--border)', borderRadius:8, background:'var(--bg3)', fontSize:'0.84rem', color:'var(--text)' }}>
-                    <span>{i.dc.name}</span>
-                    <span style={{ color:'var(--text-dim)', fontSize:'0.78rem' }}>{`add ${i.newQty - i.oldQty}`}</span>
+                  <div key={`inc-${i.cardId}:${i.dc.id}`} style={{ display:'flex', flexDirection:'column', gap:4, padding:'8px 10px', border:'1px solid var(--border)', borderRadius:8, background:'var(--bg3)', fontSize:'0.84rem', color:'var(--text)' }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', gap:8 }}>
+                      <span>{i.dc.name}</span>
+                      <span style={{ color:'var(--green, #4a9a5a)', fontSize:'0.78rem' }}>{`add ${i.newQty - i.oldQty}`}</span>
+                    </div>
+                    <div style={{ color:'var(--text-faint)', fontSize:'0.74rem' }}>
+                      From: matching owned copies elsewhere in collection. To: {collectionDeckLabel}.
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1528,10 +1675,10 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
           )}
 
           {movedOwnedRows.length > 0 && (
-            <div>
-              <div style={secLabel}>What Will Move Out Of This Collection Deck</div>
+            <div style={{ border:'1px solid rgba(224,112,32,0.28)', borderRadius:8, background:'rgba(224,112,32,0.05)', padding:12 }}>
+              <div style={secLabel}>Too Many In Collection Deck</div>
               <div style={{ color:'var(--text-faint)', fontSize:'0.74rem', marginBottom:8 }}>
-                Choose where the removed owned copies should go.
+                Source: {collectionDeckLabel}. Destination: {moveOutDestinationLabel}.
               </div>
               <Select value={globalDest} onChange={e => setGlobalDest(e.target.value)} style={{ ...s, width:'100%' }} title="Select destination" portal searchable>
                 <option value="">Select binder or deck</option>
@@ -1542,15 +1689,20 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
                 ))}
               </Select>
               {selectedMoveTarget && (
-                <div style={{ color:'var(--text-faint)', fontSize:'0.74rem', marginTop:8 }}>
-                  Removed owned copies will move to {selectedMoveTarget.type === 'binder' ? 'Binder' : 'Deck'}: {selectedMoveTarget.name}
+                <div style={{ color:'var(--text-dim)', fontSize:'0.76rem', marginTop:8 }}>
+                  These copies will move from {collectionDeckLabel} to {formatPlacementLabel(selectedMoveTarget)}.
                 </div>
               )}
-              <div style={{ display:'flex', flexDirection:'column', gap:4, marginTop:10 }}>
+              <div style={{ display:'flex', flexDirection:'column', gap:6, marginTop:10 }}>
                 {movedOwnedRows.map(row => (
-                  <div key={row.key} style={{ display:'flex', justifyContent:'space-between', fontSize:'0.8rem', color:'var(--text-dim)' }}>
-                    <span>{row.name}</span>
-                    <span>{row.qty}x</span>
+                  <div key={row.key} style={{ display:'flex', flexDirection:'column', gap:3, padding:'8px 10px', border:'1px solid var(--border)', borderRadius:8, background:'var(--bg3)' }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', fontSize:'0.82rem', color:'var(--text)' }}>
+                      <span>{row.name}</span>
+                      <span style={{ color:'var(--text-faint)' }}>{row.qty}x</span>
+                    </div>
+                    <div style={{ color:'var(--text-faint)', fontSize:'0.73rem' }}>
+                      {collectionDeckLabel} to {moveOutDestinationLabel}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1558,8 +1710,11 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
           )}
 
           {unownedAdded.length > 0 && (
-            <div>
+            <div style={{ border:'1px solid rgba(224,92,92,0.28)', borderRadius:8, background:'rgba(224,92,92,0.05)', padding:12 }}>
               <div style={secLabel}>Missing Cards</div>
+              <div style={{ color:'var(--text-faint)', fontSize:'0.74rem', marginBottom:8 }}>
+                These are in Deck Builder but no owned copy is available to move into {collectionDeckLabel}.
+              </div>
               <div style={{ display:'flex', flexDirection:'column', gap:4, marginBottom:10 }}>
                 {unownedAdded.map(item => (
                   <div key={item.dc.id} style={{ display:'flex', justifyContent:'space-between', fontSize:'0.84rem', color:'var(--text)' }}>
@@ -1638,7 +1793,9 @@ function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onCo
         )}
         <div style={{ padding:'12px 20px', borderTop:'1px solid var(--border)', display:'flex', gap:8, justifyContent:'space-between', alignItems:'center' }}>
           <span style={{ fontSize:'0.79rem', color:'var(--text-faint)' }}>
-            {movedOwnedRows.length > 0 ? 'Choose a destination for removed collection cards before continuing.' : ''}
+            {movedOwnedRows.length > 0
+              ? (selectedMoveTarget ? `Moving excess cards to ${formatPlacementLabel(selectedMoveTarget)}.` : 'Choose a destination for cards leaving the Collection Deck.')
+              : ''}
           </span>
           <div style={{ display:'flex', gap:8 }}>
             <button onClick={onClose} style={{ background:'none', border:'1px solid var(--border)', borderRadius:4, padding:'7px 16px', color:'var(--text-dim)', fontSize:'0.83rem', cursor:'pointer' }}>Cancel</button>
