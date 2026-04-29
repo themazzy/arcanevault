@@ -306,8 +306,8 @@ export function BulkActionBar({ selected, total, onSelectAll, onDeselectAll, onD
               <button
                 className={`${styles.bulkBtn} ${styles.bulkDelete}`}
                 onClick={async () => {
-                  await onDelete?.()
                   setShowDeleteDialog(false)
+                  await onDelete?.()
                 }}>
                 Delete {count}
               </button>

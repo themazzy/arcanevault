@@ -17,7 +17,7 @@ import styles from './Folders.module.css'
 import { SettingsIcon, DeleteIcon, EditIcon, BinderIcon, ImageIcon, RemoveIcon } from '../icons'
 import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
-import { pruneUnplacedCards } from '../lib/collectionOwnership'
+import { getPlacedQtyByCardIds, pruneUnplacedCards } from '../lib/collectionOwnership'
 import { getPublicAppUrl } from '../lib/publicUrl'
 import { getLocalFolderCards, getAllLocalFolderCards, getDeckAllocations, getCardsByIds, putCards, putFolderCards, putDeckAllocations, replaceLocalFolderCards, replaceDeckAllocations } from '../lib/db'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
@@ -619,6 +619,42 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
     setCards(prev => prev.map(c => c.id === updatedCard.id ? { ...c, ...updatedCard } : c))
   }, [])
 
+  const handleDetailDelete = useCallback(async () => {
+    if (!selectedCard || !folder) return
+    try {
+      const { error } = await sb
+        .from('folder_cards')
+        .delete()
+        .eq('folder_id', folder.id)
+        .eq('card_id', selectedCard.id)
+      if (error) throw error
+
+      const prunedIds = await pruneUnplacedCards([selectedCard.id])
+      const pruned = prunedIds.includes(selectedCard.id)
+      let nextQty = selectedCard.qty || 1
+      if (!pruned) {
+        const placedQtyByCardId = await getPlacedQtyByCardIds([selectedCard.id])
+        nextQty = placedQtyByCardId.get(selectedCard.id) || 0
+        if (nextQty > 0) {
+          const { error: cardErr } = await sb.from('cards').update({ qty: nextQty }).eq('id', selectedCard.id)
+          if (cardErr) throw cardErr
+          await putCards([{ ...selectedCard, qty: nextQty }]).catch(() => {})
+        }
+      }
+
+      const { data: freshFc } = await sb.from('folder_cards')
+        .select('id, folder_id, card_id, qty, updated_at')
+        .eq('folder_id', folder.id)
+      await replaceLocalFolderCards([folder.id], freshFc || []).catch(() => {})
+      setCards(prev => prev.filter(c => c.id !== selectedCard.id))
+      setSelected(null)
+      toast.success(`Deleted ${selectedCard._folder_qty || selectedCard.qty || 1} ${(selectedCard._folder_qty || selectedCard.qty || 1) === 1 ? 'card' : 'cards'}.`)
+    } catch (e) {
+      console.error('[Folders] detail delete failed:', e)
+      setReloadKey(key => key + 1)
+    }
+  }, [selectedCard, folder, toast])
+
   const clearSelect = () => { setSelectedCards(new Set()); setSplitState(new Map()); setSelectMode(false) }
   const toggleSelectMode = () => { setSelectMode(v => { if (v) clearSelect(); return !v }) }
 
@@ -666,12 +702,14 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
 
   const handleBulkDelete = async () => {
     const toDelete = [], toUpdate = []
+    const selectedQtyByCardId = new Map()
     for (const id of selectedCards) {
       const card = cards.find(c => getCardKey(c) === id)
       if (!card) continue
       const totalQty = card?._folder_qty || card?.qty || 1
       const selQty = splitState.get(id) ?? 1
       const remaining = totalQty - selQty
+      selectedQtyByCardId.set(card.id, (selectedQtyByCardId.get(card.id) || 0) + selQty)
       remaining > 0
         ? toUpdate.push({ id: card.id, folderId: card._sourceFolderId || folder.id, remaining })
         : toDelete.push({ id: card.id, folderId: card._sourceFolderId || folder.id })
@@ -682,16 +720,35 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
     for (const { id, folderId, remaining } of toUpdate) {
       await sb.from('folder_cards').update({ qty: remaining }).eq('folder_id', folderId).eq('card_id', id)
     }
-    if (toDelete.length) await pruneUnplacedCards([...new Set(toDelete.map(row => row.id))])
-    const { data: freshFc } = await sb.from('folder_cards')
-      .select('id, folder_id, card_id, qty, updated_at').eq('folder_id', folder.id)
-    await replaceLocalFolderCards([folder.id], freshFc || []).catch(() => {})
+    const prunedIds = toDelete.length ? await pruneUnplacedCards([...new Set(toDelete.map(row => row.id))]) : []
+    const prunedSet = new Set(prunedIds)
+    const affectedCardIds = [...selectedQtyByCardId.keys()]
+    const placedQtyByCardId = await getPlacedQtyByCardIds(affectedCardIds.filter(id => !prunedSet.has(id)))
+    for (const cardId of affectedCardIds) {
+      if (prunedSet.has(cardId)) continue
+      const card = cards.find(c => c.id === cardId)
+      if (!card) continue
+      const nextQty = placedQtyByCardId.get(cardId) || 0
+      if (nextQty <= 0) continue
+      const { error: cardErr } = await sb.from('cards').update({ qty: nextQty }).eq('id', cardId)
+      if (cardErr) throw cardErr
+      await putCards([{ ...card, qty: nextQty }]).catch(() => {})
+    }
+    const sourceFolderIds = [...new Set(
+      [...toDelete, ...toUpdate].map(row => row.folderId).filter(Boolean)
+    )]
+    if (sourceFolderIds.length) {
+      const { data: freshFc } = await sb.from('folder_cards')
+        .select('id, folder_id, card_id, qty, updated_at')
+        .in('folder_id', sourceFolderIds)
+      await replaceLocalFolderCards(sourceFolderIds, freshFc || []).catch(() => {})
+    }
     setCards(prev => prev.map(c => {
       if (!selectedCards.has(getCardKey(c))) return c
       const totalQty = c._folder_qty || c.qty || 1
       const selQty = splitState.get(getCardKey(c)) ?? 1
       const remaining = totalQty - selQty
-      return remaining > 0 ? { ...c, _folder_qty: remaining } : null
+      return remaining > 0 ? { ...c, qty: placedQtyByCardId.get(c.id) || c.qty || 1, _folder_qty: remaining } : null
     }).filter(Boolean))
     clearSelect()
     toast.success(`Deleted ${selectedQty} ${selectedQty === 1 ? 'card' : 'cards'}.`)
@@ -883,6 +940,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
           currentFolderId={folder.id}
           currentFolderType={folder.type}
           onSave={handleCardSave}
+          onDelete={handleDetailDelete}
           onClose={() => setSelected(null)}
         />
       )}

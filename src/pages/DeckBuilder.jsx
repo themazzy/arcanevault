@@ -15,6 +15,7 @@ import { normalizeImportedDeckCards, parseImportText, resolveImportEntries } fro
 import {
   getLocalCards, getDeckCards, putDeckCards, deleteDeckCardLocal, getMeta, setMeta, getScryfallEntry,
   deleteDeckAllocationsByIds, replaceDeckAllocations, putDeckAllocations, putFolderCards, putCards,
+  replaceLocalFolderCards,
 } from '../lib/db'
 import styles from './DeckBuilder.module.css'
 import uiStyles from '../components/UI.module.css'
@@ -25,6 +26,7 @@ import ExportModal from '../components/ExportModal'
 import { fetchDeckAllocations, fetchDeckAllocationsForUser, fetchDeckCards, mergeAllocationRows, upsertDeckAllocations } from '../lib/deckData'
 import { planDeckAllocations } from '../lib/deckAllocationPlanner'
 import { getCardLegalityWarnings } from '../lib/deckLegality'
+import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import {
   buildSyncDiff,
   buildSyncSnapshot,
@@ -2269,7 +2271,15 @@ export default function DeckBuilderPage() {
 
         // Build owned maps — failures here must not block the deck display
         try {
-          const owned = await getLocalCards(user.id)
+          let owned = await getLocalCards(user.id)
+          const prunedIds = await pruneUnplacedCards((owned || []).map(card => card.id)).catch(err => {
+            console.warn('[DeckBuilder] ownership prune failed:', err)
+            return []
+          })
+          if (prunedIds.length) {
+            const prunedSet = new Set(prunedIds)
+            owned = (owned || []).filter(card => !prunedSet.has(card.id))
+          }
           const map     = new Map()
           const nameMap = new Map()
           const foilMap = new Map()
@@ -3428,7 +3438,7 @@ export default function DeckBuilderPage() {
   }
 
   async function moveOwnedCopiesOutOfDeck(rows, destination) {
-    if (!rows?.length || !destination?.id) return { deletedAllocIds: [], updatedAllocs: [] }
+    if (!rows?.length || !destination?.id) return { deletedAllocIds: [], updatedAllocs: [], touchedDeckIds: [], touchedFolderIds: [] }
 
     const movesByAllocation = new Map()
     for (const row of rows) {
@@ -3444,8 +3454,11 @@ export default function DeckBuilderPage() {
       destinationByCardId.set(row.card_id, (destinationByCardId.get(row.card_id) || 0) + row.qty)
     }
     const cardIds = [...destinationByCardId.keys()]
+    const touchedDeckIds = new Set()
+    const touchedFolderIds = new Set()
 
     if (destination.type === 'deck') {
+      touchedDeckIds.add(destination.id)
       const { data: existingRows, error } = await sb
         .from('deck_allocations')
         .select('id, card_id, qty')
@@ -3469,6 +3482,7 @@ export default function DeckBuilderPage() {
         if (insertErr) throw insertErr
       }
     } else {
+      touchedFolderIds.add(destination.id)
       const { data: existingRows, error } = await sb
         .from('folder_cards')
         .select('id, card_id, qty')
@@ -3491,17 +3505,12 @@ export default function DeckBuilderPage() {
         const { error: insertErr } = await sb.from('folder_cards').insert(inserts)
         if (insertErr) throw insertErr
       }
-      const { data: freshRows } = await sb
-        .from('folder_cards')
-        .select('id, folder_id, card_id, qty, updated_at')
-        .eq('folder_id', destination.id)
-        .in('card_id', cardIds)
-      if (freshRows?.length) putFolderCards(freshRows).catch(() => {})
     }
 
     const deletedAllocIds = []
     const updatedAllocs = []
     for (const row of normalizedRows) {
+      if (row.allocRow.deck_id) touchedDeckIds.add(row.allocRow.deck_id)
       const nextQty = (row.allocRow.qty || 0) - row.qty
       if (nextQty > 0) {
         const { error } = await sb.from('deck_allocations').update({ qty: nextQty }).eq('id', row.allocRow.id)
@@ -3513,7 +3522,27 @@ export default function DeckBuilderPage() {
         deletedAllocIds.push(row.allocRow.id)
       }
     }
-    return { deletedAllocIds, updatedAllocs }
+    return { deletedAllocIds, updatedAllocs, touchedDeckIds: [...touchedDeckIds], touchedFolderIds: [...touchedFolderIds] }
+  }
+
+  async function refreshPlacementCaches({ deckIds = [], folderIds = [] } = {}) {
+    const uniqueDeckIds = [...new Set((deckIds || []).filter(Boolean))]
+    const uniqueFolderIds = [...new Set((folderIds || []).filter(Boolean))]
+
+    for (const deckId of uniqueDeckIds) {
+      const freshAllocs = await fetchDeckAllocations(deckId)
+      await replaceDeckAllocations([deckId], (freshAllocs || []).map(row => ({
+        id: row.id, deck_id: row.deck_id, user_id: row.user_id, card_id: row.card_id, qty: row.qty,
+      }))).catch(() => {})
+    }
+
+    if (uniqueFolderIds.length) {
+      const { data: freshFc } = await sb
+        .from('folder_cards')
+        .select('id, folder_id, card_id, qty, updated_at')
+        .in('folder_id', uniqueFolderIds)
+      await replaceLocalFolderCards(uniqueFolderIds, freshFc || []).catch(() => {})
+    }
   }
 
   async function promptToMoveOwnedCopies({ title, message, items, onComplete }) {
@@ -3524,13 +3553,10 @@ export default function DeckBuilderPage() {
       items,
       folders,
       onConfirm: async (destination) => {
-        const { deletedAllocIds, updatedAllocs } = await moveOwnedCopiesOutOfDeck(items, destination)
+        const { deletedAllocIds, updatedAllocs, touchedDeckIds, touchedFolderIds } = await moveOwnedCopiesOutOfDeck(items, destination)
         await deleteDeckAllocationsByIds(deletedAllocIds).catch(() => {})
         if (updatedAllocs.length) await putDeckAllocations(updatedAllocs).catch(() => {})
-        const freshAllocs = await fetchDeckAllocations(getAllocationDeckId())
-        await replaceDeckAllocations([getAllocationDeckId()], (freshAllocs || []).map(row => ({
-          id: row.id, deck_id: row.deck_id, user_id: row.user_id, card_id: row.card_id, qty: row.qty,
-        }))).catch(() => {})
+        await refreshPlacementCaches({ deckIds: touchedDeckIds, folderIds: touchedFolderIds })
         await onComplete?.(destination)
         await refreshAllocationIndicators()
         setPendingOwnedMove(null)
@@ -3539,10 +3565,12 @@ export default function DeckBuilderPage() {
   }
 
   async function reassignPlacementsToDeck(targetDeckId, rows) {
-    if (!rows?.length) return
+    if (!rows?.length) return { touchedDeckIds: [], touchedFolderIds: [] }
 
     const cardIds = [...new Set(rows.map(row => row.card_id).filter(Boolean))]
-    if (!cardIds.length) return
+    if (!cardIds.length) return { touchedDeckIds: [], touchedFolderIds: [] }
+    const touchedDeckIds = new Set([targetDeckId])
+    const touchedFolderIds = new Set()
 
     const [{ data: folderPlacements, error: folderErr }, { data: deckPlacements, error: deckErr }] = await Promise.all([
       sb.from('folder_cards')
@@ -3586,10 +3614,13 @@ export default function DeckBuilderPage() {
           const { error } = await sb.from(placement.table).delete().eq('id', placement.id)
           if (error) throw error
         }
+        if (placement.table === 'deck_allocations') touchedDeckIds.add(placement.placementId)
+        else touchedFolderIds.add(placement.placementId)
 
         remaining -= usedQty
       }
     }
+    return { touchedDeckIds: [...touchedDeckIds], touchedFolderIds: [...touchedFolderIds] }
   }
 
   async function syncDeckRowsToAllocatedPrintings(items) {
@@ -3978,7 +4009,8 @@ export default function DeckBuilderPage() {
         }))))
         await syncDeckRowsToAllocatedPrintings(ownedAdded)
         await upsertDeckAllocations(targetDeckId, user.id, addedRows)
-        await reassignPlacementsToDeck(targetDeckId, addedRows)
+        const touched = await reassignPlacementsToDeck(targetDeckId, addedRows)
+        await refreshPlacementCaches(touched)
       }
       const increased = changedItems.filter(c => c.newQty > c.oldQty)
       const decreased = changedItems.filter(c => c.newQty < c.oldQty)
@@ -3989,7 +4021,8 @@ export default function DeckBuilderPage() {
         .map(c => ({ card_id: c.cardId, qty: c.newQty - c.oldQty }))
       )
       if (increasedRows.length > 0) {
-        await reassignPlacementsToDeck(targetDeckId, increasedRows)
+        const touched = await reassignPlacementsToDeck(targetDeckId, increasedRows)
+        await refreshPlacementCaches(touched)
       }
 
       const moveRows = [
@@ -4014,9 +4047,10 @@ export default function DeckBuilderPage() {
           ? (await loadMoveTargets(targetDeckId)).find(folder => folder.id === moveDestinationId)
           : null
         if (!destination) throw new Error('Select a destination for removed owned cards.')
-        const { deletedAllocIds, updatedAllocs } = await moveOwnedCopiesOutOfDeck(moveRows, destination)
+        const { deletedAllocIds, updatedAllocs, touchedDeckIds, touchedFolderIds } = await moveOwnedCopiesOutOfDeck(moveRows, destination)
         await deleteDeckAllocationsByIds(deletedAllocIds).catch(() => {})
         if (updatedAllocs.length) await putDeckAllocations(updatedAllocs).catch(() => {})
+        await refreshPlacementCaches({ deckIds: touchedDeckIds, folderIds: touchedFolderIds })
       }
 
       let targetWishlistId = wishlistId
