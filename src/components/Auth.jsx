@@ -15,23 +15,27 @@ function hasRecoveryRedirectHash() {
   return new URLSearchParams(hash).get('type') === 'recovery'
 }
 
-function hasPendingRecovery() {
+function hasStoredPendingRecovery() {
   if (typeof window === 'undefined') return false
-  return hasRecoveryRedirectHash() || window.sessionStorage.getItem(RECOVERY_PENDING_KEY) === '1'
+  return window.localStorage.getItem(RECOVERY_PENDING_KEY) === '1'
+}
+
+function hasPendingRecovery(session = null) {
+  return hasRecoveryRedirectHash() || (Boolean(session) && hasStoredPendingRecovery())
 }
 
 function markPendingRecovery() {
-  if (typeof window !== 'undefined') window.sessionStorage.setItem(RECOVERY_PENDING_KEY, '1')
+  if (typeof window !== 'undefined') window.localStorage.setItem(RECOVERY_PENDING_KEY, '1')
 }
 
 function clearPendingRecovery() {
-  if (typeof window !== 'undefined') window.sessionStorage.removeItem(RECOVERY_PENDING_KEY)
+  if (typeof window !== 'undefined') window.localStorage.removeItem(RECOVERY_PENDING_KEY)
 }
 
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(undefined)
   const [authEvent, setAuthEvent] = useState(() => (
-    hasPendingRecovery() ? 'PASSWORD_RECOVERY' : null
+    hasRecoveryRedirectHash() ? 'PASSWORD_RECOVERY' : null
   ))
 
   useEffect(() => {
@@ -39,12 +43,12 @@ export function AuthProvider({ children }) {
     if (isRecoveryRedirect) markPendingRecovery()
     sb.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
-      if (hasPendingRecovery()) setAuthEvent('PASSWORD_RECOVERY')
+      if (hasPendingRecovery(session)) setAuthEvent('PASSWORD_RECOVERY')
     })
     const { data: { subscription } } = sb.auth.onAuthStateChange((event, s) => {
       setSession(s)
       if (event === 'PASSWORD_RECOVERY') markPendingRecovery()
-      setAuthEvent(event === 'PASSWORD_RECOVERY' || hasPendingRecovery() ? 'PASSWORD_RECOVERY' : event)
+      setAuthEvent(event === 'PASSWORD_RECOVERY' || hasPendingRecovery(s) ? 'PASSWORD_RECOVERY' : event)
     })
     return () => subscription.unsubscribe()
   }, [])
@@ -351,11 +355,12 @@ export function LoginPage({ forcedMode = null }) {
       const { error: err } = await sb.auth.updateUser({ password })
       if (err) setError(err.message)
       else {
-        clearAuthEvent?.()
         await sb.auth.signOut({ scope: 'local' })
+        clearAuthEvent?.()
         setSuccess('Password updated. Sign in with your new password to continue.')
       }
     } else {
+      clearPendingRecovery()
       const { error: err } = await sb.auth.signInWithPassword({ email, password })
       if (err) setError(err.message)
     }
