@@ -6,8 +6,8 @@
     <script type="text/javascript">
       // This script takes the current URL (the one that 404'd) 
       // and converts it into a search parameter for index.html
-      var pathSegmentsToKeep = 1;
       var l = window.location;
+      var pathSegmentsToKeep = /\.github\.io$/.test(l.hostname) ? 1 : 0;
       l.replace(
         l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
         l.pathname.split('/').slice(0, 1 + pathSegmentsToKeep).join('/') + '/?/' +
