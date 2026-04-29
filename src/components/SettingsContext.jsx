@@ -438,10 +438,17 @@ function loadLocal() {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
     if (!raw) return null
-    return { ...DEFAULTS, ...JSON.parse(raw) }
+    return normalizeSettings({ ...DEFAULTS, ...JSON.parse(raw), premium: false })
   } catch {
     return null
   }
+}
+
+function normalizeSettings(settings) {
+  if (!settings.premium && PREMIUM_THEMES.has(settings.theme)) {
+    return { ...settings, theme: 'shadow' }
+  }
+  return settings
 }
 
 function saveLocal(settings) {
@@ -540,6 +547,7 @@ const SettingsContext = createContext({
   ...DEFAULTS,
   premium: false,
   save: () => {},
+  refresh: async () => ({ ok: false }),
   loaded: false,
   syncNow: async () => ({ ok: false }),
   syncState: 'idle',
@@ -558,6 +566,27 @@ export function SettingsProvider({ children }) {
   const syncTimeout = useRef(null)
   const settingsRef = useRef(settings)
 
+  const loadRemoteSettings = useCallback(async () => {
+    if (!user) return { ok: false, skipped: true }
+    const { data, error } = await sb.from('user_settings').select('*').eq('user_id', user.id).maybeSingle()
+    if (error) {
+      console.error('[Settings] Failed to load settings:', error)
+      return { ok: false, error: error.message }
+    }
+    if (data) {
+      const { user_id, updated_at, ...rest } = data
+      let merged = { ...DEFAULTS, ...rest }
+      if (!Object.prototype.hasOwnProperty.call(rest, 'theme')) {
+        const local = loadLocal()
+        if (local?.theme) merged.theme = local.theme
+      }
+      merged = normalizeSettings(merged)
+      setSettings(merged)
+      saveLocal(merged)
+    }
+    return { ok: true, data }
+  }, [user])
+
   useEffect(() => {
     settingsRef.current = settings
   }, [settings])
@@ -567,22 +596,11 @@ export function SettingsProvider({ children }) {
       setLoaded(true)
       return
     }
-    sb.from('user_settings').select('*').eq('user_id', user.id).maybeSingle()
-      .then(({ data, error }) => {
-        if (error) console.error('[Settings] Failed to load settings:', error)
-        if (data) {
-          const { user_id, updated_at, ...rest } = data
-          const merged = { ...DEFAULTS, ...rest }
-          if (!Object.prototype.hasOwnProperty.call(rest, 'theme')) {
-            const local = loadLocal()
-            if (local?.theme) merged.theme = local.theme
-          }
-          setSettings(merged)
-          saveLocal(merged)
-        }
+    loadRemoteSettings()
+      .then(() => {
         setLoaded(true)
       })
-  }, [user])
+  }, [user, loadRemoteSettings])
 
   useEffect(() => {
     const root = document.documentElement
@@ -636,31 +654,30 @@ export function SettingsProvider({ children }) {
     else root.removeAttribute('data-high-contrast')
   }, [user, settings.higher_contrast])
 
-  // Detect Stripe Payment Link success redirect (?premium_unlocked=true)
+  // Detect Stripe Checkout success redirect. The webhook owns the entitlement;
+  // this only refreshes local state after Stripe sends the user back.
   useEffect(() => {
     if (!user?.id) return
     const params = new URLSearchParams(window.location.search)
-    if (!params.get('premium_unlocked')) return
+    if (params.get('premium_checkout') !== 'success') return
 
-    params.delete('premium_unlocked')
+    params.delete('premium_checkout')
+    params.delete('session_id')
     const newSearch = params.toString()
     const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : '') + window.location.hash
     window.history.replaceState({}, '', newUrl)
 
-    const grant = async () => {
-      // Optimistic local update
-      setSettings(prev => {
-        const next = { ...prev, premium: true }
-        saveLocal(next)
-        return next
-      })
-      await sb.from('user_settings').upsert(
-        { user_id: user.id, premium: true, updated_at: new Date().toISOString() },
-        { onConflict: 'user_id' }
-      )
+    let cancelled = false
+    const refreshUntilUnlocked = async () => {
+      for (let attempt = 0; attempt < 6 && !cancelled; attempt += 1) {
+        const result = await loadRemoteSettings()
+        if (result?.data?.premium) return
+        await new Promise(resolve => setTimeout(resolve, 1500))
+      }
     }
-    grant()
-  }, [user?.id])
+    refreshUntilUnlocked()
+    return () => { cancelled = true }
+  }, [user?.id, loadRemoteSettings])
 
   const performSync = useCallback(async (next) => {
     if (!user) return { ok: false, skipped: true }
@@ -671,7 +688,7 @@ export function SettingsProvider({ children }) {
         price_source, default_sort, grid_density, show_price, cache_ttl_h,
         binder_sort, deck_sort, list_sort, font_weight, font_size, body_font, theme, oled_mode, nickname,
         anonymize_email, reduce_motion, higher_contrast, card_name_size, default_grouping,
-        keep_screen_awake, show_sync_errors, premium,
+        keep_screen_awake, show_sync_errors,
       } = next
       const { error } = await sb.from('user_settings').upsert(
         {
@@ -679,7 +696,7 @@ export function SettingsProvider({ children }) {
           price_source, default_sort, grid_density, show_price, cache_ttl_h,
           binder_sort, deck_sort, list_sort, font_weight, font_size, body_font, theme, oled_mode, nickname,
           anonymize_email, reduce_motion, higher_contrast, card_name_size, default_grouping,
-          keep_screen_awake, show_sync_errors, premium,
+          keep_screen_awake, show_sync_errors,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'user_id' }
@@ -698,7 +715,7 @@ export function SettingsProvider({ children }) {
   }, [user])
 
   const save = useCallback(async (patch) => {
-    const next = { ...settings, ...patch }
+    const next = normalizeSettings({ ...settings, ...patch })
     setSettings(next)
     saveLocal(next)
 
@@ -720,6 +737,7 @@ export function SettingsProvider({ children }) {
     <SettingsContext.Provider value={{
       ...settings,
       save,
+      refresh: loadRemoteSettings,
       loaded,
       syncNow,
       syncState,
