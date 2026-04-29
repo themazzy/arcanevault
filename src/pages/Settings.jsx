@@ -509,7 +509,7 @@ export default function SettingsPage() {
       return
     }
     const { error } = await sb.auth.resetPasswordForEmail(user.email, {
-      redirectTo: 'https://themazzy.github.io/arcanevault/',
+      redirectTo: 'https://deckloom.app/',
     })
     if (error) setPwError(error.message)
     else setPwMsg('Password reset email sent. Check your inbox to continue.')

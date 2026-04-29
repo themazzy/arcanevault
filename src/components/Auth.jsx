@@ -298,14 +298,14 @@ export function LoginPage({ forcedMode = null }) {
       if (password.length < 6)    { setError('Password must be at least 6 characters.'); setLoading(false); return }
       const { error: err } = await sb.auth.signUp({
         email, password,
-        options: { emailRedirectTo: 'https://themazzy.github.io/arcanevault/' },
+        options: { emailRedirectTo: 'https://deckloom.app/' },
       })
       if (err) setError(err.message)
       else setSuccess('Account created! Check your email to confirm, then sign in.')
     } else if (mode === 'forgot') {
       if (!email) { setError('Enter your email address first.'); setLoading(false); return }
       const { error: err } = await sb.auth.resetPasswordForEmail(email, {
-        redirectTo: 'https://themazzy.github.io/arcanevault/',
+        redirectTo: 'https://deckloom.app/',
       })
       if (err) setError(err.message)
       else setSuccess('Password reset email sent. Check your inbox to continue.')
