@@ -4189,6 +4189,9 @@ export default function DeckBuilderPage() {
                 <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowExport(true); close() }}>
                   <span>Export</span>
                 </button>
+                <Link className={uiStyles.responsiveMenuAction} to={`/builder/${deckId}/playtest`} onClick={close}>
+                  <span>Playtest</span>
+                </Link>
                 <button
                   className={uiStyles.responsiveMenuAction}
                   onClick={() => {
