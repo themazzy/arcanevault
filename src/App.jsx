@@ -27,6 +27,7 @@ const DeleteAccountPage = lazy(() => import('./pages/DeleteAccount'))
 const LifeTrackerPage = lazy(() => import('./pages/LifeTracker'))
 const BuilderPage = lazy(() => import('./pages/Builder'))
 const DeckBuilderPage = lazy(() => import('./pages/DeckBuilder'))
+const DeckGoldfishPage = lazy(() => import('./pages/DeckGoldfish'))
 const DeckViewPage = lazy(() => import('./pages/DeckView'))
 const TradingPage = lazy(() => import('./pages/Trading'))
 const TournamentsPage = lazy(() => import('./pages/Tournaments'))
@@ -60,6 +61,7 @@ function PrivateApp() {
             <Route path="/rules"       element={<RulebookPage />} />
             <Route path="/admin"       element={<AdminPage />} />
             <Route path="/builder"     element={<BuilderPage />} />
+            <Route path="/builder/:id/playtest" element={<DeckGoldfishPage />} />
             <Route path="/builder/:id" element={<DeckBuilderPage />} />
             <Route path="/scanner"          element={<ScannerPage />} />
             <Route path="/profile/:username" element={<ProfilePage />} />

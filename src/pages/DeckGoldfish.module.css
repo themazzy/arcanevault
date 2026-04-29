@@ -1,0 +1,667 @@
+.page {
+  min-height: calc(100vh - 64px);
+  background:
+    radial-gradient(circle at top left, rgba(201,168,76,0.08), transparent 32rem),
+    var(--bg);
+  color: var(--text);
+}
+
+.header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--s1);
+}
+
+.header h1 {
+  margin: 4px 0 3px;
+  font-family: var(--font-display);
+  font-size: 1.12rem;
+  color: var(--gold);
+}
+
+.header p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
+.backLink {
+  color: var(--text-faint);
+  font-size: 0.76rem;
+  text-decoration: none;
+}
+
+.backLink:hover {
+  color: var(--gold);
+}
+
+.headerActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.headerActions button,
+.secondaryBtn {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--s2);
+  color: var(--text);
+  padding: 7px 11px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.headerActions button:hover:not(:disabled),
+.secondaryBtn:hover {
+  border-color: var(--border-hi);
+  background: var(--s3);
+}
+
+.headerActions button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.status {
+  display: grid;
+  min-height: calc(100vh - 150px);
+  place-items: center;
+  padding: 24px;
+}
+
+.error {
+  color: #e07070;
+  margin-bottom: 10px;
+}
+
+.board {
+  display: grid;
+  grid-template-columns: 138px minmax(0, 1fr);
+  gap: 12px;
+  height: calc(100vh - 138px);
+  min-height: 560px;
+  padding: 12px;
+  overflow: hidden;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
+}
+
+.statCard {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--s1);
+  padding: 10px;
+}
+
+.statCard span {
+  display: block;
+  color: var(--text-faint);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.statCard strong {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--font-display);
+  font-size: 1.22rem;
+  color: var(--gold);
+}
+
+.table {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) 190px;
+  gap: 12px;
+}
+
+.sideZones {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  grid-row: 1 / 3;
+}
+
+.zone {
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--s1);
+  overflow: hidden;
+}
+
+.zone_battlefield {
+  grid-column: 2;
+  grid-row: 1;
+  background:
+    radial-gradient(circle, rgba(201,168,76,0.16) 1px, transparent 1.4px),
+    linear-gradient(135deg, rgba(201,168,76,0.06), transparent 42%),
+    var(--s1);
+  background-size: 22px 22px, auto, auto;
+  background-position: 0 0, 0 0, 0 0;
+}
+
+.zone_hand {
+  grid-column: 2;
+  grid-row: 2;
+  background: var(--s2);
+}
+
+.zone_side {
+  display: flex;
+  flex-direction: column;
+}
+
+.zoneHeader {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--s2);
+  color: var(--text);
+  padding: 8px 10px;
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 0.82rem;
+}
+
+.zoneStats {
+  font-family: var(--font-serif);
+  color: var(--text-faint);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.zoneGrid {
+  min-height: 0;
+  height: calc(100% - 34px);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  align-content: start;
+  gap: 9px;
+  padding: 10px;
+  overflow: auto;
+}
+
+.zone_battlefield .zoneGrid {
+  position: relative;
+  display: block;
+  padding: 14px;
+}
+
+.zone_hand .zoneGrid {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.zone_hand .card {
+  width: 112px;
+  flex: 0 0 112px;
+}
+
+.zone_side .zoneGrid {
+  grid-template-columns: repeat(auto-fill, minmax(74px, 1fr));
+  gap: 6px;
+  padding: 8px;
+}
+
+.emptyZone {
+  padding: 12px;
+  color: var(--text-faint);
+  font-size: 0.82rem;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--s2);
+  color: var(--text);
+  overflow: hidden;
+  padding: 0;
+  text-align: left;
+  cursor: grab;
+  touch-action: manipulation;
+}
+
+.card:active {
+  cursor: grabbing;
+}
+
+.card:hover {
+  border-color: var(--border-hi);
+}
+
+.battlefieldCard {
+  position: absolute;
+  width: 116px;
+  transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.battlefieldCard:hover {
+  z-index: 10;
+  box-shadow: 0 12px 26px rgba(0,0,0,0.35);
+}
+
+.cardTapped {
+  transform: rotate(90deg);
+}
+
+.cardImageWrap {
+  display: block;
+  width: 100%;
+  aspect-ratio: 5 / 7;
+  background: var(--bg2);
+}
+
+.cardImage {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.cardPlaceholder {
+  display: grid;
+  height: 100%;
+  place-items: center;
+  padding: 8px;
+  color: var(--text-dim);
+  text-align: center;
+  font-size: 0.78rem;
+}
+
+.cardName {
+  display: block;
+  padding: 6px 7px;
+  font-weight: 650;
+  font-size: 0.76rem;
+  line-height: 1.15;
+}
+
+.zone_side .cardName {
+  display: none;
+}
+
+.menuBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 499;
+  border: 0;
+  background: transparent;
+  cursor: default;
+}
+
+.cardMenu {
+  position: fixed;
+  z-index: 500;
+  width: 210px;
+  max-width: calc(100vw - 20px);
+  border: 1px solid var(--border-hi);
+  border-radius: 8px;
+  background: var(--bg2);
+  box-shadow: 0 18px 40px rgba(0,0,0,0.45);
+  padding: 6px;
+}
+
+.cardMenuTitle {
+  padding: 7px 8px 8px;
+  color: var(--gold);
+  font-family: var(--font-display);
+  font-size: 0.82rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.cardMenu button {
+  width: 100%;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  padding: 7px 8px;
+  text-align: left;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.cardMenu button:hover {
+  background: var(--s3);
+  color: var(--gold);
+}
+
+.hoverPreview {
+  position: fixed;
+  z-index: 560;
+  width: 260px;
+  pointer-events: none;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border-hi);
+  background: var(--bg2);
+  box-shadow: 0 20px 46px rgba(0,0,0,0.55);
+}
+
+.hoverPreview img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 5 / 7;
+  object-fit: cover;
+}
+
+.libraryOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 620;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0,0,0,0.68);
+}
+
+.libraryModal {
+  width: min(980px, 100%);
+  max-height: min(760px, calc(100vh - 40px));
+  overflow: auto;
+  border: 1px solid var(--border-hi);
+  border-radius: 8px;
+  background: var(--bg2);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  padding: 14px;
+}
+
+.libraryModalHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+}
+
+.libraryModalHeader h2 {
+  margin: 0 0 4px;
+  font-family: var(--font-display);
+  color: var(--gold);
+  font-size: 1rem;
+}
+
+.libraryModalHeader p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.libraryModalHeader button,
+.libraryDoneBtn {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--s2);
+  color: var(--text);
+  padding: 7px 11px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.librarySectionTitle {
+  color: var(--text-dim);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 12px 0 8px;
+}
+
+.libraryCards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 10px;
+}
+
+.libraryCard {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--s1);
+  overflow: hidden;
+}
+
+.libraryCard img {
+  width: 100%;
+  aspect-ratio: 5 / 7;
+  object-fit: cover;
+  display: block;
+}
+
+.libraryCardName {
+  padding: 7px 8px;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.15;
+}
+
+.libraryCardActions {
+  display: grid;
+  gap: 5px;
+  padding: 0 8px 8px;
+}
+
+.libraryCardActions button {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--s2);
+  color: var(--text-dim);
+  padding: 5px 6px;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.libraryCardActions button:hover,
+.libraryModalHeader button:hover,
+.libraryDoneBtn:hover {
+  border-color: var(--border-hi);
+  color: var(--gold);
+}
+
+.libraryEmpty {
+  color: var(--text-faint);
+  font-size: 0.84rem;
+  padding: 12px 0;
+}
+
+.libraryDoneBtn {
+  margin-top: 12px;
+}
+
+@media (max-width: 900px) {
+  .header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .headerActions {
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .board {
+    height: auto;
+    min-height: calc(100vh - 138px);
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+
+  .sidebar {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .secondaryBtn {
+    grid-column: 1 / -1;
+  }
+
+  .table {
+    grid-template-columns: 1fr;
+    grid-template-rows: 150px minmax(420px, 1fr) 176px;
+  }
+
+  .sideZones {
+    grid-row: 1;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-rows: 1fr;
+  }
+
+  .zone_battlefield {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .zone_hand {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  .zoneStats {
+    display: none;
+  }
+
+  .zone_battlefield .zoneGrid {
+    display: block;
+  }
+
+  .cardMenu {
+    left: 10px !important;
+    right: 10px;
+    bottom: 10px;
+    top: auto !important;
+    width: auto;
+    max-width: none;
+    max-height: min(70vh, 420px);
+    overflow: auto;
+  }
+
+  .libraryOverlay {
+    align-items: flex-end;
+    padding: 10px;
+  }
+
+  .libraryModal {
+    max-height: 86vh;
+  }
+
+  .libraryCards {
+    grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .header {
+    padding: 10px;
+    gap: 10px;
+  }
+
+  .header h1 {
+    font-size: 0.98rem;
+  }
+
+  .header p {
+    font-size: 0.72rem;
+  }
+
+  .headerActions {
+    flex-wrap: nowrap;
+  }
+
+  .headerActions button,
+  .secondaryBtn {
+    flex: 0 0 auto;
+    padding: 7px 10px;
+    font-size: 0.76rem;
+  }
+
+  .board {
+    padding: 8px;
+    gap: 8px;
+  }
+
+  .sidebar {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .statCard {
+    padding: 8px;
+  }
+
+  .statCard strong {
+    font-size: 1rem;
+  }
+
+  .table {
+    grid-template-rows: 190px minmax(430px, 1fr) 164px;
+    gap: 8px;
+  }
+
+  .sideZones {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .zoneHeader {
+    padding: 7px 8px;
+    font-size: 0.76rem;
+  }
+
+  .zone_hand .card {
+    width: 96px;
+    flex-basis: 96px;
+  }
+
+  .battlefieldCard {
+    width: 102px;
+  }
+
+  .libraryModalHeader {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .libraryCards {
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .hoverPreview {
+    display: none;
+  }
+}
