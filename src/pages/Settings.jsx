@@ -93,6 +93,17 @@ function Toggle({ value, onChange }) {
   )
 }
 
+async function getFunctionErrorMessage(error, fallback) {
+  try {
+    const response = error?.context
+    if (response && typeof response.json === 'function') {
+      const body = await response.clone().json()
+      return body?.details || body?.error || error?.message || fallback
+    }
+  } catch {}
+  return error?.message || fallback
+}
+
 function ThemePicker({ value, onChange, premium }) {
   return (
     <div className={styles.themeGrid}>
@@ -498,7 +509,7 @@ export default function SettingsPage() {
           cancelUrl: `${window.location.origin}${import.meta.env.BASE_URL}settings?premium_checkout=cancelled`,
         },
       })
-      if (error) throw error
+      if (error) throw new Error(await getFunctionErrorMessage(error, 'Could not start Stripe Checkout.'))
       if (!data?.url) throw new Error('Stripe did not return a checkout URL.')
       window.location.assign(data.url)
     } catch (err) {
