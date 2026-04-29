@@ -225,6 +225,10 @@ create table if not exists user_settings (
   default_grouping   text default 'type',
   keep_screen_awake  boolean default false,
   show_sync_errors   boolean default false,
+  premium            boolean default false,
+  stripe_customer_id text,
+  premium_unlocked_at timestamptz,
+  premium_checkout_session_id text,
   updated_at         timestamptz default now()
 );
 
@@ -232,3 +236,27 @@ alter table user_settings enable row level security;
 create policy "own settings" on user_settings for all
   using (auth.uid() = user_id) with check (auth.uid() = user_id);
 grant all on user_settings to authenticated;
+
+create table if not exists premium_purchases (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  stripe_checkout_session_id text not null unique,
+  stripe_customer_id text,
+  stripe_payment_intent_id text,
+  amount_total integer,
+  currency text,
+  status text,
+  raw_event_id text,
+  purchased_at timestamptz default now(),
+  created_at timestamptz default now()
+);
+
+create index if not exists premium_purchases_user_id_idx
+  on premium_purchases(user_id);
+
+alter table premium_purchases enable row level security;
+create policy "Users can read own premium purchases" on premium_purchases
+  for select to authenticated
+  using (auth.uid() = user_id);
+revoke all on premium_purchases from anon;
+grant select on premium_purchases to authenticated;

@@ -429,6 +429,8 @@ export default function SettingsPage() {
   const [emailMsg, setEmailMsg] = useState('')
   const [emailError, setEmailError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [checkoutBusy, setCheckoutBusy] = useState(false)
+  const [checkoutError, setCheckoutError] = useState('')
   const [isAdmin, setIsAdmin] = useState(false)
 
   // Nickname availability check
@@ -480,6 +482,29 @@ export default function SettingsPage() {
     setSaving(true)
     await settings.syncNow()
     setSaving(false)
+  }
+
+  const handleUnlockPremium = async () => {
+    setCheckoutError('')
+    if (!user) {
+      setCheckoutError('Sign in before unlocking premium themes.')
+      return
+    }
+    setCheckoutBusy(true)
+    try {
+      const { data, error } = await sb.functions.invoke('stripe-create-checkout', {
+        body: {
+          successUrl: `${window.location.origin}${import.meta.env.BASE_URL}settings?premium_checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+          cancelUrl: `${window.location.origin}${import.meta.env.BASE_URL}settings?premium_checkout=cancelled`,
+        },
+      })
+      if (error) throw error
+      if (!data?.url) throw new Error('Stripe did not return a checkout URL.')
+      window.location.assign(data.url)
+    } catch (err) {
+      setCheckoutError(err?.message || 'Could not start Stripe Checkout.')
+      setCheckoutBusy(false)
+    }
   }
 
   const handleChangePassword = async () => {
@@ -948,22 +973,17 @@ export default function SettingsPage() {
             </div>
           ) : (
             <div className={styles.stripeWrap}>
-              <a
-                href="STRIPE_PAYMENT_LINK_PLACEHOLDER"
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
                 className={styles.stripeBtn}
-                onClick={e => {
-                  if (e.currentTarget.href.includes('STRIPE_PAYMENT_LINK_PLACEHOLDER')) {
-                    e.preventDefault()
-                    alert('Stripe payment link not configured yet.')
-                  }
-                }}
+                onClick={handleUnlockPremium}
+                disabled={checkoutBusy}
               >
                 <span className={styles.stripeBtnStar}>✦</span>
-                Unlock Premium Themes — €3
-              </a>
+                {checkoutBusy ? 'Opening Stripe...' : 'Unlock Premium Themes — €3'}
+              </button>
               <div className={styles.stripeNote}>One-time · Secured by Stripe · No subscription</div>
+              {checkoutError && <div className={styles.stripeError}>{checkoutError}</div>}
             </div>
           )}
 

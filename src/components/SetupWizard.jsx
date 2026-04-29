@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
 import { sb } from '../lib/supabase'
 import { useAuth } from './Auth'
-import { useSettings, THEMES } from './SettingsContext'
+import { useSettings, THEMES, PREMIUM_THEMES } from './SettingsContext'
 import { PRICE_SOURCES, sfGet } from '../lib/scryfall'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './SetupWizard.module.css'
@@ -205,13 +205,15 @@ function ThemeStep({ settings }) {
       <div className={styles.themeGrid}>
         {Object.entries(THEMES).map(([id, theme]) => {
           const active = current === id
+          const locked = PREMIUM_THEMES.has(id) && !settings.premium
           const { bg, accent, hi, text } = theme.preview
           return (
             <button
               key={id}
-              className={`${styles.themeSwatch}${active ? ' ' + styles.themeSwatchActive : ''}`}
-              onClick={() => settings.save({ theme: id })}
+              className={`${styles.themeSwatch}${active ? ' ' + styles.themeSwatchActive : ''}${locked ? ' ' + styles.themeSwatchLocked : ''}`}
+              onClick={() => !locked && settings.save({ theme: id })}
               style={{ '--sw-bg': bg, '--sw-accent': accent, '--sw-hi': hi, '--sw-text': text }}
+              title={locked ? `${theme.name} - unlock premium themes from Settings` : theme.name}
             >
               <div className={styles.swatchBar}>
                 <div style={{ flex: 2, background: accent, borderRadius: '2px 0 0 2px' }} />
@@ -221,6 +223,7 @@ function ThemeStep({ settings }) {
               <div className={styles.swatchName}>{theme.name}</div>
               <div className={styles.swatchLore}>{theme.lore}</div>
               {active && <div className={styles.swatchCheck}>✓</div>}
+              {locked && <div className={styles.swatchCheck}>Lock</div>}
             </button>
           )
         })}
