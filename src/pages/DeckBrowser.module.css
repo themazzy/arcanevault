@@ -68,6 +68,10 @@
   white-space: nowrap;
 }
 .editInBuilderBtn:hover { background: rgba(201,168,76,0.22); border-color: rgba(201,168,76,0.45); }
+.editInBuilderBtn:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
 .mobileHeaderActionsBtn {
   display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box;
   height: var(--control-height);

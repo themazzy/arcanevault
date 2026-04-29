@@ -16,11 +16,11 @@ import styles from './DeckBrowser.module.css'
 import uiStyles from '../components/UI.module.css'
 import { ChevronDownIcon, ChevronUpIcon, GridViewIcon, ListViewIcon, StacksViewIcon, TableViewIcon, TextViewIcon } from '../icons'
 import { parseDeckMeta, serializeDeckMeta } from '../lib/deckBuilderApi'
-import { getSyncState, markLinkedPairUnsynced, withLinkedPair, writeSyncState } from '../lib/deckSync'
+import { buildSyncDiff, getSyncState, markLinkedPairUnsynced, summarizeSyncDiff, withLinkedPair, writeSyncState } from '../lib/deckSync'
 import { useLongPress } from '../hooks/useLongPress'
 import { lastInputWasTouch } from '../lib/inputType'
 import { getPlacedQtyByCardIds, pruneUnplacedCards } from '../lib/collectionOwnership'
-import { fetchDeckAllocations } from '../lib/deckData'
+import { fetchDeckAllocations, fetchDeckCards } from '../lib/deckData'
 import { getDeckAllocations, getCardsByIds, replaceDeckAllocations, putCards, putDeckAllocations, putFolderCards, replaceLocalFolderCards } from '../lib/db'
 
 const CAN_HOVER = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover) and (pointer: fine)').matches
@@ -689,6 +689,7 @@ export default function DeckBrowser({ folder, onBack }) {
   const [linkedDirty, setLinkedDirty] = useState(false)
   const [folderDescription, setFolderDescription] = useState(folder?.description || '{}')
   const [creatingBuilderLink, setCreatingBuilderLink] = useState(false)
+  const [syncCheck, setSyncCheck] = useState({ loading: false, dirty: false, count: 0, unavailable: false })
   const linkedBuilderIdRef = useRef(parseDeckMeta(folder?.description || '{}').linked_builder_id || null)
   const isUnsyncedRef = useRef(false)
   const [viewMode, setViewMode]     = useState('grid')
@@ -890,6 +891,36 @@ export default function DeckBrowser({ folder, onBack }) {
     })
     return () => { cancelled = true }
   }, [folder.id])
+
+  useEffect(() => {
+    const meta = parseDeckMeta(folderDescription || '{}')
+    const builderId = meta.linked_builder_id
+    linkedBuilderIdRef.current = builderId || null
+    if (!builderId) {
+      setSyncCheck({ loading: false, dirty: false, count: 0, unavailable: false })
+      return
+    }
+
+    let cancelled = false
+    async function checkLinkedSync() {
+      setSyncCheck(prev => ({ ...prev, loading: true, unavailable: false }))
+      try {
+        const baseline = getSyncState(meta).last_sync_snapshot || { builder_cards: [], collection_cards: [] }
+        const [builderCards, collectionCards] = await Promise.all([
+          fetchDeckCards(builderId),
+          fetchDeckAllocations(folder.id),
+        ])
+        if (cancelled) return
+        const diff = buildSyncDiff({ baseline, builderCards, collectionCards })
+        const summary = summarizeSyncDiff(diff)
+        setSyncCheck({ loading: false, dirty: summary.dirty, count: summary.total, unavailable: false })
+      } catch (err) {
+        if (!cancelled) setSyncCheck({ loading: false, dirty: false, count: 0, unavailable: true })
+      }
+    }
+    checkLinkedSync()
+    return () => { cancelled = true }
+  }, [folder.id, folderDescription])
 
   // Fetch all folders for "Move to" dropdown (RLS filters by user automatically)
   useEffect(() => {
@@ -1138,8 +1169,16 @@ export default function DeckBrowser({ folder, onBack }) {
 
   const deckMeta = parseDeckMeta(folderDescription || '{}')
   const syncState = getSyncState(deckMeta)
-  const isUnsynced = linkedDirty || !!(syncState.unsynced_builder || syncState.unsynced_collection)
+  const isCheckingLinkedSync = !!deckMeta.linked_builder_id && syncCheck.loading
+  const isUnsynced = linkedDirty || syncCheck.dirty || !!(syncState.unsynced_builder || syncState.unsynced_collection)
   isUnsyncedRef.current = isUnsynced
+  const editInBuilderLabel = creatingBuilderLink
+    ? 'Opening...'
+    : isCheckingLinkedSync
+      ? 'Checking sync...'
+      : deckMeta.linked_builder_id
+        ? (isUnsynced ? `Unsynced${syncCheck.count ? ` (${syncCheck.count})` : ' changes'}` : 'Open in Deckbuilder')
+        : 'Edit in Builder'
   // Use only the explicitly-set bg_url for the header background.
   // coverArtUri is the builder-deck commander art — it is not a user-chosen
   // background for the collection deck view and should not bleed through here.
@@ -1168,8 +1207,8 @@ export default function DeckBrowser({ folder, onBack }) {
               <button className={styles.addCardsBtn} onClick={() => setShowAddCard(true)}>
                 + Add Cards
               </button>
-              <button className={styles.editInBuilderBtn} onClick={openInBuilder} disabled={creatingBuilderLink}>
-                {creatingBuilderLink ? 'Opening…' : deckMeta.linked_builder_id ? (isUnsynced ? 'Unsynced changes' : 'Open in Deckbuilder') : 'Edit in Builder'}
+              <button className={styles.editInBuilderBtn} onClick={openInBuilder} disabled={creatingBuilderLink || isCheckingLinkedSync} aria-busy={isCheckingLinkedSync}>
+                {editInBuilderLabel}
               </button>
             </div>
             <div className={styles.headerActionsMobile}>
@@ -1199,9 +1238,9 @@ export default function DeckBrowser({ folder, onBack }) {
                       <span>Add Cards</span>
                     </button>
                     <button className={uiStyles.responsiveMenuAction}
-                      disabled={creatingBuilderLink}
+                      disabled={creatingBuilderLink || isCheckingLinkedSync}
                       onClick={() => { openInBuilder(); close() }}>
-                      <span>{creatingBuilderLink ? 'Opening…' : deckMeta.linked_builder_id ? (isUnsynced ? 'Unsynced changes' : 'Open in Deckbuilder') : 'Edit in Builder'}</span>
+                      <span>{editInBuilderLabel}</span>
                     </button>
                   </div>
                 )}
