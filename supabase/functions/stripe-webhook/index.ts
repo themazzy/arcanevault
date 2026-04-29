@@ -71,6 +71,18 @@ function stringOrNull(input: unknown) {
   return typeof input === 'string' && input ? input : null
 }
 
+function errorMessage(error: unknown) {
+  if (error instanceof Error) return error.message
+  if (error && typeof error === 'object') {
+    try {
+      return JSON.stringify(error)
+    } catch {
+      return String(error)
+    }
+  }
+  return String(error)
+}
+
 Deno.serve(async (req) => {
   if (req.method !== 'POST') {
     return json({ error: 'Method not allowed' }, 405)
@@ -109,7 +121,7 @@ Deno.serve(async (req) => {
         const paymentIntentId = stringOrNull(session.payment_intent)
 
         if (sessionId) {
-          await adminClient.from('premium_purchases').upsert(
+          const { error: purchaseError } = await adminClient.from('premium_purchases').upsert(
             {
               stripe_checkout_session_id: sessionId,
               user_id: userId,
@@ -123,6 +135,7 @@ Deno.serve(async (req) => {
             },
             { onConflict: 'stripe_checkout_session_id' },
           )
+          if (purchaseError) throw purchaseError
         }
 
         const { error } = await adminClient.from('user_settings').upsert(
@@ -142,7 +155,6 @@ Deno.serve(async (req) => {
 
     return json({ received: true })
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    return json({ error: 'Could not process Stripe webhook.', details: message }, 500)
+    return json({ error: 'Could not process Stripe webhook.', details: errorMessage(error) }, 500)
   }
 })
