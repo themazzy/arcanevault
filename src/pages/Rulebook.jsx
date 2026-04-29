@@ -6,6 +6,10 @@ function normalize(value) {
   return String(value || '').toLowerCase()
 }
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 function matchesRule(rule, needle) {
   return normalize(`${rule.number} ${rule.text}`).includes(needle)
 }
@@ -48,23 +52,121 @@ function countRules(categories) {
   )
 }
 
+function buildReferenceMap(categories) {
+  const refs = new Map()
+  categories.forEach(category => {
+    refs.set(`category:${category.id}`, { kind: 'category', id: category.id, categoryId: category.id })
+    refs.set(`section:${category.id}`, { kind: 'category', id: category.id, categoryId: category.id })
+
+    category.sections.forEach(section => {
+      refs.set(`section:${section.id}`, {
+        kind: 'section',
+        id: section.id,
+        categoryId: category.id,
+        sectionId: section.id,
+      })
+      refs.set(`rule:${section.id}`, {
+        kind: 'section',
+        id: section.id,
+        categoryId: category.id,
+        sectionId: section.id,
+      })
+
+      section.rules.forEach(rule => {
+        const id = String(rule.id || '').replace(/\.$/, '')
+        refs.set(`rule:${id}`, {
+          kind: 'rule',
+          id,
+          categoryId: category.id,
+          sectionId: section.id,
+          ruleId: id,
+        })
+      })
+    })
+  })
+  return refs
+}
+
 function ToggleIcon({ open }) {
   return open ? <ChevronDownIcon size={13} /> : <ChevronRightIcon size={13} />
 }
 
-function RuleText({ text }) {
+function HighlightedText({ value, query }) {
+  const text = String(value || '')
+  const needle = String(query || '').trim()
+  if (!needle) return text
+
+  const parts = text.split(new RegExp(`(${escapeRegExp(needle)})`, 'ig'))
+  return parts.map((part, index) => (
+    normalize(part) === normalize(needle)
+      ? <mark key={index} className={styles.searchHighlight}>{part}</mark>
+      : part
+  ))
+}
+
+function ReferenceText({ value, query, references, onReferenceClick }) {
+  const text = String(value || '')
+  const pattern = /\b(section|rules?|rule)\s+(\d+(?:\.\d+)?[a-z]?)/ig
+  const parts = []
+  let cursor = 0
+  let match
+
+  while ((match = pattern.exec(text)) !== null) {
+    const [label, type, number] = match
+    const normalizedType = type.toLowerCase() === 'section' ? 'section' : 'rule'
+    const target = references.get(`${normalizedType}:${number.replace(/\.$/, '')}`)
+    if (!target) continue
+
+    if (match.index > cursor) {
+      parts.push({ text: text.slice(cursor, match.index) })
+    }
+    parts.push({ text: label, target })
+    cursor = match.index + label.length
+  }
+
+  if (cursor < text.length) {
+    parts.push({ text: text.slice(cursor) })
+  }
+
+  if (!parts.length) return <HighlightedText value={text} query={query} />
+
+  return parts.map((part, index) => {
+    if (!part.target) return <HighlightedText key={index} value={part.text} query={query} />
+    return (
+      <a
+        key={index}
+        className={styles.ruleReference}
+        href={`#${part.target.kind}-${part.target.id}`}
+        onClick={event => onReferenceClick(event, part.target)}
+      >
+        <HighlightedText value={part.text} query={query} />
+      </a>
+    )
+  })
+}
+
+function RuleText({ text, query, references, onReferenceClick }) {
   return String(text || '').split('\n').map((line, index) => (
-    <p key={index} className={styles.ruleParagraph}>{line}</p>
+    <p key={index} className={styles.ruleParagraph}>
+      <ReferenceText
+        value={line}
+        query={query}
+        references={references}
+        onReferenceClick={onReferenceClick}
+      />
+    </p>
   ))
 }
 
 export default function RulebookPage() {
   const [query, setQuery] = useState('')
+  const [submittedQuery, setSubmittedQuery] = useState('')
   const [rulesData, setRulesData] = useState(null)
   const [loadError, setLoadError] = useState('')
-  const [openCategories, setOpenCategories] = useState(() => new Set(['1']))
-  const [openSections, setOpenSections] = useState(() => new Set(['100']))
-  const isSearching = query.trim().length > 0
+  const [openCategories, setOpenCategories] = useState(() => new Set())
+  const [openSections, setOpenSections] = useState(() => new Set())
+  const [pendingTarget, setPendingTarget] = useState(null)
+  const isSearching = submittedQuery.trim().length > 0
 
   useEffect(() => {
     let cancelled = false
@@ -84,10 +186,38 @@ export default function RulebookPage() {
   }, [])
 
   const filteredCategories = useMemo(
-    () => filterRules(rulesData?.categories || [], query),
-    [rulesData, query],
+    () => filterRules(rulesData?.categories || [], submittedQuery),
+    [rulesData, submittedQuery],
   )
   const visibleRules = useMemo(() => countRules(filteredCategories), [filteredCategories])
+  const references = useMemo(
+    () => buildReferenceMap(rulesData?.categories || []),
+    [rulesData],
+  )
+
+  useEffect(() => {
+    if (!pendingTarget) return
+    const element = document.getElementById(`${pendingTarget.kind}-${pendingTarget.id}`)
+    if (!element) return
+    element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    setPendingTarget(null)
+  }, [pendingTarget, openCategories, openSections])
+
+  const submitSearch = () => {
+    setSubmittedQuery(query.trim())
+  }
+
+  const clearSearch = () => {
+    setQuery('')
+    setSubmittedQuery('')
+  }
+
+  const collapseAll = () => {
+    setOpenCategories(new Set())
+    setOpenSections(new Set())
+    setSubmittedQuery('')
+    setPendingTarget(null)
+  }
 
   const toggleCategory = id => {
     setOpenCategories(prev => {
@@ -103,6 +233,27 @@ export default function RulebookPage() {
       next.has(id) ? next.delete(id) : next.add(id)
       return next
     })
+  }
+
+  const handleReferenceClick = (event, target) => {
+    event.preventDefault()
+    setSubmittedQuery('')
+    if (target.categoryId) {
+      setOpenCategories(prev => {
+        const next = new Set(prev)
+        next.add(target.categoryId)
+        return next
+      })
+    }
+    if (target.sectionId) {
+      setOpenSections(prev => {
+        const next = new Set(prev)
+        next.add(target.sectionId)
+        return next
+      })
+    }
+    setPendingTarget(target)
+    window.history.replaceState(null, '', `#${target.kind}-${target.id}`)
   }
 
   if (loadError) {
@@ -123,50 +274,60 @@ export default function RulebookPage() {
 
   return (
     <div className={styles.page}>
-      <header className={styles.hero}>
-        <div>
-          <div className={styles.eyebrow}>Rulebook</div>
-          <h1>{rulesData.title}</h1>
-          <p>Effective {rulesData.effectiveDate}</p>
-        </div>
-        <a className={styles.sourceLink} href={rulesData.sourceUrl} target="_blank" rel="noreferrer">
-          Wizards Rules
-        </a>
-      </header>
+      <div className={styles.heroSearch}>
+        <header className={styles.hero}>
+          <div>
+            <div className={styles.eyebrow}>Rulebook</div>
+            <h1>{rulesData.title}</h1>
+            <p>Effective {rulesData.effectiveDate}</p>
+          </div>
+          <a className={styles.sourceLink} href={rulesData.sourceUrl} target="_blank" rel="noreferrer">
+            Wizards Rules
+          </a>
+        </header>
 
-      <section className={styles.searchPanel}>
-        <div className={styles.searchBox}>
-          <SearchIcon size={16} />
-          <input
-            value={query}
-            onChange={event => setQuery(event.target.value)}
-            placeholder="Search rule number, category, section, or text"
-            aria-label="Search rules"
-          />
-          {query && (
-            <button type="button" onClick={() => setQuery('')} className={styles.clearButton}>
-              Clear
+        <section className={styles.searchPanel}>
+          <div className={styles.searchBox}>
+            <SearchIcon size={16} />
+            <input
+              value={query}
+              onChange={event => setQuery(event.target.value)}
+              onKeyDown={event => {
+                if (event.key === 'Enter') submitSearch()
+              }}
+              placeholder="Search rule number, category, section, or text"
+              aria-label="Search rules"
+            />
+            {query && (
+              <button type="button" onClick={clearSearch} className={styles.clearButton}>
+                Clear
+              </button>
+            )}
+            <button type="button" onClick={submitSearch} className={styles.searchButton}>
+              Search
             </button>
-          )}
-        </div>
-        <div className={styles.resultMeta}>
-          {visibleRules.toLocaleString()} of {rulesData.totalRules.toLocaleString()} entries
-        </div>
-      </section>
+          </div>
+          <div className={styles.resultMeta}>
+            {visibleRules.toLocaleString()} of {rulesData.totalRules.toLocaleString()} entries
+          </div>
+        </section>
+      </div>
 
       <div className={styles.rulebook}>
         {filteredCategories.map(category => {
           const categoryOpen = isSearching || openCategories.has(category.id)
+          const showCategoryNumber = normalize(category.number) !== normalize(category.title)
           return (
             <section key={category.id} className={styles.category}>
               <button
                 type="button"
-                className={styles.categoryHeader}
+                className={`${styles.categoryHeader} ${!showCategoryNumber ? styles.categoryHeaderNoNumber : ''}`}
+                id={`category-${category.id}`}
                 onClick={() => toggleCategory(category.id)}
                 aria-expanded={categoryOpen}
               >
                 <span className={styles.toggle}><ToggleIcon open={categoryOpen} /></span>
-                <span className={styles.categoryNumber}>{category.number}</span>
+                {showCategoryNumber && <span className={styles.categoryNumber}>{category.number}</span>}
                 <span className={styles.categoryTitle}>{category.title}</span>
                 <span className={styles.categoryCount}>{countRules([category]).toLocaleString()}</span>
               </button>
@@ -180,6 +341,7 @@ export default function RulebookPage() {
                         <button
                           type="button"
                           className={styles.sectionHeader}
+                          id={`section-${section.id}`}
                           onClick={() => toggleSection(section.id)}
                           aria-expanded={sectionOpen}
                         >
@@ -193,8 +355,17 @@ export default function RulebookPage() {
                           <div className={styles.rulesList}>
                             {section.rules.map(rule => (
                               <article key={rule.id} className={styles.ruleRow} id={`rule-${rule.id}`}>
-                                <div className={styles.ruleNumber}>{rule.number}</div>
-                                <div className={styles.ruleText}><RuleText text={rule.text} /></div>
+                                <div className={styles.ruleNumber}>
+                                  <HighlightedText value={rule.number} query={submittedQuery} />
+                                </div>
+                                <div className={styles.ruleText}>
+                                  <RuleText
+                                    text={rule.text}
+                                    query={submittedQuery}
+                                    references={references}
+                                    onReferenceClick={handleReferenceClick}
+                                  />
+                                </div>
                               </article>
                             ))}
                           </div>
@@ -211,6 +382,10 @@ export default function RulebookPage() {
           <div className={styles.emptyState}>No matching rules.</div>
         )}
       </div>
+
+      <button type="button" className={styles.collapseAllButton} onClick={collapseAll}>
+        Collapse All
+      </button>
     </div>
   )
 }
