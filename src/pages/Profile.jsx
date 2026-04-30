@@ -92,6 +92,7 @@ const BLOCK_DEFS = {
   formats:       { label: 'Formats Played',   span: 'half'  },
   fav_commander: { label: 'Fav. Commander',   span: 'half'  },
   crown:         { label: 'Crown Jewel',      span: 'third' },
+  top_cards:     { label: 'Top Cards',        span: 'full'  },
   milestones:    { label: 'Milestones',       span: 'full'  },
   featured_deck: { label: 'Featured Deck',    span: 'full'  },
   recent_cards:  { label: 'Recently Added',   span: 'full'  },
@@ -737,6 +738,36 @@ function CrownBlock({ topCard }) {
   )
 }
 
+function TopCardsBlock({ cards }) {
+  if (!cards?.length) return (
+    <div className={styles.blockInner}>
+      <div className={styles.blockTitle}>Top Cards</div>
+      <div className={styles.emptyNote}>No price data yet. Enable this block so prices get fetched.</div>
+    </div>
+  )
+  return (
+    <div className={styles.blockInner}>
+      <div className={styles.blockTitle}>Top Cards</div>
+      <div className={styles.topCardsStrip}>
+        {cards.map((c, i) => (
+          <div key={i} className={styles.topCardItem} title={c.name}>
+            <div className={styles.topCardArt} style={{ backgroundImage: `url(${c.art_crop})` }}>
+              <div className={styles.topCardRank}>#{i + 1}</div>
+              {c.foil && <div className={styles.topCardFoilBadge}>✦</div>}
+            </div>
+            <div className={styles.topCardInfo}>
+              <div className={styles.topCardName}>{c.name}</div>
+              {c.price != null && (
+                <div className={styles.topCardPrice}>€{Number(c.price).toFixed(2)}</div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── dnd-kit sortable items ────────────────────────────────────────────────────
 function SortableBentoBlock({ id, editMode, onHide, children }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
@@ -1037,6 +1068,7 @@ export default function ProfilePage() {
       case 'formats':       return <FormatsBlock decks={publicDecks} />
       case 'fav_commander': return <FavCommanderBlock decks={publicDecks} />
       case 'crown':         return <CrownBlock topCard={top_card} />
+      case 'top_cards':     return <TopCardsBlock cards={profile?.top_cards} />
       case 'milestones':    return <MilestonesBlock stats={stats} profile={profile} />
       case 'featured_deck': return (
         <FeaturedDeckBlock
