@@ -38,7 +38,8 @@ const WEB_PAGE_RETRY_BASE_MS  = 250
 // v3: added .order('scryfall_id') to paginated fetches for consistent pagination.
 // v4: CLAHE 4×4 tile grid + BT.601 grayscale — all hashes reseeded.
 // v5: BT.709 grayscale + scanner hash pipeline reseed marker.
-const CACHE_VERSION    = 5
+// v6: Remove pre-blur; switch resize to INTER_AREA / mitchell (faster, better for large downsampling).
+const CACHE_VERSION    = 6
 // [wordIndex, shift] — 16 bands of 6 bits across the 8 Uint32 words
 const BAND_SPECS = [
   [0, 0], [0, 16], [1, 0], [1, 16],
@@ -824,6 +825,37 @@ class DatabaseService {
       })
     } catch {
       return this.findBestTwoWithStats(hash, colorHash, opts)
+    }
+  }
+
+  // Batch multiple hash variants (standard/foil/dark) into a single worker round-trip.
+  // queries: Array<{ hash: Uint32Array, label: string }>
+  async findBestTwoWithStatsAsyncAll(queries, colorHash = null, opts = {}) {
+    if (!this._hashes.length) {
+      return { best: null, second: null, candidateCount: 0, totalCount: 0, bestLabel: null }
+    }
+    const workerOpts = {
+      ...opts,
+      allowedSets: opts.allowedSets?.size ? [...opts.allowedSets] : null,
+    }
+    try {
+      return await this._postMatchWorker('matchAll', {
+        queries: queries.map(({ hash, label }) => ({ hash: Array.from(hash), label })),
+        colorHash: colorHash ? Array.from(colorHash) : null,
+        opts: workerOpts,
+      })
+    } catch {
+      let best = null, second = null, candidateCount = 0
+      let totalCount = this._hashes.length, fallback = null, bestLabel = null
+      for (const { hash, label } of queries) {
+        const result = this.findBestTwoWithStats(hash, colorHash, opts)
+        if (result.best && (!best || result.best.distance < best.distance)) {
+          best = result.best; second = result.second
+          candidateCount = result.candidateCount; totalCount = result.totalCount
+          fallback = result.fallback; bestLabel = label
+        }
+      }
+      return { best, second, candidateCount, totalCount, fallback, bestLabel }
     }
   }
   // ── Index ──────────────────────────────────────────────────────────────────
