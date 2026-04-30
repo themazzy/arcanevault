@@ -486,29 +486,6 @@
   border-color: rgba(200,60,60,0.5) !important;
 }
 
-/* ── Page-level tab bar ─────────────────────────────────────────── */
-.pageTabBar {
-  display: flex;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 4px;
-}
-
-.pageTab {
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--text-dim);
-  cursor: pointer;
-  font-family: var(--font-display);
-  font-size: 0.82rem;
-  letter-spacing: 0.04em;
-  padding: 8px 20px;
-  margin-bottom: -1px;
-  transition: color 0.15s, border-color 0.15s;
-}
-.pageTab:hover { color: var(--text); }
-.pageTabActive { color: var(--gold); border-bottom-color: var(--gold); }
-
 /* ── Community deck extras ──────────────────────────────────────── */
 .cardTags {
   display: flex;

@@ -395,7 +395,7 @@ function TradeLogSection({ rows, loading, onRefresh, fmt }) {
 
   if (!rows.length) return (
     <div className={styles.logEmpty}>
-      No trades recorded yet. Complete a trade on the Compare tab and it will appear here.
+      No trades recorded yet. Complete a trade from Trading and it will appear here.
     </div>
   )
 
@@ -1129,12 +1129,7 @@ export default function TradingPage() {
 
   return (
     <div className={styles.page}>
-      <SectionHeader title="Trading" />
-
-      <div className={styles.tabs}>
-        <button className={`${styles.tabBtn} ${tab === 'compare' ? styles.tabBtnActive : ''}`} onClick={() => setTab('compare')}>Compare</button>
-        <button className={`${styles.tabBtn} ${tab === 'log' ? styles.tabBtnActive : ''}`} onClick={() => setTab('log')}>Trade Log</button>
-      </div>
+      <SectionHeader title={tab === 'log' ? 'Trade Log' : 'Trading'} />
 
       {tab === 'log' ? (
         <TradeLogSection rows={tradeLogRows} loading={tradeLogLoading} onRefresh={loadTradeLog} fmt={v => formatPrice(v, price_source)} />

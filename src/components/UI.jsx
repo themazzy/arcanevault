@@ -239,12 +239,21 @@ export function DropZone({ onFile, title, subtitle, onActivate, accept = '.csv' 
   )
 }
 
-export function Modal({ children, onClose, allowOverflow = true }) {
+export function Modal({
+  children,
+  onClose,
+  allowOverflow = true,
+  showClose = true,
+  closeOnOverlay = true,
+  className = '',
+  contentClassName = '',
+}) {
   const modalRef = useRef(null)
   const modalContentRef = useRef(null)
   const [modalHeight, setModalHeight] = useState(null)
   const handleOverlayClick = (e) => {
     if (e.target !== e.currentTarget) return
+    if (!closeOnOverlay) return
     onClose?.()
   }
 
@@ -286,12 +295,14 @@ export function Modal({ children, onClose, allowOverflow = true }) {
     <div className={styles.overlay} onClick={handleOverlayClick}>
       <div
         ref={modalRef}
-        className={`${styles.modal} ${allowOverflow ? styles.modalAllowOverflow : ''}`}
+        className={`${styles.modal} ${allowOverflow ? styles.modalAllowOverflow : ''} ${className}`}
         style={modalHeight ? { height: `${modalHeight}px` } : undefined}
         onClick={e => e.stopPropagation()}
       >
-        <button className={styles.closeBtn} onClick={e => { e.stopPropagation(); onClose?.() }}>×</button>
-        <div ref={modalContentRef} className={`${styles.modalContent} ${allowOverflow ? styles.modalContentAllowOverflow : ''}`}>
+        {showClose && (
+          <button className={styles.closeBtn} onClick={e => { e.stopPropagation(); onClose?.() }}>×</button>
+        )}
+        <div ref={modalContentRef} className={`${styles.modalContent} ${allowOverflow ? styles.modalContentAllowOverflow : ''} ${contentClassName}`}>
           {children}
         </div>
       </div>

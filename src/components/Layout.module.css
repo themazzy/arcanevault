@@ -188,6 +188,23 @@ button.navSubmenuItem {
   text-decoration: none;
 }
 
+.navSubmenuSupportItem {
+  margin: 4px 0;
+  border: 1px solid rgba(201,168,76,0.45);
+  background: linear-gradient(135deg, rgba(201,168,76,0.22) 0%, rgba(138,111,196,0.18) 100%);
+  color: var(--gold);
+  box-shadow: 0 4px 18px rgba(201,168,76,0.12);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+}
+
+.navSubmenuSupportItem:hover {
+  color: var(--gold);
+  transform: translateY(-1px);
+  background: linear-gradient(135deg, rgba(201,168,76,0.30) 0%, rgba(138,111,196,0.25) 100%);
+  border-color: rgba(201,168,76,0.65);
+  box-shadow: 0 8px 24px rgba(201,168,76,0.2);
+}
+
 /* ── Spacer pushes scan + user bar to the right ── */
 .spacer { flex: 1; }
 

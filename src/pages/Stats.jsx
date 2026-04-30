@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useLocation } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { getPrice, formatPrice, getScryfallKey, getPriceSource } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
@@ -906,11 +907,15 @@ const CustomTooltip = ({ active, payload, label, fmt }) => {
 export default function StatsPage() {
   const { user }         = useAuth()
   const { price_source } = useSettings()
+  const location = useLocation()
   const sym = getPriceSource(price_source).symbol
   const fmt = useCallback(v => formatPrice(v, price_source), [price_source])
   const windowWidth = useWindowWidth()
 
-  const [tab,            setTab]          = useState('overview')
+  const [tab,            setTab]          = useState(() => {
+    const params = new URLSearchParams(window.location.search)
+    return params.get('tab') === 'history' ? 'history' : params.get('tab') === 'winrates' ? 'winrates' : 'overview'
+  })
   const [cards,          setCards]        = useState([])
   const [sfMap,          setSfMap]        = useState({})
   const [loading,        setLoading]      = useState(true)
@@ -994,6 +999,11 @@ export default function StatsPage() {
       setHistoryLoading(false)
     }
   }, [user?.id])
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    setTab(params.get('tab') === 'history' ? 'history' : params.get('tab') === 'winrates' ? 'winrates' : 'overview')
+  }, [location.search])
 
   useEffect(() => {
     if (tab === 'history' || tab === 'winrates') refreshHistory()
@@ -1212,28 +1222,7 @@ export default function StatsPage() {
 
   return (
     <div className={styles.page}>
-      <SectionHeader title={`Collection Stats · ${cards.length.toLocaleString()} unique cards`} />
-
-      <div className={styles.statsTabs} role="tablist">
-        <button
-          role="tab" aria-selected={tab === 'overview'}
-          className={`${styles.statsTabBtn} ${tab === 'overview' ? styles.statsTabBtnActive : ''}`}
-          onClick={() => setTab('overview')}>
-          Overview
-        </button>
-        <button
-          role="tab" aria-selected={tab === 'winrates'}
-          className={`${styles.statsTabBtn} ${tab === 'winrates' ? styles.statsTabBtnActive : ''}`}
-          onClick={() => setTab('winrates')}>
-          Deck Win Rates
-        </button>
-        <button
-          role="tab" aria-selected={tab === 'history'}
-          className={`${styles.statsTabBtn} ${tab === 'history' ? styles.statsTabBtnActive : ''}`}
-          onClick={() => setTab('history')}>
-          Game History
-        </button>
-      </div>
+      <SectionHeader title={tab === 'history' ? 'Game History' : tab === 'winrates' ? 'Deck Win Rates' : `Stats · ${cards.length.toLocaleString()} unique cards`} />
 
       {tab === 'history' ? (
         <GameHistorySection

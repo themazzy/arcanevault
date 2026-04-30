@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
 import { isCurrentUserAdmin } from '../lib/admin'
@@ -432,6 +432,7 @@ function ClearCollectionData({ userId }) {
 export default function SettingsPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const settings = useSettings()
   const { open: openWizard } = useSetupWizard()
   const [emailNew, setEmailNew] = useState('')
@@ -443,6 +444,7 @@ export default function SettingsPage() {
   const [checkoutBusy, setCheckoutBusy] = useState(false)
   const [checkoutError, setCheckoutError] = useState('')
   const [isAdmin, setIsAdmin] = useState(false)
+  const [tipsResetMsg, setTipsResetMsg] = useState('')
 
   // Nickname availability check
   const [nicknameStatus, setNicknameStatus] = useState('')
@@ -453,6 +455,14 @@ export default function SettingsPage() {
   useEffect(() => {
     isCurrentUserAdmin(user?.id).then(setIsAdmin)
   }, [user?.id])
+
+  useEffect(() => {
+    if (!location.hash) return
+    const id = location.hash.slice(1)
+    window.requestAnimationFrame(() => {
+      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+  }, [location.hash])
 
   const handleNicknameChange = (val) => {
     setNicknameError('')
@@ -493,6 +503,13 @@ export default function SettingsPage() {
     setSaving(true)
     await settings.syncNow()
     setSaving(false)
+  }
+
+  const handleResetPageTips = async () => {
+    setTipsResetMsg('')
+    await set('page_tips_seen', {})
+    setTipsResetMsg('Page tips will show again as you visit pages.')
+    window.setTimeout(() => setTipsResetMsg(''), 3000)
   }
 
   const handleUnlockPremium = async () => {
@@ -563,6 +580,19 @@ export default function SettingsPage() {
     <div className={styles.page}>
       <SectionHeader title="Settings" />
 
+      <div className={styles.section}>
+        <div className={styles.sectionTitle}>Guided Help</div>
+        <SettingRow label="Setup Wizard" description="Rerun the first-time setup to pick your theme, price market, and nickname.">
+          <Button size="sm" onClick={openWizard}>Rerun Setup</Button>
+        </SettingRow>
+        <SettingRow label="Page Tips" description="Reset the one-time explanatory modals shown on each main page.">
+          <div className={styles.inlineActionStack}>
+            <Button size="sm" onClick={handleResetPageTips}>Reset Page Tips</Button>
+            {tipsResetMsg && <span className={styles.inlineSuccess}>{tipsResetMsg}</span>}
+          </div>
+        </SettingRow>
+      </div>
+
       {isAdmin && (
         <div className={styles.section}>
           <div className={styles.sectionTitle}>Admin</div>
@@ -583,6 +613,14 @@ export default function SettingsPage() {
           <div className={styles.themeLabel}>
             <div className={styles.rowTitle}>Colour Theme</div>
             <div className={styles.rowDesc}>Choose the colour palette for the entire app. Saved to your account and synced across devices.</div>
+            {!settings.premium && (
+              <div className={styles.themeSupportPrompt}>
+                Premium themes are locked.
+                <button type="button" onClick={handleUnlockPremium} disabled={checkoutBusy}>
+                  {checkoutBusy ? 'Opening Stripe...' : 'Support to unlock'}
+                </button>
+              </div>
+            )}
           </div>
           <ThemePicker value={settings.theme || 'shadow'} onChange={v => set('theme', v)} premium={settings.premium} />
         </div>
@@ -839,9 +877,6 @@ export default function SettingsPage() {
 
       <div className={styles.section}>
         <div className={styles.sectionTitle}>App</div>
-        <SettingRow label="Setup Wizard" description="Rerun the first-time setup to pick your theme, price market, and nickname.">
-          <Button size="sm" onClick={openWizard}>Rerun Setup</Button>
-        </SettingRow>
         <SettingRow label="Version" description="Installed app version for this build.">
           <span className={styles.appVersion}>v{APP_VERSION}</span>
         </SettingRow>
@@ -965,7 +1000,7 @@ export default function SettingsPage() {
         </SettingRow>
       </div>
 
-      <div className={styles.section}>
+      <div className={styles.section} id="support">
         <div className={styles.sectionTitle}>Support</div>
         <div className={styles.supportCard}>
           <div className={styles.supportEyebrow}>Keep DeckLoom growing</div>

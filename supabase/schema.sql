@@ -225,6 +225,7 @@ create table if not exists user_settings (
   default_grouping   text default 'type',
   keep_screen_awake  boolean default false,
   show_sync_errors   boolean default false,
+  page_tips_seen     jsonb not null default '{}'::jsonb,
   premium            boolean default false,
   stripe_customer_id text,
   premium_unlocked_at timestamptz,

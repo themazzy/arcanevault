@@ -30,6 +30,82 @@
 }
 .supportBadge:hover .supportText { color: var(--gold); }
 
+.homeSupportSection {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 20px;
+  border: 1px solid rgba(201,168,76,0.45);
+  background: linear-gradient(135deg, rgba(201,168,76,0.22) 0%, rgba(138,111,196,0.18) 100%) !important;
+  box-shadow: 0 4px 18px rgba(201,168,76,0.12);
+}
+
+.homeSupportCopy {
+  min-width: 0;
+}
+
+.homeSupportEyebrow {
+  font-family: var(--font-display);
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+.homeSupportTitle {
+  margin: 5px 0 0;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  letter-spacing: 0.03em;
+  color: var(--text);
+}
+
+.homeSupportText {
+  margin: 6px 0 0;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.homeSupportButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 18px;
+  border: 1px solid rgba(201,168,76,0.45);
+  border-radius: 9px;
+  background: linear-gradient(135deg, rgba(201,168,76,0.22) 0%, rgba(138,111,196,0.18) 100%);
+  color: var(--gold);
+  font-family: var(--font-display);
+  font-size: 0.82rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 4px 18px rgba(201,168,76,0.12);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+}
+
+.homeSupportButton:hover {
+  transform: translateY(-2px);
+  background: linear-gradient(135deg, rgba(201,168,76,0.30) 0%, rgba(138,111,196,0.25) 100%);
+  border-color: rgba(201,168,76,0.65);
+  box-shadow: 0 8px 28px rgba(201,168,76,0.22);
+}
+
+@media (max-width: 700px) {
+  .homeSupportSection {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+  .homeSupportButton {
+    width: 100%;
+  }
+}
+
 /* ── Layout ──────────────────────────────────────────────────────────────── */
 .home { max-width: 1100px; margin: 0 auto; }
 

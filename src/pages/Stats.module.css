@@ -2,37 +2,6 @@
   /* inherits app shell background — no override needed */
 }
 
-.statsTabs {
-  display: flex;
-  gap: 10px;
-  margin: -4px 0 16px;
-}
-
-.statsTabBtn {
-  background: var(--s1);
-  border: 1px solid var(--s-border);
-  border-radius: 8px;
-  color: var(--text-dim);
-  font-family: var(--font-display, 'Cinzel', serif);
-  font-size: 0.68rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  padding: 10px 14px;
-  cursor: pointer;
-  transition: all 0.18s;
-}
-
-.statsTabBtn:hover {
-  color: var(--text);
-  border-color: rgba(201,168,76,0.22);
-}
-
-.statsTabBtnActive {
-  background: rgba(201,168,76,0.12) !important;
-  border-color: rgba(201,168,76,0.42) !important;
-  color: var(--gold) !important;
-}
-
 /* ── Section label — matches DeckView extending-rule style ─────────────────── */
 .sectionLabel {
   font-family: var(--font-display, 'Cinzel', serif);
