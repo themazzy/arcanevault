@@ -703,6 +703,167 @@
 }
 
 /* ── Typography controls ─────────────────────────────────────────────────── */
+.archiveControls {
+  width: min(100%, 620px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.archiveModeRow {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  padding: 3px;
+  gap: 3px;
+  border: 1px solid var(--s-border);
+  border-radius: 8px;
+  background: var(--s1);
+}
+
+.archiveModeBtn {
+  min-height: 30px;
+  padding: 5px 12px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+
+.archiveModeBtnActive {
+  background: rgba(201,168,76,0.14);
+  border-color: rgba(201,168,76,0.34);
+  color: var(--text);
+}
+
+.archiveRandomRow {
+  display: flex;
+  align-items: center;
+}
+
+.archiveRerollBtn {
+  min-height: 32px;
+  padding: 6px 14px;
+  border: 1px solid var(--s-border2);
+  border-radius: 6px;
+  background: var(--s2);
+  color: var(--text);
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.archiveRerollBtn:hover {
+  border-color: var(--border-hi);
+  background: var(--s3);
+}
+
+.archivePicker {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.archiveSearchWrap {
+  position: relative;
+}
+
+.archiveSearchState {
+  margin-top: 6px;
+  font-size: 0.76rem;
+  color: var(--text-faint);
+}
+
+.archiveResults {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--s-border2);
+  border-radius: 8px;
+  background: var(--popup-bg);
+  box-shadow: var(--shadow-md);
+  padding: 6px;
+}
+
+.archiveResult {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.archiveResult:hover:not(:disabled) { background: var(--s2); }
+.archiveResult:disabled { opacity: 0.45; cursor: default; }
+
+.archiveResultThumb {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border-radius: 4px;
+  background-size: cover;
+  background-position: center;
+  border: 1px solid var(--s-border);
+}
+
+.archiveSelectedGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+  gap: 8px;
+}
+
+.archiveSelectedCard {
+  position: relative;
+  aspect-ratio: 5 / 7;
+  border-radius: 7px;
+  overflow: hidden;
+  border: 1px solid var(--s-border);
+  background: var(--s1);
+}
+
+.archiveSelectedArt {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+}
+
+.archiveRemoveBtn {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 6px;
+  min-height: 24px;
+  border: 1px solid rgba(0,0,0,0.28);
+  border-radius: 5px;
+  background: rgba(0,0,0,0.68);
+  color: #fff;
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+
+.archiveEmpty {
+  grid-column: 1 / -1;
+  padding: 12px;
+  border: 1px dashed var(--s-border2);
+  border-radius: 8px;
+  color: var(--text-faint);
+  font-size: 0.78rem;
+  text-align: center;
+}
+
 .fontWeightOptions {
   display: flex;
   gap: 6px;

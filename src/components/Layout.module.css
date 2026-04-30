@@ -14,6 +14,12 @@
   padding-bottom: 0;
 }
 
+:global([data-theme="archive_dark"]) .app,
+:global([data-theme="archive_light"]) .app {
+  background: transparent;
+  background-image: none;
+}
+
 /* ── Header wrapper — fixed floating pill ── */
 .headerWrap {
   position: fixed;

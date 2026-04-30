@@ -226,6 +226,8 @@ create table if not exists user_settings (
   keep_screen_awake  boolean default false,
   show_sync_errors   boolean default false,
   page_tips_seen     jsonb not null default '{}'::jsonb,
+  archive_background_mode text not null default 'random',
+  archive_background_cards jsonb not null default '[]'::jsonb,
   premium            boolean default false,
   stripe_customer_id text,
   premium_unlocked_at timestamptz,

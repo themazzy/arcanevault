@@ -1,8 +1,10 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
 import { sb } from '../lib/supabase'
 import { useAuth } from './Auth'
+import { fetchScryfallBatch, sfGet } from '../lib/scryfall'
 
 const SETTINGS_KEY = 'arcanevault_settings'
+const SETTINGS_MISSING_COLUMNS_KEY = 'arcanevault_missing_user_settings_columns'
 
 const LIGHT_SURFACE_VARS = {
   '--s-card': 'rgba(255,252,246,0.78)',
@@ -354,9 +356,44 @@ export const THEMES = {
     glow: '0 0 28px rgba(50,180,100,0.28)',
     focus: '0 0 0 3px rgba(50,180,100,0.14)',
   }),
+  archive_dark: createDarkTheme({
+    name: 'Arcane Archive',
+    lore: 'Personal card art, dark glass, and gallery shadows',
+    bg: '#050509',
+    bg2: '#0a0b12',
+    bg3: '#11131d',
+    accent: '#d8b65f',
+    accentDim: '#9f7d38',
+    hi: '#7c8cff',
+    text: '#efe5cf',
+    textDim: '#b8a98a',
+    textFaint: '#81745f',
+    border: 'rgba(216,182,95,0.22)',
+    borderHi: 'rgba(216,182,95,0.56)',
+    glow: '0 0 30px rgba(216,182,95,0.24)',
+    focus: '0 0 0 3px rgba(216,182,95,0.16)',
+  }),
+  archive_light: createLightTheme({
+    name: 'Arcane Archive Light',
+    lore: 'Personal card art, parchment light, and soft gallery haze',
+    bg: '#f7f1e6',
+    bg2: '#efe5d5',
+    bg3: '#e3d4bc',
+    accent: '#9a6418',
+    accentDim: '#754b12',
+    hi: '#5366c6',
+    text: '#1f160d',
+    textDim: '#5d4932',
+    textFaint: '#927d63',
+    border: 'rgba(117,75,18,0.18)',
+    borderHi: 'rgba(154,100,24,0.46)',
+    glow: '0 0 24px rgba(154,100,24,0.18)',
+    focus: '0 0 0 3px rgba(154,100,24,0.14)',
+  }),
 }
 
-export const PREMIUM_THEMES = new Set(['obsidian', 'crimson_court', 'verdant_realm'])
+export const ARCHIVE_THEMES = new Set(['archive_dark', 'archive_light'])
+export const PREMIUM_THEMES = new Set(['obsidian', 'crimson_court', 'verdant_realm', 'archive_dark', 'archive_light'])
 
 const DEFAULT_BENTO_CONFIG = {
   blocks: [
@@ -395,6 +432,9 @@ const DEFAULTS = {
   keep_screen_awake: false,
   show_sync_errors: false,
   page_tips_seen: {},
+  archive_background_mode: 'random',
+  archive_background_cards: [],
+  archive_background_seed: 0,
   // Profile
   profile_bio: '',
   profile_accent: '',
@@ -435,6 +475,66 @@ const LIGHT_CONTRAST_VARS = {
   '--overlay': 'rgba(250,242,230,0.72)',
 }
 
+function getMissingSettingsColumn(error) {
+  const message = error?.message || ''
+  if (error?.code !== 'PGRST204') return ''
+  const match = message.match(/'([^']+)' column of 'user_settings'/)
+  return match?.[1] || ''
+}
+
+function loadMissingSettingsColumns() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_MISSING_COLUMNS_KEY)
+    const parsed = raw ? JSON.parse(raw) : []
+    return new Set(Array.isArray(parsed) ? parsed.filter(Boolean) : [])
+  } catch {
+    return new Set()
+  }
+}
+
+const missingSettingsColumns = loadMissingSettingsColumns()
+
+function rememberMissingSettingsColumn(column) {
+  if (!column || missingSettingsColumns.has(column)) return
+  missingSettingsColumns.add(column)
+  try {
+    localStorage.setItem(SETTINGS_MISSING_COLUMNS_KEY, JSON.stringify([...missingSettingsColumns]))
+  } catch {}
+}
+
+function omitKnownMissingSettingsColumns(payload) {
+  const next = { ...payload }
+  for (const column of missingSettingsColumns) {
+    delete next[column]
+  }
+  return next
+}
+
+async function upsertSettingsWithSchemaFallback(payload) {
+  const nextPayload = omitKnownMissingSettingsColumns(payload)
+  const omittedColumns = []
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const { error } = await sb
+      .from('user_settings')
+      .upsert(nextPayload, { onConflict: 'user_id' })
+
+    const missingColumn = getMissingSettingsColumn(error)
+    if (!missingColumn || !(missingColumn in nextPayload)) {
+      return { error, omittedColumns }
+    }
+
+    delete nextPayload[missingColumn]
+    rememberMissingSettingsColumn(missingColumn)
+    omittedColumns.push(missingColumn)
+  }
+
+  return {
+    error: new Error('Could not sync settings because too many columns are missing from the live user_settings schema.'),
+    omittedColumns,
+  }
+}
+
 function loadLocal() {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
@@ -451,6 +551,13 @@ function normalizeSettings(settings) {
     page_tips_seen: settings.page_tips_seen && typeof settings.page_tips_seen === 'object' && !Array.isArray(settings.page_tips_seen)
       ? settings.page_tips_seen
       : {},
+    archive_background_mode: settings.archive_background_mode === 'selected' ? 'selected' : 'random',
+    archive_background_cards: Array.isArray(settings.archive_background_cards)
+      ? settings.archive_background_cards.filter(card => card && typeof card === 'object').slice(0, 12)
+      : [],
+    archive_background_seed: Number.isFinite(Number(settings.archive_background_seed))
+      ? Number(settings.archive_background_seed)
+      : 0,
   }
   if (!next.premium && PREMIUM_THEMES.has(next.theme)) {
     return { ...next, theme: 'shadow' }
@@ -475,8 +582,70 @@ function cacheThemeVars(themeId, oledMode) {
   } catch {}
 }
 
-function injectPremiumAmbient(themeId) {
+function getArchiveImage(card) {
+  return card?.image_uris?.art_crop
+    || card?.card_faces?.find(face => face?.image_uris)?.image_uris?.art_crop
+    || card?.image_uris?.large
+    || card?.image_uris?.normal
+    || ''
+}
+
+function normalizeArchiveCard(card) {
+  const image = getArchiveImage(card)
+  if (!card?.id || !image) return null
+  return {
+    id: card.id,
+    name: card.name,
+    image,
+  }
+}
+
+const ARCHIVE_RANDOM_QUERY = 'game:paper -type:token -type:art -type:scheme -type:plane unique:art'
+let archiveRequestSeq = 0
+
+async function getArchiveAmbientCards(options = {}) {
+  const selected = Array.isArray(options.archive_background_cards) ? options.archive_background_cards : []
+  if (options.archive_background_mode === 'selected' && selected.length) {
+    const cached = selected.filter(card => card?.id && card?.image)
+    if (cached.length >= Math.min(6, selected.length)) return cached.slice(0, 12)
+    const cards = await fetchScryfallBatch(selected.filter(card => card?.id).map(card => ({ id: card.id })))
+    return cards.map(normalizeArchiveCard).filter(Boolean).slice(0, 12)
+  }
+
+  // Seed is appended to bypass the browser's HTTP cache — without it, fetch reuses
+  // the prior response for identical URLs and order=random returns the same cards.
+  const seed = Number(options.archive_background_seed) || Date.now()
+  const data = await sfGet(`/cards/search?q=${encodeURIComponent(ARCHIVE_RANDOM_QUERY)}&order=random&unique=art&_=${seed}`)
+  return (data?.data || []).map(normalizeArchiveCard).filter(Boolean).slice(0, 12)
+}
+
+function renderArchiveAmbient(el, cards) {
+  el.querySelectorAll('.av-archive-card').forEach(node => node.remove())
+  const visible = cards.slice(0, 6)
+  visible.forEach((card, index) => {
+    const tile = document.createElement('div')
+    tile.className = 'av-archive-card'
+    tile.style.setProperty('--archive-card-image', `url("${card.image}")`)
+    tile.style.setProperty('--archive-card-i', String(index))
+    tile.setAttribute('aria-hidden', 'true')
+    el.appendChild(tile)
+  })
+}
+
+function clearArchiveAmbient(el) {
+  el.querySelectorAll('.av-archive-card').forEach(node => node.remove())
+}
+
+async function updateArchiveAmbient(el, themeId, options) {
+  const seq = ++archiveRequestSeq
+  const cards = await getArchiveAmbientCards(options)
+  if (seq !== archiveRequestSeq || el.dataset.theme !== themeId) return
+  renderArchiveAmbient(el, cards)
+}
+
+function injectPremiumAmbient(themeId, options = {}) {
   const isPremium = PREMIUM_THEMES.has(themeId)
+  const isArchive = ARCHIVE_THEMES.has(themeId)
   let el = document.getElementById('av-premium-ambient')
 
   if (!isPremium) {
@@ -491,22 +660,26 @@ function injectPremiumAmbient(themeId) {
     el = document.createElement('div')
     el.id = 'av-premium-ambient'
     el.setAttribute('aria-hidden', 'true')
-    el.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:0;transition:opacity 1.2s ease,background 1.5s ease;opacity:0;'
+    el.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:0;transition:opacity 1.2s ease,background 1.5s ease;opacity:0;overflow:hidden;'
     document.body.appendChild(el)
   }
 
   const gradients = {
-    obsidian: 'radial-gradient(ellipse 55% 45% at 15% 20%, rgba(160,128,255,0.09) 0%, transparent 60%), radial-gradient(ellipse 50% 40% at 85% 80%, rgba(96,176,255,0.07) 0%, transparent 60%)',
-    crimson_court: 'radial-gradient(ellipse 45% 60% at 5% 50%, rgba(200,34,68,0.10) 0%, transparent 50%), radial-gradient(ellipse 40% 55% at 95% 50%, rgba(212,144,58,0.08) 0%, transparent 50%)',
-    verdant_realm: 'radial-gradient(ellipse 50% 45% at 25% 75%, rgba(61,186,116,0.10) 0%, transparent 55%), radial-gradient(ellipse 45% 40% at 75% 25%, rgba(127,212,160,0.08) 0%, transparent 55%)',
+    obsidian: 'radial-gradient(ellipse 52% 42% at 14% 18%, rgba(96,176,255,0.10) 0%, transparent 58%), radial-gradient(ellipse 46% 38% at 84% 78%, rgba(176,143,255,0.10) 0%, transparent 60%), linear-gradient(135deg, rgba(96,176,255,0.040), transparent 40%, rgba(176,143,255,0.030))',
+    crimson_court: 'radial-gradient(ellipse 46% 56% at 8% 48%, rgba(200,34,68,0.13) 0%, transparent 50%), radial-gradient(ellipse 34% 50% at 88% 52%, rgba(212,144,58,0.11) 0%, transparent 52%), radial-gradient(circle at 50% 50%, rgba(255,210,150,0.030), transparent 38%)',
+    verdant_realm: 'radial-gradient(ellipse 58% 42% at 24% 82%, rgba(61,186,116,0.13) 0%, transparent 58%), radial-gradient(ellipse 42% 36% at 76% 22%, rgba(176,220,120,0.08) 0%, transparent 56%), linear-gradient(160deg, rgba(61,186,116,0.030), transparent 46%, rgba(127,212,160,0.020))',
+    archive_dark: 'linear-gradient(180deg, rgba(5,5,9,0.54), rgba(5,5,9,0.76))',
+    archive_light: 'linear-gradient(180deg, rgba(247,241,230,0.42), rgba(247,241,230,0.66))',
   }
 
   el.style.background = gradients[themeId] || ''
   el.dataset.theme = themeId
+  if (isArchive) updateArchiveAmbient(el, themeId, options)
+  else clearArchiveAmbient(el)
   requestAnimationFrame(() => { if (el) el.style.opacity = '1' })
 }
 
-export function applyTheme(themeId, oledMode) {
+export function applyTheme(themeId, oledMode, options = {}) {
   const theme = THEMES[themeId] || THEMES.shadow
   const root = document.documentElement
 
@@ -536,7 +709,7 @@ export function applyTheme(themeId, oledMode) {
     root.removeAttribute('data-oled')
   }
 
-  injectPremiumAmbient(themeId)
+  injectPremiumAmbient(themeId, options)
   cacheThemeVars(themeId, oledMode)
 }
 
@@ -598,6 +771,8 @@ export function SettingsProvider({ children }) {
     settingsRef.current = settings
   }, [settings])
 
+  useEffect(() => () => clearTimeout(syncTimeout.current), [])
+
   useEffect(() => {
     if (!user) {
       setLoaded(true)
@@ -637,7 +812,11 @@ export function SettingsProvider({ children }) {
   useEffect(() => {
     const themeId = user ? settings.theme : 'shadow'
     const oledMode = user ? settings.oled_mode : false
-    applyTheme(themeId, oledMode)
+    applyTheme(themeId, oledMode, {
+      archive_background_mode: settings.archive_background_mode,
+      archive_background_cards: settings.archive_background_cards,
+      archive_background_seed: settings.archive_background_seed,
+    })
 
     if (user && settings.higher_contrast) {
       const root = document.documentElement
@@ -647,7 +826,15 @@ export function SettingsProvider({ children }) {
         root.style.setProperty(key, value)
       })
     }
-  }, [user, settings.theme, settings.oled_mode, settings.higher_contrast])
+  }, [
+    user,
+    settings.theme,
+    settings.oled_mode,
+    settings.higher_contrast,
+    settings.archive_background_mode,
+    settings.archive_background_cards,
+    settings.archive_background_seed,
+  ])
 
   useEffect(() => {
     const root = document.documentElement
@@ -695,19 +882,22 @@ export function SettingsProvider({ children }) {
         price_source, default_sort, grid_density, show_price, cache_ttl_h,
         binder_sort, deck_sort, list_sort, font_weight, font_size, body_font, theme, oled_mode, nickname,
         anonymize_email, reduce_motion, higher_contrast, card_name_size, default_grouping,
-        keep_screen_awake, show_sync_errors, page_tips_seen,
+        keep_screen_awake, show_sync_errors, page_tips_seen, archive_background_mode, archive_background_cards,
+        profile_bio, profile_accent, profile_config,
       } = next
-      const { error } = await sb.from('user_settings').upsert(
-        {
-          user_id: user.id,
-          price_source, default_sort, grid_density, show_price, cache_ttl_h,
-          binder_sort, deck_sort, list_sort, font_weight, font_size, body_font, theme, oled_mode, nickname,
-          anonymize_email, reduce_motion, higher_contrast, card_name_size, default_grouping,
-          keep_screen_awake, show_sync_errors, page_tips_seen,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'user_id' }
-      )
+      const payload = {
+        user_id: user.id,
+        price_source, default_sort, grid_density, show_price, cache_ttl_h,
+        binder_sort, deck_sort, list_sort, font_weight, font_size, body_font, theme, oled_mode, nickname,
+        anonymize_email, reduce_motion, higher_contrast, card_name_size, default_grouping,
+        keep_screen_awake, show_sync_errors, page_tips_seen, archive_background_mode, archive_background_cards,
+        profile_bio, profile_accent, profile_config,
+        updated_at: new Date().toISOString(),
+      }
+      const { error, omittedColumns } = await upsertSettingsWithSchemaFallback(payload)
+      if (omittedColumns.length) {
+        console.warn(`[Settings] Live user_settings schema is missing optional columns (${omittedColumns.join(', ')}); synced remaining settings only.`)
+      }
       if (error) throw error
       setSyncState('saved')
       setLastSyncedAt(new Date().toISOString())
@@ -722,7 +912,11 @@ export function SettingsProvider({ children }) {
   }, [user])
 
   const save = useCallback(async (patch) => {
-    const next = normalizeSettings({ ...settings, ...patch })
+    // Read from ref to merge against the latest settings — using the closed-over
+    // `settings` here drops earlier patches when save() is called twice in the
+    // same render before React has applied the first setSettings.
+    const next = normalizeSettings({ ...settingsRef.current, ...patch })
+    settingsRef.current = next
     setSettings(next)
     saveLocal(next)
 
@@ -730,10 +924,10 @@ export function SettingsProvider({ children }) {
 
     clearTimeout(syncTimeout.current)
     setSyncState('pending')
-    syncTimeout.current = setTimeout(async () => {
-      await performSync(next)
+    syncTimeout.current = setTimeout(() => {
+      performSync(settingsRef.current)
     }, 800)
-  }, [settings, user, performSync])
+  }, [user, performSync])
 
   const syncNow = useCallback(async () => {
     clearTimeout(syncTimeout.current)

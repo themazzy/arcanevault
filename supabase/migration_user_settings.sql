@@ -23,6 +23,8 @@ create table if not exists user_settings (
   default_grouping   text default 'type',
   keep_screen_awake  boolean default false,
   show_sync_errors   boolean default false,
+  archive_background_mode text not null default 'random',
+  archive_background_cards jsonb not null default '[]'::jsonb,
   updated_at         timestamptz default now()
 );
 alter table user_settings enable row level security;
