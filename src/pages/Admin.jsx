@@ -15,18 +15,7 @@ const ADMIN_TABS = [
 ]
 
 async function setPremiumForUser(userId, grant) {
-  const updatedAt = new Date().toISOString()
-  const { data, error } = await sb.from('user_settings')
-    .update({ premium: grant, updated_at: updatedAt })
-    .eq('user_id', userId)
-    .select('user_id')
-
-  if (error) throw error
-  if (data?.length || !grant) return
-
-  const { error: insertError } = await sb.from('user_settings')
-    .insert({ user_id: userId, premium: true, updated_at: updatedAt })
-  if (insertError) throw insertError
+  await updateUserSettingsAsAdmin(userId, { premium: grant })
 }
 
 async function loadResolvedFeedbackIds() {
@@ -350,6 +339,28 @@ async function getFunctionAuthHeaders() {
   return headers
 }
 
+async function getFunctionErrorMessage(error, fallback) {
+  try {
+    const response = error?.context
+    if (response && typeof response.json === 'function') {
+      const body = await response.clone().json()
+      return body?.details || body?.error || error?.message || fallback
+    }
+  } catch {}
+  return error?.message || fallback
+}
+
+async function updateUserSettingsAsAdmin(userId, patch) {
+  const headers = await getFunctionAuthHeaders()
+  const { data, error } = await sb.functions.invoke('admin-update-user-settings', {
+    body: { user_id: userId, patch },
+    headers,
+  })
+  if (error) throw new Error(await getFunctionErrorMessage(error, 'Could not update user settings.'))
+  if (data?.error) throw new Error(data.details || data.error)
+  return data?.settings || null
+}
+
 // ── Changelog Editor ─────────────────────────────────────────────────────────
 const CL_DEFAULT = [
   {
@@ -634,17 +645,20 @@ function UserSettingsEditor({ userId, settings, onSaved }) {
   const save = async () => {
     setSaving(true)
     setStatus(null)
-    const { user_id, updated_at, currency, price_type, ...editable } = draft
-    const { error } = await sb.from('user_settings')
-      .update({ ...editable, updated_at: new Date().toISOString() })
-      .eq('user_id', userId)
-    if (error) {
-      setStatus({ ok: false, msg: error.message })
-    } else {
+    const editable = SETTINGS_FIELDS.reduce((acc, field) => {
+      acc[field.key] = draft[field.key]
+      return acc
+    }, {})
+
+    try {
+      await updateUserSettingsAsAdmin(userId, editable)
       setStatus({ ok: true, msg: 'Saved' })
       onSaved?.()
+    } catch (error) {
+      setStatus({ ok: false, msg: error.message || 'Could not save settings.' })
+    } finally {
+      setSaving(false)
     }
-    setSaving(false)
   }
 
   const isDirty = JSON.stringify(draft) !== JSON.stringify(settings)
