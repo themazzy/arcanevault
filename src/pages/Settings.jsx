@@ -991,7 +991,7 @@ export default function SettingsPage() {
                 disabled={checkoutBusy}
               >
                 <span className={styles.stripeBtnStar}>✦</span>
-                {checkoutBusy ? 'Opening Stripe...' : 'Unlock Premium Themes — €3'}
+                {checkoutBusy ? 'Opening Stripe...' : 'Unlock Premium Themes — €3 or your choice'}
               </button>
               <div className={styles.stripeNote}>One-time · Secured by Stripe · No subscription</div>
               {checkoutError && <div className={styles.stripeError}>{checkoutError}</div>}
