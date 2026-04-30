@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, Link, useLocation } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
 import { Button, Modal, EmptyState, SectionHeader, ResponsiveMenu } from '../components/UI'
@@ -203,6 +203,7 @@ const TYPE_LABELS = [['all', 'All'], ['builder', 'Builder'], ['collection', 'Col
 export default function BuilderPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const [decks, setDecks]         = useState([])
   const [loading, setLoading]     = useState(true)
   const [showNew, setShowNew]     = useState(false)
@@ -214,7 +215,10 @@ export default function BuilderPage() {
   const confirmAsync = (message) => new Promise(resolve => setConfirmState({ message, resolve }))
   const handleConfirm = (result) => { confirmState?.resolve(result); setConfirmState(null) }
 
-  const [pageTab, setPageTab]               = useState('my')
+  const [pageTab, setPageTab]               = useState(() => {
+    const params = new URLSearchParams(window.location.search)
+    return params.get('tab') === 'browser' ? 'community' : 'my'
+  })
   const [communityDecks, setCommunityDecks] = useState([])
   const [communityNicks, setCommunityNicks] = useState({})
   const [communityLoading, setCommunityLoading] = useState(false)
@@ -235,6 +239,11 @@ export default function BuilderPage() {
   const COLOR_ORDER = ['W', 'U', 'B', 'R', 'G', 'C']
 
   useEffect(() => { loadDecks() }, [])
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    setPageTab(params.get('tab') === 'browser' ? 'community' : 'my')
+  }, [location.search])
 
   async function loadDecks() {
     setLoading(true)
@@ -273,6 +282,10 @@ export default function BuilderPage() {
       setCommunityLoading(false)
     }
   }
+
+  useEffect(() => {
+    if (pageTab === 'community' && !communityLoaded) loadCommunityDecks()
+  }, [pageTab, communityLoaded])
 
   async function createDeck() {
     if (!newName.trim()) return
@@ -400,18 +413,6 @@ export default function BuilderPage() {
         action={pageTab === 'my' ? <Button onClick={() => setShowNew(true)}>+ New Deck</Button> : null}
       />
 
-      {/* Page-level tab bar */}
-      <div className={styles.pageTabBar}>
-        <button
-          className={`${styles.pageTab}${pageTab === 'my' ? ' ' + styles.pageTabActive : ''}`}
-          onClick={() => setPageTab('my')}
-        >My Decks</button>
-        <button
-          className={`${styles.pageTab}${pageTab === 'community' ? ' ' + styles.pageTabActive : ''}`}
-          onClick={() => { setPageTab('community'); loadCommunityDecks() }}
-        >Deck Browser</button>
-      </div>
-
       {/* ── My Decks tab ── */}
       {pageTab === 'my' && <>
         <div className={styles.filterBar}>
@@ -522,7 +523,7 @@ export default function BuilderPage() {
         )}
       </>}
 
-      {/* ── Community / Deck Browser tab ── */}
+      {/* ── Community / Deck Browser ── */}
       {pageTab === 'community' && <>
         <div className={styles.filterBar}>
           <input

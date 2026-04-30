@@ -394,6 +394,7 @@ const DEFAULTS = {
   default_grouping: 'type',
   keep_screen_awake: false,
   show_sync_errors: false,
+  page_tips_seen: {},
   // Profile
   profile_bio: '',
   profile_accent: '',
@@ -445,10 +446,16 @@ function loadLocal() {
 }
 
 function normalizeSettings(settings) {
-  if (!settings.premium && PREMIUM_THEMES.has(settings.theme)) {
-    return { ...settings, theme: 'shadow' }
+  const next = {
+    ...settings,
+    page_tips_seen: settings.page_tips_seen && typeof settings.page_tips_seen === 'object' && !Array.isArray(settings.page_tips_seen)
+      ? settings.page_tips_seen
+      : {},
   }
-  return settings
+  if (!next.premium && PREMIUM_THEMES.has(next.theme)) {
+    return { ...next, theme: 'shadow' }
+  }
+  return next
 }
 
 function saveLocal(settings) {
@@ -688,7 +695,7 @@ export function SettingsProvider({ children }) {
         price_source, default_sort, grid_density, show_price, cache_ttl_h,
         binder_sort, deck_sort, list_sort, font_weight, font_size, body_font, theme, oled_mode, nickname,
         anonymize_email, reduce_motion, higher_contrast, card_name_size, default_grouping,
-        keep_screen_awake, show_sync_errors,
+        keep_screen_awake, show_sync_errors, page_tips_seen,
       } = next
       const { error } = await sb.from('user_settings').upsert(
         {
@@ -696,7 +703,7 @@ export function SettingsProvider({ children }) {
           price_source, default_sort, grid_density, show_price, cache_ttl_h,
           binder_sort, deck_sort, list_sort, font_weight, font_size, body_font, theme, oled_mode, nickname,
           anonymize_email, reduce_motion, higher_contrast, card_name_size, default_grouping,
-          keep_screen_awake, show_sync_errors,
+          keep_screen_awake, show_sync_errors, page_tips_seen,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'user_id' }

@@ -16,13 +16,18 @@ const VIEWED_KEY = 'arcanevault_recently_viewed'
 function getRecentlyViewed() {
   try { return JSON.parse(localStorage.getItem(VIEWED_KEY) || '[]') } catch { return [] }
 }
+function toSmallScryfallImage(url) {
+  return typeof url === 'string'
+    ? url.replace('/normal/', '/small/').replace('/large/', '/small/')
+    : url
+}
 function addRecentlyViewed(card) {
   if (!card?.id) return
   const entry = {
     id:       card.id,
     name:     card.name,
     set_name: card.set_name || '',
-    image:    card.image_uris?.normal || card.card_faces?.[0]?.image_uris?.normal || card.image_uri || null,
+    image:    card.image_uris?.small || card.card_faces?.[0]?.image_uris?.small || toSmallScryfallImage(card.image_uri) || null,
     eur:      card.prices?.eur  || null,
     usd:      card.prices?.usd  || null,
   }
@@ -761,9 +766,8 @@ function RulebookSection() {
         <div className={styles.rulebookCopy}>
           <div className={styles.sectionHeader}>
             <h2 className={styles.sectionTitle}>Rulebook</h2>
-            <span className={styles.sectionCount}>Comprehensive Rules</span>
           </div>
-          <p className={styles.sectionDesc}>Browse categories 1-9, numbered sections, glossary entries, and every rule from the bundled April 17, 2026 Comprehensive Rules.</p>
+          <p className={styles.sectionDesc}>Comprehensive Magic the Gathering rules, last updated on April 17, 2026.</p>
         </div>
         <button type="button" className={styles.rulebookButton} onClick={() => navigate('/rules')}>
           Open <ChevronRightIcon size={13} />
@@ -1027,7 +1031,7 @@ function TopValuedCards({ data, loading, priceSource, onCardClick }) {
       {loading ? <LoadingStrip /> : (
         <div className={styles.hScroll}>
           {topCards.map(({ card, sf, price }) => {
-            const img = getImageUri(sf, 'normal') || card.image_uri || null
+            const img = getImageUri(sf, 'small') || toSmallScryfallImage(card.image_uri) || null
             return (
               <div key={card.id} className={styles.hScrollCard}
                 style={{ cursor: 'pointer' }}
@@ -1059,7 +1063,7 @@ function RecentlyAdded({ data, loading, onCardClick }) {
         <div className={styles.hScroll}>
           {data.recentCards.map(card => {
             const sf  = data.sfMap[`${card.set_code}-${card.collector_number}`]
-            const img = getImageUri(sf, 'normal') || card.image_uri || null
+            const img = getImageUri(sf, 'small') || toSmallScryfallImage(card.image_uri) || null
             return (
               <div key={card.id} className={styles.hScrollCard}
                 style={{ cursor: 'pointer' }}
@@ -1280,7 +1284,7 @@ function RecentlyViewedSection({ onCardClick }) {
             style={{ cursor: 'pointer' }}
             onClick={() => onCardClick(card.id, card.name)}>
             {card.image
-              ? <img src={card.image} alt={card.name} className={styles.hScrollImg} loading="lazy" />
+              ? <img src={toSmallScryfallImage(card.image)} alt={card.name} className={styles.hScrollImg} loading="lazy" />
               : <div className={styles.hScrollImgPlaceholder}>{card.name}</div>}
             <div className={styles.hScrollName}>{card.name}</div>
             {(card.eur || card.usd) && (
@@ -1371,9 +1375,28 @@ function ChangelogPanel({ entries }) {
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
+function HomeSupportSection() {
+  const navigate = useNavigate()
+
+  return (
+    <section className={`${styles.section} ${styles.homeSupportSection}`}>
+      <div className={styles.homeSupportCopy}>
+        <div className={styles.homeSupportEyebrow}>Support DeckLoom</div>
+        <h2 className={styles.homeSupportTitle}>Unlock premium themes and keep the app growing</h2>
+        <p className={styles.homeSupportText}>
+          One-time support unlocks Obsidian Night, Crimson Court, and Verdant Realm across your account.
+        </p>
+      </div>
+      <button type="button" className={styles.homeSupportButton} onClick={() => navigate('/settings#support')}>
+        Support <ChevronRightIcon size={13} />
+      </button>
+    </section>
+  )
+}
+
 export default function HomePage() {
   const { user }               = useAuth()
-  const { price_source }       = useSettings()
+  const { price_source, premium } = useSettings()
   const [collData, setCollData]   = useState(null)
   const [collLoading, setCollLoading] = useState(false)
   const [changelog, setChangelog] = useState(CHANGELOG_DEFAULT)
@@ -1434,6 +1457,7 @@ export default function HomePage() {
       <ChangelogPanel entries={changelog} />
       <CardLookupSection />
       <RulebookSection />
+      {user && !premium && <HomeSupportSection />}
       {user && <CollectionSnapshot data={collData} loading={collLoading} priceSource={price_source} />}
       <RecentlyViewedSection onCardClick={openCard} />
       <RandomCardSection />

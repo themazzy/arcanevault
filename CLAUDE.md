@@ -32,9 +32,9 @@ The cost of a 30-second clarification is always lower than building the wrong th
 
 ## Project Overview
 
-**DeckLoom** is a personal Magic: The Gathering collection tracker hosted at **https://themazzy.github.io/arcanevault/**. Users catalog owned cards, organise them into binders/decks/wishlists, track prices and P&L, build decks, scan cards with camera OCR, and view collection analytics.
+**DeckLoom** is a personal Magic: The Gathering collection tracker hosted at **https://themazzy.github.io/arcanevault/**. Users catalog owned cards, organise them into binders/decks/wishlists, track prices and P&L, build decks, scan cards with camera OCR, view collection analytics, manage tournaments, and trade cards.
 
-**Stack:** React 18 + Vite + Supabase + IndexedDB
+**Stack:** React 18 + Vite + Supabase + IndexedDB + TanStack React Query
 
 ---
 
@@ -57,9 +57,10 @@ Copy `.env.example` to `.env` and fill in:
 ```
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key
+VITE_POKEMON_TCG_API_KEY=your-key   # optional — Pokemon TCG page degrades without it
 ```
 
-Both variables are required at startup; the app will fail silently without them.
+`VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are required at startup; the app will fail silently without them.
 
 ---
 
@@ -100,7 +101,13 @@ User action
 - `src/lib/supabase.js` — Exports the `sb` singleton. Used for auth + cloud sync fallback only.
 - `src/lib/scryfall.js` — Scryfall metadata/art cache. `getInstantCache()` returns in-memory map (null if cold); always guard with `sfMap || {}`.
 
+**React Query layer:** Collection data loading is migrated to **TanStack React Query** (`@tanstack/react-query`). The `queryClient` is in `src/lib/queryClient.js` (staleTime 5 min, gcTime 30 min, networkMode `offlineFirst`). On startup, `hydrateCollectionQueriesFromIdb()` from `src/lib/idbQueryBridge.js` seeds the cache from IDB so the first render is instant. Query keys: `['cards', userId]`, `['folders', userId]`. Pages that previously read IDB directly may now use `useQuery` hooks backed by `src/lib/collectionFetchers.js`.
+
 **Key gotcha:** Never use Supabase's nested `select('folder_cards(cards(*))')` — it requires FK relationships configured in PostgREST and silently returns empty. Always do flat queries and join in memory.
+
+### Group Folders
+
+Folders whose description JSON contains `"isGroup": true` are organisational group containers, not placement folders. `isGroupFolder(folder)` (exported from `src/lib/collectionFetchers.js`) identifies them. Group folders must be excluded from `folder_cards` queries, placement writes, and allocation logic.
 
 ### Pricing
 
@@ -128,9 +135,15 @@ Categories: Navigation · Actions · Folder types · View modes · Status · Gam
 
 `useSettings()` returns all user preferences plus `save(patch)`, `syncNow()`, sync status, and the last sync error. Settings write to `localStorage` immediately and debounce a Supabase upsert (800 ms).
 
-Important settings: `theme`, `oled_mode`, `higher_contrast`, `reduce_motion`, `font_size`, `font_weight`, `card_name_size`, `price_source`, `grid_density`, `show_price`, `cache_ttl_h`, `default_grouping`, `nickname`, `anonymize_email`, `keep_screen_awake`, `show_sync_errors`.
+Important settings: `theme`, `oled_mode`, `higher_contrast`, `reduce_motion`, `font_size`, `font_weight`, `card_name_size`, `price_source`, `grid_density`, `show_price`, `cache_ttl_h`, `default_grouping`, `nickname`, `anonymize_email`, `keep_screen_awake`, `show_sync_errors`, `premium`, `profile_config`.
 
 Always read these values from `useSettings()` instead of hardcoding defaults.
+
+#### Premium Themes
+
+`PREMIUM_THEMES = new Set(['obsidian', 'crimson_court', 'verdant_realm'])` — these themes require `settings.premium === true`. The `premium` flag is set server-side only (Stripe webhook → edge function → `user_settings`). **Never** allow client code to set `premium: true` directly; `SettingsContext` strips it from any local write. On successful Stripe checkout, the URL will contain `?premium_checkout=success` — `SettingsContext` detects this, polls for the server flag, and applies the theme.
+
+`DEFAULT_BENTO_CONFIG` is exported from `SettingsContext` and used by `Profile.jsx` for the bento-grid block order.
 
 ### Filtering & Sorting
 
@@ -206,9 +219,40 @@ Wishlists are not part of owned collection inventory.
 
 ### Routing
 
-React Router v6. `BrowserRouter` in `src/App.jsx` uses `basename="/arcanevault"` for GitHub Pages compatibility. Public routes: `/login`, `/share/:token`, `/join/:code`. All other routes require auth and are wrapped in `PrivateApp`.
+React Router v6. `BrowserRouter` in `src/App.jsx` uses `basename="/arcanevault"` for GitHub Pages compatibility.
 
-Builder routes: `/builder` → `Builder.jsx` (deck index); `/builder/:id` → `DeckBuilder.jsx` (deck editor). A linked collection deck navigates to `/builder/<linked_builder_id>` rather than `/deck/<id>`.
+**Public routes** (outside `PrivateApp`): `/legal`, `/privacy`, `/storage`, `/credits`, `/delete-account`, `/share/:token`, `/d/:id`, `/join/:code`, `/join-tournament/:code`.
+
+**Private routes** (require auth): all others, wrapped in `PrivateApp`.
+
+Full route map:
+```
+/                        → Home.jsx
+/collection              → Collection.jsx
+/decks                   → Folders.jsx (type=deck)
+/binders                 → Folders.jsx (type=binder)
+/lists                   → Lists.jsx
+/trading                 → Trading.jsx
+/stats                   → Stats.jsx
+/life                    → LifeTracker.jsx
+/tournaments             → Tournaments.jsx
+/pokemon                 → PokemonCollection.jsx
+/settings                → Settings.jsx
+/help                    → Help.jsx
+/rules                   → Rulebook.jsx
+/admin                   → Admin.jsx  (admin_users only)
+/builder                 → Builder.jsx
+/builder/:id             → DeckBuilder.jsx
+/builder/:id/playtest    → DeckGoldfish.jsx (deck playtester)
+/scanner                 → Scanner.jsx
+/profile/:username       → Profile.jsx (public)
+/d/:id                   → DeckView.jsx (public deck shortlink)
+/join/:code              → JoinGame.jsx (public)
+/join-tournament/:code   → JoinTournament.jsx (public)
+/share/:token            → Share.jsx (public)
+```
+
+A linked collection deck navigates to `/builder/<linked_builder_id>` rather than `/deck/<id>`.
 
 ### Vite Proxies (dev only)
 
@@ -227,11 +271,23 @@ These are only active during `npm run dev`. Production deploys on GitHub Pages c
 
 | File | Role |
 |---|---|
-| `src/icons/index.jsx` | **Unified icon system** — all 56 SVG icons; single source of truth for iconography |
+| `src/icons/index.jsx` | **Unified icon system** — SVG icons; single source of truth for iconography |
 | `src/lib/db.js` | IDB layer — all local reads/writes |
 | `src/lib/scryfall.js` | Scryfall metadata/image cache + batch lookup helpers |
 | `src/lib/sharedCardPrices.js` | Overlays shared Supabase daily prices onto cached Scryfall card data |
 | `src/lib/filterWorker.js` | Web Worker: filter + sort logic |
+| `src/lib/queryClient.js` | TanStack React Query client (staleTime 5m, gcTime 30m, offline-first) |
+| `src/lib/collectionFetchers.js` | Supabase fetch helpers for cards/folders; `isGroupFolder()` |
+| `src/lib/idbQueryBridge.js` | `hydrateCollectionQueriesFromIdb()` — seeds React Query cache from IDB at startup |
+| `src/lib/deckData.js` | `fetchDeckCards()` from `deck_cards_view`; `mergeAllocationRows()` |
+| `src/lib/deckAllocationPlanner.js` | Plans which owned card rows to assign when linking a builder deck |
+| `src/lib/exportUtils.js` | `cardsToCSV()` — Manabox-compatible CSV export |
+| `src/lib/admin.js` | `isCurrentUserAdmin()` — checks `admin_users` table |
+| `src/lib/consent.js` | GDPR consent preferences (necessary/analytics/marketing/preferences) stored in localStorage |
+| `src/lib/publicUrl.js` | `getPublicBaseUrl()`, `getPublicAppUrl(path)` — prod/dev URL helpers (Capacitor-aware) |
+| `src/lib/pokemonTcg.js` | Pokemon TCG API integration — search, prices, snapshots |
+| `src/lib/tournament.js` | Tournament logic: formats, structures, standings, result recording |
+| `src/lib/networkUtils.js` | `isNetworkLikeError()`, `createOfflineError()` |
 | `src/scanner/DatabaseService.js` | pHash DB: SQLite (native) + Supabase fallback (web); LSH band index, IDB pre-parsed cache |
 | `src/scanner/ScannerEngine.js` | OpenCV.js card detection (multi-pass Canny), perspective warp, art crop, reticle crop, 180° rotation, pHash |
 | `src/scanner/hashCore.js` | Pure-JS pHash core: precomputed DCT cosine table, CLAHE, percentileCap, Hamming distance — shared with seed script |
@@ -247,24 +303,39 @@ These are only active during `npm run dev`. Production deploys on GitHub Pages c
 | `src/lib/csvParser.js` | Manabox CSV → cards + folders |
 | `src/components/CardComponents.jsx` | `FilterBar`, `CardDetail`, `CardGrid`, `EMPTY_FILTERS`, `applyFilterSort`, `BulkActionBar` |
 | `src/components/VirtualCardGrid.jsx` | Virtualised card grid (@tanstack/react-virtual) |
+| `src/components/UI.jsx` | Shared UI primitives: `Button`, `Input`, `Modal`, `SectionHeader`, `Select`, `Badge`, `EmptyState`, `ErrorBox`, `ProgressBar` |
+| `src/components/ToastContext.jsx` | `ToastProvider` + `useToast()` — action toast notifications (success/error/info, auto-dismiss 3.2 s) |
+| `src/components/SetupWizard.jsx` | `SetupWizardProvider` + `useSetupWizard()` — first-time setup flow (fires once, gated by `user_metadata.setup_completed`) |
+| `src/components/Layout.jsx` | Main app shell: glass-pill floating navbar, desktop sidebar nav, mobile bottom tabs |
 | `src/components/AddCardModal.jsx` | Add card modal: scan (OCR) or manual search + queue |
 | `src/components/ImportModal.jsx` | Bulk import wizard: CSV / txt / paste, for binders/decks/wishlists |
-| `src/components/SettingsContext.jsx` | `SettingsProvider` + `useSettings()` |
+| `src/components/ExportModal.jsx` | Export collection/deck/binder as Manabox-compatible CSV |
+| `src/components/SettingsContext.jsx` | `SettingsProvider` + `useSettings()` + `THEMES` + `PREMIUM_THEMES` + `DEFAULT_BENTO_CONFIG` |
 | `src/components/Auth.jsx` | `AuthProvider` + `useAuth()` + `LoginPage` |
 | `src/pages/Collection.jsx` | Main collection browser (IDB-first, worker filter) |
-| `src/pages/Home.jsx` | Dashboard — collection snapshot, card lookup, recently viewed, news |
+| `src/pages/Home.jsx` | Dashboard — collection snapshot, card lookup, recently viewed, changelog news |
 | `src/pages/Folders.jsx` | Binders index + `FolderBrowser` (inline grid/list view toggle, `BinderListView`) |
 | `src/pages/Lists.jsx` | Wishlists index + `ListBrowser` (inline list/grid view toggle, `WishlistGrid`) |
 | `src/pages/Builder.jsx` | Builder deck index — deck tiles with art backgrounds, linked-pair sync badges, select mode |
 | `src/pages/DeckBuilder.jsx` | Full deck builder UI at `/builder/:id` — card list, boards, import, linked sync |
 | `src/pages/DeckBuilder.module.css` | Styles for DeckBuilder — do not confuse with `DeckView.module.css` |
+| `src/pages/DeckGoldfish.jsx` | Deck playtester at `/builder/:id/playtest` |
 | `src/pages/DeckBrowser.jsx` | Card browser inside a deck — list/stacks/grid/text/table views |
-| `src/pages/DeckView.jsx` | Shared deck view page (collection decks + builder decks) |
+| `src/pages/DeckView.jsx` | Shared deck view page (collection decks + builder decks); public shortlink at `/d/:id` |
 | `src/pages/DeckView.module.css` | Styles for DeckView — do not confuse with `DeckBuilder.module.css` |
+| `src/pages/Profile.jsx` | Public user profile at `/profile/:username` — bento-grid layout (bio, stats, deck showcase) |
+| `src/pages/Admin.jsx` | Admin panel at `/admin` — feedback triage, users, premium grants, deletions, changelog editor; requires `admin_users` membership |
+| `src/pages/Settings.jsx` | Dedicated settings page at `/settings` |
+| `src/pages/Rulebook.jsx` | MTG comprehensive rulebook browser at `/rules` — category/section/rule search |
+| `src/pages/Tournaments.jsx` | Tournament manager at `/tournaments` — multiple formats/structures, standings, stored in localStorage |
+| `src/pages/Trading.jsx` | Trade value comparison at `/trading` — match collection cards against a want list |
+| `src/pages/PokemonCollection.jsx` | Pokemon TCG collection at `/pokemon` — stored in localStorage, prices via Pokemon TCG API |
 | `src/pages/Stats.jsx` | Collection analytics |
 | `src/pages/LifeTracker.jsx` | Multiplayer life tracker — pre-game setup, game screen, player-settings overlay, commander damage, lobby |
 | `src/pages/LifeTracker.module.css` | Styles for LifeTracker |
 | `src/pages/JoinGame.jsx` | Public route `/join/:code` — join a multiplayer lobby |
+| `src/pages/JoinTournament.jsx` | Public route `/join-tournament/:code` — join a tournament |
+| `src/pages/Share.jsx` | Public route `/share/:token` — view a shared deck/folder |
 | `src/components/FeedbackModal.jsx` | Bug report / feature request modal |
 
 ---
@@ -345,6 +416,26 @@ border-top-color: rgba(201,168,76,0.65);
 - All monetary displays go through `formatPrice()` — never format manually.
 - `CardDetail` locks `document.body.style.overflow = 'hidden'` while open and restores it on unmount — do not add a second scroll lock elsewhere.
 - All top-level page wrappers use `<div className={styles.page}>` with the dot-grid background.
+
+### Toast Notifications
+
+`useToast()` from `src/components/ToastContext.jsx` provides `showToast(message, opts)`. Options: `tone` (`'success'` | `'error'` | `'info'`, default `'success'`), `duration` (ms, default 3200). Max 3 toasts shown simultaneously (oldest dropped). Use for user-facing feedback after mutations — do not use `alert()`.
+
+### Shared UI Primitives (`UI.jsx`)
+
+`src/components/UI.jsx` exports reusable primitives: `Button`, `Input`, `Modal`, `SectionHeader`, `Select`, `Badge`, `EmptyState`, `ErrorBox`, `ProgressBar`. Prefer these over one-off implementations in page files for consistent styling.
+
+### Setup Wizard
+
+`useSetupWizard().open()` triggers the first-time setup modal manually (e.g. from Settings). It auto-opens once per user on first login if `user.user_metadata.setup_completed` is falsy. Gated by localStorage key `arcanevault_setup_done`.
+
+### Admin Access
+
+The `/admin` route is only useful to users listed in `admin_users` with `active = true`. `isCurrentUserAdmin(userId)` in `src/lib/admin.js` performs this check. The `Admin.jsx` page does its own guard and shows nothing if the check fails.
+
+### Profile Page
+
+`Profile.jsx` renders public bento-grid profiles at `/profile/:username`. Blocks are defined by `BLOCK_DEFS` and ordered/toggled via `profile_config` in `user_settings`. Deck showcase block pulls from `shared_folders`/public decks. Edit mode is only available to the profile owner.
 
 ### Add Card Modal (`AddCardModal.jsx`)
 
@@ -445,20 +536,30 @@ Host creates a session → others visit `/join/:code` on their own device → ho
 ## Supabase Table Notes
 
 - `cards` — user's owned cards, RLS by `user_id`
-- `folders` — type is `'binder' | 'deck' | 'list' | 'builder_deck'`
+- `folders` — type is `'binder' | 'deck' | 'list' | 'builder_deck'`; description JSON may include `isGroup: true` for group folders
 - `folder_cards` — links `folder_id` + `card_id` + `qty` for binders/lists
 - `deck_allocations` — links `deck_id` + `card_id` + `qty` for owned cards assigned into collection decks
+- `deck_allocations_view` — view joining `deck_allocations` with card data
 - `list_items` — wishlist items: `folder_id, name, set_code, collector_number, scryfall_id, foil, qty`
 - `deck_cards` — builder deck cards (separate from collection ownership)
+- `deck_cards_view` — view joining `deck_cards` with card/print data; queried by `fetchDeckCards()`
 - `card_prints` — normalized print metadata shared across ownership, deck builder, prices, and scanner
-- `user_settings` — single row per user; includes `nickname`, `anonymize_email`, `reduce_motion`, `higher_contrast`, `card_name_size`, `default_grouping`, `keep_screen_awake`, `show_sync_errors`
+- `user_settings` — single row per user; includes `nickname`, `anonymize_email`, `reduce_motion`, `higher_contrast`, `card_name_size`, `default_grouping`, `keep_screen_awake`, `show_sync_errors`, `premium`, `profile_config`
 - `card_prices` — shared daily market prices keyed by `scryfall_id + snapshot_date`; app keeps only today and yesterday
 - `game_sessions` — multiplayer life tracker sessions; `status`: `'waiting' | 'playing'`
 - `game_players` — player slots per session; `user_id` is null until a player claims the slot
 - `game_results` — deck win/loss history: `session_id, user_id, deck_id, deck_name, format, player_count, placement`
+- `tracked_games` — historical game tracking records
 - `feedback` — user bug reports & feature requests: `type ('bug'|'feature'), description, contact, user_id`
 - `feedback_attachments` — optional screenshots linked to `feedback`; files live in the `assets` storage bucket
 - `card_hashes` — pHash records for scanner: `scryfall_id, name, set_code, collector_number, image_uri, hash_part_1..4 (bigint), phash_hex (text)`; read-only RLS for all users
+- `admin_users` — users with admin access: `user_id, active`; checked by `isCurrentUserAdmin()`
+- `app_config` — key-value config store used by admin/home: keys include `changelog`, `feedback_resolved`
+- `shared_folders` — shared deck/folder links for public share URLs
+- `account_deletion_requests` — user account deletion requests
+- `account_deletion_request_events` — audit trail for deletion request status changes
+- `tournament_sessions` — tournament instances created in `Tournaments.jsx`
+- `tournament_players` — player slots within a tournament session
 
 ---
 
@@ -471,6 +572,7 @@ Host creates a session → others visit `/join/:code` on their own device → ho
 | frankfurter.app | EUR↔USD rates | Cached 6 h in IDB |
 | EDHRec | Commander recommendations | Via Vite proxy `/api/edhrec` (dev only) |
 | codetabs.com proxy | MTG RSS feeds | `api.codetabs.com/v1/proxy?quest=<url>` returns raw XML |
+| Pokemon TCG API | Pokemon card search + prices | `https://api.pokemontcg.io/v2`; key via `VITE_POKEMON_TCG_API_KEY`; degrades gracefully without key |
 
 ### RSS Feed Parsing
 

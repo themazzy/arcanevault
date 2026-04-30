@@ -6,6 +6,7 @@ import { sb } from '../lib/supabase'
 import { useAuth } from './Auth'
 import { maskEmailAddress, useSettings } from './SettingsContext'
 import FeedbackModal from './FeedbackModal'
+import PageTips from './PageTips'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './Layout.module.css'
 import {
@@ -23,16 +24,25 @@ const TABS = [
   { to: '/binders', label: 'Binders',     Icon: BindersIcon },
   { to: '/lists', label: 'Wishlists',   Icon: WishlistsIcon },
   { to: '/trading', label: 'Trading',     Icon: TradingIcon },
+  { to: '/life', label: 'Life Tracker',        Icon: LifeIcon },
   { to: '/stats', label: 'Stats',       Icon: StatsIcon },
-  { to: '/life', label: 'Life',        Icon: LifeIcon },
   { to: '/scanner', label: 'Scanner',    Icon: ScannerIcon },
 ]
 
 const COLLECTION_NAV = TABS.filter(t => ['/collection', '/decks', '/binders'].includes(t.to))
-const DESKTOP_TABS = TABS.filter(t => !['/', '/collection', '/decks', '/binders', '/scanner', '/trading'].includes(t.to))
+const DESKTOP_TABS = TABS.filter(t => !['/', '/collection', '/decks', '/binders', '/builder', '/scanner', '/trading', '/stats'].includes(t.to))
+const BUILDER_NAV = [
+  { to: '/builder', label: 'Deck Builder', Icon: BuilderIcon, end: true },
+  { to: '/builder?tab=browser', label: 'Deck Browser', Icon: ListViewIcon },
+]
 const TRADING_NAV = [
-  { to: '/trading', label: 'Compare', Icon: TradingIcon, end: true },
+  { to: '/trading', label: 'Trading', Icon: TradingIcon, end: true },
   { to: '/trading?tab=log', label: 'Trade Log', Icon: ListViewIcon },
+]
+const STATS_NAV = [
+  { to: '/stats', label: 'Stats', Icon: StatsIcon, end: true },
+  { to: '/stats?tab=winrates', label: 'Deck Win Rates', Icon: DecksIcon },
+  { to: '/stats?tab=history', label: 'Game History', Icon: ListViewIcon },
 ]
 
 export default function Layout({ children }) {
@@ -174,6 +184,10 @@ export default function Layout({ children }) {
       ? location.pathname === t.to
       : location.pathname === t.to || location.pathname.startsWith(`${t.to}/`)
   ))
+  const isTradeLogRoute = location.pathname === '/trading' && new URLSearchParams(location.search).get('tab') === 'log'
+  const statsTab = location.pathname === '/stats' ? new URLSearchParams(location.search).get('tab') : null
+  const isDeckBrowserRoute = location.pathname === '/builder' && new URLSearchParams(location.search).get('tab') === 'browser'
+  const isDeckBuilderSection = location.pathname === '/builder' || /^\/builder\/[^/]+/.test(location.pathname)
 
   return (
     <div className={`${styles.app} ${isNativeScannerRoute ? styles.appScanner : ''}`}>
@@ -247,6 +261,39 @@ export default function Layout({ children }) {
                 </div>
                 <div className={styles.navMenuWrap}>
                   <NavLink
+                    to="/builder"
+                    end
+                    className={`${styles.tab} ${styles.navMenuButton}${isDeckBuilderSection ? ` ${styles.active}` : ''}`}
+                    onClick={releaseMenuFocus}
+                  >
+                    <BuilderIcon size={12} />
+                    Deck Builder
+                    <ChevronDownIcon size={10} className={styles.navMenuCaret} />
+                  </NavLink>
+                  <div className={styles.navSubmenu} role="menu">
+                    {BUILDER_NAV.map(t => {
+                      const isBuilderHome = t.to === '/builder'
+                      const isActive = isBuilderHome
+                        ? isDeckBuilderSection && !isDeckBrowserRoute
+                        : isDeckBrowserRoute
+                      return (
+                        <NavLink
+                          key={t.to}
+                          to={t.to}
+                          end={t.end}
+                          role="menuitem"
+                          className={`${styles.navSubmenuItem}${isActive ? ' ' + styles.navSubmenuItemActive : ''}`}
+                          onClick={releaseMenuFocus}
+                        >
+                          <t.Icon size={14} />
+                          {t.label}
+                        </NavLink>
+                      )
+                    })}
+                  </div>
+                </div>
+                <div className={styles.navMenuWrap}>
+                  <NavLink
                     to="/trading"
                     end
                     className={`${styles.tab} ${styles.navMenuButton}${location.pathname.startsWith('/trading') ? ` ${styles.active}` : ''}`}
@@ -257,19 +304,54 @@ export default function Layout({ children }) {
                     <ChevronDownIcon size={10} className={styles.navMenuCaret} />
                   </NavLink>
                   <div className={styles.navSubmenu} role="menu">
-                    {TRADING_NAV.map(t => (
+                    {TRADING_NAV.map(t => {
+                      const isTradingHome = t.to === '/trading'
+                      const isActive = location.pathname === '/trading' && (isTradingHome ? !isTradeLogRoute : isTradeLogRoute)
+                      return (
                       <NavLink
                         key={t.to}
                         to={t.to}
                         end={t.end}
                         role="menuitem"
-                        className={({ isActive }) => `${styles.navSubmenuItem}${isActive ? ' ' + styles.navSubmenuItemActive : ''}`}
+                        className={`${styles.navSubmenuItem}${isActive ? ' ' + styles.navSubmenuItemActive : ''}`}
                         onClick={releaseMenuFocus}
                       >
                         <t.Icon size={14} />
                         {t.label}
                       </NavLink>
-                    ))}
+                      )
+                    })}
+                  </div>
+                </div>
+                <div className={styles.navMenuWrap}>
+                  <NavLink
+                    to="/stats"
+                    end
+                    className={`${styles.tab} ${styles.navMenuButton}${location.pathname.startsWith('/stats') ? ` ${styles.active}` : ''}`}
+                    onClick={releaseMenuFocus}
+                  >
+                    <StatsIcon size={12} />
+                    Stats
+                    <ChevronDownIcon size={10} className={styles.navMenuCaret} />
+                  </NavLink>
+                  <div className={styles.navSubmenu} role="menu">
+                    {STATS_NAV.map(t => {
+                      const tabParam = t.to.includes('?') ? new URLSearchParams(t.to.split('?')[1]).get('tab') : null
+                      const isActive = location.pathname === '/stats' && (tabParam ? statsTab === tabParam : !statsTab)
+                      return (
+                        <NavLink
+                          key={t.to}
+                          to={t.to}
+                          end={t.end}
+                          role="menuitem"
+                          className={`${styles.navSubmenuItem}${isActive ? ' ' + styles.navSubmenuItemActive : ''}`}
+                          onClick={releaseMenuFocus}
+                        >
+                          <t.Icon size={14} />
+                          {t.label}
+                        </NavLink>
+                      )
+                    })}
                   </div>
                 </div>
                 {DESKTOP_TABS.filter(t => t.to !== '/').map(t => (
@@ -277,7 +359,9 @@ export default function Layout({ children }) {
                     key={t.to}
                     to={t.to}
                     end={t.to === '/'}
-                    className={({ isActive }) => `${styles.tab}${isActive ? ' ' + styles.active : ''}`}
+                    className={({ isActive }) => {
+                      return `${styles.tab}${isActive ? ' ' + styles.active : ''}`
+                    }}
                   >
                     <t.Icon size={12} />
                     {t.label}
@@ -338,6 +422,17 @@ export default function Layout({ children }) {
                     <InfoIcon size={14} />
                     Help
                   </NavLink>
+                  {!premium && (
+                    <NavLink
+                      to="/settings#support"
+                      role="menuitem"
+                      className={({ isActive }) => `${styles.navSubmenuItem} ${styles.navSubmenuSupportItem}${isActive ? ' ' + styles.navSubmenuItemActive : ''}`}
+                      onClick={releaseMenuFocus}
+                    >
+                      <StatsIcon size={14} />
+                      Support DeckLoom
+                    </NavLink>
+                  )}
                   <NavLink
                     to="/settings"
                     role="menuitem"
@@ -383,22 +478,58 @@ export default function Layout({ children }) {
                   end={t.to === '/'}
                   className={({ isActive }) => {
                     const tradingLogActive = t.to === '/trading' && location.search.includes('tab=log')
-                    return `${styles.mobileNavLink}${isActive && !tradingLogActive ? ' ' + styles.mobileNavLinkActive : ''}`
+                    const statsSubActive = t.to === '/stats' && (statsTab === 'winrates' || statsTab === 'history')
+                    const isDeckBuilderNav = t.to === '/builder'
+                    const builderActive = isDeckBuilderNav && isDeckBuilderSection && !isDeckBrowserRoute
+                    const active = isDeckBuilderNav
+                      ? builderActive
+                      : isActive && !tradingLogActive && !statsSubActive
+                    return `${styles.mobileNavLink}${active ? ' ' + styles.mobileNavLinkActive : ''}`
                   }}
                   onClick={() => setMenuOpen(false)}
                 >
                   <t.Icon size={17} />
                   {t.label}
                 </NavLink>
+                {t.to === '/builder' && (
+                  <NavLink
+                    to="/builder?tab=browser"
+                    className={`${styles.mobileNavLink} ${styles.mobileNavSubLink}${isDeckBrowserRoute ? ' ' + styles.mobileNavLinkActive : ''}`}
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    <ListViewIcon size={15} />
+                    Deck Browser
+                  </NavLink>
+                )}
                 {t.to === '/trading' && (
                   <NavLink
                     to="/trading?tab=log"
-                    className={`${styles.mobileNavLink} ${styles.mobileNavSubLink}${location.pathname === '/trading' && location.search.includes('tab=log') ? ' ' + styles.mobileNavLinkActive : ''}`}
+                    className={`${styles.mobileNavLink} ${styles.mobileNavSubLink}${isTradeLogRoute ? ' ' + styles.mobileNavLinkActive : ''}`}
                     onClick={() => setMenuOpen(false)}
                   >
                     <ListViewIcon size={15} />
                     Trade Log
                   </NavLink>
+                )}
+                {t.to === '/stats' && (
+                  <>
+                    <NavLink
+                      to="/stats?tab=winrates"
+                      className={`${styles.mobileNavLink} ${styles.mobileNavSubLink}${location.pathname === '/stats' && statsTab === 'winrates' ? ' ' + styles.mobileNavLinkActive : ''}`}
+                      onClick={() => setMenuOpen(false)}
+                    >
+                      <DecksIcon size={15} />
+                      Deck Win Rates
+                    </NavLink>
+                    <NavLink
+                      to="/stats?tab=history"
+                      className={`${styles.mobileNavLink} ${styles.mobileNavSubLink}${location.pathname === '/stats' && statsTab === 'history' ? ' ' + styles.mobileNavLinkActive : ''}`}
+                      onClick={() => setMenuOpen(false)}
+                    >
+                      <ListViewIcon size={15} />
+                      Game History
+                    </NavLink>
+                  </>
                 )}
               </Fragment>
             ))}
@@ -419,6 +550,16 @@ export default function Layout({ children }) {
                 <SettingsIcon size={17} />
                 Settings
               </NavLink>
+              {!premium && (
+                <NavLink
+                  to="/settings#support"
+                  className={({ isActive }) => `${styles.mobileNavLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}
+                  onClick={() => setMenuOpen(false)}
+                >
+                  <StatsIcon size={17} />
+                  Support DeckLoom
+                </NavLink>
+              )}
               <button
                 className={styles.mobileNavLink}
                 onClick={() => { setMenuOpen(false); setShowFeedback(true) }}
@@ -437,6 +578,7 @@ export default function Layout({ children }) {
         {children}
       </main>
 
+      {!isNativeScannerRoute && <PageTips />}
       {showFeedback && !isNativeScannerRoute && <FeedbackModal onClose={() => setShowFeedback(false)} />}
     </div>
   )
