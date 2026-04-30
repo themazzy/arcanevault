@@ -1287,85 +1287,201 @@
 .crownPrice { font-family: var(--font-display); font-size: 1.1rem; color: var(--green); }
 
 /* ── Top Cards block ─────────────────────────────────────────────────────── */
-.topCardsStrip {
-  display: flex;
-  gap: 14px;
-  overflow-x: auto;
-  padding-bottom: 4px;
+.topCardsShowcase {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(220px, 0.8fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.topCardsHero {
+  display: grid;
+  grid-template-columns: minmax(120px, 160px) minmax(0, 1fr);
+  gap: 16px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
   align-items: flex-start;
 }
 
-.topCardItem {
-  flex-shrink: 0;
-  width: 130px;
+.topCardsCardFrame {
+  min-width: 0;
+}
+
+.topCardsCardImg {
+  width: 100%;
+  aspect-ratio: 63 / 88;
+  object-fit: cover;
+  display: block;
+  border-radius: 6px;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.45);
+}
+
+.topCardsCardPlaceholder {
+  width: 100%;
+  aspect-ratio: 63 / 88;
+  background: var(--bg2);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  color: var(--text-faint);
+  font-size: 1.6rem;
+}
+
+.topCardsHeroBody {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
+  min-width: 0;
 }
 
-.topCardImgWrap {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 488 / 680;
-  border-radius: 8px;
-  overflow: hidden;
+.topCardsEyebrow {
+  font-family: var(--font-display);
+  font-size: 0.58rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.topCardsHeroNameRow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.topCardsHeroName {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  color: var(--gold);
+  line-height: 1.2;
+}
+
+.topCardsFoilTag {
+  font-size: 0.62rem;
+  background: rgba(201,168,76,0.15);
+  border: 1px solid rgba(201,168,76,0.35);
+  color: var(--gold);
+  border-radius: 4px;
+  padding: 1px 6px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.topCardsHeroSet {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.topCardsMetrics {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.topCardsMetric {
+  background: var(--bg2);
   border: 1px solid var(--border);
-  background: var(--bg3);
-  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
-}
-.topCardItem:hover .topCardImgWrap {
-  border-color: rgba(201,168,76,0.6);
-  transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  border-radius: 6px;
+  padding: 6px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
-.topCardImg {
+.topCardsMetricLabel {
+  font-family: var(--font-display);
+  font-size: 0.58rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.topCardsMetric strong {
+  font-size: 1rem;
+  color: var(--green);
+  font-family: var(--font-display);
+}
+
+/* Rail */
+.topCardsRail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+  max-height: 320px;
+}
+
+.topCardsChip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s;
+  width: 100%;
+}
+.topCardsChip:hover {
+  background: var(--s2);
+  border-color: var(--s-border);
+}
+.topCardsChipActive {
+  background: rgba(201,168,76,0.08) !important;
+  border-color: rgba(201,168,76,0.3) !important;
+}
+
+.topCardsChipThumb {
+  flex-shrink: 0;
+  width: 34px;
+  height: 48px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+}
+
+.topCardsChipImg {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
 }
 
-.topCardImgPlaceholder {
-  width: 100%;
-  height: 100%;
+.topCardsChipMeta {
+  flex: 1;
+  min-width: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-display);
-  color: var(--text-faint);
-  font-size: 1.4rem;
+  flex-direction: column;
+  gap: 1px;
 }
 
-.topCardRank {
-  position: absolute;
-  top: 6px;
-  left: 7px;
+.topCardsChipRank {
   font-family: var(--font-display);
-  font-size: 0.62rem;
-  font-weight: 700;
-  color: #fff;
-  background: rgba(0,0,0,0.6);
-  padding: 2px 6px;
-  border-radius: 4px;
-  letter-spacing: 0.04em;
-}
-
-.topCardFoilBadge {
-  position: absolute;
-  top: 6px;
-  right: 7px;
   font-size: 0.6rem;
-  color: var(--gold);
-  background: rgba(0,0,0,0.6);
-  padding: 2px 5px;
-  border-radius: 4px;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  text-transform: uppercase;
 }
 
-.topCardPrice {
+.topCardsChipName {
+  font-size: 0.8rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topCardsChipPrice {
   font-family: var(--font-display);
-  font-size: 0.82rem;
+  font-size: 0.76rem;
   color: var(--green);
-  letter-spacing: 0.02em;
-  text-align: center;
 }
