@@ -1280,3 +1280,84 @@
 .crownName { font-size: 0.9rem; color: var(--text); font-weight: 500; margin-bottom: 4px; }
 .crownSet { font-size: 0.72rem; color: var(--text-faint); margin-bottom: 8px; }
 .crownPrice { font-family: var(--font-display); font-size: 1.1rem; color: var(--green); }
+
+/* ── Top Cards block ─────────────────────────────────────────────────────── */
+.topCardsStrip {
+  display: flex;
+  gap: 12px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.topCardItem {
+  flex: 1;
+  min-width: 120px;
+  max-width: 180px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+  flex-shrink: 0;
+}
+.topCardItem:hover {
+  border-color: rgba(201,168,76,0.5);
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+}
+
+.topCardArt {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 424 / 248;
+  background-size: cover;
+  background-position: center;
+  background-color: var(--bg3);
+}
+
+.topCardRank {
+  position: absolute;
+  top: 5px;
+  left: 6px;
+  font-family: var(--font-display);
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(0,0,0,0.55);
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+}
+
+.topCardFoilBadge {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  font-size: 0.65rem;
+  color: var(--gold);
+  background: rgba(0,0,0,0.55);
+  padding: 2px 5px;
+  border-radius: 4px;
+}
+
+.topCardInfo {
+  padding: 7px 8px 8px;
+}
+
+.topCardName {
+  font-size: 0.72rem;
+  color: var(--text);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 2px;
+}
+
+.topCardPrice {
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  color: var(--green);
+  letter-spacing: 0.02em;
+}
