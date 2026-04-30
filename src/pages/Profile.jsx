@@ -7,6 +7,7 @@ import { useSettings, DEFAULT_BENTO_CONFIG } from '../components/SettingsContext
 import { sfGet } from '../lib/scryfall'
 import { Modal } from '../components/UI'
 import { ImageIcon } from '../icons'
+import { MILESTONES } from '../lib/milestones'
 import {
   DndContext,
   DragOverlay,
@@ -61,19 +62,6 @@ const FORMAT_COLORS = {
   explorer: '#6c5ce7', alchemy: '#fd79a8', brawl: '#e84393', oathbreaker: '#a8e6cf',
 }
 
-const MILESTONES = [
-  { id: 'first_card',   label: 'First Card',   icon: '🃏', req: '1 card',         desc: 'Added your first card to the vault',           check: (s)    => (s?.total_cards       ?? 0) >= 1    },
-  { id: 'collector',    label: 'Collector',    icon: '📦', req: '100 cards',      desc: 'Built a collection of 100 cards',              check: (s)    => (s?.total_cards       ?? 0) >= 100  },
-  { id: 'dedicated',    label: 'Dedicated',    icon: '⚔️', req: '500 cards',      desc: 'Committed with 500 cards in the vault',        check: (s)    => (s?.total_cards       ?? 0) >= 500  },
-  { id: 'obsessed',     label: 'Obsessed',     icon: '🔮', req: '1,000 cards',    desc: 'Reached the 1,000 card milestone',             check: (s)    => (s?.total_cards       ?? 0) >= 1000 },
-  { id: 'legendary',    label: 'Legendary',    icon: '👑', req: '5,000 cards',    desc: 'An extraordinary vault of 5,000 cards',        check: (s)    => (s?.total_cards       ?? 0) >= 5000 },
-  { id: 'first_foil',   label: 'First Foil',   icon: '✨', req: '1 foil',         desc: 'Added your first foil card',                   check: (s)    => (s?.foil_count        ?? 0) >= 1    },
-  { id: 'shiny_hunter', label: 'Shiny Hunter', icon: '💎', req: '50 foils',       desc: 'Assembled a shimmer of 50 foil cards',         check: (s)    => (s?.foil_count        ?? 0) >= 50   },
-  { id: 'deck_builder', label: 'Deck Builder', icon: '🏗️', req: '1 public deck',  desc: 'Shared your first deck with the community',    check: (_, p) => (p?.public_deck_count ?? 0) >= 1    },
-  { id: 'architect',    label: 'Architect',    icon: '🗺️', req: '5 public decks', desc: 'Shared 5 decks with the community',            check: (_, p) => (p?.public_deck_count ?? 0) >= 5    },
-  { id: 'valuable',     label: 'Valuable',     icon: '💰', req: '€100 value',     desc: 'Collection estimated value exceeds €100',      check: (_, p) => (p?.collection_value  ?? 0) >= 100  },
-  { id: 'investor',     label: 'Investor',     icon: '📈', req: '€500 value',     desc: 'Collection estimated value exceeds €500',      check: (_, p) => (p?.collection_value  ?? 0) >= 500  },
-]
 
 // ── Block metadata ────────────────────────────────────────────────────────────
 const BLOCK_DEFS = {

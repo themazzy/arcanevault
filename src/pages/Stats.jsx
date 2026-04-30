@@ -8,6 +8,7 @@ import { useSettings } from '../components/SettingsContext'
 import { CardDetail } from '../components/CardComponents'
 import { EmptyState, SectionHeader, ProgressBar } from '../components/UI'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
+import { MILESTONES } from '../lib/milestones'
 import { ChevronDownIcon, ChevronUpIcon } from '../icons'
 import {
   BarChart, Bar, PieChart, Pie, Cell,
@@ -476,6 +477,107 @@ function DistributionBars({ items, total, labels = {} }) {
   )
 }
 
+const MTG_COLOR_META = {
+  W: { label: 'White',      dot: '#f5f0dc' },
+  U: { label: 'Blue',       dot: '#4a8fcf' },
+  B: { label: 'Black',      dot: '#3a2a3e' },
+  R: { label: 'Red',        dot: '#c83a3a' },
+  G: { label: 'Green',      dot: '#2a7a44' },
+  M: { label: 'Multicolor', dot: '#c9a84c' },
+  C: { label: 'Colorless',  dot: '#8a8a9a' },
+}
+const MTG_COLOR_ORDER = ['W', 'U', 'B', 'R', 'G', 'M', 'C']
+
+function ColorDistributionBars({ byColor, totalQty }) {
+  const items = MTG_COLOR_ORDER.filter(c => (byColor[c] || 0) > 0).map(c => ({
+    key: c,
+    label: MTG_COLOR_META[c].label,
+    qty: byColor[c],
+    dot: MTG_COLOR_META[c].dot,
+  }))
+  const max = items.length ? Math.max(...items.map(i => i.qty)) : 1
+  return (
+    <div className={styles.distList}>
+      {items.map(item => {
+        const pct = totalQty ? Math.round((item.qty / totalQty) * 100) : 0
+        return (
+          <div key={item.key} className={styles.distRow}>
+            <div className={styles.distHead}>
+              <span className={styles.distLabel}>
+                <span className={styles.colorDot} style={{ background: item.dot }} />
+                {item.label}
+              </span>
+              <span className={styles.distValue}>{item.qty.toLocaleString()} · {pct}%</span>
+            </div>
+            <div className={styles.distTrack}>
+              <div className={styles.distFill} style={{ width: `${(item.qty / max) * 100}%`, background: item.dot, opacity: 0.72 }} />
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function MilestonesSection({ stats, historyRows, publicDeckCount }) {
+  const statsShape = {
+    total_cards: stats.totalQty,
+    unique_cards: stats.uniqueCards,
+    foil_count: stats.foilCount,
+    sets_count: stats.uniqueSets,
+    color_distribution: stats.colorDistribution,
+  }
+  const wins = historyRows.filter(r => r.placement === 1).length
+  const profileShape = {
+    collection_value: stats.totalValue,
+    public_deck_count: publicDeckCount,
+    game_stats: { wins, total: historyRows.length },
+  }
+  const earned  = MILESTONES.filter(m => m.check(statsShape, profileShape))
+  const pending = MILESTONES.filter(m => !m.check(statsShape, profileShape))
+
+  return (
+    <div className={styles.chartBox}>
+      <div className={styles.sectionHead}>
+        <SLabel>Milestones</SLabel>
+        <span className={styles.sectionCount}>{earned.length} / {MILESTONES.length} earned</span>
+      </div>
+      {earned.length > 0 && (
+        <>
+          <div className={styles.milestonesSubLabel}>Earned</div>
+          <div className={styles.milestonesGrid}>
+            {earned.map(m => (
+              <div key={m.id} className={`${styles.milestoneCard} ${styles.milestoneEarned}`} title={m.desc}>
+                <div className={styles.milestoneIcon}>{m.icon}</div>
+                <div className={styles.milestoneInfo}>
+                  <div className={styles.milestoneName}>{m.label}</div>
+                  <div className={styles.milestoneReq}>{m.req}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      {pending.length > 0 && (
+        <>
+          <div className={`${styles.milestonesSubLabel} ${styles.milestonesSubLabelPending}`}>In progress</div>
+          <div className={styles.milestonesGrid}>
+            {pending.map(m => (
+              <div key={m.id} className={`${styles.milestoneCard} ${styles.milestonePending}`} title={m.desc}>
+                <div className={styles.milestoneIcon}>{m.icon}</div>
+                <div className={styles.milestoneInfo}>
+                  <div className={styles.milestoneName}>{m.label}</div>
+                  <div className={styles.milestoneReq}>{m.req}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 function HistoryEntryCard({ row, deckMeta, onEdit, onDelete }) {
   const [notes, setNotes] = useState(row.notes || '')
   const [placement, setPlacement] = useState(row.placement || 1)
@@ -815,9 +917,10 @@ export default function StatsPage() {
   const [loadProgress,   setLoadProgress] = useState(0)
   const [progLabel,      setProgLabel]    = useState('')
   const [detailCardId,   setDetailCardId] = useState(null)
-  const [historyRows,    setHistoryRows]  = useState([])
-  const [historyLoading, setHistoryLoading] = useState(false)
-  const [deckMap,        setDeckMap]      = useState({})
+  const [historyRows,      setHistoryRows]      = useState([])
+  const [historyLoading,   setHistoryLoading]   = useState(false)
+  const [deckMap,          setDeckMap]          = useState({})
+  const [publicDeckCount,  setPublicDeckCount]  = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -848,6 +951,14 @@ export default function StatsPage() {
     load()
     return () => { cancelled = true }
   }, [user.id])
+
+  useEffect(() => {
+    if (!user?.id) return
+    sb.from('shared_folders')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .then(({ count }) => setPublicDeckCount(count || 0))
+  }, [user?.id])
 
   const refreshHistory = useCallback(async () => {
     if (!user?.id) return
@@ -928,6 +1039,9 @@ export default function StatsPage() {
     // Collection age
     const byYear = {}
 
+    // Color distribution
+    const byColor = {}
+
     // Movers + priced index for top cards
     const movingCards = []
     const allPriced = []
@@ -972,6 +1086,16 @@ export default function StatsPage() {
                  : tl.includes('battle')       ? 'Battle'
                  : 'Other'
       byType[type] = (byType[type] || 0) + c.qty
+
+      // Color distribution
+      const colorIdentity = sf?.color_identity || []
+      if (colorIdentity.length === 0) {
+        byColor['C'] = (byColor['C'] || 0) + c.qty
+      } else if (colorIdentity.length > 1) {
+        byColor['M'] = (byColor['M'] || 0) + c.qty
+      } else {
+        byColor[colorIdentity[0]] = (byColor[colorIdentity[0]] || 0) + c.qty
+      }
 
       // Value tier bucket
       if (price != null) {
@@ -1061,6 +1185,7 @@ export default function StatsPage() {
       ageData,
       topGainers, topLosers,
       hasMoverData: movingCards.length > 0,
+      colorDistribution: byColor,
     }
   }, [cards, sfMap, price_source, sym])
 
@@ -1304,7 +1429,6 @@ export default function StatsPage() {
           </div>
         </div>
 
-        {/* ── Top 20 most valuable cards — BUG FIXED ── */}
         <div className={styles.chartRow}>
           <div className={styles.chartBox}>
             <SLabel>Language Distribution</SLabel>
@@ -1316,6 +1440,13 @@ export default function StatsPage() {
             <DistributionBars items={stats.conditionData} total={stats.totalQty} labels={CONDITION_LABELS} />
           </div>
         </div>
+
+        <div className={styles.chartBox}>
+          <SLabel>Color Distribution</SLabel>
+          <ColorDistributionBars byColor={stats.colorDistribution} totalQty={stats.totalQty} />
+        </div>
+
+        <MilestonesSection stats={stats} historyRows={historyRows} publicDeckCount={publicDeckCount} />
 
         <div className={styles.chartBox}>
           <SLabel>Top 20 Most Valuable Cards</SLabel>
