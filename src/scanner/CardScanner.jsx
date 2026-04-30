@@ -65,7 +65,7 @@ const MARGINAL_CROP_VARIANTS = [
 const FAST_PRIMARY_VARIANTS = [PRIMARY_CROP_VARIANTS[0]]
 const STABILITY_SAMPLES   = 3
 const STABILITY_REQUIRED  = 2
-const SAMPLE_DELAY_MS     = 40
+const SAMPLE_DELAY_MS     = 20
 const DEBUG               = false
 const NATIVE_CAPTURE_SETTLE_MS = 120
 const NATIVE_CAPTURE_QUALITY = 80
@@ -1124,7 +1124,8 @@ export default function CardScanner({ onMatch, onClose }) {
       if (!vid?.videoWidth) return null
       const w = vid.videoWidth, h = vid.videoHeight
       const canvas = canvasRef.current
-      canvas.width = w; canvas.height = h
+      if (canvas.width !== w) canvas.width = w
+      if (canvas.height !== h) canvas.height = h
       const ctx2d = canvas.getContext('2d', { willReadFrequently: true })
       ctx2d.drawImage(vid, 0, 0)
       // Small frame for corner detection — GPU-accelerated drawImage to 50% size.
@@ -1180,25 +1181,21 @@ export default function CardScanner({ onMatch, onClose }) {
         const artCrop = cropArtRegion(cardImg, variant)
         if (!artCrop) continue
         if (!isUsableArtCrop(artCrop)) continue
-        // Single blur+resize pass produces all four hash variants including colorHash.
+        // Single resize pass produces all four hash variants including colorHash.
         let hashes
         try { hashes = computeAllHashes(artCrop) } catch { continue }
         const { hash, foilHash, darkHash, colorHash } = hashes
         if (!hash) continue
-        const { best: c, second: r, candidateCount, totalCount, fallback } = await databaseService.findBestTwoWithStatsAsync(hash, colorHash ?? null, matchOpts)
-        if (updateBest(c, r, candidateCount, totalCount, variant, sourceLabel, fallback)) return
-        if (c && c.distance > MATCH_THRESHOLD) {
-          // Foil fallback: aggressive glare suppression for blown highlights.
-          if (foilHash) {
-            const foilStats = await databaseService.findBestTwoWithStatsAsync(foilHash, colorHash, matchOpts)
-            if (updateBest(foilStats.best, foilStats.second, foilStats.candidateCount, foilStats.totalCount, variant, `${sourceLabel}+foil`, foilStats.fallback)) return
-          }
-          // Dark art fallback: null when mean brightness ≥ 80 (not dark art — skipped).
-          if (darkHash) {
-            const darkStats = await databaseService.findBestTwoWithStatsAsync(darkHash, colorHash, matchOpts)
-            if (updateBest(darkStats.best, darkStats.second, darkStats.candidateCount, darkStats.totalCount, variant, `${sourceLabel}+dark`, darkStats.fallback)) return
-          }
-        }
+        // Batch standard + foil + dark into one worker round-trip instead of up to 3.
+        const queries = [
+          { hash: Array.from(hash), label: 'standard' },
+          ...(foilHash ? [{ hash: Array.from(foilHash), label: 'foil' }] : []),
+          ...(darkHash ? [{ hash: Array.from(darkHash), label: 'dark' }] : []),
+        ]
+        const { best: c, second: r, candidateCount, totalCount, fallback, bestLabel } =
+          await databaseService.findBestTwoWithStatsAsyncAll(queries, colorHash ?? null, matchOpts)
+        const label = bestLabel && bestLabel !== 'standard' ? `${sourceLabel}+${bestLabel}` : sourceLabel
+        if (updateBest(c, r, candidateCount, totalCount, variant, label, fallback)) return
       }
     }
 

@@ -33,7 +33,7 @@ const SUPABASE_URL = process.env.VITE_SUPABASE_URL
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY
 const BATCH_SIZE   = 100
 const FORCE_RESEED = process.argv.includes('--reseed')
-const HASH_PIPELINE_VERSION = 5
+const HASH_PIPELINE_VERSION = 6
 
 // Parse --concurrency N from argv, default 20
 const concurrencyArgIdx = process.argv.indexOf('--concurrency')
@@ -53,11 +53,9 @@ const sb = createClient(SUPABASE_URL, SUPABASE_KEY)
  * Sharp does not support two resize() calls in one pipeline — the second overrides
  * the first, making the extract coordinates invalid. Raw transfer avoids the codec cost.
  *
- * Pipeline v5 uses shared BT.709 grayscale and keeps the live scanner as the
- * source of truth. Run with --reseed so cached browser/native hash stores
- * invalidate with CACHE_VERSION=5.
- * Sharp's strongest Lanczos kernel is lanczos3; the browser scanner still uses
- * OpenCV INTER_LANCZOS4, so reseed any time either side changes.
+ * Pipeline v6: removed pre-blur before 32×32 downscale (redundant at 13× reduction;
+ * area-averaging inherently low-passes). Browser uses INTER_AREA; seed uses mitchell
+ * (closest Sharp equivalent for large downsamples). Reseed required when either changes.
  */
 async function computePHashHex(imageBuffer) {
   // Pass 1: resize to card dims → extract art region → raw pixels
@@ -68,12 +66,11 @@ async function computePHashHex(imageBuffer) {
     .raw()
     .toBuffer({ resolveWithObject: true })
 
-  // Pass 2: blur → resize to 32×32 → raw pixels (input from raw buffer, no decode)
+  // Pass 2: resize to 32×32 (no pre-blur — redundant for large downscales)
   const { data } = await sharp(artRaw, {
     raw: { width: artInfo.width, height: artInfo.height, channels: artInfo.channels },
   })
-    .blur(1.0)
-    .resize(32, 32, { fit: 'fill', kernel: 'lanczos3' })
+    .resize(32, 32, { fit: 'fill', kernel: 'mitchell' })
     .raw()
     .toBuffer({ resolveWithObject: true })
 

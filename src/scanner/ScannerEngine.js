@@ -16,6 +16,7 @@ import { computeHashFromGray, computeHashFromGrayGlare, computeHashFromGrayDark,
 let _cardCanvas = null, _cardCtx = null
 let _artCanvas = null,  _artCtx = null
 let _srcCanvas = null,  _srcCtx = null
+let _rotateCanvas = null, _rotateCtx = null
 
 function getCardCanvas() {
   if (!_cardCanvas) {
@@ -33,6 +34,15 @@ function getArtCanvas() {
     _artCtx = _artCanvas.getContext('2d', { willReadFrequently: true })
   }
   return { canvas: _artCanvas, ctx: _artCtx }
+}
+
+function getRotateCanvas() {
+  if (!_rotateCanvas) {
+    _rotateCanvas = document.createElement('canvas')
+    _rotateCanvas.width = CARD_W; _rotateCanvas.height = CARD_H
+    _rotateCtx = _rotateCanvas.getContext('2d', { willReadFrequently: true })
+  }
+  return { canvas: _rotateCanvas, ctx: _rotateCtx }
 }
 
 function getSrcCanvas(w, h) {
@@ -345,49 +355,39 @@ export function warpCard(imageData, corners) {
 }
 
 export function cropArtRegion(cardImageData, { xOffset = 0, yOffset = 0, inset = 0 } = {}) {
-  if (!isOpenCVReady()) return null
-  const cv = window.cv
-  const src = cv.matFromImageData(cardImageData)
   const width = Math.max(40, Math.min(CARD_W, SHARED_ART_W - inset * 2))
   const height = Math.max(40, Math.min(CARD_H, SHARED_ART_H - inset * 2))
   const baseX = SHARED_ART_X + Math.round((SHARED_ART_W - width) / 2)
   const baseY = SHARED_ART_Y + Math.round((SHARED_ART_H - height) / 2)
   const x = Math.max(0, Math.min(CARD_W - width, baseX + xOffset))
   const y = Math.max(0, Math.min(CARD_H - height, baseY + yOffset))
-
-  try {
-    const rect = new cv.Rect(x, y, width, height)
-    const roi = src.roi(rect)
-    const { canvas, ctx } = getArtCanvas()
-    cv.imshow(canvas, roi)
-    roi.delete()
-    return ctx.getImageData(0, 0, SHARED_ART_W, SHARED_ART_H)
-  } finally {
-    src.delete()
-  }
+  const { canvas: cardCanvas, ctx: cardCtx } = getCardCanvas()
+  cardCtx.putImageData(cardImageData, 0, 0)
+  const { canvas: artCanvas, ctx: artCtx } = getArtCanvas()
+  artCtx.drawImage(cardCanvas, x, y, width, height, 0, 0, SHARED_ART_W, SHARED_ART_H)
+  return artCtx.getImageData(0, 0, SHARED_ART_W, SHARED_ART_H)
 }
 
 /**
- * Rotate an ImageData 180° in pure JS (no OpenCV needed).
- * Used as a fallback for upside-down cards.
+ * Rotate an ImageData 180° using canvas compositing (GPU) instead of a JS pixel loop.
+ * Source is written to _cardCanvas; the rotated result is read back from _rotateCanvas.
  */
 export function rotateCard180(imageData) {
-  const { width, height, data } = imageData
-  const out = new Uint8ClampedArray(data.length)
-  const total = width * height
-  for (let i = 0; i < total; i++) {
-    const src = (total - 1 - i) * 4
-    const dst = i * 4
-    out[dst]     = data[src]
-    out[dst + 1] = data[src + 1]
-    out[dst + 2] = data[src + 2]
-    out[dst + 3] = data[src + 3]
-  }
-  return new ImageData(out, width, height)
+  const { width, height } = imageData
+  const { canvas: srcCanvas, ctx: srcCtx } = getCardCanvas()
+  srcCtx.putImageData(imageData, 0, 0)
+  const { ctx: dstCtx } = getRotateCanvas()
+  dstCtx.save()
+  dstCtx.translate(width, height)
+  dstCtx.rotate(Math.PI)
+  dstCtx.drawImage(srcCanvas, 0, 0)
+  dstCtx.restore()
+  return dstCtx.getImageData(0, 0, width, height)
 }
 
 /**
- * Shared preprocessing: GaussianBlur + INTER_LANCZOS4 resize to 32×32.
+ * INTER_AREA resize to 32×32 — no pre-blur (INTER_AREA averages the contributing
+ * pixel region inherently, making a separate Gaussian redundant for large downscales).
  * Returns the raw RGBA byte array (Uint8ClampedArray, length 4096).
  * Called once per art crop; all four hash variants reuse the result,
  * eliminating duplicate expensive OpenCV operations per fallback.
@@ -397,18 +397,15 @@ function resizeArtTo32(artImageData) {
   const cv = window.cv
   const src = cv.matFromImageData(artImageData)
   if (!src || src.empty()) throw new Error('matFromImageData failed')
-  const blurred = new cv.Mat()
   const resized = new cv.Mat()
   try {
-    cv.GaussianBlur(src, blurred, new cv.Size(5, 5), 1.0)
-    cv.resize(blurred, resized, new cv.Size(32, 32), 0, 0, cv.INTER_LANCZOS4)
+    cv.resize(src, resized, new cv.Size(32, 32), 0, 0, cv.INTER_AREA)
     if (resized.empty()) throw new Error('resize to 32x32 failed')
     const rgba = resized.data
     if (!rgba || rgba.length < 4096) throw new Error(`resized.data invalid (len=${rgba?.length})`)
-    return rgba.slice()  // copy out before Mat is deleted
+    return rgba.slice()
   } finally {
     src.delete()
-    blurred.delete()
     resized.delete()
   }
 }

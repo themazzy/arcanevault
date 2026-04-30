@@ -177,6 +177,23 @@ self.onmessage = (event) => {
       return
     }
 
+    if (type === 'matchAll') {
+      // Try all hash variants (standard/foil/dark) in one call and return the best.
+      const colorHash = payload.colorHash ? new Uint32Array(payload.colorHash) : null
+      const opts = payload.opts || {}
+      let best = null, second = null, candidateCount = 0, fallback = null, bestLabel = null
+      for (const { hash: hashArr, label } of (payload.queries || [])) {
+        if (!hashArr) continue
+        const result = rankMatch(new Uint32Array(hashArr), colorHash, opts)
+        if (result.best && (!best || result.best.distance < best.distance)) {
+          best = result.best; second = result.second
+          candidateCount = result.candidateCount; fallback = result.fallback; bestLabel = label
+        }
+      }
+      self.postMessage({ id, ok: true, result: { best, second, candidateCount, totalCount: hashes.length, fallback, bestLabel } })
+      return
+    }
+
     throw new Error(`Unknown worker message: ${type}`)
   } catch (error) {
     self.postMessage({ id, ok: false, error: error?.message || String(error) })
