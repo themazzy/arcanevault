@@ -1203,7 +1203,7 @@ export default function CardScanner({ onMatch, onClose }) {
       const imageData = getImageData()
       const warped = warpCard(imageData, corners)
       if (warped) {
-        await tryMatch(warped, trackedFresh ? 'tracked-corners' : 'corners', FAST_PRIMARY_VARIANTS)
+        await tryMatch(warped, 'corners', FAST_PRIMARY_VARIANTS)
         if (shouldExpand()) await tryMatch(warped, 'corners', PRIMARY_CROP_VARIANTS.slice(1))
         if (shouldTryMarginalVariants()) await tryMatch(warped, 'corners', MARGINAL_CROP_VARIANTS)
         // 180° rotation fallback — cards held upside-down on a table are common.
