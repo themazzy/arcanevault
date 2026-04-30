@@ -9,7 +9,7 @@
  * Scryfall `art_crop` unless the scanner pipeline changes too.
  *
  * Setup:
- *   npm install node-fetch sharp @supabase/supabase-js dotenv
+ *   npm install node-fetch sharp @supabase/supabase-js dotenv stream-json
  *
  * Usage:
  *   VITE_SUPABASE_URL=https://xxx.supabase.co \
@@ -26,6 +26,8 @@ import 'dotenv/config'
 import fetch from 'node-fetch'
 import sharp from 'sharp'
 import { createClient } from '@supabase/supabase-js'
+import { parser } from 'stream-json'
+import { streamArray } from 'stream-json/streamers/StreamArray.js'
 import { ART_H, ART_W, ART_X, ART_Y, CARD_H, CARD_W } from '../src/scanner/constants.js'
 import { computeHashFromGray, hashToHex, rgbToGray32x32, rgbToSaturation32x32 } from '../src/scanner/hashCore.js'
 
@@ -90,6 +92,22 @@ async function computePHashHex(imageBuffer) {
   return { hex, hex2, p1: bigints[0], p2: bigints[1], p3: bigints[2], p4: bigints[3] }
 }
 
+// Stream-parse a large JSON array from a URL to avoid Node's string-length limit (~512 MB).
+async function fetchJsonArray(url) {
+  const res = await fetch(url, { timeout: 120000 })
+  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`)
+  return new Promise((resolve, reject) => {
+    const items = []
+    const jsonParser = parser()
+    const arrStreamer = streamArray()
+    arrStreamer.on('data', ({ value }) => items.push(value))
+    arrStreamer.on('end', () => resolve(items))
+    arrStreamer.on('error', reject)
+    jsonParser.on('error', reject)
+    res.body.pipe(jsonParser).pipe(arrStreamer)
+  })
+}
+
 async function fetchImage(url) {
   const res = await fetch(url, { timeout: 20000 })
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`)
@@ -130,8 +148,8 @@ async function main() {
   console.log('Downloading Scryfall default_cards bulk data...')
   const bulkRes  = await fetch('https://api.scryfall.com/bulk-data/default-cards')
   const bulkMeta = await bulkRes.json()
-  const cardsRes = await fetch(bulkMeta.download_uri)
-  const cards    = await cardsRes.json()
+  console.log('Streaming bulk card data (this may take a minute)...')
+  const cards = await fetchJsonArray(bulkMeta.download_uri)
   console.log(`Loaded ${cards.length} cards from Scryfall.`)
 
   let existing = new Set()
