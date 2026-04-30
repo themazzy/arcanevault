@@ -954,10 +954,16 @@ export default function StatsPage() {
 
   useEffect(() => {
     if (!user?.id) return
-    sb.from('shared_folders')
-      .select('id', { count: 'exact', head: true })
+    sb.from('folders')
+      .select('description')
       .eq('user_id', user.id)
-      .then(({ count }) => setPublicDeckCount(count || 0))
+      .in('type', ['deck', 'builder_deck'])
+      .then(({ data }) => {
+        const count = (data || []).filter(f => {
+          try { return JSON.parse(f.description || '{}').is_public === true } catch { return false }
+        }).length
+        setPublicDeckCount(count)
+      })
   }, [user?.id])
 
   const refreshHistory = useCallback(async () => {
