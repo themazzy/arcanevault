@@ -739,31 +739,68 @@ function CrownBlock({ topCard }) {
 }
 
 function TopCardsBlock({ cards }) {
+  const [activeIndex, setActiveIndex] = useState(0)
+
+  useEffect(() => {
+    if (!cards?.length || cards.length < 2) return
+    const timer = setInterval(() => setActiveIndex(p => (p + 1) % cards.length), 4200)
+    return () => clearInterval(timer)
+  }, [cards])
+
   if (!cards?.length) return (
     <div className={styles.blockInner}>
       <div className={styles.blockTitle}>Top Cards</div>
       <div className={styles.emptyNote}>No price data yet. Enable this block so prices get fetched.</div>
     </div>
   )
+
+  const active = cards[Math.min(activeIndex, cards.length - 1)]
+
   return (
     <div className={styles.blockInner}>
       <div className={styles.blockTitle}>Top Cards</div>
-      <div className={styles.topCardsStrip}>
-        {cards.map((c, i) => (
-          <div key={i} className={styles.topCardItem} title={c.name}>
-            <div className={styles.topCardImgWrap}>
-              {c.image_uri
-                ? <img src={c.image_uri} alt={c.name} className={styles.topCardImg} loading="lazy" />
-                : <div className={styles.topCardImgPlaceholder}>{c.name?.[0] || '?'}</div>
-              }
-              <div className={styles.topCardRank}>#{i + 1}</div>
-              {c.foil && <div className={styles.topCardFoilBadge}>✦</div>}
-            </div>
-            {c.price != null && (
-              <div className={styles.topCardPrice}>€{Number(c.price).toFixed(2)}</div>
-            )}
+      <div className={styles.topCardsShowcase}>
+        {/* Hero */}
+        <div className={styles.topCardsHero}>
+          <div className={styles.topCardsCardFrame}>
+            {active.image_uri
+              ? <img key={active.image_uri} src={active.image_uri} alt={active.name} className={styles.topCardsCardImg} loading="lazy" />
+              : <div className={styles.topCardsCardPlaceholder}>{active.name?.[0] || '?'}</div>
+            }
           </div>
-        ))}
+          <div className={styles.topCardsHeroBody}>
+            <div className={styles.topCardsEyebrow}>Featured Value Card</div>
+            <div className={styles.topCardsHeroNameRow}>
+              <div className={styles.topCardsHeroName}>{active.name}</div>
+              {active.foil && <span className={styles.topCardsFoilTag}>Foil</span>}
+            </div>
+            <div className={styles.topCardsHeroSet}>{(active.set_code || '').toUpperCase()}</div>
+            <div className={styles.topCardsMetrics}>
+              <div className={styles.topCardsMetric}>
+                <span className={styles.topCardsMetricLabel}>Price</span>
+                <strong>€{Number(active.price ?? 0).toFixed(2)}</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Rail */}
+        <div className={styles.topCardsRail}>
+          {cards.map((c, i) => (
+            <button key={i}
+              className={`${styles.topCardsChip}${i === activeIndex ? ' ' + styles.topCardsChipActive : ''}`}
+              onClick={() => setActiveIndex(i)}>
+              <div className={styles.topCardsChipThumb}>
+                {c.image_uri && <img src={c.image_uri} alt={c.name} className={styles.topCardsChipImg} loading="lazy" />}
+              </div>
+              <div className={styles.topCardsChipMeta}>
+                <span className={styles.topCardsChipRank}>#{i + 1}</span>
+                <span className={styles.topCardsChipName}>{c.name}</span>
+                <span className={styles.topCardsChipPrice}>€{Number(c.price ?? 0).toFixed(2)}</span>
+              </div>
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   )
