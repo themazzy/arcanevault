@@ -33,6 +33,8 @@ const ALLOWED_SETTINGS_KEYS = new Set([
   'anonymize_email',
   'keep_screen_awake',
   'show_sync_errors',
+  'archive_background_mode',
+  'archive_background_cards',
 ])
 
 function json(data: unknown, status = 200) {

@@ -5,7 +5,7 @@ import { useAuth } from '../components/Auth'
 import { isCurrentUserAdmin } from '../lib/admin'
 import { maskEmailAddress, THEMES, PREMIUM_THEMES, useSettings } from '../components/SettingsContext'
 import { useSetupWizard } from '../components/SetupWizard'
-import { clearScryfallCache, PRICE_SOURCES } from '../lib/scryfall'
+import { clearScryfallCache, PRICE_SOURCES, sfGet } from '../lib/scryfall'
 import { deleteLocalFoldersAndPlacements, getDbStats, setMeta } from '../lib/db'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { Button, SectionHeader, Select as UISelect } from '../components/UI'
@@ -90,6 +90,146 @@ function Toggle({ value, onChange }) {
     >
       <span className={styles.toggleKnob} />
     </button>
+  )
+}
+
+function getArchiveCardImage(card) {
+  return card?.image_uris?.art_crop
+    || card?.card_faces?.find(face => face?.image_uris)?.image_uris?.art_crop
+    || card?.image_uris?.large
+    || card?.image_uris?.normal
+    || card?.image
+    || ''
+}
+
+function toArchiveCard(card) {
+  const image = getArchiveCardImage(card)
+  if (!card?.id || !image) return null
+  return {
+    id: card.id,
+    name: card.name,
+    image,
+  }
+}
+
+function ArchiveThemeControls({ settings, set }) {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState([])
+  const [searching, setSearching] = useState(false)
+  const [error, setError] = useState('')
+  const cards = Array.isArray(settings.archive_background_cards) ? settings.archive_background_cards : []
+
+  useEffect(() => {
+    const q = query.trim()
+    if (q.length < 2) {
+      setResults([])
+      setError('')
+      return
+    }
+    let cancelled = false
+    setSearching(true)
+    setError('')
+    const timer = setTimeout(async () => {
+      const data = await sfGet(`/cards/search?q=${encodeURIComponent(`${q} game:paper`)}&order=name&unique=art`)
+      if (cancelled) return
+      if (!data?.data) {
+        setResults([])
+        setError('No Scryfall results.')
+      } else {
+        setResults(data.data.map(toArchiveCard).filter(Boolean).slice(0, 10))
+      }
+      setSearching(false)
+    }, 300)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [query])
+
+  const addCard = (card) => {
+    if (!card || cards.some(item => item.id === card.id)) return
+    set('archive_background_cards', [...cards, card].slice(0, 12))
+    setQuery('')
+    setResults([])
+  }
+
+  const removeCard = (id) => {
+    set('archive_background_cards', cards.filter(card => card.id !== id))
+  }
+
+  const rerollCards = () => {
+    set('archive_background_seed', Date.now())
+  }
+
+  return (
+    <div className={styles.archiveControls}>
+      <div className={styles.archiveModeRow}>
+        {[
+          { value: 'random', label: 'Random Cards' },
+          { value: 'selected', label: 'Selected Cards' },
+        ].map(({ value, label }) => (
+          <button
+            key={value}
+            type="button"
+            className={`${styles.archiveModeBtn}${settings.archive_background_mode === value ? ' ' + styles.archiveModeBtnActive : ''}`}
+            onClick={() => set('archive_background_mode', value)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {settings.archive_background_mode === 'random' && (
+        <div className={styles.archiveRandomRow}>
+          <button type="button" className={styles.archiveRerollBtn} onClick={rerollCards}>
+            Reroll Cards
+          </button>
+        </div>
+      )}
+
+      {settings.archive_background_mode === 'selected' && (
+        <div className={styles.archivePicker}>
+          <div className={styles.archiveSearchWrap}>
+            <input
+              className={styles.input}
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Search Scryfall for background cards"
+            />
+            {searching && <div className={styles.archiveSearchState}>Searching...</div>}
+            {!searching && error && <div className={styles.archiveSearchState}>{error}</div>}
+            {!!results.length && (
+              <div className={styles.archiveResults}>
+                {results.map(card => (
+                  <button
+                    key={card.id}
+                    type="button"
+                    className={styles.archiveResult}
+                    onClick={() => addCard(card)}
+                    disabled={cards.some(item => item.id === card.id)}
+                  >
+                    <span className={styles.archiveResultThumb} style={{ backgroundImage: `url("${card.image}")` }} />
+                    <span>{card.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className={styles.archiveSelectedGrid}>
+            {cards.map(card => (
+              <div key={card.id} className={styles.archiveSelectedCard}>
+                <div className={styles.archiveSelectedArt} style={{ backgroundImage: `url("${card.image}")` }} />
+                <button type="button" className={styles.archiveRemoveBtn} onClick={() => removeCard(card.id)}>Remove</button>
+              </div>
+            ))}
+            {cards.length === 0 && (
+              <div className={styles.archiveEmpty}>Select at least one card, or switch back to random cards.</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -440,7 +580,6 @@ export default function SettingsPage() {
   const [pwError, setPwError] = useState('')
   const [emailMsg, setEmailMsg] = useState('')
   const [emailError, setEmailError] = useState('')
-  const [saving, setSaving] = useState(false)
   const [checkoutBusy, setCheckoutBusy] = useState(false)
   const [checkoutError, setCheckoutError] = useState('')
   const [isAdmin, setIsAdmin] = useState(false)
@@ -493,17 +632,11 @@ export default function SettingsPage() {
     : settings.syncState === 'pending' ? 'Pending'
     : 'Idle'
 
-  const set = async (key, value) => {
-    setSaving(true)
-    await settings.save({ [key]: value })
-    setSaving(false)
-  }
+  const set = (key, value) => settings.save({ [key]: value })
 
-  const handleManualSync = async () => {
-    setSaving(true)
-    await settings.syncNow()
-    setSaving(false)
-  }
+  const handleManualSync = () => settings.syncNow()
+
+  const isSyncing = settings.syncState === 'pending' || settings.syncState === 'syncing'
 
   const handleResetPageTips = async () => {
     setTipsResetMsg('')
@@ -624,6 +757,15 @@ export default function SettingsPage() {
           </div>
           <ThemePicker value={settings.theme || 'shadow'} onChange={v => set('theme', v)} premium={settings.premium} />
         </div>
+
+        {['archive_dark', 'archive_light'].includes(settings.theme || '') && (
+          <SettingRow
+            label="Archive Background"
+            description="Use random Scryfall art or choose specific cards for the Arcane Archive background."
+          >
+            <ArchiveThemeControls settings={settings} set={set} />
+          </SettingRow>
+        )}
 
         {THEMES[settings.theme || 'shadow']?.mode !== 'light' && (
           <SettingRow
@@ -1006,7 +1148,7 @@ export default function SettingsPage() {
           <div className={styles.supportEyebrow}>Keep DeckLoom growing</div>
           <div className={styles.supportTitle}>Unlock Premium Themes</div>
           <div className={styles.supportText}>
-            Support development and unlock three exclusive themes — Obsidian Night, Crimson Court, and Verdant Realm. Each features atmospheric ambient glows, unique scrollbar and selection colours, and a distinct visual identity. One-time payment, yours forever.
+            Support development and unlock premium themes, including Obsidian Night, Crimson Court, Verdant Realm, and Arcane Archive. Each features atmospheric backgrounds, unique scrollbar and selection colours, and a distinct visual identity. One-time payment, yours forever.
           </div>
 
           {settings.premium ? (
@@ -1014,7 +1156,7 @@ export default function SettingsPage() {
               <span className={styles.premiumUnlockedStar}>✦</span>
               <div>
                 <div className={styles.premiumUnlockedTitle}>Premium Unlocked</div>
-                <div className={styles.premiumUnlockedSub}>Obsidian Night · Crimson Court · Verdant Realm are available in the theme picker above.</div>
+                <div className={styles.premiumUnlockedSub}>Obsidian Night · Crimson Court · Verdant Realm · Arcane Archive are available in the theme picker above.</div>
               </div>
             </div>
           ) : (
@@ -1038,6 +1180,7 @@ export default function SettingsPage() {
               { id: 'obsidian', accent: '#b08fff', bg: '#000000', name: 'Obsidian Night' },
               { id: 'crimson_court', accent: '#cc2244', bg: '#0d0103', name: 'Crimson Court' },
               { id: 'verdant_realm', accent: '#3dba74', bg: '#020d05', name: 'Verdant Realm' },
+              { id: 'archive_dark', accent: '#d8b65f', bg: '#050509', name: 'Arcane Archive' },
             ].map(({ id, accent, bg, name }) => (
               <div
                 key={id}
@@ -1053,7 +1196,7 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {saving && <div className={styles.savingIndicator}>Saving...</div>}
+      {isSyncing && <div className={styles.savingIndicator}>Saving...</div>}
     </div>
   )
 }
