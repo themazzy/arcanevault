@@ -385,6 +385,91 @@ function OptionPickerModal({ title, options, onClose, onSelect, mode, priceSourc
   )
 }
 
+function TradeLogSection({ rows, loading, onRefresh, fmt }) {
+  const [expanded, setExpanded] = useState(null)
+
+  if (loading) return (
+    <div className={styles.logEmpty}>Loading trade history…</div>
+  )
+
+  if (!rows.length) return (
+    <div className={styles.logEmpty}>
+      No trades recorded yet. Complete a trade on the Compare tab and it will appear here.
+    </div>
+  )
+
+  return (
+    <div className={styles.logList}>
+      <div className={styles.logToolbar}>
+        <span className={styles.logCount}>{rows.length} trade{rows.length !== 1 ? 's' : ''}</span>
+        <button className={styles.logRefreshBtn} onClick={onRefresh}>Refresh</button>
+      </div>
+      {rows.map(row => {
+        const net = (row.receiving_value ?? 0) - (row.giving_value ?? 0)
+        const isOpen = expanded === row.id
+        const giving = Array.isArray(row.giving) ? row.giving : []
+        const receiving = Array.isArray(row.receiving) ? row.receiving : []
+        const date = new Date(row.traded_at)
+        const dateStr = date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+
+        return (
+          <div key={row.id} className={styles.logEntry}>
+            <button className={styles.logEntryHead} onClick={() => setExpanded(isOpen ? null : row.id)}>
+              <div className={styles.logEntryLeft}>
+                <span className={styles.logDate}>{dateStr}</span>
+                {row.partner_name && <span className={styles.logPartner}>with {row.partner_name}</span>}
+              </div>
+              <div className={styles.logEntryRight}>
+                <div className={styles.logSides}>
+                  <span className={styles.logGiving}>−{fmt(row.giving_value ?? 0)}</span>
+                  <span className={styles.logSep}>·</span>
+                  <span className={styles.logReceiving}>+{fmt(row.receiving_value ?? 0)}</span>
+                </div>
+                <span className={`${styles.logNet} ${net >= 0 ? styles.logNetPos : styles.logNetNeg}`}>
+                  {net >= 0 ? '+' : ''}{fmt(net)}
+                </span>
+                <span className={styles.logChevron}>{isOpen ? '▲' : '▼'}</span>
+              </div>
+            </button>
+
+            {isOpen && (
+              <div className={styles.logEntryBody}>
+                {giving.length > 0 && (
+                  <div className={styles.logCardGroup}>
+                    <div className={styles.logCardGroupLabel}>You gave</div>
+                    {giving.map((c, i) => (
+                      <div key={i} className={styles.logCardRow}>
+                        <span className={styles.logCardQty}>{c.qty}×</span>
+                        <span className={styles.logCardName}>{c.name}</span>
+                        {c.foil && <span className={styles.logFoilTag}>FOIL</span>}
+                        <span className={styles.logCardPrice}>{c.unit_price != null ? fmt(c.unit_price) : '—'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {receiving.length > 0 && (
+                  <div className={styles.logCardGroup}>
+                    <div className={styles.logCardGroupLabel}>You received</div>
+                    {receiving.map((c, i) => (
+                      <div key={i} className={styles.logCardRow}>
+                        <span className={styles.logCardQty}>{c.qty}×</span>
+                        <span className={styles.logCardName}>{c.name}</span>
+                        {c.foil && <span className={styles.logFoilTag}>FOIL</span>}
+                        <span className={styles.logCardPrice}>{c.unit_price != null ? fmt(c.unit_price) : '—'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {row.notes && <p className={styles.logNotes}>{row.notes}</p>}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function TradingPage() {
   const { user } = useAuth()
   const { price_source, cache_ttl_h } = useSettings()
@@ -412,6 +497,10 @@ export default function TradingPage() {
   const [offerPicker, setOfferPicker] = useState(null)
   const [wantPicker, setWantPicker] = useState(null)
   const [priceEditor, setPriceEditor] = useState(null)
+  const [tab, setTab] = useState('compare')
+  const [partnerName, setPartnerName] = useState('')
+  const [tradeLogRows, setTradeLogRows] = useState([])
+  const [tradeLogLoading, setTradeLogLoading] = useState(false)
 
   const cardsById = useMemo(
     () => Object.fromEntries(cards.map(card => [card.id, card])),
@@ -914,6 +1003,27 @@ export default function TradingPage() {
   const wantUnpriced = useMemo(() => countUnpriced(wantItems, getWantUnitPrice), [wantItems, getWantUnitPrice])
   const delta = wantTotal - offerTotal
 
+  const loadTradeLog = useCallback(async () => {
+    setTradeLogLoading(true)
+    try {
+      const { data, error } = await sb.from('trade_log')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('traded_at', { ascending: false })
+        .limit(100)
+      if (error) throw error
+      setTradeLogRows(data || [])
+    } catch (err) {
+      console.error('[Trading] log load:', err?.message)
+    } finally {
+      setTradeLogLoading(false)
+    }
+  }, [user.id])
+
+  useEffect(() => {
+    if (tab === 'log') loadTradeLog()
+  }, [tab, loadTradeLog])
+
   const settlement = useMemo(() => {
     if (!offerItems.length && !wantItems.length) return 'Add cards to at least one side to compare the trade.'
     if (Math.abs(delta) < 0.005) return 'Even trade at current market prices.'
@@ -959,6 +1069,36 @@ export default function TradingPage() {
       if (navigator.onLine) await syncRemoteCollection()
       else await hydrateLocalCollection()
 
+      // Write trade log entry (non-fatal if it fails)
+      try {
+        const giving = offerItems.map(item => ({
+          name: getCollectionCardName(cardsById[item.cardId], item.sf),
+          set_code: item.setCode,
+          collector_number: item.collectorNumber,
+          foil: item.foil ?? false,
+          qty: item.qty,
+          unit_price: getOfferUnitPrice(item) ?? null,
+        }))
+        const receiving = wantItems.map(item => ({
+          name: item.name,
+          set_code: item.setCode,
+          collector_number: item.collectorNumber,
+          foil: item.foil ?? false,
+          qty: item.qty,
+          unit_price: getWantUnitPrice(item) ?? null,
+        }))
+        await sb.from('trade_log').insert({
+          user_id: user.id,
+          partner_name: partnerName.trim() || null,
+          giving,
+          receiving,
+          giving_value: offerTotal,
+          receiving_value: wantTotal,
+        })
+      } catch (logErr) {
+        console.error('[Trading] log write failed:', logErr?.message)
+      }
+
       setOfferItems([])
       setWantItems([])
       setCollectionQuery('')
@@ -967,6 +1107,7 @@ export default function TradingPage() {
       setWantedError('')
       setOfferPicker(null)
       setWantPicker(null)
+      setPartnerName('')
       setTradeMessage('Trade saved. Received cards were moved to the Recently Traded binder.')
     } catch (err) {
       setTradeError(err.message || 'Failed to save trade.')
@@ -978,6 +1119,16 @@ export default function TradingPage() {
   return (
     <div className={styles.page}>
       <SectionHeader title="Trading" />
+
+      <div className={styles.tabs}>
+        <button className={`${styles.tabBtn} ${tab === 'compare' ? styles.tabBtnActive : ''}`} onClick={() => setTab('compare')}>Compare</button>
+        <button className={`${styles.tabBtn} ${tab === 'log' ? styles.tabBtnActive : ''}`} onClick={() => setTab('log')}>Trade Log</button>
+      </div>
+
+      {tab === 'log' ? (
+        <TradeLogSection rows={tradeLogRows} loading={tradeLogLoading} onRefresh={loadTradeLog} fmt={v => formatPrice(v, price_source)} />
+      ) : <>
+
       <div className={styles.intro}>
         Build both sides of a trade, compare live values, and choose the exact binder or deck copies you are trading away.
       </div>
@@ -1011,13 +1162,19 @@ export default function TradingPage() {
             {Math.abs(delta) < 0.005 ? formatPrice(0, price_source) : formatPrice(Math.abs(delta), price_source)}
           </div>
           <div className={styles.summarySub}>{settlement}</div>
+          <input
+            className={styles.partnerInput}
+            placeholder="Trading with… (optional)"
+            value={partnerName}
+            onChange={e => setPartnerName(e.target.value)}
+          />
           <button
             className={styles.tradeBtn}
             type="button"
             disabled={tradeSaving || (!offerItems.length && !wantItems.length)}
             onClick={handleTrade}
           >
-            {tradeSaving ? 'Saving trade...' : 'Trade'}
+            {tradeSaving ? 'Saving trade...' : 'Complete Trade'}
           </button>
         </div>
       </div>
@@ -1247,6 +1404,7 @@ export default function TradingPage() {
           }}
         />
       )}
+      </>}
     </div>
   )
 }
