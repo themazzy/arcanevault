@@ -26,8 +26,7 @@ import 'dotenv/config'
 import fetch from 'node-fetch'
 import sharp from 'sharp'
 import { createClient } from '@supabase/supabase-js'
-import { parser } from 'stream-json'
-import { streamArray } from 'stream-json/streamers/stream-array.js'
+import { withParserAsStream } from 'stream-json/streamers/stream-array.js'
 import { ART_H, ART_W, ART_X, ART_Y, CARD_H, CARD_W } from '../src/scanner/constants.js'
 import { computeHashFromGray, hashToHex, rgbToGray32x32, rgbToSaturation32x32 } from '../src/scanner/hashCore.js'
 
@@ -98,13 +97,11 @@ async function fetchJsonArray(url) {
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`)
   return new Promise((resolve, reject) => {
     const items = []
-    const jsonParser = parser()
-    const arrStreamer = streamArray()
-    arrStreamer.on('data', ({ value }) => items.push(value))
-    arrStreamer.on('end', () => resolve(items))
-    arrStreamer.on('error', reject)
-    jsonParser.on('error', reject)
-    res.body.pipe(jsonParser).pipe(arrStreamer)
+    const pipeline = withParserAsStream()
+    pipeline.on('data', ({ value }) => items.push(value))
+    pipeline.on('end', () => resolve(items))
+    pipeline.on('error', reject)
+    res.body.pipe(pipeline)
   })
 }
 
