@@ -83,6 +83,17 @@ function isGroupFolder(folder) {
   try { return JSON.parse(folder?.description || '{}').isGroup === true } catch { return false }
 }
 
+const DECK_CARD_DB_COLS = new Set([
+  'id','deck_id','user_id','scryfall_id','name','set_code','collector_number',
+  'type_line','mana_cost','cmc','color_identity','image_uri','qty','foil',
+  'is_commander','board','created_at','updated_at','card_print_id',
+])
+function toDeckCardRow(row) {
+  const out = {}
+  for (const k of DECK_CARD_DB_COLS) if (k in row) out[k] = row[k]
+  return out
+}
+
 function toCardPrintSource(row) {
   return {
     scryfall_id: row?.scryfall_id || null,
@@ -2948,7 +2959,7 @@ export default function DeckBuilderPage() {
     // Upsert all rows: this handles collection decks where non-commander cards came from the
     // folder_cards fallback and were never saved to deck_cards in Supabase. Without this,
     // a reload after picking a commander would show only 1 card (just the commander).
-    await sb.from('deck_cards').upsert([cmdRow, ...nonCmdCards], { onConflict: 'id' })
+    await sb.from('deck_cards').upsert([cmdRow, ...nonCmdCards].map(toDeckCardRow), { onConflict: 'id' })
     putDeckCards([cmdRow, ...nonCmdCards]).catch(() => {})
 
     // Save meta immediately (not debounced) so navigation away won't lose the commander
@@ -3377,7 +3388,7 @@ export default function DeckBuilderPage() {
         return [{ ...d, qty: d.qty - 1 }, splitRow]
       }))
       await sb.from('deck_cards').update({ qty: original.qty - 1, updated_at: now }).eq('id', dcId)
-      await sb.from('deck_cards').insert(splitRow)
+      await sb.from('deck_cards').insert(toDeckCardRow(splitRow))
       putDeckCards([{ ...original, qty: original.qty - 1, updated_at: now }, splitRow]).catch(() => {})
       setVersionPickCard(null)
       return
