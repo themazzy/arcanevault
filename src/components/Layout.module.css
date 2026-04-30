@@ -409,6 +409,7 @@ button.navSubmenuItem {
 }
 .mobileNavLink:hover { background: rgba(201,168,76,0.05); color: var(--text); text-decoration: none; }
 .mobileNavLinkActive { color: var(--gold) !important; background: rgba(201,168,76,0.08) !important; text-decoration: none; }
+.mobileNavSubLink { padding-left: 42px; font-size: 0.75rem; min-height: 42px; color: var(--text-faint); border-bottom-color: transparent; }
 .mobileNavFooter {
   margin-top: auto; padding: 12px 0;
   border-top: 1px solid rgba(255,255,255,0.06);

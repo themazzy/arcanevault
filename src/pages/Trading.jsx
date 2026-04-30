@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { formatPrice, getImageUri, getInstantCache, getPrice, sfGet } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
@@ -473,6 +474,7 @@ function TradeLogSection({ rows, loading, onRefresh, fmt }) {
 export default function TradingPage() {
   const { user } = useAuth()
   const { price_source, cache_ttl_h } = useSettings()
+  const location = useLocation()
 
   const [cards, setCards] = useState([])
   const [folders, setFolders] = useState([])
@@ -497,7 +499,10 @@ export default function TradingPage() {
   const [offerPicker, setOfferPicker] = useState(null)
   const [wantPicker, setWantPicker] = useState(null)
   const [priceEditor, setPriceEditor] = useState(null)
-  const [tab, setTab] = useState('compare')
+  const [tab, setTab] = useState(() => {
+    const params = new URLSearchParams(window.location.search)
+    return params.get('tab') === 'log' ? 'log' : 'compare'
+  })
   const [partnerName, setPartnerName] = useState('')
   const [tradeLogRows, setTradeLogRows] = useState([])
   const [tradeLogLoading, setTradeLogLoading] = useState(false)
@@ -1002,6 +1007,12 @@ export default function TradingPage() {
   const offerUnpriced = useMemo(() => countUnpriced(offerItems, getOfferUnitPrice), [offerItems, getOfferUnitPrice])
   const wantUnpriced = useMemo(() => countUnpriced(wantItems, getWantUnitPrice), [wantItems, getWantUnitPrice])
   const delta = wantTotal - offerTotal
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const urlTab = params.get('tab') === 'log' ? 'log' : 'compare'
+    setTab(urlTab)
+  }, [location.search])
 
   const loadTradeLog = useCallback(async () => {
     setTradeLogLoading(true)
