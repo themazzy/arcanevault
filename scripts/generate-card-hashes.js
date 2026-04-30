@@ -27,7 +27,7 @@ import fetch from 'node-fetch'
 import sharp from 'sharp'
 import { createClient } from '@supabase/supabase-js'
 import { parser } from 'stream-json'
-import { streamArray } from 'stream-json/streamers/StreamArray.js'
+import { streamArray } from 'stream-json/streamers/stream-array.js'
 import { ART_H, ART_W, ART_X, ART_Y, CARD_H, CARD_W } from '../src/scanner/constants.js'
 import { computeHashFromGray, hashToHex, rgbToGray32x32, rgbToSaturation32x32 } from '../src/scanner/hashCore.js'
 
