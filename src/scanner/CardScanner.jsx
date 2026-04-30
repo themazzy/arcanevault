@@ -66,7 +66,7 @@ const FAST_PRIMARY_VARIANTS = [PRIMARY_CROP_VARIANTS[0]]
 const STABILITY_SAMPLES   = 3
 const STABILITY_REQUIRED  = 2
 const SAMPLE_DELAY_MS     = 20
-const DEBUG               = false
+const DEBUG               = true
 const NATIVE_CAPTURE_SETTLE_MS = 120
 const NATIVE_CAPTURE_QUALITY = 80
 const PENDING_KEY         = 'arcanevault_scan_basket'
@@ -1303,8 +1303,10 @@ export default function CardScanner({ onMatch, onClose }) {
           gap:  bestObservedGap ?? '-',
           src:  bestObservedSource ?? '-',
           votes: stableVote?.count ?? 0,
+          cands: bestObservedCandidates ?? '-',
+          total: bestStats?.totalCount ?? databaseService.cardCount,
           decision: acceptance.reason,
-          name: match?.name ?? '',
+          name: match?.name ?? bestObserved?.name ?? '',
         })
       }
 
@@ -1638,12 +1640,12 @@ export default function CardScanner({ onMatch, onClose }) {
         {/* Debug strip */}
         {DEBUG && debugInfo && (
           <div className={styles.debugStrip}>
-            {debugInfo.dist}d {debugInfo.gap}g {debugInfo.src} {debugInfo.votes}v | {debugInfo.decision}{debugInfo.name ? ` - ${debugInfo.name}` : ''}
+            {debugInfo.dist}d {debugInfo.gap}g {debugInfo.votes}v {debugInfo.cands}/{debugInfo.total}c | {debugInfo.src} | {debugInfo.decision}{debugInfo.name ? ` — ${debugInfo.name}` : ''}
           </div>
         )}
         {DEBUG && !debugInfo && (
           <div className={styles.debugStrip}>
-            hashes: {cardCount.toLocaleString()} {databaseService.isFullyLoaded ? 'yes' : '...'} | CV: {cvReady ? 'yes' : '...'} | DB: {dbReady ? 'yes' : '...'}
+            hashes: {cardCount.toLocaleString()} {databaseService.isFullyLoaded ? '✓' : '...'} | CV: {cvReady ? '✓' : '...'} | DB: {dbReady ? '✓' : '...'}
           </div>
         )}
 
