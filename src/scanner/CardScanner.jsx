@@ -1304,7 +1304,7 @@ export default function CardScanner({ onMatch, onClose }) {
           src:  bestObservedSource ?? '-',
           votes: stableVote?.count ?? 0,
           cands: bestObservedCandidates ?? '-',
-          total: bestStats?.totalCount ?? databaseService.cardCount,
+          total: databaseService.cardCount,
           decision: acceptance.reason,
           name: match?.name ?? bestObserved?.name ?? '',
         })
