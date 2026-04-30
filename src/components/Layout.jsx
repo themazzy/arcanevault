@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef } from 'react'
+import { Fragment, useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { Capacitor } from '@capacitor/core'
 import { App as CapApp } from '@capacitor/app'
@@ -12,7 +12,7 @@ import {
   HomeIcon, CollectionIcon, DecksIcon, BuilderIcon, BindersIcon,
   WishlistsIcon, TradingIcon, StatsIcon, LifeIcon, ScannerIcon,
   SettingsIcon, MenuIcon, CloseIcon, BugIcon, InfoIcon, PlayerIcon,
-  ChevronDownIcon,
+  ChevronDownIcon, ListViewIcon,
 } from '../icons'
 
 const TABS = [
@@ -29,7 +29,11 @@ const TABS = [
 ]
 
 const COLLECTION_NAV = TABS.filter(t => ['/collection', '/decks', '/binders'].includes(t.to))
-const DESKTOP_TABS = TABS.filter(t => !['/', '/collection', '/decks', '/binders', '/scanner'].includes(t.to))
+const DESKTOP_TABS = TABS.filter(t => !['/', '/collection', '/decks', '/binders', '/scanner', '/trading'].includes(t.to))
+const TRADING_NAV = [
+  { to: '/trading', label: 'Compare', Icon: TradingIcon, end: true },
+  { to: '/trading?tab=log', label: 'Trade Log', Icon: ListViewIcon },
+]
 
 export default function Layout({ children }) {
   const { user } = useAuth()
@@ -241,6 +245,33 @@ export default function Layout({ children }) {
                     ))}
                   </div>
                 </div>
+                <div className={styles.navMenuWrap}>
+                  <NavLink
+                    to="/trading"
+                    end
+                    className={`${styles.tab} ${styles.navMenuButton}${location.pathname.startsWith('/trading') ? ` ${styles.active}` : ''}`}
+                    onClick={releaseMenuFocus}
+                  >
+                    <TradingIcon size={12} />
+                    Trading
+                    <ChevronDownIcon size={10} className={styles.navMenuCaret} />
+                  </NavLink>
+                  <div className={styles.navSubmenu} role="menu">
+                    {TRADING_NAV.map(t => (
+                      <NavLink
+                        key={t.to}
+                        to={t.to}
+                        end={t.end}
+                        role="menuitem"
+                        className={({ isActive }) => `${styles.navSubmenuItem}${isActive ? ' ' + styles.navSubmenuItemActive : ''}`}
+                        onClick={releaseMenuFocus}
+                      >
+                        <t.Icon size={14} />
+                        {t.label}
+                      </NavLink>
+                    ))}
+                  </div>
+                </div>
                 {DESKTOP_TABS.filter(t => t.to !== '/').map(t => (
                   <NavLink
                     key={t.to}
@@ -346,16 +377,30 @@ export default function Layout({ children }) {
               <span className={styles.logoText}>Deck<span>Loom</span></span>
             </div>
             {TABS.map(t => (
-              <NavLink
-                key={t.to}
-                to={t.to}
-                end={t.to === '/'}
-                className={({ isActive }) => `${styles.mobileNavLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}
-                onClick={() => setMenuOpen(false)}
-              >
-                <t.Icon size={17} />
-                {t.label}
-              </NavLink>
+              <Fragment key={t.to}>
+                <NavLink
+                  to={t.to}
+                  end={t.to === '/'}
+                  className={({ isActive }) => {
+                    const tradingLogActive = t.to === '/trading' && location.search.includes('tab=log')
+                    return `${styles.mobileNavLink}${isActive && !tradingLogActive ? ' ' + styles.mobileNavLinkActive : ''}`
+                  }}
+                  onClick={() => setMenuOpen(false)}
+                >
+                  <t.Icon size={17} />
+                  {t.label}
+                </NavLink>
+                {t.to === '/trading' && (
+                  <NavLink
+                    to="/trading?tab=log"
+                    className={`${styles.mobileNavLink} ${styles.mobileNavSubLink}${location.pathname === '/trading' && location.search.includes('tab=log') ? ' ' + styles.mobileNavLinkActive : ''}`}
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    <ListViewIcon size={15} />
+                    Trade Log
+                  </NavLink>
+                )}
+              </Fragment>
             ))}
             <div className={styles.mobileNavFooter}>
               <NavLink
