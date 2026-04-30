@@ -751,16 +751,17 @@ function TopCardsBlock({ cards }) {
       <div className={styles.topCardsStrip}>
         {cards.map((c, i) => (
           <div key={i} className={styles.topCardItem} title={c.name}>
-            <div className={styles.topCardArt} style={{ backgroundImage: `url(${c.art_crop})` }}>
+            <div className={styles.topCardImgWrap}>
+              {c.image_uri
+                ? <img src={c.image_uri} alt={c.name} className={styles.topCardImg} loading="lazy" />
+                : <div className={styles.topCardImgPlaceholder}>{c.name?.[0] || '?'}</div>
+              }
               <div className={styles.topCardRank}>#{i + 1}</div>
               {c.foil && <div className={styles.topCardFoilBadge}>✦</div>}
             </div>
-            <div className={styles.topCardInfo}>
-              <div className={styles.topCardName}>{c.name}</div>
-              {c.price != null && (
-                <div className={styles.topCardPrice}>€{Number(c.price).toFixed(2)}</div>
-              )}
-            </div>
+            {c.price != null && (
+              <div className={styles.topCardPrice}>€{Number(c.price).toFixed(2)}</div>
+            )}
           </div>
         ))}
       </div>
