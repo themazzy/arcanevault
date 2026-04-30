@@ -212,6 +212,9 @@
 
 /* ── Art buttons ─────────────────────────────────────────────────────────── */
 .artBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   padding: 6px 12px;
   border-radius: 5px;
   font-size: 0.75rem;
