@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { sb } from '../lib/supabase'
+import { applyTheme } from './SettingsContext'
 import { fetchCardsByNames } from '../lib/deckBuilderApi'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './Auth.module.css'
@@ -323,6 +324,21 @@ export function LoginPage({ forcedMode = null }) {
   useEffect(() => {
     if (forcedMode) setMode(forcedMode)
   }, [forcedMode])
+
+  // Login page is always rendered with the default shadow theme regardless of
+  // the signed-in user's theme preference (e.g. during password recovery).
+  useEffect(() => {
+    const root = document.documentElement
+    const force = () => {
+      if (root.getAttribute('data-theme') !== 'shadow' || root.hasAttribute('data-oled')) {
+        applyTheme('shadow', false)
+      }
+    }
+    force()
+    const observer = new MutationObserver(force)
+    observer.observe(root, { attributes: true, attributeFilter: ['data-theme', 'data-oled', 'data-theme-mode'] })
+    return () => observer.disconnect()
+  }, [])
 
   useEffect(() => {
     const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : ''
