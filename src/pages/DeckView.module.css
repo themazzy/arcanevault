@@ -635,14 +635,14 @@
   border: 1px solid rgba(201,168,76,0.22);
   border-radius: 12px;
   box-shadow: 0 32px 80px rgba(0,0,0,0.78), 0 0 0 1px var(--s-card);
-  padding: 22px 26px;
-  max-width: 680px;
+  padding: 26px 30px;
+  max-width: 1040px;
   width: 100%;
-  max-height: 90vh;
+  max-height: 92vh;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
 }
 .modalLoading {
   text-align: center;
@@ -658,13 +658,13 @@
 }
 .modalCardName {
   font-family: var(--font-display, 'Cinzel', serif);
-  font-size: 1.05rem;
+  font-size: 1.25rem;
   color: var(--gold, #c9a84c);
   letter-spacing: 0.04em;
-  margin-bottom: 3px;
+  margin-bottom: 4px;
 }
 .modalTypeLine {
-  font-size: 0.79rem;
+  font-size: 0.88rem;
   color: var(--text-dim, #9a8870);
 }
 .modalHeaderRight {
@@ -692,29 +692,31 @@
 .modalClose:hover { color: var(--text, #e8e0d0); }
 .modalBody {
   display: flex;
-  gap: 20px;
+  gap: 26px;
   align-items: flex-start;
   flex-wrap: wrap;
 }
 .modalImages {
   display: flex;
-  gap: 10px;
+  gap: 14px;
   flex-shrink: 0;
 }
 .modalImages img {
-  width: 180px;
-  border-radius: 8px;
-  box-shadow: 0 8px 28px rgba(0,0,0,0.55);
+  width: 340px;
+  max-width: 100%;
+  height: auto;
+  border-radius: 10px;
+  box-shadow: 0 10px 32px rgba(0,0,0,0.6);
 }
 .modalDetails {
   flex: 1;
-  min-width: 200px;
+  min-width: 240px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 .modalOracleText {
-  font-size: 0.84rem;
+  font-size: 0.92rem;
   color: var(--text, #e8e0d0);
   line-height: 1.7;
   white-space: pre-line;
@@ -724,7 +726,7 @@
   vertical-align: -0.15em;
 }
 .modalOracleText2 {
-  font-size: 0.84rem;
+  font-size: 0.92rem;
   color: var(--text, #e8e0d0);
   line-height: 1.7;
   white-space: pre-line;
@@ -762,6 +764,47 @@
   padding: 40px 0;
   color: var(--text-faint, #6a6058);
   font-style: italic;
+}
+
+@media (max-width: 720px) {
+  .modalBackdrop {
+    padding: 8px;
+    align-items: flex-start;
+  }
+  .modalBox {
+    padding: 16px 16px 20px;
+    gap: 14px;
+    max-height: 96vh;
+    border-radius: 10px;
+    margin-top: 8px;
+  }
+  .modalHeader { gap: 8px; }
+  .modalCardName { font-size: 1.1rem; }
+  .modalTypeLine { font-size: 0.82rem; }
+  .modalBody {
+    gap: 16px;
+    flex-direction: column;
+    align-items: center;
+  }
+  .modalImages {
+    width: 100%;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .modalImages img {
+    width: 100%;
+    max-width: 320px;
+  }
+  .modalDetails {
+    width: 100%;
+    min-width: 0;
+  }
+  .modalOracleText,
+  .modalOracleText2 { font-size: 0.88rem; line-height: 1.6; }
+}
+
+@media (max-width: 400px) {
+  .modalImages img { max-width: 100%; }
 }
 
 /* ── Guest banner ──────────────────────────────────────────────────────────── */
