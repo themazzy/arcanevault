@@ -539,6 +539,70 @@
 
 .themeLabel { margin-bottom: 4px; }
 
+.themeGroups {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.themeGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.themeGroup[data-tier="signature"],
+.themeGroup[data-tier="archive"] {
+  padding: 18px;
+  border: 1px solid var(--s-border2);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--gold) 6%, transparent), transparent 60%),
+    var(--s1);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--gold) 18%, transparent);
+}
+
+.themeGroup[data-tier="guild"] {
+  padding: 16px;
+  border: 1px solid var(--s-border);
+  border-radius: 12px;
+  background: var(--s1);
+}
+
+.themeGroupHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 2px;
+}
+
+.themeGroupLabel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.themeGroupBadge {
+  font-family: var(--font-sans);
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: var(--gold);
+  background: color-mix(in srgb, var(--gold) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--gold) 32%, transparent);
+}
+
+.themeGroupDescription {
+  font-size: 0.74rem;
+  color: var(--text-faint);
+}
+
 .themeGrid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -589,10 +653,20 @@
 }
 
 .swatchLogo {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-family: var(--font-display);
   font-size: 0.52rem;
   letter-spacing: 0.08em;
   font-weight: 700;
+}
+
+.swatchLogoMark {
+  width: 11px;
+  height: 11px;
+  object-fit: contain;
+  display: block;
 }
 
 .swatchNavDots {
@@ -757,6 +831,113 @@
 .archiveRerollBtn:hover {
   border-color: var(--border-hi);
   background: var(--s3);
+}
+
+/* Collection-mode source picker */
+.archiveCollectionRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.archiveSourceLabel {
+  font-size: 0.74rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.archiveSourceSelect {
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 1px solid var(--s-border2);
+  border-radius: 6px;
+  background: var(--s2);
+  color: var(--text);
+  font-family: var(--font-serif);
+  font-size: 0.82rem;
+  min-width: 220px;
+  cursor: pointer;
+}
+
+/* Active-tile preview row with lock toggles */
+.archiveTileGrid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+}
+
+.archiveTile {
+  position: relative;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 1px solid var(--s-border2);
+  border-radius: 6px;
+  background: var(--s2);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.18s, transform 0.18s;
+}
+
+.archiveTile:hover { border-color: var(--border-hi); transform: translateY(-1px); }
+
+.archiveTileLocked {
+  border-color: color-mix(in srgb, var(--gold) 60%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--gold) 50%, transparent);
+}
+
+.archiveTileArt {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+}
+
+.archiveTileLockBadge {
+  position: absolute;
+  bottom: 3px;
+  right: 3px;
+  font-size: 0.7rem;
+  background: rgba(0,0,0,0.6);
+  border-radius: 3px;
+  padding: 1px 4px;
+  line-height: 1;
+}
+
+@media (max-width: 520px) {
+  .archiveTileGrid { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* Filter sliders */
+.archiveSliders {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--s-border);
+  border-radius: 8px;
+  background: var(--s1);
+}
+
+.archiveSliderRow {
+  display: grid;
+  grid-template-columns: 90px 1fr 50px;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.76rem;
+  color: var(--text-dim);
+}
+
+.archiveSliderRow input[type="range"] {
+  width: 100%;
+  accent-color: var(--gold);
+}
+
+.archiveSliderValue {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--text);
 }
 
 .archivePicker {

@@ -3,12 +3,14 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
 import { isCurrentUserAdmin } from '../lib/admin'
-import { maskEmailAddress, THEMES, PREMIUM_THEMES, useSettings } from '../components/SettingsContext'
+import { maskEmailAddress, THEMES, PREMIUM_THEMES, THEME_TIERS, useSettings, getActiveArchiveTiles, subscribeArchiveTiles } from '../components/SettingsContext'
+import { getLocalFolders } from '../lib/db'
 import { useSetupWizard } from '../components/SetupWizard'
 import { clearScryfallCache, PRICE_SOURCES, sfGet } from '../lib/scryfall'
 import { deleteLocalFoldersAndPlacements, getDbStats, setMeta } from '../lib/db'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { Button, SectionHeader, Select as UISelect } from '../components/UI'
+import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './Settings.module.css'
 
 const APP_VERSION = __APP_VERSION__
@@ -113,11 +115,29 @@ function toArchiveCard(card) {
 }
 
 function ArchiveThemeControls({ settings, set }) {
+  const { user } = useAuth()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [searching, setSearching] = useState(false)
   const [error, setError] = useState('')
+  const [activeTiles, setActiveTiles] = useState(() => getActiveArchiveTiles())
+  const [folders, setFolders] = useState([])
   const cards = Array.isArray(settings.archive_background_cards) ? settings.archive_background_cards : []
+  const lockedList = Array.isArray(settings.archive_background_locked) ? settings.archive_background_locked : []
+  const lockedIds = new Set(lockedList.map(c => c.id))
+  const source = settings.archive_background_collection_source || null
+
+  useEffect(() => subscribeArchiveTiles(setActiveTiles), [])
+
+  useEffect(() => {
+    if (!user?.id) return
+    let cancelled = false
+    getLocalFolders(user.id).then(rows => {
+      if (cancelled) return
+      setFolders(Array.isArray(rows) ? rows : [])
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [user?.id])
 
   useEffect(() => {
     const q = query.trim()
@@ -152,21 +172,31 @@ function ArchiveThemeControls({ settings, set }) {
     setQuery('')
     setResults([])
   }
-
-  const removeCard = (id) => {
-    set('archive_background_cards', cards.filter(card => card.id !== id))
+  const removeCard = (id) => set('archive_background_cards', cards.filter(card => card.id !== id))
+  const rerollCards = () => set('archive_background_seed', Date.now())
+  const toggleLock = (tile) => {
+    if (!tile?.id) return
+    if (lockedIds.has(tile.id)) {
+      set('archive_background_locked', lockedList.filter(c => c.id !== tile.id))
+    } else {
+      set('archive_background_locked', [...lockedList, tile].slice(0, 6))
+    }
   }
+  const setSource = (next) => set('archive_background_collection_source', next)
 
-  const rerollCards = () => {
-    set('archive_background_seed', Date.now())
-  }
+  const folderGroups = [
+    { type: 'binder', label: 'Binders' },
+    { type: 'deck', label: 'Decks' },
+    { type: 'list', label: 'Wishlists' },
+  ]
 
   return (
     <div className={styles.archiveControls}>
       <div className={styles.archiveModeRow}>
         {[
-          { value: 'random', label: 'Random Cards' },
-          { value: 'selected', label: 'Selected Cards' },
+          { value: 'random', label: 'Random' },
+          { value: 'collection', label: 'My Collection' },
+          { value: 'selected', label: 'Hand-Picked' },
         ].map(({ value, label }) => (
           <button
             key={value}
@@ -179,13 +209,92 @@ function ArchiveThemeControls({ settings, set }) {
         ))}
       </div>
 
-      {settings.archive_background_mode === 'random' && (
+      {settings.archive_background_mode === 'collection' && (
+        <div className={styles.archiveCollectionRow}>
+          <label className={styles.archiveSourceLabel}>Source</label>
+          <select
+            className={styles.archiveSourceSelect}
+            value={source?.folderId || 'all'}
+            onChange={e => {
+              const v = e.target.value
+              if (v === 'all') setSource(null)
+              else {
+                const folder = folders.find(f => f.id === v)
+                setSource({ type: folder?.type || 'binder', folderId: v })
+              }
+            }}
+          >
+            <option value="all">All owned cards</option>
+            {folderGroups.map(g => {
+              const list = folders.filter(f => f.type === g.type)
+              if (!list.length) return null
+              return (
+                <optgroup key={g.type} label={g.label}>
+                  {list.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                </optgroup>
+              )
+            })}
+          </select>
+        </div>
+      )}
+
+      {settings.archive_background_mode !== 'selected' && (
         <div className={styles.archiveRandomRow}>
           <button type="button" className={styles.archiveRerollBtn} onClick={rerollCards}>
-            Reroll Cards
+            Reroll {lockedList.length > 0 ? `Unlocked (${6 - lockedList.length})` : 'Cards'}
           </button>
         </div>
       )}
+
+      {(settings.archive_background_mode === 'random' || settings.archive_background_mode === 'collection') && activeTiles.length > 0 && (
+        <div className={styles.archiveTileGrid}>
+          {activeTiles.map((tile, i) => {
+            const locked = lockedIds.has(tile.id)
+            return (
+              <button
+                key={`${tile.id}-${i}`}
+                type="button"
+                className={`${styles.archiveTile}${locked ? ' ' + styles.archiveTileLocked : ''}`}
+                onClick={() => toggleLock(tile)}
+                title={`${tile.name} — click to ${locked ? 'unlock' : 'lock'}`}
+              >
+                <span className={styles.archiveTileArt} style={{ backgroundImage: `url("${tile.image}")` }} />
+                <span className={styles.archiveTileLockBadge} aria-hidden="true">{locked ? '🔒' : '🔓'}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      <div className={styles.archiveSliders}>
+        <label className={styles.archiveSliderRow}>
+          <span>Blur</span>
+          <input
+            type="range" min="0" max="20" step="0.5"
+            value={settings.archive_background_blur ?? 7}
+            onChange={e => set('archive_background_blur', Number(e.target.value))}
+          />
+          <span className={styles.archiveSliderValue}>{settings.archive_background_blur ?? 7}px</span>
+        </label>
+        <label className={styles.archiveSliderRow}>
+          <span>Saturation</span>
+          <input
+            type="range" min="0" max="1.6" step="0.02"
+            value={settings.archive_background_saturation ?? 0.86}
+            onChange={e => set('archive_background_saturation', Number(e.target.value))}
+          />
+          <span className={styles.archiveSliderValue}>{Number(settings.archive_background_saturation ?? 0.86).toFixed(2)}</span>
+        </label>
+        <label className={styles.archiveSliderRow}>
+          <span>Opacity</span>
+          <input
+            type="range" min="0.04" max="0.5" step="0.01"
+            value={settings.archive_background_opacity ?? 0.16}
+            onChange={e => set('archive_background_opacity', Number(e.target.value))}
+          />
+          <span className={styles.archiveSliderValue}>{Number(settings.archive_background_opacity ?? 0.16).toFixed(2)}</span>
+        </label>
+      </div>
 
       {settings.archive_background_mode === 'selected' && (
         <div className={styles.archivePicker}>
@@ -245,15 +354,30 @@ async function getFunctionErrorMessage(error, fallback) {
 }
 
 function ThemePicker({ value, onChange, premium }) {
+  const grouped = THEME_TIERS.map(tier => ({
+    ...tier,
+    entries: Object.entries(THEMES).filter(([, theme]) => (theme.tier || 'free') === tier.id),
+  })).filter(group => group.entries.length > 0)
+
   return (
-    <div className={styles.themeGrid}>
-      {Object.entries(THEMES).map(([id, theme]) => {
-        const active = value === id
-        const isPremiumTheme = PREMIUM_THEMES.has(id)
-        const isLocked = isPremiumTheme && !premium
-        const { bg, accent, hi, text } = theme.preview
-        const mutedText = `${text}88`
-        return (
+    <div className={styles.themeGroups}>
+      {grouped.map(group => (
+        <div key={group.id} className={styles.themeGroup} data-tier={group.id}>
+          <div className={styles.themeGroupHeader}>
+            <div className={styles.themeGroupLabel}>
+              {group.label}
+              {group.id !== 'free' && <span className={styles.themeGroupBadge}>✦ Premium</span>}
+            </div>
+            <div className={styles.themeGroupDescription}>{group.description}</div>
+          </div>
+          <div className={styles.themeGrid}>
+            {group.entries.map(([id, theme]) => {
+              const active = value === id
+              const isPremiumTheme = PREMIUM_THEMES.has(id)
+              const isLocked = isPremiumTheme && !premium
+              const { bg, accent, hi, text } = theme.preview
+              const mutedText = `${text}88`
+              return (
           <button
             key={id}
             className={`${styles.themeSwatch}${active ? ' ' + styles.themeSwatchActive : ''}${isLocked ? ' ' + styles.themeSwatchLocked : ''}`}
@@ -272,7 +396,10 @@ function ThemePicker({ value, onChange, premium }) {
           >
             <div className={styles.swatchPreview} style={{ background: bg }}>
               <div className={styles.swatchNav} style={{ borderColor: `${accent}30` }}>
-                <div className={styles.swatchLogo} style={{ color: accent }}>UH</div>
+                <div className={styles.swatchLogo} style={{ color: accent }}>
+                  <img src={BRAND_MARK} alt="" className={styles.swatchLogoMark} />
+                  <span>DL</span>
+                </div>
                 <div className={styles.swatchNavDots}>
                   <div className={styles.swatchDot} style={{ background: accent }} />
                   <div className={styles.swatchDot} style={{ background: `${hi}88` }} />
@@ -325,8 +452,11 @@ function ThemePicker({ value, onChange, premium }) {
               <div style={{ flex: 1, background: `${text}60`, borderRadius: '0 2px 2px 0' }} />
             </div>
           </button>
-        )
-      })}
+              )
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
@@ -1177,10 +1307,10 @@ export default function SettingsPage() {
 
           <div className={styles.premiumThemeRow}>
             {[
-              { id: 'obsidian', accent: '#b08fff', bg: '#000000', name: 'Obsidian Night' },
-              { id: 'crimson_court', accent: '#cc2244', bg: '#0d0103', name: 'Crimson Court' },
-              { id: 'verdant_realm', accent: '#3dba74', bg: '#020d05', name: 'Verdant Realm' },
               { id: 'archive_dark', accent: '#d8b65f', bg: '#050509', name: 'Arcane Archive' },
+              { id: 'rakdos', accent: '#e02020', bg: '#06030a', name: 'Rakdos' },
+              { id: 'azorius', accent: '#1f5fb8', bg: '#f3f7fc', name: 'Azorius' },
+              { id: 'simic', accent: '#28b8b8', bg: '#04111a', name: 'Simic' },
             ].map(({ id, accent, bg, name }) => (
               <div
                 key={id}

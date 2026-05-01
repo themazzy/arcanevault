@@ -58,11 +58,11 @@
 /* variants */
 .default,
 .primary {
-  --btn-bg: rgba(201,168,76,0.12);
-  --btn-border: rgba(201,168,76,0.3);
+  --btn-bg: color-mix(in srgb, var(--gold) 12%, transparent);
+  --btn-border: color-mix(in srgb, var(--gold) 30%, transparent);
   --btn-color: var(--gold);
-  --btn-hover-bg: rgba(201,168,76,0.22);
-  --btn-hover-border: rgba(201,168,76,0.45);
+  --btn-hover-bg: color-mix(in srgb, var(--gold) 22%, transparent);
+  --btn-hover-border: color-mix(in srgb, var(--gold) 45%, transparent);
   --btn-hover-color: var(--gold);
   --btn-hover-shadow: none;
 }
@@ -77,20 +77,20 @@
 }
 
 .danger {
-  --btn-bg: rgba(180,50,40,0.1);
-  --btn-border: rgba(200,70,60,0.28);
-  --btn-color: #e08878;
-  --btn-hover-bg: rgba(180,50,40,0.22);
-  --btn-hover-border: rgba(200,70,60,0.48);
-  --btn-hover-color: #ef9a8a;
+  --btn-bg: color-mix(in srgb, var(--red) 12%, transparent);
+  --btn-border: color-mix(in srgb, var(--red) 32%, transparent);
+  --btn-color: var(--red);
+  --btn-hover-bg: color-mix(in srgb, var(--red) 22%, transparent);
+  --btn-hover-border: color-mix(in srgb, var(--red) 50%, transparent);
+  --btn-hover-color: var(--red);
 }
 
 .purple {
-  --btn-bg: rgba(138,111,196,0.08);
-  --btn-border: rgba(138,111,196,0.22);
+  --btn-bg: color-mix(in srgb, var(--purple) 10%, transparent);
+  --btn-border: color-mix(in srgb, var(--purple) 24%, transparent);
   --btn-color: var(--purple);
-  --btn-hover-bg: rgba(138,111,196,0.14);
-  --btn-hover-border: rgba(138,111,196,0.34);
+  --btn-hover-bg: color-mix(in srgb, var(--purple) 18%, transparent);
+  --btn-hover-border: color-mix(in srgb, var(--purple) 38%, transparent);
 }
 
 .ghost {
@@ -105,11 +105,11 @@
 }
 
 .green {
-  --btn-bg: rgba(138,184,122,0.08);
-  --btn-border: rgba(138,184,122,0.24);
+  --btn-bg: color-mix(in srgb, var(--green) 10%, transparent);
+  --btn-border: color-mix(in srgb, var(--green) 26%, transparent);
   --btn-color: var(--green);
-  --btn-hover-bg: rgba(138,184,122,0.14);
-  --btn-hover-border: rgba(138,184,122,0.36);
+  --btn-hover-bg: color-mix(in srgb, var(--green) 18%, transparent);
+  --btn-hover-border: color-mix(in srgb, var(--green) 40%, transparent);
 }
 
 .toggle {
@@ -126,8 +126,8 @@
 }
 
 .active {
-  --btn-bg: rgba(201,168,76,0.18);
-  --btn-border: rgba(201,168,76,0.34);
+  --btn-bg: color-mix(in srgb, var(--gold) 18%, transparent);
+  --btn-border: color-mix(in srgb, var(--gold) 34%, transparent);
   --btn-color: var(--gold);
   --btn-shadow: none;
 }
@@ -153,26 +153,26 @@
 
 [data-theme-mode="light"] .default,
 [data-theme-mode="light"] .primary {
-  --btn-bg: rgba(141,93,0,0.11);
-  --btn-border: rgba(141,93,0,0.28);
+  --btn-bg: color-mix(in srgb, var(--gold) 11%, transparent);
+  --btn-border: color-mix(in srgb, var(--gold) 28%, transparent);
   --btn-color: var(--gold);
-  --btn-hover-bg: rgba(141,93,0,0.16);
-  --btn-hover-border: rgba(141,93,0,0.4);
+  --btn-hover-bg: color-mix(in srgb, var(--gold) 16%, transparent);
+  --btn-hover-border: color-mix(in srgb, var(--gold) 40%, transparent);
 }
 
 [data-theme-mode="light"] .danger {
-  --btn-bg: rgba(158,44,38,0.08);
-  --btn-border: rgba(158,44,38,0.24);
+  --btn-bg: color-mix(in srgb, var(--red) 10%, transparent);
+  --btn-border: color-mix(in srgb, var(--red) 28%, transparent);
 }
 
 [data-theme-mode="light"] .purple {
-  --btn-bg: rgba(77,56,173,0.08);
-  --btn-border: rgba(77,56,173,0.22);
+  --btn-bg: color-mix(in srgb, var(--purple) 9%, transparent);
+  --btn-border: color-mix(in srgb, var(--purple) 24%, transparent);
 }
 
 [data-theme-mode="light"] .green {
-  --btn-bg: rgba(31,106,54,0.08);
-  --btn-border: rgba(31,106,54,0.2);
+  --btn-bg: color-mix(in srgb, var(--green) 9%, transparent);
+  --btn-border: color-mix(in srgb, var(--green) 22%, transparent);
 }
 
 [data-theme-mode="light"] .segmented {
