@@ -605,7 +605,7 @@ function ChangelogEditorSection() {
 
 const SETTINGS_FIELDS = [
   { key: 'premium',          label: 'Premium',           type: 'boolean', highlight: true },
-  { key: 'theme',            label: 'Theme',             type: 'select',  options: ['shadow','azorius','dimir','rakdos','gruul','selesnya','orzhov','izzet','golgari','boros','simic','obsidian','crimson_court','verdant_realm','archive_dark','archive_light'] },
+  { key: 'theme',            label: 'Theme',             type: 'select',  options: ['shadow','shadow_light','azorius','dimir','rakdos','gruul','selesnya','orzhov','izzet','golgari','boros','simic','archive_dark','archive_light'] },
   { key: 'oled_mode',        label: 'OLED Mode',         type: 'boolean' },
   { key: 'higher_contrast',  label: 'Higher Contrast',   type: 'boolean' },
   { key: 'reduce_motion',    label: 'Reduce Motion',     type: 'boolean' },

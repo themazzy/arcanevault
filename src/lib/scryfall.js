@@ -76,9 +76,11 @@ async function runScryfallRequest(fn, { minDelayMs = DELAY_MS, retries = 2 } = {
   return task
 }
 
-export async function sfGet(url) {
+export async function sfGet(url, opts = {}) {
   try {
-    const res = await runScryfallRequest(() => fetch(sfUrl(url), { headers: SF_HEADERS }))
+    const fetchOpts = { headers: SF_HEADERS }
+    if (opts.noCache) fetchOpts.cache = 'no-store'
+    const res = await runScryfallRequest(() => fetch(sfUrl(url), fetchOpts))
     if (!res.ok) return null
     return res.json()
   } catch {

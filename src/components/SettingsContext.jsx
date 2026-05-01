@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
 import { sb } from '../lib/supabase'
 import { useAuth } from './Auth'
-import { fetchScryfallBatch, sfGet } from '../lib/scryfall'
+import { fetchScryfallBatch, sfGet, getMemoryMap, loadCacheFromIDB, getScryfallKey } from '../lib/scryfall'
+import { getLocalCards, getAllLocalFolderCards } from '../lib/db'
 
 const SETTINGS_KEY = 'arcanevault_settings'
 const SETTINGS_MISSING_COLUMNS_KEY = 'arcanevault_missing_user_settings_columns'
@@ -56,6 +57,7 @@ function createTheme({
   name,
   lore,
   mode,
+  tier,
   bg,
   bg2,
   bg3,
@@ -75,6 +77,7 @@ function createTheme({
   return {
     name,
     lore,
+    tier: tier || 'free',
     ...(mode ? { mode } : {}),
     preview: { bg, accent, hi, text },
     vars: {
@@ -118,7 +121,8 @@ function createLightTheme(config) {
 export const THEMES = {
   shadow: createDarkTheme({
     name: 'Shadow',
-    lore: 'Original DeckLoom gold and violet',
+    lore: 'The flagship — gold and violet against deep night',
+    tier: 'free',
     bg: '#0a0a0f',
     bg2: '#0e0c1a',
     bg3: '#12101e',
@@ -133,232 +137,210 @@ export const THEMES = {
     glow: '0 0 18px rgba(201,168,76,0.18)',
     focus: '0 0 0 3px rgba(201,168,76,0.12)',
   }),
+  shadow_light: createLightTheme({
+    name: 'Shadow Light',
+    lore: 'Parchment, gilded leaf, and lavender shadow',
+    tier: 'free',
+    bg: '#f6f0df',
+    bg2: '#ece4ce',
+    bg3: '#ddd2b6',
+    accent: '#9a7820',
+    accentDim: '#765c14',
+    hi: '#6e4fa3',
+    text: '#1c1610',
+    textDim: '#52442e',
+    textFaint: '#8a7a5e',
+    border: 'rgba(140,100,20,0.20)',
+    borderHi: 'rgba(154,120,32,0.50)',
+    glow: '0 0 18px rgba(154,120,32,0.18)',
+    focus: '0 0 0 3px rgba(154,120,32,0.14)',
+  }),
   azorius: createLightTheme({
     name: 'Azorius',
-    lore: 'Law magic, marble halls, cold dawn skies',
-    bg: '#edf4fb',
-    bg2: '#e0ebf7',
-    bg3: '#d4e1f0',
-    accent: '#3c78c2',
-    accentDim: '#2d5d98',
-    hi: '#9db7d9',
-    text: '#102033',
-    textDim: '#4f6278',
-    textFaint: '#7c8ea6',
-    border: 'rgba(42,92,150,0.18)',
-    borderHi: 'rgba(60,120,194,0.44)',
-    glow: '0 0 18px rgba(60,120,194,0.20)',
-    focus: '0 0 0 3px rgba(60,120,194,0.14)',
+    lore: 'Marble halls, white linen, and law-deep blue',
+    tier: 'guild',
+    bg: '#f3f7fc',
+    bg2: '#e3edf8',
+    bg3: '#cfe0f1',
+    accent: '#1f5fb8',
+    accentDim: '#154a92',
+    hi: '#6a98d4',
+    text: '#0a1830',
+    textDim: '#3e556e',
+    textFaint: '#6f8194',
+    border: 'rgba(20,80,160,0.18)',
+    borderHi: 'rgba(31,95,184,0.50)',
+    glow: '0 0 18px rgba(31,95,184,0.22)',
+    focus: '0 0 0 3px rgba(31,95,184,0.16)',
   }),
   dimir: createDarkTheme({
     name: 'Dimir',
-    lore: 'Midnight archives, secrets, and deep-water ink',
-    bg: '#071019',
-    bg2: '#0b1624',
-    bg3: '#101d2e',
-    accent: '#4e8ecf',
-    accentDim: '#3b6e9f',
-    hi: '#4e5fae',
-    text: '#ccdae8',
-    textDim: '#7f97b2',
-    textFaint: '#5a6e84',
-    border: 'rgba(60,110,180,0.20)',
-    borderHi: 'rgba(78,142,207,0.48)',
-    glow: '0 0 18px rgba(78,142,207,0.18)',
-    focus: '0 0 0 3px rgba(78,142,207,0.12)',
+    lore: 'Black ink on midnight water — secrets you never saw',
+    tier: 'guild',
+    bg: '#04070d',
+    bg2: '#080d1a',
+    bg3: '#0e1628',
+    accent: '#4781d8',
+    accentDim: '#2d62b0',
+    hi: '#7e96c2',
+    text: '#cad8ee',
+    textDim: '#7a8aa8',
+    textFaint: '#525e78',
+    border: 'rgba(50,90,170,0.20)',
+    borderHi: 'rgba(71,129,216,0.55)',
+    glow: '0 0 18px rgba(71,129,216,0.22)',
+    focus: '0 0 0 3px rgba(71,129,216,0.14)',
   }),
   rakdos: createDarkTheme({
     name: 'Rakdos',
-    lore: 'Infernal carnival, brass sparks, and blood velvet',
-    bg: '#130708',
-    bg2: '#1b0b0d',
-    bg3: '#240f12',
-    accent: '#d84d4d',
-    accentDim: '#a83a3a',
-    hi: '#f07b3f',
-    text: '#ebcbc4',
-    textDim: '#bd8b81',
-    textFaint: '#91675e',
-    border: 'rgba(190,70,70,0.20)',
-    borderHi: 'rgba(216,77,77,0.48)',
-    glow: '0 0 18px rgba(216,77,77,0.18)',
-    focus: '0 0 0 3px rgba(216,77,77,0.12)',
+    lore: 'Jet black and arterial red — the carnival of slaughter',
+    tier: 'guild',
+    bg: '#06030a',
+    bg2: '#0e0608',
+    bg3: '#160a0c',
+    accent: '#e02020',
+    accentDim: '#a81818',
+    hi: '#ff5c5c',
+    text: '#efd0c8',
+    textDim: '#b07a72',
+    textFaint: '#80544c',
+    border: 'rgba(220,30,30,0.22)',
+    borderHi: 'rgba(224,32,32,0.55)',
+    glow: '0 0 22px rgba(224,32,32,0.24)',
+    focus: '0 0 0 3px rgba(224,32,32,0.16)',
   }),
   gruul: createDarkTheme({
     name: 'Gruul',
-    lore: 'Ash, moss, and the riot of broken stone',
-    bg: '#0d0b07',
-    bg2: '#15110a',
-    bg3: '#1e160d',
-    accent: '#cf7c39',
-    accentDim: '#9f5f2c',
-    hi: '#6b8b3f',
-    text: '#e2d3bc',
-    textDim: '#af9976',
-    textFaint: '#837056',
-    border: 'rgba(170,100,50,0.20)',
-    borderHi: 'rgba(207,124,57,0.48)',
-    glow: '0 0 18px rgba(207,124,57,0.18)',
-    focus: '0 0 0 3px rgba(207,124,57,0.12)',
+    lore: 'Ember red and savage green — the wild that breaks stone',
+    tier: 'guild',
+    bg: '#0a0805',
+    bg2: '#110d07',
+    bg3: '#18130a',
+    accent: '#d44a1f',
+    accentDim: '#a3380f',
+    hi: '#6da630',
+    text: '#e4d5b8',
+    textDim: '#b09572',
+    textFaint: '#826b50',
+    border: 'rgba(190,80,30,0.22)',
+    borderHi: 'rgba(212,74,31,0.55)',
+    glow: '0 0 20px rgba(212,74,31,0.22)',
+    focus: '0 0 0 3px rgba(212,74,31,0.14)',
   }),
   selesnya: createLightTheme({
     name: 'Selesnya',
-    lore: 'Sunlit gardens, polished ivory, and living canopies',
-    bg: '#f4f7ee',
-    bg2: '#e8efde',
-    bg3: '#dde7cf',
-    accent: '#5f9f52',
-    accentDim: '#497c3f',
-    hi: '#c3b77e',
-    text: '#182211',
-    textDim: '#53654a',
-    textFaint: '#819074',
-    border: 'rgba(70,110,50,0.18)',
-    borderHi: 'rgba(95,159,82,0.44)',
-    glow: '0 0 18px rgba(95,159,82,0.20)',
-    focus: '0 0 0 3px rgba(95,159,82,0.14)',
+    lore: 'Sun-bleached white and leaf-deep green — the conclave',
+    tier: 'guild',
+    bg: '#f5f9eb',
+    bg2: '#e6efd4',
+    bg3: '#d2e1ba',
+    accent: '#2f8633',
+    accentDim: '#1f6324',
+    hi: '#b8b378',
+    text: '#0c1c0a',
+    textDim: '#44614a',
+    textFaint: '#7a8e7a',
+    border: 'rgba(40,110,40,0.22)',
+    borderHi: 'rgba(47,134,51,0.50)',
+    glow: '0 0 20px rgba(47,134,51,0.22)',
+    focus: '0 0 0 3px rgba(47,134,51,0.16)',
   }),
   orzhov: createLightTheme({
     name: 'Orzhov',
-    lore: 'Cathedral gold, black silk, and ghostly ledgers',
-    bg: '#f5f1e8',
-    bg2: '#ebe3d5',
-    bg3: '#e1d6c4',
-    accent: '#b89548',
-    accentDim: '#8d7238',
-    hi: '#6b6179',
-    text: '#18130f',
-    textDim: '#5c4c3b',
-    textFaint: '#8c7b68',
-    border: 'rgba(110,85,40,0.18)',
-    borderHi: 'rgba(184,149,72,0.44)',
-    glow: '0 0 18px rgba(184,149,72,0.20)',
-    focus: '0 0 0 3px rgba(184,149,72,0.14)',
+    lore: 'Ivory cathedral, jet shadow, and tarnished gold',
+    tier: 'guild',
+    bg: '#f1ece2',
+    bg2: '#e3dac6',
+    bg3: '#d3c5a8',
+    accent: '#8b6a18',
+    accentDim: '#685010',
+    hi: '#1a1a1a',
+    text: '#0a0805',
+    textDim: '#4a3e2a',
+    textFaint: '#786a55',
+    border: 'rgba(80,60,20,0.24)',
+    borderHi: 'rgba(139,106,24,0.55)',
+    glow: '0 0 20px rgba(139,106,24,0.22)',
+    focus: '0 0 0 3px rgba(139,106,24,0.16)',
   }),
   izzet: createDarkTheme({
     name: 'Izzet',
-    lore: 'Charged coils, bright copper, and stormglass blue',
-    bg: '#08101a',
-    bg2: '#0c1724',
-    bg3: '#102032',
-    accent: '#4a9fe7',
-    accentDim: '#377ab3',
-    hi: '#de6238',
-    text: '#d5e2ef',
-    textDim: '#8ea3bb',
-    textFaint: '#66788c',
-    border: 'rgba(70,140,210,0.20)',
-    borderHi: 'rgba(74,159,231,0.48)',
-    glow: '0 0 18px rgba(74,159,231,0.18)',
-    focus: '0 0 0 3px rgba(74,159,231,0.12)',
+    lore: 'Storm-glass blue and copper-fire red — pure invention',
+    tier: 'guild',
+    bg: '#040a14',
+    bg2: '#08111e',
+    bg3: '#0c1a2c',
+    accent: '#2c8af2',
+    accentDim: '#1c6cc6',
+    hi: '#ed4f1c',
+    text: '#d5e3f3',
+    textDim: '#8aa0bc',
+    textFaint: '#5e7088',
+    border: 'rgba(40,135,240,0.22)',
+    borderHi: 'rgba(44,138,242,0.55)',
+    glow: '0 0 20px rgba(44,138,242,0.22)',
+    focus: '0 0 0 3px rgba(44,138,242,0.14)',
   }),
   golgari: createDarkTheme({
     name: 'Golgari',
-    lore: 'Rot gardens, bioluminescent spores, and grave loam',
-    bg: '#070d09',
-    bg2: '#0c1510',
-    bg3: '#111d15',
-    accent: '#6ea046',
-    accentDim: '#557c36',
-    hi: '#7b5d9a',
-    text: '#d2ddca',
-    textDim: '#8fa082',
-    textFaint: '#68745f',
-    border: 'rgba(90,130,60,0.20)',
-    borderHi: 'rgba(110,160,70,0.48)',
-    glow: '0 0 18px rgba(110,160,70,0.18)',
-    focus: '0 0 0 3px rgba(110,160,70,0.12)',
+    lore: 'Black loam and spore-bright green — death made fertile',
+    tier: 'guild',
+    bg: '#050905',
+    bg2: '#0a0f08',
+    bg3: '#10180d',
+    accent: '#549f2e',
+    accentDim: '#3a721c',
+    hi: '#5a4863',
+    text: '#c4d2b5',
+    textDim: '#7c8e72',
+    textFaint: '#586655',
+    border: 'rgba(70,140,40,0.22)',
+    borderHi: 'rgba(84,159,46,0.55)',
+    glow: '0 0 20px rgba(84,159,46,0.22)',
+    focus: '0 0 0 3px rgba(84,159,46,0.14)',
   }),
   boros: createLightTheme({
     name: 'Boros',
-    lore: 'Battle banners, white stone, and furnace-bright steel',
-    bg: '#f7f1ee',
-    bg2: '#efe5df',
-    bg3: '#e7d9d1',
-    accent: '#d45d3f',
-    accentDim: '#a84831',
-    hi: '#c3aa67',
-    text: '#21130f',
-    textDim: '#6e4d43',
-    textFaint: '#9a7568',
-    border: 'rgba(160,70,50,0.18)',
-    borderHi: 'rgba(212,93,63,0.44)',
-    glow: '0 0 18px rgba(212,93,63,0.20)',
-    focus: '0 0 0 3px rgba(212,93,63,0.14)',
+    lore: 'White stone, battle red, and the gold of kept oaths',
+    tier: 'guild',
+    bg: '#f8f1ea',
+    bg2: '#efe1d2',
+    bg3: '#e3cfb8',
+    accent: '#c52020',
+    accentDim: '#971818',
+    hi: '#d8a430',
+    text: '#1a0805',
+    textDim: '#5a352a',
+    textFaint: '#8c6b54',
+    border: 'rgba(190,30,30,0.22)',
+    borderHi: 'rgba(197,32,32,0.55)',
+    glow: '0 0 20px rgba(197,32,32,0.22)',
+    focus: '0 0 0 3px rgba(197,32,32,0.16)',
   }),
   simic: createDarkTheme({
     name: 'Simic',
-    lore: 'Laboratory reefs, sea-glass teal, and adaptive bloom',
-    bg: '#061117',
-    bg2: '#0a1820',
-    bg3: '#0e2029',
-    accent: '#44b8b0',
-    accentDim: '#358c87',
-    hi: '#6bc16f',
-    text: '#cde5e1',
-    textDim: '#81a79f',
-    textFaint: '#5a7f79',
-    border: 'rgba(50,140,150,0.20)',
-    borderHi: 'rgba(68,184,176,0.48)',
-    glow: '0 0 18px rgba(68,184,176,0.18)',
-    focus: '0 0 0 3px rgba(68,184,176,0.12)',
+    lore: 'Sea-glass teal and bioluminescent green — the lab reef',
+    tier: 'guild',
+    bg: '#04111a',
+    bg2: '#07182a',
+    bg3: '#0a2230',
+    accent: '#28b8b8',
+    accentDim: '#18897e',
+    hi: '#58cc62',
+    text: '#cae5e1',
+    textDim: '#80a89e',
+    textFaint: '#5b7d76',
+    border: 'rgba(40,184,184,0.22)',
+    borderHi: 'rgba(40,184,184,0.55)',
+    glow: '0 0 20px rgba(40,184,184,0.22)',
+    focus: '0 0 0 3px rgba(40,184,184,0.14)',
   }),
 
   // ── Premium themes ──────────────────────────────────────────────────────────
-  obsidian: createDarkTheme({
-    name: 'Obsidian Night',
-    lore: 'Pure void, electric violet, and distant nebulae',
-    bg: '#000000',
-    bg2: '#050508',
-    bg3: '#0b0910',
-    accent: '#b08fff',
-    accentDim: '#8060d0',
-    hi: '#60b0ff',
-    text: '#e8e0f8',
-    textDim: '#a098c8',
-    textFaint: '#6a6090',
-    border: 'rgba(160,128,255,0.18)',
-    borderHi: 'rgba(176,143,255,0.52)',
-    glow: '0 0 28px rgba(160,128,255,0.32)',
-    focus: '0 0 0 3px rgba(160,128,255,0.18)',
-  }),
-  crimson_court: createDarkTheme({
-    name: 'Crimson Court',
-    lore: 'Blood velvet, vampire halls, and aged gold candlelight',
-    bg: '#0d0103',
-    bg2: '#160308',
-    bg3: '#1e040b',
-    accent: '#cc2244',
-    accentDim: '#991833',
-    hi: '#d4903a',
-    text: '#f0d8d0',
-    textDim: '#c09080',
-    textFaint: '#906068',
-    border: 'rgba(180,28,58,0.22)',
-    borderHi: 'rgba(204,34,68,0.55)',
-    glow: '0 0 28px rgba(200,30,60,0.34)',
-    focus: '0 0 0 3px rgba(200,30,60,0.18)',
-  }),
-  verdant_realm: createDarkTheme({
-    name: 'Verdant Realm',
-    lore: 'Bioluminescent spores, forest void, and emerald heartwood',
-    bg: '#020d05',
-    bg2: '#071509',
-    bg3: '#0e1e11',
-    accent: '#3dba74',
-    accentDim: '#2e9059',
-    hi: '#7fd4a0',
-    text: '#d8f0e0',
-    textDim: '#88b898',
-    textFaint: '#608070',
-    border: 'rgba(50,170,100,0.20)',
-    borderHi: 'rgba(61,186,116,0.50)',
-    glow: '0 0 28px rgba(50,180,100,0.28)',
-    focus: '0 0 0 3px rgba(50,180,100,0.14)',
-  }),
   archive_dark: createDarkTheme({
     name: 'Arcane Archive',
     lore: 'Personal card art, dark glass, and gallery shadows',
+    tier: 'archive',
     bg: '#050509',
     bg2: '#0a0b12',
     bg3: '#11131d',
@@ -376,6 +358,7 @@ export const THEMES = {
   archive_light: createLightTheme({
     name: 'Arcane Archive Light',
     lore: 'Personal card art, parchment light, and soft gallery haze',
+    tier: 'archive',
     bg: '#f7f1e6',
     bg2: '#efe5d5',
     bg3: '#e3d4bc',
@@ -393,7 +376,17 @@ export const THEMES = {
 }
 
 export const ARCHIVE_THEMES = new Set(['archive_dark', 'archive_light'])
-export const PREMIUM_THEMES = new Set(['obsidian', 'crimson_court', 'verdant_realm', 'archive_dark', 'archive_light'])
+export const GUILD_THEMES = new Set(['azorius', 'dimir', 'rakdos', 'gruul', 'selesnya', 'orzhov', 'izzet', 'golgari', 'boros', 'simic'])
+export const PREMIUM_THEMES = new Set([
+  ...GUILD_THEMES,
+  ...ARCHIVE_THEMES,
+])
+
+export const THEME_TIERS = [
+  { id: 'free', label: 'Free', description: 'The flagship Shadow palette — dark and light.' },
+  { id: 'guild', label: 'Guilds of Ravnica · Premium Pack', description: 'All ten guilds — each leaning hard into its dual color identity.' },
+  { id: 'archive', label: 'Arcane Archive · Premium', description: 'Your own card art as a living background.' },
+]
 
 const DEFAULT_BENTO_CONFIG = {
   blocks: [
@@ -435,6 +428,11 @@ const DEFAULTS = {
   archive_background_mode: 'random',
   archive_background_cards: [],
   archive_background_seed: 0,
+  archive_background_locked: [],
+  archive_background_collection_source: null,
+  archive_background_blur: 7,
+  archive_background_saturation: 0.86,
+  archive_background_opacity: 0.16,
   // Profile
   profile_bio: '',
   profile_accent: '',
@@ -494,6 +492,29 @@ function loadMissingSettingsColumns() {
 
 const missingSettingsColumns = loadMissingSettingsColumns()
 
+// One-time prune: these columns were added in the archive_theme_v2 migration; older clients
+// may have cached them as "missing" before the migration ran. Drop them from the cache so
+// the next save retries; if a column is still missing on the DB, it will be re-cached.
+;(function pruneArchiveV2MissingCache() {
+  const ARCHIVE_V2_COLUMNS = [
+    'archive_background_seed',
+    'archive_background_locked',
+    'archive_background_collection_source',
+    'archive_background_blur',
+    'archive_background_saturation',
+    'archive_background_opacity',
+  ]
+  let changed = false
+  for (const col of ARCHIVE_V2_COLUMNS) {
+    if (missingSettingsColumns.delete(col)) changed = true
+  }
+  if (changed) {
+    try {
+      localStorage.setItem(SETTINGS_MISSING_COLUMNS_KEY, JSON.stringify([...missingSettingsColumns]))
+    } catch {}
+  }
+})()
+
 function rememberMissingSettingsColumn(column) {
   if (!column || missingSettingsColumns.has(column)) return
   missingSettingsColumns.add(column)
@@ -551,13 +572,33 @@ function normalizeSettings(settings) {
     page_tips_seen: settings.page_tips_seen && typeof settings.page_tips_seen === 'object' && !Array.isArray(settings.page_tips_seen)
       ? settings.page_tips_seen
       : {},
-    archive_background_mode: settings.archive_background_mode === 'selected' ? 'selected' : 'random',
+    archive_background_mode: ['selected', 'collection', 'random'].includes(settings.archive_background_mode)
+      ? settings.archive_background_mode
+      : 'random',
     archive_background_cards: Array.isArray(settings.archive_background_cards)
       ? settings.archive_background_cards.filter(card => card && typeof card === 'object').slice(0, 12)
       : [],
     archive_background_seed: Number.isFinite(Number(settings.archive_background_seed))
       ? Number(settings.archive_background_seed)
       : 0,
+    archive_background_locked: Array.isArray(settings.archive_background_locked)
+      ? settings.archive_background_locked.filter(card => card && typeof card === 'object' && card.id).slice(0, 6)
+      : [],
+    archive_background_collection_source: settings.archive_background_collection_source && typeof settings.archive_background_collection_source === 'object'
+      ? settings.archive_background_collection_source
+      : null,
+    archive_background_blur: Number.isFinite(Number(settings.archive_background_blur))
+      ? Math.max(0, Math.min(40, Number(settings.archive_background_blur)))
+      : 7,
+    archive_background_saturation: Number.isFinite(Number(settings.archive_background_saturation))
+      ? Math.max(0, Math.min(2, Number(settings.archive_background_saturation)))
+      : 0.86,
+    archive_background_opacity: Number.isFinite(Number(settings.archive_background_opacity))
+      ? Math.max(0.02, Math.min(0.6, Number(settings.archive_background_opacity)))
+      : 0.16,
+  }
+  if (!THEMES[next.theme]) {
+    return { ...next, theme: 'shadow' }
   }
   if (!next.premium && PREMIUM_THEMES.has(next.theme)) {
     return { ...next, theme: 'shadow' }
@@ -601,39 +642,155 @@ function normalizeArchiveCard(card) {
 }
 
 const ARCHIVE_RANDOM_QUERY = 'game:paper -type:token -type:art -type:scheme -type:plane unique:art'
+const ARCHIVE_TILE_COUNT = 6
 let archiveRequestSeq = 0
 
+// Module-level state so the Settings panel can observe what's currently rendered.
+let _activeArchiveTiles = []
+const _archiveListeners = new Set()
+export function getActiveArchiveTiles() { return _activeArchiveTiles.slice() }
+export function subscribeArchiveTiles(fn) {
+  _archiveListeners.add(fn)
+  return () => _archiveListeners.delete(fn)
+}
+function setActiveArchiveTiles(tiles) {
+  _activeArchiveTiles = tiles
+  _archiveListeners.forEach(fn => { try { fn(tiles) } catch {} })
+}
+
+async function fetchOneRandomCard() {
+  // Each call to /cards/random returns one truly random card — six parallel calls = six independent rolls.
+  const data = await sfGet(`/cards/random?q=${encodeURIComponent(ARCHIVE_RANDOM_QUERY)}`, { noCache: true })
+  return normalizeArchiveCard(data)
+}
+
+async function getRandomArchiveCards(count, excludeIds = new Set()) {
+  if (count <= 0) return []
+  // Over-fetch a bit so we can drop duplicates / locked overlaps and still hit the target.
+  const target = count + 2
+  const results = await Promise.all(Array.from({ length: target }, fetchOneRandomCard))
+  const out = []
+  const seen = new Set(excludeIds)
+  for (const card of results) {
+    if (!card || seen.has(card.id)) continue
+    seen.add(card.id)
+    out.push(card)
+    if (out.length >= count) break
+  }
+  return out
+}
+
+async function getCollectionArchiveCards(options, count) {
+  const userId = options.userId
+  if (!userId || count <= 0) return []
+  await loadCacheFromIDB().catch(() => {})
+  const sfMap = getMemoryMap() || {}
+  const allCards = await getLocalCards(userId).catch(() => [])
+  const source = options.archive_background_collection_source
+  let pool = allCards
+  if (source?.folderId) {
+    const placements = await getAllLocalFolderCards([source.folderId]).catch(() => [])
+    const ids = new Set(placements.map(p => p.card_id))
+    pool = allCards.filter(c => ids.has(c.id))
+  }
+  // Shuffle, then map to art via sfMap (skip cards without art_crop in cache).
+  const shuffled = pool.slice().sort(() => Math.random() - 0.5)
+  const out = []
+  const seen = new Set()
+  for (const c of shuffled) {
+    if (out.length >= count) break
+    const key = getScryfallKey(c)
+    const sf = sfMap[key]
+    const image = sf?.image_uris?.art_crop
+      || sf?.card_faces?.find(f => f?.image_uris)?.image_uris?.art_crop
+    if (!image || seen.has(c.scryfall_id || key)) continue
+    seen.add(c.scryfall_id || key)
+    out.push({ id: c.scryfall_id || key, name: c.name, image })
+  }
+  return out
+}
+
 async function getArchiveAmbientCards(options = {}) {
-  const selected = Array.isArray(options.archive_background_cards) ? options.archive_background_cards : []
-  if (options.archive_background_mode === 'selected' && selected.length) {
-    const cached = selected.filter(card => card?.id && card?.image)
-    if (cached.length >= Math.min(6, selected.length)) return cached.slice(0, 12)
-    const cards = await fetchScryfallBatch(selected.filter(card => card?.id).map(card => ({ id: card.id })))
-    return cards.map(normalizeArchiveCard).filter(Boolean).slice(0, 12)
+  const mode = options.archive_background_mode || 'random'
+  const lockedRaw = Array.isArray(options.archive_background_locked) ? options.archive_background_locked : []
+  const locked = lockedRaw.filter(c => c?.id && c?.image).slice(0, ARCHIVE_TILE_COUNT)
+  const lockedIds = new Set(locked.map(c => c.id))
+  const need = Math.max(0, ARCHIVE_TILE_COUNT - locked.length)
+
+  let fresh = []
+  if (mode === 'selected') {
+    const selected = Array.isArray(options.archive_background_cards) ? options.archive_background_cards : []
+    const cached = selected.filter(card => card?.id && card?.image && !lockedIds.has(card.id))
+    if (cached.length >= need) {
+      fresh = cached.slice(0, need)
+    } else if (selected.length) {
+      const hydrated = await fetchScryfallBatch(selected.filter(c => c?.id).map(c => ({ id: c.id })))
+      fresh = hydrated.map(normalizeArchiveCard).filter(Boolean).filter(c => !lockedIds.has(c.id)).slice(0, need)
+    }
+  } else if (mode === 'collection') {
+    fresh = await getCollectionArchiveCards(options, need)
+    fresh = fresh.filter(c => !lockedIds.has(c.id))
+    // Fall back to random if collection didn't yield enough (e.g. empty collection).
+    if (fresh.length < need) {
+      const filler = await getRandomArchiveCards(need - fresh.length, new Set([...lockedIds, ...fresh.map(c => c.id)]))
+      fresh = [...fresh, ...filler]
+    }
+  } else {
+    fresh = await getRandomArchiveCards(need, lockedIds)
   }
 
-  // Seed is appended to bypass the browser's HTTP cache — without it, fetch reuses
-  // the prior response for identical URLs and order=random returns the same cards.
-  const seed = Number(options.archive_background_seed) || Date.now()
-  const data = await sfGet(`/cards/search?q=${encodeURIComponent(ARCHIVE_RANDOM_QUERY)}&order=random&unique=art&_=${seed}`)
-  return (data?.data || []).map(normalizeArchiveCard).filter(Boolean).slice(0, 12)
+  // Locked tiles first (preserve their slot order), then fresh fills remaining slots.
+  return [...locked, ...fresh].slice(0, ARCHIVE_TILE_COUNT)
+}
+
+function ensureArchiveCanvas(el) {
+  let canvas = el.querySelector('.av-archive-canvas')
+  if (!canvas) {
+    canvas = document.createElement('div')
+    canvas.className = 'av-archive-canvas'
+    canvas.setAttribute('aria-hidden', 'true')
+    el.appendChild(canvas)
+  }
+  return canvas
 }
 
 function renderArchiveAmbient(el, cards) {
-  el.querySelectorAll('.av-archive-card').forEach(node => node.remove())
-  const visible = cards.slice(0, 6)
+  const visible = cards.slice(0, ARCHIVE_TILE_COUNT)
+  const canvas = ensureArchiveCanvas(el)
+  const oldTiles = Array.from(canvas.querySelectorAll('.av-archive-card'))
+  const COLS = 3
+  // Build new tiles into the canvas. Single filter:blur on canvas covers all of them at once.
   visible.forEach((card, index) => {
+    const col = index % COLS
+    const row = Math.floor(index / COLS)
     const tile = document.createElement('div')
-    tile.className = 'av-archive-card'
-    tile.style.setProperty('--archive-card-image', `url("${card.image}")`)
+    tile.className = 'av-archive-card av-archive-card-incoming'
     tile.style.setProperty('--archive-card-i', String(index))
+    tile.style.left = `calc(100vw / ${COLS} * ${col})`
+    tile.style.top = `${row * 50}vh`
+    tile.dataset.cardId = card.id
     tile.setAttribute('aria-hidden', 'true')
-    el.appendChild(tile)
+    const art = document.createElement('div')
+    art.className = 'av-archive-card-art'
+    art.style.setProperty('--archive-card-image', `url("${card.image}")`)
+    tile.appendChild(art)
+    canvas.appendChild(tile)
   })
+  // Force reflow so the incoming tiles transition in from opacity 0.
+  // eslint-disable-next-line no-unused-expressions
+  el.offsetHeight
+  requestAnimationFrame(() => {
+    el.querySelectorAll('.av-archive-card-incoming').forEach(t => t.classList.remove('av-archive-card-incoming'))
+    oldTiles.forEach(t => { t.classList.add('av-archive-card-outgoing') })
+    setTimeout(() => oldTiles.forEach(t => t.remove()), 800)
+  })
+  setActiveArchiveTiles(visible)
 }
 
 function clearArchiveAmbient(el) {
-  el.querySelectorAll('.av-archive-card').forEach(node => node.remove())
+  const canvas = el.querySelector('.av-archive-canvas')
+  if (canvas) canvas.remove()
+  setActiveArchiveTiles([])
 }
 
 async function updateArchiveAmbient(el, themeId, options) {
@@ -665,17 +822,30 @@ function injectPremiumAmbient(themeId, options = {}) {
   }
 
   const gradients = {
-    obsidian: 'radial-gradient(ellipse 52% 42% at 14% 18%, rgba(96,176,255,0.10) 0%, transparent 58%), radial-gradient(ellipse 46% 38% at 84% 78%, rgba(176,143,255,0.10) 0%, transparent 60%), linear-gradient(135deg, rgba(96,176,255,0.040), transparent 40%, rgba(176,143,255,0.030))',
-    crimson_court: 'radial-gradient(ellipse 46% 56% at 8% 48%, rgba(200,34,68,0.13) 0%, transparent 50%), radial-gradient(ellipse 34% 50% at 88% 52%, rgba(212,144,58,0.11) 0%, transparent 52%), radial-gradient(circle at 50% 50%, rgba(255,210,150,0.030), transparent 38%)',
-    verdant_realm: 'radial-gradient(ellipse 58% 42% at 24% 82%, rgba(61,186,116,0.13) 0%, transparent 58%), radial-gradient(ellipse 42% 36% at 76% 22%, rgba(176,220,120,0.08) 0%, transparent 56%), linear-gradient(160deg, rgba(61,186,116,0.030), transparent 46%, rgba(127,212,160,0.020))',
     archive_dark: 'linear-gradient(180deg, rgba(5,5,9,0.54), rgba(5,5,9,0.76))',
     archive_light: 'linear-gradient(180deg, rgba(247,241,230,0.42), rgba(247,241,230,0.66))',
   }
 
   el.style.background = gradients[themeId] || ''
+  const themeChanged = el.dataset.theme !== themeId
   el.dataset.theme = themeId
-  if (isArchive) updateArchiveAmbient(el, themeId, options)
-  else clearArchiveAmbient(el)
+  if (isArchive) {
+    // Only refetch when something that changes the *card pool* changed.
+    // Locks and visual sliders should not trigger network calls.
+    const sig = [
+      options.archive_background_mode || 'random',
+      Number(options.archive_background_seed) || 0,
+      (options.archive_background_cards || []).length,
+      options.archive_background_collection_source?.folderId || '',
+    ].join('|')
+    if (themeChanged || el.dataset.archiveSig !== sig) {
+      el.dataset.archiveSig = sig
+      updateArchiveAmbient(el, themeId, options)
+    }
+  } else {
+    clearArchiveAmbient(el)
+    delete el.dataset.archiveSig
+  }
   requestAnimationFrame(() => { if (el) el.style.opacity = '1' })
 }
 
@@ -707,6 +877,20 @@ export function applyTheme(themeId, oledMode, options = {}) {
     root.setAttribute('data-oled', 'true')
   } else {
     root.removeAttribute('data-oled')
+  }
+
+  // Archive filter knobs — applied as CSS vars consumed by .av-archive-card.
+  if (ARCHIVE_THEMES.has(themeId)) {
+    if (Number.isFinite(options.archive_background_blur))
+      root.style.setProperty('--archive-blur', `${options.archive_background_blur}px`)
+    if (Number.isFinite(options.archive_background_saturation))
+      root.style.setProperty('--archive-sat', String(options.archive_background_saturation))
+    if (Number.isFinite(options.archive_background_opacity))
+      root.style.setProperty('--archive-card-opacity', String(options.archive_background_opacity))
+  } else {
+    root.style.removeProperty('--archive-blur')
+    root.style.removeProperty('--archive-sat')
+    root.style.removeProperty('--archive-card-opacity')
   }
 
   injectPremiumAmbient(themeId, options)
@@ -813,9 +997,15 @@ export function SettingsProvider({ children }) {
     const themeId = user ? settings.theme : 'shadow'
     const oledMode = user ? settings.oled_mode : false
     applyTheme(themeId, oledMode, {
+      userId: user?.id || null,
       archive_background_mode: settings.archive_background_mode,
       archive_background_cards: settings.archive_background_cards,
       archive_background_seed: settings.archive_background_seed,
+      archive_background_locked: settings.archive_background_locked,
+      archive_background_collection_source: settings.archive_background_collection_source,
+      archive_background_blur: settings.archive_background_blur,
+      archive_background_saturation: settings.archive_background_saturation,
+      archive_background_opacity: settings.archive_background_opacity,
     })
 
     if (user && settings.higher_contrast) {
@@ -834,6 +1024,11 @@ export function SettingsProvider({ children }) {
     settings.archive_background_mode,
     settings.archive_background_cards,
     settings.archive_background_seed,
+    settings.archive_background_locked,
+    settings.archive_background_collection_source,
+    settings.archive_background_blur,
+    settings.archive_background_saturation,
+    settings.archive_background_opacity,
   ])
 
   useEffect(() => {
