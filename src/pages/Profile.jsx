@@ -203,13 +203,13 @@ function StandoutCardPicker({ deck, selected, onAdd, onRemove, onClose }) {
 
         const ids = unique.map(r => r.scryfall_id)
         const { data: priceRows } = await sb.from('card_prices')
-          .select('scryfall_id,price_eur,price_usd')
+          .select('scryfall_id,price_regular_eur,price_regular_usd')
           .in('scryfall_id', ids)
           .order('snapshot_date', { ascending: false })
 
         const priceMap = {}
         for (const p of (priceRows || [])) {
-          if (!priceMap[p.scryfall_id]) priceMap[p.scryfall_id] = p.price_eur ?? p.price_usd ?? 0
+          if (!priceMap[p.scryfall_id]) priceMap[p.scryfall_id] = p.price_regular_eur ?? p.price_regular_usd ?? 0
         }
 
         const result = unique.map(r => ({
@@ -530,6 +530,8 @@ function useDeckArt(coverArtUri, commanderScryfallId) {
 function FeaturedDeckInner({ deck, standoutCards, deckStats, editMode, decks, onChangeDeck, onChangeCards }) {
   const art = useDeckArt(deck.cover_art_uri, deck.commander_scryfall_id)
   const colors = Array.isArray(deck.color_identity) ? deck.color_identity : []
+  const tags = Array.isArray(deck.tags) ? deck.tags.filter(Boolean) : []
+  const description = (deck.deck_description || '').trim()
   const [showPicker, setShowPicker] = useState(false)
 
   return (
@@ -566,19 +568,36 @@ function FeaturedDeckInner({ deck, standoutCards, deckStats, editMode, decks, on
           </div>
         </div>
 
+        {description && (
+          <div className={styles.featuredDeckDescription}>{description}</div>
+        )}
+
+        {tags.length > 0 && (
+          <div className={styles.featuredDeckTags}>
+            {tags.map((t, i) => (
+              <span key={i} className={styles.featuredDeckTag}>{t}</span>
+            ))}
+          </div>
+        )}
+
         {(standoutCards?.length > 0 || editMode) && (
           <div className={styles.featuredStandoutSection}>
             <div className={styles.featuredStandoutLabel}>Standout Cards</div>
             <div className={styles.featuredStandoutStrip}>
-              {(standoutCards || []).map((c, i) => (
-                <div key={i} className={styles.featuredStandoutCard} title={c.name}>
-                  <img src={c.art_crop} alt={c.name} className={styles.featuredStandoutImg} loading="lazy" />
-                  {editMode && (
-                    <button className={styles.featuredStandoutRemove}
-                      onClick={() => onChangeCards((standoutCards || []).filter((_, j) => j !== i))}>✕</button>
-                  )}
-                </div>
-              ))}
+              {(standoutCards || []).map((c, i) => {
+                const fullImg = c.scryfall_id
+                  ? `https://cards.scryfall.io/normal/front/${c.scryfall_id[0]}/${c.scryfall_id[1]}/${c.scryfall_id}.jpg`
+                  : c.art_crop
+                return (
+                  <div key={i} className={styles.featuredStandoutCard} title={c.name}>
+                    <img src={fullImg} alt={c.name} className={styles.featuredStandoutImg} loading="lazy" />
+                    {editMode && (
+                      <button className={styles.featuredStandoutRemove}
+                        onClick={() => onChangeCards((standoutCards || []).filter((_, j) => j !== i))}>✕</button>
+                    )}
+                  </div>
+                )
+              })}
               {editMode && (standoutCards || []).length < 5 && (
                 <button className={styles.featuredStandoutAdd} onClick={() => setShowPicker(true)}>+</button>
               )}

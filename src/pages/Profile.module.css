@@ -904,6 +904,32 @@
 .featuredStatL { color: #e05c5c; font-weight: 600; }
 .featuredStatGames { color: var(--text-faint); }
 
+/* Description & tags */
+.featuredDeckDescription {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+  white-space: pre-wrap;
+}
+
+.featuredDeckTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.featuredDeckTag {
+  font-size: 0.7rem;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(201,168,76,0.10);
+  color: var(--gold);
+  border: 1px solid rgba(201,168,76,0.30);
+  letter-spacing: 0.02em;
+}
+
 /* Standout cards */
 .featuredStandoutSection { margin-bottom: 14px; }
 
@@ -925,15 +951,20 @@
 
 .featuredStandoutCard {
   position: relative;
-  width: 96px;
-  height: 57px;
-  border-radius: 6px;
+  width: 120px;
+  aspect-ratio: 488 / 680;
+  border-radius: 9px;
   overflow: hidden;
   flex-shrink: 0;
   border: 1px solid var(--border);
-  transition: border-color 0.15s, transform 0.15s;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
 }
-.featuredStandoutCard:hover { border-color: rgba(201,168,76,0.5); transform: translateY(-2px); }
+.featuredStandoutCard:hover {
+  border-color: rgba(201,168,76,0.5);
+  transform: translateY(-3px);
+  box-shadow: 0 6px 14px rgba(0,0,0,0.45);
+}
 
 .featuredStandoutImg {
   width: 100%;
@@ -963,9 +994,9 @@
 .featuredStandoutCard:hover .featuredStandoutRemove { opacity: 1; }
 
 .featuredStandoutAdd {
-  width: 96px;
-  height: 57px;
-  border-radius: 6px;
+  width: 120px;
+  aspect-ratio: 488 / 680;
+  border-radius: 9px;
   border: 1px dashed var(--s-border2);
   background: none;
   color: var(--text-faint);
