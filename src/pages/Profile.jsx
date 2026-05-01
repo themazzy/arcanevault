@@ -8,6 +8,8 @@ import { sfGet } from '../lib/scryfall'
 import { Modal } from '../components/UI'
 import { ImageIcon } from '../icons'
 import { MILESTONES } from '../lib/milestones'
+import { checkAndNotifyMilestones } from '../lib/milestoneTracker'
+import { useToast } from '../components/ToastContext'
 import {
   DndContext,
   DragOverlay,
@@ -980,9 +982,12 @@ export default function ProfilePage() {
       .catch(() => {})
   }, [isOwn, user?.id, savedFeaturedDeckId])
 
+  const { showToast } = useToast()
+
   // Track milestone earn dates for owner
   useEffect(() => {
     if (!isOwn || !user || !profile?.stats) return
+    checkAndNotifyMilestones({ stats: profile.stats, profile, userId: user.id, showToast })
     const cfg      = profile.bento_config || {}
     const earnedAt = cfg.milestone_earned_at || {}
     const now      = new Date().toISOString()
