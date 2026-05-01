@@ -986,20 +986,35 @@ export default function CollectionPage() {
     const toUpdate = cardUpdates.filter(row => row.remaining > 0)
 
     const BATCH = 100
-    for (let i = 0; i < placementRows.length; i += BATCH) {
-      const batch = placementRows.slice(i, i + BATCH)
-      for (const row of batch) {
-        if (!row.sourceFolder) continue
-        const sourceTable = row.sourceFolder.type === 'deck' ? 'deck_allocations' : 'folder_cards'
-        const sourceKey = row.sourceFolder.type === 'deck' ? 'deck_id' : 'folder_id'
-        if (row.remainingPlacementQty > 0) {
-          const { error: err } = await sb.from(sourceTable).update({ qty: row.remainingPlacementQty }).eq(sourceKey, row.sourceFolder.id).eq('card_id', row.id)
-          if (err) { setError(err.message); return }
-        } else {
-          const { error: err } = await sb.from(sourceTable).delete().eq(sourceKey, row.sourceFolder.id).eq('card_id', row.id)
-          if (err) { setError(err.message); return }
-        }
+    // Group placement deletes by (table, folder_id) so we can use .in('card_id', [...])
+    const deleteGroups = new Map() // key: `${table}|${folderId}` → { table, key, folderId, cardIds[] }
+    const updateOps = [] // each row needs its own qty, so run in parallel
+    for (const row of placementRows) {
+      if (!row.sourceFolder) continue
+      const table = row.sourceFolder.type === 'deck' ? 'deck_allocations' : 'folder_cards'
+      const keyCol = row.sourceFolder.type === 'deck' ? 'deck_id' : 'folder_id'
+      if (row.remainingPlacementQty > 0) {
+        updateOps.push({ table, keyCol, folderId: row.sourceFolder.id, cardId: row.id, qty: row.remainingPlacementQty })
+      } else {
+        const k = `${table}|${row.sourceFolder.id}`
+        let g = deleteGroups.get(k)
+        if (!g) { g = { table, keyCol, folderId: row.sourceFolder.id, cardIds: [] }; deleteGroups.set(k, g) }
+        g.cardIds.push(row.id)
       }
+    }
+    const placementResults = await Promise.all([
+      ...Array.from(deleteGroups.values()).flatMap(g => {
+        const out = []
+        for (let i = 0; i < g.cardIds.length; i += BATCH) {
+          const slice = g.cardIds.slice(i, i + BATCH)
+          out.push(sb.from(g.table).delete().eq(g.keyCol, g.folderId).in('card_id', slice))
+        }
+        return out
+      }),
+      ...updateOps.map(op => sb.from(op.table).update({ qty: op.qty }).eq(op.keyCol, op.folderId).eq('card_id', op.cardId)),
+    ])
+    for (const r of placementResults) {
+      if (r.error) { setError(r.error.message); return }
     }
     setCardFolderMap(prev => {
       const next = { ...prev }
@@ -1021,12 +1036,16 @@ export default function CollectionPage() {
       if (delErr) { setError(delErr.message); return }
       await Promise.all(cardIds.map(id => deleteCard(id)))
     }
-    for (const { id, remaining } of toUpdate) {
-      const { error: updErr } = await sb.from('cards').update({ qty: remaining }).eq('id', id)
-      if (updErr) { setError(updErr.message); return }
-      const card = cards.find(c => c.id === id)
-      if (card) await putCards([{ ...card, qty: remaining }])
+    const updateResults = await Promise.all(
+      toUpdate.map(({ id, remaining }) => sb.from('cards').update({ qty: remaining }).eq('id', id))
+    )
+    for (const r of updateResults) {
+      if (r.error) { setError(r.error.message); return }
     }
+    await Promise.all(toUpdate.map(({ id, remaining }) => {
+      const card = cards.find(c => c.id === id)
+      return card ? putCards([{ ...card, qty: remaining }]) : null
+    }).filter(Boolean))
     const toDeleteSet = new Set(toDelete.map(row => row.id))
     setCards(prev => prev.map(c => {
       if (toDeleteSet.has(c.id)) return null
