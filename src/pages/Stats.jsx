@@ -10,6 +10,8 @@ import { CardDetail } from '../components/CardComponents'
 import { EmptyState, SectionHeader, ProgressBar } from '../components/UI'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
 import { MILESTONES } from '../lib/milestones'
+import { checkAndNotifyMilestones } from '../lib/milestoneTracker'
+import { useToast } from '../components/ToastContext'
 import { ChevronDownIcon, ChevronUpIcon } from '../icons'
 import {
   BarChart, Bar, PieChart, Pie, Cell,
@@ -521,6 +523,8 @@ function ColorDistributionBars({ byColor, totalQty }) {
 }
 
 function MilestonesSection({ stats, historyRows, publicDeckCount }) {
+  const { user } = useAuth()
+  const { showToast } = useToast()
   const statsShape = {
     total_cards: stats.totalQty,
     unique_cards: stats.uniqueCards,
@@ -536,6 +540,11 @@ function MilestonesSection({ stats, historyRows, publicDeckCount }) {
   }
   const earned  = MILESTONES.filter(m => m.check(statsShape, profileShape))
   const pending = MILESTONES.filter(m => !m.check(statsShape, profileShape))
+
+  const earnedKey = earned.map(m => m.id).join(',')
+  useEffect(() => {
+    checkAndNotifyMilestones({ stats: statsShape, profile: profileShape, userId: user?.id, showToast })
+  }, [earnedKey, user?.id, showToast])
 
   return (
     <div className={styles.chartBox}>

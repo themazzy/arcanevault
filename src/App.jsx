@@ -7,6 +7,7 @@ import { SetupWizardProvider } from './components/SetupWizard'
 import { ToastProvider } from './components/ToastContext'
 import { queryClient } from './lib/queryClient'
 import Layout from './components/Layout'
+import MilestoneWatcher from './components/MilestoneWatcher'
 
 const HomePage = lazy(() => import('./pages/Home'))
 const CollectionPage = lazy(() => import('./pages/Collection'))
@@ -43,6 +44,7 @@ function PrivateApp() {
   return (
     <SettingsProvider>
       <SetupWizardProvider>
+      <MilestoneWatcher />
       <Layout>
         <Suspense fallback={null}>
           <Routes>

@@ -10,6 +10,11 @@ export const MILESTONES = [
     check: (s) => (s?.total_cards ?? 0) >= 1,
   },
   {
+    id: 'apprentice', label: 'Apprentice', icon: '🪶',
+    req: '10 cards', desc: 'A modest beginning — 10 cards in the vault',
+    check: (s) => (s?.total_cards ?? 0) >= 10,
+  },
+  {
     id: 'collector', label: 'Collector', icon: '📦',
     req: '100 cards', desc: 'Built a collection of 100 cards',
     check: (s) => (s?.total_cards ?? 0) >= 100,
@@ -34,8 +39,18 @@ export const MILESTONES = [
     req: '10,000 cards', desc: 'A truly massive collection of 10,000 cards',
     check: (s) => (s?.total_cards ?? 0) >= 10000,
   },
+  {
+    id: 'archmage', label: 'Archmage', icon: '🧙',
+    req: '25,000 cards', desc: 'A vault that rivals a library — 25,000 cards',
+    check: (s) => (s?.total_cards ?? 0) >= 25000,
+  },
 
   // ── Unique cards ───────────────────────────────────────────────────────────
+  {
+    id: 'print_seeker', label: 'Print Seeker', icon: '🔍',
+    req: '100 unique prints', desc: 'Own 100 different card printings',
+    check: (s) => (s?.unique_cards ?? 0) >= 100,
+  },
   {
     id: 'unique_collector', label: 'Curator', icon: '🗂️',
     req: '500 unique prints', desc: 'Own 500 different card printings',
@@ -46,12 +61,22 @@ export const MILESTONES = [
     req: '2,000 unique prints', desc: 'Own 2,000 different card printings',
     check: (s) => (s?.unique_cards ?? 0) >= 2000,
   },
+  {
+    id: 'chronicler', label: 'Chronicler', icon: '📖',
+    req: '5,000 unique prints', desc: 'Own 5,000 different card printings',
+    check: (s) => (s?.unique_cards ?? 0) >= 5000,
+  },
 
   // ── Foils ──────────────────────────────────────────────────────────────────
   {
     id: 'first_foil', label: 'First Foil', icon: '✨',
     req: '1 foil', desc: 'Added your first foil card',
     check: (s) => (s?.foil_count ?? 0) >= 1,
+  },
+  {
+    id: 'foil_dabbler', label: 'Foil Dabbler', icon: '🪞',
+    req: '10 foils', desc: 'A small shimmer — 10 foil cards',
+    check: (s) => (s?.foil_count ?? 0) >= 10,
   },
   {
     id: 'shiny_hunter', label: 'Shiny Hunter', icon: '💎',
@@ -68,17 +93,37 @@ export const MILESTONES = [
     req: '500 foils', desc: 'The vault practically glows — 500 foils',
     check: (s) => (s?.foil_count ?? 0) >= 500,
   },
+  {
+    id: 'mirror_vault', label: 'Mirror Vault', icon: '🔱',
+    req: '1,000 foils', desc: 'A blinding hoard of 1,000 foil cards',
+    check: (s) => (s?.foil_count ?? 0) >= 1000,
+  },
 
   // ── Sets ───────────────────────────────────────────────────────────────────
+  {
+    id: 'set_dabbler', label: 'Set Dabbler', icon: '🧭',
+    req: '5 sets', desc: 'Own cards from 5 different sets',
+    check: (s) => (s?.sets_count ?? 0) >= 5,
+  },
   {
     id: 'sets_explorer', label: 'Set Explorer', icon: '🗺️',
     req: '25 sets', desc: 'Own cards from 25 different sets',
     check: (s) => (s?.sets_count ?? 0) >= 25,
   },
   {
+    id: 'set_scholar', label: 'Set Scholar', icon: '🎓',
+    req: '50 sets', desc: 'Own cards from 50 different sets',
+    check: (s) => (s?.sets_count ?? 0) >= 50,
+  },
+  {
     id: 'globetrotter', label: 'Globetrotter', icon: '🌍',
     req: '100 sets', desc: 'Own cards from 100 different sets',
     check: (s) => (s?.sets_count ?? 0) >= 100,
+  },
+  {
+    id: 'omniscient', label: 'Omniscient', icon: '🪐',
+    req: '250 sets', desc: 'Own cards from 250 different sets',
+    check: (s) => (s?.sets_count ?? 0) >= 250,
   },
 
   // ── Colors ─────────────────────────────────────────────────────────────────
@@ -89,6 +134,24 @@ export const MILESTONES = [
       const d = s?.color_distribution || {}
       return ['W', 'U', 'B', 'R', 'G'].every(c => (d[c] ?? 0) >= 1)
     },
+  },
+  {
+    id: 'mono_devotee', label: 'Mono Devotee', icon: '🕯️',
+    req: '100 cards in one color', desc: '100+ cards sharing a single color identity',
+    check: (s) => {
+      const d = s?.color_distribution || {}
+      return ['W', 'U', 'B', 'R', 'G'].some(c => (d[c] ?? 0) >= 100)
+    },
+  },
+  {
+    id: 'colorless_keeper', label: 'Colorless Keeper', icon: '⚙️',
+    req: '25 colorless cards', desc: 'Own 25 cards with no color identity',
+    check: (s) => (s?.color_distribution?.C ?? 0) >= 25,
+  },
+  {
+    id: 'multicolor_master', label: 'Multicolor Master', icon: '🎨',
+    req: '50 multicolor cards', desc: 'Own 50 cards with two or more colors',
+    check: (s) => (s?.color_distribution?.M ?? 0) >= 50,
   },
 
   // ── Decks ──────────────────────────────────────────────────────────────────
@@ -106,6 +169,11 @@ export const MILESTONES = [
     id: 'loremaster', label: 'Loremaster', icon: '📜',
     req: '10 public decks', desc: 'Shared 10 decks with the community',
     check: (_, p) => (p?.public_deck_count ?? 0) >= 10,
+  },
+  {
+    id: 'brewmaster', label: 'Brewmaster', icon: '⚗️',
+    req: '25 public decks', desc: 'Shared 25 decks with the community',
+    check: (_, p) => (p?.public_deck_count ?? 0) >= 25,
   },
 
   // ── Value ──────────────────────────────────────────────────────────────────
@@ -128,6 +196,11 @@ export const MILESTONES = [
     id: 'diamond_vault', label: 'Diamond Vault', icon: '🏆',
     req: '€5,000 value', desc: 'Collection estimated value exceeds €5,000',
     check: (_, p) => (p?.collection_value ?? 0) >= 5000,
+  },
+  {
+    id: 'whale', label: 'Whale', icon: '🐋',
+    req: '€10,000 value', desc: 'Collection estimated value exceeds €10,000',
+    check: (_, p) => (p?.collection_value ?? 0) >= 10000,
   },
 
   // ── Games ──────────────────────────────────────────────────────────────────
