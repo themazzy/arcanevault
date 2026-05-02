@@ -83,7 +83,11 @@
       "Bash(node -e \"const fs=require\\('fs'\\);const p=JSON.parse\\(fs.readFileSync\\('node_modules/stream-json/package.json','utf8'\\)\\);console.log\\('exports:',JSON.stringify\\(p.exports,null,2\\).slice\\(0,500\\)\\);console.log\\('main:',p.main\\)\")",
       "Bash(node -e \"const fs=require\\('fs'\\);console.log\\(fs.readdirSync\\('node_modules/stream-json/src/streamers'\\)\\)\")",
       "Bash(node -e \"const m=require\\('./node_modules/stream-json/src/streamers/stream-array.js'\\);console.log\\(Object.keys\\(m\\)\\)\")",
-      "Bash(node -e \"const m=require\\('./node_modules/stream-json/src/streamers/stream-array.js'\\);const r=m.streamArray\\(\\);console.log\\(typeof r, r?.constructor?.name, Object.keys\\(r||{}\\)\\)\")"
+      "Bash(node -e \"const m=require\\('./node_modules/stream-json/src/streamers/stream-array.js'\\);const r=m.streamArray\\(\\);console.log\\(typeof r, r?.constructor?.name, Object.keys\\(r||{}\\)\\)\")",
+      "Bash(identify src/icons/DeckLoom_logo.png)",
+      "Bash(magick -version)",
+      "Bash(node *)",
+      "WebFetch(domain:pagespeed.web.dev)"
     ]
   }
 }

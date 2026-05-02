@@ -73,51 +73,70 @@ export function AuthProvider({ children }) {
   )
 }
 
+// Defer non-critical fetches until the browser is idle so they don't fight
+// the LCP paint. Falls back to setTimeout in browsers without rIC.
+function runWhenIdle(cb) {
+  if (typeof window === 'undefined') return () => {}
+  const ric = window.requestIdleCallback
+  if (ric) {
+    const handle = ric(cb, { timeout: 1500 })
+    return () => window.cancelIdleCallback?.(handle)
+  }
+  const t = setTimeout(cb, 200)
+  return () => clearTimeout(t)
+}
+
 // ── Art crop hook ─────────────────────────────────────────────────────────
 function useCardArts(cardNames) {
   const [arts, setArts] = useState([])
   useEffect(() => {
     let cancelled = false
-    fetchCardsByNames(cardNames)
-      .then(results => {
-        if (cancelled) return
-        const byName = new Map(results.map(card => [card.name, card]))
-        setArts(
-          cardNames
-            .map(name => {
-              const d = byName.get(name)
-              return d?.image_uris?.art_crop || d?.card_faces?.[0]?.image_uris?.art_crop || null
-            })
-            .filter(Boolean)
-        )
-      })
-      .catch(() => { if (!cancelled) setArts([]) })
-    return () => { cancelled = true }
+    const cancelIdle = runWhenIdle(() => {
+      if (cancelled) return
+      fetchCardsByNames(cardNames)
+        .then(results => {
+          if (cancelled) return
+          const byName = new Map(results.map(card => [card.name, card]))
+          setArts(
+            cardNames
+              .map(name => {
+                const d = byName.get(name)
+                return d?.image_uris?.art_crop || d?.card_faces?.[0]?.image_uris?.art_crop || null
+              })
+              .filter(Boolean)
+          )
+        })
+        .catch(() => { if (!cancelled) setArts([]) })
+    })
+    return () => { cancelled = true; cancelIdle() }
   }, [cardNames]) // eslint-disable-line react-hooks/exhaustive-deps
   return arts
 }
 
-// ── Full card image hook (normal format) ──────────────────────────────────
+// ── Full card image hook (small format) ───────────────────────────────────
 function useCardImages(cardNames) {
   const [images, setImages] = useState([])
   useEffect(() => {
     let cancelled = false
-    fetchCardsByNames(cardNames)
-      .then(results => {
-        if (cancelled) return
-        const byName = new Map(results.map(card => [card.name, card]))
-        setImages(
-          cardNames
-            .map(name => {
-              const d = byName.get(name)
-              const src = d?.image_uris?.normal || d?.card_faces?.[0]?.image_uris?.normal || null
-              return src ? { name: d.name, src } : null
-            })
-            .filter(Boolean)
-        )
-      })
-      .catch(() => { if (!cancelled) setImages([]) })
-    return () => { cancelled = true }
+    const cancelIdle = runWhenIdle(() => {
+      if (cancelled) return
+      fetchCardsByNames(cardNames)
+        .then(results => {
+          if (cancelled) return
+          const byName = new Map(results.map(card => [card.name, card]))
+          setImages(
+            cardNames
+              .map(name => {
+                const d = byName.get(name)
+                const src = d?.image_uris?.small || d?.card_faces?.[0]?.image_uris?.small || null
+                return src ? { name: d.name, src } : null
+              })
+              .filter(Boolean)
+          )
+        })
+        .catch(() => { if (!cancelled) setImages([]) })
+    })
+    return () => { cancelled = true; cancelIdle() }
   }, [cardNames]) // eslint-disable-line react-hooks/exhaustive-deps
   return images
 }
@@ -389,7 +408,7 @@ export function LoginPage({ forcedMode = null }) {
   }
 
   return (
-    <div className={styles.page}>
+    <main className={styles.page}>
 
       {/* ── Cinematic art background ── */}
       <div className={styles.artBg}>
@@ -407,7 +426,7 @@ export function LoginPage({ forcedMode = null }) {
       <section className={styles.hero}>
         <div className={styles.heroLeft}>
           <div className={styles.heroLogo}>
-            <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" />
+            <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" fetchpriority="high" decoding="async" />
             <span className={styles.logoText}>Deck<span>Loom</span></span>
           </div>
           <h1 className={styles.tagline}>
@@ -751,7 +770,7 @@ export function LoginPage({ forcedMode = null }) {
       {/* ── Footer CTA ── */}
       <footer className={styles.footerCta}>
         <div className={styles.footerLogo}>
-          <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" />
+          <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" fetchpriority="high" decoding="async" />
           <span className={styles.logoText}>Deck<span>Loom</span></span>
         </div>
         <p className={styles.footerText}>Your Magic collection deserves a proper home.</p>
@@ -769,6 +788,6 @@ export function LoginPage({ forcedMode = null }) {
         </div>
       </footer>
 
-    </div>
+    </main>
   )
 }
