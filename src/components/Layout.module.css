@@ -42,6 +42,15 @@
   padding-right: 40px;
 }
 
+/* Native (Capacitor) — guarantee a minimum top inset so the navbar never
+   sits under a display cutout/notch even if env(safe-area-inset-top) is 0. */
+:global([data-native="true"]) .headerWrap {
+  padding-top: max(env(safe-area-inset-top, 0px), 32px);
+}
+:global([data-native="true"]) .scrolled.headerWrap {
+  padding-top: max(env(safe-area-inset-top, 0px), 28px);
+}
+
 /* ── Glass pill header ── */
 .header {
   display: flex;

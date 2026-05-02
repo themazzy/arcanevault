@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">ArcaneVault</string>
-    <string name="title_activity_main">ArcaneVault</string>
+    <string name="app_name">Deck Loom</string>
+    <string name="title_activity_main">Deck Loom</string>
     <string name="package_name">com.arcanevault.app</string>
     <string name="custom_url_scheme">com.arcanevault.app</string>
 </resources>
