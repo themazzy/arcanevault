@@ -25,6 +25,24 @@ function fmtRelDate(iso) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
+// Truncate a tag list to a rough character budget so it fits within
+// the fixed-height tile. Appends a '…' chip if any tags were dropped.
+const TAG_CHAR_BUDGET = 36
+function clampTags(tags) {
+  if (!Array.isArray(tags) || tags.length === 0) return []
+  const out = []
+  let used = 0
+  for (const t of tags) {
+    const len = String(t).length + 2 // approximate chip padding cost
+    if (out.length > 0 && used + len > TAG_CHAR_BUDGET) {
+      return [...out, '…']
+    }
+    out.push(t)
+    used += len
+  }
+  return out
+}
+
 // Session-level image cache
 const _artCache = {}
 
@@ -48,8 +66,12 @@ function DeckArtBackground({ meta, deckType }) {
       .catch(() => {})
     return () => { isMounted.current = false }
   }, [meta.commanderScryfallId, art])
-  if (!art) return null
-  return <div className={styles.deckArt} style={{ backgroundImage: `url(${art})` }} />
+  return (
+    <div
+      className={styles.deckArtPanel}
+      style={art ? { backgroundImage: `url(${art})` } : undefined}
+    />
+  )
 }
 
 function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSelect, onEnterSelectMode, onDelete, navigate }) {
@@ -64,6 +86,8 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
   const hasValidLink = !!(meta.linked_deck_id || meta.linked_builder_id)
   const isUnsynced = hasValidLink && !!(syncState.unsynced_builder || syncState.unsynced_collection)
   const isCollection = deck.type === 'deck'
+  const description = (meta.deckDescription || '').trim()
+  const tags = clampTags(meta.tags)
 
   return (
     <div
@@ -112,6 +136,16 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
               ))}
             </div>
           )}
+          {description && (
+            <div className={styles.deckDescription}>{description}</div>
+          )}
+          {tags.length > 0 && (
+            <div className={styles.cardTags}>
+              {tags.map(t => (
+                <span key={t} className={styles.cardTag}>{t}</span>
+              ))}
+            </div>
+          )}
           {!selectMode && (
             <div className={styles.cardActions}>
               <Link
@@ -146,13 +180,17 @@ function CommunityDeckTile({ deck, meta, fmt, isOwn, creatorNick, navigate }) {
   const colors = rawColors && rawColors.length > 0
     ? COMMUNITY_COLOR_ORDER.filter(c => rawColors.includes(c))
     : (meta.commanderColorIdentity || [])
-  const commander = meta.commanderName || null
-  const tags      = meta.tags || []
-  const art       = meta.coverArtUri || null
+  const commander   = meta.commanderName || null
+  const tags        = clampTags(meta.tags)
+  const art         = meta.coverArtUri || null
+  const description = (meta.deckDescription || '').trim()
 
   return (
     <div className={styles.card} onClick={() => navigate(`/d/${deck.id}`)}>
-      {art && <div className={styles.deckArt} style={{ backgroundImage: `url(${art})` }} />}
+      <div
+        className={styles.deckArtPanel}
+        style={art ? { backgroundImage: `url(${art})` } : undefined}
+      />
       <div className={styles.cardContent}>
         <div className={styles.cardTop}>
           <div className={styles.cardBadges}>
@@ -175,9 +213,12 @@ function CommunityDeckTile({ deck, meta, fmt, isOwn, creatorNick, navigate }) {
               ))}
             </div>
           )}
+          {description && (
+            <div className={styles.deckDescription}>{description}</div>
+          )}
           {tags.length > 0 && (
             <div className={styles.cardTags}>
-              {tags.slice(0, 3).map(t => (
+              {tags.map(t => (
                 <span key={t} className={styles.cardTag}>{t}</span>
               ))}
             </div>

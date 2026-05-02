@@ -138,11 +138,12 @@ function getEdhrecCommanderSlugCandidates(name) {
 // sfGet (rate-limited, with Accept header) is imported from scryfall.js
 const sfFetch = sfGet
 
-/** Search cards with optional format + color identity filter */
+/** Search cards with optional color identity filter.
+ *  Format is intentionally NOT applied as a Scryfall filter — illegal cards
+ *  are still returned and surfaced to the user with a legality warning. */
 export async function searchCards({ query = '', format, colorIdentity, cardType, cmcMin, cmcMax, page = 1 } = {}) {
   const parts = []
   if (query.trim()) parts.push(query.trim())
-  if (format)        parts.push(`f:${format}`)
   if (colorIdentity?.length) parts.push(`id<=${colorIdentity.join('')}`)
   if (cardType)      parts.push(`t:${cardType}`)
   if (cmcMin !== '' && cmcMin != null) parts.push(`cmc>=${cmcMin}`)

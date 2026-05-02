@@ -19,7 +19,7 @@ import {
 } from '../lib/db'
 import styles from './DeckBuilder.module.css'
 import uiStyles from '../components/UI.module.css'
-import { ResponsiveMenu, Select } from '../components/UI'
+import { ResponsiveMenu, Select, Modal } from '../components/UI'
 import { CardDetail } from '../components/CardComponents'
 import DeckStats, { normalizeDeckBuilderCards, getCardCategory, CAT_COLORS, CAT_ORDER } from '../components/DeckStats'
 import ExportModal from '../components/ExportModal'
@@ -44,11 +44,16 @@ import {
   GridViewIcon,
   SettingsIcon,
   TableViewIcon,
+  SortIcon,
+  FilterIcon,
+  SearchIcon,
+  StarIcon,
   ChevronDownIcon,
   ChevronUpIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   CollectionIcon,
+  DeckIcon,
   MenuIcon,
   AddIcon,
   CheckIcon,
@@ -331,8 +336,16 @@ function WarningTooltip({ tooltip }) {
   const top = Math.min(tooltip.y + 14, window.innerHeight - 160)
   return createPortal(
     <div className={styles.warningTooltip} style={{ left, top }}>
-      <div className={styles.warningTooltipTitle}>{tooltip.summary}</div>
-      <div className={styles.warningTooltipBody}>{tooltip.detail}</div>
+      {tooltip.summary && <div className={styles.warningTooltipTitle}>{tooltip.summary}</div>}
+      {Array.isArray(tooltip.details) ? (
+        <ul className={styles.warningTooltipList}>
+          {tooltip.details.map((line, i) => (
+            <li key={i}>{line}</li>
+          ))}
+        </ul>
+      ) : (
+        <div className={styles.warningTooltipBody}>{tooltip.detail}</div>
+      )}
     </div>,
     document.body
   )
@@ -2137,6 +2150,15 @@ export default function DeckBuilderPage() {
   const [boardFilter, setBoardFilter] = useState('all')
   const [warningsOpen, setWarningsOpen] = useState(false)
   const [warningTooltip, setWarningTooltip] = useState(null)
+  useEffect(() => {
+    if (!warningTooltip || CAN_HOVER) return
+    const dismiss = (e) => {
+      if (e.target.closest && e.target.closest(`.${styles.warningSummaryBtn}`)) return
+      setWarningTooltip(null)
+    }
+    document.addEventListener('click', dismiss, true)
+    return () => document.removeEventListener('click', dismiss, true)
+  }, [warningTooltip])
   const [isMobileWarnings, setIsMobileWarnings] = useState(() => (
     typeof window !== 'undefined' ? window.innerWidth <= 900 : false
   ))
@@ -2176,6 +2198,7 @@ export default function DeckBuilderPage() {
   const [cmdDescription, setCmdDescription] = useState('')
   const [cmdTags,        setCmdTags]        = useState([])
   const [newTagInput,    setNewTagInput]    = useState('')
+  const [showMetaModal,  setShowMetaModal]  = useState(false)
 
   // Mobile leftTop collapse: auto-collapses when commander is first set on mobile
   const [leftTopOpen, setLeftTopOpen] = useState(true)
@@ -2688,6 +2711,37 @@ export default function DeckBuilderPage() {
   const toggleComboSection = useCallback((section) => {
     setComboSectionsOpen(prev => ({ ...prev, [section]: !prev[section] }))
   }, [])
+
+  const renderDeckActionsMenu = ({ close }) => (
+    <div className={uiStyles.responsiveMenuList}>
+      <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowImport(true); setImportDone(null); setImportError(null); close() }}>
+        <span>Import</span>
+      </button>
+      <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowExport(true); close() }}>
+        <span>Export</span>
+      </button>
+      <Link className={uiStyles.responsiveMenuAction} to={`/builder/${deckId}/playtest`} onClick={close}>
+        <span>Playtest</span>
+      </Link>
+      <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowMetaModal(true); close() }}>
+        <span>Description &amp; Tags</span>
+      </button>
+      <button
+        className={uiStyles.responsiveMenuAction}
+        onClick={() => {
+          navigator.clipboard.writeText(getPublicAppUrl(`/d/${deckId}`))
+          setShareCopied(true)
+          setTimeout(() => setShareCopied(false), 2000)
+          close()
+        }}
+      >
+        <span>{shareCopied ? 'Copied Share Link' : 'Share'}</span>
+      </button>
+      <Link className={uiStyles.responsiveMenuAction} to="/builder" onClick={close}>
+        <span>Back to Decks</span>
+      </Link>
+    </div>
+  )
 
   // Open card detail modal by card name (recs / combos â€” no scryfall_id available)
   const openCardDetailByName = useCallback(async (name) => {
@@ -4327,19 +4381,18 @@ export default function DeckBuilderPage() {
 
   return (
     <div className={`${styles.page}${showRight ? ' ' + styles.showRight : ''}${leftCollapsed ? ' ' + styles.leftCollapsed : ''}`}>
-      {/* Mobile two-tab toggle */}
-      <div className={styles.mobilePanelToggle}>
-        <button
-          className={`${styles.mobilePanelBtn} ${!showRight ? styles.mobilePanelBtnActive : ''}`}
-          onClick={() => setShowRight(false)}
-        >Search</button>
-        <button
-          className={`${styles.mobilePanelBtn} ${showRight ? styles.mobilePanelBtnActive : ''}`}
-          onClick={() => setShowRight(true)}
-        >Deck</button>
-      </div>
+      {/* Mobile-only: Done bar at top of the left panel — returns to deck view */}
+      <button
+        type="button"
+        className={styles.mobileLeftDone}
+        onClick={() => setShowRight(true)}
+        aria-label="Done — back to deck"
+      >
+        <ChevronLeftIcon size={14} />
+        <span>Done</span>
+      </button>
 
-      <div className={styles.deckHeader}>
+      <div className={`${styles.deckHeader}${cmdArtHidden ? ' ' + styles.deckHeaderHidden : ''}`}>
         <div className={styles.deckTitleBlock}>
           <input
             className={styles.deckNameInput}
@@ -4375,37 +4428,11 @@ export default function DeckBuilderPage() {
               </button>
             )}
           >
-            {({ close }) => (
-              <div className={uiStyles.responsiveMenuList}>
-                <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowImport(true); setImportDone(null); setImportError(null); close() }}>
-                  <span>Import</span>
-                </button>
-                <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowExport(true); close() }}>
-                  <span>Export</span>
-                </button>
-                <Link className={uiStyles.responsiveMenuAction} to={`/builder/${deckId}/playtest`} onClick={close}>
-                  <span>Playtest</span>
-                </Link>
-                <button
-                  className={uiStyles.responsiveMenuAction}
-                  onClick={() => {
-                    navigator.clipboard.writeText(getPublicAppUrl(`/d/${deckId}`))
-                    setShareCopied(true)
-                    setTimeout(() => setShareCopied(false), 2000)
-                    close()
-                  }}
-                >
-                  <span>{shareCopied ? 'Copied Share Link' : 'Share'}</span>
-                </button>
-                <Link className={uiStyles.responsiveMenuAction} to="/builder" onClick={close}>
-                  <span>Back to Decks</span>
-                </Link>
-              </div>
-            )}
+            {renderDeckActionsMenu}
           </ResponsiveMenu>
           {!isCollectionDeck && !deckMeta.linked_deck_id && (
             <button className={styles.headerBtnPrimary} onClick={() => setShowMakeDeck(true)} disabled={makeDeckRunning} title="Make Collection Deck">
-              <span className={styles.btnIcon} aria-hidden="true"><AddIcon size={14} /></span>
+              <span className={styles.btnIcon} aria-hidden="true"><DeckIcon size={14} /></span>
               <span className={styles.btnLabel}>{makeDeckRunning ? 'Creating...' : 'Make Collection Deck'}</span>
               <span className={styles.btnLabelMobile}>{makeDeckRunning ? 'Creating...' : 'Make Deck'}</span>
             </button>
@@ -4658,78 +4685,6 @@ export default function DeckBuilderPage() {
       {/* â”€â”€ RIGHT PANEL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       </div>
       <div className={styles.right}>
-        {/* Commander art display â€” supports partners */}
-        {commanderCards.length > 0 && (
-          <div className={`${styles.cmdArt}${cmdArtHidden ? ' ' + styles.cmdArtHidden : ''}`}>
-            {/* Blurred background layer */}
-            <div className={styles.cmdArtBg}
-              style={{ backgroundImage: `url(${toArtCropImg(commanderCards[0].image_uri)})` }} />
-            {/* Art thumbnails */}
-            {commanderCards.map(card => (
-              <div key={card.id} className={styles.cmdArtPane}
-                onClick={() => unsetCommander(card.id)} title="Click to remove commander status">
-                {card.image_uri
-                  ? <img className={styles.cmdArtImg} src={toArtCropImg(card.image_uri)} alt={card.name} />
-                  : <div className={styles.cmdArtImgPlaceholder} />
-                }
-              </div>
-            ))}
-            {/* Info panel */}
-            <div className={styles.cmdArtOverlay}>
-              <span className={styles.cmdArtName}>
-                {commanderCards.map(c => c.name).join(' & ')}
-              </span>
-              <div className={styles.cmdArtMeta}>
-                {format && <span>{format.label}</span>}
-                {format && <span>&middot;</span>}
-                <span style={{ color: totalCards > deckSize ? '#e07070' : 'var(--text-dim)' }}>
-                  {totalCards}/{deckSize} cards
-                </span>
-                {totalDeckPrice > 0 && <span>&middot;</span>}
-                {totalDeckPrice > 0 && <span style={{ color: 'var(--green)' }}>{formatPrice(totalDeckPrice, price_source)}</span>}
-              </div>
-            </div>
-            {/* Description + Tags */}
-            <div className={styles.cmdArtDetails}>
-              <textarea
-                className={styles.cmdDescInput}
-                value={cmdDescription}
-                onChange={e => setCmdDescription(e.target.value)}
-                onBlur={e => saveDescription(e.target.value)}
-                placeholder="Add description..."
-                rows={2}
-                maxLength={1000}
-              />
-              <div className={styles.cmdTagRow}>
-                {cmdTags.map(tag => (
-                  <span key={tag} className={styles.cmdTag}>
-                    {tag}
-                    <button className={styles.cmdTagRemove} onClick={() => removeTag(tag)}>x</button>
-                  </span>
-                ))}
-                <input
-                  className={styles.cmdTagInput}
-                  value={newTagInput}
-                  onChange={e => setNewTagInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(newTagInput) } }}
-                  onBlur={() => { if (newTagInput.trim()) addTag(newTagInput) }}
-                  placeholder={cmdTags.length === 0 ? 'Add tags...' : '+'}
-                  maxLength={30}
-                />
-              </div>
-            </div>
-            {/* Color pips */}
-            {colorIdentity.length > 0 && (
-              <div className={styles.cmdColorPips}>
-                {colorIdentity.map(c => (
-                  <img key={c} src={manaSymbolUrl(`{${c}}`)} alt={c} width={18} height={18}
-                    style={{ display: 'block', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.7))' }} />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Right panel tab bar */}
         <div className={`${styles.tabBar} ${styles.rightTabBar}`}>
           {[
@@ -4760,67 +4715,176 @@ export default function DeckBuilderPage() {
           ))}
         </div>
 
-        {visibleDeckWarnings.length > 0 && (
-          <div className={styles.warningPanel}>
-            {isMobileWarnings && (
-              <button className={styles.warningToggle} onClick={() => setWarningsOpen(v => !v)}>
-                <span className={`${styles.groupArrow}${!warningsOpen ? ' ' + styles.groupArrowCollapsed : ''} ${styles.warningChevron}`} aria-hidden="true">
-                  <ChevronDownIcon size={12} />
-                </span>
+        {visibleDeckWarnings.length > 0 && (() => {
+          const errorCount = visibleDeckWarnings.filter(w => w.level === 'error').length
+          const summary = `${visibleDeckWarnings.length} ${visibleDeckWarnings.length === 1 ? 'warning' : 'warnings'}`
+          const details = visibleDeckWarnings.map(w => w.summary || w.text)
+          const showTooltip = (x, y) => setWarningTooltip({ summary, details, x, y })
+          const hideTooltip = () => setWarningTooltip(null)
+          return (
+            <div className={styles.warningPanel}>
+              <button
+                type="button"
+                className={`${styles.warningSummaryBtn}${errorCount > 0 ? ' ' + styles.warningSummaryBtnError : ''}`}
+                onMouseEnter={CAN_HOVER ? e => showTooltip(e.clientX, e.clientY) : undefined}
+                onMouseMove={CAN_HOVER ? e => setWarningTooltip(prev => prev ? { ...prev, x: e.clientX, y: e.clientY } : prev) : undefined}
+                onMouseLeave={CAN_HOVER ? hideTooltip : undefined}
+                onFocus={CAN_HOVER ? e => {
+                  const rect = e.currentTarget.getBoundingClientRect()
+                  showTooltip(rect.left, rect.bottom)
+                } : undefined}
+                onBlur={CAN_HOVER ? hideTooltip : undefined}
+                onClick={!CAN_HOVER ? e => {
+                  if (warningTooltip) { hideTooltip(); return }
+                  const rect = e.currentTarget.getBoundingClientRect()
+                  showTooltip(rect.left, rect.bottom)
+                } : undefined}
+              >
+                <span className={styles.warningSummaryIcon} aria-hidden="true">!</span>
+                <span className={styles.warningSummaryLabel}>{summary}</span>
               </button>
-            )}
-            {(!isMobileWarnings || warningsOpen) && (
-              <div className={styles.warningList}>
-                {visibleDeckWarnings.map(w => (
-                  <div
-                    key={w.key}
-                    className={`${styles.warningItem}${w.level === 'error' ? ' ' + styles.warningItemError : ''}`}
-                    onMouseEnter={CAN_HOVER ? e => setWarningTooltip({ summary: w.summary || w.text, detail: w.detail || w.text, x: e.clientX, y: e.clientY }) : undefined}
-                    onMouseMove={CAN_HOVER ? e => setWarningTooltip(prev => prev ? { ...prev, x: e.clientX, y: e.clientY } : prev) : undefined}
-                    onMouseLeave={CAN_HOVER ? () => setWarningTooltip(null) : undefined}
-                    onFocus={CAN_HOVER ? e => {
-                      const rect = e.currentTarget.getBoundingClientRect()
-                      setWarningTooltip({ summary: w.summary || w.text, detail: w.detail || w.text, x: rect.left, y: rect.bottom })
-                    } : undefined}
-                    onBlur={CAN_HOVER ? () => setWarningTooltip(null) : undefined}
-                    tabIndex={CAN_HOVER ? 0 : -1}
-                  >
-                    {w.summary || w.text}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+            </div>
+          )
+        })()}
 
         {/* Deck list tab */}
         <div className={`${styles.deckList}${rightTab !== 'deck' ? ' ' + styles.tabPaneHidden : ''}`} onScroll={handleDeckListScroll}>
+            {/* Commander art display â€” supports partners */}
+            {commanderCards.length > 0 && (
+              <div className={styles.cmdArt}>
+                {/* Blurred background layer */}
+                <div className={styles.cmdArtBg}
+                  style={{ backgroundImage: `url(${toArtCropImg(commanderCards[0].image_uri)})` }} />
+                {/* Art thumbnails */}
+                {commanderCards.map(card => (
+                  <div key={card.id} className={styles.cmdArtPane}
+                    onClick={() => unsetCommander(card.id)} title="Click to remove commander status">
+                    {card.image_uri
+                      ? <img className={styles.cmdArtImg} src={toArtCropImg(card.image_uri)} alt={card.name} />
+                      : <div className={styles.cmdArtImgPlaceholder} />
+                    }
+                  </div>
+                ))}
+                {/* Info panel */}
+                <div className={styles.cmdArtOverlay}>
+                  <span className={styles.cmdArtName}>
+                    {commanderCards.map(c => c.name).join(' & ')}
+                  </span>
+                  <div className={styles.cmdArtMeta}>
+                    {format && <span>{format.label}</span>}
+                    {format && <span>&middot;</span>}
+                    <span style={{ color: totalCards > deckSize ? '#e07070' : 'var(--text-dim)' }}>
+                      {totalCards}/{deckSize} cards
+                    </span>
+                    {totalDeckPrice > 0 && <span>&middot;</span>}
+                    {totalDeckPrice > 0 && <span style={{ color: 'var(--green)' }}>{formatPrice(totalDeckPrice, price_source)}</span>}
+                  </div>
+                </div>
+                {/* Color pips */}
+                {colorIdentity.length > 0 && (
+                  <div className={styles.cmdColorPips}>
+                    {colorIdentity.map(c => (
+                      <img key={c} src={manaSymbolUrl(`{${c}}`)} alt={c} width={18} height={18}
+                        style={{ display: 'block', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.7))' }} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Description + Tags — always available */}
+            <div className={styles.deckMetaPanel}>
+              <textarea
+                className={styles.deckMetaDesc}
+                value={cmdDescription}
+                onChange={e => setCmdDescription(e.target.value)}
+                onBlur={e => saveDescription(e.target.value)}
+                placeholder="Add description..."
+                rows={3}
+                maxLength={1000}
+              />
+              <div className={styles.deckMetaTagRow}>
+                {cmdTags.map(tag => (
+                  <span key={tag} className={styles.deckMetaTag}>
+                    {tag}
+                    <button className={styles.deckMetaTagRemove} onClick={() => removeTag(tag)}>x</button>
+                  </span>
+                ))}
+                <input
+                  className={styles.deckMetaTagInput}
+                  value={newTagInput}
+                  onChange={e => setNewTagInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(newTagInput) } }}
+                  onBlur={() => { if (newTagInput.trim()) addTag(newTagInput) }}
+                  placeholder={cmdTags.length === 0 ? 'Add tags...' : '+'}
+                  maxLength={30}
+                />
+              </div>
+            </div>
+
             {/* View / Sort / Group toolbar */}
             {deckCards.length > 0 && (
               <div className={styles.deckToolbar}>
-                <div className={styles.toolbarGroup}>
-                  {[
-                    ['list',    ListViewIcon],
-                    ['compact', TableViewIcon],
-                    ['stacks',  StacksViewIcon],
-                    ['grid',    GridViewIcon],
-                  ].map(([v, ViewIcon]) => (
-                    <button key={v} className={`${styles.viewBtn}${deckView === v ? ' '+styles.viewBtnActive : ''}`}
-                      onClick={() => setDeckView(v)} title={v}>
-                      <ViewIcon size={13} />
-                    </button>
-                  ))}
-                </div>
+                <ResponsiveMenu
+                  title="View Style"
+                  wrapClassName={`${styles.columnMenuWrap} ${styles.deskOnly}`}
+                  portal
+                  trigger={({ toggle }) => {
+                    const ViewIcon = (
+                      deckView === 'compact' ? TableViewIcon :
+                      deckView === 'stacks'  ? StacksViewIcon :
+                      deckView === 'grid'    ? GridViewIcon :
+                      ListViewIcon
+                    )
+                    return (
+                      <button
+                        className={`${styles.groupToggle} ${styles.groupToggleIcon}`}
+                        onClick={toggle}
+                        title="View style"
+                        aria-label="View style"
+                      >
+                        <ViewIcon size={15} />
+                        <span className={styles.toggleLabel}>View</span>
+                      </button>
+                    )
+                  }}
+                >
+                  {({ close }) => (
+                    <div className={uiStyles.responsiveMenuList}>
+                      {[
+                        ['list',    'List',    ListViewIcon],
+                        ['compact', 'Compact', TableViewIcon],
+                        ['stacks',  'Stacks',  StacksViewIcon],
+                        ['grid',    'Grid',    GridViewIcon],
+                      ].map(([v, label, ViewIcon]) => (
+                        <button
+                          key={v}
+                          className={`${styles.columnMenuItem} ${deckView === v ? styles.columnMenuItemActive : ''}`}
+                          onClick={() => { setDeckView(v); close?.() }}
+                        >
+                          <ViewIcon size={13} />
+                          <span className={styles.columnMenuLabel}>{label}</span>
+                          <span className={styles.columnMenuCheck} aria-hidden="true">
+                            {deckView === v ? <CheckIcon size={11} /> : ''}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </ResponsiveMenu>
                 <ResponsiveMenu
                   title="Sort By"
                   wrapClassName={styles.columnMenuWrap}
+                  portal
                   trigger={({ toggle }) => (
                     <button
-                      className={`${styles.groupToggle}${deckSort ? ' '+styles.groupToggleActive : ''}`}
+                      className={`${styles.groupToggle} ${styles.groupToggleIcon}${deckSort ? ' '+styles.groupToggleActive : ''}`}
                       onClick={toggle}
                       title="Sort cards"
+                      aria-label="Sort cards"
                     >
-                      Sort
+                      <SortIcon size={15} />
+                      <span className={styles.toggleLabel}>Sort</span>
                     </button>
                   )}
                 >
@@ -4844,13 +4908,16 @@ export default function DeckBuilderPage() {
                 <ResponsiveMenu
                   title="Group By"
                   wrapClassName={styles.columnMenuWrap}
+                  portal
                   trigger={({ toggle }) => (
                     <button
-                      className={`${styles.groupToggle}${groupBy !== 'none' ? ' '+styles.groupToggleActive : ''}`}
+                      className={`${styles.groupToggle} ${styles.groupToggleIcon}${groupBy !== 'none' ? ' '+styles.groupToggleActive : ''}`}
                       onClick={toggle}
                       title="Group cards"
+                      aria-label="Group cards"
                     >
-                      <ListViewIcon size={12} /> Group
+                      <FilterIcon size={15} />
+                      <span className={styles.toggleLabel}>Group</span>
                     </button>
                   )}
                 >
@@ -4871,17 +4938,63 @@ export default function DeckBuilderPage() {
                     </div>
                   )}
                 </ResponsiveMenu>
+                <ResponsiveMenu
+                  title="Filter Deck"
+                  wrapClassName={`${styles.columnMenuWrap} ${styles.deckFilterMenuWrap} ${styles.deskOnly}`}
+                  portal
+                  trigger={({ toggle }) => {
+                    const filterActive = (deckSearch.trim().length > 0) || (boardFilter !== 'all')
+                    return (
+                      <button
+                        className={`${styles.groupToggle} ${styles.groupToggleIcon}${filterActive ? ' '+styles.groupToggleActive : ''}`}
+                        onClick={toggle}
+                        title="Filter deck"
+                        aria-label="Filter deck"
+                      >
+                        <SearchIcon size={15} />
+                        <span className={styles.toggleLabel}>Filter</span>
+                      </button>
+                    )
+                  }}
+                >
+                  {() => (
+                    <div className={styles.deckFilterMenuBody}>
+                      <input
+                        className={styles.deckSearchInput}
+                        value={deckSearch}
+                        onChange={e => setDeckSearch(e.target.value)}
+                        placeholder="Search deck..."
+                        autoFocus
+                      />
+                      <div className={styles.deckFilterMenuBoardLabel}>Board</div>
+                      <div className={styles.boardFilterGroup}>
+                        {BOARD_FILTERS.map(filter => (
+                          <button
+                            key={filter.id}
+                            className={`${styles.boardFilterBtn}${boardFilter === filter.id ? ' ' + styles.boardFilterBtnActive : ''}`}
+                            onClick={() => setBoardFilter(filter.id)}
+                          >
+                            {filter.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </ResponsiveMenu>
                 {(deckView === 'list' || deckView === 'compact') && (
                   <ResponsiveMenu
                     title="Visible Columns"
-                    wrapClassName={styles.columnMenuWrap}
+                    wrapClassName={`${styles.columnMenuWrap} ${styles.deskOnly}`}
+                    portal
                     trigger={({ toggle }) => (
                       <button
-                        className={styles.groupToggle}
+                        className={`${styles.groupToggle} ${styles.groupToggleIcon}`}
                         onClick={toggle}
-                        title="Choose visible columns"
+                        title="Visible columns"
+                        aria-label="Visible columns"
                       >
-                        Columns
+                        <SettingsIcon size={15} />
+                        <span className={styles.toggleLabel}>Columns</span>
                       </button>
                     )}
                   >
@@ -4914,6 +5027,59 @@ export default function DeckBuilderPage() {
                     )}
                   </ResponsiveMenu>
                 )}
+                {/* Mobile-only: Add / Recs / Settings — gateways to left panel */}
+                <button
+                  className={`${styles.groupToggle} ${styles.groupToggleIcon} ${styles.pillOnly}`}
+                  onClick={() => { setLeftTab('search'); setShowRight(false) }}
+                  title="Add cards"
+                  aria-label="Add cards"
+                >
+                  <AddIcon size={15} />
+                  <span className={styles.toggleLabel}>Add</span>
+                </button>
+                {/* Mobile-only: Sync / Make Deck + Deck Actions copies */}
+                {(isCollectionDeck || deckMeta.linked_deck_id) && (
+                  <button
+                    className={`${styles.groupToggle} ${styles.groupToggleIcon} ${styles.pillOnly}`}
+                    onClick={() => setShowSync(true)}
+                    disabled={syncRunning}
+                    title="Sync collection"
+                    aria-label="Sync collection"
+                  >
+                    <CollectionIcon size={15} />
+                    <span className={styles.toggleLabel}>Sync</span>
+                  </button>
+                )}
+                {!isCollectionDeck && !deckMeta.linked_deck_id && (
+                  <button
+                    className={`${styles.groupToggle} ${styles.groupToggleIcon} ${styles.pillOnly}`}
+                    onClick={() => setShowMakeDeck(true)}
+                    disabled={makeDeckRunning}
+                    title="Make Collection Deck"
+                    aria-label="Make Collection Deck"
+                  >
+                    <DeckIcon size={15} />
+                    <span className={styles.toggleLabel}>Make</span>
+                  </button>
+                )}
+                <ResponsiveMenu
+                  title="Deck Actions"
+                  wrapClassName={`${styles.columnMenuWrap} ${styles.pillOnly}`}
+                  portal
+                  trigger={({ toggle }) => (
+                    <button
+                      className={`${styles.groupToggle} ${styles.groupToggleIcon}`}
+                      onClick={toggle}
+                      title="Deck actions"
+                      aria-label="Deck actions"
+                    >
+                      <MenuIcon size={15} />
+                      <span className={styles.toggleLabel}>Actions</span>
+                    </button>
+                  )}
+                >
+                  {renderDeckActionsMenu}
+                </ResponsiveMenu>
               </div>
             )}
 
@@ -4935,6 +5101,99 @@ export default function DeckBuilderPage() {
                       {filter.label}
                     </button>
                   ))}
+                </div>
+                <div className={`${styles.filterBarRow} ${styles.mobileOnly}`}>
+                <ResponsiveMenu
+                  title="View Style"
+                  wrapClassName={styles.filterBarMenuWrap}
+                  portal
+                  trigger={({ toggle }) => {
+                    const viewLabel = (
+                      deckView === 'compact' ? 'Compact' :
+                      deckView === 'stacks'  ? 'Stacks' :
+                      deckView === 'grid'    ? 'Grid' :
+                      'List'
+                    )
+                    return (
+                      <button
+                        className={styles.filterBarTextBtn}
+                        onClick={toggle}
+                        title="View style"
+                      >
+                        {viewLabel}
+                        <ChevronDownIcon size={11} />
+                      </button>
+                    )
+                  }}
+                >
+                  {({ close }) => (
+                    <div className={uiStyles.responsiveMenuList}>
+                      {[
+                        ['list',    'List',    ListViewIcon],
+                        ['compact', 'Compact', TableViewIcon],
+                        ['stacks',  'Stacks',  StacksViewIcon],
+                        ['grid',    'Grid',    GridViewIcon],
+                      ].map(([v, label, ViewIcon]) => (
+                        <button
+                          key={v}
+                          className={`${styles.columnMenuItem} ${deckView === v ? styles.columnMenuItemActive : ''}`}
+                          onClick={() => { setDeckView(v); close?.() }}
+                        >
+                          <ViewIcon size={13} />
+                          <span className={styles.columnMenuLabel}>{label}</span>
+                          <span className={styles.columnMenuCheck} aria-hidden="true">
+                            {deckView === v ? <CheckIcon size={11} /> : ''}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </ResponsiveMenu>
+                {(deckView === 'list' || deckView === 'compact') && (
+                  <ResponsiveMenu
+                    title="Visible Columns"
+                    wrapClassName={styles.filterBarMenuWrap}
+                    portal
+                    trigger={({ toggle }) => (
+                      <button
+                        className={styles.filterBarTextBtn}
+                        onClick={toggle}
+                        title="Visible columns"
+                      >
+                        Columns
+                        <ChevronDownIcon size={11} />
+                      </button>
+                    )}
+                  >
+                    {() => (
+                      <div className={uiStyles.responsiveMenuList}>
+                        {[
+                          ['set', 'Set'],
+                          ['manaValue', 'Mana Value'],
+                          ['cmc', 'CMC'],
+                          ['price', 'Price'],
+                          ['status', 'Status'],
+                          ['actions', 'Actions'],
+                          ['qty', 'Qty'],
+                          ['remove', 'Remove'],
+                        ].map(([key, label]) => (
+                          <label key={key} className={`${styles.columnMenuItem} ${activeColumns[key] ? styles.columnMenuItemActive : ''}`}>
+                            <input
+                              type="checkbox"
+                              className={styles.columnMenuCheckbox}
+                              checked={activeColumns[key]}
+                              onChange={() => setActiveColumns(prev => ({ ...prev, [key]: !prev[key] }))}
+                            />
+                            <span className={styles.columnMenuLabel}>{label}</span>
+                            <span className={styles.columnMenuCheck} aria-hidden="true">
+                              {activeColumns[key] ? <CheckIcon size={11} /> : ''}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </ResponsiveMenu>
+                )}
                 </div>
               </div>
             )}
@@ -5394,6 +5653,46 @@ export default function DeckBuilderPage() {
           onConfirm={handleMakeDeck}
           onClose={() => setShowMakeDeck(false)}
         />
+      )}
+
+      {showMetaModal && (
+        <Modal onClose={() => setShowMetaModal(false)} className={styles.metaModal}>
+          <div className={styles.metaModalBody}>
+            <h3 className={styles.metaModalTitle}>Description &amp; Tags</h3>
+            <label className={styles.metaModalLabel}>Description</label>
+            <textarea
+              className={styles.deckMetaDesc}
+              value={cmdDescription}
+              onChange={e => setCmdDescription(e.target.value)}
+              onBlur={e => saveDescription(e.target.value)}
+              placeholder="Add description..."
+              rows={5}
+              maxLength={1000}
+              autoFocus
+            />
+            <label className={styles.metaModalLabel}>Tags</label>
+            <div className={styles.deckMetaTagRow}>
+              {cmdTags.map(tag => (
+                <span key={tag} className={styles.deckMetaTag}>
+                  {tag}
+                  <button className={styles.deckMetaTagRemove} onClick={() => removeTag(tag)}>x</button>
+                </span>
+              ))}
+              <input
+                className={styles.deckMetaTagInput}
+                value={newTagInput}
+                onChange={e => setNewTagInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(newTagInput) } }}
+                onBlur={() => { if (newTagInput.trim()) addTag(newTagInput) }}
+                placeholder={cmdTags.length === 0 ? 'Add tags...' : '+'}
+                maxLength={30}
+              />
+            </div>
+            <div className={styles.metaModalFooter}>
+              <button className={styles.headerBtnPrimary} onClick={() => setShowMetaModal(false)}>Done</button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {showExport && (
