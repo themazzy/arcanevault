@@ -771,7 +771,7 @@ export default function ImportModal({
             */}
 
             <p className={styles.hint}>
-              Paste a decklist or Manabox CSV, or upload a <em>.csv</em> / <em>.txt</em> file.<br />
+              Paste a decklist or collection CSV (Manabox, Moxfield, Archidekt), or upload a <em>.csv</em> / <em>.txt</em> file.<br />
               <span className={styles.hintFormats}>
                 Supported: <code>4 Lightning Bolt</code> / <code>4 Lightning Bolt (M10) 155</code> / <code>4 *F* Sol Ring</code>
               </span>

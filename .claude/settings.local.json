@@ -87,7 +87,10 @@
       "Bash(identify src/icons/DeckLoom_logo.png)",
       "Bash(magick -version)",
       "Bash(node *)",
-      "WebFetch(domain:pagespeed.web.dev)"
+      "WebFetch(domain:pagespeed.web.dev)",
+      "Bash(xargs ls *)",
+      "Bash(sort -k5 -n -r)",
+      "mcp__plugin_supabase_supabase__get_logs"
     ]
   }
 }
