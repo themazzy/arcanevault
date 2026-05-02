@@ -237,20 +237,35 @@ async function edhrecFetch(path) {
   }
 }
 
-export async function fetchEdhrecCommander(commanderName) {
+export async function fetchEdhrecCommander(commanderName, formatId = 'commander') {
   const slugs = getEdhrecCommanderSlugCandidates(commanderName)
-  const cached = slugs.find(slug => _edhCache[slug])
-  if (cached) return _edhCache[cached]
+  // EDHRec has dedicated Brawl pages at /pages/commanders/<slug>/brawl.json.
+  // Standard Brawl + other formats fall back to the standard commander page.
+  const subPath = formatId === 'brawl' ? '/brawl' : ''
+  const cacheKey = formatId === 'brawl' ? 'brawl' : 'commander'
+  const cached = slugs.find(slug => _edhCache[`${cacheKey}:${slug}`])
+  if (cached) return _edhCache[`${cacheKey}:${cached}`]
 
   try {
     let data = null
     let resolvedSlug = null
 
     for (const slug of slugs) {
-      data = await edhrecFetch(`commanders/${slug}.json`)
+      data = await edhrecFetch(`commanders/${slug}${subPath}.json`)
       if (data) {
         resolvedSlug = slug
         break
+      }
+    }
+
+    // Brawl-specific page may not exist (e.g. unreleased / niche commander) — fall back to commander page
+    if (!data && subPath) {
+      for (const slug of slugs) {
+        data = await edhrecFetch(`commanders/${slug}.json`)
+        if (data) {
+          resolvedSlug = slug
+          break
+        }
       }
     }
 
@@ -277,7 +292,7 @@ export async function fetchEdhrecCommander(commanderName) {
         })),
     }
 
-    for (const slug of slugs) _edhCache[slug] = result
+    for (const slug of slugs) _edhCache[`${cacheKey}:${slug}`] = result
     return result
   } catch (err) {
     console.warn('[EDHRec] failed for', commanderName, err.message)
