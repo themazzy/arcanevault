@@ -14,14 +14,15 @@ const EDHREC = 'https://json.edhrec.com'
 // ── Formats ───────────────────────────────────────────────────────────────────
 
 export const FORMATS = [
-  { id: 'commander', label: 'Commander / EDH', isEDH: true,  deckSize: 100 },
-  { id: 'brawl',     label: 'Brawl',           isEDH: true,  deckSize: 60  },
-  { id: 'standard',  label: 'Standard',         isEDH: false, deckSize: 60  },
-  { id: 'modern',    label: 'Modern',           isEDH: false, deckSize: 60  },
-  { id: 'pioneer',   label: 'Pioneer',          isEDH: false, deckSize: 60  },
-  { id: 'legacy',    label: 'Legacy',           isEDH: false, deckSize: 60  },
-  { id: 'vintage',   label: 'Vintage',          isEDH: false, deckSize: 60  },
-  { id: 'pauper',    label: 'Pauper',           isEDH: false, deckSize: 60  },
+  { id: 'commander',     label: 'Commander / EDH', isEDH: true,  deckSize: 100 },
+  { id: 'brawl',         label: 'Brawl',           isEDH: true,  deckSize: 100 },
+  { id: 'standardbrawl', label: 'Standard Brawl',  isEDH: true,  deckSize: 60  },
+  { id: 'standard',      label: 'Standard',        isEDH: false, deckSize: 60  },
+  { id: 'modern',        label: 'Modern',          isEDH: false, deckSize: 60  },
+  { id: 'pioneer',       label: 'Pioneer',         isEDH: false, deckSize: 60  },
+  { id: 'legacy',        label: 'Legacy',          isEDH: false, deckSize: 60  },
+  { id: 'vintage',       label: 'Vintage',         isEDH: false, deckSize: 60  },
+  { id: 'pauper',        label: 'Pauper',          isEDH: false, deckSize: 60  },
 ]
 
 // ── Card type grouping ────────────────────────────────────────────────────────
