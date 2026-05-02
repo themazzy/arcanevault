@@ -13,7 +13,7 @@ import {
 } from '../lib/deckBuilderApi'
 import { normalizeImportedDeckCards, parseImportText, resolveImportEntries } from '../lib/importFlow'
 import {
-  getLocalCards, getDeckCards, putDeckCards, deleteDeckCardLocal, getMeta, setMeta, getScryfallEntry,
+  getLocalCards, getDeckCards, putDeckCards, deleteDeckCardLocal, getMeta, setMeta,
   deleteDeckAllocationsByIds, replaceDeckAllocations, putDeckAllocations, putFolderCards, putCards,
   replaceLocalFolderCards,
 } from '../lib/db'
@@ -36,6 +36,7 @@ import {
   withLinkedPair,
 } from '../lib/deckSync'
 import { formatPrice, getPrice } from '../lib/scryfall'
+import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getPublicAppUrl } from '../lib/publicUrl'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
 import {
@@ -474,7 +475,7 @@ function RecRow({ rec, imageUri, ownedQty, onAdd, onHoverEnter, onHoverLeave, on
 
 // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function canBeCommander(dc) {
-  if (!dc.type_line) return true // unknown type â€” allow the option
+  if (!dc.type_line) return true // unknown type — allow the option
   const tl = dc.type_line.toLowerCase()
   return tl.includes('legendary creature') ||
     (tl.includes('legendary') && tl.includes('planeswalker'))
@@ -2280,21 +2281,14 @@ export default function DeckBuilderPage() {
 
   useEffect(() => {
     let cancelled = false
-    const keys = [...new Set(deckCards
-      .map(dc => (dc.set_code && dc.collector_number) ? `${dc.set_code}-${dc.collector_number}` : null)
-      .filter(Boolean))]
-    if (!keys.length) {
+    const cards = deckCards.filter(dc => dc.set_code && dc.collector_number)
+    if (!cards.length) {
       setBuilderSfMap({})
       return
     }
-    Promise.all(keys.map(async key => [key, await getScryfallEntry(key)]))
-      .then(entries => {
-        if (cancelled) return
-        setBuilderSfMap(Object.fromEntries(entries.filter(([, value]) => !!value)))
-      })
-      .catch(() => {
-        if (!cancelled) setBuilderSfMap({})
-      })
+    loadCardMapWithSharedPrices(cards)
+      .then(map => { if (!cancelled) setBuilderSfMap(map || {}) })
+      .catch(() => { if (!cancelled) setBuilderSfMap({}) })
     return () => { cancelled = true }
   }, [deckCards])
 
@@ -2351,9 +2345,9 @@ export default function DeckBuilderPage() {
             const meta = getDeckBuilderCardMeta(fetched)
 
             // Only update printing-identity fields (scryfall_id, set, image) when:
-            // - resolved via the card's own ID (safe â€” same card), OR
+            // - resolved via the card's own ID (safe — same card), OR
             // - the row genuinely has no printing info yet (name-only, e.g. text import)
-            // Never overwrite an existing scryfall_id with a name lookup â€” that
+            // Never overwrite an existing scryfall_id with a name lookup — that
             // would silently reassign to whatever Scryfall currently returns as
             // the "newest" printing (e.g. an upcoming set reprint).
             const canUpdatePrinting = !!resolvedById || !row.scryfall_id
@@ -2548,11 +2542,11 @@ export default function DeckBuilderPage() {
   }), [ownedFoilMap, ownedNameMap, inOtherDeckSet, collDeckSfSet])
 
   const getDeckCardPriceLabel = useCallback((dc) => {
-    if (!dc?.set_code || !dc?.collector_number) return 'â€”'
+    if (!dc?.set_code || !dc?.collector_number) return '—'
     const sf = builderSfMap[`${dc.set_code}-${dc.collector_number}`]
-    if (!sf) return 'â€”'
+    if (!sf) return '—'
     const price = getPrice(sf, dc.foil, { price_source })
-    return price != null ? formatPrice(price, price_source) : 'â€”'
+    return price != null ? formatPrice(price, price_source) : '—'
   }, [builderSfMap, price_source])
   const handleSearchRowHoverEnter = useCallback((uri, e) => {
     setHoverImages(uri ? [uri] : [])
@@ -2743,7 +2737,7 @@ export default function DeckBuilderPage() {
     </div>
   )
 
-  // Open card detail modal by card name (recs / combos â€” no scryfall_id available)
+  // Open card detail modal by card name (recs / combos — no scryfall_id available)
   const openCardDetailByName = useCallback(async (name) => {
     try {
       const res = await fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}`)
@@ -2979,7 +2973,7 @@ export default function DeckBuilderPage() {
     }
     setDeckMeta(newMeta)
 
-    // Remove any existing commander â€” use ref to avoid stale closure
+    // Remove any existing commander — use ref to avoid stale closure
     const existingCmd = deckCardsRef.current.find(dc => dc.is_commander)
     if (existingCmd) {
       await removeCardFromDeck(existingCmd.id)
@@ -3007,7 +3001,7 @@ export default function DeckBuilderPage() {
       updated_at:       new Date().toISOString(),
     }
 
-    // Update state and persist â€” read ref again for current non-commander cards
+    // Update state and persist — read ref again for current non-commander cards
     const nonCmdCards = deckCardsRef.current.filter(dc => !dc.is_commander)
     setDeckCards([cmdRow, ...nonCmdCards])
     // Upsert all rows: this handles collection decks where non-commander cards came from the
@@ -3062,7 +3056,7 @@ export default function DeckBuilderPage() {
       colorId    = meta.color_identity
       imageUri   = meta.image_uri
     } else {
-      // EDHRec rec â€” enrich from scryfall cache or fetch
+      // EDHRec rec — enrich from scryfall cache or fetch
       name       = sfCardOrRec.name
       scryfallId = null
       setCode    = null
@@ -3089,7 +3083,7 @@ export default function DeckBuilderPage() {
       } catch {}
     }
 
-    // Check if already in deck (non-foil â€” this function always adds non-foil cards)
+    // Check if already in deck (non-foil — this function always adds non-foil cards)
     const existing = deckCards.find(dc =>
       ((scryfallId && dc.scryfall_id === scryfallId) || dc.name === name) && !dc.foil && normalizeBoard(dc.board) === 'main'
     )
@@ -3245,7 +3239,7 @@ export default function DeckBuilderPage() {
           commanderColorIdentity: dc.color_identity ?? [],
         }
     setDeckMeta(newMeta)
-    // Save meta immediately (not debounced) â€” navigating away quickly would lose the commander name otherwise
+    // Save meta immediately (not debounced) — navigating away quickly would lose the commander name otherwise
     clearTimeout(saveMetaTimer.current)
     await sb.from('folders').update({ description: serializeDeckMeta(withPersistentMetaFields(newMeta)) }).eq('id', deckId)
     // Recs are loaded lazily when the Recommendations tab is opened
@@ -4462,9 +4456,9 @@ export default function DeckBuilderPage() {
           </button>
         )}
         <div className={styles.leftContent}>
-        {/* Mobile panel toggle â€” rendered outside the left panel so it stays visible */}
+        {/* Mobile panel toggle — rendered outside the left panel so it stays visible */}
         <div className={styles.leftTop}>
-          {/* Mobile toggle for format/commander â€” hidden on desktop via CSS */}
+          {/* Mobile toggle for format/commander — hidden on desktop via CSS */}
           <div className={styles.leftTopToggle} onClick={() => setLeftTopOpen(v => !v)}>
             <div className={styles.leftTopToggleSummary}>
               <span>{format?.label ?? 'Format'}</span>
@@ -4475,7 +4469,7 @@ export default function DeckBuilderPage() {
             </span>
           </div>
 
-          {/* Collapsible content â€” always visible on desktop, animated on mobile */}
+          {/* Collapsible content — always visible on desktop, animated on mobile */}
           <div className={`${styles.leftTopContent} ${!leftTopOpen ? styles.leftTopContentCollapsed : ''}`}>
             {/* Format selector */}
             <div className={styles.formatRow}>
@@ -4749,7 +4743,7 @@ export default function DeckBuilderPage() {
 
         {/* Deck list tab */}
         <div className={`${styles.deckList}${rightTab !== 'deck' ? ' ' + styles.tabPaneHidden : ''}`} onScroll={handleDeckListScroll}>
-            {/* Commander art display â€” supports partners */}
+            {/* Commander art display — supports partners */}
             {commanderCards.length > 0 && (
               <div className={styles.cmdArt}>
                 {/* Blurred background layer */}
