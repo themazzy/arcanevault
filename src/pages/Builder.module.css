@@ -203,8 +203,9 @@
 /* ── Deck grid ──────────────────────────────────────────────────── */
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
   gap: 16px;
+  align-items: stretch;
 }
 
 /* ── Deck card tile ─────────────────────────────────────────────── */
@@ -216,8 +217,8 @@
   border-radius: 12px;
   overflow: hidden;
   display: flex;
-  flex-direction: column;
-  height: 180px;
+  flex-direction: row;
+  height: 260px;
   cursor: pointer;
   transition: border-color 0.18s, box-shadow 0.18s, transform 0.18s;
 }
@@ -229,34 +230,41 @@
   transform: translateY(-2px);
 }
 
-/* Background art */
-.deckArt {
+/* Left art panel */
+.deckArtPanel {
+  position: relative;
+  flex: 0 0 150px;
+  background-color: var(--bg3);
+  background-size: cover;
+  background-position: center 22%;
+  overflow: hidden;
+}
+.deckArtPanel::after {
+  content: '';
   position: absolute;
   inset: 0;
-  background-size: cover;
-  background-position: center 20%;
-  opacity: 0.28;
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    transparent 55%,
+    color-mix(in srgb, var(--bg2) 65%, transparent) 85%,
+    var(--bg2) 100%
+  );
   pointer-events: none;
-  transition: opacity 0.3s;
 }
-.card:hover .deckArt { opacity: 0.38; }
-:global([data-theme-mode="light"]) .deckArt { opacity: 0.45; mix-blend-mode: multiply; }
-:global([data-theme-mode="light"]) .card:hover .deckArt { opacity: 0.58; }
+:global([data-theme-mode="light"]) .deckArtPanel { filter: saturate(1.05); }
 
-/* Content overlay */
+/* Right content column */
 .cardContent {
   position: relative;
   z-index: 1;
   display: flex;
   flex-direction: column;
   flex: 1;
-  padding: 10px 12px 11px;
-  background: linear-gradient(
-    to bottom,
-    color-mix(in srgb, var(--bg2) 30%, transparent) 0%,
-    color-mix(in srgb, var(--bg2) 78%, transparent) 45%,
-    color-mix(in srgb, var(--bg2) 94%, transparent) 100%
-  );
+  min-width: 0;
+  padding: 12px 14px 12px 12px;
+  background: var(--bg2);
+  overflow: hidden;
 }
 
 .cardTop { flex-shrink: 0; }
@@ -310,21 +318,39 @@
 /* Name & commander */
 .cardName {
   font-family: var(--font-display);
-  font-size: 1.0rem;
+  font-size: 1.05rem;
   color: var(--gold);
-  line-height: 1.2;
+  line-height: 1.22;
+  margin-top: 4px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-word;
+}
+
+.commanderName {
+  font-size: 0.74rem;
+  color: var(--text-faint);
+  font-style: italic;
+  margin-top: 2px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.commanderName {
-  font-size: 0.73rem;
-  color: var(--text-faint);
-  font-style: italic;
+.deckDescription {
+  font-size: 0.74rem;
+  color: var(--text-dim);
+  line-height: 1.38;
+  margin-top: 6px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  word-break: break-word;
 }
 
 .publicBadge {
@@ -370,7 +396,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 6px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--s-border);
   gap: 4px;
 }
 
@@ -486,12 +514,12 @@
   border-color: rgba(200,60,60,0.5) !important;
 }
 
-/* ── Community deck extras ──────────────────────────────────────── */
+/* ── Tags ───────────────────────────────────────────────────────── */
 .cardTags {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-top: 2px;
+  margin-top: 6px;
 }
 
 .cardTag {
@@ -501,6 +529,7 @@
   border: 1px solid var(--s-border);
   border-radius: 3px;
   padding: 1px 6px;
+  letter-spacing: 0.02em;
 }
 
 /* ── Responsive ─────────────────────────────────────────────────── */
@@ -508,18 +537,21 @@
   .page { padding: 16px; }
   .filterInput { width: 100%; }
   .grid {
-    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    grid-template-columns: 1fr;
     gap: 12px;
   }
-  .card { height: 170px; }
+  .card { height: 240px; }
+  .deckArtPanel { flex: 0 0 130px; }
 }
 
 @media (max-width: 480px) {
   .page { padding: 12px; }
   .filterBar { flex-direction: column; align-items: stretch; }
   .filterGroup { flex-wrap: wrap; }
-  .grid { grid-template-columns: 1fr 1fr; gap: 10px; }
-  .card { height: 160px; }
-  .cardName { font-size: 0.88rem; }
+  .grid { grid-template-columns: 1fr; gap: 10px; }
+  .card { height: 220px; }
+  .deckArtPanel { flex: 0 0 110px; }
+  .cardName { font-size: 0.95rem; }
+  .cardContent { padding: 10px 12px; }
   .bulkBar { gap: 6px; }
 }
