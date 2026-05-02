@@ -520,7 +520,10 @@ export default function ImportModal({
           return target && target.type !== 'list'
         })
         beginImportProgress('Saving print data', matchedRows.length)
-        const printByScryfallId = await ensureCardPrints(matchedRows.map(row => row.sfCard))
+        const printByScryfallId = await ensureCardPrints(
+          matchedRows.map(row => row.sfCard),
+          trackImportBatch('Saving print data'),
+        )
 
         if (listRows.length) {
           const items = aggregateResolvedRows(
@@ -665,7 +668,10 @@ export default function ImportModal({
         )
         if (items.length) {
           beginImportProgress('Saving print data', matchedRows.length)
-          const printByScryfallId = await ensureCardPrints(matchedRows.map(row => row.sfCard))
+          const printByScryfallId = await ensureCardPrints(
+            matchedRows.map(row => row.sfCard),
+            trackImportBatch('Saving print data'),
+          )
           const hydratedItems = items.map(item => ({
             ...item,
             card_print_id: getCardPrint(printByScryfallId, item)?.id || null,
@@ -698,7 +704,10 @@ export default function ImportModal({
         )
         if (cardRows.length) {
           beginImportProgress('Saving print data', matchedRows.length)
-          const printByScryfallId = await ensureCardPrints(matchedRows.map(row => row.sfCard))
+          const printByScryfallId = await ensureCardPrints(
+            matchedRows.map(row => row.sfCard),
+            trackImportBatch('Saving print data'),
+          )
           const hydratedRows = cardRows.map(row => withCardPrint(row, getCardPrint(printByScryfallId, row)))
           beginImportProgress('Saving owned cards', hydratedRows.length)
           const upserted = await additiveUpsertInBatches(

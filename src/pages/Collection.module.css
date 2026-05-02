@@ -138,9 +138,15 @@
 }
 
 @media (max-width: 768px) {
-  /* Hide desktop header row and gridHeader */
+  /* Hide desktop header row */
   .collectionHeader { display: none; }
-  .gridHeader { display: none; }
+  .gridHeader {
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    margin-bottom: 10px;
+    font-size: 0.72rem;
+    line-height: 1.35;
+  }
 
   /* Action row above the filter bar — slides away on scroll */
   .mobileTopActions {

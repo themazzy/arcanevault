@@ -1,7 +1,7 @@
 import { sb } from './supabase'
 
-const CARD_PRINT_UPSERT_BATCH = 500
-const CARD_PRINT_QUERY_BATCH = 500
+const CARD_PRINT_UPSERT_BATCH = 200
+const CARD_PRINT_QUERY_BATCH = 200
 
 function chunkRows(rows, size) {
   const chunks = []
@@ -43,7 +43,7 @@ function printLookupKey(card) {
   return card?.name ? `name:${card.name}` : null
 }
 
-export async function ensureCardPrints(cards) {
+export async function ensureCardPrints(cards, onProgress) {
   const payloadByScryfallId = new Map()
   const fallbackPayloadByPrint = new Map()
   for (const card of cards || []) {
@@ -61,21 +61,26 @@ export async function ensureCardPrints(cards) {
   const payloads = [...payloadByScryfallId.values()]
   if (payloads.length) {
     const scryfallIds = payloads.map(p => p.scryfall_id)
+    const queryBatches = chunkRows(scryfallIds, CARD_PRINT_QUERY_BATCH)
     // Fetch existing rows first
     const existing = []
-    for (const batch of chunkRows(scryfallIds, CARD_PRINT_QUERY_BATCH)) {
+    for (let i = 0; i < queryBatches.length; i++) {
+      const batch = queryBatches[i]
       const { data, error } = await sb
         .from('card_prints')
         .select('id,scryfall_id,set_code,collector_number,name')
         .in('scryfall_id', batch)
       if (error) throw error
       if (data?.length) existing.push(...data)
+      onProgress?.({ phase: 'lookup', batchIndex: i + 1, batchCount: queryBatches.length })
     }
     const existingIds = new Set(existing.map(r => r.scryfall_id))
     const toInsert = payloads.filter(p => !existingIds.has(p.scryfall_id))
 
     const inserted = []
-    for (const batch of chunkRows(toInsert, CARD_PRINT_UPSERT_BATCH)) {
+    const insertBatches = chunkRows(toInsert, CARD_PRINT_UPSERT_BATCH)
+    for (let i = 0; i < insertBatches.length; i++) {
+      const batch = insertBatches[i]
       const { data, error } = await sb
         .from('card_prints')
         .insert(batch)
@@ -87,9 +92,11 @@ export async function ensureCardPrints(cards) {
           .in('scryfall_id', batch.map(row => row.scryfall_id))
         if (recoverError || (recovered || []).length !== batch.length) throw error
         inserted.push(...(recovered || []))
+        onProgress?.({ phase: 'insert', batchIndex: i + 1, batchCount: insertBatches.length })
         continue
       }
       if (data?.length) inserted.push(...data)
+      onProgress?.({ phase: 'insert', batchIndex: i + 1, batchCount: insertBatches.length })
     }
 
     for (const row of [...existing, ...inserted]) {
