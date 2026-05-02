@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect, useLayoutEffect, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { Capacitor } from '@capacitor/core'
 import { App as CapApp } from '@capacitor/app'
@@ -195,6 +195,102 @@ export default function Layout({ children }) {
   const statsTab = location.pathname === '/stats' ? new URLSearchParams(location.search).get('tab') : null
   const isDeckBrowserRoute = location.pathname === '/builder' && new URLSearchParams(location.search).get('tab') === 'browser'
   const isDeckBuilderSection = location.pathname === '/builder' || /^\/builder\/[^/]+/.test(location.pathname)
+
+  const currentMobileGroup = (() => {
+    const p = location.pathname
+    if (p === '/' || p === '/rules' || p.startsWith('/profile/')) return 'home'
+    if (p === '/collection' || p === '/decks' || p === '/binders') return 'collection'
+    if (isDeckBuilderSection) return 'builder'
+    if (p.startsWith('/trading')) return 'trading'
+    if (p.startsWith('/stats')) return 'stats'
+    return null
+  })()
+  const [openMobileGroup, setOpenMobileGroup] = useState(currentMobileGroup)
+  useEffect(() => { setOpenMobileGroup(currentMobileGroup) }, [currentMobileGroup])
+  const toggleMobileGroup = key => setOpenMobileGroup(prev => prev === key ? null : key)
+  const closeMobile = () => setMenuOpen(false)
+
+  const mobileHomeItems = [
+    { to: '/', label: 'Home', Icon: HomeIcon, end: true },
+    { to: '/rules', label: 'Rulebook', Icon: InfoIcon },
+    { to: profilePath, label: 'Profile', Icon: PlayerIcon },
+  ]
+  const mobileCollectionItems = [
+    { to: '/collection', label: 'Collection', Icon: CollectionIcon, end: true },
+    { to: '/decks', label: 'Decks', Icon: DecksIcon },
+    { to: '/binders', label: 'Binders', Icon: BindersIcon },
+  ]
+  const mobileBuilderItems = [
+    { to: '/builder', label: 'Deck Builder', Icon: BuilderIcon, end: true },
+    { to: '/builder?tab=browser', label: 'Deck Browser', Icon: ListViewIcon },
+  ]
+  const mobileTradingItems = [
+    { to: '/trading', label: 'Trading', Icon: TradingIcon, end: true },
+    { to: '/trading?tab=log', label: 'Trade Log', Icon: ListViewIcon },
+  ]
+  const mobileStatsItems = [
+    { to: '/stats', label: 'Stats', Icon: StatsIcon, end: true },
+    { to: '/stats?tab=winrates', label: 'Deck Win Rates', Icon: DecksIcon },
+    { to: '/stats?tab=history', label: 'Game History', Icon: ListViewIcon },
+  ]
+  const isHomeGroupActive = currentMobileGroup === 'home'
+  const isBuilderGroupActive = currentMobileGroup === 'builder'
+  const isTradingGroupActive = currentMobileGroup === 'trading'
+  const isStatsGroupActive = currentMobileGroup === 'stats'
+
+  const renderMobileGroup = (key, label, Icon, items, isGroupActive) => {
+    const isOpen = openMobileGroup === key
+    return (
+      <div key={key} className={styles.mobileNavGroup}>
+        <button
+          type="button"
+          className={`${styles.mobileNavLink} ${styles.mobileNavGroupHeader}${isGroupActive ? ' ' + styles.mobileNavLinkActive : ''}`}
+          onClick={() => toggleMobileGroup(key)}
+          aria-expanded={isOpen}
+        >
+          <Icon size={17} />
+          <span className={styles.mobileNavGroupLabel}>{label}</span>
+          <ChevronDownIcon
+            size={12}
+            className={`${styles.mobileNavGroupCaret}${isOpen ? ' ' + styles.mobileNavGroupCaretOpen : ''}`}
+          />
+        </button>
+        {isOpen && (
+          <div className={styles.mobileNavGroupItems}>
+            {items.map(it => {
+              const itTabParam = it.to.includes('?') ? new URLSearchParams(it.to.split('?')[1]).get('tab') : null
+              return (
+                <NavLink
+                  key={it.to}
+                  to={it.to}
+                  end={it.end}
+                  className={({ isActive }) => {
+                    let active
+                    if (key === 'builder') {
+                      active = it.to === '/builder'
+                        ? isDeckBuilderSection && !isDeckBrowserRoute
+                        : isDeckBrowserRoute
+                    } else if (key === 'trading') {
+                      active = location.pathname === '/trading' && (itTabParam ? itTabParam === 'log' && isTradeLogRoute : !isTradeLogRoute)
+                    } else if (key === 'stats') {
+                      active = location.pathname === '/stats' && (itTabParam ? statsTab === itTabParam : !statsTab)
+                    } else {
+                      active = isActive
+                    }
+                    return `${styles.mobileNavLink} ${styles.mobileNavSubLink}${active ? ' ' + styles.mobileNavLinkActive : ''}`
+                  }}
+                  onClick={closeMobile}
+                >
+                  <it.Icon size={15} />
+                  {it.label}
+                </NavLink>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className={`${styles.app} ${isNativeScannerRoute ? styles.appScanner : ''}`}>
@@ -478,68 +574,35 @@ export default function Layout({ children }) {
               <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" />
               <span className={styles.logoText}>Deck<span>Loom</span></span>
             </div>
-            {TABS.map(t => (
-              <Fragment key={t.to}>
-                <NavLink
-                  to={t.to}
-                  end={t.to === '/'}
-                  className={({ isActive }) => {
-                    const tradingLogActive = t.to === '/trading' && location.search.includes('tab=log')
-                    const statsSubActive = t.to === '/stats' && (statsTab === 'winrates' || statsTab === 'history')
-                    const isDeckBuilderNav = t.to === '/builder'
-                    const builderActive = isDeckBuilderNav && isDeckBuilderSection && !isDeckBrowserRoute
-                    const active = isDeckBuilderNav
-                      ? builderActive
-                      : isActive && !tradingLogActive && !statsSubActive
-                    return `${styles.mobileNavLink}${active ? ' ' + styles.mobileNavLinkActive : ''}`
-                  }}
-                  onClick={() => setMenuOpen(false)}
-                >
-                  <t.Icon size={17} />
-                  {t.label}
-                </NavLink>
-                {t.to === '/builder' && (
-                  <NavLink
-                    to="/builder?tab=browser"
-                    className={`${styles.mobileNavLink} ${styles.mobileNavSubLink}${isDeckBrowserRoute ? ' ' + styles.mobileNavLinkActive : ''}`}
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    <ListViewIcon size={15} />
-                    Deck Browser
-                  </NavLink>
-                )}
-                {t.to === '/trading' && (
-                  <NavLink
-                    to="/trading?tab=log"
-                    className={`${styles.mobileNavLink} ${styles.mobileNavSubLink}${isTradeLogRoute ? ' ' + styles.mobileNavLinkActive : ''}`}
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    <ListViewIcon size={15} />
-                    Trade Log
-                  </NavLink>
-                )}
-                {t.to === '/stats' && (
-                  <>
-                    <NavLink
-                      to="/stats?tab=winrates"
-                      className={`${styles.mobileNavLink} ${styles.mobileNavSubLink}${location.pathname === '/stats' && statsTab === 'winrates' ? ' ' + styles.mobileNavLinkActive : ''}`}
-                      onClick={() => setMenuOpen(false)}
-                    >
-                      <DecksIcon size={15} />
-                      Deck Win Rates
-                    </NavLink>
-                    <NavLink
-                      to="/stats?tab=history"
-                      className={`${styles.mobileNavLink} ${styles.mobileNavSubLink}${location.pathname === '/stats' && statsTab === 'history' ? ' ' + styles.mobileNavLinkActive : ''}`}
-                      onClick={() => setMenuOpen(false)}
-                    >
-                      <ListViewIcon size={15} />
-                      Game History
-                    </NavLink>
-                  </>
-                )}
-              </Fragment>
-            ))}
+            {renderMobileGroup('home', 'Home', HomeIcon, mobileHomeItems, isHomeGroupActive)}
+            {renderMobileGroup('collection', 'Collection', CollectionIcon, mobileCollectionItems, currentMobileGroup === 'collection')}
+            {renderMobileGroup('builder', 'Deck Builder', BuilderIcon, mobileBuilderItems, isBuilderGroupActive)}
+            <NavLink
+              to="/lists"
+              className={({ isActive }) => `${styles.mobileNavLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}
+              onClick={closeMobile}
+            >
+              <WishlistsIcon size={17} />
+              Wishlists
+            </NavLink>
+            {renderMobileGroup('trading', 'Trading', TradingIcon, mobileTradingItems, isTradingGroupActive)}
+            <NavLink
+              to="/life"
+              className={({ isActive }) => `${styles.mobileNavLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}
+              onClick={closeMobile}
+            >
+              <LifeIcon size={17} />
+              Life Tracker
+            </NavLink>
+            {renderMobileGroup('stats', 'Stats', StatsIcon, mobileStatsItems, isStatsGroupActive)}
+            <NavLink
+              to="/scanner"
+              className={({ isActive }) => `${styles.mobileNavLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}
+              onClick={closeMobile}
+            >
+              <ScannerIcon size={17} />
+              Scanner
+            </NavLink>
             <div className={styles.mobileNavFooter}>
               <NavLink
                 to="/help"

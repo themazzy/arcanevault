@@ -272,7 +272,7 @@ function TableRow({ card, sf, priceSource, isSelected, selectMode, onClick, onEn
   const mc = sf?.mana_cost || sf?.card_faces?.[0]?.mana_cost || ''
   const hoverEnter = CAN_HOVER && !lastInputWasTouch && !selectMode && img ? () => onHover?.(img) : undefined
   const hoverLeave = CAN_HOVER && !selectMode ? () => onHoverEnd?.() : undefined
-  const typeLine = (sf?.type_line || '-').split('â€”')[0].trim()
+  const typeLine = (sf?.type_line || '-').split('—')[0].trim()
   const setCode = (card.set_code || sf?.set || '-').toUpperCase()
   const collectorNumber = card.collector_number || sf?.collector_number
   const rarity = sf?.rarity || '-'

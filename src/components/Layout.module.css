@@ -442,6 +442,30 @@ button.navSubmenuItem {
 .mobileNavLink:hover { background: rgba(201,168,76,0.05); color: var(--text); text-decoration: none; }
 .mobileNavLinkActive { color: var(--gold) !important; background: rgba(201,168,76,0.08) !important; text-decoration: none; }
 .mobileNavSubLink { padding-left: 42px; font-size: 0.75rem; min-height: 42px; color: var(--text-faint); border-bottom-color: transparent; }
+
+.mobileNavGroup { display: contents; }
+.mobileNavGroupHeader {
+  width: 100%;
+  background: none;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  cursor: pointer;
+  text-align: left;
+}
+.mobileNavGroupLabel { flex: 1; }
+.mobileNavGroupCaret {
+  opacity: 0.6;
+  transition: transform 0.2s ease, opacity 0.15s;
+  flex-shrink: 0;
+}
+.mobileNavGroupCaretOpen { transform: rotate(180deg); opacity: 0.95; }
+.mobileNavGroupItems {
+  display: flex;
+  flex-direction: column;
+  background: rgba(0,0,0,0.18);
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
 .mobileNavFooter {
   margin-top: auto; padding: 12px 0;
   border-top: 1px solid rgba(255,255,255,0.06);
