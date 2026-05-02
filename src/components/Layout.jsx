@@ -161,6 +161,13 @@ export default function Layout({ children }) {
     return () => el.removeEventListener('scroll', onScroll)
   }, [])
 
+  useEffect(() => {
+    if (isNative) {
+      document.documentElement.setAttribute('data-native', 'true')
+      return () => document.documentElement.removeAttribute('data-native')
+    }
+  }, [isNative])
+
   const signOut = async () => {
     await sb.auth.signOut()
     navigate('/')
