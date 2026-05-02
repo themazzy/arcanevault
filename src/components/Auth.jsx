@@ -86,59 +86,44 @@ function runWhenIdle(cb) {
   return () => clearTimeout(t)
 }
 
-// ── Art crop hook ─────────────────────────────────────────────────────────
-function useCardArts(cardNames) {
-  const [arts, setArts] = useState([])
+// Single batched Scryfall fetch for every name needed by the login page.
+// Returns a Map<name, scryfallCard> once resolved (empty before then).
+function useCardLookup(allNames) {
+  const [byName, setByName] = useState(() => new Map())
   useEffect(() => {
     let cancelled = false
+    const unique = Array.from(new Set(allNames))
     const cancelIdle = runWhenIdle(() => {
       if (cancelled) return
-      fetchCardsByNames(cardNames)
+      fetchCardsByNames(unique)
         .then(results => {
           if (cancelled) return
-          const byName = new Map(results.map(card => [card.name, card]))
-          setArts(
-            cardNames
-              .map(name => {
-                const d = byName.get(name)
-                return d?.image_uris?.art_crop || d?.card_faces?.[0]?.image_uris?.art_crop || null
-              })
-              .filter(Boolean)
-          )
+          setByName(new Map(results.map(c => [c.name, c])))
         })
-        .catch(() => { if (!cancelled) setArts([]) })
+        .catch(() => {})
     })
     return () => { cancelled = true; cancelIdle() }
-  }, [cardNames]) // eslint-disable-line react-hooks/exhaustive-deps
-  return arts
+  }, [allNames]) // eslint-disable-line react-hooks/exhaustive-deps
+  return byName
 }
 
-// ── Full card image hook (small format) ───────────────────────────────────
-function useCardImages(cardNames) {
-  const [images, setImages] = useState([])
-  useEffect(() => {
-    let cancelled = false
-    const cancelIdle = runWhenIdle(() => {
-      if (cancelled) return
-      fetchCardsByNames(cardNames)
-        .then(results => {
-          if (cancelled) return
-          const byName = new Map(results.map(card => [card.name, card]))
-          setImages(
-            cardNames
-              .map(name => {
-                const d = byName.get(name)
-                const src = d?.image_uris?.small || d?.card_faces?.[0]?.image_uris?.small || null
-                return src ? { name: d.name, src } : null
-              })
-              .filter(Boolean)
-          )
-        })
-        .catch(() => { if (!cancelled) setImages([]) })
+function pickArts(byName, names) {
+  return names
+    .map(n => {
+      const d = byName.get(n)
+      return d?.image_uris?.art_crop || d?.card_faces?.[0]?.image_uris?.art_crop || null
     })
-    return () => { cancelled = true; cancelIdle() }
-  }, [cardNames]) // eslint-disable-line react-hooks/exhaustive-deps
-  return images
+    .filter(Boolean)
+}
+
+function pickImages(byName, names) {
+  return names
+    .map(n => {
+      const d = byName.get(n)
+      const src = d?.image_uris?.small || d?.card_faces?.[0]?.image_uris?.small || null
+      return src ? { name: d.name, src } : null
+    })
+    .filter(Boolean)
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -335,10 +320,15 @@ export function LoginPage({ forcedMode = null }) {
     },
   ]), [builderCards, collectionCards])
 
-  const bgArts         = useCardArts(bgCards)
-  const galleryImages  = useCardImages(galleryCards)
-  const collectionArts = useCardArts(collectionCards)
-  const builderArts    = useCardArts(builderCards)
+  const allCardNames = useMemo(
+    () => [...bgCards, ...galleryCards, ...collectionCards, ...builderCards],
+    [bgCards, galleryCards, collectionCards, builderCards],
+  )
+  const cardByName     = useCardLookup(allCardNames)
+  const bgArts         = useMemo(() => pickArts(cardByName, bgCards), [cardByName, bgCards])
+  const galleryImages  = useMemo(() => pickImages(cardByName, galleryCards), [cardByName, galleryCards])
+  const collectionArts = useMemo(() => pickArts(cardByName, collectionCards), [cardByName, collectionCards])
+  const builderArts    = useMemo(() => pickArts(cardByName, builderCards), [cardByName, builderCards])
 
   useEffect(() => {
     if (forcedMode) setMode(forcedMode)

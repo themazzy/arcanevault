@@ -5,6 +5,9 @@ import pkg from './package.json'
 export default defineConfig({
   base: '/',
   plugins: [react()],
+  build: {
+    sourcemap: true,
+  },
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
