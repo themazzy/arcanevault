@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { sb } from '../lib/supabase'
+import { getPublicBaseUrl } from '../lib/publicUrl'
 import { applyTheme } from './SettingsContext'
 import { fetchCardsByNames } from '../lib/deckBuilderApi'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
@@ -392,6 +393,15 @@ export function LoginPage({ forcedMode = null }) {
     setLoading(false)
   }
 
+  const signInWithProvider = async (provider) => {
+    setError(''); setSuccess(''); setLoading(true)
+    const { error: err } = await sb.auth.signInWithOAuth({
+      provider,
+      options: { redirectTo: getPublicBaseUrl() + '/' },
+    })
+    if (err) { setError(err.message); setLoading(false) }
+  }
+
   const switchMode = (m) => {
     if (forcedMode === 'recovery') return
     setMode(m); setError(''); setSuccess('')
@@ -481,6 +491,36 @@ export function LoginPage({ forcedMode = null }) {
                   ? 'Sign in to DeckLoom'
                   : 'Start cataloguing your collection today'}
             </div>
+            {(mode === 'login' || mode === 'register') && (
+              <>
+                <button
+                  type="button"
+                  className={`${styles.oauthBtn} ${styles.oauthGoogle}`}
+                  onClick={() => signInWithProvider('google')}
+                  disabled={loading}
+                >
+                  <svg className={styles.oauthIcon} viewBox="0 0 48 48" aria-hidden="true">
+                    <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/>
+                    <path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"/>
+                    <path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238C29.211 35.091 26.715 36 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/>
+                    <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/>
+                  </svg>
+                  Continue with Google
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.oauthBtn} ${styles.oauthDiscord}`}
+                  onClick={() => signInWithProvider('discord')}
+                  disabled={loading}
+                >
+                  <svg className={styles.oauthIcon} viewBox="0 0 24 24" aria-hidden="true">
+                    <path fill="currentColor" d="M20.317 4.369A19.79 19.79 0 0 0 16.558 3.2a.075.075 0 0 0-.079.037c-.34.6-.717 1.385-.98 2.003a18.27 18.27 0 0 0-5.482 0 12.51 12.51 0 0 0-.995-2.003.078.078 0 0 0-.079-.037A19.74 19.74 0 0 0 5.184 4.37a.07.07 0 0 0-.032.027C1.578 9.736.59 14.94 1.075 20.077a.082.082 0 0 0 .031.056 19.9 19.9 0 0 0 5.993 3.027.078.078 0 0 0 .084-.027c.462-.63.873-1.295 1.226-1.994a.076.076 0 0 0-.041-.105 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.075.075 0 0 1 .078-.01c3.927 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .079.009c.12.099.246.198.373.292a.077.077 0 0 1-.006.128 12.299 12.299 0 0 1-1.873.891.077.077 0 0 0-.04.106c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.84 19.84 0 0 0 6.002-3.027.077.077 0 0 0 .032-.054c.5-5.94-.838-11.1-3.549-15.683a.06.06 0 0 0-.031-.028zM8.02 17.064c-1.183 0-2.157-1.085-2.157-2.418 0-1.334.956-2.42 2.157-2.42 1.21 0 2.176 1.095 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.974 0c-1.183 0-2.157-1.085-2.157-2.418 0-1.334.955-2.42 2.157-2.42 1.21 0 2.176 1.095 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>
+                  </svg>
+                  Continue with Discord
+                </button>
+                <div className={styles.oauthDivider}><span>or</span></div>
+              </>
+            )}
             {mode !== 'recovery' && mode !== 'forgot' && <div className={styles.tabs}>
               <button
                 className={`${styles.tab}${mode === 'login' ? ' ' + styles.active : ''}`}
