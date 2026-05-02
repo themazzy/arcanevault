@@ -2109,10 +2109,12 @@ export default function DeckBuilderPage() {
   // Recommendations
   const [recs,         setRecs]         = useState([])
   const [recImages,    setRecImages]    = useState({}) // name -> image_uri
+  const [recLegalities, setRecLegalities] = useState({}) // name -> legalities object
   const [recsLoading,   setRecsLoading]   = useState(false)
   const [recsError,     setRecsError]     = useState(null)
   const [recsOwnedOnly, setRecsOwnedOnly] = useState(false)
   const [collapsedCats, setCollapsedCats] = useState(new Set())
+  const recsLoadedForRef = useRef(null) // track {commanderName, formatId} the current recs were loaded for
 
   // Collection
   const [ownedMap,       setOwnedMap]       = useState(new Map())
@@ -2834,15 +2836,24 @@ export default function DeckBuilderPage() {
 
   const recCategoriesFiltered = useMemo(() => {
     if (!recs?.categories) return []
+    const formatId = format?.id || 'commander'
+    // EDHRec serves Commander and Brawl natively; other formats reuse Commander data and need legality filtering
+    const enforceLegality = formatId !== 'commander' && formatId !== 'brawl'
     return recs.categories.map(c => ({
       ...c,
       cards: c.cards.filter(r => {
         if (deckNameSet.has(r.name.toLowerCase())) return false
         if (recsOwnedOnly && (ownedNameMap.get(r.name.toLowerCase()) ?? 0) === 0) return false
+        if (enforceLegality) {
+          const leg = recLegalities[r.name]
+          if (!leg) return false
+          const status = leg[formatId]
+          if (status !== 'legal' && status !== 'restricted') return false
+        }
         return true
       }),
     })).filter(c => c.cards.length > 0)
-  }, [recs, deckNameSet, recsOwnedOnly, ownedNameMap])
+  }, [recs, deckNameSet, recsOwnedOnly, ownedNameMap, format, recLegalities])
 
   const handleDeckListScroll = useCallback((e) => {
     const nextTop = e.currentTarget.scrollTop
@@ -3251,29 +3262,38 @@ export default function DeckBuilderPage() {
   }
 
   // â”€â”€ EDHRec recommendations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  async function loadRecs(commanderName) {
+  async function loadRecs(commanderName, formatId = 'commander') {
+    recsLoadedForRef.current = { commanderName, formatId }
     setRecsLoading(true)
     setRecsError(null)
     setRecs([])
     setRecImages({})
+    setRecLegalities({})
     setCollapsedCats(new Set())
 
-    const data = await fetchEdhrecCommander(commanderName)
+    const data = await fetchEdhrecCommander(commanderName, formatId)
     if (!data) { setRecsError('unavailable'); setRecsLoading(false); return }
 
     setRecs(data)
 
-    // Enrich images for visible recs
+    // Enrich images + legality for visible recs
     const allRecNames = data.categories.flatMap(c => c.cards.map(r => r.name))
-    setRecsLoading(false) // Show recs immediately, load images in background
+    // EDHRec has a native Brawl page; everything else (incl. Standard Brawl) uses Commander recs filtered by legality
+    const needsLegality = formatId !== 'commander' && formatId !== 'brawl'
+    // For non-commander formats we need legality data before showing recs, otherwise illegal cards flash in
+    if (!needsLegality) setRecsLoading(false)
 
     const sfCards = await fetchCardsByNames(allRecNames.slice(0, 150))
     const imgMap = {}
+    const legMap = {}
     for (const c of sfCards) {
       const uri = getCardImageUri(c, 'small')
       if (uri) imgMap[c.name] = uri
+      if (c.legalities) legMap[c.name] = c.legalities
     }
     setRecImages(imgMap)
+    setRecLegalities(legMap)
+    if (needsLegality) setRecsLoading(false)
   }
 
   // â”€â”€ Commander Spellbook combos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -4553,7 +4573,17 @@ export default function DeckBuilderPage() {
             className={`${styles.tab}${leftTab === 'recs' ? ' ' + styles.tabActive : ''}`}
             onClick={() => {
               setLeftTab('recs')
-              if (isEDH && commanderCard && !recs?.categories) loadRecs(commanderCard.name)
+              if (isEDH && commanderCard) {
+                const fmtId = format?.id || 'commander'
+                const loaded = recsLoadedForRef.current
+                // Reload when commander changes, when format changes between native (commander/brawl) sources,
+                // or when no recs are loaded yet
+                const needsReload = !recs?.categories
+                  || !loaded
+                  || loaded.commanderName !== commanderCard.name
+                  || (loaded.formatId === 'brawl') !== (fmtId === 'brawl')
+                if (needsReload) loadRecs(commanderCard.name, fmtId)
+              }
             }}
           >
             Recommendations
@@ -4632,7 +4662,11 @@ export default function DeckBuilderPage() {
                 {!recsLoading && !recsError && recs?.categories && (
                   <div className={styles.recsList}>
                     {recCategoriesFiltered.length === 0 && (
-                      <div className={styles.recsEmpty}>All recommended cards are already in your deck.</div>
+                      <div className={styles.recsEmpty}>
+                        {format?.id && format.id !== 'commander'
+                          ? `No ${format.label}-legal recommendations remain for this commander.`
+                          : 'All recommended cards are already in your deck.'}
+                      </div>
                     )}
                     {recCategoriesFiltered.map(cat => {
                       const collapsed = collapsedCats.has(cat.tag)
