@@ -61,6 +61,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>DeckLoom</title>
+    <meta name="description" content="DeckLoom is a Magic: The Gathering collection tracker. Catalog cards, build decks, scan with your camera, organise binders and wishlists, and follow daily EUR and USD market prices." />
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
@@ -69,12 +70,23 @@
     <meta name="theme-color" content="#05091d" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Pro:ital,wght@0,300..700;1,300..700&family=Inter:wght@300..700&display=swap" rel="stylesheet" />
+    <!-- Non-render-blocking font loading: preload as style, then swap to stylesheet on load -->
+    <link
+      rel="preload"
+      as="style"
+      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Pro:ital,wght@0,300..700;1,300..700&family=Inter:wght@300..700&display=swap"
+      onload="this.onload=null;this.rel='stylesheet'"
+    />
+    <noscript>
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Pro:ital,wght@0,300..700;1,300..700&family=Inter:wght@300..700&display=swap"
+      />
+    </noscript>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
-    <!-- OpenCV.js — loaded async; scanner checks window.cv before use -->
-    <script async src="https://docs.opencv.org/4.8.0/opencv.js" id="opencv-script"></script>
+    <!-- OpenCV.js is loaded lazily by the scanner only — see waitForOpenCV() in ScannerEngine.js -->
   </body>
 </html>

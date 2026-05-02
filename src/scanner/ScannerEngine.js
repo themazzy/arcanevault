@@ -61,9 +61,22 @@ export function isOpenCVReady() {
          typeof window.cv.Mat !== 'undefined'
 }
 
+const OPENCV_SRC = 'https://docs.opencv.org/4.8.0/opencv.js'
+
+function ensureOpenCVScriptInjected() {
+  if (typeof document === 'undefined') return
+  if (document.getElementById('opencv-script')) return
+  const s = document.createElement('script')
+  s.id = 'opencv-script'
+  s.async = true
+  s.src = OPENCV_SRC
+  document.head.appendChild(s)
+}
+
 export function waitForOpenCV(timeoutMs = 20000) {
   return new Promise((resolve, reject) => {
     if (isOpenCVReady()) return resolve()
+    ensureOpenCVScriptInjected()
     const start = Date.now()
     const check = setInterval(() => {
       if (isOpenCVReady()) {
