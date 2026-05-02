@@ -1595,7 +1595,7 @@ export default function CollectionPage() {
       {(enriching || importing) && <ProgressBar value={progress} label={progLabel} />}
 
       {cards.length > 0 && <>
-        <div className={styles.gridHeader}>
+        <div className={`${styles.gridHeader}${gridScrolled ? ' ' + styles.gridHeaderHidden : ''}`}>
           <span>Showing {filtered.length} of {cards.length} unique · {totalQty} total cards</span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {!enriching && <span>Value: <strong style={{ color: 'var(--green)' }}>{formatPrice(totalValue, price_source)}</strong></span>}
