@@ -33,12 +33,12 @@ function uniqueByCardKey(cards) {
 }
 
 function rowToPrices(row) {
-  return {
-    eur: row.price_regular_eur,
-    eur_foil: row.price_foil_eur,
-    usd: row.price_regular_usd,
-    usd_foil: row.price_foil_usd,
-  }
+  const prices = {}
+  if (row.price_regular_eur != null) prices.eur = row.price_regular_eur
+  if (row.price_foil_eur != null) prices.eur_foil = row.price_foil_eur
+  if (row.price_regular_usd != null) prices.usd = row.price_regular_usd
+  if (row.price_foil_usd != null) prices.usd_foil = row.price_foil_usd
+  return prices
 }
 
 export async function overlaySharedCardPrices(cards, baseMap = {}) {
@@ -116,11 +116,13 @@ export async function overlaySharedCardPrices(cards, baseMap = {}) {
     const previous = previousByKey[key]
     if (!current && !previous) continue
 
+    const existing = merged[key] || { key, set_code, collector_number }
+    const sharedPrices = current ? rowToPrices(current) : null
+    const sharedPricesPrev = previous ? rowToPrices(previous) : null
     merged[key] = {
-      ...(merged[key] || { key, set_code, collector_number }),
-      ...(current?.scryfall_id ? { scryfall_id: current.scryfall_id } : {}),
-      ...(current ? { prices: rowToPrices(current), shared_price_updated_at: current.updated_at } : {}),
-      ...(previous ? { prices_prev: rowToPrices(previous) } : {}),
+      ...existing,
+      ...(sharedPrices && Object.keys(sharedPrices).length ? { prices: { ...existing.prices, ...sharedPrices }, shared_price_updated_at: current.updated_at } : {}),
+      ...(sharedPricesPrev && Object.keys(sharedPricesPrev).length ? { prices_prev: { ...existing.prices_prev, ...sharedPricesPrev } } : {}),
     }
   }
 
