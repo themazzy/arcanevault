@@ -474,17 +474,41 @@ function RecRow({ rec, imageUri, ownedQty, onAdd, onHoverEnter, onHoverLeave, on
 }
 
 // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-function canBeCommander(dc) {
+function canBeCommander(dc, sf = null) {
   if (!dc.type_line) return true // unknown type — allow the option
   const tl = dc.type_line.toLowerCase()
-  return tl.includes('legendary creature') ||
-    (tl.includes('legendary') && tl.includes('planeswalker'))
+  // Legendary creatures (including enchantment creatures like Calix)
+  if (tl.includes('legendary') && tl.includes('creature')) return true
+  // Legendary Planeswalkers that can be commander
+  if (tl.includes('legendary') && tl.includes('planeswalker')) {
+    const oracle = ((sf?.oracle_text || '') + (sf?.card_faces || []).map(f => f.oracle_text || '').join('\n')).toLowerCase()
+    // Grist is a special case - counts as creature in command zone
+    if (sf?.name?.toLowerCase().includes('grist')) return true
+    if (oracle.includes('can be your commander') || oracle.includes('partner')) return true
+  }
+  // Legendary Vehicles with power/toughness (must have p/t box)
+  if (tl.includes('legendary') && tl.includes('vehicle')) {
+    if (sf?.power != null && sf?.toughness != null) return true
+  }
+  // Legendary Spacecraft with power/toughness (Edge of Eternities+)
+  if (tl.includes('legendary') && tl.includes('spacecraft')) {
+    if (sf?.power != null && sf?.toughness != null) return true
+  }
+  // Background enchantments (can be commander with "Choose a Background")
+  if (tl.includes('enchantment') && tl.includes('background')) return true
+  // Partner / partner with (any card with partner ability)
+  const oracle = sf
+    ? ((sf.oracle_text || '') + (sf.card_faces || []).map(f => f.oracle_text || '').join('\n')).toLowerCase()
+    : ''
+  if (oracle.includes('partner')) return true
+  return false
 }
 
 // â”€â”€ Edit dropdown (âš™) shared by list + compact views â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-function DeckCardActionsMenuBody({ dc, isEDH, onSetCommander, onToggleFoil, onPickVersion, onMoveBoard, close }) {
+function DeckCardActionsMenuBody({ dc, isEDH, onSetCommander, onToggleFoil, onPickVersion, onMoveBoard, close, builderSfMap = {} }) {
   const currentBoard = normalizeBoard(dc.board)
   const boardOptions = BOARD_ORDER.filter(board => board !== currentBoard && !(dc.is_commander && board !== 'main'))
+  const sf = dc.set_code && dc.collector_number ? builderSfMap[`${dc.set_code}-${dc.collector_number}`] || null : null
   return (
     <div className={uiStyles.responsiveMenuList}>
       {isEDH && dc.is_commander && (
@@ -492,7 +516,7 @@ function DeckCardActionsMenuBody({ dc, isEDH, onSetCommander, onToggleFoil, onPi
           <span>Unset as Commander</span>
         </button>
       )}
-      {isEDH && !dc.is_commander && canBeCommander(dc) && (
+      {isEDH && !dc.is_commander && canBeCommander(dc, sf) && (
         <button className={uiStyles.responsiveMenuAction} onClick={() => { onSetCommander(dc, true); close() }}>
           <span>Set as Commander</span>
         </button>
@@ -517,7 +541,7 @@ function DeckCardActionsMenuBody({ dc, isEDH, onSetCommander, onToggleFoil, onPi
   )
 }
 
-function EditMenu({ dc, isEDH, onSetCommander, onToggleFoil, onPickVersion, onMoveBoard }) {
+function EditMenu({ dc, isEDH, onSetCommander, onToggleFoil, onPickVersion, onMoveBoard, builderSfMap = {} }) {
   return (
     <ResponsiveMenu
       title="Card Actions"
@@ -540,6 +564,7 @@ function EditMenu({ dc, isEDH, onSetCommander, onToggleFoil, onPickVersion, onMo
           onPickVersion={onPickVersion}
           onMoveBoard={onMoveBoard}
           close={close}
+          builderSfMap={builderSfMap}
         />
       )}
     </ResponsiveMenu>
@@ -551,6 +576,7 @@ function DeckCardRowV2({
   onChangeQty, onRemove, onMouseEnter, onMouseLeave, onMouseMove, onContextMenu,
   onPickVersion, onToggleFoil, onSetCommander, onMoveBoard, isEDH,
   visibleColumns, listGridTemplate, priceLabel, onOpenDetail, legalityWarnings = [],
+  builderSfMap = {},
 }) {
   const setLabel = dc.set_code ? `${String(dc.set_code).toUpperCase()}${dc.collector_number ? ` #${dc.collector_number}` : ''}` : '-'
   return (
@@ -573,7 +599,7 @@ function DeckCardRowV2({
           <OwnershipBadge ownedQty={ownedQty} ownedFoilAlt={ownedFoilAlt} ownedAlt={ownedAlt} ownedInDeck={ownedInDeck} inCollDeck={inCollDeck} />
         </div>
       )}
-      {visibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} />}
+      {visibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} builderSfMap={builderSfMap} />}
       {visibleColumns.qty && (
         <div className={styles.qtyControls}>
           <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, -1)}>-</button>
@@ -649,22 +675,58 @@ function ComboCardThumb({ name, inDeck, existingUri, onAdd, onOpenDetail }) {
 
 function ComboResultCard({ combo, highlight, deckCardNames, deckImages, onAddCard, onOpenDetail }) {
   const uses    = (combo.uses    || []).map(u => u.card?.name || u.template?.name || '').filter(Boolean)
+  const requires = (combo.requires || []).map(r => ({
+    name: r.template?.name || r.card?.name || '',
+    quantity: r.quantity ?? 1,
+    zone: (r.zoneLocations || []).join(''),
+  })).filter(r => r.name)
   const results = (combo.produces || []).map(p => p.feature?.name || '').filter(Boolean)
   const deckSet = new Set(deckCardNames || [])
   const steps   = combo.description || ''
+  const prereqs = [combo.easyPrerequisites, combo.notablePrerequisites].filter(Boolean).join(' ')
+  const manaNeeded = combo.manaNeeded || ''
+  const manaValueNeeded = combo.manaValueNeeded || 0
+  const notes = combo.notes || ''
+  const hasExtras = requires.length > 0 || prereqs || manaNeeded || manaValueNeeded > 0 || notes
+  const bottomGap = results.length || steps || hasExtras
   return (
     <div style={{
       background: highlight ? 'rgba(201,168,76,0.07)' : 'var(--s1)',
       border: `1px solid ${highlight ? 'rgba(201,168,76,0.28)' : 'var(--s-border)'}`,
       borderRadius: 6, padding: '14px',
     }}>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: (results.length || steps) ? 12 : 0 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: bottomGap ? 12 : 0 }}>
         {uses.map((name, i) => (
           <ComboCardThumb key={i} name={name} inDeck={!deckCardNames || deckSet.has(name)} existingUri={deckImages?.[name]} onAdd={!deckCardNames || deckSet.has(name) ? undefined : onAddCard} onOpenDetail={onOpenDetail} />
         ))}
       </div>
+      {requires.length > 0 && (
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-faint)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Requires</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {requires.map((r, i) => (
+              <span key={i} style={{ fontSize: '0.72rem', background: 'rgba(180,120,60,0.15)', border: '1px solid rgba(180,120,60,0.3)', borderRadius: 3, padding: '2px 7px', color: 'var(--text-dim)' }}>
+                {r.quantity > 1 ? `${r.quantity}× ` : ''}{r.name}{r.zone ? ` (${r.zone})` : ''}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {(manaNeeded || manaValueNeeded > 0) && (
+        <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginBottom: 6 }}>
+          <span style={{ color: 'var(--text-faint)' }}>Mana: </span>
+          {manaValueNeeded > 0 && <span>{manaValueNeeded} total</span>}
+          {manaValueNeeded > 0 && manaNeeded && <span> — </span>}
+          {manaNeeded && <span>{manaNeeded}</span>}
+        </div>
+      )}
+      {prereqs && (
+        <div style={{ fontSize: '0.77rem', color: 'var(--text-dim)', marginBottom: 6, lineHeight: 1.5 }}>
+          <span style={{ color: 'var(--text-faint)' }}>Prerequisites: </span>{prereqs}
+        </div>
+      )}
       {results.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: steps ? 8 : 0 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: (steps || hasExtras) ? 8 : 0 }}>
           {results.slice(0, 6).map((r, i) => (
             <span key={i} style={{ fontSize: '0.68rem', background: 'rgba(100,100,160,0.2)', border: '1px solid rgba(100,100,160,0.3)', borderRadius: 3, padding: '2px 7px', color: 'var(--text-faint)' }}>{r}</span>
           ))}
@@ -672,6 +734,9 @@ function ComboResultCard({ combo, highlight, deckCardNames, deckImages, onAddCar
       )}
       {steps && (
         <div style={{ fontSize: '0.79rem', color: 'var(--text-dim)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{steps}</div>
+      )}
+      {notes && (
+        <div style={{ fontSize: '0.74rem', color: 'var(--text-faint)', marginTop: 6, fontStyle: 'italic', lineHeight: 1.5 }}>{notes}</div>
       )}
     </div>
   )
@@ -2837,8 +2902,8 @@ export default function DeckBuilderPage() {
   const recCategoriesFiltered = useMemo(() => {
     if (!recs?.categories) return []
     const formatId = format?.id || 'commander'
-    // EDHRec serves Commander and Brawl natively; other formats reuse Commander data and need legality filtering
-    const enforceLegality = formatId !== 'commander' && formatId !== 'brawl'
+    // Brawl EDHRec endpoint is deprecated — always enforce legality for Brawl and Standard Brawl
+    const enforceLegality = formatId !== 'commander'
     return recs.categories.map(c => ({
       ...c,
       cards: c.cards.filter(r => {
@@ -3271,17 +3336,19 @@ export default function DeckBuilderPage() {
     setRecLegalities({})
     setCollapsedCats(new Set())
 
-    const data = await fetchEdhrecCommander(commanderName, formatId)
+    // Brawl EDHRec endpoint is deprecated — always load Commander recommendations
+    const recFormatId = 'commander'
+    const data = await fetchEdhrecCommander(commanderName, recFormatId)
     if (!data) { setRecsError('unavailable'); setRecsLoading(false); return }
 
     setRecs(data)
 
-    // Enrich images + legality for visible recs
-    const allRecNames = data.categories.flatMap(c => c.cards.map(r => r.name))
-    // EDHRec has a native Brawl page; everything else (incl. Standard Brawl) uses Commander recs filtered by legality
-    const needsLegality = formatId !== 'commander' && formatId !== 'brawl'
+    // Enforce legality filtering for all non-Commander formats (Brawl, Standard Brawl, etc.)
+    const needsLegality = formatId !== 'commander'
     // For non-commander formats we need legality data before showing recs, otherwise illegal cards flash in
     if (!needsLegality) setRecsLoading(false)
+
+    const allRecNames = data.categories.flatMap(c => c.cards.map(r => r.name))
 
     const sfCards = await fetchCardsByNames(allRecNames.slice(0, 150))
     const imgMap = {}
@@ -4576,12 +4643,12 @@ export default function DeckBuilderPage() {
               if (isEDH && commanderCard) {
                 const fmtId = format?.id || 'commander'
                 const loaded = recsLoadedForRef.current
-                // Reload when commander changes, when format changes between native (commander/brawl) sources,
+                // Reload when commander changes, when switching from/to Commander format,
                 // or when no recs are loaded yet
                 const needsReload = !recs?.categories
                   || !loaded
                   || loaded.commanderName !== commanderCard.name
-                  || (loaded.formatId === 'brawl') !== (fmtId === 'brawl')
+                  || loaded.formatId !== fmtId
                 if (needsReload) loadRecs(commanderCard.name, fmtId)
               }
             }}
@@ -5246,11 +5313,11 @@ export default function DeckBuilderPage() {
                 ...getCardOwnershipProps(dc),
                 onChangeQty: changeQty,
                 onRemove:    removeCardFromDeck,
-                onMouseEnter: CAN_HOVER ? e => showHoverPreviewForDeckCard(dc, e) : undefined,
+                onMouseEnter: CAN_HOVER ? (e) => showHoverPreviewForDeckCard(dc, e) : undefined,
                 onMouseLeave: CAN_HOVER ? () => clearHoverPreview() : undefined,
-                onMouseMove:  CAN_HOVER ? e => setHoverPos({ x: e.clientX, y: e.clientY }) : undefined,
-                onContextMenu: CAN_HOVER ? e => openDeckCardContextMenu(dc, e) : undefined,
-                onPickVersion: (dc, options = {}) => setVersionPickCard({ ...dc, ...options }),
+                onMouseMove:  CAN_HOVER ? (e) => setHoverPos({ x: e.clientX, y: e.clientY }) : undefined,
+                onContextMenu: CAN_HOVER ? (e) => openDeckCardContextMenu(dc, e) : undefined,
+                onPickVersion: (card, options = {}) => setVersionPickCard({ ...card, ...options }),
                 onToggleFoil:  toggleFoil,
                 onSetCommander: setCardAsCommander,
                 onMoveBoard: moveCardToBoard,
@@ -5260,7 +5327,8 @@ export default function DeckBuilderPage() {
                 priceLabel: getDeckCardPriceLabel(dc),
                 onOpenDetail: openDeckCardDetail,
                 legalityWarnings: deckCardLegalityWarnings.get(dc.id) || [],
-                }
+                builderSfMap,
+                };
               }
 
               const renderCard = (dc, stackContext = null) => {
@@ -5286,7 +5354,7 @@ export default function DeckBuilderPage() {
                         />
                       </div>
                       <div className={styles.visualCardControls}>
-                        <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} onMoveBoard={moveCardToBoard} />
+                        <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} onMoveBoard={moveCardToBoard} builderSfMap={builderSfMap} />
                         <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, -1) }}>-</button>
                         <span className={styles.visualCardCount}>{dc.qty}</span>
                         <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, +1) }}>+</button>
@@ -5348,8 +5416,8 @@ export default function DeckBuilderPage() {
                             {...getCardOwnershipProps(dc)}
                           />
                         </div>
-                        <div className={styles.stackControlsRow}>
-                          <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} onMoveBoard={moveCardToBoard} />
+                         <div className={styles.stackControlsRow}>
+                           <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} onMoveBoard={moveCardToBoard} builderSfMap={builderSfMap} />
                           <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, -1) }}>-</button>
                           <span className={styles.stackControlCount}>{dc.qty}</span>
                           <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, +1) }}>+</button>
@@ -5380,7 +5448,7 @@ export default function DeckBuilderPage() {
                         {...getCardOwnershipProps(dc)}
                       />
                     )}
-                    {compactVisibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} onMoveBoard={moveCardToBoard} />}
+                    {compactVisibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} onMoveBoard={moveCardToBoard} builderSfMap={builderSfMap} />}
                     {compactVisibleColumns.qty && (
                       <div className={styles.qtyControls}>
                         <button className={styles.qtyBtn} onClick={() => changeQty(dc.id, -1)}>-</button>
@@ -5786,6 +5854,7 @@ export default function DeckBuilderPage() {
             onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })}
             onMoveBoard={moveCardToBoard}
             close={closeContextMenu}
+            builderSfMap={builderSfMap}
           />
         </div>,
         document.body
