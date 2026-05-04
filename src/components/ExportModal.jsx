@@ -17,6 +17,7 @@ export default function ExportModal({
   title = 'Export',
   folderType = 'collection',
   loading = false,
+  includeFoilIndicator = true,
   onClose,
 }) {
   const [fmt, setFmt]         = useState('text')   // 'text' | 'csv'
@@ -28,7 +29,10 @@ export default function ExportModal({
   const noun         = isWishlist ? 'wants' : 'cards'
   const safeTitle    = title.replace(/[^a-z0-9]/gi, '_').toLowerCase()
 
-  const textContent = useMemo(() => cardsToText(cards, sfMap), [cards, sfMap])
+  const textContent = useMemo(
+    () => cardsToText(cards, sfMap, { includeFoilIndicator }),
+    [cards, sfMap, includeFoilIndicator]
+  )
   const csvContent  = useMemo(
     () => cardsToCSV(cards, sfMap, isCollection ? '' : title, folderType),
     [cards, sfMap, title, folderType, isCollection]

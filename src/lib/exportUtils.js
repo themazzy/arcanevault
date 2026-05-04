@@ -50,12 +50,12 @@ export function cardsToCSV(cards, sfMap = {}, folderName = '', folderType = '') 
 /**
  * Plain-text decklist  ( "4 Lightning Bolt" / "1 Sol Ring *F*" )
  */
-export function cardsToText(cards, sfMap = {}) {
+export function cardsToText(cards, sfMap = {}, { includeFoilIndicator = true } = {}) {
   return cards.map(c => {
     const sf   = sfMap[`${c.set_code}-${c.collector_number}`] || {}
     const name = c.name || sf.name || 'Unknown'
     const qty  = c._folder_qty ?? c.qty ?? 1
-    return `${qty} ${name}${c.foil ? ' *F*' : ''}`
+    return `${qty} ${name}${includeFoilIndicator && c.foil ? ' *F*' : ''}`
   }).join('\n')
 }
 
