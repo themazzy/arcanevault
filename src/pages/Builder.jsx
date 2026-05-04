@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate, Link, useLocation } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
@@ -47,30 +47,95 @@ function clampTags(tags) {
 const _artCache = {}
 
 function DeckArtBackground({ meta, deckType }) {
-  const [art, setArt] = useState(meta.coverArtUri || null)
+  // Build list of commander Scryfall IDs from meta.commanders array (new),
+  // falling back to legacy commanderScryfallId + partnerScryfallId fields.
+  const commanderIds = useMemo(() => {
+    if (meta.commanders?.length) return meta.commanders.map(c => c.scryfall_id).filter(Boolean)
+    const ids = []
+    if (meta.commanderScryfallId) ids.push(meta.commanderScryfallId)
+    if (meta.partnerScryfallId) ids.push(meta.partnerScryfallId)
+    return ids
+  }, [meta.commanders, meta.commanderScryfallId, meta.partnerScryfallId])
+
+  const [arts, setArts] = useState(() => {
+    if (meta.coverArtUri && commanderIds.length <= 1) return [meta.coverArtUri]
+    return []
+  })
   const isMounted = useRef(true)
+
   useEffect(() => {
     isMounted.current = true
-    if (art) return
-    const sfId = meta.commanderScryfallId
-    if (!sfId) return
-    if (_artCache[sfId] !== undefined) { setArt(_artCache[sfId]); return }
-    _artCache[sfId] = null
-    fetch(`https://api.scryfall.com/cards/${sfId}?format=json`)
-      .then(r => r.ok ? r.json() : null)
-      .then(d => {
-        const url = d?.image_uris?.art_crop || d?.card_faces?.[0]?.image_uris?.art_crop || null
-        _artCache[sfId] = url
-        if (isMounted.current && url) setArt(url)
-      })
-      .catch(() => {})
-    return () => { isMounted.current = false }
-  }, [meta.commanderScryfallId, art])
+    if (!commanderIds.length) {
+      setArts(meta.coverArtUri ? [meta.coverArtUri] : [])
+      return
+    }
+    // If single commander with cached/prop art, use it directly
+    if (commanderIds.length === 1) {
+      const art = meta.coverArtUri || _artCache[commanderIds[0]] || null
+      if (art) { setArts([art]); return }
+    }
+    // Check cache for all IDs
+    const cached = commanderIds.map(id => _artCache[id] ?? undefined)
+    if (cached.every(v => v !== undefined)) {
+      setArts(cached.filter(Boolean))
+      return
+    }
+    // Fetch missing
+    let alive = true
+    commanderIds.forEach((sfId, i) => {
+      if (_artCache[sfId] !== undefined) {
+        if (alive && isMounted.current) {
+          setArts(prev => {
+            const next = [...prev]
+            next[i] = _artCache[sfId]
+            return next
+          })
+        }
+        return
+      }
+      _artCache[sfId] = null
+      fetch(`https://api.scryfall.com/cards/${sfId}?format=json`)
+        .then(r => r.ok ? r.json() : null)
+        .then(d => {
+          const url = d?.image_uris?.art_crop || d?.card_faces?.[0]?.image_uris?.art_crop || null
+          _artCache[sfId] = url
+          if (alive && isMounted.current && url) {
+            setArts(prev => { const next = [...prev]; next[i] = url; return next })
+          }
+        })
+        .catch(() => {})
+    })
+    return () => { alive = false; isMounted.current = false }
+  }, [commanderIds, meta.coverArtUri])
+
+  const visibleArts = arts.filter(Boolean)
+  const sliceCount = visibleArts.length
+
+  if (sliceCount <= 1) {
+    return (
+      <div
+        className={styles.deckArtPanel}
+        style={visibleArts[0] ? { backgroundImage: `url(${visibleArts[0]})` } : undefined}
+      />
+    )
+  }
+
+  // Vertical split: render one div per commander art slice
+  const isPair = sliceCount === 2
   return (
-    <div
-      className={styles.deckArtPanel}
-      style={art ? { backgroundImage: `url(${art})` } : undefined}
-    />
+    <div className={`${styles.deckArtPanel}${isPair ? ' ' + styles.deckArtPanelPair : ''}`}>
+      {visibleArts.map((url, i) => (
+        <div
+          key={i}
+          className={styles.deckArtSlice}
+          style={{
+            top: isPair ? (i === 0 ? '0%' : '42%') : `${(i / sliceCount) * 100}%`,
+            height: isPair ? '58%' : `${100 / sliceCount}%`,
+            backgroundImage: `url(${url})`,
+          }}
+        />
+      ))}
+    </div>
   )
 }
 
@@ -126,7 +191,13 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
 
         <div className={styles.cardBottom}>
           <div className={styles.cardName}>{deck.name}</div>
-          {meta.commanderName && (
+          {meta.commanders?.length > 0 ? (
+            <div className={styles.commanderName}>
+              {meta.commanders.map((c, i) => (
+                <span key={i}>{i > 0 ? ' + ' : ''}{c.name}</span>
+              ))}
+            </div>
+          ) : meta.commanderName && (
             <div className={styles.commanderName}>{meta.commanderName}</div>
           )}
           {colors.length > 0 && (
@@ -180,7 +251,9 @@ function CommunityDeckTile({ deck, meta, fmt, isOwn, creatorNick, navigate }) {
   const colors = rawColors && rawColors.length > 0
     ? COMMUNITY_COLOR_ORDER.filter(c => rawColors.includes(c))
     : (meta.commanderColorIdentity || [])
-  const commander   = meta.commanderName || null
+  const commanderNames = meta.commanders?.length
+    ? meta.commanders.map(c => c.name).join(' + ')
+    : (meta.commanderName || null)
   const tags        = clampTags(meta.tags)
   const art         = meta.coverArtUri || null
   const description = (meta.deckDescription || '').trim()
@@ -205,7 +278,7 @@ function CommunityDeckTile({ deck, meta, fmt, isOwn, creatorNick, navigate }) {
         </div>
         <div className={styles.cardBottom}>
           <div className={styles.cardName}>{deck.name}</div>
-          {commander && <div className={styles.commanderName}>{commander}</div>}
+          {commanderNames && <div className={styles.commanderName}>{commanderNames}</div>}
           {colors.length > 0 && (
             <div className={styles.colorPips}>
               {colors.map(c => (

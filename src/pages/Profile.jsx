@@ -535,6 +535,12 @@ function FeaturedDeckInner({ deck, standoutCards, deckStats, editMode, decks, on
   const tags = Array.isArray(deck.tags) ? deck.tags.filter(Boolean) : []
   const description = (deck.deck_description || '').trim()
   const [showPicker, setShowPicker] = useState(false)
+  // Build commander display name from commanders array (new) or legacy commander_name
+  const commanderDisplayName = useMemo(() => {
+    const commanders = Array.isArray(deck.commanders) ? deck.commanders : null
+    if (commanders?.length > 0) return commanders.map(c => c.name).join(' + ')
+    return deck.commander_name || null
+  }, [deck.commanders, deck.commander_name])
 
   return (
     <div className={styles.featuredDeckWrap}>
@@ -546,8 +552,8 @@ function FeaturedDeckInner({ deck, standoutCards, deckStats, editMode, decks, on
           {art && <div className={styles.featuredCommanderArt} style={{ backgroundImage: `url(${art})` }} />}
           <div className={styles.featuredDeckInfo}>
             <Link to={`/d/${deck.id}`} className={styles.featuredDeckName}>{deck.name}</Link>
-            {deck.commander_name && (
-              <div className={styles.featuredDeckCommander}>{deck.commander_name}</div>
+            {commanderDisplayName && (
+              <div className={styles.featuredDeckCommander}>{commanderDisplayName}</div>
             )}
             <div className={styles.featuredDeckMeta}>
               {deck.format && FORMAT_LABEL[deck.format] && (
@@ -680,6 +686,12 @@ function ProfileDeckTile({ deck }) {
   const colors = Array.isArray(deck.color_identity) ? deck.color_identity : []
   const fmtLabel     = FORMAT_LABEL[deck.format] || null
   const isCollection = deck.type === 'deck'
+  // Commander display: prefer commanders array, fall back to commander_name
+  const commanderDisplay = useMemo(() => {
+    const commanders = Array.isArray(deck.commanders) ? deck.commanders : null
+    if (commanders?.length > 0) return commanders.map(c => c.name).join(' + ')
+    return deck.commander_name || null
+  }, [deck.commanders, deck.commander_name])
   return (
     <Link to={`/d/${deck.id}`} className={styles.deckTile}>
       {art && <div className={styles.deckTileArt} style={{ backgroundImage: `url(${art})` }} />}
@@ -695,7 +707,7 @@ function ProfileDeckTile({ deck }) {
         </div>
         <div className={styles.deckTileBottom}>
           <div className={styles.deckTileName}>{deck.name}</div>
-          {deck.commander_name && <div className={styles.deckTileCommander}>{deck.commander_name}</div>}
+          {commanderDisplay && <div className={styles.deckTileCommander}>{commanderDisplay}</div>}
           {colors.length > 0 && (
             <div className={styles.deckTilePips}>
               {colors.map(c => <img key={c} className={styles.deckTilePip} src={MANA_SYMBOL_URL(c)} alt={c} />)}

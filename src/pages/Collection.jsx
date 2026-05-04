@@ -789,7 +789,8 @@ export default function CollectionPage() {
     const missing = cards.filter(c => {
       const key = `${c.set_code}-${c.collector_number}`
       const entry = cacheMap[key]
-      return !entry || !entry.image_uris
+      const hasImages = !!entry?.image_uris || entry?.card_faces?.some(face => face?.image_uris)
+      return !entry || !hasImages
     })
     if (!missing.length) {
       toast.success('All cards already have metadata.')
@@ -799,15 +800,14 @@ export default function CollectionPage() {
     setRefreshProgress(0)
     setRefreshProgLabel(`Fetching missing data for ${missing.length} card${missing.length !== 1 ? 's' : ''}…`)
     try {
-      const enriched = await enrichCards(missing, (pct, lbl) => {
+      await enrichCards(missing, (pct, lbl) => {
         setRefreshProgress(pct)
         setRefreshProgLabel(lbl || `Fetching missing data… (${Math.round(pct)}%)`)
       }, ttlMsRef.current)
-      if (enriched) {
-        setSfMap({ ...enriched })
-        const fetched = missing.length
-        toast.success(`Refreshed ${fetched} card${fetched !== 1 ? 's' : ''}.`)
-      }
+      const map = await loadCardMapWithSharedPrices(cards, { cacheTtlMs: ttlMsRef.current })
+      setSfMap(map)
+      const fetched = missing.length
+      toast.success(`Refreshed ${fetched} card${fetched !== 1 ? 's' : ''}.`)
     } catch (err) {
       setError(`Refresh failed: ${err.message}`)
     }
@@ -1605,6 +1605,7 @@ export default function CollectionPage() {
             onClick={handleRefresh}
             disabled={!isOnline || refreshing || !cards.length}
             title={!isOnline ? 'Reconnect to refresh' : refreshing ? 'Refreshing…' : 'Refresh missing card data'}
+            aria-label="Refresh missing card data"
           >⟳</button>
           <Button
             variant="purple"

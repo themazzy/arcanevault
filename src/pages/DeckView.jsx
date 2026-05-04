@@ -409,12 +409,18 @@ export default function DeckViewPage() {
           {format && <span className={styles.metaDot}>·</span>}
           <span>{totalCards} cards</span>
           {totalValueFmt && <><span className={styles.metaDot}>·</span><span className={styles.deckValue}>{totalValueFmt}</span></>}
-          {deckMeta.commanderName && (
-            <>
-              <span className={styles.metaDot}>·</span>
-              <span className={styles.commanderBadge}>⚔ {deckMeta.commanderName}</span>
-            </>
-          )}
+          {deckMeta.commanders?.length > 0 && (
+             <>
+               <span className={styles.metaDot}>·</span>
+               <span className={styles.commanderBadge}>⚔ {deckMeta.commanders.map(c => c.name).join(' + ')}</span>
+             </>
+           )}
+           {!deckMeta.commanders?.length && deckMeta.commanderName && (
+             <>
+               <span className={styles.metaDot}>·</span>
+               <span className={styles.commanderBadge}>⚔ {deckMeta.commanderName}</span>
+             </>
+           )}
         </div>
         {isViewer ? (
           <div className={styles.viewerBanner}>

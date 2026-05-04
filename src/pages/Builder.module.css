@@ -251,6 +251,23 @@
     var(--bg2) 100%
   );
   pointer-events: none;
+  z-index: 1;
+}
+.deckArtSlice {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background-size: cover;
+  background-position: center 22%;
+  background-repeat: no-repeat;
+}
+.deckArtPanelPair .deckArtSlice:first-child {
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 74%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 74%, transparent 100%);
+}
+.deckArtPanelPair .deckArtSlice:last-child {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 26%, #000 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, #000 26%, #000 100%);
 }
 :global([data-theme-mode="light"]) .deckArtPanel { filter: saturate(1.05); }
 
