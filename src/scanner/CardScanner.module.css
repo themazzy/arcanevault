@@ -74,6 +74,8 @@
   align-items: center;
   justify-content: center;
   padding: calc(24px + env(safe-area-inset-top, 0px)) 20px calc(24px + env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background:
     radial-gradient(circle at top, rgba(201,168,76,0.16), transparent 38%),
     linear-gradient(180deg, rgba(7,10,16,0.96) 0%, rgba(7,10,16,0.985) 100%);
@@ -82,16 +84,27 @@
 
 .startupCard {
   width: min(560px, 100%);
+  max-height: calc(100dvh - 48px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   gap: 18px;
   padding: 24px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border-radius: 24px;
   border: 1px solid var(--s-border2, rgba(255,255,255,0.14));
   background:
     linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02)),
     rgba(8,11,18,0.92);
   box-shadow: 0 24px 80px rgba(0,0,0,0.45);
+}
+
+.startupCard::-webkit-scrollbar {
+  width: 10px;
+}
+
+.startupCard::-webkit-scrollbar-track {
+  margin-block: 14px;
 }
 
 .startupEyebrow {
@@ -381,6 +394,59 @@
 
 /* Small portrait phones — tighten control menu */
 @media (max-height: 850px) and (max-width: 430px) {
+  .startupModal {
+    align-items: flex-start;
+    padding: calc(12px + env(safe-area-inset-top, 0px)) 12px calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+  .startupCard {
+    max-height: calc(100dvh - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    gap: 12px;
+    padding: 16px;
+    border-radius: 18px;
+  }
+  .startupTitle {
+    font-size: 1.45rem;
+    line-height: 1.1;
+  }
+  .startupIntro,
+  .startupPhaseBody,
+  .startupStepBody {
+    font-size: 0.86rem;
+    line-height: 1.42;
+  }
+  .startupProgressBlock {
+    gap: 8px;
+    padding: 12px;
+    border-radius: 14px;
+  }
+  .startupProgressHeader {
+    align-items: flex-start;
+  }
+  .startupProgressTitle,
+  .startupStepTitle {
+    font-size: 0.92rem;
+  }
+  .startupProgressMeta {
+    font-size: 0.78rem;
+  }
+  .startupChecklist {
+    gap: 9px;
+  }
+  .startupStep {
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 9px;
+  }
+  .startupStepDot {
+    width: 28px;
+    height: 28px;
+    font-size: 0.78rem;
+  }
+  .startupContinueBtn {
+    width: 100%;
+    min-width: 0;
+    padding: 12px 14px;
+    font-size: 0.82rem;
+  }
   .frameReticle,
   .frameCenterContent {
     width: 240px;
