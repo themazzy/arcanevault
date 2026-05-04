@@ -888,6 +888,7 @@
   background: rgba(201,168,76,0.12); border: 1px solid rgba(201,168,76,0.3);
   border-radius: 4px; padding: 6px var(--control-padding-x); color: var(--gold);
   font-family: var(--font-display); font-size: var(--control-font-size); letter-spacing: var(--control-letter-spacing);
+  line-height: 1;
   cursor: pointer; transition: all 0.15s; white-space: nowrap;
 }
 .searchBtn:hover:not(:disabled) {
