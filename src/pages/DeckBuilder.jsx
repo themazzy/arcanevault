@@ -6007,6 +6007,7 @@ export default function DeckBuilderPage() {
           sfMap={{}}
           title={deckName || 'Deck'}
           folderType="deck"
+          includeFoilIndicator={false}
           onClose={() => setShowExport(false)}
         />
       )}
