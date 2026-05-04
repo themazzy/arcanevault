@@ -9,9 +9,8 @@ import {
   parseDeckMeta, serializeDeckMeta, getCardImageUri,
   searchCards, searchCommanders, fetchCardsByNames, fetchCardsByScryfallIds, getDeckBuilderCardMeta,
   fetchEdhrecCommander, makeDebouncer,
-  importDeckFromUrl,
 } from '../lib/deckBuilderApi'
-import { normalizeImportedDeckCards, parseImportText, resolveImportEntries } from '../lib/importFlow'
+import { parseImportText, resolveImportEntries, summarizeImportRows } from '../lib/importFlow'
 import {
   getLocalCards, getDeckCards, putDeckCards, deleteDeckCardLocal, getMeta, setMeta,
   deleteDeckAllocationsByIds, replaceDeckAllocations, putDeckAllocations, putFolderCards, putCards,
@@ -474,34 +473,104 @@ function RecRow({ rec, imageUri, ownedQty, onAdd, onHoverEnter, onHoverLeave, on
 }
 
 // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+function getCommanderOracle(sf = null) {
+  return [
+    sf?.oracle_text || '',
+    ...(sf?.card_faces || []).map(f => f?.oracle_text || ''),
+  ].filter(Boolean).join('\n')
+}
+
+function normalizePartnerName(name = '') {
+  return String(name)
+    .toLowerCase()
+    .split('//')[0]
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/[^a-z0-9\s,'-]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function getCommanderProfile(dc, sf = null) {
+  const typeLine = String(sf?.type_line || dc?.type_line || '').toLowerCase()
+  const oracle = getCommanderOracle(sf)
+  const keywords = new Set((sf?.keywords || []).map(k => String(k).toLowerCase()))
+  const partnerWithMatch = oracle.match(/partner with ([^\n.(]+)/i)
+  const profile = {
+    canLead: false,
+    isLegendaryCreature: typeLine.includes('legendary') && typeLine.includes('creature'),
+    hasCanBeCommanderText: /\bcan be your commander\b/i.test(oracle),
+    hasPartner: keywords.has('partner') || /(^|\n)\s*partner(\s*\(|\.|\n|$)/i.test(oracle),
+    partnerWith: partnerWithMatch ? normalizePartnerName(partnerWithMatch[1]) : '',
+    hasFriendsForever: keywords.has('friends forever') || /(^|\n)\s*friends forever(\s*\(|\.|\n|$)/i.test(oracle),
+    hasChooseBackground: /\bchoose a background\b/i.test(oracle),
+    hasDoctorsCompanion: keywords.has("doctor's companion") || /\bdoctor's companion\b/i.test(oracle),
+    isBackground: typeLine.includes('enchantment') && typeLine.includes('background'),
+    isDoctor: typeLine.includes('time lord') && typeLine.includes('doctor'),
+  }
+
+  profile.canLead = profile.isLegendaryCreature
+    || profile.hasCanBeCommanderText
+    || profile.hasPartner
+    || !!profile.partnerWith
+    || profile.hasFriendsForever
+    || profile.hasChooseBackground
+    || profile.hasDoctorsCompanion
+    || profile.isBackground
+
+  return profile
+}
+
 function canBeCommander(dc, sf = null) {
-  if (!dc.type_line) return true // unknown type — allow the option
-  const tl = dc.type_line.toLowerCase()
-  // Legendary creatures (including enchantment creatures like Calix)
-  if (tl.includes('legendary') && tl.includes('creature')) return true
-  // Legendary Planeswalkers that can be commander
-  if (tl.includes('legendary') && tl.includes('planeswalker')) {
-    const oracle = ((sf?.oracle_text || '') + (sf?.card_faces || []).map(f => f.oracle_text || '').join('\n')).toLowerCase()
-    // Grist is a special case - counts as creature in command zone
-    if (sf?.name?.toLowerCase().includes('grist')) return true
-    if (oracle.includes('can be your commander') || oracle.includes('partner')) return true
+  if (!dc?.type_line) return true // unknown type — allow the option
+  return getCommanderProfile(dc, sf).canLead
+}
+
+function getNonCommanderDeckCoverArt(cards, sfMap = {}, priceSourceId) {
+  let best = null
+  for (const dc of cards || []) {
+    if (dc.is_commander || normalizeBoard(dc.board) !== 'main') continue
+    const sf = dc.set_code && dc.collector_number ? sfMap[`${dc.set_code}-${dc.collector_number}`] : null
+    const typeLine = String(sf?.type_line || dc.type_line || '').toLowerCase()
+    if (typeLine.includes('land')) continue
+    const art = sf?.image_uris?.art_crop
+      || sf?.card_faces?.[0]?.image_uris?.art_crop
+      || (dc.image_uri ? toArtCropImg(dc.image_uri) : null)
+    if (!art) continue
+    const price = getPrice(sf, dc.foil, { price_source: priceSourceId })
+    const score = price ?? -1
+    if (!best || score > best.score) best = { score, art }
   }
-  // Legendary Vehicles with power/toughness (must have p/t box)
-  if (tl.includes('legendary') && tl.includes('vehicle')) {
-    if (sf?.power != null && sf?.toughness != null) return true
+  return best?.art || null
+}
+
+function getCommanderPairIssue(cards, sfMap = {}) {
+  if (!cards?.length) return null
+  if (cards.length === 1) {
+    const [card] = cards
+    const sf = card?.set_code && card?.collector_number ? sfMap[`${card.set_code}-${card.collector_number}`] : null
+    const profile = getCommanderProfile(card, sf)
+    if (profile.isBackground && !profile.isLegendaryCreature && !profile.hasCanBeCommanderText) {
+      return `${card?.name || 'Background'} needs a commander with Choose a Background.`
+    }
+    return null
   }
-  // Legendary Spacecraft with power/toughness (Edge of Eternities+)
-  if (tl.includes('legendary') && tl.includes('spacecraft')) {
-    if (sf?.power != null && sf?.toughness != null) return true
-  }
-  // Background enchantments (can be commander with "Choose a Background")
-  if (tl.includes('enchantment') && tl.includes('background')) return true
-  // Partner / partner with (any card with partner ability)
-  const oracle = sf
-    ? ((sf.oracle_text || '') + (sf.card_faces || []).map(f => f.oracle_text || '').join('\n')).toLowerCase()
-    : ''
-  if (oracle.includes('partner')) return true
-  return false
+  if (cards.length > 2) return 'Commander format allows at most two commanders, and only when the pair is valid together.'
+
+  const [a, b] = cards
+  const sfA = a?.set_code && a?.collector_number ? sfMap[`${a.set_code}-${a.collector_number}`] : null
+  const sfB = b?.set_code && b?.collector_number ? sfMap[`${b.set_code}-${b.collector_number}`] : null
+  const pa = getCommanderProfile(a, sfA)
+  const pb = getCommanderProfile(b, sfB)
+  const nameA = normalizePartnerName(a?.name)
+  const nameB = normalizePartnerName(b?.name)
+
+  if (pa.hasPartner && pb.hasPartner) return null
+  if (pa.hasFriendsForever && pb.hasFriendsForever) return null
+  if ((pa.hasChooseBackground && pb.isBackground) || (pb.hasChooseBackground && pa.isBackground)) return null
+  if ((pa.hasDoctorsCompanion && pb.isDoctor) || (pb.hasDoctorsCompanion && pa.isDoctor)) return null
+  if ((pa.partnerWith && pa.partnerWith === nameB) || (pb.partnerWith && pb.partnerWith === nameA)) return null
+
+  return `${a?.name || 'Commander'} and ${b?.name || 'the second commander'} are not a valid commander pair.`
 }
 
 // â”€â”€ Edit dropdown (âš™) shared by list + compact views â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -2243,9 +2312,10 @@ export default function DeckBuilderPage() {
   // Import
   const [showImport,    setShowImport]    = useState(false)
   const [showExport,    setShowExport]    = useState(false)
-  const [importUrl,     setImportUrl]     = useState('')
   const [importText,    setImportText]    = useState('')
-  const [importTab,     setImportTab]     = useState('url') // 'url' | 'text' | 'file'
+  const [importTab,     setImportTab]     = useState('text') // 'text' | 'file'
+  const [importStep,    setImportStep]    = useState('input') // 'input' | 'review'
+  const [importRows,    setImportRows]    = useState([])
   const [importing,     setImporting]     = useState(false)
   const [importError,   setImportError]   = useState(null)
   const [importDone,    setImportDone]    = useState(null)  // summary string
@@ -2647,7 +2717,14 @@ export default function DeckBuilderPage() {
     if (mainQty > deckSize) pushWarning({ key: 'size-over', level: 'error', summary: `Mainboard ${mainQty}/${deckSize}`, detail: `Mainboard is over size by ${mainQty - deckSize} card${mainQty - deckSize === 1 ? '' : 's'}.` })
     if (mainQty < deckSize) pushWarning({ key: 'size-under', level: 'error', summary: `Mainboard ${mainQty}/${deckSize}`, detail: `Mainboard is short by ${deckSize - mainQty} card${deckSize - mainQty === 1 ? '' : 's'}.` })
     if (isEDH && commanderCards.length === 0) pushWarning({ key: 'no-commander', level: 'error', summary: 'Commander missing', detail: 'Commander format requires a commander before the deck is legal.' })
-    if (isEDH && commanderCards.length > 2) pushWarning({ key: 'too-many-commanders', level: 'error', summary: `${commanderCards.length} commanders marked`, detail: 'Commander format allows at most two commanders, and only when the pair is valid together.' })
+    if (isEDH) {
+      const pairIssue = getCommanderPairIssue(commanderCards, builderSfMap)
+      if (pairIssue) pushWarning({ key: 'commander-pair', level: 'error', summary: commanderCards.length > 2 ? `${commanderCards.length} commanders marked` : 'Invalid commander pair', detail: pairIssue })
+      for (const dc of commanderCards) {
+        const sf = dc.set_code && dc.collector_number ? builderSfMap[`${dc.set_code}-${dc.collector_number}`] : null
+        if (!canBeCommander(dc, sf)) pushWarning({ key: `commander:${dc.id}`, level: 'error', summary: `${dc.name}: invalid commander`, detail: `${dc.name} cannot be your commander.` })
+      }
+    }
     if (isEDH && sideQty > 0) pushWarning({ key: 'sideboard-edh', level: 'info', summary: `Sideboard ${sideQty}`, detail: `Sideboard has ${sideQty} card${sideQty === 1 ? '' : 's'}. Collection sync includes it, but Commander stats and combo checks ignore it.` })
     if (maybeQty > 0) pushWarning({ key: 'maybeboard', level: 'info', summary: `Maybeboard ${maybeQty}`, detail: `Maybeboard has ${maybeQty} card${maybeQty === 1 ? '' : 's'} and is excluded from stats, combos, and collection sync.` })
 
@@ -2775,7 +2852,7 @@ export default function DeckBuilderPage() {
 
   const renderDeckActionsMenu = ({ close }) => (
     <div className={uiStyles.responsiveMenuList}>
-      <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowImport(true); setImportDone(null); setImportError(null); close() }}>
+      <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowImport(true); setImportStep('input'); setImportRows([]); setImportDone(null); setImportError(null); close() }}>
         <span>Import</span>
       </button>
       <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowExport(true); close() }}>
@@ -2943,6 +3020,11 @@ export default function DeckBuilderPage() {
     if (!FORMATS.find(f => f.id === fmtId)?.isEDH) {
       delete newMeta.commanderName
       delete newMeta.commanderScryfallId
+      delete newMeta.commanderColorIdentity
+      delete newMeta.coverArtUri
+      delete newMeta.partnerName
+      delete newMeta.partnerScryfallId
+      delete newMeta.commanders
     }
     setDeckMeta(newMeta)
     await saveMeta(newMeta)
@@ -2964,6 +3046,15 @@ export default function DeckBuilderPage() {
       await sb.from('folders').update({ description: serializeDeckMeta(nextMeta) }).eq('id', deckId)
     }, 600)
   }
+
+  useEffect(() => {
+    if (!deckId || !deck || isCollectionDeck || isEDH) return
+    const coverArtUri = getNonCommanderDeckCoverArt(mainDeckCards, builderSfMap, price_source)
+    if (!coverArtUri || coverArtUri === deckMeta.coverArtUri) return
+    const nextMeta = { ...deckMeta, coverArtUri }
+    setDeckMeta(nextMeta)
+    saveMeta(nextMeta)
+  }, [builderSfMap, deck, deckId, deckMeta, isCollectionDeck, isEDH, mainDeckCards, price_source])
 
   function saveDescription(val) {
     const newMeta = { ...deckMeta, deckDescription: val }
@@ -3299,21 +3390,43 @@ export default function DeckBuilderPage() {
       await unsetCommander(dc.id)
       return
     }
-    const alreadyHasCmd = deckCardsRef.current.some(c => c.is_commander)
+    const sf = dc.set_code && dc.collector_number ? builderSfMap[`${dc.set_code}-${dc.collector_number}`] : null
+    if (!canBeCommander(dc, sf)) {
+      console.warn(`[DeckBuilder] refused invalid commander: ${dc.name}`)
+      return
+    }
+    const nextCommanderCards = deckCardsRef.current
+      .map(c => c.id === dc.id ? { ...dc, is_commander: true, board: 'main' } : c)
+      .filter(c => c.is_commander)
+    if (nextCommanderCards.length > 2) {
+      console.warn('[DeckBuilder] refused more than two commanders')
+      return
+    }
     const updated = { ...dc, is_commander: true, board: 'main' }
     setDeckCards(prev => prev.map(c => c.id === dc.id ? updated : c))
     putDeckCards([updated]).catch(() => {})
     await sb.from('deck_cards').update({ is_commander: true, board: 'main', updated_at: new Date().toISOString() }).eq('id', dc.id)
-    // Update deck meta
-    const newMeta = alreadyHasCmd
-      ? { ...deckMeta, partnerName: dc.name, partnerScryfallId: dc.scryfall_id }
-      : {
-          ...deckMeta,
-          commanderName: dc.name,
-          commanderScryfallId: dc.scryfall_id,
-          coverArtUri: dc.image_uri ? toArtCropImg(dc.image_uri) : deckMeta.coverArtUri,
-          commanderColorIdentity: dc.color_identity ?? [],
-        }
+    // Build commanders array from all current commander cards + the newly set one
+    const allCmdCards = deckCardsRef.current
+      .map(c => c.id === dc.id ? updated : c)
+      .filter(c => c.is_commander)
+    const commanders = allCmdCards.map(c => ({
+      name: c.name,
+      scryfall_id: c.scryfall_id,
+      color_identity: c.color_identity ?? [],
+      image_uri: c.image_uri || null,
+    }))
+    const newMeta = {
+      ...deckMeta,
+      commanders,
+      // Keep legacy fields for backward compat (primary commander)
+      commanderName: commanders[0]?.name || null,
+      commanderScryfallId: commanders[0]?.scryfall_id || null,
+      commanderColorIdentity: commanders[0]?.color_identity ?? [],
+      coverArtUri: commanders[0]?.image_uri ? toArtCropImg(commanders[0].image_uri) : (deckMeta.coverArtUri || null),
+    }
+    delete newMeta.partnerName
+    delete newMeta.partnerScryfallId
     setDeckMeta(newMeta)
     // Save meta immediately (not debounced) — navigating away quickly would lose the commander name otherwise
     clearTimeout(saveMetaTimer.current)
@@ -3324,6 +3437,33 @@ export default function DeckBuilderPage() {
   async function unsetCommander(deckCardId) {
     setDeckCards(prev => prev.map(dc => dc.id === deckCardId ? { ...dc, is_commander: false } : dc))
     await sb.from('deck_cards').update({ is_commander: false }).eq('id', deckCardId)
+    // Rebuild commanders array from remaining commander cards
+    const remaining = deckCardsRef.current.filter(c => c.id !== deckCardId && c.is_commander)
+    const nextMeta = { ...deckMeta }
+    if (remaining.length) {
+      nextMeta.commanders = remaining.map(c => ({
+        name: c.name,
+        scryfall_id: c.scryfall_id,
+        color_identity: c.color_identity ?? [],
+        image_uri: c.image_uri || null,
+      }))
+      const primary = remaining[0]
+      nextMeta.commanderName = primary.name
+      nextMeta.commanderScryfallId = primary.scryfall_id || null
+      nextMeta.commanderColorIdentity = primary.color_identity ?? []
+      nextMeta.coverArtUri = primary.image_uri ? toArtCropImg(primary.image_uri) : (deckMeta.coverArtUri || null)
+    } else {
+      delete nextMeta.commanders
+      delete nextMeta.commanderName
+      delete nextMeta.commanderScryfallId
+      delete nextMeta.commanderColorIdentity
+      delete nextMeta.coverArtUri
+    }
+    delete nextMeta.partnerName
+    delete nextMeta.partnerScryfallId
+    setDeckMeta(nextMeta)
+    clearTimeout(saveMetaTimer.current)
+    await sb.from('folders').update({ description: serializeDeckMeta(withPersistentMetaFields(nextMeta)) }).eq('id', deckId)
   }
 
   // â”€â”€ EDHRec recommendations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -3401,7 +3541,30 @@ export default function DeckBuilderPage() {
 
   // â”€â”€ Convert to collection deck â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // â”€â”€ Deck import â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  async function handleImport() {
+  async function prepareImportReview() {
+    if (importingRef.current) return
+    importingRef.current = true
+    setImportError(null)
+    setImportDone(null)
+    setImportRows([])
+    setImporting(true)
+
+    try {
+      const parsed = parseImportText(importText).entries
+
+      if (!parsed.length) throw new Error('No cards found in the import.')
+
+      const resolvedRows = await resolveImportEntries(parsed)
+      setImportRows(resolvedRows)
+      setImportStep('review')
+    } catch (err) {
+      setImportError(err.message)
+    }
+    setImporting(false)
+    importingRef.current = false
+  }
+
+  async function confirmImportReview() {
     if (importingRef.current) return
     importingRef.current = true
     setImportError(null)
@@ -3409,20 +3572,7 @@ export default function DeckBuilderPage() {
     setImporting(true)
 
     try {
-      let parsed = []
-      let importedName = null
-
-      if (importTab === 'url') {
-        const result = await importDeckFromUrl(importUrl)
-        parsed = normalizeImportedDeckCards(result.cards)
-        importedName = result.name
-      } else {
-        parsed = parseImportText(importText).entries
-      }
-
-      if (!parsed.length) throw new Error('No cards found in the import.')
-
-      const resolvedRows = await resolveImportEntries(parsed)
+      const resolvedRows = importRows
       const matchedRows = resolvedRows.filter(row => row.status === 'matched' && row.sfCard)
       const missedRows = resolvedRows.filter(row => row.status !== 'matched')
       if (!matchedRows.length) throw new Error('No cards could be matched in Scryfall.')
@@ -3462,17 +3612,69 @@ export default function DeckBuilderPage() {
 
       const hydratedRows = await requireCardPrintIds(newRows, 'Imported deck card')
 
-      // Save to Supabase
-      await sb.from('deck_cards').insert(hydratedRows)
-      putDeckCards(hydratedRows).catch(() => {})
+      const makeDeckCardMergeKey = row => [
+        row.card_print_id,
+        row.foil ? '1' : '0',
+        normalizeBoard(row.board),
+      ].join('|')
 
-      // Update deck name if blank and we have one from import
-      if (importedName && (!deckName || deckName === 'New Deck')) {
-        setDeckName(importedName)
-        await sb.from('folders').update({ name: importedName }).eq('id', deckId)
+      const existingByKey = new Map(
+        deckCardsRef.current
+          .filter(row => row.card_print_id)
+          .map(row => [makeDeckCardMergeKey(row), row])
+      )
+      const updatesById = new Map()
+      const insertsByKey = new Map()
+
+      for (const row of hydratedRows) {
+        const key = makeDeckCardMergeKey(row)
+        const existing = existingByKey.get(key)
+        if (existing) {
+          updatesById.set(existing.id, {
+            ...existing,
+            qty: (existing.qty || 0) + (row.qty || 0),
+            is_commander: !!existing.is_commander || !!row.is_commander,
+            updated_at: now,
+          })
+          continue
+        }
+
+        const pending = insertsByKey.get(key)
+        if (pending) {
+          insertsByKey.set(key, {
+            ...pending,
+            qty: (pending.qty || 0) + (row.qty || 0),
+            is_commander: !!pending.is_commander || !!row.is_commander,
+          })
+        } else {
+          insertsByKey.set(key, row)
+        }
       }
 
-      setDeckCards(prev => [...prev, ...hydratedRows])
+      const updateRows = [...updatesById.values()]
+      const insertRows = [...insertsByKey.values()]
+
+      if (updateRows.length) {
+        await Promise.all(updateRows.map(row =>
+          sb.from('deck_cards')
+            .update({ qty: row.qty, is_commander: row.is_commander, updated_at: row.updated_at })
+            .eq('id', row.id)
+        ))
+        putDeckCards(updateRows).catch(() => {})
+      }
+      if (insertRows.length) {
+        await sb.from('deck_cards')
+          .upsert(insertRows.map(toDeckCardRow), { onConflict: 'deck_id,card_print_id,foil,board' })
+        putDeckCards(insertRows).catch(() => {})
+      }
+
+      setDeckCards(prev => {
+        const updatedById = new Map(updateRows.map(row => [row.id, row]))
+        return [
+          ...prev.map(row => updatedById.get(row.id) || row),
+          ...insertRows,
+        ]
+      })
       const importedCopies = hydratedRows.reduce((sum, row) => sum + (row.qty || 0), 0)
       const boardSummary = BOARD_ORDER
         .map(board => {
@@ -3481,10 +3683,11 @@ export default function DeckBuilderPage() {
         })
         .filter(Boolean)
         .join(', ')
-      const skipped = missedRows.length ? `, skipped ${missedRows.length} unresolved row${missedRows.length !== 1 ? 's' : ''}` : ''
-      setImportDone(`Imported ${importedCopies} card${importedCopies !== 1 ? 's' : ''}${boardSummary ? ` (${boardSummary})` : ''}${skipped}`)
-      setImportUrl('')
+      const skipped = missedRows.length ? ` Skipped ${missedRows.length} unresolved row${missedRows.length !== 1 ? 's' : ''}.` : ''
+      setImportDone(`Imported ${importedCopies} card${importedCopies !== 1 ? 's' : ''}${boardSummary ? ` (${boardSummary})` : ''}.${skipped}`)
       setImportText('')
+      setImportRows([])
+      setImportStep('input')
     } catch (err) {
       setImportError(err.message)
     }
@@ -4148,31 +4351,35 @@ export default function DeckBuilderPage() {
   function buildCommanderMetaFromCards(cards, currentMeta) {
     const commanderRows = (cards || []).filter(card => card.is_commander)
     const nextMeta = { ...currentMeta }
-    const primary = commanderRows[0] || null
-    const partner = commanderRows[1] || null
 
-    if (!primary) {
+    if (!commanderRows.length) {
       delete nextMeta.commanderName
       delete nextMeta.commanderScryfallId
       delete nextMeta.commanderColorIdentity
       delete nextMeta.coverArtUri
       delete nextMeta.partnerName
       delete nextMeta.partnerScryfallId
+      delete nextMeta.commanders
       return nextMeta
     }
 
+    const commanders = commanderRows.map(c => ({
+      name: c.name,
+      scryfall_id: c.scryfall_id,
+      color_identity: c.color_identity ?? [],
+      image_uri: c.image_uri || null,
+    }))
+    nextMeta.commanders = commanders
+
+    // Legacy fields for backward compat
+    const primary = commanders[0]
     nextMeta.commanderName = primary.name
     nextMeta.commanderScryfallId = primary.scryfall_id || null
     nextMeta.commanderColorIdentity = primary.color_identity ?? []
     nextMeta.coverArtUri = primary.image_uri ? toArtCropImg(primary.image_uri) : (currentMeta?.coverArtUri || null)
 
-    if (partner) {
-      nextMeta.partnerName = partner.name
-      nextMeta.partnerScryfallId = partner.scryfall_id || null
-    } else {
-      delete nextMeta.partnerName
-      delete nextMeta.partnerScryfallId
-    }
+    delete nextMeta.partnerName
+    delete nextMeta.partnerScryfallId
 
     return nextMeta
   }
@@ -4459,6 +4666,9 @@ export default function DeckBuilderPage() {
     : syncStatus.dirty
       ? `${syncStatus.count || 0} Unsynced`
       : 'Synced'
+  const importSummary = importRows.length ? summarizeImportRows(importRows) : null
+  const importMatchedRows = importRows.filter(row => row.status === 'matched' && row.sfCard)
+  const importMissingRows = importRows.filter(row => row.status !== 'matched')
 
   return (
     <div className={`${styles.page}${showRight ? ' ' + styles.showRight : ''}${leftCollapsed ? ' ' + styles.leftCollapsed : ''}`}>
@@ -5870,34 +6080,17 @@ export default function DeckBuilderPage() {
               <button onClick={() => setShowImport(false)} style={{ background: 'none', border: 'none', color: 'var(--text-faint)', fontSize: '1.1rem', cursor: 'pointer' }}>x</button>
             </div>
 
+            {importStep === 'input' && <>
             {/* Tab switcher */}
             <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)' }}>
-              {[['url', 'URL'], ['text', 'Paste List'], ['file', 'Upload File']].map(([id, label]) => (
-                <button key={id} onClick={() => setImportTab(id)}
+              {[['text', 'Paste List'], ['file', 'Upload File']].map(([id, label]) => (
+                <button key={id} onClick={() => { setImportTab(id); setImportError(null); setImportDone(null) }}
                   style={{ flex: 1, padding: '7px 0', background: 'none', border: 'none', borderBottom: importTab === id ? '2px solid var(--gold)' : '2px solid transparent', color: importTab === id ? 'var(--gold)' : 'var(--text-dim)', fontSize: '0.83rem', cursor: 'pointer', marginBottom: -1 }}>
                   {label}
                 </button>
               ))}
             </div>
 
-            {importTab === 'url' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <p style={{ fontSize: '0.78rem', color: 'var(--text-faint)', margin: 0 }}>
-                  Paste a deck link from Archidekt, Moxfield, or MTGGoldfish.
-                </p>
-                <input
-                  autoFocus
-                  value={importUrl}
-                  onChange={e => setImportUrl(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleImport()}
-                  placeholder="https://archidekt.com/decks/12345/..."
-                  style={{ background: 'var(--s3)', border: '1px solid var(--border)', borderRadius: 4, padding: '8px 12px', color: 'var(--text)', fontSize: '0.88rem', outline: 'none' }}
-                />
-                <p style={{ fontSize: '0.72rem', color: 'var(--text-faint)', margin: 0 }}>
-                  Moxfield may require logging in. If it fails, use Paste List instead.
-                </p>
-              </div>
-            )}
             {importTab === 'text' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <p style={{ fontSize: '0.78rem', color: 'var(--text-faint)', margin: 0 }}>
@@ -5928,6 +6121,8 @@ export default function DeckBuilderPage() {
                     if (!file) return
                     const text = await file.text()
                     setImportText(text)
+                    setImportError(null)
+                    setImportDone(null)
                     e.target.value = ''
                   }}
                 />
@@ -5946,20 +6141,77 @@ export default function DeckBuilderPage() {
                 )}
               </div>
             )}
+            </>}
+
+            {importStep === 'review' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+                  {[
+                    ['Rows', importSummary?.totalRows || 0],
+                    ['Matched', importSummary?.matchedRows || 0],
+                    ['Copies', importSummary?.matchedCopies || 0],
+                    ['Unresolved', importSummary?.missingRows || 0],
+                  ].map(([label, value]) => (
+                    <div key={label} style={{ background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 10px' }}>
+                      <div style={{ color: label === 'Unresolved' && value ? '#e07070' : 'var(--gold)', fontFamily: 'var(--font-display)', fontSize: '1rem' }}>{value}</div>
+                      <div style={{ color: 'var(--text-faint)', fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ color: importMissingRows.length ? '#e0a852' : 'var(--green)', fontSize: '0.8rem' }}>
+                  {importMissingRows.length
+                    ? `${importMissingRows.length} row${importMissingRows.length === 1 ? '' : 's'} will be skipped unless corrected.`
+                    : 'All rows resolved and are ready to import.'}
+                </div>
+                <div style={{ maxHeight: '42vh', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6 }}>
+                  {importRows.map((row, index) => (
+                    <div key={`${row.name}-${index}`} style={{
+                      display: 'grid',
+                      gridTemplateColumns: '52px minmax(0, 1fr) 82px 70px 86px',
+                      gap: 8,
+                      alignItems: 'center',
+                      padding: '8px 10px',
+                      borderBottom: index === importRows.length - 1 ? 'none' : '1px solid var(--s-border)',
+                      background: row.status === 'matched' ? 'transparent' : 'rgba(196,96,96,0.08)',
+                      fontSize: '0.78rem',
+                    }}>
+                      <span style={{ color: row.status === 'matched' ? 'var(--green)' : '#e07070', fontFamily: 'var(--font-display)' }}>
+                        {row.status === 'matched' ? 'OK' : 'MISS'}
+                      </span>
+                      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
+                        {row.qty}x {row.resolvedName || row.name}
+                        {row.foil && <span style={{ color: 'var(--gold)', marginLeft: 6 }}>Foil</span>}
+                        {row.isCommander && <span style={{ color: 'var(--gold)', marginLeft: 6 }}>Commander</span>}
+                      </span>
+                      <span style={{ color: 'var(--text-faint)' }}>{row.board ? BOARD_LABELS[normalizeBoard(row.board)] : 'Mainboard'}</span>
+                      <span style={{ color: 'var(--text-faint)' }}>{row.resolvedSetCode ? `${String(row.resolvedSetCode).toUpperCase()} #${row.resolvedCollectorNumber || '-'}` : '-'}</span>
+                      <span style={{ color: row.exactPrinting ? 'var(--green)' : 'var(--text-faint)' }}>{row.status === 'matched' ? (row.exactPrinting ? 'Exact print' : 'Name match') : row.reason || 'Missing'}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {importError && <p style={{ color: '#e07070', fontSize: '0.82rem', margin: 0 }}>{importError}</p>}
             {importDone  && <p style={{ color: 'var(--green)', fontSize: '0.82rem', margin: 0 }}>OK {importDone}</p>}
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowImport(false)}
+              <button onClick={() => { setShowImport(false); setImportStep('input'); setImportRows([]) }}
                 style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-dim)', padding: '7px 14px', fontSize: '0.83rem', cursor: 'pointer' }}>
                 {importDone ? 'Close' : 'Cancel'}
               </button>
+              {!importDone && importStep === 'review' && (
+                <button onClick={() => { setImportStep('input'); setImportError(null); setImportDone(null) }}
+                  disabled={importing}
+                  style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-dim)', padding: '7px 14px', fontSize: '0.83rem', cursor: 'pointer', opacity: importing ? 0.6 : 1 }}>
+                  Back
+                </button>
+              )}
               {!importDone && (
-                <button onClick={handleImport}
-                  disabled={importing || (importTab === 'url' ? !importUrl.trim() : !importText.trim())}
+                <button onClick={importStep === 'review' ? confirmImportReview : prepareImportReview}
+                  disabled={importing || (importStep === 'review' ? importMatchedRows.length === 0 : !importText.trim())}
                   style={{ background: 'rgba(201,168,76,0.15)', border: '1px solid rgba(201,168,76,0.4)', borderRadius: 4, color: 'var(--gold)', padding: '7px 18px', fontSize: '0.83rem', cursor: 'pointer', opacity: importing ? 0.6 : 1 }}>
-                  {importing ? 'Importing...' : 'Import'}
+                  {importing ? (importStep === 'review' ? 'Importing...' : 'Resolving...') : (importStep === 'review' ? `Import ${importSummary?.matchedCopies || 0}` : 'Review Import')}
                 </button>
               )}
             </div>
