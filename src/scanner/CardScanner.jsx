@@ -66,7 +66,7 @@ const FAST_PRIMARY_VARIANTS = [PRIMARY_CROP_VARIANTS[0]]
 const STABILITY_SAMPLES   = 3
 const STABILITY_REQUIRED  = 2
 const SAMPLE_DELAY_MS     = 20
-const DEBUG               = true
+const DEBUG               = false
 const NATIVE_CAPTURE_SETTLE_MS = 120
 const NATIVE_CAPTURE_QUALITY = 80
 const PENDING_KEY         = 'arcanevault_scan_basket'
@@ -501,7 +501,10 @@ export default function CardScanner({ onMatch, onClose }) {
 
   // ── Scanner settings ───────────────────────────────────────────────────────
   const [autoScan, setAutoScan] = useState(() => {
-    try { return localStorage.getItem('arcanevault_scanner_autoscan') === '1' } catch { return false }
+    try {
+      const saved = localStorage.getItem('arcanevault_scanner_autoscan')
+      return saved == null ? true : saved === '1'
+    } catch { return true }
   })
   const [autoScanPaused, setAutoScanPaused] = useState(false)
   const [preferFoil, setPreferFoil] = useState(() => {
@@ -1539,10 +1542,9 @@ export default function CardScanner({ onMatch, onClose }) {
         </div>
 
         {showStartupModal && (
-          <div className={styles.startupModal} role="dialog" aria-modal="true" aria-labelledby="scanner-startup-title">
+          <div className={styles.startupModal} role="dialog" aria-modal="true" aria-label="Preparing the scanner">
             <div className={styles.startupCard}>
               <div className={styles.startupEyebrow}>Card Scanner Setup</div>
-              <h1 id="scanner-startup-title" className={styles.startupTitle}>Preparing the scanner</h1>
               <p className={styles.startupIntro}>
                 First load on a device can take a while because DeckLoom downloads and caches the card fingerprint database before scanning begins.
               </p>
