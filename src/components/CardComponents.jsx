@@ -2069,7 +2069,6 @@ export function FilterBar({
   ]
   const lookupSortOptions = sortOptions.filter(([v]) => !['pl_desc', 'pl_asc', 'qty', 'added'].includes(v))
   const visibleSortOptions = mode === 'lookup' ? lookupSortOptions : sortOptions
-  const currentSortLabel = visibleSortOptions.find(([v]) => v === sort)?.[1] || 'Sort'
   const Chevron = ({ open = false }) => (
     <svg
       className={`${styles.filterChevron}${open ? ` ${styles.filterChevronOpen}` : ''}`}
@@ -2089,7 +2088,7 @@ export function FilterBar({
 
   return (
     <div className={styles.filterWrap}>
-      <div className={styles.filterBar}>
+      <div className={`${styles.filterBar}${mode === 'lookup' ? ' ' + styles.filterBarLookup : ''}`}>
         <input className={styles.searchInput} placeholder="Search cards, sets…"
           name="card-search"
           value={search} onChange={e => setSearch(e.target.value)}
@@ -2119,7 +2118,7 @@ export function FilterBar({
             wrapClassName={styles.filterSortMobile}
             trigger={({ open, toggle }) => (
               <button className={styles.filterSortBtn} onClick={toggle}>
-                <span>{currentSortLabel}</span>
+                <span>Sort</span>
                 <Chevron open={open} />
               </button>
             )}
