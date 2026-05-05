@@ -288,9 +288,9 @@ function ManaCostInline({ cost, size = 14 }) {
 function OwnershipBadge({ ownedQty, ownedFoilAlt, ownedAlt, ownedInDeck, inCollDeck }) {
   if (inCollDeck) return <span className={`${styles.stateBadge} ${styles.stateBadgeAssigned}`} title="Assigned to this collection deck">In Deck</span>
   if (ownedQty > 0 && !ownedInDeck) return <span className={`${styles.stateBadge} ${styles.stateBadgeOwned}`} title="Owned and available">Owned</span>
+  if (ownedInDeck) return <span className={`${styles.stateBadge} ${styles.stateBadgeCommitted}`} title="Owned, but committed to another deck">In Other Deck</span>
   if (ownedFoilAlt > 0) return <span className={`${styles.stateBadge} ${styles.stateBadgeAlt}`} title="Owned as opposite foil variant">Wrong Foil</span>
   if (ownedAlt > 0) return <span className={`${styles.stateBadge} ${styles.stateBadgeAlt}`} title="A different version is owned">Other Print</span>
-  if (ownedInDeck) return <span className={`${styles.stateBadge} ${styles.stateBadgeCommitted}`} title="Owned, but committed to another deck">In Other Deck</span>
   return <span className={`${styles.stateBadge} ${styles.stateBadgeMissing}`} title="Not owned in collection">Not Owned</span>
 }
 
