@@ -1167,9 +1167,10 @@ function PrintingPickerModal({ cardName, options, selectedCardId, onSelect, onCl
 }
 
 // â”€â”€ Make Deck modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-function MakeDeckModal({ deckCards, userId, inOtherDeckSet, onConfirm, onClose }) {
+function MakeDeckModal({ deckCards, userId, onConfirm, onClose }) {
   const [loading, setLoading] = useState(true)
-  const [previewItems, setPreviewItems] = useState([])
+  const [ownedCardsForPlanning, setOwnedCardsForPlanning] = useState([])
+  const [deckAllocatedQtyByCardId, setDeckAllocatedQtyByCardId] = useState(new Map())
   const [skipBasicLands, setSkipBasicLands] = useState(true)
   const [exactVersionOnly, setExactVersionOnly] = useState(true)
   const [pullFromOtherDecks, setPullFromOtherDecks] = useState(false)
@@ -1185,22 +1186,40 @@ function MakeDeckModal({ deckCards, userId, inOtherDeckSet, onConfirm, onClose }
   useEffect(() => {
     async function load() {
       // Use IDB (same source as the green bar) so counts are consistent
-      const collCards = await getLocalCards(userId)
-      const items = planDeckAllocations(
-        deckCards,
-        collCards || []
-      )
-      const { data: wls } = await sb.from('folders').select('id, name, description').eq('user_id', userId).eq('type', 'list').order('name')
-      setPreviewItems(items)
+      const [collCards, allocations, { data: wls }] = await Promise.all([
+        getLocalCards(userId),
+        fetchDeckAllocationsForUser(userId),
+        sb.from('folders').select('id, name, description').eq('user_id', userId).eq('type', 'list').order('name'),
+      ])
+      const allocatedQtyByCardId = new Map()
+      for (const row of allocations || []) {
+        allocatedQtyByCardId.set(row.card_id, (allocatedQtyByCardId.get(row.card_id) || 0) + (row.qty || 0))
+      }
+      setOwnedCardsForPlanning(collCards || [])
+      setDeckAllocatedQtyByCardId(allocatedQtyByCardId)
       setWishlists((wls || []).filter(folder => !isGroupFolder(folder)))
       setLoading(false)
     }
     load()
   }, [])
 
+  const planningOwnedCards = useMemo(() => {
+    if (pullFromOtherDecks) return ownedCardsForPlanning
+    return ownedCardsForPlanning
+      .map(card => ({
+        ...card,
+        qty: Math.max(0, (card.qty || 0) - (deckAllocatedQtyByCardId.get(card.id) || 0)),
+      }))
+      .filter(card => (card.qty || 0) > 0)
+  }, [ownedCardsForPlanning, deckAllocatedQtyByCardId, pullFromOtherDecks])
+
+  const previewItems = useMemo(
+    () => planDeckAllocations(deckCards, planningOwnedCards),
+    [deckCards, planningOwnedCards]
+  )
+
   const filtered = previewItems
     .filter(i => !skipBasicLands || !BASIC_LANDS.has(i.dc.name))
-    .filter(i => pullFromOtherDecks || !inOtherDeckSet?.has(i.dc.scryfall_id))
     .map(i => {
       const chosen = buildChosenAllocations(i, exactVersionOnly, chosenOtherCardIds[i.dc.id])
       return {
@@ -6134,7 +6153,6 @@ export default function DeckBuilderPage() {
         <MakeDeckModal
           deckCards={deckCards}
           userId={user.id}
-          inOtherDeckSet={inOtherDeckSet}
           onConfirm={handleMakeDeck}
           onClose={() => setShowMakeDeck(false)}
         />
