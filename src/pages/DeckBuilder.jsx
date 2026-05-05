@@ -1170,6 +1170,7 @@ function PrintingPickerModal({ cardName, options, selectedCardId, onSelect, onCl
 function MakeDeckModal({ deckCards, userId, onConfirm, onClose }) {
   const [loading, setLoading] = useState(true)
   const [ownedCardsForPlanning, setOwnedCardsForPlanning] = useState([])
+  const [binderQtyByCardId, setBinderQtyByCardId] = useState(new Map())
   const [deckAllocatedQtyByCardId, setDeckAllocatedQtyByCardId] = useState(new Map())
   const [skipBasicLands, setSkipBasicLands] = useState(true)
   const [exactVersionOnly, setExactVersionOnly] = useState(true)
@@ -1186,16 +1187,34 @@ function MakeDeckModal({ deckCards, userId, onConfirm, onClose }) {
   useEffect(() => {
     async function load() {
       // Use IDB (same source as the green bar) so counts are consistent
-      const [collCards, allocations, { data: wls }] = await Promise.all([
+      const [collCards, { data: wls }] = await Promise.all([
         getLocalCards(userId),
-        fetchDeckAllocationsForUser(userId),
         sb.from('folders').select('id, name, description').eq('user_id', userId).eq('type', 'list').order('name'),
       ])
+      const cardIds = [...new Set((collCards || []).map(card => card.id).filter(Boolean))]
+      const folderRows = []
+      const allocationRows = []
+      for (let i = 0; i < cardIds.length; i += 500) {
+        const chunk = cardIds.slice(i, i + 500)
+        const [{ data: fc, error: fcErr }, { data: da, error: daErr }] = await Promise.all([
+          sb.from('folder_cards').select('card_id,qty').in('card_id', chunk),
+          sb.from('deck_allocations').select('card_id,qty').eq('user_id', userId).in('card_id', chunk),
+        ])
+        if (fcErr) throw fcErr
+        if (daErr) throw daErr
+        folderRows.push(...(fc || []))
+        allocationRows.push(...(da || []))
+      }
+      const folderQtyByCardId = new Map()
+      for (const row of folderRows) {
+        folderQtyByCardId.set(row.card_id, (folderQtyByCardId.get(row.card_id) || 0) + (row.qty || 0))
+      }
       const allocatedQtyByCardId = new Map()
-      for (const row of allocations || []) {
+      for (const row of allocationRows) {
         allocatedQtyByCardId.set(row.card_id, (allocatedQtyByCardId.get(row.card_id) || 0) + (row.qty || 0))
       }
       setOwnedCardsForPlanning(collCards || [])
+      setBinderQtyByCardId(folderQtyByCardId)
       setDeckAllocatedQtyByCardId(allocatedQtyByCardId)
       setWishlists((wls || []).filter(folder => !isGroupFolder(folder)))
       setLoading(false)
@@ -1204,14 +1223,18 @@ function MakeDeckModal({ deckCards, userId, onConfirm, onClose }) {
   }, [])
 
   const planningOwnedCards = useMemo(() => {
-    if (pullFromOtherDecks) return ownedCardsForPlanning
     return ownedCardsForPlanning
-      .map(card => ({
-        ...card,
-        qty: Math.max(0, (card.qty || 0) - (deckAllocatedQtyByCardId.get(card.id) || 0)),
-      }))
+      .map(card => {
+        const binderQty = binderQtyByCardId.get(card.id) || 0
+        const deckQty = deckAllocatedQtyByCardId.get(card.id) || 0
+        const placementQty = binderQty + (pullFromOtherDecks ? deckQty : 0)
+        return {
+          ...card,
+          qty: Math.min(card.qty || 0, placementQty),
+        }
+      })
       .filter(card => (card.qty || 0) > 0)
-  }, [ownedCardsForPlanning, deckAllocatedQtyByCardId, pullFromOtherDecks])
+  }, [ownedCardsForPlanning, binderQtyByCardId, deckAllocatedQtyByCardId, pullFromOtherDecks])
 
   const previewItems = useMemo(
     () => planDeckAllocations(deckCards, planningOwnedCards),
