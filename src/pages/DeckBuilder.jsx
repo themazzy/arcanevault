@@ -313,6 +313,25 @@ function allocationSetHas(set, cardLike) {
   return deckAllocationKeys(cardLike).some(key => set.has(key))
 }
 
+function normalizePrintKey(cardLike) {
+  const setCode = String(cardLike?.set_code || cardLike?.set || '').trim().toLowerCase()
+  const collectorNumber = String(cardLike?.collector_number || '').trim()
+  return setCode && collectorNumber ? `${setCode}-${collectorNumber}` : null
+}
+
+function printingSupportsFoil(sfCard) {
+  return (sfCard?.finishes || []).includes('foil') || sfCard?.foil === true
+}
+
+function printingSupportsNonfoil(sfCard) {
+  const finishes = sfCard?.finishes || []
+  return finishes.includes('nonfoil') || (!finishes.length && sfCard?.nonfoil !== false)
+}
+
+function defaultFoilForPrinting(sfCard) {
+  return !printingSupportsNonfoil(sfCard) && printingSupportsFoil(sfCard)
+}
+
 // â”€â”€ Floating card preview â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function FloatingPreview({ imageUris, x, y }) {
   if (!imageUris?.length) return null
@@ -3205,6 +3224,165 @@ export default function DeckBuilderPage() {
     searchDebounce.current(() => doSearch(q, 1))
   }
 
+  async function fetchPrintingsForDeckCardName(name) {
+    if (!name) return []
+    try {
+      const res = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(`!"${name}"`)}&unique=prints&order=released&dir=desc`)
+      if (!res.ok) return []
+      const data = await res.json()
+      return data.data || []
+    } catch {
+      return []
+    }
+  }
+
+  async function fetchOwnedPrintingCandidates(cardName) {
+    if (!cardName || !user?.id) return []
+
+    const { data: ownedRows, error: ownedErr } = await sb
+      .from('cards')
+      .select('id,name,set_code,collector_number,scryfall_id,foil,qty,card_print_id')
+      .eq('user_id', user.id)
+      .eq('name', cardName)
+
+    if (ownedErr) throw ownedErr
+    const owned = ownedRows || []
+    const cardIds = owned.map(row => row.id).filter(Boolean)
+    if (!cardIds.length) return []
+
+    const { data: binders, error: bindersErr } = await sb
+      .from('folders')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('type', 'binder')
+    if (bindersErr) throw bindersErr
+
+    const binderIds = (binders || []).map(row => row.id).filter(Boolean)
+    const [folderResult, allocationResult] = await Promise.all([
+      binderIds.length
+        ? sb.from('folder_cards').select('card_id,qty').in('folder_id', binderIds).in('card_id', cardIds)
+        : Promise.resolve({ data: [], error: null }),
+      sb.from('deck_allocations').select('card_id,qty').eq('user_id', user.id).in('card_id', cardIds),
+    ])
+
+    if (folderResult.error) throw folderResult.error
+    if (allocationResult.error) throw allocationResult.error
+
+    const binderQtyByCardId = new Map()
+    for (const row of folderResult.data || []) {
+      binderQtyByCardId.set(row.card_id, (binderQtyByCardId.get(row.card_id) || 0) + (row.qty || 0))
+    }
+
+    const deckQtyByCardId = new Map()
+    for (const row of allocationResult.data || []) {
+      deckQtyByCardId.set(row.card_id, (deckQtyByCardId.get(row.card_id) || 0) + (row.qty || 0))
+    }
+
+    return owned.map(row => ({
+      ...row,
+      binderQty: binderQtyByCardId.get(row.id) || 0,
+      deckQty: deckQtyByCardId.get(row.id) || 0,
+    }))
+  }
+
+  function pickOwnedPrintingCandidate(candidates, printRank, placement) {
+    return [...candidates]
+      .filter(row => (placement === 'binder' ? row.binderQty : row.deckQty) > 0)
+      .sort((a, b) => {
+        const rankA = printRank.get(a.scryfall_id) ?? printRank.get(normalizePrintKey(a)) ?? Number.MAX_SAFE_INTEGER
+        const rankB = printRank.get(b.scryfall_id) ?? printRank.get(normalizePrintKey(b)) ?? Number.MAX_SAFE_INTEGER
+        if (rankA !== rankB) return rankA - rankB
+        const qtyA = placement === 'binder' ? a.binderQty : a.deckQty
+        const qtyB = placement === 'binder' ? b.binderQty : b.deckQty
+        if (qtyA !== qtyB) return qtyB - qtyA
+        return Number(!!a.foil) - Number(!!b.foil)
+      })[0] || null
+  }
+
+  async function resolvePreferredDeckPrinting(cardName, fallbackSfCard) {
+    const printings = await fetchPrintingsForDeckCardName(cardName)
+    const printById = new Map(printings.map(print => [print.id, print]))
+    const printByKey = new Map(printings.map(print => [normalizePrintKey(print), print]).filter(([key]) => key))
+    const printRank = new Map()
+    printings.forEach((print, index) => {
+      printRank.set(print.id, index)
+      const key = normalizePrintKey(print)
+      if (key && !printRank.has(key)) printRank.set(key, index)
+    })
+
+    let ownedCandidates = []
+    try {
+      ownedCandidates = await fetchOwnedPrintingCandidates(cardName)
+    } catch (err) {
+      console.warn('[DeckBuilder] preferred owned printing lookup failed:', err)
+    }
+
+    const binderPick = pickOwnedPrintingCandidate(ownedCandidates, printRank, 'binder')
+    const deckPick = !binderPick ? pickOwnedPrintingCandidate(ownedCandidates, printRank, 'deck') : null
+    const ownedPick = binderPick || deckPick
+    if (ownedPick) {
+      const sfCard = printById.get(ownedPick.scryfall_id) || printByKey.get(normalizePrintKey(ownedPick))
+      if (sfCard) return { sfCard, foil: !!ownedPick.foil, card_print_id: ownedPick.card_print_id || null }
+      if (ownedPick.scryfall_id) {
+        const [fetched] = await fetchCardsByScryfallIds([ownedPick.scryfall_id])
+        if (fetched) return { sfCard: fetched, foil: !!ownedPick.foil, card_print_id: ownedPick.card_print_id || null }
+      }
+    }
+
+    const newest = printings[0] || fallbackSfCard || null
+    return newest ? { sfCard: newest, foil: defaultFoilForPrinting(newest), card_print_id: null } : null
+  }
+
+  function isSameDeckPrinting(a, b) {
+    if (!!a.foil !== !!b.foil) return false
+    if (normalizeBoard(a.board) !== normalizeBoard(b.board)) return false
+    if (a.card_print_id && b.card_print_id) return a.card_print_id === b.card_print_id
+    if (a.scryfall_id && b.scryfall_id) return a.scryfall_id === b.scryfall_id
+    const aKey = normalizePrintKey(a)
+    const bKey = normalizePrintKey(b)
+    return !!aKey && aKey === bKey
+  }
+
+  async function applyResolvedPrintingToDeckRow(placeholderRow, resolved) {
+    if (!resolved?.sfCard) return
+    if (!deckCardsRef.current.some(dc => dc.id === placeholderRow.id)) return
+    const meta = getDeckBuilderCardMeta(resolved.sfCard)
+    const now = new Date().toISOString()
+    const [printing] = await requireCardPrintIds([{
+      card_print_id:    resolved.card_print_id || null,
+      scryfall_id:      meta.scryfall_id,
+      name:             resolved.sfCard.name || placeholderRow.name,
+      set_code:         meta.set_code,
+      collector_number: meta.collector_number,
+      type_line:        meta.type_line,
+      mana_cost:        meta.mana_cost,
+      cmc:              meta.cmc,
+      color_identity:   meta.color_identity,
+      image_uri:        meta.image_uri,
+      foil:             !!resolved.foil,
+    }], 'Deck card printing')
+
+    const nextRow = { ...placeholderRow, ...printing, foil: !!resolved.foil, updated_at: now }
+    const existing = deckCardsRef.current.find(dc => dc.id !== placeholderRow.id && isSameDeckPrinting(dc, nextRow))
+
+    if (existing) {
+      const updatedExisting = { ...existing, qty: (existing.qty || 0) + (placeholderRow.qty || 1), updated_at: now }
+      deckCardsRef.current = deckCardsRef.current
+        .filter(dc => dc.id !== placeholderRow.id)
+        .map(dc => dc.id === existing.id ? updatedExisting : dc)
+      setDeckCards(deckCardsRef.current)
+      await sb.from('deck_cards').update({ qty: updatedExisting.qty, updated_at: now }).eq('id', existing.id)
+      putDeckCards([updatedExisting]).catch(() => {})
+      deleteDeckCardLocal(placeholderRow.id).catch(() => {})
+      return
+    }
+
+    deckCardsRef.current = deckCardsRef.current.map(dc => dc.id === placeholderRow.id ? nextRow : dc)
+    setDeckCards(deckCardsRef.current)
+    await sb.from('deck_cards').insert(toDeckCardRow(nextRow))
+    putDeckCards([nextRow]).catch(() => {})
+  }
+
   // â”€â”€ Add / remove / qty â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async function addCardToDeck(sfCardOrRec) {
     // Determine if it's a full Scryfall card or an EDHRec rec object
@@ -3250,11 +3428,6 @@ export default function DeckBuilderPage() {
       } catch {}
     }
 
-    // Check if already in deck (non-foil — this function always adds non-foil cards)
-    const existing = deckCards.find(dc =>
-      ((scryfallId && dc.scryfall_id === scryfallId) || dc.name === name) && !dc.foil && normalizeBoard(dc.board) === 'main'
-    )
-
     const flashAddFeedback = (cardName, scryfallId, qtyAdded = 1) => {
       const key = scryfallId || cardName
       const prev = addFeedbackRef.current
@@ -3270,38 +3443,44 @@ export default function DeckBuilderPage() {
       }, 2600)
     }
 
-    if (existing) {
-      // Increment qty
-      changeQty(existing.id, +1)
-      flashAddFeedback(name, scryfallId, 1)
-      return
-    }
-
-    const [newRow] = await requireCardPrintIds([{
+    const placeholderRow = {
       id:               crypto.randomUUID(),
       deck_id:          deckId,
       user_id:          user.id,
-      scryfall_id:      scryfallId,
+      scryfall_id:      null,
       name,
-      set_code:         setCode || null,
-      collector_number: collNum || null,
+      set_code:         null,
+      collector_number: null,
       type_line:        typeLine || null,
       mana_cost:        manaCost || null,
       cmc:              cmc ?? null,
       color_identity:   colorId || [],
-      image_uri:        imageUri,
+      image_uri:        null,
       qty:              1,
       foil:             false,
       is_commander:     false,
       board:            'main',
       created_at:       new Date().toISOString(),
       updated_at:       new Date().toISOString(),
-    }], 'Deck card')
+    }
 
-    setDeckCards(prev => [...prev, newRow])
-    await sb.from('deck_cards').insert(newRow)
-    putDeckCards([newRow]).catch(() => {})
+    deckCardsRef.current = [...deckCardsRef.current, placeholderRow]
+    setDeckCards(deckCardsRef.current)
+    putDeckCards([placeholderRow]).catch(() => {})
     flashAddFeedback(name, scryfallId, 1)
+
+    const fallbackSfCard = isSfCard
+      ? sfCardOrRec
+      : (scryfallId ? { id: scryfallId, name, set: setCode, collector_number: collNum, type_line: typeLine, mana_cost: manaCost, cmc, color_identity: colorId, image_uris: imageUri ? { normal: imageUri } : null } : null)
+    try {
+      const resolved = await resolvePreferredDeckPrinting(name, fallbackSfCard)
+      await applyResolvedPrintingToDeckRow(placeholderRow, resolved)
+    } catch (err) {
+      console.error('[DeckBuilder] failed to resolve preferred printing:', err)
+      deckCardsRef.current = deckCardsRef.current.filter(dc => dc.id !== placeholderRow.id)
+      setDeckCards(deckCardsRef.current)
+      deleteDeckCardLocal(placeholderRow.id).catch(() => {})
+    }
   }
 
   function changeQty(deckCardId, delta) {
