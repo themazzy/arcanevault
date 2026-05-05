@@ -54,6 +54,7 @@ import {
   ChevronRightIcon,
   CollectionIcon,
   DeckIcon,
+  FolderTypeIcon,
   MenuIcon,
   AddIcon,
   CheckIcon,
@@ -63,6 +64,8 @@ import { lastInputWasTouch } from '../lib/inputType'
 const CAN_HOVER = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover) and (pointer: fine)').matches
 const RARITY_ORDER = ['mythic', 'rare', 'uncommon', 'common']
 const RARITY_COLORS = { mythic: '#e07020', rare: '#c9a84c', uncommon: '#a0a8b8', common: 'var(--text-faint)' }
+const FOLDER_TAG_COLOR  = { binder: 'rgba(201,168,76,0.18)', deck: 'rgba(138,111,196,0.18)', list: 'rgba(100,180,100,0.15)' }
+const FOLDER_TAG_BORDER = { binder: 'rgba(201,168,76,0.35)', deck: 'rgba(138,111,196,0.35)', list: 'rgba(100,180,100,0.3)' }
 const BOARD_ORDER = ['main', 'side', 'maybe']
 const BOARD_LABELS = {
   main: 'Mainboard',
@@ -2117,15 +2120,57 @@ function MoveOwnedCardsModal({ title, message, items, folders, onConfirm, onClos
 }
 
 // â”€â”€ Version picker modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-function VersionPickerModal({ dc, ownedMap, onSelect, onClose }) {
+function PrintingLocationTags({ locations }) {
+  if (!locations?.length) return null
+  const visible = locations.slice(0, 2)
+  const extra = locations.length - visible.length
+  return (
+    <div style={{ display:'flex', flexWrap:'wrap', justifyContent:'center', gap:3, maxWidth:'100%' }}>
+      {visible.map((loc, i) => (
+        <span
+          key={`${loc.type}-${loc.id || loc.name}-${i}`}
+          title={`${loc.type}: ${loc.name}${loc.qty ? ` (${loc.qty}x)` : ''}`}
+          style={{
+            maxWidth:'100%',
+            display:'inline-flex',
+            alignItems:'center',
+            gap:3,
+            padding:'1px 5px',
+            borderRadius:3,
+            border:'1px solid',
+            borderColor:FOLDER_TAG_BORDER[loc.type] || FOLDER_TAG_BORDER.binder,
+            background:FOLDER_TAG_COLOR[loc.type] || FOLDER_TAG_COLOR.binder,
+            color:'var(--text-dim)',
+            fontSize:'0.56rem',
+            fontFamily:'var(--font-serif)',
+            whiteSpace:'nowrap',
+            overflow:'hidden',
+            textOverflow:'ellipsis',
+          }}
+        >
+          <FolderTypeIcon type={loc.type} size={10} /> {loc.name}
+        </span>
+      ))}
+      {extra > 0 && <span style={{ fontSize:'0.56rem', color:'var(--text-faint)', padding:'1px 4px' }}>+{extra}</span>}
+    </div>
+  )
+}
+
+function VersionPickerModal({ dc, ownedMap, userId, onSelect, onClose }) {
   const [printings, setPrintings] = useState([])
   const [loading,   setLoading]   = useState(true)
+  const [locationsByScryfallId, setLocationsByScryfallId] = useState(new Map())
 
   useEffect(() => {
     let cancelled = false
-    fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(`!"${dc.name}"`)}&unique=prints&order=released`)
-      .then(r => r.json())
-      .then(d => {
+    async function load() {
+      setLoading(true)
+      try {
+        const [res, ownedRows] = await Promise.all([
+          fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(`!"${dc.name}"`)}&unique=prints&order=released`),
+          userId ? getLocalCards(userId) : Promise.resolve([]),
+        ])
+        const d = await res.json()
         if (!cancelled) {
           const raw = d.data || []
           const sorted = [
@@ -2133,12 +2178,62 @@ function VersionPickerModal({ dc, ownedMap, onSelect, onClose }) {
             ...raw.filter(p => (ownedMap.get(p.id) ?? 0) === 0),
           ]
           setPrintings(sorted)
-          setLoading(false)
         }
-      })
-      .catch(() => { if (!cancelled) setLoading(false) })
+
+        const ownedForCard = (ownedRows || []).filter(row => normalizeCardName(row.name) === normalizeCardName(dc.name))
+        const cardIds = [...new Set(ownedForCard.map(row => row.id).filter(Boolean))]
+        if (!cardIds.length) {
+          if (!cancelled) setLocationsByScryfallId(new Map())
+          return
+        }
+
+        const [{ data: folderRows, error: folderErr }, { data: deckRows, error: deckErr }] = await Promise.all([
+          sb.from('folder_cards').select('folder_id,card_id,qty').in('card_id', cardIds),
+          sb.from('deck_allocations').select('deck_id,card_id,qty').eq('user_id', userId).in('card_id', cardIds),
+        ])
+        if (folderErr) throw folderErr
+        if (deckErr) throw deckErr
+
+        const folderIds = [
+          ...new Set([
+            ...(folderRows || []).map(row => row.folder_id),
+            ...(deckRows || []).map(row => row.deck_id),
+          ].filter(Boolean)),
+        ]
+        const { data: folders, error: foldersErr } = folderIds.length
+          ? await sb.from('folders').select('id,name,type').in('id', folderIds)
+          : { data: [], error: null }
+        if (foldersErr) throw foldersErr
+
+        const ownedById = new Map(ownedForCard.map(row => [row.id, row]))
+        const folderById = new Map((folders || []).map(folder => [folder.id, folder]))
+        const nextLocations = new Map()
+        const addLocation = (scryfallId, folder, qty) => {
+          if (!scryfallId || !folder) return
+          const list = nextLocations.get(scryfallId) || []
+          const existing = list.find(loc => loc.id === folder.id && loc.type === folder.type)
+          if (existing) existing.qty += qty || 0
+          else list.push({ id: folder.id, name: folder.name || 'Unknown', type: folder.type || 'binder', qty: qty || 0 })
+          nextLocations.set(scryfallId, list)
+        }
+        for (const row of folderRows || []) {
+          const owned = ownedById.get(row.card_id)
+          addLocation(owned?.scryfall_id, folderById.get(row.folder_id), row.qty)
+        }
+        for (const row of deckRows || []) {
+          const owned = ownedById.get(row.card_id)
+          addLocation(owned?.scryfall_id, folderById.get(row.deck_id), row.qty)
+        }
+        if (!cancelled) setLocationsByScryfallId(nextLocations)
+      } catch {
+        if (!cancelled) setLocationsByScryfallId(new Map())
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
     return () => { cancelled = true }
-  }, [dc.name])
+  }, [dc.name, userId, ownedMap])
 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', zIndex:700, display:'flex', alignItems:'center', justifyContent:'center' }}
@@ -2158,6 +2253,7 @@ function VersionPickerModal({ dc, ownedMap, onSelect, onClose }) {
                 const img = getCardImageUri(p, 'normal')
                 const isActive  = p.id === dc.scryfall_id
                 const isOwned   = (ownedMap.get(p.id) ?? 0) > 0
+                const locations = locationsByScryfallId.get(p.id) || []
                 return (
                   <button key={p.id} onClick={() => onSelect(p)}
                     style={{
@@ -2174,8 +2270,11 @@ function VersionPickerModal({ dc, ownedMap, onSelect, onClose }) {
                       {p.set_name}
                     </div>
                     {isOwned && (
-                      <div style={{ fontSize:'0.58rem', color:'var(--green)', fontWeight:600 }}>Owned</div>
+                      <div style={{ fontSize:'0.58rem', color:'var(--green)', fontWeight:600 }}>
+                        Owned{ownedMap.get(p.id) > 1 ? ` ${ownedMap.get(p.id)}x` : ''}
+                      </div>
                     )}
+                    <PrintingLocationTags locations={locations} />
                   </button>
                 )
               })}
@@ -6267,6 +6366,7 @@ export default function DeckBuilderPage() {
         <VersionPickerModal
           dc={versionPickCard}
           ownedMap={ownedMap}
+          userId={user.id}
           onSelect={p => updateCardVersion(versionPickCard, p)}
           onClose={() => setVersionPickCard(null)}
         />
