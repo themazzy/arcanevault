@@ -1,7 +1,8 @@
 import { sb } from './supabase'
 import { enrichCards, getInstantCache } from './scryfall'
 
-const SET_CHUNK_SIZE = 50
+const ID_CHUNK_SIZE = 400
+const SET_CHUNK_SIZE = 25
 
 // Per-set-code price row cache — avoids re-fetching card_prices on every navigation.
 // Prices only change daily; 10-minute in-memory TTL is safe.
@@ -15,9 +16,30 @@ function isoDateUtc(daysOffset = 0) {
   return date.toISOString().slice(0, 10)
 }
 
+function normalizeSetCode(setCode) {
+  return String(setCode || '').trim().toLowerCase()
+}
+
+function normalizeCollectorNumber(collectorNumber) {
+  return String(collectorNumber || '').trim()
+}
+
 function getCardKey(card) {
-  if (!card?.set_code || !card?.collector_number) return null
-  return `${card.set_code}-${card.collector_number}`
+  const setCode = normalizeSetCode(card?.set_code)
+  const collectorNumber = normalizeCollectorNumber(card?.collector_number)
+  if (!setCode || !collectorNumber) return null
+  return `${setCode}-${collectorNumber}`
+}
+
+function getRowKey(row) {
+  const setCode = normalizeSetCode(row?.set_code)
+  const collectorNumber = normalizeCollectorNumber(row?.collector_number)
+  if (!setCode || !collectorNumber) return null
+  return `${setCode}-${collectorNumber}`
+}
+
+function getScryfallId(card) {
+  return card?.scryfall_id ? String(card.scryfall_id).trim() : null
 }
 
 function uniqueByCardKey(cards) {
@@ -43,14 +65,53 @@ function rowToPrices(row) {
 
 export async function overlaySharedCardPrices(cards, baseMap = {}) {
   const requestedKeys = new Set(cards.map(getCardKey).filter(Boolean))
-  const setCodes = [...new Set(cards.map(card => card?.set_code).filter(Boolean))]
-  if (!requestedKeys.size || !setCodes.length) return { ...baseMap }
+  const requestedIds = [...new Set(cards.map(getScryfallId).filter(Boolean))]
+  if (!requestedKeys.size) return { ...baseMap }
 
   const today = isoDateUtc(0)
   const yesterday = isoDateUtc(-1)
+  const snapshotDates = [today, yesterday]
   const now = Date.now()
+  const rows = []
 
-  // Fetch only set codes not already cached (or expired)
+  // Prefer exact print identity. Fetching whole sets can exceed the default
+  // PostgREST row cap for many-set decks, which leaves some deck cards unpriced.
+  if (requestedIds.length) {
+    for (let i = 0; i < requestedIds.length; i += ID_CHUNK_SIZE) {
+      const chunk = requestedIds.slice(i, i + ID_CHUNK_SIZE)
+      const { data, error } = await sb
+        .from('card_prices')
+        .select(`
+          scryfall_id,
+          set_code,
+          collector_number,
+          snapshot_date,
+          price_regular_eur,
+          price_foil_eur,
+          price_regular_usd,
+          price_foil_usd,
+          updated_at
+        `)
+        .in('scryfall_id', chunk)
+        .in('snapshot_date', snapshotDates)
+
+      if (error) {
+        console.warn('[Prices] Could not load shared card prices:', error.message)
+        return { ...baseMap }
+      }
+      rows.push(...(data || []))
+    }
+  }
+
+  const pricedKeys = new Set(rows.map(getRowKey).filter(Boolean))
+  const fallbackCards = cards.filter(card => {
+    const key = getCardKey(card)
+    return key && !pricedKeys.has(key)
+  })
+  const setCodes = [...new Set(fallbackCards.map(card => normalizeSetCode(card?.set_code)).filter(Boolean))]
+
+  // Fallback for legacy rows missing scryfall_id. This path may still fetch
+  // whole sets, so it is only used for keys not resolved by exact ID.
   const toFetch = setCodes.filter(s => {
     const cached = _setRowCache.get(s)
     return !cached || now - cached.fetchedAt > PRICE_CACHE_TTL_MS
@@ -74,7 +135,7 @@ export async function overlaySharedCardPrices(cards, baseMap = {}) {
           updated_at
         `)
         .in('set_code', chunk)
-        .in('snapshot_date', [today, yesterday])
+        .in('snapshot_date', snapshotDates)
 
       if (error) {
         console.warn('[Prices] Could not load shared card prices:', error.message)
@@ -95,7 +156,6 @@ export async function overlaySharedCardPrices(cards, baseMap = {}) {
   }
 
   // Collect rows from cache for all requested set codes
-  const rows = []
   for (const s of setCodes) {
     rows.push(...(_setRowCache.get(s)?.rows || []))
   }
@@ -103,7 +163,7 @@ export async function overlaySharedCardPrices(cards, baseMap = {}) {
   const currentByKey = {}
   const previousByKey = {}
   for (const row of rows) {
-    const key = `${row.set_code}-${row.collector_number}`
+    const key = getRowKey(row)
     if (!requestedKeys.has(key)) continue
     if (row.snapshot_date === today) currentByKey[key] = row
     else if (row.snapshot_date === yesterday) previousByKey[key] = row

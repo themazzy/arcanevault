@@ -2,12 +2,13 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
+import { useSettings } from '../components/SettingsContext'
 import { parseDeckMeta, serializeDeckMeta, FORMATS, groupDeckCards, TYPE_GROUPS } from '../lib/deckBuilderApi'
 import DeckStats, { normalizeDeckBuilderCards } from '../components/DeckStats'
 import styles from './DeckView.module.css'
 import uiStyles from '../components/UI.module.css'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
-import { getPrice, formatPrice } from '../lib/scryfall'
+import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
 import { ResponsiveMenu } from '../components/UI'
 import { CardBrowserContent, CARD_BROWSER_VIEW_MODES } from '../components/CardBrowserViews'
 import { GridViewIcon, StacksViewIcon, TextViewIcon, TableViewIcon, CopyIcon, CheckIcon } from '../icons'
@@ -129,6 +130,7 @@ function CardDetailModal({ cardName, onClose }) {
 export default function DeckViewPage() {
   const { id } = useParams()
   const { user } = useAuth()
+  const { price_source } = useSettings()
   const navigate = useNavigate()
 
   // ── All state up top (before any conditional returns) ─────────────────────
@@ -284,12 +286,12 @@ export default function DeckViewPage() {
   // Total deck value
   const { totalValue, totalValueFmt } = useMemo(() => {
     const v = cards.reduce((sum, c) => {
-      const sfCard = sfMap[`${c.set_code}-${c.collector_number}`]
-      const p = getPrice(sfCard, c.foil)
+      const sfCard = sfMap[getScryfallKey(c)]
+      const p = getPrice(sfCard, c.foil, { price_source })
       return p != null ? sum + p * c.qty : sum
     }, 0)
-    return { totalValue: v, totalValueFmt: v > 0 ? formatPrice(v) : null }
-  }, [cards, sfMap])
+    return { totalValue: v, totalValueFmt: v > 0 ? formatPrice(v, price_source) : null }
+  }, [cards, sfMap, price_source])
 
   // Build plain-text decklist for copy
   const cardLine = (c) => {
@@ -554,7 +556,7 @@ export default function DeckViewPage() {
           <CardBrowserContent
             cards={sortedFlat}
             sfMap={sfMap}
-            priceSource="cardmarket_trend"
+            priceSource={price_source}
             viewMode={effectiveViewMode}
             groupBy={groupBy}
             onSelect={card => setDetailCard(card.name)}
