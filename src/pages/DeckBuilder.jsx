@@ -2125,7 +2125,7 @@ function PrintingLocationTags({ locations }) {
   const visible = locations.slice(0, 2)
   const extra = locations.length - visible.length
   return (
-    <div style={{ display:'flex', flexWrap:'wrap', justifyContent:'center', gap:3, maxWidth:'100%' }}>
+    <div style={{ display:'flex', flexWrap:'wrap', justifyContent:'center', gap:4, maxWidth:'100%' }}>
       {visible.map((loc, i) => (
         <span
           key={`${loc.type}-${loc.id || loc.name}-${i}`}
@@ -2134,24 +2134,28 @@ function PrintingLocationTags({ locations }) {
             maxWidth:'100%',
             display:'inline-flex',
             alignItems:'center',
-            gap:3,
-            padding:'1px 5px',
+            gap:4,
+            padding:'2px 6px',
             borderRadius:3,
             border:'1px solid',
             borderColor:FOLDER_TAG_BORDER[loc.type] || FOLDER_TAG_BORDER.binder,
             background:FOLDER_TAG_COLOR[loc.type] || FOLDER_TAG_COLOR.binder,
             color:'var(--text-dim)',
-            fontSize:'0.56rem',
+            fontSize:'0.64rem',
+            lineHeight:1.15,
             fontFamily:'var(--font-serif)',
             whiteSpace:'nowrap',
             overflow:'hidden',
             textOverflow:'ellipsis',
           }}
         >
-          <FolderTypeIcon type={loc.type} size={10} /> {loc.name}
+          <span style={{ display:'inline-flex', flexShrink:0 }}>
+            <FolderTypeIcon type={loc.type} size={12} />
+          </span>
+          <span style={{ minWidth:0, overflow:'hidden', textOverflow:'ellipsis' }}>{loc.name}</span>
         </span>
       ))}
-      {extra > 0 && <span style={{ fontSize:'0.56rem', color:'var(--text-faint)', padding:'1px 4px' }}>+{extra}</span>}
+      {extra > 0 && <span style={{ fontSize:'0.64rem', color:'var(--text-faint)', padding:'2px 4px' }}>+{extra}</span>}
     </div>
   )
 }
@@ -2235,10 +2239,16 @@ function VersionPickerModal({ dc, ownedMap, userId, onSelect, onClose }) {
     return () => { cancelled = true }
   }, [dc.name, userId, ownedMap])
 
+  const desktopPicker = CAN_HOVER
+  const modalWidth = desktopPicker ? 760 : 560
+  const tileWidth = desktopPicker ? 122 : 88
+  const imageWidth = desktopPicker ? 108 : 76
+  const imageHeight = desktopPicker ? 151 : 106
+
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', zIndex:700, display:'flex', alignItems:'center', justifyContent:'center' }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div style={{ background:'var(--bg-card,#1e1e1e)', border:'1px solid var(--border)', borderRadius:8, padding:20, width:560, maxWidth:'96vw', maxHeight:'80vh', display:'flex', flexDirection:'column', gap:14 }}>
+      <div style={{ background:'var(--bg-card,#1e1e1e)', border:'1px solid var(--border)', borderRadius:8, padding:20, width:modalWidth, maxWidth:'96vw', maxHeight:'86vh', display:'flex', flexDirection:'column', gap:14 }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <span style={{ fontFamily:'var(--font-display)', color:'var(--gold)', fontSize:'0.95rem' }}>
             Choose version - {dc.name}
@@ -2248,32 +2258,26 @@ function VersionPickerModal({ dc, ownedMap, userId, onSelect, onClose }) {
         {loading
           ? <div style={{ color:'var(--text-faint)', fontSize:'0.85rem', padding:'20px 0', textAlign:'center' }}>Loading printings...</div>
           : (
-            <div style={{ overflowY:'auto', display:'flex', flexWrap:'wrap', gap:10 }}>
+            <div style={{ overflowY:'auto', display:'flex', flexWrap:'wrap', gap:desktopPicker ? 12 : 10 }}>
               {printings.map(p => {
                 const img = getCardImageUri(p, 'normal')
                 const isActive  = p.id === dc.scryfall_id
-                const isOwned   = (ownedMap.get(p.id) ?? 0) > 0
                 const locations = locationsByScryfallId.get(p.id) || []
                 return (
                   <button key={p.id} onClick={() => onSelect(p)}
                     style={{
                       background: isActive ? 'rgba(201,168,76,0.12)' : 'var(--s2)',
                       border: `1px solid ${isActive ? 'rgba(201,168,76,0.5)' : 'var(--s-border2)'}`,
-                      borderRadius:6, padding:6, cursor:'pointer', display:'flex', flexDirection:'column',
-                      alignItems:'center', gap:5, width:88, flexShrink:0, transition:'all 0.13s',
+                      borderRadius:6, padding:desktopPicker ? 8 : 6, cursor:'pointer', display:'flex', flexDirection:'column',
+                      alignItems:'center', gap:6, width:tileWidth, flexShrink:0, transition:'all 0.13s',
                     }}>
                     {img
-                      ? <img src={img} alt={p.set_name} style={{ width:76, height:106, objectFit:'cover', borderRadius:4 }} loading="lazy" />
-                      : <div style={{ width:76, height:106, background:'var(--s3)', borderRadius:4 }} />
+                      ? <img src={img} alt={p.set_name} style={{ width:imageWidth, height:imageHeight, objectFit:'cover', borderRadius:4 }} loading="lazy" />
+                      : <div style={{ width:imageWidth, height:imageHeight, background:'var(--s3)', borderRadius:4 }} />
                     }
-                    <div style={{ fontSize:'0.62rem', color: isActive ? 'var(--gold)' : 'var(--text-dim)', textAlign:'center', lineHeight:1.3, wordBreak:'break-word' }}>
+                    <div style={{ fontSize:desktopPicker ? '0.7rem' : '0.62rem', color: isActive ? 'var(--gold)' : 'var(--text-dim)', textAlign:'center', lineHeight:1.25, wordBreak:'break-word' }}>
                       {p.set_name}
                     </div>
-                    {isOwned && (
-                      <div style={{ fontSize:'0.58rem', color:'var(--green)', fontWeight:600 }}>
-                        Owned{ownedMap.get(p.id) > 1 ? ` ${ownedMap.get(p.id)}x` : ''}
-                      </div>
-                    )}
                     <PrintingLocationTags locations={locations} />
                   </button>
                 )
