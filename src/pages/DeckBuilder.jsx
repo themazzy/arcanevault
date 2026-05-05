@@ -1191,7 +1191,13 @@ function MakeDeckModal({ deckCards, userId, onConfirm, onClose }) {
         getLocalCards(userId),
         sb.from('folders').select('id, name, description').eq('user_id', userId).eq('type', 'list').order('name'),
       ])
-      const cardIds = [...new Set((collCards || []).map(card => card.id).filter(Boolean))]
+      const deckNameSet = new Set((deckCards || []).map(card => normalizeCardName(card.name)).filter(Boolean))
+      const deckScryfallIds = new Set((deckCards || []).map(card => card.scryfall_id).filter(Boolean))
+      const planningCards = (collCards || []).filter(card =>
+        deckNameSet.has(normalizeCardName(card.name)) ||
+        (card.scryfall_id && deckScryfallIds.has(card.scryfall_id))
+      )
+      const cardIds = [...new Set(planningCards.map(card => card.id).filter(Boolean))]
       const folderRows = []
       const allocationRows = []
       for (let i = 0; i < cardIds.length; i += 500) {
@@ -1213,7 +1219,7 @@ function MakeDeckModal({ deckCards, userId, onConfirm, onClose }) {
       for (const row of allocationRows) {
         allocatedQtyByCardId.set(row.card_id, (allocatedQtyByCardId.get(row.card_id) || 0) + (row.qty || 0))
       }
-      setOwnedCardsForPlanning(collCards || [])
+      setOwnedCardsForPlanning(planningCards)
       setBinderQtyByCardId(folderQtyByCardId)
       setDeckAllocatedQtyByCardId(allocatedQtyByCardId)
       setWishlists((wls || []).filter(folder => !isGroupFolder(folder)))
