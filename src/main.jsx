@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App'
+import { handleChunkLoadError } from './lib/chunkRecovery'
 
 // Capture recent console errors/warnings for bug reports
 window.__arcaneErrors = []
@@ -19,6 +20,9 @@ console.error = (...args) => { _pushArcaneError('error', args); _origConsoleErro
 console.warn  = (...args) => { _pushArcaneError('warn',  args); _origConsoleWarn(...args)  }
 window.addEventListener('error', e => _pushArcaneError('uncaught', [e.error || e.message]))
 window.addEventListener('unhandledrejection', e => _pushArcaneError('unhandledrejection', [e.reason]))
+window.addEventListener('vite:preloadError', e => {
+  if (handleChunkLoadError(e.payload)) e.preventDefault()
+})
 
 // Register Service Worker for image caching
 if ('serviceWorker' in navigator) {
