@@ -2240,10 +2240,10 @@ function VersionPickerModal({ dc, ownedMap, userId, onSelect, onClose }) {
   }, [dc.name, userId, ownedMap])
 
   const desktopPicker = CAN_HOVER
-  const modalWidth = desktopPicker ? 760 : 560
-  const tileWidth = desktopPicker ? 122 : 88
-  const imageWidth = desktopPicker ? 108 : 76
-  const imageHeight = desktopPicker ? 151 : 106
+  const modalWidth = desktopPicker ? 1120 : 560
+  const tileWidth = desktopPicker ? 156 : 88
+  const imageWidth = desktopPicker ? 140 : 76
+  const imageHeight = desktopPicker ? 196 : 106
 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', zIndex:700, display:'flex', alignItems:'center', justifyContent:'center' }}
@@ -2258,7 +2258,7 @@ function VersionPickerModal({ dc, ownedMap, userId, onSelect, onClose }) {
         {loading
           ? <div style={{ color:'var(--text-faint)', fontSize:'0.85rem', padding:'20px 0', textAlign:'center' }}>Loading printings...</div>
           : (
-            <div style={{ overflowY:'auto', display:'flex', flexWrap:'wrap', gap:desktopPicker ? 12 : 10 }}>
+            <div style={{ overflowY:'auto', display:'flex', flexWrap:'wrap', gap:desktopPicker ? 14 : 10 }}>
               {printings.map(p => {
                 const img = getCardImageUri(p, 'normal')
                 const isActive  = p.id === dc.scryfall_id
@@ -2268,14 +2268,14 @@ function VersionPickerModal({ dc, ownedMap, userId, onSelect, onClose }) {
                     style={{
                       background: isActive ? 'rgba(201,168,76,0.12)' : 'var(--s2)',
                       border: `1px solid ${isActive ? 'rgba(201,168,76,0.5)' : 'var(--s-border2)'}`,
-                      borderRadius:6, padding:desktopPicker ? 8 : 6, cursor:'pointer', display:'flex', flexDirection:'column',
-                      alignItems:'center', gap:6, width:tileWidth, flexShrink:0, transition:'all 0.13s',
+                      borderRadius:6, padding:desktopPicker ? 10 : 6, cursor:'pointer', display:'flex', flexDirection:'column',
+                      alignItems:'center', gap:desktopPicker ? 8 : 6, width:tileWidth, flexShrink:0, transition:'all 0.13s',
                     }}>
                     {img
                       ? <img src={img} alt={p.set_name} style={{ width:imageWidth, height:imageHeight, objectFit:'cover', borderRadius:4 }} loading="lazy" />
                       : <div style={{ width:imageWidth, height:imageHeight, background:'var(--s3)', borderRadius:4 }} />
                     }
-                    <div style={{ fontSize:desktopPicker ? '0.7rem' : '0.62rem', color: isActive ? 'var(--gold)' : 'var(--text-dim)', textAlign:'center', lineHeight:1.25, wordBreak:'break-word' }}>
+                    <div style={{ fontSize:desktopPicker ? '0.78rem' : '0.62rem', color: isActive ? 'var(--gold)' : 'var(--text-dim)', textAlign:'center', lineHeight:1.25, wordBreak:'break-word' }}>
                       {p.set_name}
                     </div>
                     <PrintingLocationTags locations={locations} />
