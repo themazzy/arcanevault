@@ -350,7 +350,9 @@ export function getPriceSource(priceSourceId = 'cardmarket_trend') {
 }
 
 export function getScryfallKey(card) {
-  return `${card.set_code}-${card.collector_number}`
+  const setCode = String(card?.set_code || '').trim().toLowerCase()
+  const collectorNumber = String(card?.collector_number || '').trim()
+  return `${setCode}-${collectorNumber}`
 }
 
 // ── Manual price overrides (localStorage) ────────────────────────────────────
