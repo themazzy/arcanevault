@@ -550,6 +550,54 @@
 }
 .bulkDelete:hover { background: rgba(196,96,96,0.18) !important; }
 
+@media (max-width: 620px) {
+  .bulkBarFloatingMobile {
+    position: fixed;
+    left: 10px;
+    right: 10px;
+    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    z-index: 101;
+    margin: 0;
+    padding: 7px 8px;
+    gap: 6px;
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--bg2) 92%, transparent);
+    border-color: var(--s-border2);
+    box-shadow: 0 14px 36px rgba(0,0,0,0.42);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+  .bulkBarFloatingMobile .bulkLeft {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 6px;
+  }
+  .bulkBarFloatingMobile .bulkCount {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .bulkBarFloatingMobile .bulkLink {
+    font-size: 0.72rem;
+    white-space: nowrap;
+  }
+  .bulkBarFloatingMobile .bulkActions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .bulkBarFloatingMobile .bulkBtn {
+    width: 100%;
+    min-width: 0;
+    height: 32px;
+    padding: 0 8px;
+    border-radius: 7px;
+    white-space: nowrap;
+  }
+}
+
 /* ── Move To Dialog ──────────────────────────────────────────────────── */
 .moveDialogTitle {
   font-family: var(--font-display); font-size: 1rem;

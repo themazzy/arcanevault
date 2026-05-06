@@ -3558,7 +3558,7 @@
 @media (max-width: 900px) {
   /* Containment — stop flex children from forcing horizontal overflow */
   .right { min-width: 0; }
-  .deckList { min-width: 0; padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
+  .deckList { min-width: 0; padding-bottom: calc(var(--mobile-floating-bar-height) + env(safe-area-inset-bottom, 0px)); }
 
   /* Inline description+tags panel — phone uses Deck Actions menu instead */
   .deckMetaPanel { display: none; }

@@ -5,6 +5,7 @@ import { Modal, Badge, ResponsiveMenu, Select } from './UI'
 import styles from './CardComponents.module.css'
 import uiStyles from './UI.module.css'
 import { FolderTypeIcon } from './Icons'
+import { CheckIcon } from '../icons'
 import { sb } from '../lib/supabase'
 import { putCards } from '../lib/db'
 import { useLongPress } from '../hooks/useLongPress'
@@ -265,13 +266,13 @@ function MoveToDialog({ folders, onMoveToFolder, onCreateFolder, onClose, allowe
 }
 
 // ── BulkActionBar ─────────────────────────────────────────────────────────────
-export function BulkActionBar({ selected, total, onSelectAll, onDeselectAll, onDelete, onMoveToFolder, folders, onCreateFolder, selectedQty, allowedFolderTypes = ['binder', 'deck'] }) {
+export function BulkActionBar({ selected, total, onSelectAll, onDeselectAll, onDelete, onMoveToFolder, folders, onCreateFolder, selectedQty, allowedFolderTypes = ['binder', 'deck'], floatingMobile = false }) {
   const [showMoveDialog, setShowMoveDialog] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const count = selectedQty ?? selected.size
 
   return (
-    <div className={styles.bulkBar}>
+    <div className={`${styles.bulkBar}${floatingMobile ? ` ${styles.bulkBarFloatingMobile}` : ''}`}>
       <div className={styles.bulkLeft}>
         <span className={styles.bulkCount}>{count} {count === 1 ? 'card' : 'cards'} selected</span>
         <button className={styles.bulkLink} onClick={onSelectAll}>Select all {total}</button>
@@ -1748,7 +1749,7 @@ export const EMPTY_FILTERS = {
 
 const LOOKUP_HIDDEN_FILTERS = new Set(['conditions', 'languages', 'quantity', 'location', 'folderName', 'specials', 'price'])
 
-function countActive(f, hiddenFilters = new Set()) {
+export function countActive(f, hiddenFilters = new Set()) {
   return [
     !hiddenFilters.has('foil') && f.foil !== 'all' ? 1 : 0,
     f.colors.length,
@@ -2132,7 +2133,7 @@ export function FilterBar({
                     onClick={() => { setSort(value); close() }}
                   >
                     <span>{label}</span>
-                    <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{sort === value ? '✓' : ''}</span>
+                    <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{sort === value ? <CheckIcon size={12} /> : null}</span>
                   </button>
                 ))}
               </div>
@@ -2140,7 +2141,7 @@ export function FilterBar({
           </ResponsiveMenu>
           <button
             className={`${styles.filterToggle}${open ? ' ' + styles.filterToggleOpen : ''}${activeCount ? ' ' + styles.filterToggleActive : ''}`}
-            onClick={() => setOpen(v => !v)}
+            onClick={() => setOpen(!open)}
           >
             <span>{activeCount > 0 ? `Filters (${activeCount})` : 'Filters'}</span>
             <Chevron open={open} />

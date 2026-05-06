@@ -6,7 +6,7 @@ import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { useToast } from '../components/ToastContext'
-import { CardGrid, CardDetail, FilterBar, BulkActionBar, applyFilterSort, EMPTY_FILTERS } from '../components/CardComponents'
+import { CardGrid, CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
 import { EmptyState, SectionHeader, Button, Modal, ResponsiveHeaderActions, ResponsiveMenu, Select } from '../components/UI'
 import AddCardModal from '../components/AddCardModal'
 import ImportModal from '../components/ImportModal'
@@ -17,9 +17,11 @@ import styles from './Folders.module.css'
 import { AddIcon, SettingsIcon, DeleteIcon, EditIcon, BinderIcon, ImageIcon, ImportIcon, ExportIcon, RemoveIcon, SortIcon, StacksViewIcon } from '../icons'
 import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
+import { useFilterWorker } from '../hooks/useFilterWorker'
 import { getPlacedQtyByCardIds, pruneUnplacedCards } from '../lib/collectionOwnership'
 import { getPublicAppUrl } from '../lib/publicUrl'
-import { getLocalFolderCards, getAllLocalFolderCards, getDeckAllocations, getCardsByIds, putCards, putFolderCards, putDeckAllocations, replaceLocalFolderCards, replaceDeckAllocations } from '../lib/db'
+import { getLocalFolderCards, getAllLocalFolderCards, getDeckAllocations, getAllDeckAllocationsForFolders, getCardsByIds, getLocalFolders, putCards, putFolderCards, putDeckAllocations, replaceLocalFolderCards, replaceDeckAllocations, getFolderMetaCache, setFolderMetaCache } from '../lib/db'
+import { queryClient } from '../lib/queryClient'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
 import { unlinkPairedDeck } from '../lib/deckSync'
 
@@ -532,9 +534,11 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
   const [selectedCards, setSelectedCards] = useState(new Set())
   const [splitState, setSplitState]   = useState(new Map())
   const [showAddCard, setShowAddCard] = useState(false)
+  const [showImport, setShowImport]   = useState(false)
   const [showExport, setShowExport]   = useState(false)
   const [viewMode, setViewMode]       = useState('grid')
   const [groupBy, setGroupBy]         = useState('none')
+  const [filterOpen, setFilterOpen]   = useState(false)
   const [hoverImg, setHoverImg]       = useState(null)
   const [hoverPos, setHoverPos]       = useState({ x: 0, y: 0 })
   const [reloadKey, setReloadKey]     = useState(0)
@@ -543,6 +547,14 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
   const folderIds = useMemo(() => folders.map(f => f.id), [folders])
   const moveFolders = useMemo(() => allFolders.filter(f => !isGroupFolder(f) && f.id !== folder?.id), [allFolders, folder?.id])
   const getCardKey = useCallback((card) => card?._displayKey || card?.id, [])
+  const cardByKey = useMemo(() => {
+    const m = new Map()
+    for (const c of cards) {
+      m.set(c?._displayKey || c?.id, c)
+      if (c?.id != null && !m.has(c.id)) m.set(c.id, c)
+    }
+    return m
+  }, [cards])
   const handleHover = useCallback((img) => setHoverImg(img), [])
   const handleHoverEnd = useCallback(() => setHoverImg(null), [])
   const handleMouseMove = useCallback((e) => setHoverPos({ x: e.clientX, y: e.clientY }), [])
@@ -594,14 +606,14 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
 
   useEffect(() => {
     if (!user) return
-    sb.from('folders').select('id, name, type, description, user_id').eq('user_id', user.id)
-      .then(({ data }) => setAllFolders(data || []))
+    let cancelled = false
+    getLocalFolders(user.id)
+      .then(data => { if (!cancelled) setAllFolders(data || []) })
+      .catch(() => {})
+    return () => { cancelled = true }
   }, [user])
 
-  const filtered = useMemo(
-    () => applyFilterSort(cards, sfMap, search, sort, filters),
-    [cards, sfMap, search, sort, filters]
-  )
+  const filtered = useFilterWorker({ cards, sfMap, search, sort, filters, priceSource: price_source })
 
   const { totalValue, totalQty } = useMemo(() => {
     let v = 0, q = 0
@@ -615,7 +627,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
     return { totalValue: v, totalQty: q }
   }, [cards, sfMap, price_source])
 
-  const selectedCard = !isAllView && selected ? cards.find(c => c.id === selected) : null
+  const selectedCard = !isAllView && selected ? (cardByKey.get(selected) ?? null) : null
   const selectedSf   = selectedCard ? sfMap[getScryfallKey(selectedCard)] : null
   const handleCardSave = useCallback((updatedCard) => {
     setCards(prev => prev.map(c => c.id === updatedCard.id ? { ...c, ...updatedCard } : c))
@@ -696,17 +708,15 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
 
   const selectedQty = useMemo(() =>
     [...selectedCards].reduce((sum, id) => {
-      const c = cards.find(c => getCardKey(c) === id)
-      const totalQty = c?._folder_qty || c?.qty || 1
       return sum + (splitState.get(id) ?? 1)
     }, 0)
-  , [selectedCards, cards, splitState, getCardKey])
+  , [selectedCards, splitState])
 
   const handleBulkDelete = async () => {
     const toDelete = [], toUpdate = []
     const selectedQtyByCardId = new Map()
     for (const id of selectedCards) {
-      const card = cards.find(c => getCardKey(c) === id)
+      const card = cardByKey.get(id)
       if (!card) continue
       const totalQty = card?._folder_qty || card?.qty || 1
       const selQty = splitState.get(id) ?? 1
@@ -728,7 +738,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
     const placedQtyByCardId = await getPlacedQtyByCardIds(affectedCardIds.filter(id => !prunedSet.has(id)))
     for (const cardId of affectedCardIds) {
       if (prunedSet.has(cardId)) continue
-      const card = cards.find(c => c.id === cardId)
+      const card = cardByKey.get(cardId)
       if (!card) continue
       const nextQty = placedQtyByCardId.get(cardId) || 0
       if (nextQty <= 0) continue
@@ -762,7 +772,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
     const targetIsDeck = targetFolder.type === 'deck'
 
     for (const id of selectedCards) {
-      const card = cards.find(c => getCardKey(c) === id)
+      const card = cardByKey.get(id)
       if (!card) continue
       const sourceFolderId = card._sourceFolderId || folder.id
       if (sourceFolderId === targetFolder.id) continue
@@ -833,33 +843,8 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
             <span className={styles.binderValue}>{formatPrice(totalValue, price_source)}</span>
             <div className={styles.browserHeaderActionsDesktop}>
               <Button variant="secondary" size="sm" onClick={() => setShowExport(true)}>↓ Export</Button>
+              {!isAllView && <Button variant="secondary" size="sm" onClick={() => setShowImport(true)}>↑ Import</Button>}
               <Button size="sm" onClick={() => setShowAddCard(true)}>+ Add Cards</Button>
-            </div>
-            <div className={styles.browserHeaderActionsMobile}>
-              <ResponsiveMenu
-                title={`${noun} Actions`}
-                trigger={({ open, toggle }) => (
-                  <button className={styles.mobileHeaderActionsBtn} onClick={toggle}>
-                    <span>Actions</span>
-                    <svg className={`${styles.mobileViewChevron} ${open ? styles.mobileViewChevronOpen : ''}`}
-                      width="10" height="10" viewBox="0 0 10 10" fill="none"
-                      stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <polyline points="2,3 5,6.5 8,3" />
-                    </svg>
-                  </button>
-                )}
-              >
-                {({ close }) => (
-                  <div className={uiStyles.responsiveMenuList}>
-                    <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowExport(true); close() }}>
-                      <span>Export</span>
-                    </button>
-                    <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowAddCard(true); close() }}>
-                      <span>Add Cards</span>
-                    </button>
-                  </div>
-                )}
-              </ResponsiveMenu>
             </div>
           </div>
         </div>
@@ -871,6 +856,10 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
         filters={filters} setFilters={setFilters}
         selectMode={selectMode}
         onToggleSelectMode={toggleSelectMode}
+        filterOpen={filterOpen}
+        onFilterOpenChange={setFilterOpen}
+        hideActionsMobile
+        hideSortFilterMobile
       />
 
       {/* ── Control bar ── */}
@@ -883,6 +872,15 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
           setViewMode={setViewMode}
           groupBy={groupBy}
           setGroupBy={setGroupBy}
+          selectMode={selectMode}
+          sort={sort}
+          setSort={setSort}
+          filters={filters}
+          filterOpen={filterOpen}
+          onToggleFilters={() => setFilterOpen(v => !v)}
+          onAddCards={() => setShowAddCard(true)}
+          onImport={!isAllView ? () => setShowImport(true) : undefined}
+          onExport={() => setShowExport(true)}
         />
       </div>
 
@@ -903,6 +901,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
           onDelete={handleBulkDelete}
           onMoveToFolder={handleMoveToFolder}
           folders={moveFolders}
+          floatingMobile
           onCreateFolder={async (type, name) => {
             const { data: newFolder } = await sb.from('folders')
               .insert({ name, type, user_id: user.id }).select().single()
@@ -967,6 +966,20 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
               else await putFolderCards(result.placements)
             }
             setShowAddCard(false)
+            setReloadKey(v => v + 1)
+            onCardAdded?.()
+          }}
+        />
+      )}
+      {showImport && user && !isAllView && (
+        <ImportModal
+          userId={user.id}
+          folderType={folder.type}
+          folders={[folder]}
+          defaultFolderId={folder.id}
+          onClose={() => setShowImport(false)}
+          onSaved={() => {
+            setShowImport(false)
             setReloadKey(v => v + 1)
             onCardAdded?.()
           }}
@@ -1407,12 +1420,13 @@ export default function FoldersPage({ type }) {
       // Join card data from IDB
       const uniqueCardIds = [...new Set(allRows.map(r => r.card_id).filter(Boolean))]
       const localCards = await getCardsByIds(uniqueCardIds)
-      const cardById = Object.fromEntries(localCards.map(c => [c.id, c]))
+      const cardById = new Map(localCards.map(c => [c.id, c]))
+      const folderById = new Map(folders.map(f => [f.id, f]))
 
       const cards = allRows.map(row => {
         const folderId = row.deck_id || row.folder_id
-        const folder = folders.find(f => f.id === folderId)
-        const card = cardById[row.card_id]
+        const folder = folderById.get(folderId)
+        const card = cardById.get(row.card_id)
         if (!card) return null
         return { ...card, _folder_qty: row.qty, _folderName: folder?.name || '', _folderType: folder?.type || type }
       }).filter(Boolean)
@@ -1436,61 +1450,129 @@ export default function FoldersPage({ type }) {
     setFolders(prev => prev.map(f => f.id === folder.id ? { ...f, description: descStr } : f))
   }, [])
 
+  // Holds the IDB-joined rows + card map so the price-only effect can recompute values
+  // when price_source changes without re-walking IDB.
+  const folderJoinRef = useRef({ allRows: [], cardById: {}, foldersData: [] })
+
+  // Bumped after sfMap arrives, so the price-only effect recomputes values.
+  const [sfMapVersion, setSfMapVersion] = useState(0)
+
+  const computeMetaCounts = useCallback((foldersData, allRows) => {
+    const meta = {}
+    for (const f of foldersData) meta[f.id] = { count: 0, totalQty: 0, value: null }
+    for (const row of allRows) {
+      const folderId = row.deck_id || row.folder_id
+      const m = meta[folderId]
+      if (!m) continue
+      m.count++
+      m.totalQty += row.qty || 1
+    }
+    return meta
+  }, [])
+
   const loadFolders = useCallback(async () => {
-    setLoading(true)
-    const { data: foldersData } = await sb
+    // Phase 0 — instant paint from React Query cache (already hydrated by idbQueryBridge)
+    // and the persisted folder meta cache (last-known counts + values).
+    let seeded = false
+    const cachedFolders = queryClient.getQueryData(['folders', user.id])
+    if (cachedFolders?.length) {
+      const cachedTyped = cachedFolders
+        .filter(f => f.type === type)
+        .slice()
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+      if (cachedTyped.length) {
+        setFolders(cachedTyped)
+        const cachedPlacements = queryClient.getQueryData(['folderPlacements', user.id])
+        const idSet = new Set(cachedTyped.map(f => f.id))
+        const cachedRows = cachedPlacements
+          ? (type === 'deck'
+              ? (cachedPlacements.deckAllocations || []).filter(r => idSet.has(r.deck_id))
+              : (cachedPlacements.folderCards || []).filter(r => idSet.has(r.folder_id)))
+          : []
+        const seedMeta = computeMetaCounts(cachedTyped, cachedRows)
+        // Overlay last-known values from the persisted meta cache so the user
+        // sees real $ values on the index, not "—". Only trust the cached values
+        // if they were computed with the same price_source the user has set now.
+        try {
+          const persisted = await getFolderMetaCache(user.id, type)
+          if (persisted?.meta && persisted.priceSource === price_source) {
+            for (const folderId of Object.keys(seedMeta)) {
+              const cachedVal = persisted.meta[folderId]?.value
+              if (cachedVal != null) seedMeta[folderId].value = cachedVal
+            }
+          }
+        } catch {}
+        setFolderMeta(seedMeta)
+        if (cachedPlacements) {
+          setLoading(false)
+          seeded = true
+        }
+      }
+    }
+
+    if (!seeded) setLoading(true)
+
+    const { data: foldersData, error: foldersError } = await sb
       .from('folders').select('*')
       .eq('user_id', user.id).eq('type', type).order('name')
 
-    if (!foldersData?.length) { setFolders([]); setFolderMeta({}); setLoading(false); return }
+    // Network/RLS error: keep cached folders on screen rather than wiping them.
+    if (foldersError) { if (!seeded) setLoading(false); return }
+    if (!foldersData?.length) {
+      folderJoinRef.current = { allRows: [], cardById: {}, foldersData: [] }
+      setFolders([]); setFolderMeta({}); setLoading(false); return
+    }
     setFolders(foldersData)
 
     const ids = foldersData.map(f => f.id)
 
-    // Phase A: read counts from IDB — fast, no network
+    // Phase A: read counts from IDB — fast, no network. Single bulk transaction either way.
     const allRows = type === 'deck'
-      ? (await Promise.all(ids.map(id => getDeckAllocations(id)))).flat()
+      ? await getAllDeckAllocationsForFolders(ids)
       : await getAllLocalFolderCards(ids)
 
     const uniqueCardIds = [...new Set(allRows.map(r => r.card_id).filter(Boolean))]
     const localCards = await getCardsByIds(uniqueCardIds)
     const cardById = Object.fromEntries(localCards.map(c => [c.id, c]))
 
-    // Show folder grid immediately with counts; values show "—" until prices load
-    const metaCounts = {}
-    for (const f of foldersData) metaCounts[f.id] = { count: 0, totalQty: 0, value: null }
-    for (const row of allRows) {
-      const folderId = row.deck_id || row.folder_id
-      const m = metaCounts[folderId]
-      if (!m) continue
-      m.count++
-      m.totalQty += row.qty || 1
-    }
-    setFolderMeta(metaCounts)
+    folderJoinRef.current = { allRows, cardById, foldersData }
+    setFolderMeta(computeMetaCounts(foldersData, allRows))
     setLoading(false)
 
-    // Phase B: load prices in background and fill in values
+    // Phase B: load prices in background and fill in values (consumed by the price-only effect below)
+    if (!uniqueCardIds.length) return
     const priceCards = uniqueCardIds.map(id => cardById[id]).filter(Boolean)
     if (!priceCards.length) return
     const sfMap = await loadCardMapWithSharedPrices(priceCards, { priceLookup: 'set' })
     if (!sfMap) return
-    const metaWithPrices = {}
-    for (const f of foldersData) metaWithPrices[f.id] = { ...metaCounts[f.id], value: 0 }
-    for (const row of allRows) {
-      const folderId = row.deck_id || row.folder_id
-      const m = metaWithPrices[folderId]
-      if (!m) continue
-      const card = cardById[row.card_id]
-      if (card) {
-        const sf = sfMap[getScryfallKey(card)]
-        const p  = getPrice(sf, card.foil, { price_source }) ?? (parseFloat(card.purchase_price) || null)
-        if (p != null) m.value += p * (row.qty || 1)
-      }
-    }
-    setFolderMeta(metaWithPrices)
-  }, [user.id, type, price_source])
+    folderJoinRef.current = { ...folderJoinRef.current, sfMap }
+    setSfMapVersion(v => v + 1)
+  }, [user.id, type, computeMetaCounts])
 
   useEffect(() => { loadFolders() }, [loadFolders])
+
+  // Price phase — recomputes folder values when price_source changes without re-walking IDB.
+  useEffect(() => {
+    const { allRows, cardById, foldersData, sfMap } = folderJoinRef.current
+    if (!sfMap || !foldersData?.length) return
+    const next = {}
+    for (const f of foldersData) next[f.id] = { count: 0, totalQty: 0, value: 0 }
+    for (const row of allRows) {
+      const folderId = row.deck_id || row.folder_id
+      const m = next[folderId]
+      if (!m) continue
+      m.count++
+      m.totalQty += row.qty || 1
+      const card = cardById[row.card_id]
+      if (!card) continue
+      const sf = sfMap[getScryfallKey(card)]
+      const p  = getPrice(sf, card.foil, { price_source }) ?? (parseFloat(card.purchase_price) || null)
+      if (p != null) m.value += p * (row.qty || 1)
+    }
+    setFolderMeta(next)
+    // Persist for instant paint on next visit.
+    setFolderMetaCache(user.id, type, next, price_source).catch(() => {})
+  }, [sfMapVersion, price_source, user.id, type])
 
   // Auto-open folder from URL param
   useEffect(() => {

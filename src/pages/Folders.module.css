@@ -855,9 +855,6 @@
   gap: 12px;
   flex-wrap: wrap;
 }
-.browserHeaderActionsMobile {
-  display: none;
-}
 .addCardsBtn {
   display: inline-flex;
   align-items: center;
@@ -880,7 +877,6 @@
   background: rgba(201,168,76,0.2);
   border-color: rgba(201,168,76,0.55);
 }
-.mobileHeaderActionsBtn,
 .mobileViewBtn {
   display: inline-flex;
   align-items: center;
@@ -900,7 +896,6 @@
   white-space: nowrap;
   gap: 8px;
 }
-.mobileHeaderActionsBtn:hover,
 .mobileViewBtn:hover {
   background: rgba(201,168,76,0.2);
   border-color: rgba(201,168,76,0.55);
@@ -1220,10 +1215,6 @@
   .browserHeaderActionsDesktop {
     display: none;
   }
-  .browserHeaderActionsMobile {
-    display: flex;
-    min-width: 0;
-  }
   .browserControlsDesktop {
     display: none;
   }
@@ -1240,7 +1231,6 @@
   .binderCount {
     min-width: 0;
   }
-  .mobileHeaderActionsBtn,
   .mobileViewBtn {
     height: 32px;
     min-width: 0;

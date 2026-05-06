@@ -1,13 +1,16 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { sb } from '../lib/supabase'
+import { getLocalFolders, getLocalListItems, getAllLocalListItemsForFolders, putListItems, replaceLocalListItems, deleteListItemsByIds, getFolderMetaCache, setFolderMetaCache } from '../lib/db'
+import { queryClient } from '../lib/queryClient'
 import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { useToast } from '../components/ToastContext'
 import { EmptyState, SectionHeader, Modal, ResponsiveHeaderActions, ResponsiveMenu, Button } from '../components/UI'
-import { CardGrid, CardDetail, FilterBar, BulkActionBar, applyFilterSort, EMPTY_FILTERS } from '../components/CardComponents'
+import { CardGrid, CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
 import { useLongPress } from '../hooks/useLongPress'
+import { useFilterWorker } from '../hooks/useFilterWorker'
 import AddCardModal from '../components/AddCardModal'
 import ImportModal from '../components/ImportModal'
 import ExportModal from '../components/ExportModal'
@@ -221,6 +224,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
   const [showExport, setShowExport]       = useState(false)
   const [viewMode, setViewMode]           = useState('grid')
   const [groupBy, setGroupBy]             = useState('none')
+  const [filterOpen, setFilterOpen]       = useState(false)
   const [selectedItemId, setSelectedItemId] = useState(null)
   const [hoverImg, setHoverImg]           = useState(null)
   const [hoverPos, setHoverPos]           = useState({ x: 0, y: 0 })
@@ -236,26 +240,51 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
   const handleMouseMove = useCallback((e) => setHoverPos({ x: e.clientX, y: e.clientY }), [])
 
   const reload = useCallback(async () => {
-    setLoading(true)
+    // Phase A — IDB-first read for instant paint.
+    let seeded = false
+    try {
+      const localRows = isAllView
+        ? (folderIds.length ? await getAllLocalListItemsForFolders(folderIds) : [])
+        : await getLocalListItems(folder.id)
+      if (localRows.length) {
+        const sorted = [...localRows].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+        setItems(sorted)
+        const map = await loadCardMapWithSharedPrices(sorted, { priceLookup: 'set' })
+        if (map) setSfMap({ ...map })
+        setLoading(false)
+        seeded = true
+      }
+    } catch {}
+
+    if (!seeded) setLoading(true)
+
+    // Phase B — Supabase reconcile.
     let rows = []
+    let networkError = false
     if (isAllView) {
       if (folderIds.length) {
         let from = 0
         while (true) {
-          const { data } = await sb.from('list_items')
+          const { data, error } = await sb.from('list_items')
             .select('*')
             .in('folder_id', folderIds)
             .order('name')
             .range(from, from + 999)
+          if (error) { networkError = true; break }
           if (data?.length) rows = [...rows, ...data]
           if (!data || data.length < 1000) break
           from += 1000
         }
       }
     } else {
-      const { data } = await sb.from('list_items').select('*').eq('folder_id', folder.id).order('name')
-      if (data?.length) rows = data
+      const { data, error } = await sb.from('list_items').select('*').eq('folder_id', folder.id).order('name')
+      if (error) networkError = true
+      else if (data?.length) rows = data
     }
+
+    // Network error: keep seeded data on screen, never wipe.
+    if (networkError) { if (!seeded) setLoading(false); return }
+
     setItems(rows)
     if (rows.length) {
       const map = await loadCardMapWithSharedPrices(rows, { priceLookup: 'set' })
@@ -264,6 +293,15 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
       setSfMap({})
     }
     setLoading(false)
+
+    // Phase C — Mirror fresh server state into IDB so next mount paints instantly.
+    try {
+      if (isAllView) {
+        if (folderIds.length) await replaceLocalListItems(folderIds, rows)
+      } else {
+        await replaceLocalListItems([folder.id], rows)
+      }
+    } catch {}
   }, [folder?.id, folderIds, isAllView])
 
   useEffect(() => { reload() }, [reload])
@@ -277,17 +315,27 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
       )
       return
     }
-    sb.from('folders').select('id, name, type, description').eq('user_id', user.id).eq('type', 'list').then(({ data }) => {
-      const regular = (data || []).filter(f => !isGroupFolder(f))
-      setAllFolders(isAllView ? regular : regular.filter(f => f.id !== folder.id))
-    })
+    let cancelled = false
+    getLocalFolders(user.id)
+      .then(data => {
+        if (cancelled) return
+        const regular = (data || []).filter(f => f.type === 'list' && !isGroupFolder(f))
+        setAllFolders(isAllView ? regular : regular.filter(f => f.id !== folder.id))
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
   }, [user.id, folder?.id, folders, isAllView])
 
-  const filtered = useMemo(
-    () => applyFilterSort(items, sfMap, search, sort, filters),
-    [items, sfMap, search, sort, filters]
-  )
-  const selectedItem = selectedItemId ? items.find(item => item.id === selectedItemId) : null
+  const itemById = useMemo(() => {
+    const m = new Map()
+    for (const item of items) {
+      if (item?.id != null) m.set(item.id, item)
+    }
+    return m
+  }, [items])
+
+  const filtered = useFilterWorker({ cards: items, sfMap, search, sort, filters, priceSource: price_source })
+  const selectedItem = selectedItemId ? (itemById.get(selectedItemId) ?? null) : null
   const selectedSf = selectedItem ? sfMap[`${selectedItem.set_code}-${selectedItem.collector_number}`] : null
 
   const { totalValue, totalQty } = useMemo(() => {
@@ -339,6 +387,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
   const handleDelete = async (id) => {
     await sb.from('list_items').delete().eq('id', id)
     setItems(prev => prev.filter(i => i.id !== id))
+    try { await deleteListItemsByIds([id]) } catch {}
     toast.success('Deleted 1 wishlist item.')
   }
 
@@ -346,7 +395,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
     const deleteCount = [...selectedItems].reduce((sum, id) => sum + (splitState.get(id) ?? 1), 0)
     const toDelete = [], toUpdate = []
     for (const id of selectedItems) {
-      const item = items.find(i => i.id === id)
+      const item = itemById.get(id)
       const totalQty = item?.qty || 1
       const selQty = splitState.get(id) ?? 1
       const remaining = totalQty - selQty
@@ -361,6 +410,19 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
       const upd = toUpdate.find(u => u.id === i.id)
       return upd ? { ...i, qty: upd.remaining } : i
     }).filter(Boolean))
+    // Mirror to IDB so a tab reload paints the post-delete state instantly.
+    try {
+      if (toDelete.length) await deleteListItemsByIds(toDelete)
+      if (toUpdate.length) {
+        const updatedRows = toUpdate
+          .map(({ id, remaining }) => {
+            const existing = itemById.get(id)
+            return existing ? { ...existing, qty: remaining } : null
+          })
+          .filter(Boolean)
+        if (updatedRows.length) await putListItems(updatedRows)
+      }
+    } catch {}
     setSelectedItems(new Set()); setSplitState(new Map()); setSelectMode(false)
     toast.success(`Deleted ${deleteCount} ${deleteCount === 1 ? 'wishlist item' : 'wishlist items'}.`)
   }
@@ -371,7 +433,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
     const upsertMap = new Map()
 
     for (const id of selectedItems) {
-      const item = items.find(i => i.id === id)
+      const item = itemById.get(id)
       if (!item) continue
       if (item.folder_id === targetFolder.id) continue
       const totalQty = item.qty || 1
@@ -451,35 +513,6 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
               {!isAllView && <Button variant="secondary" size="sm" onClick={() => setShowImport(true)}>↑ Import</Button>}
               <Button size="sm" onClick={() => setShowAddCard(true)}>+ Add Cards</Button>
             </div>
-            <div className={styles.browserHeaderActionsMobile}>
-              <ResponsiveMenu
-                title="Wishlist Actions"
-                trigger={({ open, toggle }) => (
-                  <button className={styles.mobileHeaderActionsBtn} onClick={toggle}>
-                    <span>Actions</span>
-                    <svg className={`${styles.mobileViewChevron} ${open ? styles.mobileViewChevronOpen : ''}`}
-                      width="10" height="10" viewBox="0 0 10 10" fill="none"
-                      stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <polyline points="2,3 5,6.5 8,3" />
-                    </svg>
-                  </button>
-                )}
-              >
-                {({ close }) => (
-                  <div className={uiStyles.responsiveMenuList}>
-                    <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowExport(true); close() }}>
-                      <span>Export</span>
-                    </button>
-                    {!isAllView && <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowImport(true); close() }}>
-                      <span>Import</span>
-                    </button>}
-                    <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowAddCard(true); close() }}>
-                      <span>Add Cards</span>
-                    </button>
-                  </div>
-                )}
-              </ResponsiveMenu>
-            </div>
           </div>
         </div>
       </div>
@@ -490,6 +523,10 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
         filters={filters} setFilters={setFilters}
         selectMode={selectMode}
         onToggleSelectMode={toggleSelectMode}
+        filterOpen={filterOpen}
+        onFilterOpenChange={setFilterOpen}
+        hideActionsMobile
+        hideSortFilterMobile
       />
 
       {/* ── Control bar ── */}
@@ -502,6 +539,15 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
           setViewMode={setViewMode}
           groupBy={groupBy}
           setGroupBy={setGroupBy}
+          selectMode={selectMode}
+          sort={sort}
+          setSort={setSort}
+          filters={filters}
+          filterOpen={filterOpen}
+          onToggleFilters={() => setFilterOpen(v => !v)}
+          onAddCards={() => setShowAddCard(true)}
+          onImport={!isAllView ? () => setShowImport(true) : undefined}
+          onExport={() => setShowExport(true)}
         />
         {false && (
         <>
@@ -558,6 +604,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
           onMoveToFolder={handleMoveToWishlist}
           folders={allFolders}
           allowedFolderTypes={['list']}
+          floatingMobile
           onCreateFolder={async (_type, name) => {
             const { data: newFolder } = await sb.from('folders')
               .insert({ user_id: user.id, type: 'list', name })
@@ -944,8 +991,9 @@ export default function ListsPage() {
         if (!page || page.length < 1000) break
         from += 1000
       }
+      const folderById = new Map(folders.map(f => [f.id, f]))
       const cards = allItems.map(item => {
-        const folder = folders.find(f => f.id === item.folder_id)
+        const folder = folderById.get(item.folder_id)
         return { ...item, _folder_qty: item.qty, _folderName: folder?.name || '', _folderType: 'list' }
       })
       const sfMap = cards.length ? await loadCardMapWithSharedPrices(cards, { priceLookup: 'set' }) : {}
@@ -966,43 +1014,110 @@ export default function ListsPage() {
     setFolders(prev => prev.map(f => f.id === folder.id ? { ...f, description: descStr } : f))
   }, [])
 
-  const loadFolders = useCallback(async () => {
-    setLoading(true)
-    const { data: foldersData } = await sb
-      .from('folders').select('*')
-      .eq('user_id', user.id).eq('type', 'list').order('name')
-
-    if (!foldersData?.length) { setFolders([]); setFolderMeta({}); setLoading(false); return }
-    setFolders(foldersData)
-
-    const ids = foldersData.map(f => f.id)
-    let allItems = [], from = 0
-    while (true) {
-      const { data: page } = await sb
-        .from('list_items')
-        .select('folder_id, qty, set_code, collector_number, foil')
-        .in('folder_id', ids)
-        .range(from, from + 999)
-      if (page?.length) allItems = [...allItems, ...page]
-      if (!page || page.length < 1000) break
-      from += 1000
-    }
-
-    const sfMap = allItems.length ? await loadCardMapWithSharedPrices(allItems, { priceLookup: 'set' }) : {}
-    const meta  = {}
+  const computeListMeta = useCallback((foldersData, items, sfMap) => {
+    const meta = {}
     for (const f of foldersData) meta[f.id] = { count: 0, totalQty: 0, value: 0 }
-    for (const row of allItems) {
+    for (const row of items) {
       const m = meta[row.folder_id]
       if (!m) continue
       m.count++
       m.totalQty += row.qty || 1
       const sf = sfMap[`${row.set_code}-${row.collector_number}`]
-      const p  = getPrice(sf, row.foil, { price_source })
+      const p  = sf ? getPrice(sf, row.foil, { price_source }) : null
       if (p != null) m.value += p * (row.qty || 1)
     }
-    setFolderMeta(meta)
+    return meta
+  }, [price_source])
+
+  const loadFolders = useCallback(async () => {
+    // Phase 0 — instant paint of the folder grid + meta from React Query cache + IDB.
+    let seeded = false
+    const cachedFolders = queryClient.getQueryData(['folders', user.id])
+    let cachedTyped = []
+    if (cachedFolders?.length) {
+      cachedTyped = cachedFolders
+        .filter(f => f.type === 'list')
+        .slice()
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+      if (cachedTyped.length) {
+        setFolders(cachedTyped)
+        seeded = true
+      }
+    }
+
+    if (seeded) {
+      // Step 1 — instantly paint last-known meta from the persisted cache so $ values
+      // show up before the IDB walk + sfMap load complete.
+      try {
+        const persisted = await getFolderMetaCache(user.id, 'list')
+        if (persisted?.meta && persisted.priceSource === price_source) {
+          const seedMeta = {}
+          for (const f of cachedTyped) {
+            const cached = persisted.meta[f.id]
+            seedMeta[f.id] = cached
+              ? { count: cached.count || 0, totalQty: cached.totalQty || 0, value: cached.value ?? null }
+              : { count: 0, totalQty: 0, value: null }
+          }
+          setFolderMeta(seedMeta)
+          setLoading(false)
+        }
+      } catch {}
+
+      // Step 2 — recompute from local IDB items + sfMap (Scryfall metadata cache is in-memory).
+      try {
+        const localItems = await getAllLocalListItemsForFolders(cachedTyped.map(f => f.id))
+        if (localItems.length) {
+          const sfMap = await loadCardMapWithSharedPrices(localItems, { priceLookup: 'set' }) || {}
+          const recomputed = computeListMeta(cachedTyped, localItems, sfMap)
+          setFolderMeta(recomputed)
+          setFolderMetaCache(user.id, 'list', recomputed, price_source).catch(() => {})
+        } else {
+          const placeholder = {}
+          for (const f of cachedTyped) placeholder[f.id] = { count: 0, totalQty: 0, value: 0 }
+          setFolderMeta(placeholder)
+        }
+        setLoading(false)
+      } catch {}
+    } else {
+      setLoading(true)
+    }
+
+    // Phase 1 — Supabase reconcile.
+    const { data: foldersData, error: foldersError } = await sb
+      .from('folders').select('*')
+      .eq('user_id', user.id).eq('type', 'list').order('name')
+
+    if (foldersError) { if (!seeded) setLoading(false); return }
+    if (!foldersData?.length) { setFolders([]); setFolderMeta({}); setLoading(false); return }
+    setFolders(foldersData)
+
+    const ids = foldersData.map(f => f.id)
+    let allItems = [], from = 0
+    let itemsError = false
+    while (true) {
+      const { data: page, error } = await sb
+        .from('list_items')
+        .select('*')
+        .in('folder_id', ids)
+        .range(from, from + 999)
+      if (error) { itemsError = true; break }
+      if (page?.length) allItems = [...allItems, ...page]
+      if (!page || page.length < 1000) break
+      from += 1000
+    }
+
+    // Network error: keep seeded counts/values, don't overwrite with empty.
+    if (itemsError) { setLoading(false); return }
+
+    const sfMap = allItems.length ? (await loadCardMapWithSharedPrices(allItems, { priceLookup: 'set' }) || {}) : {}
+    const freshMeta = computeListMeta(foldersData, allItems, sfMap)
+    setFolderMeta(freshMeta)
     setLoading(false)
-  }, [user.id, price_source])
+
+    // Phase 2 — Mirror fresh server items + meta into IDB.
+    try { await replaceLocalListItems(ids, allItems) } catch {}
+    setFolderMetaCache(user.id, 'list', freshMeta, price_source).catch(() => {})
+  }, [user.id, price_source, computeListMeta])
 
   useEffect(() => { loadFolders() }, [loadFolders])
 
@@ -1010,6 +1125,7 @@ export default function ListsPage() {
     await sb.from('list_items').delete().eq('folder_id', folder.id)
     await sb.from('folders').delete().eq('id', folder.id)
     setFolders(prev => prev.filter(f => f.id !== folder.id))
+    try { await replaceLocalListItems([folder.id], []) } catch {}
   }
 
   const renameFolder = useCallback(async (folder, newName) => {
@@ -1032,6 +1148,7 @@ export default function ListsPage() {
       await sb.from('list_items').delete().eq('folder_id', f.id)
       await sb.from('folders').delete().eq('id', f.id)
     }))
+    try { await replaceLocalListItems(selected.map(f => f.id), []) } catch {}
     setFolders(prev => prev.filter(f => !selectedIds.has(f.id)))
     setSelectedIds(new Set())
     setSelectMode(false)
