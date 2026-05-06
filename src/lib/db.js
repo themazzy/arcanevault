@@ -13,7 +13,7 @@
 import { openDB } from 'idb'
 
 const DB_NAME    = 'arcanevault'
-const DB_VERSION = 7
+const DB_VERSION = 8
 const SCRYFALL_METADATA_UPDATED_AT_KEY = 'scryfall_metadata_updated_at'
 const LEGACY_SCRYFALL_PRICES_UPDATED_AT_KEY = 'scryfall_prices_updated_at'
 
@@ -92,6 +92,13 @@ async function getDb() {
         da.createIndex('deck_id', 'deck_id')
         da.createIndex('card_id', 'card_id')
         da.createIndex('user_id', 'user_id')
+      }
+
+      // list_items store (v8) — wishlist items mirrored from Supabase for instant offline reads
+      if (!db.objectStoreNames.contains('list_items')) {
+        const li = db.createObjectStore('list_items', { keyPath: 'id' })
+        li.createIndex('folder_id', 'folder_id')
+        li.createIndex('user_id', 'user_id')
       }
     }
   })
@@ -406,6 +413,22 @@ export async function getAllDeckAllocationsForUser(userId) {
   return db.getAllFromIndex('deck_allocations', 'user_id', userId)
 }
 
+// Bulk read deck_allocations for many deck ids in a single transaction.
+// Single readonly transaction, one cursor scan filtered by deck_id Set — far cheaper
+// than opening N independent transactions when listing many decks at once.
+export async function getAllDeckAllocationsForFolders(deckIds) {
+  if (!deckIds?.length) return []
+  const ids = new Set(deckIds.filter(Boolean))
+  if (!ids.size) return []
+  const db = await getDb()
+  const tx = db.transaction('deck_allocations', 'readonly')
+  const results = await Promise.all(
+    [...ids].map(id => tx.store.index('deck_id').getAll(id))
+  )
+  await tx.done
+  return results.flat()
+}
+
 export async function putDeckAllocations(rows) {
   if (!rows?.length) return
   const db = await getDb()
@@ -460,11 +483,88 @@ export async function replaceDeckAllocations(deckIds, rows) {
   await tx.done
 }
 
+// ── List items (wishlists) ────────────────────────────────────────────────────
+
+export async function getLocalListItems(folderId) {
+  if (!folderId) return []
+  const db = await getDb()
+  return db.getAllFromIndex('list_items', 'folder_id', folderId)
+}
+
+export async function getAllLocalListItems(userId) {
+  if (!userId) return []
+  const db = await getDb()
+  return db.getAllFromIndex('list_items', 'user_id', userId)
+}
+
+export async function getAllLocalListItemsForFolders(folderIds) {
+  if (!folderIds?.length) return []
+  const ids = new Set(folderIds.filter(Boolean))
+  if (!ids.size) return []
+  const db = await getDb()
+  const tx = db.transaction('list_items', 'readonly')
+  const results = await Promise.all(
+    [...ids].map(id => tx.store.index('folder_id').getAll(id))
+  )
+  await tx.done
+  return results.flat()
+}
+
+export async function putListItems(rows) {
+  if (!rows?.length) return
+  const db = await getDb()
+  const tx = db.transaction('list_items', 'readwrite')
+  await Promise.all([...rows.map(r => tx.store.put(r)), tx.done])
+}
+
+export async function deleteListItemsByIds(ids) {
+  const uniqueIds = [...new Set((ids || []).filter(Boolean))]
+  if (!uniqueIds.length) return
+  const db = await getDb()
+  const tx = db.transaction('list_items', 'readwrite')
+  await Promise.all([
+    ...uniqueIds.map(id => tx.store.delete(id)),
+    tx.done,
+  ])
+}
+
+export async function replaceLocalListItems(folderIds, rows) {
+  const ids = [...new Set((folderIds || []).filter(Boolean))]
+  const db = await getDb()
+  const tx = db.transaction('list_items', 'readwrite')
+  for (const folderId of ids) {
+    const existing = await tx.store.index('folder_id').getAll(folderId)
+    for (const row of existing) await tx.store.delete(row.id)
+  }
+  for (const row of rows || []) await tx.store.put(row)
+  await tx.done
+}
+
+// ── Folder meta cache (counts + values per folder, persisted) ────────────────
+// Lets the index page paint last-known counts/values immediately on revisit
+// instead of showing "—" while prices reload. Keyed by (userId, type) with the
+// priceSource captured so stale values can be invalidated when the user swaps
+// currency settings.
+
+function folderMetaKey(userId, type) {
+  return `folder_meta_${userId}_${type}`
+}
+
+export async function getFolderMetaCache(userId, type) {
+  if (!userId || !type) return null
+  return await getMeta(folderMetaKey(userId, type))
+}
+
+export async function setFolderMetaCache(userId, type, meta, priceSource) {
+  if (!userId || !type || !meta) return
+  await setMeta(folderMetaKey(userId, type), { meta, priceSource, savedAt: Date.now() })
+}
+
 // ── Diagnostics ───────────────────────────────────────────────────────────────
 
 export async function getDbStats() {
   const db = await getDb()
-  const [cards, folders, folderCards, scryfall, deckCards, cardPrints, deckAllocations, cardPrices] = await Promise.all([
+  const [cards, folders, folderCards, scryfall, deckCards, cardPrints, deckAllocations, cardPrices, listItems] = await Promise.all([
     db.count('cards'),
     db.count('folders'),
     db.count('folder_cards'),
@@ -473,7 +573,8 @@ export async function getDbStats() {
     db.count('card_prints'),
     db.count('deck_allocations'),
     db.count('card_prices'),
+    db.count('list_items'),
   ])
   const sfInfo = await getScryfallCacheInfo()
-  return { cards, folders, folderCards, scryfall, deckCards, cardPrints, deckAllocations, cardPrices, sfUpdatedAt: sfInfo.updatedAt }
+  return { cards, folders, folderCards, scryfall, deckCards, cardPrints, deckAllocations, cardPrices, listItems, sfUpdatedAt: sfInfo.updatedAt }
 }

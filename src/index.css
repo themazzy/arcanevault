@@ -55,6 +55,8 @@
   --control-padding-x: 13px;
   --control-font-size: 0.72rem;
   --control-letter-spacing: 0.04em;
+  /* Mobile floating action bar (browser controls / bulk action) — gutter cards must reserve so they're not covered */
+  --mobile-floating-bar-height: 76px;
   --card-name-size: 0.68rem;
   --card-name-size-tight: 0.6rem;
   --card-name-size-list: 0.88rem;

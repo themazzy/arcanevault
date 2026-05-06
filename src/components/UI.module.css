@@ -579,7 +579,7 @@
     overscroll-behavior-x: contain;
     scrollbar-width: none;
     border: 1px solid color-mix(in srgb, var(--gold) 32%, transparent);
-    border-radius: 999px;
+    border-radius: 12px;
     background:
       linear-gradient(180deg,
         color-mix(in srgb, var(--bg2) 80%, transparent),
@@ -603,7 +603,7 @@
     width: auto;
     height: 34px;
     min-height: 34px;
-    border-radius: 999px;
+    border-radius: 7px;
     white-space: nowrap;
   }
 

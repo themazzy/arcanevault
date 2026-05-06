@@ -6,22 +6,21 @@ import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { useSettings } from '../components/SettingsContext'
 import { useAuth } from '../components/Auth'
 import { useToast } from '../components/ToastContext'
-import { CardDetail, FilterBar, BulkActionBar, applyFilterSort, EMPTY_FILTERS } from '../components/CardComponents'
-import { EmptyState, Badge, ResponsiveMenu } from '../components/UI'
+import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
+import { EmptyState, Badge } from '../components/UI'
 import AddCardModal from '../components/AddCardModal'
 import ExportModal from '../components/ExportModal'
 import ImportModal from '../components/ImportModal'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import styles from './DeckBrowser.module.css'
-import uiStyles from '../components/UI.module.css'
-import { ChevronDownIcon, ChevronUpIcon, GridViewIcon, ListViewIcon, StacksViewIcon, TableViewIcon, TextViewIcon } from '../icons'
 import { parseDeckMeta, serializeDeckMeta } from '../lib/deckBuilderApi'
 import { buildSyncDiff, getSyncState, markLinkedPairUnsynced, summarizeSyncDiff, withLinkedPair, writeSyncState } from '../lib/deckSync'
 import { useLongPress } from '../hooks/useLongPress'
+import { useFilterWorker } from '../hooks/useFilterWorker'
 import { lastInputWasTouch } from '../lib/inputType'
 import { getPlacedQtyByCardIds, pruneUnplacedCards } from '../lib/collectionOwnership'
 import { fetchDeckAllocations, fetchDeckCards } from '../lib/deckData'
-import { getDeckAllocations, getCardsByIds, replaceDeckAllocations, putCards, putDeckAllocations, putFolderCards, replaceLocalFolderCards } from '../lib/db'
+import { getDeckAllocations, getCardsByIds, getLocalFolders, replaceDeckAllocations, putCards, putDeckAllocations, putFolderCards, replaceLocalFolderCards } from '../lib/db'
 
 const CAN_HOVER = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover) and (pointer: fine)').matches
 
@@ -698,6 +697,7 @@ export default function DeckBrowser({ folder, onBack }) {
   const [search, setSearch]     = useState('')
   const [sort, setSort]         = useState('cmc_asc')
   const [filters, setFilters]   = useState({ ...EMPTY_FILTERS })
+  const [filterOpen, setFilterOpen] = useState(false)
   // Select mode
   const [selectMode, setSelectMode]       = useState(false)
   const [selectedCards, setSelectedCards] = useState(new Set())
@@ -834,6 +834,8 @@ export default function DeckBrowser({ folder, onBack }) {
         .filter(a => cardById[a.card_id])
         .map(a => ({ ...cardById[a.card_id], _folder_qty: a.qty, _allocation_id: a.id }))
       setCards(cardList)
+      // Drop the spinner as soon as cards are on screen — remote reconcile can run async.
+      setLoading(false)
       const map = await loadCardMapWithSharedPrices(cardList)
       if (map) setSfMap({ ...map })
     } else {
@@ -922,12 +924,13 @@ export default function DeckBrowser({ folder, onBack }) {
     return () => { cancelled = true }
   }, [folder.id, folderDescription])
 
-  // Fetch all folders for "Move to" dropdown (RLS filters by user automatically)
+  // "Move to" dropdown — read from IDB (populated by idbQueryBridge + parent loaders)
   useEffect(() => {
+    if (!user?.id) return
     let cancelled = false
-    sb.from('folders').select('id, name, type, description').eq('user_id', user.id).then(({ data }) => {
-      if (!cancelled) setAllFolders((data || []).filter(folder => !isGroupFolder(folder)))
-    })
+    getLocalFolders(user.id)
+      .then(data => { if (!cancelled) setAllFolders((data || []).filter(folder => !isGroupFolder(folder))) })
+      .catch(() => {})
     return () => { cancelled = true }
   }, [user?.id])
 
@@ -972,7 +975,7 @@ export default function DeckBrowser({ folder, onBack }) {
     const toDelete = [], toUpdate = []
     const selectedQtyByCardId = new Map()
     for (const id of selectedCards) {
-      const card = cards.find(c => c.id === id)
+      const card = cardById.get(id)
       if (!card) continue
       const totalQty = card?._folder_qty || card?.qty || 1
       const selQty = splitState.get(id) ?? 1
@@ -987,7 +990,7 @@ export default function DeckBrowser({ folder, onBack }) {
       }
       const fullyRemovedCardIds = [...new Set(
         [...selectedCards]
-          .map(id => cards.find(c => c.id === id))
+          .map(id => cardById.get(id))
           .filter(card => card && ((card._folder_qty || card.qty || 1) - (splitState.get(card.id) ?? 1)) <= 0)
           .map(card => card.id)
       )]
@@ -997,7 +1000,7 @@ export default function DeckBrowser({ folder, onBack }) {
       const placedQtyByCardId = await getPlacedQtyByCardIds(affectedCardIds.filter(id => !prunedSet.has(id)))
       for (const cardId of affectedCardIds) {
         if (prunedSet.has(cardId)) continue
-        const card = cards.find(c => c.id === cardId)
+        const card = cardById.get(cardId)
         if (!card) continue
         const nextQty = placedQtyByCardId.get(cardId) || 0
         if (nextQty <= 0) continue
@@ -1030,7 +1033,7 @@ export default function DeckBrowser({ folder, onBack }) {
     const toDelete = [], toUpdate = []
     const insertRows = []
     for (const id of selectedCards) {
-      const card = cards.find(c => c.id === id)
+      const card = cardById.get(id)
       const totalQty = card?._folder_qty || card?.qty || 1
       const selQty = splitState.get(id) ?? 1
       const remaining = totalQty - selQty
@@ -1079,7 +1082,7 @@ export default function DeckBrowser({ folder, onBack }) {
 
   const selectedQty = useMemo(() =>
     [...selectedCards].reduce((sum, id) => {
-      const c = cards.find(c => c.id === id)
+      const c = cardById.get(id)
       const totalQty = c?._folder_qty || c?.qty || 1
       return sum + (splitState.get(id) ?? 1)
     }, 0)
@@ -1097,10 +1100,15 @@ export default function DeckBrowser({ folder, onBack }) {
     return { totalValue:v, totalQty:q }
   }, [cards, sfMap, price_source])
 
-  const filtered = useMemo(
-    () => applyFilterSort(cards, sfMap, search, sort, filters),
-    [cards, sfMap, search, sort, filters]
-  )
+  const cardById = useMemo(() => {
+    const m = new Map()
+    for (const c of cards) {
+      if (c?.id != null) m.set(c.id, c)
+    }
+    return m
+  }, [cards])
+
+  const filtered = useFilterWorker({ cards, sfMap, search, sort, filters, priceSource: price_source })
 
   // Build groups based on groupBy mode
   const { groups, groupOrder } = useMemo(() => {
@@ -1119,7 +1127,7 @@ export default function DeckBrowser({ folder, onBack }) {
     return { groups: g, groupOrder: order }
   }, [filtered, sfMap, groupBy])
 
-  const selectedCard = detailCardId ? cards.find(c => c.id === detailCardId) : null
+  const selectedCard = detailCardId ? (cardById.get(detailCardId) ?? null) : null
   const selectedSf   = selectedCard ? sfMap[getScryfallKey(selectedCard)] : null
   const handleCardSave = useCallback((updatedCard) => {
     setCards(prev => prev.map(c => c.id === updatedCard.id ? { ...c, ...updatedCard } : c))
@@ -1212,39 +1220,14 @@ export default function DeckBrowser({ folder, onBack }) {
               </button>
             </div>
             <div className={styles.headerActionsMobile}>
-              <ResponsiveMenu
-                title="Deck Actions"
-                trigger={({ open, toggle }) => (
-                  <button className={styles.mobileHeaderActionsBtn} onClick={toggle}>
-                    <span>Actions</span>
-                    <span className={`${styles.mobileControlsChevron} ${open ? styles.mobileControlsChevronOpen : ''}`} aria-hidden="true">
-                      {open ? <ChevronUpIcon size={10} /> : <ChevronDownIcon size={10} />}
-                    </span>
-                  </button>
-                )}
+              <button
+                className={styles.editInBuilderBtn}
+                onClick={openInBuilder}
+                disabled={creatingBuilderLink || isCheckingLinkedSync}
+                aria-busy={isCheckingLinkedSync}
               >
-                {({ close }) => (
-                  <div className={uiStyles.responsiveMenuList}>
-                    <button className={uiStyles.responsiveMenuAction}
-                      onClick={() => { setShowImport(true); close() }}>
-                      <span>Import</span>
-                    </button>
-                    <button className={uiStyles.responsiveMenuAction}
-                      onClick={() => { setShowExport(true); close() }}>
-                      <span>Export</span>
-                    </button>
-                    <button className={uiStyles.responsiveMenuAction}
-                      onClick={() => { setShowAddCard(true); close() }}>
-                      <span>Add Cards</span>
-                    </button>
-                    <button className={uiStyles.responsiveMenuAction}
-                      disabled={creatingBuilderLink || isCheckingLinkedSync}
-                      onClick={() => { openInBuilder(); close() }}>
-                      <span>{editInBuilderLabel}</span>
-                    </button>
-                  </div>
-                )}
-              </ResponsiveMenu>
+                {editInBuilderLabel}
+              </button>
             </div>
           </div>
         </div>
@@ -1253,7 +1236,10 @@ export default function DeckBrowser({ folder, onBack }) {
       {/* Controls */}
       <FilterBar search={search} setSearch={setSearch} sort={sort} setSort={setSort}
         filters={filters} setFilters={setFilters}
-        selectMode={selectMode} onToggleSelectMode={toggleSelectMode} />
+        selectMode={selectMode} onToggleSelectMode={toggleSelectMode}
+        filterOpen={filterOpen} onFilterOpenChange={setFilterOpen}
+        hideActionsMobile
+        hideSortFilterMobile />
 
       <div className={styles.controlBar}>
         <span className={styles.countInfo}>
@@ -1264,6 +1250,15 @@ export default function DeckBrowser({ folder, onBack }) {
           setViewMode={setViewMode}
           groupBy={groupBy}
           setGroupBy={setGroupBy}
+          selectMode={selectMode}
+          sort={sort}
+          setSort={setSort}
+          filters={filters}
+          filterOpen={filterOpen}
+          onToggleFilters={() => setFilterOpen(v => !v)}
+          onAddCards={() => setShowAddCard(true)}
+          onImport={() => setShowImport(true)}
+          onExport={() => setShowExport(true)}
         />
       </div>
 
@@ -1284,6 +1279,7 @@ export default function DeckBrowser({ folder, onBack }) {
           onDelete={handleBulkDelete}
           onMoveToFolder={handleMoveToFolder}
           folders={allFolders.filter(f => f.id !== folder.id)}
+          floatingMobile
           onCreateFolder={async (type, name) => {
             const { data: newFolder } = await sb
               .from('folders')

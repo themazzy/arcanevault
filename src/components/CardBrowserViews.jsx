@@ -3,9 +3,10 @@ import { Badge, ResponsiveMenu } from './UI'
 import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
 import { useLongPress } from '../hooks/useLongPress'
 import { lastInputWasTouch } from '../lib/inputType'
+import { countActive } from './CardComponents'
 import uiStyles from './UI.module.css'
 import styles from '../pages/DeckBrowser.module.css'
-import { GridViewIcon, StacksViewIcon, TextViewIcon, TableViewIcon } from '../icons'
+import { AddIcon, CheckIcon, ExportIcon, FilterIcon, GridViewIcon, ImportIcon, SortIcon, StacksViewIcon, TextViewIcon, TableViewIcon } from '../icons'
 
 const NON_DRAGGABLE_IMG_PROPS = {
   draggable: false,
@@ -49,6 +50,22 @@ const CAT_COLORS = {
   Land: '#6a7a5a',
   Other: '#666',
 }
+
+// Browser-friendly labels for the floating mobile sort sheet — kept short for icon-pill layout.
+// Keep value list in sync with the FilterBar sortOptions in CardComponents.jsx.
+const BROWSER_SORT_OPTIONS = [
+  ['name', 'Name A-Z'],
+  ['price_desc', 'Price high-low'],
+  ['price_asc', 'Price low-high'],
+  ['pl_desc', 'P&L high-low'],
+  ['pl_asc', 'P&L low-high'],
+  ['cmc_asc', 'Mana Value up'],
+  ['cmc_desc', 'Mana Value down'],
+  ['qty', 'Quantity'],
+  ['set', 'Set'],
+  ['rarity', 'Rarity'],
+  ['added', 'Recently Added'],
+]
 
 // True on devices where a fine pointer (mouse/trackpad) is available — false on touch-only phones
 const CAN_HOVER = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover) and (pointer: fine)').matches
@@ -901,7 +918,24 @@ function GridView({ cards, sfMap, priceSource, onSelect, selectMode, selectedCar
   )
 }
 
-export function CardBrowserViewControls({ viewMode, setViewMode, groupBy, setGroupBy }) {
+export function CardBrowserViewControls({
+  viewMode,
+  setViewMode,
+  groupBy,
+  setGroupBy,
+  selectMode = false,
+  sort,
+  setSort,
+  filters,
+  filterOpen = false,
+  onToggleFilters,
+  onAddCards,
+  onImport,
+  onExport,
+}) {
+  const activeFilters = countActive(filters)
+  const sortLabel = BROWSER_SORT_OPTIONS.find(([value]) => value === sort)?.[1] || 'Sort'
+
   return (
     <>
       <div className={styles.desktopControls}>
@@ -932,11 +966,92 @@ export function CardBrowserViewControls({ viewMode, setViewMode, groupBy, setGro
           </div>
         </div>
       </div>
-      <div className={styles.mobileControlsMenu}>
+      <div className={`${styles.mobileControlsMenu}${selectMode ? ` ${styles.mobileControlsMenuHidden}` : ''}`}>
+        {onAddCards && (
+          <button
+            className={`${styles.mobileControlsBtn} ${styles.mobileControlsBtnPrimary}`}
+            onClick={onAddCards}
+            title="Add cards"
+            aria-label="Add cards"
+          >
+            <AddIcon size={15} />
+            <span>Add</span>
+          </button>
+        )}
+        {setSort && (
+          <ResponsiveMenu
+            title="Sort Cards"
+            forceSheet
+            portal
+            trigger={({ open, toggle }) => (
+              <button
+                className={`${styles.mobileControlsBtn}${open ? ` ${styles.mobileControlsBtnActive}` : ''}`}
+                onClick={toggle}
+                title={`Sort: ${sortLabel}`}
+                aria-label="Sort cards"
+              >
+                <SortIcon size={15} />
+                <span>Sort</span>
+              </button>
+            )}
+          >
+            {({ close }) => (
+              <div className={uiStyles.responsiveMenuList}>
+                {BROWSER_SORT_OPTIONS.map(([value, label]) => (
+                  <button
+                    key={value}
+                    className={`${uiStyles.responsiveMenuAction} ${sort === value ? uiStyles.responsiveMenuActionActive : ''}`}
+                    onClick={() => { setSort(value); close() }}
+                  >
+                    <span>{label}</span>
+                    <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{sort === value ? <CheckIcon size={11} /> : ''}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </ResponsiveMenu>
+        )}
+        {onToggleFilters && (
+          <button
+            className={`${styles.mobileControlsBtn}${filterOpen || activeFilters ? ` ${styles.mobileControlsBtnActive}` : ''}`}
+            onClick={onToggleFilters}
+            title={activeFilters ? `${activeFilters} active filters` : 'Filter cards'}
+            aria-label="Filter cards"
+          >
+            <FilterIcon size={15} />
+            <span>Filter{activeFilters ? ` ${activeFilters}` : ''}</span>
+          </button>
+        )}
+        {onImport && (
+          <button
+            className={styles.mobileControlsBtn}
+            onClick={onImport}
+            title="Import"
+            aria-label="Import"
+          >
+            <ImportIcon size={15} />
+            <span>Import</span>
+          </button>
+        )}
+        {onExport && (
+          <button
+            className={styles.mobileControlsBtn}
+            onClick={onExport}
+            title="Export"
+            aria-label="Export"
+          >
+            <ExportIcon size={15} />
+            <span>Export</span>
+          </button>
+        )}
+      </div>
+      <div className={styles.mobileTopControls}>
         <ResponsiveMenu
           title="Group Cards"
+          forceSheet
+          portal
           trigger={({ open, toggle }) => (
-            <button className={styles.mobileControlsBtn} onClick={toggle}>
+            <button className={`${styles.mobileControlsBtn}${open || groupBy !== 'none' ? ` ${styles.mobileControlsBtnActive}` : ''}`} onClick={toggle}>
               <span>Group</span>
               <svg className={`${styles.mobileControlsChevron} ${open ? styles.mobileControlsChevronOpen : ''}`} width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <polyline points="2,3 5,6.5 8,3" />
@@ -961,8 +1076,10 @@ export function CardBrowserViewControls({ viewMode, setViewMode, groupBy, setGro
         </ResponsiveMenu>
         <ResponsiveMenu
           title="View Mode"
+          forceSheet
+          portal
           trigger={({ open, toggle }) => (
-            <button className={styles.mobileControlsBtn} onClick={toggle}>
+            <button className={`${styles.mobileControlsBtn}${open ? ` ${styles.mobileControlsBtnActive}` : ''}`} onClick={toggle}>
               <span>View</span>
               <svg className={`${styles.mobileControlsChevron} ${open ? styles.mobileControlsChevronOpen : ''}`} width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <polyline points="2,3 5,6.5 8,3" />

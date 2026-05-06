@@ -3,6 +3,7 @@ import {
   getLocalFolders,
   getAllLocalFolderCards,
   getAllDeckAllocationsForUser,
+  getAllLocalListItems,
 } from './db'
 
 function isGroupFolder(folder) {
@@ -30,9 +31,10 @@ export async function hydrateCollectionQueriesFromIdb(queryClient, userId) {
     .filter(folder => folder.type !== 'deck' && folder.type !== 'builder_deck')
     .map(folder => folder.id)
 
-  const [folderCards, deckAllocations] = await Promise.all([
+  const [folderCards, deckAllocations, listItems] = await Promise.all([
     getAllLocalFolderCards(binderIds),
     getAllDeckAllocationsForUser(userId),
+    getAllLocalListItems(userId),
   ])
 
   queryClient.setQueryData(
@@ -40,4 +42,8 @@ export async function hydrateCollectionQueriesFromIdb(queryClient, userId) {
     { folderCards, deckAllocations },
     { updatedAt: 0 }
   )
+
+  if (listItems.length) {
+    queryClient.setQueryData(['listItems', userId], listItems, { updatedAt: 0 })
+  }
 }
