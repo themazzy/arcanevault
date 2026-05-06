@@ -9,6 +9,7 @@ import { Modal } from '../components/UI'
 import { ImageIcon } from '../icons'
 import { MILESTONES } from '../lib/milestones'
 import { checkAndNotifyMilestones } from '../lib/milestoneTracker'
+import { hasDeckArtSource, mergeDeckCommanderArt, useDeckArt } from '../lib/deckArt'
 import { useToast } from '../components/ToastContext'
 import {
   DndContext,
@@ -57,6 +58,19 @@ const FORMAT_LABEL = {
   standard: 'Standard', pioneer: 'Pioneer', modern: 'Modern', legacy: 'Legacy',
   vintage: 'Vintage', commander: 'Commander', pauper: 'Pauper', historic: 'Historic',
   explorer: 'Explorer', alchemy: 'Alchemy', brawl: 'Brawl', oathbreaker: 'Oathbreaker',
+}
+
+async function enrichPublicDecksWithCommanderArt(decks) {
+  const missing = (decks || []).filter(deck => !hasDeckArtSource(deck))
+  if (!missing.length) return decks || []
+
+  const pairs = await Promise.all(missing.map(async deck => {
+    const { data } = await sb.rpc('get_deck_cards_for_view', { p_deck_id: deck.id })
+    return [deck.id, Array.isArray(data) ? data : []]
+  }))
+  const byDeck = new Map(pairs)
+
+  return (decks || []).map(deck => mergeDeckCommanderArt(deck, byDeck.get(deck.id) || []))
 }
 const FORMAT_COLORS = {
   standard: '#4a90d9', pioneer: '#9b59b6', modern: '#2ecc71', legacy: '#e07840',
@@ -509,28 +523,8 @@ function MilestonesBlock({ stats, profile }) {
 }
 
 // ── Featured Deck block ───────────────────────────────────────────────────────
-const _artCache = {}
-function useDeckArt(coverArtUri, commanderScryfallId) {
-  const [art, setArt] = useState(coverArtUri || _artCache[commanderScryfallId] || null)
-  const mounted = useRef(true)
-  useEffect(() => {
-    mounted.current = true
-    if (art || !commanderScryfallId) return
-    fetch(`https://api.scryfall.com/cards/${commanderScryfallId}?format=json`)
-      .then(r => r.ok ? r.json() : null)
-      .then(d => {
-        const url = d?.image_uris?.art_crop || d?.card_faces?.[0]?.image_uris?.art_crop || null
-        if (url) _artCache[commanderScryfallId] = url
-        if (mounted.current && url) setArt(url)
-      })
-      .catch(() => {})
-    return () => { mounted.current = false }
-  }, [commanderScryfallId])
-  return art
-}
-
 function FeaturedDeckInner({ deck, standoutCards, deckStats, editMode, decks, onChangeDeck, onChangeCards }) {
-  const art = useDeckArt(deck.cover_art_uri, deck.commander_scryfall_id)
+  const art = useDeckArt(deck)
   const colors = Array.isArray(deck.color_identity) ? deck.color_identity : []
   const tags = Array.isArray(deck.tags) ? deck.tags.filter(Boolean) : []
   const description = (deck.deck_description || '').trim()
@@ -682,7 +676,7 @@ function RecentCardsBlock({ cards }) {
 }
 
 function ProfileDeckTile({ deck }) {
-  const art    = useDeckArt(deck.cover_art_uri, deck.commander_scryfall_id)
+  const art    = useDeckArt(deck)
   const colors = Array.isArray(deck.color_identity) ? deck.color_identity : []
   const fmtLabel     = FORMAT_LABEL[deck.format] || null
   const isCollection = deck.type === 'deck'
@@ -946,7 +940,7 @@ export default function ProfilePage() {
     }
     setProfile(data)
     sb.rpc('get_public_decks', { p_username: decodedUsername })
-      .then(({ data: decks }) => setPublicDecks(decks || []))
+      .then(async ({ data: decks }) => setPublicDecks(await enrichPublicDecksWithCommanderArt(decks || [])))
       .catch(() => {})
     setLoading(false)
   }, [decodedUsername, isOwn])

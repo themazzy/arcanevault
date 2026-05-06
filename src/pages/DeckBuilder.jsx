@@ -58,6 +58,11 @@ import {
   MenuIcon,
   AddIcon,
   CheckIcon,
+  ShareIcon,
+  ExternalLinkIcon,
+  CopyIcon,
+  DeleteIcon,
+  SyncIcon,
 } from '../icons'
 import { lastInputWasTouch } from '../lib/inputType'
 
@@ -2429,8 +2434,9 @@ export default function DeckBuilderPage() {
   // Version picker
   const [versionPickCard, setVersionPickCard] = useState(null)
   const [addFeedback, setAddFeedback] = useState(null)
-  // Share button
-  const [shareCopied, setShareCopied] = useState(false)
+  // Share modal
+  const [shareState, setShareState] = useState(null)
+  const [shareBusy, setShareBusy] = useState(false)
 
   // Hover preview
   const [hoverImages, setHoverImages] = useState([])
@@ -2507,6 +2513,16 @@ export default function DeckBuilderPage() {
   const [cmdTags,        setCmdTags]        = useState([])
   const [newTagInput,    setNewTagInput]    = useState('')
   const [showMetaModal,  setShowMetaModal]  = useState(false)
+  const [confirmState, setConfirmState] = useState(null)
+  const confirmAsync = useCallback((message) => new Promise(resolve => setConfirmState({ message, resolve })), [])
+  const handleConfirm = useCallback((result) => {
+    setConfirmState(prev => {
+      prev?.resolve(result)
+      return null
+    })
+  }, [])
+  const [copyDeckBusy, setCopyDeckBusy] = useState(false)
+  const [deleteDeckBusy, setDeleteDeckBusy] = useState(false)
 
   // Mobile leftTop collapse: auto-collapses when commander is first set on mobile
   const [leftTopOpen, setLeftTopOpen] = useState(true)
@@ -3020,7 +3036,135 @@ export default function DeckBuilderPage() {
     setComboSectionsOpen(prev => ({ ...prev, [section]: !prev[section] }))
   }, [])
 
-  const renderDeckActionsMenu = ({ close }) => (
+  const copyShareLink = useCallback(async (url) => {
+    try {
+      await navigator.clipboard.writeText(url)
+      return true
+    } catch {
+      return false
+    }
+  }, [])
+
+  const handleShareDeck = useCallback(async () => {
+    if (!deckId || shareBusy) return
+    setShareBusy(true)
+    const url = getPublicAppUrl(`/d/${deckId}`)
+    const wasPrivate = !deckMeta.is_public
+    try {
+      if (wasPrivate) {
+        const nextMeta = { ...deckMeta, is_public: true }
+        const persistedMeta = withPersistentMetaFields(nextMeta)
+        clearTimeout(saveMetaTimer.current)
+        const { error } = await sb.from('folders')
+          .update({ description: serializeDeckMeta(persistedMeta), updated_at: new Date().toISOString() })
+          .eq('id', deckId)
+        if (error) throw error
+        setDeckMeta(persistedMeta)
+        deckMetaRef.current = persistedMeta
+      }
+
+      const copied = await copyShareLink(url)
+      setShareState({ url, copied, madePublic: wasPrivate, error: null })
+    } catch (error) {
+      console.error('[DeckBuilder] share failed:', error)
+      setShareState({ url, copied: false, madePublic: false, error: 'Could not publish this deck. Try again in a moment.' })
+    } finally {
+      setShareBusy(false)
+    }
+  }, [copyShareLink, deckId, deckMeta, shareBusy])
+
+  function makePrivateCopyMeta(meta) {
+    const next = { ...(meta || {}) }
+    next.is_public = false
+    delete next.linked_deck_id
+    delete next.linked_builder_id
+    delete next.sync_state
+    delete next.last_sync_at
+    delete next.last_sync_snapshot
+    delete next.unsynced_builder
+    delete next.unsynced_collection
+    delete next.hideFromBuilder
+    return next
+  }
+
+  async function getNextCopyDeckName(baseName) {
+    const base = String(baseName || 'Deck').trim() || 'Deck'
+    const { data } = await sb.from('folders')
+      .select('name')
+      .eq('user_id', user.id)
+      .in('type', ['builder_deck', 'deck'])
+    const taken = new Set((data || []).map(row => String(row.name || '').toLowerCase()))
+    let n = 1
+    while (taken.has(`${base} copy ${n}`.toLowerCase())) n += 1
+    return `${base} copy ${n}`
+  }
+
+  async function handleCopyDeck() {
+    if (!deckId || !user?.id || copyDeckBusy) return
+    setCopyDeckBusy(true)
+    let createdDeckId = null
+    try {
+      const now = new Date().toISOString()
+      const copyName = await getNextCopyDeckName(deckName)
+      const copyMeta = makePrivateCopyMeta(deckMeta)
+      const { data: newDeck, error: deckError } = await sb.from('folders').insert({
+        user_id: user.id,
+        type: 'builder_deck',
+        name: copyName,
+        description: serializeDeckMeta(copyMeta),
+      }).select().single()
+      if (deckError) throw deckError
+      createdDeckId = newDeck.id
+
+      const rows = deckCardsRef.current.map(card => toDeckCardRow({
+        ...card,
+        id: crypto.randomUUID(),
+        deck_id: newDeck.id,
+        user_id: user.id,
+        created_at: now,
+        updated_at: now,
+      }))
+      if (rows.length) {
+        const { error: cardsError } = await sb.from('deck_cards').insert(rows)
+        if (cardsError) throw cardsError
+        putDeckCards(rows).catch(() => {})
+      }
+      navigate(`/builder/${newDeck.id}`)
+    } catch (error) {
+      console.error('[DeckBuilder] copy deck failed:', error)
+      if (createdDeckId) {
+        try {
+          await sb.from('deck_cards').delete().eq('deck_id', createdDeckId)
+          await sb.from('folders').delete().eq('id', createdDeckId).eq('user_id', user.id)
+        } catch {}
+      }
+    } finally {
+      setCopyDeckBusy(false)
+    }
+  }
+
+  async function handleDeleteBuilderDeck() {
+    if (!deckId || isCollectionDeck || deleteDeckBusy) return
+    const ok = await confirmAsync('Delete this builder deck? This cannot be undone.')
+    if (!ok) return
+    setDeleteDeckBusy(true)
+    try {
+      const meta = deckMetaRef.current || {}
+      if (meta.linked_deck_id) {
+        const { data: counterpart } = await sb.from('folders').select('*').eq('id', meta.linked_deck_id).maybeSingle()
+        if (counterpart) await unlinkPairedDeck({ counterpart })
+      }
+      await sb.from('deck_cards').delete().eq('deck_id', deckId)
+      await sb.from('folders').delete().eq('id', deckId).eq('user_id', user.id)
+      navigate('/builder')
+    } catch (error) {
+      console.error('[DeckBuilder] delete deck failed:', error)
+    } finally {
+      setDeleteDeckBusy(false)
+    }
+  }
+
+  const renderDeckActionsMenu = ({ close, includeQuickActions = true }) => (
     <div className={uiStyles.responsiveMenuList}>
       <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowImport(true); setImportStep('input'); setImportRows([]); setImportDone(null); setImportError(null); close() }}>
         <span>Import</span>
@@ -3028,26 +3172,34 @@ export default function DeckBuilderPage() {
       <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowExport(true); close() }}>
         <span>Export</span>
       </button>
-      <Link className={uiStyles.responsiveMenuAction} to={`/builder/${deckId}/playtest`} onClick={close}>
-        <span>Playtest</span>
-      </Link>
+      {includeQuickActions && (
+        <Link className={uiStyles.responsiveMenuAction} to={`/builder/${deckId}/playtest`} onClick={close}>
+          <span>Playtest</span>
+        </Link>
+      )}
       <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowMetaModal(true); close() }}>
         <span>Description &amp; Tags</span>
       </button>
-      <button
-        className={uiStyles.responsiveMenuAction}
-        onClick={() => {
-          navigator.clipboard.writeText(getPublicAppUrl(`/d/${deckId}`))
-          setShareCopied(true)
-          setTimeout(() => setShareCopied(false), 2000)
-          close()
-        }}
-      >
-        <span>{shareCopied ? 'Copied Share Link' : 'Share'}</span>
+      <button className={uiStyles.responsiveMenuAction} onClick={() => { handleCopyDeck(); close() }} disabled={copyDeckBusy}>
+        <span>{copyDeckBusy ? 'Copying...' : 'Copy Deck'}</span>
+        <CopyIcon size={13} />
       </button>
-      <Link className={uiStyles.responsiveMenuAction} to="/builder" onClick={close}>
-        <span>Back to Decks</span>
-      </Link>
+      {!isCollectionDeck && (
+        <button className={`${uiStyles.responsiveMenuAction} ${uiStyles.responsiveMenuActionDanger}`} onClick={() => { handleDeleteBuilderDeck(); close() }} disabled={deleteDeckBusy}>
+          <span>{deleteDeckBusy ? 'Deleting...' : 'Delete Deck'}</span>
+          <DeleteIcon size={13} />
+        </button>
+      )}
+      {includeQuickActions && (
+        <button className={uiStyles.responsiveMenuAction} onClick={() => { handleShareDeck(); close() }} disabled={shareBusy}>
+          <span>{shareBusy ? 'Sharing...' : 'Share'}</span>
+        </button>
+      )}
+      {includeQuickActions && (
+        <Link className={uiStyles.responsiveMenuAction} to="/builder" onClick={close}>
+          <span>Back to Decks</span>
+        </Link>
+      )}
     </div>
   )
 
@@ -5030,6 +5182,16 @@ export default function DeckBuilderPage() {
           </div>
         </div>
         <div className={styles.headerActions}>
+          <Link className={`${styles.headerLink} ${styles.headerQuickAction}`} to="/builder" title="Back to decks">
+            <span className={styles.btnIcon} aria-hidden="true"><ChevronLeftIcon size={14} /></span>
+            <span className={styles.btnLabel}>Back to Decks</span>
+            <span className={styles.btnLabelMobile}>Back</span>
+          </Link>
+          <Link className={`${styles.headerLink} ${styles.headerQuickAction}`} to={`/builder/${deckId}/playtest`} title="Playtest deck">
+            <span className={styles.btnIcon} aria-hidden="true"><ExternalLinkIcon size={14} /></span>
+            <span className={styles.btnLabel}>Playtest</span>
+            <span className={styles.btnLabelMobile}>Test</span>
+          </Link>
           {(isCollectionDeck || deckMeta.linked_deck_id) && (
             <button className={styles.headerBtnPrimary} onClick={() => setShowSync(true)} disabled={syncRunning} title="Sync collection">
               <span className={styles.btnIcon} aria-hidden="true"><CollectionIcon size={14} /></span>
@@ -5037,20 +5199,6 @@ export default function DeckBuilderPage() {
               <span className={styles.btnLabelMobile}>{syncLabelMobile}</span>
             </button>
           )}
-          <ResponsiveMenu
-            title="Deck Actions"
-            wrapClassName={styles.headerActionsMenu}
-            align="right"
-            trigger={({ toggle }) => (
-              <button className={styles.headerBtn} onClick={toggle} title="Deck actions">
-                <span className={styles.btnIcon} aria-hidden="true"><MenuIcon size={14} /></span>
-                <span className={styles.btnLabel}>Deck Actions</span>
-                <span className={styles.btnLabelMobile}>Actions</span>
-              </button>
-            )}
-          >
-            {renderDeckActionsMenu}
-          </ResponsiveMenu>
           {!isCollectionDeck && !deckMeta.linked_deck_id && (
             <button className={styles.headerBtnPrimary} onClick={() => setShowMakeDeck(true)} disabled={makeDeckRunning} title="Make Collection Deck">
               <span className={styles.btnIcon} aria-hidden="true"><DeckIcon size={14} /></span>
@@ -5058,6 +5206,30 @@ export default function DeckBuilderPage() {
               <span className={styles.btnLabelMobile}>{makeDeckRunning ? 'Creating...' : 'Make Deck'}</span>
             </button>
           )}
+          <button
+            className={`${styles.headerBtnPrimary} ${styles.headerQuickAction}`}
+            onClick={handleShareDeck}
+            disabled={shareBusy}
+            title="Share deck"
+          >
+            <span className={styles.btnIcon} aria-hidden="true"><ShareIcon size={14} /></span>
+            <span className={styles.btnLabel}>{shareBusy ? 'Sharing...' : 'Share'}</span>
+            <span className={styles.btnLabelMobile}>{shareBusy ? '...' : 'Share'}</span>
+          </button>
+          <ResponsiveMenu
+            title="Deck Actions"
+            wrapClassName={styles.headerActionsMenu}
+            align="right"
+            trigger={({ toggle }) => (
+              <button className={`${styles.headerBtn} ${styles.headerActionsTrigger}`} onClick={toggle} title="Deck actions">
+                <span className={`${styles.btnIcon} ${styles.headerActionsGear}`} aria-hidden="true"><SettingsIcon size={14} /></span>
+                <span className={styles.btnLabel}>Deck Actions</span>
+                <span className={styles.btnLabelMobile}>Actions</span>
+              </button>
+            )}
+          >
+            {args => renderDeckActionsMenu({ ...args, includeQuickActions: false })}
+          </ResponsiveMenu>
         </div>
       </div>
 
@@ -5427,7 +5599,8 @@ export default function DeckBuilderPage() {
               </div>
             )}
 
-            {/* Description + Tags — always available */}
+            {/* Description + Tags */}
+            {(cmdDescription.trim() || cmdTags.length > 0) && (
             <div className={styles.deckMetaPanel}>
               <textarea
                 className={styles.deckMetaDesc}
@@ -5456,6 +5629,7 @@ export default function DeckBuilderPage() {
                 />
               </div>
             </div>
+            )}
 
             {/* View / Sort / Group toolbar */}
             {deckCards.length > 0 && (
@@ -5681,7 +5855,7 @@ export default function DeckBuilderPage() {
                     title="Sync collection"
                     aria-label="Sync collection"
                   >
-                    <CollectionIcon size={15} />
+                    <SyncIcon size={15} />
                     <span className={styles.toggleLabel}>Sync</span>
                   </button>
                 )}
@@ -6259,25 +6433,6 @@ export default function DeckBuilderPage() {
           </div>
         )}
 
-        {/* Footer */}
-        <div className={styles.deckFooter}>
-          {makeDeckDone || syncDone ? (
-            <>
-              <div className={styles.convertDone}>OK {makeDeckDone ? makeDeckMsg : syncMsg}</div>
-              {makeDeckDone && (
-                <Link to="/decks" style={{ fontSize:'0.82rem', color:'var(--gold)', textDecoration:'none' }}>
-                  View in Decks {'->'}
-                </Link>
-              )}
-            </>
-          ) : (
-            <>
-              {!isCollectionDeck && deckMeta.linked_deck_id && (
-                <div style={{ fontSize:'0.74rem', color:'var(--text-faint)', textAlign:'center', marginTop:2 }}>&lt;&gt; linked to collection deck</div>
-              )}
-            </>
-          )}
-        </div>
       </div>
 
       {/* Make Deck modal */}
@@ -6288,6 +6443,20 @@ export default function DeckBuilderPage() {
           onConfirm={handleMakeDeck}
           onClose={() => setShowMakeDeck(false)}
         />
+      )}
+
+      {confirmState && (
+        <div className={styles.confirmOverlay} onClick={() => handleConfirm(false)}>
+          <div className={styles.confirmDialog} onClick={e => e.stopPropagation()}>
+            <div className={styles.confirmMsg}>
+              {confirmState.message.split('\n\n').map((p, i) => <p key={i}>{p}</p>)}
+            </div>
+            <div className={styles.confirmActions}>
+              <button className={styles.confirmCancel} onClick={() => handleConfirm(false)}>Cancel</button>
+              <button className={styles.confirmOk} onClick={() => handleConfirm(true)}>Confirm</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {showMetaModal && (
@@ -6325,6 +6494,49 @@ export default function DeckBuilderPage() {
             </div>
             <div className={styles.metaModalFooter}>
               <button className={styles.headerBtnPrimary} onClick={() => setShowMetaModal(false)}>Done</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {shareState && (
+        <Modal onClose={() => setShareState(null)} className={styles.shareModal}>
+          <div className={styles.shareModalBody}>
+            <div className={styles.shareModalIcon}>
+              <ShareIcon size={22} />
+            </div>
+            <h3 className={styles.shareModalTitle}>Share Deck</h3>
+            {shareState.error ? (
+              <p className={styles.shareModalText}>{shareState.error}</p>
+            ) : (
+              <p className={styles.shareModalText}>
+                {shareState.madePublic
+                  ? 'This deck was switched to public and the share link is in your clipboard.'
+                  : shareState.copied
+                    ? 'The share link is in your clipboard.'
+                    : 'This deck is public. Copy the link below to share it.'}
+              </p>
+            )}
+            <div className={styles.shareLinkBox}>
+              <input className={styles.shareLinkInput} value={shareState.url} readOnly onFocus={e => e.target.select()} />
+              <button
+                className={styles.shareCopyBtn}
+                onClick={async () => {
+                  const copied = await copyShareLink(shareState.url)
+                  setShareState(prev => prev ? { ...prev, copied } : prev)
+                }}
+              >
+                Copy
+              </button>
+            </div>
+            {!shareState.copied && !shareState.error && (
+              <div className={styles.shareModalNote}>Clipboard access was blocked by the browser, so the link is ready to copy manually.</div>
+            )}
+            <div className={styles.shareModalFooter}>
+              <Link className={styles.headerLink} to={`/d/${deckId}`} onClick={() => setShareState(null)}>
+                Open Public View
+              </Link>
+              <button className={styles.headerBtnPrimary} onClick={() => setShareState(null)}>Done</button>
             </div>
           </div>
         </Modal>

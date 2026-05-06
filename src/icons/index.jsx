@@ -197,6 +197,17 @@ export function SortIcon(p) {
   )
 }
 
+export function SyncIcon(p) {
+  return (
+    <Icon {...p}>
+      <path d="M12.8 6.2A5.2 5.2 0 0 0 3.2 4.4" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M11.2 3.6h2.5v2.5" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3.2 9.8a5.2 5.2 0 0 0 9.6 1.8" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M4.8 12.4H2.3V9.9" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </Icon>
+  )
+}
+
 export function ImportIcon(p) {
   return (
     <Icon {...p}>
