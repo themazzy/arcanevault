@@ -1,4 +1,9 @@
 import { sb } from './supabase'
+import {
+  getLocalCardPriceRowsByIds,
+  getLocalCardPriceRowsBySetCodes,
+  putCardPriceRows,
+} from './db'
 import { enrichCards, getInstantCache } from './scryfall'
 
 const ID_CHUNK_SIZE = 400
@@ -6,8 +11,10 @@ const SET_CHUNK_SIZE = 25
 
 // Per-set-code price row cache — avoids re-fetching card_prices on every navigation.
 // Prices only change daily; 10-minute in-memory TTL is safe.
-const _setRowCache = new Map() // set_code → { rows: [], fetchedAt: number }
+const _idChunkInflight = new Map()
+const _setRowCache = new Map() // set_code -> { rows: [], fetchedAt: number }
 const PRICE_CACHE_TTL_MS = 10 * 60 * 1000
+const PRICE_MISS_TTL_MS = 60 * 60 * 1000
 
 function isoDateUtc(daysOffset = 0) {
   const date = new Date()
@@ -42,6 +49,79 @@ function getScryfallId(card) {
   return card?.scryfall_id ? String(card.scryfall_id).trim() : null
 }
 
+async function fetchSharedPriceRowsByIds(ids, snapshotDates, now) {
+  const datesKey = snapshotDates.join('|')
+  const rows = []
+  const localRows = await getLocalCardPriceRowsByIds(ids, snapshotDates)
+  const localByIdDate = new Map(localRows.map(row => [`${row.scryfall_id}|${row.snapshot_date}`, row]))
+  const idsNeedingFetch = new Set()
+
+  for (const id of ids) {
+    for (const snapshotDate of snapshotDates) {
+      const cached = localByIdDate.get(`${id}|${snapshotDate}`)
+      if (cached && !cached.missing) {
+        rows.push(cached)
+      } else if (!cached || now - (cached.cached_at || 0) > PRICE_MISS_TTL_MS) {
+        idsNeedingFetch.add(id)
+      }
+    }
+  }
+
+  const idsToFetch = [...idsNeedingFetch].sort()
+  for (let i = 0; i < idsToFetch.length; i += ID_CHUNK_SIZE) {
+    const chunk = idsToFetch.slice(i, i + ID_CHUNK_SIZE)
+    const chunkKey = `${datesKey}:${chunk.join(',')}`
+    let promise = _idChunkInflight.get(chunkKey)
+
+    if (!promise) {
+      promise = sb
+        .from('card_prices')
+        .select(`
+          scryfall_id,
+          set_code,
+          collector_number,
+          snapshot_date,
+          price_regular_eur,
+          price_foil_eur,
+          price_regular_usd,
+          price_foil_usd,
+          updated_at
+        `)
+        .in('scryfall_id', chunk)
+        .in('snapshot_date', snapshotDates)
+        .then(({ data, error }) => {
+          if (error) throw error
+          return data || []
+        })
+        .finally(() => {
+          _idChunkInflight.delete(chunkKey)
+        })
+
+      _idChunkInflight.set(chunkKey, promise)
+    }
+
+    const data = await promise
+    rows.push(...data)
+
+    const toCache = [...data]
+    const foundByIdDate = new Set()
+    for (const row of data) {
+      const id = row?.scryfall_id ? String(row.scryfall_id).trim() : null
+      if (!id) continue
+      foundByIdDate.add(`${id}|${row.snapshot_date}`)
+    }
+    for (const id of chunk) {
+      for (const snapshotDate of snapshotDates) {
+        if (foundByIdDate.has(`${id}|${snapshotDate}`)) continue
+        toCache.push({ scryfall_id: id, snapshot_date: snapshotDate, missing: true, cached_at: now })
+      }
+    }
+    await putCardPriceRows(toCache)
+  }
+
+  return rows
+}
+
 function uniqueByCardKey(cards) {
   const seen = new Set()
   const unique = []
@@ -63,7 +143,7 @@ function rowToPrices(row) {
   return prices
 }
 
-export async function overlaySharedCardPrices(cards, baseMap = {}) {
+export async function overlaySharedCardPrices(cards, baseMap = {}, { priceLookup = 'exact' } = {}) {
   const requestedKeys = new Set(cards.map(getCardKey).filter(Boolean))
   const requestedIds = [...new Set(cards.map(getScryfallId).filter(Boolean))]
   if (!requestedKeys.size) return { ...baseMap }
@@ -76,30 +156,12 @@ export async function overlaySharedCardPrices(cards, baseMap = {}) {
 
   // Prefer exact print identity. Fetching whole sets can exceed the default
   // PostgREST row cap for many-set decks, which leaves some deck cards unpriced.
-  if (requestedIds.length) {
-    for (let i = 0; i < requestedIds.length; i += ID_CHUNK_SIZE) {
-      const chunk = requestedIds.slice(i, i + ID_CHUNK_SIZE)
-      const { data, error } = await sb
-        .from('card_prices')
-        .select(`
-          scryfall_id,
-          set_code,
-          collector_number,
-          snapshot_date,
-          price_regular_eur,
-          price_foil_eur,
-          price_regular_usd,
-          price_foil_usd,
-          updated_at
-        `)
-        .in('scryfall_id', chunk)
-        .in('snapshot_date', snapshotDates)
-
-      if (error) {
-        console.warn('[Prices] Could not load shared card prices:', error.message)
-        return { ...baseMap }
-      }
-      rows.push(...(data || []))
+  if (priceLookup !== 'set' && requestedIds.length) {
+    try {
+      rows.push(...await fetchSharedPriceRowsByIds(requestedIds, snapshotDates, now))
+    } catch (error) {
+      console.warn('[Prices] Could not load shared card prices:', error.message)
+      return { ...baseMap }
     }
   }
 
@@ -110,9 +172,17 @@ export async function overlaySharedCardPrices(cards, baseMap = {}) {
   })
   const setCodes = [...new Set(fallbackCards.map(card => normalizeSetCode(card?.set_code)).filter(Boolean))]
 
+  if (setCodes.length) {
+    const localSetRows = await getLocalCardPriceRowsBySetCodes(setCodes, snapshotDates)
+    rows.push(...localSetRows.filter(row => !row.missing))
+  }
+
   // Fallback for legacy rows missing scryfall_id. This path may still fetch
   // whole sets, so it is only used for keys not resolved by exact ID.
+  const availableKeys = new Set(rows.map(getRowKey).filter(Boolean))
   const toFetch = setCodes.filter(s => {
+    const needsSet = fallbackCards.some(card => normalizeSetCode(card?.set_code) === s && !availableKeys.has(getCardKey(card)))
+    if (!needsSet) return false
     const cached = _setRowCache.get(s)
     return !cached || now - cached.fetchedAt > PRICE_CACHE_TTL_MS
   })
@@ -143,6 +213,7 @@ export async function overlaySharedCardPrices(cards, baseMap = {}) {
       }
       fetched.push(...(data || []))
     }
+    await putCardPriceRows(fetched)
 
     // Group fetched rows by set_code and store in cache
     const bySet = {}
@@ -189,7 +260,7 @@ export async function overlaySharedCardPrices(cards, baseMap = {}) {
   return merged
 }
 
-export async function loadCardMapWithSharedPrices(cards, { onProgress = null, cacheTtlMs } = {}) {
+export async function loadCardMapWithSharedPrices(cards, { onProgress = null, cacheTtlMs, priceLookup = 'exact' } = {}) {
   if (!cards?.length) return {}
 
   // Shared-price pages should not trigger Scryfall price TTL refreshes.
@@ -203,5 +274,5 @@ export async function loadCardMapWithSharedPrices(cards, { onProgress = null, ca
     onProgress?.(100, '')
   }
 
-  return overlaySharedCardPrices(cards, map)
+  return overlaySharedCardPrices(cards, map, { priceLookup })
 }

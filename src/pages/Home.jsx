@@ -115,7 +115,7 @@ async function loadCollectionData(userId) {
     .slice(0, 14)
 
   if (allCards.length) {
-    safeSfMap = await loadCardMapWithSharedPrices(allCards)
+    safeSfMap = await loadCardMapWithSharedPrices(allCards, { priceLookup: 'set' })
   }
 
   return { folders: allFolders, cards: allCards, cardRows, deckRows, sfMap: safeSfMap, recentCards }
@@ -1415,7 +1415,7 @@ export default function HomePage() {
       // Background sync: if Supabase has fresher card data than IDB, update the snapshot
       const freshCards = await syncCardsFromSupabase(user.id, data.cards)
       if (freshCards) {
-        const sfMap = await loadCardMapWithSharedPrices(freshCards)
+        const sfMap = await loadCardMapWithSharedPrices(freshCards, { priceLookup: 'set' })
         const seen = new Set()
         const recentCards = [...freshCards]
           .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))

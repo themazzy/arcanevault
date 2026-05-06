@@ -542,7 +542,7 @@ export default function CollectionPage() {
         const newCards = allCards.filter(c => !localIds.has(c.id))
         if (newCards.length) {
           console.log(`[Collection] ${newCards.length} new cards synced from Supabase`)
-          loadCardMapWithSharedPrices(allCards, { cacheTtlMs: ttlMsRef.current }).then(map => {
+          loadCardMapWithSharedPrices(allCards, { cacheTtlMs: ttlMsRef.current, priceLookup: 'set' }).then(map => {
             if (isCurrentLoad()) setSfMap(map)
           })
         }
@@ -776,6 +776,7 @@ export default function CollectionPage() {
     const map = await loadCardMapWithSharedPrices(rawCards, {
       onProgress: (pct, lbl) => { setProgress(pct); setProgLabel(lbl) },
       cacheTtlMs: ttlMsRef.current,
+      priceLookup: 'set',
     })
     setSfMap(map)
     setEnriching(false); setProgLabel('')
@@ -804,7 +805,7 @@ export default function CollectionPage() {
         setRefreshProgress(pct)
         setRefreshProgLabel(lbl || `Fetching missing data… (${Math.round(pct)}%)`)
       }, ttlMsRef.current)
-      const map = await loadCardMapWithSharedPrices(cards, { cacheTtlMs: ttlMsRef.current })
+      const map = await loadCardMapWithSharedPrices(cards, { cacheTtlMs: ttlMsRef.current, priceLookup: 'set' })
       setSfMap(map)
       const fetched = missing.length
       toast.success(`Refreshed ${fetched} card${fetched !== 1 ? 's' : ''}.`)

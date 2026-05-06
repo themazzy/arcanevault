@@ -950,6 +950,7 @@ export default function StatsPage() {
 
       const map = allCards.length
         ? await loadCardMapWithSharedPrices(allCards, {
+            priceLookup: 'set',
             onProgress: (pct, label) => {
               if (cancelled) return
               setLoadProgress(40 + Math.round(pct * 0.6))

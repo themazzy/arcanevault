@@ -256,7 +256,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
     }
     setItems(rows)
     if (rows.length) {
-      const map = await loadCardMapWithSharedPrices(rows)
+      const map = await loadCardMapWithSharedPrices(rows, { priceLookup: 'set' })
       if (map) setSfMap({ ...map })
     } else {
       setSfMap({})
@@ -946,7 +946,7 @@ export default function ListsPage() {
         const folder = folders.find(f => f.id === item.folder_id)
         return { ...item, _folder_qty: item.qty, _folderName: folder?.name || '', _folderType: 'list' }
       })
-      const sfMap = cards.length ? await loadCardMapWithSharedPrices(cards) : {}
+      const sfMap = cards.length ? await loadCardMapWithSharedPrices(cards, { priceLookup: 'set' }) : {}
       setExportAllCards(cards)
       setExportAllSfMap(sfMap)
     } finally {
@@ -986,7 +986,7 @@ export default function ListsPage() {
       from += 1000
     }
 
-    const sfMap = allItems.length ? await loadCardMapWithSharedPrices(allItems) : {}
+    const sfMap = allItems.length ? await loadCardMapWithSharedPrices(allItems, { priceLookup: 'set' }) : {}
     const meta  = {}
     for (const f of foldersData) meta[f.id] = { count: 0, totalQty: 0, value: 0 }
     for (const row of allItems) {
