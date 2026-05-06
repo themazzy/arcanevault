@@ -1,0 +1,6 @@
+[mcp_servers.mempalace]
+args = [
+    "-m",
+    "mempalace.mcp_server",
+]
+command = "python"
