@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, Link, useLocation } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
 import { Button, Modal, EmptyState, SectionHeader, ResponsiveMenu } from '../components/UI'
-import { parseDeckMeta, FORMATS } from '../lib/deckBuilderApi'
+import { parseDeckMeta, serializeDeckMeta, FORMATS } from '../lib/deckBuilderApi'
 import { unlinkPairedDeck, getSyncState } from '../lib/deckSync'
+import { hasDeckArtSource, mergeDeckCommanderArt, useDeckArts } from '../lib/deckArt'
 import styles from './Builder.module.css'
 import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
@@ -43,72 +44,8 @@ function clampTags(tags) {
   return out
 }
 
-// Session-level image cache
-const _artCache = {}
-
-function DeckArtBackground({ meta, deckType }) {
-  // Build list of commander Scryfall IDs from meta.commanders array (new),
-  // falling back to legacy commanderScryfallId + partnerScryfallId fields.
-  const commanderIds = useMemo(() => {
-    if (meta.commanders?.length) return meta.commanders.map(c => c.scryfall_id).filter(Boolean)
-    const ids = []
-    if (meta.commanderScryfallId) ids.push(meta.commanderScryfallId)
-    if (meta.partnerScryfallId) ids.push(meta.partnerScryfallId)
-    return ids
-  }, [meta.commanders, meta.commanderScryfallId, meta.partnerScryfallId])
-
-  const [arts, setArts] = useState(() => {
-    if (meta.coverArtUri && commanderIds.length <= 1) return [meta.coverArtUri]
-    return []
-  })
-  const isMounted = useRef(true)
-
-  useEffect(() => {
-    isMounted.current = true
-    if (!commanderIds.length) {
-      setArts(meta.coverArtUri ? [meta.coverArtUri] : [])
-      return
-    }
-    // If single commander with cached/prop art, use it directly
-    if (commanderIds.length === 1) {
-      const art = meta.coverArtUri || _artCache[commanderIds[0]] || null
-      if (art) { setArts([art]); return }
-    }
-    // Check cache for all IDs
-    const cached = commanderIds.map(id => _artCache[id] ?? undefined)
-    if (cached.every(v => v !== undefined)) {
-      setArts(cached.filter(Boolean))
-      return
-    }
-    // Fetch missing
-    let alive = true
-    commanderIds.forEach((sfId, i) => {
-      if (_artCache[sfId] !== undefined) {
-        if (alive && isMounted.current) {
-          setArts(prev => {
-            const next = [...prev]
-            next[i] = _artCache[sfId]
-            return next
-          })
-        }
-        return
-      }
-      _artCache[sfId] = null
-      fetch(`https://api.scryfall.com/cards/${sfId}?format=json`)
-        .then(r => r.ok ? r.json() : null)
-        .then(d => {
-          const url = d?.image_uris?.art_crop || d?.card_faces?.[0]?.image_uris?.art_crop || null
-          _artCache[sfId] = url
-          if (alive && isMounted.current && url) {
-            setArts(prev => { const next = [...prev]; next[i] = url; return next })
-          }
-        })
-        .catch(() => {})
-    })
-    return () => { alive = false; isMounted.current = false }
-  }, [commanderIds, meta.coverArtUri])
-
-  const visibleArts = arts.filter(Boolean)
+function DeckArtBackground({ meta }) {
+  const visibleArts = useDeckArts(meta)
   const sliceCount = visibleArts.length
 
   if (sliceCount <= 1) {
@@ -137,6 +74,58 @@ function DeckArtBackground({ meta, deckType }) {
       ))}
     </div>
   )
+}
+
+async function enrichDecksWithCommanderArt(decks) {
+  const missingDecks = decks.filter(deck => !hasDeckArtSource(parseDeckMeta(deck.description)))
+  const missingIds = missingDecks.map(deck => deck.id)
+  if (!missingIds.length) return decks
+
+  const { data, error } = await sb.from('deck_cards_view')
+    .select('deck_id,name,scryfall_id,color_identity,image_uri,art_crop_uri,is_commander')
+    .in('deck_id', missingIds)
+    .eq('is_commander', true)
+
+  const byDeck = new Map()
+  for (const row of error ? [] : (data || [])) {
+    if (!byDeck.has(row.deck_id)) byDeck.set(row.deck_id, [])
+    byDeck.get(row.deck_id).push(row)
+  }
+
+  const stillMissing = missingDecks.filter(deck => !byDeck.has(deck.id))
+  const namedCollectionDecks = stillMissing.filter(deck => {
+    const meta = parseDeckMeta(deck.description)
+    return deck.type === 'deck' && (meta.commanderName || meta.commanders?.some(c => c.name))
+  })
+  if (namedCollectionDecks.length) {
+    const { data: allocationRows } = await sb.from('deck_allocations_view')
+      .select('deck_id,name,scryfall_id,color_identity,image_uri,art_crop_uri')
+      .in('deck_id', namedCollectionDecks.map(deck => deck.id))
+
+    const wantedNames = new Map(namedCollectionDecks.map(deck => {
+      const meta = parseDeckMeta(deck.description)
+      const names = new Set([
+        meta.commanderName,
+        ...(Array.isArray(meta.commanders) ? meta.commanders.map(c => c.name) : []),
+      ].filter(Boolean).map(name => String(name).toLowerCase()))
+      return [deck.id, names]
+    }))
+
+    for (const row of allocationRows || []) {
+      if (!wantedNames.get(row.deck_id)?.has(String(row.name || '').toLowerCase())) continue
+      if (!byDeck.has(row.deck_id)) byDeck.set(row.deck_id, [])
+      byDeck.get(row.deck_id).push({ ...row, is_commander: true })
+    }
+  }
+
+  if (!byDeck.size) return decks
+
+  return decks.map(deck => {
+    const rows = byDeck.get(deck.id)
+    if (!rows?.length) return deck
+    const meta = mergeDeckCommanderArt(parseDeckMeta(deck.description), rows)
+    return { ...deck, description: serializeDeckMeta(meta) }
+  })
 }
 
 function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSelect, onEnterSelectMode, onDelete, navigate }) {
@@ -255,15 +244,11 @@ function CommunityDeckTile({ deck, meta, fmt, isOwn, creatorNick, navigate }) {
     ? meta.commanders.map(c => c.name).join(' + ')
     : (meta.commanderName || null)
   const tags        = clampTags(meta.tags)
-  const art         = meta.coverArtUri || null
   const description = (meta.deckDescription || '').trim()
 
   return (
     <div className={styles.card} onClick={() => navigate(`/d/${deck.id}`)}>
-      <div
-        className={styles.deckArtPanel}
-        style={art ? { backgroundImage: `url(${art})` } : undefined}
-      />
+      <DeckArtBackground meta={meta} />
       <div className={styles.cardContent}>
         <div className={styles.cardTop}>
           <div className={styles.cardBadges}>
@@ -371,7 +356,7 @@ export default function BuilderPage() {
         return true
       } catch { return true }
     })
-    setDecks(nonGroupDecks)
+    setDecks(await enrichDecksWithCommanderArt(nonGroupDecks))
     setLoading(false)
   }
 
@@ -381,7 +366,7 @@ export default function BuilderPage() {
     try {
       const { data } = await sb.rpc('get_community_decks')
       const decks = Array.isArray(data) ? data : []
-      setCommunityDecks(decks)
+      setCommunityDecks(await enrichDecksWithCommanderArt(decks))
       setCommunityLoaded(true)
       // Batch-fetch nicknames for all unique creators
       const uniqueIds = [...new Set(decks.map(d => d.user_id).filter(Boolean))]

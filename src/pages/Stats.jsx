@@ -9,6 +9,7 @@ import { useSettings } from '../components/SettingsContext'
 import { CardDetail } from '../components/CardComponents'
 import { EmptyState, SectionHeader, ProgressBar } from '../components/UI'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
+import { hasDeckArtSource, mergeDeckCommanderArt, useDeckArt } from '../lib/deckArt'
 import { MILESTONES } from '../lib/milestones'
 import { checkAndNotifyMilestones } from '../lib/milestoneTracker'
 import { useToast } from '../components/ToastContext'
@@ -603,7 +604,7 @@ function HistoryEntryCard({ row, deckMeta, onEdit, onDelete }) {
   const mins = row.game_started_at && row.game_ended_at
     ? Math.round((new Date(row.game_ended_at) - new Date(row.game_started_at)) / 60000)
     : 0
-  const bgUrl = safeBgUrl(deckMeta?.coverArtUri || deckMeta?.bg_url || null)
+  const bgUrl = safeBgUrl(useDeckArt(deckMeta || {}))
 
   const save = async () => {
     setSaving(true)
@@ -1000,7 +1001,43 @@ export default function StatsPage() {
       if (decksError) throw decksError
 
       setHistoryRows((rows || []).map(sanitizeGameRow))
-      setDeckMap(Object.fromEntries((decks || []).map(deck => [deck.id, { name: deck.name, ...parseDeckMeta(deck.description) }])))
+
+      const baseDeckMeta = (decks || []).map(deck => ({ id: deck.id, name: deck.name, ...parseDeckMeta(deck.description) }))
+      const missingArtIds = baseDeckMeta.filter(deck => !hasDeckArtSource(deck)).map(deck => deck.id)
+      let commanderRows = []
+      if (missingArtIds.length) {
+        const { data } = await sb.from('deck_cards_view')
+          .select('deck_id,name,scryfall_id,color_identity,image_uri,art_crop_uri,is_commander')
+          .in('deck_id', missingArtIds)
+          .eq('is_commander', true)
+        commanderRows = data || []
+      }
+      const rowsByDeck = new Map()
+      for (const row of commanderRows) {
+        if (!rowsByDeck.has(row.deck_id)) rowsByDeck.set(row.deck_id, [])
+        rowsByDeck.get(row.deck_id).push(row)
+      }
+
+      const stillMissing = baseDeckMeta.filter(deck => missingArtIds.includes(deck.id) && !rowsByDeck.has(deck.id))
+      const namedDecks = stillMissing.filter(deck => deck.commanderName || deck.commanders?.some(c => c.name))
+      if (namedDecks.length) {
+        const { data: allocationRows } = await sb.from('deck_allocations_view')
+          .select('deck_id,name,scryfall_id,color_identity,image_uri,art_crop_uri')
+          .in('deck_id', namedDecks.map(deck => deck.id))
+        const wantedNames = new Map(namedDecks.map(deck => {
+          const names = new Set([
+            deck.commanderName,
+            ...(Array.isArray(deck.commanders) ? deck.commanders.map(c => c.name) : []),
+          ].filter(Boolean).map(name => String(name).toLowerCase()))
+          return [deck.id, names]
+        }))
+        for (const row of allocationRows || []) {
+          if (!wantedNames.get(row.deck_id)?.has(String(row.name || '').toLowerCase())) continue
+          if (!rowsByDeck.has(row.deck_id)) rowsByDeck.set(row.deck_id, [])
+          rowsByDeck.get(row.deck_id).push({ ...row, is_commander: true })
+        }
+      }
+      setDeckMap(Object.fromEntries(baseDeckMeta.map(deck => [deck.id, mergeDeckCommanderArt(deck, rowsByDeck.get(deck.id) || [])])))
     } catch (error) {
       console.error('[Stats] history load:', error?.message ?? String(error))
       setHistoryRows([])

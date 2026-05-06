@@ -805,6 +805,14 @@
   display: inline-flex;
 }
 
+.headerQuickAction {
+  gap: 6px;
+}
+
+.headerActionsTrigger {
+  gap: 6px;
+}
+
 .cardCount {
   font-size: 0.82rem;
   color: var(--text-dim);
@@ -814,9 +822,19 @@
 .cardCountOver { color: #e07070; }
 
 /* Icon / label split — icon hidden on desktop, label hidden on mobile */
-.btnIcon  { display: none; line-height: 1; }
-.btnLabel { display: inline; }
+.btnIcon  { display: none; line-height: 0; align-items: center; justify-content: center; }
+.btnLabel,
+.btnLabelMobile {
+  align-items: center;
+  line-height: 1;
+  transform: translateY(1px);
+}
+.btnLabel { display: inline-flex; }
 .btnLabelMobile { display: none; }
+
+.headerActionsTrigger .headerActionsGear {
+  display: inline-flex;
+}
 
 /* leftTop toggle — only shows on mobile */
 .leftTopToggle { display: none; }
@@ -840,13 +858,13 @@
   align-items: center;
   justify-content: center;
   min-height: 30px;
-  padding: 6px 12px;
+  padding: 0 12px;
   border-radius: 4px;
   font-family: var(--font-display);
   font-size: 0.68rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  line-height: 1;
+  line-height: 1.2;
   white-space: nowrap;
   flex-shrink: 0;
   cursor: pointer;
@@ -1778,17 +1796,6 @@
 }
 
 .removeBtn:hover { color: #e07070; background: rgba(224,112,112,0.1); }
-
-/* ── Footer ── */
-.deckFooter {
-  flex-shrink: 0;
-  padding: 10px 14px;
-  border-top: 1px solid var(--border);
-  background: rgba(0,0,0,0.15);
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
 
 .ownProgress {
   flex: 1;
@@ -3804,7 +3811,184 @@
   margin-top: 8px;
 }
 
+/* ── Confirm dialog ─────────────────────────────────────────────────────── */
+.confirmOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.65);
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.confirmDialog {
+  background: var(--bg3);
+  border: 1px solid var(--border-hi);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  padding: 24px 28px;
+  width: 360px;
+  max-width: 92vw;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.confirmMsg {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.confirmMsg p { margin: 0; }
+.confirmMsg p:first-child { font-weight: 500; }
+.confirmMsg p:not(:first-child) { color: var(--text-dim); font-size: 0.83rem; }
+
+.confirmActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.confirmCancel {
+  min-height: 30px;
+  background: transparent;
+  border: 1px solid var(--s-border2);
+  border-radius: 8px;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  padding: 6px 13px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.confirmCancel:hover { background: var(--s2); border-color: var(--s-border2); }
+
+.confirmOk {
+  min-height: 30px;
+  background: rgba(201,168,76,0.12);
+  border: 1px solid rgba(201,168,76,0.3);
+  border-radius: 8px;
+  color: var(--gold);
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  padding: 6px 13px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.confirmOk:hover { background: rgba(201,168,76,0.22); border-color: rgba(201,168,76,0.45); }
+
+/* ── Share modal ─────────────────────────────────────────────────────────── */
+.shareModal {
+  max-width: 520px;
+  padding: 0;
+}
+
+.shareModalBody {
+  box-sizing: border-box;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px;
+}
+
+.shareModalIcon {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gold);
+  background: rgba(201,168,76,0.12);
+  border: 1px solid rgba(201,168,76,0.32);
+}
+
+.shareModalTitle {
+  margin: 2px 0 0;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+.shareModalText {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.shareLinkBox {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.shareLinkInput {
+  min-width: 0;
+  min-height: 36px;
+  box-sizing: border-box;
+  background: var(--s2);
+  border: 1px solid var(--s-border2);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 8px 10px;
+  font-size: 0.84rem;
+  outline: none;
+}
+
+.shareLinkInput:focus {
+  border-color: rgba(201,168,76,0.45);
+  box-shadow: var(--input-focus);
+}
+
+.shareCopyBtn {
+  min-height: 36px;
+  background: rgba(201,168,76,0.16);
+  border: 1px solid rgba(201,168,76,0.34);
+  border-radius: 6px;
+  color: var(--gold);
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 8px 14px;
+}
+
+.shareCopyBtn:hover {
+  background: rgba(201,168,76,0.24);
+  border-color: rgba(201,168,76,0.5);
+}
+
+.shareModalNote {
+  color: var(--text-faint);
+  font-size: 0.78rem;
+}
+
+.shareModalFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
 @media (max-width: 600px) {
   .metaModalBody { padding: 16px 16px 14px; gap: 9px; }
   .metaModalBody .deckMetaDesc { min-height: 96px; font-size: 0.9rem; }
+  .shareModalBody { padding: 18px 16px 16px; }
+  .shareLinkBox { grid-template-columns: 1fr; }
+  .shareModalFooter { justify-content: stretch; }
+  .shareModalFooter > * { flex: 1; }
 }
