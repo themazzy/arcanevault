@@ -319,7 +319,7 @@ export function SectionHeader({ title, action }) {
   )
 }
 
-export function ResponsiveHeaderActions({ primary = null, children, menuLabel = 'More actions', mobileExtra = null }) {
+export function ResponsiveHeaderActions({ primary = null, children, menuLabel = 'More actions', mobileExtra = null, mobileToolbar = false }) {
   const [open, setOpen] = useState(false)
   const [panelClosing, setPanelClosing] = useState(false)
   const panelTimerRef = useRef(null)
@@ -343,6 +343,7 @@ export function ResponsiveHeaderActions({ primary = null, children, menuLabel = 
   const togglePanel = () => { if (open && !panelClosing) closePanel(); else openPanel() }
 
   useEffect(() => () => clearTimeout(panelTimerRef.current), [])
+  const mobileToolbarChildren = isValidElement(children) ? children.props.children : children
 
   useEffect(() => {
     if (!open) return
@@ -361,22 +362,31 @@ export function ResponsiveHeaderActions({ primary = null, children, menuLabel = 
       </div>
 
       <div className={styles.headerActionMobile}>
-        {primary}
         {mobileExtra ? <div className={styles.headerActionMobileExtra}>{mobileExtra}</div> : null}
-        <button
-          className={styles.headerMenuBtn}
-          onClick={togglePanel}
-          aria-label={menuLabel}
-          aria-expanded={open}
-        >
-          <span />
-          <span />
-          <span />
-        </button>
-        {(open || panelClosing) && (
-          <div className={`${styles.headerMenuPanel}${panelClosing ? ` ${styles.headerMenuPanelClosing}` : ''}`}>
-            {children}
+        {mobileToolbar ? (
+          <div className={styles.headerFloatingToolbar} aria-label={menuLabel}>
+            {primary}
+            {mobileToolbarChildren}
           </div>
+        ) : (
+          <>
+            {primary}
+            <button
+              className={styles.headerMenuBtn}
+              onClick={togglePanel}
+              aria-label={menuLabel}
+              aria-expanded={open}
+            >
+              <span />
+              <span />
+              <span />
+            </button>
+            {(open || panelClosing) && (
+              <div className={`${styles.headerMenuPanel}${panelClosing ? ` ${styles.headerMenuPanelClosing}` : ''}`}>
+                {children}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

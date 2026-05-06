@@ -23,6 +23,15 @@ import { CardDetail } from '../components/CardComponents'
 import DeckStats, { normalizeDeckBuilderCards, getCardCategory, CAT_COLORS, CAT_ORDER } from '../components/DeckStats'
 import ExportModal from '../components/ExportModal'
 import { fetchDeckAllocations, fetchDeckAllocationsForUser, fetchDeckCards, mergeAllocationRows, upsertDeckAllocations } from '../lib/deckData'
+import {
+  createDeckCategory,
+  deleteDeckCategory,
+  fetchDeckCategories,
+  renameDeckCategory,
+  resetDeckCategories,
+  setDeckCardCategory,
+  updateDeckCategoryOrder,
+} from '../lib/deckCategories'
 import { planDeckAllocations } from '../lib/deckAllocationPlanner'
 import { getCardLegalityWarnings } from '../lib/deckLegality'
 import {
@@ -83,6 +92,7 @@ const BOARD_FILTERS = [
   { id: 'side', label: 'Side' },
   { id: 'maybe', label: 'Maybe' },
 ]
+const UNCATEGORIZED = 'Uncategorized'
 
 function normalizeBoard(board) {
   return BOARD_ORDER.includes(board) ? board : 'main'
@@ -99,7 +109,7 @@ function isGroupFolder(folder) {
 const DECK_CARD_DB_COLS = new Set([
   'id','deck_id','user_id','scryfall_id','name','set_code','collector_number',
   'type_line','mana_cost','cmc','color_identity','image_uri','qty','foil',
-  'is_commander','board','created_at','updated_at','card_print_id',
+  'is_commander','board','created_at','updated_at','card_print_id','category_id',
 ])
 function toDeckCardRow(row) {
   const out = {}
@@ -601,7 +611,17 @@ function getCommanderPairIssue(cards, sfMap = {}) {
 }
 
 // â”€â”€ Edit dropdown (âš™) shared by list + compact views â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-function DeckCardActionsMenuBody({ dc, isEDH, onSetCommander, onToggleFoil, onPickVersion, onMoveBoard, close, builderSfMap = {} }) {
+function DeckCardActionsMenuBody({
+  dc,
+  isEDH,
+  onSetCommander,
+  onToggleFoil,
+  onPickVersion,
+  onMoveBoard,
+  onOpenCategoryPicker,
+  close,
+  builderSfMap = {},
+}) {
   const currentBoard = normalizeBoard(dc.board)
   const boardOptions = BOARD_ORDER.filter(board => board !== currentBoard && !(dc.is_commander && board !== 'main'))
   const sf = dc.set_code && dc.collector_number ? builderSfMap[`${dc.set_code}-${dc.collector_number}`] || null : null
@@ -633,11 +653,24 @@ function DeckCardActionsMenuBody({ dc, isEDH, onSetCommander, onToggleFoil, onPi
           <span>Split 1x To Other Version</span>
         </button>
       )}
+      <div className={styles.menuDivider} />
+      <button className={uiStyles.responsiveMenuAction} onClick={() => { onOpenCategoryPicker?.(dc); close() }}>
+        <span>Change Category</span>
+      </button>
     </div>
   )
 }
 
-function EditMenu({ dc, isEDH, onSetCommander, onToggleFoil, onPickVersion, onMoveBoard, builderSfMap = {} }) {
+function EditMenu({
+  dc,
+  isEDH,
+  onSetCommander,
+  onToggleFoil,
+  onPickVersion,
+  onMoveBoard,
+  onOpenCategoryPicker,
+  builderSfMap = {},
+}) {
   return (
     <ResponsiveMenu
       title="Card Actions"
@@ -659,6 +692,7 @@ function EditMenu({ dc, isEDH, onSetCommander, onToggleFoil, onPickVersion, onMo
           onToggleFoil={onToggleFoil}
           onPickVersion={onPickVersion}
           onMoveBoard={onMoveBoard}
+          onOpenCategoryPicker={onOpenCategoryPicker}
           close={close}
           builderSfMap={builderSfMap}
         />
@@ -667,16 +701,63 @@ function EditMenu({ dc, isEDH, onSetCommander, onToggleFoil, onPickVersion, onMo
   )
 }
 
+function CategoryPickerModal({ card, categories, onSelect, onCreate, onClear, onClose }) {
+  const [newName, setNewName] = useState('')
+
+  return (
+    <Modal onClose={onClose} className={styles.categoryPickerModal}>
+      <div className={styles.categoryPickerBody}>
+        <div className={styles.categoryPickerTitle}>Change Category</div>
+        <div className={styles.categoryPickerCard}>{card?.name}</div>
+        <div className={styles.categoryPickerList}>
+          {categories.map(category => (
+            <button
+              key={category.id || category.name}
+              className={`${styles.categoryPickerOption}${card?.category_id && category.id === card.category_id ? ' ' + styles.categoryPickerOptionActive : ''}`}
+              onClick={() => onSelect(category)}
+            >
+              <span>{category.name}</span>
+              {card?.category_id && category.id === card.category_id && <CheckIcon size={13} />}
+            </button>
+          ))}
+          {card?.category_id && (
+            <button className={styles.categoryPickerOption} onClick={onClear}>
+              <span>Use Inferred Category</span>
+            </button>
+          )}
+        </div>
+        <div className={styles.categoryCreateRow}>
+          <input
+            className={styles.categoryCreateInput}
+            value={newName}
+            onChange={e => setNewName(e.target.value)}
+            placeholder="New category"
+          />
+          <button
+            className={styles.categoryCreateBtn}
+            onClick={() => {
+              if (!newName.trim()) return
+              onCreate(newName)
+            }}
+          >
+            Create
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 function DeckCardRowV2({
   dc, ownedQty, ownedFoilAlt, ownedAlt, ownedInDeck, inCollDeck,
-  onChangeQty, onRemove, onMouseEnter, onMouseLeave, onMouseMove, onContextMenu,
-  onPickVersion, onToggleFoil, onSetCommander, onMoveBoard, isEDH,
+  onChangeQty, onRemove, onMouseEnter, onMouseLeave, onMouseMove, onContextMenu, onDragStart,
+  onPickVersion, onToggleFoil, onSetCommander, onMoveBoard, onOpenCategoryPicker, isEDH,
   visibleColumns, listGridTemplate, priceLabel, onOpenDetail, legalityWarnings = [],
   builderSfMap = {},
 }) {
   const setLabel = dc.set_code ? `${String(dc.set_code).toUpperCase()}${dc.collector_number ? ` #${dc.collector_number}` : ''}` : '-'
   return (
-    <div className={`${styles.deckCardRow}${dc.is_commander ? ' ' + styles.isCommander : ''}${legalityWarnings.length ? ' ' + styles.deckCardIllegal : ''}`} title={(legalityWarnings.map(w => w.text).join('\n')) || undefined} style={{ '--deck-list-columns': listGridTemplate }} onContextMenu={onContextMenu}>
+    <div className={`${styles.deckCardRow}${dc.is_commander ? ' ' + styles.isCommander : ''}${legalityWarnings.length ? ' ' + styles.deckCardIllegal : ''}`} title={(legalityWarnings.map(w => w.text).join('\n')) || undefined} style={{ '--deck-list-columns': listGridTemplate }} onContextMenu={onContextMenu} draggable onDragStart={onDragStart}>
       <div className={styles.deckCardLeft} style={{ cursor: 'pointer' }} onClick={() => onOpenDetail?.(dc)}>
         {dc.image_uri
           ? <img className={styles.deckThumb} src={dc.image_uri} alt="" loading="lazy" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove} />
@@ -695,7 +776,7 @@ function DeckCardRowV2({
           <OwnershipBadge ownedQty={ownedQty} ownedFoilAlt={ownedFoilAlt} ownedAlt={ownedAlt} ownedInDeck={ownedInDeck} inCollDeck={inCollDeck} />
         </div>
       )}
-      {visibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} builderSfMap={builderSfMap} />}
+      {visibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} onOpenCategoryPicker={onOpenCategoryPicker} builderSfMap={builderSfMap} />}
       {visibleColumns.qty && (
         <div className={styles.qtyControls}>
           <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, -1)}>-</button>
@@ -2389,6 +2470,7 @@ export default function DeckBuilderPage() {
   const [deck,       setDeck]       = useState(null)
   const [deckMeta,   setDeckMeta]   = useState({})
   const [deckCards,  setDeckCards]  = useState([])
+  const [deckCategories, setDeckCategories] = useState([])
   const [deckName,   setDeckName]   = useState('')
   const [saving,     setSaving]     = useState(false)
   const [loading,    setLoading]    = useState(true)
@@ -2406,6 +2488,7 @@ export default function DeckBuilderPage() {
   // Card detail modal (read-only, used throughout the builder)
   const [detailCard, setDetailCard] = useState(null) // { card, sfCard }
   const [contextMenu, setContextMenu] = useState(null) // { dc, x, y }
+  const [categoryPickCard, setCategoryPickCard] = useState(null)
 
   // Search
   const [searchQuery,   setSearchQuery]   = useState('')
@@ -2450,6 +2533,7 @@ export default function DeckBuilderPage() {
   const [deckGameResultsLoaded,  setDeckGameResultsLoaded]  = useState(false)
   const [deckView,    setDeckView]    = useState('list')   // 'list' | 'compact' | 'stacks' | 'grid'
   const [showRight, setShowRight] = useState(() => typeof window !== 'undefined' && window.innerWidth <= 900)
+  const wasMobileLayoutRef = useRef(typeof window !== 'undefined' ? window.innerWidth <= 900 : false)
   const [leftCollapsed, setLeftCollapsed] = useState(false)
   const [deckSort,    setDeckSort]    = useState('type')   // 'name' | 'cmc' | 'color' | 'type'
   const [groupBy, setGroupBy] = useState(default_grouping === 'category' ? 'category' : default_grouping === 'none' ? 'none' : 'type')
@@ -2457,6 +2541,7 @@ export default function DeckBuilderPage() {
   const [compactVisibleColumns, setCompactVisibleColumns] = useState(DEFAULT_COMPACT_COLUMNS)
   const [builderSfMap, setBuilderSfMap] = useState({})
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
+  const [draggedCategoryId, setDraggedCategoryId] = useState(null)
   const [stackHoverState, setStackHoverState] = useState(null) // { group, stackIdx }
   const [touchActiveStack, setTouchActiveStack] = useState(null) // { group, stackIdx, id }
   const [deckSearch, setDeckSearch] = useState('')
@@ -2477,6 +2562,19 @@ export default function DeckBuilderPage() {
   ))
   const [cmdArtHidden, setCmdArtHidden] = useState(false)
   const [syncStatus, setSyncStatus] = useState({ loading: false, dirty: false, count: 0, unavailable: false })
+
+  useEffect(() => {
+    const handleResize = () => {
+      const isMobile = window.innerWidth <= 900
+      if (isMobile && !wasMobileLayoutRef.current) {
+        setShowRight(true)
+      }
+      wasMobileLayoutRef.current = isMobile
+    }
+
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
 
   // Combos (Commander Spellbook)
   const [combosIncluded, setCombosIncluded] = useState([])
@@ -2530,6 +2628,7 @@ export default function DeckBuilderPage() {
 
   // Refs
   const deckCardsRef    = useRef(deckCards)
+  const deckCategoriesRef = useRef(deckCategories)
   const deckMetaRef     = useRef(deckMeta)
   const searchDebounce  = useRef(makeDebouncer(350))
   const cmdDebounce     = useRef(makeDebouncer(300))
@@ -2541,6 +2640,9 @@ export default function DeckBuilderPage() {
   const addFeedbackRef = useRef(null)
   const hoverPreviewKey = useRef(null)
   const hoverPreviewTimer = useRef(null)
+  const dragAutoScrollActive = useRef(false)
+  const dragAutoScrollFrame = useRef(null)
+  const dragAutoScrollPoint = useRef({ x: 0, y: 0 })
   const importingRef = useRef(false)
   const lastDeckScrollTopRef = useRef(0)
   useEffect(() => () => { importingRef.current = false }, [])
@@ -2549,6 +2651,7 @@ export default function DeckBuilderPage() {
     return () => {
       clearTimeout(saveMetaTimer.current)
       clearTimeout(addFeedbackTimer.current)
+      if (dragAutoScrollFrame.current) cancelAnimationFrame(dragAutoScrollFrame.current)
       for (const timer of qtyTimers.current.values()) clearTimeout(timer)
     }
   }, [])
@@ -2616,6 +2719,7 @@ export default function DeckBuilderPage() {
   }, [deckCards])
 
   useEffect(() => { deckCardsRef.current = deckCards }, [deckCards])
+  useEffect(() => { deckCategoriesRef.current = deckCategories }, [deckCategories])
   useEffect(() => { deckMetaRef.current = deckMeta }, [deckMeta])
 
   // â”€â”€ Load on mount â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -2646,6 +2750,8 @@ export default function DeckBuilderPage() {
         setDeckName(folder.name)
         setCmdDescription(meta.deckDescription || '')
         setCmdTags(meta.tags || [])
+        const categoryRows = await fetchDeckCategories(deckId)
+        if (!ignore) setDeckCategories(categoryRows)
 
         async function enrichDeckCardsWithMetadata(rows) {
           const rowsNeedingMeta = (rows || []).filter(row => !row.type_line || !row.image_uri || row.cmc == null)
@@ -2757,6 +2863,7 @@ export default function DeckBuilderPage() {
                 foil: row.foil ?? false,
                 is_commander: false,
                 board: 'main',
+                category_id: null,
                 created_at: now,
                 updated_at: now,
               }))
@@ -3121,6 +3228,7 @@ export default function DeckBuilderPage() {
         id: crypto.randomUUID(),
         deck_id: newDeck.id,
         user_id: user.id,
+        category_id: null,
         created_at: now,
         updated_at: now,
       }))
@@ -3179,6 +3287,9 @@ export default function DeckBuilderPage() {
       )}
       <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowMetaModal(true); close() }}>
         <span>Description &amp; Tags</span>
+      </button>
+      <button className={uiStyles.responsiveMenuAction} onClick={() => { resetAllCategories(); close() }}>
+        <span>Reset Categories</span>
       </button>
       <button className={uiStyles.responsiveMenuAction} onClick={() => { handleCopyDeck(); close() }} disabled={copyDeckBusy}>
         <span>{copyDeckBusy ? 'Copying...' : 'Copy Deck'}</span>
@@ -3280,6 +3391,250 @@ export default function DeckBuilderPage() {
     })
     return visibleDeckCards
   }, [visibleDeckCards, deckSort, builderSfMap, price_source])
+
+  const sortedDeckCategories = useMemo(() => (
+    [...deckCategories].sort((a, b) =>
+      (a.sort_order ?? 0) - (b.sort_order ?? 0) ||
+      String(a.name || '').localeCompare(String(b.name || ''))
+    )
+  ), [deckCategories])
+
+  const categoryById = useMemo(
+    () => new Map(sortedDeckCategories.map(category => [category.id, category])),
+    [sortedDeckCategories]
+  )
+
+  const getInferredDeckCategory = useCallback((dc) => {
+    const sf = dc.set_code && dc.collector_number ? (builderSfMap[`${dc.set_code}-${dc.collector_number}`] || {}) : {}
+    const oracle = ((sf.oracle_text || '') + (sf.card_faces || []).map(f => f.oracle_text || '').join('\n'))
+    const inferred = getCardCategory(oracle.toLowerCase(), (sf.type_line || dc.type_line || '').toLowerCase(), sf.keywords || [])
+    return inferred && inferred !== 'Other' ? inferred : UNCATEGORIZED
+  }, [builderSfMap])
+
+  const getDeckCardCategoryName = useCallback((dc) => {
+    if (dc.category_id) return categoryById.get(dc.category_id)?.name || UNCATEGORIZED
+    return getInferredDeckCategory(dc)
+  }, [categoryById, getInferredDeckCategory])
+
+  const categoryOptions = useMemo(() => {
+    const byName = new Map()
+    for (const category of sortedDeckCategories) byName.set(category.name.toLowerCase(), category)
+    for (const dc of deckCards) {
+      const name = getDeckCardCategoryName(dc)
+      if (!byName.has(name.toLowerCase())) byName.set(name.toLowerCase(), { id: null, name })
+    }
+    if (!byName.has(UNCATEGORIZED.toLowerCase())) byName.set(UNCATEGORIZED.toLowerCase(), { id: null, name: UNCATEGORIZED })
+    return [...byName.values()].sort((a, b) => {
+      const ai = a.id ? sortedDeckCategories.findIndex(category => category.id === a.id) : CAT_ORDER.indexOf(a.name)
+      const bi = b.id ? sortedDeckCategories.findIndex(category => category.id === b.id) : CAT_ORDER.indexOf(b.name)
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi) || a.name.localeCompare(b.name)
+    })
+  }, [deckCards, getDeckCardCategoryName, sortedDeckCategories])
+
+  const categoryNameOrder = useMemo(() => categoryOptions.map(category => category.name), [categoryOptions])
+
+  async function ensureDeckCategoryForName(name) {
+    const trimmed = String(name || '').trim()
+    if (!trimmed || trimmed === UNCATEGORIZED) return null
+    const existing = deckCategoriesRef.current.find(category => category.name.toLowerCase() === trimmed.toLowerCase())
+    if (existing) return existing
+    const nextOrder = deckCategoriesRef.current.reduce((max, category) => Math.max(max, category.sort_order ?? 0), -1) + 1
+    const created = await createDeckCategory(deckId, user.id, trimmed, nextOrder)
+    deckCategoriesRef.current = [...deckCategoriesRef.current, created]
+    setDeckCategories(deckCategoriesRef.current)
+    return created
+  }
+
+  async function addCustomCategory() {
+    const name = window.prompt('Category name')
+    if (!name?.trim()) return
+    await ensureDeckCategoryForName(name)
+    setGroupBy('category')
+  }
+
+  async function renameCustomCategory(category) {
+    const name = window.prompt('Category name', category.name)
+    if (!name?.trim() || name.trim() === category.name) return
+    const renamed = await renameDeckCategory(category.id, name)
+    setDeckCategories(prev => prev.map(row => row.id === category.id ? renamed : row))
+  }
+
+  async function removeCustomCategory(category) {
+    const ok = await confirmAsync(`Delete category "${category.name}"? Cards stay in the deck and fall back to inferred categories.`)
+    if (!ok) return
+    await deleteDeckCategory(category.id)
+    setDeckCategories(prev => prev.filter(row => row.id !== category.id))
+    deckCardsRef.current = deckCardsRef.current.map(dc => dc.category_id === category.id ? { ...dc, category_id: null } : dc)
+    setDeckCards(deckCardsRef.current)
+  }
+
+  async function ensureDeckCategoriesForOrder(names) {
+    const uniqueNames = [...new Set((names || []).map(name => String(name || '').trim()).filter(Boolean))]
+    const byName = new Map(deckCategoriesRef.current.map(category => [category.name.toLowerCase(), category]))
+    const nextRows = []
+
+    for (let index = 0; index < uniqueNames.length; index += 1) {
+      const name = uniqueNames[index]
+      const key = name.toLowerCase()
+      const existing = byName.get(key)
+      if (existing) {
+        nextRows.push({ ...existing, sort_order: index })
+        continue
+      }
+      const created = await createDeckCategory(deckId, user.id, name, index)
+      byName.set(key, created)
+      nextRows.push({ ...created, sort_order: index })
+    }
+
+    const existingNotShown = deckCategoriesRef.current
+      .filter(category => !uniqueNames.some(name => name.toLowerCase() === category.name.toLowerCase()))
+      .map((category, offset) => ({ ...category, sort_order: uniqueNames.length + offset }))
+    const ordered = [...nextRows, ...existingNotShown]
+    deckCategoriesRef.current = ordered
+    setDeckCategories(ordered)
+    await updateDeckCategoryOrder(ordered.map((row, index) => ({ ...row, sort_order: index })))
+    return ordered
+  }
+
+  async function moveRenderedCategory(groupName, direction, sourceOrder = categoryNameOrder) {
+    const order = [...new Set(sourceOrder)]
+    const idx = order.indexOf(groupName)
+    const swapIdx = direction === 'left' || direction === 'up' ? idx - 1 : idx + 1
+    if (idx < 0 || swapIdx < 0 || swapIdx >= order.length) return
+    const next = [...order]
+    ;[next[idx], next[swapIdx]] = [next[swapIdx], next[idx]]
+    await ensureDeckCategoriesForOrder(next)
+  }
+
+  async function moveRenderedCategoryTo(groupName, targetName, sourceOrder = categoryNameOrder) {
+    if (!groupName || !targetName || groupName === targetName) return
+    const order = [...new Set(sourceOrder)]
+    const fromIdx = order.indexOf(groupName)
+    const toIdx = order.indexOf(targetName)
+    if (fromIdx < 0 || toIdx < 0) return
+    const next = [...order]
+    const [moved] = next.splice(fromIdx, 1)
+    next.splice(toIdx, 0, moved)
+    await ensureDeckCategoriesForOrder(next)
+  }
+
+  async function resetAllCategories() {
+    const ok = await confirmAsync('Reset all deck categories? This clears manual card assignments and removes all custom category columns.')
+    if (!ok) return
+    await resetDeckCategories(deckId)
+    deckCategoriesRef.current = []
+    setDeckCategories([])
+    deckCardsRef.current = deckCardsRef.current.map(dc => ({ ...dc, category_id: null }))
+    setDeckCards(deckCardsRef.current)
+    putDeckCards(deckCardsRef.current).catch(() => {})
+    setCollapsedGroups(new Set())
+  }
+
+  async function moveDeckCardToCategory(deckCardId, category) {
+    const target = category?.id ? category : await ensureDeckCategoryForName(category?.name)
+    const categoryId = category?.name === UNCATEGORIZED ? null : (target?.id || null)
+    deckCardsRef.current = deckCardsRef.current.map(dc => dc.id === deckCardId ? { ...dc, category_id: categoryId } : dc)
+    setDeckCards(deckCardsRef.current)
+    await setDeckCardCategory(deckCardId, categoryId)
+    putDeckCards(deckCardsRef.current.filter(dc => dc.id === deckCardId)).catch(() => {})
+  }
+
+  async function clearDeckCardCategory(deckCardId) {
+    deckCardsRef.current = deckCardsRef.current.map(dc => dc.id === deckCardId ? { ...dc, category_id: null } : dc)
+    setDeckCards(deckCardsRef.current)
+    await setDeckCardCategory(deckCardId, null)
+    putDeckCards(deckCardsRef.current.filter(dc => dc.id === deckCardId)).catch(() => {})
+  }
+
+  function getScrollableDragTarget(x, y, axis) {
+    const elements = document.elementsFromPoint(x, y)
+    for (const el of elements) {
+      if (!el || el === document.body || el === document.documentElement) continue
+      const style = window.getComputedStyle(el)
+      const overflow = axis === 'x' ? style.overflowX : style.overflowY
+      const canScroll = axis === 'x'
+        ? el.scrollWidth > el.clientWidth
+        : el.scrollHeight > el.clientHeight
+      if (canScroll && /(auto|scroll)/.test(overflow)) return el
+    }
+    return document.scrollingElement || document.documentElement
+  }
+
+  function applyDragAutoScroll() {
+    dragAutoScrollFrame.current = null
+    if (!dragAutoScrollActive.current) return
+
+    const { x, y } = dragAutoScrollPoint.current
+    const edge = 72
+    const maxStep = 26
+    const calcStep = (distance) => Math.ceil(((edge - distance) / edge) * maxStep)
+    const xTarget = getScrollableDragTarget(x, y, 'x')
+    const yTarget = getScrollableDragTarget(x, y, 'y')
+
+    const xRect = xTarget === document.scrollingElement || xTarget === document.documentElement
+      ? { left: 0, right: window.innerWidth }
+      : xTarget.getBoundingClientRect()
+    const yRect = yTarget === document.scrollingElement || yTarget === document.documentElement
+      ? { top: 0, bottom: window.innerHeight }
+      : yTarget.getBoundingClientRect()
+
+    let dx = 0
+    let dy = 0
+    if (x - xRect.left < edge) dx = -calcStep(Math.max(0, x - xRect.left))
+    else if (xRect.right - x < edge) dx = calcStep(Math.max(0, xRect.right - x))
+    if (y - yRect.top < edge) dy = -calcStep(Math.max(0, y - yRect.top))
+    else if (yRect.bottom - y < edge) dy = calcStep(Math.max(0, yRect.bottom - y))
+
+    if (dx) xTarget.scrollLeft += dx
+    if (dy) yTarget.scrollTop += dy
+    if (dx || dy) dragAutoScrollFrame.current = requestAnimationFrame(applyDragAutoScroll)
+  }
+
+  function startDragAutoScroll(event) {
+    dragAutoScrollActive.current = true
+    if (event) dragAutoScrollPoint.current = { x: event.clientX, y: event.clientY }
+  }
+
+  function stopDragAutoScroll() {
+    dragAutoScrollActive.current = false
+    setDraggedCategoryId(null)
+    if (dragAutoScrollFrame.current) cancelAnimationFrame(dragAutoScrollFrame.current)
+    dragAutoScrollFrame.current = null
+  }
+
+  useEffect(() => {
+    const onDragOver = (event) => {
+      if (!dragAutoScrollActive.current) return
+      dragAutoScrollPoint.current = { x: event.clientX, y: event.clientY }
+      if (!dragAutoScrollFrame.current) {
+        dragAutoScrollFrame.current = requestAnimationFrame(applyDragAutoScroll)
+      }
+    }
+    document.addEventListener('dragover', onDragOver)
+    document.addEventListener('dragend', stopDragAutoScroll)
+    document.addEventListener('drop', stopDragAutoScroll)
+    return () => {
+      document.removeEventListener('dragover', onDragOver)
+      document.removeEventListener('dragend', stopDragAutoScroll)
+      document.removeEventListener('drop', stopDragAutoScroll)
+    }
+  }, [])
+
+  function handleCardDragStart(dc, event) {
+    startDragAutoScroll(event)
+    event.dataTransfer.setData('text/plain', dc.id)
+    event.dataTransfer.setData('application/x-deck-card-id', dc.id)
+    event.dataTransfer.effectAllowed = 'move'
+  }
+
+  function handleCategoryDrop(group, event) {
+    event.preventDefault()
+    const categoryDragName = event.dataTransfer.getData('application/x-deck-category-name')
+    if (categoryDragName) return
+    const deckCardId = event.dataTransfer.getData('application/x-deck-card-id') || event.dataTransfer.getData('text/plain')
+    if (!deckCardId) return
+    moveDeckCardToCategory(deckCardId, { name: group }).catch(error => console.error('[DeckBuilder] move category failed:', error))
+  }
 
   // Combined image map: deck cards + rec images (for combo thumbnails)
   const deckImagesMap = useMemo(() => {
@@ -3665,7 +4020,10 @@ export default function DeckBuilderPage() {
       foil:             !!resolved.foil,
     }], 'Deck card printing')
 
-    const nextRow = { ...placeholderRow, ...printing, foil: !!resolved.foil, updated_at: now }
+    const oracle = ((resolved.sfCard.oracle_text || '') + (resolved.sfCard.card_faces || []).map(face => face.oracle_text || '').join('\n'))
+    const inferredCategory = getCardCategory(oracle.toLowerCase(), (meta.type_line || '').toLowerCase(), resolved.sfCard.keywords || [])
+    const initialCategory = await ensureDeckCategoryForName(inferredCategory && inferredCategory !== 'Other' ? inferredCategory : UNCATEGORIZED)
+    const nextRow = { ...placeholderRow, ...printing, category_id: initialCategory?.id || null, foil: !!resolved.foil, updated_at: now }
     const existing = deckCardsRef.current.find(dc => dc.id !== placeholderRow.id && isSameDeckPrinting(dc, nextRow))
 
     if (existing) {
@@ -4281,7 +4639,7 @@ export default function DeckBuilderPage() {
     clearHoverPreview()
 
     const menuWidth = 240
-    const menuHeight = dc.qty > 1 ? 280 : 236
+    const menuHeight = dc.qty > 1 ? 420 : 376
     const gap = 8
     const x = Math.min(Math.max(gap, e.clientX), Math.max(gap, window.innerWidth - menuWidth - gap))
     const y = Math.min(Math.max(gap, e.clientY), Math.max(gap, window.innerHeight - menuHeight - gap))
@@ -5678,6 +6036,14 @@ export default function DeckBuilderPage() {
                           </span>
                         </button>
                       ))}
+                      <div className={styles.menuDivider} />
+                      <button
+                        className={styles.columnMenuItem}
+                        onClick={() => { addCustomCategory(); close?.() }}
+                      >
+                        <span className={styles.columnMenuLabel}>Add Category</span>
+                        <AddIcon size={12} />
+                      </button>
                     </div>
                   )}
                 </ResponsiveMenu>
@@ -6031,10 +6397,12 @@ export default function DeckBuilderPage() {
                 onMouseLeave: CAN_HOVER ? () => clearHoverPreview() : undefined,
                 onMouseMove:  CAN_HOVER ? (e) => setHoverPos({ x: e.clientX, y: e.clientY }) : undefined,
                 onContextMenu: CAN_HOVER ? (e) => openDeckCardContextMenu(dc, e) : undefined,
+                onDragStart: (e) => handleCardDragStart(dc, e),
                 onPickVersion: (card, options = {}) => setVersionPickCard({ ...card, ...options }),
                 onToggleFoil:  toggleFoil,
                 onSetCommander: setCardAsCommander,
                 onMoveBoard: moveCardToBoard,
+                onOpenCategoryPicker: setCategoryPickCard,
                 isEDH,
                 visibleColumns,
                 listGridTemplate,
@@ -6051,6 +6419,8 @@ export default function DeckBuilderPage() {
                 if (deckView === 'grid') return (
                   <div key={dc.id} className={`${styles.visualCard}${dc.is_commander ? ' '+styles.isCommander : ''}${legalityWarnings.length ? ' '+styles.visualCardIllegal : ''}`}
                     title={warningTitle || undefined}
+                    draggable
+                    onDragStart={e => handleCardDragStart(dc, e)}
                     onClick={() => openDeckCardDetail(dc)}
                     onContextMenu={CAN_HOVER ? e => openDeckCardContextMenu(dc, e) : undefined}>
                     <div className={styles.visualImgWrap}>
@@ -6068,7 +6438,7 @@ export default function DeckBuilderPage() {
                         />
                       </div>
                       <div className={styles.visualCardControls}>
-                        <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} onMoveBoard={moveCardToBoard} builderSfMap={builderSfMap} />
+                    <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} onMoveBoard={moveCardToBoard} onOpenCategoryPicker={setCategoryPickCard} builderSfMap={builderSfMap} />
                         <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, -1) }}>-</button>
                         <span className={styles.visualCardCount}>{dc.qty}</span>
                         <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, +1) }}>+</button>
@@ -6089,6 +6459,8 @@ export default function DeckBuilderPage() {
                       className={`${styles.stackCard}${dc.is_commander ? ' '+styles.isCommander : ''}${legalityWarnings.length ? ' '+styles.stackCardIllegal : ''}${isPushedDown ? ' '+styles.stackCardPushedDown : ''}${isTouchActive ? ' '+styles.stackCardActive : ''}`}
                       style={{ zIndex: isTouchActive ? 200 : (stackContext?.idx ?? 0) }}
                       title={warningTitle || dc.name}
+                      draggable
+                      onDragStart={e => handleCardDragStart(dc, e)}
                       onClick={() => {
                         if (!CAN_HOVER) {
                           if (isTouchActive) {
@@ -6131,7 +6503,7 @@ export default function DeckBuilderPage() {
                           />
                         </div>
                          <div className={styles.stackControlsRow}>
-                           <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} onMoveBoard={moveCardToBoard} builderSfMap={builderSfMap} />
+                           <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} onMoveBoard={moveCardToBoard} onOpenCategoryPicker={setCategoryPickCard} builderSfMap={builderSfMap} />
                           <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, -1) }}>-</button>
                           <span className={styles.stackControlCount}>{dc.qty}</span>
                           <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, +1) }}>+</button>
@@ -6142,7 +6514,7 @@ export default function DeckBuilderPage() {
                   )
                 }
                 if (deckView === 'compact') return (
-                  <div key={dc.id} className={`${styles.compactRow}${dc.is_commander ? ' '+styles.isCommander : ''}${legalityWarnings.length ? ' '+styles.deckCardIllegal : ''}`} title={warningTitle || undefined} onContextMenu={CAN_HOVER ? e => openDeckCardContextMenu(dc, e) : undefined}>
+                  <div key={dc.id} className={`${styles.compactRow}${dc.is_commander ? ' '+styles.isCommander : ''}${legalityWarnings.length ? ' '+styles.deckCardIllegal : ''}`} title={warningTitle || undefined} onContextMenu={CAN_HOVER ? e => openDeckCardContextMenu(dc, e) : undefined} draggable onDragStart={e => handleCardDragStart(dc, e)}>
                     <span className={styles.compactQty}>{dc.qty}</span>
                     <span className={styles.compactName}
                       style={{ cursor: 'pointer' }}
@@ -6162,7 +6534,7 @@ export default function DeckBuilderPage() {
                         {...getCardOwnershipProps(dc)}
                       />
                     )}
-                    {compactVisibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} onMoveBoard={moveCardToBoard} builderSfMap={builderSfMap} />}
+                    {compactVisibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} onMoveBoard={moveCardToBoard} onOpenCategoryPicker={setCategoryPickCard} builderSfMap={builderSfMap} />}
                     {compactVisibleColumns.qty && (
                       <div className={styles.qtyControls}>
                         <button className={styles.qtyBtn} onClick={() => changeQty(dc.id, -1)}>-</button>
@@ -6194,21 +6566,82 @@ export default function DeckBuilderPage() {
               const getDeckCardGroup = (dc) => {
                 const sf = dc.set_code && dc.collector_number ? (builderSfMap[`${dc.set_code}-${dc.collector_number}`] || {}) : {}
                 if (groupBy === 'category') {
+                  if (dc.category_id) return categoryById.get(dc.category_id)?.name || UNCATEGORIZED
                   const oracle = ((sf.oracle_text || '') + (sf.card_faces || []).map(f => f.oracle_text || '').join('\n'))
-                  return getCardCategory(oracle.toLowerCase(), (sf.type_line || dc.type_line || '').toLowerCase(), sf.keywords || [])
+                  const inferred = getCardCategory(oracle.toLowerCase(), (sf.type_line || dc.type_line || '').toLowerCase(), sf.keywords || [])
+                  return inferred && inferred !== 'Other' ? inferred : UNCATEGORIZED
                 }
                 if (groupBy === 'rarity') return sf.rarity || 'common'
                 if (groupBy === 'set') return sf.set_name || (dc.set_code ? dc.set_code.toUpperCase() : 'Unknown')
                 return dc.is_commander ? 'Commander' : classifyCardType(dc.type_line)
               }
 
+              const getCategoryRow = (group) => sortedDeckCategories.find(category => category.name === group) || null
+              const getCategoryOrder = (cards) => {
+                const present = new Set(cards.map(getDeckCardGroup))
+                const order = []
+                for (const category of sortedDeckCategories) {
+                  order.push(category.name)
+                }
+                for (const category of CAT_ORDER) {
+                  if (present.has(category) && !order.includes(category)) order.push(category)
+                }
+                if (present.has(UNCATEGORIZED) && !order.includes(UNCATEGORIZED)) order.push(UNCATEGORIZED)
+                for (const category of [...present].sort()) {
+                  if (!order.includes(category)) order.push(category)
+                }
+                return order
+              }
+
+              const renderCategoryControls = (group, groupOrder, isStacksView = false) => {
+                if (groupBy !== 'category') return null
+                const category = getCategoryRow(group)
+                const isDefaultCategory = CAT_ORDER.includes(group) || group === UNCATEGORIZED
+                const prevLabel = isStacksView ? 'Move Left' : 'Move Up'
+                const nextLabel = isStacksView ? 'Move Right' : 'Move Down'
+                return (
+                  <ResponsiveMenu
+                    title="Category"
+                    wrapClassName={styles.categoryMenuWrap}
+                    portal
+                    trigger={({ toggle }) => (
+                      <button
+                        className={styles.categoryMenuBtn}
+                        onClick={e => { e.stopPropagation(); toggle() }}
+                        title="Category actions"
+                        aria-label="Category actions"
+                      >
+                        <MenuIcon size={13} />
+                      </button>
+                    )}
+                  >
+                    {({ close }) => (
+                      <div className={uiStyles.responsiveMenuList}>
+                        <button className={uiStyles.responsiveMenuAction} onClick={() => { moveRenderedCategory(group, isStacksView ? 'left' : 'up', groupOrder); close() }}>
+                          <span>{prevLabel}</span>
+                        </button>
+                        <button className={uiStyles.responsiveMenuAction} onClick={() => { moveRenderedCategory(group, isStacksView ? 'right' : 'down', groupOrder); close() }}>
+                          <span>{nextLabel}</span>
+                        </button>
+                        {category && !isDefaultCategory && (
+                          <>
+                            <button className={uiStyles.responsiveMenuAction} onClick={() => { renameCustomCategory(category); close() }}>
+                              <span>Rename</span>
+                            </button>
+                            <button className={`${uiStyles.responsiveMenuAction} ${uiStyles.responsiveMenuActionDanger}`} onClick={() => { removeCustomCategory(category); close() }}>
+                              <span>Delete</span>
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </ResponsiveMenu>
+                )
+              }
+
               const renderStacks = (cards, board) => {
                 const groupOrder = groupBy === 'category'
-                  ? [...new Set(cards.map(getDeckCardGroup))]
-                      .sort((a, b) => {
-                        const ai = CAT_ORDER.indexOf(a); const bi = CAT_ORDER.indexOf(b)
-                        return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi)
-                      })
+                  ? getCategoryOrder(cards)
                   : groupBy === 'rarity'
                   ? RARITY_ORDER.filter(r => cards.some(dc => getDeckCardGroup(dc) === r))
                   : groupBy === 'set'
@@ -6219,7 +6652,7 @@ export default function DeckBuilderPage() {
                   ? groupOrder
                       .map(group => {
                         const groupCards = cards.filter(dc => getDeckCardGroup(dc) === group)
-                        return groupCards.length ? { group, cards: groupCards } : null
+                        return groupCards.length || (groupBy === 'category' && getCategoryRow(group)) ? { group, cards: groupCards } : null
                       })
                       .filter(Boolean)
                   : [{ group: BOARD_LABELS[board], cards }]
@@ -6231,22 +6664,50 @@ export default function DeckBuilderPage() {
                       const collapsedKey = `${board}:stack:${group}`
                       const collapsed = collapsedGroups.has(collapsedKey)
                       return (
-                        <div key={collapsedKey} className={styles.stackColumn}>
+                        <div key={collapsedKey} className={styles.stackColumn} onDragOver={groupBy === 'category' ? e => e.preventDefault() : undefined} onDrop={groupBy === 'category' ? e => handleCategoryDrop(group, e) : undefined}>
                           <div className={styles.stackGroup}>
-                            <button
+                            <div
                               className={styles.stackGroupHeader}
+                              role="button"
+                              tabIndex={0}
+                              draggable={groupBy === 'category'}
+                              onDragStart={e => {
+                                startDragAutoScroll(e)
+                                e.dataTransfer.setData('application/x-deck-category-name', group)
+                                setDraggedCategoryId(group)
+                              }}
+                              onDragOver={e => {
+                                if (draggedCategoryId && draggedCategoryId !== group) e.preventDefault()
+                              }}
+                              onDrop={e => {
+                                const fromName = e.dataTransfer.getData('application/x-deck-category-name')
+                                if (!fromName || fromName === group) return
+                                e.preventDefault()
+                                moveRenderedCategoryTo(fromName, group, groupOrder)
+                                setDraggedCategoryId(null)
+                              }}
                               onClick={() => setCollapsedGroups(prev => {
                                 const next = new Set(prev)
                                 next.has(collapsedKey) ? next.delete(collapsedKey) : next.add(collapsedKey)
                                 return next
                               })}
+                              onKeyDown={e => {
+                                if (e.key !== 'Enter' && e.key !== ' ') return
+                                e.preventDefault()
+                                setCollapsedGroups(prev => {
+                                  const next = new Set(prev)
+                                  next.has(collapsedKey) ? next.delete(collapsedKey) : next.add(collapsedKey)
+                                  return next
+                                })
+                              }}
                             >
                               <span className={`${styles.groupArrow}${collapsed ? ' ' + styles.groupArrowCollapsed : ''}`} aria-hidden="true">
                                 <ChevronDownIcon size={12} />
                               </span>
                               <span className={styles.stackGroupTitle}>{group}</span>
                               <span className={styles.stackGroupCount}>{groupQty}</span>
-                            </button>
+                              {renderCategoryControls(group, groupOrder, true)}
+                            </div>
                             {!collapsed && <div className={styles.stackCards}>{groupCards.map((dc, idx) => renderCard(dc, { group, idx }))}</div>}
                           </div>
                         </div>
@@ -6260,7 +6721,7 @@ export default function DeckBuilderPage() {
                 if (deckView === 'stacks') return renderStacks(cards, board)
 
                 if (groupBy !== 'none') {
-                  const baseOrder = groupBy === 'category' ? CAT_ORDER
+                  const baseOrder = groupBy === 'category' ? getCategoryOrder(cards)
                     : groupBy === 'rarity' ? RARITY_ORDER
                     : groupBy === 'set' ? [...new Set(cards.map(getDeckCardGroup))].sort()
                     : TYPE_GROUPS
@@ -6271,7 +6732,7 @@ export default function DeckBuilderPage() {
                     groupMap.get(g).push(dc)
                   }
                   return [...groupMap.entries()].map(([group, groupCards]) => {
-                    if (!groupCards?.length) return null
+                    if (!groupCards?.length && !(groupBy === 'category' && getCategoryRow(group))) return null
                     const groupQty = groupCards.reduce((s, dc) => s + dc.qty, 0)
                     const groupPrice = groupCards.reduce((sum, dc) => {
                       const sf = builderSfMap[`${dc.set_code}-${dc.collector_number}`]
@@ -6282,9 +6743,25 @@ export default function DeckBuilderPage() {
                     const collapsed = collapsedGroups.has(collapsedKey)
                     const groupColor = groupBy === 'category' ? CAT_COLORS[group] : groupBy === 'rarity' ? RARITY_COLORS[group] : undefined
                     return (
-                      <div key={collapsedKey} className={styles.deckGroup}>
+                      <div key={collapsedKey} className={styles.deckGroup} onDragOver={groupBy === 'category' ? e => e.preventDefault() : undefined} onDrop={groupBy === 'category' ? e => handleCategoryDrop(group, e) : undefined}>
                         <div
                           className={styles.groupHeader}
+                          draggable={groupBy === 'category'}
+                          onDragStart={e => {
+                            startDragAutoScroll(e)
+                            e.dataTransfer.setData('application/x-deck-category-name', group)
+                            setDraggedCategoryId(group)
+                          }}
+                          onDragOver={e => {
+                            if (draggedCategoryId && draggedCategoryId !== group) e.preventDefault()
+                          }}
+                          onDrop={e => {
+                            const fromName = e.dataTransfer.getData('application/x-deck-category-name')
+                            if (!fromName || fromName === group) return
+                            e.preventDefault()
+                            moveRenderedCategoryTo(fromName, group, baseOrder)
+                            setDraggedCategoryId(null)
+                          }}
                           onClick={() => setCollapsedGroups(prev => {
                             const next = new Set(prev)
                             next.has(collapsedKey) ? next.delete(collapsedKey) : next.add(collapsedKey)
@@ -6298,6 +6775,7 @@ export default function DeckBuilderPage() {
                           <span className={styles.groupName} style={groupColor ? { color: groupColor } : undefined}>{group}</span>
                           {groupPrice > 0 && <span className={styles.groupPrice}>{formatPrice(groupPrice, price_source)}</span>}
                           <span className={styles.groupCount}>{groupQty}</span>
+                          {renderCategoryControls(group, baseOrder, false)}
                         </div>
                         {!collapsed && (deckView === 'grid'
                           ? <div className={styles.visualGrid} style={{ '--deckbuilder-grid-min': `${visualCardMinWidth}px` }}>{groupCards.map(dc => renderCard(dc))}</div>
@@ -6606,11 +7084,33 @@ export default function DeckBuilderPage() {
             onToggleFoil={toggleFoil}
             onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })}
             onMoveBoard={moveCardToBoard}
+            onOpenCategoryPicker={setCategoryPickCard}
             close={closeContextMenu}
             builderSfMap={builderSfMap}
           />
         </div>,
         document.body
+      )}
+
+      {categoryPickCard && (
+        <CategoryPickerModal
+          card={categoryPickCard}
+          categories={categoryOptions}
+          onSelect={async category => {
+            await moveDeckCardToCategory(categoryPickCard.id, category)
+            setCategoryPickCard(null)
+          }}
+          onCreate={async name => {
+            const category = await ensureDeckCategoryForName(name)
+            await moveDeckCardToCategory(categoryPickCard.id, category || { name })
+            setCategoryPickCard(null)
+          }}
+          onClear={async () => {
+            await clearDeckCardCategory(categoryPickCard.id)
+            setCategoryPickCard(null)
+          }}
+          onClose={() => setCategoryPickCard(null)}
+        />
       )}
 
       {/* â”€â”€ Import modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}

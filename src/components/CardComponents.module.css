@@ -312,14 +312,62 @@
   .grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
 
   /* Compact filter bar so more cards are visible */
-  .filterBar { gap: 6px; margin: 10px 0; }
-  .searchInput { height: 30px; padding: 7px 10px; font-size: 0.85rem; min-width: 0; }
-  .filterSortBtn { height: 30px; padding: 6px 13px; font-size: 0.72rem; min-width: 116px; }
+  .filterBar {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin: 10px 0;
+  }
+  .filterBarActions,
+  .filterSortGroup {
+    display: flex;
+    width: 100%;
+    gap: 8px;
+    min-width: 0;
+  }
+  .filterSortGroup {
+    grid-column: span 2;
+  }
+  .filterBarActions {
+    grid-column: span 1;
+  }
+  .searchInput {
+    grid-column: 1 / -1;
+    width: 100%;
+    height: 34px;
+    padding: 7px 10px;
+    font-size: 0.86rem;
+    min-width: 0;
+  }
+  .filterSortMobile,
+  .filterToggle,
+  .filterBarActions > *,
+  .filterSortGroup > * {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .filterSortBtn,
+  .filterToggle,
+  .selectModeBtn {
+    width: 100%;
+    min-width: 0;
+    height: 32px;
+    padding: 6px 12px;
+    font-size: 0.72rem;
+    justify-content: center;
+    white-space: nowrap;
+  }
 
   .filterBarLookup .searchInput {
     order: 1;
+    grid-column: 1 / -1;
     flex: 0 0 100%;
     width: 100%;
+  }
+
+  .filterBarLookup .filterBarActions,
+  .filterBarLookup .filterSortGroup {
+    grid-column: 1 / -1;
   }
 
   .filterBarLookup .filterBarActions > * {

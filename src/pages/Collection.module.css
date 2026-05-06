@@ -160,7 +160,8 @@
 
   /* Action row above the filter bar — slides away on scroll */
   .mobileTopActions {
-    display: flex;
+    display: grid;
+    grid-template-columns: 42px minmax(108px, 1fr) minmax(86px, 0.8fr) minmax(86px, 0.8fr);
     align-items: center;
     gap: 8px;
     margin-bottom: 8px;
@@ -168,6 +169,23 @@
     max-height: 48px;
     opacity: 1;
     transition: max-height 0.3s cubic-bezier(.4,0,.2,1), opacity 0.25s ease, margin 0.3s cubic-bezier(.4,0,.2,1);
+  }
+
+  .mobileTopActions > button {
+    width: 100%;
+    min-width: 0;
+    height: 36px;
+    padding: 0 10px;
+    border-radius: 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1;
+  }
+
+  .mobileTopActions > button:first-child {
+    padding: 0;
+    font-size: 0.9rem;
   }
 
   .mobileTopActionsHidden {

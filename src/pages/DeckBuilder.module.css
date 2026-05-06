@@ -1524,6 +1524,122 @@
   opacity: 0.8;
 }
 
+.categoryMenuWrap {
+  margin-left: 2px;
+  display: inline-flex;
+}
+
+.categoryMenuBtn {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--s-border);
+  border-radius: 6px;
+  background: var(--s2);
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.categoryMenuBtn:hover {
+  color: var(--gold);
+  border-color: color-mix(in srgb, var(--gold) 35%, var(--s-border));
+  background: var(--s-medium);
+}
+
+.menuDivider {
+  height: 1px;
+  margin: 5px 0;
+  background: var(--s-border);
+}
+
+.menuSectionLabel {
+  padding: 3px 10px 2px;
+  color: var(--text-faint);
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.categoryPickerModal {
+  width: min(460px, 94vw);
+}
+
+.categoryPickerBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.categoryPickerTitle {
+  color: var(--gold);
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.categoryPickerCard {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.categoryPickerList {
+  max-height: min(46vh, 360px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.categoryPickerOption {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--s-border);
+  border-radius: 7px;
+  background: var(--s2);
+  color: var(--text);
+  cursor: pointer;
+  padding: 7px 10px;
+  text-align: left;
+}
+
+.categoryPickerOption:hover,
+.categoryPickerOptionActive {
+  border-color: color-mix(in srgb, var(--gold) 38%, var(--s-border));
+  background: var(--s-medium);
+  color: var(--gold);
+}
+
+.categoryCreateRow {
+  display: flex;
+  gap: 8px;
+}
+
+.categoryCreateInput {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--s-border2);
+  border-radius: 7px;
+  background: var(--s2);
+  color: var(--text);
+  padding: 8px 10px;
+}
+
+.categoryCreateBtn {
+  border: 1px solid rgba(201,168,76,0.45);
+  border-radius: 7px;
+  background: rgba(201,168,76,0.16);
+  color: var(--gold);
+  cursor: pointer;
+  padding: 0 14px;
+  font-family: var(--font-display);
+}
+
 .deckCardRow {
   display: grid;
   grid-template-columns: var(--deck-list-columns, minmax(0, 1fr) 88px 94px 64px 58px 56px);
