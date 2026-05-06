@@ -584,7 +584,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
   useEffect(() => {
     if (!cards.length) { setSfMap({}); return }
     let cancelled = false
-    loadCardMapWithSharedPrices(cards).then(map => {
+    loadCardMapWithSharedPrices(cards, { priceLookup: 'set' }).then(map => {
       if (!cancelled && map) setSfMap(map)
     })
     return () => { cancelled = true }
@@ -1415,7 +1415,7 @@ export default function FoldersPage({ type }) {
         return { ...card, _folder_qty: row.qty, _folderName: folder?.name || '', _folderType: folder?.type || type }
       }).filter(Boolean)
 
-      const sfMap = cards.length ? await loadCardMapWithSharedPrices(cards) : {}
+      const sfMap = cards.length ? await loadCardMapWithSharedPrices(cards, { priceLookup: 'set' }) : {}
       setExportAllCards(cards)
       setExportAllSfMap(sfMap)
     } finally {
@@ -1470,7 +1470,7 @@ export default function FoldersPage({ type }) {
     // Phase B: load prices in background and fill in values
     const priceCards = uniqueCardIds.map(id => cardById[id]).filter(Boolean)
     if (!priceCards.length) return
-    const sfMap = await loadCardMapWithSharedPrices(priceCards)
+    const sfMap = await loadCardMapWithSharedPrices(priceCards, { priceLookup: 'set' })
     if (!sfMap) return
     const metaWithPrices = {}
     for (const f of foldersData) metaWithPrices[f.id] = { ...metaCounts[f.id], value: 0 }

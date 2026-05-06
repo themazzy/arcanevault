@@ -13,7 +13,7 @@
 import { openDB } from 'idb'
 
 const DB_NAME    = 'arcanevault'
-const DB_VERSION = 6
+const DB_VERSION = 7
 const SCRYFALL_METADATA_UPDATED_AT_KEY = 'scryfall_metadata_updated_at'
 const LEGACY_SCRYFALL_PRICES_UPDATED_AT_KEY = 'scryfall_prices_updated_at'
 
@@ -41,6 +41,13 @@ async function getDb() {
         const cp = db.createObjectStore('card_prints', { keyPath: 'id' })
         cp.createIndex('scryfall_id', 'scryfall_id', { unique: true })
         cp.createIndex('set_code', 'set_code')
+      }
+
+      if (!db.objectStoreNames.contains('card_prices')) {
+        const prices = db.createObjectStore('card_prices', { keyPath: 'id' })
+        prices.createIndex('scryfall_id', 'scryfall_id')
+        prices.createIndex('set_code', 'set_code')
+        prices.createIndex('snapshot_date', 'snapshot_date')
       }
 
       // folder_cards store — links between folders and owned collection cards
@@ -203,6 +210,48 @@ export async function putCardPrints(rows) {
     ...rows.map(r => tx.store.put(r)),
     tx.done,
   ])
+}
+
+export async function getLocalCardPriceRowsByIds(scryfallIds, snapshotDates) {
+  const ids = [...new Set((scryfallIds || []).filter(Boolean))]
+  const dates = [...new Set((snapshotDates || []).filter(Boolean))]
+  if (!ids.length || !dates.length) return []
+
+  const db = await getDb()
+  const rows = await Promise.all(
+    ids.flatMap(scryfallId => dates.map(snapshotDate => db.get('card_prices', `${scryfallId}|${snapshotDate}`))),
+  )
+  return rows.filter(Boolean)
+}
+
+export async function getLocalCardPriceRowsBySetCodes(setCodes, snapshotDates) {
+  const sets = new Set((setCodes || []).map(s => String(s || '').trim().toLowerCase()).filter(Boolean))
+  const dates = new Set((snapshotDates || []).filter(Boolean))
+  if (!sets.size || !dates.size) return []
+
+  const db = await getDb()
+  const rowsBySet = await Promise.all([...sets].map(setCode => db.getAllFromIndex('card_prices', 'set_code', setCode)))
+  return rowsBySet.flat().filter(row => dates.has(row.snapshot_date))
+}
+
+export async function putCardPriceRows(rows) {
+  if (!rows?.length) return
+  const cachedAt = Date.now()
+  const db = await getDb()
+  const tx = db.transaction('card_prices', 'readwrite')
+  for (const row of rows) {
+    const scryfallId = row?.scryfall_id ? String(row.scryfall_id).trim() : null
+    const snapshotDate = row?.snapshot_date
+    if (!scryfallId || !snapshotDate) continue
+    await tx.store.put({
+      ...row,
+      id: `${scryfallId}|${snapshotDate}`,
+      scryfall_id: scryfallId,
+      set_code: row.set_code ? String(row.set_code).trim().toLowerCase() : row.set_code,
+      cached_at: row.cached_at || cachedAt,
+    })
+  }
+  await tx.done
 }
 
 export async function putCards(cards) {
@@ -415,7 +464,7 @@ export async function replaceDeckAllocations(deckIds, rows) {
 
 export async function getDbStats() {
   const db = await getDb()
-  const [cards, folders, folderCards, scryfall, deckCards, cardPrints, deckAllocations] = await Promise.all([
+  const [cards, folders, folderCards, scryfall, deckCards, cardPrints, deckAllocations, cardPrices] = await Promise.all([
     db.count('cards'),
     db.count('folders'),
     db.count('folder_cards'),
@@ -423,7 +472,8 @@ export async function getDbStats() {
     db.count('deck_cards'),
     db.count('card_prints'),
     db.count('deck_allocations'),
+    db.count('card_prices'),
   ])
   const sfInfo = await getScryfallCacheInfo()
-  return { cards, folders, folderCards, scryfall, deckCards, cardPrints, deckAllocations, sfUpdatedAt: sfInfo.updatedAt }
+  return { cards, folders, folderCards, scryfall, deckCards, cardPrints, deckAllocations, cardPrices, sfUpdatedAt: sfInfo.updatedAt }
 }

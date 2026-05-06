@@ -105,5 +105,5 @@ export async function fetchFolderPlacements({ queryKey }) {
 }
 
 export async function fetchSfMap(cards, cacheTtlMs, onProgress) {
-  return loadCardMapWithSharedPrices(cards, { onProgress, cacheTtlMs })
+  return loadCardMapWithSharedPrices(cards, { onProgress, cacheTtlMs, priceLookup: 'set' })
 }
