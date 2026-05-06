@@ -14,7 +14,7 @@ import ExportModal from '../components/ExportModal'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import styles from './Folders.module.css'
 import listStyles from './Lists.module.css'
-import { BinderIcon, DeleteIcon, EditIcon, ImageIcon, RemoveIcon, SettingsIcon } from '../icons'
+import { AddIcon, BinderIcon, CollectionIcon, DeleteIcon, EditIcon, ExportIcon, ImageIcon, ImportIcon, RemoveIcon, SettingsIcon, SortIcon, StacksViewIcon } from '../icons'
 import uiStyles from '../components/UI.module.css'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -63,8 +63,10 @@ function SortDropdown({ value, onChange, options, compact = false }) {
       title="Sort Lists"
       align="left"
       wrapClassName={styles.sortDropdown}
+      portal
       trigger={({ open, toggle }) => (
         <button className={styles.sortDropdownBtn} onClick={toggle}>
+          <SortIcon size={14} />
           <span>{compact ? 'Sort' : (current?.[1] || value)}</span>
           <span className={styles.sortArrowWrap} aria-hidden="true">
             <svg className={`${styles.sortArrow} ${open ? styles.sortArrowOpen : ''}`}
@@ -1183,9 +1185,13 @@ export default function ListsPage() {
         action={
           <ResponsiveHeaderActions
             primary={!selectMode ? (
-              <Button size="sm" className={styles.viewAllBtn} onClick={() => setShowAllCards(true)}>View All Cards</Button>
+              <Button size="sm" onClick={() => setShowNewFolder(true)} title="New wishlist" aria-label="New wishlist">
+                <AddIcon size={14} />
+                <span>New Wishlist</span>
+              </Button>
             ) : null}
             menuLabel="Wishlist actions"
+            mobileToolbar
             mobileExtra={!selectMode ? (
               <div className={styles.mobileHeaderControls}>
                 <input
@@ -1194,32 +1200,49 @@ export default function ListsPage() {
                   onChange={e => setFolderSearch(e.target.value)}
                   placeholder="Search wishlists…"
                 />
-                <SortDropdown value={sort} onChange={handleSortChange} options={SORT_OPTIONS} compact />
               </div>
             ) : null}
           >
             <div className={styles.headerActions}>
               {selectMode ? (
                 <>
-                <Button variant="ghost" size="sm" onClick={exitSelectMode}>Cancel</Button>
+                <Button variant="ghost" size="sm" onClick={exitSelectMode} title="Cancel selection" aria-label="Cancel selection">
+                  <RemoveIcon size={14} />
+                  <span>Cancel</span>
+                </Button>
                 {groups.length > 0 && (
                   <Button variant="secondary" size="sm" disabled={selectedIds.size === 0}
-                    onClick={() => setShowBulkMoveGroup(true)}>
-                    📁 Group ({selectedIds.size})
+                    onClick={() => setShowBulkMoveGroup(true)}
+                    title="Move to group"
+                    aria-label="Move to group">
+                    <BinderIcon size={14} />
+                    <span>Group ({selectedIds.size})</span>
                   </Button>
                 )}
                 <Button variant="danger" size="sm" disabled={selectedIds.size === 0}
                   onClick={handleBulkDelete}>
-                  <DeleteIcon size={12} /> Delete ({selectedIds.size})
+                  <DeleteIcon size={12} />
+                  <span>Delete ({selectedIds.size})</span>
                 </Button>
                 </>
               ) : (
                 <>
-                <Button variant="secondary" size="sm" onClick={() => setShowNewGroup(true)}>+ New Group</Button>
-                <Button variant="ghost" size="sm" onClick={() => setShowImport(true)}>↑ Import</Button>
-                <Button variant="ghost" size="sm" onClick={handleExportAll}>↓ Export</Button>
-                <Button size="sm" onClick={() => setShowNewFolder(true)}>+ New Wishlist</Button>
-                <Button variant="ghost" size="sm" onClick={() => setSelectMode(true)}>Select</Button>
+                <Button variant="secondary" size="sm" onClick={() => setShowNewGroup(true)} title="New group" aria-label="New group">
+                  <StacksViewIcon size={14} />
+                  <span>New Group</span>
+                </Button>
+                <Button size="sm" className={styles.viewAllBtn} onClick={() => setShowAllCards(true)} title="View all cards" aria-label="View all cards">
+                  <CollectionIcon size={14} />
+                  <span>View All Cards</span>
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setShowImport(true)} title="Import" aria-label="Import">
+                  <ExportIcon size={14} />
+                  <span>Import</span>
+                </Button>
+                <Button variant="ghost" size="sm" onClick={handleExportAll} title="Export" aria-label="Export">
+                  <ImportIcon size={14} />
+                  <span>Export</span>
+                </Button>
                 <input
                   className={`${styles.folderSearch} ${styles.desktopOnlySearch}`}
                   value={folderSearch}
@@ -1235,6 +1258,16 @@ export default function ListsPage() {
           </ResponsiveHeaderActions>
         }
       />
+      {!selectMode && (
+        <div className={styles.overviewStickySearch}>
+          <input
+            className={styles.folderSearch}
+            value={folderSearch}
+            onChange={e => setFolderSearch(e.target.value)}
+            placeholder="Search wishlists..."
+          />
+        </div>
+      )}
 
       {folders.length === 0 && (
         <EmptyState>No wishlists yet. Lists from your Manabox CSV will appear here after import.</EmptyState>
@@ -1300,7 +1333,7 @@ export default function ListsPage() {
           <h2 style={{ fontFamily: 'var(--font-display)', color: 'var(--gold)', marginBottom: 14, fontSize: '1rem' }}>
             New Group
           </h2>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div className={styles.modalInlineForm}>
             <input autoFocus className={styles.newGroupInput} value={newGroupName}
               onChange={e => setNewGroupName(e.target.value)}
               onKeyDown={e => {
@@ -1372,7 +1405,7 @@ export default function ListsPage() {
           <h2 style={{ fontFamily: 'var(--font-display)', color: 'var(--gold)', marginBottom: 14, fontSize: '1rem' }}>
             New Wishlist
           </h2>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div className={styles.modalInlineForm}>
             <input
               autoFocus
               className={styles.newGroupInput}

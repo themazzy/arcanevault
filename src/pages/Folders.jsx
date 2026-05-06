@@ -14,7 +14,7 @@ import ExportModal from '../components/ExportModal'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import DeckBrowser from './DeckBrowser'
 import styles from './Folders.module.css'
-import { SettingsIcon, DeleteIcon, EditIcon, BinderIcon, ImageIcon, RemoveIcon } from '../icons'
+import { AddIcon, SettingsIcon, DeleteIcon, EditIcon, BinderIcon, ImageIcon, ImportIcon, ExportIcon, RemoveIcon, SortIcon, StacksViewIcon } from '../icons'
 import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 import { getPlacedQtyByCardIds, pruneUnplacedCards } from '../lib/collectionOwnership'
@@ -33,8 +33,10 @@ function SortDropdown({ value, onChange, options, compact = false }) {
       title="Sort Folders"
       align="left"
       wrapClassName={styles.sortDropdown}
+      portal
       trigger={({ open, toggle }) => (
         <button className={styles.sortDropdownBtn} onClick={toggle}>
+          <SortIcon size={14} />
           <span>{compact ? 'Sort' : (current?.[1] || value)}</span>
           <span className={styles.sortArrowWrap} aria-hidden="true">
             <svg className={`${styles.sortArrow} ${open ? styles.sortArrowOpen : ''}`}
@@ -1700,8 +1702,14 @@ export default function FoldersPage({ type }) {
         title={`${noun}s`}
         action={
           <ResponsiveHeaderActions
-            primary={null}
+            primary={!selectMode ? (
+              <Button size="sm" onClick={() => setShowNewFolder(true)} title={`New ${noun}`} aria-label={`New ${noun}`}>
+                <AddIcon size={14} />
+                <span>New {noun}</span>
+              </Button>
+            ) : null}
             menuLabel={`${noun}s actions`}
+            mobileToolbar
             mobileExtra={!selectMode ? (
               <div className={styles.mobileHeaderControls}>
                 <input
@@ -1710,20 +1718,25 @@ export default function FoldersPage({ type }) {
                   onChange={e => setFolderSearch(e.target.value)}
                   placeholder={`Search ${noun.toLowerCase()}s…`}
                 />
-                <SortDropdown value={sort} onChange={handleSortChange} options={SORT_OPTIONS} compact />
               </div>
             ) : null}
           >
             <div className={styles.headerActions}>
               {selectMode ? (
                 <>
-                <Button variant="ghost" size="sm" onClick={exitSelectMode}>Cancel</Button>
+                <Button variant="ghost" size="sm" onClick={exitSelectMode} title="Cancel selection" aria-label="Cancel selection">
+                  <RemoveIcon size={14} />
+                  <span>Cancel</span>
+                </Button>
                 {groups.length > 0 && (
                   <Button
                     variant="secondary"
                     size="sm"
                     disabled={selectedIds.size === 0}
-                    onClick={() => setShowBulkMoveGroup(true)}>
+                    onClick={() => setShowBulkMoveGroup(true)}
+                    title="Move to group"
+                    aria-label="Move to group">
+                    <BinderIcon size={14} />
                     📁 Group ({selectedIds.size})
                   </Button>
                 )}
@@ -1733,16 +1746,23 @@ export default function FoldersPage({ type }) {
                   disabled={selectedIds.size === 0}
                   onClick={handleBulkDelete}>
                   <DeleteIcon size={12} />
-                  Delete ({selectedIds.size})
+                  <span>Delete ({selectedIds.size})</span>
                 </Button>
                 </>
               ) : (
                 <>
-                <Button variant="secondary" size="sm" onClick={() => setShowNewGroup(true)}>+ New Group</Button>
-                <Button variant="ghost" size="sm" onClick={() => setShowImport(true)}>↑ Import</Button>
-                <Button variant="ghost" size="sm" onClick={handleExportAll}>↓ Export</Button>
-                <Button size="sm" onClick={() => setShowNewFolder(true)}>+ New {noun}</Button>
-                <Button variant="ghost" size="sm" onClick={() => setSelectMode(true)}>Select</Button>
+                <Button variant="secondary" size="sm" onClick={() => setShowNewGroup(true)} title="New group" aria-label="New group">
+                  <StacksViewIcon size={14} />
+                  <span>New Group</span>
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setShowImport(true)} title="Import" aria-label="Import">
+                  <ExportIcon size={14} />
+                  <span>Import</span>
+                </Button>
+                <Button variant="ghost" size="sm" onClick={handleExportAll} title="Export" aria-label="Export">
+                  <ImportIcon size={14} />
+                  <span>Export</span>
+                </Button>
                 <input
                   className={`${styles.folderSearch} ${styles.desktopOnlySearch}`}
                   value={folderSearch}
@@ -1758,6 +1778,16 @@ export default function FoldersPage({ type }) {
           </ResponsiveHeaderActions>
         }
       />
+      {!selectMode && (
+        <div className={styles.overviewStickySearch}>
+          <input
+            className={styles.folderSearch}
+            value={folderSearch}
+            onChange={e => setFolderSearch(e.target.value)}
+            placeholder={`Search ${noun.toLowerCase()}s...`}
+          />
+        </div>
+      )}
 
       {folders.length === 0 && (
         <EmptyState>No {noun.toLowerCase()}s yet. Import your collection CSV from the Collection tab to populate them.</EmptyState>
@@ -1826,7 +1856,7 @@ export default function FoldersPage({ type }) {
           <h2 style={{ fontFamily: 'var(--font-display)', color: 'var(--gold)', marginBottom: 14, fontSize: '1rem' }}>
             New Group
           </h2>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div className={styles.modalInlineForm}>
             <input
               autoFocus
               className={styles.newGroupInput}
@@ -1938,7 +1968,7 @@ export default function FoldersPage({ type }) {
           <h2 style={{ fontFamily: 'var(--font-display)', color: 'var(--gold)', marginBottom: 14, fontSize: '1rem' }}>
             New {noun}
           </h2>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div className={styles.modalInlineForm}>
             <input
               autoFocus
               className={styles.newGroupInput}

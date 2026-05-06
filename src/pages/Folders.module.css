@@ -246,6 +246,17 @@
   flex: 1;
   min-width: 0;
 }
+
+.overviewStickySearch {
+  display: none;
+}
+
+.overviewStickySearch .folderSearch {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  height: 34px;
+}
 .viewAllBtn {
   display: inline-flex;
   align-items: center;
@@ -729,6 +740,7 @@
 
 .newGroupInput {
   flex: 1;
+  min-width: 0;
   background: var(--s3);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -738,6 +750,14 @@
   outline: none;
 }
 .newGroupInput:focus { border-color: var(--gold); }
+
+.modalInlineForm {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
 
 .newGroupSaveBtn {
   display: inline-flex;
@@ -754,6 +774,8 @@
   letter-spacing: var(--control-letter-spacing);
   padding: 6px var(--control-padding-x);
   cursor: pointer;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .newGroupSaveBtn:disabled { opacity: 0.4; cursor: default; }
 
@@ -1072,25 +1094,79 @@
 }
 
 @media (max-width: 980px) {
+  .mobileHeaderControls {
+    display: none;
+  }
+  .overviewStickySearch {
+    position: sticky;
+    top: -40px;
+    z-index: 35;
+    display: block;
+    margin: -10px 0 16px;
+    padding: 6px 0 8px;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+  .overviewStickySearch::before {
+    content: '';
+    position: absolute;
+    left: -2px;
+    right: -2px;
+    top: -18px;
+    height: 18px;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    pointer-events: none;
+  }
   .desktopOnlySearch {
     display: none;
   }
   .desktopOnlyAction {
+    display: contents;
+  }
+  .headerActions .desktopOnlyAction {
     display: none;
   }
   .headerActions {
     width: 100%;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: stretch;
+    gap: 8px;
   }
   .headerActions > button,
   .headerActions .sortDropdown,
   .headerActions .sortDropdownBtn,
   .headerActions .folderSearch {
     width: 100%;
+    min-width: 0;
+    max-width: none;
+    height: 34px;
   }
   .headerActions .sortDropdownBtn {
-    justify-content: space-between;
+    justify-content: center;
+    gap: 8px;
+    white-space: nowrap;
+  }
+  :global([class*="headerFloatingToolbar"]) .sortDropdown {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  :global([class*="headerFloatingToolbar"]) .sortDropdownBtn {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    justify-content: center;
+    align-items: center;
+    padding: 0;
+  }
+  :global([class*="headerFloatingToolbar"]) .sortDropdownBtn > span {
+    display: none;
+  }
+  :global([class*="headerFloatingToolbar"]) .sortDropdownBtn > svg {
+    margin: auto;
   }
   .sortDropdownMenu,
   .groupCogMenu {
@@ -1146,6 +1222,7 @@
   }
   .browserHeaderActionsMobile {
     display: flex;
+    min-width: 0;
   }
   .browserControlsDesktop {
     display: none;
@@ -1154,13 +1231,21 @@
     display: flex;
   }
   .binderControlBar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 8px;
     margin: 8px 0 10px;
     align-items: center;
   }
   .binderCount {
-    flex: 1;
     min-width: 0;
+  }
+  .mobileHeaderActionsBtn,
+  .mobileViewBtn {
+    height: 32px;
+    min-width: 0;
+    padding: 6px 12px;
+    justify-content: center;
   }
 }
 
@@ -1174,19 +1259,53 @@
 }
 
 @media (max-width: 500px) {
+  .modalInlineForm {
+    flex-direction: column;
+  }
+  .newGroupSaveBtn {
+    width: 100%;
+  }
   .mobileHeaderControls {
-    gap: 6px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    gap: 8px;
+    width: 100%;
+    position: sticky;
+    top: 0;
+    z-index: 15;
+    padding: 6px 0 8px;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+  .mobileHeaderControls .folderSearch {
+    width: 100%;
+    max-width: none;
+    height: 34px;
+    min-width: 0;
   }
   .mobileHeaderControls .sortDropdown {
-    flex-shrink: 0;
+    width: 100%;
+    min-width: 0;
   }
   .mobileHeaderControls .sortDropdownBtn {
+    width: 100%;
+    height: 34px;
     min-width: 0;
     padding-left: 10px;
+    justify-content: center;
+    white-space: nowrap;
   }
   .mobileHeaderControls .sortArrowWrap {
     padding: 0 8px;
     margin-left: 2px;
+  }
+  .mobileHeaderControls {
+    display: none;
+  }
+  .page {
+    padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px));
   }
 }
 

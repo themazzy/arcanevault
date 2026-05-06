@@ -517,6 +517,10 @@
   pointer-events: none;
 }
 
+.headerFloatingToolbar {
+  display: none;
+}
+
 @media (max-width: 980px) {
   .sectionHeader {
     align-items: flex-start;
@@ -553,6 +557,97 @@
     gap: 8px;
     overflow: visible;
     z-index: 130;
+  }
+
+  .headerFloatingToolbar {
+    position: fixed;
+    left: 50%;
+    right: auto;
+    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    width: min(360px, calc(100vw - 28px));
+    max-width: calc(100% - 28px);
+    box-sizing: border-box;
+    transform: translateX(-50%);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 5px 6px;
+    overflow-x: auto;
+    overflow-y: visible;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    border: 1px solid color-mix(in srgb, var(--gold) 32%, transparent);
+    border-radius: 999px;
+    background:
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--bg2) 80%, transparent),
+        color-mix(in srgb, var(--bg) 84%, transparent));
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    box-shadow:
+      0 14px 38px rgba(0,0,0,0.55),
+      0 0 0 1px color-mix(in srgb, var(--gold) 8%, transparent),
+      inset 0 1px 0 rgba(255,255,255,0.06);
+  }
+
+  .headerFloatingToolbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .headerFloatingToolbar > *,
+  .headerFloatingToolbar button {
+    flex: 1 1 0;
+    min-width: 0;
+    width: auto;
+    height: 34px;
+    min-height: 34px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+
+  .headerFloatingToolbar button {
+    max-width: none;
+    padding: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    background: color-mix(in srgb, var(--bg3) 70%, transparent);
+    border-color: var(--s-border2);
+    box-shadow: none;
+    font-size: 0;
+    letter-spacing: 0;
+  }
+
+  .headerFloatingToolbar button > span {
+    display: none;
+  }
+
+  .headerFloatingToolbar button svg {
+    display: block;
+    flex-shrink: 0;
+    margin: auto;
+  }
+
+  .headerFloatingToolbar button:hover:not(:disabled) {
+    color: var(--gold);
+    border-color: color-mix(in srgb, var(--gold) 35%, var(--s-border2));
+    background: color-mix(in srgb, var(--bg3) 82%, transparent);
+  }
+}
+
+@media (max-width: 380px) {
+  .headerFloatingToolbar {
+    width: calc(100vw - 24px);
+    max-width: calc(100% - 24px);
+    gap: 2px;
+    padding: 4px 5px;
+  }
+
+  .headerFloatingToolbar > *,
+  .headerFloatingToolbar button {
+    height: 32px;
+    min-height: 32px;
   }
 }
 
@@ -598,11 +693,12 @@
   }
 }
 
-/* Narrow phones: keep single row but let the action shell flex-grow to
-   fill remaining space so the hamburger button is never pushed off. */
+/* Narrow phones: give header controls their own row so search fields and
+   split controls do not collapse beside the section title. */
 @media (max-width: 480px) {
   .sectionHeader {
     gap: 8px;
+    flex-wrap: wrap;
   }
 
   .sectionTitle {
@@ -611,16 +707,33 @@
   }
 
   .headerActionShell {
-    flex: 1 1 0;
+    flex: 1 1 100%;
     min-width: 0;
+    width: 100%;
   }
 
   .headerActionMobile {
     min-width: 0;
     width: 100%;
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    flex-direction: column;
+  }
+
+  .headerActionMobile > :not(.headerActionMobileExtra):not(.headerMenuBtn):not(.headerMenuPanel) {
+    order: 1;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .headerActionMobileExtra {
+    order: 1;
   }
 
   .headerMenuBtn {
+    order: 2;
+    justify-self: end;
     flex-shrink: 0;
   }
 }
