@@ -56,7 +56,11 @@ export function writeSyncState(meta, syncState) {
 
 export function getLogicalKey(row) {
   const foil = row?.foil ? '1' : '0'
+  if (row?.card_print_id) return `cp:${row.card_print_id}|${foil}`
   if (row?.scryfall_id) return `sf:${row.scryfall_id}|${foil}`
+  const set = String(row?.set_code || '').toLowerCase()
+  const cn = String(row?.collector_number || '').toLowerCase()
+  if (set && cn) return `nsc:${normalizeName(row?.name)}|${set}|${cn}|${foil}`
   return `name:${normalizeName(row?.name)}|${foil}`
 }
 

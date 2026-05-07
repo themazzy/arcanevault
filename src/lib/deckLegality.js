@@ -26,7 +26,7 @@ export function getCardLegalityWarnings({
   if (legality === 'not_legal' || legality === 'banned') {
     warnings.push({
       reason: 'format_legality',
-      text: `${cardName} is ${legality.replace('_', ' ')} in ${formatLabel || formatId || 'this format'}.`,
+      text: `${cardName} is ${legality.replace(/_/g, ' ')} in ${formatLabel || formatId || 'this format'}.`,
     })
   }
 

@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import { sb } from './supabase'
+import { parseDeckMeta, serializeDeckMeta } from './deckBuilderApi'
 
 const artCache = {}
 
@@ -163,4 +165,77 @@ export function useDeckArts(meta = {}) {
 
 export function useDeckArt(meta = {}) {
   return useDeckArts(meta)[0] || null
+}
+
+/**
+ * Look up commander art for a list of decks, merge into folder meta, optionally
+ * persist back to Supabase. Used by Builder.jsx to populate cover art for decks
+ * that don't have it cached yet.
+ *
+ * Test seam: pass `client` to override the Supabase client (default: live `sb`).
+ *
+ * @param {Array} decks      Folder rows with `id`, `description`, `type`.
+ * @param {Object} options
+ * @param {boolean} options.persist  Write merged descriptions back to `folders` (default: false).
+ * @param {Object}  options.client   Supabase client override (default: live).
+ * @returns {Promise<Array>}  Decks with merged `__meta` and updated `description`.
+ */
+export async function enrichDecksWithCommanderArt(decks, { persist = false, client = sb } = {}) {
+  const missingDecks = decks.filter(deck => !hasDeckArtSource(parseDeckMeta(deck.description)))
+  const missingIds = missingDecks.map(deck => deck.id)
+  if (!missingIds.length) return decks
+
+  const { data, error } = await client.from('deck_cards_view')
+    .select('deck_id,name,scryfall_id,color_identity,image_uri,art_crop_uri,is_commander')
+    .in('deck_id', missingIds)
+    .eq('is_commander', true)
+
+  const byDeck = new Map()
+  for (const row of error ? [] : (data || [])) {
+    if (!byDeck.has(row.deck_id)) byDeck.set(row.deck_id, [])
+    byDeck.get(row.deck_id).push(row)
+  }
+
+  const stillMissing = missingDecks.filter(deck => !byDeck.has(deck.id))
+  const namedCollectionDecks = stillMissing.filter(deck => {
+    const meta = parseDeckMeta(deck.description)
+    return deck.type === 'deck' && (meta.commanderName || meta.commanders?.some(c => c.name))
+  })
+  if (namedCollectionDecks.length) {
+    const { data: allocationRows } = await client.from('deck_allocations_view')
+      .select('deck_id,name,scryfall_id,color_identity,image_uri,art_crop_uri')
+      .in('deck_id', namedCollectionDecks.map(deck => deck.id))
+
+    const wantedNames = new Map(namedCollectionDecks.map(deck => {
+      const meta = parseDeckMeta(deck.description)
+      const names = new Set([
+        meta.commanderName,
+        ...(Array.isArray(meta.commanders) ? meta.commanders.map(c => c.name) : []),
+      ].filter(Boolean).map(name => String(name).toLowerCase()))
+      return [deck.id, names]
+    }))
+
+    for (const row of allocationRows || []) {
+      if (!wantedNames.get(row.deck_id)?.has(String(row.name || '').toLowerCase())) continue
+      if (!byDeck.has(row.deck_id)) byDeck.set(row.deck_id, [])
+      byDeck.get(row.deck_id).push({ ...row, is_commander: true })
+    }
+  }
+
+  if (!byDeck.size) return decks
+
+  const enriched = decks.map(deck => {
+    const rows = byDeck.get(deck.id)
+    if (!rows?.length) return deck
+    const meta = mergeDeckCommanderArt(parseDeckMeta(deck.description), rows)
+    return { ...deck, description: serializeDeckMeta(meta), __meta: meta, __artNeedsPersist: true }
+  })
+  const toPersist = persist ? enriched.filter(d => d.__artNeedsPersist && d.id) : []
+  if (toPersist.length) {
+    // Fire-and-forget; failure means we'll just re-enrich next time.
+    Promise.all(toPersist.map(d =>
+      client.from('folders').update({ description: d.description }).eq('id', d.id)
+    )).catch(err => console.warn('[deckArt] persist failed:', err))
+  }
+  return enriched.map(({ __artNeedsPersist, ...rest }) => rest)
 }

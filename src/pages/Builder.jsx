@@ -5,7 +5,7 @@ import { useAuth } from '../components/Auth'
 import { Button, Modal, EmptyState, SectionHeader, ResponsiveMenu } from '../components/UI'
 import { parseDeckMeta, serializeDeckMeta, FORMATS } from '../lib/deckBuilderApi'
 import { unlinkPairedDeck, getSyncState } from '../lib/deckSync'
-import { hasDeckArtSource, mergeDeckCommanderArt, useDeckArts } from '../lib/deckArt'
+import { hasDeckArtSource, mergeDeckCommanderArt, useDeckArts, enrichDecksWithCommanderArt } from '../lib/deckArt'
 import styles from './Builder.module.css'
 import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
@@ -76,57 +76,13 @@ function DeckArtBackground({ meta }) {
   )
 }
 
-async function enrichDecksWithCommanderArt(decks) {
-  const missingDecks = decks.filter(deck => !hasDeckArtSource(parseDeckMeta(deck.description)))
-  const missingIds = missingDecks.map(deck => deck.id)
-  if (!missingIds.length) return decks
-
-  const { data, error } = await sb.from('deck_cards_view')
-    .select('deck_id,name,scryfall_id,color_identity,image_uri,art_crop_uri,is_commander')
-    .in('deck_id', missingIds)
-    .eq('is_commander', true)
-
-  const byDeck = new Map()
-  for (const row of error ? [] : (data || [])) {
-    if (!byDeck.has(row.deck_id)) byDeck.set(row.deck_id, [])
-    byDeck.get(row.deck_id).push(row)
-  }
-
-  const stillMissing = missingDecks.filter(deck => !byDeck.has(deck.id))
-  const namedCollectionDecks = stillMissing.filter(deck => {
-    const meta = parseDeckMeta(deck.description)
-    return deck.type === 'deck' && (meta.commanderName || meta.commanders?.some(c => c.name))
-  })
-  if (namedCollectionDecks.length) {
-    const { data: allocationRows } = await sb.from('deck_allocations_view')
-      .select('deck_id,name,scryfall_id,color_identity,image_uri,art_crop_uri')
-      .in('deck_id', namedCollectionDecks.map(deck => deck.id))
-
-    const wantedNames = new Map(namedCollectionDecks.map(deck => {
-      const meta = parseDeckMeta(deck.description)
-      const names = new Set([
-        meta.commanderName,
-        ...(Array.isArray(meta.commanders) ? meta.commanders.map(c => c.name) : []),
-      ].filter(Boolean).map(name => String(name).toLowerCase()))
-      return [deck.id, names]
-    }))
-
-    for (const row of allocationRows || []) {
-      if (!wantedNames.get(row.deck_id)?.has(String(row.name || '').toLowerCase())) continue
-      if (!byDeck.has(row.deck_id)) byDeck.set(row.deck_id, [])
-      byDeck.get(row.deck_id).push({ ...row, is_commander: true })
-    }
-  }
-
-  if (!byDeck.size) return decks
-
-  return decks.map(deck => {
-    const rows = byDeck.get(deck.id)
-    if (!rows?.length) return deck
-    const meta = mergeDeckCommanderArt(parseDeckMeta(deck.description), rows)
-    return { ...deck, description: serializeDeckMeta(meta) }
-  })
+// Decorate each deck with a cached parsed meta object so per-render filter/sort/
+// render code paths don't re-JSON.parse the description on every pass.
+function attachDeckMeta(decks) {
+  return (decks || []).map(deck => ({ ...deck, __meta: parseDeckMeta(deck.description) }))
 }
+
+// enrichDecksWithCommanderArt now lives in src/lib/deckArt.js
 
 function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSelect, onEnterSelectMode, onDelete, navigate }) {
   const longPress = useLongPress(() => {
@@ -356,7 +312,7 @@ export default function BuilderPage() {
         return true
       } catch { return true }
     })
-    setDecks(await enrichDecksWithCommanderArt(nonGroupDecks))
+    setDecks(attachDeckMeta(await enrichDecksWithCommanderArt(nonGroupDecks, { persist: true })))
     setLoading(false)
   }
 
@@ -366,7 +322,7 @@ export default function BuilderPage() {
     try {
       const { data } = await sb.rpc('get_community_decks')
       const decks = Array.isArray(data) ? data : []
-      setCommunityDecks(await enrichDecksWithCommanderArt(decks))
+      setCommunityDecks(attachDeckMeta(await enrichDecksWithCommanderArt(decks)))
       setCommunityLoaded(true)
       // Batch-fetch nicknames for all unique creators
       const uniqueIds = [...new Set(decks.map(d => d.user_id).filter(Boolean))]
@@ -444,29 +400,39 @@ export default function BuilderPage() {
   async function bulkDelete() {
     if (!selectedIds.size) return
     const ids = [...selectedIds]
-    const collectionIds = ids.filter(id => decks.find(d => d.id === id)?.type === 'deck')
-    const builderIds    = ids.filter(id => decks.find(d => d.id === id)?.type !== 'deck')
+    // Capture deck metadata BEFORE the optimistic state filter, otherwise the
+    // per-id loop below would lose access to descriptions/types after setDecks.
+    const decksById = new Map(decks.map(d => [d.id, d]))
+    const collectionIds = ids.filter(id => decksById.get(id)?.type === 'deck')
+    const builderIds    = ids.filter(id => decksById.get(id)?.type === 'builder_deck')
     const msg = collectionIds.length
       ? `Delete ${builderIds.length} builder deck(s) and hide ${collectionIds.length} collection deck(s) from the builder?`
       : `Delete ${ids.length} builder deck(s)?`
     if (!await confirmAsync(msg)) return
     setDecks(d => d.filter(x => !ids.includes(x.id)))
-    for (const id of collectionIds) {
-      const deck = decks.find(d => d.id === id)
+
+    // Hide collection decks: one upsert per deck since description differs per row.
+    await Promise.all(collectionIds.map(async id => {
+      const deck = decksById.get(id)
       let meta = {}
       try { meta = JSON.parse(deck?.description || '{}') } catch {}
       meta.hideFromBuilder = true
       await sb.from('folders').update({ description: JSON.stringify(meta) }).eq('id', id).eq('user_id', user.id)
+    }))
+
+    // Unlink any paired collection counterparts before deleting builder decks.
+    const counterpartIds = builderIds
+      .map(id => parseDeckMeta(decksById.get(id)?.description || '{}').linked_deck_id)
+      .filter(Boolean)
+    if (counterpartIds.length) {
+      const { data: counterparts } = await sb.from('folders').select('*').in('id', counterpartIds)
+      await Promise.all((counterparts || []).map(counterpart => unlinkPairedDeck({ counterpart })))
     }
-    for (const id of builderIds) {
-      const deck = decks.find(d => d.id === id)
-      const meta = parseDeckMeta(deck?.description || '{}')
-      if (meta.linked_deck_id) {
-        const { data: counterpart } = await sb.from('folders').select('*').eq('id', meta.linked_deck_id).maybeSingle()
-        if (counterpart) await unlinkPairedDeck({ counterpart })
-      }
-      await sb.from('deck_cards').delete().eq('deck_id', id)
-      await sb.from('folders').delete().eq('id', id).eq('user_id', user.id)
+
+    if (builderIds.length) {
+      // Batch deletes via .in() — single round-trip each instead of N.
+      await sb.from('deck_cards').delete().in('deck_id', builderIds)
+      await sb.from('folders').delete().in('id', builderIds).eq('user_id', user.id)
     }
     toggleSelectMode()
   }
@@ -479,7 +445,7 @@ export default function BuilderPage() {
       if (typeFilter === 'builder' && d.type !== 'builder_deck') return false
       if (typeFilter === 'collection' && d.type !== 'deck') return false
       if (visFilter !== 'all') {
-        const isPublic = !!(parseDeckMeta(d.description).is_public)
+        const isPublic = !!(d.__meta?.is_public)
         if (visFilter === 'public' && !isPublic) return false
         if (visFilter === 'private' && isPublic) return false
       }
@@ -488,15 +454,17 @@ export default function BuilderPage() {
     .sort((a, b) => {
       if (sortBy === 'name')   return a.name.localeCompare(b.name)
       if (sortBy === 'format') {
-        const ma = parseDeckMeta(a.description)
-        const mb = parseDeckMeta(b.description)
-        return (ma.format || '').localeCompare(mb.format || '')
+        return (a.__meta?.format || '').localeCompare(b.__meta?.format || '')
       }
-      return 0
+      // 'updated' (default) — explicitly sort by updated_at desc instead of relying
+      // on RPC ordering. Falls back to created_at / id for stability.
+      const ta = Date.parse(a.updated_at || a.created_at || 0) || 0
+      const tb = Date.parse(b.updated_at || b.created_at || 0) || 0
+      return tb - ta
     })
 
   const filteredCommunity = communityDecks.filter(d => {
-    const meta = parseDeckMeta(d.description)
+    const meta = d.__meta || parseDeckMeta(d.description)
     if (communitySearch && !d.name.toLowerCase().includes(communitySearch.toLowerCase())) return false
     if (communityFormat !== 'all' && meta.format !== communityFormat) return false
     return true
@@ -596,7 +564,7 @@ export default function BuilderPage() {
         {!loading && filtered.length > 0 && (
           <div className={styles.grid}>
             {filtered.map(deck => {
-              const meta      = parseDeckMeta(deck.description)
+              const meta      = deck.__meta || parseDeckMeta(deck.description)
               const fmt       = FORMATS.find(f => f.id === (meta.format || 'commander'))
               const rawColors = deck.deck_color_identity
               const colors    = rawColors && rawColors.length > 0
@@ -656,7 +624,7 @@ export default function BuilderPage() {
           <>
             <div className={styles.grid}>
               {communityPageDecks.map(deck => {
-                const meta  = parseDeckMeta(deck.description)
+                const meta  = deck.__meta || parseDeckMeta(deck.description)
                 const fmt   = FORMATS.find(f => f.id === (meta.format || 'commander'))
                 const isOwn = deck.user_id === user?.id
                 return (
