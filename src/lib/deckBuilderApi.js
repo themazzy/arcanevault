@@ -218,7 +218,25 @@ export async function fetchCardsByScryfallIds(ids) {
 
 // ── EDHRec ────────────────────────────────────────────────────────────────────
 
-const _edhCache = {}
+// LRU-bounded cache for EDHRec recommendation payloads. A long-running session
+// would otherwise accumulate one entry per (formatId, commander slug) forever.
+const EDH_CACHE_MAX = 50
+const _edhCache = new Map()
+function edhCacheGet(key) {
+  if (!_edhCache.has(key)) return undefined
+  const value = _edhCache.get(key)
+  _edhCache.delete(key)
+  _edhCache.set(key, value)
+  return value
+}
+function edhCacheSet(key, value) {
+  if (_edhCache.has(key)) _edhCache.delete(key)
+  _edhCache.set(key, value)
+  while (_edhCache.size > EDH_CACHE_MAX) {
+    const first = _edhCache.keys().next().value
+    _edhCache.delete(first)
+  }
+}
 
 /**
  * Fetch commander recommendations from EDHRec.
@@ -243,8 +261,10 @@ export async function fetchEdhrecCommander(commanderName, formatId = 'commander'
   // Standard Brawl + other formats fall back to the standard commander page.
   const subPath = formatId === 'brawl' ? '/brawl' : ''
   const cacheKey = formatId === 'brawl' ? 'brawl' : 'commander'
-  const cached = slugs.find(slug => _edhCache[`${cacheKey}:${slug}`])
-  if (cached) return _edhCache[`${cacheKey}:${cached}`]
+  for (const slug of slugs) {
+    const hit = edhCacheGet(`${cacheKey}:${slug}`)
+    if (hit) return hit
+  }
 
   try {
     let data = null
@@ -292,7 +312,9 @@ export async function fetchEdhrecCommander(commanderName, formatId = 'commander'
         })),
     }
 
-    for (const slug of slugs) _edhCache[`${cacheKey}:${slug}`] = result
+    // Only cache under the slug we actually resolved — the others returned 404
+    // for this format, so caching them would mask future format-specific hits.
+    if (resolvedSlug) edhCacheSet(`${cacheKey}:${resolvedSlug}`, result)
     return result
   } catch (err) {
     console.warn('[EDHRec] failed for', commanderName, err.message)
@@ -311,7 +333,9 @@ export function parseImportUrl(url) {
   const archidekt = url.match(/archidekt\.com\/decks\/(\d+)/)
   if (archidekt) return { source: 'archidekt', id: archidekt[1] }
 
-  const moxfield = url.match(/moxfield\.com\/decks\/([A-Za-z0-9_-]+)/)
+  // Moxfield deck IDs are short opaque slugs (e.g. "abc123_xy-Z"). Restrict
+  // length so non-deck routes like /decks/help can't masquerade as IDs.
+  const moxfield = url.match(/moxfield\.com\/decks\/([A-Za-z0-9_-]{6,40})(?:[/?#]|$)/)
   if (moxfield) return { source: 'moxfield', id: moxfield[1] }
 
   const goldfish = url.match(/mtggoldfish\.com\/deck\/(\d+)/)
@@ -349,11 +373,16 @@ export function parseTextDecklist(text) {
 
     let rest = line
 
-    // Detect and strip foil markers anywhere in the line
+    // Detect and strip foil markers. Anchored to word boundaries / end-of-line
+    // so a hypothetical card name containing the literal substring won't be stripped.
     let foil = false
-    if (/\*F\*/i.test(rest) || /\[foil\]/i.test(rest) || /\(foil\)/i.test(rest)) {
+    if (/(?:^|\s)\*F\*(?:\s|$)/i.test(rest) || /\[foil\]\s*$/i.test(rest) || /\(foil\)\s*$/i.test(rest)) {
       foil = true
-      rest = rest.replace(/\s*\*F\*/gi, '').replace(/\s*\[foil\]/gi, '').replace(/\s*\(foil\)/gi, '').trim()
+      rest = rest
+        .replace(/(?:^|\s)\*F\*(?=\s|$)/gi, ' ')
+        .replace(/\s*\[foil\]\s*$/gi, '')
+        .replace(/\s*\(foil\)\s*$/gi, '')
+        .trim()
     }
 
     // Extract optional qty at start: "4 " or "4x "

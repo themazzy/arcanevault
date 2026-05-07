@@ -8,6 +8,11 @@ export default defineConfig({
   build: {
     sourcemap: true,
   },
+  test: {
+    environment: 'node',
+    include: ['src/**/*.test.{js,jsx}'],
+    globals: false,
+  },
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },

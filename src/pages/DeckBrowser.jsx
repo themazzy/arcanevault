@@ -8,6 +8,7 @@ import { useAuth } from '../components/Auth'
 import { useToast } from '../components/ToastContext'
 import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
 import { EmptyState, Badge } from '../components/UI'
+import { CheckIcon, StarIcon, ChevronUpIcon, ChevronDownIcon, ChevronLeftIcon, ImportIcon, ExportIcon, AddIcon } from '../icons'
 import AddCardModal from '../components/AddCardModal'
 import ExportModal from '../components/ExportModal'
 import ImportModal from '../components/ImportModal'
@@ -259,12 +260,12 @@ function TextRow({ card, selectMode, isSelected, onToggleSelect, onEnterSelectMo
       {...lpRest}>
       {selectMode && (
         <div className={`${styles.textCheckbox}${isSelected ? ' '+styles.textCheckboxChecked : ''}`}>
-          {isSelected && '✓'}
+          {isSelected && <CheckIcon size={11} />}
         </div>
       )}
       <span className={styles.textQty}>{card._folder_qty||card.qty||1}x</span>
       <span className={styles.textName}>{card.name}</span>
-      {card.foil && <span className={styles.textFoil}>✦</span>}
+      {card.foil && <span className={styles.textFoil}><StarIcon size={11} /></span>}
     </div>
   )
 }
@@ -323,7 +324,7 @@ function TableView({ cards, sfMap, priceSource, onSelect, selectMode, selectedCa
     if (sortCol===col) setSortDir(d => -d)
     else { setSortCol(col); setSortDir(1) }
   }
-  const arrow = col => sortCol===col ? (sortDir>0?'↑':'↓') : ''
+  const arrow = col => sortCol===col ? (sortDir>0 ? <ChevronUpIcon size={10} /> : <ChevronDownIcon size={10} />) : null
 
   return (
     <div className={styles.tableWrap}>
@@ -1199,7 +1200,7 @@ export default function DeckBrowser({ folder, onBack }) {
         {folderBgUrl && (
           <div className={styles.headerBg} style={{ backgroundImage: `url(${folderBgUrl})` }} />
         )}
-        <button className={styles.backBtn} onClick={onBack}>← Back to Decks</button>
+        <button className={styles.backBtn} onClick={onBack}><ChevronLeftIcon size={12} /> Back to Decks</button>
         <div className={styles.titleRow}>
           <h1 className={styles.deckName}>{folder.name}</h1>
           <div className={styles.headerMeta}>
@@ -1207,13 +1208,13 @@ export default function DeckBrowser({ folder, onBack }) {
             <span className={styles.deckValue}>{formatPrice(totalValue, price_source)}</span>
             <div className={styles.headerActionsDesktop}>
               <button className={styles.addCardsBtn} onClick={() => setShowImport(true)}>
-                ↑ Import
+                <ImportIcon size={12} /> Import
               </button>
               <button className={styles.addCardsBtn} onClick={() => setShowExport(true)}>
-                ↓ Export
+                <ExportIcon size={12} /> Export
               </button>
               <button className={styles.addCardsBtn} onClick={() => setShowAddCard(true)}>
-                + Add Cards
+                <AddIcon size={12} /> Add Cards
               </button>
               <button className={styles.editInBuilderBtn} onClick={openInBuilder} disabled={creatingBuilderLink || isCheckingLinkedSync} aria-busy={isCheckingLinkedSync}>
                 {editInBuilderLabel}
