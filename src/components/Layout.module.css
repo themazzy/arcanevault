@@ -25,8 +25,11 @@
   position: fixed;
   top: 0; left: 0; right: 0;
   z-index: 100;
-  /* at-top: floating with breathing room */
-  padding: calc(10px + env(safe-area-inset-top, 0px)) 16px 10px;
+  /* The pill draws OVER the status bar / display cutout area on phones
+     (centered punch-hole sits over the pill's empty middle, between the
+     left-aligned logo and right-aligned hamburger). 10px breathing room
+     keeps the pill from sticking to the very top edge. */
+  padding: 10px 16px;
   pointer-events: none;
   transition: padding 0.4s cubic-bezier(.4,0,.2,1);
 }
@@ -36,19 +39,10 @@
 
 /* scrolled: dock to top edge — side padding matches .main at each breakpoint */
 .scrolled.headerWrap {
-  padding-top: env(safe-area-inset-top, 0px);
+  padding-top: 0;
   padding-bottom: 0;
   padding-left: 40px;
   padding-right: 40px;
-}
-
-/* Native (Capacitor) — guarantee a minimum top inset so the navbar never
-   sits under a display cutout/notch even if env(safe-area-inset-top) is 0. */
-:global([data-native="true"]) .headerWrap {
-  padding-top: max(env(safe-area-inset-top, 0px), 32px);
-}
-:global([data-native="true"]) .scrolled.headerWrap {
-  padding-top: max(env(safe-area-inset-top, 0px), 28px);
 }
 
 /* ── Glass pill header ── */
