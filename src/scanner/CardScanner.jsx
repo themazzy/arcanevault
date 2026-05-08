@@ -37,7 +37,7 @@ import { useAuth } from '../components/Auth'
 import { formatPriceMeta, getPriceWithMeta, sfGet } from '../lib/scryfall'
 import { sb } from '../lib/supabase'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
-import { toOwnedCardRow, toListItemRow } from '../lib/deckBuilderWrites'
+import { toOwnedCardRow, toListItemRow, mergeNonNull } from '../lib/deckBuilderWrites'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { useSettings } from '../components/SettingsContext'
 import styles from './CardScanner.module.css'
@@ -275,12 +275,13 @@ async function batchSaveCards({ userId, cards, folderId, folderType }) {
     if (insertErr) throw new Error(insertErr.message)
     insertedCardIds.push(...(inserted || []).map(row => row.id).filter(Boolean))
     // Re-attach input metadata so savedByKey lookups (which use getOwnedCardKey
-    // with set_code/collector_number fallback) still work.
+    // with set_code/collector_number fallback) still work. mergeNonNull keeps
+    // the input row's name/set_code when the upserted row returns them as null.
     const insertByKey = new Map(insertRows.map(row => [getOwnedCardKey(row), row]))
     for (const row of inserted || []) {
       const input = insertByKey.get(getOwnedCardKey(row)) ||
         [...insertByKey.values()].find(r => r.card_print_id === row.card_print_id && !!r.foil === !!row.foil)
-      savedRows.push(input ? { ...input, ...row } : row)
+      savedRows.push(mergeNonNull(input, row))
     }
   }
 

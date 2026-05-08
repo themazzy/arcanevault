@@ -1447,12 +1447,15 @@ export default function CollectionPage() {
   const availableSets = useMemo(() => {
     const seen = {}
     for (const c of cards) {
+      if (!c.set_code) continue  // skip rows missing set_code (e.g. mid-sync orphans)
       if (!seen[c.set_code]) {
         const sf = sfMap[`${c.set_code}-${c.collector_number}`]
-        seen[c.set_code] = sf?.set_name || c.set_code?.toUpperCase() || c.set_code
+        seen[c.set_code] = sf?.set_name || c.set_code.toUpperCase() || c.set_code
       }
     }
-    return Object.entries(seen).map(([code, name]) => ({ code, name })).sort((a, b) => a.name.localeCompare(b.name))
+    return Object.entries(seen)
+      .map(([code, name]) => ({ code, name: name || code }))
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
   }, [cards, sfMap])
 
   const availableLanguages = useMemo(() => {

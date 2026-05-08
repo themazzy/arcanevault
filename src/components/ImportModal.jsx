@@ -11,7 +11,7 @@ import {
   summarizeImportRows,
 } from '../lib/importFlow'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
-import { toOwnedCardRow, toListItemRow, toDeckCardRow } from '../lib/deckBuilderWrites'
+import { toOwnedCardRow, toListItemRow, toDeckCardRow, mergeNonNull } from '../lib/deckBuilderWrites'
 import { putCards, putDeckAllocations, putFolderCards, putFolders } from '../lib/db'
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon } from '../icons'
 import styles from './ImportModal.module.css'
@@ -105,8 +105,7 @@ async function upsertInBatches(table, rows, options, selectColumns = '*', onBatc
           if (row.card_print_id != null) inputByKey.set(`${row.card_print_id}|${row.foil ? 1 : 0}`, row)
         }
         for (const row of data) {
-          const input = inputByKey.get(`${row.card_print_id}|${row.foil ? 1 : 0}`)
-          saved.push(input ? { ...input, ...row } : row)
+          saved.push(mergeNonNull(inputByKey.get(`${row.card_print_id}|${row.foil ? 1 : 0}`), row))
         }
       }
     }

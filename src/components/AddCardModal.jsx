@@ -5,7 +5,7 @@ import { Modal, Button, ErrorBox, ResponsiveMenu } from './UI'
 import { useSettings } from './SettingsContext'
 import { getPrice, formatPrice, getPriceSource, sfGet } from '../lib/scryfall'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
-import { toOwnedCardRow, toListItemRow } from '../lib/deckBuilderWrites'
+import { toOwnedCardRow, toListItemRow, mergeNonNull } from '../lib/deckBuilderWrites'
 import styles from './AddCardModal.module.css'
 import uiStyles from './UI.module.css'
 
@@ -386,8 +386,9 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
     if (!queue.length) return
     setSaving(true); setError('')
     try {
-      // Wishlist (list_items) save — only in folder mode
-      if (folderMode && destTab === 'list' && selectedFolder) {
+      // Wishlist (list_items) save — fires whenever a 'list' folder is the
+      // chosen destination, regardless of which entry point opened the modal.
+      if (destTab === 'list' && selectedFolder) {
         const printByScryfallId = await ensureCardPrints(queue.map(item => item.printing))
         const itemMap = new Map()
         for (const item of queue) {
@@ -433,10 +434,9 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
           .select('id,folder_id,user_id,card_print_id,foil,qty,added_at')
         if (err) { setError(err.message); setSaving(false); return }
         const itemByKey = new Map(items.map(item => [`${item.card_print_id}-${item.foil ? 'foil' : 'normal'}`, item]))
-        const enrichedSavedItems = (savedItems || []).map(row => {
-          const input = itemByKey.get(`${row.card_print_id}-${row.foil ? 'foil' : 'normal'}`)
-          return input ? { ...input, ...row } : row
-        })
+        const enrichedSavedItems = (savedItems || []).map(row =>
+          mergeNonNull(itemByKey.get(`${row.card_print_id}-${row.foil ? 'foil' : 'normal'}`), row),
+        )
         onSaved({ listItems: enrichedSavedItems, folder: folders.find(f => f.id === selectedFolder) || null })
         setSaving(false)
         return
@@ -500,9 +500,14 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
       if (err) { setError(err.message); setSaving(false); return }
       const cardByKey = new Map(cards.map(card => [getOwnedCardKey(card), card]))
       const enrichedUpsertedCards = (upsertedCards || []).map(row => {
+        // Returned rows have only ownership cols (denorm fields stripped at
+        // the upsert boundary). Pre-finalize they may also be null on the
+        // base table, so we need the input row's metadata to win where row's
+        // value is null. The fallback `find` covers existing rows whose
+        // condition/language aren't echoed in the returned shape.
         const input = cardByKey.get(getOwnedCardKey(row)) ||
           [...cardByKey.values()].find(c => c.card_print_id === row.card_print_id && !!c.foil === !!row.foil)
-        return input ? { ...input, ...row } : row
+        return mergeNonNull(input, row)
       })
 
       const folderTarget = folderMode ? selectedFolder : (destTab !== 'collection' ? selectedFolder : null)
