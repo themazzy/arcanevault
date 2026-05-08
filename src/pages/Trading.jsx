@@ -573,7 +573,7 @@ export default function TradingPage() {
         const { data, error } = await sb.from('owned_cards_view')
           .select('*')
           .eq('user_id', user.id)
-          .order('name')
+          .order('id')
           .range(cardFrom, cardFrom + 999)
         if (error) throw error
         if (!data?.length) break

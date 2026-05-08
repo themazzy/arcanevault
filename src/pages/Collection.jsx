@@ -490,9 +490,9 @@ export default function CollectionPage() {
       const { data, error: err } = await sb.from('owned_cards_view')
         .select('*')
         .eq('user_id', user.id)
-        // Stable pagination: name is not unique, so page boundaries can duplicate
-        // rows unless we add a unique tie-breaker.
-        .order('name')
+        // Order by id — server-side ORDER BY name on the view forces a
+        // top-N heapsort over the full join, which times out for big
+        // collections. The filter worker re-sorts client-side.
         .order('id')
         .range(pageFrom, pageFrom + PAGE - 1)
       if (err) {

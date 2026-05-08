@@ -60,7 +60,7 @@ async function loadCollectionData(userId) {
   let allCards = idbCards?.length ? idbCards : []
   if (!allCards.length) {
     const { data, error } = await sb.from('owned_cards_view')
-      .select('*').eq('user_id', userId).order('name')
+      .select('*').eq('user_id', userId).order('id')
     if (error) console.warn('[Home] cards fallback error:', error.message)
     allCards = data || []
   }
@@ -129,7 +129,7 @@ async function syncCardsFromSupabase(userId, currentCards) {
     let fresh = [], from = 0
     while (true) {
       const { data, error } = await sb.from('owned_cards_view')
-        .select('*').eq('user_id', userId).order('name')
+        .select('*').eq('user_id', userId).order('id')
         .range(from, from + 999)
       if (error) { console.warn('[Home] sync error:', error.message); return null }
       if (data?.length) fresh = [...fresh, ...data]

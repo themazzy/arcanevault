@@ -20,10 +20,12 @@ export async function fetchCollectionCards(userId) {
   while (true) {
     // Read via owned_cards_view so name/set_code/scryfall_id are sourced from
     // card_prints (post-5d the base table no longer carries denormalized cols).
+    // Order by `id` — sorting by `name` on the server forces a top-N heapsort
+    // over the full join, which times out for large collections. The client
+    // sorts in the filter worker anyway.
     const { data, error } = await sb.from('owned_cards_view')
       .select('*')
       .eq('user_id', userId)
-      .order('name')
       .order('id')
       .range(from, from + PAGE - 1)
 
