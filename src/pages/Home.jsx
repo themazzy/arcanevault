@@ -213,10 +213,12 @@ async function fetchRulings(card) {
 //   EDHREC      → RSS 2.0      (items, link text content)
 //   MTGArenaZone→ RSS 2.0      (items, link text content)
 // Proxy: api.codetabs.com/v1/proxy — returns raw feed text, no JSON wrapper
+// codetabs is the default proxy. EDHREC's feed currently 400s through codetabs,
+// so use corsproxy.io for that one specifically.
 const NEWS_FEEDS = [
-  { url: 'https://www.mtggoldfish.com/feed',     label: 'MTGGoldfish',    color: '#5a9a6a' },
-  { url: 'https://edhrec.com/articles/feed',     label: 'EDHREC',         color: '#9a7acc' },
-  { url: 'https://mtgazone.com/feed',            label: 'MTG Arena Zone', color: '#5aafcc' },
+  { url: 'https://www.mtggoldfish.com/feed', label: 'MTGGoldfish',    color: '#5a9a6a' },
+  { url: 'https://edhrec.com/articles/feed', label: 'EDHREC',         color: '#9a7acc', proxy: 'corsproxy' },
+  { url: 'https://mtgazone.com/feed',        label: 'MTG Arena Zone', color: '#5aafcc' },
 ]
 
 function parseRssFeed(xmlText, label, color) {
@@ -277,12 +279,16 @@ function parseRssFeed(xmlText, label, color) {
 }
 
 async function fetchMTGNews() {
-  const PROXY = 'https://api.codetabs.com/v1/proxy?quest='
+  const PROXIES = {
+    codetabs:  url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+    corsproxy: url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  }
   const results = await Promise.allSettled(
     NEWS_FEEDS.map(async feed => {
-      const res = await fetch(PROXY + encodeURIComponent(feed.url))
+      const buildUrl = PROXIES[feed.proxy] || PROXIES.codetabs
+      const res = await fetch(buildUrl(feed.url))
       if (!res.ok) return []
-      const text = await res.text()    // codetabs returns raw feed text, not JSON
+      const text = await res.text()    // proxies return raw feed text
       return parseRssFeed(text, feed.label, feed.color)
     })
   )

@@ -3,7 +3,7 @@ import { sb } from '../../lib/supabase'
 import { getLocalCards } from '../../lib/db'
 import { Select } from '../UI'
 import { isGroupFolder, normalizeBoard } from '../../lib/deckBuilderHelpers'
-import { getSyncState, buildSyncDiff } from '../../lib/deckSync'
+import { getSyncState, buildSyncDiff, getLogicalKey } from '../../lib/deckSync'
 import { planDeckAllocations } from '../../lib/deckAllocationPlanner'
 import {
   buildChosenAllocations,

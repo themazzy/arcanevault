@@ -36,7 +36,29 @@ The views are already in place from prior work — they `COALESCE(cp.col, base.c
 
 After 5d these views become pure passthroughs (the `COALESCE(cp.col, base.col)` collapses to `cp.col` because `base.col` is gone).
 
-### 5c. Switch reads from base tables to views ⏳ TODO (app PR)
+### 5c. Switch reads from base tables to views ⏳ TODO (deferred — see note below)
+
+**Note (2026-05-08):** A first attempt at 5c was applied and reverted. Switching
+collection-scale reads (`fetchCollectionCards`, Collection page, Trading,
+Home, Lists) to the COALESCE views introduced a JOIN against `card_prints`
+(119 k rows) on every read, plus changed row shape (extra `image_uri` /
+`art_crop_uri` cols from `card_prints`). This caused:
+
+- Trading page taking 20-30 s to save a trade (full collection re-fetch).
+- Continuous 200-460 ms message-handler / click-handler violations.
+- Mixed row shapes between view-loaded rows and `.upsert(...).select(...)`
+  rows from base tables → image rendering paths read different fields → new
+  cards rendered without art until a manual refresh. IDB cache shape diff
+  also defeated the React Query refetch-on-refresh logic.
+
+**Re-do plan:** roll 5c into the same atomic PR as 5d (write-payload cleanup
++ column drop). Once the denorm cols are gone from base tables, the views
+become pure passthroughs; we can also rebuild them as `SELECT cp.col …`
+without `COALESCE`, eliminating the runtime overhead. At that point the
+shape-mismatch class of bugs is impossible because the base tables don't
+expose the cols at all.
+
+Until that combined PR is ready, all reads stay on base tables.
 
 Read sites that still pull denormalized columns from base tables — must move to the corresponding `_view`:
 
@@ -93,11 +115,49 @@ These keep their base-table targets. The dropped columns are denormalized metada
 - [ ] Scanner "match against owned" toggle still works.
 - [ ] No console errors about missing columns.
 
-### 5d. Drop the redundant base-table columns ⏳ TODO (after 5c is in production for ~1 week)
+### 5d. Drop redundant columns + strip write payloads ⏳ TODO (atomic coordinated change)
+
+**Why coordinated:** `cards.name`, `cards.set_code`, `deck_cards.name`, `list_items.name`
+are all `NOT NULL` in the current schema. Stripping these from `INSERT` /
+`UPSERT` payloads before they're dropped would violate the constraint. Dropping
+the columns while the client still writes them produces "column does not exist"
+errors. So 5d is one PR with: code change + migration applied together.
+
+**Code changes needed (write-side cleanup):**
+
+1. `src/lib/deckBuilderWrites.js` — `DECK_CARD_DB_COLS` set: remove
+   `scryfall_id, name, set_code, collector_number, type_line, mana_cost, cmc,
+   color_identity, image_uri`. After this, `toDeckCardRow` only emits
+   ownership cols (id, deck_id, user_id, qty, foil, is_commander, board,
+   created_at, updated_at, card_print_id, category_id).
+
+2. `src/components/AddCardModal.jsx` (L424-L427, L478-L482, L501) — when building
+   `cards` upsert payload, drop `name, set_code, collector_number, scryfall_id`
+   from `withCardPrint(...)` output. Rely on `card_print_id` only.
+
+3. `src/components/AddCardModal.jsx` (L424-L427) — same for `list_items` upsert
+   payload (drop `name, set_code, collector_number, scryfall_id`).
+
+4. `src/scanner/CardScanner.jsx` (L223 area, L268 area) — same.
+
+5. `src/pages/Collection.jsx` (L860-L865 import path, L918) — strip from
+   `cards` and `list_items` upsert batches.
+
+6. `src/pages/DeckBuilder.jsx` — verify the various deck_cards inserts use
+   `toDeckCardRow()` (which becomes ownership-only after step 1).
+
+7. `src/lib/cardPrints.js` — `withCardPrint()` currently injects the denorm
+   fields onto rows. Adjust to only inject `card_print_id` once writes don't
+   need them.
+
+8. `.upsert(...).select('id,user_id,name,...')` chains in
+   `AddCardModal.jsx`, `deckBuilderWrites.js` — shrink select to ownership
+   cols (callers should already have name/set_code from the input row).
+
+**Migration SQL** (apply in same PR):
 
 ```sql
 -- supabase/migrations/2026XXXXXXXXXX_phase5d_drop_redundant_print_columns.sql
--- After 5c has shipped and run cleanly. PITR is the rollback path.
 
 -- Drop dependent indexes first:
 drop index if exists public.cards_scryfall_id_idx;
@@ -131,6 +191,16 @@ alter table public.list_items
   drop column set_code,
   drop column collector_number;
 ```
+
+**QA checklist for 5d PR:**
+- [ ] Add cards via AddCardModal → owned, binder, deck, wishlist destinations.
+- [ ] Scanner → "+ Add to Collection" still saves with set_code resolved via card_prints.
+- [ ] CSV import still creates cards + folder placements (Collection.jsx import path).
+- [ ] Deck Builder: add card, change version, change qty, set commander, move board.
+- [ ] Edit card details (purchase price, condition) in CardComponents — UPDATE only touches ownership cols, should be unaffected.
+- [ ] Collection sync round-trip: refresh page, all cards re-render with names/sets.
+- [ ] Linked-deck sync (Sync Changes modal) still aligns builder ↔ collection.
+- [ ] No "column does not exist" or "violates not-null constraint" errors anywhere.
 
 After this the views become pure passthroughs (the `COALESCE` reduces to `cp.col`). Optional follow-up: `CREATE OR REPLACE VIEW` to drop the now-redundant `COALESCE` for cleanliness.
 
