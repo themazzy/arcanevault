@@ -94,9 +94,12 @@ export default function VersionPickerModal({ dc, ownedMap, userId, onSelect, onC
           ? await sb.from('folders').select('id,name,type').in('id', folderIds)
           : { data: [], error: null }
         if (foldersErr) throw foldersErr
+        // Only owned-collection containers (binder/deck) belong in the
+        // version picker — wishlists are intentions, not ownership.
+        const ownedFolders = (folders || []).filter(f => f.type === 'binder' || f.type === 'deck')
 
         const ownedById = new Map(ownedForCard.map(row => [row.id, row]))
-        const folderById = new Map((folders || []).map(folder => [folder.id, folder]))
+        const folderById = new Map(ownedFolders.map(folder => [folder.id, folder]))
         const nextLocations = new Map()
         const addLocation = (scryfallId, folder, qty) => {
           if (!scryfallId || !folder) return

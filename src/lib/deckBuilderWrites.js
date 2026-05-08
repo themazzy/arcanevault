@@ -48,6 +48,21 @@ export function toListItemRow(row) {
   return out
 }
 
+// Merge two objects so the second one's *non-null* values win. Used after an
+// upsert returns a base-table row (which may have null in the about-to-be-
+// dropped denormalized cols) merged with the input row (which still carries
+// the metadata supplied by the caller). Without this, `{ ...input, ...row }`
+// would silently replace input.set_code='ABC' with row.set_code=null.
+export function mergeNonNull(base, override) {
+  if (!base) return { ...override }
+  if (!override) return { ...base }
+  const out = { ...base }
+  for (const [k, v] of Object.entries(override)) {
+    if (v != null) out[k] = v
+  }
+  return out
+}
+
 export function toCardPrintSource(row) {
   return {
     scryfall_id: row?.scryfall_id || null,
@@ -143,10 +158,7 @@ export async function additiveSaveOwnedCards(rows, context = 'Owned card') {
   // Re-attach the denorm metadata each input row carried, so downstream
   // consumers (IDB hydration, UI updates) keep their existing shape.
   const inputByKey = new Map(rowsToSave.map(row => [ownedCardKey(row), row]))
-  return (data || []).map(row => {
-    const input = inputByKey.get(ownedCardKey(row))
-    return input ? { ...input, ...row } : row
-  })
+  return (data || []).map(row => mergeNonNull(inputByKey.get(ownedCardKey(row)), row))
 }
 
 export async function additiveSaveWishlistItems(folderId, userId, rows, context = 'Wishlist item') {
@@ -191,8 +203,5 @@ export async function additiveSaveWishlistItems(folderId, userId, rows, context 
     .select('id,folder_id,user_id,card_print_id,foil,qty,added_at')
   if (error) throw error
   const inputByKey = new Map(rowsToSave.map(row => [`${row.card_print_id}|${row.foil ? '1' : '0'}`, row]))
-  return (data || []).map(row => {
-    const input = inputByKey.get(`${row.card_print_id}|${row.foil ? '1' : '0'}`)
-    return input ? { ...input, ...row } : row
-  })
+  return (data || []).map(row => mergeNonNull(inputByKey.get(`${row.card_print_id}|${row.foil ? '1' : '0'}`), row))
 }
