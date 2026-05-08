@@ -925,13 +925,27 @@ export default function DeckBrowser({ folder, onBack }) {
     return () => { cancelled = true }
   }, [folder.id, folderDescription])
 
-  // "Move to" dropdown — read from IDB (populated by idbQueryBridge + parent loaders)
+  // "Move to" dropdown — read from IDB first; fall back to Supabase if IDB is
+  // empty (e.g. user landed on a deck page without visiting Collection first).
   useEffect(() => {
     if (!user?.id) return
     let cancelled = false
-    getLocalFolders(user.id)
-      .then(data => { if (!cancelled) setAllFolders((data || []).filter(folder => !isGroupFolder(folder))) })
-      .catch(() => {})
+    ;(async () => {
+      try {
+        const local = await getLocalFolders(user.id)
+        const filtered = (local || []).filter(f => !isGroupFolder(f))
+        if (filtered.length > 0) {
+          if (!cancelled) setAllFolders(filtered)
+          return
+        }
+        const { data: remote } = await sb
+          .from('folders')
+          .select('id,name,type,description,updated_at')
+          .eq('user_id', user.id)
+          .order('name')
+        if (!cancelled) setAllFolders((remote || []).filter(f => !isGroupFolder(f)))
+      } catch {}
+    })()
     return () => { cancelled = true }
   }, [user?.id])
 
@@ -1082,12 +1096,8 @@ export default function DeckBrowser({ folder, onBack }) {
   }
 
   const selectedQty = useMemo(() =>
-    [...selectedCards].reduce((sum, id) => {
-      const c = cardById.get(id)
-      const totalQty = c?._folder_qty || c?.qty || 1
-      return sum + (splitState.get(id) ?? 1)
-    }, 0)
-  , [selectedCards, cards, splitState])
+    [...selectedCards].reduce((sum, id) => sum + (splitState.get(id) ?? 1), 0)
+  , [selectedCards, splitState])
 
   const { totalValue, totalQty } = useMemo(() => {
     let v=0, q=0

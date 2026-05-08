@@ -118,6 +118,44 @@ describe('buildSyncDiff / summarizeSyncDiff', () => {
     })
     expect(diff.conflicts).toHaveLength(1)
   })
+
+  it('skips phantom diff rows where the card is gone from both current states', () => {
+    // Baseline had the card on the builder side, but it has since been removed
+    // from both builder and collection — there's nothing actionable, so the
+    // diff should not surface it (UI would otherwise render placeholder names).
+    const baseline = buildSyncSnapshot({
+      builderCards: [{ card_print_id: 'cp-ghost', name: 'Ghost', qty: 4 }],
+      collectionCards: [],
+    })
+    const diff = buildSyncDiff({
+      baseline,
+      builderCards: [],
+      collectionCards: [],
+    })
+    expect(diff.builderOnly).toHaveLength(0)
+    expect(diff.collectionOnly).toHaveLength(0)
+    expect(diff.conflicts).toHaveLength(0)
+  })
+
+  it('preserves card metadata from baseline when current state is empty on one side', () => {
+    // Card is in baseline-builder and baseline-collection, then gets removed
+    // from collection only. The collectionOnly diff entry should still expose
+    // builder-side metadata via the baseline fallback, so the UI can render
+    // a real name instead of a placeholder.
+    const baseline = buildSyncSnapshot({
+      builderCards: [{ card_print_id: 'cp-1', name: 'Sol Ring', qty: 1 }],
+      collectionCards: [{ card_print_id: 'cp-1', name: 'Sol Ring', qty: 1 }],
+    })
+    const diff = buildSyncDiff({
+      baseline,
+      builderCards: [{ card_print_id: 'cp-1', name: 'Sol Ring', qty: 1 }],
+      collectionCards: [],
+    })
+    expect(diff.collectionOnly).toHaveLength(1)
+    expect(diff.collectionOnly[0].builder?.name).toBe('Sol Ring')
+    // Baseline fallback should also kick in if currentCollection is empty:
+    expect(diff.collectionOnly[0].collection?.name).toBe('Sol Ring')
+  })
 })
 
 // ── MD-007: qty distribution math, factored as a pure helper for testing ────

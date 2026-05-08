@@ -138,6 +138,13 @@ export function buildSyncDiff({ baseline, builderCards, collectionCards }) {
   const collectionOnly = []
   const conflicts = []
 
+  // When a baseline row has been removed from both sides since the snapshot,
+  // currentBuilder/currentCollection have no entry for the key — fall back to
+  // the baseline row so the diff still carries name/print metadata. Without
+  // this, SyncModal renders the placeholder "Card" with empty quantities.
+  const builderRowFor = key => currentBuilder.get(key) || baseBuilder.get(key) || null
+  const collectionRowFor = key => currentCollection.get(key) || baseCollection.get(key) || null
+
   for (const key of allKeys) {
     const baseB = baseBuilder.get(key)?.qty || 0
     const baseC = baseCollection.get(key)?.qty || 0
@@ -146,14 +153,17 @@ export function buildSyncDiff({ baseline, builderCards, collectionCards }) {
     const builderChanged = currB !== baseB
     const collectionChanged = currC !== baseC
     if (!builderChanged && !collectionChanged) continue
+    // If the card is gone from both current states, there's nothing actionable
+    // — skip the phantom diff entry so it doesn't surface in the UI.
+    if (currB === 0 && currC === 0) continue
     if (builderChanged && !collectionChanged) {
       builderOnly.push({
         key,
         baselineQty: Math.max(baseB, baseC),
         builderQty: currB,
         collectionQty: currC,
-        builder: currentBuilder.get(key) || null,
-        collection: currentCollection.get(key) || null,
+        builder: builderRowFor(key),
+        collection: collectionRowFor(key),
       })
       continue
     }
@@ -163,8 +173,8 @@ export function buildSyncDiff({ baseline, builderCards, collectionCards }) {
         baselineQty: Math.max(baseB, baseC),
         builderQty: currB,
         collectionQty: currC,
-        builder: currentBuilder.get(key) || null,
-        collection: currentCollection.get(key) || null,
+        builder: builderRowFor(key),
+        collection: collectionRowFor(key),
       })
       continue
     }
@@ -175,8 +185,8 @@ export function buildSyncDiff({ baseline, builderCards, collectionCards }) {
       baselineCollectionQty: baseC,
       builderQty: currB,
       collectionQty: currC,
-      builder: currentBuilder.get(key) || null,
-      collection: currentCollection.get(key) || null,
+      builder: builderRowFor(key),
+      collection: collectionRowFor(key),
     })
   }
 
