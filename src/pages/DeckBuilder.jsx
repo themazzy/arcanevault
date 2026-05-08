@@ -83,6 +83,7 @@ import {
   SyncIcon,
 } from '../icons'
 import { lastInputWasTouch } from '../lib/inputType'
+import { bindTouchContextMenu, consumeLongPressClick } from '../lib/touchContextMenu'
 
 import {
   CAN_HOVER,
@@ -401,15 +402,15 @@ function CategoryPickerModal({ card, categories, onSelect, onCreate, onClear, on
 
 function DeckCardRowV2({
   dc, ownedQty, ownedFoilAlt, ownedAlt, ownedInDeck, inCollDeck,
-  onChangeQty, onRemove, onMouseEnter, onMouseLeave, onMouseMove, onContextMenu, onDragStart,
+  onChangeQty, onRemove, onMouseEnter, onMouseLeave, onMouseMove, onContextMenu, touchContextMenuHandlers, onDragStart,
   onPickVersion, onToggleFoil, onSetCommander, onMoveBoard, onOpenCategoryPicker, isEDH,
   visibleColumns, listGridTemplate, priceLabel, onOpenDetail, legalityWarnings = [],
   builderSfMap = {},
 }) {
   const setLabel = dc.set_code ? `${String(dc.set_code).toUpperCase()}${dc.collector_number ? ` #${dc.collector_number}` : ''}` : '-'
   return (
-    <div className={`${styles.deckCardRow}${dc.is_commander ? ' ' + styles.isCommander : ''}${legalityWarnings.length ? ' ' + styles.deckCardIllegal : ''}`} title={(legalityWarnings.map(w => w.text).join('\n')) || undefined} style={{ '--deck-list-columns': listGridTemplate }} onContextMenu={onContextMenu} draggable onDragStart={onDragStart}>
-      <div className={styles.deckCardLeft} style={{ cursor: 'pointer' }} onClick={() => onOpenDetail?.(dc)}>
+    <div className={`${styles.deckCardRow}${dc.is_commander ? ' ' + styles.isCommander : ''}${legalityWarnings.length ? ' ' + styles.deckCardIllegal : ''}`} title={(legalityWarnings.map(w => w.text).join('\n')) || undefined} style={{ '--deck-list-columns': listGridTemplate }} onContextMenu={onContextMenu} {...(touchContextMenuHandlers || {})} draggable onDragStart={onDragStart}>
+      <div className={styles.deckCardLeft} style={{ cursor: 'pointer' }} onClick={(e) => { if (consumeLongPressClick(e)) return; onOpenDetail?.(dc) }}>
         {dc.image_uri
           ? <img className={styles.deckThumb} src={dc.image_uri} alt="" loading="lazy" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove} />
           : <div className={styles.deckThumbPlaceholder} />
@@ -2907,9 +2908,8 @@ export default function DeckBuilderPage() {
   const closeContextMenu = useCallback(() => setContextMenu(null), [])
 
   const openDeckCardContextMenu = useCallback((dc, e) => {
-    if (!CAN_HOVER || lastInputWasTouch) return
-    e.preventDefault()
-    e.stopPropagation()
+    e.preventDefault?.()
+    e.stopPropagation?.()
     clearHoverPreview()
 
     const menuWidth = 240
@@ -4733,7 +4733,8 @@ export default function DeckBuilderPage() {
                 onMouseEnter: CAN_HOVER ? (e) => showHoverPreviewForDeckCard(dc, e) : undefined,
                 onMouseLeave: CAN_HOVER ? () => clearHoverPreview() : undefined,
                 onMouseMove:  CAN_HOVER ? (e) => setHoverPos({ x: e.clientX, y: e.clientY }) : undefined,
-                onContextMenu: CAN_HOVER ? (e) => openDeckCardContextMenu(dc, e) : undefined,
+                onContextMenu: (e) => openDeckCardContextMenu(dc, e),
+                touchContextMenuHandlers: bindTouchContextMenu(e => openDeckCardContextMenu(dc, e)),
                 onDragStart: (e) => handleCardDragStart(dc, e),
                 onPickVersion: (card, options = {}) => setVersionPickCard({ ...card, ...options }),
                 onToggleFoil:  toggleFoil,
@@ -4758,8 +4759,9 @@ export default function DeckBuilderPage() {
                     title={warningTitle || undefined}
                     draggable
                     onDragStart={e => handleCardDragStart(dc, e)}
-                    onClick={() => openDeckCardDetail(dc)}
-                    onContextMenu={CAN_HOVER ? e => openDeckCardContextMenu(dc, e) : undefined}>
+                    onClick={(e) => { if (consumeLongPressClick(e)) return; openDeckCardDetail(dc) }}
+                    onContextMenu={e => openDeckCardContextMenu(dc, e)}
+                    {...bindTouchContextMenu(e => openDeckCardContextMenu(dc, e))}>
                     <div className={styles.visualImgWrap}>
                       {dc.image_uri
                         ? <img src={grid_density === 'compact' ? dc.image_uri?.replace(/\/(normal|large|png|border_crop|art_crop)\//, '/small/') : dc.image_uri} alt={dc.name} className={styles.visualCardImg} loading="lazy" />
@@ -4798,7 +4800,8 @@ export default function DeckBuilderPage() {
                       title={warningTitle || dc.name}
                       draggable
                       onDragStart={e => handleCardDragStart(dc, e)}
-                      onClick={() => {
+                      onClick={(e) => {
+                        if (consumeLongPressClick(e)) return
                         if (!CAN_HOVER) {
                           if (isTouchActive) {
                             setTouchActiveStack(null)
@@ -4810,10 +4813,14 @@ export default function DeckBuilderPage() {
                         }
                         openDeckCardDetail(dc)
                       }}
-                      onContextMenu={CAN_HOVER ? e => {
+                      onContextMenu={e => {
                         openDeckCardContextMenu(dc, e)
                         setStackHoverState(null)
-                      } : undefined}
+                      }}
+                      {...bindTouchContextMenu(e => {
+                        openDeckCardContextMenu(dc, e)
+                        setStackHoverState(null)
+                      })}
                       onMouseEnter={CAN_HOVER && !lastInputWasTouch ? e => {
                         setStackHoverState({ group: stackContext?.group, stackIdx: stackContext?.idx ?? 0 })
                         showHoverPreviewForDeckCard(dc, e)
@@ -4851,11 +4858,11 @@ export default function DeckBuilderPage() {
                   )
                 }
                 if (deckView === 'compact') return (
-                  <div key={dc.id} className={`${styles.compactRow}${dc.is_commander ? ' '+styles.isCommander : ''}${legalityWarnings.length ? ' '+styles.deckCardIllegal : ''}`} title={warningTitle || undefined} onContextMenu={CAN_HOVER ? e => openDeckCardContextMenu(dc, e) : undefined} draggable onDragStart={e => handleCardDragStart(dc, e)}>
+                  <div key={dc.id} className={`${styles.compactRow}${dc.is_commander ? ' '+styles.isCommander : ''}${legalityWarnings.length ? ' '+styles.deckCardIllegal : ''}`} title={warningTitle || undefined} onContextMenu={e => openDeckCardContextMenu(dc, e)} {...bindTouchContextMenu(e => openDeckCardContextMenu(dc, e))} draggable onDragStart={e => handleCardDragStart(dc, e)}>
                     <span className={styles.compactQty}>{dc.qty}</span>
                     <span className={styles.compactName}
                       style={{ cursor: 'pointer' }}
-                      onClick={() => openDeckCardDetail(dc)}
+                      onClick={(e) => { if (consumeLongPressClick(e)) return; openDeckCardDetail(dc) }}
                       onMouseEnter={CAN_HOVER ? e => showHoverPreviewForDeckCard(dc, e) : undefined}
                       onMouseLeave={CAN_HOVER ? () => clearHoverPreview() : undefined}
                       onMouseMove={CAN_HOVER ? e => setHoverPos({ x: e.clientX, y: e.clientY }) : undefined}>
