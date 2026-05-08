@@ -90,7 +90,12 @@
       "WebFetch(domain:pagespeed.web.dev)",
       "Bash(xargs ls *)",
       "Bash(sort -k5 -n -r)",
-      "mcp__plugin_supabase_supabase__get_logs"
+      "mcp__plugin_supabase_supabase__get_logs",
+      "Bash(npx vitest *)",
+      "Bash(git rev-list *)",
+      "Bash(git restore *)",
+      "Bash(npm --version)",
+      "Bash(git check-ignore *)"
     ]
   }
 }
