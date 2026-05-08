@@ -151,6 +151,24 @@
   height: 100%;           /* fill gridCell so grid-auto-rows: 1fr works */
   box-sizing: border-box;
   overflow: hidden;       /* clip any child overflow to panel bounds */
+  /* prevent native text-select / copy / drag on long-press so our long-press
+     handlers run cleanly on mobile without invoking the OS selection menu */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.playerPanel img,
+.playerPanel * {
+  -webkit-user-drag: none;
+}
+/* re-allow selection inside text fields so name editing keeps working */
+.playerPanel input,
+.playerPanel textarea,
+.playerPanel [contenteditable="true"] {
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
 }
 
 [data-oled="true"] .playerPanel {
