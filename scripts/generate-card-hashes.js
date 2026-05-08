@@ -119,13 +119,6 @@ function getCardImageUri(card) {
   }
 }
 
-function toInt64(n) {
-  const signed = BigInt.asIntN(64, n)
-  return signed > BigInt(Number.MAX_SAFE_INTEGER) || signed < BigInt(Number.MIN_SAFE_INTEGER)
-    ? String(signed)
-    : Number(signed)
-}
-
 /**
  * Worker-pool: keeps CONCURRENCY tasks always in flight rather than waiting
  * for the slowest card in each fixed-size chunk before starting the next batch.
@@ -198,7 +191,7 @@ async function main() {
       if (!imageUri) throw new Error('No usable full-card image')
 
       const imageBuffer = await fetchImage(imageUri)
-      const { hex, hex2, p1, p2, p3, p4 } = await computePHashHex(imageBuffer)
+      const { hex, hex2 } = await computePHashHex(imageBuffer)
 
       batch.push({
         scryfall_id:      card.id,
@@ -206,10 +199,6 @@ async function main() {
         name:             card.name,
         set_code:         card.set,
         collector_number: card.collector_number,
-        hash_part_1:      toInt64(p1),
-        hash_part_2:      toInt64(p2),
-        hash_part_3:      toInt64(p3),
-        hash_part_4:      toInt64(p4),
         phash_hex:        hex,
         phash_hex2:       hex2,
         image_uri:        imageUri,

@@ -552,7 +552,7 @@ Host creates a session → others visit `/join/:code` on their own device → ho
 - `tracked_games` — historical game tracking records
 - `feedback` — user bug reports & feature requests: `type ('bug'|'feature'), description, contact, user_id`
 - `feedback_attachments` — optional screenshots linked to `feedback`; files live in the `assets` storage bucket
-- `card_hashes` — pHash records for scanner: `scryfall_id, name, set_code, collector_number, image_uri, hash_part_1..4 (bigint), phash_hex (text)`; read-only RLS for all users
+- `card_hashes` — pHash records for scanner: `scryfall_id, name, set_code, collector_number, image_uri, phash_hex (text, 64 hex chars), phash_hex2 (foil-tuned)`; read-only RLS for all users
 - `admin_users` — users with admin access: `user_id, active`; checked by `isCurrentUserAdmin()`
 - `app_config` — key-value config store used by admin/home: keys include `changelog`, `feedback_resolved`
 - `shared_folders` — shared deck/folder links for public share URLs
