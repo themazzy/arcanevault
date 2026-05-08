@@ -14,7 +14,8 @@ import {
 } from './db'
 
 const BATCH_SIZE = 75
-const DELAY_MS   = 120
+const DELAY_MS   = 80
+const SF_CONCURRENCY = 2
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000
 const SF_API_ORIGIN = 'https://api.scryfall.com'
 const SF_DEV_PROXY_PREFIX = '/api/scryfall'
@@ -48,7 +49,8 @@ export function sfUrl(url) {
 // User-Agent cannot be set from browser JS (forbidden header) — browser sends its own.
 const SF_HEADERS = { 'Accept': 'application/json' }
 let _lastSfCall = 0
-let _sfQueue = Promise.resolve()
+let _activeSfCalls = 0
+const _sfWaiters = []
 
 function getRetryDelayMs(res) {
   const retryAfter = res.headers?.get?.('Retry-After')
@@ -59,21 +61,35 @@ function getRetryDelayMs(res) {
   return Number.isFinite(dateMs) ? Math.max(1000, dateMs - Date.now()) : 1000
 }
 
-async function runScryfallRequest(fn, { minDelayMs = DELAY_MS, retries = 2 } = {}) {
-  const task = _sfQueue.then(async () => {
-    const wait = Math.max(0, minDelayMs - (Date.now() - _lastSfCall))
-    if (wait) await new Promise(r => setTimeout(r, wait))
-    _lastSfCall = Date.now()
+// Semaphore: up to SF_CONCURRENCY in-flight, with min-gap between request starts.
+async function acquireSfSlot(minDelayMs) {
+  if (_activeSfCalls >= SF_CONCURRENCY) {
+    await new Promise(r => _sfWaiters.push(r))
+  }
+  _activeSfCalls++
+  const wait = Math.max(0, minDelayMs - (Date.now() - _lastSfCall))
+  if (wait) await new Promise(r => setTimeout(r, wait))
+  _lastSfCall = Date.now()
+}
 
+function releaseSfSlot() {
+  _activeSfCalls--
+  const next = _sfWaiters.shift()
+  if (next) next()
+}
+
+async function runScryfallRequest(fn, { minDelayMs = DELAY_MS, retries = 2 } = {}) {
+  await acquireSfSlot(minDelayMs)
+  try {
     for (let attempt = 0; attempt <= retries; attempt++) {
       const res = await fn()
       if (res.status !== 429 || attempt === retries) return res
       await new Promise(r => setTimeout(r, getRetryDelayMs(res)))
       _lastSfCall = Date.now()
     }
-  })
-  _sfQueue = task.catch(() => {})
-  return task
+  } finally {
+    releaseSfSlot()
+  }
 }
 
 export async function sfGet(url, opts = {}) {
@@ -229,78 +245,103 @@ export async function enrichCards(cards, onProgress, cacheTtlMs = DEFAULT_TTL_MS
   return _sfMap
 }
 
+function buildEntryFromScryfall(r) {
+  const key = `${r.set}-${r.collector_number}`
+  const existing = _sfMap[key] || {}
+  return {
+    key,
+    set_code:         r.set,
+    collector_number: r.collector_number,
+    name:             r.name,
+    set_name:         r.set_name,
+    type_line:        r.type_line,
+    rarity:           r.rarity,
+    prices:           r.prices,
+    prices_prev:      existing.prices || null,
+    color_identity:   r.color_identity || [],
+    cmc:              r.cmc ?? null,
+    legalities:       r.legalities || {},
+    artist:           r.artist || null,
+    oracle_text:      (r.oracle_text || r.card_faces?.[0]?.oracle_text || '').slice(0, 600) || null,
+    power:            r.power ?? null,
+    toughness:        r.toughness ?? null,
+    produced_mana:    r.produced_mana || null,
+    keywords:         r.keywords || [],
+    image_uris: existing.image_uris || (r.image_uris ? {
+      small:    r.image_uris.small,
+      normal:   r.image_uris.normal,
+      large:    r.image_uris.large,
+      art_crop: r.image_uris.art_crop || null,
+    } : null),
+    mana_cost: r.mana_cost || r.card_faces?.[0]?.mana_cost || null,
+    card_faces: existing.card_faces || r.card_faces?.map(f => ({
+      image_uris: f.image_uris ? {
+        small:  f.image_uris.small,
+        normal: f.image_uris.normal,
+        large:  f.image_uris.large,
+      } : null,
+      name: f.name,
+      mana_cost: f.mana_cost || null,
+    })) || null,
+  }
+}
+
 async function fetchAndMerge(cards, onProgress) {
   if (!_sfMap) _sfMap = {}
-  const newEntries = []
   const total = Math.ceil(cards.length / BATCH_SIZE)
+  if (!total) return
 
+  // Build batch tasks up front, then drain with a worker pool.
+  const tasks = []
   for (let i = 0; i < cards.length; i += BATCH_SIZE) {
-    const batch  = cards.slice(i, i + BATCH_SIZE)
-    const ids    = batch.map(c =>
+    const batch = cards.slice(i, i + BATCH_SIZE)
+    tasks.push(batch.map(c =>
       c.collector_number && c.set_code
         ? { set: c.set_code, collector_number: c.collector_number }
         : { name: c.name }
-    )
-    const results = await fetchScryfallBatch(ids)
+    ))
+  }
 
-    for (const r of results) {
-      const key = `${r.set}-${r.collector_number}`
-      const existing = _sfMap[key] || {}
-      const entry = {
-        key,
-        set_code:         r.set,
-        collector_number: r.collector_number,
-        // Metadata fields (refreshed per TTL)
-        name:             r.name,
-        set_name:         r.set_name,
-        type_line:        r.type_line,
-        rarity:           r.rarity,
-        prices:           r.prices,
-        prices_prev:      existing.prices || null,
-        color_identity:   r.color_identity || [],
-        cmc:              r.cmc ?? null,
-        legalities:       r.legalities || {},
-        artist:           r.artist || null,
-        oracle_text:      (r.oracle_text || r.card_faces?.[0]?.oracle_text || '').slice(0, 600) || null,
-        power:            r.power ?? null,
-        toughness:        r.toughness ?? null,
-        produced_mana:    r.produced_mana || null,
-        keywords:         r.keywords || [],
-        // Image fields (keep existing if present — images never expire)
-        image_uris: existing.image_uris || (r.image_uris ? {
-          small:    r.image_uris.small,
-          normal:   r.image_uris.normal,
-          large:    r.image_uris.large,
-          art_crop: r.image_uris.art_crop || null,
-        } : null),
-        mana_cost: r.mana_cost || r.card_faces?.[0]?.mana_cost || null,
-        card_faces: existing.card_faces || r.card_faces?.map(f => ({
-          image_uris: f.image_uris ? {
-            small:  f.image_uris.small,
-            normal: f.image_uris.normal,
-            large:  f.image_uris.large,
-          } : null,
-          name: f.name,
-          mana_cost: f.mana_cost || null,
-        })) || null,
+  let cursor = 0
+  let completed = 0
+  let savedCount = 0
+
+  async function worker() {
+    while (cursor < tasks.length) {
+      const idx = cursor++
+      const ids = tasks[idx]
+      const results = await fetchScryfallBatch(ids)
+
+      const batchEntries = []
+      for (const r of results) {
+        const entry = buildEntryFromScryfall(r)
+        _sfMap[entry.key] = entry
+        batchEntries.push(entry)
       }
-      _sfMap[key] = entry
-      newEntries.push(entry)
+
+      // Persist this batch immediately so progress survives reload/close.
+      if (batchEntries.length) {
+        try {
+          await putScryfallEntries(batchEntries)
+          await setMeta(SCRYFALL_METADATA_UPDATED_AT_KEY, Date.now())
+          savedCount += batchEntries.length
+        } catch (err) {
+          console.warn('[SF IDB] batch persist failed', err)
+        }
+      }
+
+      completed++
+      onProgress?.(
+        Math.round((completed / total) * 100),
+        `Fetching card data… (${Math.min(completed * BATCH_SIZE, cards.length)} / ${cards.length})`
+      )
     }
-
-    onProgress?.(
-      Math.round(((Math.floor(i / BATCH_SIZE) + 1) / total) * 100),
-      `Fetching card data… (${Math.min(i + BATCH_SIZE, cards.length)} / ${cards.length})`
-    )
-    if (i + BATCH_SIZE < cards.length) await new Promise(r => setTimeout(r, DELAY_MS))
   }
 
-  // Persist to IDB
-  if (newEntries.length) {
-    await putScryfallEntries(newEntries)
-    await setMeta(SCRYFALL_METADATA_UPDATED_AT_KEY, Date.now())
-    console.log(`[SF IDB] saved ${newEntries.length} entries`)
-  }
+  const poolSize = Math.min(SF_CONCURRENCY, tasks.length)
+  await Promise.all(Array.from({ length: poolSize }, () => worker()))
+
+  if (savedCount) console.log(`[SF IDB] saved ${savedCount} entries (incremental)`)
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
