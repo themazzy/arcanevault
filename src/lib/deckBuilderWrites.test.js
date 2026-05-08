@@ -21,22 +21,35 @@ beforeEach(() => {
 })
 
 describe('toDeckCardRow', () => {
-  it('only includes whitelisted DB columns', () => {
+  it('only includes whitelisted DB columns and strips denormalized print fields', () => {
     const row = {
-      id: 'a', deck_id: 'd', user_id: 'u', name: 'Sol Ring',
+      id: 'a', deck_id: 'd', user_id: 'u', card_print_id: 'cp-1',
+      qty: 1, foil: false, board: 'main',
+      // Denormalized print fields — phase 5d sources these from card_prints
+      // via deck_cards_view, so they must NOT reach the base table.
+      name: 'Sol Ring', set_code: 'C21', collector_number: '300',
+      scryfall_id: 'sf-1', type_line: 'Artifact', mana_cost: '{1}', cmc: 1,
+      color_identity: [], image_uri: 'http://x',
+      // Internal client-side noise that should be filtered out:
       __ignoredField: 'x', _folder_qty: 99,
     }
     const result = toDeckCardRow(row)
     expect(result).toHaveProperty('id', 'a')
-    expect(result).toHaveProperty('name', 'Sol Ring')
+    expect(result).toHaveProperty('card_print_id', 'cp-1')
+    expect(result).toHaveProperty('qty', 1)
+    expect(result).not.toHaveProperty('name')
+    expect(result).not.toHaveProperty('set_code')
+    expect(result).not.toHaveProperty('scryfall_id')
+    expect(result).not.toHaveProperty('type_line')
+    expect(result).not.toHaveProperty('image_uri')
     expect(result).not.toHaveProperty('__ignoredField')
     expect(result).not.toHaveProperty('_folder_qty')
   })
 
   it('does not include columns that are absent from the row', () => {
-    const result = toDeckCardRow({ id: 'a', name: 'X' })
-    expect(result).not.toHaveProperty('cmc')
+    const result = toDeckCardRow({ id: 'a', deck_id: 'd' })
     expect(result).not.toHaveProperty('foil')
+    expect(result).not.toHaveProperty('user_id')
   })
 })
 

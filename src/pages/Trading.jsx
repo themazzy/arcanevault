@@ -570,7 +570,7 @@ export default function TradingPage() {
       let cardFrom = 0
       const fetchedCards = []
       while (true) {
-        const { data, error } = await sb.from('cards')
+        const { data, error } = await sb.from('owned_cards_view')
           .select('*')
           .eq('user_id', user.id)
           .order('name')

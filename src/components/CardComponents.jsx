@@ -1226,15 +1226,18 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, deleteQty 
     setSaveError('')
     try {
       const printMap = await ensureCardPrints([newPrint])
-      const updates = withCardPrint({
+      const enriched = withCardPrint({
         name: newPrint.name || card.name,
         set_code: newPrint.set,
         collector_number: newPrint.collector_number,
         scryfall_id: newPrint.id,
       }, getCardPrint(printMap, newPrint))
-      const { error } = await sb.from('cards').update(updates).eq('id', card.id)
+      // Only card_print_id is writable on the base table post-5d; the rest of
+      // `enriched` updates the in-memory card so the UI re-renders with the
+      // new printing's metadata immediately.
+      const { error } = await sb.from('cards').update({ card_print_id: enriched.card_print_id }).eq('id', card.id)
       if (error) throw error
-      const updatedCard = { ...card, ...updates }
+      const updatedCard = { ...card, ...enriched }
       await putCards([updatedCard])
       onSave?.(updatedCard)
       onClose?.()

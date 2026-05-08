@@ -5,6 +5,7 @@ import { Modal, Button, ErrorBox, ResponsiveMenu } from './UI'
 import { useSettings } from './SettingsContext'
 import { getPrice, formatPrice, getPriceSource, sfGet } from '../lib/scryfall'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
+import { toOwnedCardRow, toListItemRow } from '../lib/deckBuilderWrites'
 import styles from './AddCardModal.module.css'
 import uiStyles from './UI.module.css'
 
@@ -425,11 +426,18 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
           ...item,
           qty: item.qty + (existingQtyByKey.get(`${item.card_print_id}-${item.foil ? 'foil' : 'normal'}`) || 0),
         }))
+        // Strip denormalized cols at the upsert boundary; re-attach the
+        // metadata each input row carried so onSaved gets the same shape.
         const { data: savedItems, error: err } = await sb.from('list_items')
-          .upsert(items, { onConflict: 'folder_id,card_print_id,foil' })
-          .select('*')
+          .upsert(items.map(toListItemRow), { onConflict: 'folder_id,card_print_id,foil' })
+          .select('id,folder_id,user_id,card_print_id,foil,qty,added_at')
         if (err) { setError(err.message); setSaving(false); return }
-        onSaved({ listItems: savedItems || [], folder: folders.find(f => f.id === selectedFolder) || null })
+        const itemByKey = new Map(items.map(item => [`${item.card_print_id}-${item.foil ? 'foil' : 'normal'}`, item]))
+        const enrichedSavedItems = (savedItems || []).map(row => {
+          const input = itemByKey.get(`${row.card_print_id}-${row.foil ? 'foil' : 'normal'}`)
+          return input ? { ...input, ...row } : row
+        })
+        onSaved({ listItems: enrichedSavedItems, folder: folders.find(f => f.id === selectedFolder) || null })
         setSaving(false)
         return
       }
@@ -467,7 +475,9 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
       )
 
       const setCodes = [...new Set(aggregated.map(c => c.set_code))]
-      const { data: existingCards, error: existingCardsErr } = await sb.from('cards')
+      // Existence check via owned_cards_view so set_code/collector_number
+      // resolve via card_prints (post-5d the base table no longer has them).
+      const { data: existingCards, error: existingCardsErr } = await sb.from('owned_cards_view')
         .select('id,user_id,name,set_code,collector_number,scryfall_id,foil,qty,condition,language,purchase_price,currency,card_print_id')
         .eq('user_id', userId)
         .in('set_code', setCodes)
@@ -481,17 +491,26 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
           : card
       })
 
+      // Strip denorm cols at the upsert boundary; re-attach input metadata
+      // so downstream consumers (onSaved → IDB hydration, UI updates) keep
+      // the same shape they had pre-5d.
       const { data: upsertedCards, error: err } = await sb.from('cards')
-        .upsert(cards, { onConflict: 'user_id,card_print_id,foil,language,condition' })
-        .select('id,user_id,name,set_code,collector_number,scryfall_id,foil,qty,condition,language,purchase_price,currency,card_print_id,added_at')
+        .upsert(cards.map(toOwnedCardRow), { onConflict: 'user_id,card_print_id,foil,language,condition' })
+        .select('id,user_id,foil,qty,condition,language,purchase_price,currency,card_print_id,added_at')
       if (err) { setError(err.message); setSaving(false); return }
+      const cardByKey = new Map(cards.map(card => [getOwnedCardKey(card), card]))
+      const enrichedUpsertedCards = (upsertedCards || []).map(row => {
+        const input = cardByKey.get(getOwnedCardKey(row)) ||
+          [...cardByKey.values()].find(c => c.card_print_id === row.card_print_id && !!c.foil === !!row.foil)
+        return input ? { ...input, ...row } : row
+      })
 
       const folderTarget = folderMode ? selectedFolder : (destTab !== 'collection' ? selectedFolder : null)
       if (folderTarget) {
         const folderType = folders.find(f => f.id === folderTarget)?.type || destTab
-        let saved = upsertedCards || []
+        let saved = enrichedUpsertedCards
         if (!saved.length) {
-          const { data: fetchedSaved, error: savedErr } = await sb.from('cards')
+          const { data: fetchedSaved, error: savedErr } = await sb.from('owned_cards_view')
             .select('id,user_id,name,set_code,collector_number,scryfall_id,foil,qty,condition,language,purchase_price,currency,card_print_id,added_at')
             .eq('user_id', userId).in('set_code', setCodes)
           if (savedErr) { setError(savedErr.message); setSaving(false); return }

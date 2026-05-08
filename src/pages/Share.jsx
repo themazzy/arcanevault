@@ -52,7 +52,7 @@ export default function SharePage() {
         const cardIds = fc.map(r => r.card_id)
         // Step 4: get cards separately
         const { data: cardsData } = await sb
-          .from('cards')
+          .from('owned_cards_view')
           .select('*')
           .in('id', cardIds)
 

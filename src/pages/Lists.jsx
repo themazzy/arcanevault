@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { sb } from '../lib/supabase'
 import { getLocalFolders, getLocalListItems, getAllLocalListItemsForFolders, putListItems, replaceLocalListItems, deleteListItemsByIds, getFolderMetaCache, setFolderMetaCache } from '../lib/db'
+import { toListItemRow } from '../lib/deckBuilderWrites'
 import { queryClient } from '../lib/queryClient'
 import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
@@ -265,7 +266,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
       if (folderIds.length) {
         let from = 0
         while (true) {
-          const { data, error } = await sb.from('list_items')
+          const { data, error } = await sb.from('list_items_view')
             .select('*')
             .in('folder_id', folderIds)
             .order('name')
@@ -277,7 +278,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
         }
       }
     } else {
-      const { data, error } = await sb.from('list_items').select('*').eq('folder_id', folder.id).order('name')
+      const { data, error } = await sb.from('list_items_view').select('*').eq('folder_id', folder.id).order('name')
       if (error) networkError = true
       else if (data?.length) rows = data
     }
@@ -480,7 +481,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
         qty: row.qty + (existingQtyByKey.get(`${row.card_print_id}|${row.foil ? 'foil' : 'normal'}`) || 0),
       }))
       const { error } = await sb.from('list_items')
-        .upsert(upserts, { onConflict: 'folder_id,card_print_id,foil' })
+        .upsert(upserts.map(toListItemRow), { onConflict: 'folder_id,card_print_id,foil' })
       if (error) return
     }
     if (toDelete.length) await sb.from('list_items').delete().in('id', toDelete)
@@ -983,7 +984,7 @@ export default function ListsPage() {
       let allItems = [], from = 0
       while (true) {
         const { data: page } = await sb
-          .from('list_items')
+          .from('list_items_view')
           .select('*')
           .in('folder_id', folderIds)
           .range(from, from + 999)
@@ -1096,7 +1097,7 @@ export default function ListsPage() {
     let itemsError = false
     while (true) {
       const { data: page, error } = await sb
-        .from('list_items')
+        .from('list_items_view')
         .select('*')
         .in('folder_id', ids)
         .range(from, from + 999)

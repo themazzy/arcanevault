@@ -22,6 +22,7 @@ import { lastInputWasTouch } from '../lib/inputType'
 import { getPlacedQtyByCardIds, pruneUnplacedCards } from '../lib/collectionOwnership'
 import { fetchDeckAllocations, fetchDeckCards } from '../lib/deckData'
 import { getDeckAllocations, getCardsByIds, getLocalFolders, replaceDeckAllocations, putCards, putDeckAllocations, putFolderCards, replaceLocalFolderCards } from '../lib/db'
+import { toDeckCardRow } from '../lib/deckBuilderWrites'
 
 const CAN_HOVER = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover) and (pointer: fine)').matches
 
@@ -800,7 +801,7 @@ export default function DeckBrowser({ folder, onBack }) {
             created_at: now,
             updated_at: now,
           }))
-          const { error: insertErr } = await sb.from('deck_cards').insert(rows)
+          const { error: insertErr } = await sb.from('deck_cards').insert(rows.map(toDeckCardRow))
           if (insertErr) throw new Error('[DeckBrowser] deck_cards insert failed: ' + insertErr.message)
         }
       }

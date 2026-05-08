@@ -7,6 +7,7 @@ import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getLocalCards, putCards, deleteCard, deleteAllCards, getAllLocalFolderCards, putFolderCards, getLocalFolders, putFolders, setMeta, getMeta, deleteFolder as deleteLocalFolder, replaceLocalFolderCards, getAllDeckAllocationsForUser, putDeckAllocations, replaceDeckAllocations, deleteDeckAllocationsByCardIds, deleteFolderCardsByCardIds } from '../lib/db'
 import { parseManaboxCSV } from '../lib/csvParser'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
+import { toOwnedCardRow, toListItemRow } from '../lib/deckBuilderWrites'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { useToast } from '../components/ToastContext'
@@ -486,7 +487,7 @@ export default function CollectionPage() {
     let pageFrom = 0, fetchComplete = false
     const PAGE = 1000
     while (true) {
-      const { data, error: err } = await sb.from('cards')
+      const { data, error: err } = await sb.from('owned_cards_view')
         .select('*')
         .eq('user_id', user.id)
         // Stable pagination: name is not unique, so page boundaries can duplicate
@@ -862,7 +863,7 @@ export default function CollectionPage() {
         delete c2._localId; delete c2._binderName; return c2
       })
       const { error: err } = await sb.from('cards')
-        .upsert(batch, { onConflict: 'user_id,card_print_id,foil,language,condition', ignoreDuplicates: false })
+        .upsert(batch.map(toOwnedCardRow), { onConflict: 'user_id,card_print_id,foil,language,condition', ignoreDuplicates: false })
       if (err) { setError(`Import error: ${err.message}`); setImporting(false); return }
       setProgLabel(`Saving cards… (${Math.min(i + CARD_BATCH, dedupedCardsWithPrints.length)} / ${dedupedCardsWithPrints.length})`)
     }
@@ -871,7 +872,8 @@ export default function CollectionPage() {
     setProgLabel('Building card index…')
     let allDbCards = [], dbFrom = 0
     while (true) {
-      const { data: page } = await sb.from('cards')
+      // Read via owned_cards_view so set_code/collector_number resolve via card_prints.
+      const { data: page } = await sb.from('owned_cards_view')
         .select('id,set_code,collector_number,foil,language,condition,card_print_id')
         .eq('user_id', user.id)
         .order('id')
@@ -915,7 +917,7 @@ export default function CollectionPage() {
         }))
         if (items.length) {
           const { error: lie } = await sb.from('list_items')
-            .upsert(items, { onConflict: 'folder_id,card_print_id,foil', ignoreDuplicates: false })
+            .upsert(items.map(toListItemRow), { onConflict: 'folder_id,card_print_id,foil', ignoreDuplicates: false })
           if (lie) { console.error(`[Import] list_items failed for "${folder.name}":`, lie.message); folderFail++ }
           else folderOk++
         }
