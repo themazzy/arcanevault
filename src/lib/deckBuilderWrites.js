@@ -11,15 +11,40 @@
 import { sb } from './supabase'
 import { ensureCardPrints, getCardPrint, withCardPrint } from './cardPrints'
 
+// Phase 5d: denormalized print columns (scryfall_id/name/set_code/
+// collector_number/type_line/mana_cost/cmc/color_identity/image_uri) are no
+// longer written to deck_cards/cards/list_items — they're sourced from
+// card_prints via the *_view joins. Keep these helpers narrow so any payload
+// fed through them is automatically schema-correct.
 export const DECK_CARD_DB_COLS = new Set([
-  'id', 'deck_id', 'user_id', 'scryfall_id', 'name', 'set_code', 'collector_number',
-  'type_line', 'mana_cost', 'cmc', 'color_identity', 'image_uri', 'qty', 'foil',
-  'is_commander', 'board', 'created_at', 'updated_at', 'card_print_id', 'category_id',
+  'id', 'deck_id', 'user_id', 'qty', 'foil', 'is_commander', 'board',
+  'created_at', 'updated_at', 'card_print_id', 'category_id',
 ])
 
 export function toDeckCardRow(row) {
   const out = {}
   for (const k of DECK_CARD_DB_COLS) if (k in row) out[k] = row[k]
+  return out
+}
+
+export const OWNED_CARD_DB_COLS = new Set([
+  'id', 'user_id', 'card_print_id', 'qty', 'foil', 'condition', 'language',
+  'purchase_price', 'currency', 'misprint', 'altered', 'added_at', 'updated_at',
+])
+
+export function toOwnedCardRow(row) {
+  const out = {}
+  for (const k of OWNED_CARD_DB_COLS) if (k in row) out[k] = row[k]
+  return out
+}
+
+export const LIST_ITEM_DB_COLS = new Set([
+  'id', 'folder_id', 'user_id', 'card_print_id', 'qty', 'foil', 'added_at',
+])
+
+export function toListItemRow(row) {
+  const out = {}
+  for (const k of LIST_ITEM_DB_COLS) if (k in row) out[k] = row[k]
   return out
 }
 
@@ -87,7 +112,7 @@ export async function additiveSaveOwnedCards(rows, context = 'Owned card') {
   let existingRows = []
   if (printIds.length) {
     const { data, error } = await sb.from('cards')
-      .select('id,user_id,name,set_code,collector_number,scryfall_id,foil,qty,condition,language,purchase_price,currency,card_print_id,added_at')
+      .select('id,user_id,foil,qty,condition,language,purchase_price,currency,card_print_id,added_at')
       .eq('user_id', incomingRows[0].user_id)
       .in('card_print_id', printIds)
     if (error) throw error
@@ -109,11 +134,19 @@ export async function additiveSaveOwnedCards(rows, context = 'Owned card') {
       : row
   })
 
+  // Strip denormalized cols at the upsert boundary (post-5d the schema no
+  // longer carries them).
   const { data, error } = await sb.from('cards')
-    .upsert(rowsToSave, { onConflict: 'user_id,card_print_id,foil,language,condition' })
-    .select('id,user_id,name,set_code,collector_number,scryfall_id,foil,qty,condition,language,purchase_price,currency,card_print_id,added_at')
+    .upsert(rowsToSave.map(toOwnedCardRow), { onConflict: 'user_id,card_print_id,foil,language,condition' })
+    .select('id,user_id,foil,qty,condition,language,purchase_price,currency,card_print_id,added_at')
   if (error) throw error
-  return data || []
+  // Re-attach the denorm metadata each input row carried, so downstream
+  // consumers (IDB hydration, UI updates) keep their existing shape.
+  const inputByKey = new Map(rowsToSave.map(row => [ownedCardKey(row), row]))
+  return (data || []).map(row => {
+    const input = inputByKey.get(ownedCardKey(row))
+    return input ? { ...input, ...row } : row
+  })
 }
 
 export async function additiveSaveWishlistItems(folderId, userId, rows, context = 'Wishlist item') {
@@ -143,20 +176,23 @@ export async function additiveSaveWishlistItems(folderId, userId, rows, context 
 
   const existingQtyByKey = new Map(existingRows.map(row => [`${row.card_print_id}|${row.foil ? '1' : '0'}`, row.qty || 0]))
   const rowsToSave = incomingRows.map(row => ({
+    ...row,
     folder_id: row.folder_id,
     user_id: row.user_id,
-    name: row.name,
-    set_code: row.set_code || null,
-    collector_number: row.collector_number || null,
-    scryfall_id: row.scryfall_id || null,
     card_print_id: row.card_print_id,
     foil: row.foil ?? false,
     qty: (row.qty || 0) + (existingQtyByKey.get(`${row.card_print_id}|${row.foil ? '1' : '0'}`) || 0),
   }))
 
+  // Strip denormalized cols at the upsert boundary; re-attach metadata from
+  // the input rows so callers keep the existing shape.
   const { data, error } = await sb.from('list_items')
-    .upsert(rowsToSave, { onConflict: 'folder_id,card_print_id,foil' })
-    .select('*')
+    .upsert(rowsToSave.map(toListItemRow), { onConflict: 'folder_id,card_print_id,foil' })
+    .select('id,folder_id,user_id,card_print_id,foil,qty,added_at')
   if (error) throw error
-  return data || []
+  const inputByKey = new Map(rowsToSave.map(row => [`${row.card_print_id}|${row.foil ? '1' : '0'}`, row]))
+  return (data || []).map(row => {
+    const input = inputByKey.get(`${row.card_print_id}|${row.foil ? '1' : '0'}`)
+    return input ? { ...input, ...row } : row
+  })
 }

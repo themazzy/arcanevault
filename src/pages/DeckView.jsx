@@ -4,6 +4,7 @@ import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { parseDeckMeta, serializeDeckMeta, FORMATS, groupDeckCards, TYPE_GROUPS } from '../lib/deckBuilderApi'
+import { toDeckCardRow } from '../lib/deckBuilderWrites'
 import DeckStats, { normalizeDeckBuilderCards } from '../components/DeckStats'
 import styles from './DeckView.module.css'
 import uiStyles from '../components/UI.module.css'
@@ -247,7 +248,7 @@ export default function DeckViewPage() {
           board:            c.board || 'main',
           type_line:        c.type_line || null,
         }))
-        const { error: cardsErr } = await sb.from('deck_cards').insert(rows)
+        const { error: cardsErr } = await sb.from('deck_cards').insert(rows.map(toDeckCardRow))
         if (cardsErr) throw cardsErr
       }
 

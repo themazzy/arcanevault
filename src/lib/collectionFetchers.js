@@ -18,7 +18,9 @@ export async function fetchCollectionCards(userId) {
   const rows = []
   let from = 0
   while (true) {
-    const { data, error } = await sb.from('cards')
+    // Read via owned_cards_view so name/set_code/scryfall_id are sourced from
+    // card_prints (post-5d the base table no longer carries denormalized cols).
+    const { data, error } = await sb.from('owned_cards_view')
       .select('*')
       .eq('user_id', userId)
       .order('name')

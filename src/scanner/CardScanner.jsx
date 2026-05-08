@@ -37,6 +37,7 @@ import { useAuth } from '../components/Auth'
 import { formatPriceMeta, getPriceWithMeta, sfGet } from '../lib/scryfall'
 import { sb } from '../lib/supabase'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
+import { toOwnedCardRow, toListItemRow } from '../lib/deckBuilderWrites'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { useSettings } from '../components/SettingsContext'
 import styles from './CardScanner.module.css'
@@ -220,8 +221,10 @@ async function batchSaveCards({ userId, cards, folderId, folderType }) {
       foil: c.foil,
       qty: c.qty ?? 1,
     }))
+    // Strip denorm cols at upsert boundary; the JS objects keep them for any
+    // downstream UI use (currently none — we return early after this).
     const { error } = await sb.from('list_items')
-      .upsert(items, { onConflict: 'folder_id,card_print_id,foil' })
+      .upsert(items.map(toListItemRow), { onConflict: 'folder_id,card_print_id,foil' })
     if (error) throw new Error(error.message)
     return
   }
@@ -235,7 +238,8 @@ async function batchSaveCards({ userId, cards, folderId, folderType }) {
     setCodes.length ? `set_code.in.(${setCodes.join(',')})` : null,
     cardPrintIds.length ? `card_print_id.in.(${cardPrintIds.join(',')})` : null,
   ].filter(Boolean).join(',')
-  let existingQuery = sb.from('cards')
+  // Read via owned_cards_view so set_code resolves through card_prints.
+  let existingQuery = sb.from('owned_cards_view')
     .select('id,set_code,collector_number,foil,language,condition,qty,card_print_id')
     .eq('user_id', userId)
   if (existingFilter) existingQuery = existingQuery.or(existingFilter)
@@ -252,8 +256,9 @@ async function batchSaveCards({ userId, cards, folderId, folderType }) {
   const updateRows = resolvedRows.filter(row => row.id)
   const insertRows = resolvedRows.filter(row => !row.id)
 
+  // Strip denorm cols on update patches — only ownership cols are writable.
   for (const row of updateRows) {
-    const { id, ...patch } = row
+    const { id, ...patch } = toOwnedCardRow(row)
     const { error: updateErr } = await sb.from('cards')
       .update(patch)
       .eq('id', id)
@@ -265,11 +270,18 @@ async function batchSaveCards({ userId, cards, folderId, folderType }) {
 
   if (insertRows.length) {
     const { data: inserted, error: insertErr } = await sb.from('cards')
-      .insert(insertRows)
-      .select('id,set_code,collector_number,foil,language,condition,card_print_id')
+      .insert(insertRows.map(toOwnedCardRow))
+      .select('id,foil,language,condition,card_print_id')
     if (insertErr) throw new Error(insertErr.message)
     insertedCardIds.push(...(inserted || []).map(row => row.id).filter(Boolean))
-    savedRows.push(...(inserted || []))
+    // Re-attach input metadata so savedByKey lookups (which use getOwnedCardKey
+    // with set_code/collector_number fallback) still work.
+    const insertByKey = new Map(insertRows.map(row => [getOwnedCardKey(row), row]))
+    for (const row of inserted || []) {
+      const input = insertByKey.get(getOwnedCardKey(row)) ||
+        [...insertByKey.values()].find(r => r.card_print_id === row.card_print_id && !!r.foil === !!row.foil)
+      savedRows.push(input ? { ...input, ...row } : row)
+    }
   }
 
   const savedByKey = new Map(savedRows.map(c => [getOwnedCardKey(c), c]))

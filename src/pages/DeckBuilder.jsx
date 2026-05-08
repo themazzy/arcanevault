@@ -1030,7 +1030,7 @@ export default function DeckBuilderPage() {
                 created_at: now,
                 updated_at: now,
               }))
-              const { error: hydrateErr } = await sb.from('deck_cards').insert(hydratedRows)
+              const { error: hydrateErr } = await sb.from('deck_cards').insert(hydratedRows.map(toDeckCardRow))
               // 23505 = duplicate key: StrictMode re-run or race — rows exist, re-fetch handles it
               if (hydrateErr && hydrateErr.code !== '23505') throw hydrateErr
             }
@@ -1412,8 +1412,9 @@ export default function DeckBuilderPage() {
         updated_at: now,
       }))
       if (rows.length) {
-        const { error: cardsError } = await sb.from('deck_cards').insert(rows)
+        const { error: cardsError } = await sb.from('deck_cards').insert(rows.map(toDeckCardRow))
         if (cardsError) throw cardsError
+        // IDB stores enriched rows (with denorm fields) for fast UI render.
         putDeckCards(rows).catch(() => {})
       }
       navigate(`/builder/${newDeck.id}`)
@@ -2120,7 +2121,7 @@ export default function DeckBuilderPage() {
     if (!cardName || !user?.id) return []
 
     const { data: ownedRows, error: ownedErr } = await sb
-      .from('cards')
+      .from('owned_cards_view')
       .select('id,name,set_code,collector_number,scryfall_id,foil,qty,card_print_id')
       .eq('user_id', user.id)
       .eq('name', cardName)
@@ -3647,7 +3648,7 @@ export default function DeckBuilderPage() {
         const hydrated = hydratedById.get(nextDeckCards[i].id)
         if (hydrated) nextDeckCards[i] = hydrated
       }
-      await sbExec(sb.from('deck_cards').insert(hydratedInserts), { silent: true })
+      await sbExec(sb.from('deck_cards').insert(hydratedInserts.map(toDeckCardRow)), { silent: true })
     }
     for (const id of deletes) {
       await sbExec(sb.from('deck_cards').delete().eq('id', id), { silent: true })

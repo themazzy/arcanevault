@@ -11,6 +11,7 @@ import {
   summarizeImportRows,
 } from '../lib/importFlow'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
+import { toOwnedCardRow, toListItemRow, toDeckCardRow } from '../lib/deckBuilderWrites'
 import { putCards, putDeckAllocations, putFolderCards, putFolders } from '../lib/db'
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon } from '../icons'
 import styles from './ImportModal.module.css'
@@ -64,6 +65,21 @@ function isGroupFolder(folder) {
   try { return JSON.parse(folder?.description || '{}').isGroup === true } catch { return false }
 }
 
+// Tables that lost denormalized print metadata in phase 5d need their write
+// payloads filtered to ownership-only cols. Reads from these tables (post-
+// upsert .select() chains) also can't expect those fields anymore — callers
+// re-attach metadata from the input rows where needed.
+const TABLE_ROW_BUILDERS = {
+  cards: toOwnedCardRow,
+  list_items: toListItemRow,
+  deck_cards: toDeckCardRow,
+}
+
+function buildPayload(table, row) {
+  const fn = TABLE_ROW_BUILDERS[table]
+  return fn ? fn(row) : row
+}
+
 async function upsertInBatches(table, rows, options, selectColumns = '*', onBatchDone) {
   const saved = []
   const batches = chunkRows(rows)
@@ -78,10 +94,21 @@ async function upsertInBatches(table, rows, options, selectColumns = '*', onBatc
     for (const subBatch of [rowsWithId, rowsWithoutId]) {
       if (!subBatch.length) continue
       const { data, error } = await sb.from(table)
-        .upsert(subBatch, options)
+        .upsert(subBatch.map(row => buildPayload(table, row)), options)
         .select(selectColumns)
       if (error) throw error
-      if (data?.length) saved.push(...data)
+      if (data?.length) {
+        // Re-attach denorm metadata from the input rows so callers (IDB
+        // hydration, key-building loops) keep the shape they had pre-5d.
+        const inputByKey = new Map()
+        for (const row of subBatch) {
+          if (row.card_print_id != null) inputByKey.set(`${row.card_print_id}|${row.foil ? 1 : 0}`, row)
+        }
+        for (const row of data) {
+          const input = inputByKey.get(`${row.card_print_id}|${row.foil ? 1 : 0}`)
+          saved.push(input ? { ...input, ...row } : row)
+        }
+      }
     }
     onBatchDone?.({ batchIndex: i + 1, batchCount: batches.length, rowsDone: Math.min((i + 1) * IMPORT_WRITE_BATCH, rows.length), rowCount: rows.length })
   }
