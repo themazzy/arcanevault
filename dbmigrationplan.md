@@ -27,6 +27,9 @@ in Supabase and app code.
 - `20260510194632_remove_card_prices_stage.sql` removed `card_prices_stage`
   and `publish_card_prices`; `scripts/sync-card-prices.mjs` now writes directly
   to `card_prices`.
+- `20260510195316_fix_get_my_decks_after_phase5d.sql` and
+  `20260510195606_fix_public_deck_rpcs_after_phase5d.sql` fixed the deck RPCs
+  that still read removed print metadata columns after Phase 5d.
 
 Remaining work is the deferred `pgcrypto` extension move, a follow-up migration
 to drop the legacy `archive_background_*` columns after deployment, and advisor
