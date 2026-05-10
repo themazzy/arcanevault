@@ -2,8 +2,8 @@
 
 ## Status update 2026-05-10
 
-Phase 5, Phase 6.1 compatibility work, and Phase 6.2 option B are now complete
-in Supabase and app code.
+Phase 5, Phase 6, the `pgcrypto` move, print-view cleanup, and actionable
+advisor follow-ups are now complete in Supabase and app code.
 
 - `20260510192825_restore_security_invoker_views.sql` re-applied
   `security_invoker = true` to the four print metadata views after the Phase
@@ -30,12 +30,23 @@ in Supabase and app code.
 - `20260510195316_fix_get_my_decks_after_phase5d.sql` and
   `20260510195606_fix_public_deck_rpcs_after_phase5d.sql` fixed the deck RPCs
   that still read removed print metadata columns after Phase 5d.
+- `20260510204056_drop_legacy_archive_background_columns.sql` dropped the
+  legacy split `user_settings.archive_background_*` columns after the frontend
+  switched to the consolidated JSONB payload.
+- `20260510204103_move_pgcrypto_to_extensions.sql` moved `pgcrypto` from
+  `public` to `extensions` and verified `shared_folders.public_token` still
+  generates 32-character hex tokens.
+- `20260510204119_simplify_print_metadata_views.sql` rebuilt the four print
+  metadata views as direct `card_prints` passthroughs with
+  `security_invoker=true`.
+- `20260510204129_advisor_followup_indexes.sql` added covering indexes for the
+  remaining unindexed FK advisor items.
 
-Remaining work is the deferred `pgcrypto` extension move, a follow-up migration
-to drop the legacy `archive_background_*` columns after deployment, and advisor
-review. Current advisor state still includes intentional/security-reviewed
-SECURITY DEFINER RPC warnings, `pgcrypto` in `public`, leaked-password
-protection disabled, and low-priority performance INFO lints.
+Remaining advisor state is reviewed: SECURITY DEFINER RPC warnings are
+intentional exposed API functions, leaked-password protection must be enabled in
+Supabase Auth settings rather than SQL migrations, and remaining performance
+INFO lints are unused-index notices that should age through real traffic before
+any drop decision.
 
 Captured 2026-05-08 after Phases 1–4 shipped. This file holds the deferred phases.
 
@@ -265,16 +276,12 @@ After this the views become pure passthroughs (the `COALESCE` reduces to `cp.col
 
 Low-risk hygiene work; no urgency.
 
-### 6.1 Consolidate `user_settings.archive_background_*` columns ✅ COMPAT DONE (2026-05-10)
+### 6.1 Consolidate `user_settings.archive_background_*` columns ✅ DONE (2026-05-10)
 
 `archive_background` jsonb exists and is backfilled. The app writes the new
-jsonb column while continuing to expose the existing flat setting keys to React
-components. The old split columns remain temporarily for backward compatibility
-with the currently deployed frontend. Follow-up after deployment: drop
-`archive_background_mode`, `archive_background_cards`,
-`archive_background_seed`, `archive_background_locked`,
-`archive_background_collection_source`, `archive_background_blur`,
-`archive_background_saturation`, and `archive_background_opacity`.
+jsonb column while continuing to expose the existing flat setting keys inside
+React state. The old split database columns were dropped in
+`20260510204056_drop_legacy_archive_background_columns.sql`.
 
 7 columns (`mode, cards, seed, locked, collection_source, blur, saturation, opacity`) → 1 jsonb. Same row, simpler migrations going forward.
 
@@ -293,7 +300,8 @@ update public.user_settings set archive_background = jsonb_build_object(
 );
 ```
 
-Then ship app code that reads `archive_background.mode` etc. (touch points: `src/components/SettingsContext.jsx`, archive theme renderers). After app deploy, drop the 7 old columns.
+Admin settings updates now allow only the consolidated `archive_background`
+payload for archive background state.
 
 ### 6.2 `card_prices_stage` ✅ DONE (2026-05-10, option B)
 
@@ -308,9 +316,11 @@ Recommendation: **(B)** — atomic swap doesn't appear load-bearing (table sat a
 
 ---
 
-## Bonus — Move `pgcrypto` out of `public` schema
+## Bonus — Move `pgcrypto` out of `public` schema ✅ DONE (2026-05-10)
 
-Deferred from Phase 1: 36 objects depend on `pgcrypto`, and the `shared_folders.public_token` default expression uses unqualified `gen_random_bytes(16)` which only resolves via the `extensions` schema for the `postgres` role.
+Completed in `20260510204103_move_pgcrypto_to_extensions.sql`. The extension
+now lives in `extensions`, and `shared_folders.public_token` was smoke-tested in
+a rolled-back insert.
 
 Steps:
 
@@ -333,10 +343,11 @@ Clears the `extension_in_public` advisor.
 
 ## Suggested cadence for resuming
 
-1. Deploy the updated frontend.
-2. Drop the legacy `archive_background_*` columns after the deployment is live.
-3. **Bonus** — `pgcrypto` move.
-4. Review the remaining SECURITY DEFINER RPC advisor warnings and either document them as intentional public RPCs or move/rewrite any that no longer need elevated privileges.
-5. Decide whether the remaining performance INFO lints are worth acting on; several are low-traffic FK indexes or freshly added indexes with no usage history yet.
+1. Enable leaked-password protection in Supabase Auth settings.
+2. Re-run advisors after production traffic has used the new FK indexes; only
+   drop unused indexes after confirming they are not protecting admin, feedback,
+   tournament, or life-tracker paths.
+3. Periodically re-review SECURITY DEFINER RPCs when public sharing/profile
+   behavior changes.
 
 After all phases: schema is materially smaller, no stale audit/staging tables, RLS evaluates once per query, every critical FK is indexed, and the remaining advisor warnings are either fixed or explicitly accepted.
