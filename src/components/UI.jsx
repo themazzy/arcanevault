@@ -270,7 +270,8 @@ export function Modal({
         parseFloat(computed.paddingBottom || '0') +
         parseFloat(computed.borderTopWidth || '0') +
         parseFloat(computed.borderBottomWidth || '0')
-      setModalHeight(contentEl.offsetHeight + paddingY)
+      const nextHeight = contentEl.offsetHeight + paddingY
+      setModalHeight(prev => (prev === nextHeight ? prev : nextHeight))
     }
 
     updateHeight()
@@ -289,7 +290,7 @@ export function Modal({
       observer.disconnect()
       window.removeEventListener('resize', updateHeight)
     }
-  }, [children])
+  }, [])
 
   return (
     <div className={styles.overlay} onClick={handleOverlayClick}>
