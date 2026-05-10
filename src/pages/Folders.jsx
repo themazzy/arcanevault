@@ -184,6 +184,29 @@ async function fetchFolderPlacementRows(folder) {
   return (data || []).map(row => ({ ...row, table: 'folder_cards' }))
 }
 
+async function fetchPlacementRowsForFolders(type, folderIds) {
+  const ids = [...new Set((folderIds || []).filter(Boolean))]
+  if (!ids.length) return []
+
+  const rows = []
+  let from = 0
+  while (true) {
+    const query = type === 'deck'
+      ? sb.from('deck_allocations')
+        .select('id, deck_id, user_id, card_id, qty, updated_at')
+        .in('deck_id', ids)
+      : sb.from('folder_cards')
+        .select('id, folder_id, card_id, qty, updated_at')
+        .in('folder_id', ids)
+    const { data, error } = await query.range(from, from + 999)
+    if (error) throw error
+    if (data?.length) rows.push(...data)
+    if (!data || data.length < 1000) break
+    from += 1000
+  }
+  return rows
+}
+
 async function upsertPlacementRows(targetFolder, rows) {
   if (!targetFolder) throw new Error('Transfer target was not found.')
   if (!rows?.length) return []
@@ -593,6 +616,32 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
     }
     load()
   }, [folder?.id, folderIds, folders, isAllView, reloadKey])
+
+  // Reconcile the open binder with Supabase after the fast IDB paint. This keeps
+  // cross-page moves, such as DeckBuilder sync, visible without visiting Collection.
+  useEffect(() => {
+    if (isAllView || !folder?.id) return
+    let cancelled = false
+    const reconcile = async () => {
+      try {
+        const rows = await fetchPlacementRowsForFolders('binder', [folder.id])
+        if (cancelled) return
+        await replaceLocalFolderCards([folder.id], rows).catch(() => {})
+        const cardIds = rows.map(row => row.card_id).filter(Boolean)
+        const localCards = await getCardsByIds(cardIds)
+        if (cancelled) return
+        const cardById = Object.fromEntries(localCards.map(c => [c.id, c]))
+        setCards(rows
+          .filter(row => cardById[row.card_id])
+          .map(row => ({ ...cardById[row.card_id], _folder_qty: row.qty }))
+        )
+      } catch (err) {
+        console.warn('[Folders] placement reconcile unavailable:', err?.message || err)
+      }
+    }
+    reconcile()
+    return () => { cancelled = true }
+  }, [folder?.id, isAllView])
 
   // Phase B: load prices in background after cards are visible
   useEffect(() => {
@@ -1527,17 +1576,33 @@ export default function FoldersPage({ type }) {
     const ids = foldersData.map(f => f.id)
 
     // Phase A: read counts from IDB — fast, no network. Single bulk transaction either way.
-    const allRows = type === 'deck'
+    let allRows = type === 'deck'
       ? await getAllDeckAllocationsForFolders(ids)
       : await getAllLocalFolderCards(ids)
 
-    const uniqueCardIds = [...new Set(allRows.map(r => r.card_id).filter(Boolean))]
-    const localCards = await getCardsByIds(uniqueCardIds)
-    const cardById = Object.fromEntries(localCards.map(c => [c.id, c]))
+    let uniqueCardIds = [...new Set(allRows.map(r => r.card_id).filter(Boolean))]
+    let localCards = await getCardsByIds(uniqueCardIds)
+    let cardById = Object.fromEntries(localCards.map(c => [c.id, c]))
 
     folderJoinRef.current = { allRows, cardById, foldersData }
     setFolderMeta(computeMetaCounts(foldersData, allRows))
     setLoading(false)
+
+    // Phase A2: reconcile placement counts from Supabase. The index is otherwise
+    // dependent on whatever workflow last refreshed IndexedDB.
+    try {
+      const remoteRows = await fetchPlacementRowsForFolders(type, ids)
+      if (type === 'deck') await replaceDeckAllocations(ids, remoteRows).catch(() => {})
+      else await replaceLocalFolderCards(ids, remoteRows).catch(() => {})
+      allRows = remoteRows
+      uniqueCardIds = [...new Set(allRows.map(r => r.card_id).filter(Boolean))]
+      localCards = await getCardsByIds(uniqueCardIds)
+      cardById = Object.fromEntries(localCards.map(c => [c.id, c]))
+      folderJoinRef.current = { allRows, cardById, foldersData }
+      setFolderMeta(computeMetaCounts(foldersData, allRows))
+    } catch (err) {
+      console.warn('[Folders] folder placement reconcile unavailable:', err?.message || err)
+    }
 
     // Phase B: load prices in background and fill in values (consumed by the price-only effect below)
     if (!uniqueCardIds.length) return
