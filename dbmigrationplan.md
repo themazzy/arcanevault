@@ -1,5 +1,39 @@
 # DeckLoom DB Migration Plan — Remaining Work
 
+## Status update 2026-05-10
+
+Phase 5, Phase 6.1 compatibility work, and Phase 6.2 option B are now complete
+in Supabase and app code.
+
+- `20260510192825_restore_security_invoker_views.sql` re-applied
+  `security_invoker = true` to the four print metadata views after the Phase
+  5d view rebuilds had accidentally reverted them to SECURITY DEFINER behavior.
+- `20260510193018_phase5d_drop_redundant_print_columns_reconcile.sql` dropped
+  the redundant print metadata columns from `cards`, `deck_cards`, and
+  `list_items` against the live schema while preserving the current inner-join
+  view definitions.
+- `src/pages/DeckBuilder.jsx` no longer sends denormalized print metadata in
+  remaining `deck_cards.update(...)` paths.
+- Verification: production schema has no remaining `scryfall_id`, `name`,
+  `set_code`, `collector_number`, `type_line`, `mana_cost`, `cmc`,
+  `color_identity`, or `image_uri` columns on those base tables; the four views
+  all report `security_invoker=true`; `npm run build` passes.
+- `20260510194405_fix_get_public_profile_after_phase5d.sql` fixed the public
+  profile RPC after Phase 5d by reading print identity from `card_prints`
+  instead of dropped `cards.*` metadata columns.
+- `20260510194548_user_settings_archive_background_jsonb.sql` added and
+  backfilled `user_settings.archive_background`; the legacy split columns are
+  intentionally retained until the updated frontend is deployed everywhere.
+- `20260510194632_remove_card_prices_stage.sql` removed `card_prices_stage`
+  and `publish_card_prices`; `scripts/sync-card-prices.mjs` now writes directly
+  to `card_prices`.
+
+Remaining work is the deferred `pgcrypto` extension move, a follow-up migration
+to drop the legacy `archive_background_*` columns after deployment, and advisor
+review. Current advisor state still includes intentional/security-reviewed
+SECURITY DEFINER RPC warnings, `pgcrypto` in `public`, leaked-password
+protection disabled, and low-priority performance INFO lints.
+
 Captured 2026-05-08 after Phases 1–4 shipped. This file holds the deferred phases.
 
 ## What's already done
@@ -36,7 +70,13 @@ The views are already in place from prior work — they `COALESCE(cp.col, base.c
 
 After 5d these views become pure passthroughs (the `COALESCE(cp.col, base.col)` collapses to `cp.col` because `base.col` is gone).
 
-### 5c. Switch reads from base tables to views ⏳ TODO (deferred — see note below)
+### 5c. Switch reads from base tables to views ✅ DONE (2026-05-10)
+
+Current state: metadata reads that need `name`, `set_code`, `collector_number`,
+`scryfall_id`, image fields, or deck/list print metadata use the corresponding
+`*_view`. Base tables are still used for writes and ownership-only reads.
+
+Historical note from the first attempt is kept below for context.
 
 **Note (2026-05-08):** A first attempt at 5c was applied and reverted. Switching
 collection-scale reads (`fetchCollectionCards`, Collection page, Trading,
@@ -115,7 +155,14 @@ These keep their base-table targets. The dropped columns are denormalized metada
 - [ ] Scanner "match against owned" toggle still works.
 - [ ] No console errors about missing columns.
 
-### 5d. Drop redundant columns + strip write payloads ⏳ TODO (atomic coordinated change)
+### 5d. Drop redundant columns + strip write payloads ✅ DONE (2026-05-10)
+
+Current state: write helpers strip denormalized metadata, the remaining
+DeckBuilder update paths were patched, live Supabase has dropped the redundant
+columns, and the print metadata views are inner joins with
+`security_invoker=true`.
+
+The original implementation notes are kept below for audit context.
 
 **Why coordinated:** `cards.name`, `cards.set_code`, `deck_cards.name`, `list_items.name`
 are all `NOT NULL` in the current schema. Stripping these from `INSERT` /
@@ -215,7 +262,16 @@ After this the views become pure passthroughs (the `COALESCE` reduces to `cp.col
 
 Low-risk hygiene work; no urgency.
 
-### 6.1 Consolidate `user_settings.archive_background_*` columns
+### 6.1 Consolidate `user_settings.archive_background_*` columns ✅ COMPAT DONE (2026-05-10)
+
+`archive_background` jsonb exists and is backfilled. The app writes the new
+jsonb column while continuing to expose the existing flat setting keys to React
+components. The old split columns remain temporarily for backward compatibility
+with the currently deployed frontend. Follow-up after deployment: drop
+`archive_background_mode`, `archive_background_cards`,
+`archive_background_seed`, `archive_background_locked`,
+`archive_background_collection_source`, `archive_background_blur`,
+`archive_background_saturation`, and `archive_background_opacity`.
 
 7 columns (`mode, cards, seed, locked, collection_source, blur, saturation, opacity`) → 1 jsonb. Same row, simpler migrations going forward.
 
@@ -236,7 +292,11 @@ update public.user_settings set archive_background = jsonb_build_object(
 
 Then ship app code that reads `archive_background.mode` etc. (touch points: `src/components/SettingsContext.jsx`, archive theme renderers). After app deploy, drop the 7 old columns.
 
-### 6.2 `card_prices_stage` — pick (A) or (B)
+### 6.2 `card_prices_stage` ✅ DONE (2026-05-10, option B)
+
+`scripts/sync-card-prices.mjs` now writes directly to `card_prices`; the
+`card_prices_stage` table and `publish_card_prices(date,date)` function are
+dropped.
 
 - **(A) Keep, schedule cleanup.** Add a `pg_cron` job: `REINDEX TABLE card_prices_stage; VACUUM FULL card_prices_stage;` weekly. Preserves the atomic publish boundary.
 - **(B) Remove.** Switch the price-publish edge function (which writes via `service_role`) to `INSERT INTO card_prices … ON CONFLICT (scryfall_id, snapshot_date) DO UPDATE SET …` directly. Drop `card_prices_stage` table afterwards.
@@ -270,11 +330,10 @@ Clears the `extension_in_public` advisor.
 
 ## Suggested cadence for resuming
 
-1. **Phase 5c PR** — open as its own branch. Run the dev server, walk the QA checklist above. Ship.
-2. **Wait ~1 week of clean prod.** Watch for unusual errors in the cards/decks/lists pages.
-3. **Phase 5d migration** — drops the redundant columns. PITR rollback if needed.
-4. **Phase 6.1** — `archive_background` jsonb consolidation. Bundles a small app PR.
-5. **Phase 6.2** — `card_prices_stage` decision; ideally option B.
-6. **Bonus** — `pgcrypto` move.
+1. Deploy the updated frontend.
+2. Drop the legacy `archive_background_*` columns after the deployment is live.
+3. **Bonus** — `pgcrypto` move.
+4. Review the remaining SECURITY DEFINER RPC advisor warnings and either document them as intentional public RPCs or move/rewrite any that no longer need elevated privileges.
+5. Decide whether the remaining performance INFO lints are worth acting on; several are low-traffic FK indexes or freshly added indexes with no usage history yet.
 
-After all phases: schema is materially smaller, no stale audit/staging tables, RLS evaluates once per query, every FK is indexed, security advisors green.
+After all phases: schema is materially smaller, no stale audit/staging tables, RLS evaluates once per query, every critical FK is indexed, and the remaining advisor warnings are either fixed or explicitly accepted.

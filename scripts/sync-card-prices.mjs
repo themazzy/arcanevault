@@ -11,17 +11,6 @@ const BULK_DATA_TYPE = 'all_cards'
 const UPSERT_BATCH_SIZE = 500
 const DELETE_BATCH_SIZE = 500
 const BULK_DOWNLOAD_PATH = path.join(process.cwd(), '.tmp', 'scryfall-all-cards.json')
-const PRICE_COLUMNS = `
-  scryfall_id,
-  set_code,
-  collector_number,
-  snapshot_date,
-  price_regular_eur,
-  price_foil_eur,
-  price_regular_usd,
-  price_foil_usd,
-  updated_at
-`
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   console.error('Missing SUPABASE_URL and/or SUPABASE_SERVICE_ROLE_KEY.')
@@ -178,7 +167,7 @@ async function upsertRows(rows) {
   for (let i = 0; i < rows.length; i += UPSERT_BATCH_SIZE) {
     const { batch, duplicateCount } = dedupePriceRows(rows.slice(i, i + UPSERT_BATCH_SIZE))
     const { error } = await sb
-      .from('card_prices_stage')
+      .from('card_prices')
       .upsert(batch, { onConflict: 'scryfall_id,snapshot_date' })
     if (error) throw error
     written += batch.length
@@ -186,16 +175,6 @@ async function upsertRows(rows) {
   }
 
   return { written, duplicates }
-}
-
-async function upsertLiveRows(rows) {
-  for (let i = 0; i < rows.length; i += UPSERT_BATCH_SIZE) {
-    const { batch } = dedupePriceRows(rows.slice(i, i + UPSERT_BATCH_SIZE))
-    const { error } = await sb
-      .from('card_prices')
-      .upsert(batch, { onConflict: 'scryfall_id,snapshot_date' })
-    if (error) throw error
-  }
 }
 
 function dedupePriceRows(rows) {
@@ -240,55 +219,14 @@ async function clearRows(table, label, applyFilter) {
   console.log(`[Price Sync] Cleared ${cleared.toLocaleString()} ${label} rows.`)
 }
 
-async function clearStageRows(label, applyFilter) {
-  await clearRows('card_prices_stage', `${label} staging`, applyFilter)
-}
-
-async function clearStageRowsBestEffort(label, applyFilter) {
-  try {
-    await clearStageRows(label, applyFilter)
-  } catch (error) {
-    console.warn(`[Price Sync] Could not clear ${label} staging rows:`, error.message)
-  }
-}
-
-async function publishStagedRows(snapshotDate, retentionCutoff) {
-  await clearRows(
-    'card_prices',
-    `rows for ${snapshotDate} live`,
-    query => query.eq('snapshot_date', snapshotDate)
-  )
-
-  let published = 0
-  let offset = 0
-
-  while (true) {
-    const { data, error } = await sb
-      .from('card_prices_stage')
-      .select(PRICE_COLUMNS)
-      .eq('snapshot_date', snapshotDate)
-      .order('scryfall_id', { ascending: true })
-      .range(offset, offset + UPSERT_BATCH_SIZE - 1)
-
-    if (error) throw error
-    if (!data?.length) break
-
-    await upsertLiveRows(data)
-    published += data.length
-    offset += data.length
-
-    if (published % 5000 === 0) {
-      console.log(`[Price Sync] Published ${published.toLocaleString()} rows so far.`)
-    }
-  }
-
+async function pruneLiveRows(snapshotDate, retentionCutoff) {
   await clearRows(
     'card_prices',
     `stale live rows before ${retentionCutoff}`,
     query => query.lt('snapshot_date', retentionCutoff)
   )
 
-  console.log(`[Price Sync] Published ${published.toLocaleString()} staged rows for ${snapshotDate}.`)
+  console.log(`[Price Sync] Live rows for ${snapshotDate} are up to date.`)
 }
 
 async function main() {
@@ -296,8 +234,11 @@ async function main() {
   const retentionCutoff = isoDateUtc(-1)
 
   try {
-    await clearStageRows(`stale rows before ${snapshotDate}`, query => query.lt('snapshot_date', snapshotDate))
-    await clearStageRows(`rows for ${snapshotDate}`, query => query.eq('snapshot_date', snapshotDate))
+    await clearRows(
+      'card_prices',
+      `rows for ${snapshotDate} live`,
+      query => query.eq('snapshot_date', snapshotDate)
+    )
 
     console.log(`[Price Sync] Fetching Scryfall ${BULK_DATA_TYPE} manifest...`)
     const downloadUrl = await getBulkDownloadUrl()
@@ -307,15 +248,13 @@ async function main() {
 
     console.log('[Price Sync] Streaming bulk card data...')
     const { processed, skipped, duplicateRows } = await processBulkFile(snapshotDate)
-    console.log(`[Price Sync] Finished staging ${processed.toLocaleString()} rows (${skipped.toLocaleString()} skipped).`)
+    console.log(`[Price Sync] Finished writing ${processed.toLocaleString()} live rows (${skipped.toLocaleString()} skipped).`)
     if (duplicateRows) {
       console.log(`[Price Sync] Collapsed ${duplicateRows.toLocaleString()} duplicate rows while staging.`)
     }
 
-    console.log(`[Price Sync] Publishing staged rows for ${snapshotDate}...`)
-    await publishStagedRows(snapshotDate, retentionCutoff)
+    await pruneLiveRows(snapshotDate, retentionCutoff)
   } finally {
-    await clearStageRowsBestEffort(`rows for ${snapshotDate}`, query => query.eq('snapshot_date', snapshotDate))
     try {
       fs.rmSync(BULK_DOWNLOAD_PATH, { force: true })
       fs.rmSync(path.dirname(BULK_DOWNLOAD_PATH), { recursive: true, force: true })

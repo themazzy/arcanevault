@@ -928,7 +928,6 @@ export default function DeckBuilderPage() {
           const missingMetaNames = [...new Set(unresolvedNameRows.map(row => row.name).filter(Boolean))]
           const fetchedByNameRows = missingMetaNames.length ? await fetchCardsByNames(missingMetaNames) : []
           const fetchedByName = new Map(fetchedByNameRows.map(card => [(card.name || '').toLowerCase(), card]))
-          const updates = []
           const enrichedRows = (rows || []).map(row => {
             const resolvedById   = row.scryfall_id ? fetchedById.get(row.scryfall_id) : null
             const resolvedByName = !resolvedById   ? fetchedByName.get((row.name || '').toLowerCase()) : null
@@ -970,28 +969,8 @@ export default function DeckBuilderPage() {
               JSON.stringify(next.color_identity || []) !== JSON.stringify(row.color_identity || []) ||
               next.image_uri !== row.image_uri
 
-            if (changed) {
-              updates.push({
-                id: row.id,
-                scryfall_id: next.scryfall_id,
-                set_code: next.set_code,
-                collector_number: next.collector_number,
-                type_line: next.type_line,
-                mana_cost: next.mana_cost,
-                cmc: next.cmc,
-                color_identity: next.color_identity,
-                image_uri: next.image_uri,
-                updated_at: new Date().toISOString(),
-              })
-            }
-
-            return next
+            return changed ? next : row
           })
-
-          for (const update of updates) {
-            const { id, ...payload } = update
-            await sb.from('deck_cards').update(payload).eq('id', id)
-          }
 
           return enrichedRows
         }
@@ -2845,7 +2824,7 @@ export default function DeckBuilderPage() {
     const previous = deckCardsRef.current.find(d => d.id === dcId)
     setDeckCards(prev => prev.map(d => d.id === dcId ? { ...d, ...updated } : d))
     try {
-      await sbExec(sb.from('deck_cards').update(updated).eq('id', dcId), { label: 'Change version failed' })
+      await sbExec(sb.from('deck_cards').update(toDeckCardRow(updated)).eq('id', dcId), { label: 'Change version failed' })
     } catch {
       if (previous) setDeckCards(prev => prev.map(d => d.id === dcId ? previous : d))
     }
@@ -3308,7 +3287,7 @@ export default function DeckBuilderPage() {
 
     for (const update of updates) {
       const { id, ...payload } = update
-      await sbExec(sb.from('deck_cards').update(payload).eq('id', id), { silent: true })
+      await sbExec(sb.from('deck_cards').update(toDeckCardRow(payload)).eq('id', id), { silent: true })
     }
   }
 
@@ -3351,7 +3330,7 @@ export default function DeckBuilderPage() {
 
     for (const update of updates) {
       const { id, ...payload } = update
-      await sbExec(sb.from('deck_cards').update(payload).eq('id', id), { silent: true })
+      await sbExec(sb.from('deck_cards').update(toDeckCardRow(payload)).eq('id', id), { silent: true })
     }
   }
 

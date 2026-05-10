@@ -433,6 +433,7 @@ const DEFAULTS = {
   archive_background_blur: 7,
   archive_background_saturation: 0.86,
   archive_background_opacity: 0.16,
+  archive_background: null,
   // Profile
   profile_bio: '',
   profile_accent: '',
@@ -567,36 +568,40 @@ function loadLocal() {
 }
 
 function normalizeSettings(settings) {
+  const archive = settings.archive_background && typeof settings.archive_background === 'object' && !Array.isArray(settings.archive_background)
+    ? settings.archive_background
+    : {}
   const next = {
     ...settings,
     page_tips_seen: settings.page_tips_seen && typeof settings.page_tips_seen === 'object' && !Array.isArray(settings.page_tips_seen)
       ? settings.page_tips_seen
       : {},
-    archive_background_mode: ['selected', 'collection', 'random'].includes(settings.archive_background_mode)
-      ? settings.archive_background_mode
+    archive_background_mode: ['selected', 'collection', 'random'].includes(settings.archive_background_mode ?? archive.mode)
+      ? (settings.archive_background_mode ?? archive.mode)
       : 'random',
-    archive_background_cards: Array.isArray(settings.archive_background_cards)
-      ? settings.archive_background_cards.filter(card => card && typeof card === 'object').slice(0, 12)
+    archive_background_cards: Array.isArray(settings.archive_background_cards ?? archive.cards)
+      ? (settings.archive_background_cards ?? archive.cards).filter(card => card && typeof card === 'object').slice(0, 12)
       : [],
-    archive_background_seed: Number.isFinite(Number(settings.archive_background_seed))
-      ? Number(settings.archive_background_seed)
+    archive_background_seed: Number.isFinite(Number(settings.archive_background_seed ?? archive.seed))
+      ? Number(settings.archive_background_seed ?? archive.seed)
       : 0,
-    archive_background_locked: Array.isArray(settings.archive_background_locked)
-      ? settings.archive_background_locked.filter(card => card && typeof card === 'object' && card.id).slice(0, 6)
+    archive_background_locked: Array.isArray(settings.archive_background_locked ?? archive.locked)
+      ? (settings.archive_background_locked ?? archive.locked).filter(card => card && typeof card === 'object' && card.id).slice(0, 6)
       : [],
-    archive_background_collection_source: settings.archive_background_collection_source && typeof settings.archive_background_collection_source === 'object'
-      ? settings.archive_background_collection_source
+    archive_background_collection_source: (settings.archive_background_collection_source ?? archive.collection_source) && typeof (settings.archive_background_collection_source ?? archive.collection_source) === 'object'
+      ? (settings.archive_background_collection_source ?? archive.collection_source)
       : null,
-    archive_background_blur: Number.isFinite(Number(settings.archive_background_blur))
-      ? Math.max(0, Math.min(40, Number(settings.archive_background_blur)))
+    archive_background_blur: Number.isFinite(Number(settings.archive_background_blur ?? archive.blur))
+      ? Math.max(0, Math.min(40, Number(settings.archive_background_blur ?? archive.blur)))
       : 7,
-    archive_background_saturation: Number.isFinite(Number(settings.archive_background_saturation))
-      ? Math.max(0, Math.min(2, Number(settings.archive_background_saturation)))
+    archive_background_saturation: Number.isFinite(Number(settings.archive_background_saturation ?? archive.saturation))
+      ? Math.max(0, Math.min(2, Number(settings.archive_background_saturation ?? archive.saturation)))
       : 0.86,
-    archive_background_opacity: Number.isFinite(Number(settings.archive_background_opacity))
-      ? Math.max(0.02, Math.min(0.6, Number(settings.archive_background_opacity)))
+    archive_background_opacity: Number.isFinite(Number(settings.archive_background_opacity ?? archive.opacity))
+      ? Math.max(0.02, Math.min(0.6, Number(settings.archive_background_opacity ?? archive.opacity)))
       : 0.16,
   }
+  next.archive_background = buildArchiveBackground(next)
   if (!THEMES[next.theme]) {
     return { ...next, theme: 'shadow' }
   }
@@ -604,6 +609,19 @@ function normalizeSettings(settings) {
     return { ...next, theme: 'shadow' }
   }
   return next
+}
+
+function buildArchiveBackground(settings) {
+  return {
+    mode: settings.archive_background_mode || 'random',
+    cards: Array.isArray(settings.archive_background_cards) ? settings.archive_background_cards : [],
+    seed: Number(settings.archive_background_seed) || 0,
+    locked: Array.isArray(settings.archive_background_locked) ? settings.archive_background_locked : [],
+    collection_source: settings.archive_background_collection_source || null,
+    blur: Number.isFinite(Number(settings.archive_background_blur)) ? Number(settings.archive_background_blur) : 7,
+    saturation: Number.isFinite(Number(settings.archive_background_saturation)) ? Number(settings.archive_background_saturation) : 0.86,
+    opacity: Number.isFinite(Number(settings.archive_background_opacity)) ? Number(settings.archive_background_opacity) : 0.16,
+  }
 }
 
 function saveLocal(settings) {
@@ -1077,7 +1095,7 @@ export function SettingsProvider({ children }) {
         price_source, default_sort, grid_density, show_price, cache_ttl_h,
         binder_sort, deck_sort, list_sort, font_weight, font_size, body_font, theme, oled_mode, nickname,
         anonymize_email, reduce_motion, higher_contrast, card_name_size, default_grouping,
-        keep_screen_awake, show_sync_errors, page_tips_seen, archive_background_mode, archive_background_cards,
+        keep_screen_awake, show_sync_errors, page_tips_seen,
         profile_bio, profile_accent, profile_config,
       } = next
       const payload = {
@@ -1085,7 +1103,8 @@ export function SettingsProvider({ children }) {
         price_source, default_sort, grid_density, show_price, cache_ttl_h,
         binder_sort, deck_sort, list_sort, font_weight, font_size, body_font, theme, oled_mode, nickname,
         anonymize_email, reduce_motion, higher_contrast, card_name_size, default_grouping,
-        keep_screen_awake, show_sync_errors, page_tips_seen, archive_background_mode, archive_background_cards,
+        keep_screen_awake, show_sync_errors, page_tips_seen,
+        archive_background: buildArchiveBackground(next),
         profile_bio, profile_accent, profile_config,
         updated_at: new Date().toISOString(),
       }
