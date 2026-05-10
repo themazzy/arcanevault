@@ -338,6 +338,12 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
   const filtered = useFilterWorker({ cards: items, sfMap, search, sort, filters, priceSource: price_source })
   const selectedItem = selectedItemId ? (itemById.get(selectedItemId) ?? null) : null
   const selectedSf = selectedItem ? sfMap[`${selectedItem.set_code}-${selectedItem.collector_number}`] : null
+  const selectableItemQty = useMemo(() =>
+    filtered.reduce((sum, item) => sum + (item.qty || 1), 0)
+  , [filtered])
+  const selectedQty = useMemo(() =>
+    [...selectedItems].reduce((sum, id) => sum + (splitState.get(id) ?? 1), 0)
+  , [selectedItems, splitState])
 
   const { totalValue, totalQty } = useMemo(() => {
     let v = 0, q = 0
@@ -597,9 +603,16 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
       {selectMode && selectedItems.size > 0 && (
         <BulkActionBar
           selected={selectedItems}
-          selectedQty={[...selectedItems].reduce((sum, id) => sum + (splitState.get(id) ?? 1), 0)}
-          total={filtered.length}
-          onSelectAll={() => setSelectedItems(new Set(filtered.map(i => i.id)))}
+          selectedQty={selectedQty}
+          total={selectableItemQty}
+          onSelectAll={() => {
+            setSelectedItems(new Set(filtered.map(i => i.id)))
+            setSplitState(new Map(
+              filtered
+                .filter(i => (i.qty || 1) > 1)
+                .map(i => [i.id, i.qty || 1])
+            ))
+          }}
           onDeselectAll={clearSelect}
           onDelete={handleBulkDelete}
           onMoveToFolder={handleMoveToWishlist}
