@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getImageUri, getPrice, formatPrice, getPriceSource } from '../lib/scryfall'
+import { getImageUri, getPrice, formatPrice, getPriceSource, getScryfallKey } from '../lib/scryfall'
 import { Modal, Badge, ResponsiveMenu, Select } from './UI'
 import styles from './CardComponents.module.css'
 import uiStyles from './UI.module.css'
@@ -121,7 +121,7 @@ export function CardGrid({ cards, sfMap, loading, onSelect, selectMode, selected
   return (
     <div className={styles.grid}>
       {cardsWithQty.map(card => {
-        const sfCard = sfMap?.[`${card.set_code}-${card.collector_number}`]
+        const sfCard = sfMap?.[getScryfallKey(card)]
         const displayKey = card._displayKey || card.id
         const isSelected = selectMode && selected?.has(displayKey)
         return (

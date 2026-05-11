@@ -1,6 +1,6 @@
 import { useRef, useCallback, useEffect, useMemo, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { getImageUri, getPriceWithMeta, formatPriceMeta } from '../lib/scryfall'
+import { getImageUri, getPriceWithMeta, formatPriceMeta, getScryfallKey } from '../lib/scryfall'
 import { FolderTypeIcon } from './Icons'
 import { Badge } from './UI'
 import styles from './VirtualCardGrid.module.css'
@@ -221,7 +221,7 @@ export default function VirtualCardGrid({
                   <CardItem
                     key={displayKey}
                     card={card}
-                    sfCard={sfMap?.[`${card.set_code}-${card.collector_number}`]}
+                    sfCard={sfMap?.[getScryfallKey(card)]}
                     loading={loading}
                     onClick={onSelect}
                     selectMode={selectMode}
