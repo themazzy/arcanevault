@@ -14,7 +14,7 @@ const SET_CHUNK_SIZE = 25
 const _idChunkInflight = new Map()
 const _setRowCache = new Map() // set_code -> { rows: [], fetchedAt: number }
 const PRICE_CACHE_TTL_MS = 10 * 60 * 1000
-const PRICE_MISS_TTL_MS = 60 * 60 * 1000
+const PRICE_MISS_TTL_MS = 5 * 60 * 1000
 
 function isoDateUtc(daysOffset = 0) {
   const date = new Date()
@@ -155,8 +155,9 @@ export async function overlaySharedCardPrices(cards, baseMap = {}, { priceLookup
   const rows = []
 
   // Prefer exact print identity. Fetching whole sets can exceed the default
-  // PostgREST row cap for many-set decks, which leaves some deck cards unpriced.
-  if (priceLookup !== 'set' && requestedIds.length) {
+  // PostgREST row cap on large sets across multiple snapshot dates, which
+  // leaves valid prices out of the response.
+  if (requestedIds.length) {
     try {
       rows.push(...await fetchSharedPriceRowsByIds(requestedIds, snapshotDates, now))
     } catch (error) {
