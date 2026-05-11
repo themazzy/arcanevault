@@ -243,12 +243,12 @@ export async function overlaySharedCardPrices(cards, baseMap = {}, { priceLookup
   const merged = { ...baseMap }
   for (const key of requestedKeys) {
     const [set_code, collector_number] = key.split('-')
-    const current = currentByKey[key]
-    const previous = previousByKey[key]
+    const current = currentByKey[key] || previousByKey[key]
+    const previous = currentByKey[key] ? previousByKey[key] : null
     if (!current && !previous) continue
 
     const existing = merged[key] || { key, set_code, collector_number }
-    const sharedPrices = current ? rowToPrices(current) : null
+    const sharedPrices = rowToPrices(current)
     const sharedPricesPrev = previous ? rowToPrices(previous) : null
     merged[key] = {
       ...existing,
