@@ -24,7 +24,7 @@ export function bindTouchContextMenu(onLongPress) {
       node.__lpTimer = setTimeout(() => {
         node.__lpTimer = null
         node.__lpFired = true
-        e.preventDefault?.()
+        if (e.cancelable) e.preventDefault?.()
         e.stopPropagation?.()
         onLongPress({
           clientX: node.__lpStart.x,
