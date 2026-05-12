@@ -2122,6 +2122,13 @@
     align-items: flex-start;
   }
 
+  .deckTitleBlock {
+    flex: 1 1 100%;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+
   .warningPanel {
     padding: 0;
   }
