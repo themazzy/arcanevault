@@ -1113,6 +1113,8 @@
     padding: 6px 8px 8px;
     box-sizing: border-box;
     background: color-mix(in srgb, var(--glass-strong) 92%, var(--bg) 8%);
+    border: 1px solid var(--s-border);
+    border-radius: 0 0 10px 10px;
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
     box-shadow: 0 1px 0 var(--s-border);
