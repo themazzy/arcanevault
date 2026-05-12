@@ -1712,8 +1712,12 @@ export default function CollectionPage() {
             forceSheet
             portal
             trigger={({ open, toggle }) => (
-              <button className={`${styles.mobileBarSort}${open ? ' ' + styles.mobileBarSortOpen : ''}`} onClick={toggle}>
-                {currentSortLabel} ▾
+              <button
+                className={`${styles.mobileBarSort}${open ? ' ' + styles.mobileBarSortOpen : ''}`}
+                onClick={toggle}
+                title={currentSortLabel}
+              >
+                Sort ▾
               </button>
             )}
           >

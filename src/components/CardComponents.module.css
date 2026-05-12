@@ -127,6 +127,7 @@
   color: var(--text);
   font-family: var(--font-serif);
   font-size: 0.88rem;
+  line-height: 1;
   outline: none;
   box-sizing: border-box;
   transition: border-color 0.15s, background 0.15s;
@@ -334,9 +335,9 @@
   .searchInput {
     grid-column: 1 / -1;
     width: 100%;
-    height: 34px;
-    padding: 7px 10px;
-    font-size: 0.86rem;
+    height: var(--control-height);
+    padding: 6px 10px;
+    font-size: var(--control-font-size);
     min-width: 0;
   }
   .filterSortMobile,

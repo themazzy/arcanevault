@@ -1917,7 +1917,7 @@ export default function FoldersPage({ type }) {
                   placeholder={`Search ${noun.toLowerCase()}s…`}
                 />
                 <div className={styles.desktopOnlyAction}>
-                  <SortDropdown value={sort} onChange={handleSortChange} options={SORT_OPTIONS} />
+                  <SortDropdown value={sort} onChange={handleSortChange} options={SORT_OPTIONS} compact />
                 </div>
                 </>
               )}

@@ -210,6 +210,7 @@
 .folderSearch {
   min-width: 200px;
   max-width: 280px;
+  height: var(--control-height);
   background: var(--s-subtle);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -217,7 +218,9 @@
   color: var(--text);
   font-family: var(--font-serif);
   font-size: 0.86rem;
+  line-height: 1;
   outline: none;
+  box-sizing: border-box;
   transition: border-color 0.15s, background 0.15s;
 }
 .folderSearch:focus {
@@ -255,7 +258,6 @@
   width: 100%;
   max-width: none;
   min-width: 0;
-  height: 34px;
 }
 .viewAllBtn {
   display: inline-flex;
