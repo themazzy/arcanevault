@@ -522,6 +522,10 @@ html[data-scanner] #root {
   background-image: none !important;
 }
 
+html[data-scanner] #av-premium-ambient {
+  display: none !important;
+}
+
 [data-oled="true"] #av-premium-ambient {
   display: none;
 }
