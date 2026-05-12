@@ -1110,10 +1110,11 @@
     z-index: 35;
     display: block;
     margin: -12px 0 16px;
-    padding: 0 0 8px;
-    background: transparent;
+    padding: 6px 0 8px;
+    background: color-mix(in srgb, var(--glass-strong) 92%, var(--bg) 8%);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 1px 0 var(--s-border);
   }
   .desktopOnlySearch {
     display: none;
