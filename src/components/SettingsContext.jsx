@@ -569,38 +569,57 @@ function loadLocal() {
   }
 }
 
-function normalizeSettings(settings) {
+function pickArchiveSetting(archive, legacyValue, archiveKey, preferArchiveBackground) {
+  if (
+    preferArchiveBackground &&
+    archive &&
+    Object.prototype.hasOwnProperty.call(archive, archiveKey)
+  ) {
+    return archive[archiveKey]
+  }
+  return legacyValue ?? archive?.[archiveKey]
+}
+
+function normalizeSettings(settings, { preferArchiveBackground = false } = {}) {
   const archive = settings.archive_background && typeof settings.archive_background === 'object' && !Array.isArray(settings.archive_background)
     ? settings.archive_background
     : {}
+  const archiveMode = pickArchiveSetting(archive, settings.archive_background_mode, 'mode', preferArchiveBackground)
+  const archiveCards = pickArchiveSetting(archive, settings.archive_background_cards, 'cards', preferArchiveBackground)
+  const archiveSeed = pickArchiveSetting(archive, settings.archive_background_seed, 'seed', preferArchiveBackground)
+  const archiveLocked = pickArchiveSetting(archive, settings.archive_background_locked, 'locked', preferArchiveBackground)
+  const archiveCollectionSource = pickArchiveSetting(archive, settings.archive_background_collection_source, 'collection_source', preferArchiveBackground)
+  const archiveBlur = pickArchiveSetting(archive, settings.archive_background_blur, 'blur', preferArchiveBackground)
+  const archiveSaturation = pickArchiveSetting(archive, settings.archive_background_saturation, 'saturation', preferArchiveBackground)
+  const archiveOpacity = pickArchiveSetting(archive, settings.archive_background_opacity, 'opacity', preferArchiveBackground)
   const next = {
     ...settings,
     page_tips_seen: settings.page_tips_seen && typeof settings.page_tips_seen === 'object' && !Array.isArray(settings.page_tips_seen)
       ? settings.page_tips_seen
       : {},
-    archive_background_mode: ['selected', 'collection', 'random'].includes(settings.archive_background_mode ?? archive.mode)
-      ? (settings.archive_background_mode ?? archive.mode)
+    archive_background_mode: ['selected', 'collection', 'random'].includes(archiveMode)
+      ? archiveMode
       : 'random',
-    archive_background_cards: Array.isArray(settings.archive_background_cards ?? archive.cards)
-      ? (settings.archive_background_cards ?? archive.cards).filter(card => card && typeof card === 'object').slice(0, 12)
+    archive_background_cards: Array.isArray(archiveCards)
+      ? archiveCards.filter(card => card && typeof card === 'object').slice(0, 12)
       : [],
-    archive_background_seed: Number.isFinite(Number(settings.archive_background_seed ?? archive.seed))
-      ? Number(settings.archive_background_seed ?? archive.seed)
+    archive_background_seed: Number.isFinite(Number(archiveSeed))
+      ? Number(archiveSeed)
       : 0,
-    archive_background_locked: Array.isArray(settings.archive_background_locked ?? archive.locked)
-      ? (settings.archive_background_locked ?? archive.locked).filter(card => card && typeof card === 'object' && card.id).slice(0, 6)
+    archive_background_locked: Array.isArray(archiveLocked)
+      ? archiveLocked.filter(card => card && typeof card === 'object' && card.id).slice(0, 6)
       : [],
-    archive_background_collection_source: (settings.archive_background_collection_source ?? archive.collection_source) && typeof (settings.archive_background_collection_source ?? archive.collection_source) === 'object'
-      ? (settings.archive_background_collection_source ?? archive.collection_source)
+    archive_background_collection_source: archiveCollectionSource && typeof archiveCollectionSource === 'object'
+      ? archiveCollectionSource
       : null,
-    archive_background_blur: Number.isFinite(Number(settings.archive_background_blur ?? archive.blur))
-      ? Math.max(0, Math.min(40, Number(settings.archive_background_blur ?? archive.blur)))
+    archive_background_blur: Number.isFinite(Number(archiveBlur))
+      ? Math.max(0, Math.min(40, Number(archiveBlur)))
       : 7,
-    archive_background_saturation: Number.isFinite(Number(settings.archive_background_saturation ?? archive.saturation))
-      ? Math.max(0, Math.min(2, Number(settings.archive_background_saturation ?? archive.saturation)))
+    archive_background_saturation: Number.isFinite(Number(archiveSaturation))
+      ? Math.max(0, Math.min(2, Number(archiveSaturation)))
       : 0.86,
-    archive_background_opacity: Number.isFinite(Number(settings.archive_background_opacity ?? archive.opacity))
-      ? Math.max(0.02, Math.min(0.6, Number(settings.archive_background_opacity ?? archive.opacity)))
+    archive_background_opacity: Number.isFinite(Number(archiveOpacity))
+      ? Math.max(0.02, Math.min(0.6, Number(archiveOpacity)))
       : 0.16,
   }
   next.archive_background = buildArchiveBackground(next)
@@ -964,7 +983,7 @@ export function SettingsProvider({ children }) {
         const local = loadLocal()
         if (local?.theme) merged.theme = local.theme
       }
-      merged = normalizeSettings(merged)
+      merged = normalizeSettings(merged, { preferArchiveBackground: true })
       setSettings(merged)
       saveLocal(merged)
     }
