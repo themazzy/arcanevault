@@ -24,6 +24,8 @@ export function bindTouchContextMenu(onLongPress) {
       node.__lpTimer = setTimeout(() => {
         node.__lpTimer = null
         node.__lpFired = true
+        e.preventDefault?.()
+        e.stopPropagation?.()
         onLongPress({
           clientX: node.__lpStart.x,
           clientY: node.__lpStart.y,
@@ -49,6 +51,12 @@ export function bindTouchContextMenu(onLongPress) {
     },
     onTouchCancel(e) {
       clearTimer(e.currentTarget)
+    },
+    onContextMenu(e) {
+      e.preventDefault()
+      e.stopPropagation()
+      clearTimer(e.currentTarget)
+      onLongPress(e)
     },
   }
 }
