@@ -1271,8 +1271,17 @@
 /* Deck list */
 .deckList {
   flex: 1;
-  overflow-y: auto;
+  overflow: auto;
   padding: 8px 12px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.deckListWide .boardHeader,
+.deckListWide .deckGroup,
+.deckListWide .groupHeader {
+  width: max(100%, var(--deck-list-min-width, 0px));
+  min-width: var(--deck-list-min-width, 0px);
+  box-sizing: border-box;
 }
 
 .tabPaneHidden {
@@ -1511,6 +1520,8 @@
   gap: 8px;
   padding: 0 4px 6px 12px;
   margin-bottom: 2px;
+  width: max(100%, var(--deck-list-min-width, 0px));
+  min-width: var(--deck-list-min-width, 0px);
   border-bottom: 1px solid var(--s-border);
   color: var(--text-faint);
   font-size: 0.64rem;
@@ -1518,7 +1529,13 @@
   text-transform: uppercase;
 }
 
-.deckListHeaderCard { min-width: 0; }
+.deckListHeaderCard {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  min-width: 0;
+  background: var(--bg);
+}
 .deckListHeaderSet,
 .deckListHeaderMetric,
 .deckListHeaderStatus,
@@ -1702,13 +1719,19 @@
   padding: 4px 4px 4px 12px;
   border-radius: 3px;
   transition: background 0.1s;
-  width: 100%;
+  width: max(100%, var(--deck-list-min-width, 0px));
+  min-width: var(--deck-list-min-width, 0px);
   box-sizing: border-box;
+  --deck-row-bg: var(--bg);
 }
 
-.deckCardRow:hover { background: var(--s2); }
+.deckCardRow:hover {
+  --deck-row-bg: var(--s2);
+  background: var(--s2);
+}
 
 .deckCardIllegal {
+  --deck-row-bg: rgba(224,82,82,0.08);
   outline: 1px solid rgba(224,82,82,0.76);
   outline-offset: -1px;
   background: rgba(224,82,82,0.08);
@@ -1716,6 +1739,7 @@
 }
 
 .deckCardIllegal:hover {
+  --deck-row-bg: rgba(224,82,82,0.12);
   background: rgba(224,82,82,0.12);
 }
 
@@ -1807,11 +1831,15 @@
 }
 
 .deckCardLeft {
+  position: sticky;
+  left: 0;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
   cursor: default;
+  background: var(--deck-row-bg, var(--bg));
 }
 
 .deckCardStatus {
@@ -2413,7 +2441,7 @@
   }
 
   .deckCardRow {
-    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    grid-template-columns: var(--deck-list-columns, minmax(220px, 1fr) 88px 94px 64px 58px 56px);
     align-items: center;
     row-gap: 6px;
   }
@@ -2421,7 +2449,9 @@
   .deckCardSet,
   .deckCardMetric,
   .deckCardStatus {
-    display: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .editMenuCell,
@@ -2437,11 +2467,11 @@
   }
 
   .deckListHeader {
-    display: none;
+    display: grid;
   }
 
   .deckCardLeft {
-    min-width: calc(100% - 74px);
+    min-width: 0;
   }
 
   .deckCardStatus {
