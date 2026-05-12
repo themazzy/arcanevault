@@ -809,6 +809,10 @@
   background: color-mix(in srgb, var(--bg) 88%, transparent);
 }
 
+.deckHeaderMobile {
+  display: none;
+}
+
 .deckTitleBlock {
   min-width: 220px;
   max-width: min(460px, 38vw);
@@ -3656,7 +3660,7 @@
 
 /* ──────────────────────────────────────────────────────────────────────
    E: Mobile deck-view layout — give the deck list maximum screen space.
-   - Header collapses on scroll (same trigger the commander panel uses)
+   - Header is part of the deck scroller on mobile, so it leaves naturally
    - Inline description+tags hidden; opened via Deck Actions → modal
    - Toolbar becomes a floating glass-pill action bar pinned to bottom
    - Bottom-sheet menus open via portaled ResponsiveMenu (escape pill stack)
@@ -3674,6 +3678,15 @@
 
   /* Header actions move into the pill on mobile */
   .headerActions { display: none; }
+
+  .deckHeaderDesktop {
+    display: none;
+  }
+
+  .deckHeaderMobile {
+    display: flex;
+    margin-bottom: 8px;
+  }
 
   /* Inline filter bar — three-row layout on mobile.
      Row 1: full-width Search input
@@ -3761,31 +3774,6 @@
     right: 0;
     z-index: 200;
     animation: leftSheetIn 220ms ease both;
-  }
-
-  /* Collapsible header on scroll */
-  .deckHeader {
-    overflow: hidden;
-    max-height: 220px;
-    opacity: 1;
-    transform: translateY(0);
-    transform-origin: top;
-    will-change: max-height, padding, opacity, transform;
-    transition:
-      max-height 220ms cubic-bezier(0.2, 0, 0, 1),
-      padding 220ms cubic-bezier(0.2, 0, 0, 1),
-      opacity 180ms ease,
-      transform 220ms cubic-bezier(0.2, 0, 0, 1),
-      border-color 180ms ease;
-  }
-  .deckHeaderHidden {
-    max-height: 0;
-    padding-top: 0;
-    padding-bottom: 0;
-    margin: 0;
-    opacity: 0;
-    transform: translateY(-8px);
-    border-color: transparent;
   }
 
   /* ── Floating glass-pill toolbar ──
