@@ -81,6 +81,7 @@ import {
   CopyIcon,
   DeleteIcon,
   SyncIcon,
+  CloseIcon,
 } from '../icons'
 import { lastInputWasTouch } from '../lib/inputType'
 import { bindTouchContextMenu, consumeLongPressClick } from '../lib/touchContextMenu'
@@ -2899,12 +2900,17 @@ export default function DeckBuilderPage() {
     e.stopPropagation?.()
     clearHoverPreview()
 
+    const useResponsiveSheet = Boolean(e.touchSource) ||
+      (typeof window !== 'undefined' && (
+        window.innerWidth <= 640 ||
+        window.matchMedia?.('(hover: none), (pointer: coarse)').matches
+      ))
     const menuWidth = 240
     const menuHeight = dc.qty > 1 ? 420 : 376
     const gap = 8
     const x = Math.min(Math.max(gap, e.clientX), Math.max(gap, window.innerWidth - menuWidth - gap))
     const y = Math.min(Math.max(gap, e.clientY), Math.max(gap, window.innerHeight - menuHeight - gap))
-    setContextMenu({ dc, x, y })
+    setContextMenu({ dc, x, y, useResponsiveSheet })
   }, [])
 
   useEffect(() => {
@@ -5416,25 +5422,65 @@ export default function DeckBuilderPage() {
       <FloatingPreview imageUris={hoverImages} x={hoverPos.x} y={hoverPos.y} />
 
       {contextMenu && createPortal(
-        <div
-          className={styles.cardContextMenu}
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-          onMouseDown={e => e.stopPropagation()}
-          onClick={e => e.stopPropagation()}
-          onContextMenu={e => e.preventDefault()}
-        >
-          <DeckCardActionsMenuBody
-            dc={contextMenu.dc}
-            isEDH={isEDH}
-            onSetCommander={setCardAsCommander}
-            onToggleFoil={toggleFoil}
-            onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })}
-            onMoveBoard={moveCardToBoard}
-            onOpenCategoryPicker={setCategoryPickCard}
-            close={closeContextMenu}
-            builderSfMap={builderSfMap}
-          />
-        </div>,
+        contextMenu.useResponsiveSheet ? (
+          <>
+            <button
+              type="button"
+              className={`${uiStyles.responsiveMenuBackdrop} ${uiStyles.responsiveMenuBackdropForceSheet}`}
+              aria-label="Close Card Actions"
+              onMouseDown={e => { e.stopPropagation(); closeContextMenu() }}
+              onClick={e => { e.stopPropagation(); closeContextMenu() }}
+            />
+            <div
+              className={`${uiStyles.responsiveMenuPanel} ${uiStyles.responsiveMenuPanelForceSheet}`}
+              onMouseDown={e => e.stopPropagation()}
+              onClick={e => e.stopPropagation()}
+              onContextMenu={e => e.preventDefault()}
+            >
+              <div className={uiStyles.responsiveMenuHeader}>
+                <div className={uiStyles.responsiveMenuHeaderTop}>
+                  <span className={uiStyles.responsiveMenuTitle}>Card Actions</span>
+                  <button type="button" className={uiStyles.responsiveMenuClose} onClick={closeContextMenu} aria-label="Close Card Actions">
+                    <CloseIcon />
+                  </button>
+                </div>
+              </div>
+              <div className={uiStyles.responsiveMenuBody}>
+                <DeckCardActionsMenuBody
+                  dc={contextMenu.dc}
+                  isEDH={isEDH}
+                  onSetCommander={setCardAsCommander}
+                  onToggleFoil={toggleFoil}
+                  onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })}
+                  onMoveBoard={moveCardToBoard}
+                  onOpenCategoryPicker={setCategoryPickCard}
+                  close={closeContextMenu}
+                  builderSfMap={builderSfMap}
+                />
+              </div>
+            </div>
+          </>
+        ) : (
+          <div
+            className={styles.cardContextMenu}
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            onMouseDown={e => e.stopPropagation()}
+            onClick={e => e.stopPropagation()}
+            onContextMenu={e => e.preventDefault()}
+          >
+            <DeckCardActionsMenuBody
+              dc={contextMenu.dc}
+              isEDH={isEDH}
+              onSetCommander={setCardAsCommander}
+              onToggleFoil={toggleFoil}
+              onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })}
+              onMoveBoard={moveCardToBoard}
+              onOpenCategoryPicker={setCategoryPickCard}
+              close={closeContextMenu}
+              builderSfMap={builderSfMap}
+            />
+          </div>
+        ),
         document.body
       )}
 

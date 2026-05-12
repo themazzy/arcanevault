@@ -773,6 +773,8 @@
   gap: 6px;
   z-index: 140;
   overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
   animation: dropdownIn 0.15s cubic-bezier(0.2, 0, 0, 1);
 }
 
