@@ -493,11 +493,13 @@ function loadMissingSettingsColumns() {
 
 const missingSettingsColumns = loadMissingSettingsColumns()
 
-// One-time prune: these columns were added in the archive_theme_v2 migration; older clients
-// may have cached them as "missing" before the migration ran. Drop them from the cache so
-// the next save retries; if a column is still missing on the DB, it will be re-cached.
+// One-time prune: these columns were added during archive-theme migrations; older clients
+// may have cached them as "missing" before the migration or PostgREST schema reload ran.
+// Drop them from the cache so the next save retries; if a column is still missing on the
+// DB, it will be re-cached.
 ;(function pruneArchiveV2MissingCache() {
   const ARCHIVE_V2_COLUMNS = [
+    'archive_background',
     'archive_background_seed',
     'archive_background_locked',
     'archive_background_collection_source',
