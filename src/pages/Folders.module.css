@@ -1106,11 +1106,12 @@
   }
   .overviewStickySearch {
     position: sticky;
-    top: 54px;
+    top: -28px;
     z-index: 35;
     display: block;
     margin: -12px 0 16px;
-    padding: 6px 0 8px;
+    padding: 6px 8px 8px;
+    box-sizing: border-box;
     background: color-mix(in srgb, var(--glass-strong) 92%, var(--bg) 8%);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
