@@ -1271,9 +1271,18 @@
 /* Deck list */
 .deckList {
   flex: 1;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 8px 12px;
   -webkit-overflow-scrolling: touch;
+}
+
+.deckListTableScroller {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 8px;
 }
 
 .deckListWide .boardHeader,

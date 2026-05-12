@@ -4264,8 +4264,7 @@ export default function DeckBuilderPage() {
 
         {/* Deck list tab */}
         <div
-          className={`${styles.deckList}${deckView === 'list' ? ' ' + styles.deckListWide : ''}${rightTab !== 'deck' ? ' ' + styles.tabPaneHidden : ''}`}
-          style={deckView === 'list' ? { '--deck-list-min-width': listGridMinWidth } : undefined}
+          className={`${styles.deckList}${rightTab !== 'deck' ? ' ' + styles.tabPaneHidden : ''}`}
           onScroll={handleDeckListScroll}
         >
             {/* Commander art display — supports partners */}
@@ -4740,7 +4739,12 @@ export default function DeckBuilderPage() {
             )}
 
             {/* Render cards - supports all view x sort x group combinations */}
-            {visibleDeckCards.length > 0 && (() => {
+            {visibleDeckCards.length > 0 && (
+              <div
+                className={deckView === 'list' ? `${styles.deckListWide} ${styles.deckListTableScroller}` : undefined}
+                style={deckView === 'list' ? { '--deck-list-min-width': listGridMinWidth } : undefined}
+              >
+              {(() => {
               const deckRowProps = (dc) => {
                 return {
                 dc,
@@ -5180,6 +5184,8 @@ export default function DeckBuilderPage() {
                 )
               })
             })()}
+              </div>
+            )}
         </div>
 
         {/* Stats tab */}
