@@ -236,7 +236,8 @@
 }
 
 .desktopOnlyAction {
-  display: block;
+  display: flex;
+  align-items: center;
 }
 
 .mobileHeaderControls {
@@ -357,11 +358,14 @@
 /* ── Custom sort dropdown ────────────────────────────────────────────────────*/
 .sortDropdown {
   position: relative;
+  display: inline-flex;
+  align-items: center;
 }
 .sortDropdownBtn {
   display: inline-flex;
-  align-items: stretch;
-  gap: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   background: transparent;
   border: 1px solid var(--s-border2);
   border-radius: 4px;
@@ -375,10 +379,16 @@
   white-space: nowrap;
   height: var(--control-height);
   box-sizing: border-box;
+  line-height: 1;
 }
-.sortDropdownBtn > span:first-child {
-  display: flex;
+.sortDropdownBtn > svg {
+  display: block;
+  flex-shrink: 0;
+}
+.sortDropdownBtn > span:first-of-type {
+  display: inline-flex;
   align-items: center;
+  line-height: 1;
   padding-right: 8px;
 }
 .sortDropdownBtn:hover {
