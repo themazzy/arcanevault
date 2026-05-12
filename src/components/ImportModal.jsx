@@ -1,10 +1,9 @@
 import { Fragment, useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { sb } from '../lib/supabase'
 import { Modal, ResponsiveMenu } from './UI'
-import { importDeckFromUrl } from '../lib/deckBuilderApi'
+import { fetchPaperPrintings, importDeckFromUrl } from '../lib/deckBuilderApi'
 import {
   aggregateResolvedRows,
-  fetchPaperPrintings,
   normalizeImportedDeckCards,
   parseImportText,
   resolveImportEntries,

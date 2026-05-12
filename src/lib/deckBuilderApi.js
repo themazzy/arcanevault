@@ -166,13 +166,6 @@ export async function searchCommanders(q) {
   return (data?.data || []).slice(0, 12)
 }
 
-/** Autocomplete card names for search box */
-export async function autocompleteCards(q) {
-  if (!q || q.length < 2) return []
-  const data = await sfFetch(`${SF}/cards/autocomplete?q=${encodeURIComponent(q)}`)
-  return data?.data || []
-}
-
 /** Batch-fetch Scryfall card data by name list (for enriching EDHRec results) */
 export async function fetchCardsByNames(names) {
   if (!names?.length) return []
@@ -214,6 +207,17 @@ export async function fetchCardsByScryfallIds(ids) {
     if (i + 75 < ids.length) await new Promise(r => setTimeout(r, 150))
   }
   return results
+}
+
+function escapeScryfallExactName(name) {
+  return String(name || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+}
+
+export async function fetchPaperPrintings(name) {
+  if (!name) return []
+  const query = encodeURIComponent(`!"${escapeScryfallExactName(name)}" game:paper`)
+  const data = await sfFetch(`${SF}/cards/search?q=${query}&unique=prints&order=released&dir=desc`)
+  return data?.data || []
 }
 
 // ── EDHRec ────────────────────────────────────────────────────────────────────
