@@ -196,6 +196,60 @@
   color: var(--gold);
 }
 
+.visibilityText {
+  font-size: 0.8rem;
+  color: var(--text-faint);
+  transition: color 0.2s;
+}
+
+.visibilityTextOn {
+  color: var(--gold);
+}
+
+.visibilityChip {
+  -webkit-appearance: none;
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--s-border2);
+  background: var(--s-subtle);
+  color: var(--text-faint);
+  font-family: var(--font-display);
+  font-size: 0.68rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.visibilityChip:hover {
+  color: var(--text);
+  background: var(--s-medium);
+  border-color: var(--border-hi);
+}
+
+.visibilityChipPublic {
+  color: var(--gold);
+  background: rgba(201,168,76,0.12);
+  border-color: rgba(201,168,76,0.34);
+}
+
+.visibilityMenuState {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--s-border2);
+  background: var(--s-subtle);
+  color: var(--gold);
+  font-size: 0.68rem;
+  line-height: 1;
+}
+
 /* Commander picker */
 .cmdSection {
   position: relative;
@@ -3586,6 +3640,9 @@
 
   /* Inline description+tags panel — phone uses Deck Actions menu instead */
   .deckMetaPanel { display: none; }
+
+  /* Visibility is deck-level on phone: header chip + Deck Actions, not Add Cards. */
+  .leftTop .visibilityControlRow { display: none; }
 
   /* Header actions move into the pill on mobile */
   .headerActions { display: none; }
