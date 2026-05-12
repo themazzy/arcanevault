@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
-import { sb } from '../../lib/supabase'
-import { getLocalCards } from '../../lib/db'
-import { getCardImageUri } from '../../lib/deckBuilderApi'
+import { fetchPaperPrintings, getCardImageUri } from '../../lib/deckBuilderApi'
+import { loadLocalPlacementSnapshot, refreshRemotePlacementSnapshot } from '../../lib/deckPlacementData'
 import { CAN_HOVER, FOLDER_TAG_COLOR, FOLDER_TAG_BORDER } from '../../lib/deckBuilderConstants'
 import { normalizeCardName } from '../../lib/deckBuilderHelpers'
 import { FolderTypeIcon } from '../../icons'
@@ -48,82 +47,65 @@ function PrintingLocationTags({ locations }) {
 
 export default function VersionPickerModal({ dc, ownedMap, userId, onSelect, onClose }) {
   const [printings, setPrintings] = useState([])
-  const [loading,   setLoading]   = useState(true)
+  const [loading, setLoading] = useState(true)
   const [locationsByScryfallId, setLocationsByScryfallId] = useState(new Map())
 
   useEffect(() => {
     let cancelled = false
+
+    const buildLocations = (snapshot) => {
+      const ownedById = new Map((snapshot?.cards || [])
+        .filter(row => normalizeCardName(row.name) === normalizeCardName(dc.name))
+        .map(row => [row.id, row]))
+      const nextLocations = new Map()
+      const addLocation = (scryfallId, folder, qty) => {
+        if (!scryfallId || !folder || (folder.type !== 'binder' && folder.type !== 'deck')) return
+        const list = nextLocations.get(scryfallId) || []
+        const existing = list.find(loc => loc.id === folder.id && loc.type === folder.type)
+        if (existing) existing.qty += qty || 0
+        else list.push({ id: folder.id, name: folder.name || 'Unknown', type: folder.type || 'binder', qty: qty || 0 })
+        nextLocations.set(scryfallId, list)
+      }
+
+      for (const row of snapshot?.folderRows || []) {
+        const owned = ownedById.get(row.card_id)
+        addLocation(owned?.scryfall_id, snapshot.folderById.get(row.folder_id), row.qty)
+      }
+      for (const row of snapshot?.deckRows || []) {
+        const owned = ownedById.get(row.card_id)
+        addLocation(owned?.scryfall_id, snapshot.folderById.get(row.deck_id), row.qty)
+      }
+      return nextLocations
+    }
+
     async function load() {
       setLoading(true)
       try {
-        const [res, ownedRows] = await Promise.all([
-          fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(`!"${dc.name}"`)}&unique=prints&order=released`),
-          userId ? getLocalCards(userId) : Promise.resolve([]),
+        const [rawPrintings, localSnapshot] = await Promise.all([
+          fetchPaperPrintings(dc.name),
+          userId ? loadLocalPlacementSnapshot(userId, { names: [dc.name] }) : Promise.resolve(null),
         ])
-        const d = await res.json()
         if (!cancelled) {
-          const raw = d.data || []
           const sorted = [
-            ...raw.filter(p => (ownedMap.get(p.id) ?? 0) > 0),
-            ...raw.filter(p => (ownedMap.get(p.id) ?? 0) === 0),
+            ...rawPrintings.filter(p => (ownedMap.get(p.id) ?? 0) > 0),
+            ...rawPrintings.filter(p => (ownedMap.get(p.id) ?? 0) === 0),
           ]
           setPrintings(sorted)
+          setLocationsByScryfallId(buildLocations(localSnapshot))
+          setLoading(false)
         }
 
-        const ownedForCard = (ownedRows || []).filter(row => normalizeCardName(row.name) === normalizeCardName(dc.name))
-        const cardIds = [...new Set(ownedForCard.map(row => row.id).filter(Boolean))]
-        if (!cardIds.length) {
-          if (!cancelled) setLocationsByScryfallId(new Map())
-          return
+        if (userId) {
+          const remoteSnapshot = await refreshRemotePlacementSnapshot(userId, { names: [dc.name] })
+          if (!cancelled) setLocationsByScryfallId(buildLocations(remoteSnapshot))
         }
-
-        const [{ data: folderRows, error: folderErr }, { data: deckRows, error: deckErr }] = await Promise.all([
-          sb.from('folder_cards').select('folder_id,card_id,qty').in('card_id', cardIds),
-          sb.from('deck_allocations').select('deck_id,card_id,qty').eq('user_id', userId).in('card_id', cardIds),
-        ])
-        if (folderErr) throw folderErr
-        if (deckErr) throw deckErr
-
-        const folderIds = [
-          ...new Set([
-            ...(folderRows || []).map(row => row.folder_id),
-            ...(deckRows || []).map(row => row.deck_id),
-          ].filter(Boolean)),
-        ]
-        const { data: folders, error: foldersErr } = folderIds.length
-          ? await sb.from('folders').select('id,name,type').in('id', folderIds)
-          : { data: [], error: null }
-        if (foldersErr) throw foldersErr
-        // Only owned-collection containers (binder/deck) belong in the
-        // version picker — wishlists are intentions, not ownership.
-        const ownedFolders = (folders || []).filter(f => f.type === 'binder' || f.type === 'deck')
-
-        const ownedById = new Map(ownedForCard.map(row => [row.id, row]))
-        const folderById = new Map(ownedFolders.map(folder => [folder.id, folder]))
-        const nextLocations = new Map()
-        const addLocation = (scryfallId, folder, qty) => {
-          if (!scryfallId || !folder) return
-          const list = nextLocations.get(scryfallId) || []
-          const existing = list.find(loc => loc.id === folder.id && loc.type === folder.type)
-          if (existing) existing.qty += qty || 0
-          else list.push({ id: folder.id, name: folder.name || 'Unknown', type: folder.type || 'binder', qty: qty || 0 })
-          nextLocations.set(scryfallId, list)
-        }
-        for (const row of folderRows || []) {
-          const owned = ownedById.get(row.card_id)
-          addLocation(owned?.scryfall_id, folderById.get(row.folder_id), row.qty)
-        }
-        for (const row of deckRows || []) {
-          const owned = ownedById.get(row.card_id)
-          addLocation(owned?.scryfall_id, folderById.get(row.deck_id), row.qty)
-        }
-        if (!cancelled) setLocationsByScryfallId(nextLocations)
       } catch {
         if (!cancelled) setLocationsByScryfallId(new Map())
       } finally {
         if (!cancelled) setLoading(false)
       }
     }
+
     load()
     return () => { cancelled = true }
   }, [dc.name, userId, ownedMap])
@@ -150,7 +132,7 @@ export default function VersionPickerModal({ dc, ownedMap, userId, onSelect, onC
             <div style={{ overflowY:'auto', display:'flex', flexWrap:'wrap', gap:desktopPicker ? 14 : 10 }}>
               {printings.map(p => {
                 const img = getCardImageUri(p, 'normal')
-                const isActive  = p.id === dc.scryfall_id
+                const isActive = p.id === dc.scryfall_id
                 const locations = locationsByScryfallId.get(p.id) || []
                 return (
                   <button key={p.id} onClick={() => onSelect(p)}

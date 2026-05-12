@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { sb } from '../../lib/supabase'
 import { getLocalCards } from '../../lib/db'
+import { buildDeckAllocationViewRows, loadLocalPlacementSnapshot } from '../../lib/deckPlacementData'
 import { Select } from '../UI'
 import { isGroupFolder, normalizeBoard } from '../../lib/deckBuilderHelpers'
 import { getSyncState, buildSyncDiff, getLogicalKey } from '../../lib/deckSync'
@@ -20,6 +21,7 @@ import PrintingPickerModal from './PrintingPickerModal'
 
 export default function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onConfirm, onClose }) {
   const [loading, setLoading] = useState(true)
+  const [remoteReady, setRemoteReady] = useState(false)
   const [baseDiff, setBaseDiff] = useState(null)
   const [reviewDiff, setReviewDiff] = useState(null)
   const [resolutions, setResolutions] = useState({})
@@ -35,10 +37,62 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
   // Intentional: modal mounts fresh on each open - one-shot load from current props snapshot.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
+    let cancelled = false
+    const applyInitialLocalDiff = async (targetDeckId, baseline) => {
+      try {
+        const snapshot = await loadLocalPlacementSnapshot(userId)
+        if (cancelled) return
+        const allocations = buildDeckAllocationViewRows(snapshot, targetDeckId)
+        const builderCards = deckCards.filter(dc => normalizeBoard(dc.board) !== 'maybe')
+        const allocationRowsByKey = new Map()
+        for (const row of allocations || []) {
+          const key = getLogicalKey(row)
+          const list = allocationRowsByKey.get(key) || []
+          list.push(row)
+          allocationRowsByKey.set(key, list)
+        }
+        const localReviewDiff = buildSyncDiff({
+          baseline,
+          builderCards,
+          collectionCards: allocations,
+        })
+        const withRows = list => list.map(row => ({
+          ...row,
+          allocationRows: allocationRowsByKey.get(row.key) || [],
+        }))
+        const normalizedReview = {
+          builderOnly: withRows(localReviewDiff.builderOnly),
+          collectionOnly: withRows(localReviewDiff.collectionOnly),
+          conflicts: withRows(localReviewDiff.conflicts),
+          targetDeckId,
+          allocations,
+        }
+        setBaseDiff({ added: [], changed: [], removed: [], targetDeckId })
+        setReviewDiff(normalizedReview)
+        setResolutions(() => {
+          const next = {}
+          for (const row of normalizedReview.builderOnly) next[row.key] = 'builder'
+          for (const row of normalizedReview.collectionOnly) next[row.key] = 'collection'
+          for (const row of normalizedReview.conflicts) next[row.key] = 'keep'
+          return next
+        })
+        const destinationFolders = (snapshot.folders || [])
+          .filter(folder => (folder.type === 'deck' || folder.type === 'binder') && folder.id !== targetDeckId && !isGroupFolder(folder))
+          .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+        setFolders(destinationFolders)
+        setWishlists((snapshot.wishlistFolders || []).filter(folder => !isGroupFolder(folder)))
+        if (destinationFolders.length === 1) setGlobalDest(destinationFolders[0].id)
+        setLoading(false)
+      } catch (err) {
+        console.warn('[SyncModal] local diff load failed:', err)
+      }
+    }
+
     async function load() {
       const targetDeckId = isCollectionDeck ? deckId : deckMeta.linked_deck_id
       if (!targetDeckId) { setLoading(false); return }
       const baseline = getSyncState(deckMeta).last_sync_snapshot || { builder_cards: [], collection_cards: [] }
+      applyInitialLocalDiff(targetDeckId, baseline)
       const [collCards, { data: allocations }, { data: foldersData }, { data: wls }] = await Promise.all([
         getLocalCards(userId),
         sb.from('deck_allocations_view').select('*').eq('deck_id', targetDeckId),
@@ -261,9 +315,11 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
       setFolders(destinationFolders)
       setWishlists((wls || []).filter(folder => !isGroupFolder(folder)))
       if (destinationFolders.length === 1) setGlobalDest(destinationFolders[0].id)
+      setRemoteReady(true)
       setLoading(false)
     }
     load()
+    return () => { cancelled = true }
   }, [])
 
   const overlay = { position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:700, display:'flex', alignItems:'center', justifyContent:'center' }
@@ -320,7 +376,8 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
     ...unresolvedRows.filter(row => !!row.builder?.is_commander),
   ]
   const selectedMoveTarget = folders.find(folder => folder.id === globalDest) || null
-  const canConfirm = (movedOwnedRows.length === 0 || !!globalDest)
+  const canConfirm = remoteReady
+    && (movedOwnedRows.length === 0 || !!globalDest)
     && (wishlistId !== 'new' || !!newWishlistName.trim())
   const addedByKey = new Map(added.map(item => [getLogicalKey(item.dc), item]))
   const changedByKey = new Map(changed.map(item => [getLogicalKey(item.dc), item]))
@@ -348,6 +405,14 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
     + increaseRows.reduce((sum, item) => sum + Math.max(0, (item.newQty || 0) - (item.oldQty || 0)), 0)
   const moveOutCopyCount = movedOwnedRows.reduce((sum, row) => sum + (row.qty || 0), 0)
   const missingCopyCount = unownedAdded.reduce((sum, item) => sum + (item.missingQty || 0), 0)
+
+  if (!hasChanges && !remoteReady) return (
+    <div style={overlay}>
+      <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, padding:32, color:'var(--text-faint)', fontSize:'0.9rem' }}>
+        Refreshing collection placements...
+      </div>
+    </div>
+  )
 
   if (!hasChanges) return (
     <div style={overlay} onClick={e => e.target === e.currentTarget && onClose()}>
@@ -642,7 +707,9 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
         )}
         <div style={{ padding:'12px 20px', borderTop:'1px solid var(--border)', display:'flex', gap:8, justifyContent:'space-between', alignItems:'center' }}>
           <span style={{ fontSize:'0.79rem', color:'var(--text-faint)' }}>
-            {movedOwnedRows.length > 0
+            {!remoteReady
+              ? 'Refreshing collection placements before decisions can be applied.'
+              : movedOwnedRows.length > 0
               ? (selectedMoveTarget ? `Moving excess cards to ${formatPlacementLabel(selectedMoveTarget)}.` : 'Choose a destination for cards leaving the Collection Deck.')
               : ''}
           </span>

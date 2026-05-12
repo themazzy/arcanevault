@@ -8,7 +8,7 @@ import {
   FORMATS, TYPE_GROUPS, classifyCardType,
   parseDeckMeta, serializeDeckMeta, getCardImageUri,
   searchCards, searchCommanders, fetchCardsByNames, fetchCardsByScryfallIds, getDeckBuilderCardMeta,
-  fetchEdhrecCommander, makeDebouncer,
+  fetchEdhrecCommander, fetchPaperPrintings, makeDebouncer,
 } from '../lib/deckBuilderApi'
 import { parseImportText, resolveImportEntries, summarizeImportRows } from '../lib/importFlow'
 import {
@@ -34,7 +34,6 @@ import {
   setDeckCardCategory,
   updateDeckCategoryOrder,
 } from '../lib/deckCategories'
-import { planDeckAllocations } from '../lib/deckAllocationPlanner'
 import { getCardLegalityWarnings } from '../lib/deckLegality'
 import {
   buildSyncDiff,
@@ -48,6 +47,7 @@ import {
 import { formatPrice, getPrice } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getPublicAppUrl } from '../lib/publicUrl'
+import { loadLocalPlacementSnapshot, refreshRemotePlacementSnapshot } from '../lib/deckPlacementData'
 import {
   toDeckCardRow,
   toCardPrintSource,
@@ -72,7 +72,6 @@ import {
   ChevronRightIcon,
   CollectionIcon,
   DeckIcon,
-  FolderTypeIcon,
   MenuIcon,
   AddIcon,
   CheckIcon,
@@ -123,19 +122,11 @@ import {
   findCommanderTransferHint,
 } from '../lib/deckBuilderHelpers'
 import {
-  buildChosenAllocations,
-  buildChosenPrintingSelections,
   formatOwnedPrinting,
   formatQtyLabel,
-  getFolderKindLabel,
-  formatPlacementLabel,
-  summarizePlacementParts,
-  getDecisionCategory,
-  getDecisionPreview,
-  getDecisionOptionLabels,
 } from '../lib/deckSyncDecisions'
 
-import { ColorPip, ManaCostInline, OwnershipBadge } from '../components/deckBuilder/primitives'
+import { ManaCostInline, OwnershipBadge } from '../components/deckBuilder/primitives'
 
 import { FloatingPreview, WarningTooltip } from '../components/deckBuilder/FloatingPreview'
 
@@ -576,7 +567,6 @@ function ComboResultCard({ combo, highlight, deckCardNames, deckImages, onAddCar
 // Decision/format helpers (buildChosenAllocations, getDecisionCategory, etc.)
 // extracted to src/lib/deckSyncDecisions.js
 
-import PrintingPickerModal from '../components/deckBuilder/PrintingPickerModal'
 import MakeDeckModal from '../components/deckBuilder/MakeDeckModal'
 
 // ── Make Deck modal ────────────────────────────────────────────────────────────
@@ -795,6 +785,7 @@ export default function DeckBuilderPage() {
   const deckCategoriesRef = useRef(deckCategories)
   const deckMetaRef     = useRef(deckMeta)
   const searchDebounce  = useRef(makeDebouncer(350))
+  const searchRequestId = useRef(0)
   const cmdDebounce     = useRef(makeDebouncer(300))
   const qtyTimers       = useRef(new Map())
   const saveMetaTimer   = useRef(null)
@@ -808,6 +799,9 @@ export default function DeckBuilderPage() {
   const dragAutoScrollFrame = useRef(null)
   const dragAutoScrollPoint = useRef({ x: 0, y: 0 })
   const importingRef = useRef(false)
+  const printingLookupCache = useRef(new Map())
+  const ownedPrintingCandidatesCache = useRef(new Map())
+  const ownedPrintingRefreshPromises = useRef(new Map())
   useEffect(() => () => { importingRef.current = false }, [])
 
   useEffect(() => {
@@ -1069,6 +1063,10 @@ export default function DeckBuilderPage() {
   const commanderCards = useMemo(() => deckCards.filter(dc => dc.is_commander), [deckCards])
   const commanderCard  = commanderCards[0] ?? null
   const mainDeckCards  = useMemo(() => deckCards.filter(dc => normalizeBoard(dc.board) === 'main'), [deckCards])
+  const normalizedStatsCards = useMemo(
+    () => normalizeDeckBuilderCards(mainDeckCards, builderSfMap, { price_source }),
+    [mainDeckCards, builderSfMap, price_source]
+  )
 
   // Auto-collapse format/commander section on mobile once commander is set
   useEffect(() => {
@@ -2059,14 +2057,16 @@ export default function DeckBuilderPage() {
 
   // ── Card search ───────────────────────────────────────────────────────────
   const doSearch = useCallback(async (q, page = 1) => {
+    const requestId = ++searchRequestId.current
     setSearchLoading(true)
     setSearchError(false)
-    setSearchPage(page)
     const { cards, hasMore, error } = await searchCards({
       query: q,
       format: deckMeta.format,
       page,
     })
+    if (requestId !== searchRequestId.current) return
+    setSearchPage(page)
     if (page === 1) setSearchResults(cards)
     else setSearchResults(prev => [...prev, ...cards])
     setSearchHasMore(hasMore)
@@ -2081,63 +2081,52 @@ export default function DeckBuilderPage() {
 
   async function fetchPrintingsForDeckCardName(name) {
     if (!name) return []
-    try {
-      const res = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(`!"${name}"`)}&unique=prints&order=released&dir=desc`)
-      if (!res.ok) return []
-      const data = await res.json()
-      return data.data || []
-    } catch {
-      return []
-    }
+    const key = normalizeCardName(name)
+    if (printingLookupCache.current.has(key)) return printingLookupCache.current.get(key)
+    const printings = await fetchPaperPrintings(name)
+    printingLookupCache.current.set(key, printings)
+    return printings
+  }
+
+  function candidatesFromPlacementSnapshot(snapshot, cardName) {
+    const target = normalizeCardName(cardName)
+    return (snapshot?.cards || [])
+      .filter(row => normalizeCardName(row.name) === target)
+      .map(row => ({
+        ...row,
+        binderQty: snapshot.binderQtyByCardId.get(row.id) || 0,
+        deckQty: snapshot.deckQtyByCardId.get(row.id) || 0,
+      }))
   }
 
   async function fetchOwnedPrintingCandidates(cardName) {
     if (!cardName || !user?.id) return []
 
-    const { data: ownedRows, error: ownedErr } = await sb
-      .from('owned_cards_view')
-      .select('id,name,set_code,collector_number,scryfall_id,foil,qty,card_print_id')
-      .eq('user_id', user.id)
-      .eq('name', cardName)
-
-    if (ownedErr) throw ownedErr
-    const owned = ownedRows || []
-    const cardIds = owned.map(row => row.id).filter(Boolean)
-    if (!cardIds.length) return []
-
-    const { data: binders, error: bindersErr } = await sb
-      .from('folders')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('type', 'binder')
-    if (bindersErr) throw bindersErr
-
-    const binderIds = (binders || []).map(row => row.id).filter(Boolean)
-    const [folderResult, allocationResult] = await Promise.all([
-      binderIds.length
-        ? sb.from('folder_cards').select('card_id,qty').in('folder_id', binderIds).in('card_id', cardIds)
-        : Promise.resolve({ data: [], error: null }),
-      sb.from('deck_allocations').select('card_id,qty').eq('user_id', user.id).in('card_id', cardIds),
-    ])
-
-    if (folderResult.error) throw folderResult.error
-    if (allocationResult.error) throw allocationResult.error
-
-    const binderQtyByCardId = new Map()
-    for (const row of folderResult.data || []) {
-      binderQtyByCardId.set(row.card_id, (binderQtyByCardId.get(row.card_id) || 0) + (row.qty || 0))
+    const key = normalizeCardName(cardName)
+    if (ownedPrintingCandidatesCache.current.has(key)) {
+      return ownedPrintingCandidatesCache.current.get(key)
     }
 
-    const deckQtyByCardId = new Map()
-    for (const row of allocationResult.data || []) {
-      deckQtyByCardId.set(row.card_id, (deckQtyByCardId.get(row.card_id) || 0) + (row.qty || 0))
+    const localSnapshot = await loadLocalPlacementSnapshot(user.id, { names: [cardName] })
+    const localCandidates = candidatesFromPlacementSnapshot(localSnapshot, cardName)
+    ownedPrintingCandidatesCache.current.set(key, localCandidates)
+
+    if (!ownedPrintingRefreshPromises.current.has(key)) {
+      const promise = refreshRemotePlacementSnapshot(user.id, { names: [cardName] })
+        .then(snapshot => {
+          const remoteCandidates = candidatesFromPlacementSnapshot(snapshot, cardName)
+          ownedPrintingCandidatesCache.current.set(key, remoteCandidates)
+          return remoteCandidates
+        })
+        .catch(err => {
+          console.warn('[DeckBuilder] owned printing refresh failed:', err)
+          return localCandidates
+        })
+        .finally(() => ownedPrintingRefreshPromises.current.delete(key))
+      ownedPrintingRefreshPromises.current.set(key, promise)
     }
 
-    return owned.map(row => ({
-      ...row,
-      binderQty: binderQtyByCardId.get(row.id) || 0,
-      deckQty: deckQtyByCardId.get(row.id) || 0,
-    }))
+    return localCandidates
   }
 
   function pickOwnedPrintingCandidate(candidates, printRank, placement) {
@@ -5176,7 +5165,7 @@ export default function DeckBuilderPage() {
             {/* ── Deck composition stats ── */}
             {deckCards.length > 0
               ? <DeckStats
-                  cards={normalizeDeckBuilderCards(mainDeckCards, builderSfMap, { price_source })}
+                  cards={normalizedStatsCards}
                   price_source={price_source}
                   bracketOverride={statsBracketOverride}
                   onBracketOverride={setStatsBracketOverride}

@@ -1,6 +1,8 @@
 import { parseTextDecklist } from './deckBuilderApi'
 import { parseManaboxCSV } from './csvParser'
-import { fetchScryfallBatch, sfGet } from './scryfall'
+import { fetchScryfallBatch } from './scryfall'
+
+export { fetchPaperPrintings } from './deckBuilderApi'
 
 export const IMPORT_SOURCE = {
   TEXT: 'text',
@@ -119,16 +121,6 @@ function cardNameKeys(sfCard) {
   const frontFace = full?.split(' // ')[0]
   if (frontFace && frontFace !== full) keys.push(frontFace)
   return keys
-}
-
-function escapeScryfallExactName(name) {
-  return String(name || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-}
-
-export async function fetchPaperPrintings(name) {
-  const query = encodeURIComponent(`!"${escapeScryfallExactName(name)}" game:paper`)
-  const data = await sfGet(`https://api.scryfall.com/cards/search?q=${query}&unique=prints&order=released&dir=desc`)
-  return data?.data || []
 }
 
 export async function resolveImportEntries(entries, onProgress) {

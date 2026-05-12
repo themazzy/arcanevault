@@ -1,11 +1,10 @@
 import { useState, useEffect, useMemo } from 'react'
-import { sb } from '../../lib/supabase'
-import { getLocalCards } from '../../lib/db'
 import { Select } from '../UI'
 import { BASIC_LANDS } from '../../lib/deckBuilderConstants'
 import { isGroupFolder, normalizeCardName } from '../../lib/deckBuilderHelpers'
 import { buildChosenAllocations, buildChosenPrintingSelections } from '../../lib/deckSyncDecisions'
 import { planDeckAllocations } from '../../lib/deckAllocationPlanner'
+import { loadLocalPlacementSnapshot, refreshRemotePlacementSnapshot } from '../../lib/deckPlacementData'
 import PrintingPickerModal from './PrintingPickerModal'
 
 // ── Make Deck row ─────────────────────────────────────────────────────────────
@@ -56,6 +55,8 @@ function MakeDeckRow({ item }) {
 
 export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose }) {
   const [loading, setLoading] = useState(true)
+  const [remoteReady, setRemoteReady] = useState(false)
+  const [refreshError, setRefreshError] = useState(null)
   const [ownedCardsForPlanning, setOwnedCardsForPlanning] = useState([])
   const [binderQtyByCardId, setBinderQtyByCardId] = useState(new Map())
   const [deckAllocatedQtyByCardId, setDeckAllocatedQtyByCardId] = useState(new Map())
@@ -72,46 +73,52 @@ export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose })
   // Intentional: modal mounts fresh on each open - one-shot load from current props snapshot.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    async function load() {
-      const [collCards, { data: wls }] = await Promise.all([
-        getLocalCards(userId),
-        sb.from('folders').select('id, name, description').eq('user_id', userId).eq('type', 'list').order('name'),
-      ])
-      const deckNameSet = new Set((deckCards || []).map(card => normalizeCardName(card.name)).filter(Boolean))
-      const deckScryfallIds = new Set((deckCards || []).map(card => card.scryfall_id).filter(Boolean))
-      const planningCards = (collCards || []).filter(card =>
+    let cancelled = false
+    const deckNameSet = new Set((deckCards || []).map(card => normalizeCardName(card.name)).filter(Boolean))
+    const deckScryfallIds = new Set((deckCards || []).map(card => card.scryfall_id).filter(Boolean))
+    const applySnapshot = (snapshot) => {
+      const planningCards = (snapshot.cards || []).filter(card =>
         deckNameSet.has(normalizeCardName(card.name)) ||
         (card.scryfall_id && deckScryfallIds.has(card.scryfall_id))
       )
-      const cardIds = [...new Set(planningCards.map(card => card.id).filter(Boolean))]
-      const folderRows = []
-      const allocationRows = []
-      for (let i = 0; i < cardIds.length; i += 500) {
-        const chunk = cardIds.slice(i, i + 500)
-        const [{ data: fc, error: fcErr }, { data: da, error: daErr }] = await Promise.all([
-          sb.from('folder_cards').select('card_id,qty').in('card_id', chunk),
-          sb.from('deck_allocations').select('card_id,qty').eq('user_id', userId).in('card_id', chunk),
-        ])
-        if (fcErr) throw fcErr
-        if (daErr) throw daErr
-        folderRows.push(...(fc || []))
-        allocationRows.push(...(da || []))
-      }
-      const folderQtyByCardId = new Map()
-      for (const row of folderRows) {
-        folderQtyByCardId.set(row.card_id, (folderQtyByCardId.get(row.card_id) || 0) + (row.qty || 0))
-      }
-      const allocatedQtyByCardId = new Map()
-      for (const row of allocationRows) {
-        allocatedQtyByCardId.set(row.card_id, (allocatedQtyByCardId.get(row.card_id) || 0) + (row.qty || 0))
-      }
       setOwnedCardsForPlanning(planningCards)
-      setBinderQtyByCardId(folderQtyByCardId)
-      setDeckAllocatedQtyByCardId(allocatedQtyByCardId)
-      setWishlists((wls || []).filter(folder => !isGroupFolder(folder)))
-      setLoading(false)
+      setBinderQtyByCardId(snapshot.binderQtyByCardId)
+      setDeckAllocatedQtyByCardId(snapshot.deckQtyByCardId)
+      setWishlists((snapshot.wishlistFolders || []).filter(folder => !isGroupFolder(folder)))
+    }
+
+    async function load() {
+      try {
+        const localSnapshot = await loadLocalPlacementSnapshot(userId, {
+          names: [...deckNameSet],
+          scryfallIds: [...deckScryfallIds],
+        })
+        if (cancelled) return
+        applySnapshot(localSnapshot)
+        setLoading(false)
+
+        try {
+          const remoteSnapshot = await refreshRemotePlacementSnapshot(userId, {
+            names: [...deckNameSet],
+            scryfallIds: [...deckScryfallIds],
+          })
+          if (cancelled) return
+          applySnapshot(remoteSnapshot)
+          setRemoteReady(true)
+        } catch (err) {
+          if (cancelled) return
+          console.warn('[MakeDeckModal] placement refresh failed:', err)
+          setRefreshError('Could not refresh collection placements.')
+        }
+      } catch (err) {
+        if (cancelled) return
+        console.warn('[MakeDeckModal] local placement load failed:', err)
+        setLoading(false)
+        setRefreshError('Could not load collection placements.')
+      }
     }
     load()
+    return () => { cancelled = true }
   }, [])
 
   const planningOwnedCards = useMemo(() => {
@@ -151,7 +158,7 @@ export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose })
     || missingAction === 'skip'
     || missingAction === 'add'
     || (selectedWishlistId ? (selectedWishlistId === 'new' ? !!newWishlistName.trim() : true) : true)
-  const canConfirm    = (addItems.length > 0 || missingAction === 'add') && wishlistReady
+  const canConfirm    = remoteReady && (addItems.length > 0 || missingAction === 'add') && wishlistReady
 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:700, display:'flex', alignItems:'center', justifyContent:'center' }}
@@ -246,6 +253,9 @@ export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose })
               </div>
             )}
             <div style={{ padding:'12px 20px', borderTop:'1px solid var(--border)', display:'flex', gap:8, justifyContent:'flex-end' }}>
+              <div style={{ flex:1, color:refreshError ? '#e07070' : 'var(--text-faint)', fontSize:'0.76rem', alignSelf:'center' }}>
+                {!remoteReady ? (refreshError || 'Refreshing collection placements...') : ''}
+              </div>
               <button onClick={onClose} style={{ background:'none', border:'1px solid var(--border)', borderRadius:4, padding:'7px 16px', color:'var(--text-dim)', fontSize:'0.83rem', cursor:'pointer' }}>Cancel</button>
               <button
                 onClick={() => onConfirm({
