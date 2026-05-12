@@ -1530,11 +1530,7 @@
 }
 
 .deckListHeaderCard {
-  position: sticky;
-  left: 0;
-  z-index: 3;
   min-width: 0;
-  background: var(--bg);
 }
 .deckListHeaderSet,
 .deckListHeaderMetric,
@@ -1722,16 +1718,13 @@
   width: max(100%, var(--deck-list-min-width, 0px));
   min-width: var(--deck-list-min-width, 0px);
   box-sizing: border-box;
-  --deck-row-bg: var(--bg);
 }
 
 .deckCardRow:hover {
-  --deck-row-bg: var(--s2);
   background: var(--s2);
 }
 
 .deckCardIllegal {
-  --deck-row-bg: rgba(224,82,82,0.08);
   outline: 1px solid rgba(224,82,82,0.76);
   outline-offset: -1px;
   background: rgba(224,82,82,0.08);
@@ -1739,7 +1732,6 @@
 }
 
 .deckCardIllegal:hover {
-  --deck-row-bg: rgba(224,82,82,0.12);
   background: rgba(224,82,82,0.12);
 }
 
@@ -1831,15 +1823,11 @@
 }
 
 .deckCardLeft {
-  position: sticky;
-  left: 0;
-  z-index: 2;
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
   cursor: default;
-  background: var(--deck-row-bg, var(--bg));
 }
 
 .deckCardStatus {
