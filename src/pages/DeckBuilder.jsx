@@ -406,11 +406,12 @@ function DeckCardRowV2({
   onChangeQty, onRemove, onMouseEnter, onMouseLeave, onMouseMove, onContextMenu, touchContextMenuHandlers, onDragStart,
   onPickVersion, onToggleFoil, onSetCommander, onMoveBoard, onOpenCategoryPicker, isEDH,
   visibleColumns, listGridTemplate, priceLabel, onOpenDetail, legalityWarnings = [],
+  listGridMinWidth,
   builderSfMap = {},
 }) {
   const setLabel = dc.set_code ? `${String(dc.set_code).toUpperCase()}${dc.collector_number ? ` #${dc.collector_number}` : ''}` : '-'
   return (
-    <div className={`${styles.deckCardRow}${dc.is_commander ? ' ' + styles.isCommander : ''}${legalityWarnings.length ? ' ' + styles.deckCardIllegal : ''}`} title={(legalityWarnings.map(w => w.text).join('\n')) || undefined} style={{ '--deck-list-columns': listGridTemplate }} onContextMenu={onContextMenu} {...(touchContextMenuHandlers || {})} draggable onDragStart={onDragStart}>
+    <div className={`${styles.deckCardRow}${dc.is_commander ? ' ' + styles.isCommander : ''}${legalityWarnings.length ? ' ' + styles.deckCardIllegal : ''}`} title={(legalityWarnings.map(w => w.text).join('\n')) || undefined} style={{ '--deck-list-columns': listGridTemplate, '--deck-list-min-width': listGridMinWidth }} onContextMenu={onContextMenu} {...(touchContextMenuHandlers || {})} draggable onDragStart={onDragStart}>
       <div className={styles.deckCardLeft} style={{ cursor: 'pointer' }} onClick={(e) => { if (consumeLongPressClick(e)) return; onOpenDetail?.(dc) }}>
         {dc.image_uri
           ? <img className={styles.deckThumb} src={dc.image_uri} alt="" loading="lazy" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove} />
@@ -1091,18 +1092,30 @@ export default function DeckBuilderPage() {
     const p = sf ? getPrice(sf, dc.foil, { price_source }) : null
     return sum + (p != null ? p * (dc.qty || 1) : 0)
   }, 0), [mainDeckCards, builderSfMap, price_source])
-  const listGridTemplate = useMemo(() => {
-    const cols = ['minmax(0, 1fr)']
-    if (visibleColumns.set) cols.push('88px')
-    if (visibleColumns.manaValue) cols.push('88px')
-    if (visibleColumns.cmc) cols.push('56px')
-    if (visibleColumns.price) cols.push('78px')
-    if (visibleColumns.status) cols.push('94px')
-    if (visibleColumns.actions) cols.push('64px')
-    if (visibleColumns.qty) cols.push('58px')
-    if (visibleColumns.remove) cols.push('56px')
-    return cols.join(' ')
+  const listGridLayout = useMemo(() => {
+    const cardColumnWidth = 220
+    const cols = [`minmax(${cardColumnWidth}px, 1fr)`]
+    let fixedWidth = 0
+    const addColumn = (width) => {
+      cols.push(`${width}px`)
+      fixedWidth += width
+    }
+    if (visibleColumns.set) addColumn(88)
+    if (visibleColumns.manaValue) addColumn(88)
+    if (visibleColumns.cmc) addColumn(56)
+    if (visibleColumns.price) addColumn(78)
+    if (visibleColumns.status) addColumn(94)
+    if (visibleColumns.actions) addColumn(64)
+    if (visibleColumns.qty) addColumn(58)
+    if (visibleColumns.remove) addColumn(56)
+    const gapWidth = Math.max(0, cols.length - 1) * 8
+    return {
+      template: cols.join(' '),
+      minWidth: `${cardColumnWidth + fixedWidth + gapWidth + 16}px`,
+    }
   }, [visibleColumns])
+  const listGridTemplate = listGridLayout.template
+  const listGridMinWidth = listGridLayout.minWidth
 
   const activeColumns = deckView === 'compact' ? compactVisibleColumns : visibleColumns
   const setActiveColumns = deckView === 'compact' ? setCompactVisibleColumns : setVisibleColumns
@@ -4250,7 +4263,11 @@ export default function DeckBuilderPage() {
         })()}
 
         {/* Deck list tab */}
-        <div className={`${styles.deckList}${rightTab !== 'deck' ? ' ' + styles.tabPaneHidden : ''}`} onScroll={handleDeckListScroll}>
+        <div
+          className={`${styles.deckList}${deckView === 'list' ? ' ' + styles.deckListWide : ''}${rightTab !== 'deck' ? ' ' + styles.tabPaneHidden : ''}`}
+          style={deckView === 'list' ? { '--deck-list-min-width': listGridMinWidth } : undefined}
+          onScroll={handleDeckListScroll}
+        >
             {/* Commander art display — supports partners */}
             {commanderCards.length > 0 && (
               <div className={styles.cmdArt}>
@@ -4744,6 +4761,7 @@ export default function DeckBuilderPage() {
                 isEDH,
                 visibleColumns,
                 listGridTemplate,
+                listGridMinWidth,
                 priceLabel: getDeckCardPriceLabel(dc),
                 onOpenDetail: openDeckCardDetail,
                 legalityWarnings: deckCardLegalityWarnings.get(dc.id) || [],
@@ -4894,7 +4912,7 @@ export default function DeckBuilderPage() {
               }
 
               const renderListHeader = () => deckView === 'list' && (
-                <div className={styles.deckListHeader} style={{ '--deck-list-columns': listGridTemplate }}>
+                <div className={styles.deckListHeader} style={{ '--deck-list-columns': listGridTemplate, '--deck-list-min-width': listGridMinWidth }}>
                   <span className={styles.deckListHeaderCard}>Card</span>
                   {visibleColumns.set && <span className={styles.deckListHeaderSet}>Set</span>}
                   {visibleColumns.manaValue && <span className={styles.deckListHeaderMetric}>Mana Value</span>}
