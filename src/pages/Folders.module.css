@@ -1106,7 +1106,7 @@
   }
   .overviewStickySearch {
     position: sticky;
-    top: 0;
+    top: 54px;
     z-index: 35;
     display: block;
     margin: -12px 0 16px;
