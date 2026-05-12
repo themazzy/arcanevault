@@ -1448,6 +1448,13 @@ export default function DeckBuilderPage() {
       <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowMetaModal(true); close() }}>
         <span>Description &amp; Tags</span>
       </button>
+      <button
+        className={`${uiStyles.responsiveMenuAction} ${deckMeta.is_public ? uiStyles.responsiveMenuActionActive : ''}`}
+        onClick={togglePublic}
+      >
+        <span>Visibility</span>
+        <span className={styles.visibilityMenuState}>{deckMeta.is_public ? 'Public' : 'Private'}</span>
+      </button>
       <button className={uiStyles.responsiveMenuAction} onClick={() => { resetAllCategories(); close() }}>
         <span>Reset Categories</span>
       </button>
@@ -3852,7 +3859,14 @@ export default function DeckBuilderPage() {
           <div className={styles.deckMeta}>
             <span>{format?.label ?? 'Deck'}</span>
             <span>&middot;</span>
-            <span>{deckMeta.is_public ? 'Public' : 'Private'}</span>
+            <button
+              type="button"
+              className={`${styles.visibilityChip} ${deckMeta.is_public ? styles.visibilityChipPublic : ''}`}
+              onClick={togglePublic}
+              title={`Deck is ${deckMeta.is_public ? 'public' : 'private'}. Click to switch.`}
+            >
+              {deckMeta.is_public ? 'Public' : 'Private'}
+            </button>
             {saving && <span className={styles.savingDot} />}
           </div>
         </div>
@@ -4001,7 +4015,7 @@ export default function DeckBuilderPage() {
             )}
 
             {/* Public/private toggle */}
-            <div className={styles.formatRow}>
+            <div className={`${styles.formatRow} ${styles.visibilityControlRow}`}>
               <span className={styles.formatLabel}>Visibility</span>
               <div className={styles.visibilityToggleRow}>
                 <div
@@ -4010,7 +4024,7 @@ export default function DeckBuilderPage() {
                 >
                   <div className={styles.toggleThumb} />
                 </div>
-                <span className={`${styles.toggleLabel} ${deckMeta.is_public ? styles.toggleLabelOn : ''}`}>
+                <span className={`${styles.visibilityText} ${deckMeta.is_public ? styles.visibilityTextOn : ''}`}>
                   {deckMeta.is_public ? 'Public' : 'Private'}
                 </span>
               </div>
