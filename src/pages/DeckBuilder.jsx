@@ -708,7 +708,6 @@ export default function DeckBuilderPage() {
   const [isMobileWarnings, setIsMobileWarnings] = useState(() => (
     typeof window !== 'undefined' ? window.innerWidth <= 900 : false
   ))
-  const [cmdArtHidden, setCmdArtHidden] = useState(false)
   const [syncStatus, setSyncStatus] = useState({ loading: false, dirty: false, count: 0, unavailable: false })
 
   useEffect(() => {
@@ -809,7 +808,6 @@ export default function DeckBuilderPage() {
   const dragAutoScrollFrame = useRef(null)
   const dragAutoScrollPoint = useRef({ x: 0, y: 0 })
   const importingRef = useRef(false)
-  const lastDeckScrollTopRef = useRef(0)
   useEffect(() => () => { importingRef.current = false }, [])
 
   useEffect(() => {
@@ -862,13 +860,6 @@ export default function DeckBuilderPage() {
   useEffect(() => {
     setGroupBy(default_grouping === 'category' ? 'category' : default_grouping === 'none' ? 'none' : 'type')
   }, [default_grouping])
-
-  useEffect(() => {
-    if (rightTab !== 'deck') {
-      setCmdArtHidden(false)
-      lastDeckScrollTopRef.current = 0
-    }
-  }, [rightTab])
 
   useEffect(() => {
     let cancelled = false
@@ -1873,23 +1864,6 @@ export default function DeckBuilderPage() {
       }),
     })).filter(c => c.cards.length > 0)
   }, [recs, deckNameSet, recsOwnedOnly, ownedNameMap, format, recLegalities])
-
-  const handleDeckListScroll = useCallback((e) => {
-    const nextTop = e.currentTarget.scrollTop
-    const prevTop = lastDeckScrollTopRef.current
-    lastDeckScrollTopRef.current = nextTop
-    if (nextTop <= 8) {
-      setCmdArtHidden(false)
-      return
-    }
-    if (nextTop > 72 && nextTop > prevTop) {
-      setCmdArtHidden(true)
-      return
-    }
-    if (nextTop < prevTop - 20) {
-      setCmdArtHidden(false)
-    }
-  }, [])
 
   // ── Format change ─────────────────────────────────────────────────────────
   async function handleFormatChange(fmtId) {
@@ -3852,6 +3826,82 @@ export default function DeckBuilderPage() {
   const importSummary = importRows.length ? summarizeImportRows(importRows) : null
   const importMatchedRows = importRows.filter(row => row.status === 'matched' && row.sfCard)
   const importMissingRows = importRows.filter(row => row.status !== 'matched')
+  const renderDeckHeader = (variantClassName = '') => (
+    <div className={`${styles.deckHeader}${variantClassName ? ' ' + variantClassName : ''}`}>
+      <div className={styles.deckTitleBlock}>
+        <input
+          className={styles.deckNameInput}
+          value={deckName}
+          onChange={e => setDeckName(e.target.value)}
+          onBlur={saveNameBlur}
+          maxLength={100}
+        />
+        <div className={styles.deckMeta}>
+          <span>{format?.label ?? 'Deck'}</span>
+          <span>&middot;</span>
+          <button
+            type="button"
+            className={`${styles.visibilityChip} ${deckMeta.is_public ? styles.visibilityChipPublic : ''}`}
+            onClick={togglePublic}
+            title={`Deck is ${deckMeta.is_public ? 'public' : 'private'}. Click to switch.`}
+          >
+            {deckMeta.is_public ? 'Public' : 'Private'}
+          </button>
+          {saving && <span className={styles.savingDot} />}
+        </div>
+      </div>
+      <div className={styles.headerActions}>
+        <Link className={`${styles.headerLink} ${styles.headerQuickAction}`} to="/builder" title="Back to decks">
+          <span className={styles.btnIcon} aria-hidden="true"><ChevronLeftIcon size={14} /></span>
+          <span className={styles.btnLabel}>Back to Decks</span>
+          <span className={styles.btnLabelMobile}>Back</span>
+        </Link>
+        <Link className={`${styles.headerLink} ${styles.headerQuickAction}`} to={`/builder/${deckId}/playtest`} title="Playtest deck">
+          <span className={styles.btnIcon} aria-hidden="true"><ExternalLinkIcon size={14} /></span>
+          <span className={styles.btnLabel}>Playtest</span>
+          <span className={styles.btnLabelMobile}>Test</span>
+        </Link>
+        {(isCollectionDeck || deckMeta.linked_deck_id) && (
+          <button className={styles.headerBtnPrimary} onClick={() => setShowSync(true)} disabled={syncRunning} title="Sync collection">
+            <span className={styles.btnIcon} aria-hidden="true"><CollectionIcon size={14} /></span>
+            <span className={styles.btnLabel}>{syncLabel}</span>
+            <span className={styles.btnLabelMobile}>{syncLabelMobile}</span>
+          </button>
+        )}
+        {!isCollectionDeck && !deckMeta.linked_deck_id && (
+          <button className={styles.headerBtnPrimary} onClick={() => setShowMakeDeck(true)} disabled={makeDeckRunning} title="Make Collection Deck">
+            <span className={styles.btnIcon} aria-hidden="true"><DeckIcon size={14} /></span>
+            <span className={styles.btnLabel}>{makeDeckRunning ? 'Creating...' : 'Make Collection Deck'}</span>
+            <span className={styles.btnLabelMobile}>{makeDeckRunning ? 'Creating...' : 'Make Deck'}</span>
+          </button>
+        )}
+        <button
+          className={`${styles.headerBtnPrimary} ${styles.headerQuickAction}`}
+          onClick={handleShareDeck}
+          disabled={shareBusy}
+          title="Share deck"
+        >
+          <span className={styles.btnIcon} aria-hidden="true"><ShareIcon size={14} /></span>
+          <span className={styles.btnLabel}>{shareBusy ? 'Sharing...' : 'Share'}</span>
+          <span className={styles.btnLabelMobile}>{shareBusy ? '...' : 'Share'}</span>
+        </button>
+        <ResponsiveMenu
+          title="Deck Actions"
+          wrapClassName={styles.headerActionsMenu}
+          align="right"
+          trigger={({ toggle }) => (
+            <button className={`${styles.headerBtn} ${styles.headerActionsTrigger}`} onClick={toggle} title="Deck actions">
+              <span className={`${styles.btnIcon} ${styles.headerActionsGear}`} aria-hidden="true"><SettingsIcon size={14} /></span>
+              <span className={styles.btnLabel}>Deck Actions</span>
+              <span className={styles.btnLabelMobile}>Actions</span>
+            </button>
+          )}
+        >
+          {args => renderDeckActionsMenu({ ...args, includeQuickActions: false })}
+        </ResponsiveMenu>
+      </div>
+    </div>
+  )
 
   return (
     <div className={`${styles.page}${showRight ? ' ' + styles.showRight : ''}${leftCollapsed ? ' ' + styles.leftCollapsed : ''}`}>
@@ -3866,80 +3916,7 @@ export default function DeckBuilderPage() {
         <span>Done</span>
       </button>
 
-      <div className={`${styles.deckHeader}${cmdArtHidden ? ' ' + styles.deckHeaderHidden : ''}`}>
-        <div className={styles.deckTitleBlock}>
-          <input
-            className={styles.deckNameInput}
-            value={deckName}
-            onChange={e => setDeckName(e.target.value)}
-            onBlur={saveNameBlur}
-            maxLength={100}
-          />
-          <div className={styles.deckMeta}>
-            <span>{format?.label ?? 'Deck'}</span>
-            <span>&middot;</span>
-            <button
-              type="button"
-              className={`${styles.visibilityChip} ${deckMeta.is_public ? styles.visibilityChipPublic : ''}`}
-              onClick={togglePublic}
-              title={`Deck is ${deckMeta.is_public ? 'public' : 'private'}. Click to switch.`}
-            >
-              {deckMeta.is_public ? 'Public' : 'Private'}
-            </button>
-            {saving && <span className={styles.savingDot} />}
-          </div>
-        </div>
-        <div className={styles.headerActions}>
-          <Link className={`${styles.headerLink} ${styles.headerQuickAction}`} to="/builder" title="Back to decks">
-            <span className={styles.btnIcon} aria-hidden="true"><ChevronLeftIcon size={14} /></span>
-            <span className={styles.btnLabel}>Back to Decks</span>
-            <span className={styles.btnLabelMobile}>Back</span>
-          </Link>
-          <Link className={`${styles.headerLink} ${styles.headerQuickAction}`} to={`/builder/${deckId}/playtest`} title="Playtest deck">
-            <span className={styles.btnIcon} aria-hidden="true"><ExternalLinkIcon size={14} /></span>
-            <span className={styles.btnLabel}>Playtest</span>
-            <span className={styles.btnLabelMobile}>Test</span>
-          </Link>
-          {(isCollectionDeck || deckMeta.linked_deck_id) && (
-            <button className={styles.headerBtnPrimary} onClick={() => setShowSync(true)} disabled={syncRunning} title="Sync collection">
-              <span className={styles.btnIcon} aria-hidden="true"><CollectionIcon size={14} /></span>
-              <span className={styles.btnLabel}>{syncLabel}</span>
-              <span className={styles.btnLabelMobile}>{syncLabelMobile}</span>
-            </button>
-          )}
-          {!isCollectionDeck && !deckMeta.linked_deck_id && (
-            <button className={styles.headerBtnPrimary} onClick={() => setShowMakeDeck(true)} disabled={makeDeckRunning} title="Make Collection Deck">
-              <span className={styles.btnIcon} aria-hidden="true"><DeckIcon size={14} /></span>
-              <span className={styles.btnLabel}>{makeDeckRunning ? 'Creating...' : 'Make Collection Deck'}</span>
-              <span className={styles.btnLabelMobile}>{makeDeckRunning ? 'Creating...' : 'Make Deck'}</span>
-            </button>
-          )}
-          <button
-            className={`${styles.headerBtnPrimary} ${styles.headerQuickAction}`}
-            onClick={handleShareDeck}
-            disabled={shareBusy}
-            title="Share deck"
-          >
-            <span className={styles.btnIcon} aria-hidden="true"><ShareIcon size={14} /></span>
-            <span className={styles.btnLabel}>{shareBusy ? 'Sharing...' : 'Share'}</span>
-            <span className={styles.btnLabelMobile}>{shareBusy ? '...' : 'Share'}</span>
-          </button>
-          <ResponsiveMenu
-            title="Deck Actions"
-            wrapClassName={styles.headerActionsMenu}
-            align="right"
-            trigger={({ toggle }) => (
-              <button className={`${styles.headerBtn} ${styles.headerActionsTrigger}`} onClick={toggle} title="Deck actions">
-                <span className={`${styles.btnIcon} ${styles.headerActionsGear}`} aria-hidden="true"><SettingsIcon size={14} /></span>
-                <span className={styles.btnLabel}>Deck Actions</span>
-                <span className={styles.btnLabelMobile}>Actions</span>
-              </button>
-            )}
-          >
-            {args => renderDeckActionsMenu({ ...args, includeQuickActions: false })}
-          </ResponsiveMenu>
-        </div>
-      </div>
+      {renderDeckHeader(styles.deckHeaderDesktop)}
 
       {/* ── LEFT PANEL ─────────────────────────────────────────── */}
       <div className={styles.left}>
@@ -4265,8 +4242,9 @@ export default function DeckBuilderPage() {
         {/* Deck list tab */}
         <div
           className={`${styles.deckList}${rightTab !== 'deck' ? ' ' + styles.tabPaneHidden : ''}`}
-          onScroll={handleDeckListScroll}
         >
+            {renderDeckHeader(styles.deckHeaderMobile)}
+
             {/* Commander art display — supports partners */}
             {commanderCards.length > 0 && (
               <div className={styles.cmdArt}>
