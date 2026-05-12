@@ -804,8 +804,6 @@ export default function DeckBuilderPage() {
   const addFeedbackRef = useRef(null)
   const hoverPreviewKey = useRef(null)
   const hoverPreviewTimer = useRef(null)
-  const deckListScrollingRef = useRef(false)
-  const deckListScrollTimer = useRef(null)
   const dragAutoScrollActive = useRef(false)
   const dragAutoScrollFrame = useRef(null)
   const dragAutoScrollPoint = useRef({ x: 0, y: 0 })
@@ -816,7 +814,6 @@ export default function DeckBuilderPage() {
     return () => {
       clearTimeout(saveMetaTimer.current)
       clearTimeout(addFeedbackTimer.current)
-      clearTimeout(deckListScrollTimer.current)
       if (dragAutoScrollFrame.current) cancelAnimationFrame(dragAutoScrollFrame.current)
       for (const timer of qtyTimers.current.values()) clearTimeout(timer)
     }
@@ -2840,7 +2837,7 @@ export default function DeckBuilderPage() {
   }
 
   async function showHoverPreviewForDeckCard(dc, e) {
-    if (!CAN_HOVER || lastInputWasTouch || deckListScrollingRef.current) return
+    if (!CAN_HOVER || lastInputWasTouch) return
     const fallback = dc.image_uri ? [toLargeImg(dc.image_uri)] : []
     const hoverKey = dc.id || dc.scryfall_id || dc.name
     hoverPreviewKey.current = hoverKey
@@ -2882,17 +2879,6 @@ export default function DeckBuilderPage() {
     hoverPreviewKey.current = null
     setHoverImages([])
   }
-
-  const handleDeckListScroll = useCallback(() => {
-    if (!deckListScrollingRef.current) {
-      deckListScrollingRef.current = true
-      if (hoverPreviewKey.current || hoverPreviewTimer.current) clearHoverPreview()
-    }
-    clearTimeout(deckListScrollTimer.current)
-    deckListScrollTimer.current = setTimeout(() => {
-      deckListScrollingRef.current = false
-    }, 140)
-  }, [])
 
   const closeContextMenu = useCallback(() => setContextMenu(null), [])
 
@@ -4256,7 +4242,6 @@ export default function DeckBuilderPage() {
         {/* Deck list tab */}
         <div
           className={`${styles.deckList}${rightTab !== 'deck' ? ' ' + styles.tabPaneHidden : ''}`}
-          onScroll={handleDeckListScroll}
         >
             {renderDeckHeader(styles.deckHeaderMobile)}
 
