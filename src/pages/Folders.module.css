@@ -1106,26 +1106,14 @@
   }
   .overviewStickySearch {
     position: sticky;
-    top: -40px;
+    top: 0;
     z-index: 35;
     display: block;
-    margin: -10px 0 16px;
-    padding: 6px 0 8px;
-    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    margin: -12px 0 16px;
+    padding: 0 0 8px;
+    background: transparent;
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
-  }
-  .overviewStickySearch::before {
-    content: '';
-    position: absolute;
-    left: -2px;
-    right: -2px;
-    top: -18px;
-    height: 18px;
-    background: color-mix(in srgb, var(--bg) 88%, transparent);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    pointer-events: none;
   }
   .desktopOnlySearch {
     display: none;
