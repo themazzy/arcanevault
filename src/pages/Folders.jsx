@@ -22,6 +22,7 @@ import { getPlacedQtyByCardIds, pruneUnplacedCards } from '../lib/collectionOwne
 import { getPublicAppUrl } from '../lib/publicUrl'
 import { getLocalFolderCards, getAllLocalFolderCards, getDeckAllocations, getAllDeckAllocationsForFolders, getCardsByIds, getLocalFolders, putCards, putFolderCards, putDeckAllocations, replaceLocalFolderCards, replaceDeckAllocations, getFolderMetaCache, setFolderMetaCache } from '../lib/db'
 import { queryClient } from '../lib/queryClient'
+import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
 import { unlinkPairedDeck } from '../lib/deckSync'
 
@@ -678,9 +679,14 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
 
   const selectedCard = !isAllView && selected ? (cardByKey.get(selected) ?? null) : null
   const selectedSf   = selectedCard ? sfMap[getScryfallKey(selectedCard)] : null
+  const invalidatePlacementCaches = useCallback((options = {}) => (
+    invalidateOwnedCollectionQueries(queryClient, user?.id, options).catch(() => {})
+  ), [user?.id])
+
   const handleCardSave = useCallback((updatedCard) => {
     setCards(prev => prev.map(c => c.id === updatedCard.id ? { ...c, ...updatedCard } : c))
-  }, [])
+    void invalidatePlacementCaches({ includeCards: true })
+  }, [invalidatePlacementCaches])
 
   const handleDetailDelete = useCallback(async () => {
     if (!selectedCard || !folder) return
@@ -709,6 +715,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
         .select('id, folder_id, card_id, qty, updated_at')
         .eq('folder_id', folder.id)
       await replaceLocalFolderCards([folder.id], freshFc || []).catch(() => {})
+      await invalidatePlacementCaches({ includeCards: true })
       setCards(prev => prev.filter(c => c.id !== selectedCard.id))
       setSelected(null)
       toast.success(`Deleted ${selectedCard._folder_qty || selectedCard.qty || 1} ${(selectedCard._folder_qty || selectedCard.qty || 1) === 1 ? 'card' : 'cards'}.`)
@@ -716,7 +723,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
       console.error('[Folders] detail delete failed:', e)
       setReloadKey(key => key + 1)
     }
-  }, [selectedCard, folder, toast])
+  }, [selectedCard, folder, toast, invalidatePlacementCaches])
 
   const clearSelect = () => { setSelectedCards(new Set()); setSplitState(new Map()); setSelectMode(false) }
   const toggleSelectMode = () => { setSelectMode(v => { if (v) clearSelect(); return !v }) }
@@ -804,6 +811,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
         .in('folder_id', sourceFolderIds)
       await replaceLocalFolderCards(sourceFolderIds, freshFc || []).catch(() => {})
     }
+    await invalidatePlacementCaches({ includeCards: true })
     setCards(prev => prev.map(c => {
       if (!selectedCards.has(getCardKey(c))) return c
       const totalQty = c._folder_qty || c.qty || 1
@@ -865,6 +873,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
         .select('id, folder_id, card_id, qty, updated_at').eq('folder_id', targetFolder.id)
       await replaceLocalFolderCards([targetFolder.id], freshFc || []).catch(() => {})
     }
+    await invalidatePlacementCaches()
 
     setCards(prev => prev.map(c => {
       if (!selectedCards.has(getCardKey(c))) return c
@@ -1015,6 +1024,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
               else await putFolderCards(result.placements)
             }
             setShowAddCard(false)
+            await invalidatePlacementCaches({ includeCards: !!result?.cards?.length, includeFolders: !!result?.folder })
             setReloadKey(v => v + 1)
             onCardAdded?.()
           }}
@@ -1029,6 +1039,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
           onClose={() => setShowImport(false)}
           onSaved={() => {
             setShowImport(false)
+            void invalidatePlacementCaches({ includeCards: true })
             setReloadKey(v => v + 1)
             onCardAdded?.()
           }}
@@ -1152,12 +1163,16 @@ function DeleteFolderModal({ folder, userId, onDone, onCancel }) {
         const ids = rows.map(r => r.card_id)
         await unlinkCounterpart()
         await sb.from('folders').delete().eq('id', folder.id)
+        if (folder.type === 'deck') await replaceDeckAllocations([folder.id], []).catch(() => {})
+        else await replaceLocalFolderCards([folder.id], []).catch(() => {})
         if (ids.length) await pruneUnplacedCards(ids)
         onDone()
         return
       }
       await unlinkCounterpart()
       await sb.from('folders').delete().eq('id', folder.id)
+      if (folder.type === 'deck') await replaceDeckAllocations([folder.id], []).catch(() => {})
+      else await replaceLocalFolderCards([folder.id], []).catch(() => {})
       onDone()
     } catch (err) {
       setError(err.message || 'Could not delete this folder.')
@@ -1312,6 +1327,8 @@ function BulkDeleteModal({ nonEmpty, empty, userId, onDone, onCancel }) {
       }
       for (const folder of [...nonEmpty, ...empty]) {
         await sb.from('folders').delete().eq('id', folder.id)
+        if (folder.type === 'deck') await replaceDeckAllocations([folder.id], []).catch(() => {})
+        else await replaceLocalFolderCards([folder.id], []).catch(() => {})
       }
       if (mode === 'delete') {
         const ids = nonEmpty.flatMap(folder => folder._deleteCardIds || [])
@@ -1489,6 +1506,10 @@ export default function FoldersPage({ type }) {
   }, [folders, type])
 
   // ── Supabase bg helper (merges bg_url into existing description JSON) ────────
+  const invalidateFolderIndexCaches = useCallback((options = {}) => (
+    invalidateOwnedCollectionQueries(queryClient, user?.id, { includeFolders: true, ...options }).catch(() => {})
+  ), [user?.id])
+
   const saveFolderBg = useCallback(async (folder, url) => {
     let desc = {}
     try { desc = JSON.parse(folder.description || '{}') } catch {}
@@ -1497,7 +1518,8 @@ export default function FoldersPage({ type }) {
     const descStr = Object.keys(desc).length > 0 ? JSON.stringify(desc) : null
     await sb.from('folders').update({ description: descStr }).eq('id', folder.id)
     setFolders(prev => prev.map(f => f.id === folder.id ? { ...f, description: descStr } : f))
-  }, [])
+    await invalidateFolderIndexCaches({ includePlacements: false })
+  }, [invalidateFolderIndexCaches])
 
   // Holds the IDB-joined rows + card map so the price-only effect can recompute values
   // when price_source changes without re-walking IDB.
@@ -1652,13 +1674,17 @@ export default function FoldersPage({ type }) {
 
   const deleteFolder = async (id) => {
     await sb.from('folders').delete().eq('id', id)
+    if (type === 'deck') await replaceDeckAllocations([id], []).catch(() => {})
+    else await replaceLocalFolderCards([id], []).catch(() => {})
     setFolders(prev => prev.filter(f => f.id !== id))
+    await invalidateFolderIndexCaches({ includeCards: true })
   }
 
   const renameFolder = useCallback(async (folder, newName) => {
     await sb.from('folders').update({ name: newName }).eq('id', folder.id)
     setFolders(prev => prev.map(f => f.id === folder.id ? { ...f, name: newName } : f))
-  }, [])
+    await invalidateFolderIndexCaches({ includePlacements: false })
+  }, [invalidateFolderIndexCaches])
 
   // Smart single-folder delete: empty → direct; has cards → show modal
   const handleDeleteClick = (folder) => {
@@ -1679,7 +1705,11 @@ export default function FoldersPage({ type }) {
       setBulkDeleteData({ nonEmpty, empty })
     } else {
       // All empty — delete directly
-      Promise.all(selected.map(f => sb.from('folders').delete().eq('id', f.id))).then(() => {
+      Promise.all(selected.map(f => sb.from('folders').delete().eq('id', f.id))).then(async () => {
+        const ids = selected.map(f => f.id)
+        if (type === 'deck') await replaceDeckAllocations(ids, []).catch(() => {})
+        else await replaceLocalFolderCards(ids, []).catch(() => {})
+        await invalidateFolderIndexCaches({ includeCards: true })
         setFolders(prev => prev.filter(f => !selectedIds.has(f.id)))
         setSelectedIds(new Set())
         setSelectMode(false)
@@ -1704,6 +1734,7 @@ export default function FoldersPage({ type }) {
       await sb.from('folders').update({ description: newDesc }).eq('id', folder.id)
       setFolders(prev => prev.map(f => f.id === folder.id ? { ...f, description: newDesc } : f))
     }
+    await invalidateFolderIndexCaches({ includePlacements: false })
     setShowBulkMoveGroup(false)
     setSelectedIds(new Set())
     setSelectMode(false)
@@ -1717,6 +1748,7 @@ export default function FoldersPage({ type }) {
       user_id: user.id, type, name: name.trim(), description: desc,
     }).select().single()
     if (data) setFolders(prev => [...prev, data])
+    await invalidateFolderIndexCaches({ includePlacements: false })
   }
 
   const createFolder = async () => {
@@ -1725,6 +1757,7 @@ export default function FoldersPage({ type }) {
       user_id: user.id, type, name: newFolderName.trim(),
     }).select().single()
     if (data) { setFolders(prev => [...prev, data]); setShowNewFolder(false); setNewFolderName('') }
+    await invalidateFolderIndexCaches({ includePlacements: false })
   }
 
   const reorderGroup = async (group, direction) => {
@@ -1745,6 +1778,7 @@ export default function FoldersPage({ type }) {
       if (f.id === other.id) return { ...f, description: newDescB }
       return f
     }))
+    await invalidateFolderIndexCaches({ includePlacements: false })
   }
 
   const deleteGroup = async (group) => {
@@ -1757,12 +1791,14 @@ export default function FoldersPage({ type }) {
     }
     await sb.from('folders').delete().eq('id', group.id)
     setFolders(prev => prev.filter(f => f.id !== group.id))
+    await invalidateFolderIndexCaches({ includePlacements: false })
   }
 
   const moveToGroup = async (folder, groupId) => {
     const newDesc = setFolderDescKey(folder.description, 'groupId', groupId || null)
     await sb.from('folders').update({ description: newDesc }).eq('id', folder.id)
     setFolders(prev => prev.map(f => f.id === folder.id ? { ...f, description: newDesc } : f))
+    await invalidateFolderIndexCaches({ includePlacements: false })
     setMoveToGroupTarget(null)
   }
 
@@ -2077,7 +2113,8 @@ export default function FoldersPage({ type }) {
         <DeleteFolderModal
           folder={deleteTarget}
           userId={user.id}
-          onDone={() => {
+          onDone={async () => {
+            await invalidateFolderIndexCaches({ includeCards: true })
             setFolders(prev => prev.filter(f => f.id !== deleteTarget.id))
             setDeleteTarget(null)
           }}
@@ -2089,7 +2126,8 @@ export default function FoldersPage({ type }) {
           nonEmpty={bulkDeleteData.nonEmpty}
           empty={bulkDeleteData.empty}
           userId={user.id}
-          onDone={(deletedIds) => {
+          onDone={async (deletedIds) => {
+            await invalidateFolderIndexCaches({ includeCards: true })
             setFolders(prev => prev.filter(f => !deletedIds.includes(f.id)))
             setSelectedIds(new Set())
             setSelectMode(false)

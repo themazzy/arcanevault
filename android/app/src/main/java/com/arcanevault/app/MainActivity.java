@@ -1,9 +1,12 @@
 package com.arcanevault.app;
 
 import android.graphics.Color;
+import android.os.Build;
 import android.os.Bundle;
 import android.webkit.ValueCallback;
 import android.widget.Toast;
+import android.view.Window;
+import android.view.WindowManager;
 import androidx.activity.OnBackPressedCallback;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -17,6 +20,7 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        configureEdgeToEdgeWindow();
         super.onCreate(savedInstanceState);
         // Transparent WebView background so CameraPreview shows behind the React UI
         this.bridge.getWebView().setBackgroundColor(Color.TRANSPARENT);
@@ -35,8 +39,21 @@ public class MainActivity extends BridgeActivity {
         if (hasFocus) hideSystemBars();
     }
 
+    private void configureEdgeToEdgeWindow() {
+        Window window = getWindow();
+        WindowCompat.setDecorFitsSystemWindows(window, false);
+        window.setStatusBarColor(Color.TRANSPARENT);
+        window.setNavigationBarColor(Color.TRANSPARENT);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            WindowManager.LayoutParams attrs = window.getAttributes();
+            attrs.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            window.setAttributes(attrs);
+        }
+    }
+
     private void hideSystemBars() {
-        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        configureEdgeToEdgeWindow();
         WindowInsetsControllerCompat controller =
             new WindowInsetsControllerCompat(getWindow(), getWindow().getDecorView());
         controller.hide(WindowInsetsCompat.Type.systemBars());

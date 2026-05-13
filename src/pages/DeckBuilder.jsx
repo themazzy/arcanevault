@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useNavigate, Link, useLocation } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
@@ -584,6 +585,7 @@ export default function DeckBuilderPage() {
   const navigate       = useNavigate()
   const location       = useLocation()
   const { showToast }  = useToast()
+  const queryClient    = useQueryClient()
 
   // Wrap a Supabase mutation result and surface errors. Supabase JS does NOT throw
   // on REST errors — it returns { data, error }. We unwrap and toast on failure.
@@ -803,6 +805,18 @@ export default function DeckBuilderPage() {
   const ownedPrintingCandidatesCache = useRef(new Map())
   const ownedPrintingRefreshPromises = useRef(new Map())
   useEffect(() => () => { importingRef.current = false }, [])
+
+  const invalidateCollectionPlacementQueries = useCallback(async ({ includeFolders = false, includeCards = false } = {}) => {
+    const invalidations = [
+      queryClient.invalidateQueries({ queryKey: ['folderPlacements', user.id] }),
+    ]
+    if (includeFolders) invalidations.push(queryClient.invalidateQueries({ queryKey: ['folders', user.id] }))
+    if (includeCards) {
+      invalidations.push(queryClient.invalidateQueries({ queryKey: ['cards', user.id] }))
+      invalidations.push(queryClient.invalidateQueries({ queryKey: ['sfMap', user.id] }))
+    }
+    await Promise.all(invalidations)
+  }, [queryClient, user.id])
 
   useEffect(() => {
     return () => {
@@ -3133,6 +3147,10 @@ export default function DeckBuilderPage() {
         .in('folder_id', uniqueFolderIds)
       await replaceLocalFolderCards(uniqueFolderIds, freshFc || []).catch(() => {})
     }
+
+    if (uniqueDeckIds.length || uniqueFolderIds.length) {
+      await invalidateCollectionPlacementQueries()
+    }
   }
 
   async function promptToMoveOwnedCopies({ title, message, items, onComplete }) {
@@ -3368,6 +3386,8 @@ export default function DeckBuilderPage() {
       })
       setDeckMeta(linkedBuilderMeta)
       await applyExplicitPrintingSelections(printingSelections)
+      const touchedPlacementDeckIds = new Set([newCollectionDeck.id])
+      const touchedPlacementFolderIds = new Set()
 
       if (addItems.length > 0) {
         const allocationRows = mergeAllocationRows(addItems
@@ -3379,7 +3399,9 @@ export default function DeckBuilderPage() {
 
         await syncDeckRowsToAllocatedPrintings(addItems)
         await upsertDeckAllocations(newCollectionDeck.id, user.id, allocationRows)
-        await reassignPlacementsToDeck(newCollectionDeck.id, allocationRows)
+        const touched = await reassignPlacementsToDeck(newCollectionDeck.id, allocationRows)
+        for (const id of touched.touchedDeckIds || []) touchedPlacementDeckIds.add(id)
+        for (const id of touched.touchedFolderIds || []) touchedPlacementFolderIds.add(id)
       }
 
       if (addMissing && missingItems.length > 0) {
@@ -3440,6 +3462,13 @@ export default function DeckBuilderPage() {
       }
 
       const allocationRows = await fetchDeckAllocations(newCollectionDeck.id)
+      await replaceDeckAllocations([newCollectionDeck.id], (allocationRows || []).map(row => ({
+        id: row.id, deck_id: row.deck_id, user_id: row.user_id, card_id: row.card_id, qty: row.qty,
+      }))).catch(() => {})
+      await refreshPlacementCaches({
+        deckIds: [...touchedPlacementDeckIds],
+        folderIds: [...touchedPlacementFolderIds],
+      })
       const initialSnapshot = buildSyncSnapshot({
         builderCards: deckCardsRef.current.filter(card => normalizeBoard(card.board) !== 'maybe'),
         collectionCards: allocationRows || [],
@@ -3454,6 +3483,7 @@ export default function DeckBuilderPage() {
       })
       setDeckMeta(builderNext)
       await refreshAllocationIndicators(newCollectionDeck.id)
+      await invalidateCollectionPlacementQueries({ includeFolders: true, includeCards: addMissing && missingItems.length > 0 })
       setSyncStatus({ loading: false, dirty: false, count: 0, unavailable: false, diff: null })
 
       const addCount = addItems.reduce((s, i) => s + i.totalAdd, 0)
@@ -3776,6 +3806,7 @@ export default function DeckBuilderPage() {
       })
       setDeckMeta(builderNext)
       await refreshAllocationIndicators(targetDeckId)
+      await invalidateCollectionPlacementQueries({ includeFolders: !!wishlistName })
       const nextDiff = buildSyncDiff({
         baseline: snapshot,
         builderCards: nextBuilderCards.filter(card => normalizeBoard(card.board) !== 'maybe'),

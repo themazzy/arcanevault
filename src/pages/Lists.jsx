@@ -3,6 +3,7 @@ import { sb } from '../lib/supabase'
 import { getLocalFolders, getLocalListItems, getAllLocalListItemsForFolders, putListItems, replaceLocalListItems, deleteListItemsByIds, getFolderMetaCache, setFolderMetaCache } from '../lib/db'
 import { toListItemRow } from '../lib/deckBuilderWrites'
 import { queryClient } from '../lib/queryClient'
+import { invalidateWishlistQueries } from '../lib/queryInvalidation'
 import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { useAuth } from '../components/Auth'
@@ -390,11 +391,15 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
       return new Map(prev).set(id, next)
     })
   }, [])
+  const invalidateListCaches = useCallback((options = {}) => (
+    invalidateWishlistQueries(queryClient, user?.id, options).catch(() => {})
+  ), [user?.id])
 
   const handleDelete = async (id) => {
     await sb.from('list_items').delete().eq('id', id)
     setItems(prev => prev.filter(i => i.id !== id))
     try { await deleteListItemsByIds([id]) } catch {}
+    await invalidateListCaches()
     toast.success('Deleted 1 wishlist item.')
   }
 
@@ -430,6 +435,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
         if (updatedRows.length) await putListItems(updatedRows)
       }
     } catch {}
+    await invalidateListCaches()
     setSelectedItems(new Set()); setSplitState(new Map()); setSelectMode(false)
     toast.success(`Deleted ${deleteCount} ${deleteCount === 1 ? 'wishlist item' : 'wishlist items'}.`)
   }
@@ -499,6 +505,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
     setSplitState(new Map())
     setSelectMode(false)
     await reload()
+    await invalidateListCaches()
     const movedQty = incomingRows.reduce((sum, row) => sum + row.qty, 0)
     if (movedQty > 0) toast.success(`Moved ${movedQty} ${movedQty === 1 ? 'item' : 'items'} to ${targetFolder.name}.`)
   }
@@ -626,6 +633,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
               .single()
             if (newFolder) {
               setAllFolders(prev => [...prev, newFolder])
+              await invalidateListCaches({ includeFolders: true, includeItems: false })
               await handleMoveToWishlist(newFolder)
             }
           }}
@@ -712,7 +720,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
           folders={[folder]}
           defaultFolderId={folder.id}
           onClose={() => setShowImport(false)}
-          onSaved={() => { setShowImport(false); reload() }}
+          onSaved={() => { setShowImport(false); invalidateListCaches(); reload() }}
         />
       )}
       {showAddCard && user && (
@@ -722,7 +730,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
           defaultFolderType="list"
           defaultFolderId={folder?.id || null}
           onClose={() => setShowAddCard(false)}
-          onSaved={async () => { setShowAddCard(false); await reload() }}
+          onSaved={async () => { setShowAddCard(false); await invalidateListCaches(); await reload() }}
         />
       )}
       {showExport && (
@@ -1026,7 +1034,8 @@ export default function ListsPage() {
     const descStr = Object.keys(desc).length > 0 ? JSON.stringify(desc) : null
     await sb.from('folders').update({ description: descStr }).eq('id', folder.id)
     setFolders(prev => prev.map(f => f.id === folder.id ? { ...f, description: descStr } : f))
-  }, [])
+    await invalidateWishlistQueries(queryClient, user?.id, { includeFolders: true, includeItems: false }).catch(() => {})
+  }, [user?.id])
 
   const computeListMeta = useCallback((foldersData, items, sfMap) => {
     const meta = {}
@@ -1135,17 +1144,23 @@ export default function ListsPage() {
 
   useEffect(() => { loadFolders() }, [loadFolders])
 
+  const invalidateListIndexCaches = useCallback((options = {}) => (
+    invalidateWishlistQueries(queryClient, user?.id, { includeFolders: true, ...options }).catch(() => {})
+  ), [user?.id])
+
   const deleteFolder = async (folder) => {
     await sb.from('list_items').delete().eq('folder_id', folder.id)
     await sb.from('folders').delete().eq('id', folder.id)
     setFolders(prev => prev.filter(f => f.id !== folder.id))
     try { await replaceLocalListItems([folder.id], []) } catch {}
+    await invalidateListIndexCaches()
   }
 
   const renameFolder = useCallback(async (folder, newName) => {
     await sb.from('folders').update({ name: newName }).eq('id', folder.id)
     setFolders(prev => prev.map(f => f.id === folder.id ? { ...f, name: newName } : f))
-  }, [])
+    await invalidateListIndexCaches({ includeItems: false })
+  }, [invalidateListIndexCaches])
 
   const toggleSelected = (id) => {
     setSelectedIds(prev => {
@@ -1166,6 +1181,7 @@ export default function ListsPage() {
     setFolders(prev => prev.filter(f => !selectedIds.has(f.id)))
     setSelectedIds(new Set())
     setSelectMode(false)
+    await invalidateListIndexCaches()
   }
 
   const bulkMoveToGroup = async (groupId) => {
@@ -1175,6 +1191,7 @@ export default function ListsPage() {
       await sb.from('folders').update({ description: newDesc }).eq('id', folder.id)
       setFolders(prev => prev.map(f => f.id === folder.id ? { ...f, description: newDesc } : f))
     }
+    await invalidateListIndexCaches({ includeItems: false })
     setShowBulkMoveGroup(false)
     setSelectedIds(new Set())
     setSelectMode(false)
@@ -1188,6 +1205,7 @@ export default function ListsPage() {
       user_id: user.id, type: 'list', name: name.trim(), description: desc,
     }).select().single()
     if (data) setFolders(prev => [...prev, data])
+    await invalidateListIndexCaches({ includeItems: false })
   }
 
   const createFolder = async () => {
@@ -1196,6 +1214,7 @@ export default function ListsPage() {
       user_id: user.id, type: 'list', name: newFolderName.trim(),
     }).select().single()
     if (data) { setFolders(prev => [...prev, data]); setShowNewFolder(false); setNewFolderName('') }
+    await invalidateListIndexCaches({ includeItems: false })
   }
 
   const deleteGroup = async (group) => {
@@ -1207,6 +1226,7 @@ export default function ListsPage() {
     }
     await sb.from('folders').delete().eq('id', group.id)
     setFolders(prev => prev.filter(f => f.id !== group.id))
+    await invalidateListIndexCaches({ includeItems: false })
   }
 
   const reorderGroup = async (group, direction) => {
@@ -1227,12 +1247,14 @@ export default function ListsPage() {
       if (f.id === other.id) return { ...f, description: newDescB }
       return f
     }))
+    await invalidateListIndexCaches({ includeItems: false })
   }
 
   const moveToGroup = async (folder, groupId) => {
     const newDesc = setFolderDescKey(folder.description, 'groupId', groupId || null)
     await sb.from('folders').update({ description: newDesc }).eq('id', folder.id)
     setFolders(prev => prev.map(f => f.id === folder.id ? { ...f, description: newDesc } : f))
+    await invalidateListIndexCaches({ includeItems: false })
     setMoveToGroupTarget(null)
   }
 
