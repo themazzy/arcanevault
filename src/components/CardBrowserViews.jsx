@@ -87,6 +87,15 @@ function getDisplayKey(card) {
   return card?._displayKey || card?.id
 }
 
+function getBrowserCardImage(card, sfCard, size = 'normal') {
+  return sfCard?.image_uris?.[size]
+    || sfCard?.card_faces?.[0]?.image_uris?.[size]
+    || sfCard?.image_uris?.normal
+    || sfCard?.card_faces?.[0]?.image_uris?.normal
+    || card?.image_uri
+    || null
+}
+
 function getOrderedBrowserViewModes() {
   const order = ['grid', 'stacks', 'table', 'text']
   return order
@@ -138,19 +147,22 @@ function getCardCategory(card, sfCard) {
   return 'Other'
 }
 
-function buildGroups(cards, sfMap, groupBy) {
+function buildGroups(cards, sfMap, groupBy, groupResolver, groupOrderOverride) {
   if (groupBy === 'none') return { groups: { All: cards }, groupOrder: ['All'] }
   const groups = {}
-  const order = groupBy === 'category' ? CAT_ORDER : TYPE_ORDER
+  const order = groupOrderOverride?.length ? groupOrderOverride : (groupBy === 'category' ? CAT_ORDER : TYPE_ORDER)
   for (const card of cards) {
     const sf = sfMap[getScryfallKey(card)]
-    const key = groupBy === 'category'
+    const key = groupResolver?.(card, sf, groupBy)
+      || (card.is_commander && groupBy === 'type' ? 'Commander' : null)
+      || (groupBy === 'category'
       ? getCardCategory(card, sf)
-      : getCardType(sf?.type_line || sf?.card_faces?.[0]?.type_line || '')
+      : getCardType(sf?.type_line || sf?.card_faces?.[0]?.type_line || card.type_line || ''))
     if (!groups[key]) groups[key] = []
     groups[key].push(card)
   }
-  return { groups, groupOrder: order }
+  const extras = Object.keys(groups).filter(group => !order.includes(group)).sort((a, b) => a.localeCompare(b))
+  return { groups, groupOrder: [...order, ...extras] }
 }
 
 function InlineMana({ cost, size = 14 }) {
@@ -197,7 +209,7 @@ function rowFolderMeta(card) {
 function TextRow({ card, sfCard, selectMode, isSelected, onToggleSelect, onEnterSelectMode, onHover, onHoverEnd }) {
   const totalQty = card._folder_qty ?? card.qty ?? 1
   const key = getDisplayKey(card)
-  const img = sfCard?.image_uris?.normal || sfCard?.card_faces?.[0]?.image_uris?.normal
+  const img = getBrowserCardImage(card, sfCard)
   const longPress = useLongPress(() => {
     if (selectMode) return
     onEnterSelectMode?.()
@@ -276,7 +288,7 @@ function TableRow({ card, sf, priceSource, isSelected, selectMode, onClick, onEn
   const totalQty = card._folder_qty ?? card.qty ?? 1
   const key = getDisplayKey(card)
   const selQty = splitState?.get(key) ?? 1
-  const img = sf?.image_uris?.normal || sf?.card_faces?.[0]?.image_uris?.normal
+  const img = getBrowserCardImage(card, sf)
   const longPress = useLongPress(() => {
     if (selectMode) return
     onEnterSelectMode?.()
@@ -597,7 +609,7 @@ function TableView({ cards, sfMap, priceSource, groups, groupOrder, groupBy, onS
 }
 
 function StackCard({ card, sf, idx, stackIdx, isPushedDown, priceSource, selectMode, isSelected, onSelect, onToggleSelect, onAdjustQty, splitState, onHoverPreview, onHoverPreviewEnd, onPinPreview, onHoverStart, onHoverEnd, onEnterSelectMode }) {
-  const img = sf?.image_uris?.normal || sf?.card_faces?.[0]?.image_uris?.normal
+  const img = getBrowserCardImage(card, sf)
   const totalQty = card._folder_qty ?? card.qty ?? 1
   const scryfallPrice = getPrice(sf, card.foil, { price_source: priceSource })
   const unitPrice = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
@@ -701,7 +713,7 @@ function StackCard({ card, sf, idx, stackIdx, isPushedDown, priceSource, selectM
   )
 }
 
-function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, selectMode, selectedCards, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, hideHeaders, collapsedGroups, onToggleGroup }) {
+function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, selectMode, selectedCards, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, hideHeaders, collapsedGroups, onToggleGroup, density }) {
   const [activePreview, setActivePreview] = useState(null)
   const [pinnedPreview, setPinnedPreview] = useState(null)
   // { group, stackIdx } — which card is currently being hovered (mouse only)
@@ -725,9 +737,10 @@ function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, selectMo
         total: groups[group].reduce((sum, card) => sum + (card._folder_qty || card.qty || 1), 0),
       }))
   ), [groupOrder, groups])
+  const stackWidth = STACK_WIDTH_BY_DENSITY[density] || STACK_WIDTH_BY_DENSITY.comfortable
 
   return (
-    <div className={styles.stacksWrap} onClick={() => setPinnedPreview(null)}>
+    <div className={styles.stacksWrap} style={{ '--stack-col-w': `${stackWidth}px` }} onClick={() => setPinnedPreview(null)}>
       {stackGroups.map(({ group, cards, total }) => (
         <div key={group} className={styles.stackGroup}>
           {!hideHeaders && (
@@ -783,7 +796,7 @@ function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, selectMo
 }
 
 function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onToggleSelect, onAdjustQty, splitState, onHover, onHoverEnd, onEnterSelectMode }) {
-  const img = sf?.image_uris?.normal || sf?.card_faces?.[0]?.image_uris?.normal
+  const img = getBrowserCardImage(card, sf)
   const totalQty = card._folder_qty ?? card.qty ?? 1
   const scryfallPrice = getPrice(sf, card.foil, { price_source: priceSource })
   const unitPrice = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
@@ -855,6 +868,7 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onT
 }
 
 const DENSITY_MIN_WIDTH = { cozy: 210, comfortable: 160, compact: 128 }
+const STACK_WIDTH_BY_DENSITY = { cozy: 190, comfortable: 160, compact: 140 }
 const MOBILE_GRID_BREAKPOINT = 430
 const MOBILE_DENSITY_COLS = { cozy: 1, comfortable: 2, compact: 3 }
 
@@ -1113,6 +1127,8 @@ export function CardBrowserContent({
   priceSource,
   viewMode,
   groupBy,
+  groupResolver,
+  groupOrder,
   density,
   onSelect,
   selectMode,
@@ -1125,7 +1141,10 @@ export function CardBrowserContent({
   onHoverEnd,
 }) {
   const effectiveViewMode = viewMode === 'list' ? 'table' : viewMode
-  const { groups, groupOrder } = useMemo(() => buildGroups(cards, sfMap, groupBy), [cards, groupBy, sfMap])
+  const { groups, groupOrder: resolvedGroupOrder } = useMemo(
+    () => buildGroups(cards, sfMap, groupBy, groupResolver, groupOrder),
+    [cards, groupBy, groupOrder, groupResolver, sfMap]
+  )
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
 
   const toggleGroup = group => {
@@ -1141,7 +1160,7 @@ export function CardBrowserContent({
     return (
       <StacksView
         groups={groups}
-        groupOrder={groupOrder}
+        groupOrder={resolvedGroupOrder}
         sfMap={sfMap}
         priceSource={priceSource}
         onSelect={onSelect}
@@ -1154,6 +1173,7 @@ export function CardBrowserContent({
         hideHeaders={groupBy === 'none'}
         collapsedGroups={collapsedGroups}
         onToggleGroup={toggleGroup}
+        density={density}
       />
     )
   }
@@ -1162,7 +1182,7 @@ export function CardBrowserContent({
     return (
       <TextView
         groups={groups}
-        groupOrder={groupOrder}
+        groupOrder={resolvedGroupOrder}
         sfMap={sfMap}
         selectMode={selectMode}
         selectedCards={selectedCards}
@@ -1184,7 +1204,7 @@ export function CardBrowserContent({
         sfMap={sfMap}
         priceSource={priceSource}
         groups={groups}
-        groupOrder={groupOrder}
+        groupOrder={resolvedGroupOrder}
         groupBy={groupBy}
         onSelect={onSelect}
         selectMode={selectMode}
@@ -1208,7 +1228,7 @@ export function CardBrowserContent({
       priceSource={priceSource}
       density={density}
       groups={groups}
-      groupOrder={groupOrder}
+      groupOrder={resolvedGroupOrder}
       groupBy={groupBy}
       onSelect={onSelect}
       onHover={onHover}

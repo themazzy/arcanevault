@@ -6,3 +6,6 @@ verify_jwt = false
 
 [functions.admin-update-user-settings]
 verify_jwt = true
+
+[functions.combo-proxy]
+verify_jwt = false

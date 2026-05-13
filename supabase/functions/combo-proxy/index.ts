@@ -6,9 +6,10 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
-const SUPABASE_URL     = Deno.env.get('SUPABASE_URL')     ?? ''
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? ''
 const MAX_BODY_BYTES    = 50_000
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -26,20 +27,6 @@ Deno.serve(async (req) => {
     return new Response('Method not allowed', { status: 405, headers: CORS_HEADERS })
   }
 
-  // require a valid authenticated session
-  const authHeader = req.headers.get('Authorization')
-  if (!authHeader) {
-    return json({ error: 'Missing authorization header.' }, 401)
-  }
-
-  const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    global: { headers: { Authorization: authHeader } },
-  })
-  const { data: { user }, error: authError } = await userClient.auth.getUser()
-  if (authError || !user) {
-    return json({ error: 'Not authenticated.' }, 401)
-  }
-
   // guard against oversized payloads before forwarding
   const raw = await req.text()
   if (raw.length > MAX_BODY_BYTES) {
@@ -53,6 +40,38 @@ Deno.serve(async (req) => {
     return json({ error: 'Invalid JSON body.' }, 400)
   }
 
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    return json({ error: 'Function is not configured.' }, 500)
+  }
+
+  const deckId = typeof body === 'object' && body && 'deck_id' in body
+    ? String((body as { deck_id?: unknown }).deck_id || '')
+    : ''
+  if (!UUID_RE.test(deckId)) {
+    return json({ error: 'A valid deck_id is required.' }, 400)
+  }
+
+  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  const { data: deckCards, error } = await supabase.rpc('get_deck_cards_for_view', { p_deck_id: deckId })
+  if (error) {
+    return json({ error: error.message }, 500)
+  }
+  const cards = Array.isArray(deckCards) ? deckCards : []
+  if (!cards.length) {
+    return json({ error: 'Deck not found.' }, 404)
+  }
+
+  const upstreamBody = {
+    commanders: cards
+      .filter((card) => card?.is_commander)
+      .map((card) => ({ card: card.name }))
+      .filter((entry) => entry.card),
+    main: cards
+      .filter((card) => !card?.is_commander && (card?.board === 'main' || !card?.board))
+      .map((card) => ({ card: card.name }))
+      .filter((entry) => entry.card),
+  }
+
   try {
     const upstream = await fetch('https://backend.commanderspellbook.com/find-my-combos/', {
       method: 'POST',
@@ -61,7 +80,7 @@ Deno.serve(async (req) => {
         'Origin': 'https://commanderspellbook.com',
         'Referer': 'https://commanderspellbook.com/',
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(upstreamBody),
     })
 
     const data = await upstream.json()
