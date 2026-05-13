@@ -60,6 +60,15 @@ function SetupWizardModal({ onClose, isManual }) {
   const [finishing, setFinishing] = useState(false)
 
   const isLast = step === STEPS.length - 1
+  const PROFILE_STEP = 4
+
+  const trimmedNick = nickname.trim()
+  const matchesExisting =
+    trimmedNick.length > 0 &&
+    trimmedNick.toLowerCase() === (settings.nickname || '').toLowerCase()
+  const nicknameValid =
+    trimmedNick.length > 0 && (nicknameStatus === 'available' || matchesExisting)
+  const needsNickname = !nicknameValid
 
   const handleNicknameChange = (val) => {
     setNickname(val)
@@ -76,18 +85,26 @@ function SetupWizardModal({ onClose, isManual }) {
   }
 
   const complete = async () => {
+    if (needsNickname) { setStep(PROFILE_STEP); return }
     setFinishing(true)
-    if (nickname !== settings.nickname) settings.save({ nickname })
+    if (trimmedNick !== (settings.nickname || '')) settings.save({ nickname: trimmedNick })
     await sb.auth.updateUser({ data: { setup_completed: true } })
     localStorage.setItem(SETUP_LOCAL_KEY, '1')
     onClose()
   }
 
   const skip = async () => {
+    if (needsNickname) { setStep(PROFILE_STEP); return }
     setFinishing(true)
     await sb.auth.updateUser({ data: { setup_completed: true } })
     localStorage.setItem(SETUP_LOCAL_KEY, '1')
     onClose()
+  }
+
+  const handleNext = () => {
+    if (isLast) { complete(); return }
+    if (step === PROFILE_STEP && needsNickname) return
+    setStep(s => s + 1)
   }
 
   return (
@@ -120,7 +137,7 @@ function SetupWizardModal({ onClose, isManual }) {
           {step === 1 && <ThemeStep settings={settings} />}
           {step === 2 && <TextStep settings={settings} />}
           {step === 3 && <PriceStep settings={settings} />}
-          {step === 4 && <ProfileStep nickname={nickname} onChange={handleNicknameChange} status={nicknameStatus} />}
+          {step === 4 && <ProfileStep nickname={nickname} onChange={handleNicknameChange} status={nicknameStatus} required />}
           {step === 5 && <DoneStep />}
         </div>
 
@@ -134,7 +151,12 @@ function SetupWizardModal({ onClose, isManual }) {
           </div>
           <div className={styles.footerRight}>
             {!isLast && !isManual && (
-              <button className={styles.btnSkip} onClick={skip} disabled={finishing}>
+              <button
+                className={styles.btnSkip}
+                onClick={skip}
+                disabled={finishing || (step === PROFILE_STEP && needsNickname)}
+                title={step === PROFILE_STEP && needsNickname ? 'A nickname is required to finish setup' : undefined}
+              >
                 Skip setup
               </button>
             )}
@@ -145,8 +167,9 @@ function SetupWizardModal({ onClose, isManual }) {
             )}
             <button
               className={styles.btnNext}
-              onClick={() => isLast ? complete() : setStep(s => s + 1)}
-              disabled={finishing}
+              onClick={handleNext}
+              disabled={finishing || (step === PROFILE_STEP && needsNickname)}
+              title={step === PROFILE_STEP && needsNickname ? 'Pick an available nickname to continue' : undefined}
             >
               {isLast ? 'Start exploring →' : 'Next →'}
             </button>
@@ -446,11 +469,15 @@ function PriceStep({ settings }) {
   )
 }
 
-function ProfileStep({ nickname, onChange, status }) {
+function ProfileStep({ nickname, onChange, status, required }) {
   return (
     <div className={styles.stepContent}>
-      <h2 className={styles.stepTitle}>What should we call you?</h2>
-      <p className={styles.stepDesc}>Your nickname is your identity across the app and your public profile URL. You can leave it blank and set it later.</p>
+      <h2 className={styles.stepTitle}>Pick your nickname</h2>
+      <p className={styles.stepDesc}>
+        Your nickname is your identity across DeckLoom. It powers your public profile URL,
+        shared decks, multiplayer life-tracker games, and trade history, so a nickname is
+        required to finish setup.
+      </p>
       <input
         className={styles.nicknameInput}
         type="text"
@@ -459,6 +486,8 @@ function ProfileStep({ nickname, onChange, status }) {
         onChange={e => onChange(e.target.value)}
         maxLength={24}
         autoFocus
+        required={required}
+        aria-required={required}
       />
       <div className={styles.nicknameMeta}>
         <span>{nickname.length} / 24 characters</span>
