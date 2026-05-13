@@ -3,17 +3,69 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
-import { parseDeckMeta, serializeDeckMeta, FORMATS, groupDeckCards, TYPE_GROUPS } from '../lib/deckBuilderApi'
+import { parseDeckMeta, serializeDeckMeta, FORMATS, classifyCardType, groupDeckCards, TYPE_GROUPS } from '../lib/deckBuilderApi'
 import { toDeckCardRow } from '../lib/deckBuilderWrites'
-import DeckStats, { normalizeDeckBuilderCards } from '../components/DeckStats'
+import DeckStats, { CAT_ORDER, getCardCategory, normalizeDeckBuilderCards } from '../components/DeckStats'
 import styles from './DeckView.module.css'
 import uiStyles from '../components/UI.module.css'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
 import { ResponsiveMenu } from '../components/UI'
 import { CardBrowserContent, CARD_BROWSER_VIEW_MODES } from '../components/CardBrowserViews'
-import { GridViewIcon, StacksViewIcon, TextViewIcon, TableViewIcon, CopyIcon, CheckIcon } from '../icons'
+import { CheckIcon, ChevronDownIcon, GridViewIcon, SearchIcon, SortIcon, StacksViewIcon, TextViewIcon, TableViewIcon } from '../icons'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
+
+const RARITY_ORDER = ['mythic', 'rare', 'uncommon', 'common']
+const RARITY_GROUP_ORDER = ['Mythic', 'Rare', 'Uncommon', 'Common', 'Unknown']
+const BOARD_LABELS = { main: 'Mainboard', side: 'Sideboard', maybe: 'Maybeboard' }
+const COLOR_GROUP_ORDER = ['W', 'U', 'B', 'R', 'G', 'Multicolor', 'Colorless']
+const SORT_OPTIONS = [
+  { id: 'type', label: 'Type' },
+  { id: 'name', label: 'Name' },
+  { id: 'cmc_asc', label: 'Mana Value up' },
+  { id: 'cmc_desc', label: 'Mana Value down' },
+  { id: 'color', label: 'Color' },
+  { id: 'rarity_desc', label: 'Rarity down' },
+  { id: 'rarity_asc', label: 'Rarity up' },
+  { id: 'set', label: 'Set' },
+  { id: 'price_desc', label: 'Price down' },
+  { id: 'price_asc', label: 'Price up' },
+  { id: 'qty', label: 'Quantity' },
+]
+const GROUP_OPTIONS = [
+  { id: 'type', label: 'Type' },
+  { id: 'category', label: 'Category' },
+  { id: 'rarity', label: 'Rarity' },
+  { id: 'set', label: 'Set' },
+  { id: 'board', label: 'Board' },
+  { id: 'color', label: 'Color' },
+  { id: 'none', label: 'None' },
+]
+const CARD_SIZE_OPTIONS = [
+  { id: 'compact', label: 'Small' },
+  { id: 'comfortable', label: 'Medium' },
+  { id: 'cozy', label: 'Large' },
+]
+
+function normalizeBoard(board) {
+  return board === 'side' || board === 'maybe' ? board : 'main'
+}
+
+function rarityLabel(rarity) {
+  if (!rarity) return 'Unknown'
+  return rarity.charAt(0).toUpperCase() + rarity.slice(1)
+}
+
+function colorGroup(colors = []) {
+  const list = Array.isArray(colors) ? colors.filter(Boolean) : []
+  if (list.length === 0) return 'Colorless'
+  if (list.length > 1) return 'Multicolor'
+  return list[0]
+}
+
+function getSfCard(sfMap, card) {
+  return sfMap[getScryfallKey(card)] || null
+}
 
 // ── Mana / symbol renderer ────────────────────────────────────────────────────
 // Converts Scryfall notation like {W}, {T}, {2/U}, {X} → inline SVG images.
@@ -128,6 +180,96 @@ function CardDetailModal({ cardName, onClose }) {
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
+function useComboCardImage(name, existingUri) {
+  const cache = useMemo(() => useComboCardImage.cache || (useComboCardImage.cache = {}), [])
+  const [img, setImg] = useState(existingUri || cache[name] || null)
+
+  useEffect(() => {
+    if (existingUri) {
+      setImg(existingUri)
+      return
+    }
+    if (!name || cache[name] !== undefined) return
+    cache[name] = null
+    fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=json`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        const url = d?.image_uris?.normal
+          || d?.card_faces?.[0]?.image_uris?.normal
+          || d?.image_uris?.large
+          || d?.card_faces?.[0]?.image_uris?.large
+          || null
+        cache[name] = url
+        if (url) setImg(url)
+      })
+      .catch(() => { cache[name] = null })
+  }, [cache, existingUri, name])
+
+  return existingUri || img
+}
+
+function ComboThumb({ name, inDeck, imageUri, onOpenDetail }) {
+  const img = useComboCardImage(name, imageUri)
+  return (
+    <button
+      type="button"
+      className={`${styles.comboThumb}${inDeck ? '' : ' ' + styles.comboThumbMissing}`}
+      onClick={() => onOpenDetail?.(name)}
+      title={name}
+    >
+      {img ? <img src={img} alt={name} loading="lazy" /> : <span>{name}</span>}
+      <span className={styles.comboThumbName}>{name}</span>
+    </button>
+  )
+}
+
+function ComboCard({ combo, deckNames, deckImages, dim, onOpenDetail }) {
+  const uses = (combo.uses || []).map(u => u.card?.name || u.template?.name || '').filter(Boolean)
+  const requires = (combo.requires || []).map(r => ({
+    name: r.template?.name || r.card?.name || '',
+    quantity: r.quantity ?? 1,
+    zone: (r.zoneLocations || []).join(''),
+  })).filter(r => r.name)
+  const results = (combo.produces || []).map(p => p.feature?.name || '').filter(Boolean)
+  const prereqs = [combo.easyPrerequisites, combo.notablePrerequisites].filter(Boolean).join(' ')
+  const steps = combo.description || ''
+  const deckSet = new Set([...deckNames].map(name => name.toLowerCase()))
+
+  return (
+    <div className={`${styles.comboCard}${dim ? ' ' + styles.comboCardDim : ''}`}>
+      <div className={styles.comboThumbs}>
+        {uses.map((name, index) => (
+          <ComboThumb
+            key={`${name}-${index}`}
+            name={name}
+            inDeck={deckSet.has(name.toLowerCase())}
+            imageUri={deckImages[name]}
+            onOpenDetail={onOpenDetail}
+          />
+        ))}
+      </div>
+      {requires.length > 0 && (
+        <div className={styles.comboResults}>
+          {requires.map((r, index) => (
+            <span key={`${r.name}-${index}`} className={styles.comboResult}>
+              {r.quantity > 1 ? `${r.quantity}x ` : ''}{r.name}{r.zone ? ` (${r.zone})` : ''}
+            </span>
+          ))}
+        </div>
+      )}
+      {results.length > 0 && (
+        <div className={styles.comboResults}>
+          {results.slice(0, 6).map((result, index) => (
+            <span key={`${result}-${index}`} className={styles.comboResult}>{result}</span>
+          ))}
+        </div>
+      )}
+      {prereqs && <div className={styles.comboText}><span>Prerequisites: </span>{prereqs}</div>}
+      {steps && <div className={styles.comboText}>{steps}</div>}
+    </div>
+  )
+}
+
 export default function DeckViewPage() {
   const { id } = useParams()
   const { user } = useAuth()
@@ -154,11 +296,17 @@ export default function DeckViewPage() {
   const [copying, setCopying]       = useState(false)
   const [copyDone, setCopyDone]     = useState(false)
 
-  const [sortBy,    setSortBy]    = useState('type')  // 'type' | 'name' | 'cmc' | 'color'
-  const [groupBy,   setGroupBy]   = useState('type')  // 'type' | 'none'
+  const [search,    setSearch]    = useState('')
+  const [sortBy,    setSortBy]    = useState('price_desc')
+  const [groupBy,   setGroupBy]   = useState('type')
+  const [cardSize,  setCardSize]  = useState('comfortable')
   const [showDecklist, setShowDecklist] = useState(false)
   const [decklistCopied, setDecklistCopied] = useState(false)
   const [sfMap,     setSfMap]     = useState({})
+  const [combosIncluded, setCombosIncluded] = useState([])
+  const [combosLoading, setCombosLoading] = useState(false)
+  const [combosFetched, setCombosFetched] = useState(false)
+  const [combosCollapsed, setCombosCollapsed] = useState(false)
 
   const [statsBracketOverride, setStatsBracketOverride] = useState(null)
 
@@ -197,6 +345,45 @@ export default function DeckViewPage() {
     })()
   }, [id, user])
 
+  const fetchCombos = useCallback(async () => {
+    if (combosLoading || !cards.length) return
+    setCombosLoading(true)
+    setCombosCollapsed(false)
+    try {
+      const combosUrl = import.meta.env.DEV
+        ? '/api/combos/find-my-combos/'
+        : `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/combo-proxy`
+      const body = import.meta.env.DEV
+        ? {
+            commanders: cards.filter(c => c.is_commander).map(c => ({ card: c.name })),
+            main: cards
+              .filter(c => !c.is_commander && normalizeBoard(c.board) === 'main')
+              .map(c => ({ card: c.name })),
+          }
+        : { deck_id: id }
+      const res = await fetch(combosUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(import.meta.env.DEV ? {} : {
+            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+          }),
+        },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error(`API ${res.status}`)
+      const data = await res.json()
+      const results = data.results || {}
+      setCombosIncluded(results.included || [])
+    } catch (e) {
+      console.warn('[DeckView combos]', e)
+    } finally {
+      setCombosFetched(true)
+      setCombosLoading(false)
+    }
+  }, [cards, combosLoading, id])
+
   // ── Copy deck to own builder ────────────────────────────────────────────────
   async function copyDeck() {
     if (!user || copying) return
@@ -230,6 +417,34 @@ export default function DeckViewPage() {
       if (folderErr) throw folderErr
 
       if (cards.length > 0) {
+        const categoryRows = [...new Map(
+          cards
+            .filter(c => c.category_name)
+            .map(c => [c.category_id || c.category_name.toLowerCase(), {
+              sourceId: c.category_id || null,
+              name: c.category_name,
+              sort_order: c.category_sort_order ?? 0,
+            }])
+        ).values()]
+        const categoryIdMap = new Map()
+        if (categoryRows.length) {
+          const { data: createdCategories, error: catErr } = await sb
+            .from('deck_categories')
+            .insert(categoryRows.map(category => ({
+              deck_id: newFolder.id,
+              user_id: user.id,
+              name: category.name,
+              sort_order: category.sort_order,
+            })))
+            .select('id,name')
+          if (catErr) throw catErr
+          categoryRows.forEach((category, index) => {
+            const created = createdCategories?.[index]
+            if (!created) return
+            if (category.sourceId) categoryIdMap.set(category.sourceId, created.id)
+            categoryIdMap.set(category.name.toLowerCase(), created.id)
+          })
+        }
         const rows = cards.map(c => ({
           deck_id:          newFolder.id,
           user_id:          user.id,
@@ -247,6 +462,7 @@ export default function DeckViewPage() {
           is_commander:     c.is_commander || false,
           board:            c.board || 'main',
           type_line:        c.type_line || null,
+          category_id:      c.category_id ? (categoryIdMap.get(c.category_id) || null) : (c.category_name ? (categoryIdMap.get(c.category_name.toLowerCase()) || null) : null),
         }))
         const { error: cardsErr } = await sb.from('deck_cards').insert(rows.map(toDeckCardRow))
         if (cardsErr) throw cardsErr
@@ -266,22 +482,103 @@ export default function DeckViewPage() {
   const builderEditId = deck?.type === 'deck' && deckMeta?.linked_builder_id ? deckMeta.linked_builder_id : id
   const format     = FORMATS.find(f => f.id === deckMeta.format)
   const totalCards = useMemo(() => cards.reduce((s, c) => s + c.qty, 0), [cards])
+  const visibleCards = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return cards
+    return cards.filter(card => {
+      const sf = getSfCard(sfMap, card)
+      return [
+        card.name,
+        card.type_line,
+        card.mana_cost,
+        card.set_code,
+        card.collector_number,
+        card.category_name,
+        sf?.type_line,
+        sf?.oracle_text,
+        sf?.set_name,
+        sf?.rarity,
+      ].join(' ').toLowerCase().includes(q)
+    })
+  }, [cards, search, sfMap])
+  const categoryOrder = useMemo(() => {
+    const custom = [...new Map(
+      cards
+        .filter(card => card.category_name)
+        .sort((a, b) => (a.category_sort_order ?? 999) - (b.category_sort_order ?? 999) || a.category_name.localeCompare(b.category_name))
+        .map(card => [card.category_name.toLowerCase(), card.category_name])
+    ).values()]
+    const inferred = CAT_ORDER.filter(name => !custom.some(category => category.toLowerCase() === name.toLowerCase()))
+    return [...custom, ...inferred, 'Uncategorized']
+  }, [cards])
+  const groupOrder = useMemo(() => {
+    if (groupBy === 'category') return categoryOrder
+    if (groupBy === 'type') return TYPE_GROUPS
+    if (groupBy === 'rarity') return RARITY_GROUP_ORDER
+    if (groupBy === 'board') return ['Mainboard', 'Sideboard', 'Maybeboard']
+    if (groupBy === 'color') return COLOR_GROUP_ORDER
+    if (groupBy === 'set') {
+      return [...new Set(visibleCards.map(card => getSfCard(sfMap, card)?.set_name || card.set_code?.toUpperCase() || 'Unknown'))]
+        .sort((a, b) => a.localeCompare(b))
+    }
+    return []
+  }, [categoryOrder, groupBy, sfMap, visibleCards])
+  const groupResolver = useCallback((card, sf, mode) => {
+    if (mode === 'type') return card.is_commander ? 'Commander' : classifyCardType(sf?.type_line || card.type_line || '')
+    if (mode === 'category') {
+      if (card.category_name) return card.category_name
+      const oracle = [sf?.oracle_text, ...(sf?.card_faces || []).map(face => face.oracle_text)].filter(Boolean).join('\n')
+      return getCardCategory(oracle, sf?.type_line || card.type_line || '', sf?.keywords || []) || 'Uncategorized'
+    }
+    if (mode === 'rarity') return rarityLabel(sf?.rarity)
+    if (mode === 'set') return sf?.set_name || card.set_code?.toUpperCase() || 'Unknown'
+    if (mode === 'board') return BOARD_LABELS[normalizeBoard(card.board)]
+    if (mode === 'color') return colorGroup(sf?.color_identity || card.color_identity)
+    return null
+  }, [])
 
   // Sort cards according to sortBy
   const sortCards = useCallback((list) => {
     const copy = [...list]
     if (sortBy === 'name') return copy.sort((a, b) => a.name.localeCompare(b.name))
-    if (sortBy === 'cmc')  return copy.sort((a, b) => (a.cmc ?? 0) - (b.cmc ?? 0) || a.name.localeCompare(b.name))
+    if (sortBy === 'qty') return copy.sort((a, b) => (b.qty ?? 1) - (a.qty ?? 1) || a.name.localeCompare(b.name))
+    if (sortBy === 'cmc_asc')  return copy.sort((a, b) => (a.cmc ?? 0) - (b.cmc ?? 0) || a.name.localeCompare(b.name))
+    if (sortBy === 'cmc_desc') return copy.sort((a, b) => (b.cmc ?? 0) - (a.cmc ?? 0) || a.name.localeCompare(b.name))
     if (sortBy === 'color') return copy.sort((a, b) => {
       const ca = (a.color_identity || []).join('') || 'Z'
       const cb = (b.color_identity || []).join('') || 'Z'
       return ca.localeCompare(cb) || a.name.localeCompare(b.name)
     })
+    if (sortBy === 'rarity_desc' || sortBy === 'rarity') return copy.sort((a, b) => {
+      const rA = RARITY_ORDER.indexOf(getSfCard(sfMap, a)?.rarity || 'common')
+      const rB = RARITY_ORDER.indexOf(getSfCard(sfMap, b)?.rarity || 'common')
+      return rA - rB || a.name.localeCompare(b.name)
+    })
+    if (sortBy === 'rarity_asc') return copy.sort((a, b) => {
+      const rA = RARITY_ORDER.indexOf(getSfCard(sfMap, a)?.rarity || 'common')
+      const rB = RARITY_ORDER.indexOf(getSfCard(sfMap, b)?.rarity || 'common')
+      return rB - rA || a.name.localeCompare(b.name)
+    })
+    if (sortBy === 'set') return copy.sort((a, b) => {
+      const sA = getSfCard(sfMap, a)?.set_name || a.set_code || ''
+      const sB = getSfCard(sfMap, b)?.set_name || b.set_code || ''
+      return sA.localeCompare(sB) || a.name.localeCompare(b.name)
+    })
+    if (sortBy === 'price_desc' || sortBy === 'price') return copy.sort((a, b) => {
+      const pA = getPrice(getSfCard(sfMap, a), a.foil, { price_source }) ?? -1
+      const pB = getPrice(getSfCard(sfMap, b), b.foil, { price_source }) ?? -1
+      return pB - pA || a.name.localeCompare(b.name)
+    })
+    if (sortBy === 'price_asc') return copy.sort((a, b) => {
+      const pA = getPrice(getSfCard(sfMap, a), a.foil, { price_source }) ?? Infinity
+      const pB = getPrice(getSfCard(sfMap, b), b.foil, { price_source }) ?? Infinity
+      return pA - pB || a.name.localeCompare(b.name)
+    })
     return copy // 'type' — groupDeckCards handles ordering
-  }, [sortBy])
+  }, [price_source, sfMap, sortBy])
 
   const groupedCards  = useMemo(() => groupDeckCards(cards), [cards])
-  const sortedFlat    = useMemo(() => sortCards(cards), [cards, sortCards])
+  const sortedFlat    = useMemo(() => sortCards(visibleCards), [sortCards, visibleCards])
   const effectiveViewMode = viewMode === 'list' ? 'table' : viewMode
 
   // Total deck value
@@ -332,11 +629,6 @@ export default function DeckViewPage() {
     }
     return lines.join('\n').trim()
   }, [cards, groupBy, groupedCards, sortCards])
-
-  // Best available card image
-  const cardImg = (c) =>
-    c.image_uri ||
-    `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(c.name)}&format=image&version=normal`
 
   // ── Loading / error states ─────────────────────────────────────────────────
   if (loading) return (
@@ -398,65 +690,63 @@ export default function DeckViewPage() {
 
       {/* ── Deck header ── */}
       <div className={styles.deckHeader}>
-        <h1 className={styles.deckTitle}>{deck.name}</h1>
-        {creatorNick && (
-          <div className={styles.deckCreator}>
-            by{' '}
-            <Link to={`/profile/${encodeURIComponent(creatorNick)}`} className={styles.deckCreatorLink}>
-              {creatorNick}
-            </Link>
-          </div>
-        )}
-        <div className={styles.deckMeta}>
-          {format && <span className={styles.formatBadge}>{format.label}</span>}
-          {format && <span className={styles.metaDot}>·</span>}
-          <span>{totalCards} cards</span>
-          {totalValueFmt && <><span className={styles.metaDot}>·</span><span className={styles.deckValue}>{totalValueFmt}</span></>}
-          {deckMeta.commanders?.length > 0 && (
-             <>
-               <span className={styles.metaDot}>·</span>
-               <span className={styles.commanderBadge}>⚔ {deckMeta.commanders.map(c => c.name).join(' + ')}</span>
-             </>
-           )}
-           {!deckMeta.commanders?.length && deckMeta.commanderName && (
-             <>
-               <span className={styles.metaDot}>·</span>
-               <span className={styles.commanderBadge}>⚔ {deckMeta.commanderName}</span>
-             </>
-           )}
-        </div>
-        {isViewer ? (
-          <div className={styles.viewerBanner}>
-            <div className={styles.viewerCopy}>
-              <div className={styles.viewerEyebrow}>Shared Deck</div>
-              <div className={styles.viewerText}>Copy this list straight into your deckbuilder.</div>
+        <div className={styles.deckHeaderInner}>
+          <div className={styles.deckInfo}>
+            <h1 className={styles.deckTitle}>{deck.name}</h1>
+            {creatorNick && (
+              <div className={styles.deckCreator}>
+                by{' '}
+                <Link to={`/profile/${encodeURIComponent(creatorNick)}`} className={styles.deckCreatorLink}>
+                  {creatorNick}
+                </Link>
+              </div>
+            )}
+            <div className={styles.deckMeta}>
+              {format && <span className={styles.metaPill}>{format.label}</span>}
+              <span className={styles.metaPill}>{totalCards} cards</span>
+              {totalValueFmt && <span className={`${styles.metaPill} ${styles.deckValue}`}>{totalValueFmt}</span>}
+              {deckMeta.commanders?.length > 0 && (
+                <span className={styles.commanderBadge}>⚔ {deckMeta.commanders.map(c => c.name).join(' + ')}</span>
+              )}
+              {!deckMeta.commanders?.length && deckMeta.commanderName && (
+                <span className={styles.commanderBadge}>⚔ {deckMeta.commanderName}</span>
+              )}
             </div>
-            <div className={styles.viewerActions}>
-              <button
-                onClick={copyDeck}
-                disabled={copying || copyDone}
-                className={`${styles.actionBtn}${copyDone ? ' ' + styles.actionBtnDone : ''}`}
-              >
-                {copyDone ? '✓ Added to Deckbuilder' : copying ? 'Copying…' : '＋ Copy to My Deckbuilder'}
-              </button>
+          </div>
+
+          {isViewer ? (
+            <div className={styles.viewerBanner}>
+              <div className={styles.viewerCopy}>
+                <div className={styles.viewerEyebrow}>Shared Deck</div>
+                <div className={styles.viewerText}>Copy this list straight into your deckbuilder.</div>
+              </div>
+              <div className={styles.viewerActions}>
+                <button
+                  onClick={copyDeck}
+                  disabled={copying || copyDone}
+                  className={`${styles.actionBtn}${copyDone ? ' ' + styles.actionBtnDone : ''}`}
+                >
+                  {copyDone ? 'Added to Deckbuilder' : copying ? 'Copying...' : '+ Copy to My Deckbuilder'}
+                </button>
+                <button
+                  className={`${styles.actionBtn}${showDecklist ? ' ' + styles.actionBtnActive : ''}`}
+                  onClick={() => setShowDecklist(v => !v)}
+                >
+                  Copy Decklist
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className={styles.deckHeaderActions}>
               <button
                 className={`${styles.actionBtn}${showDecklist ? ' ' + styles.actionBtnActive : ''}`}
                 onClick={() => setShowDecklist(v => !v)}
               >
-                ⎘ Copy Decklist
+                Copy Decklist
               </button>
             </div>
-          </div>
-        ) : (
-          <div className={styles.deckHeaderActions}>
-            <button
-              className={`${styles.actionBtn}${showDecklist ? ' ' + styles.actionBtnActive : ''}`}
-              onClick={() => setShowDecklist(v => !v)}
-            >
-              ⎘ Copy Decklist
-            </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* ── Inline decklist panel ── */}
@@ -474,7 +764,7 @@ export default function DeckViewPage() {
                   setTimeout(() => setDecklistCopied(false), 2000)
                 }}
               >
-                {decklistCopied ? '✓ Copied' : '⎘ Copy'}
+                {decklistCopied ? 'Copied' : 'Copy'}
               </button>
             </div>
             <pre className={styles.decklistText}>{text}</pre>
@@ -490,50 +780,110 @@ export default function DeckViewPage() {
 
           {/* Header: label + controls */}
           <div className={styles.listHeader}>
-            <span className={styles.listLabel}>Decklist · {totalCards}</span>
-            <div className={styles.listControls}>
+            <div className={styles.listHeading}>
+              <span className={styles.listLabel}>Decklist</span>
+              <span className={styles.listCount}>
+                {visibleCards.reduce((sum, card) => sum + (card.qty || 0), 0)} / {totalCards}
+              </span>
+            </div>
+            <div className={styles.listToolbar}>
+              <label className={styles.searchBox}>
+                <SearchIcon size={14} />
+                <input
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="Search deck..."
+                  aria-label="Search deck"
+                />
+              </label>
               {/* Sort menu */}
               <ResponsiveMenu
+                title="Sort"
                 trigger={({ open, toggle }) => (
                   <button
-                    className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.ghost} ${open ? uiStyles.active : ''}`}
+                    className={`${styles.controlBtn} ${open ? styles.controlBtnActive : ''}`}
                     onClick={toggle}
+                    aria-label={`Sort deck by ${SORT_OPTIONS.find(option => option.id === sortBy)?.label || 'Type'}`}
                   >
-                    Sort: {sortBy === 'type' ? 'Type' : sortBy === 'name' ? 'Name' : sortBy === 'cmc' ? 'CMC' : 'Color'} ▾
+                    <SortIcon size={14} />
+                    <span>Sort</span>
+                    <ChevronDownIcon size={12} className={`${styles.controlChevron}${open ? ' ' + styles.controlChevronOpen : ''}`} />
                   </button>
                 )}
               >
                 {({ close }) => (
-                  <>
-                    {[
-                      { id: 'type',  label: 'By Type' },
-                      { id: 'name',  label: 'By Name' },
-                      { id: 'cmc',   label: 'By CMC' },
-                      { id: 'color', label: 'By Color' },
-                    ].map(opt => (
+                  <div className={uiStyles.responsiveMenuList}>
+                    {SORT_OPTIONS.map(opt => (
                       <button
                         key={opt.id}
                         className={`${uiStyles.responsiveMenuAction}${sortBy === opt.id ? ' ' + uiStyles.responsiveMenuActionActive : ''}`}
                         onClick={() => { setSortBy(opt.id); close() }}
                       >
                         {opt.label}
-                        <span className={uiStyles.responsiveMenuCheck}>{sortBy === opt.id ? '✓' : ''}</span>
+                        <span className={uiStyles.responsiveMenuCheck}>{sortBy === opt.id ? <CheckIcon size={11} /> : ''}</span>
                       </button>
                     ))}
-                  </>
+                  </div>
                 )}
               </ResponsiveMenu>
-              {/* Group toggle pill */}
-              <div className={styles.viewToggles}>
-                <button
-                  className={`${styles.vBtn}${groupBy === 'type' ? ' ' + styles.vBtnActive : ''}`}
-                  onClick={() => setGroupBy('type')}
-                >Grouped</button>
-                <button
-                  className={`${styles.vBtn}${groupBy === 'none' ? ' ' + styles.vBtnActive : ''}`}
-                  onClick={() => setGroupBy('none')}
-                >Ungrouped</button>
-              </div>
+              <ResponsiveMenu
+                title="Group"
+                trigger={({ open, toggle }) => (
+                  <button
+                    className={`${styles.controlBtn} ${open ? styles.controlBtnActive : ''}`}
+                    onClick={toggle}
+                    aria-label={`Group deck by ${GROUP_OPTIONS.find(option => option.id === groupBy)?.label || 'None'}`}
+                  >
+                    <StacksViewIcon size={14} />
+                    <span>Group</span>
+                    <ChevronDownIcon size={12} className={`${styles.controlChevron}${open ? ' ' + styles.controlChevronOpen : ''}`} />
+                  </button>
+                )}
+              >
+                {({ close }) => (
+                  <div className={uiStyles.responsiveMenuList}>
+                    {GROUP_OPTIONS.map(opt => (
+                      <button
+                        key={opt.id}
+                        className={`${uiStyles.responsiveMenuAction}${groupBy === opt.id ? ' ' + uiStyles.responsiveMenuActionActive : ''}`}
+                        onClick={() => { setGroupBy(opt.id); close() }}
+                      >
+                        {opt.label}
+                        <span className={uiStyles.responsiveMenuCheck}>{groupBy === opt.id ? <CheckIcon size={11} /> : ''}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </ResponsiveMenu>
+              <ResponsiveMenu
+                title="Card Size"
+                trigger={({ open, toggle }) => (
+                  <button
+                    className={`${styles.controlBtn} ${open ? styles.controlBtnActive : ''}`}
+                    onClick={toggle}
+                    aria-label={`Card size ${CARD_SIZE_OPTIONS.find(option => option.id === cardSize)?.label || 'Medium'}`}
+                  >
+                    <GridViewIcon size={14} />
+                    <span>Size</span>
+                    <ChevronDownIcon size={12} className={`${styles.controlChevron}${open ? ' ' + styles.controlChevronOpen : ''}`} />
+                  </button>
+                )}
+              >
+                {({ close }) => (
+                  <div className={uiStyles.responsiveMenuList}>
+                    {CARD_SIZE_OPTIONS.map(opt => (
+                      <button
+                        key={opt.id}
+                        className={`${uiStyles.responsiveMenuAction}${cardSize === opt.id ? ' ' + uiStyles.responsiveMenuActionActive : ''}`}
+                        onClick={() => { setCardSize(opt.id); close() }}
+                      >
+                        {opt.label}
+                        <span className={uiStyles.responsiveMenuCheck}>{cardSize === opt.id ? <CheckIcon size={11} /> : ''}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </ResponsiveMenu>
               {/* View toggle — all 5 modes */}
               <div className={styles.viewToggles}>
                 {[
@@ -554,19 +904,27 @@ export default function DeckViewPage() {
           </div>
 
           {/* ── Card browser content ── */}
-          <CardBrowserContent
-            cards={sortedFlat}
-            sfMap={sfMap}
-            priceSource={price_source}
-            viewMode={effectiveViewMode}
-            groupBy={groupBy}
-            onSelect={card => setDetailCard(card.name)}
-            onHover={effectiveViewMode !== 'grid' ? img => setHoverImg(img) : undefined}
-            onHoverEnd={effectiveViewMode !== 'grid' ? () => setHoverImg(null) : undefined}
-          />
+          <div className={styles.browserContent}>
+            <CardBrowserContent
+              cards={sortedFlat}
+              sfMap={sfMap}
+              priceSource={price_source}
+              viewMode={effectiveViewMode}
+              groupBy={groupBy}
+              groupResolver={groupResolver}
+              groupOrder={groupOrder}
+              density={cardSize}
+              onSelect={card => setDetailCard(card.name)}
+              onHover={effectiveViewMode !== 'grid' ? img => setHoverImg(img) : undefined}
+              onHoverEnd={effectiveViewMode !== 'grid' ? () => setHoverImg(null) : undefined}
+            />
+          </div>
 
           {cards.length === 0 && (
             <div className={styles.emptyDeck}>This deck has no cards yet.</div>
+          )}
+          {cards.length > 0 && visibleCards.length === 0 && (
+            <div className={styles.emptyDeck}>No cards match this search.</div>
           )}
         </div>
 
@@ -585,6 +943,57 @@ export default function DeckViewPage() {
 
         {/* ── Right sidebar ── */}
         <div className={styles.sidebar}>
+          {cards.length > 0 && (
+            <div className={styles.combosPanel}>
+              <div className={styles.combosHeader}>
+                <div>
+                  <div className={styles.combosEyebrow}>Commander Spellbook</div>
+                  <div className={styles.combosTitle}>Combos</div>
+                </div>
+                <div className={styles.combosActions}>
+                  {!combosLoading && combosFetched && (
+                    <button className={styles.comboRefreshBtn} onClick={() => setCombosCollapsed(v => !v)}>
+                      <ChevronDownIcon size={12} className={`${styles.comboCollapseIcon}${combosCollapsed ? ' ' + styles.comboCollapseIconClosed : ''}`} />
+                      {combosCollapsed ? 'Expand' : 'Collapse'}
+                    </button>
+                  )}
+                  {!combosLoading && (
+                    <button className={styles.comboRefreshBtn} onClick={fetchCombos}>
+                      {combosFetched ? 'Refresh' : 'Find Combos'}
+                    </button>
+                  )}
+                </div>
+              </div>
+              {!combosFetched && !combosLoading && (
+                <div className={styles.combosPrompt}>Check this deck for complete combo lines already included in the list.</div>
+              )}
+              {combosLoading && <div className={styles.combosLoading}>Checking Commander Spellbook...</div>}
+              {!combosLoading && combosFetched && combosIncluded.length === 0 && (
+                <div className={styles.combosEmpty}>No combos found for this deck.</div>
+              )}
+              {!combosLoading && combosFetched && combosIncluded.length > 0 && combosCollapsed && (
+                <div className={styles.combosSummary}>
+                  {combosIncluded.length} complete combo{combosIncluded.length === 1 ? '' : 's'} found.
+                </div>
+              )}
+              {!combosLoading && combosFetched && combosIncluded.length > 0 && !combosCollapsed && (
+                <>
+                  <div className={styles.comboSubLabel}>
+                    Complete <span className={styles.comboCount}>{combosIncluded.length}</span>
+                  </div>
+                  {combosIncluded.map((combo, index) => (
+                    <ComboCard
+                      key={`included-${index}`}
+                      combo={combo}
+                      deckNames={cards.map(card => card.name)}
+                      deckImages={Object.fromEntries(cards.map(card => [card.name, card.image_uri]).filter(([, uri]) => uri))}
+                      onOpenDetail={setDetailCard}
+                    />
+                  ))}
+                </>
+              )}
+            </div>
+          )}
           {cards.length > 0 && (
             <div>
               <div className={styles.sectionLabel}>Stats</div>
