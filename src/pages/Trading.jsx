@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { sb } from '../lib/supabase'
+import { queryClient } from '../lib/queryClient'
+import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
 import { formatPrice, getImageUri, getInstantCache, getPrice, sfGet } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import {
@@ -1079,6 +1081,10 @@ export default function TradingPage() {
       await applyTradeResultToLocalDb(result)
       if (navigator.onLine) await syncRemoteCollection()
       else await hydrateLocalCollection()
+      await invalidateOwnedCollectionQueries(queryClient, user.id, {
+        includeFolders: true,
+        includeCards: true,
+      }).catch(() => {})
 
       // Write trade log entry (non-fatal if it fails)
       try {
