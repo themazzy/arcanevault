@@ -22,6 +22,8 @@ import { lastInputWasTouch } from '../lib/inputType'
 import { getPlacedQtyByCardIds, pruneUnplacedCards } from '../lib/collectionOwnership'
 import { fetchDeckAllocations, fetchDeckCards } from '../lib/deckData'
 import { getDeckAllocations, getCardsByIds, getLocalFolders, replaceDeckAllocations, putCards, putDeckAllocations, putFolderCards, replaceLocalFolderCards } from '../lib/db'
+import { queryClient } from '../lib/queryClient'
+import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
 import { toDeckCardRow } from '../lib/deckBuilderWrites'
 
 const CAN_HOVER = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover) and (pointer: fine)').matches
@@ -727,6 +729,9 @@ export default function DeckBrowser({ folder, onBack }) {
     })
     setLinkedDirty(true)
   }, [folder])
+  const invalidatePlacementCaches = useCallback((options = {}) => (
+    invalidateOwnedCollectionQueries(queryClient, user?.id, options).catch(() => {})
+  ), [user?.id])
 
   const openInBuilder = useCallback(async () => {
     const meta = parseDeckMeta(folderDescription || '{}')
@@ -1029,6 +1034,7 @@ export default function DeckBrowser({ folder, onBack }) {
         id: r.id, deck_id: r.deck_id, user_id: r.user_id, card_id: r.card_id, qty: r.qty,
       }))).catch(() => {})
       await markCurrentLinkedDeckUnsynced()
+      await invalidatePlacementCaches({ includeCards: true })
       setCards(prev => prev.map(c => {
         if (!selectedCards.has(c.id)) return c
         const totalQty = c._folder_qty || c.qty || 1
@@ -1080,6 +1086,7 @@ export default function DeckBrowser({ folder, onBack }) {
         id: r.id, deck_id: r.deck_id, user_id: r.user_id, card_id: r.card_id, qty: r.qty,
       }))).catch(() => {})
       await markCurrentLinkedDeckUnsynced()
+      await invalidatePlacementCaches()
       setCards(prev => prev.map(c => {
         if (!selectedCards.has(c.id)) return c
         const totalQty = c._folder_qty || c.qty || 1
@@ -1144,7 +1151,8 @@ export default function DeckBrowser({ folder, onBack }) {
   const handleCardSave = useCallback((updatedCard) => {
     setCards(prev => prev.map(c => c.id === updatedCard.id ? { ...c, ...updatedCard } : c))
     void markCurrentLinkedDeckUnsynced()
-  }, [markCurrentLinkedDeckUnsynced])
+    void invalidatePlacementCaches({ includeCards: true })
+  }, [markCurrentLinkedDeckUnsynced, invalidatePlacementCaches])
 
   const handleDetailDelete = useCallback(async () => {
     if (!selectedCard) return
@@ -1174,6 +1182,7 @@ export default function DeckBrowser({ folder, onBack }) {
         id: row.id, deck_id: row.deck_id, user_id: row.user_id, card_id: row.card_id, qty: row.qty,
       }))).catch(() => {})
       await markCurrentLinkedDeckUnsynced()
+      await invalidatePlacementCaches({ includeCards: true })
       setCards(prev => prev.filter(c => c.id !== selectedCard.id).map(c => (
         c.id === selectedCard.id ? { ...c, qty: nextQty } : c
       )))
@@ -1183,7 +1192,7 @@ export default function DeckBrowser({ folder, onBack }) {
       console.error('[DeckBrowser] detail delete failed:', e)
       loadCards()
     }
-  }, [selectedCard, folder.id, markCurrentLinkedDeckUnsynced, loadCards, toast])
+  }, [selectedCard, folder.id, markCurrentLinkedDeckUnsynced, invalidatePlacementCaches, loadCards, toast])
 
   if (loading) return <EmptyState>Loading deck…</EmptyState>
 
@@ -1300,6 +1309,7 @@ export default function DeckBrowser({ folder, onBack }) {
               .single()
             if (newFolder) {
               setAllFolders(prev => [...prev, newFolder])
+              await invalidatePlacementCaches({ includeFolders: true, includePlacements: false })
               await handleMoveToFolder(newFolder)
             }
           }}
@@ -1360,6 +1370,7 @@ export default function DeckBrowser({ folder, onBack }) {
             if (result?.cards?.length) await putCards(result.cards)
             if (result?.placements?.length) await putDeckAllocations(result.placements)
             await markCurrentLinkedDeckUnsynced()
+            await invalidatePlacementCaches({ includeCards: !!result?.cards?.length })
             setShowAddCard(false)
             await loadCards()
           }}
@@ -1372,7 +1383,7 @@ export default function DeckBrowser({ folder, onBack }) {
           folders={[folder]}
           defaultFolderId={folder.id}
           onClose={() => setShowImport(false)}
-          onSaved={async () => { await markCurrentLinkedDeckUnsynced(); setShowImport(false); await loadCards() }}
+          onSaved={async () => { await markCurrentLinkedDeckUnsynced(); await invalidatePlacementCaches({ includeCards: true }); setShowImport(false); await loadCards() }}
         />
       )}
       {showExport && (
