@@ -199,22 +199,28 @@ const FEATURES = [
     stat: 'Search by name, set, and print',
   },
   {
+    icon: '◎',
+    title: 'Card Scanner',
+    desc: 'Add cards in seconds with your phone camera. Perceptual hashing matches the exact printing — no typing collector numbers by hand.',
+    stat: 'Fast camera card entry',
+  },
+  {
     icon: '⚔',
     title: 'Deck Builder',
-    desc: 'Build decklists with recommendations, combo detection, collection sync, and collection-deck allocation workflows.',
+    desc: 'Build decklists with combo detection, format legality checks, commander colour identity warnings, and one-click sync from your owned cards.',
     stat: 'Commander-focused deck workflow',
   },
   {
-    icon: '◉',
-    title: 'Profit and Loss',
-    desc: 'Follow daily EUR and USD market values, compare deck totals, and watch how your collection changes over time.',
-    stat: 'Daily market price tracking',
+    icon: '◐',
+    title: 'Deck Playtester',
+    desc: 'Goldfish any deck right in the browser — opening hands, mulligans, draws and shuffles — to stress-test new builds before sleeving up.',
+    stat: 'In-app deck goldfish',
   },
   {
-    icon: '◎',
-    title: 'Card Scanner',
-    desc: 'Use your camera to add cards quickly when typing every print by hand would slow you down.',
-    stat: 'Fast camera card entry',
+    icon: '◉',
+    title: 'Pricing & P&L',
+    desc: 'Live market values, daily snapshots, manual overrides, and per-deck totals so you can follow how your collection changes over time.',
+    stat: 'Daily price tracking',
   },
   {
     icon: '⬡',
@@ -229,10 +235,34 @@ const FEATURES = [
     stat: 'Track any printing or foil',
   },
   {
+    icon: '⇄',
+    title: 'Trade Valuation',
+    desc: 'Drop a want list against your collection to weigh trades, see two-way totals, and find the printings that match what someone is asking for.',
+    stat: 'Match wants to what you own',
+  },
+  {
+    icon: '◢',
+    title: 'Collection Analytics',
+    desc: 'Breakdowns by colour, type, mana value, rarity and set — plus value-over-time charts so you can see what your collection actually looks like.',
+    stat: 'Charts and breakdowns',
+  },
+  {
+    icon: '♥',
+    title: 'Multiplayer Life Tracker',
+    desc: 'Spin up a game on one device or share a join code across phones. Commander damage, poison, monarch, and a unified game log per match.',
+    stat: 'Up to 6 players, any device',
+  },
+  {
     icon: '✧',
-    title: 'Sharing and Planning',
-    desc: 'Share decks, compare ideas, and keep collection decks aligned with the cards you actually own.',
-    stat: 'Shareable decks and collection sync',
+    title: 'Public Profiles & Shared Decks',
+    desc: 'A bento-grid profile showcases your favourite decks, stats and bio. Share any deck via shortlink so friends can review the list.',
+    stat: 'Personal profile URL',
+  },
+  {
+    icon: '§',
+    title: 'MTG Rulebook',
+    desc: 'The comprehensive rules built in — searchable by category, section, or rule number so the answer is one tap away mid-game.',
+    stat: 'Full searchable rules',
   },
 ]
 
@@ -303,21 +333,31 @@ export function LoginPage({ forcedMode = null }) {
   const steps = useMemo(() => ([
     {
       number: '01',
-      title: 'Scan or Search',
-      desc: 'Use your phone camera to add cards quickly, or search by name, set, or collector number when you want a specific printing.',
+      title: 'Scan or Import',
+      desc: 'Add cards in seconds with the phone camera, search by name and set, or bulk-import a whole collection from a Manabox CSV export.',
       cards: collectionCards.slice(0, 3),
+      artsKey: 'collection0',
     },
     {
       number: '02',
-      title: 'Organise Everything',
-      desc: 'Sort cards into binders, assemble decks, and build wishlists. Move cards with bulk actions or import an entire collection from a Manabox CSV export.',
+      title: 'Organise & Build',
+      desc: 'Sort cards into binders, wishlists, and decks. The deck builder ties straight back to your owned cards so you always know what you still need.',
       cards: builderCards.slice(0, 3),
+      artsKey: 'builder0',
     },
     {
       number: '03',
-      title: 'Track Profit and Loss',
-      desc: 'Market prices update daily. Historical snapshots chart how your collection changes so you can follow value across cards and decks.',
+      title: 'Test & Play',
+      desc: 'Goldfish new builds in the in-app playtester, then track real games with the multiplayer life tracker — share a join code and play across phones.',
+      cards: builderCards.slice(3, 6),
+      artsKey: 'builder3',
+    },
+    {
+      number: '04',
+      title: 'Value & Share',
+      desc: 'Watch daily market prices, gauge trades against your collection, and share decks or your public profile when you want to show what you have built.',
       cards: collectionCards.slice(3, 6),
+      artsKey: 'collection3',
     },
   ]), [builderCards, collectionCards])
 
@@ -430,11 +470,11 @@ export function LoginPage({ forcedMode = null }) {
             <span className={styles.logoText}>Deck<span>Loom</span></span>
           </div>
           <h1 className={styles.tagline}>
-            Your Magic collection,<br />finally organised.
+            All in one<br />Magic: The Gathering companion.
           </h1>
           <p className={styles.taglineSub}>
-            Scan cards with your camera, build decks, track market values in EUR and USD,
-            and monitor your profit and loss — all in one place.
+            Scan cards, organise your collection, build decks, and run multiplayer life totals —
+            every tool a Magic player needs, in a single app.
           </p>
 
           <div className={styles.featurePills}>
@@ -448,18 +488,23 @@ export function LoginPage({ forcedMode = null }) {
 
           <div className={styles.heroStats}>
             <div className={styles.heroStat}>
+              <span className={styles.heroStatNum}>Scanner</span>
+              <span className={styles.heroStatLabel}>Add cards with your camera</span>
+            </div>
+            <div className={styles.heroStatDivider} />
+            <div className={styles.heroStat}>
               <span className={styles.heroStatNum}>Collection</span>
-              <span className={styles.heroStatLabel}>Cards, binders, decks, and wishlists</span>
+              <span className={styles.heroStatLabel}>Binders, decks, wishlists, trades</span>
             </div>
             <div className={styles.heroStatDivider} />
             <div className={styles.heroStat}>
-              <span className={styles.heroStatNum}>EUR & USD</span>
-              <span className={styles.heroStatLabel}>Live market prices</span>
+              <span className={styles.heroStatNum}>Deck Builder</span>
+              <span className={styles.heroStatLabel}>Build, playtest, share</span>
             </div>
             <div className={styles.heroStatDivider} />
             <div className={styles.heroStat}>
-              <span className={styles.heroStatNum}>Decks</span>
-              <span className={styles.heroStatLabel}>Builder, sharing, and collection sync</span>
+              <span className={styles.heroStatNum}>Life Tracker</span>
+              <span className={styles.heroStatLabel}>Multiplayer with join codes</span>
             </div>
           </div>
         </div>
@@ -702,35 +747,43 @@ export function LoginPage({ forcedMode = null }) {
         <div className={styles.sectionLabel} style={{ justifyContent: 'center' }}>How it works</div>
         <h2 className={styles.sectionTitle} style={{ textAlign: 'center' }}>From unboxed to organised in minutes</h2>
         <div className={styles.steps}>
-          {steps.map((step, si) => (
-            <div key={step.number} className={styles.step}>
-              <div className={styles.stepNumber}>{step.number}</div>
-              <div className={styles.stepContent}>
-                <div className={styles.stepTitle}>{step.title}</div>
-                <div className={styles.stepDesc}>{step.desc}</div>
+          {steps.map(step => {
+            const artsForStep = (
+              step.artsKey === 'collection0' ? collectionArts.slice(0, 3)
+              : step.artsKey === 'builder0' ? builderArts.slice(0, 3)
+              : step.artsKey === 'builder3' ? builderArts.slice(3, 6)
+              : collectionArts.slice(3, 6)
+            )
+            return (
+              <div key={step.number} className={styles.step}>
+                <div className={styles.stepNumber}>{step.number}</div>
+                <div className={styles.stepContent}>
+                  <div className={styles.stepTitle}>{step.title}</div>
+                  <div className={styles.stepDesc}>{step.desc}</div>
+                </div>
+                <div className={styles.stepCards}>
+                  {step.cards.map((name, i) => (
+                    <div
+                      key={name}
+                      className={styles.stepCardPh}
+                      style={{ '--si': i }}
+                    >
+                      {artsForStep[i]
+                        ? <img
+                            src={artsForStep[i]}
+                            alt=""
+                            className={styles.stepCardImg}
+                            loading="lazy"
+                          />
+                        : null
+                      }
+                      <div className={styles.stepCardName}>{name}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className={styles.stepCards}>
-                {step.cards.map((name, i) => (
-                  <div
-                    key={name}
-                    className={styles.stepCardPh}
-                    style={{ '--si': i }}
-                  >
-                    {(si === 0 ? collectionArts : si === 1 ? builderArts : collectionArts.slice(3))[i]
-                      ? <img
-                          src={(si === 0 ? collectionArts : si === 1 ? builderArts : collectionArts)[i]}
-                          alt=""
-                          className={styles.stepCardImg}
-                          loading="lazy"
-                        />
-                      : null
-                    }
-                    <div className={styles.stepCardName}>{name}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </section>
 
@@ -777,23 +830,23 @@ export function LoginPage({ forcedMode = null }) {
       {/* ── Stats bar ── */}
       <div className={styles.statsBar}>
         <div className={styles.statsBarItem}>
-          <span className={styles.statsBarNum}>Search</span>
-          <span className={styles.statsBarLabel}>Find exact printings and finishes</span>
+          <span className={styles.statsBarNum}>Scan</span>
+          <span className={styles.statsBarLabel}>Camera matches the exact printing</span>
         </div>
         <div className={styles.statsBarDot} />
         <div className={styles.statsBarItem}>
-          <span className={styles.statsBarNum}>EUR & USD</span>
-          <span className={styles.statsBarLabel}>Live prices, updated daily</span>
+          <span className={styles.statsBarNum}>Prices</span>
+          <span className={styles.statsBarLabel}>Market values, updated daily</span>
         </div>
         <div className={styles.statsBarDot} />
         <div className={styles.statsBarItem}>
-          <span className={styles.statsBarNum}>Share</span>
-          <span className={styles.statsBarLabel}>Show off decks and collection plans</span>
+          <span className={styles.statsBarNum}>Playtest</span>
+          <span className={styles.statsBarLabel}>Goldfish decks in the browser</span>
         </div>
         <div className={styles.statsBarDot} />
         <div className={styles.statsBarItem}>
-          <span className={styles.statsBarNum}>Organise</span>
-          <span className={styles.statsBarLabel}>Keep binders, decks, and wishlists in step</span>
+          <span className={styles.statsBarNum}>Multiplayer</span>
+          <span className={styles.statsBarLabel}>Life tracker with shared join codes</span>
         </div>
       </div>
 

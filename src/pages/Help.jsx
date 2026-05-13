@@ -12,11 +12,15 @@ const TOC = [
   { id: 'binders', label: 'Binders' },
   { id: 'decks', label: 'Decks' },
   { id: 'deckbuilder', label: 'Deckbuilder' },
+  { id: 'playtester', label: 'Deck Playtester' },
   { id: 'wishlists', label: 'Wishlists' },
+  { id: 'trading', label: 'Trading' },
   { id: 'search-filters', label: 'Search, Filters, Sorting, and Views' },
   { id: 'imports', label: 'Imports and Linked Deck Sources' },
   { id: 'stats-prices', label: 'Stats and Prices' },
   { id: 'life-tracker', label: 'Life Tracker' },
+  { id: 'profiles', label: 'Public Profiles and Sharing' },
+  { id: 'rulebook', label: 'MTG Rulebook' },
   { id: 'settings-sync', label: 'Settings and Sync' },
 ]
 
@@ -513,6 +517,41 @@ export default function HelpPage() {
           <ScreenshotPlaceholder label="Deckbuilder screen with planned list, grouping controls, and external links." />
         </section>
 
+        <section id="playtester" className={styles.section}>
+          <h2>Deck Playtester</h2>
+          <p>
+            The Playtester (sometimes called a goldfish) lets you draw a sample hand from any
+            deck and play through opening turns inside the browser. It is the fastest way to
+            sanity-check a list before sleeving up or buying missing cards.
+          </p>
+
+          <div className={styles.cardGrid}>
+            <article className={styles.infoCard}>
+              <h3>Useful for</h3>
+              <ul className={styles.list}>
+                <li>Testing mulligan decisions and opening-hand consistency</li>
+                <li>Checking how mana base feels in practice</li>
+                <li>Spotting clunky draws before committing to a build</li>
+                <li>Comparing two versions of the same deck</li>
+              </ul>
+            </article>
+            <article className={styles.infoCard}>
+              <h3>What you can do</h3>
+              <ul className={styles.list}>
+                <li>Shuffle, draw, and reset hands</li>
+                <li>Track turn count and basic game state</li>
+                <li>Browse the full deck while testing</li>
+                <li>Move cards between hand, battlefield, and graveyard zones</li>
+              </ul>
+            </article>
+          </div>
+
+          <Callout kind="tip" title="Best used inside Deckbuilder">
+            Open the Playtester directly from the Deckbuilder version of a list while it is still
+            evolving. Once a list is final, it can also be playtested from the owned Deck view.
+          </Callout>
+        </section>
+
         <section id="wishlists" className={styles.section}>
           <h2>Wishlists</h2>
           <p>
@@ -551,6 +590,42 @@ export default function HelpPage() {
           </Callout>
 
           <ScreenshotPlaceholder label="Wishlist view showing wanted cards, selection controls, and list organization." />
+        </section>
+
+        <section id="trading" className={styles.section}>
+          <h2>Trading</h2>
+          <p>
+            Trading is a value-comparison workspace. You can drop in a want list, match it against
+            cards you actually own, and see two-way totals before agreeing to a trade. It is meant
+            to help you decide whether a deal makes sense, not to negotiate it for you.
+          </p>
+
+          <div className={styles.cardGrid}>
+            <article className={styles.infoCard}>
+              <h3>Typical workflow</h3>
+              <ol className={styles.numberedList}>
+                <li>Paste or build the list of cards the other person is asking for.</li>
+                <li>Build or paste the list of cards being offered to you.</li>
+                <li>Review the two-way totals and per-card values.</li>
+                <li>Decide whether to proceed, adjust, or walk away.</li>
+              </ol>
+            </article>
+            <article className={styles.infoCard}>
+              <h3>Useful for</h3>
+              <ul className={styles.list}>
+                <li>Comparing trade offers at a glance</li>
+                <li>Spotting cards from a want list that you already own</li>
+                <li>Sanity-checking that totals roughly balance</li>
+                <li>Finding the right printings to fulfill a request</li>
+              </ul>
+            </article>
+          </div>
+
+          <Callout kind="note" title="Prices are informational">
+            Trade values use the same price source you have selected in Settings. Marketplaces and
+            local prices vary, so always confirm important trades against the source you and your
+            trade partner actually use.
+          </Callout>
         </section>
 
         <section id="search-filters" className={styles.section}>
@@ -724,6 +799,84 @@ export default function HelpPage() {
           </Callout>
 
           <ScreenshotPlaceholder label="Life Tracker lobby and in-game layout with players, counters, and controls." />
+        </section>
+
+        <section id="profiles" className={styles.section}>
+          <h2>Public Profiles and Sharing</h2>
+          <p>
+            DeckLoom gives every account a public profile page you can share with other players.
+            Profiles use a bento-grid layout so you can pick which information to show — a short
+            bio, collection highlights, featured decks, or basic stats. Nothing is published until
+            you intentionally enable the relevant blocks.
+          </p>
+
+          <div className={styles.cardGrid}>
+            <article className={styles.infoCard}>
+              <h3>You can show</h3>
+              <ul className={styles.list}>
+                <li>A nickname and short bio</li>
+                <li>Featured decks from your collection</li>
+                <li>Light collection-level stats</li>
+                <li>A link people can share</li>
+              </ul>
+            </article>
+            <article className={styles.infoCard}>
+              <h3>Sharing individual decks</h3>
+              <ul className={styles.list}>
+                <li>Public deck shortlinks let you send a single deck without opening up the whole profile</li>
+                <li>Share tokens give a temporary view of a deck or folder</li>
+                <li>Public views are read-only — viewers cannot edit your data</li>
+              </ul>
+            </article>
+          </div>
+
+          <Callout kind="note" title="Privacy is opt-in">
+            Your profile is only as public as you choose to make it. If a block is disabled, the
+            information behind that block is not exposed on the public page. You can change the
+            visible blocks at any time.
+          </Callout>
+
+          <Callout kind="warning" title="Anything published can be cached">
+            Once a deck or profile is reachable via a public URL, copies of that page may be cached
+            by browsers or third parties. Treat public links like anything else you put on the
+            open web.
+          </Callout>
+        </section>
+
+        <section id="rulebook" className={styles.section}>
+          <h2>MTG Rulebook</h2>
+          <p>
+            The Rulebook embeds the comprehensive Magic: The Gathering rules so you can look up
+            an answer mid-game without leaving the app. It is browsable by category, section, and
+            individual rule number, and searchable by keyword.
+          </p>
+
+          <div className={styles.cardGrid}>
+            <article className={styles.infoCard}>
+              <h3>How to use it</h3>
+              <ul className={styles.list}>
+                <li>Search by rule number when you already know the reference</li>
+                <li>Search by keyword (such as &quot;trample&quot; or &quot;commander tax&quot;)</li>
+                <li>Browse categories when you want context around a topic</li>
+                <li>Open a specific section to read the surrounding rules</li>
+              </ul>
+            </article>
+            <article className={styles.infoCard}>
+              <h3>When it helps most</h3>
+              <ul className={styles.list}>
+                <li>Settling a quick rules dispute during play</li>
+                <li>Confirming layered or replacement-effect interactions</li>
+                <li>Checking format-specific rules during deckbuilding</li>
+                <li>Reading up on a mechanic from a recent set</li>
+              </ul>
+            </article>
+          </div>
+
+          <Callout kind="note" title="Rules are the official text, not legal advice">
+            The Rulebook reproduces the comprehensive rules published by Wizards of the Coast. For
+            tournament-level disputes, the head judge&apos;s decision and the official policy
+            documents still take precedence.
+          </Callout>
         </section>
 
         <section id="settings-sync" className={styles.section}>

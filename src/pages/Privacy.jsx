@@ -43,6 +43,7 @@ export default function PrivacyPage() {
             Until a dedicated privacy mailbox is published, those request paths are the official contact
             mechanisms for deletion, data-handling questions, and follow-up on personal-data requests.
           </p>
+          <p><em>Last updated: 2026-05-13.</em></p>
         </section>
 
         <section className={styles.section}>
@@ -81,6 +82,16 @@ export default function PrivacyPage() {
                   <td>Public sharing data</td>
                   <td>Shared folder or deck views reached through a share token or public deck link</td>
                   <td>To let you intentionally share selected content with others.</td>
+                </tr>
+                <tr>
+                  <td>Payment data (premium only)</td>
+                  <td>Stripe checkout session id, Stripe customer id, payment status</td>
+                  <td>To process one-time premium theme purchases. Card numbers and billing details are handled by Stripe and never reach DeckLoom servers.</td>
+                </tr>
+                <tr>
+                  <td>OAuth sign-in data</td>
+                  <td>Email address and basic profile data shared by Google or Discord when you choose to sign in with them</td>
+                  <td>To create or sign in to your DeckLoom account through a third-party identity provider.</td>
                 </tr>
               </tbody>
             </table>
@@ -123,15 +134,73 @@ export default function PrivacyPage() {
         <section className={styles.section}>
           <h2>Third-party processors and sources</h2>
           <ul className={styles.list}>
-            <li>Supabase is used for authentication, sync storage, and file uploads tied to feedback attachments.</li>
+            <li>Supabase is used for authentication, sync storage, database storage, and file uploads tied to feedback attachments.</li>
+            <li>Google and Discord act as identity providers when you choose to sign in with their accounts. Each receives the standard OAuth handshake data and applies its own privacy policy.</li>
+            <li>Stripe is used as the payment processor for one-time premium theme purchases. Stripe collects and handles payment card details directly under its own privacy policy; DeckLoom only stores a checkout reference, customer id, and payment status.</li>
             <li>Scryfall is used for card metadata and imagery.</li>
             <li>Frankfurter is used for exchange-rate conversion in supported price displays.</li>
+            <li>GitHub Pages hosts the static front-end build at the public site URL.</li>
             <li>Other external MTG services may be linked or queried for feature-specific integrations.</li>
           </ul>
           <p>
             The current source list and attribution notices are maintained on the{' '}
             <Link to="/credits" className={styles.inlineLink}>Credits and Fan Content Notice</Link> page.
           </p>
+        </section>
+
+        <section className={styles.section}>
+          <h2>International data transfers</h2>
+          <p>
+            Some processors named above operate from servers outside the European Economic Area —
+            in particular Supabase, Stripe, Google, Discord, and GitHub. Where personal data is
+            transferred outside the EEA or the UK, DeckLoom relies on the standard safeguards each
+            processor provides (such as the EU Standard Contractual Clauses, EU-US Data Privacy
+            Framework certifications where applicable, and the privacy commitments published on each
+            provider&apos;s website).
+          </p>
+        </section>
+
+        <section className={styles.section}>
+          <h2>Automated decision-making and profiling</h2>
+          <p>
+            DeckLoom does not use automated decision-making that produces legal or similarly
+            significant effects, and it does not perform behavioural profiling of users for
+            advertising or scoring purposes. Search results, recommendations, and analytics
+            inside the app are informational helpers, not automated decisions about you.
+          </p>
+        </section>
+
+        <section className={styles.section}>
+          <h2>Children and minors</h2>
+          <p>
+            DeckLoom is not directed at children under 16. If you are under the age of digital
+            consent that applies where you live, please do not create an account or send personal
+            data through the feedback form without a parent or guardian. If a parent or guardian
+            believes a minor has submitted personal data, use the{' '}
+            <Link to="/delete-account" className={styles.inlineLink}>Delete Account</Link> page or
+            the in-app feedback form so the account and related data can be removed.
+          </p>
+        </section>
+
+        <section className={styles.section}>
+          <h2>Your rights under the GDPR and similar laws</h2>
+          <p>
+            Where applicable law (in particular the EU General Data Protection Regulation and the
+            UK GDPR) grants you data-subject rights, you can exercise them through the in-app
+            feedback form or the{' '}
+            <Link to="/delete-account" className={styles.inlineLink}>Delete Account</Link> page.
+            These rights include:
+          </p>
+          <ul className={styles.list}>
+            <li>Right of access — request a copy of the personal data DeckLoom holds about you.</li>
+            <li>Right to rectification — ask for inaccurate or incomplete personal data to be corrected.</li>
+            <li>Right to erasure — ask for personal data to be deleted (subject to limited legal exceptions).</li>
+            <li>Right to restriction — ask for processing of your personal data to be limited while a request is reviewed.</li>
+            <li>Right to data portability — request a machine-readable export of the personal data you provided.</li>
+            <li>Right to object — object to processing that relies on legitimate interests.</li>
+            <li>Right to withdraw consent — where processing is based on your consent, you can withdraw it at any time without affecting prior lawful processing.</li>
+            <li>Right to lodge a complaint — you can complain to your local data-protection supervisory authority if you believe your rights have been violated.</li>
+          </ul>
         </section>
 
         <section className={styles.section}>
