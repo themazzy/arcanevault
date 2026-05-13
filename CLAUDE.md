@@ -57,7 +57,6 @@ Copy `.env.example` to `.env` and fill in:
 ```
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key
-VITE_POKEMON_TCG_API_KEY=your-key   # optional — Pokemon TCG page degrades without it
 ```
 
 `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are required at startup; the app will fail silently without them.
@@ -236,7 +235,6 @@ Full route map:
 /stats                   → Stats.jsx
 /life                    → LifeTracker.jsx
 /tournaments             → Tournaments.jsx
-/pokemon                 → PokemonCollection.jsx
 /settings                → Settings.jsx
 /help                    → Help.jsx
 /rules                   → Rulebook.jsx
@@ -285,7 +283,6 @@ These are only active during `npm run dev`. Production deploys on GitHub Pages c
 | `src/lib/admin.js` | `isCurrentUserAdmin()` — checks `admin_users` table |
 | `src/lib/consent.js` | GDPR consent preferences (necessary/analytics/marketing/preferences) stored in localStorage |
 | `src/lib/publicUrl.js` | `getPublicBaseUrl()`, `getPublicAppUrl(path)` — prod/dev URL helpers (Capacitor-aware) |
-| `src/lib/pokemonTcg.js` | Pokemon TCG API integration — search, prices, snapshots |
 | `src/lib/tournament.js` | Tournament logic: formats, structures, standings, result recording |
 | `src/lib/networkUtils.js` | `isNetworkLikeError()`, `createOfflineError()` |
 | `src/scanner/DatabaseService.js` | pHash DB: SQLite (native) + Supabase fallback (web); LSH band index, IDB pre-parsed cache |
@@ -329,7 +326,6 @@ These are only active during `npm run dev`. Production deploys on GitHub Pages c
 | `src/pages/Rulebook.jsx` | MTG comprehensive rulebook browser at `/rules` — category/section/rule search |
 | `src/pages/Tournaments.jsx` | Tournament manager at `/tournaments` — multiple formats/structures, standings, stored in localStorage |
 | `src/pages/Trading.jsx` | Trade value comparison at `/trading` — match collection cards against a want list |
-| `src/pages/PokemonCollection.jsx` | Pokemon TCG collection at `/pokemon` — stored in localStorage, prices via Pokemon TCG API |
 | `src/pages/Stats.jsx` | Collection analytics |
 | `src/pages/LifeTracker.jsx` | Multiplayer life tracker — pre-game setup, game screen, player-settings overlay, commander damage, lobby |
 | `src/pages/LifeTracker.module.css` | Styles for LifeTracker |
@@ -572,7 +568,6 @@ Host creates a session → others visit `/join/:code` on their own device → ho
 | frankfurter.app | EUR↔USD rates | Cached 6 h in IDB |
 | EDHRec | Commander recommendations | Via Vite proxy `/api/edhrec` (dev only) |
 | codetabs.com proxy | MTG RSS feeds | `api.codetabs.com/v1/proxy?quest=<url>` returns raw XML |
-| Pokemon TCG API | Pokemon card search + prices | `https://api.pokemontcg.io/v2`; key via `VITE_POKEMON_TCG_API_KEY`; degrades gracefully without key |
 
 ### RSS Feed Parsing
 

@@ -163,14 +163,16 @@ function WelcomeStep() {
       <div className={styles.welcomeGlyph}>⬡</div>
       <h2 className={styles.stepTitle}>Welcome to DeckLoom</h2>
       <p className={styles.stepDesc}>
-        Your personal Magic: The Gathering collection tracker. Let&apos;s spend a moment personalising the experience — you can change everything later in Settings.
+        Your all-in-one Magic: The Gathering companion. Let&apos;s spend a moment personalising the experience — you can change everything later in Settings.
       </p>
       <div className={styles.featureList}>
         {[
-          ['Track your collection', 'Log cards across binders, decks, and wishlists'],
-          ['Watch prices', 'Live market data from Cardmarket and TCGPlayer'],
-          ['Build decks', 'Deckbuilder with EDHREC and format analysis'],
-          ['Scan cards', 'Camera OCR to add cards instantly'],
+          ['Scan cards', 'Add cards instantly with your phone camera'],
+          ['Organise your collection', 'Binders, decks, wishlists, bulk imports'],
+          ['Build & playtest decks', 'Deckbuilder with format checks, plus an in-app goldfish'],
+          ['Multiplayer life tracker', 'Shared join codes, commander damage, counters'],
+          ['Prices & analytics', 'Daily market values, P&L, and collection charts'],
+          ['Trade & share', 'Compare trade values and share decks or your public profile'],
         ].map(([title, desc]) => (
           <div key={title} className={styles.featureItem}>
             <div className={styles.featureItemTitle}>{title}</div>

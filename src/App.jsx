@@ -99,7 +99,6 @@ const DeckViewPage = lazy(() => import('./pages/DeckView'))
 const TradingPage = lazy(() => import('./pages/Trading'))
 const TournamentsPage = lazy(() => import('./pages/Tournaments'))
 const ScannerPage = lazy(() => import('./pages/Scanner'))
-const PokemonCollectionPage = lazy(() => import('./pages/PokemonCollection'))
 const ProfilePage = lazy(() => import('./pages/Profile'))
 const RulebookPage = lazy(() => import('./pages/Rulebook'))
 
@@ -123,7 +122,6 @@ function PrivateApp() {
             <Route path="/stats"       element={<StatsPage />} />
             <Route path="/life"        element={<LifeTrackerPage />} />
             <Route path="/tournaments" element={<TournamentsPage />} />
-            <Route path="/pokemon"     element={<PokemonCollectionPage />} />
             <Route path="/settings"    element={<SettingsPage />} />
             <Route path="/help"        element={<HelpPage />} />
             <Route path="/rules"       element={<RulebookPage />} />

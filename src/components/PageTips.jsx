@@ -148,6 +148,36 @@ const TIPS = {
     ],
     actions: [{ label: 'Open collection', to: '/collection' }],
   },
+  'deck-builder': {
+    title: 'Deck Builder',
+    intro: 'The full deck editing workspace — board layout, imports, format checks, recommendations, and collection sync for one specific deck.',
+    bullets: [
+      'Drag cards between maindeck, sideboard, considering, and other boards.',
+      'Format legality and commander colour identity are checked as you build.',
+      'Link a builder deck to a collection deck so owned copies stay in sync.',
+    ],
+    actions: [{ label: 'Try the playtester', to: '' }],
+  },
+  playtester: {
+    title: 'Deck Playtester',
+    intro: 'A solo goldfish for stress-testing a list before sleeving up — opening hands, mulligans, draws, and zone changes.',
+    bullets: [
+      'Shuffle and draw to evaluate opening-hand consistency.',
+      'Move cards between hand, battlefield, and graveyard to play out turns.',
+      'Reset whenever you want a fresh draw to compare lines.',
+    ],
+    actions: [{ label: 'Back to builder', to: '' }],
+  },
+  rules: {
+    title: 'MTG Rulebook',
+    intro: 'The official comprehensive rules embedded in the app — searchable by category, section, and rule number.',
+    bullets: [
+      'Look up a rule by number when you already know the reference.',
+      'Search by keyword to find every mention of a mechanic.',
+      'Browse categories for context around a topic during a game.',
+    ],
+    actions: [{ label: 'Back to home', to: '/' }],
+  },
   settings: {
     title: 'Settings',
     intro: 'Control appearance, accessibility, pricing, sync, profile, account, and support options.',
@@ -168,6 +198,9 @@ function getTipId(pathname, search) {
   if (pathname === '/binders') return 'binders'
   if (pathname === '/lists') return 'lists'
   if (pathname === '/builder') return params.get('tab') === 'browser' ? 'deck-browser' : 'builder'
+  if (pathname.startsWith('/builder/')) {
+    return pathname.endsWith('/playtest') ? 'playtester' : 'deck-builder'
+  }
   if (pathname === '/trading') return params.get('tab') === 'log' ? 'trade-log' : 'trading'
   if (pathname === '/stats') {
     if (params.get('tab') === 'winrates') return 'stats-winrates'
@@ -176,6 +209,7 @@ function getTipId(pathname, search) {
   }
   if (pathname === '/life') return 'life'
   if (pathname === '/scanner') return 'scanner'
+  if (pathname === '/rules') return 'rules'
   if (pathname === '/settings') return 'settings'
   return null
 }

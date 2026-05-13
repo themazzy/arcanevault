@@ -62,6 +62,16 @@ export default function StorageNoticePage() {
                   <td>Images, card assets, and network responses</td>
                   <td>Managed by normal browser caching behavior.</td>
                 </tr>
+                <tr>
+                  <td>Third-party sign-in cookies</td>
+                  <td>If you sign in with Google or Discord, those providers may set their own cookies on their own domains during the OAuth handshake.</td>
+                  <td>These cookies are controlled by Google or Discord and follow their own privacy and cookie policies, not DeckLoom&apos;s.</td>
+                </tr>
+                <tr>
+                  <td>Payment provider cookies</td>
+                  <td>If you start a premium checkout, Stripe may set its own cookies on its checkout pages to process the payment and prevent fraud.</td>
+                  <td>These cookies are controlled by Stripe and follow Stripe&apos;s own privacy and cookie policies.</td>
+                </tr>
               </tbody>
             </table>
           </div>

@@ -5,6 +5,10 @@ import styles from './Legal.module.css'
 const sources = [
   ['Scryfall', 'Card data and imagery used throughout the collection, builder, and scanner flows.'],
   ['Supabase', 'Authentication, sync backend, database storage, and feedback attachment storage.'],
+  ['Stripe', 'Payment processor for one-time premium theme purchases. Card details are handled directly by Stripe.'],
+  ['Google (OAuth)', 'Optional identity provider when signing in with a Google account.'],
+  ['Discord (OAuth)', 'Optional identity provider when signing in with a Discord account.'],
+  ['GitHub Pages', 'Static hosting for the public DeckLoom web build.'],
   ['Frankfurter', 'Exchange-rate conversion for EUR and USD price displays.'],
   ['EDHREC', 'Feature-specific Commander recommendation integration where available.'],
   ['Moxfield', 'Deck import and related integration flows where available.'],
