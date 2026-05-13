@@ -34,6 +34,8 @@ import {
   computeAllHashes, rotateCard180,
 } from './ScannerEngine'
 import { useAuth } from '../components/Auth'
+import { queryClient } from '../lib/queryClient'
+import { invalidateOwnedCollectionQueries, invalidateWishlistQueries } from '../lib/queryInvalidation'
 import { formatPriceMeta, getPriceWithMeta, sfGet } from '../lib/scryfall'
 import { sb } from '../lib/supabase'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
@@ -1101,6 +1103,14 @@ export default function CardScanner({ onMatch, onClose }) {
         folderId: addFlowSelectedFolder,
         folderType: folder.type,
       })
+      if (folder.type === 'list') {
+        await invalidateWishlistQueries(queryClient, user.id, { includeFolders: true }).catch(() => {})
+      } else {
+        await invalidateOwnedCollectionQueries(queryClient, user.id, {
+          includeFolders: true,
+          includeCards: true,
+        }).catch(() => {})
+      }
       setPendingCards([])
       addFlowTgl.hide()
       setAddFlowSelectedFolder(null)
