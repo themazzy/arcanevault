@@ -668,13 +668,22 @@ export default function DeckViewPage() {
               <Link to="/login" className={styles.signInBtn}>Sign In</Link>
               <Link to="/login" className={styles.actionLink}>Create Account</Link>
             </>
-          ) : isOwner ? (
-            <>
-              <Link to={`/builder/${builderEditId}`} className={styles.actionLink}>⚔ Edit in Builder</Link>
-            </>
           ) : (
             <>
-              <Link to="/" className={styles.topLink}>← My DeckLoom</Link>
+              <button
+                type="button"
+                className={styles.backBtn}
+                onClick={() => {
+                  if (window.history.length > 1) navigate(-1)
+                  else navigate(deck?.type === 'builder_deck' ? '/builder' : '/decks')
+                }}
+              >
+                <span aria-hidden="true" className={styles.backArrow}>←</span>
+                <span>Back</span>
+              </button>
+              {isOwner && (
+                <Link to={`/builder/${builderEditId}`} className={styles.actionLink}>⚔ Edit in Builder</Link>
+              )}
             </>
           )}
         </div>
