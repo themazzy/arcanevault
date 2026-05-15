@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App'
 import { handleChunkLoadError } from './lib/chunkRecovery'
+import { registerNativeAuthDeepLinkHandler } from './lib/nativeAuth'
+
+registerNativeAuthDeepLinkHandler()
 
 // Capture recent console errors/warnings for bug reports
 window.__arcaneErrors = []

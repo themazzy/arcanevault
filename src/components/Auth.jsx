@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { getPublicBaseUrl } from '../lib/publicUrl'
+import { isNativeApp, openNativeOAuth } from '../lib/nativeAuth'
 import { applyTheme } from './SettingsContext'
 import { fetchCardsByNames } from '../lib/deckBuilderApi'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
@@ -435,11 +436,21 @@ export function LoginPage({ forcedMode = null }) {
 
   const signInWithProvider = async (provider) => {
     setError(''); setSuccess(''); setLoading(true)
-    const { error: err } = await sb.auth.signInWithOAuth({
-      provider,
-      options: { redirectTo: getPublicBaseUrl() + '/' },
-    })
-    if (err) { setError(err.message); setLoading(false) }
+    try {
+      if (isNativeApp()) {
+        await openNativeOAuth(provider)
+        // Session will arrive via the deep-link handler; keep loading state until auth state updates.
+        return
+      }
+      const { error: err } = await sb.auth.signInWithOAuth({
+        provider,
+        options: { redirectTo: getPublicBaseUrl() + '/' },
+      })
+      if (err) { setError(err.message); setLoading(false) }
+    } catch (err) {
+      setError(err?.message || 'Sign-in failed')
+      setLoading(false)
+    }
   }
 
   const switchMode = (m) => {

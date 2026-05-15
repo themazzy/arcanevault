@@ -32,7 +32,7 @@ The cost of a 30-second clarification is always lower than building the wrong th
 
 ## Project Overview
 
-**DeckLoom** is a personal Magic: The Gathering collection tracker hosted at **https://themazzy.github.io/arcanevault/**. Users catalog owned cards, organise them into binders/decks/wishlists, track prices and P&L, build decks, scan cards with camera OCR, view collection analytics, manage tournaments, and trade cards.
+**DeckLoom** is a personal Magic: The Gathering collection tracker hosted at **https://deckloom.app/** (served via GitHub Pages with a custom domain). Users catalog owned cards, organise them into binders/decks/wishlists, track prices and P&L, build decks, scan cards with camera OCR, view collection analytics, manage tournaments, and trade cards. Also packaged as a native Android app via Capacitor.
 
 **Stack:** React 18 + Vite + Supabase + IndexedDB + TanStack React Query
 
@@ -63,23 +63,36 @@ VITE_SUPABASE_ANON_KEY=your-anon-key
 
 ---
 
-## Deployment — GitHub Pages
+## Deployment — GitHub Pages (custom domain) + Android (Capacitor)
 
-The app is deployed to **https://themazzy.github.io/arcanevault/** via GitHub Actions (`.github/workflows/deploy.yml`).
+The web app is deployed to **https://deckloom.app/** via GitHub Actions (`.github/workflows/deploy.yml`). The Android APK is built by `.github/workflows/build-android.yml` (runs `npm ci` → `vite build` → `cap sync android` → Gradle).
 
 ### Critical GitHub Pages files — do not remove or modify without care:
 
 | File | Purpose |
 |---|---|
-| `public/404.html` | Catches 404s from direct URL access; encodes the path as a query param and redirects to `index.html` |
+| `public/404.html` | Catches 404s from direct URL access; encodes the path as a query param and redirects to `index.html`. Auto-detects custom domain vs `*.github.io` subpath via `pathSegmentsToKeep`. |
 | `index.html` (redirect script) | Decodes the query param from `404.html` and restores the correct route via `history.replaceState` |
-| `src/App.jsx` | `BrowserRouter` has `basename="/arcanevault"` — required for all routes to resolve correctly under the GitHub Pages subdirectory |
+| `public/CNAME` | Maps the GitHub Pages site to `deckloom.app` |
+| `vite.config.js` | `base: '/'` — assets serve from root (custom domain), not a subpath |
 
-This is the standard `spa-github-pages` pattern. If you touch routing, always verify it still works at `https://themazzy.github.io/arcanevault/`.
+`BrowserRouter` in `src/App.jsx` uses the default basename (`/`); do **not** add `basename="/arcanevault"` back — it's a legacy artifact from the old `themazzy.github.io/arcanevault/` URL.
 
 ### Email links
 
-`src/components/Auth.jsx` passes `emailRedirectTo: 'https://themazzy.github.io/arcanevault/'` in `signUp()` to ensure Supabase confirmation emails link to prod, not localhost.
+`src/components/Auth.jsx` passes `emailRedirectTo: 'https://deckloom.app/'` in `signUp()` to ensure Supabase confirmation emails link to prod, not localhost. Production-URL helpers live in `src/lib/publicUrl.js` (`getPublicBaseUrl()`, `getPublicAppUrl(path)`) — always use those instead of hardcoding `deckloom.app`.
+
+### Native OAuth (Capacitor)
+
+Social login under Capacitor cannot use the web `redirectTo` (the browser would land on `deckloom.app` and the app would never see the session). Instead:
+
+- Supabase client uses `flowType: 'pkce'` (`src/lib/supabase.js`).
+- `src/lib/nativeAuth.js` exposes `openNativeOAuth(provider)` which calls `signInWithOAuth({ redirectTo: 'deckloom://auth/callback', skipBrowserRedirect: true })`, then opens the URL via `@capacitor/browser`.
+- `registerNativeAuthDeepLinkHandler()` (registered in `src/main.jsx`) listens for `App.appUrlOpen` and calls `sb.auth.exchangeCodeForSession(url)` when the OS routes the `deckloom://auth/callback?code=…` deep link back into the app, then closes the in-app browser.
+- `android/app/src/main/AndroidManifest.xml` declares an `<intent-filter>` for `android:scheme="deckloom"` `android:host="auth"`. The deep-link URL must also be on the Supabase Auth → Redirect URLs allow-list.
+- iOS is not yet shipped; when it is, mirror the scheme in `ios/App/App/Info.plist` (`CFBundleURLTypes`).
+
+`isNativeApp()` from `src/lib/nativeAuth.js` is the canonical check for "running under Capacitor" in auth flows.
 
 ---
 
@@ -218,7 +231,7 @@ Wishlists are not part of owned collection inventory.
 
 ### Routing
 
-React Router v6. `BrowserRouter` in `src/App.jsx` uses `basename="/arcanevault"` for GitHub Pages compatibility.
+React Router v6. `BrowserRouter` in `src/App.jsx` uses the default basename (`/`) — the site is served from the root of `deckloom.app`.
 
 **Public routes** (outside `PrivateApp`): `/legal`, `/privacy`, `/storage`, `/credits`, `/delete-account`, `/share/:token`, `/d/:id`, `/join/:code`, `/join-tournament/:code`.
 
@@ -282,7 +295,8 @@ These are only active during `npm run dev`. Production deploys on GitHub Pages c
 | `src/lib/exportUtils.js` | `cardsToCSV()` — Manabox-compatible CSV export |
 | `src/lib/admin.js` | `isCurrentUserAdmin()` — checks `admin_users` table |
 | `src/lib/consent.js` | GDPR consent preferences (necessary/analytics/marketing/preferences) stored in localStorage |
-| `src/lib/publicUrl.js` | `getPublicBaseUrl()`, `getPublicAppUrl(path)` — prod/dev URL helpers (Capacitor-aware) |
+| `src/lib/publicUrl.js` | `getPublicBaseUrl()`, `getPublicAppUrl(path)` — prod/dev URL helpers (Capacitor-aware; prod origin = `https://deckloom.app`) |
+| `src/lib/nativeAuth.js` | Capacitor OAuth: `isNativeApp()`, `openNativeOAuth(provider)`, `registerNativeAuthDeepLinkHandler()`; PKCE flow via `deckloom://auth/callback` |
 | `src/lib/tournament.js` | Tournament logic: formats, structures, standings, result recording |
 | `src/lib/networkUtils.js` | `isNetworkLikeError()`, `createOfflineError()` |
 | `src/scanner/DatabaseService.js` | pHash DB: SQLite (native) + Supabase fallback (web); LSH band index, IDB pre-parsed cache |
