@@ -267,10 +267,26 @@ export async function loadCardMapWithSharedPrices(cards, { onProgress = null, ca
   // Shared-price pages should not trigger Scryfall price TTL refreshes.
   // We only need the cached metadata/art, plus fetches for cards missing locally.
   let map = await getInstantCache(Number.MAX_SAFE_INTEGER) || {}
-  const missing = uniqueByCardKey(cards.filter(card => !map[getCardKey(card)]))
+  // A card needs enrichment if its entry is absent OR has been stripped of
+  // filter-critical metadata (clearScryfallCache nulls type_line/rarity/etc
+  // while keeping image_uris). type_line is the canonical "metadata present"
+  // marker because every real card has one.
+  const missing = uniqueByCardKey(cards.filter(card => {
+    const entry = map[getCardKey(card)]
+    return !entry || !entry.type_line
+  }))
   if (missing.length) {
-    const enriched = await enrichCards(missing, onProgress, cacheTtlMs)
-    if (enriched) map = enriched
+    try {
+      const enriched = await enrichCards(missing, onProgress, cacheTtlMs)
+      if (enriched) map = enriched
+    } catch (err) {
+      // Partial enrichment is still useful — pick up whatever made it into
+      // the in-memory cache and continue with price overlay so the page
+      // renders. Cards still missing will retry on next load.
+      console.warn('[loadCardMap] enrichment partial', err?.message || err)
+      const partial = await getInstantCache(Number.MAX_SAFE_INTEGER)
+      if (partial) map = partial
+    }
   } else {
     onProgress?.(100, '')
   }

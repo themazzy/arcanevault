@@ -95,7 +95,18 @@
       "Bash(git rev-list *)",
       "Bash(git restore *)",
       "Bash(npm --version)",
-      "Bash(git check-ignore *)"
+      "Bash(git check-ignore *)",
+      "Bash(npm view *)",
+      "mcp__plugin_supabase_supabase__get_advisors",
+      "Bash(npm audit *)",
+      "Bash(npm outdated *)",
+      "Bash(npm i *)",
+      "Bash(curl *)",
+      "Bash(npm test *)",
+      "mcp__plugin_supabase_supabase__list_tables",
+      "mcp__plugin_supabase_supabase__list_migrations",
+      "Bash(npx --no-install eslint --version)",
+      "Bash(git rm *)"
     ]
   }
 }
