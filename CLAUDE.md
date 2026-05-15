@@ -172,9 +172,7 @@ The same filter logic is duplicated in `CardComponents.jsx` for the non-worker p
 1. Read `folders` + `folder_cards` + `deck_allocations` from IDB first and build `cardFolderMap` immediately.
 2. React Query (`placementsQuery` with `fetchFolderPlacements`) full-fetches `folder_cards` + `deck_allocations` from Supabase on load and writes through to IDB. `staleTime` is 10 min; mutations call `queryClient.invalidateQueries(['folderPlacements', user.id])` to force a refetch.
 
-`folder_cards` is soft-deleted — the RLS policy has `deleted_at IS NULL` in its `USING` clause, so tombstones are invisible to clients via the table and naturally drop out of the next full fetch. Deletes go through `update({ deleted_at })` instead of `.delete()`. For future incremental sync, the `get_folder_cards_changes(p_updated_after)` RPC (security definer) returns rows including tombstones.
-
-If you change placement writes, preserve `updated_at` behavior on `folder_cards`, soft-delete (don't hard-delete) when removing rows, and keep `deck_allocations` sync logic aligned or collection/deck badges will drift.
+Deletes are hard `.delete()` calls — full fetches see absent rows naturally, so soft-delete didn't buy us anything and just leaked dead tuples. If you change placement writes, preserve `updated_at` behavior on `folder_cards` and keep `deck_allocations` sync logic aligned or collection/deck badges will drift.
 
 ### Collection Ownership Rules
 

@@ -697,7 +697,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
     try {
       const { error } = await sb
         .from('folder_cards')
-        .update({ deleted_at: new Date().toISOString() })
+        .delete()
         .eq('folder_id', folder.id)
         .eq('card_id', selectedCard.id)
       if (error) throw error
@@ -787,7 +787,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
         : toDelete.push({ id: card.id, folderId: card._sourceFolderId || folder.id })
     }
     for (const row of toDelete) {
-      await sb.from('folder_cards').update({ deleted_at: new Date().toISOString() })
+      await sb.from('folder_cards').delete()
         .eq('folder_id', row.folderId).eq('card_id', row.id)
     }
     for (const { id, folderId, remaining } of toUpdate) {
@@ -853,7 +853,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
     )
 
     for (const row of toDelete) {
-      await sb.from('folder_cards').update({ deleted_at: new Date().toISOString() })
+      await sb.from('folder_cards').delete()
         .eq('folder_id', row.folderId).eq('card_id', row.id)
     }
     for (const { id, folderId, remaining } of toUpdate) {
