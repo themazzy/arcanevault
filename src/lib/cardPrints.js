@@ -169,10 +169,9 @@ export async function ensureCardPrints(cards, onProgress) {
       .filter(entry => Object.keys(entry.patch).length > 0)
     if (toPatch.length) {
       await Promise.all(toPatch.map(async ({ scryfall_id, patch }) => {
-        try {
-          await sb.from('card_prints').update(patch).eq('scryfall_id', scryfall_id)
-        } catch (err) {
-          console.warn('[card_prints] backfill patch failed', scryfall_id, err?.message || err)
+        const { error } = await sb.from('card_prints').update(patch).eq('scryfall_id', scryfall_id)
+        if (error) {
+          console.warn('[card_prints] backfill patch failed', scryfall_id, error.code, error.message, error.details, error.hint, 'patch keys:', Object.keys(patch))
         }
       }))
     }
