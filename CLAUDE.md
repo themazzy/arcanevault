@@ -170,14 +170,11 @@ The same filter logic is duplicated in `CardComponents.jsx` for the non-worker p
 `src/pages/Collection.jsx` loads binder/deck membership in two phases:
 
 1. Read `folders` + `folder_cards` + `deck_allocations` from IDB first and build `cardFolderMap` immediately.
-2. Sync `folders` from Supabase on every online load.
-3. Sync `folder_cards` incrementally using `folder_cards.updated_at`.
-4. Sync `deck_allocations` alongside folder placements.
-5. Run a full `folder_cards` reconcile every 10 minutes to catch remote deletes.
+2. React Query (`placementsQuery` with `fetchFolderPlacements`) full-fetches `folder_cards` + `deck_allocations` from Supabase on load and writes through to IDB. `staleTime` is 10 min; mutations call `queryClient.invalidateQueries(['folderPlacements', user.id])` to force a refetch.
 
-Delta sync state in IDB `meta`: `folder_cards_full_sync_<userId>` / `folder_cards_delta_sync_<userId>`.
+`folder_cards` is soft-deleted — the RLS policy has `deleted_at IS NULL` in its `USING` clause, so tombstones are invisible to clients via the table and naturally drop out of the next full fetch. Deletes go through `update({ deleted_at })` instead of `.delete()`. For future incremental sync, the `get_folder_cards_changes(p_updated_after)` RPC (security definer) returns rows including tombstones.
 
-If you change placement writes, preserve `updated_at` behavior on `folder_cards` and keep `deck_allocations` sync logic aligned or collection/deck badges will drift.
+If you change placement writes, preserve `updated_at` behavior on `folder_cards`, soft-delete (don't hard-delete) when removing rows, and keep `deck_allocations` sync logic aligned or collection/deck badges will drift.
 
 ### Collection Ownership Rules
 

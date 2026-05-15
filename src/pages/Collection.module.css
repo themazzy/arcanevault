@@ -161,7 +161,7 @@
   /* Action row above the filter bar — slides away on scroll */
   .mobileTopActions {
     display: grid;
-    grid-template-columns: 42px minmax(108px, 1fr) minmax(86px, 0.8fr) minmax(86px, 0.8fr);
+    grid-template-columns: minmax(120px, 1.4fr) minmax(86px, 1fr) minmax(86px, 1fr);
     align-items: center;
     gap: 8px;
     margin-bottom: 8px;
@@ -181,11 +181,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     line-height: 1;
-  }
-
-  .mobileTopActions > button:first-child {
-    padding: 0;
-    font-size: 0.9rem;
   }
 
   .mobileTopActionsHidden {

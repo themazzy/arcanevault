@@ -25,8 +25,7 @@ import { fetchCollectionCards, fetchFolders, fetchFolderPlacements, fetchSfMap }
 import { isNetworkLikeError } from '../lib/networkUtils'
 
 const DEBOUNCE_MS = 300
-const FOLDER_CARDS_FULL_SYNC_MS = 10 * 60 * 1000
-const FOLDER_CARDS_DELTA_OVERLAP_MS = 30 * 1000
+const FOLDER_CARDS_STALE_MS = 10 * 60 * 1000
 const LOCAL_COLLECTION_FRESH_MS = 5 * 60 * 1000
 
 const worker = new Worker(new URL('../lib/filterWorker.js', import.meta.url), { type: 'module' })
@@ -142,7 +141,6 @@ function OrphanModal({ cards, folders, userId, onAssigned, onDeleted }) {
       if (err) throw err
       if (isDeck) await putDeckAllocations(savedRows || [])
       else await putFolderCards(savedRows || [])
-      await setMeta(`folder_cards_full_sync_${userId}`, 0)
       onAssigned(cards, folder, savedRows || [])
     } catch (e) {
       setError(e.message)
@@ -301,7 +299,7 @@ export default function CollectionPage() {
   const placementsQuery = useQuery({
     queryKey: ['folderPlacements', user.id],
     queryFn: fetchFolderPlacements,
-    staleTime: FOLDER_CARDS_FULL_SYNC_MS,
+    staleTime: FOLDER_CARDS_STALE_MS,
     enabled: !!user?.id,
   })
 
@@ -439,7 +437,6 @@ export default function CollectionPage() {
     setCardFolderMap(buildCardFolderMap(placementFolders, [...folderCards, ...deckAllocations]))
     replaceLocalFolderCards(placementFolderIds, folderCards).catch(() => {})
     replaceDeckAllocations(deckIds, deckAllocations).catch(() => {})
-    setMeta(`folder_cards_full_sync_${user.id}`, new Date().toISOString()).catch(() => {})
   }, [folders, foldersQuery.data, placementsQuery.data, placementsQuery.dataUpdatedAt, placementsQuery.isSuccess, user.id])
 
   useEffect(() => {
@@ -620,81 +617,14 @@ export default function CollectionPage() {
       await putFolders(foldersData)
 
       const placementFolderIds = placementFolders.filter(f => f.type === 'binder').map(f => f.id)
-      const deckIds = placementFolders.filter(f => f.type === 'deck').map(f => f.id)
-      const fullSyncKey = `folder_cards_full_sync_${user.id}`
-      const deltaSyncKey = `folder_cards_delta_sync_${user.id}`
-
-      const lastFullSync = await getMeta(fullSyncKey)
-      const needsFullSync = !lastFullSync || Date.now() - new Date(lastFullSync).getTime() > FOLDER_CARDS_FULL_SYNC_MS
-
-      if (!needsFullSync) {
-        // Within the 10-min window — use IDB data, skip Supabase round-trips
-        const [allFc, allDa] = await Promise.all([
-          getAllLocalFolderCards(placementFolderIds),
-          getAllDeckAllocationsForUser(user.id),
-        ])
-        setCardFolderMap(buildCardFolderMap(foldersData, [...allFc, ...allDa]))
-        setFolderMembershipSynced(true)
-        setFolderMembershipLoading(false)
-        return
-      }
-
-      // Full sync: fetch folder_cards + deck_allocations in parallel
-      const fetchFolderCards = async (folderIds) => {
-        const rows = []
-        let from = 0
-        while (true) {
-          const { data: page, error: err } = await sb.from('folder_cards')
-            .select('id,card_id,folder_id,qty,updated_at')
-            .in('folder_id', folderIds)
-            .order('id')
-            .range(from, from + 999)
-          if (err) throw err
-          if (page?.length) rows.push(...page)
-          if (!page || page.length < 1000) break
-          from += 1000
-        }
-        return rows
-      }
-
-      const fetchDeckAllocations = async (dIds, uid) => {
-        const rows = []
-        let from = 0
-        while (true) {
-          const { data: page, error: err } = await sb.from('deck_allocations')
-            .select('id,card_id,deck_id,qty,user_id,updated_at')
-            .eq('user_id', uid)
-            .in('deck_id', dIds)
-            .order('id')
-            .range(from, from + 999)
-          if (err) throw err
-          if (page?.length) rows.push(...page)
-          if (!page || page.length < 1000) break
-          from += 1000
-        }
-        return rows
-      }
-
-      let allFc = []
-      let allDa = []
-      try {
-        ;[allFc, allDa] = await Promise.all([
-          placementFolderIds.length ? fetchFolderCards(placementFolderIds) : Promise.resolve([]),
-          deckIds.length ? fetchDeckAllocations(deckIds, user.id) : Promise.resolve([]),
-        ])
-      } catch (err) {
-        console.warn('[Collection] Placement sync unavailable, keeping local placement data:', err.message)
-        if (isNetworkLikeError(err)) setIsOnline(false)
-        setFolderMembershipLoading(false)
-        return
-      }
-
-      await replaceLocalFolderCards(placementFolderIds, allFc)
-      await replaceDeckAllocations(deckIds, allDa)
-
-      const syncedAt = new Date().toISOString()
-      await setMeta(fullSyncKey, syncedAt)
-      await setMeta(deltaSyncKey, new Date(Date.now() - FOLDER_CARDS_DELTA_OVERLAP_MS).toISOString())
+      // Seed cardFolderMap from IDB. Remote refresh is handled by the React
+      // Query `placementsQuery` effect — its onSuccess writes through to IDB
+      // and updates the map. Soft-deleted folder_cards rows are hidden by
+      // RLS, so the next full fetch naturally drops them.
+      const [allFc, allDa] = await Promise.all([
+        getAllLocalFolderCards(placementFolderIds),
+        getAllDeckAllocationsForUser(user.id),
+      ])
       setCardFolderMap(buildCardFolderMap(foldersData, [...allFc, ...allDa]))
       setFolderMembershipSynced(true)
       setFolderMembershipLoading(false)
@@ -1230,8 +1160,6 @@ export default function CollectionPage() {
       }
     }
 
-    await setMeta(`folder_cards_full_sync_${user.id}`, 0)
-
     const sourceBinderIds = [...new Set(sourceMoves.filter(r => r.sourceFolder.type !== 'deck').map(r => r.sourceFolder.id))]
     const sourceDeckIds = [...new Set(sourceMoves.filter(r => r.sourceFolder.type === 'deck').map(r => r.sourceFolder.id))]
     if (sourceBinderIds.length) {
@@ -1328,7 +1256,6 @@ export default function CollectionPage() {
       await deleteFolderCardsByCardIds([card.id])
       setCards(prev => prev.filter(c => c.id !== card.id))
     }
-    await setMeta(`folder_cards_full_sync_${user.id}`, 0)
     orphanCheckDone.current = false
     invalidateCollectionQueries()
     setDetailCardKey(null)
@@ -1357,7 +1284,6 @@ export default function CollectionPage() {
         }
         return next
       })
-      await setMeta(`folder_cards_full_sync_${user.id}`, 0)
       queryClient.invalidateQueries({ queryKey: ['folderPlacements', user.id] })
     }
     await putCards([updatedCard])
@@ -1751,7 +1677,6 @@ export default function CollectionPage() {
               if (result.folder.type === 'deck') await putDeckAllocations(result.placements)
               else await putFolderCards(result.placements)
             }
-            await setMeta(`folder_cards_full_sync_${user.id}`, 0)
             orphanCheckDone.current = false
             setShowAdd(false)
             invalidateCollectionQueries()
@@ -1771,7 +1696,6 @@ export default function CollectionPage() {
             setShowImportModal(false)
             orphanCheckDone.current = false
             await setMeta(`cards_synced_${user.id}`, 0)
-            await setMeta(`folder_cards_full_sync_${user.id}`, 0)
             invalidateCollectionQueries()
           }}
         />

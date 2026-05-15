@@ -593,8 +593,6 @@ async function clearFolderType(userId, target) {
 
   const orphanIds = affectedCardIds.length ? await pruneUnplacedCards(affectedCardIds) : []
   await deleteLocalFoldersAndPlacements(folderIds)
-  await setMeta(`folder_cards_full_sync_${userId}`, 0)
-  await setMeta(`folder_cards_delta_sync_${userId}`, null)
 
   return {
     folderCount: folderIds.length,
