@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { sb } from '../lib/supabase'
-import { getScryfallKey, getPrice, formatPrice, getInstantCache, enrichCards } from '../lib/scryfall'
+import { getScryfallKey, getPrice, formatPrice, getInstantCache } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getLocalCards, putCards, deleteCard, deleteAllCards, getAllLocalFolderCards, putFolderCards, getLocalFolders, putFolders, setMeta, getMeta, deleteFolder as deleteLocalFolder, replaceLocalFolderCards, getAllDeckAllocationsForUser, putDeckAllocations, replaceDeckAllocations, deleteDeckAllocationsByCardIds, deleteFolderCardsByCardIds } from '../lib/db'
 import { parseManaboxCSV } from '../lib/csvParser'
@@ -57,19 +57,19 @@ function buildCardFolderMap(folderRows, linkRows) {
   return map
 }
 
-function ConnectionStatusBadge({ isOnline, loading, folderMembershipLoading, enriching, importing, refreshing }) {
+function ConnectionStatusBadge({ isOnline, loading, folderMembershipLoading, enriching, importing, syncCount }) {
   const [visible, setVisible] = useState(false)
   const [exiting, setExiting] = useState(false)
   let tone = 'online'
   let label = 'Online'
-  const isBusy = loading || folderMembershipLoading || enriching || importing || refreshing
+  const isBusy = loading || folderMembershipLoading || enriching || importing
 
   if (!isOnline) {
     tone = 'offline'
     label = 'Offline'
-  } else if (refreshing) {
+  } else if (enriching && syncCount > 0) {
     tone = 'loading'
-    label = 'Refreshing data'
+    label = `Syncing ${syncCount} card${syncCount !== 1 ? 's' : ''}…`
   } else if (isBusy) {
     tone = 'loading'
     label = 'Loading data'
@@ -90,7 +90,7 @@ function ConnectionStatusBadge({ isOnline, loading, folderMembershipLoading, enr
       clearTimeout(exitTimer)
       clearTimeout(hideTimer)
     }
-  }, [isOnline, isBusy, refreshing])
+  }, [isOnline, isBusy])
 
   if (!visible) return null
 
@@ -259,9 +259,7 @@ export default function CollectionPage() {
   const [filterOpen, setFilterOpen] = useState(false)
   const [importModalText, setImportModalText] = useState('')
   const [importing, setImporting] = useState(false)
-  const [refreshing, setRefreshing] = useState(false)
-  const [refreshProgress, setRefreshProgress] = useState(0)
-  const [refreshProgLabel, setRefreshProgLabel] = useState('')
+  const [syncCount, setSyncCount] = useState(0)
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState(new Set())
   const [splitState, setSplitState] = useState(new Map())
@@ -771,51 +769,35 @@ export default function CollectionPage() {
   const startEnrichment = useCallback(async (rawCards) => {
     if (enrichingRef.current) return
 
-    // Check IDB first — may return instantly if all data cached
+    // Count cards that aren't already in the IDB cache so the pill can show
+    // an accurate "Syncing N cards…" instead of a generic spinner.
     enrichingRef.current = true
     setEnriching(true); setProgress(0)
-    const map = await loadCardMapWithSharedPrices(rawCards, {
-      onProgress: (pct, lbl) => { setProgress(pct); setProgLabel(lbl) },
-      cacheTtlMs: ttlMsRef.current,
-      priceLookup: 'set',
-    })
-    setSfMap(map)
-    setEnriching(false); setProgLabel('')
-    enrichingRef.current = false
-  }, [])
-
-  // ── Refresh missing Scryfall data ────────────────────────────────────────────
-  const handleRefresh = useCallback(async () => {
-    if (!navigator.onLine || !cards.length) return
-    const cacheMap = await getInstantCache(ttlMsRef.current) || {}
-    const missing = cards.filter(c => {
-      const key = `${c.set_code}-${c.collector_number}`
-      const entry = cacheMap[key]
-      const hasImages = !!entry?.image_uris || entry?.card_faces?.some(face => face?.image_uris)
-      return !entry || !hasImages
-    })
-    if (!missing.length) {
-      toast.success('All cards already have metadata.')
-      return
-    }
-    setRefreshing(true)
-    setRefreshProgress(0)
-    setRefreshProgLabel(`Fetching missing data for ${missing.length} card${missing.length !== 1 ? 's' : ''}…`)
     try {
-      await enrichCards(missing, (pct, lbl) => {
-        setRefreshProgress(pct)
-        setRefreshProgLabel(lbl || `Fetching missing data… (${Math.round(pct)}%)`)
-      }, ttlMsRef.current)
-      const map = await loadCardMapWithSharedPrices(cards, { cacheTtlMs: ttlMsRef.current, priceLookup: 'set' })
+      const cacheMap = await getInstantCache(Number.MAX_SAFE_INTEGER) || {}
+      const missingCount = rawCards.filter(c => {
+        const entry = cacheMap[`${c.set_code}-${c.collector_number}`]
+        return !entry || !entry.type_line
+      }).length
+      setSyncCount(missingCount)
+
+      const map = await loadCardMapWithSharedPrices(rawCards, {
+        onProgress: (pct, lbl) => { setProgress(pct); setProgLabel(lbl) },
+        cacheTtlMs: ttlMsRef.current,
+        priceLookup: 'set',
+      })
       setSfMap(map)
-      const fetched = missing.length
-      toast.success(`Refreshed ${fetched} card${fetched !== 1 ? 's' : ''}.`)
     } catch (err) {
-      setError(`Refresh failed: ${err.message}`)
+      console.warn('[Collection] enrichment failed; cards will retry on next load', err?.message || err)
+      try {
+        const partial = await getInstantCache(ttlMsRef.current)
+        if (partial) setSfMap(partial)
+      } catch {}
+    } finally {
+      setEnriching(false); setProgLabel(''); setSyncCount(0)
+      enrichingRef.current = false
     }
-    setRefreshing(false)
-    setRefreshProgLabel('')
-  }, [cards, toast, ttlMsRef])
+  }, [])
 
   // ── Import ───────────────────────────────────────────────────────────────────
   const handleImport = useCallback(async (file) => {
@@ -1533,7 +1515,7 @@ export default function CollectionPage() {
       folderMembershipLoading={folderMembershipLoading}
       enriching={enriching}
       importing={importing}
-      refreshing={refreshing}
+      syncCount={syncCount}
     />
   )
   const queryHasCardsPendingState = Array.isArray(cardsQuery.data) && cardsQuery.data.length > 0
@@ -1561,14 +1543,6 @@ export default function CollectionPage() {
           action={
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               {!isOnline && <span style={{ fontSize: '0.72rem', color: '#e0a852', border: '1px solid rgba(224,168,82,0.3)', borderRadius: 3, padding: '3px 8px' }}>Offline</span>}
-              <button
-                className={styles.refreshBtn}
-                onClick={handleRefresh}
-                disabled={!isOnline || refreshing || !cards.length}
-                title={!isOnline ? 'Reconnect to refresh' : refreshing ? 'Refreshing…' : 'Refresh missing card data'}
-              >
-                {refreshing ? '⟳ Refreshing' : '⟳ Refresh'}
-              </button>
               <Button
                 variant="purple"
                 onClick={() => { if (!blockOfflineChange()) setShowAdd(true) }}
@@ -1606,13 +1580,6 @@ export default function CollectionPage() {
       ) : (
         <>
         <div className={`${styles.mobileTopActions}${gridScrolled ? ' ' + styles.mobileTopActionsHidden : ''}`}>
-          <button
-            className={styles.refreshBtn}
-            onClick={handleRefresh}
-            disabled={!isOnline || refreshing || !cards.length}
-            title={!isOnline ? 'Reconnect to refresh' : refreshing ? 'Refreshing…' : 'Refresh missing card data'}
-            aria-label="Refresh missing card data"
-          >⟳</button>
           <Button
             variant="purple"
             onClick={() => { if (!blockOfflineChange()) setShowAdd(true) }}
@@ -1653,7 +1620,7 @@ export default function CollectionPage() {
       )}
 
       <ErrorBox>{error}</ErrorBox>
-      {(enriching || importing || refreshing) && <ProgressBar value={refreshing ? refreshProgress : progress} label={refreshing ? refreshProgLabel : progLabel} />}
+      {importing && <ProgressBar value={progress} label={progLabel} />}
 
       {cards.length > 0 && <>
         <div className={`${styles.gridHeader}${gridScrolled ? ' ' + styles.gridHeaderHidden : ''}`}>

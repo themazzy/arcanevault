@@ -137,7 +137,7 @@ export async function resolveImportEntries(entries, onProgress) {
 
   for (let i = 0; i < identifiers.length; i += 75) {
     const batch = identifiers.slice(i, i + 75)
-    const cards = await fetchScryfallBatch(batch)
+    const { data: cards } = await fetchScryfallBatch(batch)
     for (const sfCard of cards) {
       if (sfCard.set && sfCard.collector_number) {
         byPrint.set(`${sfCard.set}-${sfCard.collector_number}`, sfCard)

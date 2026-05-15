@@ -12,6 +12,12 @@ import {
   getAllScryfallEntries, putScryfallEntries,
   clearScryfallStore, getScryfallCacheInfo, setMeta, getMeta
 } from './db'
+import {
+  cardPrintRowToSfEntry,
+  fetchCardPrintsByScryfallIds,
+  fetchCardPrintsBySetCollector,
+  ensureCardPrints,
+} from './cardPrints'
 
 const BATCH_SIZE = 75
 const DELAY_MS   = 80
@@ -78,15 +84,38 @@ function releaseSfSlot() {
   if (next) next()
 }
 
-async function runScryfallRequest(fn, { minDelayMs = DELAY_MS, retries = 2 } = {}) {
+async function runScryfallRequest(fn, { minDelayMs = DELAY_MS, retries = 3 } = {}) {
   await acquireSfSlot(minDelayMs)
   try {
+    let lastErr = null
     for (let attempt = 0; attempt <= retries; attempt++) {
-      const res = await fn()
-      if (res.status !== 429 || attempt === retries) return res
-      await new Promise(r => setTimeout(r, getRetryDelayMs(res)))
-      _lastSfCall = Date.now()
+      try {
+        const res = await fn()
+        // Retry on rate-limit and transient 5xx; everything else returns.
+        if (res.status === 429) {
+          if (attempt === retries) return res
+          await new Promise(r => setTimeout(r, getRetryDelayMs(res)))
+          _lastSfCall = Date.now()
+          continue
+        }
+        if (res.status >= 500 && res.status < 600) {
+          if (attempt === retries) return res
+          const backoff = Math.min(8000, 500 * 2 ** attempt)
+          await new Promise(r => setTimeout(r, backoff))
+          _lastSfCall = Date.now()
+          continue
+        }
+        return res
+      } catch (err) {
+        // Network/abort errors — retry with backoff.
+        lastErr = err
+        if (attempt === retries) throw err
+        const backoff = Math.min(8000, 500 * 2 ** attempt)
+        await new Promise(r => setTimeout(r, backoff))
+        _lastSfCall = Date.now()
+      }
     }
+    if (lastErr) throw lastErr
   } finally {
     releaseSfSlot()
   }
@@ -97,9 +126,10 @@ export async function sfGet(url, opts = {}) {
     const fetchOpts = { headers: SF_HEADERS }
     if (opts.noCache) fetchOpts.cache = 'no-store'
     const res = await runScryfallRequest(() => fetch(sfUrl(url), fetchOpts))
-    if (!res.ok) return null
+    if (!res?.ok) return null
     return res.json()
-  } catch {
+  } catch (err) {
+    console.warn('[SF] sfGet failed', url, err?.message || err)
     return null
   }
 }
@@ -191,6 +221,9 @@ export async function getInstantCache(cacheTtlMs = DEFAULT_TTL_MS) {
 
 // ── Fetching ──────────────────────────────────────────────────────────────────
 
+// Returns { data, ok } so callers can distinguish "card not found in Scryfall"
+// (ok=true, data=[]) from "request failed" (ok=false). Previously these were
+// indistinguishable, which masked network failures as successful empty fetches.
 export async function fetchScryfallBatch(identifiers) {
   try {
     const res = await runScryfallRequest(() => fetch(sfUrl(`${SF_API_ORIGIN}/cards/collection`), {
@@ -198,9 +231,102 @@ export async function fetchScryfallBatch(identifiers) {
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify({ identifiers })
     }))
-    if (!res.ok) return []
-    return (await res.json()).data || []
-  } catch { return [] }
+    if (!res?.ok) {
+      console.warn('[SF] batch failed', res?.status)
+      return { ok: false, data: [] }
+    }
+    const json = await res.json()
+    return { ok: true, data: json.data || [] }
+  } catch (err) {
+    console.warn('[SF] batch threw', err?.message || err)
+    return { ok: false, data: [] }
+  }
+}
+
+// Merge a new entry into an existing one, preferring non-empty new values
+// but falling back to the existing value when the new field is null/empty.
+// Critical for the "Clear Local Metadata" flow: clearScryfallCache() strips
+// metadata fields but keeps image_uris/card_faces — a naive {...old, ...new}
+// would overwrite intact cached images with a partial set from card_prints
+// rows that pre-date the migration.
+function mergeSfEntry(existing, next) {
+  if (!existing) return next
+  const out = { ...existing }
+  for (const [key, value] of Object.entries(next)) {
+    if (value == null) continue
+    if (Array.isArray(value) && value.length === 0) continue
+    if (typeof value === 'object' && !Array.isArray(value)) {
+      // For image_uris: only take the new object if it carries at least as
+      // many populated sizes as the existing one. Otherwise we'd downgrade
+      // a 4-size IDB image_uris to a partial 2-size card_prints one.
+      if (key === 'image_uris' && existing.image_uris) {
+        const existingCount = Object.values(existing.image_uris).filter(Boolean).length
+        const nextCount = Object.values(value).filter(Boolean).length
+        if (nextCount < existingCount) continue
+      }
+      if (Object.keys(value).length === 0) continue
+    }
+    out[key] = value
+  }
+  return out
+}
+
+// Resolve as many missing cards as possible from our own card_prints table
+// (one batched Supabase call) before falling back to Scryfall. Returns the
+// subset of input cards that still need a Scryfall fetch. Entries that come
+// from card_prints are merged into _sfMap and persisted to IDB so future
+// loads hit the in-memory cache directly.
+async function enrichFromCardPrints(cards) {
+  if (!cards?.length) return []
+  if (!_sfMap) _sfMap = {}
+
+  const scryfallIds = []
+  const setColPairs = []
+  for (const c of cards) {
+    const sid = c.scryfall_id ? String(c.scryfall_id).trim() : null
+    if (sid) scryfallIds.push(sid)
+    else if (c.set_code && c.collector_number) setColPairs.push({ set_code: c.set_code, collector_number: c.collector_number })
+  }
+
+  let rowsByScryfallId = new Map()
+  let rowsBySetCol = new Map()
+  try {
+    if (scryfallIds.length)  rowsByScryfallId = await fetchCardPrintsByScryfallIds(scryfallIds)
+    if (setColPairs.length)  rowsBySetCol     = await fetchCardPrintsBySetCollector(setColPairs)
+  } catch (err) {
+    console.warn('[card_prints] enrich query failed, falling back to Scryfall', err?.message || err)
+    return cards
+  }
+
+  if (!rowsByScryfallId.size && !rowsBySetCol.size) return cards
+
+  const newEntries = []
+  const resolved = new Set()
+  for (const c of cards) {
+    const sid = c.scryfall_id ? String(c.scryfall_id).trim() : null
+    let row = sid ? rowsByScryfallId.get(sid) : null
+    if (!row && c.set_code && c.collector_number) {
+      row = rowsBySetCol.get(`${c.set_code}|${c.collector_number}`) || null
+    }
+    if (!row) continue
+    const entry = cardPrintRowToSfEntry(row)
+    if (!entry) continue
+    // Reject rows that pre-date the filter-columns migration — they have
+    // NULL type_line/rarity and would break the filter bar. Let Scryfall
+    // fetch them and the next ensureCardPrints() upsert will backfill.
+    if (!entry.type_line) continue
+    _sfMap[entry.key] = mergeSfEntry(_sfMap[entry.key], entry)
+    newEntries.push(_sfMap[entry.key])
+    resolved.add(c)
+  }
+
+  if (newEntries.length) {
+    try { await putScryfallEntries(newEntries) }
+    catch (err) { console.warn('[card_prints] IDB persist failed', err?.message || err) }
+    console.log(`[card_prints] resolved ${newEntries.length}/${cards.length} from Supabase`)
+  }
+
+  return cards.filter(c => !resolved.has(c))
 }
 
 export async function enrichCards(cards, onProgress, cacheTtlMs = DEFAULT_TTL_MS) {
@@ -211,37 +337,65 @@ export async function enrichCards(cards, onProgress, cacheTtlMs = DEFAULT_TTL_MS
       _sfMap = result.map
       // If metadata expired, we fall through to fetch fresh metadata below.
       if (!result.pricesExpired) {
-        const missing = cards.filter(c => !_sfMap[`${c.set_code}-${c.collector_number}`])
+        // Treat stripped entries (clearScryfallCache nulls type_line) as missing
+    // so the auto-enrich path re-hydrates them without a manual refresh button.
+    const missing = cards.filter(c => {
+      const entry = _sfMap[`${c.set_code}-${c.collector_number}`]
+      return !entry || !entry.type_line
+    })
         if (missing.length === 0) {
           console.log(`[SF] all ${cards.length} cards cached — skip fetch`)
           onProgress?.(100, '')
           return _sfMap
         }
-        // Silently fetch only missing (new cards added since last fetch)
-        console.log(`[SF] ${missing.length} new cards missing, fetching silently`)
-        await fetchAndMerge(missing, null)
+        // Try card_prints first; only what's still missing hits Scryfall.
+        const stillMissing = await enrichFromCardPrints(missing)
+        if (stillMissing.length) {
+          console.log(`[SF] ${stillMissing.length}/${missing.length} cards need Scryfall after card_prints`)
+          await fetchAndMerge(stillMissing, null)
+        }
         return _sfMap
       }
-      // Metadata expired — re-fetch metadata for the requested cards (images already there).
-      console.log(`[SF] metadata expired, re-fetching for ${cards.length} cards`)
-      await fetchAndMerge(cards, onProgress)
+      // Metadata expired — try card_prints first, Scryfall for the rest.
+      const stillMissing = await enrichFromCardPrints(cards)
+      if (stillMissing.length) {
+        console.log(`[SF] metadata expired, refetching ${stillMissing.length}/${cards.length} via Scryfall`)
+        await fetchAndMerge(stillMissing, onProgress)
+      } else {
+        onProgress?.(100, '')
+      }
       return _sfMap
     }
   } else {
     // Already in memory — check for missing cards only
-    const missing = cards.filter(c => !_sfMap[`${c.set_code}-${c.collector_number}`])
+    // Treat stripped entries (clearScryfallCache nulls type_line) as missing
+    // so the auto-enrich path re-hydrates them without a manual refresh button.
+    const missing = cards.filter(c => {
+      const entry = _sfMap[`${c.set_code}-${c.collector_number}`]
+      return !entry || !entry.type_line
+    })
     if (missing.length === 0) {
       onProgress?.(100, '')
       return _sfMap
     }
-    console.log(`[SF] ${missing.length} cards missing from memory, fetching`)
-    await fetchAndMerge(missing, onProgress)
+    const stillMissing = await enrichFromCardPrints(missing)
+    if (stillMissing.length) {
+      console.log(`[SF] ${stillMissing.length} cards need Scryfall after card_prints`)
+      await fetchAndMerge(stillMissing, onProgress)
+    } else {
+      onProgress?.(100, '')
+    }
     return _sfMap
   }
 
-  // Nothing in IDB at all — full fetch
-  console.log(`[SF] full fetch for ${cards.length} cards`)
-  await fetchAndMerge(cards, onProgress)
+  // Nothing in IDB at all — try card_prints, then Scryfall for the residual.
+  const stillMissing = await enrichFromCardPrints(cards)
+  if (stillMissing.length) {
+    console.log(`[SF] cold start: ${stillMissing.length}/${cards.length} cards need Scryfall`)
+    await fetchAndMerge(stillMissing, onProgress)
+  } else {
+    onProgress?.(100, '')
+  }
   return _sfMap
 }
 
@@ -305,18 +459,22 @@ async function fetchAndMerge(cards, onProgress) {
   let cursor = 0
   let completed = 0
   let savedCount = 0
+  let failedBatches = 0
+  const allScryfallResults = []
 
   async function worker() {
     while (cursor < tasks.length) {
       const idx = cursor++
       const ids = tasks[idx]
-      const results = await fetchScryfallBatch(ids)
+      const { ok, data: results } = await fetchScryfallBatch(ids)
+      if (!ok) failedBatches++
 
       const batchEntries = []
       for (const r of results) {
         const entry = buildEntryFromScryfall(r)
         _sfMap[entry.key] = entry
         batchEntries.push(entry)
+        allScryfallResults.push(r)
       }
 
       // Persist this batch immediately so progress survives reload/close.
@@ -342,6 +500,22 @@ async function fetchAndMerge(cards, onProgress) {
   await Promise.all(Array.from({ length: poolSize }, () => worker()))
 
   if (savedCount) console.log(`[SF IDB] saved ${savedCount} entries (incremental)`)
+  if (failedBatches) {
+    console.warn(`[SF] ${failedBatches}/${total} batches failed — cards will retry on next load`)
+    // Surface as a soft error so callers can show a banner; cards left out of
+    // _sfMap will naturally re-attempt on the next enrichCards() call since
+    // they remain "missing" in the per-key check.
+    throw new Error(`Scryfall fetch incomplete: ${failedBatches} of ${total} batches failed`)
+  }
+
+  // Push freshly-fetched data into the shared card_prints table so the next
+  // user (or this user on next load) gets it from Supabase instead of Scryfall.
+  // Fire-and-forget — errors are non-fatal and already logged inside.
+  if (allScryfallResults.length) {
+    ensureCardPrints(allScryfallResults).catch(err =>
+      console.warn('[card_prints] push-back upsert failed', err?.message || err)
+    )
+  }
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────

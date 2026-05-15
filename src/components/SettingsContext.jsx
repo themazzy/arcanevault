@@ -763,7 +763,7 @@ async function getArchiveAmbientCards(options = {}) {
     if (cached.length >= need) {
       fresh = cached.slice(0, need)
     } else if (selected.length) {
-      const hydrated = await fetchScryfallBatch(selected.filter(c => c?.id).map(c => ({ id: c.id })))
+      const { data: hydrated } = await fetchScryfallBatch(selected.filter(c => c?.id).map(c => ({ id: c.id })))
       fresh = hydrated.map(normalizeArchiveCard).filter(Boolean).filter(c => !lockedIds.has(c.id)).slice(0, need)
     }
   } else if (mode === 'collection') {
