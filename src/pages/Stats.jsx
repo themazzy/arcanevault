@@ -1,9 +1,10 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { sb } from '../lib/supabase'
-import { getPrice, formatPrice, getScryfallKey, getPriceSource } from '../lib/scryfall'
-import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
-import { getLocalCards } from '../lib/db'
+import { getPrice, formatPrice, getScryfallKey, getPriceSource, getManualPrice } from '../lib/scryfall'
+import { fetchCollectionCards, fetchSfMap, isGroupFolder } from '../lib/collectionFetchers'
+import { hydrateCollectionQueriesFromIdb } from '../lib/idbQueryBridge'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { CardDetail } from '../components/CardComponents'
@@ -55,8 +56,8 @@ const LANGUAGE_LABELS = {
   ja: 'Japanese',
   ko: 'Korean',
   ru: 'Russian',
-  cs: 'Traditional Chinese',
-  ct: 'Simplified Chinese',
+  zhs: 'Simplified Chinese',
+  zht: 'Traditional Chinese',
   he: 'Hebrew',
   ar: 'Arabic',
   la: 'Latin',
@@ -81,7 +82,7 @@ function safeBgUrl(raw) {
   try {
     const u = new URL(raw)
     if (u.protocol !== 'https:') return null
-    if (!SAFE_BG_ORIGINS.some(o => raw.startsWith(o))) return null
+    if (!SAFE_BG_ORIGINS.includes(u.origin)) return null
     return raw
   } catch { return null }
 }
@@ -526,26 +527,29 @@ function ColorDistributionBars({ byColor, totalQty }) {
 function MilestonesSection({ stats, historyRows, publicDeckCount }) {
   const { user } = useAuth()
   const { showToast } = useToast()
-  const statsShape = {
+  const statsShape = useMemo(() => ({
     total_cards: stats.totalQty,
     unique_cards: stats.uniqueCards,
     foil_count: stats.foilCount,
     sets_count: stats.uniqueSets,
     color_distribution: stats.colorDistribution,
-  }
-  const wins = historyRows.filter(r => r.placement === 1).length
-  const profileShape = {
-    collection_value: stats.totalValue,
-    public_deck_count: publicDeckCount,
-    game_stats: { wins, total: historyRows.length },
-  }
-  const earned  = MILESTONES.filter(m => m.check(statsShape, profileShape))
-  const pending = MILESTONES.filter(m => !m.check(statsShape, profileShape))
+  }), [stats.totalQty, stats.uniqueCards, stats.foilCount, stats.uniqueSets, stats.colorDistribution])
 
-  const earnedKey = earned.map(m => m.id).join(',')
+  const profileShape = useMemo(() => {
+    const wins = historyRows.filter(r => Number(r.placement) === 1).length
+    return {
+      collection_value: stats.totalValue,
+      public_deck_count: publicDeckCount,
+      game_stats: { wins, total: historyRows.length },
+    }
+  }, [historyRows, stats.totalValue, publicDeckCount])
+
+  const earned  = useMemo(() => MILESTONES.filter(m =>  m.check(statsShape, profileShape)), [statsShape, profileShape])
+  const pending = useMemo(() => MILESTONES.filter(m => !m.check(statsShape, profileShape)), [statsShape, profileShape])
+
   useEffect(() => {
     checkAndNotifyMilestones({ stats: statsShape, profile: profileShape, userId: user?.id, showToast })
-  }, [earnedKey, user?.id, showToast])
+  }, [statsShape, profileShape, user?.id, showToast])
 
   return (
     <div className={styles.chartBox}>
@@ -589,6 +593,7 @@ function MilestonesSection({ stats, historyRows, publicDeckCount }) {
   )
 }
 
+const EMPTY_DECK_META = {}
 function HistoryEntryCard({ row, deckMeta, onEdit, onDelete }) {
   const [notes, setNotes] = useState(row.notes || '')
   const [placement, setPlacement] = useState(row.placement || 1)
@@ -604,7 +609,7 @@ function HistoryEntryCard({ row, deckMeta, onEdit, onDelete }) {
   const mins = row.game_started_at && row.game_ended_at
     ? Math.round((new Date(row.game_ended_at) - new Date(row.game_started_at)) / 60000)
     : 0
-  const bgUrl = safeBgUrl(useDeckArt(deckMeta || {}))
+  const bgUrl = safeBgUrl(useDeckArt(deckMeta || EMPTY_DECK_META))
 
   const save = async () => {
     setSaving(true)
@@ -914,9 +919,25 @@ const CustomTooltip = ({ active, payload, label, fmt }) => {
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
+const STATS_FRESH_MS = 5 * 60 * 1000
+
+async function fetchPublicDeckCount(userId) {
+  const { data, error } = await sb.from('folders')
+    .select('description')
+    .eq('user_id', userId)
+    .in('type', ['deck', 'builder_deck'])
+  if (error) throw error
+  return (data || []).filter(f => {
+    if (isGroupFolder(f)) return false
+    try { return JSON.parse(f.description || '{}').is_public === true } catch { return false }
+  }).length
+}
+
 export default function StatsPage() {
   const { user }         = useAuth()
-  const { price_source } = useSettings()
+  const { price_source, cache_ttl_h } = useSettings()
+  const { showToast }    = useToast()
+  const queryClient = useQueryClient()
   const location = useLocation()
   const sym = getPriceSource(price_source).symbol
   const fmt = useCallback(v => formatPrice(v, price_source), [price_source])
@@ -926,61 +947,55 @@ export default function StatsPage() {
     const params = new URLSearchParams(window.location.search)
     return params.get('tab') === 'history' ? 'history' : params.get('tab') === 'winrates' ? 'winrates' : 'overview'
   })
-  const [cards,          setCards]        = useState([])
-  const [sfMap,          setSfMap]        = useState({})
-  const [loading,        setLoading]      = useState(true)
-  const [loadProgress,   setLoadProgress] = useState(0)
-  const [progLabel,      setProgLabel]    = useState('')
   const [detailCardId,   setDetailCardId] = useState(null)
+  const [progress,       setProgress]     = useState(0)
+  const [progLabel,      setProgLabel]    = useState('')
   const [historyRows,      setHistoryRows]      = useState([])
   const [historyLoading,   setHistoryLoading]   = useState(false)
   const [deckMap,          setDeckMap]          = useState({})
-  const [publicDeckCount,  setPublicDeckCount]  = useState(0)
 
+  const ttlMsRef = useRef(cache_ttl_h * 3600000)
+  useEffect(() => { ttlMsRef.current = cache_ttl_h * 3600000 }, [cache_ttl_h])
+
+  // Hydrate React Query cache from IDB once on mount so first paint is instant
+  // when arriving from another page that already loaded the collection.
+  const hydratedQueriesRef = useRef(false)
   useEffect(() => {
-    let cancelled = false
-    const load = async () => {
-      setLoading(true)
-      setLoadProgress(0)
-      setProgLabel('Loading collection…')
+    if (!user?.id || hydratedQueriesRef.current) return
+    hydratedQueriesRef.current = true
+    hydrateCollectionQueriesFromIdb(queryClient, user.id).catch(err => {
+      console.warn('[Stats] Could not hydrate React Query cache from IDB:', err?.message ?? String(err))
+    })
+  }, [queryClient, user?.id])
 
-      const allCards = await getLocalCards(user.id)
-      if (cancelled) return
-      setCards(allCards)
-      setLoadProgress(40)
+  const cardsQuery = useQuery({
+    queryKey: ['cards', user.id],
+    queryFn: () => fetchCollectionCards(user.id),
+    staleTime: STATS_FRESH_MS,
+    enabled: !!user?.id,
+  })
+  const cards = cardsQuery.data ?? []
 
-      const map = allCards.length
-        ? await loadCardMapWithSharedPrices(allCards, {
-            priceLookup: 'set',
-            onProgress: (pct, label) => {
-              if (cancelled) return
-              setLoadProgress(40 + Math.round(pct * 0.6))
-              if (label) setProgLabel(label)
-            },
-          })
-        : {}
-      if (cancelled) return
-      setSfMap(map)
-      setLoadProgress(100)
-      setLoading(false)
-    }
-    load()
-    return () => { cancelled = true }
-  }, [user.id])
+  const sfMapQuery = useQuery({
+    queryKey: ['sfMap', user.id],
+    queryFn: () => fetchSfMap(cards, ttlMsRef.current, (pct, lbl) => {
+      setProgress(pct)
+      if (lbl) setProgLabel(lbl)
+    }),
+    staleTime: ttlMsRef.current,
+    enabled: !!user?.id && cards.length > 0,
+  })
+  const sfMap = sfMapQuery.data ?? {}
 
-  useEffect(() => {
-    if (!user?.id) return
-    sb.from('folders')
-      .select('description')
-      .eq('user_id', user.id)
-      .in('type', ['deck', 'builder_deck'])
-      .then(({ data }) => {
-        const count = (data || []).filter(f => {
-          try { return JSON.parse(f.description || '{}').is_public === true } catch { return false }
-        }).length
-        setPublicDeckCount(count)
-      })
-  }, [user?.id])
+  const publicDeckCountQuery = useQuery({
+    queryKey: ['publicDeckCount', user.id],
+    queryFn: () => fetchPublicDeckCount(user.id),
+    staleTime: STATS_FRESH_MS,
+    enabled: !!user?.id,
+  })
+  const publicDeckCount = publicDeckCountQuery.data ?? 0
+
+  const loading = cardsQuery.isPending || (cards.length > 0 && sfMapQuery.isPending)
 
   const refreshHistory = useCallback(async () => {
     if (!user?.id) return
@@ -1002,7 +1017,9 @@ export default function StatsPage() {
 
       setHistoryRows((rows || []).map(sanitizeGameRow))
 
-      const baseDeckMeta = (decks || []).map(deck => ({ id: deck.id, name: deck.name, ...parseDeckMeta(deck.description) }))
+      const baseDeckMeta = (decks || [])
+        .filter(deck => !isGroupFolder(deck))
+        .map(deck => ({ id: deck.id, name: deck.name, ...parseDeckMeta(deck.description) }))
       const missingArtIds = baseDeckMeta.filter(deck => !hasDeckArtSource(deck)).map(deck => deck.id)
       let commanderRows = []
       if (missingArtIds.length) {
@@ -1062,22 +1079,22 @@ export default function StatsPage() {
     const { error } = await sb.from('game_results').update(payload).eq('id', rowId).eq('user_id', user.id)
     if (error) {
       console.error('[Stats] history update:', error?.message ?? String(error))
-      window.alert('Could not update your game history entry.')
+      showToast('Could not update your game history entry.', { tone: 'error' })
       return
     }
     await refreshHistory()
-  }, [refreshHistory, user?.id])
+  }, [refreshHistory, user?.id, showToast])
 
   const handleHistoryDelete = useCallback(async (row) => {
     if (!user?.id) return
     const { error } = await sb.from('game_results').delete().eq('id', row.id).eq('user_id', user.id)
     if (error) {
       console.error('[Stats] history delete:', error?.message ?? String(error))
-      window.alert('Could not delete your game history entry.')
+      showToast('Could not delete your game history entry.', { tone: 'error' })
       return
     }
     await refreshHistory()
-  }, [refreshHistory, user?.id])
+  }, [refreshHistory, user?.id, showToast])
 
   // ── All derived stats ───────────────────────────────────────────────────────
   const stats = useMemo(() => {
@@ -1121,7 +1138,8 @@ export default function StatsPage() {
       totalCost  += (c.purchase_price || 0) * c.qty
       totalQty   += c.qty
       if (c.foil) { foilCount += c.qty; foilValue += val }
-      if (price != null && prevPrice != null) dayChange += (price - prevPrice) * c.qty
+      const hasManualPrice = getManualPrice(c.id) != null
+      if (!hasManualPrice && price != null && prevPrice != null) dayChange += (price - prevPrice) * c.qty
       byLanguage[c.language || 'en'] = (byLanguage[c.language || 'en'] || 0) + c.qty
       byCondition[c.condition || 'near_mint'] = (byCondition[c.condition || 'near_mint'] || 0) + c.qty
 
@@ -1260,7 +1278,7 @@ export default function StatsPage() {
     <>
       <SectionHeader title="Collection Stats" />
       <ProgressBar
-        value={loadProgress}
+        value={progress}
         label={progLabel || `Loading… ${cards.length > 0 ? `(${cards.length} cards)` : ''}`}
       />
     </>
@@ -1269,7 +1287,7 @@ export default function StatsPage() {
 
   return (
     <div className={styles.page}>
-      <SectionHeader title={tab === 'history' ? 'Game History' : tab === 'winrates' ? 'Deck Win Rates' : `Stats · ${cards.length.toLocaleString()} unique cards`} />
+      <SectionHeader title={tab === 'history' ? 'Game History' : tab === 'winrates' ? 'Deck Win Rates' : `Stats · ${cards.length.toLocaleString()} card entries`} />
 
       {tab === 'history' ? (
         <GameHistorySection
@@ -1319,7 +1337,7 @@ export default function StatsPage() {
             sub="per copy owned"
           />
           <StatCard
-            label="Unique Cards"
+            label="Card Entries"
             value={stats.uniqueCards.toLocaleString()}
             sub={`across ${stats.uniqueSets} sets`}
           />
@@ -1484,7 +1502,7 @@ export default function StatsPage() {
         </div>
 
         <div className={styles.chartBox}>
-          <SLabel>Color Distribution</SLabel>
+          <SLabel>Color Identity</SLabel>
           <ColorDistributionBars byColor={stats.colorDistribution} totalQty={stats.totalQty} />
         </div>
 
