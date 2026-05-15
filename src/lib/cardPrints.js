@@ -33,19 +33,13 @@ function slimCardFaces(faces) {
   }))
 }
 
-// Columns we persist beyond the original card_prints schema. Used to detect
-// which existing rows still have NULL/empty fields that we can backfill.
-export const CARD_PRINT_EXTENDED_COLUMNS = [
-  'rarity', 'set_name', 'legalities', 'artist', 'oracle_text',
-  'power', 'toughness', 'produced_mana', 'keywords', 'colors',
-  'image_uri_small', 'image_uri_large', 'card_faces',
-]
-
 const CARD_PRINT_SELECT_COLUMNS = [
   'id', 'scryfall_id', 'set_code', 'collector_number', 'name',
   'type_line', 'mana_cost', 'cmc', 'color_identity',
   'image_uri', 'art_crop_uri',
-  ...CARD_PRINT_EXTENDED_COLUMNS,
+  'rarity', 'set_name', 'legalities', 'artist', 'oracle_text',
+  'power', 'toughness', 'produced_mana', 'keywords', 'colors',
+  'image_uri_small', 'image_uri_large', 'card_faces',
 ].join(',')
 
 export function buildCardPrintPayload(card) {
@@ -80,42 +74,6 @@ export function buildCardPrintPayload(card) {
     image_uri_large: card.image_uri_large || getCardImage(card, 'large'),
     card_faces:      slimCardFaces(card.card_faces),
   }
-}
-
-// Returns true if the existing row is missing any of the extended fields that
-// the supplied payload can fill in. Used by ensureCardPrints to decide whether
-// to PATCH an existing row.
-function isExistingRowMissingFields(existing, payload) {
-  if (!existing) return false
-  for (const col of CARD_PRINT_EXTENDED_COLUMNS) {
-    const cur = existing[col]
-    const next = payload?.[col]
-    if (next == null) continue
-    if (Array.isArray(next) && next.length === 0) continue
-    if (cur == null) return true
-    if (Array.isArray(cur) && cur.length === 0 && Array.isArray(next) && next.length > 0) return true
-    if (col === 'legalities' && cur && typeof cur === 'object' && Object.keys(cur).length === 0
-        && next && typeof next === 'object' && Object.keys(next).length > 0) return true
-  }
-  return false
-}
-
-// Build a minimal patch object containing only the extended columns that are
-// missing on the existing row. Keeps wire traffic small and avoids stomping on
-// fields another user may have already populated.
-function buildBackfillPatch(existing, payload) {
-  const patch = {}
-  for (const col of CARD_PRINT_EXTENDED_COLUMNS) {
-    const cur = existing?.[col]
-    const next = payload?.[col]
-    if (next == null) continue
-    if (Array.isArray(next) && next.length === 0) continue
-    const curEmpty = cur == null
-      || (Array.isArray(cur) && cur.length === 0)
-      || (col === 'legalities' && cur && typeof cur === 'object' && Object.keys(cur).length === 0)
-    if (curEmpty) patch[col] = next
-  }
-  return patch
 }
 
 function printLookupKey(card) {
@@ -159,22 +117,6 @@ export async function ensureCardPrints(cards, onProgress) {
     }
     const existingById = new Map(existing.map(r => [r.scryfall_id, r]))
     const toInsert = payloads.filter(p => !existingById.has(p.scryfall_id))
-
-    // Patch existing rows that are missing extended fields. Best-effort: any
-    // error is logged and swallowed because identity columns are protected
-    // server-side and the row remains readable either way.
-    const toPatch = payloads
-      .filter(p => existingById.has(p.scryfall_id) && isExistingRowMissingFields(existingById.get(p.scryfall_id), p))
-      .map(p => ({ scryfall_id: p.scryfall_id, patch: buildBackfillPatch(existingById.get(p.scryfall_id), p) }))
-      .filter(entry => Object.keys(entry.patch).length > 0)
-    if (toPatch.length) {
-      await Promise.all(toPatch.map(async ({ scryfall_id, patch }) => {
-        const { error } = await sb.from('card_prints').update(patch).eq('scryfall_id', scryfall_id)
-        if (error) {
-          console.warn('[card_prints] backfill patch failed', scryfall_id, error.code, error.message, error.details, error.hint, 'patch keys:', Object.keys(patch))
-        }
-      }))
-    }
 
     const inserted = []
     const insertBatches = chunkRows(toInsert, CARD_PRINT_UPSERT_BATCH)

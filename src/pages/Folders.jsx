@@ -783,7 +783,8 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
         : toDelete.push({ id: card.id, folderId: card._sourceFolderId || folder.id })
     }
     for (const row of toDelete) {
-      await sb.from('folder_cards').delete().eq('folder_id', row.folderId).eq('card_id', row.id)
+      await sb.from('folder_cards').update({ deleted_at: new Date().toISOString() })
+        .eq('folder_id', row.folderId).eq('card_id', row.id)
     }
     for (const { id, folderId, remaining } of toUpdate) {
       await sb.from('folder_cards').update({ qty: remaining }).eq('folder_id', folderId).eq('card_id', id)
@@ -848,7 +849,8 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
     )
 
     for (const row of toDelete) {
-      await sb.from('folder_cards').delete().eq('folder_id', row.folderId).eq('card_id', row.id)
+      await sb.from('folder_cards').update({ deleted_at: new Date().toISOString() })
+        .eq('folder_id', row.folderId).eq('card_id', row.id)
     }
     for (const { id, folderId, remaining } of toUpdate) {
       await sb.from('folder_cards').update({ qty: remaining }).eq('folder_id', folderId).eq('card_id', id)
