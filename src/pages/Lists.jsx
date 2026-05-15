@@ -252,7 +252,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
         const sorted = [...localRows].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
         setItems(sorted)
         const map = await loadCardMapWithSharedPrices(sorted, { priceLookup: 'set' })
-        if (map) setSfMap({ ...map })
+        if (map) setSfMap(prev => ({ ...prev, ...map }))
         setLoading(false)
         seeded = true
       }
@@ -290,7 +290,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
     setItems(rows)
     if (rows.length) {
       const map = await loadCardMapWithSharedPrices(rows, { priceLookup: 'set' })
-      if (map) setSfMap({ ...map })
+      if (map) setSfMap(prev => ({ ...prev, ...map }))
     } else {
       setSfMap({})
     }
