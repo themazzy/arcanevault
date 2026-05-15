@@ -37,9 +37,9 @@ const CARD_PRINT_SELECT_COLUMNS = [
   'id', 'scryfall_id', 'set_code', 'collector_number', 'name',
   'type_line', 'mana_cost', 'cmc', 'color_identity',
   'image_uri', 'art_crop_uri',
-  'rarity', 'set_name', 'legalities', 'artist', 'oracle_text',
+  'rarity', 'set_name', 'artist',
   'power', 'toughness', 'produced_mana', 'keywords', 'colors',
-  'image_uri_small', 'image_uri_large', 'card_faces',
+  'card_faces',
 ].join(',')
 
 export function buildCardPrintPayload(card) {
@@ -59,20 +59,18 @@ export function buildCardPrintPayload(card) {
     color_identity: card.color_identity || [],
     image_uri: card.image_uri || getCardImage(card, 'normal'),
     art_crop_uri: card.art_crop_uri || getCardImage(card, 'art_crop'),
-    // Extended filter/sort/detail fields (added 2026-05-15 migration).
-    rarity:          card.rarity || null,
-    set_name:        card.set_name || null,
-    legalities:      card.legalities || {},
-    artist:          card.artist || null,
-    oracle_text:     card.oracle_text || card.card_faces?.[0]?.oracle_text || null,
-    power:           card.power ?? null,
-    toughness:       card.toughness ?? null,
-    produced_mana:   card.produced_mana || [],
-    keywords:        card.keywords || [],
-    colors:          card.colors || [],
-    image_uri_small: card.image_uri_small || getCardImage(card, 'small'),
-    image_uri_large: card.image_uri_large || getCardImage(card, 'large'),
-    card_faces:      slimCardFaces(card.card_faces),
+    // Slim filter/sort fields. Heavier fields (legalities, oracle_text,
+    // image_uri_small/large) live only in Scryfall + IDB cache to stay
+    // under the Supabase free-tier storage budget.
+    rarity:        card.rarity || null,
+    set_name:      card.set_name || null,
+    artist:        card.artist || null,
+    power:         card.power ?? null,
+    toughness:     card.toughness ?? null,
+    produced_mana: card.produced_mana || [],
+    keywords:      card.keywords || [],
+    colors:        card.colors || [],
+    card_faces:    slimCardFaces(card.card_faces),
   }
 }
 
@@ -206,11 +204,12 @@ export function cardPrintRowToSfEntry(row) {
   const setCode = row.set_code || ''
   const collectorNumber = row.collector_number || ''
   const key = `${setCode}-${collectorNumber}`
-  const small  = row.image_uri_small || null
-  const normal = row.image_uri       || null
-  const large  = row.image_uri_large || null
-  const artCrop = row.art_crop_uri   || null
-  const hasImage = !!(small || normal || large || artCrop)
+  const normal = row.image_uri     || null
+  const artCrop = row.art_crop_uri || null
+  const hasImage = !!(normal || artCrop)
+  // legalities / oracle_text / image_uri_small / image_uri_large are
+  // intentionally NOT set here — they live in the Scryfall IDB cache only.
+  // mergeSfEntry skips null/empty so existing entries from Scryfall keep them.
   return {
     key,
     set_code:         setCode,
@@ -224,14 +223,12 @@ export function cardPrintRowToSfEntry(row) {
     color_identity:   row.color_identity || [],
     colors:           row.colors || [],
     cmc:              row.cmc ?? null,
-    legalities:       row.legalities || {},
     artist:           row.artist || null,
-    oracle_text:      row.oracle_text || null,
     power:            row.power ?? null,
     toughness:        row.toughness ?? null,
     produced_mana:    row.produced_mana || [],
     keywords:         row.keywords || [],
-    image_uris: hasImage ? { small, normal, large, art_crop: artCrop } : null,
+    image_uris: hasImage ? { normal, art_crop: artCrop } : null,
     mana_cost:  row.mana_cost || null,
     card_faces: Array.isArray(row.card_faces) ? row.card_faces : null,
     source: 'card_prints',
