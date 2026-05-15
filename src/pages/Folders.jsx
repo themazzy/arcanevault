@@ -644,12 +644,16 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
     return () => { cancelled = true }
   }, [folder?.id, isAllView])
 
-  // Phase B: load prices in background after cards are visible
+  // Phase B: load prices in background after cards are visible. Don't clear
+  // the existing sfMap while loading — keeping the previous entries means
+  // totalValue / per-card prices don't flicker to 0 between the IDB paint
+  // and the Supabase reconcile.
   useEffect(() => {
-    if (!cards.length) { setSfMap({}); return }
+    if (!cards.length) return
     let cancelled = false
     loadCardMapWithSharedPrices(cards, { priceLookup: 'set' }).then(map => {
-      if (!cancelled && map) setSfMap(map)
+      if (cancelled || !map) return
+      setSfMap(prev => ({ ...prev, ...map }))
     })
     return () => { cancelled = true }
   }, [cards])
@@ -693,7 +697,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
     try {
       const { error } = await sb
         .from('folder_cards')
-        .delete()
+        .update({ deleted_at: new Date().toISOString() })
         .eq('folder_id', folder.id)
         .eq('card_id', selectedCard.id)
       if (error) throw error
@@ -1530,9 +1534,16 @@ export default function FoldersPage({ type }) {
   // Bumped after sfMap arrives, so the price-only effect recomputes values.
   const [sfMapVersion, setSfMapVersion] = useState(0)
 
-  const computeMetaCounts = useCallback((foldersData, allRows) => {
+  // Returns a meta object that merges new counts/qty over the previous one,
+  // preserving any `value` already loaded. Without this, the second and
+  // third setFolderMeta calls during loadFolders would null out the cached
+  // values and the UI would flash "—" until prices reload.
+  const computeMetaCounts = useCallback((foldersData, allRows, prevMeta) => {
     const meta = {}
-    for (const f of foldersData) meta[f.id] = { count: 0, totalQty: 0, value: null }
+    for (const f of foldersData) {
+      const prev = prevMeta?.[f.id]
+      meta[f.id] = { count: 0, totalQty: 0, value: prev?.value ?? null }
+    }
     for (const row of allRows) {
       const folderId = row.deck_id || row.folder_id
       const m = meta[folderId]
@@ -1609,7 +1620,7 @@ export default function FoldersPage({ type }) {
     let cardById = Object.fromEntries(localCards.map(c => [c.id, c]))
 
     folderJoinRef.current = { allRows, cardById, foldersData }
-    setFolderMeta(computeMetaCounts(foldersData, allRows))
+    setFolderMeta(prev => computeMetaCounts(foldersData, allRows, prev))
     setLoading(false)
 
     // Phase A2: reconcile placement counts from Supabase. The index is otherwise
@@ -1623,7 +1634,7 @@ export default function FoldersPage({ type }) {
       localCards = await getCardsByIds(uniqueCardIds)
       cardById = Object.fromEntries(localCards.map(c => [c.id, c]))
       folderJoinRef.current = { allRows, cardById, foldersData }
-      setFolderMeta(computeMetaCounts(foldersData, allRows))
+      setFolderMeta(prev => computeMetaCounts(foldersData, allRows, prev))
     } catch (err) {
       console.warn('[Folders] folder placement reconcile unavailable:', err?.message || err)
     }

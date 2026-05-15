@@ -844,7 +844,7 @@ export default function DeckBrowser({ folder, onBack }) {
       // Drop the spinner as soon as cards are on screen — remote reconcile can run async.
       setLoading(false)
       const map = await loadCardMapWithSharedPrices(cardList)
-      if (map) setSfMap({ ...map })
+      if (map) setSfMap(prev => ({ ...prev, ...map }))
     } else {
       setCards([])
     }
@@ -881,9 +881,14 @@ export default function DeckBrowser({ folder, onBack }) {
         })
         const map = await loadCardMapWithSharedPrices(remoteCardList)
         if (map) setSfMap(prev => {
-          const newKeys = Object.keys(map).sort().join(',')
-          const oldKeys = Object.keys(prev).sort().join(',')
-          return newKeys === oldKeys ? prev : { ...map }
+          // Merge so that prices loaded in Phase A don't disappear when the
+          // remote phase's map is a subset (e.g. transient Scryfall lookup
+          // miss). Only bail out if nothing new arrived.
+          let changed = false
+          for (const k of Object.keys(map)) {
+            if (prev[k] !== map[k]) { changed = true; break }
+          }
+          return changed ? { ...prev, ...map } : prev
         })
       } catch {}
     }
