@@ -407,6 +407,16 @@
 .lifeBtn:hover  { background: var(--s-medium); color: var(--player-color, var(--gold)); border-color: rgba(201,168,76,0.35); }
 .lifeBtn:active { transform: scale(0.93); background: var(--s-subtle); }
 
+/* 2:1 split — inner ±1 (frequent) gets two-thirds, outer ±10 gets one-third */
+.lifeBtn.lifeBtnInner { flex: 2 1 0; }
+.lifeBtn.lifeBtnOuter {
+  flex: 1 1 0; min-width: 30px;
+  font-size: 0.9rem; letter-spacing: -0.02em;
+  color: var(--text-dim);
+  padding: 0;
+}
+.lifeBtn.lifeBtnOuter:hover { color: var(--player-color, var(--gold)); }
+
 .lifeTotalWrap {
   position: relative;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -451,95 +461,11 @@
   100% { opacity: 0; transform: translateY(-28px); }
 }
 
-/* Quick life change buttons */
-.quickRow {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 3px;
-}
-.quickBtn {
-  background: var(--s2); border: 1px solid var(--s-border);
-  border-radius: 3px; color: var(--text-faint);
-  font-family: var(--font-serif); font-size: 0.72rem;
-  padding: 0.55rem 0.4rem; cursor: pointer; transition: all 0.12s;
-  touch-action: manipulation; user-select: none; -webkit-user-select: none;
-  white-space: nowrap; min-width: 0;
-}
-.quickBtn:hover  { background: var(--s4); color: var(--player-color, var(--gold)); }
-.quickBtn:active { transform: scale(0.94); }
-
 .statusRow {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 4px;
   min-width: 0;
-}
-
-.counterBar {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 6px;
-  background: rgba(0,0,0,0.22);
-  border: 1px solid rgba(255,255,255,0.05);
-  border-radius: 5px;
-  min-height: 34px;
-  overflow: hidden;
-  min-width: 0;
-}
-
-.counterBarIcon {
-  font-size: 0.78rem;
-  color: var(--text-faint);
-  flex-shrink: 0;
-  opacity: 0.7;
-}
-
-.counterBadges {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 4px;
-  align-items: center;
-  flex: 1;
-  min-width: 0;
-}
-
-.counterBadge {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  min-width: 0;
-  background: var(--s1);
-  border: 1px solid rgba(255,255,255,0.07);
-  border-radius: 4px;
-  padding: 0.32rem 0.45rem;
-  overflow: hidden;
-}
-
-.counterBadgeActive {
-  border-color: rgba(201,168,76,0.18);
-}
-
-.counterBadgeLethal {
-  border-color: rgba(196,96,96,0.5) !important;
-  background: rgba(196,96,96,0.08) !important;
-  animation: lethalPulse 1.4s ease-in-out infinite;
-}
-
-.counterBadgeIcon {
-  flex-shrink: 0;
-  font-size: 0.72rem;
-  line-height: 1;
-}
-
-.counterBadgeVal {
-  font-family: var(--font-display);
-  font-size: 0.72rem;
-  color: var(--text-dim);
-  flex-shrink: 0;
-  min-width: 10px;
-  text-align: center;
 }
 
 /* History button (in nameRow) */
@@ -550,120 +476,6 @@
   flex-shrink: 0; border-radius: 4px;
 }
 .historyBtn:hover { color: var(--gold); background: rgba(201,168,76,0.08); }
-
-/* ── Counter tab switcher ───────────────────────────────────────────────────── */
-.counterSection {
-  display: flex; flex-direction: column; gap: 3px;
-  background: var(--s2);
-  border: 1px solid var(--s-border);
-  border-radius: 5px; padding: 4px 5px 4px;
-  flex-shrink: 0;
-}
-
-/* ── Counter toggle (chevron) ────────────────────────────────────── */
-.counterToggleWrap {
-  display: flex; align-items: center; justify-content: center; gap: 0;
-  padding: 2px; margin: -3px -2px 0 -2px;
-}
-.counterToggleBtn {
-  background: none; border: none;
-  color: var(--text-faint); font-size: 0.65rem;
-  cursor: pointer; padding: 3px 8px;
-  border-radius: 3px; transition: all 0.12s;
-  touch-action: manipulation; line-height: 1;
-}
-.counterToggleBtn:hover {
-  background: var(--s3); color: var(--text);
-}
-.counterToggleBtn:focus-visible {
-  outline: 1px dashed var(--gold);
-  outline-offset: 2px;
-}
-.counterTabs { display: flex; gap: 2px; flex-wrap: wrap; }
-
-/* Collapsed counter tabs (when toggled off) */
-.counterTabsCollapsed {
-  display: flex; align-items: center; justify-content: center; gap: 0;
-  padding: 4px 8px;
-  background: var(--s1);
-  border-radius: 4px;
-}
-.counterCollapsedLabel {
-  font-size: 0.65rem; color: var(--text-faint);
-  font-style: italic; letter-spacing: 0.05em;
-}
-
-/* Hide counter tabs on small screens (≤ 600px) */
-.counterTabs { display: none; }
-
-.counterTab {
-  flex: 1 1 130px; min-width: 110px;
-  background: none; border: 1px solid var(--s-border);
-  border-radius: 4px; padding: 4px 0;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
-  cursor: pointer; transition: all 0.12s;
-  color: var(--text-faint); touch-action: manipulation;
-}
-.counterTab:hover { background: var(--s-subtle); color: var(--text-dim); }
-
-/* Show counter tabs on larger screens */
-@media (min-width: 601px) {
-  .counterTabs { display: flex; }
-}
-.counterTabActive {
-  background: var(--s-medium) !important;
-  border-color: var(--s-border2) !important;
-  color: var(--text) !important;
-}
-.counterTabLethal {
-  border-color: rgba(196,96,96,0.45) !important;
-  background: rgba(196,96,96,0.06) !important;
-  animation: lethalPulse 1.4s ease-in-out infinite;
-}
-.counterTabIcon { font-size: 0.9rem; line-height: 1; }
-.counterTabLabel {
-  font-size: 0.5rem; letter-spacing: 0.05em; text-transform: uppercase;
-  line-height: 1; color: inherit;
-}
-.counterTabBadge {
-  font-family: var(--font-display); font-size: 0.6rem; font-weight: 700;
-  color: var(--text); line-height: 1;
-}
-.counterControls {
-  display: flex; align-items: stretch; gap: 3px;
-}
-
-/* Hide counter controls when tabs are collapsed */
-.counterTabsCollapsed + .counterControls {
-  display: none;
-}
-
-.counterCtrlBtn {
-  flex: 1 1 46px; max-width: 50px;
-  background: var(--s3); border: 1px solid var(--s-border2);
-  border-radius: 4px; color: var(--text);
-  font-size: 1.4rem; font-weight: 600; min-height: 36px;
-  cursor: pointer; display: flex; align-items: center; justify-content: center;
-  transition: all 0.12s; padding: 0; touch-action: manipulation;
-  overflow: hidden; white-space: nowrap;
-}
-.counterCtrlBtn:hover { background: var(--s-medium); }
-.counterCtrlBtn:active { transform: scale(0.93); }
-.counterCtrlMid {
-  flex: 1 0 auto;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 1px; min-width: 0;
-}
-.counterCtrlIcon { font-size: 0.8rem; line-height: 1; flex-shrink: 0; }
-.counterCtrlVal {
-  font-family: var(--font-display); font-size: 1.4rem; font-weight: 700;
-  color: var(--text); line-height: 1; overflow: hidden; text-overflow: ellipsis;
-}
-.counterCtrlLethal {
-  font-family: var(--font-display); font-size: 0.52rem; letter-spacing: 0.08em;
-  color: #c46060; text-transform: uppercase; white-space: nowrap;
-}
-.counterDead { color: #c46060 !important; }
 
 /* ── Partner toggle button (in player settings row) ─────────────────────────── */
 .partnerToggleBtn {
@@ -793,62 +605,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.counterOverlayList {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.counterOverlayRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  background: var(--s1);
-  border: 1px solid rgba(255,255,255,0.07);
-  border-radius: 5px;
-  padding: 10px 12px;
-}
-
-.counterOverlayRowLethal {
-  background: rgba(196,96,96,0.06) !important;
-  border-color: rgba(196,96,96,0.32) !important;
-}
-
-.counterOverlayMeta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.counterOverlayIcon {
-  font-size: 1rem;
-  line-height: 1;
-  width: 18px;
-  text-align: center;
-  flex-shrink: 0;
-}
-
-.counterOverlayLabel {
-  font-family: var(--font-display);
-  font-size: 0.8rem;
-  color: var(--text);
-}
-
-.counterOverlayHint {
-  font-size: 0.66rem;
-  color: var(--text-faint);
-  font-style: italic;
-}
-
-.counterOverlayCtrl {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
 }
 
 .settingsOverlay {
@@ -1055,6 +811,8 @@
 .cmdOverlayHead {
   display: flex; align-items: flex-start; justify-content: space-between;
 }
+/* Flip the header so the title/close button face the viewer who opened the modal */
+.cmdOverlayHead.playerRotate180 { transform: rotate(180deg); }
 .cmdOverlayTitle {
   font-family: var(--font-display); font-size: 0.88rem;
   color: var(--gold); letter-spacing: 0.06em;
@@ -1066,20 +824,62 @@
   transition: color 0.15s;
 }
 .cmdOverlayClose:hover { color: var(--text); }
-.cmdOverlayList { display: flex; flex-direction: column; gap: 8px; }
-.cmdOverlayRow {
+
+/* Grid layout mirroring the table — cells map to the same seats players occupy in-game */
+.cmdOverlayPanelGrid {
+  width: min(calc(var(--gcols, 2) * 260px + 56px), calc(100vw - 32px));
+  max-width: 1100px;
+  height: calc(100dvh - 32px);
+  overflow: hidden;
+  /* Override the panel's slideUp (which animates `transform` and would briefly clear
+     rotated children mid-animation) with a plain opacity fade. */
+  animation: cmdGridFadeIn 0.18s ease;
+}
+@keyframes cmdGridFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.cmdGrid {
+  display: grid;
+  grid-template-columns: repeat(var(--gcols, 2), minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+  gap: 8px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.cmdGridCell {
   background: var(--s1);
   border: 1px solid rgba(255,255,255,0.07);
   border-left: 3px solid var(--opc, rgba(255,255,255,0.2));
-  border-radius: 5px; padding: 8px 12px;
-  display: flex; flex-direction: column; gap: 6px;
+  border-radius: 6px; padding: 6px 8px 8px;
+  display: flex; flex-direction: column; gap: 4px;
+  min-width: 0; min-height: 0;
 }
+/* Cell rotation always applies inside the cmd modal — independent of the table's mobile-only rotation */
+.cmdGridCell.playerRotate180 { transform: rotate(180deg); }
+.cmdGridSelf {
+  align-items: center; justify-content: center; gap: 4px;
+  background: rgba(255,255,255,0.02);
+  opacity: 0.55;
+}
+.cmdGridSelfLabel {
+  font-family: var(--font-display); font-size: 0.62rem;
+  letter-spacing: 0.18em; color: var(--text-faint); text-transform: uppercase;
+}
+.cmdGridSelfName {
+  font-family: var(--font-display); font-size: 0.95rem;
+  color: var(--opc, var(--text-dim));
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+}
+
 .cmdOverlayDmgRow {
-  display: flex; align-items: center; gap: 6px;
+  display: flex; align-items: stretch; gap: 6px;
+  flex: 1 1 0; min-height: 0;
 }
 .cmdPartnerLabel {
   font-family: var(--font-display); font-size: 0.72rem;
   color: var(--text-faint); min-width: 16px; flex-shrink: 0; text-align: center;
+  align-self: center;
 }
 .cmdPartnerBadge {
   font-size: 0.58rem; letter-spacing: 0.07em; text-transform: uppercase;
@@ -1104,24 +904,29 @@
   color: #c46060; background: rgba(196,96,96,0.15);
   border-radius: 3px; padding: 1px 5px;
 }
-.cmdOverlayCtrl { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.cmdOverlayCtrl {
+  display: flex; align-items: stretch; gap: 3px;
+  width: 100%; min-width: 0; min-height: 0;
+  flex: 1 1 0;
+}
 .cmdOverlayBtn {
-  background: var(--s3); border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 4px; color: var(--text-dim);
-  font-size: 0.82rem; padding: 4px 8px; cursor: pointer;
+  background: var(--s3); border: 1px solid var(--s-border2);
+  border-radius: 6px; color: var(--text);
+  font-size: 1.6rem; font-weight: 600; line-height: 1;
+  padding: 0; min-height: 0; min-width: 0;
+  flex: 1 1 0; align-self: stretch;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; user-select: none; -webkit-user-select: none;
   touch-action: manipulation; transition: all 0.12s;
 }
-.cmdOverlayBtn:hover  { background: rgba(255,255,255,0.12); color: var(--text); }
-.cmdOverlayBtn:active { transform: scale(0.93); }
+.cmdOverlayBtn:hover  { background: var(--s-medium); color: var(--text); border-color: rgba(201,168,76,0.35); }
+.cmdOverlayBtn:active { transform: scale(0.93); background: var(--s-subtle); }
 .cmdOverlayVal {
-  font-family: var(--font-display); font-size: 1.3rem; font-weight: 700;
-  color: var(--text); min-width: 32px; text-align: center;
+  font-family: var(--font-display); font-size: 1.7rem; font-weight: 700;
+  color: var(--text); min-width: 32px; padding: 0 2px;
+  text-align: center; align-self: center; flex-shrink: 0;
 }
 .cmdOverlayValLethal { color: #c46060 !important; }
-.cmdOverlayHint {
-  font-size: 0.68rem; color: var(--text-faint); font-style: italic;
-  text-align: center; margin: 0;
-}
 
 /* ══════════════════════════════════════════════════════════════════════════════
    DICE ROLLER
@@ -2082,14 +1887,6 @@
 
 /* ── Phone (≤ 600 px): shrink panel internals to fit 2-col cells (~165 px wide) ── */
 @media (max-width: 600px) {
-  .counterOverlayRow {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .counterOverlayCtrl {
-    justify-content: center;
-    flex-wrap: wrap;
-  }
   .artPickerPanel,
   .cmdOverlayPanel,
   .dicePanel,
@@ -2122,15 +1919,6 @@
   .cmdTaxGroup   { gap: 2px; margin-left: 2px; }
   .cmdTaxChip    { padding: 1px 2px; }
   .cmdTaxVal     { font-size: 0.5rem; }
-
-  .quickRow      { gap: 2px; }
-  .quickBtn      { padding: 0.5rem 0.2rem; font-size: 0.62rem; min-width: 0; }
-
-  .counterSection { padding: 3px 4px; gap: 2px; }
-  .counterTab     { font-size: 0.74rem; padding: 2px; min-width: 90px; }
-  .counterCtrlBtn { font-size: 1.1rem; min-height: 28px; }
-  .counterCtrlVal { font-size: 1.1rem; }
-  .counterCtrlIcon { font-size: 0.72rem; }
 
   .cmdBar        { padding: 3px 4px; min-height: 24px; gap: 3px; }
   .cmdBadgeVal   { font-size: 0.66rem; }
@@ -2184,17 +1972,6 @@
   .lifeTotal     { font-size: 1.65rem; }
   .lifeDelta     { right: -22px; font-size: 0.9rem; }
 
-  /* Hide counter tabs on landscape — only show via toggle */
-  .counterSection { padding: 2px 3px; gap: 2px; }
-  .counterTab     { display: none; }
-  .counterCtrlBtn { font-size: 0.9rem; min-height: 22px; }
-  .counterCtrlVal { font-size: 0.9rem; }
-  .counterCtrlIcon { font-size: 0.64rem; }
-
-  /* Hide quick row in landscape mode to save space */
-  .quickRow       { display: grid; gap: 2px; }
-  .quickBtn       { padding: 0.36rem 0.12rem; font-size: 0.55rem; }
-
   /* Commander damage overlay always visible on landscape phones */
   .cmdBar        { padding: 2px 3px; min-height: 18px; gap: 2px; display: flex; }
   .cmdBadgeVal   { font-size: 0.58rem; }
@@ -2202,13 +1979,6 @@
   .cmdBarHint    { display: none; }
 
   /* ── Landscape phones (width ≤ 550 px): Samsung S24 landscape mode ── */
-  /* Target cell budget per row (2-row grid, ~220 px total):
-      grid height  = 100dvh − 192px  ≈ 220 px
-      cell height  = (220 − 8px gap) / 2  ≈ 106 px
-
-      Content breakdown to fit in 106 px (padding included):
-        padding 4+5px = 9 | name ~14 | life ~30 | poison ~18 | cmd ~18 | gaps ~8
-        total ≈ 97 px  ✓  (colorRow hidden saves the extra 14 px)        */
   @media (max-width: 550px) and (orientation: landscape) {
     .grid { height: calc(100dvh - 192px); }
 
@@ -2217,15 +1987,6 @@
     .lifeBtn       { font-size: 1.4rem; min-width: 38px; border-radius: 5px; white-space: nowrap; overflow: hidden; }
     .lifeTotalWrap { width: 60px; }
     .lifeTotal     { font-size: 1.85rem; }
-
-    .counterSection { padding: 2px 3px; gap: 2px; }
-    .counterTab     { font-size: 0.68rem; padding: 2px; min-width: 95px; }
-    .counterCtrlBtn { font-size: 0.9rem; min-height: 24px; }
-    .counterCtrlVal { font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .counterCtrlIcon { font-size: 0.64rem; flex-shrink: 0; }
-
-    .quickRow      { gap: 2px; display: grid; }
-    .quickBtn      { padding: 0.4rem 0.12rem; font-size: 0.56rem; }
   }
 }
 
@@ -2248,12 +2009,7 @@
   .pageFullscreen .lifeBtn { font-size: 1.1rem; min-width: 34px; max-width: none; }
   .pageFullscreen .lifeTotalWrap { width: 48px; }
   .pageFullscreen .lifeTotal { font-size: 1.45rem; }
-  .pageFullscreen .quickRow { gap: 2px; }
-  .pageFullscreen .quickBtn { padding: 0.34rem 0.12rem; font-size: 0.52rem; }
   .pageFullscreen .cmdBar { padding: 2px 3px; min-height: 18px; gap: 2px; }
-  .pageFullscreen .counterSection { padding: 2px; }
-  .pageFullscreen .counterCtrlBtn { min-height: 20px; font-size: 0.82rem; }
-  .pageFullscreen .counterCtrlVal { font-size: 0.82rem; }
   .pageFullscreen .fsMenuBtn {
     width: 34px;
     height: 34px;
