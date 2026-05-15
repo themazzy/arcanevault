@@ -6,9 +6,9 @@ import { createClient } from '@supabase/supabase-js'
 import { streamArray } from 'stream-json/streamers/stream-array.js'
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY
 const BULK_DATA_TYPE = 'all_cards'
-const UPSERT_BATCH_SIZE = 500
+const UPSERT_BATCH_SIZE = 100
 const FETCH_BATCH_SIZE = 1000
 const BULK_DOWNLOAD_PATH = path.join(process.cwd(), '.tmp', 'scryfall-all-cards.json')
 
@@ -59,16 +59,12 @@ function buildPayload(card) {
     art_crop_uri: pickImage(card, 'art_crop'),
     rarity: card.rarity || null,
     set_name: card.set_name || null,
-    legalities: card.legalities || {},
     artist: card.artist || null,
-    oracle_text: card.oracle_text || card.card_faces?.[0]?.oracle_text || null,
     power: card.power ?? null,
     toughness: card.toughness ?? null,
     produced_mana: card.produced_mana || [],
     keywords: card.keywords || [],
     colors: card.colors || [],
-    image_uri_small: pickImage(card, 'small'),
-    image_uri_large: pickImage(card, 'large'),
     card_faces: slimFaces(card.card_faces),
   }
 }
@@ -107,6 +103,9 @@ async function downloadBulkFile(url, destination) {
   })
 }
 
+// Only target rows that still need backfilling (rarity is the canary). This
+// avoids rewriting already-populated rows, which would create dead tuples and
+// inflate the table until VACUUM FULL.
 async function loadExistingScryfallIds() {
   const ids = new Set()
   let from = 0
@@ -115,6 +114,7 @@ async function loadExistingScryfallIds() {
       .from('card_prints')
       .select('scryfall_id')
       .not('scryfall_id', 'is', null)
+      .is('rarity', null)
       .order('scryfall_id', { ascending: true })
       .range(from, from + FETCH_BATCH_SIZE - 1)
     if (error) throw error

@@ -106,7 +106,9 @@
       "mcp__plugin_supabase_supabase__list_tables",
       "mcp__plugin_supabase_supabase__list_migrations",
       "Bash(npx --no-install eslint --version)",
-      "Bash(git rm *)"
+      "Bash(git rm *)",
+      "mcp__plugin_supabase_supabase__get_publishable_keys",
+      "Bash(python3 *)"
     ]
   }
 }
