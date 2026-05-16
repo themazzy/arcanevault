@@ -484,11 +484,16 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
       if (existingCardsErr) { setError(existingCardsErr.message); setSaving(false); return }
 
       const existingByKey = new Map((existingCards || []).map(card => [getOwnedCardKey(card), card]))
+      // Generate client-side IDs for new cards so the upsert batch has a uniform
+      // shape. PostgREST normalizes the column set across all rows in an upsert;
+      // if some rows have `id` and others don't, the missing ones get sent as
+      // explicit null and violate the cards.id NOT NULL constraint instead of
+      // falling through to gen_random_uuid().
       const cards = aggregated.map(card => {
         const existing = existingByKey.get(getOwnedCardKey(card))
         return existing
           ? { ...existing, ...card, id: existing.id, qty: (existing.qty || 0) + card.qty }
-          : card
+          : { ...card, id: crypto.randomUUID() }
       })
 
       // Strip denorm cols at the upsert boundary; re-attach input metadata

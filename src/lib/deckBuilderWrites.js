@@ -135,6 +135,10 @@ export async function additiveSaveOwnedCards(rows, context = 'Owned card') {
   }
 
   const existingByKey = new Map(existingRows.map(row => [ownedCardKey(row), row]))
+  // Assign client-side IDs to new rows so every row in the upsert batch has the
+  // same shape. PostgREST normalizes the column set across the array; if some
+  // rows include `id` and others don't, the missing ones are sent as null and
+  // bypass the gen_random_uuid() default, violating cards.id NOT NULL.
   const rowsToSave = incomingRows.map(row => {
     const existing = existingByKey.get(ownedCardKey(row))
     return existing
@@ -146,7 +150,7 @@ export async function additiveSaveOwnedCards(rows, context = 'Owned card') {
           purchase_price: existing.purchase_price ?? row.purchase_price ?? 0,
           currency: existing.currency || row.currency || 'EUR',
         }
-      : row
+      : { ...row, id: crypto.randomUUID() }
   })
 
   // Strip denormalized cols at the upsert boundary (post-5d the schema no
