@@ -60,8 +60,22 @@ function matchNumeric(rawVal, op, minStr, maxStr) {
 
 const RARITY_ORDER = { common: 0, uncommon: 1, rare: 2, mythic: 3, special: 4 }
 
+// Cached snapshot — set by 'snapshot' messages, reused by 'filter' messages.
+// Avoids re-cloning thousands of cards across the worker boundary on every keystroke.
+let SNAPSHOT = { cards: [], sfMap: {}, cardFolderMap: {} }
+
 self.onmessage = (e) => {
-  const { id, cards, sfMap, search, sort, filters = {}, priceSource = 'cardmarket_trend', cardFolderMap = {} } = e.data
+  const data = e.data
+  if (data.type === 'snapshot') {
+    SNAPSHOT = {
+      cards: data.cards || [],
+      sfMap: data.sfMap || {},
+      cardFolderMap: data.cardFolderMap || {},
+    }
+    return
+  }
+  const { id, search, sort, filters = {}, priceSource = 'cardmarket_trend' } = data
+  const { cards, sfMap, cardFolderMap } = SNAPSHOT
 
   const {
     foil = 'all',
@@ -181,27 +195,50 @@ self.onmessage = (e) => {
     )
   }
 
+  // Precompute the single sort key per card so the comparator stays O(1).
+  // Doing this once is O(N); doing it inside the comparator is O(N log N · constants).
+  const needsKey = sort && sort !== 'qty' && sort !== 'set' && sort !== 'added'
+  if (needsKey) {
+    const keyOf = (c) => {
+      const sf = sfMap[`${c.set_code}-${c.collector_number}`]
+      switch (sort) {
+        case 'name':       return c.name || ''
+        case 'price_desc':
+        case 'price_asc':  return getPriceStrict(sf, c.foil, priceSource) ?? parseFloat(c.purchase_price) ?? 0
+        case 'pl_desc':
+        case 'pl_asc': {
+          const p = getPrice(sf, c.foil, 'cardmarket_trend')
+          return p != null && c.purchase_price > 0 ? (p - c.purchase_price) * c.qty : null
+        }
+        case 'rarity':     return RARITY_ORDER[sf?.rarity] ?? 0
+        case 'cmc_asc':
+        case 'cmc_desc':   return sf?.cmc ?? (sort === 'cmc_asc' ? 99 : 0)
+        default:           return 0
+      }
+    }
+    for (const c of r) c.__sk = keyOf(c)
+  }
+
   r.sort((a, b) => {
-    const sfA = sfMap[`${a.set_code}-${a.collector_number}`]
-    const sfB = sfMap[`${b.set_code}-${b.collector_number}`]
-    // P&L = (current EUR price - purchase_price) * qty
-    const plA = (() => { const p = getPrice(sfA, a.foil, 'cardmarket_trend'); return p != null && a.purchase_price > 0 ? (p - a.purchase_price) * a.qty : null })()
-    const plB = (() => { const p = getPrice(sfB, b.foil, 'cardmarket_trend'); return p != null && b.purchase_price > 0 ? (p - b.purchase_price) * b.qty : null })()
     switch (sort) {
-      case 'name':       return a.name.localeCompare(b.name)
-      case 'price_desc': return ((getPriceStrict(sfB, b.foil, priceSource) ?? parseFloat(b.purchase_price) ?? 0)) - ((getPriceStrict(sfA, a.foil, priceSource) ?? parseFloat(a.purchase_price) ?? 0))
-      case 'price_asc':  return ((getPriceStrict(sfA, a.foil, priceSource) ?? parseFloat(a.purchase_price) ?? 0)) - ((getPriceStrict(sfB, b.foil, priceSource) ?? parseFloat(b.purchase_price) ?? 0))
-      case 'pl_desc':    return (plB ?? -Infinity) - (plA ?? -Infinity)
-      case 'pl_asc':     return (plA ?? Infinity) - (plB ?? Infinity)
+      case 'name':       return a.__sk.localeCompare(b.__sk)
+      case 'price_desc': return b.__sk - a.__sk
+      case 'price_asc':  return a.__sk - b.__sk
+      case 'pl_desc':    return (b.__sk ?? -Infinity) - (a.__sk ?? -Infinity)
+      case 'pl_asc':     return (a.__sk ?? Infinity) - (b.__sk ?? Infinity)
       case 'qty':        return b.qty - a.qty
       case 'set':        return (a.set_code || '').localeCompare(b.set_code || '')
       case 'added':      return new Date(b.added_at || 0) - new Date(a.added_at || 0)
-      case 'rarity':     return (RARITY_ORDER[sfB?.rarity] ?? 0) - (RARITY_ORDER[sfA?.rarity] ?? 0)
-      case 'cmc_asc':    return (sfA?.cmc ?? 99) - (sfB?.cmc ?? 99)
-      case 'cmc_desc':   return (sfB?.cmc ?? 0) - (sfA?.cmc ?? 0)
+      case 'rarity':     return b.__sk - a.__sk
+      case 'cmc_asc':    return a.__sk - b.__sk
+      case 'cmc_desc':   return b.__sk - a.__sk
       default:           return 0
     }
   })
 
-  self.postMessage({ id, result: r })
+  // Return only IDs — main thread reconstructs from its cards Map.
+  // Avoids structured-cloning thousands of card objects across the worker boundary.
+  const ids = new Array(r.length)
+  for (let i = 0; i < r.length; i++) ids[i] = r[i].id
+  self.postMessage({ id, ids })
 }

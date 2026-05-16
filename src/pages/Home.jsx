@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, startTransition } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { sb } from '../lib/supabase'
-import { getInstantCache, getPrice, formatPrice, getImageUri, sfGet } from '../lib/scryfall'
+import { getInstantCache, getPriceSource, formatPrice, getImageUri, sfGet } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getLocalCards, getLocalFolders, getAllLocalFolderCards, getAllDeckAllocationsForUser, putCards } from '../lib/db'
 import { useAuth } from '../components/Auth'
@@ -34,6 +35,32 @@ function addRecentlyViewed(card) {
   const prev = getRecentlyViewed().filter(c => c.id !== card.id)
   localStorage.setItem(VIEWED_KEY, JSON.stringify([entry, ...prev].slice(0, 24)))
   window.dispatchEvent(new CustomEvent('av:viewed'))
+}
+
+// O(N) partial top-K: pick the `n` newest unique cards by `created_at` without a full sort.
+function pickRecentCards(cards, n = 14) {
+  if (!cards?.length) return []
+  const seen = new Set()
+  const top = []
+  for (const c of cards) {
+    if (!c?.id || seen.has(c.id)) continue
+    const ts = c.created_at || ''
+    if (top.length < n) {
+      seen.add(c.id)
+      top.push(c)
+      if (top.length === n) top.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
+    } else if (ts.localeCompare(top[n - 1].created_at || '') > 0) {
+      seen.add(c.id)
+      let i = n - 1
+      top[i] = c
+      while (i > 0 && (top[i].created_at || '').localeCompare(top[i - 1].created_at || '') > 0) {
+        const t = top[i]; top[i] = top[i - 1]; top[i - 1] = t
+        i--
+      }
+    }
+  }
+  if (top.length < n) top.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
+  return top
 }
 
 // ── Collection data loader ────────────────────────────────────────────────────
@@ -107,12 +134,7 @@ async function loadCollectionData(userId) {
   const cardRows  = allFc.map(r => ({ ...r, cards: cardById[r.card_id] || null }))
   const deckRows = allDa.map(r => ({ ...r, cards: cardById[r.card_id] || null }))
 
-  // Recently added — unique cards newest first
-  const seen = new Set()
-  const recentCards = [...allCards]
-    .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
-    .filter(c => seen.has(c.id) ? false : (seen.add(c.id), true))
-    .slice(0, 14)
+  const recentCards = pickRecentCards(allCards, 14)
 
   if (allCards.length) {
     safeSfMap = await loadCardMapWithSharedPrices(allCards, { priceLookup: 'set' })
@@ -924,8 +946,14 @@ function CollectionSnapshot({ data, loading, priceSource }) {
   const stats = useMemo(() => {
     if (!data) return null
     const { folders, cards, sfMap } = data
-    const binderCount = folders.filter(f => f.type === 'binder').length
-    const deckCount   = folders.filter(f => f.type === 'deck').length
+    const source = getPriceSource(priceSource)
+    const field = source.field
+    const foilField = source.foilField
+    let binderCount = 0, deckCount = 0
+    for (const f of folders) {
+      if (f.type === 'binder') binderCount++
+      else if (f.type === 'deck') deckCount++
+    }
     const uniquePrints = new Set()
     const sets = new Set()
     let totalQty = 0
@@ -936,11 +964,19 @@ function CollectionSnapshot({ data, loading, priceSource }) {
       const qty = card.qty || 1
       totalQty += qty
       if (card.foil) foilQty += qty
-      if (card.set_code && card.collector_number) uniquePrints.add(`${card.set_code}-${card.collector_number}`)
-      if (card.set_code) sets.add(card.set_code)
-      const sf = sfMap[`${card.set_code}-${card.collector_number}`]
-      const p  = getPrice(sf, card.foil, { price_source: priceSource })
-      if (p != null) totalValue += p * qty
+      const sc = card.set_code, cn = card.collector_number
+      if (sc) {
+        sets.add(sc)
+        if (cn) {
+          uniquePrints.add(sc + '-' + cn)
+          const sf = sfMap[sc + '-' + cn]
+          const raw = sf?.prices?.[card.foil ? foilField : field]
+          if (raw) {
+            const p = +raw
+            if (p) totalValue += p * qty
+          }
+        }
+      }
     }
 
     return {
@@ -1016,15 +1052,38 @@ function TopValuedCards({ data, loading, priceSource, onCardClick }) {
   const topCards = useMemo(() => {
     if (!data) return []
     const { cardRows, sfMap } = data
-    const seen = {}
+    const source = getPriceSource(priceSource)
+    const field = source.field
+    const foilField = source.foilField
+    const K = 14
+    const seen = new Set()
+    const top = [] // sorted desc, length <= K
+
     for (const row of cardRows) {
       const card = row.cards
-      if (!card || seen[card.id]) continue
+      if (!card || seen.has(card.id)) continue
       const sf = sfMap[`${card.set_code}-${card.collector_number}`]
-      const p  = getPrice(sf, card.foil, { price_source: priceSource })
-      if (p != null) seen[card.id] = { card, sf, price: p }
+      const raw = sf?.prices?.[card.foil ? foilField : field]
+      if (!raw) continue
+      const price = +raw
+      if (!price) continue
+
+      if (top.length < K) {
+        seen.add(card.id)
+        top.push({ card, sf, price })
+        if (top.length === K) top.sort((a, b) => b.price - a.price)
+      } else if (price > top[K - 1].price) {
+        seen.add(card.id)
+        let i = K - 1
+        top[i] = { card, sf, price }
+        while (i > 0 && top[i].price > top[i - 1].price) {
+          const t = top[i]; top[i] = top[i - 1]; top[i - 1] = t
+          i--
+        }
+      }
     }
-    return Object.values(seen).sort((a, b) => b.price - a.price).slice(0, 14)
+    if (top.length < K) top.sort((a, b) => b.price - a.price)
+    return top
   }, [data, priceSource])
 
   if (!loading && topCards.length === 0) return null
@@ -1094,18 +1153,30 @@ function TopValuedDecks({ data, loading, priceSource }) {
   const topDecks = useMemo(() => {
     if (!data) return []
     const { folders, deckRows = [], sfMap } = data
-    const deckVal = {}
-    for (const f of folders.filter(f => f.type === 'deck')) deckVal[f.id] = { folder: f, value: 0, qty: 0 }
+    const source = getPriceSource(priceSource)
+    const field = source.field
+    const foilField = source.foilField
+    const deckVal = new Map()
+    for (const f of folders) {
+      if (f.type === 'deck') deckVal.set(f.id, { folder: f, value: 0, qty: 0 })
+    }
     for (const row of deckRows) {
-      if (!deckVal[row.deck_id]) continue
+      const entry = deckVal.get(row.deck_id)
+      if (!entry) continue
       const card = row.cards
       if (!card) continue
+      const qty = row.qty || 1
+      entry.qty += qty
       const sf = sfMap[`${card.set_code}-${card.collector_number}`]
-      const p  = getPrice(sf, card.foil, { price_source: priceSource })
-      if (p != null) deckVal[row.deck_id].value += p * (row.qty || 1)
-      deckVal[row.deck_id].qty += row.qty || 1
+      const raw = sf?.prices?.[card.foil ? foilField : field]
+      if (raw) {
+        const p = +raw
+        if (p) entry.value += p * qty
+      }
     }
-    return Object.values(deckVal).sort((a, b) => b.value - a.value).slice(0, 6)
+    const arr = Array.from(deckVal.values())
+    arr.sort((a, b) => b.value - a.value)
+    return arr.slice(0, 6)
   }, [data, priceSource])
 
   if (!loading && topDecks.length === 0) return null
@@ -1403,34 +1474,72 @@ function HomeSupportSection() {
 export default function HomePage() {
   const { user }               = useAuth()
   const { price_source, premium } = useSettings()
-  const [collData, setCollData]   = useState(null)
-  const [collLoading, setCollLoading] = useState(false)
+  const queryClient = useQueryClient()
   const [changelog, setChangelog] = useState(CHANGELOG_DEFAULT)
   // Shared card-detail modal for hScroll sections
   const [modalCard, setModalCard] = useState(null)
   const [modalLoading, setModalLoading] = useState(false)
+  // Defer below-the-fold sections so they don't block the first paint.
+  const [showBelowFold, setShowBelowFold] = useState(false)
 
   useEffect(() => { fetchChangelog().then(setChangelog) }, [])
 
   useEffect(() => {
-    if (!user) return
-    setCollLoading(true)
-    loadCollectionData(user.id).then(async data => {
-      setCollData(data)
-      setCollLoading(false)
-      // Background sync: if Supabase has fresher card data than IDB, update the snapshot
-      const freshCards = await syncCardsFromSupabase(user.id, data.cards)
-      if (freshCards) {
-        const sfMap = await loadCardMapWithSharedPrices(freshCards, { priceLookup: 'set' })
-        const seen = new Set()
-        const recentCards = [...freshCards]
-          .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
-          .filter(c => seen.has(c.id) ? false : (seen.add(c.id), true))
-          .slice(0, 14)
-        setCollData(prev => ({ ...prev, cards: freshCards, sfMap, recentCards }))
+    const idle = window.requestIdleCallback
+      ? window.requestIdleCallback(() => setShowBelowFold(true), { timeout: 800 })
+      : setTimeout(() => setShowBelowFold(true), 250)
+    return () => {
+      if (window.cancelIdleCallback) window.cancelIdleCallback(idle)
+      else clearTimeout(idle)
+    }
+  }, [])
+
+  // Cross-mount cached collection load. staleTime defaults to 5 min via queryClient defaults,
+  // so Home → Collection → Home returns instantly from cache.
+  const { data: collData, isLoading } = useQuery({
+    queryKey: ['home-snapshot', user?.id],
+    queryFn: () => loadCollectionData(user.id),
+    enabled: !!user?.id,
+  })
+  const collLoading = isLoading && !collData
+
+  // Background sync after initial render. Only patches the parts that actually changed,
+  // keeping sfMap reference stable when only qty drifted — avoids invalidating every memo.
+  const syncedForUserRef = useRef(null)
+  useEffect(() => {
+    if (!user?.id || !collData || syncedForUserRef.current === user.id) return
+    syncedForUserRef.current = user.id
+    let cancelled = false
+    ;(async () => {
+      const freshCards = await syncCardsFromSupabase(user.id, collData.cards)
+      if (cancelled || !freshCards) return
+
+      // Check if the set of scryfall prints changed. If not, reuse sfMap reference.
+      const prevKeys = new Set()
+      for (const c of collData.cards) prevKeys.add(`${c.set_code}-${c.collector_number}`)
+      let keysChanged = false
+      const newKeys = new Set()
+      for (const c of freshCards) {
+        const k = `${c.set_code}-${c.collector_number}`
+        newKeys.add(k)
+        if (!prevKeys.has(k)) keysChanged = true
       }
-    })
-  }, [user?.id])
+      if (!keysChanged && newKeys.size !== prevKeys.size) keysChanged = true
+
+      const sfMap = keysChanged
+        ? await loadCardMapWithSharedPrices(freshCards, { priceLookup: 'set' })
+        : collData.sfMap
+      const recentCards = pickRecentCards(freshCards, 14)
+
+      // Background sync is non-urgent — let React interrupt it for user input.
+      startTransition(() => {
+        queryClient.setQueryData(['home-snapshot', user.id], prev =>
+          prev ? { ...prev, cards: freshCards, sfMap, recentCards } : prev
+        )
+      })
+    })()
+    return () => { cancelled = true }
+  }, [user?.id, collData, queryClient])
 
   // Open a Scryfall card in the shared CardView modal
   const openCard = useCallback(async (scryfallId, fallbackName) => {
@@ -1470,8 +1579,8 @@ export default function HomePage() {
       {user && <TopValuedCards    data={collData} loading={collLoading} priceSource={price_source} onCardClick={openCard} />}
       {user && <RecentlyAdded     data={collData} loading={collLoading} onCardClick={openCard} />}
       {user && <TopValuedDecks    data={collData} loading={collLoading} priceSource={price_source} />}
-      <MTGNewsSection />
-      <UpcomingSetsSection />
+      {showBelowFold && <MTGNewsSection />}
+      {showBelowFold && <UpcomingSetsSection />}
 
       {/* ── Shared card detail modal ───────────────────────────────────── */}
       {(modalLoading || modalCard) && (

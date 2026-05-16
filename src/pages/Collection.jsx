@@ -638,27 +638,92 @@ export default function CollectionPage() {
     return () => clearTimeout(t)
   }, [searchInput])
 
-  const sfMapForWorker = useMemo(() => {
-    if (!cards.length || !sfMap) return {}
-    const result = {}
-    for (const card of cards) {
-      const key = `${card.set_code}-${card.collector_number}`
-      if (sfMap[key]) result[key] = sfMap[key]
+  // Build lean projections of the data the worker actually reads, scoped per card.
+  // This shrinks the postMessage payload by ~5x and keeps the snapshot stable across
+  // unrelated card-row changes (e.g., updated_at edits don't trigger a resend).
+  const workerSnapshot = useMemo(() => {
+    if (!cards.length) return { leanCards: [], leanSfMap: {} }
+    const leanCards = new Array(cards.length)
+    const leanSfMap = {}
+    for (let i = 0; i < cards.length; i++) {
+      const c = cards[i]
+      leanCards[i] = {
+        id: c.id,
+        name: c.name,
+        set_code: c.set_code,
+        collector_number: c.collector_number,
+        foil: c.foil,
+        qty: c.qty,
+        purchase_price: c.purchase_price,
+        added_at: c.added_at,
+        condition: c.condition,
+        language: c.language,
+        altered: c.altered,
+        misprint: c.misprint,
+      }
+      const key = `${c.set_code}-${c.collector_number}`
+      const sf = sfMap?.[key]
+      if (sf && !leanSfMap[key]) {
+        leanSfMap[key] = {
+          rarity: sf.rarity,
+          type_line: sf.type_line,
+          oracle_text: sf.oracle_text,
+          artist: sf.artist,
+          color_identity: sf.color_identity,
+          legalities: sf.legalities,
+          cmc: sf.cmc,
+          power: sf.power,
+          toughness: sf.toughness,
+          prices: sf.prices,
+          set_name: sf.set_name,
+        }
+      }
     }
-    return result
+    return { leanCards, leanSfMap }
   }, [cards, sfMap])
 
   // ── Web Worker filtering ─────────────────────────────────────────────────────
+  // Keep a stable id→card map so the worker can return only IDs (cheap structured clone)
+  // and we reconstruct the ordered list locally without copying card objects across threads.
+  const cardsByIdRef = useRef(new Map())
+  useEffect(() => {
+    const m = new Map()
+    for (const c of cards) m.set(c.id, c)
+    cardsByIdRef.current = m
+  }, [cards])
+
+  // Send the heavy snapshot only when the underlying data changes (not on filter changes).
+  useEffect(() => {
+    worker.postMessage({
+      type: 'snapshot',
+      cards: workerSnapshot.leanCards,
+      sfMap: workerSnapshot.leanSfMap,
+      cardFolderMap,
+    })
+  }, [workerSnapshot, cardFolderMap])
+
   useEffect(() => {
     if (!cards.length) { setFiltered([]); return }
     const id = ++workerReqId.current
-    worker.postMessage({ id, cards, sfMap: sfMapForWorker, search, sort, filters, priceSource: price_source, cardFolderMap })
-  }, [cards, sfMapForWorker, search, sort, filters, price_source, cardFolderMap])
+    // Filter-only message — tiny payload, reuses the worker's cached snapshot.
+    worker.postMessage({ id, search, sort, filters, priceSource: price_source })
+  }, [cards.length, workerSnapshot, search, sort, filters, price_source, cardFolderMap])
 
   useEffect(() => {
     const handler = (e) => {
       if (e.data.id !== workerReqId.current) return
-      setFiltered(e.data.result)
+      // Backwards-compatible: if worker returns `result` use it, else reconstruct from `ids`.
+      if (e.data.ids) {
+        const m = cardsByIdRef.current
+        const out = []
+        for (const id of e.data.ids) {
+          const c = m.get(id)
+          if (c) out.push(c)
+        }
+        setFiltered(out)
+      } else {
+        setFiltered(e.data.result)
+      }
     }
     worker.addEventListener('message', handler)
     return () => worker.removeEventListener('message', handler)
