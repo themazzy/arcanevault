@@ -60,8 +60,9 @@ function matchNumeric(rawVal, op, minStr, maxStr) {
 
 const RARITY_ORDER = { common: 0, uncommon: 1, rare: 2, mythic: 3, special: 4 }
 
-// Cached snapshot — set by 'snapshot' messages, reused by 'filter' messages.
-// Avoids re-cloning thousands of cards across the worker boundary on every keystroke.
+// Cached snapshot — set by 'snapshot' messages, reused by snapshot-mode filter messages.
+// Legacy inline-cards messages bypass this and run self-contained for backwards
+// compatibility with the useFilterWorker hook.
 let SNAPSHOT = { cards: [], sfMap: {}, cardFolderMap: {} }
 
 self.onmessage = (e) => {
@@ -75,7 +76,12 @@ self.onmessage = (e) => {
     return
   }
   const { id, search, sort, filters = {}, priceSource = 'cardmarket_trend' } = data
-  const { cards, sfMap, cardFolderMap } = SNAPSHOT
+  // Inline (legacy) mode: caller ships its own data and expects full sorted rows back.
+  // Snapshot mode: caller already sent a 'snapshot' message; reply with ids only.
+  const inlineMode = !!data.cards
+  const cards = inlineMode ? data.cards : SNAPSHOT.cards
+  const sfMap = inlineMode ? (data.sfMap || {}) : SNAPSHOT.sfMap
+  const cardFolderMap = inlineMode ? (data.cardFolderMap || {}) : SNAPSHOT.cardFolderMap
 
   const {
     foil = 'all',
@@ -236,9 +242,17 @@ self.onmessage = (e) => {
     }
   })
 
-  // Return only IDs — main thread reconstructs from its cards Map.
-  // Avoids structured-cloning thousands of card objects across the worker boundary.
-  const ids = new Array(r.length)
-  for (let i = 0; i < r.length; i++) ids[i] = r[i].id
-  self.postMessage({ id, ids })
+  // Clean up the sort-key marker so it doesn't leak back to callers.
+  if (needsKey) for (const c of r) delete c.__sk
+
+  if (inlineMode) {
+    // Legacy: callers (useFilterWorker) reconstruct full cards from the slim
+    // result they shipped in, so return the rows directly.
+    self.postMessage({ id, result: r })
+  } else {
+    // Snapshot mode: return only IDs — main thread reconstructs from its cards Map.
+    const ids = new Array(r.length)
+    for (let i = 0; i < r.length; i++) ids[i] = r[i].id
+    self.postMessage({ id, ids })
+  }
 }
