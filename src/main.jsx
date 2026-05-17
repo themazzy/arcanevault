@@ -4,7 +4,9 @@ import './index.css'
 import App from './App'
 import { handleChunkLoadError } from './lib/chunkRecovery'
 import { registerNativeAuthDeepLinkHandler } from './lib/nativeAuth'
+import { installRandomUUIDPolyfill } from './lib/uuid'
 
+installRandomUUIDPolyfill()
 registerNativeAuthDeepLinkHandler()
 
 // Capture recent console errors/warnings for bug reports
