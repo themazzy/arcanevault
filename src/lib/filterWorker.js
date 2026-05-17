@@ -184,7 +184,9 @@ self.onmessage = (e) => {
     const min = priceMin !== '' ? parseFloat(priceMin) : null
     const max = priceMax !== '' ? parseFloat(priceMax) : null
     r = r.filter(c => {
-      const p = getPriceStrict(sfMap[`${c.set_code}-${c.collector_number}`], c.foil, priceSource) ?? parseFloat(c.purchase_price) ?? null
+      const strict = getPriceStrict(sfMap[`${c.set_code}-${c.collector_number}`], c.foil, priceSource)
+      const fallback = Number(c.purchase_price)
+      const p = strict ?? (Number.isFinite(fallback) ? fallback : null)
       if (p == null) return false
       if (min != null && p < min) return false
       if (max != null && p > max) return false
@@ -210,7 +212,11 @@ self.onmessage = (e) => {
       switch (sort) {
         case 'name':       return c.name || ''
         case 'price_desc':
-        case 'price_asc':  return getPriceStrict(sf, c.foil, priceSource) ?? parseFloat(c.purchase_price) ?? 0
+        case 'price_asc': {
+          const strict = getPriceStrict(sf, c.foil, priceSource)
+          const fallback = Number(c.purchase_price)
+          return strict ?? (Number.isFinite(fallback) ? fallback : 0)
+        }
         case 'pl_desc':
         case 'pl_asc': {
           const p = getPrice(sf, c.foil, 'cardmarket_trend')
