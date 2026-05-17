@@ -143,13 +143,16 @@ self.onmessage = (e) => {
   }
 
   if (colors.length) {
+    // Scryfall-style — mirror of src/lib/colorFilter.js (worker stays import-free).
+    // WUBRG + mode = base; M (id>1) and C (id:c) layer on as AND constraints.
+    const wantsMulti     = colors.includes('M')
+    const wantsColorless = colors.includes('C')
+    const selected = colors.filter(x => ['W','U','B','R','G'].includes(x))
     r = r.filter(c => {
       const ci = sfMap[`${c.set_code}-${c.collector_number}`]?.color_identity || []
-      const wantsMulti = colors.includes('M'), wantsColorless = colors.includes('C')
-      const selected = colors.filter(x => ['W','U','B','R','G'].includes(x))
-      if (!selected.length) return (wantsMulti && ci.length > 1) || (wantsColorless && ci.length === 0)
-      if (wantsMulti && ci.length > 1)   return true
-      if (wantsColorless && ci.length === 0) return true
+      if (wantsMulti     && ci.length <= 1) return false
+      if (wantsColorless && ci.length !== 0) return false
+      if (!selected.length) return true
       if (colorMode === 'exact')     return ci.length === selected.length && selected.every(x => ci.includes(x))
       if (colorMode === 'including') return selected.every(x => ci.includes(x))
       return selected.some(x => ci.includes(x))
