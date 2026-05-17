@@ -6,6 +6,7 @@ import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { sb } from '../lib/supabase'
 import { getPublicAppUrl } from '../lib/publicUrl'
+import { buildLifeChange } from '../lib/lifeChange'
 import styles from './LifeTracker.module.css'
 import { ChevronDownIcon, ChevronUpIcon, SettingsIcon } from '../icons'
 
@@ -2267,11 +2268,10 @@ export default function LifeTrackerPage() {
   }
 
   const onLifeChange = (id, delta) => {
-    const player = players.find(p => p.id === id)
-    if (!player) return
-    const newLife = player.life + delta
+    const change = buildLifeChange(players, id, delta)
+    if (!change) return
     setPlayers(ps => ps.map(p => p.id === id ? { ...p, life: p.life + delta } : p))
-    addGameLogEvent({ ts: Date.now(), type: 'life', delta, total: newLife, playerName: player.name, playerColor: player.color })
+    addGameLogEvent({ ts: Date.now(), ...change.logEntry })
   }
   const onCmdDmgChange = (pid, fid, delta, isPartner2 = false) => {
     const player  = players.find(p => p.id === pid)
