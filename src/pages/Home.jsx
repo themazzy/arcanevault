@@ -5,6 +5,7 @@ import { sb } from '../lib/supabase'
 import { getInstantCache, getPriceSource, formatPrice, getImageUri, sfGet } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getLocalCards, getLocalFolders, getAllLocalFolderCards, getAllDeckAllocationsForUser, putCards } from '../lib/db'
+import { cardsContentHash } from '../lib/cardsHash'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
@@ -141,19 +142,6 @@ async function loadCollectionData(userId) {
   }
 
   return { folders: allFolders, cards: allCards, cardRows, deckRows, sfMap: safeSfMap, recentCards }
-}
-
-// Cheap content fingerprint over (id, qty, foil) tuples. Detects swaps,
-// foil/non-foil changes, and replacements that pure length+totalQty misses.
-function cardsContentHash(cards) {
-  if (!cards?.length) return '0'
-  const parts = new Array(cards.length)
-  for (let i = 0; i < cards.length; i++) {
-    const c = cards[i]
-    parts[i] = `${c.id}:${c.qty || 1}:${c.foil ? 1 : 0}`
-  }
-  parts.sort()
-  return parts.join('|')
 }
 
 // Syncs cards from Supabase into IDB and returns updated cards array if anything changed.
