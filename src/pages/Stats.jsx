@@ -12,6 +12,7 @@ import { EmptyState, SectionHeader, ProgressBar } from '../components/UI'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
 import { hasDeckArtSource, mergeDeckCommanderArt, useDeckArt } from '../lib/deckArt'
 import { MILESTONES } from '../lib/milestones'
+import { cardDayChange } from '../lib/dayChange'
 import { checkAndNotifyMilestones } from '../lib/milestoneTracker'
 import { useToast } from '../components/ToastContext'
 import { ChevronDownIcon, ChevronUpIcon } from '../icons'
@@ -1139,7 +1140,7 @@ export default function StatsPage() {
       totalQty   += c.qty
       if (c.foil) { foilCount += c.qty; foilValue += val }
       const hasManualPrice = getManualPrice(c.id) != null
-      if (!hasManualPrice && price != null && prevPrice != null) dayChange += (price - prevPrice) * c.qty
+      dayChange += cardDayChange({ price, prevPrice, qty: c.qty, hasManualPrice })
       byLanguage[c.language || 'en'] = (byLanguage[c.language || 'en'] || 0) + c.qty
       byCondition[c.condition || 'near_mint'] = (byCondition[c.condition || 'near_mint'] || 0) + c.qty
 
