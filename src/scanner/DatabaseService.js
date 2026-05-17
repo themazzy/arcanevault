@@ -111,6 +111,7 @@ class DatabaseService {
   _isNative    = false
   _initialized = false
   _syncing     = false
+  _syncPromise = null
   _fullyLoaded = false
   _loadPromise = Promise.resolve()
   _mirrorWritePromise = Promise.resolve()
@@ -219,13 +220,29 @@ class DatabaseService {
         WHERE phash_hex IS NOT NULL;
     `)
     // Migration: add phash_hex2 to existing SQLite DBs that predate this column.
-    await this._db.execute(`ALTER TABLE card_hashes ADD COLUMN phash_hex2 TEXT`).catch(() => {})
+    // The expected failure is "duplicate column name" on already-migrated DBs;
+    // log anything else so unexpected SQLite errors aren't invisible.
+    await this._db.execute(`ALTER TABLE card_hashes ADD COLUMN phash_hex2 TEXT`).catch(err => {
+      const msg = String(err?.message || err || '')
+      if (!/duplicate column/i.test(msg)) {
+        console.warn('[DatabaseService] ALTER TABLE phash_hex2 failed:', msg)
+      }
+    })
   }
 
   // ── Sync from Supabase ─────────────────────────────────────────────────────
 
   async sync(onProgress) {
-    if (this._syncing) return
+    // Concurrent callers receive the in-flight promise instead of undefined,
+    // so they can await completion and surface errors / progress consistently.
+    if (this._syncPromise) return this._syncPromise
+    this._syncPromise = this._runSync(onProgress).finally(() => {
+      this._syncPromise = null
+    })
+    return this._syncPromise
+  }
+
+  async _runSync(onProgress) {
     this._syncing = true
     await this._loadPromise   // wait for any background streaming to finish before clearing
     await this._mirrorWritePromise.catch(() => {})
