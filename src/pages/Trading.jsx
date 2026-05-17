@@ -5,6 +5,7 @@ import { queryClient } from '../lib/queryClient'
 import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
 import { formatPrice, getImageUri, getInstantCache, getPrice, sfGet } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
+import { currencyForPriceSource } from '../lib/priceSourceCurrency'
 import {
   deleteCard,
   deleteDeckAllocationsByIds,
@@ -645,23 +646,27 @@ export default function TradingPage() {
     return () => clearTimeout(timeoutId)
   }, [collectionQuery])
 
+  // Load Scryfall metadata cache. Reruns when the cache TTL preference changes
+  // (cheap — just reads the in-memory cache with a different freshness window).
   useEffect(() => {
     let cancelled = false
-
     getInstantCache(cache_ttl_h * 3600000).then(map => {
       if (!cancelled && map) setSfMap(map)
     })
+    return () => { cancelled = true }
+  }, [cache_ttl_h])
 
+  // Hydrate + sync the collection. Decoupled from cache_ttl_h so changing the
+  // Scryfall TTL in settings doesn't trigger a full Supabase re-sync.
+  useEffect(() => {
+    let cancelled = false
     hydrateLocalCollection().then(() => {
       if (!cancelled && navigator.onLine) {
         void syncRemoteCollection()
       }
     })
-
-    return () => {
-      cancelled = true
-    }
-  }, [cache_ttl_h, hydrateLocalCollection, syncRemoteCollection])
+    return () => { cancelled = true }
+  }, [hydrateLocalCollection, syncRemoteCollection])
 
   useEffect(() => {
     let cancelled = false
@@ -1053,7 +1058,7 @@ export default function TradingPage() {
     setTradeMessage('')
 
     try {
-      const currency = price_source === 'tcgplayer_market' ? 'USD' : 'EUR'
+      const currency = currencyForPriceSource(price_source)
       const offerPayload = offerItems.map(item => ({
         card_id: item.cardId,
         source_id: item.sourceId,
@@ -1106,7 +1111,7 @@ export default function TradingPage() {
         }))
         await sb.from('trade_log').insert({
           user_id: user.id,
-          partner_name: partnerName.trim() || null,
+          partner_name: partnerName.trim().slice(0, 120) || null,
           giving,
           receiving,
           giving_value: offerTotal,
@@ -1179,6 +1184,7 @@ export default function TradingPage() {
             placeholder="Trading with… (optional)"
             value={partnerName}
             onChange={e => setPartnerName(e.target.value)}
+            maxLength={120}
           />
           <button
             className={styles.tradeBtn}
