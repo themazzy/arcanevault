@@ -2267,10 +2267,11 @@ export default function LifeTrackerPage() {
   }
 
   const onLifeChange = (id, delta) => {
-    const player  = players.find(p => p.id === id)
-    const newLife = (player?.life ?? 0) + delta
+    const player = players.find(p => p.id === id)
+    if (!player) return
+    const newLife = player.life + delta
     setPlayers(ps => ps.map(p => p.id === id ? { ...p, life: p.life + delta } : p))
-    addGameLogEvent({ ts: Date.now(), type: 'life', delta, total: newLife, playerName: player?.name, playerColor: player?.color })
+    addGameLogEvent({ ts: Date.now(), type: 'life', delta, total: newLife, playerName: player.name, playerColor: player.color })
   }
   const onCmdDmgChange = (pid, fid, delta, isPartner2 = false) => {
     const player  = players.find(p => p.id === pid)
