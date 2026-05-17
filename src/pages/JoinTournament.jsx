@@ -17,50 +17,41 @@ export default function JoinTournamentPage() {
   const [claimName, setClaimName] = useState('')
   const [activeState, setActiveState] = useState(null)
 
+  // Uses the get_tournament_by_code RPC so unauthenticated visitors can render
+  // the lobby preview before logging in; direct SELECT on tournament_sessions /
+  // tournament_players is now authenticated-only.
   useEffect(() => {
     if (!code) return
     ;(async () => {
-      const { data } = await sb.from('tournament_sessions')
-        .select('*')
-        .eq('code', code.toUpperCase())
-        .single()
-      if (!data || data.status === 'cancelled') {
+      const { data } = await sb.rpc('get_tournament_by_code', { p_code: code.toUpperCase() })
+      const sess = data?.session
+      if (!sess || sess.status === 'cancelled') {
         setStatus('notfound')
         return
       }
-      if (data.status === 'active' || data.status === 'completed') {
-        setSession(data)
-        setActiveState(data.state || null)
+      if (sess.status === 'active' || sess.status === 'completed') {
+        setSession(sess)
+        setActiveState(sess.state || null)
         setStatus('started')
         return
       }
-      setSession(data)
-      const { data: slotData } = await sb.from('tournament_players')
-        .select('*')
-        .eq('session_id', data.id)
-        .order('slot_index')
-      setSlots(slotData || [])
+      setSession(sess)
+      setSlots(data?.players || [])
       setStatus('lobby')
     })()
   }, [code])
 
   useEffect(() => {
     if (!session) return
+    const codeUpper = code?.toUpperCase()
     let active = true
 
     const reload = async () => {
-      const { data: slotData } = await sb.from('tournament_players')
-        .select('*')
-        .eq('session_id', session.id)
-        .order('slot_index')
-      const { data: freshSession } = await sb.from('tournament_sessions')
-        .select('status,state')
-        .eq('id', session.id)
-        .single()
-      if (!active) return
-      if (slotData) setSlots(slotData)
-      if (freshSession?.status === 'active' || freshSession?.status === 'completed') {
-        setActiveState(freshSession.state || null)
+      const { data } = await sb.rpc('get_tournament_by_code', { p_code: codeUpper })
+      if (!active || !data?.session) return
+      setSlots(data.players || [])
+      if (data.session.status === 'active' || data.session.status === 'completed') {
+        setActiveState(data.session.state || null)
         setStatus('started')
       }
     }
@@ -74,7 +65,7 @@ export default function JoinTournamentPage() {
       active = false
       sb.removeChannel(ch)
     }
-  }, [session])
+  }, [session, code])
 
   const mySlot = user ? slots.find(slot => slot.user_id === user.id) : null
 
