@@ -48,9 +48,15 @@ export function hashToHex(hash) {
   return hex
 }
 
-/** Convert 64-char hex string → Uint32Array(8). */
+const HEX64_RE = /^[0-9a-fA-F]{64}$/
+
+/**
+ * Convert 64-char hex string → Uint32Array(8). Returns null for any input
+ * that isn't exactly 64 hex chars — previously a row with non-hex characters
+ * would parseInt to NaN, then NaN >>> 0 = 0, silently corrupting the hash.
+ */
 export function hexToHash(hex) {
-  if (!hex || hex.length !== 64) return null
+  if (!hex || !HEX64_RE.test(hex)) return null
   try {
     const h = new Uint32Array(8)
     for (let i = 0; i < 4; i++) {

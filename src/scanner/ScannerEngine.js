@@ -62,6 +62,14 @@ export function isOpenCVReady() {
 }
 
 const OPENCV_SRC = 'https://docs.opencv.org/4.8.0/opencv.js'
+// SRI hash pinned to the exact bytes of opencv.js 4.8.0. If the CDN ever
+// serves modified bytes (compromise, MITM on dev wifi, version drift),
+// the browser refuses to execute the script — the scanner just fails to
+// initialise instead of running attacker-controlled code with full app
+// privileges (Supabase session token in localStorage, etc.).
+// Recompute on version bumps:
+//   curl -sSL <url> | openssl dgst -sha384 -binary | openssl base64 -A
+const OPENCV_INTEGRITY = 'sha384-kEC+2KaGZ4b+M4g8HgCNH9N+2TfOMWcNR6Ttw3mclO4ppnH1tX4Xgl9jwfowxoxM'
 
 function ensureOpenCVScriptInjected() {
   if (typeof document === 'undefined') return
@@ -70,6 +78,8 @@ function ensureOpenCVScriptInjected() {
   s.id = 'opencv-script'
   s.async = true
   s.src = OPENCV_SRC
+  s.integrity = OPENCV_INTEGRITY
+  s.crossOrigin = 'anonymous'
   document.head.appendChild(s)
 }
 
