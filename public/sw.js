@@ -1,13 +1,22 @@
 // public/sw.js
 const CACHE_NAME = 'arcanevault-images-v1'
-const IMAGE_HOSTS = ['cards.scryfall.io', 'c1.scryfall.com']
+// Exact-match allowlist. Using a Set + .has() prevents subdomain confusion
+// (e.g. an attacker-controlled cards.scryfall.io.evil.com would have matched
+// the previous substring check and poisoned the cache).
+const IMAGE_HOSTS = new Set(['cards.scryfall.io', 'c1.scryfall.com'])
 
 self.addEventListener('install', () => self.skipWaiting())
-self.addEventListener('activate', e => e.waitUntil(self.clients.claim()))
+self.addEventListener('activate', e => e.waitUntil(
+  // Drop any cache that isn't the current version. Lets us bump CACHE_NAME
+  // in the future without leaving the old image cache pinned forever.
+  caches.keys()
+    .then(names => Promise.all(names.filter(n => n !== CACHE_NAME).map(n => caches.delete(n))))
+    .then(() => self.clients.claim())
+))
 
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url)
-  if (!IMAGE_HOSTS.some(h => url.hostname.includes(h))) return
+  if (!IMAGE_HOSTS.has(url.hostname)) return
 
   e.respondWith(
     caches.open(CACHE_NAME).then(async cache => {
