@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { sb } from '../lib/supabase'
-import { getPublicBaseUrl } from '../lib/publicUrl'
+import { getPublicBaseUrl, getProdAppUrl } from '../lib/publicUrl'
 import { isNativeApp, openNativeOAuth } from '../lib/nativeAuth'
 import { applyTheme } from './SettingsContext'
 import { fetchCardsByNames } from '../lib/deckBuilderApi'
@@ -402,23 +402,23 @@ export function LoginPage({ forcedMode = null }) {
     setError(''); setSuccess(''); setLoading(true)
     if (mode === 'register') {
       if (password !== password2) { setError('Passwords do not match.'); setLoading(false); return }
-      if (password.length < 6)    { setError('Password must be at least 6 characters.'); setLoading(false); return }
+      if (password.length < 8)    { setError('Password must be at least 8 characters.'); setLoading(false); return }
       const { error: err } = await sb.auth.signUp({
         email, password,
-        options: { emailRedirectTo: 'https://deckloom.app/' },
+        options: { emailRedirectTo: getProdAppUrl('/') },
       })
       if (err) setError(err.message)
       else setSuccess('Account created! Check your email to confirm, then sign in.')
     } else if (mode === 'forgot') {
       if (!email) { setError('Enter your email address first.'); setLoading(false); return }
       const { error: err } = await sb.auth.resetPasswordForEmail(email, {
-        redirectTo: 'https://deckloom.app/',
+        redirectTo: getProdAppUrl('/'),
       })
       if (err) setError(err.message)
       else setSuccess('Password reset email sent. Check your inbox to continue.')
     } else if (mode === 'recovery') {
       if (password !== password2) { setError('Passwords do not match.'); setLoading(false); return }
-      if (password.length < 6)    { setError('Password must be at least 6 characters.'); setLoading(false); return }
+      if (password.length < 8)    { setError('Password must be at least 8 characters.'); setLoading(false); return }
       const { error: err } = await sb.auth.updateUser({ password })
       if (err) setError(err.message)
       else {
