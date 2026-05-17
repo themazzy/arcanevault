@@ -10,6 +10,7 @@ import { sb } from '../lib/supabase'
 import { putCards } from '../lib/db'
 import { useLongPress } from '../hooks/useLongPress'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
+import { colorIdentityMatches } from '../lib/colorFilter'
 
 const NON_DRAGGABLE_IMG_PROPS = {
   draggable: false,
@@ -2497,21 +2498,12 @@ export function applyFilterSort(cards, sfMap, search, sort, filters = {}, cardFo
     r = r.filter(c => (sfMap[`${c.set_code}-${c.collector_number}`]?.artist || '').toLowerCase().includes(q))
   }
 
-  // Colors
+  // Colors — Scryfall-style: WUBRG + mode form the base; M and C act as AND
+  // constraints (id>1 / id:c). See src/lib/colorFilter.js.
   if (colors.length) {
     r = r.filter(c => {
       const ci = sfMap[`${c.set_code}-${c.collector_number}`]?.color_identity || []
-      const wantsMulti     = colors.includes('M')
-      const wantsColorless = colors.includes('C')
-      const selected = colors.filter(x => ['W','U','B','R','G'].includes(x))
-      if (!selected.length) {
-        return (wantsMulti && ci.length > 1) || (wantsColorless && ci.length === 0)
-      }
-      if (wantsMulti     && ci.length > 1)  return true
-      if (wantsColorless && ci.length === 0) return true
-      if (colorMode === 'exact')     return ci.length === selected.length && selected.every(x => ci.includes(x))
-      if (colorMode === 'including') return selected.every(x => ci.includes(x))
-      return selected.some(x => ci.includes(x))
+      return colorIdentityMatches(ci, colors, colorMode)
     })
   }
 
