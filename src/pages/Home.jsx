@@ -143,6 +143,19 @@ async function loadCollectionData(userId) {
   return { folders: allFolders, cards: allCards, cardRows, deckRows, sfMap: safeSfMap, recentCards }
 }
 
+// Cheap content fingerprint over (id, qty, foil) tuples. Detects swaps,
+// foil/non-foil changes, and replacements that pure length+totalQty misses.
+function cardsContentHash(cards) {
+  if (!cards?.length) return '0'
+  const parts = new Array(cards.length)
+  for (let i = 0; i < cards.length; i++) {
+    const c = cards[i]
+    parts[i] = `${c.id}:${c.qty || 1}:${c.foil ? 1 : 0}`
+  }
+  parts.sort()
+  return parts.join('|')
+}
+
 // Syncs cards from Supabase into IDB and returns updated cards array if anything changed.
 // Returns null when offline or when the data matches what we already have.
 async function syncCardsFromSupabase(userId, currentCards) {
@@ -158,10 +171,7 @@ async function syncCardsFromSupabase(userId, currentCards) {
       if (!data || data.length < 1000) break
       from += 1000
     }
-    // Compare total qty to decide if a re-render is needed
-    const currentQty = currentCards.reduce((s, c) => s + (c.qty || 1), 0)
-    const freshQty   = fresh.reduce((s, c) => s + (c.qty || 1), 0)
-    if (fresh.length === currentCards.length && freshQty === currentQty) return null
+    if (cardsContentHash(fresh) === cardsContentHash(currentCards)) return null
     await putCards(fresh)
     return fresh
   } catch (e) {
@@ -1503,16 +1513,36 @@ export default function HomePage() {
   })
   const collLoading = isLoading && !collData
 
+  // Trigger Home resync whenever the shared ['cards', userId] cache updates
+  // (e.g. from Collection mutations, Scanner adds, Trading). Without this,
+  // Home would only sync once per session and go stale.
+  const [cardsCacheTick, setCardsCacheTick] = useState(0)
+  useEffect(() => {
+    if (!user?.id) return
+    const unsub = queryClient.getQueryCache().subscribe(event => {
+      if (event?.type !== 'updated') return
+      const key = event.query?.queryKey
+      if (Array.isArray(key) && key[0] === 'cards' && key[1] === user.id) {
+        setCardsCacheTick(t => t + 1)
+      }
+    })
+    return unsub
+  }, [user?.id, queryClient])
+
   // Background sync after initial render. Only patches the parts that actually changed,
   // keeping sfMap reference stable when only qty drifted — avoids invalidating every memo.
-  const syncedForUserRef = useRef(null)
+  // Re-runs whenever the cards cache ticks; syncCardsFromSupabase hashes contents
+  // and returns null when nothing changed, so repeat ticks are cheap.
+  const lastSyncedHashRef = useRef(null)
   useEffect(() => {
-    if (!user?.id || !collData || syncedForUserRef.current === user.id) return
-    syncedForUserRef.current = user.id
+    if (!user?.id || !collData) return
     let cancelled = false
     ;(async () => {
       const freshCards = await syncCardsFromSupabase(user.id, collData.cards)
       if (cancelled || !freshCards) return
+      const freshHash = cardsContentHash(freshCards)
+      if (freshHash === lastSyncedHashRef.current) return
+      lastSyncedHashRef.current = freshHash
 
       // Check if the set of scryfall prints changed. If not, reuse sfMap reference.
       const prevKeys = new Set()
@@ -1539,7 +1569,7 @@ export default function HomePage() {
       })
     })()
     return () => { cancelled = true }
-  }, [user?.id, collData, queryClient])
+  }, [user?.id, collData, queryClient, cardsCacheTick])
 
   // Open a Scryfall card in the shared CardView modal
   const openCard = useCallback(async (scryfallId, fallbackName) => {

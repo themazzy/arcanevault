@@ -283,28 +283,28 @@ export default function CollectionPage() {
   }, [queryClient, user?.id])
 
   const cardsQuery = useQuery({
-    queryKey: ['cards', user.id],
+    queryKey: ['cards', user?.id],
     queryFn: () => fetchCollectionCards(user.id),
     staleTime: LOCAL_COLLECTION_FRESH_MS,
     enabled: !!user?.id,
   })
 
   const foldersQuery = useQuery({
-    queryKey: ['folders', user.id],
+    queryKey: ['folders', user?.id],
     queryFn: () => fetchFolders(user.id),
     staleTime: LOCAL_COLLECTION_FRESH_MS,
     enabled: !!user?.id,
   })
 
   const placementsQuery = useQuery({
-    queryKey: ['folderPlacements', user.id],
+    queryKey: ['folderPlacements', user?.id],
     queryFn: fetchFolderPlacements,
     staleTime: FOLDER_CARDS_STALE_MS,
     enabled: !!user?.id,
   })
 
   const sfMapQuery = useQuery({
-    queryKey: ['sfMap', user.id],
+    queryKey: ['sfMap', user?.id],
     queryFn: () => fetchSfMap(cards, ttlMsRef.current, (pct, lbl) => {
       setProgress(pct)
       setProgLabel(lbl)

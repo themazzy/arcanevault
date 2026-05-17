@@ -84,8 +84,8 @@ const CARD_LANGUAGES = [
   ['ja', 'JA'],
   ['ko', 'KO'],
   ['ru', 'RU'],
-  ['cs', 'TC'],
-  ['ct', 'SC'],
+  ['zht', 'TC'],
+  ['zhs', 'SC'],
 ]
 
 // ── Module-level scratch canvas for pre-downscaled corner detection frames ───

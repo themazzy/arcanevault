@@ -9,6 +9,10 @@ function getWorker() {
   return _worker
 }
 
+// Global counter so two simultaneous hook consumers can't collide on the same id
+// and accept each other's worker responses.
+let _globalReqId = 0
+
 // Builds a sfMap restricted to the cards present, so we don't ship the entire
 // Scryfall cache to the worker on every keystroke.
 function projectSfMap(cards, sfMap) {
@@ -45,7 +49,7 @@ function projectCards(cards) {
 // Mirrors Collection.jsx's pattern: starts empty until the worker reports back.
 export function useFilterWorker({ cards, sfMap, search, sort, filters, priceSource, cardFolderMap }) {
   const [result, setResult] = useState([])
-  const reqIdRef = useRef(0)
+  const lastReqIdRef = useRef(0)
 
   const projectedSfMap = useMemo(() => projectSfMap(cards, sfMap), [cards, sfMap])
   const projectedCards = useMemo(() => projectCards(cards), [cards])
@@ -53,11 +57,12 @@ export function useFilterWorker({ cards, sfMap, search, sort, filters, priceSour
   useEffect(() => {
     if (!projectedCards.length) {
       setResult([])
-      reqIdRef.current++
+      lastReqIdRef.current = ++_globalReqId
       return
     }
     const worker = getWorker()
-    const id = ++reqIdRef.current
+    const id = ++_globalReqId
+    lastReqIdRef.current = id
     const handler = (e) => {
       if (e.data?.id !== id) return
       worker.removeEventListener('message', handler)

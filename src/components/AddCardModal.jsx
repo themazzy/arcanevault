@@ -25,7 +25,7 @@ const CONDITIONS = [
 const LANGUAGES = [
   ['en', 'English'], ['de', 'German'], ['fr', 'French'], ['it', 'Italian'],
   ['es', 'Spanish'], ['pt', 'Portuguese'], ['ja', 'Japanese'], ['ko', 'Korean'],
-  ['ru', 'Russian'], ['cs', 'Trad. Chinese'], ['ct', 'Simp. Chinese'],
+  ['ru', 'Russian'], ['zht', 'Trad. Chinese'], ['zhs', 'Simp. Chinese'],
   ['he', 'Hebrew'], ['ar', 'Arabic'], ['la', 'Latin'], ['ph', 'Phyrexian'],
 ]
 
