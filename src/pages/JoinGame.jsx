@@ -44,26 +44,19 @@ export default function JoinGamePage() {
     return () => document.removeEventListener('pointerdown', h)
   }, [deckOpen])
 
-  // Load session once on mount
+  // Load session once on mount. Uses the get_game_by_code RPC so unauthenticated
+  // visitors hitting /join/:code can render the lobby preview before logging in;
+  // direct SELECT on game_sessions / game_players is now authenticated-only.
   useEffect(() => {
     if (!code) { setStatus('notfound'); return }
     ;(async () => {
-      const { data, error } = await sb
-        .from('game_sessions')
-        .select('*')
-        .eq('code', code.toUpperCase())
-        .single()
-      if (error || !data) { setStatus('notfound'); return }
-      if (data.status === 'playing') { setStatus('started'); return }
-      if (data.status === 'ended')   { setStatus('notfound'); return }
-      setSession(data)
-
-      const { data: slotsData } = await sb
-        .from('game_players')
-        .select('*')
-        .eq('session_id', data.id)
-        .order('slot_index')
-      setSlots(slotsData || [])
+      const { data, error } = await sb.rpc('get_game_by_code', { p_code: code.toUpperCase() })
+      const sessionData = data?.session
+      if (error || !sessionData) { setStatus('notfound'); return }
+      if (sessionData.status === 'playing') { setStatus('started'); return }
+      if (sessionData.status === 'ended')   { setStatus('notfound'); return }
+      setSession(sessionData)
+      setSlots(data?.players || [])
       setStatus('lobby')
     })()
   }, [code])
@@ -85,44 +78,42 @@ export default function JoinGamePage() {
       .then(({ data }) => setDecks(data || []))
   }, [user])
 
-  // Realtime subscription + polling fallback
+  // Realtime subscription + polling fallback. The RPC powers polling so it
+  // works for unauthenticated visitors too (realtime needs SELECT on the
+  // underlying tables and only delivers updates post-login).
   useEffect(() => {
     if (!session) return
     const sid = session.id
+    const codeUpper = code?.toUpperCase()
     let active = true
 
-    const reloadPlayers = async () => {
-      const { data } = await sb.from('game_players')
-        .select('*').eq('session_id', sid).order('slot_index')
-      if (active && data) setSlots(data)
-    }
-
-    const reloadSession = async () => {
-      const { data } = await sb.from('game_sessions')
-        .select('status').eq('id', sid).single()
-      if (active && data?.status === 'playing') setStatus('started')
+    const reload = async () => {
+      const { data } = await sb.rpc('get_game_by_code', { p_code: codeUpper })
+      if (!active || !data?.session) return
+      setSlots(data.players || [])
+      if (data.session.status === 'playing') setStatus('started')
     }
 
     const ch = sb.channel(`join:${sid}`)
       // payload.new only has primary key on UPDATE (default replica identity),
-      // so just re-fetch the full list on any change.
+      // so just re-fetch via the RPC on any change.
       .on('postgres_changes', {
         event: '*', schema: 'public', table: 'game_players',
-      }, reloadPlayers)
+      }, reload)
       .on('postgres_changes', {
         event: 'UPDATE', schema: 'public', table: 'game_sessions',
       }, payload => {
-        // payload.new may only have id; fall back to explicit fetch
         if (payload.new?.status === 'playing') setStatus('started')
-        else reloadSession()
+        else reload()
       })
       .subscribe()
 
-    // Poll every 3 s as fallback for realtime gaps
-    const poll = setInterval(() => { reloadPlayers(); reloadSession() }, 3000)
+    // Poll every 3 s as fallback for realtime gaps (and for anon visitors
+    // whose realtime channel won't deliver until they sign in).
+    const poll = setInterval(reload, 3000)
 
     return () => { active = false; sb.removeChannel(ch); clearInterval(poll) }
-  }, [session?.id])
+  }, [session?.id, code])
 
   const openClaim = slot => {
     setClaimSlot(slot)
@@ -170,10 +161,9 @@ export default function JoinGamePage() {
     }).eq('id', claimSlot.id).is('user_id', null)
 
     if (error) {
-      // Slot was taken by someone else — reload and go back to lobby
-      const { data } = await sb.from('game_players')
-        .select('*').eq('session_id', session.id).order('slot_index')
-      if (data) setSlots(data)
+      // Slot was taken by someone else — reload via the RPC and go back to lobby
+      const { data } = await sb.rpc('get_game_by_code', { p_code: code?.toUpperCase() })
+      if (data?.players) setSlots(data.players)
       setStatus('lobby')
     } else {
       setMySlotId(claimSlot.id)
