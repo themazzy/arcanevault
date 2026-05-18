@@ -36,8 +36,8 @@ const LANGUAGE_MAP = {
 function parseCSVRow(line) {
   const row = []
   let cur = '', inQ = false
-  for (let i = 0; i < line.length + 1; i++) {
-    const ch = i < line.length ? line[i] : ','
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
     if (ch === '"') {
       // Handle "" as escaped quote inside quoted field
       if (inQ && line[i + 1] === '"') { cur += '"'; i++ }
@@ -48,7 +48,13 @@ function parseCSVRow(line) {
       cur += ch
     }
   }
-  return row.map(v => v.trim().replace(/^"|"$/g, ''))
+  // Always flush the final field, even if the row ended mid-quote (unclosed
+  // quote from a hand-edited CSV) — otherwise the last column silently vanishes.
+  row.push(cur)
+  // No surrounding-quote strip here: the quote-toggle above already consumes
+  // wrapping quotes, and a blanket strip mangles escaped-quote content like
+  // `"Say ""Hi"""` (would lose the trailing `"`).
+  return row.map(v => v.trim())
 }
 
 function normalizeCondition(raw) {
@@ -71,11 +77,20 @@ function isFoilValue(foilRaw, finishRaw) {
   return false
 }
 
+export class CSVParseError extends Error {
+  constructor(message) { super(message); this.name = 'CSVParseError' }
+}
+
 export function parseManaboxCSV(text) {
   const lines = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim().split('\n')
   if (lines.length < 2) return { cards: [], folders: {} }
 
   const header = parseCSVRow(lines[0]).map(h => h.toLowerCase())
+  if (!header.includes('name')) {
+    throw new CSVParseError(
+      "CSV is missing a 'name' column. Expected a Manabox / Moxfield / Archidekt export."
+    )
+  }
 
   const get = (row, ...keys) => {
     for (const k of keys) {

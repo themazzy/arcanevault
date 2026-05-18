@@ -70,7 +70,12 @@ export function parseImportText(text) {
   if (!trimmed) return { source: IMPORT_SOURCE.TEXT, entries: [] }
 
   const firstLine = trimmed.split('\n')[0] || ''
-  if (firstLine.includes(',') && /\bname\b/i.test(firstLine)) {
+  // Decklists start with a quantity ("4 Lightning Bolt"); CSV headers never do.
+  // Without this guard a comment line like "// 4 cards, including name X" or
+  // a deck whose first line happens to contain a comma + "name" word would be
+  // mis-routed through the Manabox CSV parser.
+  const looksLikeDecklistLine = /^\d+x?\s/i.test(firstLine)
+  if (!looksLikeDecklistLine && firstLine.includes(',') && /\bname\b/i.test(firstLine)) {
     const { cards, folders } = parseManaboxCSV(trimmed)
     const entries = mergeEntries(cards.map((card, index) => ({
       name: card.name,
@@ -135,19 +140,28 @@ export async function resolveImportEntries(entries, onProgress) {
   const byName = new Map()
   const totalBatches = Math.max(1, Math.ceil(identifiers.length / 75))
 
+  const batchErrors = []
   for (let i = 0; i < identifiers.length; i += 75) {
     const batch = identifiers.slice(i, i + 75)
-    const { data: cards } = await fetchScryfallBatch(batch)
-    for (const sfCard of cards) {
-      if (sfCard.set && sfCard.collector_number) {
-        byPrint.set(`${sfCard.set}-${sfCard.collector_number}`, sfCard)
+    try {
+      const { data: cards } = await fetchScryfallBatch(batch)
+      for (const sfCard of cards) {
+        if (sfCard.set && sfCard.collector_number) {
+          byPrint.set(`${sfCard.set}-${sfCard.collector_number}`, sfCard)
+        }
+        for (const key of cardNameKeys(sfCard)) byName.set(key, sfCard)
       }
-      for (const key of cardNameKeys(sfCard)) byName.set(key, sfCard)
+    } catch (err) {
+      // One bad batch should not nuke a 1500-card import — log and let the
+      // surviving matches through. Unmatched rows get status: 'missing' below.
+      batchErrors.push({ batchIndex: Math.floor(i / 75), error: err })
+      console.error('[importFlow] Scryfall batch failed, continuing:', err)
     }
     onProgress?.(Math.min(totalBatches, Math.floor(i / 75) + 1), totalBatches)
     if (i + 75 < identifiers.length) await new Promise(resolve => setTimeout(resolve, 150))
   }
 
+  const hadBatchError = batchErrors.length > 0
   return normalized.map(entry => {
     const printKey = entry.setCode && entry.collectorNumber
       ? `${entry.setCode}-${entry.collectorNumber}`
@@ -162,7 +176,7 @@ export async function resolveImportEntries(entries, onProgress) {
       resolvedCollectorNumber: sfCard?.collector_number || entry.collectorNumber || null,
       exactPrinting: !!exactSfCard,
       status: sfCard ? 'matched' : 'missing',
-      reason: sfCard ? null : 'No Scryfall match',
+      reason: sfCard ? null : (hadBatchError ? 'Scryfall lookup failed' : 'No Scryfall match'),
     }
   })
 }
