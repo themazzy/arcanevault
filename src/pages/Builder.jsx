@@ -9,6 +9,7 @@ import { hasDeckArtSource, mergeDeckCommanderArt, useDeckArts, enrichDecksWithCo
 import styles from './Builder.module.css'
 import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
+import { useToast } from '../components/ToastContext'
 import { CheckIcon, DeleteIcon, EditIcon, ChevronDownIcon } from '../icons'
 
 const MANA_SYMBOL_URL = c => `https://svgs.scryfall.io/card-symbols/${c}.svg`
@@ -259,6 +260,7 @@ export default function BuilderPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+  const { showToast } = useToast()
   const [decks, setDecks]         = useState([])
   const [loading, setLoading]     = useState(true)
   const [showNew, setShowNew]     = useState(false)
@@ -324,13 +326,16 @@ export default function BuilderPage() {
       const decks = Array.isArray(data) ? data : []
       setCommunityDecks(attachDeckMeta(await enrichDecksWithCommanderArt(decks)))
       setCommunityLoaded(true)
-      // Batch-fetch nicknames for all unique creators
+      // Batch-fetch nicknames for all unique creators in one RPC round trip.
       const uniqueIds = [...new Set(decks.map(d => d.user_id).filter(Boolean))]
-      Promise.all(uniqueIds.map(id =>
-        sb.rpc('get_user_nickname', { p_user_id: id }).then(({ data: nick }) => [id, nick])
-      )).then(pairs => {
-        setCommunityNicks(Object.fromEntries(pairs.filter(([, nick]) => nick)))
-      }).catch(() => {})
+      if (uniqueIds.length) {
+        sb.rpc('get_user_nicknames', { p_user_ids: uniqueIds })
+          .then(({ data, error }) => {
+            if (error) { console.warn('[Builder] get_user_nicknames failed:', error); return }
+            setCommunityNicks(Object.fromEntries((data || []).map(row => [row.user_id, row.nickname])))
+          })
+          .catch(() => {})
+      }
     } catch {
       setCommunityDecks([])
     } finally {
@@ -353,11 +358,14 @@ export default function BuilderPage() {
       description,
     }).select().single()
     setCreating(false)
-    if (!error && data) {
-      setShowNew(false)
-      setNewName('')
-      navigate(`/builder/${data.id}`)
+    if (error || !data) {
+      console.error('[Builder] createDeck failed:', error)
+      showToast(`Failed to create deck: ${error?.message || 'unknown error'}`, { tone: 'error', duration: 4000 })
+      return
     }
+    setShowNew(false)
+    setNewName('')
+    navigate(`/builder/${data.id}`)
   }
 
   async function deleteDeck(id) {
@@ -370,17 +378,32 @@ export default function BuilderPage() {
       let meta = {}
       try { meta = JSON.parse(deck.description || '{}') } catch {}
       meta.hideFromBuilder = true
-      await sb.from('folders').update({ description: JSON.stringify(meta) }).eq('id', id).eq('user_id', user.id)
+      const { error } = await sb.from('folders').update({ description: JSON.stringify(meta) }).eq('id', id).eq('user_id', user.id)
+      if (error) {
+        console.error('[Builder] hide deck failed:', error)
+        showToast(`Failed to hide deck: ${error.message}`, { tone: 'error', duration: 4000 })
+        await loadDecks()
+      }
     } else {
       if (!await confirmAsync('Delete this builder deck? This cannot be undone.')) return
       setDecks(d => d.filter(x => x.id !== id))
-      const meta = parseDeckMeta(deck?.description || '{}')
-      if (meta.linked_deck_id) {
-        const { data: counterpart } = await sb.from('folders').select('*').eq('id', meta.linked_deck_id).maybeSingle()
-        if (counterpart) await unlinkPairedDeck({ counterpart })
+      try {
+        const meta = parseDeckMeta(deck?.description || '{}')
+        if (meta.linked_deck_id) {
+          const { data: counterpart, error: cpErr } = await sb.from('folders').select('*').eq('id', meta.linked_deck_id).maybeSingle()
+          if (cpErr) throw cpErr
+          if (counterpart) await unlinkPairedDeck({ counterpart })
+        }
+        const { error: cardsErr } = await sb.from('deck_cards').delete().eq('deck_id', id)
+        if (cardsErr) throw cardsErr
+        const { error: folderErr } = await sb.from('folders').delete().eq('id', id).eq('user_id', user.id)
+        if (folderErr) throw folderErr
+      } catch (err) {
+        console.error('[Builder] deleteDeck failed:', err)
+        showToast(`Failed to delete deck: ${err?.message || 'unknown error'}`, { tone: 'error', duration: 4000 })
+        // Refetch to resync the UI with whatever actually persisted.
+        await loadDecks()
       }
-      await sb.from('deck_cards').delete().eq('deck_id', id)
-      await sb.from('folders').delete().eq('id', id).eq('user_id', user.id)
     }
   }
 
@@ -411,28 +434,39 @@ export default function BuilderPage() {
     if (!await confirmAsync(msg)) return
     setDecks(d => d.filter(x => !ids.includes(x.id)))
 
-    // Hide collection decks: one upsert per deck since description differs per row.
-    await Promise.all(collectionIds.map(async id => {
-      const deck = decksById.get(id)
-      let meta = {}
-      try { meta = JSON.parse(deck?.description || '{}') } catch {}
-      meta.hideFromBuilder = true
-      await sb.from('folders').update({ description: JSON.stringify(meta) }).eq('id', id).eq('user_id', user.id)
-    }))
+    try {
+      // Hide collection decks: one upsert per deck since description differs per row.
+      const hideResults = await Promise.all(collectionIds.map(async id => {
+        const deck = decksById.get(id)
+        let meta = {}
+        try { meta = JSON.parse(deck?.description || '{}') } catch {}
+        meta.hideFromBuilder = true
+        return sb.from('folders').update({ description: JSON.stringify(meta) }).eq('id', id).eq('user_id', user.id)
+      }))
+      const hideErr = hideResults.find(r => r?.error)?.error
+      if (hideErr) throw hideErr
 
-    // Unlink any paired collection counterparts before deleting builder decks.
-    const counterpartIds = builderIds
-      .map(id => parseDeckMeta(decksById.get(id)?.description || '{}').linked_deck_id)
-      .filter(Boolean)
-    if (counterpartIds.length) {
-      const { data: counterparts } = await sb.from('folders').select('*').in('id', counterpartIds)
-      await Promise.all((counterparts || []).map(counterpart => unlinkPairedDeck({ counterpart })))
-    }
+      // Unlink any paired collection counterparts before deleting builder decks.
+      const counterpartIds = builderIds
+        .map(id => parseDeckMeta(decksById.get(id)?.description || '{}').linked_deck_id)
+        .filter(Boolean)
+      if (counterpartIds.length) {
+        const { data: counterparts, error: cpErr } = await sb.from('folders').select('*').in('id', counterpartIds)
+        if (cpErr) throw cpErr
+        await Promise.all((counterparts || []).map(counterpart => unlinkPairedDeck({ counterpart })))
+      }
 
-    if (builderIds.length) {
-      // Batch deletes via .in() — single round-trip each instead of N.
-      await sb.from('deck_cards').delete().in('deck_id', builderIds)
-      await sb.from('folders').delete().in('id', builderIds).eq('user_id', user.id)
+      if (builderIds.length) {
+        // Batch deletes via .in() — single round-trip each instead of N.
+        const { error: cardsErr } = await sb.from('deck_cards').delete().in('deck_id', builderIds)
+        if (cardsErr) throw cardsErr
+        const { error: folderErr } = await sb.from('folders').delete().in('id', builderIds).eq('user_id', user.id)
+        if (folderErr) throw folderErr
+      }
+    } catch (err) {
+      console.error('[Builder] bulkDelete failed:', err)
+      showToast(`Bulk delete failed: ${err?.message || 'unknown error'}`, { tone: 'error', duration: 4000 })
+      await loadDecks()
     }
     toggleSelectMode()
   }

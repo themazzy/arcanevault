@@ -149,7 +149,10 @@ export async function searchCards({ query = '', format, colorIdentity, cardType,
   if (cardType)      parts.push(`t:${cardType}`)
   if (cmcMin !== '' && cmcMin != null) parts.push(`cmc>=${cmcMin}`)
   if (cmcMax !== '' && cmcMax != null) parts.push(`cmc<=${cmcMax}`)
-  if (!parts.length) parts.push('*')
+  // No query AND no filters → bail without hitting Scryfall. The old behavior
+  // was to send `q=*`, which returned a generic top-of-set page that wasn't
+  // useful and cost a round trip on every cleared-input event.
+  if (!parts.length) return { cards: [], hasMore: false }
 
   const q = encodeURIComponent(parts.join(' '))
   const order = format === 'commander' ? 'edhrec' : 'name'
