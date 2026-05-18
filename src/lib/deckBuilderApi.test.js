@@ -1,5 +1,14 @@
-import { describe, it, expect } from 'vitest'
-import { parseTextDecklist, parseImportUrl } from './deckBuilderApi'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+
+// Mock the scryfall module BEFORE importing deckBuilderApi so the `const sfFetch = sfGet`
+// closure binds to our mock instead of the real rate-limited fetch.
+vi.mock('./scryfall', () => ({
+  sfGet: vi.fn(),
+  sfUrl: (u) => u,
+}))
+
+import { parseTextDecklist, parseImportUrl, searchCards } from './deckBuilderApi'
+import { sfGet } from './scryfall'
 
 describe('parseTextDecklist', () => {
   it('parses simple qty + name', () => {
@@ -118,5 +127,44 @@ describe('parseImportUrl (MD-002)', () => {
 
   it('returns null for unrecognized URLs', () => {
     expect(parseImportUrl('https://example.com/foo')).toBeNull()
+  })
+})
+
+describe('searchCards — empty-query bail', () => {
+  beforeEach(() => { sfGet.mockReset() })
+  afterEach(() => { vi.restoreAllMocks() })
+
+  it('does NOT hit Scryfall when query and all filters are empty', async () => {
+    const result = await searchCards({})
+    expect(result).toEqual({ cards: [], hasMore: false })
+    expect(sfGet).not.toHaveBeenCalled()
+  })
+
+  it('does NOT hit Scryfall when query is only whitespace', async () => {
+    const result = await searchCards({ query: '   ' })
+    expect(result).toEqual({ cards: [], hasMore: false })
+    expect(sfGet).not.toHaveBeenCalled()
+  })
+
+  it('hits Scryfall when a colorIdentity filter is set even without a query', async () => {
+    sfGet.mockResolvedValueOnce({ data: [{ id: 'x', name: 'A' }], has_more: false })
+    const result = await searchCards({ colorIdentity: ['W', 'U'] })
+    expect(sfGet).toHaveBeenCalledOnce()
+    expect(result.cards).toHaveLength(1)
+  })
+
+  it('hits Scryfall when a cardType filter is set', async () => {
+    sfGet.mockResolvedValueOnce({ data: [], has_more: false })
+    await searchCards({ cardType: 'creature' })
+    expect(sfGet).toHaveBeenCalledOnce()
+    const url = sfGet.mock.calls[0][0]
+    expect(url).toContain('t%3Acreature')
+  })
+
+  it('hits Scryfall when only a query is provided', async () => {
+    sfGet.mockResolvedValueOnce({ data: [{ id: 'y', name: 'Lightning Bolt' }], has_more: false })
+    const result = await searchCards({ query: 'lightning bolt' })
+    expect(sfGet).toHaveBeenCalledOnce()
+    expect(result.cards[0].name).toBe('Lightning Bolt')
   })
 })
