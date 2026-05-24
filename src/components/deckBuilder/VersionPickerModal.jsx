@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { fetchPaperPrintings, getCardImageUri } from '../../lib/deckBuilderApi'
 import { loadLocalPlacementSnapshot, refreshRemotePlacementSnapshot } from '../../lib/deckPlacementData'
+import { overlaySharedCardPrices } from '../../lib/sharedCardPrices'
+import { getPrice, formatPrice } from '../../lib/scryfall'
 import { CAN_HOVER, FOLDER_TAG_COLOR, FOLDER_TAG_BORDER } from '../../lib/deckBuilderConstants'
 import { normalizeCardName } from '../../lib/deckBuilderHelpers'
 import { FolderTypeIcon } from '../../icons'
@@ -45,10 +47,11 @@ function PrintingLocationTags({ locations }) {
   )
 }
 
-export default function VersionPickerModal({ dc, ownedMap, userId, onSelect, onClose }) {
+export default function VersionPickerModal({ dc, ownedMap, userId, priceSource = 'cardmarket_trend', onSelect, onClose }) {
   const [printings, setPrintings] = useState([])
   const [loading, setLoading] = useState(true)
   const [locationsByScryfallId, setLocationsByScryfallId] = useState(new Map())
+  const [priceByKey, setPriceByKey] = useState(new Map())
 
   useEffect(() => {
     let cancelled = false
@@ -93,6 +96,24 @@ export default function VersionPickerModal({ dc, ownedMap, userId, onSelect, onC
           setPrintings(sorted)
           setLocationsByScryfallId(buildLocations(localSnapshot))
           setLoading(false)
+
+          const priceCards = rawPrintings
+            .map(p => ({ scryfall_id: p.id, set_code: p.set, collector_number: p.collector_number }))
+            .filter(c => c.scryfall_id && c.set_code && c.collector_number)
+          if (priceCards.length) {
+            overlaySharedCardPrices(priceCards, {})
+              .then(map => {
+                if (cancelled) return
+                const next = new Map()
+                for (const card of priceCards) {
+                  const key = `${String(card.set_code).toLowerCase()}-${card.collector_number}`
+                  const entry = map[key]
+                  if (entry) next.set(card.scryfall_id, entry)
+                }
+                setPriceByKey(next)
+              })
+              .catch(err => console.warn('[VersionPicker] shared price load failed:', err?.message || err))
+          }
         }
 
         if (userId) {
@@ -134,6 +155,8 @@ export default function VersionPickerModal({ dc, ownedMap, userId, onSelect, onC
                 const img = getCardImageUri(p, 'normal')
                 const isActive = p.id === dc.scryfall_id
                 const locations = locationsByScryfallId.get(p.id) || []
+                const priceEntry = priceByKey.get(p.id)
+                const priceValue = priceEntry ? getPrice(priceEntry, !!dc.foil, { price_source: priceSource }) : null
                 return (
                   <button key={p.id} onClick={() => onSelect(p)}
                     style={{
@@ -148,6 +171,9 @@ export default function VersionPickerModal({ dc, ownedMap, userId, onSelect, onC
                     }
                     <div style={{ fontSize:desktopPicker ? '0.78rem' : '0.62rem', color: isActive ? 'var(--gold)' : 'var(--text-dim)', textAlign:'center', lineHeight:1.25, wordBreak:'break-word' }}>
                       {p.set_name}
+                    </div>
+                    <div style={{ fontSize:desktopPicker ? '0.78rem' : '0.66rem', color: priceValue != null ? 'var(--green)' : 'var(--text-faint)', fontVariantNumeric:'tabular-nums' }}>
+                      {priceValue != null ? formatPrice(priceValue, priceSource) : '—'}
                     </div>
                     <PrintingLocationTags locations={locations} />
                   </button>

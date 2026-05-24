@@ -661,9 +661,15 @@ export default function DeckBuilderPage() {
   const [shareState, setShareState] = useState(null)
   const [shareBusy, setShareBusy] = useState(false)
 
-  // Hover preview
-  const [hoverImages, setHoverImages] = useState([])
-  const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 })
+  // Hover preview — FloatingPreview owns its own state and is updated imperatively,
+  // so neither pointer movement nor enter/leave triggers a DeckBuilder re-render.
+  const floatingPreviewRef = useRef(null)
+  const setHoverImages = useCallback((uris) => {
+    floatingPreviewRef.current?.setImages(uris)
+  }, [])
+  const updateHoverPos = useCallback((x, y) => {
+    floatingPreviewRef.current?.setPos(x, y)
+  }, [])
 
   // Right panel tabs: 'deck' | 'stats' | 'combos'
   const [rightTab,            setRightTab]            = useState('deck')
@@ -1138,12 +1144,12 @@ export default function DeckBuilderPage() {
     return price != null ? formatPrice(price, price_source) : '—'
   }, [builderSfMap, price_source])
   const handleSearchRowHoverEnter = useCallback((uri, e) => {
+    updateHoverPos(e.clientX, e.clientY)
     setHoverImages(uri ? [uri] : [])
-    setHoverPos({ x: e.clientX, y: e.clientY })
-  }, [])
+  }, [updateHoverPos])
   const handleSearchRowHoverMove = useCallback((e) => {
-    setHoverPos({ x: e.clientX, y: e.clientY })
-  }, [])
+    updateHoverPos(e.clientX, e.clientY)
+  }, [updateHoverPos])
   const handleSearchRowHoverLeave = useCallback(() => {
     setHoverImages([])
   }, [])
@@ -2844,7 +2850,7 @@ export default function DeckBuilderPage() {
     const fallback = dc.image_uri ? [toLargeImg(dc.image_uri)] : []
     const hoverKey = dc.id || dc.scryfall_id || dc.name
     hoverPreviewKey.current = hoverKey
-    setHoverPos({ x: e.clientX, y: e.clientY })
+    updateHoverPos(e.clientX, e.clientY)
     setHoverImages(fallback)
 
     if (!dc.scryfall_id) return
@@ -4177,8 +4183,8 @@ export default function DeckBuilderPage() {
                               imageUri={recImages[rec.name] || null}
                               ownedQty={ownedMap.get(rec.slug) ?? 0}
                               onAdd={addCardToDeck}
-                              onHoverEnter={CAN_HOVER && !lastInputWasTouch ? (uri, e) => { setHoverImages(uri ? [uri] : []); setHoverPos({ x: e.clientX, y: e.clientY }) } : undefined}
-                              onHoverMove={CAN_HOVER ? e => setHoverPos({ x: e.clientX, y: e.clientY }) : undefined}
+                              onHoverEnter={CAN_HOVER && !lastInputWasTouch ? (uri, e) => { updateHoverPos(e.clientX, e.clientY); setHoverImages(uri ? [uri] : []) } : undefined}
+                              onHoverMove={CAN_HOVER ? e => updateHoverPos(e.clientX, e.clientY) : undefined}
                               onHoverLeave={CAN_HOVER ? () => clearHoverPreview() : undefined}
                               onOpenDetail={openCardDetailByName}
                             />
@@ -4751,7 +4757,7 @@ export default function DeckBuilderPage() {
                 onRemove:    removeCardFromDeck,
                 onMouseEnter: CAN_HOVER ? (e) => showHoverPreviewForDeckCard(dc, e) : undefined,
                 onMouseLeave: CAN_HOVER ? () => clearHoverPreview() : undefined,
-                onMouseMove:  CAN_HOVER ? (e) => setHoverPos({ x: e.clientX, y: e.clientY }) : undefined,
+                onMouseMove:  CAN_HOVER ? (e) => updateHoverPos(e.clientX, e.clientY) : undefined,
                 onContextMenu: (e) => openDeckCardContextMenu(dc, e),
                 touchContextMenuHandlers: bindTouchContextMenu(e => openDeckCardContextMenu(dc, e)),
                 onDragStart: (e) => handleCardDragStart(dc, e),
@@ -4849,7 +4855,7 @@ export default function DeckBuilderPage() {
                         setStackHoverState(null)
                         clearHoverPreview()
                       } : undefined}
-                      onMouseMove={CAN_HOVER ? e => setHoverPos({ x: e.clientX, y: e.clientY }) : undefined}
+                      onMouseMove={CAN_HOVER ? e => updateHoverPos(e.clientX, e.clientY) : undefined}
                     >
                       <div className={styles.stackImgWrap}>
                         {dc.image_uri
@@ -4885,7 +4891,7 @@ export default function DeckBuilderPage() {
                       onClick={(e) => { if (consumeLongPressClick(e)) return; openDeckCardDetail(dc) }}
                       onMouseEnter={CAN_HOVER ? e => showHoverPreviewForDeckCard(dc, e) : undefined}
                       onMouseLeave={CAN_HOVER ? () => clearHoverPreview() : undefined}
-                      onMouseMove={CAN_HOVER ? e => setHoverPos({ x: e.clientX, y: e.clientY }) : undefined}>
+                      onMouseMove={CAN_HOVER ? e => updateHoverPos(e.clientX, e.clientY) : undefined}>
                       {dc.name}
                     </span>
                     {dc.foil && <span className={styles.foilBadge} title="Foil">*</span>}
@@ -5435,13 +5441,14 @@ export default function DeckBuilderPage() {
           dc={versionPickCard}
           ownedMap={ownedMap}
           userId={user.id}
+          priceSource={price_source}
           onSelect={p => updateCardVersion(versionPickCard, p)}
           onClose={() => setVersionPickCard(null)}
         />
       )}
 
       {/* Floating card preview */}
-      <FloatingPreview imageUris={hoverImages} x={hoverPos.x} y={hoverPos.y} />
+      <FloatingPreview ref={floatingPreviewRef} />
 
       {contextMenu && createPortal(
         contextMenu.useResponsiveSheet ? (
