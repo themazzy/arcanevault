@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Badge, ResponsiveMenu } from './UI'
 import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
 import { useLongPress } from '../hooks/useLongPress'
@@ -783,13 +784,14 @@ function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, selectMo
           )}
         </div>
       ))}
-      {displayPreview?.img && (
+      {displayPreview?.img && createPortal(
         <div
           className={`${styles.stackHoverPreview}${pinnedPreview ? ` ${styles.stackHoverPreviewPinned}` : ''}`}
           style={{ top: `${displayPreview.top}px`, left: `${displayPreview.left}px`, width: `${displayPreview.width}px` }}
         >
           <img src={displayPreview.img} alt="" className={styles.stackHoverPreviewImg} loading="lazy" {...NON_DRAGGABLE_IMG_PROPS} />
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )
