@@ -7,7 +7,7 @@ vi.mock('./scryfall', () => ({
   sfUrl: (u) => u,
 }))
 
-import { parseTextDecklist, parseImportUrl, searchCards } from './deckBuilderApi'
+import { parseTextDecklist, parseImportUrl, searchCards, fetchPaperPrintings } from './deckBuilderApi'
 import { sfGet } from './scryfall'
 
 describe('parseTextDecklist', () => {
@@ -166,5 +166,35 @@ describe('searchCards — empty-query bail', () => {
     const result = await searchCards({ query: 'lightning bolt' })
     expect(sfGet).toHaveBeenCalledOnce()
     expect(result.cards[0].name).toBe('Lightning Bolt')
+  })
+})
+
+describe('fetchPaperPrintings — face-name collision', () => {
+  beforeEach(() => { sfGet.mockReset() })
+  afterEach(() => { vi.restoreAllMocks() })
+
+  // Scryfall's `!"name"` matches face names too, so an MDFC like
+  // "Naktamun Lorespinner // Wheel of Fortune" leaks into results when
+  // requesting printings of plain "Wheel of Fortune". Without the name filter,
+  // resolvePreferredDeckPrinting would pick the Naktamun printing and the
+  // wrong card would be added to the deck.
+  it('filters out cards whose primary name does not match exactly', async () => {
+    sfGet.mockResolvedValueOnce({
+      data: [
+        { id: 'naktamun', name: 'Naktamun Lorespinner // Wheel of Fortune' },
+        { id: 'wof-1', name: 'Wheel of Fortune', set: 'lea' },
+        { id: 'wof-2', name: 'Wheel of Fortune', set: '3ed' },
+      ],
+    })
+    const printings = await fetchPaperPrintings('Wheel of Fortune')
+    expect(printings.map(p => p.id)).toEqual(['wof-1', 'wof-2'])
+  })
+
+  it('keeps multi-face cards when the full name is requested', async () => {
+    sfGet.mockResolvedValueOnce({
+      data: [{ id: 'fi-1', name: 'Fire // Ice' }],
+    })
+    const printings = await fetchPaperPrintings('Fire // Ice')
+    expect(printings).toHaveLength(1)
   })
 })

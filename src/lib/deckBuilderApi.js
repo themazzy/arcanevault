@@ -220,7 +220,11 @@ export async function fetchPaperPrintings(name) {
   if (!name) return []
   const query = encodeURIComponent(`!"${escapeScryfallExactName(name)}" game:paper`)
   const data = await sfFetch(`${SF}/cards/search?q=${query}&unique=prints&order=released&dir=desc`)
-  return data?.data || []
+  // Scryfall's !"name" operator also matches against individual face names, so a
+  // multi-face card like "Naktamun Lorespinner // Wheel of Fortune" leaks into
+  // results for an unrelated request ("Wheel of Fortune"). Require the primary
+  // card name to match so we never return a different card's printings.
+  return (data?.data || []).filter(p => p?.name === name)
 }
 
 // ── EDHRec ────────────────────────────────────────────────────────────────────
