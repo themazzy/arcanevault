@@ -38,6 +38,7 @@ import {
   updateDeckCategoryOrder,
 } from '../lib/deckCategories'
 import { getCardLegalityWarnings } from '../lib/deckLegality'
+import { useDeckCardLegalityWarnings } from '../lib/useDeckWarnings'
 import {
   buildSyncDiff,
   buildSyncSnapshot,
@@ -129,6 +130,7 @@ import {
 } from '../lib/deckSyncDecisions'
 
 import { ManaCostInline, OwnershipBadge } from '../components/deckBuilder/primitives'
+import { DeckCardRow, EditMenu } from '../components/deckBuilder/DeckCardRow'
 
 import { FloatingPreview, WarningTooltip } from '../components/deckBuilder/FloatingPreview'
 
@@ -256,96 +258,7 @@ function RecRow({ rec, imageUri, ownedQty, onAdd, onHoverEnter, onHoverLeave, on
 // ── Helpers ───────────────────────────────────────────────────────────────────
 // Pure helpers (commander, allocation, image, etc.) live in deckBuilderHelpers.js
 
-// ── Edit dropdown (⚙) shared by list + compact views ─────────────────────────
-function DeckCardActionsMenuBody({
-  dc,
-  isEDH,
-  onSetCommander,
-  onToggleFoil,
-  onPickVersion,
-  onMoveBoard,
-  onOpenCategoryPicker,
-  close,
-  builderSfMap = {},
-}) {
-  const currentBoard = normalizeBoard(dc.board)
-  const boardOptions = BOARD_ORDER.filter(board => board !== currentBoard && !(dc.is_commander && board !== 'main'))
-  const sf = dc.set_code && dc.collector_number ? builderSfMap[getScryfallKey(dc)] || null : null
-  return (
-    <div className={uiStyles.responsiveMenuList}>
-      {isEDH && dc.is_commander && (
-        <button className={uiStyles.responsiveMenuAction} onClick={() => { onSetCommander(dc, false); close() }}>
-          <span>Unset as Commander</span>
-        </button>
-      )}
-      {isEDH && !dc.is_commander && canBeCommander(dc, sf) && (
-        <button className={uiStyles.responsiveMenuAction} onClick={() => { onSetCommander(dc, true); close() }}>
-          <span>Set as Commander</span>
-        </button>
-      )}
-      {boardOptions.map(board => (
-        <button key={board} className={uiStyles.responsiveMenuAction} onClick={() => { onMoveBoard?.(dc.id, board); close() }}>
-          <span>Move to {BOARD_LABELS[board]}</span>
-        </button>
-      ))}
-      <button className={uiStyles.responsiveMenuAction} onClick={() => { onToggleFoil(dc.id); close() }}>
-        <span>{dc.foil ? 'Remove Foil' : 'Mark as Foil'}</span>
-      </button>
-      <button className={uiStyles.responsiveMenuAction} onClick={() => { onPickVersion(dc); close() }}>
-        <span>Change Version</span>
-      </button>
-      {dc.qty > 1 && (
-        <button className={uiStyles.responsiveMenuAction} onClick={() => { onPickVersion(dc, { splitOne: true }); close() }}>
-          <span>Split 1x To Other Version</span>
-        </button>
-      )}
-      <div className={styles.menuDivider} />
-      <button className={uiStyles.responsiveMenuAction} onClick={() => { onOpenCategoryPicker?.(dc); close() }}>
-        <span>Change Category</span>
-      </button>
-    </div>
-  )
-}
-
-function EditMenu({
-  dc,
-  isEDH,
-  onSetCommander,
-  onToggleFoil,
-  onPickVersion,
-  onMoveBoard,
-  onOpenCategoryPicker,
-  builderSfMap = {},
-}) {
-  return (
-    <ResponsiveMenu
-      title="Card Actions"
-      wrapClassName={styles.editMenuCell}
-      portal
-      trigger={({ toggle }) => (
-        <button
-          className={styles.editBtn}
-          onClick={e => { e.stopPropagation(); toggle() }}
-          title="Edit"
-        ><SettingsIcon size={13} /></button>
-      )}
-    >
-      {({ close }) => (
-        <DeckCardActionsMenuBody
-          dc={dc}
-          isEDH={isEDH}
-          onSetCommander={onSetCommander}
-          onToggleFoil={onToggleFoil}
-          onPickVersion={onPickVersion}
-          onMoveBoard={onMoveBoard}
-          onOpenCategoryPicker={onOpenCategoryPicker}
-          close={close}
-          builderSfMap={builderSfMap}
-        />
-      )}
-    </ResponsiveMenu>
-  )
-}
+// Edit dropdown (⚙) and DeckCardRow live in components/deckBuilder/DeckCardRow.jsx.
 
 function CategoryPickerModal({ card, categories, onSelect, onCreate, onClear, onClose }) {
   const [newName, setNewName] = useState('')
@@ -394,47 +307,6 @@ function CategoryPickerModal({ card, categories, onSelect, onCreate, onClear, on
   )
 }
 
-function DeckCardRowV2({
-  dc, ownedQty, ownedFoilAlt, ownedAlt, ownedInDeck, inCollDeck,
-  onChangeQty, onRemove, onMouseEnter, onMouseLeave, onMouseMove, onContextMenu, touchContextMenuHandlers, onDragStart,
-  onPickVersion, onToggleFoil, onSetCommander, onMoveBoard, onOpenCategoryPicker, isEDH,
-  visibleColumns, listGridTemplate, priceLabel, onOpenDetail, legalityWarnings = [],
-  listGridMinWidth,
-  builderSfMap = {},
-}) {
-  const setLabel = dc.set_code ? `${String(dc.set_code).toUpperCase()}${dc.collector_number ? ` #${dc.collector_number}` : ''}` : '-'
-  return (
-    <div className={`${styles.deckCardRow}${dc.is_commander ? ' ' + styles.isCommander : ''}${legalityWarnings.length ? ' ' + styles.deckCardIllegal : ''}`} title={(legalityWarnings.map(w => w.text).join('\n')) || undefined} style={{ '--deck-list-columns': listGridTemplate, '--deck-list-min-width': listGridMinWidth }} onContextMenu={onContextMenu} {...(touchContextMenuHandlers || {})} draggable onDragStart={onDragStart}>
-      <div className={styles.deckCardLeft} style={{ cursor: 'pointer' }} onClick={(e) => { if (consumeLongPressClick(e)) return; onOpenDetail?.(dc) }}>
-        {dc.image_uri
-          ? <img className={styles.deckThumb} src={dc.image_uri} alt="" loading="lazy" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove} />
-          : <div className={styles.deckThumbPlaceholder} />
-        }
-        <span className={styles.deckCardName} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove}>{dc.name}</span>
-        {legalityWarnings.length > 0 && <span className={styles.illegalMark} title={legalityWarnings.map(w => w.text).join('\n')}>!</span>}
-        {dc.foil && <span className={styles.foilBadge} title="Foil">*</span>}
-      </div>
-      {visibleColumns.set && <div className={styles.deckCardSet}>{setLabel}</div>}
-      {visibleColumns.manaValue && <div className={styles.deckCardMetric}><ManaCostInline cost={dc.mana_cost} size={14} /></div>}
-      {visibleColumns.cmc && <div className={styles.deckCardMetric}>{dc.cmc ?? '-'}</div>}
-      {visibleColumns.price && <div className={styles.deckCardMetric}>{priceLabel}</div>}
-      {visibleColumns.status && (
-        <div className={styles.deckCardStatus}>
-          <OwnershipBadge ownedQty={ownedQty} ownedFoilAlt={ownedFoilAlt} ownedAlt={ownedAlt} ownedInDeck={ownedInDeck} inCollDeck={inCollDeck} />
-        </div>
-      )}
-      {visibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} onOpenCategoryPicker={onOpenCategoryPicker} builderSfMap={builderSfMap} />}
-      {visibleColumns.qty && (
-        <div className={styles.qtyControls}>
-          <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, -1)}>-</button>
-          <span className={styles.qtyVal}>{dc.qty}</span>
-          <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, +1)}>+</button>
-        </div>
-      )}
-      {visibleColumns.remove && <button className={styles.removeBtn} onClick={() => onRemove(dc.id)}>x</button>}
-    </div>
-  )
-}
 
 // ── Combo components ──────────────────────────────────────────────────────────
 function useComboCardImage(name, existingUri) {
@@ -1270,59 +1142,13 @@ export default function DeckBuilderPage() {
     [deckWarnings]
   )
 
-  const deckCardLegalityWarnings = useMemo(() => {
-    const warningsById = new Map()
-    const playableCards = deckCards.filter(dc => normalizeBoard(dc.board) !== 'maybe')
-    const formatId = format?.id || 'commander'
-    const addWarnings = (id, warnings) => {
-      if (!id || !warnings?.length) return
-      warningsById.set(id, [...(warningsById.get(id) || []), ...warnings])
-    }
-
-    for (const dc of playableCards) {
-      const sf = dc.set_code && dc.collector_number ? builderSfMap[getScryfallKey(dc)] : null
-      if (!dc.is_commander) {
-        addWarnings(dc.id, getCardLegalityWarnings({
-          card: { ...dc, legalities: sf?.legalities || dc.legalities },
-          formatId,
-          formatLabel: format?.label,
-          isEDH,
-          commanderColorIdentity: colorIdentity,
-        }))
-      }
-
-      const legality = sf?.legalities?.[formatId]
-      if (legality === 'restricted' && (dc.qty || 0) > 1) {
-        addWarnings(dc.id, [{
-          reason: 'restricted',
-          text: `${dc.name} is restricted in ${format?.label || formatId}.`,
-        }])
-      }
-    }
-
-    if (isEDH) {
-      const nameGroups = new Map()
-      for (const dc of playableCards) {
-        const name = normalizeCardName(dc.name)
-        if (!name) continue
-        nameGroups.set(name, [...(nameGroups.get(name) || []), dc])
-      }
-      for (const [name, cards] of nameGroups) {
-        const qty = cards.reduce((sum, dc) => sum + (dc.qty || 0), 0)
-        if (qty <= 1) continue
-        const typeLine = String(cards[0]?.type_line || '').toLowerCase()
-        if (typeLine.includes('basic land')) continue
-        for (const dc of cards) {
-          addWarnings(dc.id, [{
-            reason: 'duplicate',
-            text: `${dc.name} has ${qty} copies in a singleton format.`,
-          }])
-        }
-      }
-    }
-
-    return warningsById
-  }, [builderSfMap, colorIdentity, deckCards, format, isEDH])
+  const deckCardLegalityWarnings = useDeckCardLegalityWarnings({
+    deckCards,
+    builderSfMap,
+    format,
+    isEDH,
+    colorIdentity,
+  })
 
   // Open card detail modal from a deck_card or Scryfall card object
   const openDeckCardDetail = useCallback((dc) => {
@@ -5005,7 +4831,7 @@ export default function DeckBuilderPage() {
                   </div>
                 )
                 // list view
-                return <DeckCardRowV2 key={dc.id} {...deckRowProps(dc)} />
+                return <DeckCardRow key={dc.id} {...deckRowProps(dc)} />
               }
 
               const renderListHeader = () => deckView === 'list' && (
