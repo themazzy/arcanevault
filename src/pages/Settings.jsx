@@ -1077,8 +1077,8 @@ export default function SettingsPage() {
       </div>
 
       <div className={styles.section}>
-        <div className={styles.sectionTitle}>Display</div>
-        <SettingRow label="Default Sort" description="How cards are sorted when opening the collection">
+        <div className={styles.sectionTitle}>Collection</div>
+        <SettingRow label="Default Sort" description="Initial sort for the collection, binders, decks, and wishlists.">
           <Select value={settings.default_sort} onChange={v => set('default_sort', v)}
             options={[
               ['name', 'Name'],
@@ -1097,7 +1097,26 @@ export default function SettingsPage() {
               ['compact', 'Compact (more, smaller)'],
             ]} />
         </SettingRow>
-        <SettingRow label="Deckbuilder Grouping" description="Initial grouping mode for deckbuilder only. Decks, binders, and wishlists always start ungrouped.">
+      </div>
+
+      <div className={styles.section}>
+        <div className={styles.sectionTitle}>Deck Builder</div>
+        <SettingRow label="Default Sort" description="Initial sort for cards inside the deck builder.">
+          <Select value={settings.deckbuilder_sort || 'price_asc'} onChange={v => set('deckbuilder_sort', v)}
+            options={[
+              ['name', 'Name'],
+              ['cmc_asc', 'Mana Value (low -> high)'],
+              ['cmc_desc', 'Mana Value (high -> low)'],
+              ['color', 'Color'],
+              ['type', 'Type'],
+              ['rarity_desc', 'Rarity (high -> low)'],
+              ['rarity_asc', 'Rarity (low -> high)'],
+              ['set', 'Set'],
+              ['price_asc', 'Price (low -> high)'],
+              ['price_desc', 'Price (high -> low)'],
+            ]} />
+        </SettingRow>
+        <SettingRow label="Default Grouping" description="Initial grouping for the deck builder. Decks, binders, and wishlists always start ungrouped.">
           <Select value={['type', 'category', 'none'].includes(settings.default_grouping) ? settings.default_grouping : 'category'} onChange={v => set('default_grouping', v)}
             options={[
               ['category', 'Grouped by Category'],

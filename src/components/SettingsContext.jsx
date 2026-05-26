@@ -422,6 +422,7 @@ const DEFAULTS = {
   higher_contrast: false,
   card_name_size: 'default',
   default_grouping: 'category',
+  deckbuilder_sort: 'price_asc',
   keep_screen_awake: false,
   show_sync_errors: false,
   page_tips_seen: {},
@@ -1115,7 +1116,7 @@ export function SettingsProvider({ children }) {
       const {
         price_source, default_sort, grid_density, show_price, cache_ttl_h,
         binder_sort, deck_sort, list_sort, font_weight, font_size, body_font, theme, oled_mode, nickname,
-        anonymize_email, reduce_motion, higher_contrast, card_name_size, default_grouping,
+        anonymize_email, reduce_motion, higher_contrast, card_name_size, default_grouping, deckbuilder_sort,
         keep_screen_awake, show_sync_errors, page_tips_seen,
         profile_bio, profile_accent, profile_config,
       } = next
@@ -1123,7 +1124,7 @@ export function SettingsProvider({ children }) {
         user_id: user.id,
         price_source, default_sort, grid_density, show_price, cache_ttl_h,
         binder_sort, deck_sort, list_sort, font_weight, font_size, body_font, theme, oled_mode, nickname,
-        anonymize_email, reduce_motion, higher_contrast, card_name_size, default_grouping,
+        anonymize_email, reduce_motion, higher_contrast, card_name_size, default_grouping, deckbuilder_sort,
         keep_screen_awake, show_sync_errors, page_tips_seen,
         archive_background: buildArchiveBackground(next),
         profile_bio, profile_accent, profile_config,

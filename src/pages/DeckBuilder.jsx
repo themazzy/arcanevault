@@ -287,7 +287,7 @@ import MoveOwnedCardsModal from '../components/deckBuilder/MoveOwnedCardsModal'
 export default function DeckBuilderPage() {
   const { id: deckId } = useParams()
   const { user, session } = useAuth()
-  const { grid_density, price_source, default_grouping } = useSettings()
+  const { grid_density, price_source, default_grouping, deckbuilder_sort } = useSettings()
   const navigate       = useNavigate()
   const location       = useLocation()
   const { showToast }  = useToast()
@@ -387,7 +387,7 @@ export default function DeckBuilderPage() {
   const [showRight, setShowRight] = useState(() => typeof window !== 'undefined' && window.innerWidth <= 900)
   const wasMobileLayoutRef = useRef(typeof window !== 'undefined' ? window.innerWidth <= 900 : false)
   const [leftCollapsed, setLeftCollapsed] = useState(false)
-  const [deckSort,    setDeckSort]    = useState('price_asc')   // 'name' | 'cmc_asc' | 'cmc_desc' | 'color' | 'type' | 'price_asc' | 'price_desc' | 'set' | 'rarity_asc' | 'rarity_desc'
+  const [deckSort,    setDeckSort]    = useState(deckbuilder_sort || 'price_asc')   // 'name' | 'cmc_asc' | 'cmc_desc' | 'color' | 'type' | 'price_asc' | 'price_desc' | 'set' | 'rarity_asc' | 'rarity_desc'
   const [groupBy, setGroupBy] = useState(default_grouping === 'category' ? 'category' : default_grouping === 'none' ? 'none' : 'type')
   const [visibleColumns, setVisibleColumns] = useState(DEFAULT_LIST_COLUMNS)
   const [compactVisibleColumns, setCompactVisibleColumns] = useState(DEFAULT_COMPACT_COLUMNS)
@@ -580,6 +580,10 @@ export default function DeckBuilderPage() {
   useEffect(() => {
     setGroupBy(default_grouping === 'category' ? 'category' : default_grouping === 'none' ? 'none' : 'type')
   }, [default_grouping])
+
+  useEffect(() => {
+    if (deckbuilder_sort) setDeckSort(deckbuilder_sort)
+  }, [deckbuilder_sort])
 
   // Signature of unique printings (set_code-collector_number + scryfall_id) in
   // the deck. Only this string drives the Scryfall metadata/price refetch
