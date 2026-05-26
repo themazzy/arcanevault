@@ -131,6 +131,8 @@ import {
 
 import { ManaCostInline, OwnershipBadge } from '../components/deckBuilder/primitives'
 import { DeckCardRow, EditMenu } from '../components/deckBuilder/DeckCardRow'
+import { DeckCategoryHeader } from '../components/deckBuilder/DeckCategoryHeader'
+import { DeckCardSection } from '../components/deckBuilder/DeckCardSection'
 
 import { FloatingPreview, WarningTooltip } from '../components/deckBuilder/FloatingPreview'
 
@@ -1760,6 +1762,27 @@ export default function DeckBuilderPage() {
     if (!deckCardId) return
     moveDeckCardToCategory(deckCardId, { name: group }).catch(error => console.error('[DeckBuilder] move category failed:', error))
   }
+
+  // Shared DeckCategoryHeader handlers — toggle a group's collapsed state,
+  // start a header drag, and apply a header drop. The drag-data wiring
+  // (setData / getData of the category name) lives inside DeckCategoryHeader.
+  const toggleGroupCollapsed = useCallback((key) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      return next
+    })
+  }, [])
+
+  const onCategoryHeaderDragStart = useCallback((e, group) => {
+    startDragAutoScroll(e)
+    setDraggedCategoryId(group)
+  }, [startDragAutoScroll])
+
+  const onCategoryHeaderDrop = useCallback((fromName, toGroup, groupOrder) => {
+    moveRenderedCategoryTo(fromName, toGroup, groupOrder)
+    setDraggedCategoryId(null)
+  }, [moveRenderedCategoryTo])
 
   // Combined image map: deck cards + rec images (for combo thumbnails)
   const deckImagesMap = useMemo(() => {
@@ -4852,52 +4875,6 @@ export default function DeckBuilderPage() {
               // to component scope as useCallback so they aren't reconstructed
               // on every render. See definitions near categoryNameOrder above.
 
-              const renderCategoryControls = (group, groupOrder, isStacksView = false) => {
-                if (groupBy !== 'category') return null
-                const category = getCategoryRow(group)
-                const isDefaultCategory = CAT_ORDER.includes(group) || group === UNCATEGORIZED
-                const prevLabel = isStacksView ? 'Move Left' : 'Move Up'
-                const nextLabel = isStacksView ? 'Move Right' : 'Move Down'
-                return (
-                  <ResponsiveMenu
-                    title="Category"
-                    wrapClassName={styles.categoryMenuWrap}
-                    portal
-                    trigger={({ toggle }) => (
-                      <button
-                        className={styles.categoryMenuBtn}
-                        onClick={e => { e.stopPropagation(); toggle() }}
-                        title="Category actions"
-                        aria-label="Category actions"
-                      >
-                        <MenuIcon size={13} />
-                      </button>
-                    )}
-                  >
-                    {({ close }) => (
-                      <div className={uiStyles.responsiveMenuList}>
-                        <button className={uiStyles.responsiveMenuAction} onClick={() => { moveRenderedCategory(group, isStacksView ? 'left' : 'up', groupOrder); close() }}>
-                          <span>{prevLabel}</span>
-                        </button>
-                        <button className={uiStyles.responsiveMenuAction} onClick={() => { moveRenderedCategory(group, isStacksView ? 'right' : 'down', groupOrder); close() }}>
-                          <span>{nextLabel}</span>
-                        </button>
-                        {category && !isDefaultCategory && (
-                          <>
-                            <button className={uiStyles.responsiveMenuAction} onClick={() => { renameCustomCategory(category); close() }}>
-                              <span>Rename</span>
-                            </button>
-                            <button className={`${uiStyles.responsiveMenuAction} ${uiStyles.responsiveMenuActionDanger}`} onClick={() => { removeCustomCategory(category); close() }}>
-                              <span>Delete</span>
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </ResponsiveMenu>
-                )
-              }
-
               const renderStacks = (cards, board) => {
                 const groupOrder = groupBy === 'category'
                   ? getCategoryOrder(cards)
@@ -4925,48 +4902,24 @@ export default function DeckBuilderPage() {
                       return (
                         <div key={collapsedKey} className={styles.stackColumn} onDragOver={groupBy === 'category' ? e => e.preventDefault() : undefined} onDrop={groupBy === 'category' ? e => handleCategoryDrop(group, e) : undefined}>
                           <div className={styles.stackGroup}>
-                            <div
-                              className={styles.stackGroupHeader}
-                              role="button"
-                              tabIndex={0}
-                              draggable={groupBy === 'category'}
-                              onDragStart={e => {
-                                startDragAutoScroll(e)
-                                e.dataTransfer.setData('application/x-deck-category-name', group)
-                                setDraggedCategoryId(group)
-                              }}
-                              onDragOver={e => {
-                                if (draggedCategoryId && draggedCategoryId !== group) e.preventDefault()
-                              }}
-                              onDrop={e => {
-                                const fromName = e.dataTransfer.getData('application/x-deck-category-name')
-                                if (!fromName || fromName === group) return
-                                e.preventDefault()
-                                moveRenderedCategoryTo(fromName, group, groupOrder)
-                                setDraggedCategoryId(null)
-                              }}
-                              onClick={() => setCollapsedGroups(prev => {
-                                const next = new Set(prev)
-                                next.has(collapsedKey) ? next.delete(collapsedKey) : next.add(collapsedKey)
-                                return next
-                              })}
-                              onKeyDown={e => {
-                                if (e.key !== 'Enter' && e.key !== ' ') return
-                                e.preventDefault()
-                                setCollapsedGroups(prev => {
-                                  const next = new Set(prev)
-                                  next.has(collapsedKey) ? next.delete(collapsedKey) : next.add(collapsedKey)
-                                  return next
-                                })
-                              }}
-                            >
-                              <span className={`${styles.groupArrow}${collapsed ? ' ' + styles.groupArrowCollapsed : ''}`} aria-hidden="true">
-                                <ChevronDownIcon size={12} />
-                              </span>
-                              <span className={styles.stackGroupTitle}>{group}</span>
-                              <span className={styles.stackGroupCount}>{groupQty}</span>
-                              {renderCategoryControls(group, groupOrder, true)}
-                            </div>
+                            <DeckCategoryHeader
+                              group={group}
+                              groupQty={groupQty}
+                              collapsed={collapsed}
+                              collapsedKey={collapsedKey}
+                              isStacksView
+                              isCategoryGroup={groupBy === 'category'}
+                              draggedCategoryId={draggedCategoryId}
+                              category={getCategoryRow(group)}
+                              isDefaultCategory={CAT_ORDER.includes(group) || group === UNCATEGORIZED}
+                              groupOrder={groupOrder}
+                              onToggleCollapsed={toggleGroupCollapsed}
+                              onDragStart={e => onCategoryHeaderDragStart(e, group)}
+                              onDrop={onCategoryHeaderDrop}
+                              onMoveCategory={moveRenderedCategory}
+                              onRenameCategory={renameCustomCategory}
+                              onDeleteCategory={removeCustomCategory}
+                            />
                             {!collapsed && <div className={styles.stackCards}>{groupCards.map((dc, idx) => renderCard(dc, { group, idx }))}</div>}
                           </div>
                         </div>
@@ -5002,50 +4955,40 @@ export default function DeckBuilderPage() {
                     const collapsed = collapsedGroups.has(collapsedKey)
                     const groupColor = groupBy === 'category' ? CAT_COLORS[group] : groupBy === 'rarity' ? RARITY_COLORS[group] : undefined
                     return (
-                      <div key={collapsedKey} className={styles.deckGroup} onDragOver={groupBy === 'category' ? e => e.preventDefault() : undefined} onDrop={groupBy === 'category' ? e => handleCategoryDrop(group, e) : undefined}>
-                        <div
-                          className={styles.groupHeader}
-                          draggable={groupBy === 'category'}
-                          onDragStart={e => {
-                            startDragAutoScroll(e)
-                            e.dataTransfer.setData('application/x-deck-category-name', group)
-                            setDraggedCategoryId(group)
-                          }}
-                          onDragOver={e => {
-                            if (draggedCategoryId && draggedCategoryId !== group) e.preventDefault()
-                          }}
-                          onDrop={e => {
-                            const fromName = e.dataTransfer.getData('application/x-deck-category-name')
-                            if (!fromName || fromName === group) return
-                            e.preventDefault()
-                            moveRenderedCategoryTo(fromName, group, baseOrder)
-                            setDraggedCategoryId(null)
-                          }}
-                          onClick={() => setCollapsedGroups(prev => {
-                            const next = new Set(prev)
-                            next.has(collapsedKey) ? next.delete(collapsedKey) : next.add(collapsedKey)
-                            return next
-                          })}
-                          style={{ cursor: 'pointer' }}
-                        >
-                          <span className={`${styles.groupArrow}${collapsed ? ' ' + styles.groupArrowCollapsed : ''}`} aria-hidden="true">
-                            <ChevronDownIcon size={12} />
-                          </span>
-                          <span className={styles.groupName} style={groupColor ? { color: groupColor } : undefined}>{group}</span>
-                          {groupPrice > 0 && <span className={styles.groupPrice}>{formatPrice(groupPrice, price_source)}</span>}
-                          <span className={styles.groupCount}>{groupQty}</span>
-                          {renderCategoryControls(group, baseOrder, false)}
-                        </div>
-                        {!collapsed && (deckView === 'grid'
-                          ? <div className={styles.visualGrid} style={{ '--deckbuilder-grid-min': `${visualCardMinWidth}px` }}>{groupCards.map(dc => renderCard(dc))}</div>
-                          : (
-                            <>
-                              {renderListHeader()}
-                              {groupCards.map(dc => renderCard(dc))}
-                            </>
-                          )
-                        )}
-                      </div>
+                      <DeckCardSection
+                        key={collapsedKey}
+                        cards={groupCards}
+                        view={deckView}
+                        visualMin={visualCardMinWidth}
+                        collapsed={collapsed}
+                        collapsedKey={collapsedKey}
+                        isCategoryGroup={groupBy === 'category'}
+                        onCardDrop={e => handleCategoryDrop(group, e)}
+                        renderCard={renderCard}
+                        renderListHeader={renderListHeader}
+                        header={
+                          <DeckCategoryHeader
+                            group={group}
+                            groupQty={groupQty}
+                            groupPrice={groupPrice}
+                            groupColor={groupColor}
+                            collapsed={collapsed}
+                            collapsedKey={collapsedKey}
+                            isCategoryGroup={groupBy === 'category'}
+                            draggedCategoryId={draggedCategoryId}
+                            category={getCategoryRow(group)}
+                            isDefaultCategory={CAT_ORDER.includes(group) || group === UNCATEGORIZED}
+                            groupOrder={baseOrder}
+                            priceSource={price_source}
+                            onToggleCollapsed={toggleGroupCollapsed}
+                            onDragStart={e => onCategoryHeaderDragStart(e, group)}
+                            onDrop={onCategoryHeaderDrop}
+                            onMoveCategory={moveRenderedCategory}
+                            onRenameCategory={renameCustomCategory}
+                            onDeleteCategory={removeCustomCategory}
+                          />
+                        }
+                      />
                     )
                   })
                 }
