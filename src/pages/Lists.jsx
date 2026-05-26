@@ -10,7 +10,7 @@ import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { useToast } from '../components/ToastContext'
 import { EmptyState, SectionHeader, Modal, ResponsiveHeaderActions, ResponsiveMenu, Button } from '../components/UI'
-import { CardGrid, CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
+import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
 import { useLongPress } from '../hooks/useLongPress'
 import { useFilterWorker } from '../hooks/useFilterWorker'
 import AddCardModal from '../components/AddCardModal'
@@ -18,7 +18,6 @@ import ImportModal from '../components/ImportModal'
 import ExportModal from '../components/ExportModal'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import styles from './Folders.module.css'
-import listStyles from './Lists.module.css'
 import { AddIcon, BinderIcon, CollectionIcon, DeleteIcon, EditIcon, ExportIcon, ImageIcon, ImportIcon, RemoveIcon, SettingsIcon, SortIcon, StacksViewIcon } from '../icons'
 import uiStyles from '../components/UI.module.css'
 
@@ -152,57 +151,6 @@ function CardArtPicker({ onSelect, onClose }) {
         ))}
       </div>
     </Modal>
-  )
-}
-
-// ── WishlistItem ──────────────────────────────────────────────────────────────
-function WishlistItem({ item, sfCard, priceSource, onDelete, selectMode, selected, onToggleSelect, onEnterSelectMode, folderName = '' }) {
-  const price    = getPrice(sfCard, item.foil, { price_source: priceSource })
-  const img      = sfCard?.image_uris?.small
-  const longPress = useLongPress(() => {
-    if (selectMode) return
-    onEnterSelectMode?.()
-    onToggleSelect?.()
-  }, { delay: 500 })
-  const { onMouseLeave: lpLeave, fired: lpFired, ...lpRest } = longPress
-
-  const handleClick = () => {
-    if (lpFired.current) {
-      lpFired.current = false
-      return
-    }
-    if (selectMode) onToggleSelect?.()
-  }
-
-  return (
-    <div
-      className={`${listStyles.item}${selectMode ? ` ${listStyles.itemSelectMode}` : ''}${selected ? ` ${listStyles.itemSelected}` : ''}`}
-      onClick={handleClick}
-      onMouseLeave={lpLeave}
-      {...lpRest}
-    >
-      {selectMode && (
-        <div className={`${listStyles.itemCheckbox}${selected ? ` ${listStyles.itemCheckboxChecked}` : ''}`}>
-          {selected && '✓'}
-        </div>
-      )}
-      {img && <img className={listStyles.itemImg} src={img} alt={item.name} loading="lazy" />}
-      <div className={listStyles.itemBody}>
-        <div className={listStyles.itemName}>
-          {item.name}
-          {item.foil && <span style={{ color: '#c8a0ff', fontSize: '0.65rem', marginLeft: 4 }}>✦ Foil</span>}
-        </div>
-        <div className={listStyles.itemMeta}>
-          <span className={listStyles.itemSet}>{(item.set_code || '').toUpperCase()} #{item.collector_number}</span>
-          <span className={listStyles.itemPrice} style={{ color: price != null ? 'var(--green)' : 'var(--text-faint)' }}>
-            {price != null ? formatPrice(price, priceSource) : '—'}
-          </span>
-        </div>
-        {folderName && <div className={listStyles.itemFolder}>{folderName}</div>}
-        {item.qty > 1 && <div className={listStyles.itemQty}>×{item.qty}</div>}
-      </div>
-      {!selectMode && <button className={listStyles.itemDelete} onClick={() => onDelete(item.id)}>✕</button>}
-    </div>
   )
 }
 
@@ -563,48 +511,6 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
           onImport={!isAllView ? () => setShowImport(true) : undefined}
           onExport={() => setShowExport(true)}
         />
-        {false && (
-        <>
-        <div className={styles.browserControlsDesktop}>
-          <div className={`${styles.viewToggle} ${uiStyles.segmented}`}>
-            <Button variant="toggle" size="sm" active={view === 'list'}
-              onClick={() => setView('list')}>≡ List</Button>
-            <Button variant="toggle" size="sm" active={view === 'grid'}
-              onClick={() => setView('grid')}>⊞ Grid</Button>
-          </div>
-        </div>
-        <div className={styles.browserControlsMobile}>
-          <ResponsiveMenu
-            title="View Mode"
-            trigger={({ open, toggle }) => (
-              <button className={styles.mobileViewBtn} onClick={toggle}>
-                <span>View</span>
-                <svg className={`${styles.mobileViewChevron} ${open ? styles.mobileViewChevronOpen : ''}`}
-                  width="10" height="10" viewBox="0 0 10 10" fill="none"
-                  stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <polyline points="2,3 5,6.5 8,3" />
-                </svg>
-              </button>
-            )}
-          >
-            {({ close }) => (
-              <div className={uiStyles.responsiveMenuList}>
-                <button className={`${uiStyles.responsiveMenuAction} ${view === 'list' ? uiStyles.responsiveMenuActionActive : ''}`}
-                  onClick={() => { setView('list'); close() }}>
-                  <span>List</span>
-                  <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{view === 'list' ? '✓' : ''}</span>
-                </button>
-                <button className={`${uiStyles.responsiveMenuAction} ${view === 'grid' ? uiStyles.responsiveMenuActionActive : ''}`}
-                  onClick={() => { setView('grid'); close() }}>
-                  <span>Grid</span>
-                  <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{view === 'grid' ? '✓' : ''}</span>
-                </button>
-              </div>
-            )}
-          </ResponsiveMenu>
-        </div>
-        </>
-        )}
       </div>
 
       {selectMode && selectedItems.size > 0 && (
@@ -662,38 +568,6 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
           onEnterSelectMode={enterSelectMode}
           onHover={handleHover}
           onHoverEnd={handleHoverEnd}
-        />
-      )}
-      {false && view === 'list' && filtered.length > 0 && (
-        <div className={listStyles.list}>
-          {filtered.map(item => (
-            <WishlistItem
-              key={item.id}
-              item={item}
-              sfCard={sfMap[`${item.set_code}-${item.collector_number}`]}
-              priceSource={price_source}
-              selectMode={selectMode}
-              selected={selectedItems.has(item.id)}
-              onToggleSelect={() => onToggleSelect(item.id, item.qty || 1)}
-              onDelete={handleDelete}
-              onEnterSelectMode={enterSelectMode}
-              folderName={isAllView ? folderNameById[item.folder_id] || '' : ''}
-            />
-          ))}
-        </div>
-      )}
-
-      {false && view === 'grid' && filtered.length > 0 && (
-        <CardGrid
-          cards={filtered}
-          sfMap={sfMap}
-          onSelect={() => {}}
-          selectMode={selectMode}
-          selected={selectedItems}
-          onToggleSelect={onToggleSelect}
-          onEnterSelectMode={enterSelectMode}
-          splitState={splitState}
-          onAdjustQty={onAdjustQty}
         />
       )}
 
