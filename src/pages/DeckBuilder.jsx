@@ -1667,6 +1667,52 @@ export default function DeckBuilderPage() {
     return hasCommander && !base.includes('Commander') ? ['Commander', ...base] : base
   }, [categoryOptions, deckCards])
 
+  // Group resolver used by the deck-render IIFE. Hoisted out of the IIFE so
+  // it isn't reconstructed on every render and so `getCategoryOrder` below
+  // can share the same identity.
+  const getDeckCardGroup = useCallback((dc) => {
+    const sf = dc.set_code && dc.collector_number ? (builderSfMap[getScryfallKey(dc)] || {}) : {}
+    if (groupBy === 'category') {
+      if (dc.is_commander && !dc.category_id) return 'Commander'
+      if (dc.category_id) return categoryById.get(dc.category_id)?.name || UNCATEGORIZED
+      const inferred = getCardCategoryFromCard(dc, sf)
+      return inferred && inferred !== 'Other' ? inferred : UNCATEGORIZED
+    }
+    if (groupBy === 'rarity') return sf.rarity || 'common'
+    if (groupBy === 'set') return sf.set_name || (dc.set_code ? dc.set_code.toUpperCase() : 'Unknown')
+    return dc.is_commander ? 'Commander' : classifyCardType(dc.type_line)
+  }, [builderSfMap, groupBy, categoryById])
+
+  const getCategoryRow = useCallback(
+    (group) => sortedDeckCategories.find(category => category.name === group) || null,
+    [sortedDeckCategories]
+  )
+
+  const getCategoryOrder = useCallback((cards) => {
+    const present = new Set(cards.map(getDeckCardGroup))
+    const order = []
+    // Track inserted names by lowercased key so two categories that differ
+    // only in case (e.g. a user-created "removal" alongside the canonical
+    // "Removal") don't both get a header.
+    const seen = new Set()
+    const push = (name) => {
+      const key = String(name).toLowerCase()
+      if (seen.has(key)) return
+      seen.add(key)
+      order.push(name)
+    }
+    if (present.has('Commander')) push('Commander')
+    for (const category of sortedDeckCategories) {
+      if (present.has(category.name)) push(category.name)
+    }
+    for (const category of CAT_ORDER) {
+      if (present.has(category)) push(category)
+    }
+    if (present.has(UNCATEGORIZED)) push(UNCATEGORIZED)
+    for (const category of [...present].sort()) push(category)
+    return order
+  }, [getDeckCardGroup, sortedDeckCategories])
+
   // De-dupes concurrent createDeckCategory calls for the same (deckId, lowercased name)
   // so two parallel addCardToDeck() invocations don't both insert "Removal".
   const categoryCreationCacheRef = useRef(new Map())
@@ -4976,45 +5022,9 @@ export default function DeckBuilderPage() {
                 </div>
               )
 
-              const getDeckCardGroup = (dc) => {
-                const sf = dc.set_code && dc.collector_number ? (builderSfMap[getScryfallKey(dc)] || {}) : {}
-                if (groupBy === 'category') {
-                  // Commander always gets its own group on top, regardless of
-                  // any auto-inferred role. (Manual category_id still wins
-                  // below if the user explicitly assigned one.)
-                  if (dc.is_commander && !dc.category_id) return 'Commander'
-                  if (dc.category_id) return categoryById.get(dc.category_id)?.name || UNCATEGORIZED
-                  const inferred = getCardCategoryFromCard(dc, sf)
-                  return inferred && inferred !== 'Other' ? inferred : UNCATEGORIZED
-                }
-                if (groupBy === 'rarity') return sf.rarity || 'common'
-                if (groupBy === 'set') return sf.set_name || (dc.set_code ? dc.set_code.toUpperCase() : 'Unknown')
-                return dc.is_commander ? 'Commander' : classifyCardType(dc.type_line)
-              }
-
-              const getCategoryRow = (group) => sortedDeckCategories.find(category => category.name === group) || null
-              const getCategoryOrder = (cards) => {
-                const present = new Set(cards.map(getDeckCardGroup))
-                const order = []
-                // Commander is always first when present (parallel to Type-mode
-                // ordering where Commander already pins to the top).
-                if (present.has('Commander')) order.push('Commander')
-                // Only include user-created custom categories that have at
-                // least one card. The deck_categories row stays in the DB and
-                // remains assignable via the right-click picker; we just don't
-                // render an empty header for it.
-                for (const category of sortedDeckCategories) {
-                  if (present.has(category.name) && !order.includes(category.name)) order.push(category.name)
-                }
-                for (const category of CAT_ORDER) {
-                  if (present.has(category) && !order.includes(category)) order.push(category)
-                }
-                if (present.has(UNCATEGORIZED) && !order.includes(UNCATEGORIZED)) order.push(UNCATEGORIZED)
-                for (const category of [...present].sort()) {
-                  if (!order.includes(category)) order.push(category)
-                }
-                return order
-              }
+              // getDeckCardGroup / getCategoryRow / getCategoryOrder are hoisted
+              // to component scope as useCallback so they aren't reconstructed
+              // on every render. See definitions near categoryNameOrder above.
 
               const renderCategoryControls = (group, groupOrder, isStacksView = false) => {
                 if (groupBy !== 'category') return null
