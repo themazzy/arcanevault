@@ -133,6 +133,9 @@ import { ManaCostInline, OwnershipBadge } from '../components/deckBuilder/primit
 import { DeckCardRow, EditMenu } from '../components/deckBuilder/DeckCardRow'
 import { DeckCategoryHeader } from '../components/deckBuilder/DeckCategoryHeader'
 import { DeckCardSection } from '../components/deckBuilder/DeckCardSection'
+import { DeckCard } from '../components/deckBuilder/DeckCard'
+import { CategoryPickerModal } from '../components/deckBuilder/CategoryPickerModal'
+import { ComboResultCard } from '../components/deckBuilder/combos'
 
 import { FloatingPreview, WarningTooltip } from '../components/deckBuilder/FloatingPreview'
 
@@ -262,183 +265,11 @@ function RecRow({ rec, imageUri, ownedQty, onAdd, onHoverEnter, onHoverLeave, on
 
 // Edit dropdown (⚙) and DeckCardRow live in components/deckBuilder/DeckCardRow.jsx.
 
-function CategoryPickerModal({ card, categories, onSelect, onCreate, onClear, onClose }) {
-  const [newName, setNewName] = useState('')
-
-  return (
-    <Modal onClose={onClose} className={styles.categoryPickerModal}>
-      <div className={styles.categoryPickerBody}>
-        <div className={styles.categoryPickerTitle}>Change Category</div>
-        <div className={styles.categoryPickerCard}>{card?.name}</div>
-        <div className={styles.categoryPickerList}>
-          {categories.map(category => (
-            <button
-              key={category.id || category.name}
-              className={`${styles.categoryPickerOption}${card?.category_id && category.id === card.category_id ? ' ' + styles.categoryPickerOptionActive : ''}`}
-              onClick={() => onSelect(category)}
-            >
-              <span>{category.name}</span>
-              {card?.category_id && category.id === card.category_id && <CheckIcon size={13} />}
-            </button>
-          ))}
-          {card?.category_id && (
-            <button className={styles.categoryPickerOption} onClick={onClear}>
-              <span>Use Inferred Category</span>
-            </button>
-          )}
-        </div>
-        <div className={styles.categoryCreateRow}>
-          <input
-            className={styles.categoryCreateInput}
-            value={newName}
-            onChange={e => setNewName(e.target.value)}
-            placeholder="New category"
-          />
-          <button
-            className={styles.categoryCreateBtn}
-            onClick={() => {
-              if (!newName.trim()) return
-              onCreate(newName)
-            }}
-          >
-            Create
-          </button>
-        </div>
-      </div>
-    </Modal>
-  )
-}
+// CategoryPickerModal lives in components/deckBuilder/CategoryPickerModal.jsx.
 
 
-// ── Combo components ──────────────────────────────────────────────────────────
-function useComboCardImage(name, existingUri) {
-  const cache = useRef({})
-  const [img, setImg] = useState(existingUri || (cache.current[name] ?? null))
-  useEffect(() => {
-    if (existingUri || !name || cache.current[name] !== undefined) return
-    cache.current[name] = null
-    fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=json`)
-      .then(r => r.ok ? r.json() : null)
-      .then(d => {
-        const url = d?.image_uris?.large || d?.card_faces?.[0]?.image_uris?.large || d?.image_uris?.normal || d?.card_faces?.[0]?.image_uris?.normal || null
-        cache.current[name] = url
-        if (url) setImg(url)
-      })
-      .catch(() => { cache.current[name] = null })
-  }, [name, existingUri])
-  return existingUri || img
-}
-
-function ComboCardThumb({ name, inDeck, existingUri, onAdd, onOpenDetail }) {
-  const img = useComboCardImage(name, existingUri)
-  const [adding, setAdding] = useState(false)
-  const handleAdd = async e => {
-    e.stopPropagation()
-    if (adding) return
-    setAdding(true)
-    try { await onAdd(name) } finally { setAdding(false) }
-  }
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, opacity: inDeck ? 1 : 0.6, cursor: 'pointer' }} onClick={() => onOpenDetail?.(name)}>
-      <div style={{ position: 'relative', width: 120, height: 168, borderRadius: 7, overflow: 'hidden', flexShrink: 0,
-        border: `1px solid ${inDeck ? 'rgba(201,168,76,0.5)' : 'var(--s-border2)'}`,
-        background: 'var(--s2)',
-      }}>
-        {img
-          ? <img src={img} alt={name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} loading="lazy" />
-          : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.73rem', color: 'var(--text-faint)', padding: 8, textAlign: 'center', lineHeight: 1.3 }}>{name}</div>}
-        {!inDeck && onAdd && (
-          <button
-            onClick={handleAdd}
-            disabled={adding}
-            style={{
-              position: 'absolute', bottom: 6, left: '50%', transform: 'translateX(-50%)',
-              background: adding ? 'rgba(201,168,76,0.25)' : 'rgba(20,20,30,0.85)',
-              border: '1px solid rgba(201,168,76,0.6)', borderRadius: 4,
-              color: 'var(--gold)', fontSize: '0.7rem', padding: '3px 10px',
-              cursor: adding ? 'default' : 'pointer', whiteSpace: 'nowrap',
-              backdropFilter: 'blur(4px)',
-            }}
-          >
-            {adding ? '...' : '+ Add'}
-          </button>
-        )}
-        </div>
-      <div style={{ fontSize: '0.64rem', color: inDeck ? 'var(--text-faint)' : '#e08878', textAlign: 'center', maxWidth: 110, lineHeight: 1.2, wordBreak: 'break-word' }}>
-        {inDeck ? name : `Add ${name}`}
-      </div>
-    </div>
-  )
-}
-
-function ComboResultCard({ combo, highlight, deckCardNames, deckImages, onAddCard, onOpenDetail }) {
-  const uses    = (combo.uses    || []).map(u => u.card?.name || u.template?.name || '').filter(Boolean)
-  const requires = (combo.requires || []).map(r => ({
-    name: r.template?.name || r.card?.name || '',
-    quantity: r.quantity ?? 1,
-    zone: (r.zoneLocations || []).join(''),
-  })).filter(r => r.name)
-  const results = (combo.produces || []).map(p => p.feature?.name || '').filter(Boolean)
-  const deckSet = new Set(deckCardNames || [])
-  const steps   = combo.description || ''
-  const prereqs = [combo.easyPrerequisites, combo.notablePrerequisites].filter(Boolean).join(' ')
-  const manaNeeded = combo.manaNeeded || ''
-  const manaValueNeeded = combo.manaValueNeeded || 0
-  const notes = combo.notes || ''
-  const hasExtras = requires.length > 0 || prereqs || manaNeeded || manaValueNeeded > 0 || notes
-  const bottomGap = results.length || steps || hasExtras
-  return (
-    <div style={{
-      background: highlight ? 'rgba(201,168,76,0.07)' : 'var(--s1)',
-      border: `1px solid ${highlight ? 'rgba(201,168,76,0.28)' : 'var(--s-border)'}`,
-      borderRadius: 6, padding: '14px',
-    }}>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: bottomGap ? 12 : 0 }}>
-        {uses.map((name, i) => (
-          <ComboCardThumb key={i} name={name} inDeck={!deckCardNames || deckSet.has(name)} existingUri={deckImages?.[name]} onAdd={!deckCardNames || deckSet.has(name) ? undefined : onAddCard} onOpenDetail={onOpenDetail} />
-        ))}
-      </div>
-      {requires.length > 0 && (
-        <div style={{ marginBottom: 10 }}>
-          <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-faint)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Requires</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            {requires.map((r, i) => (
-              <span key={i} style={{ fontSize: '0.72rem', background: 'rgba(180,120,60,0.15)', border: '1px solid rgba(180,120,60,0.3)', borderRadius: 3, padding: '2px 7px', color: 'var(--text-dim)' }}>
-                {r.quantity > 1 ? `${r.quantity}× ` : ''}{r.name}{r.zone ? ` (${r.zone})` : ''}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-      {(manaNeeded || manaValueNeeded > 0) && (
-        <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginBottom: 6 }}>
-          <span style={{ color: 'var(--text-faint)' }}>Mana: </span>
-          {manaValueNeeded > 0 && <span>{manaValueNeeded} total</span>}
-          {manaValueNeeded > 0 && manaNeeded && <span> — </span>}
-          {manaNeeded && <span>{manaNeeded}</span>}
-        </div>
-      )}
-      {prereqs && (
-        <div style={{ fontSize: '0.77rem', color: 'var(--text-dim)', marginBottom: 6, lineHeight: 1.5 }}>
-          <span style={{ color: 'var(--text-faint)' }}>Prerequisites: </span>{prereqs}
-        </div>
-      )}
-      {results.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: (steps || hasExtras) ? 8 : 0 }}>
-          {results.slice(0, 6).map((r, i) => (
-            <span key={i} style={{ fontSize: '0.68rem', background: 'rgba(100,100,160,0.2)', border: '1px solid rgba(100,100,160,0.3)', borderRadius: 3, padding: '2px 7px', color: 'var(--text-faint)' }}>{r}</span>
-          ))}
-        </div>
-      )}
-      {steps && (
-        <div style={{ fontSize: '0.79rem', color: 'var(--text-dim)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{steps}</div>
-      )}
-      {notes && (
-        <div style={{ fontSize: '0.74rem', color: 'var(--text-faint)', marginTop: 6, fontStyle: 'italic', lineHeight: 1.5 }}>{notes}</div>
-      )}
-    </div>
-  )
-}
+// Combo recommendation components (ComboResultCard, ComboCardThumb) live in
+// components/deckBuilder/combos.jsx.
 
 // Decision/format helpers (buildChosenAllocations, getDecisionCategory, etc.)
 // extracted to src/lib/deckSyncDecisions.js
@@ -4716,145 +4547,44 @@ export default function DeckBuilderPage() {
               }
 
               const renderCard = (dc, stackContext = null) => {
+                if (deckView === 'list') return <DeckCardRow key={dc.id} {...deckRowProps(dc)} />
                 const legalityWarnings = deckCardLegalityWarnings.get(dc.id) || []
                 const warningTitle = legalityWarnings.map(w => w.text).join('\n')
-                if (deckView === 'grid') return (
-                  <div key={dc.id} className={`${styles.visualCard}${dc.is_commander ? ' '+styles.isCommander : ''}${legalityWarnings.length ? ' '+styles.visualCardIllegal : ''}`}
-                    title={warningTitle || undefined}
-                    draggable
-                    onDragStart={e => handleCardDragStart(dc, e)}
-                    onClick={(e) => { if (consumeLongPressClick(e)) return; openDeckCardDetail(dc) }}
-                    onContextMenu={e => openDeckCardContextMenu(dc, e)}
-                    {...bindTouchContextMenu(e => openDeckCardContextMenu(dc, e))}>
-                    <div className={styles.visualImgWrap}>
-                      {dc.image_uri
-                        ? <img src={grid_density === 'compact' ? dc.image_uri?.replace(/\/(normal|large|png|border_crop|art_crop)\//, '/small/') : dc.image_uri} alt={dc.name} className={styles.visualCardImg} loading="lazy" />
-                        : <div className={styles.visualCardPlaceholder}>{dc.name}</div>}
-                      {dc.qty > 1 && <span className={styles.visualCardQty}>x{dc.qty}</span>}
-                      {dc.foil && <span className={styles.visualCardFoil} title="Foil">*</span>}
-                    </div>
-                    <div className={styles.visualCardBottom}>
-                      <div className={styles.visualCardInfoRow}>
-                        <span className={styles.visualCardPrice}>{getDeckCardPriceLabel(dc)}</span>
-                        <OwnershipBadge
-                          {...getCardOwnershipProps(dc)}
-                        />
-                      </div>
-                      <div className={styles.visualCardControls}>
-                    <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} onMoveBoard={moveCardToBoard} onOpenCategoryPicker={setCategoryPickCard} builderSfMap={builderSfMap} />
-                        <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, -1) }}>-</button>
-                        <span className={styles.visualCardCount}>{dc.qty}</span>
-                        <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, +1) }}>+</button>
-                        <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); removeCardFromDeck(dc.id) }}>x</button>
-                      </div>
-                    </div>
-                  </div>
+                return (
+                  <DeckCard
+                    key={dc.id}
+                    view={deckView}
+                    dc={dc}
+                    stackContext={stackContext}
+                    legalityWarnings={legalityWarnings}
+                    warningTitle={warningTitle}
+                    gridDensity={grid_density}
+                    compactVisibleColumns={compactVisibleColumns}
+                    canHover={CAN_HOVER}
+                    lastInputWasTouch={lastInputWasTouch}
+                    stackHoverState={stackHoverState}
+                    touchActiveStack={touchActiveStack}
+                    setStackHoverState={setStackHoverState}
+                    setTouchActiveStack={setTouchActiveStack}
+                    priceLabel={getDeckCardPriceLabel(dc)}
+                    ownership={getCardOwnershipProps(dc)}
+                    isEDH={isEDH}
+                    builderSfMap={builderSfMap}
+                    onChangeQty={changeQty}
+                    onRemove={removeCardFromDeck}
+                    onOpenDetail={openDeckCardDetail}
+                    onContextMenu={openDeckCardContextMenu}
+                    onDragStart={handleCardDragStart}
+                    onHoverEnter={showHoverPreviewForDeckCard}
+                    onHoverLeave={clearHoverPreview}
+                    onHoverMove={updateHoverPos}
+                    onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })}
+                    onToggleFoil={toggleFoil}
+                    onSetCommander={setCardAsCommander}
+                    onMoveBoard={moveCardToBoard}
+                    onOpenCategoryPicker={setCategoryPickCard}
+                  />
                 )
-                if (deckView === 'stacks') {
-                  const activeHover = stackHoverState || touchActiveStack
-                  const isPushedDown = activeHover
-                    && activeHover.group === stackContext?.group
-                    && stackContext?.idx > activeHover.stackIdx
-                  const isTouchActive = touchActiveStack?.id === dc.id
-                  return (
-                    <div
-                      key={dc.id}
-                      className={`${styles.stackCard}${dc.is_commander ? ' '+styles.isCommander : ''}${legalityWarnings.length ? ' '+styles.stackCardIllegal : ''}${isPushedDown ? ' '+styles.stackCardPushedDown : ''}${isTouchActive ? ' '+styles.stackCardActive : ''}`}
-                      style={{ zIndex: isTouchActive ? 200 : (stackContext?.idx ?? 0) }}
-                      title={warningTitle || dc.name}
-                      draggable
-                      onDragStart={e => handleCardDragStart(dc, e)}
-                      onClick={(e) => {
-                        if (consumeLongPressClick(e)) return
-                        if (!CAN_HOVER) {
-                          if (isTouchActive) {
-                            setTouchActiveStack(null)
-                            openDeckCardDetail(dc)
-                          } else {
-                            setTouchActiveStack({ group: stackContext?.group, stackIdx: stackContext?.idx ?? 0, id: dc.id })
-                          }
-                          return
-                        }
-                        openDeckCardDetail(dc)
-                      }}
-                      onContextMenu={e => {
-                        openDeckCardContextMenu(dc, e)
-                        setStackHoverState(null)
-                      }}
-                      {...bindTouchContextMenu(e => {
-                        openDeckCardContextMenu(dc, e)
-                        setStackHoverState(null)
-                      })}
-                      onMouseEnter={CAN_HOVER && !lastInputWasTouch ? e => {
-                        setStackHoverState({ group: stackContext?.group, stackIdx: stackContext?.idx ?? 0 })
-                        showHoverPreviewForDeckCard(dc, e)
-                      } : undefined}
-                      onMouseLeave={CAN_HOVER ? () => {
-                        setStackHoverState(null)
-                        clearHoverPreview()
-                      } : undefined}
-                      onMouseMove={CAN_HOVER ? e => updateHoverPos(e.clientX, e.clientY) : undefined}
-                    >
-                      <div className={styles.stackImgWrap}>
-                        {dc.image_uri
-                          ? <img src={dc.image_uri} alt={dc.name} className={styles.stackCardImg} loading="lazy" />
-                          : <div className={styles.stackCardPlaceholder}>{dc.name}</div>}
-                        {legalityWarnings.length > 0 && <span className={styles.stackWarn} title={warningTitle}>!</span>}
-                        {dc.qty > 1 && <span className={styles.stackQty}>×{dc.qty}</span>}
-                        {dc.foil && <span className={styles.stackFoil} title="Foil">*</span>}
-                      </div>
-                      <div className={styles.stackCardControls} onClick={ev => ev.stopPropagation()}>
-                        <div className={styles.stackCardInfo}>
-                          <span className={styles.stackCardPrice}>{getDeckCardPriceLabel(dc)}</span>
-                          <OwnershipBadge
-                            {...getCardOwnershipProps(dc)}
-                          />
-                        </div>
-                         <div className={styles.stackControlsRow}>
-                           <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} onMoveBoard={moveCardToBoard} onOpenCategoryPicker={setCategoryPickCard} builderSfMap={builderSfMap} />
-                          <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, -1) }}>-</button>
-                          <span className={styles.stackControlCount}>{dc.qty}</span>
-                          <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); changeQty(dc.id, +1) }}>+</button>
-                          <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); removeCardFromDeck(dc.id) }}>x</button>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                }
-                if (deckView === 'compact') return (
-                  <div key={dc.id} className={`${styles.compactRow}${dc.is_commander ? ' '+styles.isCommander : ''}${legalityWarnings.length ? ' '+styles.deckCardIllegal : ''}`} title={warningTitle || undefined} onContextMenu={e => openDeckCardContextMenu(dc, e)} {...bindTouchContextMenu(e => openDeckCardContextMenu(dc, e))} draggable onDragStart={e => handleCardDragStart(dc, e)}>
-                    <span className={styles.compactQty}>{dc.qty}</span>
-                    <span className={styles.compactName}
-                      style={{ cursor: 'pointer' }}
-                      onClick={(e) => { if (consumeLongPressClick(e)) return; openDeckCardDetail(dc) }}
-                      onMouseEnter={CAN_HOVER ? e => showHoverPreviewForDeckCard(dc, e) : undefined}
-                      onMouseLeave={CAN_HOVER ? () => clearHoverPreview() : undefined}
-                      onMouseMove={CAN_HOVER ? e => updateHoverPos(e.clientX, e.clientY) : undefined}>
-                      {dc.name}
-                    </span>
-                    {dc.foil && <span className={styles.foilBadge} title="Foil">*</span>}
-                    {compactVisibleColumns.set && <span className={styles.compactMeta}>{dc.set_code ? `${String(dc.set_code).toUpperCase()}${dc.collector_number ? ` #${dc.collector_number}` : ''}` : '-'}</span>}
-                    {compactVisibleColumns.manaValue && <span className={styles.compactMeta}><ManaCostInline cost={dc.mana_cost} size={13} /></span>}
-                    {compactVisibleColumns.cmc && <span className={styles.compactMeta}>{dc.cmc ?? '-'}</span>}
-                    {compactVisibleColumns.price && <span className={styles.compactMeta}>{getDeckCardPriceLabel(dc)}</span>}
-                    {compactVisibleColumns.status && (
-                      <OwnershipBadge
-                        {...getCardOwnershipProps(dc)}
-                      />
-                    )}
-                    {compactVisibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} onSetCommander={setCardAsCommander} onToggleFoil={toggleFoil} onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })} onMoveBoard={moveCardToBoard} onOpenCategoryPicker={setCategoryPickCard} builderSfMap={builderSfMap} />}
-                    {compactVisibleColumns.qty && (
-                      <div className={styles.qtyControls}>
-                        <button className={styles.qtyBtn} onClick={() => changeQty(dc.id, -1)}>-</button>
-                        <span className={styles.qtyVal}>{dc.qty}</span>
-                        <button className={styles.qtyBtn} onClick={() => changeQty(dc.id, +1)}>+</button>
-                      </div>
-                    )}
-                    {compactVisibleColumns.remove && <button className={styles.removeBtn} onClick={() => removeCardFromDeck(dc.id)}>x</button>}
-                  </div>
-                )
-                // list view
-                return <DeckCardRow key={dc.id} {...deckRowProps(dc)} />
               }
 
               const renderListHeader = () => deckView === 'list' && (
