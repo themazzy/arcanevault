@@ -8,10 +8,9 @@ import { useSettings } from '../components/SettingsContext'
 import {
   FORMATS, TYPE_GROUPS, classifyCardType,
   parseDeckMeta, serializeDeckMeta, getCardImageUri,
-  searchCards, searchCommanders, fetchCardsByNames, fetchCardsByScryfallIds, getDeckBuilderCardMeta,
-  fetchEdhrecCommander, fetchPaperPrintings, makeDebouncer,
+  fetchCardsByNames, fetchCardsByScryfallIds, getDeckBuilderCardMeta,
+  fetchEdhrecCommander, fetchPaperPrintings,
 } from '../lib/deckBuilderApi'
-import { parseImportText, resolveImportEntries, summarizeImportRows } from '../lib/importFlow'
 import {
   getLocalCards, getDeckCards, putDeckCards, deleteDeckCardLocal, getMeta, setMeta,
   deleteDeckAllocationsByIds, replaceDeckAllocations, putDeckAllocations, putFolderCards, putCards,
@@ -46,6 +45,7 @@ import {
   getLogicalKey,
   persistLinkedSyncSnapshot,
   summarizeSyncDiff,
+  unlinkPairedDeck,
   withLinkedPair,
 } from '../lib/deckSync'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
@@ -130,12 +130,11 @@ import {
 } from '../lib/deckSyncDecisions'
 
 import { ManaCostInline, OwnershipBadge } from '../components/deckBuilder/primitives'
-import { DeckCardRow, EditMenu } from '../components/deckBuilder/DeckCardRow'
+import { DeckCardActionsMenuBody, DeckCardRow, EditMenu } from '../components/deckBuilder/DeckCardRow'
 import { DeckCategoryHeader } from '../components/deckBuilder/DeckCategoryHeader'
 import { DeckCardSection } from '../components/deckBuilder/DeckCardSection'
 import { DeckCard } from '../components/deckBuilder/DeckCard'
 import { CategoryPickerModal } from '../components/deckBuilder/CategoryPickerModal'
-import { ComboResultCard } from '../components/deckBuilder/combos'
 
 import { FloatingPreview, WarningTooltip } from '../components/deckBuilder/FloatingPreview'
 
@@ -282,6 +281,13 @@ import SyncModal from '../components/deckBuilder/SyncModal'
 import VersionPickerModal from '../components/deckBuilder/VersionPickerModal'
 import DeckWinrateMini from '../components/deckBuilder/DeckWinrateMini'
 import MoveOwnedCardsModal from '../components/deckBuilder/MoveOwnedCardsModal'
+import DeckImportModal from '../components/deckBuilder/DeckImportModal'
+import CombosTab from '../components/deckBuilder/CombosTab'
+import ShareDeckModal from '../components/deckBuilder/ShareDeckModal'
+import DeckMetaModal from '../components/deckBuilder/DeckMetaModal'
+import { useCommanderSearch } from '../hooks/useCommanderSearch'
+import { useCardSearch } from '../hooks/useCardSearch'
+import { useCombosFetch } from '../hooks/useCombosFetch'
 
 // ── Main DeckBuilder component ────────────────────────────────────────────────
 export default function DeckBuilderPage() {
@@ -325,24 +331,33 @@ export default function DeckBuilderPage() {
   // Left panel
   const [leftTab,       setLeftTab]       = useState('search')
 
-  // Commander picker
-  const [cmdQuery,      setCmdQuery]      = useState('')
-  const [cmdResults,    setCmdResults]    = useState([])
-  const [cmdLoading,    setCmdLoading]    = useState(false)
-  const [showCmdPicker, setShowCmdPicker] = useState(false)
+  // Commander picker — search state lives in the hook, picking is in pickCommander() below.
+  const {
+    query:       cmdQuery,
+    results:     cmdResults,
+    loading:     cmdLoading,
+    isOpen:      showCmdPicker,
+    setIsOpen:   setShowCmdPicker,
+    handleQuery: handleCmdQuery,
+    close:       closeCmdPicker,
+  } = useCommanderSearch()
 
   // Card detail modal (read-only, used throughout the builder)
   const [detailCard, setDetailCard] = useState(null) // { card, sfCard }
   const [contextMenu, setContextMenu] = useState(null) // { dc, x, y }
   const [categoryPickCard, setCategoryPickCard] = useState(null)
 
-  // Search
-  const [searchQuery,   setSearchQuery]   = useState('')
-  const [searchResults, setSearchResults] = useState([])
-  const [searchLoading, setSearchLoading] = useState(false)
-  const [searchHasMore, setSearchHasMore] = useState(false)
-  const [searchPage,    setSearchPage]    = useState(1)
-  const [searchError,   setSearchError]   = useState(false)
+  // Card search — debounced Scryfall query for the left-panel search panel.
+  const {
+    query:       searchQuery,
+    results:     searchResults,
+    loading:     searchLoading,
+    hasMore:     searchHasMore,
+    page:        searchPage,
+    error:       searchError,
+    handleInput: handleSearchInput,
+    loadMore:    loadMoreSearch,
+  } = useCardSearch({ format: deckMeta.format })
 
   // Recommendations
   const [recs,         setRecs]         = useState([])
@@ -427,24 +442,11 @@ export default function DeckBuilderPage() {
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
-  // Combos (Commander Spellbook)
-  const [combosIncluded, setCombosIncluded] = useState([])
-  const [combosAlmost,   setCombosAlmost]   = useState([])
-  const [combosLoading,  setCombosLoading]  = useState(false)
-  const [combosFetched,  setCombosFetched]  = useState(false)
-  const [comboSectionsOpen, setComboSectionsOpen] = useState({ complete: true, incomplete: true })
+  // Combos (Commander Spellbook) — hook initialized below, once commanderCard is derived.
 
-  // Import
+  // Import / Export
   const [showImport,    setShowImport]    = useState(false)
   const [showExport,    setShowExport]    = useState(false)
-  const [importText,    setImportText]    = useState('')
-  const [importTab,     setImportTab]     = useState('text') // 'text' | 'file'
-  const [importStep,    setImportStep]    = useState('input') // 'input' | 'review'
-  const [importRows,    setImportRows]    = useState([])
-  const [importing,     setImporting]     = useState(false)
-  const [importError,   setImportError]   = useState(null)
-  const [importDone,    setImportDone]    = useState(null)  // summary string
-  const importFileRef = useRef(null)
 
   // Make Deck / Sync
   const [showMakeDeck,    setShowMakeDeck]    = useState(false)
@@ -498,9 +500,6 @@ export default function DeckBuilderPage() {
   const deckCardsRef    = useRef(deckCards)
   const deckCategoriesRef = useRef(deckCategories)
   const deckMetaRef     = useRef(deckMeta)
-  const searchDebounce  = useRef(makeDebouncer(350))
-  const searchRequestId = useRef(0)
-  const cmdDebounce     = useRef(makeDebouncer(300))
   const qtyTimers       = useRef(new Map())
   const saveMetaTimer   = useRef(null)
   const hoverPreviewCache = useRef(new Map())
@@ -512,11 +511,9 @@ export default function DeckBuilderPage() {
   const dragAutoScrollActive = useRef(false)
   const dragAutoScrollFrame = useRef(null)
   const dragAutoScrollPoint = useRef({ x: 0, y: 0 })
-  const importingRef = useRef(false)
   const printingLookupCache = useRef(new Map())
   const ownedPrintingCandidatesCache = useRef(new Map())
   const ownedPrintingRefreshPromises = useRef(new Map())
-  useEffect(() => () => { importingRef.current = false }, [])
 
   const invalidateCollectionPlacementQueries = useCallback(async ({ includeFolders = false, includeCards = false } = {}) => {
     const invalidations = [
@@ -824,6 +821,17 @@ export default function DeckBuilderPage() {
   const isEDH          = format?.isEDH ?? false
   const commanderCards = useMemo(() => deckCards.filter(dc => dc.is_commander), [deckCards])
   const commanderCard  = commanderCards[0] ?? null
+
+  // Combos hook — needs commanderCard + deckCards + access token.
+  const {
+    fetched:      combosFetched,
+    loading:      combosLoading,
+    included:     combosIncluded,
+    almost:       combosAlmost,
+    sectionsOpen: comboSectionsOpen,
+    toggleSection: toggleComboSection,
+    fetchCombos,
+  } = useCombosFetch({ commanderCard, deckCards, accessToken: session?.access_token })
   const mainDeckCards  = useMemo(() => deckCards.filter(dc => normalizeBoard(dc.board) === 'main'), [deckCards])
   const normalizedStatsCards = useMemo(
     () => normalizeDeckBuilderCards(mainDeckCards, builderSfMap, { price_source }),
@@ -1000,10 +1008,6 @@ export default function DeckBuilderPage() {
     })
   }, [])
 
-  const toggleComboSection = useCallback((section) => {
-    setComboSectionsOpen(prev => ({ ...prev, [section]: !prev[section] }))
-  }, [])
-
   const copyShareLink = useCallback(async (url) => {
     try {
       await navigator.clipboard.writeText(url)
@@ -1153,7 +1157,7 @@ export default function DeckBuilderPage() {
 
   const renderDeckActionsMenu = ({ close, includeQuickActions = true }) => (
     <div className={uiStyles.responsiveMenuList}>
-      <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowImport(true); setImportStep('input'); setImportRows([]); setImportDone(null); setImportError(null); close() }}>
+      <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowImport(true); close() }}>
         <span>Import</span>
       </button>
       <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowExport(true); close() }}>
@@ -1770,23 +1774,11 @@ export default function DeckBuilderPage() {
     }
   }
 
-  // ── Commander search ──────────────────────────────────────────────────────
-  function handleCmdQuery(q) {
-    setCmdQuery(q)
-    setShowCmdPicker(true)
-    if (!q.trim()) { setCmdResults([]); return }
-    cmdDebounce.current(async () => {
-      setCmdLoading(true)
-      const results = await searchCommanders(q)
-      setCmdResults(results)
-      setCmdLoading(false)
-    })
-  }
-
+  // ── Commander pick ────────────────────────────────────────────────────────
+  // Search state lives in useCommanderSearch(); this handler applies the pick
+  // to the deck (mutates deck_cards + folder description meta).
   async function pickCommander(sfCard) {
-    setShowCmdPicker(false)
-    setCmdQuery('')
-    setCmdResults([])
+    closeCmdPicker()
 
     const newMeta = {
       ...deckMeta,
@@ -1850,28 +1842,7 @@ export default function DeckBuilderPage() {
   }
 
   // ── Card search ───────────────────────────────────────────────────────────
-  const doSearch = useCallback(async (q, page = 1) => {
-    const requestId = ++searchRequestId.current
-    setSearchLoading(true)
-    setSearchError(false)
-    const { cards, hasMore, error } = await searchCards({
-      query: q,
-      format: deckMeta.format,
-      page,
-    })
-    if (requestId !== searchRequestId.current) return
-    setSearchPage(page)
-    if (page === 1) setSearchResults(cards)
-    else setSearchResults(prev => [...prev, ...cards])
-    setSearchHasMore(hasMore)
-    if (error) setSearchError(true)
-    setSearchLoading(false)
-  }, [deckMeta.format])
-
-  function handleSearchInput(q) {
-    setSearchQuery(q)
-    searchDebounce.current(() => doSearch(q, 1))
-  }
+  // Search state + debounced fetch live in useCardSearch(); page only renders.
 
   async function fetchPrintingsForDeckCardName(name) {
     if (!name) return []
@@ -2360,197 +2331,6 @@ export default function DeckBuilderPage() {
     setRecImages(imgMap)
     setRecLegalities(legMap)
     if (needsLegality) setRecsLoading(false)
-  }
-
-  // ── Commander Spellbook combos ────────────────────────────────────────────
-  async function fetchCombos() {
-    if (combosLoading) return
-    setCombosLoading(true)
-    try {
-      const body = {
-        commanders: commanderCard ? [{ card: commanderCard.name }] : [],
-        main: deckCards.filter(dc => !dc.is_commander && normalizeBoard(dc.board) === 'main').map(dc => ({ card: dc.name })),
-      }
-      // Dev: use Vite proxy (spoof Origin). Prod: use Supabase Edge Function.
-      const combosUrl = import.meta.env.DEV
-        ? '/api/combos/find-my-combos/'
-        : `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/combo-proxy`
-      const res = await fetch(combosUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(import.meta.env.DEV ? {} : {
-            'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${session?.access_token ?? import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-          }),
-        },
-        body: JSON.stringify(body),
-      })
-      if (!res.ok) throw new Error(`API ${res.status}`)
-      const data = await res.json()
-      const r = data.results || {}
-      setCombosIncluded(r.included || [])
-      setCombosAlmost([...(r.almostIncluded || []), ...(r.almostIncludedByAddingColors || [])])
-      setCombosFetched(true)
-    } catch (e) {
-      console.warn('[Combos]', e)
-    }
-    setCombosLoading(false)
-  }
-
-  // ── Deck import ──
-  async function prepareImportReview() {
-    if (importingRef.current) return
-    importingRef.current = true
-    setImportError(null)
-    setImportDone(null)
-    setImportRows([])
-    setImporting(true)
-
-    try {
-      const parsed = parseImportText(importText).entries
-
-      if (!parsed.length) throw new Error('No cards found in the import.')
-
-      const resolvedRows = await resolveImportEntries(parsed)
-      setImportRows(resolvedRows)
-      setImportStep('review')
-    } catch (err) {
-      setImportError(err.message)
-    }
-    setImporting(false)
-    importingRef.current = false
-  }
-
-  async function confirmImportReview() {
-    if (importingRef.current) return
-    importingRef.current = true
-    setImportError(null)
-    setImportDone(null)
-    setImporting(true)
-
-    try {
-      const resolvedRows = importRows
-      const matchedRows = resolvedRows.filter(row => row.status === 'matched' && row.sfCard)
-      const missedRows = resolvedRows.filter(row => row.status !== 'matched')
-      if (!matchedRows.length) throw new Error('No cards could be matched in Scryfall.')
-
-      // Build deck_cards rows
-      const now = new Date().toISOString()
-      const newRows = []
-      let commanderSet = false
-
-      for (const entry of matchedRows) {
-        const sf = entry.sfCard
-        const meta = getDeckBuilderCardMeta(sf)
-        const isCmd = entry.isCommander && !commanderSet
-        if (isCmd) commanderSet = true
-
-        newRows.push({
-          id:               crypto.randomUUID(),
-          deck_id:          deckId,
-          user_id:          user.id,
-          scryfall_id:      meta.scryfall_id,
-          name:             entry.resolvedName || entry.name,
-          set_code:         entry.resolvedSetCode ?? entry.setCode ?? meta.set_code,
-          collector_number: entry.resolvedCollectorNumber ?? entry.collectorNumber ?? meta.collector_number,
-          type_line:        meta.type_line,
-          mana_cost:        meta.mana_cost,
-          cmc:              meta.cmc,
-          color_identity:   meta.color_identity ?? [],
-          image_uri:        meta.image_uri,
-          qty:              entry.qty,
-          foil:             entry.foil ?? false,
-          is_commander:     isCmd,
-          board:            isCmd ? 'main' : normalizeBoard(entry.board),
-          created_at:       now,
-          updated_at:       now,
-        })
-      }
-
-      const hydratedRows = await requireCardPrintIds(newRows, 'Imported deck card')
-
-      const makeDeckCardMergeKey = row => [
-        row.card_print_id,
-        row.foil ? '1' : '0',
-        normalizeBoard(row.board),
-      ].join('|')
-
-      const existingByKey = new Map(
-        deckCardsRef.current
-          .filter(row => row.card_print_id)
-          .map(row => [makeDeckCardMergeKey(row), row])
-      )
-      const updatesById = new Map()
-      const insertsByKey = new Map()
-
-      for (const row of hydratedRows) {
-        const key = makeDeckCardMergeKey(row)
-        const existing = existingByKey.get(key)
-        if (existing) {
-          updatesById.set(existing.id, {
-            ...existing,
-            qty: (existing.qty || 0) + (row.qty || 0),
-            is_commander: !!existing.is_commander || !!row.is_commander,
-            updated_at: now,
-          })
-          continue
-        }
-
-        const pending = insertsByKey.get(key)
-        if (pending) {
-          insertsByKey.set(key, {
-            ...pending,
-            qty: (pending.qty || 0) + (row.qty || 0),
-            is_commander: !!pending.is_commander || !!row.is_commander,
-          })
-        } else {
-          insertsByKey.set(key, row)
-        }
-      }
-
-      const updateRows = [...updatesById.values()]
-      const insertRows = [...insertsByKey.values()]
-
-      if (updateRows.length) {
-        await Promise.all(updateRows.map(row =>
-          sb.from('deck_cards')
-            .update({ qty: row.qty, is_commander: row.is_commander, updated_at: row.updated_at })
-            .eq('id', row.id)
-        ))
-        putDeckCards(updateRows).catch(() => {})
-      }
-      if (insertRows.length) {
-        await sb.from('deck_cards')
-          .upsert(insertRows.map(toDeckCardRow), { onConflict: 'deck_id,card_print_id,foil,board' })
-        putDeckCards(insertRows).catch(() => {})
-      }
-
-      setDeckCards(prev => {
-        const updatedById = new Map(updateRows.map(row => [row.id, row]))
-        return [
-          ...prev.map(row => updatedById.get(row.id) || row),
-          ...insertRows,
-        ]
-      })
-      const importedCopies = hydratedRows.reduce((sum, row) => sum + (row.qty || 0), 0)
-      const boardSummary = BOARD_ORDER
-        .map(board => {
-          const qty = hydratedRows.filter(row => normalizeBoard(row.board) === board).reduce((sum, row) => sum + (row.qty || 0), 0)
-          return qty ? `${qty} ${BOARD_LABELS[board].toLowerCase()}` : null
-        })
-        .filter(Boolean)
-        .join(', ')
-      const skipped = missedRows.length ? ` Skipped ${missedRows.length} unresolved row${missedRows.length !== 1 ? 's' : ''}.` : ''
-      setImportDone(`Imported ${importedCopies} card${importedCopies !== 1 ? 's' : ''}${boardSummary ? ` (${boardSummary})` : ''}.${skipped}`)
-      setImportText('')
-      setImportRows([])
-      setImportStep('input')
-    } catch (err) {
-      setImportError(err.message)
-    }
-    setImporting(false)
-    importingRef.current = false
   }
 
   async function updateCardVersion(versionTarget, sfCard) {
@@ -3622,9 +3402,6 @@ export default function DeckBuilderPage() {
     : syncStatus.dirty
       ? `${syncStatus.count || 0} Unsynced`
       : 'Synced'
-  const importSummary = importRows.length ? summarizeImportRows(importRows) : null
-  const importMatchedRows = importRows.filter(row => row.status === 'matched' && row.sfCard)
-  const importMissingRows = importRows.filter(row => row.status !== 'matched')
   const renderDeckHeader = (variantClassName = '') => (
     <div className={`${styles.deckHeader}${variantClassName ? ' ' + variantClassName : ''}`}>
       <div className={styles.deckTitleBlock}>
@@ -3896,7 +3673,7 @@ export default function DeckBuilderPage() {
                 />
               ))}
               {searchHasMore && (
-                <button className={styles.loadMore} onClick={() => doSearch(searchQuery, searchPage + 1)}>
+                <button className={styles.loadMore} onClick={loadMoreSearch}>
                   {searchLoading ? 'Loading...' : 'Load more'}
                 </button>
               )}
@@ -4783,70 +4560,19 @@ export default function DeckBuilderPage() {
 
         {/* Combos tab */}
         {rightTab === 'combos' && (
-          <div style={{ flex: 1, overflowY: 'auto', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {deckCards.length === 0 && (
-              <div style={{ color: 'var(--text-faint)', fontSize: '0.85rem', textAlign: 'center', paddingTop: 40 }}>
-                Add cards to this deck first, then find combos.
-              </div>
-            )}
-            {deckCards.length > 0 && !combosFetched && !combosLoading && (
-              <div style={{ textAlign: 'center', paddingTop: 40 }}>
-                <button onClick={fetchCombos} style={{ background: 'rgba(201,168,76,0.12)', border: '1px solid rgba(201,168,76,0.35)', borderRadius: 4, color: 'var(--gold)', padding: '9px 22px', fontSize: '0.85rem', cursor: 'pointer', fontFamily: 'var(--font-display)', letterSpacing: '0.05em' }}>
-                  Find Combos
-                </button>
-                <div style={{ fontSize: '0.73rem', color: 'var(--text-faint)', marginTop: 8 }}>via Commander Spellbook</div>
-              </div>
-            )}
-            {combosLoading && (
-              <div style={{ color: 'var(--text-faint)', textAlign: 'center', paddingTop: 40, fontSize: '0.85rem' }}>
-                Checking Commander Spellbook...
-              </div>
-            )}
-            {combosFetched && !combosLoading && (
-              <>
-                {combosIncluded.length > 0 ? (
-                  <div>
-                    <button className={styles.comboSectionHeader} onClick={() => toggleComboSection('complete')}>
-                      <span className={`${styles.groupArrow}${!comboSectionsOpen.complete ? ' ' + styles.groupArrowCollapsed : ''}`} aria-hidden="true">
-                        <ChevronDownIcon size={12} />
-                      </span>
-                      <span>Complete Combos</span>
-                      <span className={styles.comboSectionCount}>{combosIncluded.length}</span>
-                    </button>
-                    {comboSectionsOpen.complete && <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                      {combosIncluded.map((c, i) => (
-                        <ComboResultCard key={i} combo={c} highlight deckCardNames={deckCards.map(dc => dc.name)} deckImages={deckImagesMap} onAddCard={name => addCardToDeck({ name })} onOpenDetail={openCardDetailByName} />
-                      ))}
-                    </div>}
-                  </div>
-                ) : (
-                  <div style={{ color: 'var(--text-faint)', fontSize: '0.82rem' }}>No complete combos found in this deck.</div>
-                )}
-                {combosAlmost.length > 0 && (
-                  <div>
-                    <button className={styles.comboSectionHeader} onClick={() => toggleComboSection('incomplete')}>
-                      <span className={`${styles.groupArrow}${!comboSectionsOpen.incomplete ? ' ' + styles.groupArrowCollapsed : ''}`} aria-hidden="true">
-                        <ChevronDownIcon size={12} />
-                      </span>
-                      <span>Incomplete Combos</span>
-                      <span className={styles.comboSectionCount}>{combosAlmost.length}</span>
-                    </button>
-                    {comboSectionsOpen.incomplete && <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                      {combosAlmost.slice(0, 20).map((c, i) => (
-                        <ComboResultCard key={i} combo={c} highlight={false} deckCardNames={deckCards.map(dc => dc.name)} deckImages={deckImagesMap} onAddCard={name => addCardToDeck({ name })} onOpenDetail={openCardDetailByName} />
-                      ))}
-                    </div>}
-                    {comboSectionsOpen.incomplete && combosAlmost.length > 20 && (
-                      <div style={{ color: 'var(--text-faint)', fontSize: '0.78rem' }}>+ {combosAlmost.length - 20} more incomplete combos</div>
-                    )}
-                  </div>
-                )}
-                <button onClick={fetchCombos} style={{ alignSelf: 'flex-start', background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: 4, padding: '5px 12px', color: 'var(--text-faint)', fontSize: '0.78rem', cursor: 'pointer' }}>
-                  Refresh
-                </button>
-              </>
-            )}
-          </div>
+          <CombosTab
+            deckCards={deckCards}
+            combosFetched={combosFetched}
+            combosLoading={combosLoading}
+            combosIncluded={combosIncluded}
+            combosAlmost={combosAlmost}
+            comboSectionsOpen={comboSectionsOpen}
+            onToggleSection={toggleComboSection}
+            onFetchCombos={fetchCombos}
+            onAddCard={addCardToDeck}
+            onOpenDetail={openCardDetailByName}
+            deckImagesMap={deckImagesMap}
+          />
         )}
 
       </div>
@@ -4884,87 +4610,28 @@ export default function DeckBuilderPage() {
       )}
 
       {showMetaModal && (
-        <Modal onClose={() => setShowMetaModal(false)} className={styles.metaModal}>
-          <div className={styles.metaModalBody}>
-            <h3 className={styles.metaModalTitle}>Description &amp; Tags</h3>
-            <label className={styles.metaModalLabel}>Description</label>
-            <textarea
-              className={styles.deckMetaDesc}
-              value={cmdDescription}
-              onChange={e => setCmdDescription(e.target.value)}
-              onBlur={e => saveDescription(e.target.value)}
-              placeholder="Add description..."
-              rows={5}
-              maxLength={1000}
-              autoFocus
-            />
-            <label className={styles.metaModalLabel}>Tags</label>
-            <div className={styles.deckMetaTagRow}>
-              {cmdTags.map(tag => (
-                <span key={tag} className={styles.deckMetaTag}>
-                  {tag}
-                  <button className={styles.deckMetaTagRemove} onClick={() => removeTag(tag)}>x</button>
-                </span>
-              ))}
-              <input
-                className={styles.deckMetaTagInput}
-                value={newTagInput}
-                onChange={e => setNewTagInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(newTagInput) } }}
-                onBlur={() => { if (newTagInput.trim()) addTag(newTagInput) }}
-                placeholder={cmdTags.length === 0 ? 'Add tags...' : '+'}
-                maxLength={30}
-              />
-            </div>
-            <div className={styles.metaModalFooter}>
-              <button className={styles.headerBtnPrimary} onClick={() => setShowMetaModal(false)}>Done</button>
-            </div>
-          </div>
-        </Modal>
+        <DeckMetaModal
+          description={cmdDescription}
+          onDescriptionChange={setCmdDescription}
+          onDescriptionBlur={saveDescription}
+          tags={cmdTags}
+          newTagInput={newTagInput}
+          onNewTagChange={setNewTagInput}
+          onAddTag={addTag}
+          onRemoveTag={removeTag}
+          onClose={() => setShowMetaModal(false)}
+        />
       )}
 
-      {shareState && (
-        <Modal onClose={() => setShareState(null)} className={styles.shareModal}>
-          <div className={styles.shareModalBody}>
-            <div className={styles.shareModalIcon}>
-              <ShareIcon size={22} />
-            </div>
-            <h3 className={styles.shareModalTitle}>Share Deck</h3>
-            {shareState.error ? (
-              <p className={styles.shareModalText}>{shareState.error}</p>
-            ) : (
-              <p className={styles.shareModalText}>
-                {shareState.madePublic
-                  ? 'This deck was switched to public and the share link is in your clipboard.'
-                  : shareState.copied
-                    ? 'The share link is in your clipboard.'
-                    : 'This deck is public. Copy the link below to share it.'}
-              </p>
-            )}
-            <div className={styles.shareLinkBox}>
-              <input className={styles.shareLinkInput} value={shareState.url} readOnly onFocus={e => e.target.select()} />
-              <button
-                className={styles.shareCopyBtn}
-                onClick={async () => {
-                  const copied = await copyShareLink(shareState.url)
-                  setShareState(prev => prev ? { ...prev, copied } : prev)
-                }}
-              >
-                Copy
-              </button>
-            </div>
-            {!shareState.copied && !shareState.error && (
-              <div className={styles.shareModalNote}>Clipboard access was blocked by the browser, so the link is ready to copy manually.</div>
-            )}
-            <div className={styles.shareModalFooter}>
-              <Link className={styles.headerLink} to={`/d/${deckId}`} onClick={() => setShareState(null)}>
-                Open Public View
-              </Link>
-              <button className={styles.headerBtnPrimary} onClick={() => setShareState(null)}>Done</button>
-            </div>
-          </div>
-        </Modal>
-      )}
+      <ShareDeckModal
+        state={shareState}
+        deckId={deckId}
+        onCopyLink={async (url) => {
+          const copied = await copyShareLink(url)
+          setShareState(prev => prev ? { ...prev, copied } : prev)
+        }}
+        onClose={() => setShareState(null)}
+      />
 
       {showExport && (
         <ExportModal
@@ -5101,153 +4768,14 @@ export default function DeckBuilderPage() {
       )}
 
       {/* ── Import modal ──────────────────────────────────────────── */}
-      {showImport && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          onClick={e => { if (e.target === e.currentTarget) setShowImport(false) }}>
-          <div style={{ background: 'var(--bg-card, #1e1e1e)', border: '1px solid var(--border)', borderRadius: 8, padding: 24, width: 480, maxWidth: '95vw', display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontFamily: 'var(--font-display)', color: 'var(--gold)', fontSize: '1rem' }}>Import Deck</span>
-              <button onClick={() => setShowImport(false)} style={{ background: 'none', border: 'none', color: 'var(--text-faint)', fontSize: '1.1rem', cursor: 'pointer' }}>x</button>
-            </div>
-
-            {importStep === 'input' && <>
-            {/* Tab switcher */}
-            <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)' }}>
-              {[['text', 'Paste List'], ['file', 'Upload File']].map(([id, label]) => (
-                <button key={id} onClick={() => { setImportTab(id); setImportError(null); setImportDone(null) }}
-                  style={{ flex: 1, padding: '7px 0', background: 'none', border: 'none', borderBottom: importTab === id ? '2px solid var(--gold)' : '2px solid transparent', color: importTab === id ? 'var(--gold)' : 'var(--text-dim)', fontSize: '0.83rem', cursor: 'pointer', marginBottom: -1 }}>
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            {importTab === 'text' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <p style={{ fontSize: '0.78rem', color: 'var(--text-faint)', margin: 0 }}>
-                  Paste a decklist in standard format. Supports <code style={{ color: 'var(--gold)' }}>Commander:</code>, <code style={{ color: 'var(--gold)' }}>Sideboard:</code>, and <code style={{ color: 'var(--gold)' }}>Maybeboard:</code> sections.
-                </p>
-                <textarea
-                  autoFocus
-                  value={importText}
-                  onChange={e => setImportText(e.target.value)}
-                  placeholder={"Commander:\n1 Sheoldred, the Apocalypse\n\nDeck:\n1 Sol Ring\n1 Swamp\n\nSideboard:\n1 Duress\n\nMaybeboard:\n1 Bitterblossom"}
-                  rows={10}
-                  style={{ background: 'var(--s3)', border: '1px solid var(--border)', borderRadius: 4, padding: '8px 12px', color: 'var(--text)', fontSize: '0.83rem', outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
-                />
-              </div>
-            )}
-            {importTab === 'file' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <p style={{ fontSize: '0.78rem', color: 'var(--text-faint)', margin: 0 }}>
-                  Upload a <code style={{ color: 'var(--gold)' }}>.txt</code> decklist or <code style={{ color: 'var(--gold)' }}>.csv</code> Manabox export.
-                </p>
-                <input
-                  ref={importFileRef}
-                  type="file"
-                  accept=".csv,.txt"
-                  style={{ display: 'none' }}
-                  onChange={async e => {
-                    const file = e.target.files[0]
-                    if (!file) return
-                    const text = await file.text()
-                    setImportText(text)
-                    setImportError(null)
-                    setImportDone(null)
-                    e.target.value = ''
-                  }}
-                />
-                <button
-                  onClick={() => importFileRef.current?.click()}
-                  style={{ background: 'var(--s3)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-dim)', padding: '10px 16px', fontSize: '0.83rem', cursor: 'pointer', textAlign: 'left' }}>
-                  {importText ? `OK File loaded - ${importText.split('\n').filter(Boolean).length} lines` : 'Choose file...'}
-                </button>
-                {importText && (
-                  <textarea
-                    readOnly
-                    value={importText}
-                    rows={6}
-                    style={{ background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: 4, padding: '8px 12px', color: 'var(--text-faint)', fontSize: '0.78rem', outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
-                  />
-                )}
-              </div>
-            )}
-            </>}
-
-            {importStep === 'review' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-                  {[
-                    ['Rows', importSummary?.totalRows || 0],
-                    ['Matched', importSummary?.matchedRows || 0],
-                    ['Copies', importSummary?.matchedCopies || 0],
-                    ['Unresolved', importSummary?.missingRows || 0],
-                  ].map(([label, value]) => (
-                    <div key={label} style={{ background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 10px' }}>
-                      <div style={{ color: label === 'Unresolved' && value ? '#e07070' : 'var(--gold)', fontFamily: 'var(--font-display)', fontSize: '1rem' }}>{value}</div>
-                      <div style={{ color: 'var(--text-faint)', fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
-                    </div>
-                  ))}
-                </div>
-                <div style={{ color: importMissingRows.length ? '#e0a852' : 'var(--green)', fontSize: '0.8rem' }}>
-                  {importMissingRows.length
-                    ? `${importMissingRows.length} row${importMissingRows.length === 1 ? '' : 's'} will be skipped unless corrected.`
-                    : 'All rows resolved and are ready to import.'}
-                </div>
-                <div style={{ maxHeight: '42vh', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6 }}>
-                  {importRows.map((row, index) => (
-                    <div key={`${row.name}-${index}`} style={{
-                      display: 'grid',
-                      gridTemplateColumns: '52px minmax(0, 1fr) 82px 70px 86px',
-                      gap: 8,
-                      alignItems: 'center',
-                      padding: '8px 10px',
-                      borderBottom: index === importRows.length - 1 ? 'none' : '1px solid var(--s-border)',
-                      background: row.status === 'matched' ? 'transparent' : 'rgba(196,96,96,0.08)',
-                      fontSize: '0.78rem',
-                    }}>
-                      <span style={{ color: row.status === 'matched' ? 'var(--green)' : '#e07070', fontFamily: 'var(--font-display)' }}>
-                        {row.status === 'matched' ? 'OK' : 'MISS'}
-                      </span>
-                      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
-                        {row.qty}x {row.resolvedName || row.name}
-                        {row.foil && <span style={{ color: 'var(--gold)', marginLeft: 6 }}>Foil</span>}
-                        {row.isCommander && <span style={{ color: 'var(--gold)', marginLeft: 6 }}>Commander</span>}
-                      </span>
-                      <span style={{ color: 'var(--text-faint)' }}>{row.board ? BOARD_LABELS[normalizeBoard(row.board)] : 'Mainboard'}</span>
-                      <span style={{ color: 'var(--text-faint)' }}>{row.resolvedSetCode ? `${String(row.resolvedSetCode).toUpperCase()} #${row.resolvedCollectorNumber || '-'}` : '-'}</span>
-                      <span style={{ color: row.exactPrinting ? 'var(--green)' : 'var(--text-faint)' }}>{row.status === 'matched' ? (row.exactPrinting ? 'Exact print' : 'Name match') : row.reason || 'Missing'}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {importError && <p style={{ color: '#e07070', fontSize: '0.82rem', margin: 0 }}>{importError}</p>}
-            {importDone  && <p style={{ color: 'var(--green)', fontSize: '0.82rem', margin: 0 }}>OK {importDone}</p>}
-
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button onClick={() => { setShowImport(false); setImportStep('input'); setImportRows([]) }}
-                style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-dim)', padding: '7px 14px', fontSize: '0.83rem', cursor: 'pointer' }}>
-                {importDone ? 'Close' : 'Cancel'}
-              </button>
-              {!importDone && importStep === 'review' && (
-                <button onClick={() => { setImportStep('input'); setImportError(null); setImportDone(null) }}
-                  disabled={importing}
-                  style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-dim)', padding: '7px 14px', fontSize: '0.83rem', cursor: 'pointer', opacity: importing ? 0.6 : 1 }}>
-                  Back
-                </button>
-              )}
-              {!importDone && (
-                <button onClick={importStep === 'review' ? confirmImportReview : prepareImportReview}
-                  disabled={importing || (importStep === 'review' ? importMatchedRows.length === 0 : !importText.trim())}
-                  style={{ background: 'rgba(201,168,76,0.15)', border: '1px solid rgba(201,168,76,0.4)', borderRadius: 4, color: 'var(--gold)', padding: '7px 18px', fontSize: '0.83rem', cursor: 'pointer', opacity: importing ? 0.6 : 1 }}>
-                  {importing ? (importStep === 'review' ? 'Importing...' : 'Resolving...') : (importStep === 'review' ? `Import ${importSummary?.matchedCopies || 0}` : 'Review Import')}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <DeckImportModal
+        open={showImport}
+        onClose={() => setShowImport(false)}
+        deckId={deckId}
+        userId={user.id}
+        deckCardsRef={deckCardsRef}
+        setDeckCards={setDeckCards}
+      />
 
       {/* Read-only card detail modal */}
       {detailCard && (
