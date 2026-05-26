@@ -1098,8 +1098,9 @@ export default function SettingsPage() {
             ]} />
         </SettingRow>
         <SettingRow label="Deckbuilder Grouping" description="Initial grouping mode for deckbuilder only. Decks, binders, and wishlists always start ungrouped.">
-          <Select value={settings.default_grouping === 'none' ? 'none' : 'type'} onChange={v => set('default_grouping', v)}
+          <Select value={['type', 'category', 'none'].includes(settings.default_grouping) ? settings.default_grouping : 'category'} onChange={v => set('default_grouping', v)}
             options={[
+              ['category', 'Grouped by Category'],
               ['type', 'Grouped by Type'],
               ['none', 'Ungrouped'],
             ]} />

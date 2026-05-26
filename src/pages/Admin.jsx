@@ -617,7 +617,7 @@ const SETTINGS_FIELDS = [
   { key: 'price_source',     label: 'Price Source',      type: 'text' },
   { key: 'show_price',       label: 'Show Price',        type: 'boolean' },
   { key: 'default_sort',     label: 'Default Sort',      type: 'text' },
-  { key: 'default_grouping', label: 'Default Grouping',  type: 'select',  options: ['type','none'] },
+  { key: 'default_grouping', label: 'Default Grouping',  type: 'select',  options: ['category','type','none'] },
   { key: 'cache_ttl_h',      label: 'Cache TTL (hours)', type: 'number' },
   { key: 'binder_sort',      label: 'Binder Sort',       type: 'text' },
   { key: 'deck_sort',        label: 'Deck Sort',         type: 'text' },

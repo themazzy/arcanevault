@@ -387,7 +387,7 @@ export default function DeckBuilderPage() {
   const [showRight, setShowRight] = useState(() => typeof window !== 'undefined' && window.innerWidth <= 900)
   const wasMobileLayoutRef = useRef(typeof window !== 'undefined' ? window.innerWidth <= 900 : false)
   const [leftCollapsed, setLeftCollapsed] = useState(false)
-  const [deckSort,    setDeckSort]    = useState('type')   // 'name' | 'cmc' | 'color' | 'type'
+  const [deckSort,    setDeckSort]    = useState('price_asc')   // 'name' | 'cmc_asc' | 'cmc_desc' | 'color' | 'type' | 'price_asc' | 'price_desc' | 'set' | 'rarity_asc' | 'rarity_desc'
   const [groupBy, setGroupBy] = useState(default_grouping === 'category' ? 'category' : default_grouping === 'none' ? 'none' : 'type')
   const [visibleColumns, setVisibleColumns] = useState(DEFAULT_LIST_COLUMNS)
   const [compactVisibleColumns, setCompactVisibleColumns] = useState(DEFAULT_COMPACT_COLUMNS)

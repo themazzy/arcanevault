@@ -421,7 +421,7 @@ const DEFAULTS = {
   reduce_motion: false,
   higher_contrast: false,
   card_name_size: 'default',
-  default_grouping: 'type',
+  default_grouping: 'category',
   keep_screen_awake: false,
   show_sync_errors: false,
   page_tips_seen: {},
