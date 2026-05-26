@@ -8,6 +8,7 @@ import { countActive } from './CardComponents'
 import uiStyles from './UI.module.css'
 import styles from '../pages/DeckBrowser.module.css'
 import { AddIcon, CheckIcon, ExportIcon, FilterIcon, GridViewIcon, ImportIcon, SortIcon, StacksViewIcon, TextViewIcon, TableViewIcon } from '../icons'
+import { CAT_ORDER, CAT_COLORS, getCardCategoryFromCard } from '../lib/cardCategory'
 
 const NON_DRAGGABLE_IMG_PROPS = {
   draggable: false,
@@ -22,35 +23,6 @@ const NON_DRAGGABLE_IMG_PROPS = {
 
 const TYPE_ORDER = ['Commander', 'Creatures', 'Planeswalkers', 'Battles', 'Instants',
   'Sorceries', 'Artifacts', 'Enchantments', 'Lands', 'Other']
-
-const CAT_ORDER = ['Ramp', 'Mana Rock', 'Card Draw', 'Removal', 'Board Wipe',
-  'Counterspell', 'Tutor', 'Burn', 'Tokens', 'Graveyard', 'Protection',
-  'Extra Turns', 'Combo', 'Creature', 'Artifact', 'Enchantment',
-  'Instant', 'Sorcery', 'Planeswalker', 'Land', 'Other']
-
-const CAT_COLORS = {
-  Ramp: '#4a9a5a',
-  'Mana Rock': '#5a8a9a',
-  'Card Draw': '#5a70bb',
-  Removal: '#cc5555',
-  'Board Wipe': '#aa3333',
-  Counterspell: '#4470cc',
-  Tutor: '#9a5abb',
-  Burn: '#e07020',
-  Tokens: '#6a9a4a',
-  Graveyard: '#7a4a8a',
-  Protection: '#aaaaaa',
-  'Extra Turns': '#cc88aa',
-  Combo: '#c9a84c',
-  Creature: '#5a8a5a',
-  Artifact: '#8a8a9a',
-  Enchantment: '#7a6aaa',
-  Instant: '#5555bb',
-  Sorcery: '#9944aa',
-  Planeswalker: '#cc7722',
-  Land: '#6a7a5a',
-  Other: '#666',
-}
 
 // Browser-friendly labels for the floating mobile sort sheet — kept short for icon-pill layout.
 // Keep value list in sync with the FilterBar sortOptions in CardComponents.jsx.
@@ -117,37 +89,6 @@ function getCardType(typeLine = '') {
   return 'Other'
 }
 
-function getCardCategory(card, sfCard) {
-  const faceOracle = sfCard?.card_faces?.map(f => f.oracle_text || '').join('\n') || ''
-  const oracle = (sfCard?.oracle_text || faceOracle).toLowerCase()
-  const type = (sfCard?.type_line || sfCard?.card_faces?.[0]?.type_line || '').toLowerCase()
-
-  if (/counter target (spell|creature spell|instant or sorcery|noncreature spell)/.test(oracle)) return 'Counterspell'
-  if (/search your library for a?.*(basic )?land/.test(oracle)) return 'Ramp'
-  if (type.includes('artifact') && /\{t\}.*add /.test(oracle)) return 'Mana Rock'
-  if (!type.includes('land') && /add \{[wubrg2c]/.test(oracle)) return 'Ramp'
-  if (/draw (two|three|four|\d+) cards|draw a card/.test(oracle)) return 'Card Draw'
-  if (/(destroy|exile) all (creatures|permanents|nonland)/.test(oracle)) return 'Board Wipe'
-  if (/search your library for a? ?(instant|sorcery|creature|artifact|enchantment|planeswalker)/.test(oracle) &&
-      !oracle.includes('basic land')) return 'Tutor'
-  if (/(exile|destroy) target (creature|permanent|artifact|enchantment|planeswalker)/.test(oracle)) return 'Removal'
-  if (/deals? \d+ damage to (any target|target player|each opponent|each player)/.test(oracle)) return 'Burn'
-  if (/create (a|one|two|three|four|\d+) .*token/.test(oracle)) return 'Tokens'
-  if (/return.*from (your |a )?(graveyard|exile)/.test(oracle)) return 'Graveyard'
-  if (/gains? hexproof|gains? indestructible|protection from/.test(oracle)) return 'Protection'
-  if (/take an? extra turn/.test(oracle)) return 'Extra Turns'
-  if (/infinite|whenever.*untap.*\{t\}.*\{t\}|win the game|you lose no life/.test(oracle)) return 'Combo'
-
-  if (type.includes('land')) return 'Land'
-  if (type.includes('creature')) return 'Creature'
-  if (type.includes('planeswalker')) return 'Planeswalker'
-  if (type.includes('instant')) return 'Instant'
-  if (type.includes('sorcery')) return 'Sorcery'
-  if (type.includes('artifact')) return 'Artifact'
-  if (type.includes('enchantment')) return 'Enchantment'
-  return 'Other'
-}
-
 function buildGroups(cards, sfMap, groupBy, groupResolver, groupOrderOverride) {
   if (groupBy === 'none') return { groups: { All: cards }, groupOrder: ['All'] }
   const groups = {}
@@ -157,7 +98,7 @@ function buildGroups(cards, sfMap, groupBy, groupResolver, groupOrderOverride) {
     const key = groupResolver?.(card, sf, groupBy)
       || (card.is_commander && groupBy === 'type' ? 'Commander' : null)
       || (groupBy === 'category'
-      ? getCardCategory(card, sf)
+      ? getCardCategoryFromCard(card, sf)
       : getCardType(sf?.type_line || sf?.card_faces?.[0]?.type_line || card.type_line || ''))
     if (!groups[key]) groups[key] = []
     groups[key].push(card)

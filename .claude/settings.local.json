@@ -108,7 +108,19 @@
       "Bash(npx --no-install eslint --version)",
       "Bash(git rm *)",
       "mcp__plugin_supabase_supabase__get_publishable_keys",
-      "Bash(python3 *)"
+      "Bash(python3 *)",
+      "Bash(npx --yes esbuild src/pages/Stats.jsx --loader=jsx --bundle=false)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(npx --yes esbuild src/pages/Stats.jsx --loader=jsx)",
+      "Bash(npx --yes esbuild --loader=jsx)",
+      "mcp__plugin_supabase_supabase__list_edge_functions",
+      "mcp__plugin_supabase_supabase__list_extensions",
+      "Bash(gh run *)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:api.riftcodex.com)",
+      "WebFetch(domain:riftcodex.com)",
+      "Bash(git checkout *)"
     ]
   }
 }

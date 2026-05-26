@@ -23,7 +23,9 @@ import { ResponsiveMenu, Select, Modal } from '../components/UI'
 import { useToast } from '../components/ToastContext'
 import PromptDialog from '../components/PromptDialog'
 import { CardDetail } from '../components/CardComponents'
-import DeckStats, { normalizeDeckBuilderCards, getCardCategory, CAT_COLORS, CAT_ORDER } from '../components/DeckStats'
+import DeckStats, { normalizeDeckBuilderCards, CAT_COLORS, CAT_ORDER } from '../components/DeckStats'
+import { getScryfallKey, formatPrice, getPrice } from '../lib/scryfall'
+import { getCardCategoryFromCard } from '../lib/cardCategory'
 import ExportModal from '../components/ExportModal'
 import { fetchDeckAllocations, fetchDeckAllocationsForUser, fetchDeckCards, mergeAllocationRows, upsertDeckAllocations } from '../lib/deckData'
 import {
@@ -45,7 +47,6 @@ import {
   summarizeSyncDiff,
   withLinkedPair,
 } from '../lib/deckSync'
-import { formatPrice, getPrice } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getPublicAppUrl } from '../lib/publicUrl'
 import { loadLocalPlacementSnapshot, refreshRemotePlacementSnapshot } from '../lib/deckPlacementData'
@@ -269,7 +270,7 @@ function DeckCardActionsMenuBody({
 }) {
   const currentBoard = normalizeBoard(dc.board)
   const boardOptions = BOARD_ORDER.filter(board => board !== currentBoard && !(dc.is_commander && board !== 'main'))
-  const sf = dc.set_code && dc.collector_number ? builderSfMap[`${dc.set_code}-${dc.collector_number}`] || null : null
+  const sf = dc.set_code && dc.collector_number ? builderSfMap[getScryfallKey(dc)] || null : null
   return (
     <div className={uiStyles.responsiveMenuList}>
       {isEDH && dc.is_commander && (
@@ -875,18 +876,50 @@ export default function DeckBuilderPage() {
     setGroupBy(default_grouping === 'category' ? 'category' : default_grouping === 'none' ? 'none' : 'type')
   }, [default_grouping])
 
+  // Signature of unique printings (set_code-collector_number + scryfall_id) in
+  // the deck. Only this string drives the Scryfall metadata/price refetch
+  // below — qty/category/board mutations don't change the print set, so they
+  // should not refire the expensive `loadCardMapWithSharedPrices` call.
+  const builderPrintSignature = useMemo(() => {
+    const seen = new Set()
+    for (const dc of deckCards) {
+      if (!dc.set_code || !dc.collector_number) continue
+      seen.add(`${String(dc.set_code).toLowerCase()}-${String(dc.collector_number).toLowerCase()}|${dc.scryfall_id || ''}`)
+    }
+    return [...seen].sort().join(',')
+  }, [deckCards])
+
   useEffect(() => {
+    if (!builderPrintSignature) {
+      setBuilderSfMap({})
+      return
+    }
     let cancelled = false
-    const cards = deckCards.filter(dc => dc.set_code && dc.collector_number)
+    const seen = new Set()
+    const cards = []
+    // Read from the current render's deckCards (captured by closure) — the
+    // signature dep guarantees this effect only fires when the print set
+    // actually changed, but we still need the latest card objects for the
+    // fetch (they carry scryfall_id used for price lookup).
+    for (const dc of deckCards) {
+      if (!dc.set_code || !dc.collector_number) continue
+      const key = `${String(dc.set_code).toLowerCase()}-${String(dc.collector_number).toLowerCase()}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      cards.push(dc)
+    }
     if (!cards.length) {
       setBuilderSfMap({})
       return
     }
-    loadCardMapWithSharedPrices(cards)
+    // requireOracle: pull oracle_text from Scryfall for entries only filled
+    // by card_prints. Needed so category-inference can see real card text.
+    loadCardMapWithSharedPrices(cards, { requireOracle: true })
       .then(map => { if (!cancelled) setBuilderSfMap(map || {}) })
       .catch(() => { if (!cancelled) setBuilderSfMap({}) })
     return () => { cancelled = true }
-  }, [deckCards])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [builderPrintSignature])
 
   useEffect(() => { deckCardsRef.current = deckCards }, [deckCards])
   useEffect(() => { deckCategoriesRef.current = deckCategories }, [deckCategories])
@@ -1097,7 +1130,7 @@ export default function DeckBuilderPage() {
   }, [commanderCard])
   const totalCards     = useMemo(() => deckCards.reduce((s, dc) => s + dc.qty, 0), [deckCards])
   const totalDeckPrice = useMemo(() => mainDeckCards.reduce((sum, dc) => {
-    const sf = builderSfMap[`${dc.set_code}-${dc.collector_number}`]
+    const sf = builderSfMap[getScryfallKey(dc)]
     const p = sf ? getPrice(sf, dc.foil, { price_source }) : null
     return sum + (p != null ? p * (dc.qty || 1) : 0)
   }, 0), [mainDeckCards, builderSfMap, price_source])
@@ -1138,7 +1171,7 @@ export default function DeckBuilderPage() {
 
   const getDeckCardPriceLabel = useCallback((dc) => {
     if (!dc?.set_code || !dc?.collector_number) return '—'
-    const sf = builderSfMap[`${dc.set_code}-${dc.collector_number}`]
+    const sf = builderSfMap[getScryfallKey(dc)]
     if (!sf) return '—'
     const price = getPrice(sf, dc.foil, { price_source })
     return price != null ? formatPrice(price, price_source) : '—'
@@ -1179,7 +1212,7 @@ export default function DeckBuilderPage() {
       const pairIssue = getCommanderPairIssue(commanderCards, builderSfMap)
       if (pairIssue) pushWarning({ key: 'commander-pair', level: 'error', summary: commanderCards.length > 2 ? `${commanderCards.length} commanders marked` : 'Invalid commander pair', detail: pairIssue })
       for (const dc of commanderCards) {
-        const sf = dc.set_code && dc.collector_number ? builderSfMap[`${dc.set_code}-${dc.collector_number}`] : null
+        const sf = dc.set_code && dc.collector_number ? builderSfMap[getScryfallKey(dc)] : null
         if (!canBeCommander(dc, sf)) pushWarning({ key: `commander:${dc.id}`, level: 'error', summary: `${dc.name}: invalid commander`, detail: `${dc.name} cannot be your commander.` })
       }
     }
@@ -1213,7 +1246,7 @@ export default function DeckBuilderPage() {
 
     let unknownLegalityCount = 0
     for (const dc of playableCards) {
-      const sf = dc.set_code && dc.collector_number ? builderSfMap[`${dc.set_code}-${dc.collector_number}`] : null
+      const sf = dc.set_code && dc.collector_number ? builderSfMap[getScryfallKey(dc)] : null
       const legality = sf?.legalities?.[formatId]
       if (!sf?.legalities) {
         unknownLegalityCount += 1
@@ -1247,7 +1280,7 @@ export default function DeckBuilderPage() {
     }
 
     for (const dc of playableCards) {
-      const sf = dc.set_code && dc.collector_number ? builderSfMap[`${dc.set_code}-${dc.collector_number}`] : null
+      const sf = dc.set_code && dc.collector_number ? builderSfMap[getScryfallKey(dc)] : null
       if (!dc.is_commander) {
         addWarnings(dc.id, getCardLegalityWarnings({
           card: { ...dc, legalities: sf?.legalities || dc.legalities },
@@ -1545,36 +1578,36 @@ export default function DeckBuilderPage() {
       return ca.localeCompare(cb) || a.name.localeCompare(b.name)
     })
     if (deckSort === 'price_desc' || deckSort === 'price') return cards.sort((a, b) => {
-      const sfA = builderSfMap[`${a.set_code}-${a.collector_number}`]
-      const sfB = builderSfMap[`${b.set_code}-${b.collector_number}`]
+      const sfA = builderSfMap[getScryfallKey(a)]
+      const sfB = builderSfMap[getScryfallKey(b)]
       const pA = getPrice(sfA, a.foil, { price_source }) ?? -1
       const pB = getPrice(sfB, b.foil, { price_source }) ?? -1
       return pB - pA
     })
     if (deckSort === 'price_asc') return cards.sort((a, b) => {
-      const sfA = builderSfMap[`${a.set_code}-${a.collector_number}`]
-      const sfB = builderSfMap[`${b.set_code}-${b.collector_number}`]
+      const sfA = builderSfMap[getScryfallKey(a)]
+      const sfB = builderSfMap[getScryfallKey(b)]
       const pA = getPrice(sfA, a.foil, { price_source }) ?? Infinity
       const pB = getPrice(sfB, b.foil, { price_source }) ?? Infinity
       return pA - pB
     })
     if (deckSort === 'set') return cards.sort((a, b) => {
-      const sfA = builderSfMap[`${a.set_code}-${a.collector_number}`]
-      const sfB = builderSfMap[`${b.set_code}-${b.collector_number}`]
+      const sfA = builderSfMap[getScryfallKey(a)]
+      const sfB = builderSfMap[getScryfallKey(b)]
       const sA = sfA?.set_name || a.set_code || ''
       const sB = sfB?.set_name || b.set_code || ''
       return sA.localeCompare(sB) || a.name.localeCompare(b.name)
     })
     if (deckSort === 'rarity_desc' || deckSort === 'rarity') return cards.sort((a, b) => {
-      const sfA = builderSfMap[`${a.set_code}-${a.collector_number}`]
-      const sfB = builderSfMap[`${b.set_code}-${b.collector_number}`]
+      const sfA = builderSfMap[getScryfallKey(a)]
+      const sfB = builderSfMap[getScryfallKey(b)]
       const rA = RARITY_ORDER.indexOf(sfA?.rarity || 'common')
       const rB = RARITY_ORDER.indexOf(sfB?.rarity || 'common')
       return rA - rB || a.name.localeCompare(b.name)
     })
     if (deckSort === 'rarity_asc') return cards.sort((a, b) => {
-      const sfA = builderSfMap[`${a.set_code}-${a.collector_number}`]
-      const sfB = builderSfMap[`${b.set_code}-${b.collector_number}`]
+      const sfA = builderSfMap[getScryfallKey(a)]
+      const sfB = builderSfMap[getScryfallKey(b)]
       const rA = RARITY_ORDER.indexOf(sfA?.rarity || 'common')
       const rB = RARITY_ORDER.indexOf(sfB?.rarity || 'common')
       return rB - rA || a.name.localeCompare(b.name)
@@ -1595,9 +1628,9 @@ export default function DeckBuilderPage() {
   )
 
   const getInferredDeckCategory = useCallback((dc) => {
-    const sf = dc.set_code && dc.collector_number ? (builderSfMap[`${dc.set_code}-${dc.collector_number}`] || {}) : {}
-    const oracle = ((sf.oracle_text || '') + (sf.card_faces || []).map(f => f.oracle_text || '').join('\n'))
-    const inferred = getCardCategory(oracle.toLowerCase(), (sf.type_line || dc.type_line || '').toLowerCase(), sf.keywords || [])
+    if (dc.is_commander) return 'Commander'
+    const sf = dc.set_code && dc.collector_number ? (builderSfMap[getScryfallKey(dc)] || {}) : {}
+    const inferred = getCardCategoryFromCard(dc, sf)
     return inferred && inferred !== 'Other' ? inferred : UNCATEGORIZED
   }, [builderSfMap])
 
@@ -1611,6 +1644,10 @@ export default function DeckBuilderPage() {
     for (const category of sortedDeckCategories) byName.set(category.name.toLowerCase(), category)
     for (const dc of deckCards) {
       const name = getDeckCardCategoryName(dc)
+      // 'Commander' is a pinned, auto-derived group — never an assignable
+      // picker option. (The user can still create a custom deck_categories
+      // row with that name, in which case it comes via sortedDeckCategories.)
+      if (name === 'Commander') continue
       if (!byName.has(name.toLowerCase())) byName.set(name.toLowerCase(), { id: null, name })
     }
     if (!byName.has(UNCATEGORIZED.toLowerCase())) byName.set(UNCATEGORIZED.toLowerCase(), { id: null, name: UNCATEGORIZED })
@@ -1621,7 +1658,14 @@ export default function DeckBuilderPage() {
     })
   }, [deckCards, getDeckCardCategoryName, sortedDeckCategories])
 
-  const categoryNameOrder = useMemo(() => categoryOptions.map(category => category.name), [categoryOptions])
+  // categoryNameOrder is the source-of-truth ordering for moveRenderedCategory's
+  // default sourceOrder. Prepend 'Commander' so the auto-pinned group can be
+  // reordered correctly when callers omit an explicit groupOrder.
+  const categoryNameOrder = useMemo(() => {
+    const hasCommander = deckCards.some(dc => dc.is_commander)
+    const base = categoryOptions.map(category => category.name)
+    return hasCommander && !base.includes('Commander') ? ['Commander', ...base] : base
+  }, [categoryOptions, deckCards])
 
   // De-dupes concurrent createDeckCategory calls for the same (deckId, lowercased name)
   // so two parallel addCardToDeck() invocations don't both insert "Removal".
@@ -2226,8 +2270,7 @@ export default function DeckBuilderPage() {
       foil:             !!resolved.foil,
     }], 'Deck card printing')
 
-    const oracle = ((resolved.sfCard.oracle_text || '') + (resolved.sfCard.card_faces || []).map(face => face.oracle_text || '').join('\n'))
-    const inferredCategory = getCardCategory(oracle.toLowerCase(), (meta.type_line || '').toLowerCase(), resolved.sfCard.keywords || [])
+    const inferredCategory = getCardCategoryFromCard({ type_line: meta.type_line }, resolved.sfCard)
     const initialCategory = await ensureDeckCategoryForName(inferredCategory && inferredCategory !== 'Other' ? inferredCategory : UNCATEGORIZED)
     const nextRow = { ...placeholderRow, ...printing, category_id: initialCategory?.id || null, foil: !!resolved.foil, updated_at: now }
     const existing = deckCardsRef.current.find(dc => dc.id !== placeholderRow.id && isSameDeckPrinting(dc, nextRow))
@@ -2460,7 +2503,7 @@ export default function DeckBuilderPage() {
       await unsetCommander(dc.id)
       return
     }
-    const sf = dc.set_code && dc.collector_number ? builderSfMap[`${dc.set_code}-${dc.collector_number}`] : null
+    const sf = dc.set_code && dc.collector_number ? builderSfMap[getScryfallKey(dc)] : null
     if (!canBeCommander(dc, sf)) {
       console.warn(`[DeckBuilder] refused invalid commander: ${dc.name}`)
       return
@@ -4934,11 +4977,14 @@ export default function DeckBuilderPage() {
               )
 
               const getDeckCardGroup = (dc) => {
-                const sf = dc.set_code && dc.collector_number ? (builderSfMap[`${dc.set_code}-${dc.collector_number}`] || {}) : {}
+                const sf = dc.set_code && dc.collector_number ? (builderSfMap[getScryfallKey(dc)] || {}) : {}
                 if (groupBy === 'category') {
+                  // Commander always gets its own group on top, regardless of
+                  // any auto-inferred role. (Manual category_id still wins
+                  // below if the user explicitly assigned one.)
+                  if (dc.is_commander && !dc.category_id) return 'Commander'
                   if (dc.category_id) return categoryById.get(dc.category_id)?.name || UNCATEGORIZED
-                  const oracle = ((sf.oracle_text || '') + (sf.card_faces || []).map(f => f.oracle_text || '').join('\n'))
-                  const inferred = getCardCategory(oracle.toLowerCase(), (sf.type_line || dc.type_line || '').toLowerCase(), sf.keywords || [])
+                  const inferred = getCardCategoryFromCard(dc, sf)
                   return inferred && inferred !== 'Other' ? inferred : UNCATEGORIZED
                 }
                 if (groupBy === 'rarity') return sf.rarity || 'common'
@@ -4950,8 +4996,15 @@ export default function DeckBuilderPage() {
               const getCategoryOrder = (cards) => {
                 const present = new Set(cards.map(getDeckCardGroup))
                 const order = []
+                // Commander is always first when present (parallel to Type-mode
+                // ordering where Commander already pins to the top).
+                if (present.has('Commander')) order.push('Commander')
+                // Only include user-created custom categories that have at
+                // least one card. The deck_categories row stays in the DB and
+                // remains assignable via the right-click picker; we just don't
+                // render an empty header for it.
                 for (const category of sortedDeckCategories) {
-                  order.push(category.name)
+                  if (present.has(category.name) && !order.includes(category.name)) order.push(category.name)
                 }
                 for (const category of CAT_ORDER) {
                   if (present.has(category) && !order.includes(category)) order.push(category)
@@ -5022,7 +5075,7 @@ export default function DeckBuilderPage() {
                   ? groupOrder
                       .map(group => {
                         const groupCards = cards.filter(dc => getDeckCardGroup(dc) === group)
-                        return groupCards.length || (groupBy === 'category' && getCategoryRow(group)) ? { group, cards: groupCards } : null
+                        return groupCards.length ? { group, cards: groupCards } : null
                       })
                       .filter(Boolean)
                   : [{ group: BOARD_LABELS[board], cards }]
@@ -5092,7 +5145,7 @@ export default function DeckBuilderPage() {
 
                 if (groupBy !== 'none') {
                   const baseOrder = groupBy === 'category' ? getCategoryOrder(cards)
-                    : groupBy === 'rarity' ? RARITY_ORDER
+                    : groupBy === 'rarity' ? RARITY_ORDER.filter(r => cards.some(dc => getDeckCardGroup(dc) === r))
                     : groupBy === 'set' ? [...new Set(cards.map(getDeckCardGroup))].sort()
                     : TYPE_GROUPS
                   const groupMap = new Map(baseOrder.map(g => [g, []]))
@@ -5102,10 +5155,10 @@ export default function DeckBuilderPage() {
                     groupMap.get(g).push(dc)
                   }
                   return [...groupMap.entries()].map(([group, groupCards]) => {
-                    if (!groupCards?.length && !(groupBy === 'category' && getCategoryRow(group))) return null
+                    if (!groupCards?.length) return null
                     const groupQty = groupCards.reduce((s, dc) => s + dc.qty, 0)
                     const groupPrice = groupCards.reduce((sum, dc) => {
-                      const sf = builderSfMap[`${dc.set_code}-${dc.collector_number}`]
+                      const sf = builderSfMap[getScryfallKey(dc)]
                       const p = sf ? getPrice(sf, dc.foil, { price_source }) : null
                       return sum + (p != null ? p * (dc.qty || 1) : 0)
                     }, 0)

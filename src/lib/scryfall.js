@@ -329,6 +329,18 @@ async function enrichFromCardPrints(cards) {
   return cards.filter(c => !resolved.has(c))
 }
 
+// True when an entry is absent, was stripped by clearScryfallCache, or was
+// populated only by card_prints (which has no oracle_text). Vanilla creatures
+// land here with oracle_text === '' (non-null), so they don't perpetually
+// refetch.
+function entryNeedsScryfall(entry) {
+  return !entry || !entry.type_line || entry.oracle_text == null
+}
+
+function cardsNeedingScryfall(cards) {
+  return cards.filter(c => entryNeedsScryfall(_sfMap[`${c.set_code}-${c.collector_number}`]))
+}
+
 export async function enrichCards(cards, onProgress, cacheTtlMs = DEFAULT_TTL_MS) {
   // Load from IDB if not in memory yet
   if (!_sfMap) {
@@ -337,19 +349,17 @@ export async function enrichCards(cards, onProgress, cacheTtlMs = DEFAULT_TTL_MS
       _sfMap = result.map
       // If metadata expired, we fall through to fetch fresh metadata below.
       if (!result.pricesExpired) {
-        // Treat stripped entries (clearScryfallCache nulls type_line) as missing
-    // so the auto-enrich path re-hydrates them without a manual refresh button.
-    const missing = cards.filter(c => {
-      const entry = _sfMap[`${c.set_code}-${c.collector_number}`]
-      return !entry || !entry.type_line
-    })
+        const missing = cardsNeedingScryfall(cards)
         if (missing.length === 0) {
           console.log(`[SF] all ${cards.length} cards cached — skip fetch`)
           onProgress?.(100, '')
           return _sfMap
         }
-        // Try card_prints first; only what's still missing hits Scryfall.
-        const stillMissing = await enrichFromCardPrints(missing)
+        // card_prints provides fast type_line/mana/etc. but no oracle_text.
+        // After it fills filter fields, re-check who still lacks oracle_text
+        // and send only those to Scryfall.
+        await enrichFromCardPrints(missing)
+        const stillMissing = cardsNeedingScryfall(missing)
         if (stillMissing.length) {
           console.log(`[SF] ${stillMissing.length}/${missing.length} cards need Scryfall after card_prints`)
           await fetchAndMerge(stillMissing, null)
@@ -357,7 +367,8 @@ export async function enrichCards(cards, onProgress, cacheTtlMs = DEFAULT_TTL_MS
         return _sfMap
       }
       // Metadata expired — try card_prints first, Scryfall for the rest.
-      const stillMissing = await enrichFromCardPrints(cards)
+      await enrichFromCardPrints(cards)
+      const stillMissing = cardsNeedingScryfall(cards)
       if (stillMissing.length) {
         console.log(`[SF] metadata expired, refetching ${stillMissing.length}/${cards.length} via Scryfall`)
         await fetchAndMerge(stillMissing, onProgress)
@@ -367,18 +378,13 @@ export async function enrichCards(cards, onProgress, cacheTtlMs = DEFAULT_TTL_MS
       return _sfMap
     }
   } else {
-    // Already in memory — check for missing cards only
-    // Treat stripped entries (clearScryfallCache nulls type_line) as missing
-    // so the auto-enrich path re-hydrates them without a manual refresh button.
-    const missing = cards.filter(c => {
-      const entry = _sfMap[`${c.set_code}-${c.collector_number}`]
-      return !entry || !entry.type_line
-    })
+    const missing = cardsNeedingScryfall(cards)
     if (missing.length === 0) {
       onProgress?.(100, '')
       return _sfMap
     }
-    const stillMissing = await enrichFromCardPrints(missing)
+    await enrichFromCardPrints(missing)
+    const stillMissing = cardsNeedingScryfall(missing)
     if (stillMissing.length) {
       console.log(`[SF] ${stillMissing.length} cards need Scryfall after card_prints`)
       await fetchAndMerge(stillMissing, onProgress)
@@ -389,7 +395,8 @@ export async function enrichCards(cards, onProgress, cacheTtlMs = DEFAULT_TTL_MS
   }
 
   // Nothing in IDB at all — try card_prints, then Scryfall for the residual.
-  const stillMissing = await enrichFromCardPrints(cards)
+  await enrichFromCardPrints(cards)
+  const stillMissing = cardsNeedingScryfall(cards)
   if (stillMissing.length) {
     console.log(`[SF] cold start: ${stillMissing.length}/${cards.length} cards need Scryfall`)
     await fetchAndMerge(stillMissing, onProgress)
@@ -416,7 +423,10 @@ function buildEntryFromScryfall(r) {
     cmc:              r.cmc ?? null,
     legalities:       r.legalities || {},
     artist:           r.artist || null,
-    oracle_text:      (r.oracle_text || r.card_faces?.[0]?.oracle_text || '').slice(0, 600) || null,
+    // Preserve empty string for vanilla creatures so we can distinguish
+    // "fetched, no rules text" from "never fetched" (null/undefined). The
+    // missing-check downstream treats null/undefined as needing Scryfall.
+    oracle_text:      (r.oracle_text || r.card_faces?.[0]?.oracle_text || '').slice(0, 600),
     power:            r.power ?? null,
     toughness:        r.toughness ?? null,
     produced_mana:    r.produced_mana || null,

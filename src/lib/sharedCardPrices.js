@@ -261,19 +261,23 @@ export async function overlaySharedCardPrices(cards, baseMap = {}, { priceLookup
   return merged
 }
 
-export async function loadCardMapWithSharedPrices(cards, { onProgress = null, cacheTtlMs, priceLookup = 'exact' } = {}) {
+export async function loadCardMapWithSharedPrices(cards, { onProgress = null, cacheTtlMs, priceLookup = 'exact', requireOracle = false } = {}) {
   if (!cards?.length) return {}
 
   // Shared-price pages should not trigger Scryfall price TTL refreshes.
   // We only need the cached metadata/art, plus fetches for cards missing locally.
   let map = await getInstantCache(Number.MAX_SAFE_INTEGER) || {}
-  // A card needs enrichment if its entry is absent OR has been stripped of
-  // filter-critical metadata (clearScryfallCache nulls type_line/rarity/etc
-  // while keeping image_uris). type_line is the canonical "metadata present"
-  // marker because every real card has one.
+  // A card needs enrichment if its entry is absent or stripped of filter-
+  // critical metadata (clearScryfallCache nulls type_line/rarity/etc). The
+  // deck builder additionally needs oracle_text for category inference and
+  // passes `requireOracle: true` to flag partially-populated card_prints
+  // entries for refetch. Other pages skip this check to avoid hammering
+  // Scryfall with backfill requests for fields they don't use.
   const missing = uniqueByCardKey(cards.filter(card => {
     const entry = map[getCardKey(card)]
-    return !entry || !entry.type_line
+    if (!entry || !entry.type_line) return true
+    if (requireOracle && entry.oracle_text == null) return true
+    return false
   }))
   if (missing.length) {
     try {

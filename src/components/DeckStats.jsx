@@ -1,15 +1,14 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { sfGet, getPrice, formatPrice } from '../lib/scryfall'
+import { CAT_ORDER, CAT_COLORS, getCardCategory } from '../lib/cardCategory'
+
+// Re-export so existing consumers that import from DeckStats keep working.
+export { CAT_ORDER, CAT_COLORS, getCardCategory }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const TYPE_ORDER = ['Commander', 'Creatures', 'Planeswalkers', 'Battles', 'Instants',
   'Sorceries', 'Artifacts', 'Enchantments', 'Lands', 'Other']
-
-export const CAT_ORDER = ['Ramp', 'Mana Rock', 'Card Draw', 'Removal', 'Board Wipe',
-  'Counterspell', 'Tutor', 'Burn', 'Tokens', 'Graveyard', 'Protection',
-  'Extra Turns', 'Combo', 'Creature', 'Artifact', 'Enchantment',
-  'Instant', 'Sorcery', 'Planeswalker', 'Land', 'Other']
 
 const COLOR_ORDER = ['W', 'U', 'B', 'R', 'G']
 const COLOR_BG = { W: '#c0a850', U: '#2a5890', B: '#382050', R: '#7a2c28', G: '#1c5830', C: '#505068' }
@@ -51,46 +50,6 @@ const BRACKET_META = {
 const LAND_SUBTYPE_COLOR = { forest: 'G', mountain: 'R', swamp: 'B', island: 'U', plains: 'W', wastes: 'C' }
 
 const BAR_MAX_PX = 72
-
-export const CAT_COLORS = {
-  'Ramp': '#4a9a5a', 'Mana Rock': '#5a8a9a', 'Card Draw': '#5a70bb', 'Removal': '#cc5555',
-  'Board Wipe': '#aa3333', 'Counterspell': '#4470cc', 'Tutor': '#9a5abb', 'Burn': '#e07020',
-  'Tokens': '#6a9a4a', 'Graveyard': '#7a4a8a', 'Protection': '#aaaaaa',
-  'Extra Turns': '#cc88aa', 'Combo': '#c9a84c', 'Creature': '#5a8a5a',
-  'Artifact': '#8a8a9a', 'Enchantment': '#7a6aaa', 'Instant': '#5555bb',
-  'Sorcery': '#9944aa', 'Planeswalker': '#cc7722', 'Land': '#6a7a5a', 'Other': '#666',
-}
-
-// Functional category classifier — works on raw (lowercased) oracle text + type line
-export function getCardCategory(oracle = '', typeLine = '', keywords = []) {
-  const o = oracle.toLowerCase()
-  const t = typeLine.toLowerCase()
-
-  if (/counter target (spell|creature spell|instant or sorcery|noncreature spell)/.test(o)) return 'Counterspell'
-  if (/search your library for a?.*(basic )?land/.test(o))                                  return 'Ramp'
-  if (t.includes('artifact') && /\{t\}.*add /.test(o))                                      return 'Mana Rock'
-  if (!t.includes('land') && /add \{[wubrg2c]/.test(o))                                     return 'Ramp'
-  if (/draw (two|three|four|\d+) cards|draw a card/.test(o))                                return 'Card Draw'
-  if (/(destroy|exile) all (creatures|permanents|nonland)/.test(o))                         return 'Board Wipe'
-  if (/search your library for a? ?(instant|sorcery|creature|artifact|enchantment|planeswalker)/.test(o) &&
-      !o.includes('basic land'))                                                              return 'Tutor'
-  if (/(exile|destroy) target (creature|permanent|artifact|enchantment|planeswalker)/.test(o)) return 'Removal'
-  if (/deals? \d+ damage to (any target|target player|each opponent|each player)/.test(o))  return 'Burn'
-  if (/create (a|one|two|three|four|\d+) .*token/.test(o))                                  return 'Tokens'
-  if (/return.*from (your |a )?(graveyard|exile)/.test(o))                                  return 'Graveyard'
-  if (/gains? hexproof|gains? indestructible|protection from/.test(o))                      return 'Protection'
-  if (/take an? extra turn/.test(o))                                                         return 'Extra Turns'
-  if (/infinite|win the game/.test(o))                                                       return 'Combo'
-
-  if (t.includes('land'))         return 'Land'
-  if (t.includes('creature'))     return 'Creature'
-  if (t.includes('planeswalker')) return 'Planeswalker'
-  if (t.includes('instant'))      return 'Instant'
-  if (t.includes('sorcery'))      return 'Sorcery'
-  if (t.includes('artifact'))     return 'Artifact'
-  if (t.includes('enchantment'))  return 'Enchantment'
-  return 'Other'
-}
 
 const COMMON_KEYWORDS = [
   'Flying', 'First Strike', 'Double Strike', 'Deathtouch', 'Lifelink', 'Vigilance',
