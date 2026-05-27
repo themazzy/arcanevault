@@ -1275,10 +1275,12 @@ export default function CollectionPage() {
   const displayCardsRef = useRef([])
 
   const SORT_OPTIONS = [
-    ['name', 'Name A→Z'], ['price_desc', 'Price ↓'], ['price_asc', 'Price ↑'],
-    ['pl_desc', 'P&L ↓'], ['pl_asc', 'P&L ↑'], ['cmc_asc', 'Mana Value ↑'],
-    ['cmc_desc', 'Mana Value ↓'], ['qty', 'Quantity'], ['set', 'Set'],
-    ['rarity', 'Rarity'], ['added', 'Recently Added'],
+    ['name', 'Name A→Z'], ['name_desc', 'Name Z→A'],
+    ['price_desc', 'Price ↓'], ['price_asc', 'Price ↑'],
+    ['pl_desc', 'P&L ↓'], ['pl_asc', 'P&L ↑'],
+    ['cmc_asc', 'Mana Value ↑'], ['cmc_desc', 'Mana Value ↓'],
+    ['rarity', 'Rarity'], ['set', 'Set'],
+    ['qty', 'Quantity'], ['added', 'Recently Added'],
   ]
   const currentSortLabel = SORT_OPTIONS.find(([v]) => v === sort)?.[1] ?? 'Sort'
 

@@ -1289,7 +1289,8 @@ export default function DeckBuilderPage() {
   const sortedDeckCards = useMemo(() => {
     if (deckSort === 'type') return visibleDeckCards // type uses grouped rendering
     const cards = [...visibleDeckCards]
-    if (deckSort === 'name')     return cards.sort((a, b) => a.name.localeCompare(b.name))
+    if (deckSort === 'name')      return cards.sort((a, b) => a.name.localeCompare(b.name))
+    if (deckSort === 'name_desc') return cards.sort((a, b) => b.name.localeCompare(a.name))
     if (deckSort === 'cmc_asc')  return cards.sort((a, b) => (a.cmc ?? 0) - (b.cmc ?? 0) || a.name.localeCompare(b.name))
     if (deckSort === 'cmc_desc') return cards.sort((a, b) => (b.cmc ?? 0) - (a.cmc ?? 0) || a.name.localeCompare(b.name))
     if (deckSort === 'color') return cards.sort((a, b) => {
@@ -4055,7 +4056,7 @@ export default function DeckBuilderPage() {
                 >
                   {({ close }) => (
                     <div className={uiStyles.responsiveMenuList}>
-                      {[['name','Name A→Z'],['cmc_asc','Mana Value ↑'],['cmc_desc','Mana Value ↓'],['color','Color'],['type','Type'],['rarity_desc','Rarity ↓'],['rarity_asc','Rarity ↑'],['set','Set'],['price_desc','Price ↓'],['price_asc','Price ↑']].map(([s, label]) => (
+                      {[['type','Type'],['color','Color'],['name','Name A→Z'],['name_desc','Name Z→A'],['cmc_asc','Mana Value ↑'],['cmc_desc','Mana Value ↓'],['rarity_desc','Rarity ↓'],['rarity_asc','Rarity ↑'],['price_desc','Price ↓'],['price_asc','Price ↑'],['set','Set']].map(([s, label]) => (
                         <button
                           key={s}
                           className={`${styles.columnMenuItem} ${deckSort === s ? styles.columnMenuItemActive : ''}`}

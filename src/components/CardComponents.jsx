@@ -1496,17 +1496,22 @@ export function FilterBar({
   const activeCount = countActive(filters, hiddenFilters)
   const set = (key, val) => setFilters(f => ({ ...f, [key]: val }))
   const clear = () => setFilters({ ...EMPTY_FILTERS })
+  // Order convention: Name first (the universal entry point), then numeric
+  // sorts paired asc/desc with the most-useful direction first (Price ↓ to
+  // see expensive cards, Mana Value ↑ to walk the curve), then categorical,
+  // then quantity, then date last.
   const sortOptions = [
     ['name', 'Name A→Z'],
+    ['name_desc', 'Name Z→A'],
     ['price_desc', 'Price ↓'],
     ['price_asc', 'Price ↑'],
     ['pl_desc', 'P&L ↓'],
     ['pl_asc', 'P&L ↑'],
     ['cmc_asc', 'Mana Value ↑'],
     ['cmc_desc', 'Mana Value ↓'],
-    ['qty', 'Quantity'],
-    ['set', 'Set'],
     ['rarity', 'Rarity'],
+    ['set', 'Set'],
+    ['qty', 'Quantity'],
     ['added', 'Recently Added'],
   ]
   const lookupSortOptions = sortOptions.filter(([v]) => !['pl_desc', 'pl_asc', 'qty', 'added'].includes(v))

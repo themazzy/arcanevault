@@ -19,17 +19,21 @@ const RARITY_ORDER = ['mythic', 'rare', 'uncommon', 'common']
 const RARITY_GROUP_ORDER = ['Mythic', 'Rare', 'Uncommon', 'Common', 'Unknown']
 const BOARD_LABELS = { main: 'Mainboard', side: 'Sideboard', maybe: 'Maybeboard' }
 const COLOR_GROUP_ORDER = ['W', 'U', 'B', 'R', 'G', 'Multicolor', 'Colorless']
+// Deck-context order: Type/Color lead because grouping by them is the most
+// useful deck-building view. Name pair next, then numeric sorts paired
+// asc/desc, then Set and Quantity.
 const SORT_OPTIONS = [
   { id: 'type', label: 'Type' },
+  { id: 'color', label: 'Color' },
   { id: 'name', label: 'Name A→Z' },
+  { id: 'name_desc', label: 'Name Z→A' },
   { id: 'cmc_asc', label: 'Mana Value ↑' },
   { id: 'cmc_desc', label: 'Mana Value ↓' },
-  { id: 'color', label: 'Color' },
   { id: 'rarity_desc', label: 'Rarity ↓' },
   { id: 'rarity_asc', label: 'Rarity ↑' },
-  { id: 'set', label: 'Set' },
   { id: 'price_desc', label: 'Price ↓' },
   { id: 'price_asc', label: 'Price ↑' },
+  { id: 'set', label: 'Set' },
   { id: 'qty', label: 'Quantity' },
 ]
 const GROUP_OPTIONS = [
@@ -540,7 +544,8 @@ export default function DeckViewPage() {
   // Sort cards according to sortBy
   const sortCards = useCallback((list) => {
     const copy = [...list]
-    if (sortBy === 'name') return copy.sort((a, b) => a.name.localeCompare(b.name))
+    if (sortBy === 'name')      return copy.sort((a, b) => a.name.localeCompare(b.name))
+    if (sortBy === 'name_desc') return copy.sort((a, b) => b.name.localeCompare(a.name))
     if (sortBy === 'qty') return copy.sort((a, b) => (b.qty ?? 1) - (a.qty ?? 1) || a.name.localeCompare(b.name))
     if (sortBy === 'cmc_asc')  return copy.sort((a, b) => (a.cmc ?? 0) - (b.cmc ?? 0) || a.name.localeCompare(b.name))
     if (sortBy === 'cmc_desc') return copy.sort((a, b) => (b.cmc ?? 0) - (a.cmc ?? 0) || a.name.localeCompare(b.name))

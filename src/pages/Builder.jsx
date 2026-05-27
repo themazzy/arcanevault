@@ -253,7 +253,15 @@ function CommunityDeckTile({ deck, meta, fmt, isOwn, creatorNick, navigate }) {
   )
 }
 
-const SORT_LABELS = { updated: 'Recently Updated', name: 'Name A→Z', format: 'Format' }
+// Render order: Name pair first (alphabetical convention), Format, then the
+// date-based default at the bottom. `useState('updated')` still defaults the
+// page to Recently Updated regardless of menu order.
+const SORT_LABELS = {
+  name: 'Name A→Z',
+  name_desc: 'Name Z→A',
+  format: 'Format',
+  updated: 'Recently Updated',
+}
 const TYPE_LABELS = [['all', 'All'], ['builder', 'Builder'], ['collection', 'Collection']]
 
 export default function BuilderPage() {
@@ -486,7 +494,8 @@ export default function BuilderPage() {
       return true
     })
     .sort((a, b) => {
-      if (sortBy === 'name')   return a.name.localeCompare(b.name)
+      if (sortBy === 'name')      return a.name.localeCompare(b.name)
+      if (sortBy === 'name_desc') return b.name.localeCompare(a.name)
       if (sortBy === 'format') {
         return (a.__meta?.format || '').localeCompare(b.__meta?.format || '')
       }

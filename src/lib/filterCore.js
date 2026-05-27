@@ -216,7 +216,8 @@ export function applyFilterSort(cards, sfMap, {
     const keyOf = (c) => {
       const sf = sfOf(c)
       switch (sort) {
-        case 'name':       return c.name || ''
+        case 'name':
+        case 'name_desc':  return c.name || ''
         case 'price_desc':
         case 'price_asc': {
           const px = priceOf(sf, c.foil)
@@ -244,6 +245,7 @@ export function applyFilterSort(cards, sfMap, {
   r.sort((a, b) => {
     switch (sort) {
       case 'name':       return a.__sk.localeCompare(b.__sk)
+      case 'name_desc':  return b.__sk.localeCompare(a.__sk)
       case 'price_desc': return b.__sk - a.__sk
       case 'price_asc':  return a.__sk - b.__sk
       case 'pl_desc':    return (b.__sk ?? -Infinity) - (a.__sk ?? -Infinity)

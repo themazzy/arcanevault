@@ -41,6 +41,7 @@ function parseBgUrl(description) {
 
 const SORT_OPTIONS = [
   ['name',       'Name A→Z'],
+  ['name_desc',  'Name Z→A'],
   ['value_desc', 'Value ↓'],
   ['value_asc',  'Value ↑'],
   ['count_desc', 'Cards ↓'],
@@ -54,6 +55,7 @@ function sortFolders(folders, meta, sort) {
     if (sort === 'value_asc')  return (ma.value || 0) - (mb.value || 0)
     if (sort === 'count_desc') return (mb.totalQty || 0) - (ma.totalQty || 0)
     if (sort === 'count_asc')  return (ma.totalQty || 0) - (mb.totalQty || 0)
+    if (sort === 'name_desc')  return b.name.localeCompare(a.name)
     return a.name.localeCompare(b.name)
   })
 }

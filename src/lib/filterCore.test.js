@@ -514,6 +514,14 @@ describe('applyFilterSort — sort modes', () => {
     expect(applyFilterSort([c, a, b], sfMap, { sort: 'name' }).map(x => x.id)).toEqual(['a', 'b', 'c'])
   })
 
+  it('sort=name_desc uses localeCompare descending', () => {
+    const a = card({ id: 'a', name: 'Aether Vial' })
+    const b = card({ id: 'b', name: 'Bolt', set_code: 'a', collector_number: '2' })
+    const c = card({ id: 'c', name: 'Counterspell', set_code: 'a', collector_number: '3' })
+    const sfMap = makeMap([[a, sf()], [b, sf()], [c, sf()]])
+    expect(applyFilterSort([a, b, c], sfMap, { sort: 'name_desc' }).map(x => x.id)).toEqual(['c', 'b', 'a'])
+  })
+
   it('sort=price_desc puts highest first', () => {
     const lo = card({ id: 'lo' })
     const hi = card({ id: 'hi', set_code: 'a', collector_number: '2' })
