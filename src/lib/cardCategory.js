@@ -101,11 +101,15 @@ export function getCardCategory(oracle = '', typeLine = '', keywords = []) {
   if (/copy target triggered ability/.test(o)) return 'Doublers'
   // Draw doublers: Teferi's Ageless Insight, Alhammarret's Archive
   if (/if you would draw [^.]{0,80}instead [a-z]+ two cards/.test(o)) return 'Doublers'
-  // Damage doublers: City on Fire, Furnace of Rath, Dictate of the Twin Gods,
-  // Gisela. Matches both "deals double damage" and "deals double that damage".
-  if (/deals? double (that |the )?damage/.test(o)) return 'Doublers'
+  // Damage doublers/triplers: City on Fire (MOM = triple), Furnace of Rath,
+  // Dictate of the Twin Gods, Gisela. Matches "deals double damage",
+  // "deals double that damage", and the triple variant.
+  if (/deals? (double|triple) (that |the )?damage/.test(o)) return 'Doublers'
 
   // ── Copy (spell/permanent doubling) ───────────────────────────────────────
+  // Optional quantifier between "copy" and "target" catches Display of Power
+  // ("Copy any number of target instant and/or sorcery spells").
+  if (/copy [a-z ]{0,40}target [a-z' /]{0,40}(spell|instant|sorcery|creature|permanent|activated ability|triggered ability)/.test(o)) return 'Copy'
   if (/copy target (spell|instant|sorcery|creature|permanent|activated ability|triggered ability)/.test(o)) return 'Copy'
   if (/token that's a copy of/.test(o)) return 'Copy'
   if (/(becomes|enters? the battlefield as) a copy of/.test(o)) return 'Copy'
@@ -150,12 +154,14 @@ export function getCardCategory(oracle = '', typeLine = '', keywords = []) {
   if (/exile (another )?target [a-z' ]{0,30}creature[^.]{0,80}return [^.]{0,40}to the battlefield/.test(o)) return 'Blink'
 
   // ── Ramp (mana rocks & dorks — formerly the "Mana Rock" bucket) ───────────
-  // `adds?` covers both imperative "Add {G}" (Sol Ring) and triggered
-  // "that player adds {U}" (High Tide).
+  // `adds?` covers imperative "Add {G}" (Sol Ring), triggered "that player
+  // adds {U}" (High Tide reprints), and "adds an additional {U}" wording.
+  // The [a-z ]{0,30} between adds and {…} permits "an additional" / "two
+  // mana of any color" filler without leaking into unrelated wording.
   if (t.includes('artifact') && !t.includes('creature') &&
-      /(\{t\}|tap)[^.]{0,80}adds? (\{|one|two|three|x mana|an amount)/.test(o)) return 'Ramp'
-  if (!t.includes('land') && /adds? \{[wubrgc2]/.test(o)) return 'Ramp'
-  if (!t.includes('land') && /adds? (one|two|three|x|\d+) mana/.test(o)) return 'Ramp'
+      /(\{t\}|tap)[^.]{0,80}adds? [a-z ]{0,30}(\{|one|two|three|x mana|an amount)/.test(o)) return 'Ramp'
+  if (!t.includes('land') && /adds? [a-z ]{0,30}\{[wubrgc2]/.test(o)) return 'Ramp'
+  if (!t.includes('land') && /adds? [a-z ]{0,30}(one|two|three|x|\d+) mana/.test(o)) return 'Ramp'
 
   // ── Cost Reduction ────────────────────────────────────────────────────────
   if (/costs? (\{[\dx]+\}|one|two|three|four|five|six|seven|x|\d+) less to cast/.test(o)) return 'Cost Reduction'
@@ -193,7 +199,12 @@ export function getCardCategory(oracle = '', typeLine = '', keywords = []) {
   if (/deals? [a-z\d' ]{0,30}damage [a-z\d' ]{0,40}to (target player|target opponent|each opponent|each player)/.test(o)) return 'Burn'
   // Fireball / Comet Storm wording: "deals X damage divided … among any number
   // of targets". Targets include players, so this is Burn rather than Removal.
-  if (/deals? [a-z\d' ]{0,30}damage divided [a-z' ]{0,40}among/.test(o)) return 'Burn'
+  // The interior allows commas/digits so "divided evenly, rounded down, among"
+  // (Fireball) matches alongside the simpler "divided as you choose among".
+  if (/deals? [a-z\d' ]{0,30}damage divided [a-z,'\d ]{0,40}among/.test(o)) return 'Burn'
+  // Post-2024 fireball wording: "Choose any target, then choose another target
+  // for each time this spell was kicked. [Card] deals X damage to each of them."
+  if (/deals? [a-z\d' ]{0,30}damage to (each|any) of them/.test(o)) return 'Burn'
 
   // ── Lifegain (after Drain/Removal/Burn so attack/damage cards win) ────────
   if (/you gain [a-z\d ]{0,20}life/.test(o)) return 'Lifegain'
@@ -267,9 +278,10 @@ export function getCardCategory(oracle = '', typeLine = '', keywords = []) {
   if (/\bcascade\b/.test(o)) return 'Cheat'
 
   // ── Extra Turns ───────────────────────────────────────────────────────────
-  // Quantifier is required; covers "take an extra turn" (Time Warp) and
-  // "take two extra turns" (Time Stretch).
-  if (/take (an?|another|this|one|two|three|four|five|\d+) extra turns?/.test(o)) return 'Extra Turns'
+  // Quantifier is required. `takes?` covers both imperative "Take an extra
+  // turn" (Time Warp) and third-person "Target player takes two extra turns"
+  // (Time Stretch reprint, Beacon of Tomorrows, Karn's Temporal Sundering).
+  if (/takes? (an?|another|this|one|two|three|four|five|\d+) extra turns?/.test(o)) return 'Extra Turns'
 
   // ── Combo / wincon ────────────────────────────────────────────────────────
   if (/\bwins? the game\b|you win the game/.test(o)) return 'Combo'
