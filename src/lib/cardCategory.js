@@ -78,6 +78,12 @@ export function getCardCategory(oracle = '', typeLine = '', keywords = []) {
   const o = (oracle || '').toLowerCase()
   const t = (typeLine || '').toLowerCase()
 
+  // ── Lands always stay Land ────────────────────────────────────────────────
+  // Lands with functional text (fetch lands, Field of the Dead, mana dorks
+  // disguised as lands) should never leak into Ramp/Landfall/etc. Bucketing
+  // them all as Land matches how players group decks visually.
+  if (t.includes('land')) return 'Land'
+
   // ── Counterspell ──────────────────────────────────────────────────────────
   if (/counter target [a-z' ]{0,40}(spell|ability)/.test(o)) return 'Counterspell'
   if (/counter (that|the next) (spell|ability)/.test(o)) return 'Counterspell'
@@ -216,6 +222,14 @@ export function getCardCategory(oracle = '', typeLine = '', keywords = []) {
   if (/whenever (a player|an opponent) [^.]{0,100}unless (they|that player|its controller) pays?/.test(o)) return 'Stax'
   if (/(lands?|nonbasic lands?) [a-z ]{0,30}(are|become) [a-z ]{0,30}(basic|plains|island|swamp|mountain|forest|wastes?)/.test(o)) return 'Stax'
   if (/players? skip [a-z ]{0,30}(untap|draw|combat) step/.test(o)) return 'Stax'
+
+  // ── Anthem (triggered mass buff — even "until end of turn") ───────────────
+  // Balmor / Goldnight Commander / Hidetsugu and Kairi pump the whole board
+  // on a trigger; the buff is short-lived but the card's role is "the anthem
+  // engine". Differentiator vs Giant Growth is the `whenever` trigger plus a
+  // collective subject ("creatures you control" / "other X creatures").
+  if (!t.includes('instant') && !t.includes('sorcery') &&
+      /whenever [^.]{0,120}(creatures you control|other [a-z ]{1,30}creatures|each (other )?creature)[^.]{0,30}get \+\d+\/\+\d+/.test(o)) return 'Anthem'
 
   // ── Anthem (static buff; combat tricks excluded same-sentence) ────────────
   // The negative lookahead is sentence-scoped via [^.]{0,30} so an unrelated

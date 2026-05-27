@@ -464,6 +464,27 @@ const cases = [
   ['Threaten (steal until end of turn → Combo)',
     'Untap target creature an opponent controls and gain control of it until end of turn. It gains haste.',
     'Sorcery', 'Combo'],
+  ['Balmor, Battlemage Captain (triggered mass pump → Anthem)',
+    'Flying\nWhenever you cast an instant or sorcery spell, creatures you control get +1/+0 and gain trample until end of turn.',
+    'Legendary Creature — Bird Wizard', 'Anthem'],
+  ['Goldnight Commander (ETB-trigger anthem)',
+    'Whenever another creature enters the battlefield under your control, creatures you control get +1/+1 and gain haste until end of turn.',
+    'Creature — Human Soldier', 'Anthem'],
+  ['Giant Growth still combat trick (no whenever, no collective subject)',
+    'Target creature gets +3/+3 until end of turn.',
+    'Instant', 'Instant'],
+
+  // ── Lands always stay Land (early guard) ────────────────────────────────
+  ['Flooded Strand (fetch land — Land, not Ramp)',
+    '{T}, Pay 1 life, Sacrifice this land: Search your library for a Plains or Island card, put it onto the battlefield, then shuffle.',
+    'Land', 'Land'],
+  ['Field of the Dead (land trigger — Land, not Landfall)',
+    "Field of the Dead enters tapped.\n{T}: Add {C}.\nWhenever a land enters the battlefield under your control, if you control seven or more lands with different names, create a 2/2 black Zombie Army creature token.",
+    'Land', 'Land'],
+  ['Gaea\'s Cradle (mana land — Land, not Ramp)',
+    "{T}: Add {G} for each creature you control.",
+    'Legendary Land', 'Land'],
+
   // Regression: self-recursion clauses ("shuffle it into its owner's library")
   // must NOT mis-fire as Removal. The "owner of target permanent" anchor on the
   // shuffle rule prevents that. Worldspine Wurm itself resolves as Tokens via
