@@ -22,6 +22,19 @@ export const CAT_ORDER = [
   'Land', 'Other',
 ]
 
+// Categories produced by `getCardCategory`'s type-line fallback. A card pinned
+// to one of these is just "the regex didn't find a role" — so it's safe to
+// re-infer when the rules improve. Functional categories (Ramp, Burn, etc.)
+// represent an intentional pick and must never be auto-overwritten.
+export const TYPE_FALLBACK_CATEGORIES = new Set([
+  'Creature', 'Artifact', 'Enchantment', 'Instant', 'Sorcery',
+  'Planeswalker', 'Land', 'Other',
+])
+
+export function isTypeFallbackCategory(name) {
+  return TYPE_FALLBACK_CATEGORIES.has(name)
+}
+
 export const CAT_COLORS = {
   'Ramp': '#4a9a5a',
   'Card Draw': '#5a70bb',

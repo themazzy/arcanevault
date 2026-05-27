@@ -24,7 +24,7 @@ import PromptDialog from '../components/PromptDialog'
 import { CardDetail } from '../components/CardComponents'
 import DeckStats, { normalizeDeckBuilderCards, CAT_COLORS, CAT_ORDER } from '../components/DeckStats'
 import { getScryfallKey, formatPrice, getPrice } from '../lib/scryfall'
-import { getCardCategoryFromCard } from '../lib/cardCategory'
+import { getCardCategoryFromCard, isTypeFallbackCategory } from '../lib/cardCategory'
 import ExportModal from '../components/ExportModal'
 import { fetchDeckAllocations, fetchDeckAllocationsForUser, fetchDeckCards, mergeAllocationRows, upsertDeckAllocations } from '../lib/deckData'
 import {
@@ -630,6 +630,59 @@ export default function DeckBuilderPage() {
   useEffect(() => { deckCardsRef.current = deckCards }, [deckCards])
   useEffect(() => { deckCategoriesRef.current = deckCategories }, [deckCategories])
   useEffect(() => { deckMetaRef.current = deckMeta }, [deckMeta])
+
+  // One-shot per deck load: rescue cards pinned to a type-line fallback
+  // category (Instant/Sorcery/Enchantment/…) when live regex inference now
+  // lands them in a functional bucket (Ramp, Burn, Doublers, …). Cleared
+  // cards fall through to live inference on render (see getDeckCardGroup).
+  // Never downgrades — only fires when stored is a fallback AND inferred
+  // is non-fallback. Runs once builderSfMap is populated so oracle text
+  // is available to the regex ladder.
+  const categoryUpgradeRunRef = useRef(false)
+  useEffect(() => { categoryUpgradeRunRef.current = false }, [deckId])
+  useEffect(() => {
+    if (categoryUpgradeRunRef.current) return
+    if (!deckId || !deckCards.length || !deckCategories.length) return
+    if (builderPrintSignature && !Object.keys(builderSfMap).length) return
+
+    const byId = new Map(deckCategories.map(cat => [cat.id, cat]))
+    const idsToClear = []
+    for (const dc of deckCards) {
+      if (!dc.category_id) continue
+      const storedName = byId.get(dc.category_id)?.name
+      if (!storedName || !isTypeFallbackCategory(storedName)) continue
+      const sf = dc.set_code && dc.collector_number ? (builderSfMap[getScryfallKey(dc)] || {}) : {}
+      const inferred = getCardCategoryFromCard(dc, sf)
+      if (!inferred || inferred === 'Other' || isTypeFallbackCategory(inferred)) continue
+      if (inferred === storedName) continue
+      idsToClear.push(dc.id)
+    }
+
+    // Flip the ref synchronously so a re-render mid-flight (e.g. a card add)
+    // can't queue a duplicate upgrade pass before the await resolves.
+    categoryUpgradeRunRef.current = true
+
+    if (!idsToClear.length) return
+
+    ;(async () => {
+      try {
+        const { error } = await sb.from('deck_cards')
+          .update({ category_id: null, updated_at: new Date().toISOString() })
+          .in('id', idsToClear)
+        if (error) {
+          console.error('[DeckBuilder] category auto-upgrade failed:', error)
+          return
+        }
+        const idSet = new Set(idsToClear)
+        const next = deckCardsRef.current.map(dc => idSet.has(dc.id) ? { ...dc, category_id: null } : dc)
+        deckCardsRef.current = next
+        setDeckCards(next)
+        putDeckCards(next.filter(dc => idSet.has(dc.id))).catch(() => {})
+      } catch (err) {
+        console.error('[DeckBuilder] category auto-upgrade error:', err)
+      }
+    })()
+  }, [deckId, deckCards, deckCategories, builderSfMap, builderPrintSignature])
 
   // ── Load on mount ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1972,7 +2025,12 @@ export default function DeckBuilderPage() {
     }], 'Deck card printing')
 
     const inferredCategory = getCardCategoryFromCard({ type_line: meta.type_line }, resolved.sfCard)
-    const initialCategory = await ensureDeckCategoryForName(inferredCategory && inferredCategory !== 'Other' ? inferredCategory : UNCATEGORIZED)
+    // Only persist a category when the regex landed on a functional bucket.
+    // Type-line fallbacks (Instant/Sorcery/etc.) are left as null so the
+    // auto-upgrade pass on next load can re-infer them when the regex improves.
+    const shouldPersistCategory =
+      inferredCategory && inferredCategory !== 'Other' && !isTypeFallbackCategory(inferredCategory)
+    const initialCategory = shouldPersistCategory ? await ensureDeckCategoryForName(inferredCategory) : null
     const nextRow = { ...placeholderRow, ...printing, category_id: initialCategory?.id || null, foil: !!resolved.foil, updated_at: now }
     const existing = deckCardsRef.current.find(dc => dc.id !== placeholderRow.id && isSameDeckPrinting(dc, nextRow))
 
