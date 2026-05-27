@@ -24,8 +24,8 @@ const NON_DRAGGABLE_IMG_PROPS = {
 }
 
 const fmt = (v, currency = 'EUR') => {
-  if (v == null || isNaN(v)) return 'â€”'
-  return currency === 'EUR' ? `â‚¬${v.toFixed(2)}` : `$${v.toFixed(2)}`
+  if (v == null || isNaN(v)) return '—'
+  return currency === 'EUR' ? `€${v.toFixed(2)}` : `$${v.toFixed(2)}`
 }
 
 function isGroupFolder(folder) {
@@ -37,7 +37,7 @@ function scryfallLargeUrl() {
   return null
 }
 
-// â”€â”€ CardGrid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── CardGrid ──────────────────────────────────────────────────────────────────
 function CardItem({ card, sfCard, selectMode, isSelected, totalQty, onSelect, onToggleSelect, onEnterSelectMode, onAdjustQty, splitState, loading }) {
   const displayKey = card._displayKey || card.id
   const img = getImageUri(sfCard, 'normal')
@@ -79,7 +79,7 @@ function CardItem({ card, sfCard, selectMode, isSelected, totalQty, onSelect, on
     >
       {selectMode && (
         <div className={`${styles.checkbox}${isSelected ? ' ' + styles.checkboxChecked : ''}`}>
-          {isSelected && 'âœ“'}
+          {isSelected && '✓'}
         </div>
       )}
       <div className={`${styles.imgContainer}${isSelected ? ' ' + styles.imgSelected : ''}`}>
@@ -87,25 +87,25 @@ function CardItem({ card, sfCard, selectMode, isSelected, totalQty, onSelect, on
           ? <img className={styles.img} src={img} alt={card.name} loading="lazy" {...NON_DRAGGABLE_IMG_PROPS} />
           : <div className={styles.imgPlaceholder}>{card.name}</div>
         }
-        {(card._folder_qty || card.qty) > 1 && <div className={styles.qty}>Ã—{card._folder_qty || card.qty}</div>}
+        {(card._folder_qty || card.qty) > 1 && <div className={styles.qty}>×{card._folder_qty || card.qty}</div>}
         {card.foil && <Badge variant="foil">Foil</Badge>}
         {selectMode && isSelected && totalQty > 1 && (
           <div className={styles.qtyOverlay}>
             <button className={styles.qtyOverlayBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(displayKey, +1, totalQty) }}>+</button>
             <div className={styles.qtyOverlayDisplay}>{selQty} of {totalQty}</div>
-            <button className={styles.qtyOverlayBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(displayKey, -1, totalQty) }}>âˆ’</button>
+            <button className={styles.qtyOverlayBtn} onClick={e => { e.stopPropagation(); onAdjustQty?.(displayKey, -1, totalQty) }}>−</button>
           </div>
         )}
       </div>
       <div className={styles.cardInfo}>
         <div className={styles.cardNameRow}>
           <div className={styles.cardName}>{card.name}</div>
-          {card.foil && <span className={styles.foilMark}>âœ¦</span>}
+          {card.foil && <span className={styles.foilMark}>✦</span>}
         </div>
         <div className={styles.cardMeta}>
           <span className={styles.setCode}>{(card.set_code || '').toUpperCase()}</span>
           <span className={`${styles.price} ${priceClass}`}>
-            {price != null ? fmt(price) : loading ? 'â€¦' : 'â€”'}
+            {price != null ? fmt(price) : loading ? '…' : '—'}
           </span>
         </div>
         {card._folderName && <div className={styles.folderName}>{card._folderName}</div>}
@@ -146,7 +146,7 @@ export function CardGrid({ cards, sfMap, loading, onSelect, selectMode, selected
   )
 }
 
-// â”€â”€ MoveToDialog â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── MoveToDialog ──────────────────────────────────────────────────────────────
 function MoveToDialog({ folders, onMoveToFolder, onCreateFolder, onClose, allowedFolderTypes = ['binder', 'deck'] }) {
   const [destType, setDestType] = useState(allowedFolderTypes[0] || 'binder')
   const [search, setSearch] = useState('')
@@ -213,7 +213,7 @@ function MoveToDialog({ folders, onMoveToFolder, onCreateFolder, onClose, allowe
         className={styles.moveDialogSearch}
         value={search}
         onChange={e => setSearch(e.target.value)}
-        placeholder={`Search ${destType}sâ€¦`}
+        placeholder={`Search ${destType}s…`}
       />
 
       <div className={styles.moveDialogList}>
@@ -232,7 +232,7 @@ function MoveToDialog({ folders, onMoveToFolder, onCreateFolder, onClose, allowe
       <div className={styles.moveDialogCreate}>
         {!creating ? (
           <button className={styles.moveDialogCreateBtn} onClick={() => setCreating(true)}>
-            ï¼‹ Create new {destType}
+            ＋ Create new {destType}
           </button>
         ) : (
           <div className={styles.moveDialogCreateForm}>
@@ -246,18 +246,18 @@ function MoveToDialog({ folders, onMoveToFolder, onCreateFolder, onClose, allowe
                 if (e.key === 'Enter') handleCreate()
                 if (e.key === 'Escape') { setCreating(false); setCreateName('') }
               }}
-              placeholder={`New ${destType} nameâ€¦`}
+              placeholder={`New ${destType} name…`}
               maxLength={100}
             />
             <button
               className={styles.moveDialogCreateSave}
               onClick={handleCreate}
               disabled={saving || !createName.trim()}
-            >{saving ? 'â€¦' : 'Create & Move'}</button>
+            >{saving ? '…' : 'Create & Move'}</button>
             <button
               className={styles.moveDialogCreateCancel}
               onClick={() => { setCreating(false); setCreateName('') }}
-            >âœ•</button>
+            >✕</button>
           </div>
         )}
       </div>
@@ -266,7 +266,7 @@ function MoveToDialog({ folders, onMoveToFolder, onCreateFolder, onClose, allowe
   )
 }
 
-// â”€â”€ BulkActionBar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── BulkActionBar ─────────────────────────────────────────────────────────────
 export function BulkActionBar({ selected, total, onSelectAll, onDeselectAll, onDelete, onMoveToFolder, folders, onCreateFolder, selectedQty, allowedFolderTypes = ['binder', 'deck'], floatingMobile = false }) {
   const [showMoveDialog, setShowMoveDialog] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
@@ -280,7 +280,7 @@ export function BulkActionBar({ selected, total, onSelectAll, onDeselectAll, onD
         <button className={styles.bulkLink} onClick={onDeselectAll}>Deselect all</button>
       </div>
       <div className={styles.bulkActions}>
-        <button className={styles.bulkBtn} onClick={() => setShowMoveDialog(true)}>Move toâ€¦</button>
+        <button className={styles.bulkBtn} onClick={() => setShowMoveDialog(true)}>Move to…</button>
         <button className={`${styles.bulkBtn} ${styles.bulkDelete}`} onClick={() => setShowDeleteDialog(true)}>
           Delete {count}
         </button>
@@ -321,14 +321,14 @@ export function BulkActionBar({ selected, total, onSelectAll, onDeselectAll, onD
   )
 }
 
-// â”€â”€ CardDetail â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── CardDetail ────────────────────────────────────────────────────────────────
 
-// â”€â”€ Scryfall symbol SVGs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Scryfall symbol SVGs ──────────────────────────────────────────────────────
 // Scryfall hosts SVGs for every symbol at cards.scryfall.io/card-symbols/{SYM}.svg
 // e.g. T.svg, W.svg, 2.svg, X.svg, S.svg (snow), E.svg (energy), PW.svg etc.
 
 function symbolUrl(sym) {
-  // Normalize: {W/U} â†’ WU, {2/W} â†’ 2W, {T} â†’ T, etc.
+  // Normalize: {W/U} → WU, {2/W} → 2W, {T} → T, etc.
   const s = sym.replace(/[{}]/g, '').replace('/', '')
   return `https://svgs.scryfall.io/card-symbols/${s}.svg`
 }
@@ -364,7 +364,7 @@ function parseSymbols(text, symSize = 15) {
   )
 }
 
-// Mana cost row â€” e.g. {2}{W}{U}
+// Mana cost row — e.g. {2}{W}{U}
 function ManaSymbols({ cost, size = 18 }) {
   if (!cost) return null
   // Handle double-faced separator ' // '
@@ -383,9 +383,9 @@ function ManaSymbols({ cost, size = 18 }) {
   )
 }
 
-// Oracle text â€” renders symbols inline, italicises reminder text in (parens)
+// Oracle text — renders symbols inline, italicises reminder text in (parens)
 function OracleText({ text }) {
-  if (!text) return <span style={{ color: 'var(--text-faint)', fontStyle: 'italic' }}>â€”</span>
+  if (!text) return <span style={{ color: 'var(--text-faint)', fontStyle: 'italic' }}>—</span>
   const lines = text.split('\n')
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -426,7 +426,7 @@ const LANG_NAMES_FULL = {
   he:'Hebrew', la:'Latin', grc:'Ancient Greek', ar:'Arabic', sa:'Sanskrit', ph:'Phyrexian',
 }
 
-// Fetch full card data from Scryfall â€” by scryfall_id if available, else by set+collector_number
+// Fetch full card data from Scryfall — by scryfall_id if available, else by set+collector_number
 const _fullCardCache = {}
 async function fetchFullCard(scryfallId, setCode, collectorNumber) {
   const cacheKey = scryfallId || `${setCode}-${collectorNumber}`
@@ -796,7 +796,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, deleteQty 
                   {flavorText && <p className={styles.flavorText}>{flavorText}</p>}
                 </>
               )}
-              {/* Info grid â€” 2-column layout for compact display */}
+              {/* Info grid — 2-column layout for compact display */}
               <div className={styles.infoGrid}>
                 {typeLine && <div className={styles.infoCell}><span className={styles.infoLabel}>Type</span><span className={styles.infoVal}>{typeLine}</span></div>}
                 {fc.rarity && <div className={styles.infoCell}><span className={styles.infoLabel}>Rarity</span><span className={styles.infoVal} style={{ textTransform: 'capitalize' }}>{fc.rarity}</span></div>}
@@ -818,10 +818,10 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, deleteQty 
               {/* External links */}
               {(fc.scryfall_uri || fc.related_uris || fc.purchase_uris) && (
                 <div className={styles.detailLinks}>
-                  {fc.scryfall_uri && <a href={fc.scryfall_uri} target="_blank" rel="noreferrer" className={styles.detailLink}>Scryfall â†’</a>}
-                  {fc.related_uris?.gatherer && <a href={fc.related_uris.gatherer} target="_blank" rel="noreferrer" className={styles.detailLinkMuted}>Gatherer â†’</a>}
-                  {fc.purchase_uris?.tcgplayer && <a href={fc.purchase_uris.tcgplayer} target="_blank" rel="noreferrer" className={styles.detailLinkTcg}>TCGPlayer â†’</a>}
-                  {fc.purchase_uris?.cardmarket && <a href={fc.purchase_uris.cardmarket} target="_blank" rel="noreferrer" className={styles.detailLinkMarket}>Cardmarket â†’</a>}
+                  {fc.scryfall_uri && <a href={fc.scryfall_uri} target="_blank" rel="noreferrer" className={styles.detailLink}>Scryfall →</a>}
+                  {fc.related_uris?.gatherer && <a href={fc.related_uris.gatherer} target="_blank" rel="noreferrer" className={styles.detailLinkMuted}>Gatherer →</a>}
+                  {fc.purchase_uris?.tcgplayer && <a href={fc.purchase_uris.tcgplayer} target="_blank" rel="noreferrer" className={styles.detailLinkTcg}>TCGPlayer →</a>}
+                  {fc.purchase_uris?.cardmarket && <a href={fc.purchase_uris.cardmarket} target="_blank" rel="noreferrer" className={styles.detailLinkMarket}>Cardmarket →</a>}
                 </div>
               )}
             </div>
@@ -954,7 +954,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, deleteQty 
                     <div className={styles.editField}>
                       <span className={styles.editLabel}>Quantity</span>
                       <div className={styles.qtyEditor}>
-                        <button className={styles.qtyBtn} onClick={() => setEditQty(q => Math.max(1, q - 1))}>âˆ’</button>
+                        <button className={styles.qtyBtn} onClick={() => setEditQty(q => Math.max(1, q - 1))}>−</button>
                         <input className={styles.qtyInput} type="number" min="1" name="card-detail-quantity" value={editQty} onChange={e => setEditQty(Math.max(1, parseInt(e.target.value) || 1))} />
                         <button className={styles.qtyBtn} onClick={() => setEditQty(q => q + 1)}>+</button>
                       </div>
@@ -988,7 +988,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, deleteQty 
                     <span className={styles.editLabel}>Buy Price (EUR)</span>
                     {!buyPriceEdit ? (
                       <div className={styles.buyPriceRow}>
-                        <span className={styles.buyPriceValue}>{editBuyPrice > 0 ? `â‚¬${editBuyPrice.toFixed(2)}` : 'â€”'}</span>
+                        <span className={styles.buyPriceValue}>{editBuyPrice > 0 ? `€${editBuyPrice.toFixed(2)}` : '—'}</span>
                         <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.ghost}`} onClick={() => { setBuyPriceEdit(true); setBuyPriceInput(editBuyPrice > 0 ? String(editBuyPrice) : '') }}>
                           {editBuyPrice > 0 ? 'Change' : '+ Set'}
                         </button>
@@ -1022,7 +1022,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, deleteQty 
                         {({ close }) => (
                           <div className={styles.printingImgGrid}>
                             {loadingPrintings ? (
-                              <div className={styles.printingImgLoading}>Loading printingsâ€¦</div>
+                              <div className={styles.printingImgLoading}>Loading printings…</div>
                             ) : printings?.map((p, i) => (
                               <button
                                 key={i}
@@ -1038,7 +1038,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, deleteQty 
                                 </div>
                                 <div className={styles.printingCardLabel}>
                                   <span className={styles.printingCardSet}>{p.set_name}</span>
-                                  <span className={styles.printingCardMeta}>{(p.set || '').toUpperCase()} #{p.collector_number}{p.lang && p.lang !== 'en' ? ` Â· ${p.lang.toUpperCase()}` : ''}</span>
+                                  <span className={styles.printingCardMeta}>{(p.set || '').toUpperCase()} #{p.collector_number}{p.lang && p.lang !== 'en' ? ` · ${p.lang.toUpperCase()}` : ''}</span>
                                 </div>
                               </button>
                             ))}
@@ -1053,7 +1053,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, deleteQty 
               <div className={styles.editActionRow}>
                 <div className={styles.editSaveRow}>
                   <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.green}`} onClick={handleSave} disabled={saving || saved}>
-                    {saving ? 'Saving...' : saved ? 'âœ“ Saved' : 'Save Changes'}
+                    {saving ? 'Saving...' : saved ? '✓ Saved' : 'Save Changes'}
                   </button>
                   {saveError && <span className={styles.detailError}>{saveError}</span>}
                 </div>
@@ -1069,7 +1069,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, deleteQty 
                         const dest = f.id ? `${path}?folder=${f.id}` : path
                         return (
                           <button key={i} onClick={() => { onClose?.(); navigate(dest) }} className={`${uiStyles.btn} ${uiStyles.sm} ${styles.folderChip}`}>
-                            <FolderTypeIcon type={f.type} size={11} />{f.name} â†’
+                            <FolderTypeIcon type={f.type} size={11} />{f.name} →
                           </button>
                         )
                       })}
@@ -1082,12 +1082,12 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, deleteQty 
               <div className={styles.detailSubsection}>
                 <div className={styles.infoGrid}>
                   <div className={styles.infoCell}><span className={styles.infoLabel}>Set</span><span className={styles.infoVal}>{(card.set_code || '').toUpperCase()} #{card.collector_number}</span></div>
-                  <div className={styles.infoCell}><span className={styles.infoLabel}>Added</span><span className={styles.infoVal}>{card.added_at ? new Date(card.added_at).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' }) : 'â€”'}</span></div>
+                  <div className={styles.infoCell}><span className={styles.infoLabel}>Added</span><span className={styles.infoVal}>{card.added_at ? new Date(card.added_at).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' }) : '—'}</span></div>
                   {editBuyPrice > 0 && pl != null && (
                     <div className={styles.infoCell}>
                       <span className={styles.infoLabel}>P&amp;L</span>
                       <span className={styles.infoVal} style={{ color: pl >= 0 ? 'var(--green)' : '#e05252', fontWeight: 600 }}>
-                        {pl >= 0 ? '+' : ''}â‚¬{pl.toFixed(2)}{plPct != null && <span className={styles.inlineMuted}> ({plPct >= 0 ? '+' : ''}{plPct.toFixed(1)}%)</span>}
+                        {pl >= 0 ? '+' : ''}€{pl.toFixed(2)}{plPct != null && <span className={styles.inlineMuted}> ({plPct >= 0 ? '+' : ''}{plPct.toFixed(1)}%)</span>}
                       </span>
                     </div>
                   )}
@@ -1113,7 +1113,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, deleteQty 
 
 
 
-// â”€â”€ FilterBar + applyFilterSort â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── FilterBar + applyFilterSort ───────────────────────────────────────────────
 
 const COLORS = [
   { id: 'W', symbol: 'W', title: 'White',      bg: '#f5f0d8', fg: '#5a4a00' },
@@ -1121,8 +1121,8 @@ const COLORS = [
   { id: 'B', symbol: 'B', title: 'Black',      bg: '#1a1a2a', fg: '#c0b8d8' },
   { id: 'R', symbol: 'R', title: 'Red',        bg: '#8a2010', fg: '#f8c0a0' },
   { id: 'G', symbol: 'G', title: 'Green',      bg: '#1a5a2a', fg: '#a0d8a0' },
-  { id: 'C', symbol: 'â—‡', title: 'Colorless',  bg: '#3a3838', fg: '#c8c0a8' },
-  { id: 'M', symbol: 'â˜…', title: 'Multicolor', bg: '#6a5010', fg: '#f8d878' },
+  { id: 'C', symbol: '◇', title: 'Colorless',  bg: '#3a3838', fg: '#c8c0a8' },
+  { id: 'M', symbol: '★', title: 'Multicolor', bg: '#6a5010', fg: '#f8d878' },
 ]
 
 const COLOR_SYMBOL_IDS = new Set(['W', 'U', 'B', 'R', 'G', 'C'])
@@ -1218,7 +1218,7 @@ function toggle(arr, val) {
   return arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val]
 }
 
-// â”€â”€ Sub-components â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Sub-components ────────────────────────────────────────────────────────────
 
 function Chip({ active, onClick, children, style }) {
   return (
@@ -1257,9 +1257,9 @@ export const OPS = [
   { id: 'any',     label: 'Any' },
   { id: '=',       label: '=' },
   { id: '<',       label: '<' },
-  { id: '<=',      label: 'â‰¤' },
+  { id: '<=',      label: '≤' },
   { id: '>',       label: '>' },
-  { id: '>=',      label: 'â‰¥' },
+  { id: '>=',      label: '≥' },
   { id: 'between', label: 'Range' },
   { id: 'in',      label: 'In list' },
 ]
@@ -1293,7 +1293,7 @@ export function NumericFilter({ opKey, valKey, val2Key, filters, set }) {
                 value={filters[valKey] || ''}
                 onChange={e => set(valKey, e.target.value)} />
               {op === 'between' && <>
-                <span className={styles.rangeSep}>â€”</span>
+                <span className={styles.rangeSep}>—</span>
                 <input className={styles.rangeInput} type="number" min="0" step="1"
                   name={val2Key}
                   placeholder="Max"
@@ -1308,7 +1308,7 @@ export function NumericFilter({ opKey, valKey, val2Key, filters, set }) {
   )
 }
 
-// â”€â”€ Scryfall type catalog (fetched once, cached) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Scryfall type catalog (fetched once, cached) ─────────────────────────────
 let _typeCatalog = null
 async function loadTypeCatalog() {
   if (_typeCatalog) return _typeCatalog
@@ -1341,7 +1341,7 @@ async function loadTypeCatalog() {
   return combined
 }
 
-// â”€â”€ Type line tag filter â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Type line tag filter ──────────────────────────────────────────────────────
 export function TypeLineFilter({ selected, onChange, name = 'type-line-filter' }) {
   const [query,   setQuery]   = useState('')
   const [open,    setOpen]    = useState(false)
@@ -1373,7 +1373,7 @@ export function TypeLineFilter({ selected, onChange, name = 'type-line-filter' }
             <span key={t} className={styles.setTag}>
               {t}
               <button className={styles.setTagRemove}
-                onClick={() => onChange(selected.filter(x => x !== t))}>âœ•</button>
+                onClick={() => onChange(selected.filter(x => x !== t))}>✕</button>
             </span>
           ))}
           <button className={styles.setTagClearAll} onClick={() => onChange([])}>Clear</button>
@@ -1382,7 +1382,7 @@ export function TypeLineFilter({ selected, onChange, name = 'type-line-filter' }
       <input
         name={name}
         className={styles.setSearchInput}
-        placeholder={selected.length ? 'Add another typeâ€¦' : 'e.g. Creature, Human, Legendaryâ€¦'}
+        placeholder={selected.length ? 'Add another type…' : 'e.g. Creature, Human, Legendary…'}
         value={query}
         onChange={e => { setQuery(e.target.value); setOpen(true) }}
         onFocus={() => { if (query.trim()) setOpen(true) }}
@@ -1398,7 +1398,7 @@ export function TypeLineFilter({ selected, onChange, name = 'type-line-filter' }
               >
                 <span className={styles.setDropName}>{t.name}</span>
                 <span className={styles.setDropCode} style={{ marginLeft: 'auto', fontSize: '0.7rem' }}>{t.category}</span>
-                {active && <span className={styles.setDropCheck}>âœ“</span>}
+                {active && <span className={styles.setDropCheck}>✓</span>}
               </div>
             )
           })}
@@ -1408,7 +1408,7 @@ export function TypeLineFilter({ selected, onChange, name = 'type-line-filter' }
   )
 }
 
-// â”€â”€ Set dropdown â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Set dropdown ──────────────────────────────────────────────────────────────
 function SetDropdown({ sets, selected, onChange }) {
   const [query, setQuery] = useState('')
   const [open, setOpen]   = useState(false)
@@ -1438,7 +1438,7 @@ function SetDropdown({ sets, selected, onChange }) {
             <span key={s.code} className={styles.setTag}>
               <span style={{ opacity: 0.6, fontSize: '0.68rem', marginRight: 3, fontFamily: 'monospace' }}>{s.code.toUpperCase()}</span>
               {s.name}
-              <button className={styles.setTagRemove} onClick={() => toggleSet(s.code)}>âœ•</button>
+              <button className={styles.setTagRemove} onClick={() => toggleSet(s.code)}>✕</button>
             </span>
           ))}
           <button className={styles.setTagClearAll} onClick={() => onChange([])}>Clear</button>
@@ -1447,7 +1447,7 @@ function SetDropdown({ sets, selected, onChange }) {
       <input
         name="set-filter-search"
         className={styles.setSearchInput}
-        placeholder={selected.length ? 'Add more setsâ€¦' : 'Type set name or codeâ€¦'}
+        placeholder={selected.length ? 'Add more sets…' : 'Type set name or code…'}
         value={query}
         onChange={e => { setQuery(e.target.value); setOpen(true) }}
         onFocus={() => setOpen(true)}
@@ -1465,7 +1465,7 @@ function SetDropdown({ sets, selected, onChange }) {
                   >
                     <span className={styles.setDropCode}>{s.code.toUpperCase()}</span>
                     <span className={styles.setDropName}>{s.name}</span>
-                    {active && <span className={styles.setDropCheck}>âœ“</span>}
+                    {active && <span className={styles.setDropCheck}>✓</span>}
                   </div>
                 )
               })
@@ -1476,7 +1476,7 @@ function SetDropdown({ sets, selected, onChange }) {
   )
 }
 
-// â”€â”€ FilterBar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── FilterBar ─────────────────────────────────────────────────────────────────
 export function FilterBar({
   search, setSearch, sort, setSort,
   filters, setFilters,
@@ -1497,13 +1497,13 @@ export function FilterBar({
   const set = (key, val) => setFilters(f => ({ ...f, [key]: val }))
   const clear = () => setFilters({ ...EMPTY_FILTERS })
   const sortOptions = [
-    ['name', 'Name Aâ†’Z'],
-    ['price_desc', 'Price â†“'],
-    ['price_asc', 'Price â†‘'],
-    ['pl_desc', 'P&L â†“'],
-    ['pl_asc', 'P&L â†‘'],
-    ['cmc_asc', 'Mana Value â†‘'],
-    ['cmc_desc', 'Mana Value â†“'],
+    ['name', 'Name A→Z'],
+    ['price_desc', 'Price ↓'],
+    ['price_asc', 'Price ↑'],
+    ['pl_desc', 'P&L ↓'],
+    ['pl_asc', 'P&L ↑'],
+    ['cmc_asc', 'Mana Value ↑'],
+    ['cmc_desc', 'Mana Value ↓'],
     ['qty', 'Quantity'],
     ['set', 'Set'],
     ['rarity', 'Rarity'],
@@ -1531,7 +1531,7 @@ export function FilterBar({
   return (
     <div className={styles.filterWrap}>
       <div className={`${styles.filterBar}${mode === 'lookup' ? ' ' + styles.filterBarLookup : ''}`}>
-        <input className={styles.searchInput} placeholder="Search cards, setsâ€¦"
+        <input className={styles.searchInput} placeholder="Search cards, sets…"
           name="card-search"
           value={search} onChange={e => setSearch(e.target.value)}
           onKeyDown={e => {
@@ -1542,13 +1542,13 @@ export function FilterBar({
           }} />
         <div className={`${styles.filterSortGroup}${hideSortFilterMobile ? ' ' + styles.filterSortGroupHideMobile : ''}`}>
           <select className={styles.filterSelect} name="card-sort" value={sort} onChange={e => setSort(e.target.value)}>
-            <option value="name">Name Aâ†’Z</option>
-            <option value="price_desc">Price â†“</option>
-            <option value="price_asc">Price â†‘</option>
-            {mode !== 'lookup' && <option value="pl_desc">P&L â†“</option>}
-            {mode !== 'lookup' && <option value="pl_asc">P&L â†‘</option>}
-            <option value="cmc_asc">Mana Value â†‘</option>
-            <option value="cmc_desc">Mana Value â†“</option>
+            <option value="name">Name A→Z</option>
+            <option value="price_desc">Price ↓</option>
+            <option value="price_asc">Price ↑</option>
+            {mode !== 'lookup' && <option value="pl_desc">P&L ↓</option>}
+            {mode !== 'lookup' && <option value="pl_asc">P&L ↑</option>}
+            <option value="cmc_asc">Mana Value ↑</option>
+            <option value="cmc_desc">Mana Value ↓</option>
             {mode !== 'lookup' && <option value="qty">Quantity</option>}
             <option value="set">Set</option>
             <option value="rarity">Rarity</option>
@@ -1592,7 +1592,7 @@ export function FilterBar({
           {extra}
           {onToggleSelectMode && (
             <button className={`${styles.selectModeBtn}${selectMode ? ' ' + styles.selectModeActive : ''}`}
-              onClick={onToggleSelectMode}>{selectMode ? 'âœ“ Selecting' : 'â˜ Select'}</button>
+              onClick={onToggleSelectMode}>{selectMode ? '✓ Selecting' : '� Select'}</button>
           )}
         </div>
       </div>
@@ -1706,7 +1706,7 @@ export function FilterBar({
               </div>
             </FilterSection>
 
-            {/* Type line â€” autocomplete tags */}
+            {/* Type line — autocomplete tags */}
             <FilterSection label="Type Line" fullWidth>
               <TypeLineFilter
                 selected={Array.isArray(filters.typeLine) ? filters.typeLine : []}
@@ -1745,11 +1745,11 @@ export function FilterBar({
                   name="price-min"
                   placeholder="0.00" value={filters.priceMin}
                   onChange={e => set('priceMin', e.target.value)} />
-                <span className={styles.rangeSep}>â€”</span>
+                <span className={styles.rangeSep}>—</span>
                 <span className={styles.rangeLabel}>Max</span>
                 <input className={styles.rangeInput} type="number" min="0" step="0.01"
                   name="price-max"
-                  placeholder="âˆž" value={filters.priceMax}
+                  placeholder="∞" value={filters.priceMax}
                   onChange={e => set('priceMax', e.target.value)} />
               </div>
             </FilterSection>
@@ -1758,7 +1758,7 @@ export function FilterBar({
             <FilterSection label="Artist">
               <TextFilter value={filters.artist} onChange={v => set('artist', v)}
                 name="artist-filter"
-                placeholder="Artist nameâ€¦" />
+                placeholder="Artist name…" />
             </FilterSection>
 
             {/* Format legality */}
@@ -1806,7 +1806,7 @@ export function FilterBar({
               <div style={{ marginTop: 10 }}>
                 <TextFilter value={filters.folderName} onChange={v => set('folderName', v)}
                   name="folder-name-filter"
-                  placeholder="Binder or deck nameâ€¦" />
+                  placeholder="Binder or deck name…" />
               </div>
             </FilterSection>
 
@@ -1822,7 +1822,7 @@ export function FilterBar({
               </div>
             </FilterSection>
 
-            {/* Set â€” full width */}
+            {/* Set — full width */}
             {sets.length > 0 && (
               <FilterSection label="Set" fullWidth>
                 <SetDropdown sets={sets} selected={filters.sets}
@@ -1838,7 +1838,7 @@ export function FilterBar({
   )
 }
 
-// â”€â”€ applyFilterSort â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── applyFilterSort ───────────────────────────────────────────────────────────
 export function applyFilterSort(cards, sfMap, search, sort, filters = {}, cardFolderMap = {}) {
   return applyFilterSortCore(cards, sfMap, {
     search, sort, filters, cardFolderMap,
