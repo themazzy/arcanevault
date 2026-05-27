@@ -1355,7 +1355,21 @@ export default function DeckBuilderPage() {
   }, [builderSfMap])
 
   const getDeckCardCategoryName = useCallback((dc) => {
-    if (dc.category_id) return categoryById.get(dc.category_id)?.name || UNCATEGORIZED
+    if (dc.category_id) {
+      const storedName = categoryById.get(dc.category_id)?.name
+      if (!storedName) return UNCATEGORIZED
+      // When a card is pinned to a type-line fallback category (Instant,
+      // Sorcery, etc.) but live inference now lands it in a functional
+      // bucket, prefer the inference. Never downgrades a manual functional
+      // placement — only rescues fallback pins from a stale regex era.
+      if (isTypeFallbackCategory(storedName)) {
+        const inferred = getInferredDeckCategory(dc)
+        if (inferred && inferred !== 'Other' && !isTypeFallbackCategory(inferred)) {
+          return inferred
+        }
+      }
+      return storedName
+    }
     return getInferredDeckCategory(dc)
   }, [categoryById, getInferredDeckCategory])
 
@@ -1394,7 +1408,18 @@ export default function DeckBuilderPage() {
     const sf = dc.set_code && dc.collector_number ? (builderSfMap[getScryfallKey(dc)] || {}) : {}
     if (groupBy === 'category') {
       if (dc.is_commander && !dc.category_id) return 'Commander'
-      if (dc.category_id) return categoryById.get(dc.category_id)?.name || UNCATEGORIZED
+      if (dc.category_id) {
+        const storedName = categoryById.get(dc.category_id)?.name
+        if (!storedName) return UNCATEGORIZED
+        // Same rescue logic as getDeckCardCategoryName — keep both in sync.
+        if (isTypeFallbackCategory(storedName)) {
+          const inferred = getCardCategoryFromCard(dc, sf)
+          if (inferred && inferred !== 'Other' && !isTypeFallbackCategory(inferred)) {
+            return inferred
+          }
+        }
+        return storedName
+      }
       const inferred = getCardCategoryFromCard(dc, sf)
       return inferred && inferred !== 'Other' ? inferred : UNCATEGORIZED
     }
