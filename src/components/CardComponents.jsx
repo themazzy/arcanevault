@@ -1597,7 +1597,7 @@ export function FilterBar({
           {extra}
           {onToggleSelectMode && (
             <button className={`${styles.selectModeBtn}${selectMode ? ' ' + styles.selectModeActive : ''}`}
-              onClick={onToggleSelectMode}>{selectMode ? '✓ Selecting' : '� Select'}</button>
+              onClick={onToggleSelectMode}>{selectMode ? '✓ Selecting' : '☐ Select'}</button>
           )}
         </div>
       </div>
