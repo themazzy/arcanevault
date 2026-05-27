@@ -433,6 +433,45 @@ const cases = [
     'Destroy target creature.\nCascade',
     'Instant', 'Removal'],
 
+  // ── Cards previously misfiled to the type-line fallback ────────────────
+  ['High Tide ("adds {U}" trigger → Ramp)',
+    'Until end of turn, whenever a player taps an Island for mana, that player adds {U}.',
+    'Instant', 'Ramp'],
+  ['Time Stretch ("take two extra turns")',
+    'Take two extra turns after this one.',
+    'Sorcery', 'Extra Turns'],
+  ['Curse of the Swine ("Exile X target creatures")',
+    'Exile X target creatures. For each creature exiled this way, its controller creates a 2/2 green Boar creature token.',
+    'Sorcery', 'Removal'],
+  ['Chaos Warp (shuffle target permanent into library)',
+    "The owner of target permanent shuffles it into their library, then reveals the top card of their library. If it's a permanent card, they put it onto the battlefield.",
+    'Instant', 'Removal'],
+  ['Comet Storm (damage divided among targets → Burn)',
+    'Multikicker {1}{R}\nComet Storm deals X damage divided as you choose among any number of targets.',
+    'Instant', 'Burn'],
+  ['Deflecting Swat (choose new targets → Protection)',
+    'If you control a commander, you may cast this spell without paying its mana cost. You may choose new targets for target spell or ability.',
+    'Instant', 'Protection'],
+  ['Display of Power (gain control of target → Combo)',
+    'Until end of turn, you gain control of target permanent and untap it. It gains haste.',
+    'Instant', 'Combo'],
+  ['City on Fire (damage doubler → Doublers)',
+    'Each spell, ability, and source you control deals double damage to permanents and players.',
+    'Enchantment', 'Doublers'],
+  ['Furnace of Rath (damage doubler → Doublers)',
+    'If a source would deal damage to a permanent or player, it deals double that damage to that permanent or player instead.',
+    'Enchantment', 'Doublers'],
+  ['Threaten (steal until end of turn → Combo)',
+    'Untap target creature an opponent controls and gain control of it until end of turn. It gains haste.',
+    'Sorcery', 'Combo'],
+  // Regression: self-recursion clauses ("shuffle it into its owner's library")
+  // must NOT mis-fire as Removal. The "owner of target permanent" anchor on the
+  // shuffle rule prevents that. Worldspine Wurm itself resolves as Tokens via
+  // the earlier token-creation rule (its iconic effect), which is correct.
+  ['Worldspine Wurm self-shuffle does not become Removal',
+    "Trample\nWhen Worldspine Wurm is put into a graveyard from anywhere, shuffle it into its owner's library.",
+    'Creature — Wurm', 'Creature'],
+
   // ── Type fallback (no functional role detected) ──────────────────────────
   ['Tarmogoyf (vanilla-ish creature)',
     'Tarmogoyf\'s power is equal to the number of card types among cards in all graveyards and its toughness is equal to that number plus 1.',

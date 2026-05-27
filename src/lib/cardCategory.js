@@ -82,6 +82,9 @@ export function getCardCategory(oracle = '', typeLine = '', keywords = []) {
   if (/copy target triggered ability/.test(o)) return 'Doublers'
   // Draw doublers: Teferi's Ageless Insight, Alhammarret's Archive
   if (/if you would draw [^.]{0,80}instead [a-z]+ two cards/.test(o)) return 'Doublers'
+  // Damage doublers: City on Fire, Furnace of Rath, Dictate of the Twin Gods,
+  // Gisela. Matches both "deals double damage" and "deals double that damage".
+  if (/deals? double (that |the )?damage/.test(o)) return 'Doublers'
 
   // ── Copy (spell/permanent doubling) ───────────────────────────────────────
   if (/copy target (spell|instant|sorcery|creature|permanent|activated ability|triggered ability)/.test(o)) return 'Copy'
@@ -128,10 +131,12 @@ export function getCardCategory(oracle = '', typeLine = '', keywords = []) {
   if (/exile (another )?target [a-z' ]{0,30}creature[^.]{0,80}return [^.]{0,40}to the battlefield/.test(o)) return 'Blink'
 
   // ── Ramp (mana rocks & dorks — formerly the "Mana Rock" bucket) ───────────
+  // `adds?` covers both imperative "Add {G}" (Sol Ring) and triggered
+  // "that player adds {U}" (High Tide).
   if (t.includes('artifact') && !t.includes('creature') &&
-      /(\{t\}|tap)[^.]{0,80}add (\{|one|two|three|x mana|an amount)/.test(o)) return 'Ramp'
-  if (!t.includes('land') && /add \{[wubrgc2]/.test(o)) return 'Ramp'
-  if (!t.includes('land') && /add (one|two|three|x|\d+) mana/.test(o)) return 'Ramp'
+      /(\{t\}|tap)[^.]{0,80}adds? (\{|one|two|three|x mana|an amount)/.test(o)) return 'Ramp'
+  if (!t.includes('land') && /adds? \{[wubrgc2]/.test(o)) return 'Ramp'
+  if (!t.includes('land') && /adds? (one|two|three|x|\d+) mana/.test(o)) return 'Ramp'
 
   // ── Cost Reduction ────────────────────────────────────────────────────────
   if (/costs? (\{[\dx]+\}|one|two|three|four|five|six|seven|x|\d+) less to cast/.test(o)) return 'Cost Reduction'
@@ -152,8 +157,13 @@ export function getCardCategory(oracle = '', typeLine = '', keywords = []) {
   if (/loses? [x\d]+ life[^.]{0,60}gains? [x\d]+ life/.test(o)) return 'Drain'
 
   // ── Removal (single target) ───────────────────────────────────────────────
-  if (/(exile|destroy) target [a-z ]{0,40}(creature|permanent|artifact|enchantment|planeswalker|battle|land)/.test(o)) return 'Removal'
+  // Optional `x|N` prefix catches Curse of the Swine ("Exile X target creatures").
+  // Plural noun forms catch the same X-target wording.
+  if (/(exile|destroy) (x |\d+ )?target [a-z ]{0,40}(creatures?|permanents?|artifacts?|enchantments?|planeswalkers?|battles?|lands?)/.test(o)) return 'Removal'
   if (/return target [a-z' ]{0,40}(creature|permanent|artifact|enchantment|planeswalker|nonland) [a-z',' ]{0,60}to (its|their) owner[s'’]+ hand/.test(o)) return 'Removal'
+  // Shuffle-into-library removal (Chaos Warp). Anchored to "owner of target …"
+  // so it doesn't mis-fire on self-recursion clauses like Worldspine Wurm.
+  if (/owner of target [a-z ]{0,40}(permanent|creature|artifact|enchantment|planeswalker|nonland) shuffles? it into/.test(o)) return 'Removal'
   // Allows variable damage ("equal to its power", "X", etc.) before OR after
   // the word "damage" (Scryfall uses both "deals N damage to X" and the rarer
   // "deals damage equal to … to X").
@@ -162,6 +172,9 @@ export function getCardCategory(oracle = '', typeLine = '', keywords = []) {
 
   // ── Burn (player-only damage; allows variable amounts in either position) ─
   if (/deals? [a-z\d' ]{0,30}damage [a-z\d' ]{0,40}to (target player|target opponent|each opponent|each player)/.test(o)) return 'Burn'
+  // Fireball / Comet Storm wording: "deals X damage divided … among any number
+  // of targets". Targets include players, so this is Burn rather than Removal.
+  if (/deals? [a-z\d' ]{0,30}damage divided [a-z' ]{0,40}among/.test(o)) return 'Burn'
 
   // ── Lifegain (after Drain/Removal/Burn so attack/damage cards win) ────────
   if (/you gain [a-z\d ]{0,20}life/.test(o)) return 'Lifegain'
@@ -205,6 +218,9 @@ export function getCardCategory(oracle = '', typeLine = '', keywords = []) {
   // ── Protection (before Evasion so Whispersilk Cloak stays Protection) ─────
   if (/(gain|gains|have|has) [a-z, ]{0,40}(hexproof|indestructible|shroud)/.test(o)) return 'Protection'
   if (/protection from/.test(o)) return 'Protection'
+  // Redirect / change-targets (Deflecting Swat, Bolt Bend, Misdirection,
+  // Redirect). These rescue your own stuff by bouncing the spell elsewhere.
+  if (/(choose new targets for|change the targets? of) target [a-z ]{0,30}(spell|ability)/.test(o)) return 'Protection'
 
   // ── Evasion (granted unblockable / shared flying / menace) ────────────────
   if (/can'?t be blocked/.test(o)) return 'Evasion'
@@ -224,10 +240,15 @@ export function getCardCategory(oracle = '', typeLine = '', keywords = []) {
   if (/\bcascade\b/.test(o)) return 'Cheat'
 
   // ── Extra Turns ───────────────────────────────────────────────────────────
-  if (/take (an? |another |this )?extra turn/.test(o)) return 'Extra Turns'
+  // Quantifier is required; covers "take an extra turn" (Time Warp) and
+  // "take two extra turns" (Time Stretch).
+  if (/take (an?|another|this|one|two|three|four|five|\d+) extra turns?/.test(o)) return 'Extra Turns'
 
   // ── Combo / wincon ────────────────────────────────────────────────────────
   if (/\bwins? the game\b|you win the game/.test(o)) return 'Combo'
+  // Permanent theft (Display of Power, Threaten, Memnarch, Vedalken Shackles).
+  // Late in the ladder so destroy/exile/bounce removal wins first.
+  if (/gains? control of (target|it|that|each)/.test(o)) return 'Combo'
 
   // ── Type-line fallback ────────────────────────────────────────────────────
   if (t.includes('land'))         return 'Land'
