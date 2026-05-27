@@ -40,11 +40,11 @@ function parseBgUrl(description) {
 }
 
 const SORT_OPTIONS = [
-  ['name',       'Name'],
-  ['value_desc', 'Value (high → low)'],
-  ['value_asc',  'Value (low → high)'],
-  ['count_desc', 'Most cards'],
-  ['count_asc',  'Fewest cards'],
+  ['name',       'Name A→Z'],
+  ['value_desc', 'Value ↓'],
+  ['value_asc',  'Value ↑'],
+  ['count_desc', 'Cards ↓'],
+  ['count_asc',  'Cards ↑'],
 ]
 
 function sortFolders(folders, meta, sort) {

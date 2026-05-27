@@ -4055,7 +4055,7 @@ export default function DeckBuilderPage() {
                 >
                   {({ close }) => (
                     <div className={uiStyles.responsiveMenuList}>
-                      {[['name','A–Z'],['cmc_asc','Mana Value ↑'],['cmc_desc','Mana Value ↓'],['color','Color'],['type','Type'],['rarity_desc','Rarity ↓'],['rarity_asc','Rarity ↑'],['set','Set'],['price_desc','Price ↓'],['price_asc','Price ↑']].map(([s, label]) => (
+                      {[['name','Name A→Z'],['cmc_asc','Mana Value ↑'],['cmc_desc','Mana Value ↓'],['color','Color'],['type','Type'],['rarity_desc','Rarity ↓'],['rarity_asc','Rarity ↑'],['set','Set'],['price_desc','Price ↓'],['price_asc','Price ↑']].map(([s, label]) => (
                         <button
                           key={s}
                           className={`${styles.columnMenuItem} ${deckSort === s ? styles.columnMenuItemActive : ''}`}

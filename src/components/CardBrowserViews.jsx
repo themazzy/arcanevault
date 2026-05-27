@@ -26,14 +26,16 @@ const TYPE_ORDER = ['Commander', 'Creatures', 'Planeswalkers', 'Battles', 'Insta
 
 // Browser-friendly labels for the floating mobile sort sheet — kept short for icon-pill layout.
 // Keep value list in sync with the FilterBar sortOptions in CardComponents.jsx.
+// Label convention (project-wide): "Name A→Z" for alphabetical, "Field ↑/↓"
+// for numeric, plain "Field" for categorical, "Recently …" for dates.
 const BROWSER_SORT_OPTIONS = [
-  ['name', 'Name A-Z'],
-  ['price_desc', 'Price high-low'],
-  ['price_asc', 'Price low-high'],
-  ['pl_desc', 'P&L high-low'],
-  ['pl_asc', 'P&L low-high'],
-  ['cmc_asc', 'Mana Value up'],
-  ['cmc_desc', 'Mana Value down'],
+  ['name', 'Name A→Z'],
+  ['price_desc', 'Price ↓'],
+  ['price_asc', 'Price ↑'],
+  ['pl_desc', 'P&L ↓'],
+  ['pl_asc', 'P&L ↑'],
+  ['cmc_asc', 'Mana Value ↑'],
+  ['cmc_desc', 'Mana Value ↓'],
   ['qty', 'Quantity'],
   ['set', 'Set'],
   ['rarity', 'Rarity'],

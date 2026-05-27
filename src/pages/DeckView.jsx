@@ -21,15 +21,15 @@ const BOARD_LABELS = { main: 'Mainboard', side: 'Sideboard', maybe: 'Maybeboard'
 const COLOR_GROUP_ORDER = ['W', 'U', 'B', 'R', 'G', 'Multicolor', 'Colorless']
 const SORT_OPTIONS = [
   { id: 'type', label: 'Type' },
-  { id: 'name', label: 'Name' },
-  { id: 'cmc_asc', label: 'Mana Value up' },
-  { id: 'cmc_desc', label: 'Mana Value down' },
+  { id: 'name', label: 'Name A→Z' },
+  { id: 'cmc_asc', label: 'Mana Value ↑' },
+  { id: 'cmc_desc', label: 'Mana Value ↓' },
   { id: 'color', label: 'Color' },
-  { id: 'rarity_desc', label: 'Rarity down' },
-  { id: 'rarity_asc', label: 'Rarity up' },
+  { id: 'rarity_desc', label: 'Rarity ↓' },
+  { id: 'rarity_asc', label: 'Rarity ↑' },
   { id: 'set', label: 'Set' },
-  { id: 'price_desc', label: 'Price down' },
-  { id: 'price_asc', label: 'Price up' },
+  { id: 'price_desc', label: 'Price ↓' },
+  { id: 'price_asc', label: 'Price ↑' },
   { id: 'qty', label: 'Quantity' },
 ]
 const GROUP_OPTIONS = [

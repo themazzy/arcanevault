@@ -253,7 +253,7 @@ function CommunityDeckTile({ deck, meta, fmt, isOwn, creatorNick, navigate }) {
   )
 }
 
-const SORT_LABELS = { updated: 'Recent', name: 'Name', format: 'Format' }
+const SORT_LABELS = { updated: 'Recently Updated', name: 'Name A→Z', format: 'Format' }
 const TYPE_LABELS = [['all', 'All'], ['builder', 'Builder'], ['collection', 'Collection']]
 
 export default function BuilderPage() {
