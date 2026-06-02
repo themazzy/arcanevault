@@ -671,6 +671,20 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
 
   const filtered = useFilterWorker({ cards, sfMap, search, sort, filters, priceSource: price_source })
 
+  const availableSets = useMemo(() => {
+    const seen = {}
+    for (const c of cards) {
+      if (!c.set_code) continue
+      if (!seen[c.set_code]) {
+        const sf = sfMap[getScryfallKey(c)]
+        seen[c.set_code] = sf?.set_name || c.set_code.toUpperCase()
+      }
+    }
+    return Object.entries(seen)
+      .map(([code, name]) => ({ code, name: name || code }))
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+  }, [cards, sfMap])
+
   const { totalValue, totalQty } = useMemo(() => {
     let v = 0, q = 0
     for (const c of cards) {
@@ -920,6 +934,8 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
         search={search} setSearch={setSearch}
         sort={sort} setSort={setSort}
         filters={filters} setFilters={setFilters}
+        mode="folder"
+        sets={availableSets}
         selectMode={selectMode}
         onToggleSelectMode={toggleSelectMode}
         filterOpen={filterOpen}

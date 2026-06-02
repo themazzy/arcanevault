@@ -1189,6 +1189,10 @@ export const EMPTY_FILTERS = {
 }
 
 const LOOKUP_HIDDEN_FILTERS = new Set(['conditions', 'languages', 'quantity', 'location', 'folderName', 'specials', 'price'])
+// Binder/deck browsers are already scoped to a single folder, so the Location
+// filter (and its folder-name text input) is meaningless there — hide it.
+const FOLDER_HIDDEN_FILTERS = new Set(['location', 'folderName'])
+const MODE_HIDDEN_FILTERS = { lookup: LOOKUP_HIDDEN_FILTERS, folder: FOLDER_HIDDEN_FILTERS }
 
 export function countActive(f, hiddenFilters = new Set()) {
   return [
@@ -1492,7 +1496,7 @@ export function FilterBar({
   const [internalOpen, setInternalOpen] = useState(false)
   const open = controlledOpen !== undefined ? controlledOpen : internalOpen
   const setOpen = onFilterOpenChange ?? setInternalOpen
-  const hiddenFilters = mode === 'lookup' ? LOOKUP_HIDDEN_FILTERS : new Set()
+  const hiddenFilters = MODE_HIDDEN_FILTERS[mode] ?? new Set()
   const activeCount = countActive(filters, hiddenFilters)
   const set = (key, val) => setFilters(f => ({ ...f, [key]: val }))
   const clear = () => setFilters({ ...EMPTY_FILTERS })

@@ -1086,6 +1086,20 @@ export default function DeckBrowser({ folder, onBack }) {
 
   const filtered = useFilterWorker({ cards, sfMap, search, sort, filters, priceSource: price_source })
 
+  const availableSets = useMemo(() => {
+    const seen = {}
+    for (const c of cards) {
+      if (!c.set_code) continue
+      if (!seen[c.set_code]) {
+        const sf = sfMap[getScryfallKey(c)]
+        seen[c.set_code] = sf?.set_name || c.set_code.toUpperCase()
+      }
+    }
+    return Object.entries(seen)
+      .map(([code, name]) => ({ code, name: name || code }))
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+  }, [cards, sfMap])
+
   // Build groups based on groupBy mode
   const { groups, groupOrder } = useMemo(() => {
     if (groupBy === 'none') return { groups: { 'All': filtered }, groupOrder: ['All'] }
@@ -1214,6 +1228,7 @@ export default function DeckBrowser({ folder, onBack }) {
       {/* Controls */}
       <FilterBar search={search} setSearch={setSearch} sort={sort} setSort={setSort}
         filters={filters} setFilters={setFilters}
+        mode="folder" sets={availableSets}
         selectMode={selectMode} onToggleSelectMode={toggleSelectMode}
         filterOpen={filterOpen} onFilterOpenChange={setFilterOpen}
         hideActionsMobile
