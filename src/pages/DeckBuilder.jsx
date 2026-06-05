@@ -694,9 +694,14 @@ export default function DeckBuilderPage() {
         // Load deck folder
         const { data: folder, error } = await sb.from('folders').select('*').eq('id', deckId).single()
         if (error || !folder) { setLoadError('Deck not found'); setLoading(false); return }
-        if (folder.user_id !== user.id) { setLoadError('Access denied'); setLoading(false); return }
 
         const meta = parseDeckMeta(folder.description)
+        if (folder.user_id !== user.id) {
+          // Non-owner: if the deck is public, send them to the shared deck view.
+          if (meta.is_public) { navigate(`/d/${deckId}`, { replace: true }); return }
+          setLoadError('Access denied'); setLoading(false); return
+        }
+
         // Default collection decks to commander format if no format set
         if (folder.type === 'deck' && !meta.format) {
           meta.format = 'commander'

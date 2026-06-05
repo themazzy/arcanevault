@@ -1,15 +1,10 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
-const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? ''
-const MAX_BODY_BYTES    = 50_000
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const MAX_BODY_BYTES = 50_000
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -40,36 +35,27 @@ Deno.serve(async (req) => {
     return json({ error: 'Invalid JSON body.' }, 400)
   }
 
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    return json({ error: 'Function is not configured.' }, 500)
-  }
+  // The client builds the card lists in memory (it already holds the full deck)
+  // and posts { commanders, main } — the same shape Commander Spellbook expects.
+  // We sanitise to that exact shape before forwarding so we never relay arbitrary
+  // client JSON upstream.
+  const toCardList = (value: unknown) =>
+    (Array.isArray(value) ? value : [])
+      .map((entry) => {
+        const name = entry && typeof entry === 'object'
+          ? (entry as { card?: unknown }).card
+          : undefined
+        return { card: typeof name === 'string' ? name : '' }
+      })
+      .filter((entry) => entry.card)
 
-  const deckId = typeof body === 'object' && body && 'deck_id' in body
-    ? String((body as { deck_id?: unknown }).deck_id || '')
-    : ''
-  if (!UUID_RE.test(deckId)) {
-    return json({ error: 'A valid deck_id is required.' }, 400)
-  }
-
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-  const { data: deckCards, error } = await supabase.rpc('get_deck_cards_for_view', { p_deck_id: deckId })
-  if (error) {
-    return json({ error: error.message }, 500)
-  }
-  const cards = Array.isArray(deckCards) ? deckCards : []
-  if (!cards.length) {
-    return json({ error: 'Deck not found.' }, 404)
-  }
-
+  const src = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>
   const upstreamBody = {
-    commanders: cards
-      .filter((card) => card?.is_commander)
-      .map((card) => ({ card: card.name }))
-      .filter((entry) => entry.card),
-    main: cards
-      .filter((card) => !card?.is_commander && (card?.board === 'main' || !card?.board))
-      .map((card) => ({ card: card.name }))
-      .filter((entry) => entry.card),
+    commanders: toCardList(src.commanders),
+    main: toCardList(src.main),
+  }
+  if (!upstreamBody.commanders.length && !upstreamBody.main.length) {
+    return json({ error: 'A non-empty commanders or main list is required.' }, 400)
   }
 
   try {

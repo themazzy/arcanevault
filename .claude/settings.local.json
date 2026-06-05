@@ -120,7 +120,21 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "WebFetch(domain:api.riftcodex.com)",
       "WebFetch(domain:riftcodex.com)",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Bash(awk 'NR==4794,/^            \\\\}\\\\\\)\\\\\\(\\\\\\)\\\\}/' C:/Users/Jan/Desktop/arcanevault/arcanevault/src/pages/DeckBuilder.jsx)",
+      "Bash(awk 'NR>=4794 && /^            \\\\}\\\\\\)\\\\\\(\\\\\\)\\\\}/{print NR\": \"$0; exit}' C:/Users/Jan/Desktop/arcanevault/arcanevault/src/pages/DeckBuilder.jsx)",
+      "PowerShell(Get-Content *)",
+      "Bash(grep -oE \"  [a-z-]+/[a-z-]+|  [a-z-]+$\")",
+      "Bash(awk '{print $1, $2}')",
+      "Bash(grep \"src\\\\\\\\\\\\\\\\\")",
+      "Bash(npx eslint *)",
+      "Bash(awk 'NR==288,NR==640' src/pages/DeckBuilder.jsx)",
+      "Bash(grep *)",
+      "Bash(git ls-remote *)",
+      "PowerShell(gh run *)",
+      "WebFetch(domain:deckloom.app)",
+      "mcp__plugin_supabase_supabase__get_edge_function",
+      "mcp__plugin_supabase_supabase__deploy_edge_function"
     ]
   }
 }

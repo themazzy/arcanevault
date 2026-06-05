@@ -28,6 +28,18 @@ describe('colorIdentityMatches — WUBRG base filter', () => {
     expect(match(['G'],      ['W', 'G'], 'any')).toBe(true)
     expect(match(['U', 'B'], ['W'],      'any')).toBe(false)
   })
+
+  it('identity mode is a subset match — playable in a commander deck of those colors', () => {
+    // Selecting R+G must show only cards castable in an R/G deck: identity ⊆ {R,G}.
+    expect(match(['R', 'G'],      ['R', 'G'], 'identity')).toBe(true)  // exactly RG
+    expect(match(['R'],           ['R', 'G'], 'identity')).toBe(true)  // mono within
+    expect(match(['G'],           ['R', 'G'], 'identity')).toBe(true)
+    expect(match([],              ['R', 'G'], 'identity')).toBe(true)  // colorless fits any
+    // The reported bug: cards touching a colour outside the selection must NOT show.
+    expect(match(['R', 'G', 'W'], ['R', 'G'], 'identity')).toBe(false)
+    expect(match(['R', 'W'],      ['R', 'G'], 'identity')).toBe(false)
+    expect(match(['U'],           ['R', 'G'], 'identity')).toBe(false)
+  })
 })
 
 describe('colorIdentityMatches — M (multi-color) acts as Scryfall id>1 AND', () => {
