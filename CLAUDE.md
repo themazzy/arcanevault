@@ -94,6 +94,18 @@ Social login under Capacitor cannot use the web `redirectTo` (the browser would 
 
 `isNativeApp()` from `src/lib/nativeAuth.js` is the canonical check for "running under Capacitor" in auth flows.
 
+### Social share previews (Open Graph) — `og-deck` edge function
+
+GitHub Pages is static and link crawlers (`facebookexternalhit`, Discordbot, Twitterbot, …) don't run JS, so they only ever see the bare `<meta>` tags in the shipped `index.html` — a blank, ugly preview for `/d/:id` deck links. Rich per-deck previews are served by the **`og-deck` Supabase Edge Function** (`supabase/functions/og-deck/`), which deck share links point at instead of `deckloom.app/d/<id>`:
+
+- **Crawler** (matched by UA in `isCrawler`, `og.ts`) → 200 HTML with deck-specific `og:`/`twitter:` tags + the commander/key-card `art_crop` image.
+- **Human** → `302` redirect to `https://deckloom.app/d/<id>` (the real SPA). `og:url` is always set to that branded URL, so FB shows **DECKLOOM.APP** as the source label.
+- Deck metadata comes from the `get_deck_og_meta(uuid)` SECURITY DEFINER RPC, which **returns null for any non-public deck** — private decks never leak. It exposes `name`, `format`, `commander`, `total_cards`, `art`, `creator` in one call.
+- `getDeckShareUrl(deckId)` (`src/lib/publicUrl.js`) builds the function URL; used by the share action in `DeckBuilder.jsx`. Internal `/d/:id` navigation links are unchanged.
+- **Known quirk:** the Edge Runtime forces `Content-Type: text/plain` + `nosniff` + CSP sandbox on all responses (anti-phishing on the shared `*.supabase.co` domain). This is *not* configurable via SQL/MCP/function code. Crawlers parse `og:` tags from the response **body** regardless, so previews work anyway; the only way to get real `text/html` is a paid custom domain for Edge Functions. Don't waste time trying to override the Content-Type.
+- After creating/altering the RPC, PostgREST may 404 it (`PGRST202`) until the schema cache reloads — run `notify pgrst, 'reload schema';`.
+- Pure helpers in `og.ts` (`isCrawler`, `extractDeckId`, `buildDescription`, `renderOgHtml`, …) are unit-tested in `src/lib/publicUrl.test.js`.
+
 ---
 
 ## Architecture
