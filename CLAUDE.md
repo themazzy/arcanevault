@@ -313,6 +313,8 @@ These are only active during `npm run dev`. Production deploys on GitHub Pages c
 | `src/pages/Scanner.jsx` | Route wrapper for `CardScanner` at `/scanner` |
 | `scripts/generate-card-hashes.js` | Node.js seed script: downloads Scryfall art crops, computes pHashes, uploads to Supabase |
 | `src/lib/fx.js` | EUR↔USD conversion via frankfurter.app (6 h IDB cache) |
+| `src/lib/valueSnapshots.js` | Daily collection-value snapshots (`collection_value_snapshots`, 1 row/user/day): `recordCollectionValueSnapshot()`, `fetchValueHistory()`, `computeValueDelta()` — powers Stats "Value Over Time" |
+| `src/lib/setCompletion.js` | Set-completion missing-cards view: `fetchSetCards()` (Scryfall, session cache), `computeMissingCards()`, `missingCostTotal()`, `addMissingToWishlist()` |
 | `src/lib/deckBuilderApi.js` | Deck builder helpers + external API calls |
 | `src/lib/deckSync.js` | Linked deck sync: `getLinkedDeckIds()`, `getSyncState()`, `withLinkedPair()`, `clearLinkedPair()`, `writeSyncState()`, `normalizeBuilderCards()` |
 | `src/lib/deckLegality.js` | `getCardLegalityWarnings()` — format legality + commander color identity checks |
@@ -463,7 +465,7 @@ The `/admin` route is only useful to users listed in `admin_users` with `active 
 ### Import Modal (`ImportModal.jsx`)
 
 - Auto-detects format: if first line contains a comma and matches `/\bname\b/i` → Manabox CSV; otherwise → plain decklist (`4 Lightning Bolt`).
-- For `list` type: upserts into `list_items` with conflict on `folder_id,set_code,collector_number,foil`.
+- For `list` type: upserts into `list_items` with conflict on `folder_id,card_print_id,foil` (rows are hydrated with `card_print_id` via `requireCardPrintIds` first).
 - For binder/deck: upserts into `cards` then `folder_cards`.
 
 ### Select Mode & Qty Adjuster
@@ -563,6 +565,7 @@ Host creates a session → others visit `/join/:code` on their own device → ho
 - `card_prints` — normalized print metadata shared across ownership, deck builder, prices, and scanner
 - `user_settings` — single row per user; includes `nickname`, `anonymize_email`, `reduce_motion`, `higher_contrast`, `card_name_size`, `default_grouping`, `keep_screen_awake`, `show_sync_errors`, `premium`, `profile_config`
 - `card_prices` — shared daily market prices keyed by `scryfall_id + snapshot_date`; app keeps only today and yesterday
+- `collection_value_snapshots` — per-user daily collection value: `user_id, snapshot_date, total_eur, total_usd, card_count`; upserted by Stats on visit, RLS owner-only
 - `game_sessions` — multiplayer life tracker sessions; `status`: `'waiting' | 'playing'`
 - `game_players` — player slots per session; `user_id` is null until a player claims the slot
 - `game_results` — deck win/loss history: `session_id, user_id, deck_id, deck_name, format, player_count, placement`

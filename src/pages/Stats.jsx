@@ -3,7 +3,9 @@ import { useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { sb } from '../lib/supabase'
 import { getPrice, formatPrice, getScryfallKey, getPriceSource, getManualPrice } from '../lib/scryfall'
-import { fetchCollectionCards, fetchSfMap, isGroupFolder } from '../lib/collectionFetchers'
+import { fetchCollectionCards, fetchSfMap, fetchFolders, isGroupFolder } from '../lib/collectionFetchers'
+import { recordCollectionValueSnapshot, fetchValueHistory, computeValueDelta } from '../lib/valueSnapshots'
+import { fetchSetCards, computeMissingCards, missingCostTotal, addMissingToWishlist } from '../lib/setCompletion'
 import { hydrateCollectionQueriesFromIdb } from '../lib/idbQueryBridge'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
@@ -17,7 +19,7 @@ import { checkAndNotifyMilestones } from '../lib/milestoneTracker'
 import { useToast } from '../components/ToastContext'
 import { ChevronDownIcon, ChevronUpIcon } from '../icons'
 import {
-  BarChart, Bar, PieChart, Pie, Cell,
+  BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts'
 import setIconManifest from '../data/setIconManifest.json'
@@ -204,10 +206,15 @@ function SetIcon({ code }) {
   )
 }
 
-function SetRow({ row }) {
+function SetRow({ row, open, onToggle }) {
   const pct = row.pct ?? 0
   return (
-    <div className={styles.setRow}>
+    <div
+      className={`${styles.setRow} ${styles.setRowClickable}${open ? ' ' + styles.setRowOpen : ''}`}
+      onClick={onToggle}
+      role="button"
+      aria-expanded={open}
+    >
       <div className={styles.setRowMeta}>
         <span className={styles.setRowName}>
           <SetIcon code={row.code} />
@@ -215,6 +222,7 @@ function SetRow({ row }) {
         </span>
         <span className={styles.setRowCount}>
           {row.owned}{row.total ? `/${row.total}` : ''}{row.pct != null ? ` · ${row.pct}%` : ''}
+          <span className={styles.setRowChevron}>{open ? <ChevronUpIcon size={10} /> : <ChevronDownIcon size={10} />}</span>
         </span>
       </div>
       <div className={styles.setRowTrack}>
@@ -224,9 +232,101 @@ function SetRow({ row }) {
   )
 }
 
-function SetCompletionSection({ cards, sfMap, loading }) {
+const MISSING_PREVIEW_COUNT = 12
+
+/** Expanded under a set row: which cards are missing, what completing costs,
+ *  and a one-click path into a wishlist. Set list is fetched on first open. */
+function MissingSetPanel({ code, ownedNums, priceSource, fmt, wishlists, userId, showToast }) {
+  const [state, setState]   = useState({ loading: true, missing: null, error: null })
+  const [showAll, setShowAll] = useState(false)
+  const [listId, setListId]   = useState('')
+  const [adding, setAdding]   = useState(false)
+
+  useEffect(() => {
+    let active = true
+    setState({ loading: true, missing: null, error: null })
+    fetchSetCards(code)
+      .then(all => { if (active) setState({ loading: false, missing: computeMissingCards(all, ownedNums), error: null }) })
+      .catch(() => { if (active) setState({ loading: false, missing: null, error: 'Could not load the set list from Scryfall.' }) })
+    return () => { active = false }
+    // ownedNums is rebuilt with cards; refetching on open + collection change is intended
+  }, [code, ownedNums])
+
+  useEffect(() => {
+    if (!listId && wishlists.length) setListId(wishlists[0].id)
+  }, [wishlists, listId])
+
+  if (state.loading) return <div className={styles.missingPanel}><div className={styles.missingNote}>Loading set list…</div></div>
+  if (state.error)   return <div className={styles.missingPanel}><div className={styles.missingNote}>{state.error}</div></div>
+
+  const missing = state.missing || []
+  if (missing.length === 0) {
+    return <div className={styles.missingPanel}><div className={styles.missingComplete}>Set complete — every collector number is in your collection.</div></div>
+  }
+
+  const { total, priced } = missingCostTotal(missing, priceSource)
+  const shown = showAll ? missing : missing.slice(0, MISSING_PREVIEW_COUNT)
+
+  const handleAdd = async () => {
+    if (!listId || adding) return
+    setAdding(true)
+    try {
+      const count = await addMissingToWishlist({ folderId: listId, userId, sfCards: missing })
+      const listName = wishlists.find(w => w.id === listId)?.name || 'wishlist'
+      showToast(`Added ${count} missing card${count === 1 ? '' : 's'} to ${listName}.`)
+    } catch (err) {
+      showToast(err?.message || 'Could not add cards to the wishlist.', { tone: 'error' })
+    }
+    setAdding(false)
+  }
+
+  return (
+    <div className={styles.missingPanel}>
+      <div className={styles.missingHead}>
+        <span>{missing.length} missing</span>
+        <span className={styles.missingCost}>
+          complete for ~{fmt(total)}{priced < missing.length ? ` (${priced}/${missing.length} priced)` : ''}
+        </span>
+      </div>
+      <div className={styles.missingList}>
+        {shown.map(card => {
+          const price = getPrice(card, false, { price_source: priceSource })
+          return (
+            <div key={`${card.collector_number}`} className={styles.missingRow}>
+              <span className={styles.missingNum}>#{card.collector_number}</span>
+              <span className={styles.missingName}>{card.name}</span>
+              <span className={styles.missingPrice}>{price != null ? fmt(price) : '—'}</span>
+            </div>
+          )
+        })}
+      </div>
+      {missing.length > MISSING_PREVIEW_COUNT && (
+        <button className={styles.setDropdownToggle} onClick={() => setShowAll(v => !v)}>
+          {showAll ? <><ChevronUpIcon size={10} /> Show fewer</> : <><ChevronDownIcon size={10} /> Show all {missing.length}</>}
+        </button>
+      )}
+      <div className={styles.missingFooter}>
+        {wishlists.length === 0 ? (
+          <span className={styles.missingNote}>Create a wishlist to save these cards.</span>
+        ) : (
+          <>
+            <select className={styles.missingSelect} value={listId} onChange={e => setListId(e.target.value)}>
+              {wishlists.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+            </select>
+            <button className={styles.missingAddBtn} onClick={handleAdd} disabled={adding || !listId}>
+              {adding ? 'Adding…' : `Add ${missing.length} to wishlist`}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function SetCompletionSection({ cards, sfMap, loading, priceSource, fmt, wishlists, userId, showToast }) {
   const [setsMap, setSetsMap] = useState(null)
   const [expanded, setExpanded] = useState(false)
+  const [openSet, setOpenSet] = useState(null)
 
   const ownedBySet = useMemo(() => {
     if (!cards.length) return []
@@ -241,10 +341,15 @@ function SetCompletionSection({ cards, sfMap, loading }) {
           nums: new Set(),
         }
       }
-      map[card.set_code].nums.add(card.collector_number)
+      map[card.set_code].nums.add(String(card.collector_number))
     }
-    return Object.values(map).map(s => ({ code: s.code, name: s.name, owned: s.nums.size }))
+    return Object.values(map).map(s => ({ code: s.code, name: s.name, owned: s.nums.size, nums: s.nums }))
   }, [cards, sfMap])
+
+  const numsByCode = useMemo(
+    () => Object.fromEntries(ownedBySet.map(s => [s.code, s.nums])),
+    [ownedBySet]
+  )
 
   useEffect(() => {
     if (ownedBySet.length) fetchScryfallSetsMap().then(setSetsMap)
@@ -279,7 +384,22 @@ function SetCompletionSection({ cards, sfMap, loading }) {
       ) : (
         <>
           <div className={styles.setList}>
-            {top.map(r => <SetRow key={r.code} row={r} />)}
+            {top.map(r => (
+              <div key={r.code}>
+                <SetRow row={r} open={openSet === r.code} onToggle={() => setOpenSet(openSet === r.code ? null : r.code)} />
+                {openSet === r.code && (
+                  <MissingSetPanel
+                    code={r.code}
+                    ownedNums={numsByCode[r.code] || new Set()}
+                    priceSource={priceSource}
+                    fmt={fmt}
+                    wishlists={wishlists}
+                    userId={userId}
+                    showToast={showToast}
+                  />
+                )}
+              </div>
+            ))}
           </div>
           {rest.length > 0 && (
             <div className={styles.setDropdown}>
@@ -290,12 +410,99 @@ function SetCompletionSection({ cards, sfMap, loading }) {
               </button>
               {expanded && (
                 <div className={styles.setDropdownList}>
-                  {rest.map(r => <SetRow key={r.code} row={r} />)}
+                  {rest.map(r => (
+                    <div key={r.code}>
+                      <SetRow row={r} open={openSet === r.code} onToggle={() => setOpenSet(openSet === r.code ? null : r.code)} />
+                      {openSet === r.code && (
+                        <MissingSetPanel
+                          code={r.code}
+                          ownedNums={numsByCode[r.code] || new Set()}
+                          priceSource={priceSource}
+                          fmt={fmt}
+                          wishlists={wishlists}
+                          userId={userId}
+                          showToast={showToast}
+                        />
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
           )}
         </>
+      )}
+    </div>
+  )
+}
+
+function DeltaBadge({ delta, fmt, label }) {
+  if (!delta) return null
+  const up = delta.abs >= 0
+  return (
+    <span className={styles.valueDelta} style={{ color: up ? 'var(--green)' : '#e05252' }}>
+      {up ? '+' : ''}{fmt(delta.abs)}{delta.pct != null ? ` (${up ? '+' : ''}${delta.pct.toFixed(1)}%)` : ''}
+      <span className={styles.valueDeltaLabel}> {label}</span>
+    </span>
+  )
+}
+
+/** Portfolio value over time — daily snapshots recorded on Stats visits. */
+function ValueHistorySection({ rows, currentValue, field, fmt, sym }) {
+  const data = useMemo(
+    () => (rows || []).map(r => ({ date: r.snapshot_date, value: Number(r[field]) || 0 })),
+    [rows, field]
+  )
+
+  if (!rows) return null
+
+  const d7  = computeValueDelta(rows, currentValue, field, 7)
+  const d30 = computeValueDelta(rows, currentValue, field, 30)
+
+  return (
+    <div className={styles.chartBox}>
+      <div className={styles.sectionHead}>
+        <SLabel>Value Over Time</SLabel>
+        <span className={styles.valueDeltas}>
+          <DeltaBadge delta={d7} fmt={fmt} label="7d" />
+          <DeltaBadge delta={d30} fmt={fmt} label="30d" />
+        </span>
+      </div>
+      {data.length < 2 ? (
+        <div className={styles.valueHistoryEmpty}>
+          Value tracking started today — a snapshot is saved each day you open Stats,
+          and the chart builds from there.
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height={180}>
+          <AreaChart data={data} margin={{ top: 6, right: 6, left: 0, bottom: 0 }}>
+            <defs>
+              <linearGradient id="valueHistoryFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#c9a84c" stopOpacity={0.35} />
+                <stop offset="100%" stopColor="#c9a84c" stopOpacity={0.02} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.12)" vertical={false} />
+            <XAxis
+              dataKey="date"
+              tick={{ fontSize: 10, fill: 'var(--text-faint)' }}
+              tickFormatter={d => String(d).slice(5)}
+              minTickGap={28}
+            />
+            <YAxis
+              tick={{ fontSize: 10, fill: 'var(--text-faint)' }}
+              tickFormatter={v => `${sym}${v >= 1000 ? `${(v / 1000).toFixed(1)}k` : Math.round(v)}`}
+              width={48}
+              domain={['auto', 'auto']}
+            />
+            <Tooltip
+              formatter={value => [fmt(value), 'Value']}
+              labelStyle={{ color: 'var(--text-dim)' }}
+              contentStyle={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }}
+            />
+            <Area type="monotone" dataKey="value" stroke="#c9a84c" strokeWidth={2} fill="url(#valueHistoryFill)" />
+          </AreaChart>
+        </ResponsiveContainer>
       )}
     </div>
   )
@@ -996,6 +1203,24 @@ export default function StatsPage() {
   })
   const publicDeckCount = publicDeckCountQuery.data ?? 0
 
+  const valueHistoryQuery = useQuery({
+    queryKey: ['valueHistory', user.id],
+    queryFn: () => fetchValueHistory(user.id),
+    staleTime: STATS_FRESH_MS,
+    enabled: !!user?.id,
+  })
+
+  const foldersQuery = useQuery({
+    queryKey: ['folders', user.id],
+    queryFn: () => fetchFolders(user.id),
+    staleTime: STATS_FRESH_MS,
+    enabled: !!user?.id,
+  })
+  const wishlists = useMemo(
+    () => (foldersQuery.data ?? []).filter(f => f.type === 'list' && !isGroupFolder(f)),
+    [foldersQuery.data]
+  )
+
   const loading = cardsQuery.isPending || (cards.length > 0 && sfMapQuery.isPending)
 
   const refreshHistory = useCallback(async () => {
@@ -1102,6 +1327,7 @@ export default function StatsPage() {
     if (!cards.length) return null
 
     let totalValue = 0, totalCost = 0, totalQty = 0
+    let totalValueEur = 0, totalValueUsd = 0
     let foilCount  = 0, foilValue = 0
     let dayChange  = 0
     const byRarity = {}, bySet = {}, byType = {}, byLanguage = {}, byCondition = {}
@@ -1138,6 +1364,18 @@ export default function StatsPage() {
       totalValue += val
       totalCost  += (c.purchase_price || 0) * c.qty
       totalQty   += c.qty
+
+      // Dual-currency totals for the daily value snapshot. A manual price
+      // override is denominated in the user's active source currency, so it
+      // only applies to that side.
+      {
+        const manual = getManualPrice(c.id)
+        const activeIsEur = priceSourceMeta.currency === 'EUR'
+        const rawEur = getPrice(sf, c.foil, { price_source: 'cardmarket_trend' })
+        const rawUsd = getPrice(sf, c.foil, { price_source: 'tcgplayer_market' })
+        totalValueEur += ((manual != null && activeIsEur ? manual : rawEur) ?? 0) * c.qty
+        totalValueUsd += ((manual != null && !activeIsEur ? manual : rawUsd) ?? 0) * c.qty
+      }
       if (c.foil) { foilCount += c.qty; foilValue += val }
       const hasManualPrice = getManualPrice(c.id) != null
       dayChange += cardDayChange({ price, prevPrice, qty: c.qty, hasManualPrice })
@@ -1256,6 +1494,7 @@ export default function StatsPage() {
 
     return {
       totalValue, totalCost, totalQty, foilCount, foilValue, dayChange,
+      totalValueEur, totalValueUsd,
       pl: totalValue - totalCost,
       uniqueCards: cards.length,
       uniqueSets:  Object.keys(bySet).length,
@@ -1270,6 +1509,21 @@ export default function StatsPage() {
       colorDistribution: byColor,
     }
   }, [cards, sfMap, price_source, sym])
+
+  // Record today's value snapshot once the totals are real (prices loaded).
+  // recordCollectionValueSnapshot self-guards to one write per session.
+  useEffect(() => {
+    if (!user?.id || !stats || loading) return
+    recordCollectionValueSnapshot(user.id, {
+      eur: stats.totalValueEur,
+      usd: stats.totalValueUsd,
+      count: stats.totalQty,
+    })
+      .then(recorded => {
+        if (recorded) queryClient.invalidateQueries({ queryKey: ['valueHistory', user.id] })
+      })
+      .catch(err => console.warn('[Stats] value snapshot failed:', err?.message ?? String(err)))
+  }, [user?.id, stats, loading, queryClient])
 
   const tt = (p) => <CustomTooltip {...p} fmt={fmt} />
   const selectedCard = detailCardId ? cards.find(c => c.id === detailCardId) : null
@@ -1350,7 +1604,25 @@ export default function StatsPage() {
         </div>
 
         {/* ── Collection value over time ── */}
-        <SetCompletionSection cards={cards} sfMap={sfMap} loading={loading} />
+        <ValueHistorySection
+          rows={valueHistoryQuery.data ?? []}
+          currentValue={getPriceSource(price_source).currency === 'EUR' ? stats.totalValueEur : stats.totalValueUsd}
+          field={getPriceSource(price_source).currency === 'EUR' ? 'total_eur' : 'total_usd'}
+          fmt={fmt}
+          sym={sym}
+        />
+
+        {/* ── Set completion (collector mode) ── */}
+        <SetCompletionSection
+          cards={cards}
+          sfMap={sfMap}
+          loading={loading}
+          priceSource={price_source}
+          fmt={fmt}
+          wishlists={wishlists}
+          userId={user.id}
+          showToast={showToast}
+        />
 
         {/* ── Value distribution + Format legality ── */}
         <div className={stats.legalityData ? styles.chartRow : undefined}>

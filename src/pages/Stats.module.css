@@ -1457,3 +1457,63 @@
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/* ── Set completion: expandable missing-cards panel ─────────────────────── */
+
+.setRowClickable { cursor: pointer; border-radius: 6px; padding: 4px 6px; margin: 0 -6px; }
+.setRowClickable:hover { background: var(--s-subtle); }
+.setRowOpen { background: var(--s-subtle); }
+.setRowChevron { margin-left: 6px; color: var(--text-faint); display: inline-flex; align-items: center; }
+
+.missingPanel {
+  margin: 4px 0 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--s-border);
+  border-left: 2px solid rgba(201, 168, 76, 0.45);
+  border-radius: 8px;
+  background: var(--s2);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.missingHead { display: flex; justify-content: space-between; align-items: baseline; font-size: 0.78rem; color: var(--text); gap: 10px; flex-wrap: wrap; }
+.missingCost { color: var(--gold); font-size: 0.74rem; }
+
+.missingList { display: flex; flex-direction: column; gap: 2px; max-height: 280px; overflow-y: auto; }
+.missingRow { display: flex; align-items: baseline; gap: 8px; font-size: 0.75rem; line-height: 1.5; }
+.missingNum { color: var(--text-faint); min-width: 42px; font-variant-numeric: tabular-nums; }
+.missingName { color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.missingPrice { color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+.missingFooter { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--s-border); padding-top: 8px; flex-wrap: wrap; }
+.missingSelect {
+  flex: 1;
+  min-width: 140px;
+  padding: 5px 8px;
+  background: var(--s3);
+  border: 1px solid var(--s-border2);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 0.75rem;
+}
+.missingAddBtn {
+  padding: 5px 12px;
+  background: rgba(201, 168, 76, 0.15);
+  border: 1px solid rgba(201, 168, 76, 0.4);
+  border-radius: 6px;
+  color: var(--gold);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.missingAddBtn:hover:not(:disabled) { background: rgba(201, 168, 76, 0.25); }
+.missingAddBtn:disabled { opacity: 0.6; cursor: default; }
+.missingNote { font-size: 0.74rem; color: var(--text-faint); }
+.missingComplete { font-size: 0.76rem; color: var(--green); }
+
+/* ── Value over time ────────────────────────────────────────────────────── */
+
+.valueDeltas { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+.valueDelta { font-size: 0.74rem; font-variant-numeric: tabular-nums; }
+.valueDeltaLabel { color: var(--text-faint); font-size: 0.66rem; }
+.valueHistoryEmpty { font-size: 0.78rem; color: var(--text-dim); padding: 14px 0 6px; line-height: 1.5; }
