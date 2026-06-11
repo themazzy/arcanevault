@@ -1,0 +1,17 @@
+name = "deckloom-og"
+main = "worker.js"
+compatibility_date = "2026-06-01"
+
+# Only fires on shared-deck URLs; everything else never touches the worker.
+# The DNS record for deckloom.app must be PROXIED (orange cloud) in the
+# Cloudflare dashboard for routes to take effect — see README.md.
+routes = [
+  { pattern = "deckloom.app/d/*", zone_name = "deckloom.app" }
+]
+
+[vars]
+SUPABASE_URL = "https://sjrfcioailanbaodbtqg.supabase.co"
+
+# SUPABASE_ANON_KEY is set as a secret (it's the public anon key, but keeping
+# it out of the repo avoids key-rotation churn):
+#   npx wrangler secret put SUPABASE_ANON_KEY

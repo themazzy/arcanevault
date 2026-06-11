@@ -94,17 +94,16 @@ Social login under Capacitor cannot use the web `redirectTo` (the browser would 
 
 `isNativeApp()` from `src/lib/nativeAuth.js` is the canonical check for "running under Capacitor" in auth flows.
 
-### Social share previews (Open Graph) — `og-deck` edge function
+### Social share previews (Open Graph) — `deckloom-og` Cloudflare Worker
 
-GitHub Pages is static and link crawlers (`facebookexternalhit`, Discordbot, Twitterbot, …) don't run JS, so they only ever see the bare `<meta>` tags in the shipped `index.html` — a blank, ugly preview for `/d/:id` deck links. Rich per-deck previews are served by the **`og-deck` Supabase Edge Function** (`supabase/functions/og-deck/`), which deck share links point at instead of `deckloom.app/d/<id>`:
+Deck share links are the direct `https://deckloom.app/d/<id>` URL (built via `getPublicAppUrl` in `src/lib/publicUrl.js`). Rich previews for link crawlers are served by a **Cloudflare Worker** (`cloudflare/og-worker/`) routed at `deckloom.app/d/*` — the domain's DNS is on Cloudflare, so the worker runs on the branded URL itself:
 
-- **Crawler** (matched by UA in `isCrawler`, `og.ts`) → 200 HTML with deck-specific `og:`/`twitter:` tags + the commander/key-card `art_crop` image.
-- **Human** → `302` redirect to `https://deckloom.app/d/<id>` (the real SPA). `og:url` is always set to that branded URL, so FB shows **DECKLOOM.APP** as the source label.
-- Deck metadata comes from the `get_deck_og_meta(uuid)` SECURITY DEFINER RPC, which **returns null for any non-public deck** — private decks never leak. It exposes `name`, `format`, `commander`, `total_cards`, `art`, `creator` in one call.
-- `getDeckShareUrl(deckId)` (`src/lib/publicUrl.js`) builds the function URL; used by the share action in `DeckBuilder.jsx`. Internal `/d/:id` navigation links are unchanged.
-- **Known quirk:** the Edge Runtime forces `Content-Type: text/plain` + `nosniff` + CSP sandbox on all responses (anti-phishing on the shared `*.supabase.co` domain). This is *not* configurable via SQL/MCP/function code. Crawlers parse `og:` tags from the response **body** regardless, so previews work anyway; the only way to get real `text/html` is a paid custom domain for Edge Functions. Don't waste time trying to override the Content-Type.
-- After creating/altering the RPC, PostgREST may 404 it (`PGRST202`) until the schema cache reloads — run `notify pgrst, 'reload schema';`.
-- Pure helpers in `og.ts` (`isCrawler`, `extractDeckId`, `buildDescription`, `renderOgHtml`, …) are unit-tested in `src/lib/publicUrl.test.js`.
+- **Crawler UA** (`isCrawler` in `og.js`) → 200 `text/html` with deck-specific `og:`/`twitter:` tags + commander/key-card `art_crop` image. No redirect in the HTML — it's served at the canonical URL, a redirect would loop.
+- **Everyone else** → transparent `fetch(request)` pass-through to the GitHub Pages SPA. Removing the worker degrades gracefully to generic previews.
+- Deck metadata comes from the `get_deck_og_meta(uuid)` SECURITY DEFINER RPC, which **returns null for any non-public deck** — private decks never leak.
+- Deployed manually via `wrangler deploy` (see `cloudflare/og-worker/README.md`); requires the Cloudflare DNS records to be **Proxied** (orange cloud) and SSL mode **Full**.
+- Pure helpers in `og.js` are unit-tested in `src/lib/ogWorker.test.js`.
+- History: a previous `og-deck` Supabase Edge Function did the same job but made share links point at `*.supabase.co` (ugly, plus the Edge Runtime forces `Content-Type: text/plain` on the shared domain). It was removed 2026-06 and replaced by this worker.
 
 ---
 

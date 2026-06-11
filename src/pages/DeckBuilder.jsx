@@ -49,7 +49,7 @@ import {
   withLinkedPair,
 } from '../lib/deckSync'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
-import { getDeckShareUrl } from '../lib/publicUrl'
+import { getPublicAppUrl } from '../lib/publicUrl'
 import { loadLocalPlacementSnapshot, refreshRemotePlacementSnapshot } from '../lib/deckPlacementData'
 import {
   toDeckCardRow,
@@ -1078,7 +1078,7 @@ export default function DeckBuilderPage() {
   const handleShareDeck = useCallback(async () => {
     if (!deckId || shareBusy) return
     setShareBusy(true)
-    const url = getDeckShareUrl(deckId)
+    const url = getPublicAppUrl(`/d/${deckId}`)
     const wasPrivate = !deckMeta.is_public
     try {
       if (wasPrivate) {
