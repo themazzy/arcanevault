@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
 import { isCurrentUserAdmin } from '../lib/admin'
@@ -1319,6 +1319,12 @@ export default function SettingsPage() {
                 {checkoutBusy ? 'Opening Stripe...' : 'Unlock Premium Themes — €3 or your choice'}
               </button>
               <div className={styles.stripeNote}>One-time · Secured by Stripe · No subscription</div>
+              <div className={styles.stripeNote}>
+                Digital content, delivered to your account immediately after payment. By purchasing
+                you request immediate delivery and acknowledge losing the 14-day EU right of
+                withdrawal once delivered. If the unlock doesn&apos;t work, we&apos;ll fix it or refund it —{' '}
+                <Link to="/terms">Terms of Service</Link>.
+              </div>
               {checkoutError && <div className={styles.stripeError}>{checkoutError}</div>}
             </div>
           )}

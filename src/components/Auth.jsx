@@ -700,6 +700,7 @@ export function LoginPage({ forcedMode = null }) {
                   : 'Use your account to keep your collection, decks, and settings in sync.'}
             </div>
             <div className={styles.legalLinks}>
+              <Link className={styles.legalLink} to="/terms">Terms</Link>
               <Link className={styles.legalLink} to="/privacy">Privacy</Link>
               <Link className={styles.legalLink} to="/storage">Storage</Link>
               <Link className={styles.legalLink} to="/credits">Credits</Link>
@@ -876,6 +877,7 @@ export function LoginPage({ forcedMode = null }) {
         </button>
         <p className={styles.footerSmall}>Use one account to keep your collection, decks, and wishlists together.</p>
         <div className={styles.footerLegal}>
+          <Link className={styles.footerLegalLink} to="/terms">Terms of Service</Link>
           <Link className={styles.footerLegalLink} to="/privacy">Privacy Policy</Link>
           <Link className={styles.footerLegalLink} to="/storage">Cookies and Local Storage</Link>
           <Link className={styles.footerLegalLink} to="/credits">Credits</Link>

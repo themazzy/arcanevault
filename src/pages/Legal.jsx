@@ -4,6 +4,11 @@ import styles from './Legal.module.css'
 
 const legalLinks = [
   {
+    to: '/terms',
+    title: 'Terms of Service',
+    body: 'What you agree to when using DeckLoom: accounts, acceptable use, premium purchases, warranties, and liability.',
+  },
+  {
     to: '/privacy',
     title: 'Privacy Policy',
     body: 'What DeckLoom stores, why it stores it, who processes it, and how to request deletion or export.',

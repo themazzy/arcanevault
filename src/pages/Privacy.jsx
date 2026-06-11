@@ -43,7 +43,7 @@ export default function PrivacyPage() {
             Until a dedicated privacy mailbox is published, those request paths are the official contact
             mechanisms for deletion, data-handling questions, and follow-up on personal-data requests.
           </p>
-          <p><em>Last updated: 2026-05-13.</em></p>
+          <p><em>Last updated: 2026-06-11.</em></p>
         </section>
 
         <section className={styles.section}>
@@ -140,6 +140,7 @@ export default function PrivacyPage() {
             <li>Scryfall is used for card metadata and imagery.</li>
             <li>Frankfurter is used for exchange-rate conversion in supported price displays.</li>
             <li>GitHub Pages hosts the static front-end build at the public site URL.</li>
+            <li>Cloudflare provides DNS and acts as a network proxy in front of deckloom.app, which means site traffic (including IP addresses and request metadata) passes through Cloudflare&apos;s infrastructure. A Cloudflare worker also serves social link previews for publicly shared decks.</li>
             <li>Other external MTG services may be linked or queried for feature-specific integrations.</li>
           </ul>
           <p>
@@ -152,7 +153,7 @@ export default function PrivacyPage() {
           <h2>International data transfers</h2>
           <p>
             Some processors named above operate from servers outside the European Economic Area —
-            in particular Supabase, Stripe, Google, Discord, and GitHub. Where personal data is
+            in particular Supabase, Stripe, Google, Discord, GitHub, and Cloudflare. Where personal data is
             transferred outside the EEA or the UK, DeckLoom relies on the standard safeguards each
             processor provides (such as the EU Standard Contractual Clauses, EU-US Data Privacy
             Framework certifications where applicable, and the privacy commitments published on each

@@ -87,6 +87,7 @@ const SettingsPage = lazy(() => import('./pages/Settings'))
 const HelpPage = lazy(() => import('./pages/Help'))
 const AdminPage = lazy(() => import('./pages/Admin'))
 const LegalPage = lazy(() => import('./pages/Legal'))
+const TermsPage = lazy(() => import('./pages/Terms'))
 const PrivacyPage = lazy(() => import('./pages/Privacy'))
 const StorageNoticePage = lazy(() => import('./pages/StorageNotice'))
 const CreditsPage = lazy(() => import('./pages/Credits'))
@@ -152,6 +153,7 @@ export default function App() {
               <Suspense fallback={null}>
                 <Routes>
                   <Route path="/legal" element={<LegalPage />} />
+                  <Route path="/terms" element={<TermsPage />} />
                   <Route path="/privacy" element={<PrivacyPage />} />
                   <Route path="/storage" element={<StorageNoticePage />} />
                   <Route path="/credits" element={<CreditsPage />} />

@@ -9,6 +9,7 @@ const sources = [
   ['Google (OAuth)', 'Optional identity provider when signing in with a Google account.'],
   ['Discord (OAuth)', 'Optional identity provider when signing in with a Discord account.'],
   ['GitHub Pages', 'Static hosting for the public DeckLoom web build.'],
+  ['Cloudflare', 'DNS and network proxy in front of deckloom.app, including the worker that serves social link previews for shared decks.'],
   ['Frankfurter', 'Exchange-rate conversion for EUR and USD price displays.'],
   ['EDHREC', 'Feature-specific Commander recommendation integration where available.'],
   ['Moxfield', 'Deck import and related integration flows where available.'],
@@ -45,14 +46,18 @@ export default function CreditsPage() {
         <section className={styles.section}>
           <h2>Fan content notice</h2>
           <p>
-            DeckLoom is an unofficial fan project for Magic: The Gathering collectors and players.
-            It is not endorsed by, affiliated with, sponsored by, or specifically approved by Wizards
-            of the Coast or Hasbro.
+            <strong>
+              DeckLoom is unofficial Fan Content permitted under the Fan Content Policy. Not
+              approved/endorsed by Wizards. Portions of the materials used are property of Wizards of
+              the Coast. ©Wizards of the Coast LLC.
+            </strong>
           </p>
           <p>
-            Magic: The Gathering and related names, characters, card names, symbols, and other marks are
-            the property of Wizards of the Coast. This project exists to help users organize their own
-            collections and deck information.
+            DeckLoom is an unofficial fan project for Magic: The Gathering collectors and players.
+            It is not endorsed by, affiliated with, sponsored by, or specifically approved by Wizards
+            of the Coast or Hasbro. Magic: The Gathering and related names, characters, card names,
+            symbols, and other marks are the property of Wizards of the Coast. This project exists to
+            help users organize their own collections and deck information.
           </p>
         </section>
 

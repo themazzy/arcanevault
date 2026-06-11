@@ -239,7 +239,7 @@ Wishlists are not part of owned collection inventory.
 
 React Router v6. `BrowserRouter` in `src/App.jsx` uses the default basename (`/`) — the site is served from the root of `deckloom.app`.
 
-**Public routes** (outside `PrivateApp`): `/legal`, `/privacy`, `/storage`, `/credits`, `/delete-account`, `/share/:token`, `/d/:id`, `/join/:code`, `/join-tournament/:code`.
+**Public routes** (outside `PrivateApp`): `/legal`, `/terms`, `/privacy`, `/storage`, `/credits`, `/delete-account`, `/share/:token`, `/d/:id`, `/join/:code`, `/join-tournament/:code`.
 
 **Private routes** (require auth): all others, wrapped in `PrivateApp`.
 
