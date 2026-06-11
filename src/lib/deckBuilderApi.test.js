@@ -7,8 +7,36 @@ vi.mock('./scryfall', () => ({
   sfUrl: (u) => u,
 }))
 
-import { parseTextDecklist, parseImportUrl, searchCards, fetchPaperPrintings } from './deckBuilderApi'
+import { parseTextDecklist, parseImportUrl, searchCards, fetchPaperPrintings, getDeckBuilderCardMeta } from './deckBuilderApi'
 import { sfGet } from './scryfall'
+
+describe('getDeckBuilderCardMeta', () => {
+  // Every deck add path — normal search, recs, import, AND the commander
+  // picker — builds its deck_cards row from this helper. The commander picker
+  // used to hand-roll its row with the 'art_crop' image, which rendered the
+  // commander as an art card in the deck list.
+  it('uses the normal-size card image, never art_crop', () => {
+    const meta = getDeckBuilderCardMeta({
+      id: 'sf-1', set: 'who', collector_number: '42', type_line: 'Legendary Creature',
+      mana_cost: '{2}{G}{U}', cmc: 4, color_identity: ['G', 'U'],
+      image_uris: { normal: 'https://img/normal.jpg', art_crop: 'https://img/art.jpg' },
+    })
+    expect(meta.image_uri).toBe('https://img/normal.jpg')
+  })
+
+  it('falls back to the first face for image and text fields on multi-face cards', () => {
+    const meta = getDeckBuilderCardMeta({
+      id: 'sf-2', set: 'mid', collector_number: '7', cmc: 2, color_identity: ['W'],
+      card_faces: [
+        { type_line: 'Legendary Creature — Human', mana_cost: '{1}{W}', image_uris: { normal: 'https://img/front.jpg', art_crop: 'https://img/front-art.jpg' } },
+        { type_line: 'Legendary Creature — Spirit', mana_cost: '', image_uris: { normal: 'https://img/back.jpg' } },
+      ],
+    })
+    expect(meta.image_uri).toBe('https://img/front.jpg')
+    expect(meta.type_line).toBe('Legendary Creature — Human')
+    expect(meta.mana_cost).toBe('{1}{W}')
+  })
+})
 
 describe('parseTextDecklist', () => {
   it('parses simple qty + name', () => {

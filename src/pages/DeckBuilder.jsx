@@ -1864,12 +1864,25 @@ export default function DeckBuilderPage() {
   async function pickCommander(sfCard) {
     closeCmdPicker()
 
+    // The commander search returns whichever single print Scryfall considers
+    // canonical (unique=cards), which can be an art-series/special printing.
+    // Resolve the actual print the same way the normal card search does:
+    // owned binder copy first, then owned deck copy, then newest paper print.
+    let resolved = null
+    try {
+      resolved = await resolvePreferredDeckPrinting(sfCard.name, sfCard)
+    } catch (err) {
+      console.warn('[DeckBuilder] commander printing resolution failed:', err)
+    }
+    const cmdCard = resolved?.sfCard || sfCard
+    const cmdFoil = !!resolved?.foil
+
     const newMeta = {
       ...deckMeta,
-      commanderName: sfCard.name,
-      commanderScryfallId: sfCard.id,
-      coverArtUri: getCardImageUri(sfCard, 'art_crop'),
-      commanderColorIdentity: sfCard.color_identity,
+      commanderName: cmdCard.name,
+      commanderScryfallId: cmdCard.id,
+      coverArtUri: getCardImageUri(cmdCard, 'art_crop'),
+      commanderColorIdentity: cmdCard.color_identity,
     }
     setDeckMeta(newMeta)
 
@@ -1879,26 +1892,23 @@ export default function DeckBuilderPage() {
       await removeCardFromDeck(existingCmd.id)
     }
 
-    // Build commander deck card
+    // Build commander deck card — getDeckBuilderCardMeta like every other add
+    // path ('normal' image, primary-face fields). The hand-rolled version this
+    // replaces stored the 'art_crop' image, rendering the commander as an art
+    // card in the deck list; 'art_crop' is only for the deck cover above.
     const cmdRow = {
-      id:               crypto.randomUUID(),
-      deck_id:          deckId,
-      user_id:          user.id,
-      scryfall_id:      sfCard.id,
-      name:             sfCard.name,
-      set_code:         sfCard.set,
-      collector_number: sfCard.collector_number,
-      type_line:        sfCard.type_line,
-      mana_cost:        sfCard.mana_cost,
-      cmc:              sfCard.cmc,
-      color_identity:   sfCard.color_identity,
-      image_uri:        getCardImageUri(sfCard, 'art_crop'),
-      qty:              1,
-      foil:             false,
-      is_commander:     true,
-      board:            'main',
-      created_at:       new Date().toISOString(),
-      updated_at:       new Date().toISOString(),
+      id:           crypto.randomUUID(),
+      deck_id:      deckId,
+      user_id:      user.id,
+      name:         cmdCard.name,
+      ...getDeckBuilderCardMeta(cmdCard),
+      qty:          1,
+      foil:         cmdFoil,
+      is_commander: true,
+      board:        'main',
+      card_print_id: resolved?.card_print_id || undefined,
+      created_at:   new Date().toISOString(),
+      updated_at:   new Date().toISOString(),
     }
 
     // Update state and persist — read ref again for current non-commander cards
