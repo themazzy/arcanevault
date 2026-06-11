@@ -75,7 +75,7 @@ export function deckPublicUrl(deckId) {
 // sees a plain link into the app.
 export function renderOgHtml(deckId, meta) {
   const canonical = deckPublicUrl(deckId)
-  const title = meta?.name ? `${meta.name} — DeckLoom` : 'DeckLoom — MTG Collection Tracker'
+  const title = meta?.name ? `${meta.name} — deckloom.app` : 'DeckLoom — MTG Collection Tracker'
   const description = meta
     ? buildDescription(meta)
     : 'Catalog cards, build decks, scan with your camera, organise binders and wishlists, and follow daily EUR & USD prices.'

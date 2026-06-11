@@ -65,7 +65,7 @@ describe('renderOgHtml', () => {
 
   it('uses deck-specific title, art image and large summary card', () => {
     const html = renderOgHtml('deck-1', meta)
-    expect(html).toContain('<meta property="og:title" content="Atraxa Superfriends — DeckLoom" />')
+    expect(html).toContain('<meta property="og:title" content="Atraxa Superfriends — deckloom.app" />')
     expect(html).toContain('<meta property="og:image" content="https://cards.scryfall.io/art_crop/x.jpg" />')
     expect(html).toContain('summary_large_image')
     expect(html).toContain('<meta property="og:url" content="https://deckloom.app/d/deck-1" />')
