@@ -23,6 +23,8 @@ import { useToast } from '../components/ToastContext'
 import PromptDialog from '../components/PromptDialog'
 import { CardDetail } from '../components/CardComponents'
 import DeckStats, { normalizeDeckBuilderCards, CAT_COLORS, CAT_ORDER } from '../components/DeckStats'
+import BracketPanel from '../components/deckBuilder/BracketPanel'
+import { analyzeBracket, fetchGameChangerNames } from '../lib/commanderBracket'
 import { getScryfallKey, formatPrice, getPrice } from '../lib/scryfall'
 import { getCardCategoryFromCard, isTypeFallbackCategory } from '../lib/cardCategory'
 import ExportModal from '../components/ExportModal'
@@ -895,6 +897,31 @@ export default function DeckBuilderPage() {
     () => normalizeDeckBuilderCards(mainDeckCards, builderSfMap, { price_source }),
     [mainDeckCards, builderSfMap, price_source]
   )
+
+  // ── Commander Bracket estimate ─────────────────────────────────────────────
+  // Game Changers list comes from Scryfall (is:gamechanger, 7-day cache) so it
+  // tracks WotC updates without code changes. Analysis is pure/local.
+  const [gameChangerNames, setGameChangerNames] = useState(null)
+  useEffect(() => {
+    if (!isEDH || gameChangerNames) return
+    let cancelled = false
+    fetchGameChangerNames()
+      .then(names => { if (!cancelled) setGameChangerNames(names) })
+      .catch(() => { if (!cancelled) setGameChangerNames(new Set()) })
+    return () => { cancelled = true }
+  }, [isEDH, gameChangerNames])
+
+  const comboNameLists = useMemo(() => {
+    if (!combosFetched) return null
+    return combosIncluded.map(c =>
+      (c.uses || []).map(u => u.card?.name || u.template?.name).filter(Boolean)
+    )
+  }, [combosFetched, combosIncluded])
+
+  const bracketAnalysis = useMemo(() => {
+    if (!isEDH || !gameChangerNames) return null
+    return analyzeBracket({ cards: normalizedStatsCards, gameChangerNames, comboCardLists: comboNameLists })
+  }, [isEDH, gameChangerNames, normalizedStatsCards, comboNameLists])
 
   // Auto-collapse format/commander section on mobile once commander is set
   useEffect(() => {
@@ -3700,6 +3727,16 @@ export default function DeckBuilderPage() {
                 </span>
               </div>
             </div>
+
+            {/* Commander Bracket estimate */}
+            {isEDH && bracketAnalysis && (
+              <BracketPanel
+                analysis={bracketAnalysis}
+                combosFetched={combosFetched}
+                combosLoading={combosLoading}
+                onCheckCombos={fetchCombos}
+              />
+            )}
           </div>
         </div>
 
