@@ -9,6 +9,12 @@ permissions:
   pages: write
   id-token: write
 
+# Queue concurrent deploys instead of letting them collide (two pushes in
+# quick succession otherwise fail the second deploy-pages step).
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
 jobs:
   build_site:
     runs-on: ubuntu-latest
