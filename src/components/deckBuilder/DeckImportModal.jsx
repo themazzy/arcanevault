@@ -1,20 +1,30 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { sb } from '../../lib/supabase'
-import { parseImportText, resolveImportEntries, summarizeImportRows } from '../../lib/importFlow'
-import { getDeckBuilderCardMeta } from '../../lib/deckBuilderApi'
+import { normalizeImportedDeckCards, parseImportText, resolveImportEntries, summarizeImportRows } from '../../lib/importFlow'
+import { getDeckBuilderCardMeta, importDeckFromUrl } from '../../lib/deckBuilderApi'
 import { BOARD_ORDER, BOARD_LABELS } from '../../lib/deckBuilderConstants'
 import { normalizeBoard } from '../../lib/deckBuilderHelpers'
 import { toDeckCardRow, requireCardPrintIds } from '../../lib/deckBuilderWrites'
 import { putDeckCards } from '../../lib/db'
+import { CheckIcon, CloseIcon, WarningIcon } from '../../icons'
+import styles from './DeckImportModal.module.css'
+
+const TABS = [
+  ['text', 'Paste List'],
+  ['file', 'Upload File'],
+  ['url',  'From URL'],
+]
 
 /**
  * Bulk deck import modal. Owns its own UI state — the parent only needs to
  * supply `open` / `onClose` and the deck context primitives.
  *
+ * Sources: pasted decklist, .txt/.csv file, or a deck URL (Archidekt /
+ * Moxfield via the Cloudflare Worker import proxy; Goldfish is blocked
+ * upstream and errors with a paste hint).
+ *
  * On a successful import the modal calls `setDeckCards()` directly with the
- * merged update + insert plan. Keeping that callback raw (instead of going via
- * a callback prop) matches how the inline version worked before extraction —
- * one synchronous state update from the parent's perspective.
+ * merged update + insert plan.
  */
 export default function DeckImportModal({
   open,
@@ -25,7 +35,8 @@ export default function DeckImportModal({
   setDeckCards,
 }) {
   const [importText, setImportText] = useState('')
-  const [importTab,  setImportTab]  = useState('text') // 'text' | 'file'
+  const [importUrl,  setImportUrl]  = useState('')
+  const [importTab,  setImportTab]  = useState('text') // 'text' | 'file' | 'url'
   const [importStep, setImportStep] = useState('input') // 'input' | 'review'
   const [importRows, setImportRows] = useState([])
   const [importing,  setImporting]  = useState(false)
@@ -47,6 +58,13 @@ export default function DeckImportModal({
     }
   }, [open])
 
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [open, onClose])
+
   const importSummary = importRows.length ? summarizeImportRows(importRows) : null
   const importMatchedRows = useMemo(
     () => importRows.filter(row => row.status === 'matched' && row.sfCard),
@@ -57,6 +75,8 @@ export default function DeckImportModal({
     [importRows],
   )
 
+  const canReview = importTab === 'url' ? !!importUrl.trim() : !!importText.trim()
+
   async function prepareImportReview() {
     if (importingRef.current) return
     importingRef.current = true
@@ -66,10 +86,16 @@ export default function DeckImportModal({
     setImporting(true)
 
     try {
-      const parsed = parseImportText(importText).entries
-      if (!parsed.length) throw new Error('No cards found in the import.')
+      let entries
+      if (importTab === 'url') {
+        const result = await importDeckFromUrl(importUrl.trim())
+        entries = normalizeImportedDeckCards(result.cards)
+      } else {
+        entries = parseImportText(importText).entries
+      }
+      if (!entries.length) throw new Error('No cards found in the import.')
 
-      const resolvedRows = await resolveImportEntries(parsed)
+      const resolvedRows = await resolveImportEntries(entries)
       setImportRows(resolvedRows)
       setImportStep('review')
     } catch (err) {
@@ -201,6 +227,7 @@ export default function DeckImportModal({
       const skipped = missedRows.length ? ` Skipped ${missedRows.length} unresolved row${missedRows.length !== 1 ? 's' : ''}.` : ''
       setImportDone(`Imported ${importedCopies} card${importedCopies !== 1 ? 's' : ''}${boardSummary ? ` (${boardSummary})` : ''}.${skipped}`)
       setImportText('')
+      setImportUrl('')
       setImportRows([])
       setImportStep('input')
     } catch (err) {
@@ -213,44 +240,49 @@ export default function DeckImportModal({
   if (!open) return null
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div style={{ background: 'var(--bg-card, #1e1e1e)', border: '1px solid var(--border)', borderRadius: 8, padding: 24, width: 480, maxWidth: '95vw', display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontFamily: 'var(--font-display)', color: 'var(--gold)', fontSize: '1rem' }}>Import Deck</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-faint)', fontSize: '1.1rem', cursor: 'pointer' }}>x</button>
+    <div className={styles.overlay} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className={styles.modal} role="dialog" aria-label="Import deck">
+        <div className={styles.header}>
+          <span className={styles.title}>Import Deck</span>
+          <button type="button" className={styles.closeBtn} onClick={onClose} aria-label="Close">
+            <CloseIcon size={16} />
+          </button>
         </div>
 
         {importStep === 'input' && <>
-          {/* Tab switcher */}
-          <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)' }}>
-            {[['text', 'Paste List'], ['file', 'Upload File']].map(([id, label]) => (
-              <button key={id} onClick={() => { setImportTab(id); setImportError(null); setImportDone(null) }}
-                style={{ flex: 1, padding: '7px 0', background: 'none', border: 'none', borderBottom: importTab === id ? '2px solid var(--gold)' : '2px solid transparent', color: importTab === id ? 'var(--gold)' : 'var(--text-dim)', fontSize: '0.83rem', cursor: 'pointer', marginBottom: -1 }}>
+          <div className={styles.tabs}>
+            {TABS.map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                className={`${styles.tab}${importTab === id ? ' ' + styles.tabActive : ''}`}
+                onClick={() => { setImportTab(id); setImportError(null); setImportDone(null) }}
+              >
                 {label}
               </button>
             ))}
           </div>
 
           {importTab === 'text' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <p style={{ fontSize: '0.78rem', color: 'var(--text-faint)', margin: 0 }}>
-                Paste a decklist in standard format. Supports <code style={{ color: 'var(--gold)' }}>Commander:</code>, <code style={{ color: 'var(--gold)' }}>Sideboard:</code>, and <code style={{ color: 'var(--gold)' }}>Maybeboard:</code> sections.
+            <div className={styles.pane}>
+              <p className={styles.hint}>
+                Paste a decklist in standard format. Supports <code>Commander:</code>, <code>Sideboard:</code>, and <code>Maybeboard:</code> sections.
               </p>
               <textarea
                 autoFocus
+                className={styles.textarea}
                 value={importText}
                 onChange={e => setImportText(e.target.value)}
                 placeholder={"Commander:\n1 Sheoldred, the Apocalypse\n\nDeck:\n1 Sol Ring\n1 Swamp\n\nSideboard:\n1 Duress\n\nMaybeboard:\n1 Bitterblossom"}
                 rows={10}
-                style={{ background: 'var(--s3)', border: '1px solid var(--border)', borderRadius: 4, padding: '8px 12px', color: 'var(--text)', fontSize: '0.83rem', outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
               />
             </div>
           )}
+
           {importTab === 'file' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <p style={{ fontSize: '0.78rem', color: 'var(--text-faint)', margin: 0 }}>
-                Upload a <code style={{ color: 'var(--gold)' }}>.txt</code> decklist or <code style={{ color: 'var(--gold)' }}>.csv</code> Manabox export.
+            <div className={styles.pane}>
+              <p className={styles.hint}>
+                Upload a <code>.txt</code> decklist or <code>.csv</code> Manabox export.
               </p>
               <input
                 ref={importFileRef}
@@ -267,92 +299,110 @@ export default function DeckImportModal({
                   e.target.value = ''
                 }}
               />
-              <button
-                onClick={() => importFileRef.current?.click()}
-                style={{ background: 'var(--s3)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-dim)', padding: '10px 16px', fontSize: '0.83rem', cursor: 'pointer', textAlign: 'left' }}>
-                {importText ? `OK File loaded - ${importText.split('\n').filter(Boolean).length} lines` : 'Choose file...'}
+              <button type="button" className={styles.fileBtn} onClick={() => importFileRef.current?.click()}>
+                {importText
+                  ? <><span className={styles.fileLoadedIcon}><CheckIcon size={14} /></span> File loaded — {importText.split('\n').filter(Boolean).length} lines</>
+                  : 'Choose file…'}
               </button>
               {importText && (
-                <textarea
-                  readOnly
-                  value={importText}
-                  rows={6}
-                  style={{ background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: 4, padding: '8px 12px', color: 'var(--text-faint)', fontSize: '0.78rem', outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
-                />
+                <textarea readOnly className={styles.filePreview} value={importText} rows={6} />
               )}
+            </div>
+          )}
+
+          {importTab === 'url' && (
+            <div className={styles.pane}>
+              <p className={styles.hint}>
+                Paste a public deck link from <code>Archidekt</code> or <code>Moxfield</code>.
+                MTGGoldfish blocks automated imports — paste its decklist text instead.
+              </p>
+              <input
+                autoFocus
+                type="url"
+                className={styles.urlInput}
+                value={importUrl}
+                onChange={e => { setImportUrl(e.target.value); setImportError(null); setImportDone(null) }}
+                onKeyDown={e => { if (e.key === 'Enter' && importUrl.trim() && !importing) prepareImportReview() }}
+                placeholder="https://archidekt.com/decks/123456/my-deck"
+              />
             </div>
           )}
         </>}
 
         {importStep === 'review' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+          <div className={styles.pane}>
+            <div className={styles.statGrid}>
               {[
-                ['Rows', importSummary?.totalRows || 0],
-                ['Matched', importSummary?.matchedRows || 0],
-                ['Copies', importSummary?.matchedCopies || 0],
-                ['Unresolved', importSummary?.missingRows || 0],
-              ].map(([label, value]) => (
-                <div key={label} style={{ background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 10px' }}>
-                  <div style={{ color: label === 'Unresolved' && value ? '#e07070' : 'var(--gold)', fontFamily: 'var(--font-display)', fontSize: '1rem' }}>{value}</div>
-                  <div style={{ color: 'var(--text-faint)', fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
+                ['Rows', importSummary?.totalRows || 0, false],
+                ['Matched', importSummary?.matchedRows || 0, false],
+                ['Copies', importSummary?.matchedCopies || 0, false],
+                ['Unresolved', importSummary?.missingRows || 0, !!importSummary?.missingRows],
+              ].map(([label, value, bad]) => (
+                <div key={label} className={styles.statCard}>
+                  <div className={`${styles.statValue}${bad ? ' ' + styles.statValueBad : ''}`}>{value}</div>
+                  <div className={styles.statLabel}>{label}</div>
                 </div>
               ))}
             </div>
-            <div style={{ color: importMissingRows.length ? '#e0a852' : 'var(--green)', fontSize: '0.8rem' }}>
+            <div className={`${styles.statusLine}${importMissingRows.length ? ' ' + styles.statusLineWarn : ''}`}>
               {importMissingRows.length
                 ? `${importMissingRows.length} row${importMissingRows.length === 1 ? '' : 's'} will be skipped unless corrected.`
                 : 'All rows resolved and are ready to import.'}
             </div>
-            <div style={{ maxHeight: '42vh', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6 }}>
+            <div className={styles.reviewList}>
               {importRows.map((row, index) => (
-                <div key={`${row.name}-${index}`} style={{
-                  display: 'grid',
-                  gridTemplateColumns: '52px minmax(0, 1fr) 82px 70px 86px',
-                  gap: 8,
-                  alignItems: 'center',
-                  padding: '8px 10px',
-                  borderBottom: index === importRows.length - 1 ? 'none' : '1px solid var(--s-border)',
-                  background: row.status === 'matched' ? 'transparent' : 'rgba(196,96,96,0.08)',
-                  fontSize: '0.78rem',
-                }}>
-                  <span style={{ color: row.status === 'matched' ? 'var(--green)' : '#e07070', fontFamily: 'var(--font-display)' }}>
-                    {row.status === 'matched' ? 'OK' : 'MISS'}
+                <div
+                  key={`${row.name}-${index}`}
+                  className={`${styles.reviewRow}${row.status !== 'matched' ? ' ' + styles.reviewRowMiss : ''}`}
+                >
+                  <span className={row.status === 'matched' ? styles.statusOk : styles.statusMiss} aria-label={row.status === 'matched' ? 'Matched' : 'Unresolved'}>
+                    {row.status === 'matched' ? <CheckIcon size={14} /> : <WarningIcon size={14} />}
                   </span>
-                  <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
+                  <span className={styles.rowName}>
                     {row.qty}x {row.resolvedName || row.name}
-                    {row.foil && <span style={{ color: 'var(--gold)', marginLeft: 6 }}>Foil</span>}
-                    {row.isCommander && <span style={{ color: 'var(--gold)', marginLeft: 6 }}>Commander</span>}
+                    {row.foil && <span className={styles.rowTag}>Foil</span>}
+                    {row.isCommander && <span className={styles.rowTag}>Commander</span>}
                   </span>
-                  <span style={{ color: 'var(--text-faint)' }}>{row.board ? BOARD_LABELS[normalizeBoard(row.board)] : 'Mainboard'}</span>
-                  <span style={{ color: 'var(--text-faint)' }}>{row.resolvedSetCode ? `${String(row.resolvedSetCode).toUpperCase()} #${row.resolvedCollectorNumber || '-'}` : '-'}</span>
-                  <span style={{ color: row.exactPrinting ? 'var(--green)' : 'var(--text-faint)' }}>{row.status === 'matched' ? (row.exactPrinting ? 'Exact print' : 'Name match') : row.reason || 'Missing'}</span>
+                  <span className={styles.rowDim}>{row.board ? BOARD_LABELS[normalizeBoard(row.board)] : 'Mainboard'}</span>
+                  <span className={styles.rowDim}>{row.resolvedSetCode ? `${String(row.resolvedSetCode).toUpperCase()} #${row.resolvedCollectorNumber || '–'}` : '–'}</span>
+                  <span className={row.exactPrinting ? styles.rowMatchExact : styles.rowDim}>
+                    {row.status === 'matched' ? (row.exactPrinting ? 'Exact print' : 'Name match') : row.reason || 'Missing'}
+                  </span>
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        {importError && <p style={{ color: '#e07070', fontSize: '0.82rem', margin: 0 }}>{importError}</p>}
-        {importDone  && <p style={{ color: 'var(--green)', fontSize: '0.82rem', margin: 0 }}>OK {importDone}</p>}
+        {importError && <p className={styles.errorText}>{importError}</p>}
+        {importDone && (
+          <p className={styles.doneText}><CheckIcon size={14} /> {importDone}</p>
+        )}
 
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button onClick={() => { onClose(); setImportStep('input'); setImportRows([]) }}
-            style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-dim)', padding: '7px 14px', fontSize: '0.83rem', cursor: 'pointer' }}>
+        <div className={styles.footer}>
+          <button type="button" className={styles.btn} onClick={() => { onClose(); setImportStep('input'); setImportRows([]) }}>
             {importDone ? 'Close' : 'Cancel'}
           </button>
           {!importDone && importStep === 'review' && (
-            <button onClick={() => { setImportStep('input'); setImportError(null); setImportDone(null) }}
+            <button
+              type="button"
+              className={styles.btn}
               disabled={importing}
-              style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-dim)', padding: '7px 14px', fontSize: '0.83rem', cursor: 'pointer', opacity: importing ? 0.6 : 1 }}>
+              onClick={() => { setImportStep('input'); setImportError(null); setImportDone(null) }}
+            >
               Back
             </button>
           )}
           {!importDone && (
-            <button onClick={importStep === 'review' ? confirmImportReview : prepareImportReview}
-              disabled={importing || (importStep === 'review' ? importMatchedRows.length === 0 : !importText.trim())}
-              style={{ background: 'rgba(201,168,76,0.15)', border: '1px solid rgba(201,168,76,0.4)', borderRadius: 4, color: 'var(--gold)', padding: '7px 18px', fontSize: '0.83rem', cursor: 'pointer', opacity: importing ? 0.6 : 1 }}>
-              {importing ? (importStep === 'review' ? 'Importing...' : 'Resolving...') : (importStep === 'review' ? `Import ${importSummary?.matchedCopies || 0}` : 'Review Import')}
+            <button
+              type="button"
+              className={styles.btnPrimary}
+              onClick={importStep === 'review' ? confirmImportReview : prepareImportReview}
+              disabled={importing || (importStep === 'review' ? importMatchedRows.length === 0 : !canReview)}
+            >
+              {importing
+                ? (importStep === 'review' ? 'Importing…' : importTab === 'url' ? 'Fetching…' : 'Resolving…')
+                : (importStep === 'review' ? `Import ${importSummary?.matchedCopies || 0}` : 'Review Import')}
             </button>
           )}
         </div>
