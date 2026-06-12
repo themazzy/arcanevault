@@ -191,9 +191,44 @@ export function getMemoryMap() {
 
 // ── Async cache loader ────────────────────────────────────────────────────────
 // Load all entries from IDB into memory. Returns map or null if empty.
+// Off-main-thread hydration (Phase 2b). Resolves null when workers are
+// unavailable or anything goes wrong — callers fall back to the direct path.
+function hydrateViaWorker() {
+  if (typeof Worker === 'undefined') return Promise.resolve(null)
+  return new Promise(resolve => {
+    let worker
+    try {
+      worker = new Worker(new URL('./hydrateWorker.js', import.meta.url), { type: 'module' })
+    } catch {
+      return resolve(null)
+    }
+    const finish = (result) => {
+      clearTimeout(timer)
+      worker.terminate()
+      resolve(result)
+    }
+    const timer = setTimeout(() => finish(null), 10000)
+    worker.onmessage = e => finish(e.data?.ok && e.data.count > 0 ? e.data : null)
+    worker.onerror = () => finish(null)
+    worker.postMessage('hydrate')
+  })
+}
+
 export async function loadCacheFromIDB(cacheTtlMs = DEFAULT_TTL_MS) {
   if (_sfMap) return _sfMap
 
+  const endHydrate = perfSpan('idb-hydrate')
+  const viaWorker = await hydrateViaWorker()
+  if (viaWorker) {
+    const updatedAt = await getMetadataUpdatedAt()
+    const expired = !updatedAt || (Date.now() - updatedAt > cacheTtlMs)
+    console.log(`[SF IDB] loaded ${viaWorker.count} cards (worker) — metadata ${expired ? 'EXPIRED' : 'fresh'}`)
+    _sfMap = viaWorker.map
+    endHydrate()
+    return { map: _sfMap, pricesExpired: expired }
+  }
+
+  // Direct path: workers unavailable (tests, very old WebViews) or empty DB.
   const endRead = perfSpan('idb-hydrate:read')
   const entries = await getAllScryfallEntries()
   endRead()
