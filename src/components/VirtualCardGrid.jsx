@@ -20,7 +20,9 @@ const NON_DRAGGABLE_IMG_PROPS = {
 const DENSITY_MIN_WIDTH = { cozy: 210, comfortable: 168, compact: 128 }
 const DENSITY_BASE_ROW_HEIGHT = { cozy: 375, comfortable: 325, compact: 260 }
 const OVERSCAN = 3
-const ROW_SIDE_INSET = 4
+// Must leave room for the selection outline (2px + 2px offset) and the hover
+// zoom (scale 1.025) on edge columns — the scroll container clips overflow-x.
+const ROW_SIDE_INSET = 10
 const ROW_GAP = 14
 const CARD_ASPECT_RATIO = 88 / 63
 const CARD_INFO_HEIGHT = 92
