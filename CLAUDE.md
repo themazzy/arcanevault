@@ -565,7 +565,7 @@ Host creates a session → others visit `/join/:code` on their own device → ho
 - `card_prints` — normalized print metadata shared across ownership, deck builder, prices, and scanner
 - `user_settings` — single row per user; includes `nickname`, `anonymize_email`, `reduce_motion`, `higher_contrast`, `card_name_size`, `default_grouping`, `keep_screen_awake`, `show_sync_errors`, `premium`, `profile_config`
 - `card_prices` — shared daily market prices keyed by `scryfall_id + snapshot_date`; app keeps only today and yesterday
-- `collection_value_snapshots` — per-user daily collection value: `user_id, snapshot_date, total_eur, total_usd, card_count`; upserted by Stats on visit, RLS owner-only
+- `collection_value_snapshots` — per-user daily collection value: `user_id, snapshot_date, total_eur, total_usd, card_count`; RLS owner-only. Written two ways: a pg_cron job (`daily-collection-value-snapshots`, 04:30 UTC, after the 03:20 price sync) runs `record_daily_value_snapshots()` with `ON CONFLICT DO NOTHING`, and Stats upserts on visit with manual price overrides applied (client value wins). The cron function is SECURITY DEFINER with EXECUTE revoked from anon/authenticated
 - `game_sessions` — multiplayer life tracker sessions; `status`: `'waiting' | 'playing'`
 - `game_players` — player slots per session; `user_id` is null until a player claims the slot
 - `game_results` — deck win/loss history: `session_id, user_id, deck_id, deck_name, format, player_count, placement`
