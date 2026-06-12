@@ -6,7 +6,8 @@ compatibility_date = "2026-06-01"
 # The DNS record for deckloom.app must be PROXIED (orange cloud) in the
 # Cloudflare dashboard for routes to take effect — see README.md.
 routes = [
-  { pattern = "deckloom.app/d/*", zone_name = "deckloom.app" }
+  { pattern = "deckloom.app/d/*", zone_name = "deckloom.app" },
+  { pattern = "deckloom.app/api/rss*", zone_name = "deckloom.app" }
 ]
 
 [vars]

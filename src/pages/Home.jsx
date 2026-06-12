@@ -6,6 +6,7 @@ import { getInstantCache, getPriceSource, formatPrice, getImageUri, sfGet } from
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getLocalCards, getLocalFolders, getAllLocalFolderCards, getAllDeckAllocationsForUser, putCards } from '../lib/db'
 import { cardsContentHash } from '../lib/cardsHash'
+import { getProdAppUrl } from '../lib/publicUrl'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
@@ -233,11 +234,13 @@ async function fetchRulings(card) {
 //   EDHREC      → RSS 2.0      (items, link text content)
 //   MTGArenaZone→ RSS 2.0      (items, link text content)
 // Proxy: api.codetabs.com/v1/proxy — returns raw feed text, no JSON wrapper
-// codetabs is the default proxy. EDHREC's feed currently 400s through codetabs,
-// so use corsproxy.io for that one specifically.
+// Feeds are proxied through our own Cloudflare Worker (deckloom.app/api/rss,
+// allow-listed + edge-cached 15 min) — the free public CORS proxies this used
+// before (codetabs, corsproxy.io) kept breaking. Adding a feed here requires
+// adding its URL to RSS_ALLOWED_FEEDS in cloudflare/og-worker/worker.js too.
 const NEWS_FEEDS = [
   { url: 'https://www.mtggoldfish.com/feed', label: 'MTGGoldfish',    color: '#5a9a6a' },
-  { url: 'https://edhrec.com/articles/feed', label: 'EDHREC',         color: '#9a7acc', proxy: 'corsproxy' },
+  { url: 'https://edhrec.com/articles/feed', label: 'EDHREC',         color: '#9a7acc' },
   { url: 'https://mtgazone.com/feed',        label: 'MTG Arena Zone', color: '#5aafcc' },
 ]
 
@@ -298,25 +301,37 @@ function parseRssFeed(xmlText, label, color) {
   } catch { return [] }
 }
 
+const NEWS_CACHE_KEY = 'av_mtg_news_v1'
+const NEWS_CACHE_TTL_MS = 15 * 60 * 1000
+
 async function fetchMTGNews() {
-  const PROXIES = {
-    codetabs:  url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
-    corsproxy: url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-  }
+  // Session cache: repeat Home visits within 15 min skip the network entirely
+  // (the worker edge-caches feeds for the same window).
+  try {
+    const cached = JSON.parse(sessionStorage.getItem(NEWS_CACHE_KEY) || 'null')
+    if (cached?.articles?.length && Date.now() - cached.at < NEWS_CACHE_TTL_MS) {
+      return cached.articles
+    }
+  } catch { /* corrupt cache — refetch */ }
+
   const results = await Promise.allSettled(
     NEWS_FEEDS.map(async feed => {
-      const buildUrl = PROXIES[feed.proxy] || PROXIES.codetabs
-      const res = await fetch(buildUrl(feed.url))
+      const res = await fetch(`${getProdAppUrl('/api/rss')}?feed=${encodeURIComponent(feed.url)}`)
       if (!res.ok) return []
-      const text = await res.text()    // proxies return raw feed text
+      const text = await res.text()    // worker returns the raw feed XML
       return parseRssFeed(text, feed.label, feed.color)
     })
   )
-  return results
+  const articles = results
     .filter(r => r.status === 'fulfilled')
     .flatMap(r => r.value)
     .sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate))
     .slice(0, 12)
+
+  if (articles.length) {
+    try { sessionStorage.setItem(NEWS_CACHE_KEY, JSON.stringify({ at: Date.now(), articles })) } catch { /* storage full */ }
+  }
+  return articles
 }
 
 async function fetchUpcomingSets() {

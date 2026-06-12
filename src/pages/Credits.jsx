@@ -14,7 +14,6 @@ const sources = [
   ['EDHREC', 'Feature-specific Commander recommendation integration where available.'],
   ['Moxfield', 'Deck import and related integration flows where available.'],
   ['MTGGoldfish', 'Linked or proxied feed and deck-related integrations where available.'],
-  ['CodeTabs Proxy', 'Used for RSS proxying in supported feed workflows.'],
 ]
 
 export default function CreditsPage() {

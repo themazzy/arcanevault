@@ -5,6 +5,10 @@ card count, art image) to social crawlers hitting `https://deckloom.app/d/<id>`,
 while real browsers pass straight through to the GitHub Pages SPA. The share
 link stays the branded `deckloom.app` URL — no `*.supabase.co` anywhere.
 
+Also hosts the **RSS proxy** at `deckloom.app/api/rss?feed=<url>` for the Home
+page news section — allow-listed feeds only (`RSS_ALLOWED_FEEDS` in
+`worker.js`), edge-cached 15 minutes, CORS `*` so dev/Capacitor work too.
+
 ## How it works
 
 ```

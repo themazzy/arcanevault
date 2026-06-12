@@ -14,6 +14,40 @@
 
 import { extractDeckId, isCrawler, renderOgHtml } from './og.js'
 
+// ── RSS proxy (deckloom.app/api/rss?feed=<url>) ──────────────────────────────
+// The Home page news section needs CORS-free access to third-party RSS feeds;
+// the free public proxies it used (corsproxy.io, codetabs) rot regularly.
+// Strict allow-list — this must never become an open proxy.
+const RSS_ALLOWED_FEEDS = new Set([
+  'https://www.mtggoldfish.com/feed',
+  'https://edhrec.com/articles/feed',
+  'https://mtgazone.com/feed',
+])
+
+async function handleRss(request) {
+  const feed = new URL(request.url).searchParams.get('feed')
+  if (!feed || !RSS_ALLOWED_FEEDS.has(feed)) {
+    return new Response('feed not allowed', {
+      status: 400,
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  }
+  const upstream = await fetch(feed, {
+    headers: { 'User-Agent': 'DeckLoom RSS fetcher (+https://deckloom.app)' },
+    cf: { cacheTtl: 900, cacheEverything: true },
+  })
+  const body = await upstream.text()
+  return new Response(body, {
+    status: upstream.ok ? 200 : 502,
+    headers: {
+      'Content-Type': 'application/xml; charset=utf-8',
+      'Access-Control-Allow-Origin': '*',
+      // Let the edge + browsers hold feeds for 15 minutes.
+      'Cache-Control': 'public, max-age=900, s-maxage=900',
+    },
+  })
+}
+
 async function fetchDeckMeta(deckId, env) {
   try {
     const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/get_deck_og_meta`, {
@@ -35,6 +69,8 @@ async function fetchDeckMeta(deckId, env) {
 
 export default {
   async fetch(request, env) {
+    if (new URL(request.url).pathname === '/api/rss') return handleRss(request)
+
     const deckId = request.method === 'GET' ? extractDeckId(request.url) : null
 
     if (!deckId || !isCrawler(request.headers.get('user-agent'))) {
