@@ -680,12 +680,7 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onRename,
       onClick={handleCardClick}
       {...longPressProps}>
 
-      {selectMode ? (
-        <div
-          className={`${styles.selectCheckbox}${selected ? ` ${styles.selectCheckboxChecked}` : ''}`}
-          onClick={e => { e.stopPropagation(); onToggleSelect() }}
-        />
-      ) : (
+      {selectMode ? null : (
         <ResponsiveMenu
           title="Options"
           wrapClassName={styles.cogMenuWrap}

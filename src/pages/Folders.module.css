@@ -1315,3 +1315,9 @@
   border-radius: 10px;
   display: block;
 }
+
+/* Select mode: Collection-style border-only selection (no checkbox) */
+.folderCardSelected {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}

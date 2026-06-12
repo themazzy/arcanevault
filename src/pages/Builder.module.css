@@ -572,3 +572,9 @@
   .cardContent { padding: 10px 12px; }
   .bulkBar { gap: 6px; }
 }
+
+/* Select mode: Collection-style border-only selection (no checkbox) */
+.cardSelected {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}

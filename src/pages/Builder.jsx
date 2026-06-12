@@ -111,12 +111,6 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
     >
       <DeckArtBackground meta={meta} deckType={deck.type} />
       <div className={styles.cardContent}>
-        {selectMode && (
-          <div className={`${styles.deckCheckbox}${isSelected ? ' ' + styles.deckCheckboxChecked : ''}`}>
-            {isSelected && <CheckIcon size={11} />}
-          </div>
-        )}
-
         <div className={styles.cardTop}>
           <div className={styles.cardBadges}>
             {isCollection
