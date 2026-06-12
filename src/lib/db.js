@@ -220,15 +220,18 @@ export async function putCardPrints(rows) {
 }
 
 export async function getLocalCardPriceRowsByIds(scryfallIds, snapshotDates) {
-  const ids = [...new Set((scryfallIds || []).filter(Boolean))]
+  const ids = new Set((scryfallIds || []).filter(Boolean).map(id => String(id).trim()))
   const dates = [...new Set((snapshotDates || []).filter(Boolean))]
-  if (!ids.length || !dates.length) return []
+  if (!ids.size || !dates.length) return []
 
   const db = await getDb()
-  const rows = await Promise.all(
-    ids.flatMap(scryfallId => dates.map(snapshotDate => db.get('card_prices', `${scryfallId}|${snapshotDate}`))),
+  // One getAllFromIndex per snapshot date (typically 2 calls) instead of one
+  // db.get per id+date pair — a 12k-card collection was issuing ~24k
+  // individual gets here, which dominated every Stats/Collection load.
+  const rowsByDate = await Promise.all(
+    dates.map(date => db.getAllFromIndex('card_prices', 'snapshot_date', date)),
   )
-  return rows.filter(Boolean)
+  return rowsByDate.flat().filter(row => ids.has(row.scryfall_id))
 }
 
 export async function getLocalCardPriceRowsBySetCodes(setCodes, snapshotDates) {
@@ -246,19 +249,22 @@ export async function putCardPriceRows(rows) {
   const cachedAt = Date.now()
   const db = await getDb()
   const tx = db.transaction('card_prices', 'readwrite')
+  // Queue all puts without awaiting each one — awaiting per-put serializes
+  // the transaction and made bulk price caching take seconds.
+  const puts = []
   for (const row of rows) {
     const scryfallId = row?.scryfall_id ? String(row.scryfall_id).trim() : null
     const snapshotDate = row?.snapshot_date
     if (!scryfallId || !snapshotDate) continue
-    await tx.store.put({
+    puts.push(tx.store.put({
       ...row,
       id: `${scryfallId}|${snapshotDate}`,
       scryfall_id: scryfallId,
       set_code: row.set_code ? String(row.set_code).trim().toLowerCase() : row.set_code,
       cached_at: row.cached_at || cachedAt,
-    })
+    }))
   }
-  await tx.done
+  await Promise.all([...puts, tx.done])
 }
 
 export async function putCards(cards) {

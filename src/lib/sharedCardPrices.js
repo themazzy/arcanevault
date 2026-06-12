@@ -8,6 +8,22 @@ import { enrichCards, getInstantCache } from './scryfall'
 
 const ID_CHUNK_SIZE = 400
 const SET_CHUNK_SIZE = 25
+const CHUNK_CONCURRENCY = 6
+
+/** Map `items` through async `worker`, at most `limit` in flight. Results
+ *  keep input order. Exported for tests. */
+export async function runWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length)
+  let next = 0
+  async function lane() {
+    while (next < items.length) {
+      const index = next++
+      results[index] = await worker(items[index], index)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane))
+  return results
+}
 
 // Per-set-code price row cache — avoids re-fetching card_prices on every navigation.
 // Prices only change daily; 10-minute in-memory TTL is safe.
@@ -68,11 +84,14 @@ async function fetchSharedPriceRowsByIds(ids, snapshotDates, now) {
   }
 
   const idsToFetch = [...idsNeedingFetch].sort()
+  const chunks = []
   for (let i = 0; i < idsToFetch.length; i += ID_CHUNK_SIZE) {
-    const chunk = idsToFetch.slice(i, i + ID_CHUNK_SIZE)
+    chunks.push(idsToFetch.slice(i, i + ID_CHUNK_SIZE))
+  }
+
+  const fetchChunk = (chunk) => {
     const chunkKey = `${datesKey}:${chunk.join(',')}`
     let promise = _idChunkInflight.get(chunkKey)
-
     if (!promise) {
       promise = sb
         .from('card_prices')
@@ -99,25 +118,33 @@ async function fetchSharedPriceRowsByIds(ids, snapshotDates, now) {
 
       _idChunkInflight.set(chunkKey, promise)
     }
+    return promise
+  }
 
-    const data = await promise
+  // Fetch chunks with bounded parallelism (a cold cache on a large collection
+  // is ~30 chunks — running them serially stacked up round-trip latency), and
+  // write the IDB cache once at the end instead of per chunk.
+  const chunkResults = await runWithConcurrency(chunks, CHUNK_CONCURRENCY, fetchChunk)
+
+  const toCache = []
+  for (let i = 0; i < chunks.length; i++) {
+    const data = chunkResults[i]
     rows.push(...data)
-
-    const toCache = [...data]
+    toCache.push(...data)
     const foundByIdDate = new Set()
     for (const row of data) {
       const id = row?.scryfall_id ? String(row.scryfall_id).trim() : null
       if (!id) continue
       foundByIdDate.add(`${id}|${row.snapshot_date}`)
     }
-    for (const id of chunk) {
+    for (const id of chunks[i]) {
       for (const snapshotDate of snapshotDates) {
         if (foundByIdDate.has(`${id}|${snapshotDate}`)) continue
         toCache.push({ scryfall_id: id, snapshot_date: snapshotDate, missing: true, cached_at: now })
       }
     }
-    await putCardPriceRows(toCache)
   }
+  if (toCache.length) await putCardPriceRows(toCache)
 
   return rows
 }
