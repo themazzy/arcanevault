@@ -13,7 +13,7 @@ import { useSettings } from '../components/SettingsContext'
 import { useToast } from '../components/ToastContext'
 import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
 import VirtualCardGrid from '../components/VirtualCardGrid'
-import { DropZone, ProgressBar, ErrorBox, EmptyState, SectionHeader, Button, ResponsiveMenu } from '../components/UI'
+import { DropZone, ProgressBar, ErrorBox, EmptyState, SectionHeader, Button, ResponsiveMenu, Select } from '../components/UI'
 import AddCardModal from '../components/AddCardModal'
 import ExportModal from '../components/ExportModal'
 import ImportModal from '../components/ImportModal'
@@ -185,12 +185,12 @@ function OrphanModal({ cards, folders, userId, onAssigned, onDeleted }) {
         </div>
 
         <div style={{ padding: '14px 20px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <select
-            name="unassigned-card-destination"
+          <Select
+            title="Destination"
             value={selectedFolderId}
             onChange={e => setSelectedFolderId(e.target.value)}
             disabled={busy}
-            style={{ width: '100%', padding: '8px 10px', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text)', fontSize: '0.84rem' }}
+            style={{ width: '100%' }}
           >
             <option value=''>— Pick a destination —</option>
             {['binder', 'deck', 'list'].map(type => {
@@ -202,7 +202,7 @@ function OrphanModal({ cards, folders, userId, onAssigned, onDeleted }) {
                 </optgroup>
               )
             })}
-          </select>
+          </Select>
 
           {error && <div style={{ color: 'var(--red)', fontSize: '0.78rem' }}>{error}</div>}
 

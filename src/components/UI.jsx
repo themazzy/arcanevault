@@ -93,8 +93,9 @@ function SelectBody({ options, value, handleSelect, close, searchable }) {
   const inputRef = useRef(null)
   useEffect(() => { if (searchable) inputRef.current?.focus() }, [searchable])
 
+  // While filtering, drop group headers and match options flat.
   const visible = (searchable && filter.trim())
-    ? options.filter(o => String(o.label).toLowerCase().includes(filter.toLowerCase()))
+    ? options.filter(o => !o.isGroup && String(o.label).toLowerCase().includes(filter.toLowerCase()))
     : options
 
   return (
@@ -111,7 +112,9 @@ function SelectBody({ options, value, handleSelect, close, searchable }) {
         />
       )}
       <div className={styles.responsiveMenuList}>
-        {visible.map(option => (
+        {visible.map((option, index) => option.isGroup ? (
+          <div key={`group:${option.label}:${index}`} className={styles.selectGroupLabel}>{option.label}</div>
+        ) : (
           <button
             key={String(option.value)}
             type="button"
@@ -138,15 +141,26 @@ function SelectBody({ options, value, handleSelect, close, searchable }) {
 }
 
 export function Select({ value, onChange, children, className = '', style, disabled = false, title = 'Select option', menuDirection = 'down', portal = false, searchable = false }) {
-  const rawOptions = Children.toArray(children)
-    .filter(child => isValidElement(child) && child.type === 'option')
-    .map(child => ({
-      value: child.props.value,
-      label: child.props.children,
-      disabled: !!child.props.disabled,
-    }))
+  // Flatten <option> and <optgroup> children. Groups become non-selectable
+  // header rows ({ isGroup, label }) followed by their options.
+  const rawOptions = []
+  for (const child of Children.toArray(children)) {
+    if (!isValidElement(child)) continue
+    if (child.type === 'option') {
+      rawOptions.push({ value: child.props.value, label: child.props.children, disabled: !!child.props.disabled })
+    } else if (child.type === 'optgroup') {
+      const groupOptions = Children.toArray(child.props.children)
+        .filter(c => isValidElement(c) && c.type === 'option')
+      if (!groupOptions.length) continue
+      rawOptions.push({ isGroup: true, label: child.props.label })
+      for (const c of groupOptions) {
+        rawOptions.push({ value: c.props.value, label: c.props.children, disabled: !!c.props.disabled })
+      }
+    }
+  }
 
   const createOption = rawOptions.find(option => {
+    if (option.isGroup) return false
     const labelText = typeof option.label === 'string' ? option.label : ''
     return String(option.value) === 'new' || /create new/i.test(labelText)
   })
@@ -155,7 +169,9 @@ export function Select({ value, onChange, children, className = '', style, disab
     ? [createOption, ...rawOptions.filter(option => option !== createOption)]
     : rawOptions
 
-  const selected = options.find(option => String(option.value) === String(value)) || options[0] || null
+  const selected = options.find(option => !option.isGroup && String(option.value) === String(value))
+    || options.find(option => !option.isGroup)
+    || null
 
   const handleSelect = (nextValue) => {
     if (!onChange) return

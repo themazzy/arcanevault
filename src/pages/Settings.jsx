@@ -212,8 +212,9 @@ function ArchiveThemeControls({ settings, set }) {
       {settings.archive_background_mode === 'collection' && (
         <div className={styles.archiveCollectionRow}>
           <label className={styles.archiveSourceLabel}>Source</label>
-          <select
+          <UISelect
             className={styles.archiveSourceSelect}
+            title="Background source"
             value={source?.folderId || 'all'}
             onChange={e => {
               const v = e.target.value
@@ -234,7 +235,7 @@ function ArchiveThemeControls({ settings, set }) {
                 </optgroup>
               )
             })}
-          </select>
+          </UISelect>
         </div>
       )}
 
