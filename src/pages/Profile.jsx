@@ -7,6 +7,7 @@ import { useSettings, DEFAULT_BENTO_CONFIG } from '../components/SettingsContext
 import { sfGet } from '../lib/scryfall'
 import { Modal } from '../components/UI'
 import { CloseIcon, ImageIcon } from '../icons'
+import { Select } from '../components/UI'
 import { MILESTONES } from '../lib/milestones'
 import { checkAndNotifyMilestones } from '../lib/milestoneTracker'
 import { hasDeckArtSource, mergeDeckCommanderArt, useDeckArt } from '../lib/deckArt'
@@ -608,9 +609,9 @@ function FeaturedDeckInner({ deck, standoutCards, deckStats, editMode, decks, on
         )}
 
         {editMode && decks?.length > 1 && (
-          <select className={styles.featuredDeckPicker} value={deck.id} onChange={e => onChangeDeck(e.target.value)}>
+          <Select className={styles.featuredDeckPicker} title="Featured deck" value={deck.id} onChange={e => onChangeDeck(e.target.value)}>
             {decks.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </select>
+          </Select>
         )}
       </div>
 

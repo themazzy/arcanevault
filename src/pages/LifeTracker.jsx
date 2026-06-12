@@ -9,6 +9,7 @@ import { getPublicAppUrl } from '../lib/publicUrl'
 import { buildLifeChange } from '../lib/lifeChange'
 import styles from './LifeTracker.module.css'
 import { CheckIcon, CloseIcon, CopyIcon, EditIcon, SyncIcon, ChevronDownIcon, ChevronUpIcon, SettingsIcon } from '../icons'
+import { Select } from '../components/UI'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const SESSION_KEY = 'av_life_tracker'
@@ -1425,14 +1426,15 @@ function GameHistoryPanel({ rows, loading, decks, onRefresh, onUpdate, onDelete 
                   <div className={styles.historyEditor}>
                     <label className={styles.historyField}>
                       <span>Placement</span>
-                      <select
+                      <Select
                         className={styles.historySelect}
+                        title="Placement"
                         value={editPlacement}
                         onChange={e => setEditPlacement(e.target.value)}>
                         {Array.from({ length: Math.max(row.player_count || players.length || 1, 1) }, (_, i) => i + 1).map(n => (
                           <option key={n} value={n}>{n}</option>
                         ))}
-                      </select>
+                      </Select>
                     </label>
                     <label className={styles.historyField}>
                       <span>Private notes</span>

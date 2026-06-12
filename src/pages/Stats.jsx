@@ -10,7 +10,7 @@ import { hydrateCollectionQueriesFromIdb } from '../lib/idbQueryBridge'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { CardDetail } from '../components/CardComponents'
-import { EmptyState, SectionHeader, ProgressBar } from '../components/UI'
+import { EmptyState, SectionHeader, ProgressBar, Select } from '../components/UI'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
 import { hasDeckArtSource, mergeDeckCommanderArt, useDeckArt } from '../lib/deckArt'
 import { MILESTONES } from '../lib/milestones'
@@ -295,6 +295,7 @@ function MissingSetPanel({ code, ownedNums, priceSource, fmt, wishlists, userId,
             <div key={`${card.collector_number}`} className={styles.missingRow}>
               <span className={styles.missingNum}>#{card.collector_number}</span>
               <span className={styles.missingName}>{card.name}</span>
+              <span className={styles.missingLeader} aria-hidden="true" />
               <span className={styles.missingPrice}>{price != null ? fmt(price) : '—'}</span>
             </div>
           )
@@ -310,9 +311,9 @@ function MissingSetPanel({ code, ownedNums, priceSource, fmt, wishlists, userId,
           <span className={styles.missingNote}>Create a wishlist to save these cards.</span>
         ) : (
           <>
-            <select className={styles.missingSelect} value={listId} onChange={e => setListId(e.target.value)}>
+            <Select className={styles.missingSelect} title="Choose wishlist" value={listId} onChange={e => setListId(e.target.value)}>
               {wishlists.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-            </select>
+            </Select>
             <button className={styles.missingAddBtn} onClick={handleAdd} disabled={adding || !listId}>
               {adding ? 'Adding…' : `Add ${missing.length} to wishlist`}
             </button>
@@ -880,11 +881,11 @@ function HistoryEntryCard({ row, deckMeta, onEdit, onDelete }) {
           <div className={styles.historyEditor}>
             <label className={styles.historyField}>
               <span>Placement</span>
-              <select className={styles.historySelect} value={placement} onChange={e => setPlacement(e.target.value)}>
+              <Select className={styles.historySelect} title="Placement" value={placement} onChange={e => setPlacement(e.target.value)}>
                 {Array.from({ length: Math.max(row.player_count || players.length || 1, 1) }, (_, i) => i + 1).map(n => (
                   <option key={n} value={n}>{n}</option>
                 ))}
-              </select>
+              </Select>
             </label>
             <label className={styles.historyField}>
               <span>Private notes</span>

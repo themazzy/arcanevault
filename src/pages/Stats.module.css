@@ -1,8 +1,8 @@
-.page {
-  /* inherits app shell background — no override needed */
+﻿.page {
+  /* inherits app shell background â€” no override needed */
 }
 
-/* ── Section label — matches DeckView extending-rule style ─────────────────── */
+/* â”€â”€ Section label â€” matches DeckView extending-rule style â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .sectionLabel {
   font-family: var(--font-display, 'Cinzel', serif);
   font-size: 0.62rem;
@@ -41,7 +41,7 @@
   white-space: nowrap;
 }
 
-/* ── Stat cards ─────────────────────────────────────────────────────────────── */
+/* â”€â”€ Stat cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .statGrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -220,7 +220,7 @@
   border-radius: 2px;
 }
 
-/* ── Chart boxes ────────────────────────────────────────────────────────────── */
+/* â”€â”€ Chart boxes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .chartBox {
   background: var(--s1);
   border: 1px solid var(--s-border);
@@ -519,7 +519,7 @@
   margin-top: auto;
 }
 
-/* ── Chart row — two equal columns ─────────────────────────────────────────── */
+/* â”€â”€ Chart row â€” two equal columns â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .chartRow {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -528,7 +528,7 @@
 }
 .chartRow .chartBox { margin-bottom: 0; }
 
-/* ── Tooltip ────────────────────────────────────────────────────────────────── */
+/* â”€â”€ Tooltip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .tooltip {
   background: var(--bg3, #1a1628);
   border: 1px solid rgba(201,168,76,0.25);
@@ -546,7 +546,7 @@
   margin-bottom: 4px;
 }
 
-/* ── Format legality bars ───────────────────────────────────────────────────── */
+/* â”€â”€ Format legality bars â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .legalityList {
   display: flex;
   flex-direction: column;
@@ -588,7 +588,7 @@
   flex-shrink: 0;
 }
 
-/* ── Biggest movers ─────────────────────────────────────────────────────────── */
+/* â”€â”€ Biggest movers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .moverList {
   display: flex;
   flex-direction: column;
@@ -680,7 +680,7 @@
   text-align: center;
 }
 
-/* ── Top cards table ────────────────────────────────────────────────────────── */
+/* â”€â”€ Top cards table â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .tableWrap {
   overflow-x: auto;
   scrollbar-width: thin;
@@ -780,7 +780,7 @@
   font-weight: 600;
 }
 
-/* ── Responsive ─────────────────────────────────────────────────────────────── */
+/* â”€â”€ Responsive â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 @media (max-width: 768px) {
   .chartRow { grid-template-columns: 1fr; }
   .statGrid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
@@ -1117,7 +1117,7 @@
   background: linear-gradient(90deg, var(--gold), var(--purple, #8a6fc4));
 }
 
-/* ── Deck Win Rates ──────────────────────────────────────────────────────────── */
+/* â”€â”€ Deck Win Rates â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .winrateLeaderboard {
   display: flex;
   flex-direction: column;
@@ -1359,7 +1359,7 @@
   .winrateWL { font-size: 0.65rem; }
 }
 
-/* ── Color dot ──────────────────────────────────────────────────────────────── */
+/* â”€â”€ Color dot â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .colorDot {
   display: inline-block;
   width: 10px;
@@ -1372,7 +1372,7 @@
   vertical-align: middle;
 }
 
-/* ── Milestones ─────────────────────────────────────────────────────────────── */
+/* â”€â”€ Milestones â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .milestonesSubLabel {
   font-family: var(--font-display, 'Cinzel', serif);
   font-size: 0.58rem;
@@ -1458,7 +1458,7 @@
   }
 }
 
-/* ── Set completion: expandable missing-cards panel ─────────────────────── */
+/* â”€â”€ Set completion: expandable missing-cards panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .setRowClickable { cursor: pointer; border-radius: 6px; padding: 4px 6px; margin: 0 -6px; }
 .setRowClickable:hover { background: var(--s-subtle); }
@@ -1483,18 +1483,14 @@
 .missingList { display: flex; flex-direction: column; gap: 2px; max-height: 280px; overflow-y: auto; }
 .missingRow { display: flex; align-items: baseline; gap: 8px; font-size: 0.75rem; line-height: 1.5; }
 .missingNum { color: var(--text-faint); min-width: 42px; font-variant-numeric: tabular-nums; }
-.missingName { color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.missingName { color: var(--text); flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.missingLeader { flex: 1 0 16px; border-bottom: 1px dotted var(--s-border2); transform: translateY(-4px); }
 .missingPrice { color: var(--text-dim); font-variant-numeric: tabular-nums; }
 
 .missingFooter { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--s-border); padding-top: 8px; flex-wrap: wrap; }
 .missingSelect {
   flex: 1;
   min-width: 140px;
-  padding: 5px 8px;
-  background: var(--s3);
-  border: 1px solid var(--s-border2);
-  border-radius: 6px;
-  color: var(--text);
   font-size: 0.75rem;
 }
 .missingAddBtn {
@@ -1511,9 +1507,10 @@
 .missingNote { font-size: 0.74rem; color: var(--text-faint); }
 .missingComplete { font-size: 0.76rem; color: var(--green); }
 
-/* ── Value over time ────────────────────────────────────────────────────── */
+/* â”€â”€ Value over time â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 .valueDeltas { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
 .valueDelta { font-size: 0.74rem; font-variant-numeric: tabular-nums; }
 .valueDeltaLabel { color: var(--text-faint); font-size: 0.66rem; }
 .valueHistoryEmpty { font-size: 0.78rem; color: var(--text-dim); padding: 14px 0 6px; line-height: 1.5; }
+
