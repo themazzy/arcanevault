@@ -1,0 +1,237 @@
+.root {
+  position: relative;
+  max-width: 100%;
+}
+
+/* ── Pill (lives in the stats pills row) ───────────────────────────────── */
+
+.pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--s1);
+  border: 1px solid var(--s-border2);
+  border-radius: 4px;
+  padding: 7px 12px;
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  max-width: 100%;
+  box-sizing: border-box;
+  transition: background 0.15s;
+}
+
+.pill:hover {
+  background: var(--s-medium);
+}
+
+.pillNumber {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: #0a0a0f;
+  font-weight: 700;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+.pillLabel {
+  white-space: nowrap;
+}
+
+.pillMark {
+  font-size: 0.62rem;
+  opacity: 0.65;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.pillChevron {
+  font-size: 0.65rem;
+  opacity: 0.7;
+}
+
+/* ── Popover ───────────────────────────────────────────────────────────── */
+
+.popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  width: min(360px, calc(100vw - 48px));
+  box-sizing: border-box;
+  background: var(--bg2);
+  border: 1px solid var(--border-hi);
+  border-top: 2px solid rgba(201, 168, 76, 0.45);
+  border-radius: 8px;
+  padding: 14px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: min(480px, 70vh);
+  overflow-y: auto;
+}
+
+.popHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.popCircle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  color: #0a0a0f;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.05rem;
+  flex-shrink: 0;
+}
+
+.popTitle {
+  font-family: var(--font-display);
+  font-size: 0.88rem;
+  letter-spacing: 0.04em;
+}
+
+.popDesc {
+  font-size: 0.74rem;
+  color: var(--text-dim);
+  line-height: 1.4;
+  margin-top: 2px;
+}
+
+.popSection {
+  border-top: 1px solid var(--s-border);
+  padding-top: 8px;
+}
+
+.popSectionTitle {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  margin-bottom: 5px;
+}
+
+.popClean {
+  font-size: 0.76rem;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+
+.reasonList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.76rem;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+.reasonLevel {
+  display: inline-block;
+  min-width: 32px;
+  font-weight: 600;
+  color: var(--gold);
+}
+
+.flagCount {
+  color: var(--text-dim);
+  letter-spacing: 0;
+}
+
+.flagCards {
+  font-size: 0.76rem;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.popSoft {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  border-top: 1px solid var(--s-border);
+  padding-top: 8px;
+}
+
+.comboBtn {
+  align-self: flex-start;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--s-border2);
+  background: var(--s3);
+  color: var(--text-dim);
+  font-size: 0.73rem;
+  cursor: pointer;
+}
+
+.comboBtn:hover:not(:disabled) {
+  background: var(--s4);
+  color: var(--text);
+}
+
+.comboBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.overrideRow {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.overrideBtn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border-width: 1px;
+  border-style: solid;
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.12s;
+}
+
+.overrideBtn:hover {
+  transform: scale(1.08);
+}
+
+.resetBtn {
+  background: none;
+  border: 1px solid var(--s-border2);
+  border-radius: 4px;
+  padding: 5px 10px;
+  font-size: 0.7rem;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.resetBtn:hover {
+  color: var(--text);
+}
+
+.popFootnote {
+  font-size: 0.66rem;
+  color: var(--text-faint);
+  line-height: 1.45;
+  border-top: 1px solid var(--s-border);
+  padding-top: 8px;
+}

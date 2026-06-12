@@ -318,7 +318,7 @@ These are only active during `npm run dev`. Production deploys on GitHub Pages c
 | `src/lib/deckBuilderApi.js` | Deck builder helpers + external API calls |
 | `src/lib/deckSync.js` | Linked deck sync: `getLinkedDeckIds()`, `getSyncState()`, `withLinkedPair()`, `clearLinkedPair()`, `writeSyncState()`, `normalizeBuilderCards()` |
 | `src/lib/deckLegality.js` | `getCardLegalityWarnings()` — format legality + commander color identity checks |
-| `src/lib/commanderBracket.js` | Commander Bracket estimator: `analyzeBracket()` (Game Changers / MLD / extra turns / 2-card combos), `fetchGameChangerNames()` (Scryfall `is:gamechanger`, 7-day localStorage cache). UI: `components/deckBuilder/BracketPanel.jsx` in DeckBuilder left column |
+| `src/lib/commanderBracket.js` | Commander Bracket estimator: `analyzeBracket()` (Game Changers / MLD / extra turns / 2-card combos), `fetchGameChangerNames()` (Scryfall `is:gamechanger`, 7-day localStorage cache). UI: `components/BracketBadge.jsx` — clickable pill in the DeckStats pills row (popover with reasons, flagged cards, combo check, manual 1–5 override). `DeckStats` accepts `showBracket` + `combos` props; DeckBuilder passes `showBracket={isEDH}` |
 | `src/lib/importFlow.js` | Import pipeline: `parseImportText()`, `resolveImportEntries()`, `summarizeImportRows()`, `aggregateResolvedRows()`, `fetchPaperPrintings()` |
 | `src/lib/csvParser.js` | Manabox CSV → cards + folders |
 | `src/components/CardComponents.jsx` | `FilterBar`, `CardDetail`, `CardGrid`, `EMPTY_FILTERS`, `applyFilterSort`, `BulkActionBar` |

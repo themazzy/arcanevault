@@ -1,6 +1,8 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { sfGet, getPrice, formatPrice } from '../lib/scryfall'
 import { CAT_ORDER, CAT_COLORS, getCardCategory } from '../lib/cardCategory'
+import BracketBadge from './BracketBadge'
+import { analyzeBracket, fetchGameChangerNames } from '../lib/commanderBracket'
 
 // Re-export so existing consumers that import from DeckStats keep working.
 export { CAT_ORDER, CAT_COLORS, getCardCategory }
@@ -23,28 +25,6 @@ const CURVE_SEG_COLOR = {
   Creatures: '#4a8a5a', Planeswalkers: '#bb6622', Battles: '#aa4444',
   Instants: '#4455bb', Sorceries: '#8833aa', Enchantments: '#6a5aaa',
   Artifacts: '#7a7a8a', Other: '#555',
-}
-
-const BRACKET_4_CARDS = new Set([
-  "Thassa's Oracle", "Demonic Consultation", "Tainted Pact", "Underworld Breach",
-  "Flash", "Ad Nauseam", "Hermit Druid", "Food Chain", "Earthcraft",
-])
-const BRACKET_3_CARDS = new Set([
-  "Mana Crypt", "Mana Vault", "Grim Monolith", "Chrome Mox", "Mox Diamond", "Mox Opal", "Jeweled Lotus",
-  "Demonic Tutor", "Vampiric Tutor", "Imperial Seal", "Mystical Tutor", "Enlightened Tutor",
-  "Worldly Tutor", "Survival of the Fittest", "Diabolic Intent",
-  "Rhystic Study", "Smothering Tithe", "Necropotence", "Dark Confidant", "Skullclamp",
-  "Sensei's Divining Top", "Sylvan Library", "Wheel of Fortune", "Timetwister", "Time Spiral",
-  "Mana Drain", "Force of Will", "Force of Negation", "Fierce Guardianship",
-  "Cyclonic Rift", "Dockside Extortionist", "Hullbreacher", "Opposition Agent", "Protean Hulk",
-  "Gaea's Cradle", "Blood Moon", "Stasis", "Winter Orb", "Back to Basics", "Trinisphere",
-])
-const BRACKET_2_CARDS = new Set(["Sol Ring", "Arcane Signet", "Commander's Sphere"])
-const BRACKET_META = {
-  1: { label: 'Casual',      color: '#6aaa6a', desc: 'Precon power level, no notable game-changers.' },
-  2: { label: 'Focused',     color: '#5a9abb', desc: 'Some staples; plays fair but consistently.' },
-  3: { label: 'Optimized',   color: '#c9a84c', desc: 'Tutors, fast mana, powerful synergies.' },
-  4: { label: 'Competitive', color: '#cc5555', desc: 'Built to win as fast as possible (cEDH).' },
 }
 
 const LAND_SUBTYPE_COLOR = { forest: 'G', mountain: 'R', swamp: 'B', island: 'U', plains: 'W', wastes: 'C' }
@@ -178,20 +158,6 @@ function countColorPips(manaCost) {
   return counts
 }
 
-function calcDeckBracket(cardNames) {
-  const b4 = []; const b3 = []; const b2 = []
-  for (const name of cardNames) {
-    if (BRACKET_4_CARDS.has(name)) b4.push(name)
-    else if (BRACKET_3_CARDS.has(name)) b3.push(name)
-    else if (BRACKET_2_CARDS.has(name)) b2.push(name)
-  }
-  if (b4.length > 0 || b3.length >= 4) return { bracket: 4, gc: [...b4, ...b3.slice(0, 8)] }
-  if (b3.length >= 2)                  return { bracket: 4, gc: b3.slice(0, 8) }
-  if (b3.length === 1)                 return { bracket: 3, gc: b3 }
-  if (b2.length >= 1)                  return { bracket: 2, gc: b2.slice(0, 5) }
-  return { bracket: 1, gc: [] }
-}
-
 // ── Normalizers ───────────────────────────────────────────────────────────────
 
 /**
@@ -323,113 +289,6 @@ function InlineMana({ cost, size = 14 }) {
         />
       ))}
     </span>
-  )
-}
-
-function BracketBadge({ bracket, autobracket, gameChangers, onOverride }) {
-  const meta = BRACKET_META[bracket] || BRACKET_META[1]
-  const [open, setOpen] = useState(false)
-  const isOverridden = bracket !== autobracket
-  const canOverride = typeof onOverride === 'function'
-
-  return (
-    <div style={{ position: 'relative', maxWidth: '100%' }}>
-      <button
-        style={{
-          display: 'flex', alignItems: 'center', gap: 8,
-          background: 'rgba(255,255,255,0.04)', border: `1px solid ${meta.color}55`,
-          borderRadius: 4, padding: '7px 14px', cursor: canOverride ? 'pointer' : 'default',
-          fontFamily: 'var(--font-display)', fontSize: '0.8rem', letterSpacing: '0.04em',
-          color: meta.color, transition: 'background 0.15s',
-          maxWidth: '100%',
-          flexWrap: 'wrap',
-          boxSizing: 'border-box',
-        }}
-        onClick={() => canOverride && setOpen(v => !v)}
-      >
-        <span style={{
-          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          width: 22, height: 22, borderRadius: '50%',
-          background: meta.color,
-          color: '#0a0a0f', fontWeight: 700, fontSize: '0.85rem',
-          fontFamily: 'var(--font-display)', flexShrink: 0,
-        }}>{bracket}</span>
-        {meta.label}
-        {isOverridden && <span style={{ fontSize: '0.6rem', opacity: 0.6 }}>✎</span>}
-        <span style={{ fontSize: '0.65rem', opacity: 0.7 }}>{open ? '▴' : '▾'}</span>
-      </button>
-
-      {open && canOverride && (
-        <div style={{
-          position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 20,
-          background: '#1a1620', border: '1px solid var(--border)',
-          borderRadius: 5, padding: '14px 16px', width: 'min(320px, calc(100vw - 48px))',
-          maxWidth: 'calc(100vw - 48px)', boxSizing: 'border-box',
-          boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
-        }}>
-          <p style={{ fontSize: '0.82rem', color: 'var(--text-dim)', margin: '0 0 10px', lineHeight: 1.5 }}>
-            {meta.desc}
-          </p>
-          <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-faint)', marginBottom: 6 }}>
-            Set bracket manually:
-          </div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {[1, 2, 3, 4].map(n => {
-              const m = BRACKET_META[n]
-              return (
-                <button key={n}
-                  style={{
-                    width: 34, height: 34, borderRadius: '50%',
-                    border: `1px solid ${m.color}66`,
-                    fontFamily: 'var(--font-display)', fontSize: '0.88rem', fontWeight: 700,
-                    cursor: 'pointer', transition: 'all 0.15s',
-                    color: n === bracket ? '#0a0a0f' : m.color,
-                    background: n === bracket ? m.color : 'transparent',
-                  }}
-                  onClick={() => { onOverride?.(n); setOpen(false) }}
-                >
-                  {n}
-                </button>
-              )
-            })}
-            {isOverridden && (
-              <button
-                style={{
-                  background: 'none', border: '1px solid rgba(255,255,255,0.15)',
-                  borderRadius: 4, padding: '4px 10px',
-                  fontSize: '0.7rem', color: 'var(--text-faint)',
-                  fontFamily: 'var(--font-display)', cursor: 'pointer',
-                  transition: 'all 0.15s', alignSelf: 'center',
-                }}
-                onClick={() => { onOverride?.(null); setOpen(false) }}
-              >
-                Reset
-              </button>
-            )}
-          </div>
-
-          {gameChangers.length > 0 && (
-            <>
-              <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-faint)', marginTop: 10, marginBottom: 6 }}>
-                Auto-detected game-changers:
-              </div>
-              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                {gameChangers.map((n, i) => (
-                  <li key={i} style={{ fontSize: '0.81rem', color: 'var(--text-dim)', padding: '2px 0' }}>
-                    <span style={{ color: 'var(--gold-dim)' }}>• </span>{n}
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-          {gameChangers.length === 0 && (
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-faint)', marginTop: 6 }}>
-              No game-changing cards detected.
-            </div>
-          )}
-        </div>
-      )}
-    </div>
   )
 }
 
@@ -935,12 +794,31 @@ function TokensExtras({ allItems, tokenImages }) {
  * @param {number|null} bracketOverride  - Manual bracket override (null = auto)
  * @param {Function} onBracketOverride  - Callback to set override
  */
-export default function DeckStats({ cards, bracketOverride, onBracketOverride, price_source }) {
+export default function DeckStats({ cards, bracketOverride, onBracketOverride, price_source, showBracket = true, combos = null }) {
   const [curveMode, setCurveMode] = useState('flat')
   const [tokenImages, setTokenImages] = useState({}) // name → img uri | null
   const fetchedRef = useRef(new Set())
 
-  const bracketResult = useMemo(() => calcDeckBracket(cards.map(c => c.name)), [cards])
+  // Commander Bracket estimate — Game Changers list is live from Scryfall
+  // (7-day localStorage cache inside fetchGameChangerNames).
+  const [gameChangerNames, setGameChangerNames] = useState(null)
+  useEffect(() => {
+    if (!showBracket || gameChangerNames) return
+    let active = true
+    fetchGameChangerNames()
+      .then(names => { if (active) setGameChangerNames(names) })
+      .catch(() => { if (active) setGameChangerNames(new Set()) })
+    return () => { active = false }
+  }, [showBracket, gameChangerNames])
+
+  const bracketAnalysis = useMemo(() => {
+    if (!showBracket) return null
+    return analyzeBracket({
+      cards,
+      gameChangerNames: gameChangerNames || new Set(),
+      comboCardLists: combos?.fetched ? (combos.nameLists || []) : null,
+    })
+  }, [showBracket, cards, gameChangerNames, combos?.fetched, combos?.nameLists])
 
   const stats = useMemo(() => {
     const curve = {}
@@ -1077,7 +955,7 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride, p
 
   const { curve, curveByColor, curveByType, costColors, costCards, prodMana, typeCounts, catCounts, totalCostPips, totalProdMana, nonLandCount, avgCmc, kwCounts, tokenNames, extras, totalPrice, avgPrice, priceByCategory, topCards } = stats
   const curveSegData = curveMode === 'color' ? curveByColor : curveByType
-  const effectiveBracket = bracketOverride ?? bracketResult.bracket
+  const effectiveBracket = bracketOverride ?? bracketAnalysis?.bracket ?? 1
 
   const hasOracleData = cards.some(c => c.oracle_text)
 
@@ -1097,12 +975,15 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride, p
     }}>
       {/* Pills row */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <BracketBadge
-          bracket={effectiveBracket}
-          autobracket={bracketResult.bracket}
-          gameChangers={bracketResult.gc}
-          onOverride={onBracketOverride}
-        />
+        {showBracket && bracketAnalysis && (
+          <BracketBadge
+            analysis={bracketAnalysis}
+            bracket={effectiveBracket}
+            isOverridden={bracketOverride != null}
+            onOverride={onBracketOverride}
+            combos={combos}
+          />
+        )}
         <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 14px', display: 'flex', flexDirection: 'column', gap: 2 }}>
           <span style={{ fontSize: '0.64rem', color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Avg CMC</span>
           <span style={{ fontFamily: 'var(--font-display)', fontSize: '0.95rem', color: 'var(--text)' }}>{avgCmc}</span>
