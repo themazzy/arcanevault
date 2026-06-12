@@ -178,12 +178,18 @@ export function analyzeBracket({ cards, gameChangerNames, comboCardLists = null 
     if (FAST_MANA_NAMES.has(lower)) fastMana.push(card.name)
   }
 
-  const twoCardCombos = (comboCardLists || [])
-    .filter(names => (names || []).length === 2)
-    .map(names => {
-      const totalCmc = names.reduce((sum, n) => sum + (cmcByName.get(String(n).toLowerCase()) ?? 0), 0)
-      return { names, totalCmc, early: totalCmc <= FAST_COMBO_MV_MAX }
-    })
+  // Spellbook returns one entry per combo *variant*; many variants share the
+  // same two cards. Dedupe to unique pairs so counts stay honest.
+  const seenPairs = new Set()
+  const twoCardCombos = []
+  for (const names of comboCardLists || []) {
+    if ((names || []).length !== 2) continue
+    const pairKey = names.map(n => String(n).toLowerCase()).sort().join('|')
+    if (seenPairs.has(pairKey)) continue
+    seenPairs.add(pairKey)
+    const totalCmc = names.reduce((sum, n) => sum + (cmcByName.get(String(n).toLowerCase()) ?? 0), 0)
+    twoCardCombos.push({ names, totalCmc, early: totalCmc <= FAST_COMBO_MV_MAX })
+  }
 
   let bracket = 1
   const reasons = []
@@ -210,9 +216,13 @@ export function analyzeBracket({ cards, gameChangerNames, comboCardLists = null 
 
   const earlyCombos = twoCardCombos.filter(c => c.early)
   if (earlyCombos.length >= 1) {
-    floor(4, `Fast two-card combo (${earlyCombos[0].names.join(' + ')})`)
+    floor(4, earlyCombos.length === 1
+      ? `Fast two-card combo (${earlyCombos[0].names.join(' + ')})`
+      : `${earlyCombos.length} fast two-card combos (e.g. ${earlyCombos[0].names.join(' + ')})`)
   } else if (twoCardCombos.length >= 1) {
-    floor(3, `Two-card combo (${twoCardCombos[0].names.join(' + ')})`)
+    floor(3, twoCardCombos.length === 1
+      ? `Two-card combo (${twoCardCombos[0].names.join(' + ')})`
+      : `${twoCardCombos.length} two-card combos (e.g. ${twoCardCombos[0].names.join(' + ')})`)
   }
 
   return {

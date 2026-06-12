@@ -22,8 +22,11 @@ export const BRACKET_META = {
  * @param {Function} onOverride   (n|null) => void — null resets to auto
  * @param {Object}   combos       Optional: { fetched, loading, onCheck }
  */
+const COMBO_PREVIEW_COUNT = 5
+
 export default function BracketBadge({ analysis, bracket, isOverridden, onOverride, combos }) {
   const [open, setOpen] = useState(false)
+  const [showAllCombos, setShowAllCombos] = useState(false)
   const rootRef = useRef(null)
   const meta = BRACKET_META[bracket] || BRACKET_META[1]
   const canOverride = typeof onOverride === 'function'
@@ -39,15 +42,14 @@ export default function BracketBadge({ analysis, bracket, isOverridden, onOverri
 
   if (!analysis) return null
 
-  const flagGroups = [
+  const chipGroups = [
     { title: 'Game Changers', items: analysis.gameChangers, cap: bracket >= 4 ? null : 3 },
     { title: 'Mass land denial', items: analysis.massLandDenial },
     { title: 'Extra turns', items: analysis.extraTurns },
-    {
-      title: 'Two-card combos',
-      items: analysis.twoCardCombos.map(c => `${c.names.join(' + ')}${c.early ? ' (fast)' : ''}`),
-    },
   ].filter(g => g.items.length > 0)
+
+  const comboList = analysis.twoCardCombos
+  const shownCombos = showAllCombos ? comboList : comboList.slice(0, COMBO_PREVIEW_COUNT)
 
   const softSignals = []
   if (analysis.tutors.length) softSignals.push(`${analysis.tutors.length} tutor${analysis.tutors.length === 1 ? '' : 's'}`)
@@ -102,15 +104,39 @@ export default function BracketBadge({ analysis, bracket, isOverridden, onOverri
             )}
           </div>
 
-          {flagGroups.map(group => (
+          {chipGroups.map(group => (
             <div key={group.title} className={styles.popSection}>
               <div className={styles.popSectionTitle}>
                 {group.title}
                 <span className={styles.flagCount}>{group.items.length}{group.cap ? ` / ${group.cap}` : ''}</span>
               </div>
-              <div className={styles.flagCards}>{group.items.join(' · ')}</div>
+              <div className={styles.chipRow}>
+                {group.items.map(name => <span key={name} className={styles.chip}>{name}</span>)}
+              </div>
             </div>
           ))}
+
+          {comboList.length > 0 && (
+            <div className={styles.popSection}>
+              <div className={styles.popSectionTitle}>
+                Two-card combos
+                <span className={styles.flagCount}>{comboList.length}</span>
+              </div>
+              <div className={styles.comboList}>
+                {shownCombos.map(c => (
+                  <div key={c.names.join('|')} className={styles.comboRow}>
+                    <span className={styles.comboNames}>{c.names.join(' + ')}</span>
+                    {c.early && <span className={styles.comboFastTag}>fast</span>}
+                  </div>
+                ))}
+              </div>
+              {comboList.length > COMBO_PREVIEW_COUNT && (
+                <button type="button" className={styles.moreBtn} onClick={() => setShowAllCombos(v => !v)}>
+                  {showAllCombos ? 'Show fewer' : `Show all ${comboList.length}`}
+                </button>
+              )}
+            </div>
+          )}
 
           {softSignals.length > 0 && (
             <div className={styles.popSoft}>Soft signals (no bracket impact): {softSignals.join(' · ')}</div>

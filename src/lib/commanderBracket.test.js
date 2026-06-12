@@ -168,6 +168,29 @@ describe('analyzeBracket', () => {
     expect(slow.twoCardCombos[0].early).toBe(false)
   })
 
+  it('dedupes combo variants that use the same two cards', () => {
+    const cards = [card('A', '', 1), card('B', '', 2), card('C', '', 3)]
+    const result = analyzeBracket({
+      cards,
+      gameChangerNames: new Set(),
+      // Spellbook returns one entry per variant — A+B appears twice.
+      comboCardLists: [['A', 'B'], ['B', 'A'], ['A', 'C']],
+    })
+    expect(result.twoCardCombos).toHaveLength(2)
+  })
+
+  it('reports combo counts in the reason when there are several', () => {
+    const cards = [card('A', '', 1), card('B', '', 2), card('C', '', 3)]
+    const result = analyzeBracket({
+      cards,
+      gameChangerNames: new Set(),
+      comboCardLists: [['A', 'B'], ['A', 'C']],
+    })
+    expect(result.bracket).toBe(4)
+    expect(result.reasons[0].reason).toContain('2 fast two-card combos')
+    expect(result.reasons[0].reason).toContain('e.g.')
+  })
+
   it('ignores 3+ card combos for the two-card floor', () => {
     const result = analyzeBracket({ cards: [card('A'), card('B'), card('C')], gameChangerNames: new Set(), comboCardLists: [['A', 'B', 'C']] })
     expect(result.bracket).toBe(1)
