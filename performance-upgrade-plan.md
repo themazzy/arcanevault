@@ -55,6 +55,13 @@ Both platforms benefit (Android WebView supports SW).
    finishes. Existing `hydrateCollectionQueriesFromIdb` becomes worker-backed.
 3. **Per-page laziness.** Home renders its snapshot from the first N rows;
    only Collection/Stats need the full core map.
+4. **Cached tile values (stale-while-revalidate display).** Folder/deck tiles
+   on Folders/Builder/Lists currently render instantly but their values pop in
+   after placements + prices resolve. Persist each folder's last computed
+   value (`folder_id → { value, count, computedAt }` in IDB), render it with
+   the tiles on first paint, recompute in the background and update only on
+   change. Values move at most daily, so the cached number is almost always
+   already right — eliminates the pop entirely rather than just shrinking it.
 - Migration: one-time IDB re-shape with version bump in `db.js`; cache
   rebuilds lazily if absent (existing enrichment path already handles cold).
 - Acceptance: warm reload → interactive Collection under ~1 s on mid phone;

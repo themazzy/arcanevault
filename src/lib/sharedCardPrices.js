@@ -5,6 +5,7 @@ import {
   putCardPriceRows,
 } from './db'
 import { enrichCards, getInstantCache } from './scryfall'
+import { perfSpan } from './perf'
 
 const ID_CHUNK_SIZE = 400
 const SET_CHUNK_SIZE = 25
@@ -171,6 +172,15 @@ function rowToPrices(row) {
 }
 
 export async function overlaySharedCardPrices(cards, baseMap = {}, { priceLookup = 'exact' } = {}) {
+  const endOverlay = perfSpan('price-overlay')
+  try {
+    return await overlaySharedCardPricesInner(cards, baseMap, { priceLookup })
+  } finally {
+    endOverlay()
+  }
+}
+
+async function overlaySharedCardPricesInner(cards, baseMap = {}, { priceLookup = 'exact' } = {}) {
   const requestedKeys = new Set(cards.map(getCardKey).filter(Boolean))
   const requestedIds = [...new Set(cards.map(getScryfallId).filter(Boolean))]
   if (!requestedKeys.size) return { ...baseMap }

@@ -29,13 +29,10 @@ window.addEventListener('vite:preloadError', e => {
   if (handleChunkLoadError(e.payload)) e.preventDefault()
 })
 
-// Register Service Worker for image caching
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`)
-      .then(reg => reg.active?.postMessage('trim'))
-      .catch(() => {})
-  })
+// Service worker registration is injected by vite-plugin-pwa (autoUpdate).
+// Clean up the legacy hand-rolled image cache from the old public/sw.js.
+if (typeof caches !== 'undefined') {
+  caches.delete('arcanevault-images-v1').catch(() => {})
 }
 
 

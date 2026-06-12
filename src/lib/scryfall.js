@@ -18,6 +18,7 @@ import {
   fetchCardPrintsBySetCollector,
   ensureCardPrints,
 } from './cardPrints'
+import { perfSpan } from './perf'
 
 const BATCH_SIZE = 75
 const DELAY_MS   = 80
@@ -193,7 +194,9 @@ export function getMemoryMap() {
 export async function loadCacheFromIDB(cacheTtlMs = DEFAULT_TTL_MS) {
   if (_sfMap) return _sfMap
 
+  const endRead = perfSpan('idb-hydrate:read')
   const entries = await getAllScryfallEntries()
+  endRead()
   if (!entries.length) {
     console.log('[SF IDB] empty')
     return null
@@ -205,7 +208,9 @@ export async function loadCacheFromIDB(cacheTtlMs = DEFAULT_TTL_MS) {
 
   console.log(`[SF IDB] loaded ${entries.length} cards — metadata ${expired ? 'EXPIRED' : 'fresh'}`)
 
+  const endBuild = perfSpan('idb-hydrate:build-map')
   _sfMap = buildMapFromEntries(entries)
+  endBuild()
   return { map: _sfMap, pricesExpired: expired }
 }
 
