@@ -14,7 +14,7 @@ import ExportModal from '../components/ExportModal'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import DeckBrowser from './DeckBrowser'
 import styles from './Folders.module.css'
-import { AddIcon, SettingsIcon, DeleteIcon, EditIcon, BinderIcon, ImageIcon, ImportIcon, ExportIcon, RemoveIcon, SortIcon, StacksViewIcon } from '../icons'
+import { CloseIcon, CheckIcon, AddIcon, SettingsIcon, DeleteIcon, EditIcon, BinderIcon, ImageIcon, ImportIcon, ExportIcon, RemoveIcon, SortIcon, StacksViewIcon } from '../icons'
 import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 import { useFilterWorker } from '../hooks/useFilterWorker'
@@ -480,8 +480,8 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
             maxLength={100}
           />
           <div className={styles.renameBtns}>
-            <button className={styles.renameConfirm} onClick={e => { e.stopPropagation(); confirmRename() }}>✓</button>
-            <button className={styles.renameCancel} onClick={e => { e.stopPropagation(); setRenaming(false) }}>✕</button>
+            <button className={styles.renameConfirm} onClick={e => { e.stopPropagation(); confirmRename() }}><CheckIcon size={13} /></button>
+            <button className={styles.renameCancel} onClick={e => { e.stopPropagation(); setRenaming(false) }}><CloseIcon size={13} /></button>
           </div>
         </div>
       ) : (
@@ -2114,7 +2114,7 @@ export default function FoldersPage({ type }) {
             )}
             {parseFolderDesc(moveToGroupTarget.description).groupId && (
               <button className={styles.moveGroupRemove} onClick={() => moveToGroup(moveToGroupTarget, null)}>
-                ✕ Remove from group
+                <CloseIcon size={11} /> Remove from group
               </button>
             )}
           </div>
@@ -2134,7 +2134,7 @@ export default function FoldersPage({ type }) {
               </button>
             ))}
             <button className={styles.moveGroupRemove} onClick={() => bulkMoveToGroup(null)}>
-              ✕ Remove from group
+              <CloseIcon size={11} /> Remove from group
             </button>
           </div>
         </Modal>

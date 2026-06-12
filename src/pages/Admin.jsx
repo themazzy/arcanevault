@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { CloseIcon } from '../icons'
 import { Button, Input, Modal, SectionHeader, Select as UISelect } from '../components/UI'
 import { useAuth } from '../components/Auth'
 import { sb } from '../lib/supabase'
@@ -441,7 +442,7 @@ function BulletEditor({ initialHtml, onChange, onRemove }) {
           className={`${styles.rtBtn} ${styles.rtReset}`}
           onMouseDown={e => { e.preventDefault(); exec('removeFormat') }}
           title="Clear formatting"
-        >✕</button>
+        ><CloseIcon size={13} /></button>
       </div>
       <div
         ref={ref}
@@ -455,7 +456,7 @@ function BulletEditor({ initialHtml, onChange, onRemove }) {
         className={styles.bulletRemove}
         onClick={onRemove}
         title="Remove bullet"
-      >×</button>
+      ><CloseIcon size={13} /></button>
     </div>
   )
 }
@@ -579,7 +580,7 @@ function ChangelogEditorSection() {
                   className={styles.clEditorRemove}
                   onClick={() => removeEntry(idx)}
                   title="Remove this entry"
-                >×</button>
+                ><CloseIcon size={13} /></button>
               </div>
               <div className={styles.clBulletList}>
                 <label className={styles.clEditorLabel} style={{ marginTop: 10 }}>Bullets</label>

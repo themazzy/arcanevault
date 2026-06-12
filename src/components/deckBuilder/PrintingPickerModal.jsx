@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { CloseIcon } from '../../icons'
 import { fetchCardsByScryfallIds, getCardImageUri } from '../../lib/deckBuilderApi'
 
 export default function PrintingPickerModal({ cardName, options, selectedCardId, onSelect, onClose }) {
@@ -30,7 +31,7 @@ export default function PrintingPickerModal({ cardName, options, selectedCardId,
       <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, width:760, maxWidth:'95vw', maxHeight:'88vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
         <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <span style={{ fontFamily:'var(--font-display)', color:'var(--gold)', fontSize:'1rem' }}>Choose owned printing</span>
-          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.2rem', cursor:'pointer' }}>x</button>
+          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.2rem', cursor:'pointer' }}><CloseIcon size={13} /></button>
         </div>
         <div style={{ padding:'12px 20px', color:'var(--text-dim)', fontSize:'0.84rem' }}>
           Select which owned printing to use for {cardName}.

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { CloseIcon } from '../../icons'
 import { Select } from '../UI'
 import { BASIC_LANDS } from '../../lib/deckBuilderConstants'
 import { isGroupFolder, normalizeCardName } from '../../lib/deckBuilderHelpers'
@@ -166,7 +167,7 @@ export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose })
       <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, width:560, maxWidth:'95vw', maxHeight:'90vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
         <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <span style={{ fontFamily:'var(--font-display)', color:'var(--gold)', fontSize:'1rem' }}>Make Collection Deck</span>
-          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.2rem', cursor:'pointer' }}>x</button>
+          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.2rem', cursor:'pointer' }}><CloseIcon size={13} /></button>
         </div>
         {loading ? (
           <div style={{ padding:40, textAlign:'center', color:'var(--text-faint)', fontSize:'0.85rem' }}>Checking your collection...</div>

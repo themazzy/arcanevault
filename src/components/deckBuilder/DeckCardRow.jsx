@@ -1,5 +1,5 @@
 import { ResponsiveMenu } from '../UI'
-import { SettingsIcon } from '../../icons'
+import { CloseIcon, SettingsIcon } from '../../icons'
 import { ManaCostInline, OwnershipBadge } from './primitives'
 import { BOARD_ORDER, BOARD_LABELS } from '../../lib/deckBuilderConstants'
 import { normalizeBoard, canBeCommander } from '../../lib/deckBuilderHelpers'
@@ -141,7 +141,7 @@ export function DeckCardRow({
           <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, +1)}>+</button>
         </div>
       )}
-      {visibleColumns.remove && <button className={styles.removeBtn} onClick={() => onRemove(dc.id)}>x</button>}
+      {visibleColumns.remove && <button className={styles.removeBtn} onClick={() => onRemove(dc.id)}><CloseIcon size={13} /></button>}
     </div>
   )
 }

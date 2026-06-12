@@ -301,7 +301,7 @@ export function Modal({
         onClick={e => e.stopPropagation()}
       >
         {showClose && (
-          <button className={styles.closeBtn} onClick={e => { e.stopPropagation(); onClose?.() }}>×</button>
+          <button className={styles.closeBtn} onClick={e => { e.stopPropagation(); onClose?.() }}><CloseIcon size={13} /></button>
         )}
         <div ref={modalContentRef} className={`${styles.modalContent} ${allowOverflow ? styles.modalContentAllowOverflow : ''} ${contentClassName}`}>
           {children}

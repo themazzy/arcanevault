@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { CheckIcon, CloseIcon, CopyIcon, TableViewIcon, TextViewIcon } from '../icons'
 import { cardsToCSV, cardsToText, downloadFile, copyToClipboard, canNativeShare, shareOrCopy } from '../lib/exportUtils'
 import styles from './ExportModal.module.css'
 
@@ -64,7 +65,7 @@ export default function ExportModal({
   return (
     <div className={styles.overlay} onMouseDown={e => e.target === e.currentTarget && onClose()}>
       <div className={styles.modal}>
-        <button className={styles.closeBtn} onClick={onClose} aria-label="Close">✕</button>
+        <button className={styles.closeBtn} onClick={onClose} aria-label="Close"><CloseIcon size={13} /></button>
 
         {/* ── Header ── */}
         <div className={styles.head}>
@@ -91,13 +92,13 @@ export default function ExportModal({
                 className={`${styles.tab} ${fmt === 'text' ? styles.tabActive : ''}`}
                 onClick={() => setFmt('text')}
               >
-                ≡ Text
+                <TextViewIcon size={12} /> Text
               </button>
               <button
                 className={`${styles.tab} ${fmt === 'csv' ? styles.tabActive : ''}`}
                 onClick={() => setFmt('csv')}
               >
-                ⊟ CSV
+                <TableViewIcon size={12} /> CSV
               </button>
               <span className={styles.tabHint}>
                 {fmt === 'text' ? 'Plain decklist — paste anywhere' : 'Manabox-compatible — re-importable'}
@@ -118,7 +119,7 @@ export default function ExportModal({
                 className={`${styles.btn} ${styles.btnCopy} ${copied ? styles.btnCopied : ''}`}
                 onClick={handleCopy}
               >
-                {copied ? '✓ Copied' : '⎘ Copy'}
+                {copied ? <><CheckIcon size={12} /> Copied</> : <><CopyIcon size={12} /> Copy</>}
               </button>
               <button
                 className={`${styles.btn} ${styles.btnDownload}`}
@@ -154,8 +155,8 @@ export default function ExportModal({
             {/* ── Share status / phone hint ── */}
             {shareMsg && (
               <div className={styles.shareMsg}>
-                {shareMsg === 'shared'    && '✓ Shared successfully'}
-                {shareMsg === 'copied'    && '✓ Copied to clipboard'}
+                {shareMsg === 'shared'    && <><CheckIcon size={12} /> Shared successfully</>}
+                {shareMsg === 'copied'    && <><CheckIcon size={12} /> Copied to clipboard</>}
                 {shareMsg === 'cancelled' && 'Share cancelled'}
                 {shareMsg === 'failed'    && 'Could not share — try Copy'}
               </div>

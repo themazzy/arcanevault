@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { CloseIcon } from '../../icons'
 import { sb } from '../../lib/supabase'
 import { getLocalCards } from '../../lib/db'
 import { buildDeckAllocationViewRows, loadLocalPlacementSnapshot } from '../../lib/deckPlacementData'
@@ -431,7 +432,7 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
       <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, width:760, maxWidth:'96vw', maxHeight:'90vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
         <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <span style={{ fontFamily:'var(--font-display)', color:'var(--gold)', fontSize:'1rem' }}>Update Collection Deck</span>
-          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.2rem', cursor:'pointer' }}>x</button>
+          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.2rem', cursor:'pointer' }}><CloseIcon size={13} /></button>
         </div>
         <div style={{ flex:1, overflowY:'auto', minHeight:0, padding:'16px 20px', display:'flex', flexDirection:'column', gap:16 }}>
           <div style={{ padding:'12px 14px', border:'1px solid var(--border)', borderRadius:8, background:'var(--s1)', display:'flex', flexDirection:'column', gap:6 }}>

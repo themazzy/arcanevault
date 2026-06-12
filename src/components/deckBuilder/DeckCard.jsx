@@ -1,4 +1,5 @@
 import { ManaCostInline, OwnershipBadge } from './primitives'
+import { CloseIcon } from '../../icons'
 import { EditMenu } from './DeckCardRow'
 import { bindTouchContextMenu, consumeLongPressClick } from '../../lib/touchContextMenu'
 import styles from '../../pages/DeckBuilder.module.css'
@@ -40,7 +41,7 @@ function DeckCardGrid({
           <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); onChangeQty(dc.id, -1) }}>-</button>
           <span className={styles.visualCardCount}>{dc.qty}</span>
           <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); onChangeQty(dc.id, +1) }}>+</button>
-          <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); onRemove(dc.id) }}>x</button>
+          <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); onRemove(dc.id) }}><CloseIcon size={13} /></button>
         </div>
       </div>
     </div>
@@ -123,7 +124,7 @@ function DeckCardStack({
           <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); onChangeQty(dc.id, -1) }}>-</button>
           <span className={styles.stackControlCount}>{dc.qty}</span>
           <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); onChangeQty(dc.id, +1) }}>+</button>
-          <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); onRemove(dc.id) }}>x</button>
+          <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); onRemove(dc.id) }}><CloseIcon size={13} /></button>
         </div>
       </div>
     </div>
@@ -175,7 +176,7 @@ function DeckCardCompact({
           <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, +1)}>+</button>
         </div>
       )}
-      {compactVisibleColumns.remove && <button className={styles.removeBtn} onClick={() => onRemove(dc.id)}>x</button>}
+      {compactVisibleColumns.remove && <button className={styles.removeBtn} onClick={() => onRemove(dc.id)}><CloseIcon size={13} /></button>}
     </div>
   )
 }

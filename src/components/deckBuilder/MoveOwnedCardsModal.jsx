@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { CloseIcon } from '../../icons'
 import { Select } from '../UI'
 
 export default function MoveOwnedCardsModal({ title, message, items, folders, onConfirm, onClose }) {
@@ -25,7 +26,7 @@ export default function MoveOwnedCardsModal({ title, message, items, folders, on
       <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, width:520, maxWidth:'94vw', display:'flex', flexDirection:'column', overflow:'hidden' }}>
         <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <span style={{ fontFamily:'var(--font-display)', color:'var(--gold)', fontSize:'1rem' }}>{title}</span>
-          <button onClick={onClose} disabled={busy} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.2rem', cursor:busy ? 'default' : 'pointer' }}>x</button>
+          <button onClick={onClose} disabled={busy} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.2rem', cursor:busy ? 'default' : 'pointer' }}><CloseIcon size={13} /></button>
         </div>
         <div style={{ padding:'16px 20px', display:'flex', flexDirection:'column', gap:14 }}>
           <p style={{ margin:0, color:'var(--text-dim)', fontSize:'0.84rem', lineHeight:1.6 }}>{message}</p>

@@ -6,7 +6,7 @@ import { useAuth } from '../components/Auth'
 import { useSettings, DEFAULT_BENTO_CONFIG } from '../components/SettingsContext'
 import { sfGet } from '../lib/scryfall'
 import { Modal } from '../components/UI'
-import { ImageIcon } from '../icons'
+import { CloseIcon, ImageIcon } from '../icons'
 import { MILESTONES } from '../lib/milestones'
 import { checkAndNotifyMilestones } from '../lib/milestoneTracker'
 import { hasDeckArtSource, mergeDeckCommanderArt, useDeckArt } from '../lib/deckArt'
@@ -257,7 +257,7 @@ function StandoutCardPicker({ deck, selected, onAdd, onRemove, onClose }) {
             <div key={i} className={styles.standoutSelectedItem}>
               <img src={c.art_crop} alt={c.name} className={styles.standoutSelectedImg} />
               <span className={styles.standoutSelectedName}>{c.name}</span>
-              <button className={styles.standoutSelectedRemove} onClick={() => onRemove(i)}>✕</button>
+              <button className={styles.standoutSelectedRemove} onClick={() => onRemove(i)}><CloseIcon size={13} /></button>
             </div>
           ))}
         </div>
@@ -595,7 +595,7 @@ function FeaturedDeckInner({ deck, standoutCards, deckStats, editMode, decks, on
                     <img src={fullImg} alt={c.name} className={styles.featuredStandoutImg} loading="lazy" />
                     {editMode && (
                       <button className={styles.featuredStandoutRemove}
-                        onClick={() => onChangeCards((standoutCards || []).filter((_, j) => j !== i))}>✕</button>
+                        onClick={() => onChangeCards((standoutCards || []).filter((_, j) => j !== i))}><CloseIcon size={13} /></button>
                     )}
                   </div>
                 )
@@ -837,7 +837,7 @@ function SortableBentoBlock({ id, editMode, onHide, children }) {
           </div>
           <button className={styles.blockRemoveBtn}
             onClick={e => { e.stopPropagation(); onHide(id) }}
-            title="Move to available" aria-label={`Hide ${BLOCK_DEFS[id]?.label}`}>✕</button>
+            title="Move to available" aria-label={`Hide ${BLOCK_DEFS[id]?.label}`}><CloseIcon size={13} /></button>
         </div>
       )}
       {children}
@@ -1206,7 +1206,7 @@ export default function ProfilePage() {
                   {draftHeaderArt ? 'Change Art' : 'Add Art'}
                 </button>
                 {draftHeaderArt && (
-                  <button className={styles.artRemoveBtn} onClick={() => setDraftHeaderArt('')}>✕ Art</button>
+                  <button className={styles.artRemoveBtn} onClick={() => setDraftHeaderArt('')}><CloseIcon size={11} /> Art</button>
                 )}
                 <button className={styles.saveBtn} onClick={saveEdit} disabled={saving}>
                   {saving ? 'Saving…' : 'Save'}
@@ -1235,7 +1235,7 @@ export default function ProfilePage() {
           onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
           <div className={`${styles.bentoEditor} ${styles.bentoEditorActive}`}>
             <div className={`${styles.bento} ${styles.bentoEdit}`}>
-              <div className={styles.editHint}>Drag blocks to reorder. Use ✕ to hide or + to show.</div>
+              <div className={styles.editHint}>Drag blocks to reorder. Use the remove button to hide a block or + to show it.</div>
               <SortableContext items={gridIds} strategy={noDisplace}>
                 {draftBlocks.filter(b => b.enabled).map(block => (
                   <SortableBentoBlock key={block.id} id={block.id} editMode={editMode} onHide={hideBlock}>

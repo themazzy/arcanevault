@@ -8,7 +8,7 @@ import { sb } from '../lib/supabase'
 import { getPublicAppUrl } from '../lib/publicUrl'
 import { buildLifeChange } from '../lib/lifeChange'
 import styles from './LifeTracker.module.css'
-import { ChevronDownIcon, ChevronUpIcon, SettingsIcon } from '../icons'
+import { CheckIcon, CloseIcon, CopyIcon, EditIcon, SyncIcon, ChevronDownIcon, ChevronUpIcon, SettingsIcon } from '../icons'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const SESSION_KEY = 'av_life_tracker'
@@ -345,7 +345,7 @@ function ArtPicker({ onSelect, onClear, onClose, rotation = 0 }) {
         onClick={e => e.stopPropagation()}>
         <div className={styles.artPickerHead}>
           <h2 className={styles.artPickerTitle}>Player Background Art</h2>
-          <button className={styles.artPickerClose} onClick={onClose}>×</button>
+          <button className={styles.artPickerClose} onClick={onClose}><CloseIcon size={13} /></button>
         </div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
           <input ref={inputRef}
@@ -420,7 +420,7 @@ function GameLogOverlay({ events, onClose }) {
             <div className={styles.cmdOverlayTitle}>📜 Game Log</div>
             <div className={styles.cmdOverlaySub}>All events this game</div>
           </div>
-          <button className={styles.cmdOverlayClose} onClick={onClose}>×</button>
+          <button className={styles.cmdOverlayClose} onClick={onClose}><CloseIcon size={13} /></button>
         </div>
         {(!events || events.length === 0) ? (
           <p className={styles.histEvtEmpty}>No events recorded yet this game.</p>
@@ -494,7 +494,7 @@ function CmdDmgOverlay({ players, selfId, layout, viewerRotation = 0, onCmdDmgCh
         onClick={e => e.stopPropagation()}>
         <div className={`${styles.cmdOverlayHead} ${headRotClass}`}>
           <div className={styles.cmdOverlayTitle}>⚔ Commander Damage</div>
-          <button className={styles.cmdOverlayClose} onClick={onClose}>×</button>
+          <button className={styles.cmdOverlayClose} onClick={onClose}><CloseIcon size={13} /></button>
         </div>
         <div className={styles.cmdGrid} style={{ '--gcols': layout.cols }}>
           {players.map((p, idx) => {
@@ -571,7 +571,7 @@ function PlayerSettingsOverlay({
               {player.name}
             </div>
           </div>
-          <button className={styles.settingsClose} onClick={onClose}>×</button>
+          <button className={styles.settingsClose} onClick={onClose}><CloseIcon size={13} /></button>
         </div>
 
         <div className={styles.settingsSection}>
@@ -628,7 +628,7 @@ function FullscreenGameMenuOverlay({
           onClick={e => e.stopPropagation()}>
           <div className={styles.cmdOverlayHead}>
           <div className={styles.cmdOverlayTitle}>Game Menu</div>
-          <button className={styles.cmdOverlayClose} onClick={onClose}>×</button>
+          <button className={styles.cmdOverlayClose} onClick={onClose}><CloseIcon size={13} /></button>
         </div>
 
         <div className={styles.fsMenuActionList}>
@@ -642,7 +642,7 @@ function FullscreenGameMenuOverlay({
           <button
             className={`${styles.fsMenuActionBtn} ${styles.fsMenuActionBtnDanger}`}
             onClick={onNewSetup}>
-            ✕ New Setup
+            <CloseIcon size={12} /> New Setup
           </button>
         </div>
       </div>
@@ -704,7 +704,7 @@ function CoinFlipper({ onClose }) {
       <div className={`${styles.pickerPanel} ${styles.coinPanel}`} onClick={e => e.stopPropagation()}>
         <div className={styles.pickerHead}>
           <span className={styles.pickerTitle}>Coin Flipper</span>
-          <button className={styles.pickerClose} onClick={onClose}>×</button>
+          <button className={styles.pickerClose} onClick={onClose}><CloseIcon size={13} /></button>
         </div>
         <div className={styles.coinCountRow}>
           <span className={styles.coinCountLabel}>Coins</span>
@@ -797,7 +797,7 @@ function DiceRoller({ onClose }) {
     <div className={styles.diceOverlay} onClick={onClose}>
       <div className={styles.dicePanel} onClick={e => e.stopPropagation()}>
         <div className={styles.diceHead}>
-          <button className={styles.diceClose} onClick={onClose}>×</button>
+          <button className={styles.diceClose} onClick={onClose}><CloseIcon size={13} /></button>
         </div>
 
         <div className={styles.diceTypes}>
@@ -890,7 +890,7 @@ function RandomPicker({ players, onClose }) {
       <div className={styles.pickerPanel} onClick={e => e.stopPropagation()}>
         <div className={styles.pickerHead}>
           <span className={styles.pickerTitle}>🎯 Random Player</span>
-          <button className={styles.pickerClose} onClick={onClose}>×</button>
+          <button className={styles.pickerClose} onClick={onClose}><CloseIcon size={13} /></button>
         </div>
         <div
           className={`${styles.pickerDisplay} ${winner ? styles.pickerDisplayWin : ''} ${picking ? styles.pickerDisplayPicking : ''}`}
@@ -1054,7 +1054,7 @@ function LobbyScreen({ session, gameConfig, onStart, onCancel }) {
           ))}
         </div>
         <button className={styles.lobbyCopyBtn} onClick={copyLink}>
-          {copied ? '✓ Copied!' : '⎘ Copy Join Link'}
+          {copied ? <><CheckIcon size={12} /> Copied!</> : <><CopyIcon size={12} /> Copy Join Link</>}
         </button>
         <div className={styles.lobbyJoinUrl}>{joinUrl}</div>
       </div>
@@ -1077,7 +1077,7 @@ function LobbyScreen({ session, gameConfig, onStart, onCancel }) {
 
       <div className={styles.lobbyFooter}>
         <button className={styles.lobbyCancelBtn} onClick={onCancel}>
-          ✕ Cancel Lobby
+          <CloseIcon size={12} /> Cancel Lobby
         </button>
         <button
           className={styles.lobbyStartBtn}
@@ -1194,7 +1194,7 @@ function HostSetupScreen({ session, config, decks, onSubmit, onCancel, nickname 
         {artUrl && (
           <div className={styles.hostArtPreviewRow}>
             <img src={artUrl} className={styles.hostArtThumb} alt="bg art" />
-            <button className={styles.hostArtClear} onClick={() => setArtUrl(null)}>✕</button>
+            <button className={styles.hostArtClear} onClick={() => setArtUrl(null)}><CloseIcon size={13} /></button>
           </div>
         )}
         <button className={styles.hostArtToggle} onClick={() => setArtOpen(v => !v)}>
@@ -1226,7 +1226,7 @@ function HostSetupScreen({ session, config, decks, onSubmit, onCancel, nickname 
       </div>
 
       <div className={styles.hostFooter}>
-        <button className={styles.hostCancelBtn} onClick={onCancel}>✕ Cancel</button>
+        <button className={styles.hostCancelBtn} onClick={onCancel}><CloseIcon size={12} /> Cancel</button>
         <button className={styles.hostSubmitBtn} onClick={handleSubmit} disabled={submitting || !name.trim()}>
           {submitting ? 'Saving…' : 'Continue to Lobby →'}
         </button>
@@ -1255,7 +1255,7 @@ function PlayerConfig({ index, config, decks, deckStatsMap, onChange }) {
                 onKeyDown={e => e.key === 'Enter' && e.target.blur()}
                 autoFocus />
             : <button className={styles.pcName} onClick={() => { setEditing(true); setNameVal(config.name) }}>
-                {config.name} <span className={styles.pcEditHint}>✎</span>
+                {config.name} <span className={styles.pcEditHint}><EditIcon size={11} /></span>
               </button>
           }
           <div className={styles.pcColors}>
@@ -1363,7 +1363,7 @@ function GameHistoryPanel({ rows, loading, decks, onRefresh, onUpdate, onDelete 
 
       <div className={styles.historyActions}>
         <button className={styles.historyRefreshBtn} onClick={onRefresh} disabled={loading}>
-          {loading ? 'Refreshing…' : '↻ Refresh'}
+          {loading ? 'Refreshing…' : <><SyncIcon size={12} /> Refresh</>}
         </button>
       </div>
 
@@ -2394,7 +2394,7 @@ export default function LifeTrackerPage() {
                   ↺ Reset Totals
                 </button>
                 <button className={`${styles.gearMenuItem} ${styles.gearMenuItemDanger}`} onClick={handleNewGame}>
-                  ✕ New Setup
+                  <CloseIcon size={12} /> New Setup
                 </button>
               </div>
             )}

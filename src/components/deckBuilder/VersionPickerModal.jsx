@@ -5,7 +5,7 @@ import { overlaySharedCardPrices } from '../../lib/sharedCardPrices'
 import { getPrice, formatPrice } from '../../lib/scryfall'
 import { CAN_HOVER, FOLDER_TAG_COLOR, FOLDER_TAG_BORDER } from '../../lib/deckBuilderConstants'
 import { normalizeCardName } from '../../lib/deckBuilderHelpers'
-import { FolderTypeIcon } from '../../icons'
+import { CloseIcon, FolderTypeIcon } from '../../icons'
 
 function PrintingLocationTags({ locations }) {
   if (!locations?.length) return null
@@ -145,7 +145,7 @@ export default function VersionPickerModal({ dc, ownedMap, userId, priceSource =
           <span style={{ fontFamily:'var(--font-display)', color:'var(--gold)', fontSize:'0.95rem' }}>
             Choose version - {dc.name}
           </span>
-          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.1rem', cursor:'pointer' }}>x</button>
+          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.1rem', cursor:'pointer' }}><CloseIcon size={13} /></button>
         </div>
         {loading
           ? <div style={{ color:'var(--text-faint)', fontSize:'0.85rem', padding:'20px 0', textAlign:'center' }}>Loading printings...</div>

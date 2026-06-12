@@ -3989,7 +3989,7 @@ export default function DeckBuilderPage() {
                 {cmdTags.map(tag => (
                   <span key={tag} className={styles.deckMetaTag}>
                     {tag}
-                    <button className={styles.deckMetaTagRemove} onClick={() => removeTag(tag)}>x</button>
+                    <button className={styles.deckMetaTagRemove} onClick={() => removeTag(tag)}><CloseIcon size={13} /></button>
                   </span>
                 ))}
                 <input

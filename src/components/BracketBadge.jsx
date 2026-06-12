@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { BRACKET_LABELS } from '../lib/commanderBracket'
+import { EditIcon } from '../icons'
 import styles from './BracketBadge.module.css'
 
 // Official 5-bracket system (Commander Brackets beta, Feb 2026 rules).
@@ -67,7 +68,7 @@ export default function BracketBadge({ analysis, bracket, isOverridden, onOverri
         <span className={styles.pillNumber} style={{ background: meta.color }}>{bracket}</span>
         <span className={styles.pillLabel}>{meta.label}</span>
         {isOverridden
-          ? <span className={styles.pillMark} title="Manually set">✎</span>
+          ? <span className={styles.pillMark} title="Manually set"><EditIcon size={10} /></span>
           : <span className={styles.pillMark}>est.</span>}
         <span className={styles.pillChevron}>{open ? '▴' : '▾'}</span>
       </button>

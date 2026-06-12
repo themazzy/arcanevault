@@ -1,4 +1,5 @@
 import { Modal } from '../UI'
+import { CloseIcon } from '../../icons'
 import styles from '../../pages/DeckBuilder.module.css'
 
 /**
@@ -36,7 +37,7 @@ export default function DeckMetaModal({
           {tags.map(tag => (
             <span key={tag} className={styles.deckMetaTag}>
               {tag}
-              <button className={styles.deckMetaTagRemove} onClick={() => onRemoveTag(tag)}>x</button>
+              <button className={styles.deckMetaTagRemove} onClick={() => onRemoveTag(tag)}><CloseIcon size={13} /></button>
             </span>
           ))}
           <input

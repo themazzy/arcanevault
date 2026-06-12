@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { CloseIcon, SyncIcon } from '../icons'
 import { useParams, Link } from 'react-router-dom'
 import { useAuth } from '../components/Auth'
 import { ResponsiveMenu } from '../components/UI'
@@ -178,7 +179,7 @@ export default function JoinGamePage() {
   if (status === 'loading') return (
     <div className={styles.page}>
       <div className={styles.centerBox}>
-        <div className={styles.spinner}>⟳</div>
+        <div className={styles.spinner}><SyncIcon size={22} /></div>
         <p className={styles.loadingText}>Looking up lobby…</p>
       </div>
     </div>
@@ -300,7 +301,7 @@ export default function JoinGamePage() {
           {claimArtUrl && (
             <div className={styles.artPreviewRow}>
               <img src={claimArtUrl} className={styles.artPreviewThumb} alt="bg art" />
-              <button className={styles.artClearBtn} onClick={() => setClaimArtUrl(null)}>✕</button>
+              <button className={styles.artClearBtn} onClick={() => setClaimArtUrl(null)}><CloseIcon size={13} /></button>
             </div>
           )}
           <button className={styles.artSearchToggle} onClick={() => setShowArtPicker(v => !v)}>

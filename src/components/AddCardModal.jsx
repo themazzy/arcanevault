@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { CheckIcon, CloseIcon } from '../icons'
 import { sb } from '../lib/supabase'
 import { putCards } from '../lib/db'
 import { Modal, Button, ErrorBox, ResponsiveMenu } from './UI'
@@ -612,7 +613,7 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
               onFocus={() => suggestions.length > 0 && setSuggestOpen(true)}
             />
             {query && (
-              <button className={styles.clearBtn} onClick={resetSearch}>×</button>
+              <button className={styles.clearBtn} onClick={resetSearch}><CloseIcon size={13} /></button>
             )}
           </div>
           {suggestOpen && (
@@ -773,7 +774,7 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
                   <span className={styles.queueQty}>{item.qty}</span>
                   <button className={styles.queueQtyBtn} onClick={() => updateQueueQty(item.id, +1)}>+</button>
                 </div>
-                <button className={styles.queueRemove} onClick={() => removeFromQueue(item.id)}>×</button>
+                <button className={styles.queueRemove} onClick={() => removeFromQueue(item.id)}><CloseIcon size={13} /></button>
               </div>
             ))}
           </div>
@@ -867,8 +868,8 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
                       if (e.key === 'Escape') { setCreatingFolder(false); setNewFolderName('') }
                     }}
                   />
-                  <button className={styles.marketBtn} onClick={createNewFolder} title="Create">✓</button>
-                  <button className={styles.clearBtn} onClick={() => { setCreatingFolder(false); setNewFolderName('') }}>×</button>
+                  <button className={styles.marketBtn} onClick={createNewFolder} title="Create"><CheckIcon size={13} /></button>
+                  <button className={styles.clearBtn} onClick={() => { setCreatingFolder(false); setNewFolderName('') }}><CloseIcon size={13} /></button>
                 </div>
               )}
             </>

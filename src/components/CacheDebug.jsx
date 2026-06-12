@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { getDbStats, clearScryfallStore } from '../lib/db'
 import { clearScryfallCache, clearAllScryfallCache } from '../lib/scryfall'
+import { SyncIcon } from '../icons'
 import styles from './CacheDebug.module.css'
 
 function Row({ label, value, ok, warn }) {
@@ -53,7 +54,7 @@ export default function CacheDebug() {
         <div className={styles.panel}>
           <div className={styles.panelHeader}>
             <span>IndexedDB — no size limit</span>
-            <button className={styles.refreshBtn} onClick={refresh}>↻ Refresh</button>
+            <button className={styles.refreshBtn} onClick={refresh}><SyncIcon size={12} /> Refresh</button>
           </div>
 
           {stats && (

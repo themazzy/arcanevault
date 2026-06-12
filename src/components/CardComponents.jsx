@@ -5,7 +5,7 @@ import { Modal, Badge, ResponsiveMenu, Select } from './UI'
 import styles from './CardComponents.module.css'
 import uiStyles from './UI.module.css'
 import { FolderTypeIcon } from './Icons'
-import { CheckIcon } from '../icons'
+import { CloseIcon, CheckIcon } from '../icons'
 import { sb } from '../lib/supabase'
 import { putCards } from '../lib/db'
 import { useLongPress } from '../hooks/useLongPress'
@@ -257,7 +257,7 @@ function MoveToDialog({ folders, onMoveToFolder, onCreateFolder, onClose, allowe
             <button
               className={styles.moveDialogCreateCancel}
               onClick={() => { setCreating(false); setCreateName('') }}
-            >✕</button>
+            ><CloseIcon size={13} /></button>
           </div>
         )}
       </div>
@@ -1377,7 +1377,7 @@ export function TypeLineFilter({ selected, onChange, name = 'type-line-filter' }
             <span key={t} className={styles.setTag}>
               {t}
               <button className={styles.setTagRemove}
-                onClick={() => onChange(selected.filter(x => x !== t))}>✕</button>
+                onClick={() => onChange(selected.filter(x => x !== t))}><CloseIcon size={13} /></button>
             </span>
           ))}
           <button className={styles.setTagClearAll} onClick={() => onChange([])}>Clear</button>
@@ -1442,7 +1442,7 @@ function SetDropdown({ sets, selected, onChange }) {
             <span key={s.code} className={styles.setTag}>
               <span style={{ opacity: 0.6, fontSize: '0.68rem', marginRight: 3, fontFamily: 'monospace' }}>{s.code.toUpperCase()}</span>
               {s.name}
-              <button className={styles.setTagRemove} onClick={() => toggleSet(s.code)}>✕</button>
+              <button className={styles.setTagRemove} onClick={() => toggleSet(s.code)}><CloseIcon size={13} /></button>
             </span>
           ))}
           <button className={styles.setTagClearAll} onClick={() => onChange([])}>Clear</button>
@@ -1601,7 +1601,7 @@ export function FilterBar({
           {extra}
           {onToggleSelectMode && (
             <button className={`${styles.selectModeBtn}${selectMode ? ' ' + styles.selectModeActive : ''}`}
-              onClick={onToggleSelectMode}>{selectMode ? '✓ Selecting' : '☐ Select'}</button>
+              onClick={onToggleSelectMode}>{selectMode ? <><CheckIcon size={12} /> Selecting</> : 'Select'}</button>
           )}
         </div>
       </div>

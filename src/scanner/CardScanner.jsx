@@ -24,6 +24,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { CloseIcon } from '../icons'
 import { Capacitor } from '@capacitor/core'
 import { CameraPreview } from '@capacitor-community/camera-preview'
 import { Haptics, ImpactStyle } from '@capacitor/haptics'
@@ -1511,7 +1512,7 @@ export default function CardScanner({ onMatch, onClose }) {
               title="Close"
               aria-label="Close"
             >
-              ✕
+              <CloseIcon size={15} />
             </button>
             <button
               className={`${styles.menuIconBtn} ${basketExpanded ? styles.menuIconBtnActive : ''}`}
@@ -1651,7 +1652,7 @@ export default function CardScanner({ onMatch, onClose }) {
               {lockedSets.size === 1
                 ? [...lockedSets][0].toUpperCase()
                 : `${lockedSets.size} sets`}
-              <button className={styles.lockedSetClear} onClick={() => setLockedSets(new Set())} title="Clear locked sets">✕</button>
+              <button className={styles.lockedSetClear} onClick={() => setLockedSets(new Set())} title="Clear locked sets"><CloseIcon size={13} /></button>
             </div>
           )}
           {lockSet && lockedSets.size === 0 && (
@@ -1770,7 +1771,7 @@ export default function CardScanner({ onMatch, onClose }) {
                   title="Remove"
                   aria-label="Remove"
                 >
-                  <span className={styles.latestActionX} aria-hidden="true">✕</span>
+                  <span className={styles.latestActionX} aria-hidden="true"><CloseIcon size={11} /></span>
                 </button>
               </div>
             </div>
@@ -1807,7 +1808,7 @@ export default function CardScanner({ onMatch, onClose }) {
               </span>
             </span>
             <span className={styles.overlayPanelCount}>{pendingTotalQty}</span>
-            <button className={styles.closeBtn} onClick={() => basketTgl.hide()}>✕</button>
+            <button className={styles.closeBtn} onClick={() => basketTgl.hide()}><CloseIcon size={13} /></button>
           </div>
           <div className={styles.historyList}>
             {pendingCards.map(card => {
@@ -1919,7 +1920,7 @@ export default function CardScanner({ onMatch, onClose }) {
                         title="Remove"
                         aria-label="Remove"
                       >
-                        <span className={styles.historyActionX} aria-hidden="true">✕</span>
+                        <span className={styles.historyActionX} aria-hidden="true"><CloseIcon size={11} /></span>
                       </button>
                     </div>
                   </div>
@@ -1940,7 +1941,7 @@ export default function CardScanner({ onMatch, onClose }) {
         <div className={`${styles.overlayPanel}${printingPickerClosing ? ` ${styles.overlayPanelClosing}` : ''}`}>
           <div className={styles.overlayPanelHeader}>
             <span className={styles.overlayPanelTitle}>Choose Printing</span>
-            <button className={styles.closeBtn} onClick={closePrintingPicker}>✕</button>
+            <button className={styles.closeBtn} onClick={closePrintingPicker}><CloseIcon size={13} /></button>
           </div>
           <div className={styles.searchInputRow}>
             <input
@@ -1995,7 +1996,7 @@ export default function CardScanner({ onMatch, onClose }) {
         <div className={`${styles.overlayPanel}${manualSearchClosing ? ` ${styles.overlayPanelClosing}` : ''}`}>
           <div className={styles.overlayPanelHeader}>
             <span className={styles.overlayPanelTitle}>Add Card Manually</span>
-            <button className={styles.closeBtn} onClick={() => { manualSearchRequestRef.current += 1; manualTgl.hide(); setManualSearchQuery(''); setManualSearchResults([]); setManualSearchLoading(false) }}>✕</button>
+            <button className={styles.closeBtn} onClick={() => { manualSearchRequestRef.current += 1; manualTgl.hide(); setManualSearchQuery(''); setManualSearchResults([]); setManualSearchLoading(false) }}><CloseIcon size={13} /></button>
           </div>
           <div className={styles.searchInputRow}>
             <input
@@ -2037,7 +2038,7 @@ export default function CardScanner({ onMatch, onClose }) {
                 {scannedValueMeta ? `${scannedValueMeta.symbol}${scannedValueMeta.value.toFixed(2)}` : '—'}
               </span>
             </span>
-            <button className={styles.closeBtn} onClick={() => addFlowTgl.hide()}>✕</button>
+            <button className={styles.closeBtn} onClick={() => addFlowTgl.hide()}><CloseIcon size={13} /></button>
           </div>
 
           {/* Review list */}
@@ -2129,7 +2130,7 @@ export default function CardScanner({ onMatch, onClose }) {
         <div className={`${styles.overlayPanel}${settingsClosing ? ` ${styles.overlayPanelClosing}` : ''}`}>
           <div className={styles.overlayPanelHeader}>
             <span className={styles.overlayPanelTitle}>Scanner Settings</span>
-            <button className={styles.closeBtn} onClick={() => settingsTgl.hide()}>✕</button>
+            <button className={styles.closeBtn} onClick={() => settingsTgl.hide()}><CloseIcon size={13} /></button>
           </div>
 
           <div className={styles.settingsRow}>
@@ -2199,7 +2200,7 @@ export default function CardScanner({ onMatch, onClose }) {
                           <span key={code} className={styles.setChip}>
                             {getSetIcon(setIcons, code) && <img src={getSetIcon(setIcons, code)} alt="" className={styles.setChipIcon} />}
                             {code.toUpperCase()}
-                            <button className={styles.setChipRemove} onClick={() => setLockedSets(prev => { const next = new Set(prev); next.delete(code); return next })} title={`Remove ${code.toUpperCase()}`}>✕</button>
+                            <button className={styles.setChipRemove} onClick={() => setLockedSets(prev => { const next = new Set(prev); next.delete(code); return next })} title={`Remove ${code.toUpperCase()}`}><CloseIcon size={13} /></button>
                           </span>
                         ))}
                         <button className={styles.settingsInlineBtn} onClick={() => setLockedSets(new Set())}>Clear all</button>
@@ -2244,7 +2245,7 @@ export default function CardScanner({ onMatch, onClose }) {
         <div className={`${styles.overlayPanel}${setPickerClosing ? ` ${styles.overlayPanelClosing}` : ''}`}>
           <div className={styles.overlayPanelHeader}>
             <span className={styles.overlayPanelTitle}>Lock Sets</span>
-            <button className={styles.closeBtn} onClick={() => setPickerTgl.hide()}>✕</button>
+            <button className={styles.closeBtn} onClick={() => setPickerTgl.hide()}><CloseIcon size={13} /></button>
           </div>
           <div className={styles.setPickerSearch}>
             <input
@@ -2262,7 +2263,7 @@ export default function CardScanner({ onMatch, onClose }) {
                 <span key={code} className={styles.setChip}>
                   {getSetIcon(setIcons, code) && <img src={getSetIcon(setIcons, code)} alt="" className={styles.setChipIcon} />}
                   {code.toUpperCase()}
-                  <button className={styles.setChipRemove} onClick={() => setLockedSets(prev => { const next = new Set(prev); next.delete(code); return next })}>✕</button>
+                  <button className={styles.setChipRemove} onClick={() => setLockedSets(prev => { const next = new Set(prev); next.delete(code); return next })}><CloseIcon size={13} /></button>
                 </span>
               ))}
               <button className={styles.settingsInlineBtn} onClick={() => setLockedSets(new Set())}>Clear all</button>

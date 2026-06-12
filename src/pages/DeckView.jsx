@@ -12,7 +12,7 @@ import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
 import { ResponsiveMenu } from '../components/UI'
 import { CardBrowserContent, CARD_BROWSER_VIEW_MODES } from '../components/CardBrowserViews'
-import { CheckIcon, ChevronDownIcon, GridViewIcon, SearchIcon, SortIcon, StacksViewIcon, TextViewIcon, TableViewIcon } from '../icons'
+import { CloseIcon, CheckIcon, ChevronDownIcon, GridViewIcon, SearchIcon, SortIcon, StacksViewIcon, TextViewIcon, TableViewIcon } from '../icons'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 
 const RARITY_ORDER = ['mythic', 'rare', 'uncommon', 'common']
@@ -141,7 +141,7 @@ function CardDetailModal({ cardName, onClose }) {
                     />
                   </span>
                 )}
-                <button className={styles.modalClose} onClick={onClose}>×</button>
+                <button className={styles.modalClose} onClick={onClose}><CloseIcon size={13} /></button>
               </div>
             </div>
 
