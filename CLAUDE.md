@@ -271,16 +271,11 @@ Full route map:
 
 A linked collection deck navigates to `/builder/<linked_builder_id>` rather than `/deck/<id>`.
 
-### Vite Proxies (dev only)
+### CORS-restricted third-party APIs
 
-```
-/api/edhrec    → json.edhrec.com
-/api/archidekt → archidekt.com
-/api/moxfield  → api.moxfield.com
-/api/goldfish  → mtggoldfish.com
-```
-
-These are only active during `npm run dev`. Production deploys on GitHub Pages cannot use these — CORS-restricted APIs will fail in prod.
+- **EDHREC** needs no proxy: `json.edhrec.com/pages/` sends `Access-Control-Allow-Origin: *` and is fetched directly in all environments.
+- **Deck URL imports** (Archidekt, Moxfield, Goldfish) go through the Cloudflare Worker at `deckloom.app/api/import/<source>/<id>` in all environments (strict source/id validation in `cloudflare/og-worker/worker.js`). Archidekt and Moxfield work; **MTGGoldfish blocks server-side fetches** with a Cloudflare JS challenge — its import fails with a message steering users to paste the decklist.
+- **Commander Spellbook combos**: dev uses the `/api/combos` Vite proxy (the only proxy left in `vite.config.js`); prod uses the `combo-proxy` Supabase Edge Function.
 
 ---
 
@@ -590,7 +585,7 @@ Host creates a session → others visit `/join/:code` on their own device → ho
 | Scryfall | Card data, search, autocomplete, catalog | Rate-limited: 75 cards/batch, 120 ms delay |
 | Supabase | Auth, cloud sync | RLS enforced; never bypass with service key |
 | frankfurter.app | EUR↔USD rates | Cached 6 h in IDB |
-| EDHRec | Commander recommendations | Via Vite proxy `/api/edhrec` (dev only) |
+| EDHRec | Commander recommendations | Direct fetch — `json.edhrec.com/pages/` sends CORS `*` |
 | deckloom-og worker | MTG RSS feeds | `deckloom.app/api/rss?feed=<url>` — allow-listed feeds only, edge-cached 15 min, CORS `*`. Adding a feed requires updating `RSS_ALLOWED_FEEDS` in `cloudflare/og-worker/worker.js` + redeploying |
 
 ### RSS Feed Parsing

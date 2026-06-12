@@ -7,9 +7,17 @@
  */
 
 import { sfGet, sfUrl } from './scryfall'
+import { getProdAppUrl } from './publicUrl'
 
 const SF = 'https://api.scryfall.com'
 const EDHREC = 'https://json.edhrec.com'
+
+// Deck imports go through the Cloudflare Worker proxy (the upstream APIs are
+// CORS-restricted; the old relative /api/* paths only worked under the Vite
+// dev proxy and 404'd in production). Exported for tests.
+export function importProxyUrl(source, id) {
+  return getProdAppUrl(`/api/import/${source}/${encodeURIComponent(id)}`)
+}
 
 // ── Formats ───────────────────────────────────────────────────────────────────
 
@@ -440,7 +448,7 @@ export function parseTextDecklist(text) {
  * Returns { name, format, cards: [{ name, qty, isCommander, board, scryfallId, setCode, collectorNumber }] }
  */
 export async function importFromArchidekt(deckId) {
-  const res = await fetch(`/api/archidekt/api/decks/${deckId}/`)
+  const res = await fetch(importProxyUrl('archidekt', deckId))
   if (!res.ok) throw new Error(`Archidekt ${res.status}`)
   const data = await res.json()
 
@@ -487,7 +495,7 @@ export async function importFromArchidekt(deckId) {
  * Falls back gracefully — callers should catch and prompt user to paste text instead.
  */
 export async function importFromMoxfield(deckId) {
-  const res = await fetch(`/api/moxfield/v2/decks/all/${deckId}`)
+  const res = await fetch(importProxyUrl('moxfield', deckId))
   if (!res.ok) throw new Error(`Moxfield ${res.status} — paste the deck text instead`)
   const data = await res.json()
 
@@ -524,8 +532,10 @@ export async function importFromMoxfield(deckId) {
  * Import a deck from MTGGoldfish (plain text download).
  */
 export async function importFromGoldfish(deckId) {
-  const res = await fetch(`/api/goldfish/deck/download/${deckId}`)
-  if (!res.ok) throw new Error(`Goldfish ${res.status}`)
+  const res = await fetch(importProxyUrl('goldfish', deckId))
+  // MTGGoldfish sits behind a Cloudflare JS challenge that blocks server-side
+  // fetches — expect 403s here. Steer the user to the paste flow.
+  if (!res.ok) throw new Error('MTGGoldfish blocks automated imports — open the deck, use Export → copy the decklist, and paste it here instead.')
   const text = await res.text()
   const cards = parseTextDecklist(text)
   return { name: 'Goldfish Import', format: 'commander', cards }

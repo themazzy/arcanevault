@@ -204,18 +204,11 @@ React Router v6. `src/App.jsx` uses `BrowserRouter` with `basename="/arcanevault
 
 All other routes require auth and are wrapped in `PrivateApp`.
 
-### Vite Proxies
+### CORS-restricted third-party APIs
 
-Development only:
-
-```text
-/api/edhrec    -> json.edhrec.com
-/api/archidekt -> archidekt.com
-/api/moxfield  -> api.moxfield.com
-/api/goldfish  -> mtggoldfish.com
-```
-
-These only exist during `npm run dev`. Production deploy on GitHub Pages cannot use them. CORS-restricted APIs will fail in production.
+- EDHREC: direct fetch (`json.edhrec.com/pages/` sends CORS `*`); no proxy.
+- Deck URL imports (Archidekt/Moxfield/Goldfish): Cloudflare Worker route `deckloom.app/api/import/<source>/<id>` in all environments. Goldfish is blocked upstream by a Cloudflare JS challenge; its import errors with a paste-the-decklist message.
+- Commander Spellbook: `/api/combos` Vite proxy in dev (the only one left in `vite.config.js`); `combo-proxy` Supabase Edge Function in prod.
 
 ---
 
@@ -427,7 +420,7 @@ Removed and stale names:
 | Scryfall | Card data, search, autocomplete, catalog | Rate-limited: 75 cards per batch, 120 ms delay |
 | Supabase | Auth and cloud sync | RLS enforced, never bypass with service key |
 | frankfurter.app | EUR to USD rates | Cached 6 hours in IDB |
-| EDHRec | Commander recommendations | Via Vite proxy `/api/edhrec` in dev only |
+| EDHRec | Commander recommendations | Direct fetch — `json.edhrec.com/pages/` sends CORS `*` |
 | codetabs.com proxy | MTG RSS feeds | `api.codetabs.com/v1/proxy?quest=<url>` returns raw XML |
 
 RSS parsing rule:

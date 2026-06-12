@@ -7,8 +7,19 @@ vi.mock('./scryfall', () => ({
   sfUrl: (u) => u,
 }))
 
-import { parseTextDecklist, parseImportUrl, searchCards, fetchPaperPrintings, getDeckBuilderCardMeta } from './deckBuilderApi'
+import { parseTextDecklist, parseImportUrl, searchCards, fetchPaperPrintings, getDeckBuilderCardMeta, importProxyUrl } from './deckBuilderApi'
 import { sfGet } from './scryfall'
+
+describe('importProxyUrl', () => {
+  it('builds worker proxy URLs on the prod origin', () => {
+    expect(importProxyUrl('archidekt', '123456')).toBe('https://deckloom.app/api/import/archidekt/123456')
+    expect(importProxyUrl('moxfield', 'aBc_-9')).toBe('https://deckloom.app/api/import/moxfield/aBc_-9')
+    expect(importProxyUrl('goldfish', '987')).toBe('https://deckloom.app/api/import/goldfish/987')
+  })
+  it('escapes ids so they cannot extend the path', () => {
+    expect(importProxyUrl('moxfield', 'a/b')).toBe('https://deckloom.app/api/import/moxfield/a%2Fb')
+  })
+})
 
 describe('getDeckBuilderCardMeta', () => {
   // Every deck add path — normal search, recs, import, AND the commander

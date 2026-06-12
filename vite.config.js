@@ -27,47 +27,10 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
   server: {
+    // EDHREC and the deck-import sources no longer need dev proxies: EDHREC's
+    // /pages/ JSON sends CORS *, and Archidekt/Moxfield/Goldfish imports go
+    // through the Cloudflare Worker (deckloom.app/api/import/*) in all envs.
     proxy: {
-      '/api/edhrec': {
-        target: 'https://json.edhrec.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/edhrec/, ''),
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Referer': 'https://edhrec.com/',
-        },
-      },
-      '/api/scryfall': {
-        target: 'https://api.scryfall.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/scryfall/, ''),
-        headers: {
-          'Accept': 'application/json',
-          'User-Agent': 'ArcaneVault/1.0',
-        },
-      },
-      '/api/archidekt': {
-        target: 'https://archidekt.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/archidekt/, ''),
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-      },
-      '/api/moxfield': {
-        target: 'https://api.moxfield.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/moxfield/, ''),
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Referer': 'https://www.moxfield.com/',
-          'Origin': 'https://www.moxfield.com',
-        },
-      },
-      '/api/goldfish': {
-        target: 'https://www.mtggoldfish.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/goldfish/, ''),
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-      },
       '/api/combos': {
         target: 'https://backend.commanderspellbook.com',
         changeOrigin: true,

@@ -67,9 +67,49 @@ async function fetchDeckMeta(deckId, env) {
   }
 }
 
+// ── Deck import proxy (deckloom.app/api/import/<source>/<id>) ────────────────
+// Archidekt / Moxfield / MTGGoldfish deck APIs are CORS-restricted, so the
+// builder's import-by-URL feature only worked through the Vite dev proxy.
+// Strict source + id validation — this must never become an open proxy.
+const IMPORT_SOURCES = {
+  archidekt: { upstream: id => `https://archidekt.com/api/decks/${id}/`, idRe: /^\d{1,10}$/, type: 'application/json; charset=utf-8' },
+  moxfield:  { upstream: id => `https://api.moxfield.com/v2/decks/all/${id}`, idRe: /^[A-Za-z0-9_-]{1,40}$/, type: 'application/json; charset=utf-8' },
+  goldfish:  { upstream: id => `https://www.mtggoldfish.com/deck/download/${id}`, idRe: /^\d{1,10}$/, type: 'text/plain; charset=utf-8' },
+}
+
+async function handleImport(request) {
+  const match = new URL(request.url).pathname.match(/^\/api\/import\/([a-z]+)\/([^/]+)$/)
+  const source = match ? IMPORT_SOURCES[match[1]] : null
+  const id = match?.[2]
+  if (!source || !source.idRe.test(id)) {
+    return new Response('bad import request', {
+      status: 400,
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  }
+  const upstream = await fetch(source.upstream(id), {
+    headers: {
+      'User-Agent': 'DeckLoom deck importer (+https://deckloom.app)',
+      'Accept': 'application/json, text/plain, */*',
+    },
+  })
+  const body = await upstream.text()
+  return new Response(body, {
+    status: upstream.status,
+    headers: {
+      'Content-Type': source.type,
+      'Access-Control-Allow-Origin': '*',
+      // Imports should be fresh; a short cache only absorbs double-clicks.
+      'Cache-Control': 'public, max-age=60',
+    },
+  })
+}
+
 export default {
   async fetch(request, env) {
-    if (new URL(request.url).pathname === '/api/rss') return handleRss(request)
+    const pathname = new URL(request.url).pathname
+    if (pathname === '/api/rss') return handleRss(request)
+    if (pathname.startsWith('/api/import/')) return handleImport(request)
 
     const deckId = request.method === 'GET' ? extractDeckId(request.url) : null
 
