@@ -181,8 +181,6 @@ function makePlayer(i, life, seed = {}) {
     cmdDmg: { ...(seed.cmdDmg ?? {}) },
     cmdDmg2: { ...(seed.cmdDmg2 ?? {}) },
     counters: { poison: 0, energy: 0, experience: 0, ...(seed.counters ?? {}) },
-    monarch: seed.monarch ?? false,
-    initiative: seed.initiative ?? false,
   }
 }
 
@@ -195,8 +193,6 @@ function migratePlayer(p) {
     cmdDmg:   p.cmdDmg   ?? {},
     cmdDmg2:  p.cmdDmg2  ?? {},
     counters: { poison: 0, energy: 0, experience: 0, ...(p.counters ?? {}) },
-    monarch: p.monarch ?? false,
-    initiative: p.initiative ?? false,
   }
 }
 
@@ -570,7 +566,6 @@ function PlayerSettingsOverlay({
   onRequestArtPicker,
   onTogglePartner,
   onCounterChange,
-  onToggleSpecial,
   onClose,
   rotation = 0,
 }) {
@@ -623,22 +618,6 @@ function PlayerSettingsOverlay({
                 </div>
               )
             })}
-          </div>
-        </div>
-
-        <div className={styles.settingsSection}>
-          <div className={styles.settingsLabel}>Designations</div>
-          <div className={styles.settingsActions}>
-            <button
-              className={`${styles.settingsActionBtn} ${player.monarch ? styles.settingsActionBtnActive : ''}`}
-              onClick={() => onToggleSpecial?.(player.id, 'monarch')}>
-              {player.monarch ? '👑 Monarch' : 'Make Monarch'}
-            </button>
-            <button
-              className={`${styles.settingsActionBtn} ${player.initiative ? styles.settingsActionBtnActive : ''}`}
-              onClick={() => onToggleSpecial?.(player.id, 'initiative')}>
-              {player.initiative ? '⚔ Has Initiative' : 'Take Initiative'}
-            </button>
           </div>
         </div>
 
@@ -1944,10 +1923,8 @@ function PlayerPanel({
           <button className={`${styles.lifeBtn} ${styles.lifeBtnOuter}`} onPointerDown={e => { e.preventDefault(); adjust(+10) }}>+ 10</button>
         </div>
 
-        {(player.monarch || player.initiative || COUNTER_DEFS.some(c => (player.counters?.[c.key] ?? 0) > 0)) && (
+        {COUNTER_DEFS.some(c => (player.counters?.[c.key] ?? 0) > 0) && (
           <div className={styles.counterBadges}>
-            {player.monarch && <span className={styles.specialBadge} title="Monarch">👑</span>}
-            {player.initiative && <span className={styles.specialBadge} title="Initiative">⚔</span>}
             {COUNTER_DEFS.map(c => {
               const val = player.counters?.[c.key] ?? 0
               if (val <= 0) return null
@@ -2381,14 +2358,6 @@ export default function LifeTrackerPage() {
       return { ...p, counters: { ...p.counters, [key]: Math.max(0, cur + delta) } }
     }))
   }
-  // Monarch / Initiative are single-holder: assigning to one clears the rest.
-  const onToggleSpecial = (id, key) => {
-    setPlayers(ps => {
-      const target = ps.find(p => p.id === id)
-      const turningOn = !(target?.[key])
-      return ps.map(p => ({ ...p, [key]: turningOn ? p.id === id : false }))
-    })
-  }
 
   if (screen === 'setup') {
     return (
@@ -2537,7 +2506,6 @@ export default function LifeTrackerPage() {
           onRequestArtPicker={setArtPickerPlayer}
           onTogglePartner={onTogglePartner}
           onCounterChange={onCounterChange}
-          onToggleSpecial={onToggleSpecial}
           onClose={() => setPlayerSettingsPlayer(null)}
         />
       )}

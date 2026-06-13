@@ -2503,7 +2503,6 @@
 .counterValLethal { color: #e05252; }
 
 .counterBadges { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; margin-top: 6px; }
-.specialBadge { font-size: 0.95rem; line-height: 1; }
 .counterBadge {
   font-size: 0.62rem; font-weight: 700; letter-spacing: 0.03em;
   padding: 2px 7px; border-radius: 999px;
