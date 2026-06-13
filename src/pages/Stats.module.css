@@ -1514,3 +1514,54 @@
 .valueDeltaLabel { color: var(--text-faint); font-size: 0.66rem; }
 .valueHistoryEmpty { font-size: 0.78rem; color: var(--text-dim); padding: 14px 0 6px; line-height: 1.5; }
 
+
+/* ── Playgroup leaderboard (Win Rates tab) ──────────────────────────────── */
+.playgroupList { display: flex; flex-direction: column; gap: 6px; }
+.playgroupRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  background: var(--s1);
+  border: 1px solid var(--s-border);
+  border-radius: 6px;
+}
+.playgroupRank {
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  color: var(--text-faint);
+  min-width: 28px;
+}
+.playgroupDot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.playgroupName {
+  font-size: 0.84rem;
+  color: var(--text);
+  min-width: 90px;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.playgroupBarTrack {
+  flex: 1;
+  height: 6px;
+  background: var(--s3);
+  border-radius: 3px;
+  overflow: hidden;
+  min-width: 40px;
+}
+.playgroupBarFill { height: 100%; background: var(--gold); border-radius: 3px; }
+.playgroupRate {
+  font-family: var(--font-display);
+  font-size: 0.82rem;
+  color: var(--gold);
+  min-width: 38px;
+  text-align: right;
+}
+.playgroupWL {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  min-width: 64px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

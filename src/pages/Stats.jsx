@@ -6,6 +6,7 @@ import { getPrice, formatPrice, getScryfallKey, getPriceSource, getManualPrice }
 import { fetchCollectionCards, fetchSfMap, fetchFolders, isGroupFolder } from '../lib/collectionFetchers'
 import { recordCollectionValueSnapshot, fetchValueHistory, computeValueDelta } from '../lib/valueSnapshots'
 import { fetchSetCards, computeMissingCards, missingCostTotal, addMissingToWishlist } from '../lib/setCompletion'
+import { computePlaygroupLeaderboard, computeOwnerStreaks } from '../lib/playgroupStats'
 import { hydrateCollectionQueriesFromIdb } from '../lib/idbQueryBridge'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
@@ -1010,6 +1011,9 @@ function DeckWinratesSection({ rows, loading, deckMap }) {
   const totalWins     = qualifiedRows.filter(r => r.placement === 1).length
   const overallWinRate = totalGames > 0 ? (totalWins / totalGames) * 100 : 0
 
+  const leaderboard = useMemo(() => computePlaygroupLeaderboard(rows), [rows])
+  const streaks     = useMemo(() => computeOwnerStreaks(rows), [rows])
+
   if (loading) return (
     <div className={styles.chartBox}>
       <SLabel>Deck Win Rates</SLabel>
@@ -1017,7 +1021,7 @@ function DeckWinratesSection({ rows, loading, deckMap }) {
     </div>
   )
 
-  if (!deckStats.length) return (
+  if (!deckStats.length && !leaderboard.length) return (
     <div className={styles.chartBox}>
       <SLabel>Deck Win Rates</SLabel>
       <div className={styles.historyEmpty}>No game history yet. Play some games to see deck stats.</div>
@@ -1029,6 +1033,11 @@ function DeckWinratesSection({ rows, loading, deckMap }) {
       <div className={styles.statGrid} style={{ marginBottom: 16 }}>
         <StatCard label="Games Tracked" value={totalGames.toLocaleString()} sub={`${deckStats.length} deck${deckStats.length !== 1 ? 's' : ''}`} />
         <StatCard label="Overall Win Rate" value={`${overallWinRate.toFixed(0)}%`} sub={`${totalWins}W · ${totalGames - totalWins}L`} />
+        <StatCard
+          label="Win Streak"
+          value={streaks.current > 0 ? `${streaks.current}🔥` : '—'}
+          sub={streaks.longest > 0 ? `Best: ${streaks.longest} in a row` : 'No wins yet'}
+        />
         <StatCard label="Best Deck" value={deckStats[0]?.name || '—'} sub={deckStats[0] ? `${deckStats[0].winRate.toFixed(0)}% win rate` : ''} />
       </div>
 
@@ -1106,6 +1115,29 @@ function DeckWinratesSection({ rows, loading, deckMap }) {
           })}
         </div>
       </div>
+
+      {leaderboard.length >= 2 && (
+        <div className={styles.chartBox}>
+          <div className={styles.sectionHead}>
+            <SLabel>Playgroup Leaderboard</SLabel>
+            <span className={styles.sectionCount}>{leaderboard.length} players</span>
+          </div>
+          <div className={styles.playgroupList}>
+            {leaderboard.map((p, idx) => (
+              <div key={p.name} className={styles.playgroupRow}>
+                <span className={styles.playgroupRank}>#{idx + 1}</span>
+                <span className={styles.playgroupDot} style={{ background: p.color || 'var(--gold)' }} />
+                <span className={styles.playgroupName}>{p.name}</span>
+                <div className={styles.playgroupBarTrack}>
+                  <div className={styles.playgroupBarFill} style={{ width: `${Math.min(p.winRate, 100)}%` }} />
+                </div>
+                <span className={styles.playgroupRate}>{p.winRate.toFixed(0)}%</span>
+                <span className={styles.playgroupWL}>{p.wins}W · {p.games - p.wins}L</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </>
   )
 }
