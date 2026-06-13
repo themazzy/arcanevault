@@ -206,7 +206,14 @@ async function overlaySharedCardPricesInner(cards, baseMap = {}, { priceLookup =
   }
 
   const pricedKeys = new Set(rows.map(getRowKey).filter(Boolean))
+  // The set-code fallback (whole-set IDB reads + network fetches) only helps
+  // LEGACY price rows that lack a scryfall_id. Every modern price row carries
+  // one, so if the id lookup above found no price, a set lookup reads the same
+  // rows and finds nothing either. Restrict the fallback to cards with no
+  // scryfall_id — typically zero — so we don't burn ~1s/load re-pricing the
+  // handful of genuinely unpriced cards (tokens/promos) on every visit.
   const fallbackCards = cards.filter(card => {
+    if (getScryfallId(card)) return false
     const key = getCardKey(card)
     return key && !pricedKeys.has(key)
   })
