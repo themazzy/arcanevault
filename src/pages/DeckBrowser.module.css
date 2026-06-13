@@ -780,8 +780,8 @@
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
   scrollbar-color: rgba(201,168,76,0.22) transparent;
-  --stack-col-w: 130px;
-  --stack-overlap: 0.75;
+  --stack-col-w: 200px;
+  --stack-overlap: 0.84;
 }
 .stacksWrap::-webkit-scrollbar { height: 4px; }
 .stacksWrap::-webkit-scrollbar-track { background: transparent; }
@@ -923,7 +923,7 @@
 
 @media (max-width: 640px) {
   .stacksWrap {
-    --stack-col-w: 108px;
+    --stack-col-w: 132px;
     gap: 10px;
   }
 }

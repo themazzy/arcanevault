@@ -814,7 +814,7 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onT
 }
 
 const DENSITY_MIN_WIDTH = { cozy: 210, comfortable: 160, compact: 128 }
-const STACK_WIDTH_BY_DENSITY = { cozy: 190, comfortable: 160, compact: 140 }
+const STACK_WIDTH_BY_DENSITY = { cozy: 240, comfortable: 200, compact: 170 }
 const MOBILE_GRID_BREAKPOINT = 430
 const MOBILE_DENSITY_COLS = { cozy: 1, comfortable: 2, compact: 3 }
 
