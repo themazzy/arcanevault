@@ -7,6 +7,7 @@ import { useSettings } from './SettingsContext'
 import { getPrice, formatPrice, getPriceSource, sfGet } from '../lib/scryfall'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
 import { toOwnedCardRow, toListItemRow, mergeNonNull } from '../lib/deckBuilderWrites'
+import { removeAcquiredFromWishlists } from '../lib/wishlistSync'
 import styles from './AddCardModal.module.css'
 import uiStyles from './UI.module.css'
 
@@ -515,6 +516,19 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
           [...cardByKey.values()].find(c => c.card_print_id === row.card_print_id && !!c.foil === !!row.foil)
         return mergeNonNull(input, row)
       })
+
+      // Auto-remove fulfilled wants from wishlists (exact print + foil).
+      // Best-effort and non-blocking — the save already succeeded.
+      const acquired = aggregated
+        .map(c => ({ card_print_id: c.card_print_id, foil: !!c.foil }))
+        .filter(a => a.card_print_id)
+      if (acquired.length) {
+        removeAcquiredFromWishlists(userId, acquired)
+          .then(({ removedIds }) => {
+            if (removedIds.length) window.dispatchEvent(new CustomEvent('av:wishlist-updated'))
+          })
+          .catch(err => console.warn('[wishlist] auto-remove failed:', err?.message || err))
+      }
 
       const folderTarget = folderMode ? selectedFolder : (destTab !== 'collection' ? selectedFolder : null)
       if (folderTarget) {

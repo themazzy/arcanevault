@@ -1015,6 +1015,13 @@ export default function ListsPage() {
 
   useEffect(() => { loadFolders() }, [loadFolders])
 
+  // Refresh when a card acquired elsewhere auto-removes a wishlist item.
+  useEffect(() => {
+    const onWishlistUpdated = () => loadFolders()
+    window.addEventListener('av:wishlist-updated', onWishlistUpdated)
+    return () => window.removeEventListener('av:wishlist-updated', onWishlistUpdated)
+  }, [loadFolders])
+
   const invalidateListIndexCaches = useCallback((options = {}) => (
     invalidateWishlistQueries(queryClient, user?.id, { includeFolders: true, ...options }).catch(() => {})
   ), [user?.id])

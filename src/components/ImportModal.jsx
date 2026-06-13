@@ -11,6 +11,7 @@ import {
 } from '../lib/importFlow'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
 import { toOwnedCardRow, toListItemRow, toDeckCardRow, mergeNonNull } from '../lib/deckBuilderWrites'
+import { removeAcquiredFromWishlists } from '../lib/wishlistSync'
 import { putCards, putDeckAllocations, putFolderCards, putFolders } from '../lib/db'
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon } from '../icons'
 import styles from './ImportModal.module.css'
@@ -482,6 +483,7 @@ export default function ImportModal({
     const errs = []
     let importedCopies = 0
     let importedRows = 0
+    const acquiredForWishlist = [] // {card_print_id, foil} of owned cards imported
 
     try {
       setProgressPhase(resolvedRows.length ? 'Preparing matched cards' : 'Parsing data')
@@ -602,6 +604,7 @@ export default function ImportModal({
             }
           )
           const hydratedRows = cardRows.map(row => withCardPrint(row, getCardPrint(printByScryfallId, row)))
+          for (const r of hydratedRows) if (r.card_print_id) acquiredForWishlist.push({ card_print_id: r.card_print_id, foil: !!r.foil })
           beginImportProgress('Saving owned cards', hydratedRows.length)
           const upserted = await additiveUpsertInBatches(
             'cards',
@@ -734,6 +737,7 @@ export default function ImportModal({
             trackImportBatch('Saving print data'),
           )
           const hydratedRows = cardRows.map(row => withCardPrint(row, getCardPrint(printByScryfallId, row)))
+          for (const r of hydratedRows) if (r.card_print_id) acquiredForWishlist.push({ card_print_id: r.card_print_id, foil: !!r.foil })
           beginImportProgress('Saving owned cards', hydratedRows.length)
           const upserted = await additiveUpsertInBatches(
             'cards',
@@ -784,6 +788,15 @@ export default function ImportModal({
       }
     } catch (e) {
       errs.push(`Import error: ${e.message}`)
+    }
+
+    // Auto-remove fulfilled wants from wishlists (exact print + foil).
+    if (acquiredForWishlist.length) {
+      removeAcquiredFromWishlists(userId, acquiredForWishlist)
+        .then(({ removedIds }) => {
+          if (removedIds.length) window.dispatchEvent(new CustomEvent('av:wishlist-updated'))
+        })
+        .catch(err => console.warn('[wishlist] auto-remove failed:', err?.message || err))
     }
 
     setMissed(errs)
