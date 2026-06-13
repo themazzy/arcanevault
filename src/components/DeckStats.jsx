@@ -3,6 +3,7 @@ import { sfGet, getPrice, formatPrice } from '../lib/scryfall'
 import { CAT_ORDER, CAT_COLORS, getCardCategory } from '../lib/cardCategory'
 import BracketBadge from './BracketBadge'
 import { analyzeBracket, fetchGameChangerNames } from '../lib/commanderBracket'
+import { CloseIcon } from '../icons'
 import styles from './DeckStats.module.css'
 
 // Re-export so existing consumers that import from DeckStats keep working.
@@ -603,51 +604,26 @@ function cardsWithCreatureType(cards, type) {
 // Generic pill cloud with an on-hover/tap card-image popover. Used for both
 // the keyword and creature-type breakdowns.
 function PillFrequency({ label, counts, cards, getMatchingCards }) {
-  // Detect touch-only devices (no pointer hover capability)
-  const isTouch = useMemo(() => typeof window !== 'undefined' && window.matchMedia('(hover: none)').matches, [])
+  // Click a pill to open a centered preview of the matching cards (replaces
+  // the old hover popover — works the same on touch and desktop).
+  const [openValue, setOpenValue] = useState(null)
 
-  // popover: { value, top, left, alignRight } | null
-  const [popover, setPopover] = useState(null)
-  const closeTimer = useRef(null)
-
-  const openPopover = (value, e) => {
-    clearTimeout(closeTimer.current)
-    const rect = e.currentTarget.getBoundingClientRect()
-    const viewW = window.innerWidth
-    const left = rect.left
-    const alignRight = left + 300 > viewW
-    setPopover({ value, top: rect.bottom + 6, left: alignRight ? rect.right : rect.left, alignRight })
-  }
-
-  const scheduleClose = () => {
-    closeTimer.current = setTimeout(() => setPopover(null), 120)
-  }
-
-  // Close on scroll / resize
-  useEffect(() => {
-    const close = () => setPopover(null)
-    window.addEventListener('scroll', close, true)
-    window.addEventListener('resize', close)
-    return () => {
-      window.removeEventListener('scroll', close, true)
-      window.removeEventListener('resize', close)
-      clearTimeout(closeTimer.current)
-    }
-  }, [])
-
-  const popoverCards = useMemo(
-    () => popover ? getMatchingCards(cards, popover.value) : [],
-    [popover?.value, cards, getMatchingCards]
+  const previewCards = useMemo(
+    () => openValue ? getMatchingCards(cards, openValue) : [],
+    [openValue, cards, getMatchingCards]
   )
+
+  // Close on Escape.
+  useEffect(() => {
+    if (!openValue) return
+    const onKey = e => { if (e.key === 'Escape') setOpenValue(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [openValue])
 
   if (!counts.length) return null
 
-  const pillHandlers = isTouch
-    ? (value) => ({ onClick: (e) => { popover?.value === value ? setPopover(null) : openPopover(value, e) } })
-    : (value) => ({
-        onMouseEnter: (e) => openPopover(value, e),
-        onMouseLeave: scheduleClose,
-      })
+  const totalCopies = previewCards.reduce((s, c) => s + (c.qty || 1), 0)
 
   return (
     <div className={styles.panel} style={{ padding: '14px 14px 12px' }}>
@@ -655,66 +631,40 @@ function PillFrequency({ label, counts, cards, getMatchingCards }) {
         {label}
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px 6px' }}>
-        {counts.map(([value, count]) => {
-          const active = popover?.value === value
-          return (
-            <button key={value} {...pillHandlers(value)} style={{
-              background: active ? 'rgba(201,168,76,0.15)' : 'var(--s3)',
-              border: `1px solid ${active ? 'rgba(201,168,76,0.45)' : 'var(--s-border2)'}`,
-              borderRadius: 4, padding: '3px 9px', fontSize: '0.72rem',
-              color: active ? 'var(--gold)' : 'var(--text-dim)',
-              display: 'flex', alignItems: 'center', gap: 5,
-              cursor: 'pointer', transition: 'all 0.12s',
-            }}>
-              {value}
-              <span style={{ fontFamily: 'var(--font-display)', fontSize: '0.68rem', opacity: 0.7 }}>×{count}</span>
-            </button>
-          )
-        })}
+        {counts.map(([value, count]) => (
+          <button
+            key={value}
+            className={styles.freqPill}
+            onClick={() => setOpenValue(v => v === value ? null : value)}
+          >
+            {value}
+            <span className={styles.freqPillCount}>×{count}</span>
+          </button>
+        ))}
       </div>
 
-      {/* Fixed-position popover with card images */}
-      {popover && popoverCards.length > 0 && (
-        <div
-          onMouseEnter={() => !isTouch && clearTimeout(closeTimer.current)}
-          onMouseLeave={() => !isTouch && scheduleClose()}
-          style={{
-            position: 'fixed',
-            top: popover.top,
-            ...(popover.alignRight ? { right: window.innerWidth - popover.left } : { left: popover.left }),
-            zIndex: 9999,
-            background: 'var(--bg2)',
-            border: '1px solid var(--border-hi)',
-            borderRadius: 7,
-            padding: 10,
-            boxShadow: '0 8px 32px rgba(0,0,0,0.55)',
-            display: 'flex', flexDirection: 'column', gap: 8,
-            maxWidth: 'min(340px, 92vw)',
-          }}
-        >
-          <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text-faint)', fontFamily: 'var(--font-display)' }}>
-            {popoverCards.reduce((s, c) => s + (c.qty || 1), 0)} card{popoverCards.reduce((s, c) => s + (c.qty || 1), 0) !== 1 ? 's' : ''} with {popover.value}
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {popoverCards.slice(0, 9).map((c, i) => (
-              <div key={i} style={{ position: 'relative', flexShrink: 0 }}>
-                {c.image_uri
-                  ? <img src={c.image_uri} alt={c.name} title={c.name}
-                      style={{ width: 64, height: 90, borderRadius: 4, objectFit: 'cover', display: 'block', border: '1px solid var(--s-border)' }} />
-                  : <div style={{ width: 64, height: 90, borderRadius: 4, background: 'var(--s2)', border: '1px solid var(--s-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 4 }}>
-                      <span style={{ fontSize: '0.58rem', color: 'var(--text-faint)', textAlign: 'center', lineHeight: 1.3 }}>{c.name}</span>
-                    </div>
-                }
-                {c.qty > 1 && (
-                  <span style={{ position: 'absolute', bottom: 3, right: 3, background: 'rgba(0,0,0,0.75)', color: '#fff', fontSize: '0.62rem', borderRadius: 3, padding: '1px 4px', fontFamily: 'var(--font-display)' }}>×{c.qty}</span>
-                )}
-              </div>
-            ))}
-            {popoverCards.length > 9 && (
-              <div style={{ width: 64, height: 90, borderRadius: 4, background: 'var(--s2)', border: '1px solid var(--s-border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <span style={{ fontSize: '0.72rem', color: 'var(--text-faint)', fontFamily: 'var(--font-display)' }}>+{popoverCards.length - 9}</span>
-              </div>
-            )}
+      {openValue && previewCards.length > 0 && (
+        <div className={styles.previewOverlay} onClick={() => setOpenValue(null)}>
+          <div className={styles.previewPanel} onClick={e => e.stopPropagation()}>
+            <div className={styles.previewHead}>
+              <span className={styles.previewTitle}>
+                {totalCopies} card{totalCopies !== 1 ? 's' : ''} with {openValue}
+              </span>
+              <button className={styles.previewClose} onClick={() => setOpenValue(null)} aria-label="Close">
+                <CloseIcon size={15} />
+              </button>
+            </div>
+            <div className={styles.previewGrid}>
+              {previewCards.map((c, i) => (
+                <div key={i} className={styles.previewCard}>
+                  {c.image_uri
+                    ? <img className={styles.previewImg} src={c.image_uri} alt={c.name} title={c.name} loading="lazy" />
+                    : <div className={styles.previewImgFallback}>{c.name}</div>
+                  }
+                  {c.qty > 1 && <span className={styles.previewQty}>×{c.qty}</span>}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
