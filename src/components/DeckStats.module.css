@@ -1,0 +1,19 @@
+/* Shared classes for the recurring static styling in DeckStats.jsx. Genuinely
+   data-driven styles (computed bar widths, per-color backgrounds, flex values
+   from counts) intentionally remain inline. Surface vars replace the old
+   hardcoded rgba(255,255,255,…) values, which were invisible on light themes. */
+
+.panel {
+  background: var(--s-subtle);
+  border: 1px solid var(--s-border);
+  border-radius: 5px;
+  min-width: 0;
+}
+
+.panelTitle {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+  font-family: var(--font-display);
+}

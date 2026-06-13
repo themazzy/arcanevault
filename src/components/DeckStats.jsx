@@ -3,6 +3,7 @@ import { sfGet, getPrice, formatPrice } from '../lib/scryfall'
 import { CAT_ORDER, CAT_COLORS, getCardCategory } from '../lib/cardCategory'
 import BracketBadge from './BracketBadge'
 import { analyzeBracket, fetchGameChangerNames } from '../lib/commanderBracket'
+import styles from './DeckStats.module.css'
 
 // Re-export so existing consumers that import from DeckStats keep working.
 export { CAT_ORDER, CAT_COLORS, getCardCategory }
@@ -402,10 +403,10 @@ function ManaCurveChart({ curve, avgCmc, curveMode, curveSegData, onModeChange }
   }
 
   return (
-    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 5, padding: '14px 14px 10px', minWidth: 0 }}>
+    <div className={styles.panel} style={{ padding: '14px 14px 10px', minWidth: 0 }}>
       {/* Title row */}
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-faint)', fontFamily: 'var(--font-display)' }}>
+        <span className={styles.panelTitle}>
           Mana Curve
         </span>
         {avgCmc && (
@@ -419,7 +420,7 @@ function ManaCurveChart({ curve, avgCmc, curveMode, curveSegData, onModeChange }
             <button key={m}
               style={{
                 background: curveMode === m ? 'rgba(201,168,76,0.12)' : 'none',
-                border: `1px solid ${curveMode === m ? 'rgba(201,168,76,0.35)' : 'rgba(255,255,255,0.1)'}`,
+                border: `1px solid ${curveMode === m ? 'rgba(201,168,76,0.35)' : 'var(--s-border2)'}`,
                 borderRadius: 3, padding: '2px 7px', fontSize: '0.6rem',
                 color: curveMode === m ? 'var(--gold)' : 'var(--text-faint)',
                 cursor: 'pointer', fontFamily: 'var(--font-display)', letterSpacing: '0.04em',
@@ -499,7 +500,7 @@ function ManaCurveChart({ curve, avgCmc, curveMode, curveSegData, onModeChange }
 
       {/* Legend */}
       {legendKeys.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 10px', marginTop: 8, paddingTop: 6, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 10px', marginTop: 8, paddingTop: 6, borderTop: '1px solid var(--s-medium)' }}>
           {legendKeys.map(k => (
             <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.59rem', color: 'var(--text-faint)' }}>
               <div style={{ width: 8, height: 8, borderRadius: 2, background: CURVE_SEG_COLOR[k], flexShrink: 0 }} />
@@ -520,9 +521,9 @@ function TypeBreakdown({ typeCounts }) {
   const maxVal = Math.max(1, ...entries.map(([, v]) => v))
 
   return (
-    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 5, padding: '14px 14px 10px' }}>
+    <div className={styles.panel} style={{ padding: '14px 14px 10px' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 12 }}>
-        <span style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-faint)', fontFamily: 'var(--font-display)' }}>
+        <span className={styles.panelTitle}>
           Card Types
         </span>
       </div>
@@ -533,7 +534,7 @@ function TypeBreakdown({ typeCounts }) {
               <TypeIcon type={type} size={13} style={{ verticalAlign: 'middle' }} />
               {' '}{type}
             </div>
-            <div style={{ flex: 1, height: 7, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
+            <div style={{ flex: 1, height: 7, background: 'var(--s-medium)', borderRadius: 3, overflow: 'hidden' }}>
               <div style={{ height: '100%', width: `${(count / maxVal) * 100}%`, background: 'rgba(201,168,76,0.5)', borderRadius: 3, transition: 'width 0.4s ease', minWidth: 2 }} />
             </div>
             <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', width: 22, textAlign: 'right', flexShrink: 0 }}>{count}</div>
@@ -545,7 +546,7 @@ function TypeBreakdown({ typeCounts }) {
               <TypeIcon type="Lands" size={13} style={{ verticalAlign: 'middle' }} />
               {' '}Lands
             </div>
-            <div style={{ flex: 1, height: 7, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
+            <div style={{ flex: 1, height: 7, background: 'var(--s-medium)', borderRadius: 3, overflow: 'hidden' }}>
               <div style={{ height: '100%', width: `${(landCount / Math.max(maxVal, landCount)) * 100}%`, background: 'var(--text-faint)', borderRadius: 3, transition: 'width 0.4s ease', minWidth: 2 }} />
             </div>
             <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', width: 22, textAlign: 'right', flexShrink: 0 }}>{landCount}</div>
@@ -564,8 +565,8 @@ function CategoryBreakdown({ catCounts }) {
   const maxVal = Math.max(1, ...entries.map(e => e.count))
 
   return (
-    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 5, padding: '14px 14px 10px' }}>
-      <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-faint)', fontFamily: 'var(--font-display)', marginBottom: 12 }}>
+    <div className={styles.panel} style={{ padding: '14px 14px 10px' }}>
+      <div className={styles.panelTitle} style={{ marginBottom: 12 }}>
         Role Breakdown
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
@@ -574,7 +575,7 @@ function CategoryBreakdown({ catCounts }) {
             <div style={{ flex: '0 1 clamp(72px, 30vw, 100px)', fontSize: '0.72rem', color: CAT_COLORS[cat] || 'var(--text-dim)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {cat}
             </div>
-            <div style={{ flex: 1, height: 7, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
+            <div style={{ flex: 1, height: 7, background: 'var(--s-medium)', borderRadius: 3, overflow: 'hidden' }}>
               <div style={{ height: '100%', width: `${(count / maxVal) * 100}%`, background: CAT_COLORS[cat] || 'rgba(201,168,76,0.5)', opacity: 0.7, borderRadius: 3, transition: 'width 0.4s ease', minWidth: 2 }} />
             </div>
             <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', width: 22, textAlign: 'right', flexShrink: 0 }}>{count}</div>
@@ -649,8 +650,8 @@ function PillFrequency({ label, counts, cards, getMatchingCards }) {
       })
 
   return (
-    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 5, padding: '14px 14px 12px' }}>
-      <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-faint)', fontFamily: 'var(--font-display)', marginBottom: 10 }}>
+    <div className={styles.panel} style={{ padding: '14px 14px 12px' }}>
+      <div className={styles.panelTitle} style={{ marginBottom: 10 }}>
         {label}
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px 6px' }}>
@@ -732,18 +733,18 @@ function PriceBreakdown({ totalPrice, avgPrice, priceByCategory, topCards, price
   const maxCatPrice = Math.max(1, ...catEntries.map(e => e.total))
 
   return (
-    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 5, padding: '14px 14px 12px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-faint)', fontFamily: 'var(--font-display)' }}>
+    <div className={styles.panel} style={{ padding: '14px 14px 12px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div className={styles.panelTitle}>
         Price
       </div>
 
       {/* Summary pills */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 14px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <div style={{ background: 'var(--s-medium)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 14px', display: 'flex', flexDirection: 'column', gap: 2 }}>
           <span style={{ fontSize: '0.64rem', color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Total</span>
           <span style={{ fontFamily: 'var(--font-display)', fontSize: '0.95rem', color: 'var(--green)' }}>{formatPrice(totalPrice, price_source)}</span>
         </div>
-        <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 14px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <div style={{ background: 'var(--s-medium)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 14px', display: 'flex', flexDirection: 'column', gap: 2 }}>
           <span style={{ fontSize: '0.64rem', color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Avg / card</span>
           <span style={{ fontFamily: 'var(--font-display)', fontSize: '0.95rem', color: 'var(--text)' }}>{formatPrice(avgPrice, price_source)}</span>
         </div>
@@ -757,7 +758,7 @@ function PriceBreakdown({ totalPrice, avgPrice, priceByCategory, topCards, price
               <div style={{ flex: '0 1 clamp(72px, 30vw, 100px)', fontSize: '0.72rem', color: CAT_COLORS[cat] || 'var(--text-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {cat}
               </div>
-              <div style={{ flex: 1, height: 7, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
+              <div style={{ flex: 1, height: 7, background: 'var(--s-medium)', borderRadius: 3, overflow: 'hidden' }}>
                 <div style={{ height: '100%', width: `${(total / maxCatPrice) * 100}%`, background: CAT_COLORS[cat] || 'rgba(201,168,76,0.5)', opacity: 0.7, borderRadius: 3, transition: 'width 0.4s ease', minWidth: 2 }} />
               </div>
               <div style={{ fontSize: '0.72rem', color: 'var(--green)', width: 46, textAlign: 'right', flexShrink: 0 }}>{formatPrice(total, price_source)}</div>
@@ -790,8 +791,8 @@ function PriceBreakdown({ totalPrice, avgPrice, priceByCategory, topCards, price
 function TokensExtras({ allItems, tokenImages }) {
   if (!allItems.length) return null
   return (
-    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 5, padding: '14px 14px 12px' }}>
-      <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-faint)', fontFamily: 'var(--font-display)', marginBottom: 10 }}>
+    <div className={styles.panel} style={{ padding: '14px 14px 12px' }}>
+      <div className={styles.panelTitle} style={{ marginBottom: 10 }}>
         Tokens &amp; Extras
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -999,7 +1000,7 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride, p
 
   return (
     <div style={{
-      background: 'rgba(255,255,255,0.025)',
+      background: 'var(--s-subtle)',
       border: '1px solid var(--border)',
       borderRadius: 6,
       padding: '18px 20px',
@@ -1022,15 +1023,15 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride, p
             combos={combos}
           />
         )}
-        <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 14px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <div style={{ background: 'var(--s-medium)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 14px', display: 'flex', flexDirection: 'column', gap: 2 }}>
           <span style={{ fontSize: '0.64rem', color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Avg CMC</span>
           <span style={{ fontFamily: 'var(--font-display)', fontSize: '0.95rem', color: 'var(--text)' }}>{avgCmc}</span>
         </div>
-        <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 14px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <div style={{ background: 'var(--s-medium)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 14px', display: 'flex', flexDirection: 'column', gap: 2 }}>
           <span style={{ fontSize: '0.64rem', color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Non-Land</span>
           <span style={{ fontFamily: 'var(--font-display)', fontSize: '0.95rem', color: 'var(--text)' }}>{nonLandCount}</span>
         </div>
-        <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 14px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <div style={{ background: 'var(--s-medium)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 14px', display: 'flex', flexDirection: 'column', gap: 2 }}>
           <span style={{ fontSize: '0.64rem', color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Lands</span>
           <span style={{ fontFamily: 'var(--font-display)', fontSize: '0.95rem', color: 'var(--text)' }}>{typeCounts['Lands'] || 0}</span>
         </div>
