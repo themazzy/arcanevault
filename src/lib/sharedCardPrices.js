@@ -4,7 +4,7 @@ import {
   getLocalCardPriceRowsBySetCodes,
   putCardPriceRows,
 } from './db'
-import { enrichCards, getInstantCache } from './scryfall'
+import { enrichCards, getInstantCache, consumePrefetchedPriceRows } from './scryfall'
 import { perfSpan } from './perf'
 
 const ID_CHUNK_SIZE = 400
@@ -69,7 +69,11 @@ function getScryfallId(card) {
 async function fetchSharedPriceRowsByIds(ids, snapshotDates, now) {
   const datesKey = snapshotDates.join('|')
   const rows = []
-  const localRows = await getLocalCardPriceRowsByIds(ids, snapshotDates)
+  // Prefer rows the hydrate worker already read off-thread this page load;
+  // they cover all of today's+yesterday's rows, so the per-id logic below
+  // works the same. Falls back to a main-thread IDB read when absent.
+  const localRows = consumePrefetchedPriceRows(snapshotDates)
+    || await getLocalCardPriceRowsByIds(ids, snapshotDates)
   const localByIdDate = new Map(localRows.map(row => [`${row.scryfall_id}|${row.snapshot_date}`, row]))
   const idsNeedingFetch = new Set()
 

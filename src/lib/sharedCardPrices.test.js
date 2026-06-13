@@ -9,6 +9,7 @@ vi.mock('./db', () => ({
 vi.mock('./scryfall', () => ({
   enrichCards: vi.fn(),
   getInstantCache: vi.fn(),
+  consumePrefetchedPriceRows: vi.fn(() => null),
 }))
 
 import { runWithConcurrency } from './sharedCardPrices'

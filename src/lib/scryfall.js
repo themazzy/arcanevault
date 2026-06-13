@@ -189,6 +189,28 @@ export function getMemoryMap() {
   return _sfMap
 }
 
+// ── Worker-prefetched price rows (Phase 2e) ───────────────────────────────────
+// The hydrate worker reads today's+yesterday's card_prices rows off-thread.
+// Consumed once by the first price overlay, then cleared so later overlays
+// (after price writes) read fresh from IDB.
+let _prefetchedPriceRows = null
+
+function stashPrefetchedPriceRows(rows, dates) {
+  _prefetchedPriceRows = { rows, dates, at: Date.now() }
+}
+
+// Returns the prefetched rows if they cover exactly `snapshotDates` and are
+// recent (the worker ran this page load), else null. Single-use.
+export function consumePrefetchedPriceRows(snapshotDates) {
+  const p = _prefetchedPriceRows
+  if (!p) return null
+  _prefetchedPriceRows = null
+  if (Date.now() - p.at > 30000) return null
+  const want = [...snapshotDates].sort().join('|')
+  const have = [...(p.dates || [])].sort().join('|')
+  return want === have ? p.rows : null
+}
+
 // ── Async cache loader ────────────────────────────────────────────────────────
 // Load all entries from IDB into memory. Returns map or null if empty.
 // Off-main-thread hydration (Phase 2b). Resolves null when workers are
@@ -224,6 +246,11 @@ export async function loadCacheFromIDB(cacheTtlMs = DEFAULT_TTL_MS) {
     const expired = !updatedAt || (Date.now() - updatedAt > cacheTtlMs)
     console.log(`[SF IDB] loaded ${viaWorker.count} cards (worker) — metadata ${expired ? 'EXPIRED' : 'fresh'}`)
     _sfMap = viaWorker.map
+    // The worker also pre-read today's+yesterday's price rows off-thread; stash
+    // them so the next price overlay skips its own main-thread IDB read.
+    if (viaWorker.priceRows) {
+      stashPrefetchedPriceRows(viaWorker.priceRows, viaWorker.priceDates)
+    }
     endHydrate()
     return { map: _sfMap, pricesExpired: expired }
   }
