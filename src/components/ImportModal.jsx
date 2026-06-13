@@ -11,7 +11,7 @@ import {
 } from '../lib/importFlow'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
 import { toOwnedCardRow, toListItemRow, toDeckCardRow, mergeNonNull } from '../lib/deckBuilderWrites'
-import { removeAcquiredFromWishlists } from '../lib/wishlistSync'
+import { removeAcquiredFromWishlists, findOwnedCardNames } from '../lib/wishlistSync'
 import { putCards, putDeckAllocations, putFolderCards, putFolders } from '../lib/db'
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon } from '../icons'
 import styles from './ImportModal.module.css'
@@ -205,6 +205,7 @@ export default function ImportModal({
   const [progressPhase, setProgressPhase] = useState('')
   const [missed, setMissed] = useState([])
   const [imported, setImported] = useState(0)
+  const [skippedOwnedCount, setSkippedOwnedCount] = useState(0)
   const [editingIndex, setEditingIndex] = useState(null)
   const [editPrintings, setEditPrintings] = useState([])
   const [editPrintingsLoading, setEditPrintingsLoading] = useState(false)
@@ -484,6 +485,22 @@ export default function ImportModal({
     let importedCopies = 0
     let importedRows = 0
     const acquiredForWishlist = [] // {card_print_id, foil} of owned cards imported
+    let skippedOwned = 0           // wishlist rows skipped because already owned
+
+    // "Add only if not owned": drop wishlist rows whose card (by name, any
+    // printing) is already in the collection. Returns the rows to keep.
+    const dropOwnedWishlistRows = async (rows) => {
+      if (!rows.length) return rows
+      try {
+        const owned = await findOwnedCardNames(userId, rows.map(r => r.name))
+        if (!owned.size) return rows
+        const keep = rows.filter(r => !owned.has(String(r.name || '').toLowerCase()))
+        skippedOwned += rows.length - keep.length
+        return keep
+      } catch {
+        return rows // ownership lookup failed — don't block the import
+      }
+    }
 
     try {
       setProgressPhase(resolvedRows.length ? 'Preparing matched cards' : 'Parsing data')
@@ -574,18 +591,19 @@ export default function ImportModal({
               }
             }
           )
-          if (items.length) {
-            beginImportProgress('Saving wishlist items', items.length)
+          const keepItems = await dropOwnedWishlistRows(items)
+          if (keepItems.length) {
+            beginImportProgress('Saving wishlist items', keepItems.length)
             await additiveUpsertInBatches(
               'list_items',
-              items,
+              keepItems,
               ['folder_id', 'card_print_id', 'foil'],
               { onConflict: 'folder_id,card_print_id,foil' },
               '*',
               trackImportBatch('Saving wishlist items')
             )
-            importedRows += items.length
-            importedCopies += items.reduce((sum, item) => sum + item.qty, 0)
+            importedRows += keepItems.length
+            importedCopies += keepItems.reduce((sum, item) => sum + item.qty, 0)
           }
         }
 
@@ -700,21 +718,24 @@ export default function ImportModal({
             matchedRows.map(row => row.sfCard),
             trackImportBatch('Saving print data'),
           )
-          const hydratedItems = items.map(item => ({
+          const keepItems = await dropOwnedWishlistRows(items)
+          const hydratedItems = keepItems.map(item => ({
             ...item,
             card_print_id: getCardPrint(printByScryfallId, item)?.id || null,
           }))
           beginImportProgress('Saving wishlist items', hydratedItems.length)
-          await additiveUpsertInBatches(
-            'list_items',
-            hydratedItems,
-            ['folder_id', 'card_print_id', 'foil'],
-            { onConflict: 'folder_id,card_print_id,foil' },
-            '*',
-            trackImportBatch('Saving wishlist items')
-          )
-          importedRows = items.length
-          importedCopies = items.reduce((sum, item) => sum + item.qty, 0)
+          if (hydratedItems.length) {
+            await additiveUpsertInBatches(
+              'list_items',
+              hydratedItems,
+              ['folder_id', 'card_print_id', 'foil'],
+              { onConflict: 'folder_id,card_print_id,foil' },
+              '*',
+              trackImportBatch('Saving wishlist items')
+            )
+          }
+          importedRows = keepItems.length
+          importedCopies = keepItems.reduce((sum, item) => sum + item.qty, 0)
         }
       } else {
         const cardRows = aggregateResolvedRows(
@@ -801,6 +822,7 @@ export default function ImportModal({
 
     setMissed(errs)
     setImported(importedCopies || importedRows)
+    setSkippedOwnedCount(skippedOwned)
     setStep('done')
   }, [folderId, parsed, resolvedRows, activeFolderType, selectedDestinationType, userId, hasSourceFolders, sourceFolders, beginImportProgress, trackImportBatch])
 
@@ -1135,6 +1157,11 @@ export default function ImportModal({
                 : <span style={{ color: 'var(--text-dim)' }}>No cards were imported.</span>
               }
             </p>
+            {skippedOwnedCount > 0 && (
+              <p className={styles.hint}>
+                Skipped {skippedOwnedCount} card{skippedOwnedCount === 1 ? '' : 's'} already in your collection.
+              </p>
+            )}
             {missed.length > 0 && (
               <>
                 <p className={styles.hint}>{missed.length} issue{missed.length > 1 ? 's' : ''} found during import:</p>
