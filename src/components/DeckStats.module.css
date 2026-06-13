@@ -132,3 +132,45 @@
   border-radius: 4px;
   padding: 1px 6px;
 }
+
+/* ── Draw probabilities ─────────────────────────────────────────────────── */
+.probOpening {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  font-size: 0.8rem;
+}
+.probOpeningLabel {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-faint);
+}
+.probOpeningVal { color: var(--text); }
+
+.probCalcRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.probCalcText { font-size: 0.8rem; color: var(--text-dim); }
+.probSelect { min-width: 150px; }
+.probInput {
+  width: 56px;
+  padding: 6px 8px;
+  background: var(--s3);
+  border: 1px solid var(--s-border2);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 0.8rem;
+  text-align: center;
+}
+.probResult {
+  margin-top: 8px;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+.probResult strong { color: var(--gold); font-family: var(--font-display); font-size: 0.95rem; }
+.probResultSep { color: var(--text-faint); }

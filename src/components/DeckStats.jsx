@@ -4,6 +4,8 @@ import { CAT_ORDER, CAT_COLORS, getCardCategory } from '../lib/cardCategory'
 import BracketBadge from './BracketBadge'
 import { analyzeBracket, fetchGameChangerNames } from '../lib/commanderBracket'
 import { CloseIcon } from '../icons'
+import { Select } from './UI'
+import { hypergeomAtLeast, expectedCount, openingHandLands } from '../lib/deckProbability'
 import styles from './DeckStats.module.css'
 
 // Re-export so existing consumers that import from DeckStats keep working.
@@ -672,6 +674,88 @@ function PillFrequency({ label, counts, cards, getMatchingCards }) {
   )
 }
 
+function pct(p) {
+  if (p >= 0.995) return '>99%'
+  if (p > 0 && p < 0.01) return '<1%'
+  return `${Math.round(p * 100)}%`
+}
+
+// Hypergeometric draw odds: opening-hand land summary + a "chance to draw"
+// calculator over the deck's types / categories / creature types.
+function ProbabilitySection({ deckSize, landCount, catCounts, typeCounts, creatureTypeCounts }) {
+  const groups = useMemo(() => {
+    const typeItems = Object.entries(typeCounts)
+      .filter(([, v]) => v > 0)
+      .map(([t, v]) => ({ value: `type:${t}`, label: t, K: v }))
+    const catItems = Object.entries(catCounts)
+      .filter(([, v]) => v > 0)
+      .map(([t, v]) => ({ value: `cat:${t}`, label: t, K: v }))
+    const subItems = (creatureTypeCounts || [])
+      .map(([t, v]) => ({ value: `sub:${t}`, label: t, K: v }))
+    return [
+      { label: null, items: [{ value: 'lands', label: 'Lands', K: landCount }] },
+      { label: 'Card Types', items: typeItems },
+      { label: 'Categories', items: catItems },
+      { label: 'Creature Types', items: subItems },
+    ].filter(g => g.items.length)
+  }, [typeCounts, catCounts, creatureTypeCounts, landCount])
+
+  const flat = useMemo(() => groups.flatMap(g => g.items), [groups])
+  const [targetValue, setTargetValue] = useState('lands')
+  const [drawn, setDrawn] = useState(7)
+
+  if (deckSize < 2 || !flat.length) return null
+
+  const target = flat.find(t => t.value === targetValue) || flat[0]
+  const K = target?.K || 0
+  const n = Math.max(1, Math.min(Math.round(drawn) || 1, deckSize))
+  const atLeast1 = hypergeomAtLeast(deckSize, K, n, 1)
+  const exp = expectedCount(deckSize, K, n)
+  const oh = openingHandLands(deckSize, landCount)
+
+  return (
+    <div className={styles.panel} style={{ padding: '14px 14px 12px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div className={styles.panelTitle}>Probabilities</div>
+
+      {landCount > 0 && (
+        <div className={styles.probOpening}>
+          <span className={styles.probOpeningLabel}>Opening hand</span>
+          <span className={styles.probOpeningVal}>
+            ~{oh.avg.toFixed(1)} lands · {pct(oh.idealPct)} chance of a keepable 2–4
+          </span>
+        </div>
+      )}
+
+      <div>
+        <div className={styles.probCalcRow}>
+          <span className={styles.probCalcText}>Chance to draw</span>
+          <Select className={styles.probSelect} title="Target" value={targetValue} onChange={e => setTargetValue(e.target.value)}>
+            {groups.map((g, gi) => (
+              g.label
+                ? <optgroup key={g.label} label={g.label}>
+                    {g.items.map(it => <option key={it.value} value={it.value}>{it.label} ({it.K})</option>)}
+                  </optgroup>
+                : g.items.map(it => <option key={it.value} value={it.value}>{it.label} ({it.K})</option>)
+            ))}
+          </Select>
+          <span className={styles.probCalcText}>in</span>
+          <input
+            type="number" min={1} max={deckSize} value={drawn}
+            onChange={e => setDrawn(e.target.value)}
+            className={styles.probInput}
+          />
+          <span className={styles.probCalcText}>cards</span>
+        </div>
+        <div className={styles.probResult}>
+          <strong>{pct(atLeast1)}</strong> to draw at least one
+          <span className={styles.probResultSep}> · </span>
+          ~{exp.toFixed(2)} expected
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function PriceBreakdown({ totalPrice, avgPrice, priceByCategory, topCards, price_source }) {
   if (totalPrice <= 0) return null
 
@@ -1010,6 +1094,15 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride, p
         />
         <TypeBreakdown typeCounts={typeCounts} />
       </div>
+
+      {/* Draw probabilities (hypergeometric) */}
+      <ProbabilitySection
+        deckSize={Object.values(typeCounts).reduce((a, b) => a + b, 0)}
+        landCount={typeCounts['Lands'] || 0}
+        catCounts={catCounts}
+        typeCounts={typeCounts}
+        creatureTypeCounts={creatureTypeCounts}
+      />
 
       {/* Category breakdown + Keywords (only when oracle text is available) */}
       {hasOracleData && (
