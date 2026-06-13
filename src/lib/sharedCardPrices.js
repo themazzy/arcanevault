@@ -162,6 +162,28 @@ function uniqueByCardKey(cards) {
   return unique
 }
 
+// Daily negative cache: cards that resolved to NO shared price today. The
+// set-code fallback (whole-set IDB read + Supabase fetch) is expensive and
+// runs for legacy cards without a scryfall_id; without this, a handful of
+// permanently-unpriced cards (tokens/promos/legacy rows) re-trigger ~1.5s of
+// work on every single load. Keyed by UTC date so newly-priced cards are
+// rechecked once per day.
+const NO_PRICE_CACHE_KEY = 'av_no_shared_price_v1'
+
+function loadNoPriceKeys() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(NO_PRICE_CACHE_KEY) || 'null')
+    if (raw?.date === isoDateUtc(0) && Array.isArray(raw.keys)) return new Set(raw.keys)
+  } catch { /* corrupt — ignore */ }
+  return new Set()
+}
+
+function saveNoPriceKeys(keys) {
+  try {
+    localStorage.setItem(NO_PRICE_CACHE_KEY, JSON.stringify({ date: isoDateUtc(0), keys: [...keys] }))
+  } catch { /* storage full/unavailable — fine */ }
+}
+
 function rowToPrices(row) {
   const prices = {}
   if (row.price_regular_eur != null) prices.eur = row.price_regular_eur
@@ -212,10 +234,11 @@ async function overlaySharedCardPricesInner(cards, baseMap = {}, { priceLookup =
   // rows and finds nothing either. Restrict the fallback to cards with no
   // scryfall_id — typically zero — so we don't burn ~1s/load re-pricing the
   // handful of genuinely unpriced cards (tokens/promos) on every visit.
+  const noPriceKeys = loadNoPriceKeys()
   const fallbackCards = cards.filter(card => {
     if (getScryfallId(card)) return false
     const key = getCardKey(card)
-    return key && !pricedKeys.has(key)
+    return key && !pricedKeys.has(key) && !noPriceKeys.has(key)
   })
   const setCodes = [...new Set(fallbackCards.map(card => normalizeSetCode(card?.set_code)).filter(Boolean))]
   console.info(`[perf] po:shape rows=${rows.length} fallbackCards=${fallbackCards.length} setCodes=${setCodes.length} requestedIds=${requestedIds.length}`)
@@ -312,6 +335,20 @@ async function overlaySharedCardPricesInner(cards, baseMap = {}, { priceLookup =
     }
   }
   endMerge()
+
+  // Remember fallback cards that still have no shared price so we don't repeat
+  // the expensive set-code lookup for them on every load today.
+  if (fallbackCards.length) {
+    let changed = false
+    for (const card of fallbackCards) {
+      const key = getCardKey(card)
+      if (key && !currentByKey[key] && !previousByKey[key] && !noPriceKeys.has(key)) {
+        noPriceKeys.add(key)
+        changed = true
+      }
+    }
+    if (changed) saveNoPriceKeys(noPriceKeys)
+  }
 
   return merged
 }
