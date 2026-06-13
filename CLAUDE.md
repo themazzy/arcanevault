@@ -224,6 +224,10 @@ Format legality and commander color identity checks are in `src/lib/deckLegality
 
 Wishlists are not part of owned collection inventory.
 
+**Collaborative sharing:** wishlists share via the same `shared_folders` token as binders/decks (`components/ShareModal.jsx`, used by both Folders and Lists). On the public `/share/:token` page, a `list`-type folder renders the collaborative wishlist view: items + per-viewer claim flags come from the `get_shared_wishlist(token)` SECURITY DEFINER RPC, and viewers toggle "I'll get this" via `toggle_wishlist_claim(token, item_id, claimed)`. Both RPCs are authenticated-only (Share.jsx requires sign-in) and gated by the token resolving to the item's folder. `list_items.claimed_by`/`claimed_at` hold claims. The list **owner is shown no claim state** (preserves the gift surprise) and cannot claim their own list; claims never reveal the claimer's identity to other viewers.
+
+**Auto-sync with collection** (`src/lib/wishlistSync.js`): `removeAcquiredFromWishlists()` drops a wishlist item when its exact print+foil is acquired (wired into AddCardModal + ImportModal collection saves, dispatches `av:wishlist-updated`); wishlist imports skip cards already owned by name (`findOwnedCardNames()`).
+
 - Wishlist browsing should match binder/deck browsing for view toggles, selection styling, and bulk actions.
 - Wishlist bulk move must only allow destinations of type `list`.
 - Wishlist grid rendering should use the shared binder-style `CardGrid`, not a separate wishlist-only grid implementation.

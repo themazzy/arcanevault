@@ -85,3 +85,74 @@
   transition: background 0.15s;
 }
 .loginBtn:hover { background: rgba(201,168,76,0.22); }
+
+/* ── Shared wishlist (collaborative claims) ─────────────────────────────── */
+.wishlistHint {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  line-height: 1.5;
+  margin: 0 0 14px;
+  max-width: 640px;
+}
+.wishlistGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+.wishlistItem {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  background: var(--s2);
+  border: 1px solid var(--border);
+  border-top: 2px solid rgba(201, 168, 76, 0.35);
+  border-radius: 8px;
+}
+.wishlistItemClaimed { opacity: 0.7; }
+.wishlistImg {
+  width: 52px;
+  height: 73px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex-shrink: 0;
+  background: var(--s3);
+}
+.wishlistBody {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+.wishlistName {
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  color: var(--text);
+  line-height: 1.25;
+}
+.wishlistMeta {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+}
+.claimBtn {
+  margin-top: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--s-border2);
+  background: var(--s3);
+  color: var(--text-dim);
+  font-size: 0.76rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.claimBtn:hover:not(:disabled) { background: var(--s4); color: var(--text); }
+.claimBtn:disabled { opacity: 0.65; cursor: default; }
+.claimBtnMine {
+  background: rgba(93, 186, 112, 0.16);
+  border-color: rgba(93, 186, 112, 0.45);
+  color: var(--green);
+}

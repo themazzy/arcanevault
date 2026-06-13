@@ -16,6 +16,7 @@ import { useFilterWorker } from '../hooks/useFilterWorker'
 import AddCardModal from '../components/AddCardModal'
 import ImportModal from '../components/ImportModal'
 import ExportModal from '../components/ExportModal'
+import ShareModal from '../components/ShareModal'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import styles from './Folders.module.css'
 import { CloseIcon, CheckIcon, AddIcon, BinderIcon, CollectionIcon, DeleteIcon, EditIcon, ExportIcon, ImageIcon, ImportIcon, RemoveIcon, SettingsIcon, SortIcon, StacksViewIcon } from '../icons'
@@ -174,6 +175,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
   const [showAddCard, setShowAddCard]     = useState(false)
   const [showImport, setShowImport]       = useState(false)
   const [showExport, setShowExport]       = useState(false)
+  const [showShare, setShowShare]         = useState(false)
   const [viewMode, setViewMode]           = useState('grid')
   const [groupBy, setGroupBy]             = useState('none')
   const [filterOpen, setFilterOpen]       = useState(false)
@@ -475,6 +477,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
             <div className={styles.browserHeaderActionsDesktop}>
               <Button variant="secondary" size="sm" onClick={() => setShowExport(true)}>↓ Export</Button>
               {!isAllView && <Button variant="secondary" size="sm" onClick={() => setShowImport(true)}>↑ Import</Button>}
+              {!isAllView && <Button variant="secondary" size="sm" onClick={() => setShowShare(true)}>Share</Button>}
               <Button size="sm" onClick={() => setShowAddCard(true)}>+ Add Cards</Button>
             </div>
           </div>
@@ -622,6 +625,9 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
           folderType="list"
           onClose={() => setShowExport(false)}
         />
+      )}
+      {showShare && !isAllView && folder && (
+        <ShareModal folder={folder} onClose={() => setShowShare(false)} />
       )}
     </div>
   )

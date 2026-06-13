@@ -8,6 +8,7 @@ import { useSettings } from '../components/SettingsContext'
 import { useToast } from '../components/ToastContext'
 import { CardGrid, CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
 import { EmptyState, SectionHeader, Button, Modal, ResponsiveHeaderActions, ResponsiveMenu, Select } from '../components/UI'
+import ShareModal from '../components/ShareModal'
 import AddCardModal from '../components/AddCardModal'
 import ImportModal from '../components/ImportModal'
 import ExportModal from '../components/ExportModal'
@@ -1074,47 +1075,6 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
         />
       )}
     </div>
-  )
-}
-
-// ── ShareModal ────────────────────────────────────────────────────────────────
-function ShareModal({ folder, onClose }) {
-  const [token, setToken]     = useState(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    const load = async () => {
-      const { data } = await sb.from('shared_folders').select('public_token').eq('folder_id', folder.id).maybeSingle()
-      if (data) { setToken(data.public_token); setLoading(false); return }
-      const { data: created } = await sb.from('shared_folders').insert({ folder_id: folder.id }).select().single()
-      setToken(created?.public_token)
-      setLoading(false)
-    }
-    load()
-  }, [folder.id])
-
-  const url = token ? getPublicAppUrl(`/share/${token}`) : ''
-
-  return (
-    <Modal onClose={onClose}>
-      <h2 style={{ fontFamily: 'var(--font-display)', color: 'var(--gold)', marginBottom: 16 }}>
-        Share "{folder.name}"
-      </h2>
-      {loading ? <p style={{ color: 'var(--text-dim)' }}>Generating link…</p> : (
-        <>
-          <p style={{ color: 'var(--text-dim)', fontSize: '0.88rem', marginBottom: 12 }}>
-            Anyone with this link can view this {folder.type} (read-only):
-          </p>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input readOnly value={url} style={{
-              flex: 1, background: 'var(--s2)', border: '1px solid var(--border)',
-              borderRadius: 3, padding: '9px 12px', color: 'var(--text)', fontSize: '0.85rem', outline: 'none'
-            }} />
-            <Button onClick={() => navigator.clipboard.writeText(url)}>Copy</Button>
-          </div>
-        </>
-      )}
-    </Modal>
   )
 }
 
