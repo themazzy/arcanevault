@@ -61,6 +61,36 @@ function getKeywordCounts(cards) {
   return Object.entries(counts).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 14)
 }
 
+// Creature subtypes from the type line. Handles MDFC ("//"), Kindred/Tribal,
+// and the em-dash separator Scryfall uses. Returns [[subtype, qtyCount], …].
+const CREATURE_TYPE_RE = /\b(Creature|Kindred|Tribal)\b/i
+export function creatureSubtypesOf(typeLine) {
+  const subs = []
+  for (const face of String(typeLine || '').split('//')) {
+    if (!CREATURE_TYPE_RE.test(face)) continue
+    const dash = face.indexOf('—')
+    if (dash === -1) continue
+    for (const s of face.slice(dash + 1).trim().split(/\s+/)) {
+      if (s) subs.push(s)
+    }
+  }
+  return subs
+}
+
+export function getCreatureTypeCounts(cards) {
+  const counts = {}
+  for (const card of cards) {
+    const qty = card.qty || 1
+    const seen = new Set()
+    for (const sub of creatureSubtypesOf(card.type_line)) {
+      if (seen.has(sub)) continue
+      seen.add(sub)
+      counts[sub] = (counts[sub] || 0) + qty
+    }
+  }
+  return Object.entries(counts).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 14)
+}
+
 // Extract token type names from oracle text (returns deduplicated array)
 function extractTokenNames(oracle) {
   if (!oracle) return []
@@ -564,21 +594,28 @@ function cardsWithKeyword(cards, kw) {
   )
 }
 
-function KeywordFrequency({ kwCounts, cards }) {
+// Returns cards whose creature subtypes include the given type.
+function cardsWithCreatureType(cards, type) {
+  return cards.filter(c => creatureSubtypesOf(c.type_line).includes(type))
+}
+
+// Generic pill cloud with an on-hover/tap card-image popover. Used for both
+// the keyword and creature-type breakdowns.
+function PillFrequency({ label, counts, cards, getMatchingCards }) {
   // Detect touch-only devices (no pointer hover capability)
   const isTouch = useMemo(() => typeof window !== 'undefined' && window.matchMedia('(hover: none)').matches, [])
 
-  // popover: { kw, top, left, alignRight } | null
+  // popover: { value, top, left, alignRight } | null
   const [popover, setPopover] = useState(null)
   const closeTimer = useRef(null)
 
-  const openPopover = (kw, e) => {
+  const openPopover = (value, e) => {
     clearTimeout(closeTimer.current)
     const rect = e.currentTarget.getBoundingClientRect()
     const viewW = window.innerWidth
     const left = rect.left
     const alignRight = left + 300 > viewW
-    setPopover({ kw, top: rect.bottom + 6, left: alignRight ? rect.right : rect.left, alignRight })
+    setPopover({ value, top: rect.bottom + 6, left: alignRight ? rect.right : rect.left, alignRight })
   }
 
   const scheduleClose = () => {
@@ -598,29 +635,29 @@ function KeywordFrequency({ kwCounts, cards }) {
   }, [])
 
   const popoverCards = useMemo(
-    () => popover ? cardsWithKeyword(cards, popover.kw) : [],
-    [popover?.kw, cards]
+    () => popover ? getMatchingCards(cards, popover.value) : [],
+    [popover?.value, cards, getMatchingCards]
   )
 
-  if (!kwCounts.length) return null
+  if (!counts.length) return null
 
   const pillHandlers = isTouch
-    ? (kw) => ({ onClick: (e) => { popover?.kw === kw ? setPopover(null) : openPopover(kw, e) } })
-    : (kw) => ({
-        onMouseEnter: (e) => openPopover(kw, e),
+    ? (value) => ({ onClick: (e) => { popover?.value === value ? setPopover(null) : openPopover(value, e) } })
+    : (value) => ({
+        onMouseEnter: (e) => openPopover(value, e),
         onMouseLeave: scheduleClose,
       })
 
   return (
     <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 5, padding: '14px 14px 12px' }}>
       <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-faint)', fontFamily: 'var(--font-display)', marginBottom: 10 }}>
-        Keywords
+        {label}
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px 6px' }}>
-        {kwCounts.map(([kw, count]) => {
-          const active = popover?.kw === kw
+        {counts.map(([value, count]) => {
+          const active = popover?.value === value
           return (
-            <button key={kw} {...pillHandlers(kw)} style={{
+            <button key={value} {...pillHandlers(value)} style={{
               background: active ? 'rgba(201,168,76,0.15)' : 'var(--s3)',
               border: `1px solid ${active ? 'rgba(201,168,76,0.45)' : 'var(--s-border2)'}`,
               borderRadius: 4, padding: '3px 9px', fontSize: '0.72rem',
@@ -628,7 +665,7 @@ function KeywordFrequency({ kwCounts, cards }) {
               display: 'flex', alignItems: 'center', gap: 5,
               cursor: 'pointer', transition: 'all 0.12s',
             }}>
-              {kw}
+              {value}
               <span style={{ fontFamily: 'var(--font-display)', fontSize: '0.68rem', opacity: 0.7 }}>×{count}</span>
             </button>
           )
@@ -655,7 +692,7 @@ function KeywordFrequency({ kwCounts, cards }) {
           }}
         >
           <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text-faint)', fontFamily: 'var(--font-display)' }}>
-            {popoverCards.reduce((s, c) => s + (c.qty || 1), 0)} card{popoverCards.reduce((s, c) => s + (c.qty || 1), 0) !== 1 ? 's' : ''} with {popover.kw}
+            {popoverCards.reduce((s, c) => s + (c.qty || 1), 0)} card{popoverCards.reduce((s, c) => s + (c.qty || 1), 0) !== 1 ? 's' : ''} with {popover.value}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {popoverCards.slice(0, 9).map((c, i) => (
@@ -889,6 +926,7 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride, p
     const avgCmc = nonLandCount > 0 ? (cmcSum / nonLandCount).toFixed(2) : '—'
 
     const kwCounts = getKeywordCounts(cards)
+    const creatureTypeCounts = getCreatureTypeCounts(cards)
     const combinedOracle = cards.map(c => c.oracle_text || '').join('\n')
     const tokenNames = extractTokenNames(combinedOracle)
     const extras = extractExtras(combinedOracle)
@@ -917,7 +955,7 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride, p
     const topCards = priceByCard.slice(0, 5)
     const avgPrice = pricedCardCount > 0 ? totalPrice / pricedCardCount : 0
 
-    return { curve, curveByColor, curveByType, costColors, costCards, prodMana, typeCounts, catCounts, totalCostPips, totalProdMana, nonLandCount, avgCmc, kwCounts, tokenNames, extras, totalPrice, avgPrice, priceByCategory, topCards }
+    return { curve, curveByColor, curveByType, costColors, costCards, prodMana, typeCounts, catCounts, totalCostPips, totalProdMana, nonLandCount, avgCmc, kwCounts, creatureTypeCounts, tokenNames, extras, totalPrice, avgPrice, priceByCategory, topCards }
   }, [cards])
 
   // Scryfall queries for non-token extras
@@ -953,7 +991,7 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride, p
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stats.tokenNames, stats.extras])
 
-  const { curve, curveByColor, curveByType, costColors, costCards, prodMana, typeCounts, catCounts, totalCostPips, totalProdMana, nonLandCount, avgCmc, kwCounts, tokenNames, extras, totalPrice, avgPrice, priceByCategory, topCards } = stats
+  const { curve, curveByColor, curveByType, costColors, costCards, prodMana, typeCounts, catCounts, totalCostPips, totalProdMana, nonLandCount, avgCmc, kwCounts, creatureTypeCounts, tokenNames, extras, totalPrice, avgPrice, priceByCategory, topCards } = stats
   const curveSegData = curveMode === 'color' ? curveByColor : curveByType
   const effectiveBracket = bracketOverride ?? bracketAnalysis?.bracket ?? 1
 
@@ -1026,8 +1064,13 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride, p
       {hasOracleData && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: 14, minWidth: 0 }}>
           <CategoryBreakdown catCounts={catCounts} />
-          <KeywordFrequency kwCounts={kwCounts} cards={cards} />
+          <PillFrequency label="Keywords" counts={kwCounts} cards={cards} getMatchingCards={cardsWithKeyword} />
         </div>
+      )}
+
+      {/* Creature types (from type lines — no oracle text needed) */}
+      {creatureTypeCounts.length > 0 && (
+        <PillFrequency label="Creature Types" counts={creatureTypeCounts} cards={cards} getMatchingCards={cardsWithCreatureType} />
       )}
 
       {/* Price breakdown */}
