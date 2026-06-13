@@ -180,6 +180,9 @@ function makePlayer(i, life, seed = {}) {
     cmdTax2: seed.cmdTax2 ?? 0,
     cmdDmg: { ...(seed.cmdDmg ?? {}) },
     cmdDmg2: { ...(seed.cmdDmg2 ?? {}) },
+    counters: { poison: 0, energy: 0, experience: 0, ...(seed.counters ?? {}) },
+    monarch: seed.monarch ?? false,
+    initiative: seed.initiative ?? false,
   }
 }
 
@@ -191,16 +194,27 @@ function migratePlayer(p) {
     cmdTax2: p.cmdTax2 ?? 0,
     cmdDmg:   p.cmdDmg   ?? {},
     cmdDmg2:  p.cmdDmg2  ?? {},
+    counters: { poison: 0, energy: 0, experience: 0, ...(p.counters ?? {}) },
+    monarch: p.monarch ?? false,
+    initiative: p.initiative ?? false,
   }
 }
 
-function isPlayerDead(player) {
+// Poison: 10+ is lethal (infect/toxic). Commander damage: 21+ from one source.
+export function isPlayerDead(player) {
   if (!player) return false
   if (player.life <= 0) return true
+  if ((player.counters?.poison ?? 0) >= 10) return true
   if (Object.values(player.cmdDmg ?? {}).some(v => v >= 21)) return true
   if (Object.values(player.cmdDmg2 ?? {}).some(v => v >= 21)) return true
   return false
 }
+
+export const COUNTER_DEFS = [
+  { key: 'poison',     label: 'Poison',     short: 'PSN', color: '#7cae5e' },
+  { key: 'energy',     label: 'Energy',     short: 'NRG', color: '#5aafcc' },
+  { key: 'experience', label: 'Experience', short: 'XP',  color: '#c9a84c' },
+]
 
 // ── Layout Picker ──────────────────────────────────────────────────────────────
 function LayoutPicker({ playerCount, value, onChange }) {
@@ -555,6 +569,8 @@ function PlayerSettingsOverlay({
   onColorChange,
   onRequestArtPicker,
   onTogglePartner,
+  onCounterChange,
+  onToggleSpecial,
   onClose,
   rotation = 0,
 }) {
@@ -586,6 +602,43 @@ function PlayerSettingsOverlay({
                 onClick={() => onColorChange(player.id, c)}
               />
             ))}
+          </div>
+        </div>
+
+        <div className={styles.settingsSection}>
+          <div className={styles.settingsLabel}>Counters</div>
+          <div className={styles.counterList}>
+            {COUNTER_DEFS.map(c => {
+              const val = player.counters?.[c.key] ?? 0
+              const lethal = c.key === 'poison' && val >= 10
+              return (
+                <div key={c.key} className={styles.counterRow}>
+                  <span className={styles.counterDot} style={{ background: c.color }} />
+                  <span className={styles.counterName}>{c.label}</span>
+                  <div className={styles.counterAdjust}>
+                    <button className={styles.counterBtn} onClick={() => onCounterChange?.(player.id, c.key, -1)}>−</button>
+                    <span className={`${styles.counterVal} ${lethal ? styles.counterValLethal : ''}`}>{val}</span>
+                    <button className={styles.counterBtn} onClick={() => onCounterChange?.(player.id, c.key, +1)}>+</button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className={styles.settingsSection}>
+          <div className={styles.settingsLabel}>Designations</div>
+          <div className={styles.settingsActions}>
+            <button
+              className={`${styles.settingsActionBtn} ${player.monarch ? styles.settingsActionBtnActive : ''}`}
+              onClick={() => onToggleSpecial?.(player.id, 'monarch')}>
+              {player.monarch ? '👑 Monarch' : 'Make Monarch'}
+            </button>
+            <button
+              className={`${styles.settingsActionBtn} ${player.initiative ? styles.settingsActionBtnActive : ''}`}
+              onClick={() => onToggleSpecial?.(player.id, 'initiative')}>
+              {player.initiative ? '⚔ Has Initiative' : 'Take Initiative'}
+            </button>
           </div>
         </div>
 
@@ -1891,6 +1944,23 @@ function PlayerPanel({
           <button className={`${styles.lifeBtn} ${styles.lifeBtnOuter}`} onPointerDown={e => { e.preventDefault(); adjust(+10) }}>+ 10</button>
         </div>
 
+        {(player.monarch || player.initiative || COUNTER_DEFS.some(c => (player.counters?.[c.key] ?? 0) > 0)) && (
+          <div className={styles.counterBadges}>
+            {player.monarch && <span className={styles.specialBadge} title="Monarch">👑</span>}
+            {player.initiative && <span className={styles.specialBadge} title="Initiative">⚔</span>}
+            {COUNTER_DEFS.map(c => {
+              const val = player.counters?.[c.key] ?? 0
+              if (val <= 0) return null
+              const lethal = c.key === 'poison' && val >= 10
+              return (
+                <span key={c.key} className={`${styles.counterBadge} ${lethal ? styles.counterBadgeLethal : ''}`} style={{ '--cc': c.color }} title={c.label}>
+                  {c.short} {val}
+                </span>
+              )
+            })}
+          </div>
+        )}
+
         <div className={styles.statusRow}>
           {showCommander && opponents.length > 0 && (
             <div className={styles.cmdBar} onClick={() => onRequestCmdDmgOverlay?.(player.id)}>
@@ -2304,6 +2374,22 @@ export default function LifeTrackerPage() {
   const onColorChange   = (id, color) => setPlayers(ps => ps.map(p => p.id === id ? { ...p, color } : p))
   const onArtChange     = (id, url)   => setPlayers(ps => ps.map(p => p.id === id ? { ...p, artCropUrl: url } : p))
 
+  const onCounterChange = (id, key, delta) => {
+    setPlayers(ps => ps.map(p => {
+      if (p.id !== id) return p
+      const cur = p.counters?.[key] ?? 0
+      return { ...p, counters: { ...p.counters, [key]: Math.max(0, cur + delta) } }
+    }))
+  }
+  // Monarch / Initiative are single-holder: assigning to one clears the rest.
+  const onToggleSpecial = (id, key) => {
+    setPlayers(ps => {
+      const target = ps.find(p => p.id === id)
+      const turningOn = !(target?.[key])
+      return ps.map(p => ({ ...p, [key]: turningOn ? p.id === id : false }))
+    })
+  }
+
   if (screen === 'setup') {
     return (
       <div className={styles.page}>
@@ -2450,6 +2536,8 @@ export default function LifeTrackerPage() {
           onColorChange={onColorChange}
           onRequestArtPicker={setArtPickerPlayer}
           onTogglePartner={onTogglePartner}
+          onCounterChange={onCounterChange}
+          onToggleSpecial={onToggleSpecial}
           onClose={() => setPlayerSettingsPlayer(null)}
         />
       )}
