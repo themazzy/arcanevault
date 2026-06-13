@@ -195,12 +195,14 @@ async function overlaySharedCardPricesInner(cards, baseMap = {}, { priceLookup =
   // PostgREST row cap on large sets across multiple snapshot dates, which
   // leaves valid prices out of the response.
   if (requestedIds.length) {
+    const endIdRows = perfSpan('po:id-rows')
     try {
       rows.push(...await fetchSharedPriceRowsByIds(requestedIds, snapshotDates, now))
     } catch (error) {
       console.warn('[Prices] Could not load shared card prices:', error.message)
       return { ...baseMap }
     }
+    endIdRows()
   }
 
   const pricedKeys = new Set(rows.map(getRowKey).filter(Boolean))
@@ -209,14 +211,18 @@ async function overlaySharedCardPricesInner(cards, baseMap = {}, { priceLookup =
     return key && !pricedKeys.has(key)
   })
   const setCodes = [...new Set(fallbackCards.map(card => normalizeSetCode(card?.set_code)).filter(Boolean))]
+  console.info(`[perf] po:shape rows=${rows.length} fallbackCards=${fallbackCards.length} setCodes=${setCodes.length} requestedIds=${requestedIds.length}`)
 
   if (setCodes.length) {
+    const endLocalSet = perfSpan('po:local-set')
     const localSetRows = await getLocalCardPriceRowsBySetCodes(setCodes, snapshotDates)
     rows.push(...localSetRows.filter(row => !row.missing))
+    endLocalSet()
   }
 
   // Fallback for legacy rows missing scryfall_id. This path may still fetch
   // whole sets, so it is only used for keys not resolved by exact ID.
+  const endToFetch = perfSpan('po:tofetch-calc')
   const availableKeys = new Set(rows.map(getRowKey).filter(Boolean))
   const toFetch = setCodes.filter(s => {
     const needsSet = fallbackCards.some(card => normalizeSetCode(card?.set_code) === s && !availableKeys.has(getCardKey(card)))
@@ -224,7 +230,9 @@ async function overlaySharedCardPricesInner(cards, baseMap = {}, { priceLookup =
     const cached = _setRowCache.get(s)
     return !cached || now - cached.fetchedAt > PRICE_CACHE_TTL_MS
   })
+  endToFetch()
 
+  const endNetSet = toFetch.length ? perfSpan('po:net-set') : null
   if (toFetch.length) {
     const fetched = []
     for (let i = 0; i < toFetch.length; i += SET_CHUNK_SIZE) {
@@ -263,12 +271,14 @@ async function overlaySharedCardPricesInner(cards, baseMap = {}, { priceLookup =
       _setRowCache.set(s, { rows: bySet[s] || [], fetchedAt: now })
     }
   }
+  endNetSet?.()
 
   // Collect rows from cache for all requested set codes
   for (const s of setCodes) {
     rows.push(...(_setRowCache.get(s)?.rows || []))
   }
 
+  const endMerge = perfSpan('po:merge')
   const currentByKey = {}
   const previousByKey = {}
   for (const row of rows) {
@@ -294,6 +304,7 @@ async function overlaySharedCardPricesInner(cards, baseMap = {}, { priceLookup =
       ...(sharedPricesPrev && Object.keys(sharedPricesPrev).length ? { prices_prev: { ...existing.prices_prev, ...sharedPricesPrev } } : {}),
     }
   }
+  endMerge()
 
   return merged
 }
