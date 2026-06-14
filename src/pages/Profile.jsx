@@ -10,6 +10,7 @@ import { CloseIcon, ImageIcon } from '../icons'
 import { Select } from '../components/UI'
 import { MILESTONES } from '../lib/milestones'
 import { checkAndNotifyMilestones } from '../lib/milestoneTracker'
+import FollowButton from '../components/community/FollowButton'
 import { hasDeckArtSource, mergeDeckCommanderArt, useDeckArt } from '../lib/deckArt'
 import { useToast } from '../components/ToastContext'
 import {
@@ -1184,6 +1185,7 @@ export default function ProfilePage() {
                   placeholder="Tell the community about yourself…" maxLength={300} rows={2} />
               : headerBio && <p className={styles.headerBio}>{headerBio}</p>
             }
+            {!editMode && profile && <FollowButton username={decodedUsername} user={user} />}
           </div>
 
           <div className={styles.headerActions}>
