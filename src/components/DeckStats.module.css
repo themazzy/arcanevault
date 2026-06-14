@@ -137,40 +137,108 @@
 .probOpening {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   gap: 6px 10px;
-  font-size: 0.8rem;
+  font-size: 0.82rem;
+  padding: 8px 12px;
+  background: var(--s1);
+  border: 1px solid var(--s-border);
+  border-radius: 7px;
 }
 .probOpeningLabel {
-  font-size: 0.66rem;
+  font-size: 0.62rem;
   text-transform: uppercase;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.08em;
   color: var(--text-faint);
 }
-.probOpeningVal { color: var(--text); }
+.probOpeningVal { color: var(--text-dim); }
+.probOpeningVal strong { color: var(--gold); font-family: var(--font-display); font-weight: 400; }
 
+.probCalc {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 .probCalcRow {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
-.probCalcText { font-size: 0.8rem; color: var(--text-dim); }
+.probCalcText { font-size: 0.82rem; color: var(--text-dim); }
 .probSelect { min-width: 150px; }
-.probInput {
-  width: 56px;
-  padding: 6px 8px;
+
+/* Themed number stepper (− value +) */
+.stepper {
+  display: inline-flex;
+  align-items: center;
   background: var(--s3);
   border: 1px solid var(--s-border2);
-  border-radius: 6px;
-  color: var(--text);
-  font-size: 0.8rem;
-  text-align: center;
+  border-radius: 7px;
+  overflow: hidden;
 }
-.probResult {
-  margin-top: 8px;
-  font-size: 0.82rem;
+.stepperBtn {
+  width: 30px;
+  height: 32px;
+  background: none;
+  border: none;
   color: var(--text-dim);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
 }
-.probResult strong { color: var(--gold); font-family: var(--font-display); font-size: 0.95rem; }
-.probResultSep { color: var(--text-faint); }
+.stepperBtn:hover { background: var(--s-medium); color: var(--gold); }
+.stepperInput {
+  width: 36px;
+  height: 32px;
+  background: none;
+  border: none;
+  border-left: 1px solid var(--s-border);
+  border-right: 1px solid var(--s-border);
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 0.88rem;
+  text-align: center;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.stepperInput::-webkit-outer-spin-button,
+.stepperInput::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.stepperInput:focus { outline: none; background: var(--s4); }
+
+.probResultCard {
+  background: var(--s1);
+  border: 1px solid var(--s-border);
+  border-left: 2px solid rgba(201, 168, 76, 0.5);
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.probResultTop {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.probResultPct {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  line-height: 1;
+  color: var(--gold);
+}
+.probResultDesc { font-size: 0.78rem; color: var(--text-dim); }
+.probBarTrack {
+  height: 6px;
+  background: var(--s3);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.probBarFill {
+  height: 100%;
+  background: linear-gradient(90deg, rgba(201, 168, 76, 0.55), var(--gold));
+  border-radius: 3px;
+  transition: width 0.35s ease;
+}

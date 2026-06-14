@@ -680,6 +680,22 @@ function pct(p) {
   return `${Math.round(p * 100)}%`
 }
 
+function Stepper({ value, min, max, onChange }) {
+  const num = Number(value)
+  const set = (v) => onChange(String(Math.max(min, Math.min(max, v))))
+  return (
+    <div className={styles.stepper}>
+      <button type="button" className={styles.stepperBtn} onClick={() => set((Number.isFinite(num) ? num : min) - 1)} aria-label="decrease">−</button>
+      <input
+        className={styles.stepperInput}
+        type="number" min={min} max={max} value={value}
+        onChange={e => onChange(e.target.value)}
+      />
+      <button type="button" className={styles.stepperBtn} onClick={() => set((Number.isFinite(num) ? num : min) + 1)} aria-label="increase">+</button>
+    </div>
+  )
+}
+
 // Hypergeometric draw odds: opening-hand land summary + a "chance to draw"
 // calculator over the deck's types / categories / creature types.
 function ProbabilitySection({ deckSize, landCount, catCounts, typeCounts, creatureTypeCounts }) {
@@ -725,19 +741,15 @@ function ProbabilitySection({ deckSize, landCount, catCounts, typeCounts, creatu
         <div className={styles.probOpening}>
           <span className={styles.probOpeningLabel}>Opening hand</span>
           <span className={styles.probOpeningVal}>
-            ~{oh.avg.toFixed(1)} lands · {pct(oh.idealPct)} chance of a keepable 2–4
+            <strong>~{oh.avg.toFixed(1)}</strong> lands · <strong>{pct(oh.idealPct)}</strong> chance of a keepable 2–4
           </span>
         </div>
       )}
 
-      <div>
+      <div className={styles.probCalc}>
         <div className={styles.probCalcRow}>
-          <span className={styles.probCalcText}>Chance to draw at least</span>
-          <input
-            type="number" min={1} max={kMax} value={wantK}
-            onChange={e => setWantK(e.target.value)}
-            className={styles.probInput}
-          />
+          <span className={styles.probCalcText}>Draw at least</span>
+          <Stepper value={wantK} min={1} max={kMax} onChange={setWantK} />
           <Select className={styles.probSelect} title="Target" value={targetValue} onChange={e => setTargetValue(e.target.value)}>
             {groups.map((g) => (
               g.label
@@ -748,17 +760,20 @@ function ProbabilitySection({ deckSize, landCount, catCounts, typeCounts, creatu
             ))}
           </Select>
           <span className={styles.probCalcText}>in</span>
-          <input
-            type="number" min={1} max={deckSize} value={drawn}
-            onChange={e => setDrawn(e.target.value)}
-            className={styles.probInput}
-          />
+          <Stepper value={drawn} min={1} max={deckSize} onChange={setDrawn} />
           <span className={styles.probCalcText}>cards</span>
         </div>
-        <div className={styles.probResult}>
-          <strong>{pct(atLeastK)}</strong> to draw {k === 1 ? 'at least one' : `${k}+`}
-          <span className={styles.probResultSep}> · </span>
-          ~{exp.toFixed(2)} expected in {n}
+
+        <div className={styles.probResultCard}>
+          <div className={styles.probResultTop}>
+            <span className={styles.probResultPct}>{pct(atLeastK)}</span>
+            <span className={styles.probResultDesc}>
+              to draw {k === 1 ? 'at least one' : `${k}+`} · ~{exp.toFixed(2)} expected in {n}
+            </span>
+          </div>
+          <div className={styles.probBarTrack}>
+            <div className={styles.probBarFill} style={{ width: `${Math.round(atLeastK * 100)}%` }} />
+          </div>
         </div>
       </div>
     </div>
