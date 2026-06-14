@@ -27,6 +27,25 @@ function fmtRelDate(iso) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
+// Deck descriptions can now hold a full Markdown primer. On a tile we only want
+// a short, clean teaser — strip the Markdown syntax and collapse whitespace so
+// it reads as plain text and the 2-line clamp stays tight.
+function plainPreview(md) {
+  return String(md || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/^\s{0,3}>\s?/gm, '')
+    .replace(/^\s{0,3}[-*+]\s+/gm, '')
+    .replace(/^\s{0,3}\d+\.\s+/gm, '')
+    .replace(/^\s*[-*_]{3,}\s*$/gm, ' ')
+    .replace(/[*_~]{1,3}([^*_~]+)[*_~]{1,3}/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 // Truncate a tag list to a rough character budget so it fits within
 // the fixed-height tile. Appends a '…' chip if any tags were dropped.
 const TAG_CHAR_BUDGET = 36
@@ -97,7 +116,7 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
   const hasValidLink = !!(meta.linked_deck_id || meta.linked_builder_id)
   const isUnsynced = hasValidLink && !!(syncState.unsynced_builder || syncState.unsynced_collection)
   const isCollection = deck.type === 'deck'
-  const description = (meta.deckDescription || '').trim()
+  const description = plainPreview(meta.deckDescription)
   const tags = clampTags(meta.tags)
 
   return (
@@ -195,7 +214,7 @@ function CommunityDeckTile({ deck, meta, fmt, isOwn, creatorNick, navigate }) {
     ? meta.commanders.map(c => c.name).join(' + ')
     : (meta.commanderName || null)
   const tags        = clampTags(meta.tags)
-  const description = (meta.deckDescription || '').trim()
+  const description = plainPreview(meta.deckDescription)
 
   return (
     <div className={styles.card} onClick={() => navigate(`/d/${deck.id}`)}>
