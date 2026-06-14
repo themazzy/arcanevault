@@ -1336,6 +1336,100 @@
   padding: 0 40px;
 }
 
+/* ── Deck primer (Markdown description) ─────────────────────────────────── */
+.primer {
+  border-top: 1px solid rgba(201,168,76,0.1);
+  border-bottom: 1px solid rgba(201,168,76,0.1);
+  background: var(--bg2, #1a1628);
+  padding: 20px 40px 26px;
+}
+.primerLabel {
+  font-family: var(--font-display);
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 12px;
+}
+.primerToc {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  background: var(--s-subtle);
+  border: 1px solid var(--s-border);
+  border-left: 2px solid rgba(201,168,76,0.4);
+  border-radius: 6px;
+  max-width: 360px;
+}
+.primerTocItem {
+  background: none;
+  border: none;
+  text-align: left;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  padding: 3px 0;
+  cursor: pointer;
+  transition: color 0.14s;
+}
+.primerTocItem:hover { color: var(--gold); }
+
+.primerBody {
+  color: var(--text);
+  font-size: 0.92rem;
+  line-height: 1.65;
+  max-width: 760px;
+}
+.primerBody h2, .primerBody h3, .primerBody h4, .primerBody h5, .primerBody h6 {
+  font-family: var(--font-display);
+  color: var(--gold);
+  margin: 1.3em 0 0.5em;
+  scroll-margin-top: 80px;
+}
+.primerBody h2 { font-size: 1.15rem; }
+.primerBody h3 { font-size: 1.02rem; }
+.primerBody h4, .primerBody h5, .primerBody h6 { font-size: 0.92rem; }
+.primerBody p { margin: 0 0 0.85em; }
+.primerBody ul, .primerBody ol { margin: 0 0 0.85em; padding-left: 1.4em; }
+.primerBody li { margin: 0.2em 0; }
+.primerBody a { color: var(--gold); text-decoration: underline; }
+.primerBody a:hover { opacity: 0.85; }
+.primerBody code {
+  font-family: 'Courier New', monospace;
+  font-size: 0.85em;
+  background: var(--s2);
+  border: 1px solid var(--s-border);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+.primerBody pre {
+  background: var(--s2);
+  border: 1px solid var(--s-border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  margin: 0 0 0.85em;
+}
+.primerBody pre code { background: none; border: none; padding: 0; }
+.primerBody blockquote {
+  margin: 0 0 0.85em;
+  padding: 4px 0 4px 14px;
+  border-left: 3px solid rgba(201,168,76,0.4);
+  color: var(--text-dim);
+  font-style: italic;
+}
+.primerBody hr {
+  border: none;
+  border-top: 1px solid var(--s-border);
+  margin: 1.4em 0;
+}
+
+@media (max-width: 700px) {
+  .primer { padding: 16px 16px 20px; }
+  .primerToc { max-width: none; }
+}
+
 .decklistInlineHeader {
   display: flex;
   align-items: center;

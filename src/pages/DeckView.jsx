@@ -14,6 +14,7 @@ import { ResponsiveMenu } from '../components/UI'
 import { CardBrowserContent, CARD_BROWSER_VIEW_MODES } from '../components/CardBrowserViews'
 import { CloseIcon, CheckIcon, ChevronDownIcon, GridViewIcon, SearchIcon, SortIcon, StacksViewIcon, TextViewIcon, TableViewIcon } from '../icons'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
+import Markdown, { extractHeadings } from '../lib/miniMarkdown.jsx'
 
 const RARITY_ORDER = ['mythic', 'rare', 'uncommon', 'common']
 const RARITY_GROUP_ORDER = ['Mythic', 'Rare', 'Uncommon', 'Common', 'Unknown']
@@ -762,6 +763,31 @@ export default function DeckViewPage() {
           )}
         </div>
       </div>
+
+      {/* ── Deck primer (Markdown description) ── */}
+      {deckMeta.description?.trim() && (() => {
+        const headings = extractHeadings(deckMeta.description)
+        return (
+          <div className={styles.primer}>
+            <div className={styles.primerLabel}>Primer</div>
+            {headings.length >= 2 && (
+              <nav className={styles.primerToc} aria-label="Primer contents">
+                {headings.map(h => (
+                  <button
+                    key={h.slug}
+                    className={styles.primerTocItem}
+                    style={{ paddingLeft: `${(h.level - 1) * 12}px` }}
+                    onClick={() => document.getElementById(h.slug)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                  >
+                    {h.text}
+                  </button>
+                ))}
+              </nav>
+            )}
+            <Markdown source={deckMeta.description} headingSlugs className={styles.primerBody} />
+          </div>
+        )
+      })()}
 
       {/* ── Inline decklist panel ── */}
       {showDecklist && (() => {

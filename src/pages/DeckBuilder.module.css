@@ -4023,6 +4023,12 @@
   color: var(--text-faint);
   margin-top: 4px;
 }
+.metaModalHint {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  font-style: italic;
+  margin: 4px 0 2px;
+}
 .metaModalFooter {
   display: flex;
   justify-content: flex-end;

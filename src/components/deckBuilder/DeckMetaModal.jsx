@@ -21,17 +21,20 @@ export default function DeckMetaModal({
     <Modal onClose={onClose} className={styles.metaModal}>
       <div className={styles.metaModalBody}>
         <h3 className={styles.metaModalTitle}>Description &amp; Tags</h3>
-        <label className={styles.metaModalLabel}>Description</label>
+        <label className={styles.metaModalLabel}>Description / Primer</label>
         <textarea
           className={styles.deckMetaDesc}
           value={description}
           onChange={e => onDescriptionChange(e.target.value)}
           onBlur={e => onDescriptionBlur(e.target.value)}
-          placeholder="Add description..."
-          rows={5}
-          maxLength={1000}
+          placeholder={'Write a primer… Markdown supported:\n# Heading   **bold**   *italic*   - list   [link](https://…)'}
+          rows={8}
+          maxLength={8000}
           autoFocus
         />
+        <div className={styles.metaModalHint}>
+          Markdown supported — headings (##) build a table of contents on the public deck page.
+        </div>
         <label className={styles.metaModalLabel}>Tags</label>
         <div className={styles.deckMetaTagRow}>
           {tags.map(tag => (
