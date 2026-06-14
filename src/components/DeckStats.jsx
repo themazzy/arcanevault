@@ -1021,7 +1021,7 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride, p
   const EXTRA_QUERIES = {
     'Monarch':        't:conspiracy !"Monarch" game:paper',
     'The Initiative': '!"The Initiative" game:paper',
-    'The Ring':       '!"The Ring" game:paper',
+    'The Ring':       't:emblem !"The Ring"',
     'Dungeon':        't:dungeon game:paper',
     'Emblem':         't:emblem game:paper',
   }
@@ -1040,8 +1040,17 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride, p
         if (!active) break
         const rawQ = EXTRA_QUERIES[name] ?? `t:token !"${name}" game:paper`
         const q = encodeURIComponent(rawQ)
-        const data = await sfGet(`/cards/search?q=${q}&order=released&dir=desc&unique=prints`)
-        results[name] = data?.data?.[0]?.image_uris?.small ?? null
+        // Many token/mechanic names (e.g. "The Ring") have no matching paper
+        // card and 404 — swallow per item so one miss neither spams the
+        // console nor aborts the remaining fetches.
+        try {
+          const data = await sfGet(`/cards/search?q=${q}&order=released&dir=desc&unique=prints`)
+          const hit = data?.data?.[0]
+          // Double-faced tokens (e.g. The Ring) carry images on the faces.
+          results[name] = hit?.image_uris?.small ?? hit?.card_faces?.[0]?.image_uris?.small ?? null
+        } catch {
+          results[name] = null
+        }
       }
       if (active) setTokenImages(prev => ({ ...prev, ...results }))
     })()
