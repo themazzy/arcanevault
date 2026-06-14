@@ -134,7 +134,28 @@
       "PowerShell(gh run *)",
       "WebFetch(domain:deckloom.app)",
       "mcp__plugin_supabase_supabase__get_edge_function",
-      "mcp__plugin_supabase_supabase__deploy_edge_function"
+      "mcp__plugin_supabase_supabase__deploy_edge_function",
+      "Bash(git merge *)",
+      "Bash(git branch *)",
+      "PowerShell(Get-ChildItem *)",
+      "PowerShell($cred = Get-Content \"$env:USERPROFILE\\\\.claude\\\\.credentials.json\" -Raw | ConvertFrom-Json; $cred.mcpOAuth.PSObject.Properties | ForEach-Object { $entry = $_.Value; [PSCustomObject]@{ Key = $_.Name; ServerUrl = $entry.serverUrl; ClientId = $entry.clientId; HasAccessToken = [bool]$entry.accessToken; ExpiresAt = if \\($entry.expiresAt\\) { [DateTimeOffset]::FromUnixTimeMilliseconds\\($entry.expiresAt\\).ToString\\('u'\\) } else { $null } } } | Format-List)",
+      "PowerShell(npm run *)",
+      "PowerShell(npm test *)",
+      "PowerShell(npm audit *)",
+      "PowerShell(npx supabase --version)",
+      "PowerShell(npx supabase functions delete og-deck --project-ref sjrfcioailanbaodbtqg)",
+      "PowerShell(Resolve-DnsName *)",
+      "PowerShell(npx wrangler whoami 2>$null | Select-Object -First 10)",
+      "Bash(sed -e 's/-- Used by the `og-deck` edge function, called with the anon key./-- Used by the `deckloom-og` Cloudflare Worker \\(cloudflare\\\\/og-worker\\), called\\\\n-- with the anon key./' -e '1s/^-- Lightweight/-- Restores get_deck_og_meta \\(dropped in 20260611120000 along with the og-deck\\\\n-- edge function\\) to feed the Cloudflare Worker that now serves Open Graph\\\\n-- previews on the branded deckloom.app\\\\/d\\\\/<id> URL instead.\\\\n--\\\\n-- Lightweight/' rpc_recovered.sql)",
+      "Bash(rm rpc_recovered.sql index_recovered.ts)",
+      "Read(//c/c/Users/Jan/Desktop/arcanevault/arcanevault/supabase/migrations/**)",
+      "PowerShell(Out-File *)",
+      "PowerShell(Get-Item public\\\\rules\\\\mtgRules.json | Select-Object Length; \\(Get-Content public\\\\rules\\\\mtgRules.json -TotalCount 1\\).Substring\\(0, 200\\))",
+      "PowerShell(git *)",
+      "Bash(git -C \"/c/Users/Jan/Desktop/arcanevault/arcanevault\" rev-parse d516821)",
+      "Bash(cd \"/c/Users/Jan/Desktop/arcanevault/arcanevault\")",
+      "Read(//c/c/Users/Jan/Desktop/arcanevault/arcanevault/**)",
+      "Bash(npx wrangler *)"
     ]
   }
 }

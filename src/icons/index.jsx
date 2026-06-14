@@ -627,3 +627,13 @@ export function PlayerIcon(p) {
     </Icon>
   )
 }
+
+export function CartIcon(p) {
+  return (
+    <Icon {...p}>
+      <path d="M1.5 2h1.7l1.5 7.5h6.4l1.4-5H4.2" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="6" cy="13" r="1.1" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" />
+      <circle cx="11.5" cy="13" r="1.1" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" />
+    </Icon>
+  )
+}

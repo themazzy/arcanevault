@@ -59,6 +59,80 @@ export function cardsToText(cards, sfMap = {}, { includeFoilIndicator = true } =
   }).join('\n')
 }
 
+// Board helpers (deck cards carry board: 'main' | 'side' | 'maybe' and is_commander).
+const cardName = (c, sfMap) =>
+  c.name || (sfMap[`${c.set_code}-${c.collector_number}`] || {}).name || 'Unknown'
+const cardQty = c => c._folder_qty ?? c.qty ?? 1
+const boardOf = c => {
+  const b = (c.board || 'main').toLowerCase()
+  return b === 'sideboard' ? 'side' : b
+}
+
+/**
+ * MTG Arena import format:  "1 Lightning Bolt (M10) 146"
+ * Sections: Commander / Deck / Sideboard. The "maybe" board is excluded.
+ * Falls back to "<qty> <name>" when a card has no set/collector number.
+ */
+export function cardsToArena(cards, sfMap = {}) {
+  const line = c => {
+    const set = c.set_code ? `(${String(c.set_code).toUpperCase()}) ${c.collector_number || ''}`.trim() : ''
+    return `${cardQty(c)} ${cardName(c, sfMap)}${set ? ` ${set}` : ''}`
+  }
+  const commander = cards.filter(c => c.is_commander)
+  const main = cards.filter(c => !c.is_commander && boardOf(c) === 'main')
+  const side = cards.filter(c => !c.is_commander && boardOf(c) === 'side')
+
+  const blocks = []
+  if (commander.length) blocks.push(['Commander', commander])
+  blocks.push(['Deck', main])
+  if (side.length) blocks.push(['Sideboard', side])
+
+  return blocks
+    .filter(([, list]) => list.length)
+    .map(([label, list]) => `${label}\n${list.map(line).join('\n')}`)
+    .join('\n\n')
+}
+
+const escXml = s => String(s ?? '').replace(/[<>&"']/g, ch =>
+  ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[ch]))
+
+/**
+ * Magic Online ".dek" XML. Commander + main go in the deck; the "side" board
+ * becomes Sideboard="true". The "maybe" board is excluded.
+ */
+export function cardsToMtgoDek(cards, sfMap = {}) {
+  const playable = cards.filter(c => c.is_commander || boardOf(c) !== 'maybe')
+  const row = c =>
+    `  <Cards CatID="0" Quantity="${cardQty(c)}" Sideboard="${!c.is_commander && boardOf(c) === 'side' ? 'true' : 'false'}" Name="${escXml(cardName(c, sfMap))}" />`
+  return [
+    '<?xml version="1.0" encoding="utf-8"?>',
+    '<Deck xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">',
+    '  <NetDeckID>0</NetDeckID>',
+    '  <PreconstructedDeckID>0</PreconstructedDeckID>',
+    ...playable.map(row),
+    '</Deck>',
+  ].join('\n')
+}
+
+/**
+ * Acquisition buylist — plain "<qty> <name>" lines, one per card. This is the
+ * bulk-entry format accepted by TCGplayer Mass Entry and Cardmarket's
+ * "Want list" import. The "maybe" board is excluded; quantities are summed by
+ * name so split printings collapse into a single line.
+ */
+export function cardsToBuylist(cards, sfMap = {}) {
+  const byName = new Map()
+  for (const c of cards || []) {
+    if (boardOf(c) === 'maybe') continue
+    const name = cardName(c, sfMap)
+    byName.set(name, (byName.get(name) || 0) + cardQty(c))
+  }
+  return [...byName.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([name, qty]) => `${qty} ${name}`)
+    .join('\n')
+}
+
 /** Trigger a browser file download. */
 export function downloadFile(content, filename, type = 'text/plain;charset=utf-8') {
   const blob = new Blob([content], { type })

@@ -26,6 +26,7 @@ import DeckStats, { normalizeDeckBuilderCards, CAT_COLORS, CAT_ORDER } from '../
 import { getScryfallKey, formatPrice, getPrice } from '../lib/scryfall'
 import { getCardCategoryFromCard, isTypeFallbackCategory } from '../lib/cardCategory'
 import { pickPrintingForMode, PRINTING_MODES } from '../lib/printingOptimize'
+import { BASIC_LAND_TYPES, BASIC_LAND_NAMES } from '../lib/basicLands'
 import { logDeckChange, fetchDeckHistory } from '../lib/deckHistory'
 import ExportModal from '../components/ExportModal'
 import { fetchDeckAllocations, fetchDeckAllocationsForUser, fetchDeckCards, mergeAllocationRows, upsertDeckAllocations } from '../lib/deckData'
@@ -405,6 +406,8 @@ export default function DeckBuilderPage() {
   const [optimizeBusy, setOptimizeBusy] = useState(null)   // mode id while running
   const [showHistory, setShowHistory] = useState(false)
   const [history, setHistory] = useState(null)             // null = loading
+  const [showBasics, setShowBasics] = useState(false)
+  const [basicsBusy, setBasicsBusy] = useState(null)       // land name while writing
   const [showRight, setShowRight] = useState(() => typeof window !== 'undefined' && window.innerWidth <= 900)
   const wasMobileLayoutRef = useRef(typeof window !== 'undefined' ? window.innerWidth <= 900 : false)
   const [leftCollapsed, setLeftCollapsed] = useState(false)
@@ -897,6 +900,24 @@ export default function DeckBuilderPage() {
     fetchCombos,
   } = useCombosFetch({ commanderCard, deckCards, accessToken: session?.access_token })
   const mainDeckCards  = useMemo(() => deckCards.filter(dc => normalizeBoard(dc.board) === 'main'), [deckCards])
+
+  // Acquisition buylist — cards in the deck the user does NOT own (by name),
+  // basic lands excluded. Powers the "Buylist" tab in ExportModal.
+  const unownedCards = useMemo(() => {
+    const needed = new Map()
+    for (const dc of deckCards) {
+      if (!dc.is_commander && normalizeBoard(dc.board) === 'maybe') continue
+      const name = (dc.name || '').trim()
+      if (!name || BASIC_LAND_NAMES.has(name.toLowerCase())) continue
+      needed.set(name, (needed.get(name) || 0) + (dc.qty || 0))
+    }
+    const out = []
+    for (const [name, qty] of needed) {
+      const missing = Math.max(0, qty - (ownedNameMap.get(name.toLowerCase()) || 0))
+      if (missing > 0) out.push({ name, qty: missing })
+    }
+    return out
+  }, [deckCards, ownedNameMap])
   const normalizedStatsCards = useMemo(
     () => normalizeDeckBuilderCards(mainDeckCards, builderSfMap, { price_source }),
     [mainDeckCards, builderSfMap, price_source]
@@ -1253,6 +1274,9 @@ export default function DeckBuilderPage() {
       </button>
       <button className={uiStyles.responsiveMenuAction} onClick={() => { resetAllCategories(); close() }}>
         <span>Reset Categories</span>
+      </button>
+      <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowBasics(true); close() }}>
+        <span>Add Basic Lands</span>
       </button>
       <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowOptimize(true); close() }}>
         <span>Optimize Printings</span>
@@ -2367,6 +2391,44 @@ export default function DeckBuilderPage() {
       deleteDeckCardLocal(deckCardId).catch(() => {})
     } catch {
       setDeckCards(prev => [...prev, current])
+    }
+  }
+
+  // Add Basic Lands helper — set the exact count of one basic land on the main
+  // board. Reuses addCardToDeck (which resolves a real printing) for the first
+  // copy, then writes the target quantity directly.
+  async function setBasicLandCount(land, target) {
+    target = Math.max(0, Math.min(99, Math.round(Number(target) || 0)))
+    const lname = land.name.toLowerCase()
+    const findRow = () => deckCardsRef.current.find(dc =>
+      !dc.is_commander && normalizeBoard(dc.board) === 'main' &&
+      (dc.name || '').toLowerCase() === lname)
+
+    const writeQty = async (row, qty) => {
+      const updated = { ...row, qty, updated_at: new Date().toISOString() }
+      deckCardsRef.current = deckCardsRef.current.map(dc => dc.id === row.id ? updated : dc)
+      setDeckCards(deckCardsRef.current)
+      putDeckCards([updated]).catch(() => {})
+      try {
+        await sbExec(sb.from('deck_cards').update({ qty, updated_at: updated.updated_at }).eq('id', row.id), { label: 'Update qty failed' })
+      } catch {}
+    }
+
+    setBasicsBusy(land.name)
+    try {
+      const existing = findRow()
+      if (existing) {
+        if (target === existing.qty) return
+        if (target <= 0) { await removeCardFromDeck(existing.id); return }
+        await writeQty(existing, target)
+        return
+      }
+      if (target <= 0) return
+      await addCardToDeck({ name: land.name })
+      const added = findRow()
+      if (added && target > 1) await writeQty(added, target)
+    } finally {
+      setBasicsBusy(null)
     }
   }
 
@@ -4906,6 +4968,41 @@ export default function DeckBuilderPage() {
         </Modal>
       )}
 
+      {showBasics && (
+        <Modal onClose={() => { if (!basicsBusy) setShowBasics(false) }}>
+          <h2 className={styles.optimizeTitle}>Add Basic Lands</h2>
+          <p className={styles.optimizeHint}>
+            Set how many of each basic land are in the main deck. Quantities save instantly.
+          </p>
+          <div className={styles.basicsList}>
+            {BASIC_LAND_TYPES.map(land => {
+              const row = deckCards.find(dc =>
+                !dc.is_commander && normalizeBoard(dc.board) === 'main' &&
+                (dc.name || '').toLowerCase() === land.name.toLowerCase())
+              const count = row?.qty || 0
+              const busy = basicsBusy === land.name
+              return (
+                <div key={land.name} className={styles.basicsRow}>
+                  <span className={`${styles.basicsPip} ${styles['pip' + land.color]}`}>{land.color}</span>
+                  <span className={styles.basicsName}>{land.name}</span>
+                  <div className={styles.basicsStepper}>
+                    <button className={styles.basicsBtn} disabled={busy || count <= 0}
+                      onClick={() => setBasicLandCount(land, count - 1)} aria-label={`Remove ${land.name}`}>−</button>
+                    <input
+                      className={styles.basicsInput}
+                      type="number" min="0" max="99" value={count} disabled={busy}
+                      onChange={e => setBasicLandCount(land, e.target.value)}
+                    />
+                    <button className={styles.basicsBtn} disabled={busy}
+                      onClick={() => setBasicLandCount(land, count + 1)} aria-label={`Add ${land.name}`}>+</button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </Modal>
+      )}
+
       <ShareDeckModal
         state={shareState}
         deckId={deckId}
@@ -4923,6 +5020,7 @@ export default function DeckBuilderPage() {
           title={deckName || 'Deck'}
           folderType="deck"
           includeFoilIndicator={false}
+          unownedCards={unownedCards}
           onClose={() => setShowExport(false)}
         />
       )}

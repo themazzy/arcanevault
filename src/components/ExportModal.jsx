@@ -1,16 +1,17 @@
 import { useState, useMemo } from 'react'
-import { CheckIcon, CloseIcon, CopyIcon, TableViewIcon, TextViewIcon } from '../icons'
-import { cardsToCSV, cardsToText, downloadFile, copyToClipboard, canNativeShare, shareOrCopy } from '../lib/exportUtils'
+import { CheckIcon, CloseIcon, CopyIcon, TableViewIcon, TextViewIcon, CartIcon } from '../icons'
+import { cardsToCSV, cardsToText, cardsToArena, cardsToMtgoDek, cardsToBuylist, downloadFile, copyToClipboard, canNativeShare, shareOrCopy } from '../lib/exportUtils'
 import styles from './ExportModal.module.css'
 
 // ── ExportModal ───────────────────────────────────────────────────────────────
 // Props:
-//   cards      — array of card / wishlist-item objects
-//   sfMap      — Scryfall map keyed by `${set_code}-${collector_number}`
-//   title      — display title  (e.g. "My Deck", "Collection")
-//   folderType — 'collection' | 'binder' | 'deck' | 'list'
-//   loading    — show a spinner while data is being fetched
-//   onClose    — called to dismiss
+//   cards         — array of card / wishlist-item objects
+//   sfMap         — Scryfall map keyed by `${set_code}-${collector_number}`
+//   title         — display title  (e.g. "My Deck", "Collection")
+//   folderType    — 'collection' | 'binder' | 'deck' | 'list'
+//   loading       — show a spinner while data is being fetched
+//   unownedCards  — (optional, decks) cards the user does NOT own, for the "Buylist" tab
+//   onClose       — called to dismiss
 
 export default function ExportModal({
   cards = [],
@@ -19,30 +20,53 @@ export default function ExportModal({
   folderType = 'collection',
   loading = false,
   includeFoilIndicator = true,
+  unownedCards = null,
   onClose,
 }) {
-  const [fmt, setFmt]         = useState('text')   // 'text' | 'csv'
-  const [copied, setCopied]   = useState(false)
-  const [shareMsg, setShareMsg] = useState(null)
-
   const isWishlist   = folderType === 'list'
   const isCollection = folderType === 'collection'
+  const isDeck       = folderType === 'deck'
   const noun         = isWishlist ? 'wants' : 'cards'
   const safeTitle    = title.replace(/[^a-z0-9]/gi, '_').toLowerCase()
 
-  const textContent = useMemo(
-    () => cardsToText(cards, sfMap, { includeFoilIndicator }),
-    [cards, sfMap, includeFoilIndicator]
-  )
-  const csvContent  = useMemo(
-    () => cardsToCSV(cards, sfMap, isCollection ? '' : title, folderType),
-    [cards, sfMap, title, folderType, isCollection]
-  )
+  // Available formats. Arena/MTGO only make sense for actual decks; the buylist
+  // tab only appears when the caller computed un-owned cards.
+  const formats = useMemo(() => {
+    const list = [
+      { id: 'text', label: 'Text', icon: TextViewIcon,  ext: 'txt', mime: 'text/plain;charset=utf-8',
+        hint: 'Plain decklist — paste anywhere',
+        build: () => cardsToText(cards, sfMap, { includeFoilIndicator }) },
+      { id: 'csv',  label: 'CSV',  icon: TableViewIcon, ext: 'csv', mime: 'text/csv;charset=utf-8',
+        hint: 'Manabox-compatible — re-importable',
+        build: () => cardsToCSV(cards, sfMap, isCollection ? '' : title, folderType) },
+    ]
+    if (!isWishlist && !isCollection) {
+      list.push(
+        { id: 'arena', label: 'Arena', icon: TextViewIcon, ext: 'txt', mime: 'text/plain;charset=utf-8',
+          hint: 'MTG Arena import — 1 Name (SET) 123',
+          build: () => cardsToArena(cards, sfMap) },
+        { id: 'mtgo',  label: 'MTGO',  icon: TextViewIcon, ext: 'dek', mime: 'application/xml;charset=utf-8',
+          hint: 'Magic Online .dek file',
+          build: () => cardsToMtgoDek(cards, sfMap) },
+      )
+    }
+    if (isDeck && Array.isArray(unownedCards)) {
+      list.push({ id: 'buylist', label: 'Buylist', icon: CartIcon, ext: 'txt', mime: 'text/plain;charset=utf-8',
+        hint: unownedCards.length
+          ? `${unownedCards.length} card${unownedCards.length !== 1 ? 's' : ''} you don't own — paste into TCGplayer / Cardmarket`
+          : 'You already own every card in this deck',
+        build: () => cardsToBuylist(unownedCards, sfMap) })
+    }
+    return list
+  }, [cards, sfMap, title, folderType, isCollection, isWishlist, isDeck, includeFoilIndicator, unownedCards])
 
-  const content  = fmt === 'csv' ? csvContent : textContent
-  const ext      = fmt === 'csv' ? 'csv' : 'txt'
-  const mime     = fmt === 'csv' ? 'text/csv;charset=utf-8' : 'text/plain;charset=utf-8'
-  const filename = `${safeTitle}.${ext}`
+  const [fmt, setFmt]           = useState('text')
+  const [copied, setCopied]     = useState(false)
+  const [shareMsg, setShareMsg] = useState(null)
+
+  const active   = formats.find(f => f.id === fmt) || formats[0]
+  const content  = useMemo(() => active.build(), [active])
+  const filename = `${safeTitle}.${active.ext}`
 
   const allLines = content.split('\n')
   const preview  = allLines.slice(0, 12).join('\n')
@@ -53,11 +77,8 @@ export default function ExportModal({
     if (ok) { setCopied(true); setTimeout(() => setCopied(false), 2000) }
   }
 
-  const handleShare = async (overrideContent, overrideFmt) => {
-    const c  = overrideContent ?? content
-    const f  = overrideFmt ?? fmt
-    const fn = `${safeTitle}.${f === 'csv' ? 'csv' : 'txt'}`
-    const res = await shareOrCopy(title, c, fn)
+  const handleShare = async () => {
+    const res = await shareOrCopy(title, content, filename)
     setShareMsg(res)
     setTimeout(() => setShareMsg(null), 2500)
   }
@@ -88,26 +109,24 @@ export default function ExportModal({
           <>
             {/* ── Format tabs ── */}
             <div className={styles.tabs}>
-              <button
-                className={`${styles.tab} ${fmt === 'text' ? styles.tabActive : ''}`}
-                onClick={() => setFmt('text')}
-              >
-                <TextViewIcon size={12} /> Text
-              </button>
-              <button
-                className={`${styles.tab} ${fmt === 'csv' ? styles.tabActive : ''}`}
-                onClick={() => setFmt('csv')}
-              >
-                <TableViewIcon size={12} /> CSV
-              </button>
-              <span className={styles.tabHint}>
-                {fmt === 'text' ? 'Plain decklist — paste anywhere' : 'Manabox-compatible — re-importable'}
-              </span>
+              {formats.map(f => {
+                const Icon = f.icon
+                return (
+                  <button
+                    key={f.id}
+                    className={`${styles.tab} ${fmt === f.id ? styles.tabActive : ''}`}
+                    onClick={() => setFmt(f.id)}
+                  >
+                    <Icon size={12} /> {f.label}
+                  </button>
+                )
+              })}
             </div>
+            <div className={styles.tabHintRow}>{active.hint}</div>
 
             {/* ── Preview ── */}
             <div className={styles.previewWrap}>
-              <pre className={styles.preview}>{preview}</pre>
+              <pre className={styles.preview}>{preview || '(nothing to export)'}</pre>
               {overflow > 0 && (
                 <div className={styles.overflow}>… {overflow} more line{overflow !== 1 ? 's' : ''}</div>
               )}
@@ -118,38 +137,25 @@ export default function ExportModal({
               <button
                 className={`${styles.btn} ${styles.btnCopy} ${copied ? styles.btnCopied : ''}`}
                 onClick={handleCopy}
+                disabled={!content}
               >
                 {copied ? <><CheckIcon size={12} /> Copied</> : <><CopyIcon size={12} /> Copy</>}
               </button>
               <button
                 className={`${styles.btn} ${styles.btnDownload}`}
-                onClick={() => downloadFile(content, filename, mime)}
+                onClick={() => downloadFile(content, filename, active.mime)}
+                disabled={!content}
               >
-                ↓ .{ext}
+                ↓ .{active.ext}
               </button>
               <button
                 className={`${styles.btn} ${styles.btnShare}`}
-                onClick={() => handleShare()}
+                onClick={handleShare}
+                disabled={!content}
                 title={canNativeShare() ? 'Open share sheet' : 'Copy to clipboard'}
               >
                 ↗ {canNativeShare() ? 'Share' : 'Copy link'}
               </button>
-            </div>
-
-            {/* ── Also export the other format ── */}
-            <div className={styles.altRow}>
-              <span className={styles.altLabel}>Also:</span>
-              {fmt === 'text' ? (
-                <>
-                  <button className={styles.altBtn} onClick={() => downloadFile(csvContent, `${safeTitle}.csv`, 'text/csv;charset=utf-8')}>↓ .csv</button>
-                  <button className={styles.altBtn} onClick={() => handleShare(csvContent, 'csv')}>↗ Share CSV</button>
-                </>
-              ) : (
-                <>
-                  <button className={styles.altBtn} onClick={() => downloadFile(textContent, `${safeTitle}.txt`, 'text/plain;charset=utf-8')}>↓ .txt</button>
-                  <button className={styles.altBtn} onClick={() => handleShare(textContent, 'text')}>↗ Share Text</button>
-                </>
-              )}
             </div>
 
             {/* ── Share status / phone hint ── */}

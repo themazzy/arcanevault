@@ -68,11 +68,12 @@
 
 /* ── Format tabs ── */
 .tabs {
-  display: flex; align-items: center; gap: 4px;
-  margin-bottom: 12px;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px;
+  margin-bottom: 8px;
 }
 .tab {
   min-height: 30px;
+  display: inline-flex; align-items: center; gap: 5px;
   background: transparent;
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 4px;
@@ -89,9 +90,9 @@
   border-color: rgba(201,168,76,0.25) !important;
   color: var(--gold) !important;
 }
-.tabHint {
-  margin-left: auto;
-  font-size: 0.7rem; color: var(--text-faint); font-style: italic;
+.tabHintRow {
+  font-size: 0.72rem; color: var(--text-faint); font-style: italic;
+  margin-bottom: 12px; min-height: 1em;
 }
 
 /* ── Preview ── */
@@ -138,6 +139,7 @@
   transition: all 0.15s; border: 1px solid;
   white-space: nowrap;
 }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .btnCopy {
   color: var(--text-dim);
   background: var(--s-subtle);
