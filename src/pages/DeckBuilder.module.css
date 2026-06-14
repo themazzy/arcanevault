@@ -4245,3 +4245,37 @@
   color: var(--gold);
 }
 .optimizeBtn:disabled { opacity: 0.55; cursor: default; }
+
+/* ── Deck History modal ─────────────────────────────────────────────────── */
+.historyList {
+  display: flex;
+  flex-direction: column;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.historyRow {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--s-border);
+  font-size: 0.84rem;
+}
+.historyRow:last-child { border-bottom: none; }
+.historyAction {
+  font-family: var(--font-display);
+  color: var(--gold);
+  flex: 0 0 auto;
+  min-width: 84px;
+}
+.historyDetail {
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+}
+.historyTime {
+  color: var(--text-faint);
+  font-size: 0.72rem;
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}

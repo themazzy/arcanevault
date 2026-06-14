@@ -569,6 +569,7 @@ Host creates a session → others visit `/join/:code` on their own device → ho
 - `game_players` — player slots per session; `user_id` is null until a player claims the slot
 - `game_results` — deck win/loss history: `session_id, user_id, deck_id, deck_name, format, player_count, placement`
 - `tracked_games` — historical game tracking records
+- `deck_changes` — deck-level action history (printing optimize, visibility, bracket, import, commander); one row per action, capped at 100/deck via the `prune_deck_changes` trigger, RLS owner-only. Logged via `src/lib/deckHistory.js` (`logDeckChange`, `fetchDeckHistory`); shown in the DeckBuilder "Deck History" modal. NOT per-card diffs
 - `feedback` — user bug reports & feature requests: `type ('bug'|'feature'), description, contact, user_id`
 - `feedback_attachments` — optional screenshots linked to `feedback`; files live in the `assets` storage bucket
 - `card_hashes` — pHash records for scanner: `scryfall_id, name, set_code, collector_number, image_uri, phash_hex (text, 64 hex chars), phash_hex2 (foil-tuned)`; read-only RLS for all users

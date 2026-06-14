@@ -26,6 +26,7 @@ import DeckStats, { normalizeDeckBuilderCards, CAT_COLORS, CAT_ORDER } from '../
 import { getScryfallKey, formatPrice, getPrice } from '../lib/scryfall'
 import { getCardCategoryFromCard, isTypeFallbackCategory } from '../lib/cardCategory'
 import { pickPrintingForMode, PRINTING_MODES } from '../lib/printingOptimize'
+import { logDeckChange, fetchDeckHistory } from '../lib/deckHistory'
 import ExportModal from '../components/ExportModal'
 import { fetchDeckAllocations, fetchDeckAllocationsForUser, fetchDeckCards, mergeAllocationRows, upsertDeckAllocations } from '../lib/deckData'
 import {
@@ -402,6 +403,8 @@ export default function DeckBuilderPage() {
   const [deckView,    setDeckView]    = useState('list')   // 'list' | 'compact' | 'stacks' | 'grid'
   const [showOptimize, setShowOptimize] = useState(false)
   const [optimizeBusy, setOptimizeBusy] = useState(null)   // mode id while running
+  const [showHistory, setShowHistory] = useState(false)
+  const [history, setHistory] = useState(null)             // null = loading
   const [showRight, setShowRight] = useState(() => typeof window !== 'undefined' && window.innerWidth <= 900)
   const wasMobileLayoutRef = useRef(typeof window !== 'undefined' ? window.innerWidth <= 900 : false)
   const [leftCollapsed, setLeftCollapsed] = useState(false)
@@ -1254,6 +1257,9 @@ export default function DeckBuilderPage() {
       <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowOptimize(true); close() }}>
         <span>Optimize Printings</span>
       </button>
+      <button className={uiStyles.responsiveMenuAction} onClick={() => { openHistory(); close() }}>
+        <span>Deck History</span>
+      </button>
       <button className={uiStyles.responsiveMenuAction} onClick={() => { handleCopyDeck(); close() }} disabled={copyDeckBusy}>
         <span>{copyDeckBusy ? 'Copying...' : 'Copy Deck'}</span>
         <CopyIcon size={13} />
@@ -1849,6 +1855,7 @@ export default function DeckBuilderPage() {
     setDeckMeta(newMeta)
     try {
       await sbExec(sb.from('folders').update({ description: serializeDeckMeta(withPersistentMetaFields(newMeta)) }).eq('id', deckId), { label: 'Toggle public failed' })
+      logDeckChange(deckId, user?.id, 'Visibility', newMeta.is_public ? 'Made public' : 'Made private')
     } catch {
       setDeckMeta(prev => ({ ...prev, is_public: previous }))
     }
@@ -1947,6 +1954,7 @@ export default function DeckBuilderPage() {
     clearTimeout(saveMetaTimer.current)
     try {
       await sbExec(sb.from('folders').update({ description: serializeDeckMeta(withPersistentMetaFields(newMeta)) }).eq('id', deckId), { label: 'Save commander info failed' })
+      logDeckChange(deckId, user?.id, 'Commander', `Set to ${cmdCard.name}`)
     } catch {}
   }
 
@@ -2208,10 +2216,18 @@ export default function DeckBuilderPage() {
 
       const label = PRINTING_MODES.find(m => m.id === mode)?.label || 'Optimized'
       showToast(`${label}: updated ${touched.length} card${touched.length === 1 ? '' : 's'}.`)
+      logDeckChange(deckId, user?.id, 'Printings', `${label} · ${touched.length} card${touched.length === 1 ? '' : 's'}`)
       setShowOptimize(false)
     } finally {
       setOptimizeBusy(null)
     }
+  }
+
+  async function openHistory() {
+    setShowHistory(true)
+    setHistory(null)
+    try { setHistory(await fetchDeckHistory(deckId)) }
+    catch { setHistory([]) }
   }
 
   // ── Add / remove / qty ────────────────────────────────────────────────────
@@ -4765,7 +4781,10 @@ export default function DeckBuilderPage() {
                   cards={normalizedStatsCards}
                   price_source={price_source}
                   bracketOverride={statsBracketOverride}
-                  onBracketOverride={setStatsBracketOverride}
+                  onBracketOverride={(n) => {
+                    setStatsBracketOverride(n)
+                    logDeckChange(deckId, user?.id, 'Bracket', n == null ? 'Reset to auto' : `Set to ${n}`)
+                  }}
                   showBracket={isEDH}
                   combos={{ fetched: combosFetched, loading: combosLoading, nameLists: comboNameLists, onCheck: fetchCombos }}
                 />
@@ -4861,6 +4880,29 @@ export default function DeckBuilderPage() {
               </button>
             ))}
           </div>
+        </Modal>
+      )}
+
+      {showHistory && (
+        <Modal onClose={() => setShowHistory(false)}>
+          <h2 className={styles.optimizeTitle}>Deck History</h2>
+          {history === null ? (
+            <p className={styles.optimizeHint}>Loading…</p>
+          ) : history.length === 0 ? (
+            <p className={styles.optimizeHint}>No deck actions recorded yet. Changes like printing optimizations, visibility, bracket, imports and commander show up here.</p>
+          ) : (
+            <div className={styles.historyList}>
+              {history.map(h => (
+                <div key={h.id} className={styles.historyRow}>
+                  <span className={styles.historyAction}>{h.action}</span>
+                  {h.detail && <span className={styles.historyDetail}>{h.detail}</span>}
+                  <span className={styles.historyTime}>
+                    {new Date(h.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </Modal>
       )}
 
@@ -5016,6 +5058,7 @@ export default function DeckBuilderPage() {
         userId={user.id}
         deckCardsRef={deckCardsRef}
         setDeckCards={setDeckCards}
+        onImported={(copies) => logDeckChange(deckId, user?.id, 'Import', `Imported ${copies} card${copies === 1 ? '' : 's'}`)}
       />
 
       {/* Read-only card detail modal */}
