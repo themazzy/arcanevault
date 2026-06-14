@@ -4983,7 +4983,7 @@ export default function DeckBuilderPage() {
               const busy = basicsBusy === land.name
               return (
                 <div key={land.name} className={styles.basicsRow}>
-                  <span className={`${styles.basicsPip} ${styles['pip' + land.color]}`}>{land.color}</span>
+                  <img className={styles.basicsManaIcon} src={manaSymbolUrl(land.color)} alt={land.color} loading="lazy" />
                   <span className={styles.basicsName}>{land.name}</span>
                   <div className={styles.basicsStepper}>
                     <button className={styles.basicsBtn} disabled={busy || count <= 0}
