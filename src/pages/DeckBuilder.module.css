@@ -287,6 +287,24 @@
   font-style: italic;
 }
 
+.companionStatus {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+.companionOk {
+  color: var(--green);
+  background: rgba(93,186,112,0.1);
+  border: 1px solid rgba(93,186,112,0.3);
+}
+.companionBad {
+  color: #e0a04a;
+  background: rgba(224,160,74,0.1);
+  border: 1px solid rgba(224,160,74,0.32);
+}
+
 .cmdImg {
   width: 28px;
   height: 20px;

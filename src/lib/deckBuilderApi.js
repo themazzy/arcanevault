@@ -172,9 +172,10 @@ export async function searchCards({ query = '', format, colorIdentity, cardType,
 }
 
 /** Search for valid commanders */
-export async function searchCommanders(q) {
+export async function searchCommanders(q, scope = 'commander') {
   if (!q || q.length < 2) return []
-  const query = encodeURIComponent(`"${q}" is:commander`)
+  const filter = scope === 'companion' ? 'keyword:companion' : 'is:commander'
+  const query = encodeURIComponent(`"${q}" ${filter}`)
   const data = await sfFetch(`${SF}/cards/search?q=${query}&order=edhrec&unique=cards`)
   return (data?.data || []).slice(0, 12)
 }

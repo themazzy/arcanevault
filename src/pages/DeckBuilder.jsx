@@ -29,7 +29,7 @@ import { getCardCategoryFromCard, isTypeFallbackCategory } from '../lib/cardCate
 import { pickPrintingForMode, PRINTING_MODES } from '../lib/printingOptimize'
 import { BASIC_LAND_TYPES, BASIC_LAND_NAMES } from '../lib/basicLands'
 import { addMissingToWishlist } from '../lib/setCompletion'
-import { isOathbreaker, isSignatureSpell, getOathbreakerPairIssue } from '../lib/commandZone'
+import { isOathbreaker, isSignatureSpell, getOathbreakerPairIssue, validateCompanion, companionDeckSizeBonus } from '../lib/commandZone'
 import { logDeckChange, fetchDeckHistory } from '../lib/deckHistory'
 import ExportModal from '../components/ExportModal'
 import { fetchDeckAllocations, fetchDeckAllocationsForUser, fetchDeckCards, mergeAllocationRows, upsertDeckAllocations } from '../lib/deckData'
@@ -348,6 +348,16 @@ export default function DeckBuilderPage() {
     handleQuery: handleCmdQuery,
     close:       closeCmdPicker,
   } = useCommanderSearch()
+
+  // Companion picker — separate search scoped to cards with the Companion keyword.
+  const {
+    query:       compQuery,
+    results:     compResults,
+    isOpen:      showCompPicker,
+    setIsOpen:   setShowCompPicker,
+    handleQuery: handleCompQuery,
+    close:       closeCompPicker,
+  } = useCommanderSearch({ scope: 'companion' })
 
   // Card detail modal (read-only, used throughout the builder)
   const [detailCard, setDetailCard] = useState(null) // { card, sfCard }
@@ -1014,7 +1024,26 @@ export default function DeckBuilderPage() {
     for (const c of commanderCards) for (const col of (c.color_identity || [])) cols.add(col)
     return [...cols]
   }, [commanderCards])
-  const deckSize       = format?.deckSize ?? 60
+  const deckSize       = (format?.deckSize ?? 60) + (deckMeta.companion ? companionDeckSizeBonus(deckMeta.companion) : 0)
+
+  // Companion validation — checks the designated companion against the starting
+  // (main-board) deck using full Scryfall data for type/oracle-text rules.
+  const companionValidation = useMemo(() => {
+    const companion = deckMeta.companion
+    if (!companion) return null
+    const merged = mainDeckCards.map(dc => {
+      const sf = dc.set_code && dc.collector_number ? builderSfMap[getScryfallKey(dc)] : null
+      return {
+        name: dc.name,
+        type_line: sf?.type_line || dc.type_line || '',
+        mana_cost: sf?.mana_cost || dc.mana_cost || '',
+        cmc: sf?.cmc ?? dc.cmc ?? 0,
+        oracle_text: getCommanderOracle(sf) || '',
+        qty: dc.qty || 1,
+      }
+    })
+    return validateCompanion(companion, merged)
+  }, [deckMeta.companion, mainDeckCards, builderSfMap])
 
   const isCollectionDeck = deck?.type === 'deck'
 
@@ -1088,8 +1117,18 @@ export default function DeckBuilderPage() {
       pushWarning({ key: 'unknown-legality', level: 'info', summary: `Legality unknown: ${unknownLegalityCount}`, detail: `Legality data is unavailable for ${unknownLegalityCount} card${unknownLegalityCount === 1 ? '' : 's'}.` })
     }
 
+    if (deckMeta.companion) {
+      if (companionValidation && !companionValidation.ok) {
+        pushWarning({ key: 'companion', level: 'error', summary: `Companion: ${companionValidation.offenders.length} illegal`, detail: `${deckMeta.companion.name}: ${companionValidation.note} Offenders: ${companionValidation.offenders.slice(0, 8).join(', ')}${companionValidation.offenders.length > 8 ? '…' : ''}.` })
+      }
+      if (isEDH && colorIdentity.length) {
+        const outside = (deckMeta.companion.color_identity || []).filter(c => !colorIdentity.includes(c))
+        if (outside.length) pushWarning({ key: 'companion-ci', level: 'error', summary: 'Companion off-color', detail: `${deckMeta.companion.name} is outside the commander color identity (${outside.join('')}).` })
+      }
+    }
+
     return warnings
-  }, [builderSfMap, colorIdentity, commanderCards, deckCards, deckSize, format, isEDH, mainDeckCards])
+  }, [builderSfMap, colorIdentity, commanderCards, deckCards, deckSize, format, isEDH, mainDeckCards, deckMeta.companion, companionValidation])
 
   const visibleDeckWarnings = useMemo(
     () => deckWarnings.filter(w => w.level === 'error'),
@@ -1999,6 +2038,33 @@ export default function DeckBuilderPage() {
       await sbExec(sb.from('folders').update({ description: serializeDeckMeta(withPersistentMetaFields(newMeta)) }).eq('id', deckId), { label: 'Save commander info failed' })
       logDeckChange(deckId, user?.id, 'Commander', `Set to ${cmdCard.name}`)
     } catch {}
+  }
+
+  // ── Companion ───────────────────────────────────────────────────────────────
+  function setCompanion(sfCard) {
+    closeCompPicker()
+    const companion = {
+      name:           sfCard.name,
+      scryfall_id:    sfCard.id,
+      color_identity: sfCard.color_identity || [],
+      image_uri:      getCardImageUri(sfCard, 'normal'),
+      type_line:      sfCard.type_line || sfCard.card_faces?.[0]?.type_line || '',
+      mana_cost:      sfCard.mana_cost || sfCard.card_faces?.[0]?.mana_cost || '',
+      cmc:            sfCard.cmc ?? 0,
+      oracle_text:    getCommanderOracle(sfCard),
+      keywords:       sfCard.keywords || [],
+    }
+    const newMeta = { ...deckMeta, companion }
+    setDeckMeta(newMeta)
+    saveMeta(newMeta)
+    logDeckChange(deckId, user?.id, 'Companion', `Set to ${companion.name}`)
+  }
+
+  function clearCompanion() {
+    const newMeta = { ...deckMeta }
+    delete newMeta.companion
+    setDeckMeta(newMeta)
+    saveMeta(newMeta)
   }
 
   // ── Card search ───────────────────────────────────────────────────────────
@@ -3998,6 +4064,58 @@ export default function DeckBuilderPage() {
                 )}
               </div>
             )}
+
+            {/* Companion — applies to Commander and Constructed formats */}
+            <div className={styles.cmdSection}>
+              <div className={styles.cmdLabel}>Companion</div>
+              {deckMeta.companion && !showCompPicker ? (
+                <>
+                  <div className={styles.cmdSelected} onClick={() => setShowCompPicker(true)}>
+                    {deckMeta.companion.image_uri && (
+                      <img className={styles.cmdImg} src={deckMeta.companion.image_uri} alt="" />
+                    )}
+                    <span className={styles.cmdName}>{deckMeta.companion.name}</span>
+                    <span className={styles.cmdChange} onClick={e => { e.stopPropagation(); clearCompanion() }}>clear</span>
+                  </div>
+                  {companionValidation && (
+                    <div className={`${styles.companionStatus} ${companionValidation.ok ? styles.companionOk : styles.companionBad}`}>
+                      {companionValidation.ok
+                        ? `Restriction met — ${companionValidation.note}`
+                        : `${companionValidation.offenders.length} card${companionValidation.offenders.length === 1 ? '' : 's'} break the restriction: ${companionValidation.offenders.slice(0, 8).join(', ')}${companionValidation.offenders.length > 8 ? '…' : ''}`}
+                    </div>
+                  )}
+                  {companionValidation && !companionValidation.ok && (
+                    <div className={styles.cmdHint}>{companionValidation.note}</div>
+                  )}
+                </>
+              ) : (
+                <div>
+                  <input
+                    autoFocus={showCompPicker}
+                    className={styles.cmdInput}
+                    value={compQuery}
+                    onChange={e => handleCompQuery(e.target.value)}
+                    onBlur={() => setTimeout(() => setShowCompPicker(false), 200)}
+                    placeholder="Search for a companion..."
+                  />
+                  {showCompPicker && compResults.length > 0 && (
+                    <div className={styles.cmdDropdown}>
+                      {compResults.map(c => (
+                        <div key={c.id} className={styles.cmdResult} onMouseDown={() => setCompanion(c)}>
+                          {getCardImageUri(c, 'small') && (
+                            <img className={styles.cmdResultImg} src={getCardImageUri(c, 'small')} alt="" />
+                          )}
+                          <div>
+                            <div className={styles.cmdResultName}>{c.name}</div>
+                            <div className={styles.cmdResultType}>{c.type_line}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
 
             {/* Public/private toggle */}
             <div className={`${styles.formatRow} ${styles.visibilityControlRow}`}>
