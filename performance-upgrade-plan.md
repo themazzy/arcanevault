@@ -118,3 +118,25 @@ Both platforms benefit (Android WebView supports SW).
 | 5 Asset/bundle trims | 1 d | both | marginal, cheap |
 
 Suggested sequencing: 0 → 1 → 2 → 3, re-measure, then decide 4/5.
+
+## Resolution (2026-06-14)
+
+Phases 0–2 shipped (incl. the Phase 2e price-overlay deep-dive: negative
+cache + worker price prefetch). After re-measuring, the remaining phases were
+decided as follows:
+
+- **Phase 3 (card_prints bulk seed) — SKIPPED.** Cold-start on a new device is
+  a one-time cost and per-load speed is already solved; not worth hundreds of
+  MB on the 500 MB free tier. Revisit if first-load complaints appear or the
+  tier is upgraded.
+- **Phase 4 (Android SQLite) — SKIPPED.** Was gated on the numbers, which came
+  back healthy (hydrate ~280 ms off-thread, overlay ~95 ms). IDB-in-WebView is
+  no longer a top cost. Revisit only if the APK feels slow in real use.
+- **Phase 5 — only the Cloudflare asset cache rule is worth doing** (hand-off:
+  dashboard Cache Rule, URI path contains `/assets/`, Edge+Browser TTL 1 year;
+  hashed filenames make this safe — live headers were `max-age=14400` +
+  REVALIDATED). The recharts lazy-import was dropped: Stats is already
+  route-split, so the benefit is negligible for the refactor risk.
+
+Net: performance work is considered complete. Outstanding is the one manual
+Cloudflare cache-rule tweak.
