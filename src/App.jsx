@@ -102,6 +102,7 @@ const TournamentsPage = lazy(() => import('./pages/Tournaments'))
 const ScannerPage = lazy(() => import('./pages/Scanner'))
 const ProfilePage = lazy(() => import('./pages/Profile'))
 const RulebookPage = lazy(() => import('./pages/Rulebook'))
+const DiscoverPage = lazy(() => import('./pages/Discover'))
 
 function PrivateApp() {
   const { user, authEvent } = useAuth()
@@ -127,6 +128,7 @@ function PrivateApp() {
             <Route path="/help"        element={<HelpPage />} />
             <Route path="/rules"       element={<RulebookPage />} />
             <Route path="/admin"       element={<AdminPage />} />
+            <Route path="/discover"    element={<DiscoverPage />} />
             <Route path="/builder"     element={<BuilderPage />} />
             <Route path="/builder/:id/playtest" element={<DeckGoldfishPage />} />
             <Route path="/builder/:id" element={<DeckBuilderPage />} />

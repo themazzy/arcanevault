@@ -38,6 +38,15 @@ export function CollectionIcon(p) {
   )
 }
 
+export function DiscoverIcon(p) {
+  return (
+    <Icon {...p}>
+      <circle cx="8" cy="8" r="6.5" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" />
+      <path d="M10.8 5.2L7.4 7l-2.2 3.8 3.4-1.8 2.2-3.8z" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" strokeLinejoin="round" />
+    </Icon>
+  )
+}
+
 export function DecksIcon(p) {
   return (
     <Icon {...p}>
