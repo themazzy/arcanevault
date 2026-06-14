@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
-import { CheckIcon, CloseIcon, CopyIcon, TableViewIcon, TextViewIcon, CartIcon } from '../icons'
-import { cardsToCSV, cardsToText, cardsToArena, cardsToMtgoDek, cardsToBuylist, downloadFile, copyToClipboard, canNativeShare, shareOrCopy } from '../lib/exportUtils'
+import { CheckIcon, CloseIcon, CopyIcon, TableViewIcon, TextViewIcon } from '../icons'
+import { cardsToCSV, cardsToText, cardsToArena, cardsToMtgoDek, downloadFile, copyToClipboard, canNativeShare, shareOrCopy } from '../lib/exportUtils'
 import styles from './ExportModal.module.css'
 
 // ── ExportModal ───────────────────────────────────────────────────────────────
@@ -10,7 +10,6 @@ import styles from './ExportModal.module.css'
 //   title         — display title  (e.g. "My Deck", "Collection")
 //   folderType    — 'collection' | 'binder' | 'deck' | 'list'
 //   loading       — show a spinner while data is being fetched
-//   unownedCards  — (optional, decks) cards the user does NOT own, for the "Buylist" tab
 //   onClose       — called to dismiss
 
 export default function ExportModal({
@@ -20,17 +19,14 @@ export default function ExportModal({
   folderType = 'collection',
   loading = false,
   includeFoilIndicator = true,
-  unownedCards = null,
   onClose,
 }) {
   const isWishlist   = folderType === 'list'
   const isCollection = folderType === 'collection'
-  const isDeck       = folderType === 'deck'
   const noun         = isWishlist ? 'wants' : 'cards'
   const safeTitle    = title.replace(/[^a-z0-9]/gi, '_').toLowerCase()
 
-  // Available formats. Arena/MTGO only make sense for actual decks; the buylist
-  // tab only appears when the caller computed un-owned cards.
+  // Available formats. Arena/MTGO only make sense for actual decks.
   const formats = useMemo(() => {
     const list = [
       { id: 'text', label: 'Text', icon: TextViewIcon,  ext: 'txt', mime: 'text/plain;charset=utf-8',
@@ -50,15 +46,8 @@ export default function ExportModal({
           build: () => cardsToMtgoDek(cards, sfMap) },
       )
     }
-    if (isDeck && Array.isArray(unownedCards)) {
-      list.push({ id: 'buylist', label: 'Buylist', icon: CartIcon, ext: 'txt', mime: 'text/plain;charset=utf-8',
-        hint: unownedCards.length
-          ? `${unownedCards.length} card${unownedCards.length !== 1 ? 's' : ''} you don't own — paste into TCGplayer / Cardmarket`
-          : 'You already own every card in this deck',
-        build: () => cardsToBuylist(unownedCards, sfMap) })
-    }
     return list
-  }, [cards, sfMap, title, folderType, isCollection, isWishlist, isDeck, includeFoilIndicator, unownedCards])
+  }, [cards, sfMap, title, folderType, isCollection, isWishlist, includeFoilIndicator])
 
   const [fmt, setFmt]           = useState('text')
   const [copied, setCopied]     = useState(false)

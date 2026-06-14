@@ -114,25 +114,6 @@ export function cardsToMtgoDek(cards, sfMap = {}) {
   ].join('\n')
 }
 
-/**
- * Acquisition buylist — plain "<qty> <name>" lines, one per card. This is the
- * bulk-entry format accepted by TCGplayer Mass Entry and Cardmarket's
- * "Want list" import. The "maybe" board is excluded; quantities are summed by
- * name so split printings collapse into a single line.
- */
-export function cardsToBuylist(cards, sfMap = {}) {
-  const byName = new Map()
-  for (const c of cards || []) {
-    if (boardOf(c) === 'maybe') continue
-    const name = cardName(c, sfMap)
-    byName.set(name, (byName.get(name) || 0) + cardQty(c))
-  }
-  return [...byName.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([name, qty]) => `${qty} ${name}`)
-    .join('\n')
-}
-
 /** Trigger a browser file download. */
 export function downloadFile(content, filename, type = 'text/plain;charset=utf-8') {
   const blob = new Blob([content], { type })

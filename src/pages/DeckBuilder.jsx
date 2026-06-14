@@ -28,6 +28,7 @@ import { getScryfallKey, formatPrice, getPrice } from '../lib/scryfall'
 import { getCardCategoryFromCard, isTypeFallbackCategory } from '../lib/cardCategory'
 import { pickPrintingForMode, PRINTING_MODES } from '../lib/printingOptimize'
 import { BASIC_LAND_TYPES, BASIC_LAND_NAMES } from '../lib/basicLands'
+import { addMissingToWishlist } from '../lib/setCompletion'
 import { logDeckChange, fetchDeckHistory } from '../lib/deckHistory'
 import ExportModal from '../components/ExportModal'
 import { fetchDeckAllocations, fetchDeckAllocationsForUser, fetchDeckCards, mergeAllocationRows, upsertDeckAllocations } from '../lib/deckData'
@@ -88,6 +89,7 @@ import {
   DeleteIcon,
   SyncIcon,
   CloseIcon,
+  WishlistsIcon,
 } from '../icons'
 import { lastInputWasTouch } from '../lib/inputType'
 import { bindTouchContextMenu, consumeLongPressClick } from '../lib/touchContextMenu'
@@ -409,6 +411,11 @@ export default function DeckBuilderPage() {
   const [history, setHistory] = useState(null)             // null = loading
   const [showBasics, setShowBasics] = useState(false)
   const [basicsBusy, setBasicsBusy] = useState(null)       // land name while writing
+  const [showMissing, setShowMissing] = useState(false)
+  const [missingWishlists, setMissingWishlists] = useState(null)  // null = loading
+  const [missingTargetId, setMissingTargetId] = useState('')
+  const [missingNewName, setMissingNewName] = useState('')
+  const [missingBusy, setMissingBusy] = useState(false)
   const [showRight, setShowRight] = useState(() => typeof window !== 'undefined' && window.innerWidth <= 900)
   const wasMobileLayoutRef = useRef(typeof window !== 'undefined' ? window.innerWidth <= 900 : false)
   const [leftCollapsed, setLeftCollapsed] = useState(false)
@@ -902,20 +909,23 @@ export default function DeckBuilderPage() {
   } = useCombosFetch({ commanderCard, deckCards, accessToken: session?.access_token })
   const mainDeckCards  = useMemo(() => deckCards.filter(dc => normalizeBoard(dc.board) === 'main'), [deckCards])
 
-  // Acquisition buylist — cards in the deck the user does NOT own (by name),
-  // basic lands excluded. Powers the "Buylist" tab in ExportModal.
-  const unownedCards = useMemo(() => {
-    const needed = new Map()
+  // Cards in the deck the user does NOT own (by name), basic lands excluded.
+  // Keeps a representative deck-card row per name so we can add the deck's
+  // chosen printing to a wishlist. Powers "Add missing to wishlist".
+  const missingCards = useMemo(() => {
+    const needed = new Map()   // name -> { qty, row }
     for (const dc of deckCards) {
       if (!dc.is_commander && normalizeBoard(dc.board) === 'maybe') continue
       const name = (dc.name || '').trim()
       if (!name || BASIC_LAND_NAMES.has(name.toLowerCase())) continue
-      needed.set(name, (needed.get(name) || 0) + (dc.qty || 0))
+      const ex = needed.get(name)
+      if (ex) ex.qty += (dc.qty || 0)
+      else needed.set(name, { qty: dc.qty || 0, row: dc })
     }
     const out = []
-    for (const [name, qty] of needed) {
+    for (const [name, { qty, row }] of needed) {
       const missing = Math.max(0, qty - (ownedNameMap.get(name.toLowerCase()) || 0))
-      if (missing > 0) out.push({ name, qty: missing })
+      if (missing > 0) out.push({ name, qty: missing, row })
     }
     return out
   }, [deckCards, ownedNameMap])
@@ -1278,6 +1288,10 @@ export default function DeckBuilderPage() {
       </button>
       <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowBasics(true); close() }}>
         <span>Add Basic Lands</span>
+      </button>
+      <button className={uiStyles.responsiveMenuAction} onClick={() => { openMissingWishlist(); close() }}>
+        <span>Add Missing to Wishlist</span>
+        <WishlistsIcon size={13} />
       </button>
       <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowOptimize(true); close() }}>
         <span>Optimize Printings</span>
@@ -2447,6 +2461,69 @@ export default function DeckBuilderPage() {
       if (added && target > 1) await writeQty(added, target)
     } finally {
       setBasicsBusy(null)
+    }
+  }
+
+  // ── Add missing to wishlist ─────────────────────────────────────────────────
+  // Loads the user's wishlists (list folders) and opens the picker modal.
+  async function openMissingWishlist() {
+    setShowMissing(true)
+    setMissingWishlists(null)
+    setMissingNewName(`${deckName || 'Deck'} — Wishlist`)
+    try {
+      const { data } = await sb
+        .from('folders')
+        .select('id, name, description, type')
+        .eq('user_id', user.id)
+        .eq('type', 'list')
+        .order('name')
+      const lists = (data || []).filter(f => !isGroupFolder(f))
+      setMissingWishlists(lists)
+      setMissingTargetId(lists[0]?.id || '')
+    } catch {
+      setMissingWishlists([])
+      setMissingTargetId('')
+    }
+  }
+
+  // Adds every missing card (the deck's chosen printing) to the given wishlist.
+  // When folderId is null, creates a new list folder named missingNewName first.
+  async function addMissingToWishlistAction(folderId) {
+    if (!missingCards.length || missingBusy) return
+    setMissingBusy(true)
+    try {
+      let targetId = folderId
+      let targetName = missingWishlists?.find(w => w.id === folderId)?.name
+      if (!targetId) {
+        const name = (missingNewName || '').trim() || `${deckName || 'Deck'} — Wishlist`
+        const { data, error } = await sb
+          .from('folders')
+          .insert({ user_id: user.id, type: 'list', name })
+          .select('id, name')
+          .single()
+        if (error) throw error
+        targetId = data.id
+        targetName = data.name
+      }
+      const sfCards = missingCards.map(({ row }) => ({
+        id: row.scryfall_id,
+        name: row.name,
+        set: row.set_code,
+        collector_number: row.collector_number,
+        type_line: row.type_line,
+        mana_cost: row.mana_cost,
+        cmc: row.cmc,
+        color_identity: row.color_identity,
+        image_uris: row.image_uri ? { normal: row.image_uri } : null,
+      }))
+      const added = await addMissingToWishlist({ folderId: targetId, userId: user.id, sfCards })
+      window.dispatchEvent(new CustomEvent('av:wishlist-updated'))
+      showToast(`Added ${added} card${added === 1 ? '' : 's'} to ${targetName || 'wishlist'}.`)
+      setShowMissing(false)
+    } catch (err) {
+      showToast(err?.message || 'Could not add cards to the wishlist.', { tone: 'error' })
+    } finally {
+      setMissingBusy(false)
     }
   }
 
@@ -5021,6 +5098,55 @@ export default function DeckBuilderPage() {
         </Modal>
       )}
 
+      {showMissing && (
+        <Modal onClose={() => { if (!missingBusy) setShowMissing(false) }}>
+          <h2 className={styles.optimizeTitle}>Add Missing to Wishlist</h2>
+          {missingCards.length === 0 ? (
+            <p className={styles.optimizeHint}>You already own every card in this deck. Nothing to add.</p>
+          ) : (
+            <>
+              <p className={styles.optimizeHint}>
+                {missingCards.length} card{missingCards.length === 1 ? '' : 's'} in this deck {missingCards.length === 1 ? 'is' : 'are'} not in your collection (basic lands excluded). Add {missingCards.length === 1 ? 'it' : 'them'} to a wishlist:
+              </p>
+              {missingWishlists === null ? (
+                <p className={styles.optimizeHint}>Loading wishlists…</p>
+              ) : (
+                <div className={styles.missingWishForm}>
+                  {missingWishlists.length > 0 && (
+                    <div className={styles.missingWishRow}>
+                      <Select title="Choose wishlist" value={missingTargetId} onChange={e => setMissingTargetId(e.target.value)}>
+                        {missingWishlists.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                      </Select>
+                      <button className={styles.optimizeBtn} disabled={missingBusy || !missingTargetId}
+                        onClick={() => addMissingToWishlistAction(missingTargetId)}>
+                        {missingBusy ? 'Adding…' : `Add ${missingCards.length}`}
+                      </button>
+                    </div>
+                  )}
+                  <div className={styles.missingWishDivider}>
+                    <span>{missingWishlists.length > 0 ? 'or create a new one' : 'create a wishlist'}</span>
+                  </div>
+                  <div className={styles.missingWishRow}>
+                    <input
+                      className={styles.basicsInput}
+                      style={{ flex: 1, width: 'auto', textAlign: 'left', padding: '0 10px' }}
+                      value={missingNewName}
+                      onChange={e => setMissingNewName(e.target.value)}
+                      placeholder="New wishlist name"
+                      maxLength={80}
+                    />
+                    <button className={styles.optimizeBtn} disabled={missingBusy || !missingNewName.trim()}
+                      onClick={() => addMissingToWishlistAction(null)}>
+                      {missingBusy ? 'Adding…' : 'Create & add'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </Modal>
+      )}
+
       <ShareDeckModal
         state={shareState}
         deckId={deckId}
@@ -5038,7 +5164,6 @@ export default function DeckBuilderPage() {
           title={deckName || 'Deck'}
           folderType="deck"
           includeFoilIndicator={false}
-          unownedCards={unownedCards}
           onClose={() => setShowExport(false)}
         />
       )}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { cardsToArena, cardsToMtgoDek, cardsToBuylist } from './exportUtils'
+import { cardsToArena, cardsToMtgoDek } from './exportUtils'
 
 const deck = [
   { name: 'Atraxa, Praetors Voice', set_code: 'cmr', collector_number: '28', qty: 1, is_commander: true },
@@ -40,21 +40,5 @@ describe('cardsToMtgoDek', () => {
   it('escapes XML-special characters in names', () => {
     const out = cardsToMtgoDek([{ name: 'Borrowing 100,000 Arrows & "Stuff"', qty: 1 }])
     expect(out).toContain('Name="Borrowing 100,000 Arrows &amp; &quot;Stuff&quot;"')
-  })
-})
-
-describe('cardsToBuylist', () => {
-  it('sums by name, sorts alphabetically, excludes maybe', () => {
-    const out = cardsToBuylist([
-      { name: 'Sol Ring', qty: 1 },
-      { name: 'Lightning Bolt', qty: 2 },
-      { name: 'Lightning Bolt', qty: 2 },
-      { name: 'Maybe Card', qty: 1, board: 'maybe' },
-    ])
-    expect(out).toBe('4 Lightning Bolt\n1 Sol Ring')
-  })
-
-  it('returns empty string for an empty list', () => {
-    expect(cardsToBuylist([])).toBe('')
   })
 })

@@ -4360,3 +4360,31 @@
   outline: none;
   border-color: rgba(201, 168, 76, 0.55);
 }
+
+/* ── Add Missing to Wishlist modal ──────────────────────────────────────── */
+.missingWishForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.missingWishRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.missingWishRow > :first-child { flex: 1; min-width: 0; }
+.missingWishDivider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-faint);
+  font-size: 0.72rem;
+  font-style: italic;
+}
+.missingWishDivider::before,
+.missingWishDivider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--s-border);
+}
