@@ -7,8 +7,11 @@ vi.mock('./scryfall', () => ({
   sfUrl: (u) => u,
 }))
 
-import { parseTextDecklist, parseImportUrl, searchCards, fetchPaperPrintings, getDeckBuilderCardMeta, importProxyUrl } from './deckBuilderApi'
+vi.mock('./supabase', () => ({ sb: { from: vi.fn() } }))
+
+import { parseTextDecklist, parseImportUrl, searchCards, fetchPaperPrintings, getDeckBuilderCardMeta, importProxyUrl, fetchPaperPrintingsByNamesFromDb } from './deckBuilderApi'
 import { sfGet } from './scryfall'
+import { sb } from './supabase'
 
 describe('importProxyUrl', () => {
   it('builds worker proxy URLs on the prod origin', () => {
@@ -235,5 +238,52 @@ describe('fetchPaperPrintings — face-name collision', () => {
     })
     const printings = await fetchPaperPrintings('Fire // Ice')
     expect(printings).toHaveLength(1)
+  })
+})
+
+describe('fetchPaperPrintingsByNamesFromDb', () => {
+  beforeEach(() => {
+    sb.from.mockReset()
+    // /sets release-date lookup
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: [
+        { code: 'lea', released_at: '1993-08-05' },
+        { code: 'm10', released_at: '2009-07-17' },
+      ] }),
+    })
+  })
+  afterEach(() => { vi.restoreAllMocks() })
+
+  // Chainable query-builder stub: `.select().in()` resolves to { data }.
+  const stub = data => ({ select: () => ({ in: () => Promise.resolve({ data }) }) })
+
+  it('shapes prints, attaches newest-snapshot prices, sorts newest-first', async () => {
+    sb.from.mockImplementation(table => {
+      if (table === 'card_prints') return stub([
+        { scryfall_id: 'p-old', name: 'Lightning Bolt', set_code: 'lea', collector_number: '161', type_line: 'Instant', mana_cost: '{R}', cmc: 1, color_identity: ['R'], image_uri: 'old.jpg' },
+        { scryfall_id: 'p-new', name: 'Lightning Bolt', set_code: 'm10', collector_number: '146', type_line: 'Instant', mana_cost: '{R}', cmc: 1, color_identity: ['R'], image_uri: 'new.jpg' },
+      ])
+      if (table === 'card_prices') return stub([
+        { scryfall_id: 'p-old', snapshot_date: '2026-06-13', price_regular_eur: 99, price_foil_eur: null, price_regular_usd: 120, price_foil_usd: null },
+        { scryfall_id: 'p-old', snapshot_date: '2026-06-14', price_regular_eur: 80, price_foil_eur: null, price_regular_usd: 100, price_foil_usd: null },
+        { scryfall_id: 'p-new', snapshot_date: '2026-06-14', price_regular_eur: 2, price_foil_eur: 5, price_regular_usd: 3, price_foil_usd: 6 },
+      ])
+      return stub([])
+    })
+
+    const map = await fetchPaperPrintingsByNamesFromDb(['Lightning Bolt'])
+    const prints = map.get('Lightning Bolt')
+    expect(prints.map(p => p.id)).toEqual(['p-new', 'p-old'])   // newest set first
+    expect(prints[0]).toMatchObject({ set: 'm10', released_at: '2009-07-17' })
+    expect(prints[0].prices).toEqual({ eur: '2', eur_foil: '5', usd: '3', usd_foil: '6' })
+    // newest snapshot (06-14: 80) wins over older (06-13: 99)
+    expect(prints[1].prices.eur).toBe('80')
+  })
+
+  it('returns an empty array for names with no catalog rows', async () => {
+    sb.from.mockImplementation(() => stub([]))
+    const map = await fetchPaperPrintingsByNamesFromDb(['Nonexistent Card'])
+    expect(map.get('Nonexistent Card')).toEqual([])
   })
 })

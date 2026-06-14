@@ -10,6 +10,7 @@ import {
   parseDeckMeta, serializeDeckMeta, getCardImageUri,
   fetchCardsByNames, fetchCardsByScryfallIds, getDeckBuilderCardMeta,
   fetchEdhrecCommander, fetchPaperPrintings,
+  fetchPaperPrintingsFromDb, fetchPaperPrintingsByNamesFromDb,
 } from '../lib/deckBuilderApi'
 import {
   getLocalCards, getDeckCards, putDeckCards, deleteDeckCardLocal, getMeta, setMeta,
@@ -1989,7 +1990,13 @@ export default function DeckBuilderPage() {
     if (!name) return []
     const key = normalizeCardName(name)
     if (printingLookupCache.current.has(key)) return printingLookupCache.current.get(key)
-    const printings = await fetchPaperPrintings(name)
+    // Source from our own card_prints/card_prices catalog first (no Scryfall
+    // rate limit); only fall back to a live Scryfall search if we have no rows.
+    let printings = []
+    try { printings = await fetchPaperPrintingsFromDb(name) } catch { printings = [] }
+    if (!printings.length) {
+      try { printings = await fetchPaperPrintings(name) } catch { printings = [] }
+    }
     printingLookupCache.current.set(key, printings)
     return printings
   }
@@ -2164,8 +2171,19 @@ export default function DeckBuilderPage() {
         }
       } else {
         const names = [...new Set(cards.map(dc => dc.name).filter(Boolean))]
+        // One batched DB read for the whole deck (card_prints + card_prices) —
+        // no per-card Scryfall search. Names missing from the catalog fall back
+        // to a single live Scryfall lookup each (rare).
         const printsByName = {}
+        let dbMap = new Map()
+        try { dbMap = await fetchPaperPrintingsByNamesFromDb(names) } catch { dbMap = new Map() }
+        const missing = []
         for (const name of names) {
+          const rows = dbMap.get(name) || []
+          if (rows.length) { printsByName[name] = rows; printingLookupCache.current.set(normalizeCardName(name), rows) }
+          else missing.push(name)
+        }
+        for (const name of missing) {
           try { printsByName[name] = await fetchPrintingsForDeckCardName(name) }
           catch { printsByName[name] = [] }
         }

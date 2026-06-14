@@ -8,6 +8,7 @@
 
 import { sfGet, sfUrl } from './scryfall'
 import { getProdAppUrl } from './publicUrl'
+import { sb } from './supabase'
 
 const SF = 'https://api.scryfall.com'
 const EDHREC = 'https://json.edhrec.com'
@@ -233,6 +234,118 @@ export async function fetchPaperPrintings(name) {
   // results for an unrelated request ("Wheel of Fortune"). Require the primary
   // card name to match so we never return a different card's printings.
   return (data?.data || []).filter(p => p?.name === name)
+}
+
+// ── Printings from our own DB (card_prints + card_prices) ───────────────────
+// The deck-builder printing optimizer used to fetch every card's printings from
+// Scryfall (one `unique:prints` search per card), which trips Scryfall's rate
+// limit (429 + CORS) on real decks. We mirror the full print catalog in
+// `card_prints` and daily prices in `card_prices`, so we source from there.
+// `card_prints` has no release date, so we map set_code → released_at via a
+// single cached Scryfall /sets request.
+
+let _setReleaseMap = null
+let _setReleasePromise = null
+const SET_RELEASE_KEY = 'dl_set_releases_v1'
+
+async function getSetReleaseMap() {
+  if (_setReleaseMap) return _setReleaseMap
+  try {
+    const raw = JSON.parse(localStorage.getItem(SET_RELEASE_KEY) || 'null')
+    if (raw?.map && raw.exp > Date.now()) { _setReleaseMap = raw.map; return _setReleaseMap }
+  } catch {}
+  if (!_setReleasePromise) {
+    _setReleasePromise = (async () => {
+      const map = {}
+      try {
+        const res = await fetch(`${SF}/sets`)
+        const data = res.ok ? await res.json() : null
+        for (const s of data?.data || []) {
+          if (s?.code && s?.released_at) map[String(s.code).toLowerCase()] = s.released_at
+        }
+        try { localStorage.setItem(SET_RELEASE_KEY, JSON.stringify({ exp: Date.now() + 7 * 86400 * 1000, map })) } catch {}
+      } catch {}
+      _setReleaseMap = map
+      return map
+    })()
+  }
+  return _setReleasePromise
+}
+
+function dbPrintToScryfallShape(p, priceRow, setReleases) {
+  return {
+    id: p.scryfall_id,
+    name: p.name,
+    set: p.set_code,
+    set_code: p.set_code,
+    collector_number: p.collector_number,
+    type_line: p.type_line,
+    mana_cost: p.mana_cost,
+    cmc: p.cmc,
+    color_identity: p.color_identity || [],
+    image_uris: p.image_uri ? { normal: p.image_uri } : null,
+    released_at: setReleases[String(p.set_code || '').toLowerCase()] || null,
+    prices: {
+      eur:      priceRow?.price_regular_eur != null ? String(priceRow.price_regular_eur) : null,
+      eur_foil: priceRow?.price_foil_eur    != null ? String(priceRow.price_foil_eur)    : null,
+      usd:      priceRow?.price_regular_usd != null ? String(priceRow.price_regular_usd) : null,
+      usd_foil: priceRow?.price_foil_usd    != null ? String(priceRow.price_foil_usd)    : null,
+    },
+  }
+}
+
+/**
+ * All paper printings for a batch of card names, sourced from card_prints +
+ * card_prices. Returns Map<name, scryfallShapedPrint[]> sorted newest-first
+ * (mirroring Scryfall's `order=released&dir=desc`). Names with no rows map to [].
+ */
+export async function fetchPaperPrintingsByNamesFromDb(names) {
+  const result = new Map((names || []).filter(Boolean).map(n => [n, []]))
+  const uniqueNames = [...result.keys()]
+  if (!uniqueNames.length) return result
+
+  const allPrints = []
+  for (let i = 0; i < uniqueNames.length; i += 200) {
+    const batch = uniqueNames.slice(i, i + 200)
+    const { data, error } = await sb
+      .from('card_prints')
+      .select('scryfall_id,name,set_code,collector_number,type_line,mana_cost,cmc,color_identity,image_uri')
+      .in('name', batch)
+    if (error) throw error
+    if (data) allPrints.push(...data)
+  }
+  if (!allPrints.length) return result
+
+  const ids = [...new Set(allPrints.map(p => p.scryfall_id).filter(Boolean))]
+  const priceMap = new Map()   // scryfall_id → newest price row
+  for (let i = 0; i < ids.length; i += 400) {
+    const batch = ids.slice(i, i + 400)
+    const { data: prices } = await sb
+      .from('card_prices')
+      .select('scryfall_id,snapshot_date,price_regular_eur,price_foil_eur,price_regular_usd,price_foil_usd')
+      .in('scryfall_id', batch)
+    for (const row of prices || []) {
+      const ex = priceMap.get(row.scryfall_id)
+      if (!ex || row.snapshot_date > ex.snapshot_date) priceMap.set(row.scryfall_id, row)
+    }
+  }
+
+  const setReleases = await getSetReleaseMap()
+  for (const p of allPrints) {
+    if (!result.has(p.name)) result.set(p.name, [])
+    result.get(p.name).push(dbPrintToScryfallShape(p, priceMap.get(p.scryfall_id), setReleases))
+  }
+  for (const arr of result.values()) {
+    arr.sort((a, b) => (b.released_at || '').localeCompare(a.released_at || ''))
+  }
+  return result
+}
+
+/** Single-name convenience wrapper over fetchPaperPrintingsByNamesFromDb. */
+export async function fetchPaperPrintingsFromDb(name) {
+  if (!name) return []
+  const map = await fetchPaperPrintingsByNamesFromDb([name])
+  return map.get(name) || []
 }
 
 // ── EDHRec ────────────────────────────────────────────────────────────────────
