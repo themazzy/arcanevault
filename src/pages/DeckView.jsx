@@ -708,7 +708,10 @@ export default function DeckViewPage() {
       <div className={styles.deckHeader}>
         <div className={styles.deckHeaderInner}>
           <div className={styles.deckInfo}>
-            <h1 className={styles.deckTitle}>{deck.name}</h1>
+            <div className={styles.deckTitleRow}>
+              <h1 className={styles.deckTitle}>{deck.name}</h1>
+              {deckMeta.is_public && <DeckLikeButton deckId={id} user={user} />}
+            </div>
             {creatorNick && (
               <div className={styles.deckCreator}>
                 by{' '}
@@ -737,7 +740,6 @@ export default function DeckViewPage() {
                 <div className={styles.viewerText}>Copy this list straight into your deckbuilder.</div>
               </div>
               <div className={styles.viewerActions}>
-                {deckMeta.is_public && <DeckLikeButton deckId={id} user={user} />}
                 <button
                   onClick={copyDeck}
                   disabled={copying || copyDone}
@@ -755,7 +757,6 @@ export default function DeckViewPage() {
             </div>
           ) : (
             <div className={styles.deckHeaderActions}>
-              {deckMeta.is_public && <DeckLikeButton deckId={id} user={user} />}
               <button
                 className={`${styles.actionBtn}${showDecklist ? ' ' + styles.actionBtnActive : ''}`}
                 onClick={() => setShowDecklist(v => !v)}

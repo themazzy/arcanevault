@@ -14,7 +14,7 @@ import {
   HomeIcon, CollectionIcon, DecksIcon, BuilderIcon, BindersIcon,
   WishlistsIcon, TradingIcon, StatsIcon, LifeIcon, ScannerIcon,
   SettingsIcon, MenuIcon, CloseIcon, BugIcon, InfoIcon, PlayerIcon,
-  ChevronDownIcon, ListViewIcon, DiscoverIcon,
+  ChevronDownIcon, ListViewIcon,
 } from '../icons'
 
 const TABS = [
@@ -28,7 +28,6 @@ const TABS = [
   { to: '/life', label: 'Life Tracker',        Icon: LifeIcon },
   { to: '/stats', label: 'Stats',       Icon: StatsIcon },
   { to: '/scanner', label: 'Scanner',    Icon: ScannerIcon },
-  { to: '/discover', label: 'Discover',  Icon: DiscoverIcon },
 ]
 
 const COLLECTION_NAV = TABS.filter(t => ['/collection', '/decks', '/binders'].includes(t.to))
@@ -606,14 +605,6 @@ export default function Layout({ children }) {
             >
               <ScannerIcon size={17} />
               Scanner
-            </NavLink>
-            <NavLink
-              to="/discover"
-              className={({ isActive }) => `${styles.mobileNavLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}
-              onClick={closeMobile}
-            >
-              <DiscoverIcon size={17} />
-              Discover
             </NavLink>
             <div className={styles.mobileNavFooter}>
               <NavLink

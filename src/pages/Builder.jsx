@@ -258,6 +258,9 @@ function CommunityDeckTile({ deck, meta, fmt, isOwn, creatorNick, navigate }) {
             >
               <EditIcon size={12} /> View
             </button>
+            {(deck.like_count > 0 || deck.comment_count > 0) && (
+              <span className={styles.communityStats}>♥ {deck.like_count || 0} · 💬 {deck.comment_count || 0}</span>
+            )}
             <div className={styles.editedDate}>{fmtRelDate(deck.updated_at)}</div>
           </div>
         </div>
@@ -303,6 +306,8 @@ export default function BuilderPage() {
   const [communityLoaded,  setCommunityLoaded]  = useState(false)
   const [communitySearch,  setCommunitySearch]  = useState('')
   const [communityFormat,  setCommunityFormat]  = useState('all')
+  const [communitySort,    setCommunitySort]    = useState('recent')   // trending | recent | commented | name
+  const [communityColors,  setCommunityColors]  = useState(() => new Set())
   const [communityPage,    setCommunityPage]    = useState(1)
   const COMMUNITY_PAGE_SIZE = 36
 
@@ -519,14 +524,43 @@ export default function BuilderPage() {
       return tb - ta
     })
 
-  const filteredCommunity = communityDecks.filter(d => {
-    const meta = d.__meta || parseDeckMeta(d.description)
-    if (communitySearch && !d.name.toLowerCase().includes(communitySearch.toLowerCase())) return false
-    if (communityFormat !== 'all' && meta.format !== communityFormat) return false
-    return true
-  })
-  const communityTotalPages = Math.max(1, Math.ceil(filteredCommunity.length / COMMUNITY_PAGE_SIZE))
-  const communityPageDecks  = filteredCommunity.slice((communityPage - 1) * COMMUNITY_PAGE_SIZE, communityPage * COMMUNITY_PAGE_SIZE)
+  const communityColorActive  = communityColors.size > 0
+  const communityFiltersActive = !!communitySearch.trim() || communityFormat !== 'all' || communityColorActive
+
+  const filteredCommunity = communityDecks
+    .filter(d => {
+      const meta = d.__meta || parseDeckMeta(d.description)
+      const q = communitySearch.trim().toLowerCase()
+      if (q) {
+        const cmd = (meta.commanders?.map(c => c.name).join(' ') || meta.commanderName || '').toLowerCase()
+        if (!d.name.toLowerCase().includes(q) && !cmd.includes(q)) return false
+      }
+      if (communityFormat !== 'all' && meta.format !== communityFormat) return false
+      if (communityColorActive) {
+        const ci = d.deck_color_identity || meta.commanderColorIdentity || []
+        for (const c of communityColors) if (!ci.includes(c)) return false
+      }
+      return true
+    })
+    .sort((a, b) => {
+      if (communitySort === 'name')      return (a.name || '').localeCompare(b.name || '')
+      if (communitySort === 'commented') return (b.comment_count || 0) - (a.comment_count || 0)
+      if (communitySort === 'trending')  return (b.like_count || 0) - (a.like_count || 0)
+      return (Date.parse(b.updated_at || b.created_at || 0) || 0) - (Date.parse(a.updated_at || a.created_at || 0) || 0)
+    })
+
+  // "Trending recently": most-liked decks touched in the last 30 days. Only on
+  // the unfiltered landing view; excluded from the grid below to avoid repeats.
+  const TRENDING_WINDOW_MS = 30 * 24 * 3600 * 1000
+  const trendingDecks = communityFiltersActive ? [] : [...communityDecks]
+    .filter(d => (d.like_count || 0) > 0 && (Date.now() - (Date.parse(d.updated_at || d.created_at || 0) || 0)) < TRENDING_WINDOW_MS)
+    .sort((a, b) => (b.like_count || 0) - (a.like_count || 0))
+    .slice(0, 3)
+  const trendingIds = new Set(trendingDecks.map(d => d.id))
+  const communityGrid = trendingDecks.length ? filteredCommunity.filter(d => !trendingIds.has(d.id)) : filteredCommunity
+
+  const communityTotalPages = Math.max(1, Math.ceil(communityGrid.length / COMMUNITY_PAGE_SIZE))
+  const communityPageDecks  = communityGrid.slice((communityPage - 1) * COMMUNITY_PAGE_SIZE, communityPage * COMMUNITY_PAGE_SIZE)
 
   return (
     <div className={styles.page}>
@@ -653,7 +687,7 @@ export default function BuilderPage() {
             className={styles.filterInput}
             value={communitySearch}
             onChange={e => { setCommunitySearch(e.target.value); setCommunityPage(1) }}
-            placeholder="Search community decks…"
+            placeholder="Search by deck or commander…"
           />
           <div className={styles.filterGroup}>
             {[['all','All'],['commander','Commander'],['standard','Standard'],['modern','Modern'],['pioneer','Pioneer'],['legacy','Legacy']].map(([v, label]) => (
@@ -664,7 +698,53 @@ export default function BuilderPage() {
               </button>
             ))}
           </div>
+          <div className={styles.filterGroup}>
+            {COLOR_ORDER.map(c => (
+              <button key={c}
+                className={`${styles.colorFilterPip}${communityColors.has(c) ? ' ' + styles.colorFilterPipActive : ''}`}
+                title={`Filter ${c}`}
+                onClick={() => {
+                  setCommunityColors(prev => { const n = new Set(prev); n.has(c) ? n.delete(c) : n.add(c); return n })
+                  setCommunityPage(1)
+                }}>
+                <img src={MANA_SYMBOL_URL(c)} alt={c} />
+              </button>
+            ))}
+          </div>
+          <div className={styles.filterGroup}>
+            {[['trending','Trending'],['recent','Recent'],['commented','Comments'],['name','A→Z']].map(([v, label]) => (
+              <button key={v}
+                className={`${styles.filterPill}${communitySort === v ? ' ' + styles.filterPillActive : ''}`}
+                onClick={() => { setCommunitySort(v); setCommunityPage(1) }}>
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
+
+        {!communityLoading && trendingDecks.length > 0 && (
+          <div className={styles.trendingSection}>
+            <div className={styles.trendingLabel}>Trending now</div>
+            <div className={styles.trendingGrid}>
+              {trendingDecks.map(deck => {
+                const meta  = deck.__meta || parseDeckMeta(deck.description)
+                const fmt   = FORMATS.find(f => f.id === (meta.format || 'commander'))
+                const isOwn = deck.user_id === user?.id
+                return (
+                  <CommunityDeckTile
+                    key={deck.id}
+                    deck={deck}
+                    meta={meta}
+                    fmt={fmt}
+                    isOwn={isOwn}
+                    creatorNick={communityNicks[deck.user_id] || null}
+                    navigate={navigate}
+                  />
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {communityLoading && <EmptyState>Loading community decks…</EmptyState>}
         {!communityLoading && !communityLoaded && <EmptyState>Loading…</EmptyState>}

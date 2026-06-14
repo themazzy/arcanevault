@@ -178,6 +178,13 @@
   min-width: 0;
 }
 
+.deckTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.deckTitleRow .deckTitle { margin-bottom: 10px; }
 .deckTitle {
   font-family: var(--font-display, 'Cinzel', serif);
   font-size: clamp(1.45rem, 2.3vw, 2.05rem);

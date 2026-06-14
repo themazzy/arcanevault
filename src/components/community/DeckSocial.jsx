@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { getDeckSocial, setDeckLike, getDeckComments, postComment, deleteComment } from '../../lib/community'
 import { CloseIcon } from '../../icons'
 import styles from './DeckSocial.module.css'
@@ -18,6 +18,7 @@ function timeAgo(iso) {
 export function DeckLikeButton({ deckId, user }) {
   const [social, setSocial] = useState(null)   // { like_count, viewer_liked, ... }
   const [busy, setBusy] = useState(false)
+  const navigate = useNavigate()
 
   useEffect(() => {
     let alive = true
@@ -26,14 +27,16 @@ export function DeckLikeButton({ deckId, user }) {
   }, [deckId])
 
   const toggle = useCallback(async () => {
-    if (!user || !social || busy) return
+    if (busy || !social) return
+    // Signed-out users get sent to login rather than a dead button.
+    if (!user) { navigate('/login'); return }
     const next = !social.viewer_liked
     setBusy(true)
     setSocial(s => ({ ...s, viewer_liked: next, like_count: Math.max(0, (s.like_count || 0) + (next ? 1 : -1)) }))
     try { await setDeckLike(deckId, user.id, next) }
     catch { setSocial(s => ({ ...s, viewer_liked: !next, like_count: Math.max(0, (s.like_count || 0) + (next ? -1 : 1)) })) }
     finally { setBusy(false) }
-  }, [user, social, busy, deckId])
+  }, [user, social, busy, deckId, navigate])
 
   if (!social) return null
   const count = social.like_count || 0
@@ -41,7 +44,7 @@ export function DeckLikeButton({ deckId, user }) {
     <button
       className={`${styles.likeBtn} ${social.viewer_liked ? styles.likeBtnOn : ''}`}
       onClick={toggle}
-      disabled={!user || busy}
+      disabled={busy}
       title={user ? (social.viewer_liked ? 'Unlike' : 'Like') : 'Sign in to like'}
       aria-pressed={social.viewer_liked}
     >
