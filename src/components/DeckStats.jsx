@@ -703,13 +703,17 @@ function ProbabilitySection({ deckSize, landCount, catCounts, typeCounts, creatu
   const flat = useMemo(() => groups.flatMap(g => g.items), [groups])
   const [targetValue, setTargetValue] = useState('lands')
   const [drawn, setDrawn] = useState(7)
+  const [wantK, setWantK] = useState(1)
 
   if (deckSize < 2 || !flat.length) return null
 
   const target = flat.find(t => t.value === targetValue) || flat[0]
   const K = target?.K || 0
   const n = Math.max(1, Math.min(Math.round(drawn) || 1, deckSize))
-  const atLeast1 = hypergeomAtLeast(deckSize, K, n, 1)
+  // "at least" copies: 1..min(target count, cards seen); above that it's impossible.
+  const kMax = Math.max(1, Math.min(K, n))
+  const k = Math.max(1, Math.min(Math.round(wantK) || 1, kMax))
+  const atLeastK = hypergeomAtLeast(deckSize, K, n, k)
   const exp = expectedCount(deckSize, K, n)
   const oh = openingHandLands(deckSize, landCount)
 
@@ -728,9 +732,14 @@ function ProbabilitySection({ deckSize, landCount, catCounts, typeCounts, creatu
 
       <div>
         <div className={styles.probCalcRow}>
-          <span className={styles.probCalcText}>Chance to draw</span>
+          <span className={styles.probCalcText}>Chance to draw at least</span>
+          <input
+            type="number" min={1} max={kMax} value={wantK}
+            onChange={e => setWantK(e.target.value)}
+            className={styles.probInput}
+          />
           <Select className={styles.probSelect} title="Target" value={targetValue} onChange={e => setTargetValue(e.target.value)}>
-            {groups.map((g, gi) => (
+            {groups.map((g) => (
               g.label
                 ? <optgroup key={g.label} label={g.label}>
                     {g.items.map(it => <option key={it.value} value={it.value}>{it.label} ({it.K})</option>)}
@@ -747,9 +756,9 @@ function ProbabilitySection({ deckSize, landCount, catCounts, typeCounts, creatu
           <span className={styles.probCalcText}>cards</span>
         </div>
         <div className={styles.probResult}>
-          <strong>{pct(atLeast1)}</strong> to draw at least one
+          <strong>{pct(atLeastK)}</strong> to draw {k === 1 ? 'at least one' : `${k}+`}
           <span className={styles.probResultSep}> · </span>
-          ~{exp.toFixed(2)} expected
+          ~{exp.toFixed(2)} expected in {n}
         </div>
       </div>
     </div>
