@@ -15,6 +15,7 @@ import { CardBrowserContent, CARD_BROWSER_VIEW_MODES } from '../components/CardB
 import { CloseIcon, CheckIcon, ChevronDownIcon, GridViewIcon, SearchIcon, SortIcon, StacksViewIcon, TextViewIcon, TableViewIcon } from '../icons'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import Markdown, { extractHeadings } from '../lib/miniMarkdown.jsx'
+import { DeckLikeButton, DeckComments } from '../components/community/DeckSocial'
 
 const RARITY_ORDER = ['mythic', 'rare', 'uncommon', 'common']
 const RARITY_GROUP_ORDER = ['Mythic', 'Rare', 'Uncommon', 'Common', 'Unknown']
@@ -736,6 +737,7 @@ export default function DeckViewPage() {
                 <div className={styles.viewerText}>Copy this list straight into your deckbuilder.</div>
               </div>
               <div className={styles.viewerActions}>
+                {deckMeta.is_public && <DeckLikeButton deckId={id} user={user} />}
                 <button
                   onClick={copyDeck}
                   disabled={copying || copyDone}
@@ -753,6 +755,7 @@ export default function DeckViewPage() {
             </div>
           ) : (
             <div className={styles.deckHeaderActions}>
+              {deckMeta.is_public && <DeckLikeButton deckId={id} user={user} />}
               <button
                 className={`${styles.actionBtn}${showDecklist ? ' ' + styles.actionBtnActive : ''}`}
                 onClick={() => setShowDecklist(v => !v)}
@@ -1046,6 +1049,8 @@ export default function DeckViewPage() {
           )}
         </div>
       </div>
+
+      {deckMeta.is_public && <DeckComments deckId={id} user={user} />}
     </div>
   )
 }
