@@ -48,7 +48,7 @@ function plainPreview(md) {
 
 // Truncate a tag list to a rough character budget so it fits within
 // the fixed-height tile. Appends a '…' chip if any tags were dropped.
-const TAG_CHAR_BUDGET = 36
+const TAG_CHAR_BUDGET = 64
 function clampTags(tags) {
   if (!Array.isArray(tags) || tags.length === 0) return []
   const out = []
@@ -756,8 +756,9 @@ export default function BuilderPage() {
           </EmptyState>
         )}
 
-        {!communityLoading && filteredCommunity.length > 0 && (
+        {!communityLoading && communityGrid.length > 0 && (
           <>
+            {trendingDecks.length > 0 && <div className={styles.communityAllLabel}>All Decks</div>}
             <div className={styles.grid}>
               {communityPageDecks.map(deck => {
                 const meta  = deck.__meta || parseDeckMeta(deck.description)
