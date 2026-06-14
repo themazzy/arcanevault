@@ -11,6 +11,7 @@ import { putCards } from '../lib/db'
 import { useLongPress } from '../hooks/useLongPress'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
 import { applyFilterSort as applyFilterSortCore } from '../lib/filterCore'
+import { buyLinksForCard } from '../lib/buyLinks'
 
 const NON_DRAGGABLE_IMG_PROPS = {
   draggable: false,
@@ -912,13 +913,13 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, deleteQty 
                 </div>
               )}
 
-              {fc.purchase_uris && (
+              {buyLinksForCard(fc).length > 0 && (
                 <div className={styles.detailSubsection}>
                   <div className={styles.priceSectionLabel}>Buy from</div>
                   <div className={styles.purchaseLinks}>
-                    {Object.entries(fc.purchase_uris).map(([store, url]) => (
-                      <a key={store} href={url} target="_blank" rel="noreferrer" className={styles.purchaseLink}>
-                        {store.replace(/_/g, ' ')}
+                    {buyLinksForCard(fc).map(link => (
+                      <a key={link.id} href={link.url} target="_blank" rel="noreferrer" className={styles.purchaseLink}>
+                        {link.label}
                       </a>
                     ))}
                   </div>
