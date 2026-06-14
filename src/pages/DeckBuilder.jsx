@@ -25,6 +25,7 @@ import { CardDetail } from '../components/CardComponents'
 import DeckStats, { normalizeDeckBuilderCards, CAT_COLORS, CAT_ORDER } from '../components/DeckStats'
 import { getScryfallKey, formatPrice, getPrice } from '../lib/scryfall'
 import { getCardCategoryFromCard, isTypeFallbackCategory } from '../lib/cardCategory'
+import { pickPrintingForMode, PRINTING_MODES } from '../lib/printingOptimize'
 import ExportModal from '../components/ExportModal'
 import { fetchDeckAllocations, fetchDeckAllocationsForUser, fetchDeckCards, mergeAllocationRows, upsertDeckAllocations } from '../lib/deckData'
 import {
@@ -399,6 +400,8 @@ export default function DeckBuilderPage() {
   const [deckGameResultsLoading, setDeckGameResultsLoading] = useState(false)
   const [deckGameResultsLoaded,  setDeckGameResultsLoaded]  = useState(false)
   const [deckView,    setDeckView]    = useState('list')   // 'list' | 'compact' | 'stacks' | 'grid'
+  const [showOptimize, setShowOptimize] = useState(false)
+  const [optimizeBusy, setOptimizeBusy] = useState(null)   // mode id while running
   const [showRight, setShowRight] = useState(() => typeof window !== 'undefined' && window.innerWidth <= 900)
   const wasMobileLayoutRef = useRef(typeof window !== 'undefined' ? window.innerWidth <= 900 : false)
   const [leftCollapsed, setLeftCollapsed] = useState(false)
@@ -1247,6 +1250,9 @@ export default function DeckBuilderPage() {
       </button>
       <button className={uiStyles.responsiveMenuAction} onClick={() => { resetAllCategories(); close() }}>
         <span>Reset Categories</span>
+      </button>
+      <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowOptimize(true); close() }}>
+        <span>Optimize Printings</span>
       </button>
       <button className={uiStyles.responsiveMenuAction} onClick={() => { handleCopyDeck(); close() }} disabled={copyDeckBusy}>
         <span>{copyDeckBusy ? 'Copying...' : 'Copy Deck'}</span>
@@ -2104,6 +2110,108 @@ export default function DeckBuilderPage() {
       await sbExec(sb.from('deck_cards').insert(toDeckCardRow(nextRow)), { label: 'Add card failed' })
       putDeckCards([nextRow]).catch(() => {})
     } catch {}
+  }
+
+  // ── Optimize printings ──────────────────────────────────────────────────────
+  // Bulk-set every deck card to a target printing (cheapest/expensive/oldest/
+  // newest) or finish (foil/nonfoil). Printing modes fetch all paper printings
+  // per unique card name (cached). Collisions on (card_print_id, foil, board)
+  // are merged by summing qty.
+  async function optimizePrintings(mode) {
+    if (optimizeBusy) return
+    setOptimizeBusy(mode)
+    try {
+      const cards = deckCardsRef.current.slice()
+      const now = new Date().toISOString()
+      const applied = [] // changed rows (full deck-card shape)
+
+      if (mode === 'foil' || mode === 'nonfoil') {
+        const targetFoil = mode === 'foil'
+        for (const dc of cards) {
+          if (!!dc.foil !== targetFoil) applied.push({ ...dc, foil: targetFoil, updated_at: now })
+        }
+      } else {
+        const names = [...new Set(cards.map(dc => dc.name).filter(Boolean))]
+        const printsByName = {}
+        for (const name of names) {
+          try { printsByName[name] = await fetchPrintingsForDeckCardName(name) }
+          catch { printsByName[name] = [] }
+        }
+        const pending = []
+        for (const dc of cards) {
+          const chosen = pickPrintingForMode(printsByName[dc.name], mode, { foil: !!dc.foil, priceSource: price_source })
+          if (!chosen) continue
+          const meta = getDeckBuilderCardMeta(chosen)
+          if (!meta.scryfall_id || meta.scryfall_id === dc.scryfall_id) continue // already this print
+          pending.push({ dc, meta })
+        }
+        if (pending.length) {
+          const hydrated = await requireCardPrintIds(pending.map(({ dc, meta }) => ({
+            card_print_id: null, scryfall_id: meta.scryfall_id, name: dc.name,
+            set_code: meta.set_code, collector_number: meta.collector_number,
+            type_line: meta.type_line, mana_cost: meta.mana_cost, cmc: meta.cmc,
+            color_identity: meta.color_identity, image_uri: meta.image_uri, foil: dc.foil,
+          }), 'Optimize printing'))
+          pending.forEach(({ dc, meta }, i) => {
+            applied.push({
+              ...dc,
+              card_print_id: hydrated[i].card_print_id,
+              scryfall_id: meta.scryfall_id,
+              set_code: meta.set_code,
+              collector_number: meta.collector_number,
+              image_uri: meta.image_uri,
+              updated_at: now,
+            })
+          })
+        }
+      }
+
+      if (!applied.length) {
+        showToast('No changes — printings already match.', { tone: 'info' })
+        return
+      }
+
+      // Build final deck state, then merge rows that now share
+      // (card_print_id, foil, board).
+      const byId = new Map(cards.map(dc => [dc.id, dc]))
+      for (const row of applied) byId.set(row.id, row)
+      const keyOf = r => `${r.card_print_id}|${r.foil ? 1 : 0}|${normalizeBoard(r.board)}`
+      const mergedByKey = new Map()
+      const deletedIds = []
+      for (const r of byId.values()) {
+        const k = keyOf(r)
+        const ex = mergedByKey.get(k)
+        if (ex) { ex.qty = (ex.qty || 0) + (r.qty || 0); deletedIds.push(r.id) }
+        else mergedByKey.set(k, { ...r })
+      }
+      const keptRows = [...mergedByKey.values()]
+
+      const origById = new Map(cards.map(dc => [dc.id, dc]))
+      const touched = keptRows.filter(r => {
+        const o = origById.get(r.id)
+        return !o || o.card_print_id !== r.card_print_id || !!o.foil !== !!r.foil ||
+          (o.qty || 0) !== (r.qty || 0) || o.scryfall_id !== r.scryfall_id
+      })
+
+      deckCardsRef.current = keptRows
+      setDeckCards(keptRows)
+      try {
+        if (touched.length) {
+          await sbExec(sb.from('deck_cards').upsert(touched.map(toDeckCardRow), { onConflict: 'id' }), { label: 'Optimize printings failed' })
+          putDeckCards(touched).catch(() => {})
+        }
+        if (deletedIds.length) {
+          await sbExec(sb.from('deck_cards').delete().in('id', deletedIds), { label: 'Optimize printings failed' })
+          await Promise.all(deletedIds.map(id => deleteDeckCardLocal(id).catch(() => {})))
+        }
+      } catch { return }
+
+      const label = PRINTING_MODES.find(m => m.id === mode)?.label || 'Optimized'
+      showToast(`${label}: updated ${touched.length} card${touched.length === 1 ? '' : 's'}.`)
+      setShowOptimize(false)
+    } finally {
+      setOptimizeBusy(null)
+    }
   }
 
   // ── Add / remove / qty ────────────────────────────────────────────────────
@@ -4732,6 +4840,28 @@ export default function DeckBuilderPage() {
           onRemoveTag={removeTag}
           onClose={() => setShowMetaModal(false)}
         />
+      )}
+
+      {showOptimize && (
+        <Modal onClose={() => { if (!optimizeBusy) setShowOptimize(false) }}>
+          <h2 className={styles.optimizeTitle}>Optimize Printings</h2>
+          <p className={styles.optimizeHint}>
+            Re-pick the printing of every card in this deck. Price modes use your
+            current price source and each card&apos;s foil setting.
+          </p>
+          <div className={styles.optimizeGrid}>
+            {PRINTING_MODES.map(m => (
+              <button
+                key={m.id}
+                className={styles.optimizeBtn}
+                disabled={!!optimizeBusy}
+                onClick={() => optimizePrintings(m.id)}
+              >
+                {optimizeBusy === m.id ? 'Working…' : m.label}
+              </button>
+            ))}
+          </div>
+        </Modal>
       )}
 
       <ShareDeckModal

@@ -4210,3 +4210,38 @@
   .shareModalFooter { justify-content: stretch; }
   .shareModalFooter > * { flex: 1; }
 }
+
+/* ── Optimize Printings modal ───────────────────────────────────────────── */
+.optimizeTitle {
+  font-family: var(--font-display);
+  color: var(--gold);
+  font-size: 1.05rem;
+  margin: 0 0 8px;
+}
+.optimizeHint {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  line-height: 1.5;
+  margin: 0 0 16px;
+}
+.optimizeGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.optimizeBtn {
+  padding: 12px 14px;
+  background: var(--s3);
+  border: 1px solid var(--s-border2);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.14s, border-color 0.14s, color 0.14s;
+}
+.optimizeBtn:hover:not(:disabled) {
+  background: var(--s-medium);
+  border-color: rgba(201, 168, 76, 0.45);
+  color: var(--gold);
+}
+.optimizeBtn:disabled { opacity: 0.55; cursor: default; }
