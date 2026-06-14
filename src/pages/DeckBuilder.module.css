@@ -2929,8 +2929,8 @@
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
   scrollbar-color: rgba(201,168,76,0.22) transparent;
-  --stack-col-w: 130px;
-  --stack-overlap: 0.75;
+  --stack-col-w: 200px;
+  --stack-overlap: 0.86;
 }
 
 .stackColumn {
@@ -3200,7 +3200,7 @@
 }
 
 @media (max-width: 640px) {
-  .stacksWrap { --stack-col-w: 108px; gap: 10px; }
+  .stacksWrap { --stack-col-w: 138px; gap: 10px; }
 }
 
 /* ── Group toggle ────────────────────────────────────────────── */
