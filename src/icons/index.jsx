@@ -38,6 +38,15 @@ export function CollectionIcon(p) {
   )
 }
 
+export function BellIcon(p) {
+  return (
+    <Icon {...p}>
+      <path d="M8 1.8a4 4 0 0 0-4 4v2.3c0 .6-.24 1.18-.67 1.6L2.4 10.6c-.5.5-.15 1.35.56 1.35h10.08c.71 0 1.06-.85.56-1.35l-.93-.9a2.27 2.27 0 0 1-.67-1.6V5.8a4 4 0 0 0-4-4Z" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" strokeLinejoin="round" />
+      <path d="M6.4 12.4a1.7 1.7 0 0 0 3.2 0" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" strokeLinecap="round" />
+    </Icon>
+  )
+}
+
 export function DiscoverIcon(p) {
   return (
     <Icon {...p}>

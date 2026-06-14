@@ -6,6 +6,7 @@ import { sb } from '../lib/supabase'
 import { useAuth } from './Auth'
 import { maskEmailAddress, useSettings } from './SettingsContext'
 import FeedbackModal from './FeedbackModal'
+import NotificationBell from './community/NotificationBell'
 import PageTips from './PageTips'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './Layout.module.css'
@@ -481,6 +482,8 @@ export default function Layout({ children }) {
               >
                 <ScannerIcon size={13} />Scan
               </NavLink>
+
+              {user && <NotificationBell />}
 
               <div
                 className={`${styles.userBar} ${styles.accountMenuWrap}`}
