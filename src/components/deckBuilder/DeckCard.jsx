@@ -9,7 +9,7 @@ import styles from '../../pages/DeckBuilder.module.css'
 function DeckCardGrid({
   dc, legalityWarnings, warningTitle,
   gridDensity, priceLabel, ownership,
-  isEDH, builderSfMap,
+  isEDH, formatId, builderSfMap,
   onChangeQty, onRemove, onOpenDetail, onContextMenu, onDragStart,
   onPickVersion, onToggleFoil, onSetCommander, onMoveBoard, onOpenCategoryPicker,
 }) {
@@ -37,7 +37,7 @@ function DeckCardGrid({
           <OwnershipBadge {...ownership} />
         </div>
         <div className={styles.visualCardControls}>
-          <EditMenu dc={dc} isEDH={isEDH} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} onOpenCategoryPicker={onOpenCategoryPicker} builderSfMap={builderSfMap} />
+          <EditMenu dc={dc} isEDH={isEDH} formatId={formatId} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} onOpenCategoryPicker={onOpenCategoryPicker} builderSfMap={builderSfMap} />
           <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); onChangeQty(dc.id, -1) }}>-</button>
           <span className={styles.visualCardCount}>{dc.qty}</span>
           <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); onChangeQty(dc.id, +1) }}>+</button>
@@ -56,7 +56,7 @@ function DeckCardStack({
   stackContext, stackHoverState, touchActiveStack, setStackHoverState, setTouchActiveStack,
   canHover, lastInputWasTouch,
   priceLabel, ownership,
-  isEDH, builderSfMap,
+  isEDH, formatId, builderSfMap,
   onChangeQty, onRemove, onOpenDetail, onContextMenu, onDragStart,
   onHoverEnter, onHoverLeave, onHoverMove,
   onPickVersion, onToggleFoil, onSetCommander, onMoveBoard, onOpenCategoryPicker,
@@ -120,7 +120,7 @@ function DeckCardStack({
           <OwnershipBadge {...ownership} />
         </div>
         <div className={styles.stackControlsRow}>
-          <EditMenu dc={dc} isEDH={isEDH} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} onOpenCategoryPicker={onOpenCategoryPicker} builderSfMap={builderSfMap} />
+          <EditMenu dc={dc} isEDH={isEDH} formatId={formatId} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} onOpenCategoryPicker={onOpenCategoryPicker} builderSfMap={builderSfMap} />
           <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); onChangeQty(dc.id, -1) }}>-</button>
           <span className={styles.stackControlCount}>{dc.qty}</span>
           <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); onChangeQty(dc.id, +1) }}>+</button>
@@ -138,7 +138,7 @@ function DeckCardCompact({
   compactVisibleColumns,
   canHover,
   priceLabel, ownership,
-  isEDH, builderSfMap,
+  isEDH, formatId, builderSfMap,
   onChangeQty, onRemove, onOpenDetail, onContextMenu, onDragStart,
   onHoverEnter, onHoverLeave, onHoverMove,
   onPickVersion, onToggleFoil, onSetCommander, onMoveBoard, onOpenCategoryPicker,
@@ -168,7 +168,7 @@ function DeckCardCompact({
       {compactVisibleColumns.cmc && <span className={styles.compactMeta}>{dc.cmc ?? '-'}</span>}
       {compactVisibleColumns.price && <span className={styles.compactMeta}>{priceLabel}</span>}
       {compactVisibleColumns.status && <OwnershipBadge {...ownership} />}
-      {compactVisibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} onOpenCategoryPicker={onOpenCategoryPicker} builderSfMap={builderSfMap} />}
+      {compactVisibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} formatId={formatId} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} onOpenCategoryPicker={onOpenCategoryPicker} builderSfMap={builderSfMap} />}
       {compactVisibleColumns.qty && (
         <div className={styles.qtyControls}>
           <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, -1)}>-</button>

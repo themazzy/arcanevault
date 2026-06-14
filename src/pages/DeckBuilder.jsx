@@ -29,6 +29,7 @@ import { getCardCategoryFromCard, isTypeFallbackCategory } from '../lib/cardCate
 import { pickPrintingForMode, PRINTING_MODES } from '../lib/printingOptimize'
 import { BASIC_LAND_TYPES, BASIC_LAND_NAMES } from '../lib/basicLands'
 import { addMissingToWishlist } from '../lib/setCompletion'
+import { isOathbreaker, isSignatureSpell, getOathbreakerPairIssue } from '../lib/commandZone'
 import { logDeckChange, fetchDeckHistory } from '../lib/deckHistory'
 import ExportModal from '../components/ExportModal'
 import { fetchDeckAllocations, fetchDeckAllocationsForUser, fetchDeckCards, mergeAllocationRows, upsertDeckAllocations } from '../lib/deckData'
@@ -1029,13 +1030,16 @@ export default function DeckBuilderPage() {
 
     if (mainQty > deckSize) pushWarning({ key: 'size-over', level: 'error', summary: `Mainboard ${mainQty}/${deckSize}`, detail: `Mainboard is over size by ${mainQty - deckSize} card${mainQty - deckSize === 1 ? '' : 's'}.` })
     if (mainQty < deckSize) pushWarning({ key: 'size-under', level: 'error', summary: `Mainboard ${mainQty}/${deckSize}`, detail: `Mainboard is short by ${deckSize - mainQty} card${deckSize - mainQty === 1 ? '' : 's'}.` })
-    if (isEDH && commanderCards.length === 0) pushWarning({ key: 'no-commander', level: 'error', summary: 'Commander missing', detail: 'Commander format requires a commander before the deck is legal.' })
+    const isOath = formatId === 'oathbreaker'
+    if (isEDH && commanderCards.length === 0) pushWarning({ key: 'no-commander', level: 'error', summary: isOath ? 'Oathbreaker missing' : 'Commander missing', detail: isOath ? 'Oathbreaker requires a planeswalker Oathbreaker before the deck is legal.' : 'Commander format requires a commander before the deck is legal.' })
     if (isEDH) {
-      const pairIssue = getCommanderPairIssue(commanderCards, builderSfMap)
-      if (pairIssue) pushWarning({ key: 'commander-pair', level: 'error', summary: commanderCards.length > 2 ? `${commanderCards.length} commanders marked` : 'Invalid commander pair', detail: pairIssue })
+      const pairIssue = isOath ? getOathbreakerPairIssue(commanderCards) : getCommanderPairIssue(commanderCards, builderSfMap)
+      if (pairIssue) pushWarning({ key: 'commander-pair', level: 'error', summary: isOath ? 'Invalid command zone' : (commanderCards.length > 2 ? `${commanderCards.length} commanders marked` : 'Invalid commander pair'), detail: pairIssue })
       for (const dc of commanderCards) {
         const sf = dc.set_code && dc.collector_number ? builderSfMap[getScryfallKey(dc)] : null
-        if (!canBeCommander(dc, sf)) pushWarning({ key: `commander:${dc.id}`, level: 'error', summary: `${dc.name}: invalid commander`, detail: `${dc.name} cannot be your commander.` })
+        const merged = { ...dc, type_line: sf?.type_line || dc.type_line }
+        const valid = isOath ? (isOathbreaker(merged) || isSignatureSpell(merged)) : canBeCommander(dc, sf)
+        if (!valid) pushWarning({ key: `commander:${dc.id}`, level: 'error', summary: `${dc.name}: invalid ${isOath ? 'command-zone card' : 'commander'}`, detail: `${dc.name} cannot be ${isOath ? 'in the Oathbreaker command zone' : 'your commander'}.` })
       }
     }
     if (isEDH && sideQty > 0) pushWarning({ key: 'sideboard-edh', level: 'info', summary: `Sideboard ${sideQty}`, detail: `Sideboard has ${sideQty} card${sideQty === 1 ? '' : 's'}. Collection sync includes it, but Commander stats and combo checks ignore it.` })
@@ -2594,8 +2598,11 @@ export default function DeckBuilderPage() {
       return
     }
     const sf = dc.set_code && dc.collector_number ? builderSfMap[getScryfallKey(dc)] : null
-    if (!canBeCommander(dc, sf)) {
-      console.warn(`[DeckBuilder] refused invalid commander: ${dc.name}`)
+    const isOath = format?.id === 'oathbreaker'
+    const merged = { ...dc, type_line: sf?.type_line || dc.type_line }
+    const eligible = isOath ? (isOathbreaker(merged) || isSignatureSpell(merged)) : canBeCommander(dc, sf)
+    if (!eligible) {
+      console.warn(`[DeckBuilder] refused invalid command-zone card: ${dc.name}`)
       return
     }
     const nextCommanderCards = deckCardsRef.current
@@ -3933,8 +3940,25 @@ export default function DeckBuilderPage() {
               </Select>
             </div>
 
+            {/* Oathbreaker command zone — set from the deck list via each card's menu */}
+            {isEDH && format?.id === 'oathbreaker' && (
+              <div className={styles.cmdSection}>
+                <div className={styles.cmdLabel}>Command Zone</div>
+                {commanderCards.map(c => (
+                  <div key={c.id} className={styles.cmdSelected}>
+                    {c.image_uri && <img className={styles.cmdImg} src={c.image_uri} alt="" />}
+                    <span className={styles.cmdName}>{c.name}</span>
+                    <span className={styles.cmdChange}>{isOathbreaker(c) ? 'Oathbreaker' : isSignatureSpell(c) ? 'Signature Spell' : ''}</span>
+                  </div>
+                ))}
+                <div className={styles.cmdHint}>
+                  Add a planeswalker and an instant/sorcery to your deck, then use each card&apos;s menu → Set as Oathbreaker / Signature Spell.
+                </div>
+              </div>
+            )}
+
             {/* Commander picker */}
-            {isEDH && (
+            {isEDH && format?.id !== 'oathbreaker' && (
               <div className={styles.cmdSection}>
                 <div className={styles.cmdLabel}>Commander</div>
                 {commanderCard && !showCmdPicker ? (
@@ -4707,6 +4731,7 @@ export default function DeckBuilderPage() {
                 onMoveBoard: moveCardToBoard,
                 onOpenCategoryPicker: setCategoryPickCard,
                 isEDH,
+                formatId: format?.id,
                 visibleColumns,
                 listGridTemplate,
                 listGridMinWidth,
@@ -4740,6 +4765,7 @@ export default function DeckBuilderPage() {
                     priceLabel={getDeckCardPriceLabel(dc)}
                     ownership={getCardOwnershipProps(dc)}
                     isEDH={isEDH}
+                    formatId={format?.id}
                     builderSfMap={builderSfMap}
                     onChangeQty={changeQty}
                     onRemove={removeCardFromDeck}
@@ -5235,6 +5261,7 @@ export default function DeckBuilderPage() {
                 <DeckCardActionsMenuBody
                   dc={contextMenu.dc}
                   isEDH={isEDH}
+                  formatId={format?.id}
                   onSetCommander={setCardAsCommander}
                   onToggleFoil={toggleFoil}
                   onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })}
@@ -5257,6 +5284,7 @@ export default function DeckBuilderPage() {
             <DeckCardActionsMenuBody
               dc={contextMenu.dc}
               isEDH={isEDH}
+              formatId={format?.id}
               onSetCommander={setCardAsCommander}
               onToggleFoil={toggleFoil}
               onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })}

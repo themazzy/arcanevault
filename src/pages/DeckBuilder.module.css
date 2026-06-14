@@ -277,6 +277,16 @@
 
 .cmdSelected:hover { background: rgba(201,168,76,0.14); }
 
+.cmdSelected + .cmdSelected { margin-top: 4px; }
+
+.cmdHint {
+  margin-top: 6px;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--text-faint);
+  font-style: italic;
+}
+
 .cmdImg {
   width: 28px;
   height: 20px;

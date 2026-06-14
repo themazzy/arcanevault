@@ -24,6 +24,7 @@ export function importProxyUrl(source, id) {
 
 export const FORMATS = [
   { id: 'commander',     label: 'Commander / EDH', isEDH: true,  deckSize: 100 },
+  { id: 'oathbreaker',   label: 'Oathbreaker',     isEDH: true,  deckSize: 60,  isOathbreaker: true },
   { id: 'brawl',         label: 'Brawl',           isEDH: true,  deckSize: 100 },
   { id: 'standardbrawl', label: 'Standard Brawl',  isEDH: true,  deckSize: 60  },
   { id: 'standard',      label: 'Standard',        isEDH: false, deckSize: 60  },

@@ -3,6 +3,7 @@ import { CloseIcon, SettingsIcon } from '../../icons'
 import { ManaCostInline, OwnershipBadge } from './primitives'
 import { BOARD_ORDER, BOARD_LABELS } from '../../lib/deckBuilderConstants'
 import { normalizeBoard, canBeCommander } from '../../lib/deckBuilderHelpers'
+import { isOathbreaker, isSignatureSpell } from '../../lib/commandZone'
 import { getScryfallKey } from '../../lib/scryfall'
 import { consumeLongPressClick } from '../../lib/touchContextMenu'
 import styles from '../../pages/DeckBuilder.module.css'
@@ -14,6 +15,7 @@ import uiStyles from '../UI.module.css'
 export function DeckCardActionsMenuBody({
   dc,
   isEDH,
+  formatId,
   onSetCommander,
   onToggleFoil,
   onPickVersion,
@@ -25,16 +27,23 @@ export function DeckCardActionsMenuBody({
   const currentBoard = normalizeBoard(dc.board)
   const boardOptions = BOARD_ORDER.filter(board => board !== currentBoard && !(dc.is_commander && board !== 'main'))
   const sf = dc.set_code && dc.collector_number ? builderSfMap[getScryfallKey(dc)] || null : null
+  // Oathbreaker uses the same command-zone slots but accepts a planeswalker
+  // (the Oathbreaker) and an instant/sorcery (the Signature Spell).
+  const isOath = formatId === 'oathbreaker'
+  const merged = { ...dc, type_line: sf?.type_line || dc.type_line }
+  const canLead = isOath ? (isOathbreaker(merged) || isSignatureSpell(merged)) : canBeCommander(dc, sf)
+  const setLabel = isOath ? (isOathbreaker(merged) ? 'Set as Oathbreaker' : 'Set as Signature Spell') : 'Set as Commander'
+  const unsetLabel = isOath ? 'Remove from Command Zone' : 'Unset as Commander'
   return (
     <div className={uiStyles.responsiveMenuList}>
       {isEDH && dc.is_commander && (
         <button className={uiStyles.responsiveMenuAction} onClick={() => { onSetCommander(dc, false); close() }}>
-          <span>Unset as Commander</span>
+          <span>{unsetLabel}</span>
         </button>
       )}
-      {isEDH && !dc.is_commander && canBeCommander(dc, sf) && (
+      {isEDH && !dc.is_commander && canLead && (
         <button className={uiStyles.responsiveMenuAction} onClick={() => { onSetCommander(dc, true); close() }}>
-          <span>Set as Commander</span>
+          <span>{setLabel}</span>
         </button>
       )}
       {boardOptions.map(board => (
@@ -65,6 +74,7 @@ export function DeckCardActionsMenuBody({
 export function EditMenu({
   dc,
   isEDH,
+  formatId,
   onSetCommander,
   onToggleFoil,
   onPickVersion,
@@ -89,6 +99,7 @@ export function EditMenu({
         <DeckCardActionsMenuBody
           dc={dc}
           isEDH={isEDH}
+          formatId={formatId}
           onSetCommander={onSetCommander}
           onToggleFoil={onToggleFoil}
           onPickVersion={onPickVersion}
@@ -107,7 +118,7 @@ export function EditMenu({
 export function DeckCardRow({
   dc, ownedQty, ownedFoilAlt, ownedAlt, ownedInDeck, inCollDeck,
   onChangeQty, onRemove, onMouseEnter, onMouseLeave, onMouseMove, onContextMenu, touchContextMenuHandlers, onDragStart,
-  onPickVersion, onToggleFoil, onSetCommander, onMoveBoard, onOpenCategoryPicker, isEDH,
+  onPickVersion, onToggleFoil, onSetCommander, onMoveBoard, onOpenCategoryPicker, isEDH, formatId,
   visibleColumns, listGridTemplate, priceLabel, onOpenDetail, legalityWarnings = [],
   listGridMinWidth,
   builderSfMap = {},
@@ -133,7 +144,7 @@ export function DeckCardRow({
           <OwnershipBadge ownedQty={ownedQty} ownedFoilAlt={ownedFoilAlt} ownedAlt={ownedAlt} ownedInDeck={ownedInDeck} inCollDeck={inCollDeck} />
         </div>
       )}
-      {visibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} onOpenCategoryPicker={onOpenCategoryPicker} builderSfMap={builderSfMap} />}
+      {visibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} formatId={formatId} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} onOpenCategoryPicker={onOpenCategoryPicker} builderSfMap={builderSfMap} />}
       {visibleColumns.qty && (
         <div className={styles.qtyControls}>
           <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, -1)}>-</button>
