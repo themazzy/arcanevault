@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Modal, Button, ProgressBar } from '../UI'
 import { CheckIcon } from '../../icons'
 import { getLocalCards, getLocalCardPrints } from '../../lib/db'
-import { getInstantCache } from '../../lib/scryfall'
+import { getInstantCache, getScryfallKey } from '../../lib/scryfall'
 import { fetchEdhrecCommander, getCardImageUri } from '../../lib/deckBuilderApi'
 import {
   analyzeBuildPlan,
@@ -55,14 +55,11 @@ function countByRole(deckCards, sfMap) {
   return counts
 }
 
-// Resolve a card image: cached Scryfall art first, then Scryfall's direct image
-// endpoint (by id, else exact name) so unowned EDHREC upgrades still get art.
-function cardImageUrl(sfCard, name) {
-  const cached = sfCard ? getCardImageUri(sfCard, 'small') : null
-  if (cached) return cached
-  if (sfCard?.id) return `https://api.scryfall.com/cards/${sfCard.id}?format=image&version=small`
-  if (name) return `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=image&version=small`
-  return null
+// Card image from the cached Scryfall art (cards.scryfall.io CDN). We never hit
+// api.scryfall.com per tile — that endpoint is rate-limited and floods to 429.
+// Unowned upgrades have no cached art and fall back to a text placeholder.
+function cardImageUrl(sfCard) {
+  return sfCard ? getCardImageUri(sfCard, 'small') : null
 }
 
 const SUMMARY_STEP = '__summary__'
@@ -74,7 +71,7 @@ function curveLabel(b) { return b === 6 ? '6+' : String(b) }
 
 // One card tile: image + name + sub-meta + add action(s).
 function CardTile({ name, sfCard, subtitle, inclusion, added, wished, showWishlist, onAdd, onWishlist }) {
-  const img = cardImageUrl(sfCard, name)
+  const img = cardImageUrl(sfCard)
   return (
     <div className={`${styles.tile}${added ? ' ' + styles.tileAdded : ''}`}>
       <div className={styles.tileArt}>
@@ -133,15 +130,28 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
           getLocalCardPrints().catch(() => []),
           getInstantCache().catch(() => null),
         ])
-        const map = cache || {}
+        // The instant cache is keyed by `${set}-${collector}` (getScryfallKey),
+        // but the engine looks cards up by scryfall_id. Build a scryfall_id →
+        // cached-entry map from local card_prints (no network — we already store
+        // this data). This is what makes oracle-text classification and card art
+        // work; without it everything fell back to Synergy with no images.
+        const cacheBySetCol = cache || {}
+        const sfById = {}
+        const printById = new Map()
+        for (const p of prints || []) {
+          if (p?.id) printById.set(p.id, p)
+          if (!p?.scryfall_id) continue
+          const entry = cacheBySetCol[getScryfallKey(p)]
+          if (entry) sfById[p.scryfall_id] = entry
+        }
         // Post-5d owned rows may lack scryfall_id; resolve it via card_prints so
-        // classification (oracle/type from sfMap) and color filtering work.
-        const printById = new Map((prints || []).map(p => [p.id, p]))
+        // the engine's sfMap[card.scryfall_id] lookup hits.
         const ownedNorm = (owned || []).map(c => {
           if (c?.scryfall_id) return c
           const print = c?.card_print_id ? printById.get(c.card_print_id) : null
           return print?.scryfall_id ? { ...c, scryfall_id: print.scryfall_id } : c
         })
+        const map = sfById
         const base = analyzeBuildPlan({
           commander,
           ownedCards: ownedNorm,

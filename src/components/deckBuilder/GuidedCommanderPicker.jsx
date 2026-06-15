@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CheckIcon } from '../../icons'
 import { getLocalCards, getLocalCardPrints } from '../../lib/db'
-import { getInstantCache } from '../../lib/scryfall'
+import { getInstantCache, getScryfallKey } from '../../lib/scryfall'
 import { searchCommanders } from '../../lib/deckBuilderApi'
 import styles from './GuidedCommanderPicker.module.css'
 
@@ -58,7 +58,8 @@ export function GuidedCommanderPicker({ userId, value, onSelect }) {
           const scryfallId = c?.scryfall_id || print?.scryfall_id
           if (!scryfallId) continue
 
-          const sf = map[scryfallId] || null
+          // Instant cache is keyed by `${set}-${collector}`, not scryfall_id.
+          const sf = (print && map[getScryfallKey(print)]) || null
           const typeLine = typeLineOf(sf) || c?.type_line || print?.type_line || ''
           if (!isCommanderType(typeLine)) continue
 
