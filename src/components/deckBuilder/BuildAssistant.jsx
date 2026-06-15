@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Modal, Button, ProgressBar } from '../UI'
-import { CheckIcon, CloseIcon, WarningIcon, ChevronDownIcon } from '../../icons'
+import { CheckIcon, DeleteIcon, WarningIcon, ChevronDownIcon } from '../../icons'
 import { getLocalCards, getLocalCardPrints } from '../../lib/db'
 import { getInstantCache, getScryfallKey, getPrice, formatPrice } from '../../lib/scryfall'
 import { useCombosFetch } from '../../hooks/useCombosFetch'
@@ -116,7 +116,8 @@ const CURVE_BUCKETS = [0, 1, 2, 3, 4, 5, 6]
 function curveLabel(b) { return b === 6 ? '6+' : String(b) }
 
 // One card tile: image + name + sub-meta + add action(s).
-function CardTile({ name, sfCard, subtitle, pips, inclusion, price, flag, overTarget, added, wished, showWishlist, onAdd, onWishlist }) {
+function CardTile({ name, sfCard, subtitle, pips, inclusion, price, flag, overTarget, added, wished, showWishlist, onAdd, onUndo, onWishlist }) {
+  const canUndo = added && typeof onUndo === 'function'
   const img = cardImageUrl(sfCard)
   return (
     <div className={`${styles.tile}${added ? ' ' + styles.tileAdded : ''}`}>
@@ -143,11 +144,12 @@ function CardTile({ name, sfCard, subtitle, pips, inclusion, price, flag, overTa
         : subtitle ? <div className={styles.tileSub}>{subtitle}</div> : null}
       <div className={styles.tileActions}>
         <button
-          className={`${styles.tileBtn}${added ? ' ' + styles.tileBtnDone : ''}`}
-          onClick={onAdd}
-          disabled={added}
+          className={`${styles.tileBtn}${added ? ' ' + styles.tileBtnDone : ''}${canUndo ? ' ' + styles.tileBtnUndo : ''}`}
+          onClick={canUndo ? onUndo : onAdd}
+          disabled={added && !canUndo}
+          title={canUndo ? 'Remove from deck' : undefined}
         >
-          {added ? 'Added' : '+ Deck'}
+          {added ? (canUndo ? 'Remove' : 'Added') : '+ Deck'}
         </button>
         {showWishlist && (
           <button
@@ -482,6 +484,18 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     try { await onRemoveCard(deckCardId) } catch { /* parent surfaces errors */ }
   }
 
+  // Inline undo from a card tile: drop the session "added" flag and remove the
+  // matching (non-commander) deck row by name so the tile reverts to "+ Deck".
+  async function handleUndoAdd(name) {
+    const key = name.toLowerCase()
+    setAddedNames(prev => { const next = new Set(prev); next.delete(key); return next })
+    if (typeof onRemoveCard !== 'function') return
+    const dc = (deckCards || []).find(c => !c?.is_commander && (c?.name || '').toLowerCase() === key)
+    if (dc?.id) {
+      try { await onRemoveCard(dc.id) } catch { /* parent surfaces errors */ }
+    }
+  }
+
   if (!hasCommander) {
     return (
       <Modal onClose={onClose} className={styles.modal}>
@@ -733,6 +747,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                             overTarget={targetBracket != null && flag && flag.level > targetBracket}
                             added={isAdded(cand.name)}
                             onAdd={() => handleAdd(ownedCardForAdd(cand), cand.name)}
+                            onUndo={() => handleUndoAdd(cand.name)}
                           />
                         )
                       })}
@@ -764,6 +779,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                           wished={isWishlisted(up.name)}
                           showWishlist={typeof onAddToWishlist === 'function'}
                           onAdd={() => handleAdd(up, up.name)}
+                          onUndo={() => handleUndoAdd(up.name)}
                           onWishlist={() => handleWishlist(up.name)}
                         />
                       )
@@ -895,7 +911,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                                 onClick={() => handleRemove(cut.id)}
                                 title={`Remove ${cut.name} (${cut.inclusion}% EDHREC, CMC ${cut.cmc})`}
                               >
-                                <CloseIcon size={11} /> {cut.name}
+                                <DeleteIcon size={11} /> {cut.name}
                               </button>
                             ))}
                           </div>

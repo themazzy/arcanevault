@@ -497,6 +497,21 @@
   cursor: default;
 }
 
+/* Added tile whose button doubles as an inline "Remove": neutral label + red
+   hover, so the action reads as removal while the art's green check still
+   confirms the card is in the deck. Overrides .tileBtnDone's green. */
+.tileBtnUndo {
+  color: var(--text-dim);
+  border-color: var(--s-border2);
+  cursor: pointer;
+}
+
+.tileBtnUndo:hover {
+  background: rgba(204, 85, 85, 0.14);
+  border-color: rgba(204, 85, 85, 0.4);
+  color: #e08a8a;
+}
+
 .moreNote {
   font-size: 0.78rem;
   color: var(--text-faint);

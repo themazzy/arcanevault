@@ -261,17 +261,68 @@ export function Modal({
   allowOverflow = true,
   showClose = true,
   closeOnOverlay = true,
+  closeOnEscape = true,
   className = '',
   contentClassName = '',
 }) {
   const modalRef = useRef(null)
   const modalContentRef = useRef(null)
   const [modalHeight, setModalHeight] = useState(null)
+  // Refs so the keyboard effect can run once (on mount) yet always see the
+  // latest onClose/closeOnEscape — onClose is usually a fresh inline arrow.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+  const closeOnEscapeRef = useRef(closeOnEscape)
+  closeOnEscapeRef.current = closeOnEscape
   const handleOverlayClick = (e) => {
     if (e.target !== e.currentTarget) return
     if (!closeOnOverlay) return
     onClose?.()
   }
+
+  // Keyboard + focus management: Escape closes, Tab is trapped within the
+  // dialog, and focus is restored to the previously-focused element on close.
+  useEffect(() => {
+    const modalEl = modalRef.current
+    if (!modalEl) return
+    const prevActive = document.activeElement
+    const focusables = () => Array.from(
+      modalEl.querySelectorAll(
+        'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    ).filter(el => el.offsetParent !== null || el === document.activeElement)
+
+    // Move focus into the dialog without auto-selecting a control (least
+    // surprising — lands on the container, Tab then enters the content).
+    modalEl.focus({ preventScroll: true })
+
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape' && closeOnEscapeRef.current) {
+        e.stopPropagation()
+        onCloseRef.current?.()
+        return
+      }
+      if (e.key !== 'Tab') return
+      const items = focusables()
+      if (!items.length) { e.preventDefault(); modalEl.focus({ preventScroll: true }); return }
+      const first = items[0]
+      const last = items[items.length - 1]
+      const active = document.activeElement
+      if (e.shiftKey && (active === first || active === modalEl)) {
+        e.preventDefault(); last.focus()
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault(); first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', onKeyDown, true)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown, true)
+      if (prevActive && typeof prevActive.focus === 'function') {
+        prevActive.focus({ preventScroll: true })
+      }
+    }
+  }, [])
 
   useEffect(() => {
     const modalEl = modalRef.current
@@ -312,6 +363,9 @@ export function Modal({
     <div className={styles.overlay} onClick={handleOverlayClick}>
       <div
         ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        tabIndex={-1}
         className={`${styles.modal} ${allowOverflow ? styles.modalAllowOverflow : ''} ${className}`}
         style={modalHeight ? { height: `${modalHeight}px` } : undefined}
         onClick={e => e.stopPropagation()}
