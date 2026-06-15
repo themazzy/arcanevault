@@ -5,10 +5,16 @@ import { getLocalCards, getLocalCardPrints } from '../../lib/db'
 import { getInstantCache, getScryfallKey } from '../../lib/scryfall'
 import { fetchEdhrecCommander, getCardImageUri } from '../../lib/deckBuilderApi'
 import {
+  analyzeBracket,
+  fetchGameChangerNames,
+  BRACKET_LABELS,
+} from '../../lib/commanderBracket'
+import {
   analyzeBuildPlan,
   enrichPlanWithEdhrec,
   archetypeAdjustments,
   applyTemplateAdjustments,
+  bracketFlagFor,
   coarseRole,
   COMMANDER_TEMPLATE,
   ROLE_ORDER,
@@ -73,7 +79,7 @@ const CURVE_BUCKETS = [0, 1, 2, 3, 4, 5, 6]
 function curveLabel(b) { return b === 6 ? '6+' : String(b) }
 
 // One card tile: image + name + sub-meta + add action(s).
-function CardTile({ name, sfCard, subtitle, inclusion, added, wished, showWishlist, onAdd, onWishlist }) {
+function CardTile({ name, sfCard, subtitle, inclusion, flag, overTarget, added, wished, showWishlist, onAdd, onWishlist }) {
   const img = cardImageUrl(sfCard)
   return (
     <div className={`${styles.tile}${added ? ' ' + styles.tileAdded : ''}`}>
@@ -82,6 +88,16 @@ function CardTile({ name, sfCard, subtitle, inclusion, added, wished, showWishli
           ? <img src={img} alt={name} loading="lazy" className={styles.tileImg} />
           : <div className={styles.tileNoImg}>{name}</div>}
         {inclusion > 0 && <span className={styles.tileIncl}>{inclusion}%</span>}
+        {flag && (
+          <span
+            className={`${styles.tileFlag}${overTarget ? ' ' + styles.tileFlagWarn : ''}`}
+            title={overTarget
+              ? `${flag.label} — pushes deck to Bracket ${flag.level} (${BRACKET_LABELS[flag.level]}), above your target`
+              : `${flag.label} — Bracket ${flag.level}+ signal`}
+          >
+            {overTarget ? '⚠ ' : ''}{flag.label}
+          </span>
+        )}
         {added && <span className={styles.tileCheck}><CheckIcon size={18} /></span>}
       </div>
       <div className={styles.tileName} title={name}>{name}</div>
@@ -118,6 +134,8 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
   const [themes, setThemes] = useState([])       // EDHREC archetypes for this commander
   const [selectedTheme, setSelectedTheme] = useState('') // '' = Balanced
   const [rebuilding, setRebuilding] = useState(false)
+  const [gameChangers, setGameChangers] = useState(null) // Set of GC names (null until loaded)
+  const [targetBracket, setTargetBracket] = useState(null) // null = no target; 1-4
   // Names added/wishlisted this session — instant feedback before the deckCards
   // prop round-trips back from the parent.
   const [addedNames, setAddedNames] = useState(() => new Set())
@@ -153,11 +171,12 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
       try {
         setLoading(true)
         setSelectedTheme('')
-        const [owned, prints, cache, edhrec] = await Promise.all([
+        const [owned, prints, cache, edhrec, gcNames] = await Promise.all([
           getLocalCards(userId),
           getLocalCardPrints().catch(() => []),
           getInstantCache().catch(() => null),
           fetchEdhrecCommander(commander.name).catch(() => null),
+          fetchGameChangerNames().catch(() => null),
         ])
         // The instant cache is keyed by `${set}-${collector}` (getScryfallKey),
         // but the engine looks cards up by scryfall_id. Build a scryfall_id →
@@ -191,6 +210,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
         dataRef.current = { ownedNorm, sfById }
         setSfMap(sfById)
         setThemes(edhrec?.themes || [])
+        setGameChangers(gcNames || null)
         setPlan(enriched)
       } catch (err) {
         if (!cancelled) setError(err?.message || 'Failed to analyze your collection.')
@@ -237,6 +257,24 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
     () => (deckCards || []).reduce((sum, dc) => sum + (dc.qty || 1), 0),
     [deckCards],
   )
+
+  // Live Commander Bracket estimate from the current deck. Combos aren't checked
+  // here (Spellbook isn't wired into the wizard), so this is a lower bound.
+  const deckBracket = useMemo(() => {
+    if (!gameChangers) return null
+    const cards = (deckCards || []).map(dc => {
+      const sf = sfMap?.[dc?.scryfall_id] || null
+      return {
+        name: dc.name,
+        oracle_text: sf?.oracle_text || '',
+        cmc: sf?.cmc ?? dc?.cmc ?? 0,
+        qty: dc.qty || 1,
+      }
+    })
+    return analyzeBracket({ cards, gameChangerNames: gameChangers, comboCardLists: null })
+  }, [deckCards, sfMap, gameChangers])
+
+  const overTarget = targetBracket != null && deckBracket && deckBracket.bracket > targetBracket
 
   async function handleAdd(cardOrRec, name) {
     const key = name.toLowerCase()
@@ -344,6 +382,50 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
           </div>
         )}
 
+        {/* Bracket target selector + live estimate */}
+        {!loading && !error && gameChangers && (
+          <div className={styles.themeRow}>
+            <span className={styles.themeLabel}>Bracket</span>
+            <div className={styles.themeChips}>
+              <button
+                className={`${styles.themeChip}${targetBracket == null ? ' ' + styles.themeActive : ''}`}
+                onClick={() => setTargetBracket(null)}
+              >
+                Any
+              </button>
+              {[1, 2, 3, 4].map(b => (
+                <button
+                  key={b}
+                  className={`${styles.themeChip}${targetBracket === b ? ' ' + styles.themeActive : ''}`}
+                  onClick={() => setTargetBracket(b)}
+                  title={BRACKET_LABELS[b]}
+                >
+                  {b} · {BRACKET_LABELS[b]}
+                </button>
+              ))}
+            </div>
+            {deckBracket && (
+              <span
+                className={`${styles.bracketNow}${overTarget ? ' ' + styles.bracketOver : ''}`}
+                title={deckBracket.reasons.length
+                  ? deckBracket.reasons.map(r => r.reason).join(' · ')
+                  : 'No bracket-raising cards detected yet'}
+              >
+                Now: B{deckBracket.bracket} {BRACKET_LABELS[deckBracket.bracket]}
+                {!deckBracket.combosChecked ? ' (combos not checked)' : ''}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Over-target warning */}
+        {overTarget && deckBracket && (
+          <div className={styles.bracketWarn}>
+            ⚠ Deck is at Bracket {deckBracket.bracket} ({BRACKET_LABELS[deckBracket.bracket]}), above your
+            target of {targetBracket}. {deckBracket.reasons.filter(r => r.level > targetBracket).map(r => r.reason).join(' · ')}
+          </div>
+        )}
+
         <div className={styles.main}>
           {loading && <div className={styles.empty}>Analyzing your collection…</div>}
           {error && <div className={styles.error}>{error}</div>}
@@ -371,17 +453,22 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
                 <div className={styles.emptySmall}>No owned cards match this role in your colors.</div>
               ) : (
                 <div className={styles.grid}>
-                  {roleData.ownedCandidates.slice(0, MAX_TILES).map(cand => (
-                    <CardTile
-                      key={cand.card?.id || cand.name}
-                      name={cand.name}
-                      sfCard={cand.sfCard}
-                      subtitle={cand.granularCat}
-                      inclusion={cand.edhrecInclusion}
-                      added={isAdded(cand.name)}
-                      onAdd={() => handleAdd(cand.sfCard || cand.card, cand.name)}
-                    />
-                  ))}
+                  {roleData.ownedCandidates.slice(0, MAX_TILES).map(cand => {
+                    const flag = bracketFlagFor(cand.name, cand.sfCard, gameChangers)
+                    return (
+                      <CardTile
+                        key={cand.card?.id || cand.name}
+                        name={cand.name}
+                        sfCard={cand.sfCard}
+                        subtitle={cand.granularCat}
+                        inclusion={cand.edhrecInclusion}
+                        flag={flag}
+                        overTarget={targetBracket != null && flag && flag.level > targetBracket}
+                        added={isAdded(cand.name)}
+                        onAdd={() => handleAdd(cand.sfCard || cand.card, cand.name)}
+                      />
+                    )
+                  })}
                 </div>
               )}
               {roleData.ownedCandidates.length > MAX_TILES && (
@@ -395,20 +482,25 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
                 <>
                   <div className={styles.sectionLabel}>Popular picks you don’t own</div>
                   <div className={styles.grid}>
-                    {roleData.edhrecUpgrades.map(up => (
-                      <CardTile
-                        key={up.slug || up.name}
-                        name={up.name}
-                        sfCard={null}
-                        subtitle={up.type}
-                        inclusion={up.edhrecInclusion}
-                        added={isAdded(up.name)}
-                        wished={isWishlisted(up.name)}
-                        showWishlist={typeof onAddToWishlist === 'function'}
-                        onAdd={() => handleAdd(up, up.name)}
-                        onWishlist={() => handleWishlist(up.name)}
-                      />
-                    ))}
+                    {roleData.edhrecUpgrades.map(up => {
+                      const flag = bracketFlagFor(up.name, null, gameChangers)
+                      return (
+                        <CardTile
+                          key={up.slug || up.name}
+                          name={up.name}
+                          sfCard={null}
+                          subtitle={up.type}
+                          inclusion={up.edhrecInclusion}
+                          flag={flag}
+                          overTarget={targetBracket != null && flag && flag.level > targetBracket}
+                          added={isAdded(up.name)}
+                          wished={isWishlisted(up.name)}
+                          showWishlist={typeof onAddToWishlist === 'function'}
+                          onAdd={() => handleAdd(up, up.name)}
+                          onWishlist={() => handleWishlist(up.name)}
+                        />
+                      )
+                    })}
                   </div>
                 </>
               )}

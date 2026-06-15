@@ -12,6 +12,7 @@
 
 import { getCardCategoryFromCard } from './cardCategory'
 import { getCardLegalityWarnings } from './deckLegality'
+import { isMassLandDenial, isExtraTurn } from './commanderBracket'
 
 // ── Coarse role taxonomy ──────────────────────────────────────────────────────
 // Collapses the ~30 granular categories from getCardCategory into the 8 build
@@ -112,6 +113,22 @@ export const COMMANDER_TEMPLATE = {
   [ROLE_PROTECTION]: { min: 3, ideal: 5 },
   [ROLE_WINCON]: { min: 3, ideal: 5 },
   [ROLE_SYNERGY]: 'remainder',
+}
+
+// ── Bracket flags ─────────────────────────────────────────────────────────────
+// Does a card raise the deck's Commander Bracket? Game Changers are matched by
+// name (works for unowned EDHREC upgrades too, where we have no oracle text);
+// mass land denial / extra turns need oracle text (owned cards). Returns
+// { label, level } (the bracket floor the card implies) or null.
+export function bracketFlagFor(name, sfCard, gameChangerNames) {
+  const lower = String(name || '').toLowerCase()
+  if (gameChangerNames && (gameChangerNames.has(lower) || gameChangerNames.has(lower.split('//')[0].trim()))) {
+    return { label: 'Game Changer', level: 3 }
+  }
+  const oracle = sfCard?.oracle_text || ''
+  if (oracle && isMassLandDenial(oracle)) return { label: 'Land denial', level: 4 }
+  if (oracle && isExtraTurn(oracle)) return { label: 'Extra turn', level: 2 }
+  return null
 }
 
 // ── Archetype-aware quota flexing ─────────────────────────────────────────────

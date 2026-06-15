@@ -6,6 +6,7 @@ import {
   enrichPlanWithEdhrec,
   archetypeAdjustments,
   applyTemplateAdjustments,
+  bracketFlagFor,
   COMMANDER_TEMPLATE,
   ROLE_RAMP,
   ROLE_DRAW,
@@ -218,6 +219,30 @@ describe('applyTemplateAdjustments', () => {
       template: applyTemplateAdjustments(COMMANDER_TEMPLATE, { [ROLE_WIPE]: -2 }),
     })
     expect(flexed.roles.find(r => r.role === ROLE_SYNERGY).target).toBe(baseSyn + 2)
+  })
+})
+
+// ── bracketFlagFor ────────────────────────────────────────────────────────────
+describe('bracketFlagFor', () => {
+  const gc = new Set(['rhystic study', 'tergrid, god of fright'])
+
+  it('flags Game Changers by name (incl. MDFC front face)', () => {
+    expect(bracketFlagFor('Rhystic Study', null, gc)).toEqual({ label: 'Game Changer', level: 3 })
+    // MDFC full name resolves via the front face stored in the set.
+    expect(bracketFlagFor('Tergrid, God of Fright // Tergrid\'s Lantern', null, gc))
+      .toEqual({ label: 'Game Changer', level: 3 })
+  })
+
+  it('flags mass land denial and extra turns from oracle text', () => {
+    expect(bracketFlagFor('Armageddon', { oracle_text: 'Destroy all lands.' }, gc))
+      .toEqual({ label: 'Land denial', level: 4 })
+    expect(bracketFlagFor('Time Warp', { oracle_text: 'Target player takes an extra turn after this one.' }, gc))
+      .toEqual({ label: 'Extra turn', level: 2 })
+  })
+
+  it('returns null for ordinary cards and tolerates a missing GC set', () => {
+    expect(bracketFlagFor('Llanowar Elves', { oracle_text: '{T}: Add {G}.' }, gc)).toBeNull()
+    expect(bracketFlagFor('Rhystic Study', null, null)).toBeNull()
   })
 })
 

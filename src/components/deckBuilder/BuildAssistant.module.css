@@ -125,6 +125,57 @@
   font-style: italic;
 }
 
+/* Live bracket estimate badge */
+.bracketNow {
+  margin-left: auto;
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 0.74rem;
+  background: var(--s2);
+  border: 1px solid var(--s-border2);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.bracketOver {
+  border-color: rgba(204, 85, 85, 0.55);
+  color: #e08a8a;
+  background: rgba(204, 85, 85, 0.12);
+}
+
+.bracketWarn {
+  flex-shrink: 0;
+  padding: 7px 11px;
+  border-radius: 7px;
+  font-size: 0.8rem;
+  background: rgba(204, 85, 85, 0.12);
+  border: 1px solid rgba(204, 85, 85, 0.4);
+  color: #e08a8a;
+  line-height: 1.4;
+}
+
+/* Bracket-raising flag on a card tile */
+.tileFlag {
+  position: absolute;
+  bottom: 5px;
+  left: 5px;
+  right: 5px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.72);
+  color: var(--text-dim);
+  font-size: 0.64rem;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tileFlagWarn {
+  background: rgba(150, 40, 40, 0.9);
+  color: #ffd9d9;
+}
+
 /* ── Main scroll area ─────────────────────────────────────────────────────── */
 .main {
   flex: 1;
