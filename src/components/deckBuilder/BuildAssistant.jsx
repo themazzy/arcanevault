@@ -3,28 +3,47 @@ import { Modal, Button, ProgressBar } from '../UI'
 import { CheckIcon } from '../../icons'
 import { getLocalCards, getLocalCardPrints } from '../../lib/db'
 import { getInstantCache } from '../../lib/scryfall'
-import { fetchEdhrecCommander } from '../../lib/deckBuilderApi'
+import { fetchEdhrecCommander, getCardImageUri } from '../../lib/deckBuilderApi'
 import {
   analyzeBuildPlan,
   enrichPlanWithEdhrec,
   coarseRole,
   ROLE_ORDER,
+  ROLE_RAMP,
+  ROLE_DRAW,
+  ROLE_REMOVAL,
+  ROLE_WIPE,
+  ROLE_PROTECTION,
+  ROLE_WINCON,
+  ROLE_SYNERGY,
+  ROLE_LANDS,
 } from '../../lib/deckBuildAssistant'
 import styles from './BuildAssistant.module.css'
 
 // Guided "build from collection" wizard. Walks the user role-by-role (Ramp →
 // Card Advantage → Removal → …), surfacing their owned color-legal cards first
 // and EDHREC suggestions for what they don't own yet. Adding a card delegates
-// to the parent's addCardToDeck (passed as onAddCard) — owned cards go in as
-// full Scryfall objects, upgrades go in as EDHREC rec objects (deck_cards is
-// intended contents, so not-owned cards are legitimately addable).
+// to the parent's addCardToDeck (owned → full Scryfall object, upgrades → EDHREC
+// rec object; deck_cards is intended contents, so unowned cards are addable).
+
+// What each role does + why the target count, shown at the top of each step.
+const ROLE_INFO = {
+  [ROLE_RAMP]: 'Mana acceleration — rocks, dorks, and land fetch. Helps you deploy your commander and spells ahead of curve.',
+  [ROLE_DRAW]: 'Card advantage — draw engines and tutors that refill your hand and find your key pieces.',
+  [ROLE_REMOVAL]: 'Spot interaction — destroy, exile, bounce, counter, or burn a single problematic permanent or spell.',
+  [ROLE_WIPE]: 'Board wipes — mass removal to reset the board when you fall behind.',
+  [ROLE_PROTECTION]: 'Protection — keep your commander and key permanents safe (hexproof, indestructible, redirects).',
+  [ROLE_WINCON]: 'Game plan — how the deck actually closes: combos, extra turns, and big finishers.',
+  [ROLE_SYNERGY]: 'Synergy — cards that support your commander’s theme and strategy. The bulk of the deck.',
+  [ROLE_LANDS]: 'Mana base — lands, including utility lands. Aim for roughly this many to hit your colors consistently.',
+}
 
 function roleNameSet(deckCards) {
   return new Set((deckCards || []).map(c => (c?.name || '').toLowerCase()).filter(Boolean))
 }
 
 // Live per-role counts from the actual deck contents (not just owned
-// candidates) so the progress bars reflect everything in the deck.
+// candidates) so progress bars reflect everything in the deck.
 function countByRole(deckCards, sfMap) {
   const counts = new Map(ROLE_ORDER.map(r => [r, 0]))
   for (const dc of deckCards || []) {
@@ -36,11 +55,59 @@ function countByRole(deckCards, sfMap) {
   return counts
 }
 
+// Resolve a card image: cached Scryfall art first, then Scryfall's direct image
+// endpoint (by id, else exact name) so unowned EDHREC upgrades still get art.
+function cardImageUrl(sfCard, name) {
+  const cached = sfCard ? getCardImageUri(sfCard, 'small') : null
+  if (cached) return cached
+  if (sfCard?.id) return `https://api.scryfall.com/cards/${sfCard.id}?format=image&version=small`
+  if (name) return `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=image&version=small`
+  return null
+}
+
 const SUMMARY_STEP = '__summary__'
+const MAX_TILES = 60 // cap owned tiles per step to keep the DOM light
 
 // Mana-curve buckets for the summary step (top end collapses into "6+").
 const CURVE_BUCKETS = [0, 1, 2, 3, 4, 5, 6]
 function curveLabel(b) { return b === 6 ? '6+' : String(b) }
+
+// One card tile: image + name + sub-meta + add action(s).
+function CardTile({ name, sfCard, subtitle, inclusion, added, wished, showWishlist, onAdd, onWishlist }) {
+  const img = cardImageUrl(sfCard, name)
+  return (
+    <div className={`${styles.tile}${added ? ' ' + styles.tileAdded : ''}`}>
+      <div className={styles.tileArt}>
+        {img
+          ? <img src={img} alt={name} loading="lazy" className={styles.tileImg} />
+          : <div className={styles.tileNoImg}>{name}</div>}
+        {inclusion > 0 && <span className={styles.tileIncl}>{inclusion}%</span>}
+        {added && <span className={styles.tileCheck}><CheckIcon size={18} /></span>}
+      </div>
+      <div className={styles.tileName} title={name}>{name}</div>
+      {subtitle && <div className={styles.tileSub}>{subtitle}</div>}
+      <div className={styles.tileActions}>
+        <button
+          className={`${styles.tileBtn}${added ? ' ' + styles.tileBtnDone : ''}`}
+          onClick={onAdd}
+          disabled={added}
+        >
+          {added ? 'Added' : '+ Deck'}
+        </button>
+        {showWishlist && (
+          <button
+            className={`${styles.tileBtn} ${styles.tileBtnAlt}${wished ? ' ' + styles.tileBtnDone : ''}`}
+            onClick={onWishlist}
+            disabled={wished}
+            title="Add to a wishlist"
+          >
+            {wished ? 'Wished' : '+ Wishlist'}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
 
 export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, onAddToWishlist, onClose }) {
   const [loading, setLoading] = useState(true)
@@ -48,7 +115,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
   const [plan, setPlan] = useState(null) // enriched plan (candidates + upgrades)
   const [sfMap, setSfMap] = useState({})
   const [stepIndex, setStepIndex] = useState(0)
-  // Names the user added this session — instant feedback before the deckCards
+  // Names added/wishlisted this session — instant feedback before the deckCards
   // prop round-trips back from the parent.
   const [addedNames, setAddedNames] = useState(() => new Set())
   const [wishlistedNames, setWishlistedNames] = useState(() => new Set())
@@ -68,8 +135,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
         ])
         const map = cache || {}
         // Post-5d owned rows may lack scryfall_id; resolve it via card_prints so
-        // classification (oracle/type from sfMap) and color-identity filtering
-        // actually work. Without this, every card falls back to Synergy.
+        // classification (oracle/type from sfMap) and color filtering work.
         const printById = new Map((prints || []).map(p => [p.id, p]))
         const ownedNorm = (owned || []).map(c => {
           if (c?.scryfall_id) return c
@@ -97,7 +163,6 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, commander?.name, (commander?.color_identity || []).join('')])
 
-  // Live counts derived from the current deck (recomputes as cards are added).
   const liveCounts = useMemo(() => countByRole(deckCards, sfMap), [deckCards, sfMap])
   const deckNames = useMemo(() => roleNameSet(deckCards), [deckCards])
 
@@ -109,7 +174,6 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
   const isAdded = name => addedNames.has(name.toLowerCase()) || deckNames.has(name.toLowerCase())
   const isWishlisted = name => wishlistedNames.has(name.toLowerCase())
 
-  // Mana curve for the summary step: count nonland deck cards per CMC bucket.
   const curve = useMemo(() => {
     const counts = CURVE_BUCKETS.map(() => 0)
     for (const dc of deckCards || []) {
@@ -118,8 +182,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
       const type = (sfCard?.type_line || dc?.type_line || '').toLowerCase()
       if (type.includes('land')) continue
       const cmc = Math.floor(sfCard?.cmc ?? dc?.cmc ?? 0)
-      const idx = Math.min(cmc, 6)
-      counts[idx] += dc.qty || 1
+      counts[Math.min(cmc, 6)] += dc.qty || 1
     }
     return counts
   }, [deckCards, sfMap])
@@ -136,12 +199,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
     try {
       await onAddCard(cardOrRec)
     } catch {
-      // Roll back the optimistic flag if the add failed.
-      setAddedNames(prev => {
-        const next = new Set(prev)
-        next.delete(key)
-        return next
-      })
+      setAddedNames(prev => { const next = new Set(prev); next.delete(key); return next })
     }
   }
 
@@ -152,11 +210,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
     try {
       await onAddToWishlist(name)
     } catch {
-      setWishlistedNames(prev => {
-        const next = new Set(prev)
-        next.delete(key)
-        return next
-      })
+      setWishlistedNames(prev => { const next = new Set(prev); next.delete(key); return next })
     }
   }
 
@@ -183,166 +237,151 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
   const gap = Math.max(0, target - current)
 
   return (
-    <Modal onClose={onClose} className={styles.modal}>
+    <Modal onClose={onClose} className={styles.modal} contentClassName={styles.modalContent}>
       <div className={styles.body}>
         <div className={styles.header}>
-          <div className={styles.title}>Build from Collection</div>
-          <div className={styles.commander}>{commander.name}</div>
+          <div>
+            <div className={styles.title}>Build from Collection</div>
+            <div className={styles.commander}>{commander.name}</div>
+          </div>
+          {!onSummary && (
+            <div className={styles.stepCounter}>Step {stepIndex + 1} of {steps.length}</div>
+          )}
         </div>
 
         {/* Stepper */}
         <div className={styles.stepper}>
           {steps.map((role, i) => {
-            if (role === SUMMARY_STEP) {
-              return (
-                <button
-                  key={role}
-                  className={`${styles.step}${i === stepIndex ? ' ' + styles.stepActive : ''}`}
-                  onClick={() => setStepIndex(i)}
-                  title="Summary"
-                >
-                  <span>Summary</span>
-                </button>
-              )
-            }
+            const isSummary = role === SUMMARY_STEP
             const c = liveCounts.get(role) || 0
             const t = plan?.roles?.find(r => r.role === role)?.target || 0
-            const done = t > 0 && c >= t
+            const done = !isSummary && t > 0 && c >= t
             return (
               <button
                 key={role}
                 className={`${styles.step}${i === stepIndex ? ' ' + styles.stepActive : ''}${done ? ' ' + styles.stepDone : ''}`}
                 onClick={() => setStepIndex(i)}
-                title={`${role}: ${c}/${t}`}
+                title={isSummary ? 'Summary' : `${role}: ${c}/${t}`}
               >
                 {done && <CheckIcon size={11} />}
-                <span>{role}</span>
+                <span>{isSummary ? 'Summary' : role}</span>
               </button>
             )
           })}
         </div>
 
-        {loading && <div className={styles.empty}>Analyzing your collection…</div>}
-        {error && <div className={styles.error}>{error}</div>}
+        <div className={styles.main}>
+          {loading && <div className={styles.empty}>Analyzing your collection…</div>}
+          {error && <div className={styles.error}>{error}</div>}
 
-        {!loading && !error && roleData && (
-          <div className={styles.rolePanel}>
-            <div className={styles.roleHead}>
-              <div className={styles.roleName}>{currentRoleName}</div>
-              <div className={styles.roleCount}>
-                {current} / {target}
-                {gap > 0 && <span className={styles.gap}> · {gap} to go</span>}
+          {!loading && !error && roleData && (
+            <>
+              <div className={styles.roleHead}>
+                <div className={styles.roleHeadTop}>
+                  <div className={styles.roleName}>{currentRoleName}</div>
+                  <div className={styles.roleCount}>
+                    {current} / {target}
+                    {gap > 0 ? <span className={styles.gap}> · {gap} to go</span>
+                             : <span className={styles.met}> · target met</span>}
+                  </div>
+                </div>
+                <div className={styles.roleDesc}>{ROLE_INFO[currentRoleName]}</div>
+                <ProgressBar value={pct} />
               </div>
-            </div>
-            <ProgressBar value={pct} />
 
-            {/* Owned candidates */}
-            <div className={styles.sectionLabel}>From your collection</div>
-            {roleData.ownedCandidates.length === 0 ? (
-              <div className={styles.emptySmall}>No owned cards match this role in your colors.</div>
-            ) : (
-              <div className={styles.cardList}>
-                {roleData.ownedCandidates.map(cand => {
-                  const added = isAdded(cand.name)
-                  return (
-                    <button
+              {/* Owned candidates */}
+              <div className={styles.sectionLabel}>
+                From your collection · {roleData.ownedCandidates.length}
+              </div>
+              {roleData.ownedCandidates.length === 0 ? (
+                <div className={styles.emptySmall}>No owned cards match this role in your colors.</div>
+              ) : (
+                <div className={styles.grid}>
+                  {roleData.ownedCandidates.slice(0, MAX_TILES).map(cand => (
+                    <CardTile
                       key={cand.card?.id || cand.name}
-                      className={`${styles.cardRow}${added ? ' ' + styles.cardRowAdded : ''}`}
-                      onClick={() => handleAdd(cand.sfCard || cand.card, cand.name)}
-                      disabled={added}
-                    >
-                      <span className={styles.cardName}>{cand.name}</span>
-                      <span className={styles.cardMeta}>
-                        {cand.edhrecInclusion > 0 && <span className={styles.incl}>{cand.edhrecInclusion}%</span>}
-                        {added ? <CheckIcon size={13} /> : <span className={styles.add}>+</span>}
+                      name={cand.name}
+                      sfCard={cand.sfCard}
+                      subtitle={cand.granularCat}
+                      inclusion={cand.edhrecInclusion}
+                      added={isAdded(cand.name)}
+                      onAdd={() => handleAdd(cand.sfCard || cand.card, cand.name)}
+                    />
+                  ))}
+                </div>
+              )}
+              {roleData.ownedCandidates.length > MAX_TILES && (
+                <div className={styles.moreNote}>
+                  +{roleData.ownedCandidates.length - MAX_TILES} more in your collection
+                </div>
+              )}
+
+              {/* EDHREC upgrades (not owned) */}
+              {roleData.edhrecUpgrades.length > 0 && (
+                <>
+                  <div className={styles.sectionLabel}>Popular picks you don’t own</div>
+                  <div className={styles.grid}>
+                    {roleData.edhrecUpgrades.map(up => (
+                      <CardTile
+                        key={up.slug || up.name}
+                        name={up.name}
+                        sfCard={null}
+                        subtitle={up.type}
+                        inclusion={up.edhrecInclusion}
+                        added={isAdded(up.name)}
+                        wished={isWishlisted(up.name)}
+                        showWishlist={typeof onAddToWishlist === 'function'}
+                        onAdd={() => handleAdd(up, up.name)}
+                        onWishlist={() => handleWishlist(up.name)}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
+            </>
+          )}
+
+          {/* Summary step */}
+          {!loading && !error && onSummary && plan && (
+            <>
+              <div className={styles.sectionLabel}>Deck composition</div>
+              <div className={styles.summaryGrid}>
+                {plan.roles.map(r => {
+                  const c = liveCounts.get(r.role) || 0
+                  const met = c >= r.target
+                  return (
+                    <div key={r.role} className={styles.summaryRow}>
+                      <span className={styles.summaryRole}>{r.role}</span>
+                      <span className={`${styles.summaryCount}${met ? ' ' + styles.summaryMet : ' ' + styles.summaryUnder}`}>
+                        {c} / {r.target}
                       </span>
-                    </button>
+                    </div>
                   )
                 })}
               </div>
-            )}
+              <div className={styles.summaryTotals}>
+                <span><strong>{totalCards}</strong> / {plan.deckSize} cards</span>
+                <span>{Math.max(0, plan.deckSize - totalCards)} slots left</span>
+              </div>
 
-            {/* EDHREC upgrades (not owned) */}
-            {roleData.edhrecUpgrades.length > 0 && (
-              <>
-                <div className={styles.sectionLabel}>Popular picks you don’t own</div>
-                <div className={styles.cardList}>
-                  {roleData.edhrecUpgrades.map(up => {
-                    const added = isAdded(up.name)
-                    const wished = isWishlisted(up.name)
-                    return (
-                      <div key={up.slug || up.name} className={`${styles.cardRow} ${styles.cardRowUpgrade}`}>
-                        <span className={styles.cardName}>{up.name}</span>
-                        <span className={styles.cardMeta}>
-                          {up.edhrecInclusion > 0 && <span className={styles.incl}>{up.edhrecInclusion}%</span>}
-                          <button
-                            className={`${styles.miniBtn}${added ? ' ' + styles.miniBtnDone : ''}`}
-                            onClick={() => handleAdd(up, up.name)}
-                            disabled={added}
-                            title="Add to the deck list"
-                          >
-                            {added ? <CheckIcon size={12} /> : '+ Deck'}
-                          </button>
-                          {typeof onAddToWishlist === 'function' && (
-                            <button
-                              className={`${styles.miniBtn}${wished ? ' ' + styles.miniBtnDone : ''}`}
-                              onClick={() => handleWishlist(up.name)}
-                              disabled={wished}
-                              title="Add to a wishlist"
-                            >
-                              {wished ? <CheckIcon size={12} /> : '+ Wishlist'}
-                            </button>
-                          )}
-                        </span>
+              <div className={styles.sectionLabel}>Mana curve (nonland)</div>
+              <div className={styles.curve}>
+                {(() => {
+                  const max = Math.max(1, ...curve)
+                  return CURVE_BUCKETS.map((b, i) => (
+                    <div key={b} className={styles.curveCol}>
+                      <div className={styles.curveBarWrap}>
+                        <div className={styles.curveBar} style={{ height: `${(curve[i] / max) * 100}%` }} />
                       </div>
-                    )
-                  })}
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* Summary step */}
-        {!loading && !error && onSummary && plan && (
-          <div className={styles.rolePanel}>
-            <div className={styles.sectionLabel}>Deck composition</div>
-            <div className={styles.summaryGrid}>
-              {plan.roles.map(r => {
-                const c = liveCounts.get(r.role) || 0
-                const met = c >= r.target
-                return (
-                  <div key={r.role} className={styles.summaryRow}>
-                    <span className={styles.summaryRole}>{r.role}</span>
-                    <span className={`${styles.summaryCount}${met ? ' ' + styles.summaryMet : ' ' + styles.summaryUnder}`}>
-                      {c} / {r.target}
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
-            <div className={styles.summaryTotals}>
-              <span><strong>{totalCards}</strong> / {plan.deckSize} cards</span>
-              <span>{Math.max(0, plan.deckSize - totalCards)} slots left</span>
-            </div>
-
-            <div className={styles.sectionLabel}>Mana curve (nonland)</div>
-            <div className={styles.curve}>
-              {(() => {
-                const max = Math.max(1, ...curve)
-                return CURVE_BUCKETS.map((b, i) => (
-                  <div key={b} className={styles.curveCol}>
-                    <div className={styles.curveBarWrap}>
-                      <div className={styles.curveBar} style={{ height: `${(curve[i] / max) * 100}%` }} />
+                      <div className={styles.curveCount}>{curve[i]}</div>
+                      <div className={styles.curveLabel}>{curveLabel(b)}</div>
                     </div>
-                    <div className={styles.curveCount}>{curve[i]}</div>
-                    <div className={styles.curveLabel}>{curveLabel(b)}</div>
-                  </div>
-                ))
-              })()}
-            </div>
-          </div>
-        )}
+                  ))
+                })()}
+              </div>
+            </>
+          )}
+        </div>
 
         <div className={styles.footer}>
           <Button
