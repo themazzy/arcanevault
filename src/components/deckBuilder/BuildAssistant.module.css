@@ -518,6 +518,67 @@
   color: var(--text-faint);
 }
 
+/* ── Combos (summary step) ────────────────────────────────────────────────── */
+.comboList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.comboRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 7px;
+  background: var(--s2);
+  border: 1px solid var(--s-border);
+  flex-wrap: wrap;
+}
+
+.comboInfo { min-width: 0; flex: 1; }
+
+.comboProduces {
+  font-size: 0.85rem;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.comboOwnedTag {
+  font-size: 0.66rem;
+  color: var(--green);
+  border: 1px solid rgba(93, 186, 112, 0.4);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.comboUses {
+  font-size: 0.74rem;
+  color: var(--text-faint);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.comboMissing {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.comboNeed {
+  font-size: 0.74rem;
+  color: var(--text-faint);
+  padding: 4px 8px;
+  border-radius: 5px;
+  border: 1px dashed var(--s-border2);
+}
+
 /* ── Footer ───────────────────────────────────────────────────────────────── */
 .footer {
   display: flex;

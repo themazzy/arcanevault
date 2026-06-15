@@ -3,6 +3,7 @@ import { Modal, Button, ProgressBar } from '../UI'
 import { CheckIcon } from '../../icons'
 import { getLocalCards, getLocalCardPrints } from '../../lib/db'
 import { getInstantCache, getScryfallKey } from '../../lib/scryfall'
+import { useCombosFetch } from '../../hooks/useCombosFetch'
 import { fetchEdhrecCommander, getCardImageUri } from '../../lib/deckBuilderApi'
 import {
   analyzeBracket,
@@ -144,7 +145,7 @@ function CardTile({ name, sfCard, subtitle, pips, inclusion, flag, overTarget, a
   )
 }
 
-export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, onAddToWishlist, onClose }) {
+export function BuildAssistant({ userId, commander, deckCards = [], accessToken, onAddCard, onAddToWishlist, onClose }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [plan, setPlan] = useState(null) // enriched plan (candidates + upgrades)
@@ -155,6 +156,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
   const [rebuilding, setRebuilding] = useState(false)
   const [gameChangers, setGameChangers] = useState(null) // Set of GC names (null until loaded)
   const [targetBracket, setTargetBracket] = useState(null) // null = no target; 1-4
+  const [ownedNameSet, setOwnedNameSet] = useState(() => new Set())
   // Names added/wishlisted this session — instant feedback before the deckCards
   // prop round-trips back from the parent.
   const [addedNames, setAddedNames] = useState(() => new Set())
@@ -162,6 +164,10 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
 
   // Cached collection data so theme switches re-plan without re-reading IDB.
   const dataRef = useRef(null) // { ownedNorm, sfById }
+
+  // Commander Spellbook combo lookup (shared hook). Drives an accurate bracket
+  // estimate + the "combos you're close to" panel on the summary step.
+  const combos = useCombosFetch({ commanderCard: commander, deckCards, accessToken })
 
   const hasCommander = !!commander?.name
 
@@ -230,6 +236,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
         setSfMap(sfById)
         setThemes(edhrec?.themes || [])
         setGameChangers(gcNames || null)
+        setOwnedNameSet(new Set((ownedNorm || []).map(c => (c?.name || '').toLowerCase()).filter(Boolean)))
         setPlan(enriched)
       } catch (err) {
         if (!cancelled) setError(err?.message || 'Failed to analyze your collection.')
@@ -277,8 +284,16 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
     [deckCards],
   )
 
-  // Live Commander Bracket estimate from the current deck. Combos aren't checked
-  // here (Spellbook isn't wired into the wizard), so this is a lower bound.
+  // Completed combos in the deck → card-name lists for the bracket analyzer.
+  const comboCardLists = useMemo(() => {
+    if (!combos.fetched) return null
+    return (combos.included || []).map(c =>
+      (c.uses || []).map(u => u.card?.name || u.template?.name || '').filter(Boolean),
+    )
+  }, [combos.fetched, combos.included])
+
+  // Live Commander Bracket estimate from the current deck. Becomes accurate once
+  // combos are checked; until then it's a lower bound (combos not counted).
   const deckBracket = useMemo(() => {
     if (!gameChangers) return null
     const cards = (deckCards || []).map(dc => {
@@ -290,10 +305,37 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
         qty: dc.qty || 1,
       }
     })
-    return analyzeBracket({ cards, gameChangerNames: gameChangers, comboCardLists: null })
-  }, [deckCards, sfMap, gameChangers])
+    return analyzeBracket({ cards, gameChangerNames: gameChangers, comboCardLists })
+  }, [deckCards, sfMap, gameChangers, comboCardLists])
 
   const overTarget = targetBracket != null && deckBracket && deckBracket.bracket > targetBracket
+
+  // Combos you're close to completing (1-2 missing pieces), owned-missing first.
+  const almostCombos = useMemo(() => {
+    if (!combos.fetched) return []
+    return (combos.almost || [])
+      .map(c => {
+        const uses = (c.uses || []).map(u => u.card?.name || u.template?.name || '').filter(Boolean)
+        const produces = (c.produces || []).map(p => p.feature?.name).filter(Boolean)
+        const missing = uses
+          .filter(n => !deckNames.has(n.toLowerCase()))
+          .map(n => ({ name: n, owned: ownedNameSet.has(n.toLowerCase()) }))
+        return { id: c.id, uses, produces, missing }
+      })
+      .filter(c => c.missing.length >= 1 && c.missing.length <= 2)
+      .sort((a, b) => {
+        const ao = a.missing.every(m => m.owned) ? 0 : 1
+        const bo = b.missing.every(m => m.owned) ? 0 : 1
+        return (ao - bo) || (a.missing.length - b.missing.length)
+      })
+      .slice(0, 12)
+  }, [combos.fetched, combos.almost, deckNames, ownedNameSet])
+
+  // Auto-check combos the first time the summary step is opened.
+  useEffect(() => {
+    if (onSummary && hasCommander && !combos.fetched && !combos.loading) combos.fetchCombos()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onSummary])
 
   // Manabase: commander colors + live colored-source counts from the deck.
   const cmdColors = useMemo(
@@ -618,6 +660,55 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
                   ))
                 })()}
               </div>
+
+              {/* Combos */}
+              <div className={styles.sectionLabel}>
+                Combos
+                {combos.fetched && <span className={styles.sectionHint}> · {(combos.included || []).length} complete in deck</span>}
+              </div>
+              {!combos.fetched ? (
+                <div>
+                  <button className={styles.themeChip} onClick={combos.fetchCombos} disabled={combos.loading}>
+                    {combos.loading ? 'Checking combos…' : 'Check combos'}
+                  </button>
+                </div>
+              ) : almostCombos.length === 0 ? (
+                <div className={styles.emptySmall}>No near-complete combos found from your current list.</div>
+              ) : (
+                <div className={styles.comboList}>
+                  {almostCombos.map(combo => {
+                    const allOwned = combo.missing.every(m => m.owned)
+                    return (
+                      <div key={combo.id} className={styles.comboRow}>
+                        <div className={styles.comboInfo}>
+                          <div className={styles.comboProduces}>
+                            {combo.produces.slice(0, 2).join(', ') || 'Combo'}
+                            {allOwned && <span className={styles.comboOwnedTag}>you own the missing piece{combo.missing.length > 1 ? 's' : ''}</span>}
+                          </div>
+                          <div className={styles.comboUses}>{combo.uses.join(' + ')}</div>
+                        </div>
+                        <div className={styles.comboMissing}>
+                          {combo.missing.map(m => (
+                            m.owned ? (
+                              <button
+                                key={m.name}
+                                className={`${styles.miniBtn}${isAdded(m.name) ? ' ' + styles.miniBtnDone : ''}`}
+                                onClick={() => handleAdd({ name: m.name }, m.name)}
+                                disabled={isAdded(m.name)}
+                                title="Add this owned piece to the deck"
+                              >
+                                {isAdded(m.name) ? '✓ ' : '+ '}{m.name}
+                              </button>
+                            ) : (
+                              <span key={m.name} className={styles.comboNeed} title="Not in your collection">{m.name}</span>
+                            )
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </>
           )}
         </div>

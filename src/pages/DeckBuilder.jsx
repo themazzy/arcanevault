@@ -5507,6 +5507,7 @@ export default function DeckBuilderPage() {
           userId={user.id}
           commander={commanderCard ? { name: commanderCard.name, color_identity: colorIdentity } : null}
           deckCards={deckCards}
+          accessToken={session?.access_token}
           onAddCard={addCardToDeck}
           onAddToWishlist={addUpgradeToWishlist}
           onClose={() => setShowBuildAssistant(false)}
