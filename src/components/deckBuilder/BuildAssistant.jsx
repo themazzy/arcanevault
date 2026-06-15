@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Modal, Button, ProgressBar } from '../UI'
 import { CheckIcon } from '../../icons'
 import { getLocalCards, getLocalCardPrints } from '../../lib/db'
@@ -7,7 +7,10 @@ import { fetchEdhrecCommander, getCardImageUri } from '../../lib/deckBuilderApi'
 import {
   analyzeBuildPlan,
   enrichPlanWithEdhrec,
+  archetypeAdjustments,
+  applyTemplateAdjustments,
   coarseRole,
+  COMMANDER_TEMPLATE,
   ROLE_ORDER,
   ROLE_RAMP,
   ROLE_DRAW,
@@ -112,12 +115,36 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
   const [plan, setPlan] = useState(null) // enriched plan (candidates + upgrades)
   const [sfMap, setSfMap] = useState({})
   const [stepIndex, setStepIndex] = useState(0)
+  const [themes, setThemes] = useState([])       // EDHREC archetypes for this commander
+  const [selectedTheme, setSelectedTheme] = useState('') // '' = Balanced
+  const [rebuilding, setRebuilding] = useState(false)
   // Names added/wishlisted this session — instant feedback before the deckCards
   // prop round-trips back from the parent.
   const [addedNames, setAddedNames] = useState(() => new Set())
   const [wishlistedNames, setWishlistedNames] = useState(() => new Set())
 
+  // Cached collection data so theme switches re-plan without re-reading IDB.
+  const dataRef = useRef(null) // { ownedNorm, sfById }
+
   const hasCommander = !!commander?.name
+
+  // Re-run the plan for a given archetype theme: flex the role quotas and swap
+  // the suggestion source to that theme's EDHREC page (owned cards re-ranked by
+  // theme synergy, upgrades drawn from the theme). '' = balanced template.
+  const rebuildPlan = useCallback(async (themeSlug) => {
+    const d = dataRef.current
+    if (!d || !commander?.name) return
+    setRebuilding(true)
+    try {
+      const template = applyTemplateAdjustments(COMMANDER_TEMPLATE, archetypeAdjustments(themeSlug))
+      const base = analyzeBuildPlan({ commander, ownedCards: d.ownedNorm, sfMap: d.sfById, template })
+      const edhrec = await fetchEdhrecCommander(commander.name, 'commander', themeSlug ? { themeSlug } : undefined)
+      const enriched = await enrichPlanWithEdhrec(base, async () => edhrec)
+      setPlan(enriched)
+    } finally {
+      setRebuilding(false)
+    }
+  }, [commander])
 
   useEffect(() => {
     let cancelled = false
@@ -125,10 +152,12 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
     ;(async () => {
       try {
         setLoading(true)
-        const [owned, prints, cache] = await Promise.all([
+        setSelectedTheme('')
+        const [owned, prints, cache, edhrec] = await Promise.all([
           getLocalCards(userId),
           getLocalCardPrints().catch(() => []),
           getInstantCache().catch(() => null),
+          fetchEdhrecCommander(commander.name).catch(() => null),
         ])
         // The instant cache is keyed by `${set}-${collector}` (getScryfallKey),
         // but the engine looks cards up by scryfall_id. Build a scryfall_id →
@@ -151,16 +180,17 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
           const print = c?.card_print_id ? printById.get(c.card_print_id) : null
           return print?.scryfall_id ? { ...c, scryfall_id: print.scryfall_id } : c
         })
-        const map = sfById
         const base = analyzeBuildPlan({
           commander,
           ownedCards: ownedNorm,
-          sfMap: map,
+          sfMap: sfById,
           currentDeckCards: deckCards,
         })
-        const enriched = await enrichPlanWithEdhrec(base, fetchEdhrecCommander)
+        const enriched = await enrichPlanWithEdhrec(base, async () => edhrec)
         if (cancelled) return
-        setSfMap(map)
+        dataRef.current = { ownedNorm, sfById }
+        setSfMap(sfById)
+        setThemes(edhrec?.themes || [])
         setPlan(enriched)
       } catch (err) {
         if (!cancelled) setError(err?.message || 'Failed to analyze your collection.')
@@ -172,6 +202,12 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
     // Re-run only when the commander identity changes — not on every deck edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, commander?.name, (commander?.color_identity || []).join('')])
+
+  function onSelectTheme(slug) {
+    if (slug === selectedTheme) return
+    setSelectedTheme(slug)
+    rebuildPlan(slug)
+  }
 
   const liveCounts = useMemo(() => countByRole(deckCards, sfMap), [deckCards, sfMap])
   const deckNames = useMemo(() => roleNameSet(deckCards), [deckCards])
@@ -279,6 +315,34 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
             )
           })}
         </div>
+
+        {/* Archetype / theme selector — flexes quotas + suggestion source */}
+        {!loading && !error && themes.length > 0 && (
+          <div className={styles.themeRow}>
+            <span className={styles.themeLabel}>Theme</span>
+            <div className={styles.themeChips}>
+              <button
+                className={`${styles.themeChip}${selectedTheme === '' ? ' ' + styles.themeActive : ''}`}
+                onClick={() => onSelectTheme('')}
+                disabled={rebuilding}
+              >
+                Balanced
+              </button>
+              {themes.slice(0, 6).map(t => (
+                <button
+                  key={t.slug}
+                  className={`${styles.themeChip}${selectedTheme === t.slug ? ' ' + styles.themeActive : ''}`}
+                  onClick={() => onSelectTheme(t.slug)}
+                  disabled={rebuilding}
+                  title={`${t.count.toLocaleString()} decks on EDHREC`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            {rebuilding && <span className={styles.themeBusy}>updating…</span>}
+          </div>
+        )}
 
         <div className={styles.main}>
           {loading && <div className={styles.empty}>Analyzing your collection…</div>}

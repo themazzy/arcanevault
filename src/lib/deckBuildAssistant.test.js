@@ -4,6 +4,8 @@ import {
   coarseRole,
   analyzeBuildPlan,
   enrichPlanWithEdhrec,
+  archetypeAdjustments,
+  applyTemplateAdjustments,
   COMMANDER_TEMPLATE,
   ROLE_RAMP,
   ROLE_DRAW,
@@ -168,6 +170,54 @@ describe('analyzeBuildPlan', () => {
       .reduce((sum, r) => sum + COMMANDER_TEMPLATE[r].ideal, 0)
     // 99 nonland-commander slots minus the fixed ideals.
     expect(role(plan, ROLE_SYNERGY).target).toBe(99 - fixedIdeal)
+  })
+})
+
+// ── Archetype-aware quotas ────────────────────────────────────────────────────
+describe('archetypeAdjustments', () => {
+  it('returns {} for balanced / unknown / empty themes', () => {
+    expect(archetypeAdjustments('')).toEqual({})
+    expect(archetypeAdjustments('group-hug')).toEqual({})
+  })
+
+  it('matches known archetypes by slug', () => {
+    expect(archetypeAdjustments('plus-1-plus-1-counters')[ROLE_DRAW]).toBe(1)
+    expect(archetypeAdjustments('plus-1-plus-1-counters')[ROLE_WIPE]).toBe(-1)
+    expect(archetypeAdjustments('spellslinger')[ROLE_DRAW]).toBe(2)
+    expect(archetypeAdjustments('voltron')[ROLE_PROTECTION]).toBe(3)
+    expect(archetypeAdjustments('lands-matter')[ROLE_LANDS]).toBe(2)
+  })
+})
+
+describe('applyTemplateAdjustments', () => {
+  it('returns the same template when there are no deltas', () => {
+    expect(applyTemplateAdjustments(COMMANDER_TEMPLATE, {})).toBe(COMMANDER_TEMPLATE)
+  })
+
+  it('adjusts fixed-role ideals and leaves Synergy as remainder', () => {
+    const out = applyTemplateAdjustments(COMMANDER_TEMPLATE, { [ROLE_PROTECTION]: 3, [ROLE_WIPE]: -2 })
+    expect(out[ROLE_PROTECTION].ideal).toBe(COMMANDER_TEMPLATE[ROLE_PROTECTION].ideal + 3)
+    expect(out[ROLE_WIPE].ideal).toBe(COMMANDER_TEMPLATE[ROLE_WIPE].ideal - 2)
+    expect(out[ROLE_SYNERGY]).toBe('remainder')
+    // untouched roles unchanged
+    expect(out[ROLE_RAMP].ideal).toBe(COMMANDER_TEMPLATE[ROLE_RAMP].ideal)
+  })
+
+  it('clamps counts at 0 and keeps min <= ideal', () => {
+    const out = applyTemplateAdjustments(COMMANDER_TEMPLATE, { [ROLE_WIPE]: -10 })
+    expect(out[ROLE_WIPE].ideal).toBe(0)
+    expect(out[ROLE_WIPE].min).toBe(0)
+  })
+
+  it('flexes the Synergy remainder when fixed roles change', () => {
+    // Removing 2 board-wipe slots should free 2 slots for Synergy.
+    const base = analyzeBuildPlan({ commander: { name: 'C', color_identity: [] } })
+    const baseSyn = base.roles.find(r => r.role === ROLE_SYNERGY).target
+    const flexed = analyzeBuildPlan({
+      commander: { name: 'C', color_identity: [] },
+      template: applyTemplateAdjustments(COMMANDER_TEMPLATE, { [ROLE_WIPE]: -2 }),
+    })
+    expect(flexed.roles.find(r => r.role === ROLE_SYNERGY).target).toBe(baseSyn + 2)
   })
 })
 

@@ -76,6 +76,55 @@
 .stepDone { color: var(--green); }
 .stepDone.stepActive { color: var(--gold); }
 
+/* ── Theme / archetype selector ───────────────────────────────────────────── */
+.themeRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.themeLabel {
+  font-family: var(--font-display);
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  color: var(--text-faint);
+  text-transform: uppercase;
+}
+
+.themeChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.themeChip {
+  padding: 4px 11px;
+  font-size: 0.76rem;
+  border-radius: 6px;
+  border: 1px solid var(--s-border2);
+  background: var(--s2);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.themeChip:hover:not(:disabled) { background: var(--s-medium); color: var(--text); }
+.themeChip:disabled { opacity: 0.5; cursor: default; }
+
+.themeActive {
+  border-color: rgba(201, 168, 76, 0.6);
+  background: rgba(201, 168, 76, 0.15);
+  color: var(--gold);
+}
+
+.themeBusy {
+  font-size: 0.74rem;
+  color: var(--text-faint);
+  font-style: italic;
+}
+
 /* ── Main scroll area ─────────────────────────────────────────────────────── */
 .main {
   flex: 1;

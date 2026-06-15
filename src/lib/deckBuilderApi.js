@@ -389,12 +389,13 @@ async function edhrecFetch(path) {
   }
 }
 
-export async function fetchEdhrecCommander(commanderName, formatId = 'commander') {
+export async function fetchEdhrecCommander(commanderName, formatId = 'commander', { themeSlug = '' } = {}) {
   const slugs = getEdhrecCommanderSlugCandidates(commanderName)
-  // EDHRec has dedicated Brawl pages at /pages/commanders/<slug>/brawl.json.
-  // Standard Brawl + other formats fall back to the standard commander page.
-  const subPath = formatId === 'brawl' ? '/brawl' : ''
-  const cacheKey = formatId === 'brawl' ? 'brawl' : 'commander'
+  // EDHRec has dedicated Brawl pages at /pages/commanders/<slug>/brawl.json and
+  // per-archetype theme pages at /pages/commanders/<slug>/<theme>.json. A theme
+  // takes precedence over the brawl subpath; both fall back to the base page.
+  const subPath = themeSlug ? `/${themeSlug}` : (formatId === 'brawl' ? '/brawl' : '')
+  const cacheKey = themeSlug ? `theme:${themeSlug}` : (formatId === 'brawl' ? 'brawl' : 'commander')
   for (const slug of slugs) {
     const hit = edhCacheGet(`${cacheKey}:${slug}`)
     if (hit) return hit
@@ -412,7 +413,7 @@ export async function fetchEdhrecCommander(commanderName, formatId = 'commander'
       }
     }
 
-    // Brawl-specific page may not exist (e.g. unreleased / niche commander) — fall back to commander page
+    // Theme/brawl-specific page may not exist — fall back to the base commander page.
     if (!data && subPath) {
       for (const slug of slugs) {
         data = await edhrecFetch(`commanders/${slug}.json`)
@@ -428,6 +429,11 @@ export async function fetchEdhrecCommander(commanderName, formatId = 'commander'
     const cardlists = data?.container?.json_dict?.cardlists || []
     const result = {
       commander: data?.commanders?.[0] || null,
+      // Deck archetypes for this commander (Infect, +1/+1 Counters, …), ranked
+      // by deck count. Used by the build assistant's theme selector.
+      themes: (data?.panels?.taglinks || [])
+        .filter(t => t?.slug && t?.value)
+        .map(t => ({ slug: t.slug, label: t.value, count: t.count ?? 0 })),
       categories: cardlists
         .filter(cl => cl.cardviews?.length)
         .map(cl => ({

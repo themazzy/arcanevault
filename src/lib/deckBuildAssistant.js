@@ -114,6 +114,52 @@ export const COMMANDER_TEMPLATE = {
   [ROLE_SYNERGY]: 'remainder',
 }
 
+// ── Archetype-aware quota flexing ─────────────────────────────────────────────
+// A selected EDHREC theme (Tokens, Spellslinger, Voltron, …) nudges the role
+// quotas. Deltas only touch the FIXED roles — Synergy is the remainder, so
+// trimming fixed roles automatically grows the themed-synergy slots, and adding
+// to them shrinks it. First matching rule wins (slug matched case-insensitively).
+export const ARCHETYPE_RULES = [
+  { match: /voltron|aura|equipment|enchantress/, deltas: { [ROLE_PROTECTION]: 3, [ROLE_RAMP]: 1, [ROLE_WIPE]: -2 } },
+  { match: /superfriends|planeswalker|\bwalkers?\b/, deltas: { [ROLE_PROTECTION]: 2, [ROLE_RAMP]: 1, [ROLE_WIPE]: 1, [ROLE_REMOVAL]: 1 } },
+  { match: /spell|storm|magecraft|prowess|cantrip/, deltas: { [ROLE_DRAW]: 2, [ROLE_REMOVAL]: 1 } },
+  { match: /control|tempo/, deltas: { [ROLE_REMOVAL]: 2, [ROLE_DRAW]: 1, [ROLE_WIPE]: 1 } },
+  { match: /\bcombo\b/, deltas: { [ROLE_DRAW]: 2, [ROLE_PROTECTION]: 1, [ROLE_REMOVAL]: 1 } },
+  { match: /infect|poison|toxic/, deltas: { [ROLE_PROTECTION]: 2, [ROLE_WIPE]: -1 } },
+  { match: /land|landfall/, deltas: { [ROLE_LANDS]: 2, [ROLE_RAMP]: 1 } },
+  { match: /token|\bgo.?wide\b|swarm/, deltas: { [ROLE_REMOVAL]: -1, [ROLE_WIPE]: -1 } },
+  { match: /sacrifice|aristocrat|\bblood\b|morbid|\bdeath/, deltas: { [ROLE_REMOVAL]: -1 } },
+  { match: /counter/, deltas: { [ROLE_DRAW]: 1, [ROLE_WIPE]: -1 } },
+  { match: /stax|hatebear|\btax(es)?\b|prison/, deltas: { [ROLE_RAMP]: 1 } },
+  { match: /reanimat|graveyard|recursion|self.?mill/, deltas: { [ROLE_DRAW]: 1 } },
+  { match: /lifegain|life.?gain/, deltas: { [ROLE_WIPE]: -1 } },
+  { match: /aggro|aggression|\bhaste\b/, deltas: { [ROLE_LANDS]: -1, [ROLE_RAMP]: -1 } },
+]
+
+// Returns the quota delta map for a theme slug ({} when no rule matches / balanced).
+export function archetypeAdjustments(themeSlug = '') {
+  const slug = String(themeSlug || '').toLowerCase()
+  if (!slug) return {}
+  const rule = ARCHETYPE_RULES.find(r => r.match.test(slug))
+  return rule ? rule.deltas : {}
+}
+
+// Returns a new template with the (fixed-role) deltas applied. Counts clamp at
+// 0 and min never exceeds ideal. Synergy stays 'remainder'.
+export function applyTemplateAdjustments(template, deltas = {}) {
+  if (!deltas || !Object.keys(deltas).length) return template
+  const out = {}
+  for (const role of Object.keys(template)) {
+    const spec = template[role]
+    const d = deltas[role]
+    if (!spec || spec === 'remainder' || !d) { out[role] = spec; continue }
+    const ideal = Math.max(0, (spec.ideal ?? 0) + d)
+    const min = Math.min(ideal, Math.max(0, (spec.min ?? 0) + d))
+    out[role] = { min, ideal }
+  }
+  return out
+}
+
 // Sum of fixed (non-remainder) ideal counts — used to compute the Synergy
 // remainder target so role ideals always add up to the deck size.
 function remainderTarget(template, deckSize) {
