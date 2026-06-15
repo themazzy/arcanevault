@@ -144,6 +144,7 @@ export function GuidedCommanderPicker({ userId, value, onSelect }) {
         value={query}
         onChange={e => setQuery(e.target.value)}
         placeholder="Search commanders…"
+        aria-label="Search commanders"
       />
 
       {value && (

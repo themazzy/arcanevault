@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Modal, Button, ProgressBar } from '../UI'
-import { CheckIcon, CloseIcon, WarningIcon } from '../../icons'
+import { CheckIcon, CloseIcon, WarningIcon, ChevronDownIcon } from '../../icons'
 import { getLocalCards, getLocalCardPrints } from '../../lib/db'
 import { getInstantCache, getScryfallKey, getPrice, formatPrice } from '../../lib/scryfall'
 import { useCombosFetch } from '../../hooks/useCombosFetch'
@@ -175,6 +175,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const [rebuilding, setRebuilding] = useState(false)
   const [gameChangers, setGameChangers] = useState(null) // Set of GC names (null until loaded)
   const [targetBracket, setTargetBracket] = useState(null) // null = no target; 1-4
+  const [showBracketReasons, setShowBracketReasons] = useState(false) // inline "why" disclosure
   const [maxPrice, setMaxPrice] = useState(null) // budget filter ceiling, null = off
   const [ownedNameSet, setOwnedNameSet] = useState(() => new Set())
 
@@ -528,6 +529,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                 key={role}
                 className={`${styles.step}${i === stepIndex ? ' ' + styles.stepActive : ''}${done ? ' ' + styles.stepDone : ''}`}
                 onClick={() => setStepIndex(i)}
+                aria-current={i === stepIndex ? 'step' : undefined}
                 title={isSummary ? 'Summary' : `${role}: ${c}/${t}`}
               >
                 {done && <CheckIcon size={11} />}
@@ -567,38 +569,63 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
 
         {/* Bracket target selector + live estimate */}
         {!loading && !error && gameChangers && (
-          <div className={styles.themeRow}>
-            <span className={styles.themeLabel}>Bracket</span>
-            <div className={styles.themeChips}>
-              <button
-                className={`${styles.themeChip}${targetBracket == null ? ' ' + styles.themeActive : ''}`}
-                onClick={() => setTargetBracket(null)}
-              >
-                Any
-              </button>
-              {[1, 2, 3, 4].map(b => (
+          <>
+            <div className={styles.themeRow}>
+              <span className={styles.themeLabel}>Bracket</span>
+              <div className={styles.themeChips}>
                 <button
-                  key={b}
-                  className={`${styles.themeChip}${targetBracket === b ? ' ' + styles.themeActive : ''}`}
-                  onClick={() => setTargetBracket(b)}
-                  title={BRACKET_LABELS[b]}
+                  className={`${styles.themeChip}${targetBracket == null ? ' ' + styles.themeActive : ''}`}
+                  onClick={() => setTargetBracket(null)}
                 >
-                  {b} · {BRACKET_LABELS[b]}
+                  Any
                 </button>
-              ))}
+                {[1, 2, 3, 4].map(b => (
+                  <button
+                    key={b}
+                    className={`${styles.themeChip}${targetBracket === b ? ' ' + styles.themeActive : ''}`}
+                    onClick={() => setTargetBracket(b)}
+                    title={BRACKET_LABELS[b]}
+                  >
+                    {b} · {BRACKET_LABELS[b]}
+                  </button>
+                ))}
+              </div>
+              {deckBracket && (
+                <button
+                  type="button"
+                  className={`${styles.bracketNow} ${styles.bracketBtn}${overTarget ? ' ' + styles.bracketOver : ''}`}
+                  onClick={() => setShowBracketReasons(v => !v)}
+                  aria-expanded={showBracketReasons}
+                  title="Show what's affecting the bracket estimate"
+                >
+                  Now: B{deckBracket.bracket} {BRACKET_LABELS[deckBracket.bracket]}
+                  {!deckBracket.combosChecked ? ' (combos not checked)' : ''}
+                  <ChevronDownIcon
+                    size={10}
+                    className={`${styles.bracketCaret}${showBracketReasons ? ' ' + styles.bracketCaretOpen : ''}`}
+                  />
+                </button>
+              )}
             </div>
-            {deckBracket && (
-              <span
-                className={`${styles.bracketNow}${overTarget ? ' ' + styles.bracketOver : ''}`}
-                title={deckBracket.reasons.length
-                  ? deckBracket.reasons.map(r => r.reason).join(' · ')
-                  : 'No bracket-raising cards detected yet'}
-              >
-                Now: B{deckBracket.bracket} {BRACKET_LABELS[deckBracket.bracket]}
-                {!deckBracket.combosChecked ? ' (combos not checked)' : ''}
-              </span>
+            {/* Inline "why" disclosure — touch/keyboard-accessible replacement
+                for the old hover-only tooltip. */}
+            {deckBracket && showBracketReasons && (
+              <div className={styles.bracketReasons}>
+                {deckBracket.reasons.length ? (
+                  deckBracket.reasons.map((r, i) => (
+                    <span
+                      key={i}
+                      className={`${styles.bracketReason}${targetBracket != null && r.level > targetBracket ? ' ' + styles.bracketReasonOver : ''}`}
+                    >
+                      {r.reason}
+                    </span>
+                  ))
+                ) : (
+                  <span className={styles.bracketReasonNone}>No bracket-raising cards detected yet.</span>
+                )}
+              </div>
             )}
-          </div>
+          </>
         )}
 
         {/* Budget selector + live deck value */}
@@ -662,6 +689,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                         title={thin ? `${c}: only ${n} sources — consider more fixing` : `${c}: ${n} sources`}>
                         <span className={styles.pip} style={{ background: MANA_HEX[c] }} />
                         {n}
+                        {thin && <span className={styles.sourceThinTag}>low</span>}
                       </span>
                     )
                   })}
@@ -853,7 +881,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                           <div className={styles.comboInfo}>
                             <div className={styles.comboProduces}>
                               {or.role}
-                              <span className={styles.comboOwnedTag} style={{ color: 'var(--gold)', borderColor: 'rgba(201,168,76,0.4)' }}>
+                              <span className={`${styles.comboOwnedTag} ${styles.cutTag}`}>
                                 {or.count}/{or.target} · cut {or.excess}
                               </span>
                             </div>

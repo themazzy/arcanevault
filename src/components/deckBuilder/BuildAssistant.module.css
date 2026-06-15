@@ -11,8 +11,11 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  height: 88vh;
-  max-height: 88vh;
+  /* Cap to the viewport (minus overlay + modal padding) so the modal never
+     exceeds the screen and only .main scrolls — keeps the footer reachable even
+     when every chip row wraps. dvh tracks mobile browser-chrome changes. */
+  height: min(88dvh, calc(100dvh - 96px));
+  max-height: min(88dvh, calc(100dvh - 96px));
 }
 
 /* ── Header ───────────────────────────────────────────────────────────────── */
@@ -66,6 +69,15 @@
 }
 
 .step:hover { background: var(--s-medium); }
+
+/* Keyboard focus ring shared across every custom control in the wizard. */
+.step:focus-visible,
+.themeChip:focus-visible,
+.tileBtn:focus-visible,
+.miniBtn:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
 
 .stepActive {
   border-color: rgba(201, 168, 76, 0.65);
@@ -141,6 +153,57 @@
   border-color: rgba(204, 85, 85, 0.55);
   color: #e08a8a;
   background: rgba(204, 85, 85, 0.12);
+}
+
+/* Interactive variant of .bracketNow: the pill that toggles the reasons list. */
+.bracketBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.bracketBtn:hover { background: var(--s-medium); color: var(--text); }
+.bracketBtn.bracketOver:hover { background: rgba(204, 85, 85, 0.18); color: #f0b0b0; }
+
+.bracketBtn:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.bracketCaret { transition: transform 0.15s; opacity: 0.7; }
+.bracketCaretOpen { transform: rotate(180deg); }
+
+/* Inline "why" disclosure under the bracket row. */
+.bracketReasons {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px 2px 0;
+}
+
+.bracketReason {
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-size: 0.74rem;
+  background: var(--s2);
+  border: 1px solid var(--s-border);
+  color: var(--text-dim);
+}
+
+.bracketReasonOver {
+  border-color: rgba(204, 85, 85, 0.45);
+  background: rgba(204, 85, 85, 0.12);
+  color: #e08a8a;
+}
+
+.bracketReasonNone {
+  font-size: 0.74rem;
+  color: var(--text-faint);
+  padding: 3px 2px;
 }
 
 .bracketWarn {
@@ -273,6 +336,16 @@
 }
 
 .sourceThin { color: var(--gold); }
+
+/* Visible "thin colour" hint so the guidance isn't hover-only (touch a11y). */
+.sourceThinTag {
+  margin-left: 3px;
+  font-size: 0.6rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--gold);
+  opacity: 0.85;
+}
 
 .sourcesTotal {
   margin-left: auto;
@@ -479,6 +552,8 @@
 
 .summaryTotals {
   display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
   justify-content: space-between;
   padding: 10px 12px;
   margin-top: 6px;
@@ -591,6 +666,36 @@
   border: 1px dashed var(--s-border2);
 }
 
+/* Inline pill button: combo "add this piece" + the cut buttons below. */
+.miniBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 5px 10px;
+  font-size: 0.74rem;
+  border-radius: 5px;
+  border: 1px solid var(--s-border2);
+  background: var(--s3);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.miniBtn:hover:not(:disabled) { background: var(--s-medium); }
+.miniBtn:disabled { cursor: default; }
+
+.miniBtnDone {
+  color: var(--green);
+  border-color: rgba(93, 186, 112, 0.4);
+  cursor: default;
+}
+
+/* Gold count tag on an over-quota cut row (was an inline style). */
+.cutTag {
+  color: var(--gold);
+  border-color: rgba(201, 168, 76, 0.4);
+}
+
 .cutBtn {
   color: #e08a8a;
   border-color: rgba(204, 85, 85, 0.4);
@@ -614,6 +719,33 @@
 .footerSpacer { flex: 1; }
 
 @media (max-width: 600px) {
-  .body { height: 92vh; max-height: 92vh; }
+  .body {
+    height: min(92dvh, calc(100dvh - 72px));
+    max-height: min(92dvh, calc(100dvh - 72px));
+  }
   .grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
+  /* Keep the 9-step stepper to one scrollable row instead of wrapping to ~3
+     rows and eating the limited vertical budget. */
+  .stepper {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+  .stepper::-webkit-scrollbar { display: none; }
+  .step { flex-shrink: 0; }
+  .curve { gap: 6px; }
+}
+
+/* Touch devices: enlarge the primary tap targets to the project's 40px floor. */
+@media (hover: none) and (pointer: coarse) {
+  .tileBtn,
+  .themeChip,
+  .step,
+  .miniBtn,
+  .bracketBtn {
+    min-height: 40px;
+  }
+  .tileActions { gap: 6px; }
+  .themeChip { padding-top: 8px; padding-bottom: 8px; }
 }

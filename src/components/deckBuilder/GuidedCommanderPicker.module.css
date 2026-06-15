@@ -19,6 +19,11 @@
   border-color: rgba(201, 168, 76, 0.6);
 }
 
+.search:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
 .selected {
   padding: 6px 10px;
   border-radius: 6px;
@@ -82,6 +87,11 @@
 .item:hover {
   background: var(--s-medium);
   border-color: var(--s-border2);
+}
+
+.item:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: -1px;
 }
 
 .itemSelected {
