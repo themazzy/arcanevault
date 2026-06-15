@@ -591,6 +591,16 @@
   border: 1px dashed var(--s-border2);
 }
 
+.cutBtn {
+  color: #e08a8a;
+  border-color: rgba(204, 85, 85, 0.4);
+}
+
+.cutBtn:hover:not(:disabled) {
+  background: rgba(204, 85, 85, 0.15);
+  color: #f0b0b0;
+}
+
 /* ── Footer ───────────────────────────────────────────────────────────────── */
 .footer {
   display: flex;

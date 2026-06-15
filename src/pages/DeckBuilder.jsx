@@ -5509,6 +5509,7 @@ export default function DeckBuilderPage() {
           deckCards={deckCards}
           accessToken={session?.access_token}
           onAddCard={addCardToDeck}
+          onRemoveCard={removeCardFromDeck}
           onAddToWishlist={addUpgradeToWishlist}
           onClose={() => setShowBuildAssistant(false)}
         />

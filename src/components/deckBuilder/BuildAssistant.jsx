@@ -147,7 +147,7 @@ function CardTile({ name, sfCard, subtitle, pips, inclusion, price, flag, overTa
   )
 }
 
-export function BuildAssistant({ userId, commander, deckCards = [], accessToken, onAddCard, onAddToWishlist, onClose }) {
+export function BuildAssistant({ userId, commander, deckCards = [], accessToken, onAddCard, onRemoveCard, onAddToWishlist, onClose }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [plan, setPlan] = useState(null) // enriched plan (candidates + upgrades)
@@ -312,6 +312,47 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     return total
   }, [deckCards, sfMap, priceOf])
 
+  // EDHREC inclusion by card name, from the enriched plan (owned + upgrades) —
+  // used to rank cut candidates (least-played first).
+  const inclusionByName = useMemo(() => {
+    const m = new Map()
+    for (const role of plan?.roles || []) {
+      for (const c of role.ownedCandidates) m.set(c.name.toLowerCase(), c.edhrecInclusion || 0)
+      for (const u of role.edhrecUpgrades) m.set(u.name.toLowerCase(), u.edhrecInclusion || 0)
+    }
+    return m
+  }, [plan])
+
+  // "What to cut": when the deck is over size or a role is over its quota,
+  // suggest removals. Per over-quota role, rank that role's deck cards by
+  // least-played (EDHREC inclusion) then highest CMC, and flag the excess.
+  const cutPlan = useMemo(() => {
+    if (!plan) return null
+    const byRole = new Map(ROLE_ORDER.map(r => [r, []]))
+    for (const dc of deckCards || []) {
+      if (dc?.is_commander) continue
+      const sf = sfMap?.[dc?.scryfall_id] || null
+      const role = coarseRole(dc, sf)
+      byRole.get(role)?.push({
+        id: dc.id,
+        name: dc.name,
+        cmc: sf?.cmc ?? dc?.cmc ?? 0,
+        inclusion: inclusionByName.get((dc.name || '').toLowerCase()) ?? 0,
+      })
+    }
+    const overRoles = []
+    for (const role of plan.roles) {
+      const cards = byRole.get(role.role) || []
+      const count = cards.reduce((n, c) => n + 1, 0)
+      const excess = count - role.target
+      if (excess <= 0) continue
+      const ranked = [...cards].sort((a, b) => (a.inclusion - b.inclusion) || (b.cmc - a.cmc) || a.name.localeCompare(b.name))
+      overRoles.push({ role: role.role, count, target: role.target, excess, cuts: ranked.slice(0, excess) })
+    }
+    // totalCards and deckSize both include the commander, so this is "over 100".
+    return { over: totalCards - plan.deckSize, overRoles }
+  }, [plan, deckCards, sfMap, inclusionByName, totalCards])
+
   // Completed combos in the deck → card-name lists for the bracket analyzer.
   const comboCardLists = useMemo(() => {
     if (!combos.fetched) return null
@@ -406,6 +447,11 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     } catch {
       setWishlistedNames(prev => { const next = new Set(prev); next.delete(key); return next })
     }
+  }
+
+  async function handleRemove(deckCardId) {
+    if (typeof onRemoveCard !== 'function' || !deckCardId) return
+    try { await onRemoveCard(deckCardId) } catch { /* parent surfaces errors */ }
   }
 
   if (!hasCommander) {
@@ -760,6 +806,49 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                     )
                   })}
                 </div>
+              )}
+
+              {/* What to cut */}
+              {cutPlan && (cutPlan.over > 0 || cutPlan.overRoles.length > 0) && (
+                <>
+                  <div className={styles.sectionLabel}>
+                    Trim
+                    {cutPlan.over > 0
+                      ? <span className={styles.sectionHint}> · {cutPlan.over} over 100</span>
+                      : <span className={styles.sectionHint}> · roles over quota</span>}
+                  </div>
+                  {cutPlan.overRoles.length === 0 ? (
+                    <div className={styles.emptySmall}>Deck is over 100 but every role is within quota — trim your longest/weakest cards.</div>
+                  ) : (
+                    <div className={styles.comboList}>
+                      {cutPlan.overRoles.map(or => (
+                        <div key={or.role} className={styles.comboRow}>
+                          <div className={styles.comboInfo}>
+                            <div className={styles.comboProduces}>
+                              {or.role}
+                              <span className={styles.comboOwnedTag} style={{ color: 'var(--gold)', borderColor: 'rgba(201,168,76,0.4)' }}>
+                                {or.count}/{or.target} · cut {or.excess}
+                              </span>
+                            </div>
+                            <div className={styles.comboUses}>Least-played first</div>
+                          </div>
+                          <div className={styles.comboMissing}>
+                            {or.cuts.map(cut => (
+                              <button
+                                key={cut.id}
+                                className={`${styles.miniBtn} ${styles.cutBtn}`}
+                                onClick={() => handleRemove(cut.id)}
+                                title={`Remove ${cut.name} (${cut.inclusion}% EDHREC, CMC ${cut.cmc})`}
+                              >
+                                ✕ {cut.name}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}
