@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Modal, Button, ProgressBar } from '../UI'
 import { CheckIcon } from '../../icons'
-import { getLocalCards } from '../../lib/db'
+import { getLocalCards, getLocalCardPrints } from '../../lib/db'
 import { getInstantCache } from '../../lib/scryfall'
 import { fetchEdhrecCommander } from '../../lib/deckBuilderApi'
 import {
@@ -61,14 +61,24 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
     ;(async () => {
       try {
         setLoading(true)
-        const [owned, cache] = await Promise.all([
+        const [owned, prints, cache] = await Promise.all([
           getLocalCards(userId),
+          getLocalCardPrints().catch(() => []),
           getInstantCache().catch(() => null),
         ])
         const map = cache || {}
+        // Post-5d owned rows may lack scryfall_id; resolve it via card_prints so
+        // classification (oracle/type from sfMap) and color-identity filtering
+        // actually work. Without this, every card falls back to Synergy.
+        const printById = new Map((prints || []).map(p => [p.id, p]))
+        const ownedNorm = (owned || []).map(c => {
+          if (c?.scryfall_id) return c
+          const print = c?.card_print_id ? printById.get(c.card_print_id) : null
+          return print?.scryfall_id ? { ...c, scryfall_id: print.scryfall_id } : c
+        })
         const base = analyzeBuildPlan({
           commander,
-          ownedCards: owned || [],
+          ownedCards: ownedNorm,
           sfMap: map,
           currentDeckCards: deckCards,
         })

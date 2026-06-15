@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CheckIcon } from '../../icons'
-import { getLocalCards } from '../../lib/db'
+import { getLocalCards, getLocalCardPrints } from '../../lib/db'
 import { getInstantCache } from '../../lib/scryfall'
 import { searchCommanders } from '../../lib/deckBuilderApi'
 import styles from './GuidedCommanderPicker.module.css'
@@ -29,26 +29,55 @@ export function GuidedCommanderPicker({ userId, value, onSelect }) {
   const [searching, setSearching] = useState(false)
   const searchTimer = useRef(null)
 
-  // Load owned commanders once.
+  // Load owned commanders once. We resolve each owned card's type line from
+  // card_prints (always present locally) rather than the Scryfall in-memory
+  // cache, which may be cold on this page — that was the cause of the empty
+  // list. The full Scryfall card is used when available (richer object for
+  // pickCommander), otherwise we build a minimal commander object from the
+  // print metadata; pickCommander re-resolves the printing by name anyway.
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       try {
-        const [cards, cache] = await Promise.all([
+        const [cards, prints, cache] = await Promise.all([
           getLocalCards(userId),
+          getLocalCardPrints().catch(() => []),
           getInstantCache().catch(() => null),
         ])
         const map = cache || {}
+        const printById = new Map((prints || []).map(p => [p.id, p]))
+        const printBySf = new Map((prints || []).filter(p => p.scryfall_id).map(p => [p.scryfall_id, p]))
+
         const seen = new Set()
         const list = []
         for (const c of cards || []) {
-          const sf = map[c?.scryfall_id]
-          if (!sf) continue
-          if (!isCommanderType(typeLineOf(sf))) continue
-          const key = (sf.name || '').toLowerCase()
+          const print =
+            (c?.card_print_id && printById.get(c.card_print_id)) ||
+            (c?.scryfall_id && printBySf.get(c.scryfall_id)) ||
+            null
+          const scryfallId = c?.scryfall_id || print?.scryfall_id
+          if (!scryfallId) continue
+
+          const sf = map[scryfallId] || null
+          const typeLine = typeLineOf(sf) || c?.type_line || print?.type_line || ''
+          if (!isCommanderType(typeLine)) continue
+
+          const name = sf?.name || c?.name || print?.name || ''
+          const key = name.toLowerCase()
           if (!key || seen.has(key)) continue
           seen.add(key)
-          list.push(sf)
+
+          // Prefer the full Scryfall object; fall back to a minimal one.
+          list.push(sf || {
+            id: scryfallId,
+            name,
+            type_line: typeLine,
+            color_identity: print?.color_identity || c?.color_identity || [],
+            set: print?.set_code || undefined,
+            collector_number: print?.collector_number || undefined,
+            mana_cost: print?.mana_cost || undefined,
+            cmc: print?.cmc ?? undefined,
+          })
         }
         list.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
         if (!cancelled) setOwned(list)
