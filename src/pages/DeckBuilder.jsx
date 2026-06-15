@@ -81,6 +81,7 @@ import {
   ChevronRightIcon,
   CollectionIcon,
   DeckIcon,
+  LightningIcon,
   MenuIcon,
   AddIcon,
   CheckIcon,
@@ -1309,11 +1310,6 @@ export default function DeckBuilderPage() {
 
   const renderDeckActionsMenu = ({ close, includeQuickActions = true }) => (
     <div className={uiStyles.responsiveMenuList}>
-      {isEDH && (
-        <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowBuildAssistant(true); close() }}>
-          <span>Build from Collection</span>
-        </button>
-      )}
       <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowImport(true); close() }}>
         <span>Import</span>
       </button>
@@ -3968,6 +3964,17 @@ export default function DeckBuilderPage() {
           <span className={styles.btnLabel}>Playtest</span>
           <span className={styles.btnLabelMobile}>Test</span>
         </Link>
+        {isEDH && (
+          <button
+            className={`${styles.headerBtnPrimary} ${styles.headerQuickAction} ${styles.headerBtnAssist}`}
+            onClick={() => setShowBuildAssistant(true)}
+            title="Open the guided deck builder — fill each role from your collection"
+          >
+            <span className={styles.btnIcon} aria-hidden="true"><LightningIcon size={14} /></span>
+            <span className={styles.btnLabel}>Build Assistant</span>
+            <span className={styles.btnLabelMobile}>Assist</span>
+          </button>
+        )}
         {(isCollectionDeck || deckMeta.linked_deck_id) && (
           <button className={styles.headerBtnPrimary} onClick={() => setShowSync(true)} disabled={syncRunning} title="Sync collection">
             <span className={styles.btnIcon} aria-hidden="true"><CollectionIcon size={14} /></span>

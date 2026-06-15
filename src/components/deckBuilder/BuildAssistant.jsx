@@ -458,7 +458,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     return (
       <Modal onClose={onClose} className={styles.modal}>
         <div className={styles.body}>
-          <div className={styles.title}>Build from Collection</div>
+          <div className={styles.title}>Build Assistant</div>
           <div className={styles.empty}>
             Set a commander first — the assistant uses its color identity to pick
             legal cards from your collection.
@@ -481,7 +481,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       <div className={styles.body}>
         <div className={styles.header}>
           <div>
-            <div className={styles.title}>Build from Collection</div>
+            <div className={styles.title}>Build Assistant</div>
             <div className={styles.commander}>{commander.name}</div>
           </div>
           {!onSummary && (

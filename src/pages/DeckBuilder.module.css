@@ -984,6 +984,24 @@
   border-color: rgba(201,168,76,0.48);
 }
 
+/* Build Assistant — promoted, more prominent accent than a plain primary */
+.headerBtnAssist {
+  background: linear-gradient(135deg, rgba(201,168,76,0.32), rgba(201,168,76,0.16));
+  border: 1px solid rgba(201,168,76,0.55);
+  color: var(--gold, #c9a84c);
+  box-shadow: 0 0 0 1px rgba(201,168,76,0.08) inset;
+}
+
+.headerBtnAssist:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(201,168,76,0.42), rgba(201,168,76,0.24));
+  border-color: rgba(201,168,76,0.7);
+}
+
+/* Touch devices: comfortable tap target without affecting mouse/desktop UIs. */
+@media (hover: none) and (pointer: coarse) {
+  .headerBtnAssist { min-height: 40px; padding: 0 16px; }
+}
+
 .headerBtn:disabled,
 .headerBtnPrimary:disabled {
   opacity: 0.5;
