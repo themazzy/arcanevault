@@ -15,6 +15,8 @@ import {
   archetypeAdjustments,
   applyTemplateAdjustments,
   bracketFlagFor,
+  producedColors,
+  countManaSources,
   coarseRole,
   COMMANDER_TEMPLATE,
   ROLE_ORDER,
@@ -74,12 +76,28 @@ function cardImageUrl(sfCard) {
 const SUMMARY_STEP = '__summary__'
 const MAX_TILES = 60 // cap owned tiles per step to keep the DOM light
 
+// Mana pip colors for the manabase step. A color is "thin" (amber) below this
+// many sources — a soft floor, not a hard rule.
+const MANA_HEX = { W: '#e9e0c0', U: '#3b7fd4', B: '#7a6b86', R: '#d4503b', G: '#4a9a5a' }
+const THIN_SOURCE_FLOOR = 8
+
+function ColorPips({ colors }) {
+  if (!colors?.length) return null
+  return (
+    <span className={styles.pips}>
+      {colors.map(c => (
+        <span key={c} className={styles.pip} style={{ background: MANA_HEX[c] || '#888' }} title={c} />
+      ))}
+    </span>
+  )
+}
+
 // Mana-curve buckets for the summary step (top end collapses into "6+").
 const CURVE_BUCKETS = [0, 1, 2, 3, 4, 5, 6]
 function curveLabel(b) { return b === 6 ? '6+' : String(b) }
 
 // One card tile: image + name + sub-meta + add action(s).
-function CardTile({ name, sfCard, subtitle, inclusion, flag, overTarget, added, wished, showWishlist, onAdd, onWishlist }) {
+function CardTile({ name, sfCard, subtitle, pips, inclusion, flag, overTarget, added, wished, showWishlist, onAdd, onWishlist }) {
   const img = cardImageUrl(sfCard)
   return (
     <div className={`${styles.tile}${added ? ' ' + styles.tileAdded : ''}`}>
@@ -101,7 +119,8 @@ function CardTile({ name, sfCard, subtitle, inclusion, flag, overTarget, added, 
         {added && <span className={styles.tileCheck}><CheckIcon size={18} /></span>}
       </div>
       <div className={styles.tileName} title={name}>{name}</div>
-      {subtitle && <div className={styles.tileSub}>{subtitle}</div>}
+      {pips?.length ? <div className={styles.tileSub}><ColorPips colors={pips} /></div>
+        : subtitle ? <div className={styles.tileSub}>{subtitle}</div> : null}
       <div className={styles.tileActions}>
         <button
           className={`${styles.tileBtn}${added ? ' ' + styles.tileBtnDone : ''}`}
@@ -276,6 +295,27 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
 
   const overTarget = targetBracket != null && deckBracket && deckBracket.bracket > targetBracket
 
+  // Manabase: commander colors + live colored-source counts from the deck.
+  const cmdColors = useMemo(
+    () => (commander?.color_identity || []).filter(c => 'WUBRG'.includes(c)),
+    [commander],
+  )
+  const manaSources = useMemo(() => countManaSources(deckCards, sfMap), [deckCards, sfMap])
+  const onLands = currentRoleName === ROLE_LANDS
+
+  // For the Lands step, annotate candidates with the colors they produce and
+  // surface fixers (lands that make more of the commander's colors) first.
+  const landCandidates = useMemo(() => {
+    if (!onLands || !roleData) return []
+    return roleData.ownedCandidates
+      .map(cand => {
+        const colors = [...producedColors(cand.sfCard?.oracle_text, cand.sfCard?.type_line)]
+        const matching = colors.filter(c => cmdColors.includes(c))
+        return { cand, colors, score: matching.length }
+      })
+      .sort((a, b) => (b.score - a.score) || (b.colors.length - a.colors.length) || a.cand.name.localeCompare(b.cand.name))
+  }, [onLands, roleData, cmdColors])
+
   async function handleAdd(cardOrRec, name) {
     const key = name.toLowerCase()
     if (isAdded(name)) return
@@ -445,12 +485,45 @@ export function BuildAssistant({ userId, commander, deckCards = [], onAddCard, o
                 <ProgressBar value={pct} />
               </div>
 
+              {/* Manabase: colored-source counts (Lands step only) */}
+              {onLands && cmdColors.length > 0 && (
+                <div className={styles.sources}>
+                  <span className={styles.sourcesLabel}>Mana sources</span>
+                  {cmdColors.map(c => {
+                    const n = manaSources[c] || 0
+                    const thin = n < THIN_SOURCE_FLOOR
+                    return (
+                      <span key={c} className={`${styles.sourceItem}${thin ? ' ' + styles.sourceThin : ''}`}
+                        title={thin ? `${c}: only ${n} sources — consider more fixing` : `${c}: ${n} sources`}>
+                        <span className={styles.pip} style={{ background: MANA_HEX[c] }} />
+                        {n}
+                      </span>
+                    )
+                  })}
+                  <span className={styles.sourcesTotal}>{manaSources.lands} lands</span>
+                </div>
+              )}
+
               {/* Owned candidates */}
               <div className={styles.sectionLabel}>
                 From your collection · {roleData.ownedCandidates.length}
+                {onLands && <span className={styles.sectionHint}> · fixers first</span>}
               </div>
               {roleData.ownedCandidates.length === 0 ? (
                 <div className={styles.emptySmall}>No owned cards match this role in your colors.</div>
+              ) : onLands ? (
+                <div className={styles.grid}>
+                  {landCandidates.slice(0, MAX_TILES).map(({ cand, colors }) => (
+                    <CardTile
+                      key={cand.card?.id || cand.name}
+                      name={cand.name}
+                      sfCard={cand.sfCard}
+                      pips={colors}
+                      added={isAdded(cand.name)}
+                      onAdd={() => handleAdd(cand.sfCard || cand.card, cand.name)}
+                    />
+                  ))}
+                </div>
               ) : (
                 <div className={styles.grid}>
                   {roleData.ownedCandidates.slice(0, MAX_TILES).map(cand => {

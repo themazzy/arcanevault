@@ -7,6 +7,9 @@ import {
   archetypeAdjustments,
   applyTemplateAdjustments,
   bracketFlagFor,
+  producedColors,
+  isManaSource,
+  countManaSources,
   COMMANDER_TEMPLATE,
   ROLE_RAMP,
   ROLE_DRAW,
@@ -243,6 +246,54 @@ describe('bracketFlagFor', () => {
   it('returns null for ordinary cards and tolerates a missing GC set', () => {
     expect(bracketFlagFor('Llanowar Elves', { oracle_text: '{T}: Add {G}.' }, gc)).toBeNull()
     expect(bracketFlagFor('Rhystic Study', null, null)).toBeNull()
+  })
+})
+
+// ── Mana base ─────────────────────────────────────────────────────────────────
+describe('producedColors', () => {
+  it('reads basic land subtypes', () => {
+    expect([...producedColors('', 'Basic Land — Forest')]).toEqual(['G'])
+    expect([...producedColors('', 'Land — Plains Island')].sort()).toEqual(['U', 'W'])
+  })
+
+  it('reads "add" clauses including any-color and hybrids', () => {
+    expect([...producedColors('{T}: Add one mana of any color.', 'Land')].sort())
+      .toEqual(['B', 'G', 'R', 'U', 'W'])
+    expect([...producedColors('{T}: Add {G} or {U}.', 'Land')].sort()).toEqual(['G', 'U'])
+    expect([...producedColors('{T}: Add {W/U}.', 'Land')].sort()).toEqual(['U', 'W'])
+  })
+
+  it('ignores colorless-only producers', () => {
+    expect([...producedColors('{T}: Add {C}{C}.', 'Artifact')]).toEqual([])
+  })
+})
+
+describe('isManaSource', () => {
+  it('treats any land as a source', () => {
+    expect(isManaSource('', 'Basic Land — Island')).toBe(true)
+  })
+  it('treats tap-for-mana permanents as sources but not rituals', () => {
+    expect(isManaSource('{T}: Add {G}.', 'Creature — Elf Druid')).toBe(true)
+    expect(isManaSource('Add {B}{B}{B}.', 'Instant')).toBe(false) // Dark Ritual: no {T}
+  })
+})
+
+describe('countManaSources', () => {
+  it('counts colored sources and lands across the deck', () => {
+    const cards = [
+      { scryfall_id: 'a', qty: 1 },
+      { scryfall_id: 'b', qty: 1 },
+      { scryfall_id: 'c', qty: 1 },
+    ]
+    const sfMap = {
+      a: { type_line: 'Basic Land — Forest', oracle_text: '' },
+      b: { type_line: 'Land', oracle_text: '{T}: Add one mana of any color.' },
+      c: { type_line: 'Creature — Elf Druid', oracle_text: '{T}: Add {G}.' },
+    }
+    const out = countManaSources(cards, sfMap)
+    expect(out.lands).toBe(2)          // Forest + the any-color land
+    expect(out.G).toBe(3)              // forest, any-color land, elf
+    expect(out.W).toBe(1)              // any-color land only
   })
 })
 

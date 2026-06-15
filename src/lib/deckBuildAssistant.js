@@ -131,6 +131,60 @@ export function bracketFlagFor(name, sfCard, gameChangerNames) {
   return null
 }
 
+// ── Mana base analysis ────────────────────────────────────────────────────────
+// Parse the colors a card can produce, and whether it's a (repeatable) mana
+// source — used to count colored sources in the manabase step.
+
+export const WUBRG = ['W', 'U', 'B', 'R', 'G']
+const BASIC_SUBTYPE = { plains: 'W', island: 'U', swamp: 'B', mountain: 'R', forest: 'G' }
+
+// Colors a card can add. Basic land subtypes count; "add … any color/type"
+// counts as all five; otherwise we scan each "add" clause for mana symbols
+// (incl. hybrid pips like {W/U}). Returns a Set of WUBRG letters.
+export function producedColors(oracleText = '', typeLine = '') {
+  const out = new Set()
+  const t = String(typeLine).toLowerCase()
+  for (const [sub, col] of Object.entries(BASIC_SUBTYPE)) {
+    if (t.includes(sub)) out.add(col)
+  }
+  const clauses = String(oracleText).toLowerCase().split(/[.\n;]/).filter(c => c.includes('add'))
+  for (const clause of clauses) {
+    if (/\bany (color|type)\b/.test(clause)) { WUBRG.forEach(c => out.add(c)); continue }
+    for (const c of WUBRG) {
+      if (new RegExp(`\\{[^}]*${c.toLowerCase()}[^}]*\\}`).test(clause)) out.add(c)
+    }
+  }
+  return out
+}
+
+// A repeatable mana source: any land, or a permanent with a "{T}: Add …"
+// ability (mana rocks / dorks). One-shot rituals (no {T}) are excluded.
+export function isManaSource(oracleText = '', typeLine = '') {
+  if (String(typeLine).toLowerCase().includes('land')) return true
+  return /\{t\}[^.]*\badd\b/.test(String(oracleText).toLowerCase())
+}
+
+// Per-color source count for a set of deck cards (each { sfCard?, type_line?,
+// oracle_text?, qty? }). Counts a card toward a color when it's a mana source
+// that can produce that color. Returns a map { W, U, B, R, G } (+ total lands).
+export function countManaSources(cards, sfMapOrGetter) {
+  const counts = { W: 0, U: 0, B: 0, R: 0, G: 0 }
+  let lands = 0
+  const getSf = typeof sfMapOrGetter === 'function'
+    ? sfMapOrGetter
+    : (c) => (sfMapOrGetter || {})[c?.scryfall_id] || null
+  for (const c of cards || []) {
+    const sf = getSf(c)
+    const oracle = sf?.oracle_text || c?.oracle_text || ''
+    const typeLine = sf?.type_line || c?.type_line || ''
+    const qty = c?.qty || 1
+    if (typeLine.toLowerCase().includes('land')) lands += qty
+    if (!isManaSource(oracle, typeLine)) continue
+    for (const col of producedColors(oracle, typeLine)) counts[col] += qty
+  }
+  return { ...counts, lands }
+}
+
 // ── Archetype-aware quota flexing ─────────────────────────────────────────────
 // A selected EDHREC theme (Tokens, Spellslinger, Voltron, …) nudges the role
 // quotas. Deltas only touch the FIXED roles — Synergy is the remainder, so
