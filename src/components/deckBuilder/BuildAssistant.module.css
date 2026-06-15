@@ -350,6 +350,18 @@
   font-variant-numeric: tabular-nums;
 }
 
+.tilePrice {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.72);
+  color: var(--green);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .tileCheck {
   position: absolute;
   inset: 0;

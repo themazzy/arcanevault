@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Modal, Button, ProgressBar } from '../UI'
 import { CheckIcon } from '../../icons'
 import { getLocalCards, getLocalCardPrints } from '../../lib/db'
-import { getInstantCache, getScryfallKey } from '../../lib/scryfall'
+import { getInstantCache, getScryfallKey, getPrice, formatPrice } from '../../lib/scryfall'
 import { useCombosFetch } from '../../hooks/useCombosFetch'
+import { useSettings } from '../SettingsContext'
 import { fetchEdhrecCommander, getCardImageUri } from '../../lib/deckBuilderApi'
 import {
   analyzeBracket,
@@ -98,7 +99,7 @@ const CURVE_BUCKETS = [0, 1, 2, 3, 4, 5, 6]
 function curveLabel(b) { return b === 6 ? '6+' : String(b) }
 
 // One card tile: image + name + sub-meta + add action(s).
-function CardTile({ name, sfCard, subtitle, pips, inclusion, flag, overTarget, added, wished, showWishlist, onAdd, onWishlist }) {
+function CardTile({ name, sfCard, subtitle, pips, inclusion, price, flag, overTarget, added, wished, showWishlist, onAdd, onWishlist }) {
   const img = cardImageUrl(sfCard)
   return (
     <div className={`${styles.tile}${added ? ' ' + styles.tileAdded : ''}`}>
@@ -107,6 +108,7 @@ function CardTile({ name, sfCard, subtitle, pips, inclusion, flag, overTarget, a
           ? <img src={img} alt={name} loading="lazy" className={styles.tileImg} />
           : <div className={styles.tileNoImg}>{name}</div>}
         {inclusion > 0 && <span className={styles.tileIncl}>{inclusion}%</span>}
+        {price && <span className={styles.tilePrice}>{price}</span>}
         {flag && (
           <span
             className={`${styles.tileFlag}${overTarget ? ' ' + styles.tileFlagWarn : ''}`}
@@ -156,7 +158,10 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const [rebuilding, setRebuilding] = useState(false)
   const [gameChangers, setGameChangers] = useState(null) // Set of GC names (null until loaded)
   const [targetBracket, setTargetBracket] = useState(null) // null = no target; 1-4
+  const [maxPrice, setMaxPrice] = useState(null) // budget filter ceiling, null = off
   const [ownedNameSet, setOwnedNameSet] = useState(() => new Set())
+
+  const { price_source } = useSettings()
   // Names added/wishlisted this session — instant feedback before the deckCards
   // prop round-trips back from the parent.
   const [addedNames, setAddedNames] = useState(() => new Set())
@@ -283,6 +288,29 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     () => (deckCards || []).reduce((sum, dc) => sum + (dc.qty || 1), 0),
     [deckCards],
   )
+
+  // Pricing helpers (budget guidance). Cards with no price data pass the budget
+  // filter (we can't judge them) and aren't counted in deck value.
+  const priceOf = useCallback(
+    (sfCard, foil = false) => getPrice(sfCard, foil, { price_source }),
+    [price_source],
+  )
+  const passesBudget = useCallback(
+    (sfCard) => {
+      if (maxPrice == null) return true
+      const v = priceOf(sfCard)
+      return v == null || v <= maxPrice
+    },
+    [maxPrice, priceOf],
+  )
+  const deckValue = useMemo(() => {
+    let total = 0
+    for (const dc of deckCards || []) {
+      const v = priceOf(sfMap?.[dc?.scryfall_id] || null, dc.foil)
+      if (v != null) total += v * (dc.qty || 1)
+    }
+    return total
+  }, [deckCards, sfMap, priceOf])
 
   // Completed combos in the deck → card-name lists for the bracket analyzer.
   const comboCardLists = useMemo(() => {
@@ -500,6 +528,28 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           </div>
         )}
 
+        {/* Budget selector + live deck value */}
+        {!loading && !error && (
+          <div className={styles.themeRow}>
+            <span className={styles.themeLabel}>Budget</span>
+            <div className={styles.themeChips}>
+              {[null, 1, 5, 20].map(b => (
+                <button
+                  key={b ?? 'any'}
+                  className={`${styles.themeChip}${maxPrice === b ? ' ' + styles.themeActive : ''}`}
+                  onClick={() => setMaxPrice(b)}
+                  title={b == null ? 'No budget limit' : `Hide suggestions over ${formatPrice(b, price_source)}`}
+                >
+                  {b == null ? 'Any' : `≤ ${formatPrice(b, price_source)}`}
+                </button>
+              ))}
+            </div>
+            <span className={styles.bracketNow} title="Estimated value of the current deck">
+              Deck: {formatPrice(deckValue, price_source)}
+            </span>
+          </div>
+        )}
+
         {/* Over-target warning */}
         {overTarget && deckBracket && (
           <div className={styles.bracketWarn}>
@@ -551,46 +601,47 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                 From your collection · {roleData.ownedCandidates.length}
                 {onLands && <span className={styles.sectionHint}> · fixers first</span>}
               </div>
-              {roleData.ownedCandidates.length === 0 ? (
-                <div className={styles.emptySmall}>No owned cards match this role in your colors.</div>
-              ) : onLands ? (
-                <div className={styles.grid}>
-                  {landCandidates.slice(0, MAX_TILES).map(({ cand, colors }) => (
-                    <CardTile
-                      key={cand.card?.id || cand.name}
-                      name={cand.name}
-                      sfCard={cand.sfCard}
-                      pips={colors}
-                      added={isAdded(cand.name)}
-                      onAdd={() => handleAdd(cand.sfCard || cand.card, cand.name)}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className={styles.grid}>
-                  {roleData.ownedCandidates.slice(0, MAX_TILES).map(cand => {
-                    const flag = bracketFlagFor(cand.name, cand.sfCard, gameChangers)
-                    return (
-                      <CardTile
-                        key={cand.card?.id || cand.name}
-                        name={cand.name}
-                        sfCard={cand.sfCard}
-                        subtitle={cand.granularCat}
-                        inclusion={cand.edhrecInclusion}
-                        flag={flag}
-                        overTarget={targetBracket != null && flag && flag.level > targetBracket}
-                        added={isAdded(cand.name)}
-                        onAdd={() => handleAdd(cand.sfCard || cand.card, cand.name)}
-                      />
-                    )
-                  })}
-                </div>
-              )}
-              {roleData.ownedCandidates.length > MAX_TILES && (
-                <div className={styles.moreNote}>
-                  +{roleData.ownedCandidates.length - MAX_TILES} more in your collection
-                </div>
-              )}
+              {(() => {
+                // Budget filter (cards with unknown price always pass).
+                const shown = onLands
+                  ? landCandidates.filter(({ cand }) => passesBudget(cand.sfCard))
+                  : roleData.ownedCandidates.filter(c => passesBudget(c.sfCard))
+                if (roleData.ownedCandidates.length === 0) {
+                  return <div className={styles.emptySmall}>No owned cards match this role in your colors.</div>
+                }
+                if (shown.length === 0) {
+                  return <div className={styles.emptySmall}>No owned {currentRoleName.toLowerCase()} cards under your budget.</div>
+                }
+                return (
+                  <>
+                    <div className={styles.grid}>
+                      {shown.slice(0, MAX_TILES).map(item => {
+                        const cand = onLands ? item.cand : item
+                        const priceVal = priceOf(cand.sfCard)
+                        const flag = onLands ? null : bracketFlagFor(cand.name, cand.sfCard, gameChangers)
+                        return (
+                          <CardTile
+                            key={cand.card?.id || cand.name}
+                            name={cand.name}
+                            sfCard={cand.sfCard}
+                            pips={onLands ? item.colors : undefined}
+                            subtitle={onLands ? undefined : cand.granularCat}
+                            inclusion={onLands ? 0 : cand.edhrecInclusion}
+                            price={priceVal != null ? formatPrice(priceVal, price_source) : null}
+                            flag={flag}
+                            overTarget={targetBracket != null && flag && flag.level > targetBracket}
+                            added={isAdded(cand.name)}
+                            onAdd={() => handleAdd(cand.sfCard || cand.card, cand.name)}
+                          />
+                        )
+                      })}
+                    </div>
+                    {shown.length > MAX_TILES && (
+                      <div className={styles.moreNote}>+{shown.length - MAX_TILES} more in your collection</div>
+                    )}
+                  </>
+                )
+              })()}
 
               {/* EDHREC upgrades (not owned) */}
               {roleData.edhrecUpgrades.length > 0 && (
@@ -643,6 +694,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
               <div className={styles.summaryTotals}>
                 <span><strong>{totalCards}</strong> / {plan.deckSize} cards</span>
                 <span>{Math.max(0, plan.deckSize - totalCards)} slots left</span>
+                <span>Value: <strong>{formatPrice(deckValue, price_source)}</strong></span>
               </div>
 
               <div className={styles.sectionLabel}>Mana curve (nonland)</div>
