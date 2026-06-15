@@ -1,0 +1,119 @@
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.search {
+  width: 100%;
+  padding: 8px 11px;
+  border-radius: 7px;
+  border: 1px solid var(--s-border2);
+  background: var(--bg3);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.search:focus {
+  outline: none;
+  border-color: rgba(201, 168, 76, 0.6);
+}
+
+.selected {
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(201, 168, 76, 0.12);
+  border: 1px solid rgba(201, 168, 76, 0.35);
+  color: var(--text);
+  font-size: 0.84rem;
+}
+
+.scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.sectionLabel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  font-family: var(--font-display);
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  color: var(--text-faint);
+  text-transform: uppercase;
+}
+
+.sectionLabel::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--s-border);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 11px;
+  border-radius: 7px;
+  border: 1px solid var(--s-border);
+  background: var(--s2);
+  color: var(--text);
+  font-size: 0.86rem;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.item:hover {
+  background: var(--s-medium);
+  border-color: var(--s-border2);
+}
+
+.itemSelected {
+  border-color: rgba(201, 168, 76, 0.6);
+  background: rgba(201, 168, 76, 0.15);
+  color: var(--gold);
+}
+
+.itemName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemMeta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+
+.itemType {
+  font-size: 0.72rem;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hint {
+  padding: 8px 4px;
+  font-size: 0.82rem;
+  color: var(--text-faint);
+}

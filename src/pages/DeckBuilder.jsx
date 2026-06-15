@@ -292,6 +292,7 @@ import DeckImportModal from '../components/deckBuilder/DeckImportModal'
 import CombosTab from '../components/deckBuilder/CombosTab'
 import ShareDeckModal from '../components/deckBuilder/ShareDeckModal'
 import DeckMetaModal from '../components/deckBuilder/DeckMetaModal'
+import { BuildAssistant } from '../components/deckBuilder/BuildAssistant'
 import { useCommanderSearch } from '../hooks/useCommanderSearch'
 import { useCardSearch } from '../hooks/useCardSearch'
 import { useCombosFetch } from '../hooks/useCombosFetch'
@@ -358,6 +359,9 @@ export default function DeckBuilderPage() {
     handleQuery: handleCompQuery,
     close:       closeCompPicker,
   } = useCommanderSearch({ scope: 'companion' })
+
+  // Build-from-collection assistant (guided wizard)
+  const [showBuildAssistant, setShowBuildAssistant] = useState(false)
 
   // Card detail modal (read-only, used throughout the builder)
   const [detailCard, setDetailCard] = useState(null) // { card, sfCard }
@@ -2597,6 +2601,44 @@ export default function DeckBuilderPage() {
     }
   }
 
+  // Build Assistant: add a single unowned card (by name) to a wishlist. Routes
+  // to a dedicated "<Deck> — Wishlist" list, reusing/creating it once per
+  // session so repeated adds land in the same place.
+  const assistantWishlistRef = useRef(null) // { id, name }
+  async function addUpgradeToWishlist(name) {
+    const [full] = await fetchCardsByNames([name])
+    if (!full) {
+      showToast(`Couldn't find ${name} on Scryfall.`, { tone: 'error' })
+      throw new Error('card not found')
+    }
+    let target = assistantWishlistRef.current
+    if (!target) {
+      const wlName = `${deckName || 'Deck'} — Wishlist`
+      const { data, error } = await sb
+        .from('folders')
+        .select('id, name, description, type')
+        .eq('user_id', user.id)
+        .eq('type', 'list')
+      if (error) throw error
+      const lists = (data || []).filter(f => !isGroupFolder(f))
+      let folder = lists.find(l => l.name === wlName)
+      if (!folder) {
+        const { data: created, error: createErr } = await sb
+          .from('folders')
+          .insert({ user_id: user.id, type: 'list', name: wlName, description: '{}' })
+          .select('id, name')
+          .single()
+        if (createErr) throw createErr
+        folder = created
+      }
+      target = { id: folder.id, name: folder.name }
+      assistantWishlistRef.current = target
+    }
+    await addMissingToWishlist({ folderId: target.id, userId: user.id, sfCards: [full] })
+    window.dispatchEvent(new CustomEvent('av:wishlist-updated'))
+    showToast(`Added ${name} to ${target.name}.`)
+  }
+
   async function toggleFoil(deckCardId) {
     const card = deckCardsRef.current.find(dc => dc.id === deckCardId)
     if (!card) return
@@ -3010,6 +3052,28 @@ export default function DeckBuilderPage() {
     setShowSync(true)
     navigate(location.pathname, { replace: true, state: {} })
   }, [location.state, location.pathname, loading, isCollectionDeck, deckMeta.linked_deck_id, navigate])
+
+  // Guided deck creation: Builder.jsx navigates here with the chosen commander
+  // in router state. Set it (full print resolution via pickCommander), then
+  // auto-open the build-from-collection wizard. Runs once per navigation.
+  const guidedHandledRef = useRef(false)
+  useEffect(() => {
+    if (guidedHandledRef.current || loading) return
+    const guided = location.state?.guidedCommander
+    if (!guided) return
+    guidedHandledRef.current = true
+    ;(async () => {
+      try {
+        if (!deckCardsRef.current.some(dc => dc.is_commander)) {
+          await pickCommander(guided)
+        }
+      } catch (err) {
+        console.warn('[DeckBuilder] guided commander pick failed:', err)
+      }
+      setShowBuildAssistant(true)
+      navigate(location.pathname, { replace: true, state: {} })
+    })()
+  }, [location.state, location.pathname, loading, navigate])
 
   function matchesAllocationRow(dc, row) {
     const sameF = (dc.foil ?? false) === (row.foil ?? false)
@@ -5434,6 +5498,18 @@ export default function DeckBuilderPage() {
             setCategoryPickCard(null)
           }}
           onClose={() => setCategoryPickCard(null)}
+        />
+      )}
+
+      {/* ── Build-from-collection assistant ───────────────────────── */}
+      {showBuildAssistant && (
+        <BuildAssistant
+          userId={user.id}
+          commander={commanderCard ? { name: commanderCard.name, color_identity: colorIdentity } : null}
+          deckCards={deckCards}
+          onAddCard={addCardToDeck}
+          onAddToWishlist={addUpgradeToWishlist}
+          onClose={() => setShowBuildAssistant(false)}
         />
       )}
 

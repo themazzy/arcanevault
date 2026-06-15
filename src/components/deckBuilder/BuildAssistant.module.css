@@ -1,0 +1,323 @@
+.modal {
+  width: min(560px, 94vw);
+  max-height: 88vh;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 2px;
+  max-height: 84vh;
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  color: var(--gold);
+}
+
+.commander {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+/* ── Stepper ──────────────────────────────────────────────────────────────── */
+.stepper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.step {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 0.72rem;
+  border-radius: 999px;
+  border: 1px solid var(--s-border);
+  background: var(--s2);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.step:hover { background: var(--s-medium); }
+
+.stepActive {
+  border-color: rgba(201, 168, 76, 0.65);
+  background: rgba(201, 168, 76, 0.15);
+  color: var(--gold);
+}
+
+.stepDone {
+  color: var(--green);
+}
+
+.stepDone.stepActive {
+  color: var(--gold);
+}
+
+/* ── Role panel ───────────────────────────────────────────────────────────── */
+.rolePanel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.roleHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.roleName {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  color: var(--text);
+}
+
+.roleCount {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.gap {
+  color: var(--gold);
+}
+
+.sectionLabel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  font-family: var(--font-display);
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  color: var(--text-faint);
+  text-transform: uppercase;
+}
+
+.sectionLabel::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--s-border);
+}
+
+.cardList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cardRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 11px;
+  border-radius: 7px;
+  border: 1px solid var(--s-border);
+  background: var(--s2);
+  color: var(--text);
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.cardRow:hover:not(:disabled) {
+  background: var(--s-medium);
+  border-color: var(--s-border2);
+}
+
+.cardRowUpgrade {
+  background: transparent;
+  border-style: dashed;
+  color: var(--text-dim);
+}
+
+.cardRowAdded {
+  opacity: 0.6;
+  cursor: default;
+  border-color: rgba(93, 186, 112, 0.4);
+}
+
+.cardName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardMeta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
+.incl {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.add {
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--gold);
+}
+
+/* Dual action buttons on unowned upgrade rows */
+.miniBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px;
+  font-size: 0.72rem;
+  border-radius: 5px;
+  border: 1px solid var(--s-border2);
+  background: var(--s3);
+  color: var(--text-dim);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s;
+}
+
+.miniBtn:hover:not(:disabled) {
+  background: var(--s-medium);
+  color: var(--text);
+}
+
+.miniBtnDone {
+  color: var(--green);
+  border-color: rgba(93, 186, 112, 0.4);
+  cursor: default;
+}
+
+/* ── Summary step ─────────────────────────────────────────────────────────── */
+.summaryGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.summaryRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: var(--s2);
+  font-size: 0.84rem;
+}
+
+.summaryRole { color: var(--text); }
+
+.summaryCount {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+}
+
+.summaryMet { color: var(--green); }
+.summaryUnder { color: var(--gold); }
+
+.summaryTotals {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 10px;
+  margin-top: 4px;
+  border-top: 1px solid var(--s-border);
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.curve {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  height: 110px;
+  padding: 4px 2px 0;
+}
+
+.curveCol {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  height: 100%;
+}
+
+.curveBarWrap {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.curveBar {
+  width: 70%;
+  min-height: 2px;
+  background: linear-gradient(180deg, rgba(201, 168, 76, 0.85), rgba(201, 168, 76, 0.45));
+  border-radius: 3px 3px 0 0;
+}
+
+.curveCount {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.curveLabel {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+}
+
+/* ── States ───────────────────────────────────────────────────────────────── */
+.empty,
+.emptySmall {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  padding: 10px 2px;
+}
+
+.emptySmall {
+  padding: 4px 2px;
+  font-size: 0.8rem;
+  color: var(--text-faint);
+}
+
+.error {
+  color: var(--red, #cc5555);
+  font-size: 0.85rem;
+  padding: 10px 2px;
+}
+
+/* ── Footer ───────────────────────────────────────────────────────────────── */
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--s-border);
+}
+
+.footerSpacer {
+  flex: 1;
+}

@@ -1,0 +1,230 @@
+import { describe, it, expect } from 'vitest'
+import {
+  granularToCoarse,
+  coarseRole,
+  analyzeBuildPlan,
+  enrichPlanWithEdhrec,
+  COMMANDER_TEMPLATE,
+  ROLE_RAMP,
+  ROLE_DRAW,
+  ROLE_REMOVAL,
+  ROLE_WIPE,
+  ROLE_PROTECTION,
+  ROLE_WINCON,
+  ROLE_SYNERGY,
+  ROLE_LANDS,
+} from './deckBuildAssistant'
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+// Build an owned card row + matching Scryfall entry. Keyed by scryfall_id so
+// analyzeBuildPlan's sfMap lookup resolves.
+let idCounter = 0
+function makeCard(name, { oracle = '', type = '', ci = [], legalities, cmc = 0 } = {}) {
+  const id = `sf-${idCounter++}`
+  return {
+    row: { scryfall_id: id, name },
+    sf: {
+      [id]: {
+        name,
+        oracle_text: oracle,
+        type_line: type,
+        color_identity: ci,
+        cmc,
+        ...(legalities ? { legalities } : {}),
+      },
+    },
+  }
+}
+
+function assemble(cards) {
+  const ownedCards = cards.map(c => c.row)
+  const sfMap = Object.assign({}, ...cards.map(c => c.sf))
+  return { ownedCards, sfMap }
+}
+
+function role(plan, name) {
+  return plan.roles.find(r => r.role === name)
+}
+
+// ── Granular → coarse mapping ─────────────────────────────────────────────────
+describe('granularToCoarse', () => {
+  it('maps functional categories to their coarse role', () => {
+    expect(granularToCoarse('Ramp')).toBe(ROLE_RAMP)
+    expect(granularToCoarse('Cost Reduction')).toBe(ROLE_RAMP)
+    expect(granularToCoarse('Card Draw')).toBe(ROLE_DRAW)
+    expect(granularToCoarse('Tutor')).toBe(ROLE_DRAW)
+    expect(granularToCoarse('Removal')).toBe(ROLE_REMOVAL)
+    expect(granularToCoarse('Counterspell')).toBe(ROLE_REMOVAL)
+    expect(granularToCoarse('Burn')).toBe(ROLE_REMOVAL)
+    expect(granularToCoarse('Board Wipe')).toBe(ROLE_WIPE)
+    expect(granularToCoarse('Protection')).toBe(ROLE_PROTECTION)
+    expect(granularToCoarse('Combo')).toBe(ROLE_WINCON)
+    expect(granularToCoarse('Extra Turns')).toBe(ROLE_WINCON)
+    expect(granularToCoarse('Land')).toBe(ROLE_LANDS)
+  })
+
+  it('falls through unmapped categories to Synergy', () => {
+    expect(granularToCoarse('Tokens')).toBe(ROLE_SYNERGY)
+    expect(granularToCoarse('Creature')).toBe(ROLE_SYNERGY)
+    expect(granularToCoarse('Graveyard')).toBe(ROLE_SYNERGY)
+    expect(granularToCoarse('Other')).toBe(ROLE_SYNERGY)
+    expect(granularToCoarse('anything-unknown')).toBe(ROLE_SYNERGY)
+  })
+})
+
+describe('coarseRole', () => {
+  it('classifies a card via its oracle text', () => {
+    const role = coarseRole(
+      { name: 'Sol Ring' },
+      { oracle_text: '{T}: Add {C}{C}.', type_line: 'Artifact' },
+    )
+    expect(role).toBe(ROLE_RAMP)
+  })
+})
+
+// ── analyzeBuildPlan ──────────────────────────────────────────────────────────
+describe('analyzeBuildPlan', () => {
+  it('buckets owned cards into coarse roles', () => {
+    const cards = [
+      makeCard('Cultivate', { oracle: 'Search your library for up to two basic land cards.', type: 'Sorcery' }),
+      makeCard('Divination', { oracle: 'Draw two cards.', type: 'Sorcery' }),
+      makeCard('Murder', { oracle: 'Destroy target creature.', type: 'Instant' }),
+      makeCard('Wrath of God', { oracle: 'Destroy all creatures.', type: 'Sorcery' }),
+      makeCard('Forest', { oracle: '', type: 'Basic Land — Forest' }),
+    ]
+    const { ownedCards, sfMap } = assemble(cards)
+    const plan = analyzeBuildPlan({ commander: { name: 'Cmd', color_identity: [] }, ownedCards, sfMap })
+
+    expect(role(plan, ROLE_RAMP).ownedCandidates.map(c => c.name)).toContain('Cultivate')
+    expect(role(plan, ROLE_DRAW).ownedCandidates.map(c => c.name)).toContain('Divination')
+    expect(role(plan, ROLE_REMOVAL).ownedCandidates.map(c => c.name)).toContain('Murder')
+    expect(role(plan, ROLE_WIPE).ownedCandidates.map(c => c.name)).toContain('Wrath of God')
+    expect(role(plan, ROLE_LANDS).ownedCandidates.map(c => c.name)).toContain('Forest')
+    expect(plan.totalOwnedLegal).toBe(5)
+  })
+
+  it('excludes cards outside the commander color identity', () => {
+    const cards = [
+      makeCard('Lightning Bolt', { oracle: 'Deals 3 damage to any target.', type: 'Instant', ci: ['R'] }),
+      makeCard('Counterspell', { oracle: 'Counter target spell.', type: 'Instant', ci: ['U'] }),
+    ]
+    const { ownedCards, sfMap } = assemble(cards)
+    // Mono-blue commander: red card must be filtered out.
+    const plan = analyzeBuildPlan({ commander: { name: 'Cmd', color_identity: ['U'] }, ownedCards, sfMap })
+
+    expect(plan.totalOwnedLegal).toBe(1)
+    const removal = role(plan, ROLE_REMOVAL).ownedCandidates.map(c => c.name)
+    expect(removal).toContain('Counterspell')
+    expect(removal).not.toContain('Lightning Bolt')
+  })
+
+  it('excludes cards banned in commander', () => {
+    const cards = [
+      makeCard('Channel', { oracle: 'Draw a card.', type: 'Sorcery', ci: [], legalities: { commander: 'banned' } }),
+      makeCard('Brainstorm', { oracle: 'Draw three cards.', type: 'Instant', ci: ['U'], legalities: { commander: 'legal' } }),
+    ]
+    const { ownedCards, sfMap } = assemble(cards)
+    const plan = analyzeBuildPlan({ commander: { name: 'Cmd', color_identity: ['U'] }, ownedCards, sfMap })
+
+    const draw = role(plan, ROLE_DRAW).ownedCandidates.map(c => c.name)
+    expect(draw).toContain('Brainstorm')
+    expect(draw).not.toContain('Channel')
+  })
+
+  it('de-dupes owned copies by name (singleton)', () => {
+    const a = makeCard('Sol Ring', { oracle: '{T}: Add {C}{C}.', type: 'Artifact' })
+    // Second physical copy, different scryfall_id (different printing).
+    const b = makeCard('Sol Ring', { oracle: '{T}: Add {C}{C}.', type: 'Artifact' })
+    const { ownedCards, sfMap } = assemble([a, b])
+    const plan = analyzeBuildPlan({ commander: { name: 'Cmd', color_identity: [] }, ownedCards, sfMap })
+
+    expect(role(plan, ROLE_RAMP).ownedCandidates.filter(c => c.name === 'Sol Ring')).toHaveLength(1)
+    expect(plan.totalOwnedLegal).toBe(1)
+  })
+
+  it('computes gaps from current deck contents', () => {
+    const cards = [
+      makeCard('Cultivate', { oracle: 'Search your library for up to two basic land cards.', type: 'Sorcery' }),
+      makeCard('Kodama\'s Reach', { oracle: 'Search your library for up to two basic land cards.', type: 'Sorcery' }),
+    ]
+    const { ownedCards, sfMap } = assemble(cards)
+    const plan = analyzeBuildPlan({
+      commander: { name: 'Cmd', color_identity: [] },
+      ownedCards,
+      sfMap,
+      currentDeckCards: [{ name: 'Cultivate' }],
+    })
+    const ramp = role(plan, ROLE_RAMP)
+    expect(ramp.target).toBe(COMMANDER_TEMPLATE[ROLE_RAMP].ideal)
+    expect(ramp.current).toBe(1)
+    expect(ramp.gap).toBe(ramp.target - 1)
+    // Cultivate is marked as already in the deck.
+    expect(ramp.ownedCandidates.find(c => c.name === 'Cultivate').inDeck).toBe(true)
+  })
+
+  it('gives Synergy a remainder target that balances the deck', () => {
+    const plan = analyzeBuildPlan({ commander: { name: 'Cmd', color_identity: [] } })
+    const fixedIdeal = [ROLE_LANDS, ROLE_RAMP, ROLE_DRAW, ROLE_REMOVAL, ROLE_WIPE, ROLE_PROTECTION, ROLE_WINCON]
+      .reduce((sum, r) => sum + COMMANDER_TEMPLATE[r].ideal, 0)
+    // 99 nonland-commander slots minus the fixed ideals.
+    expect(role(plan, ROLE_SYNERGY).target).toBe(99 - fixedIdeal)
+  })
+})
+
+// ── enrichPlanWithEdhrec ──────────────────────────────────────────────────────
+describe('enrichPlanWithEdhrec', () => {
+  const baseCards = () => {
+    const cards = [
+      makeCard('Cultivate', { oracle: 'Search your library for up to two basic land cards.', type: 'Sorcery', cmc: 3 }),
+      makeCard('Rampant Growth', { oracle: 'Search your library for a basic land card.', type: 'Sorcery', cmc: 2 }),
+    ]
+    return assemble(cards)
+  }
+
+  it('returns the plan unchanged when EDHREC is null', async () => {
+    const { ownedCards, sfMap } = baseCards()
+    const plan = analyzeBuildPlan({ commander: { name: 'Cmd', color_identity: [] }, ownedCards, sfMap })
+    const out = await enrichPlanWithEdhrec(plan, async () => null)
+    expect(out).toBe(plan)
+    expect(role(out, ROLE_RAMP).edhrecUpgrades).toEqual([])
+  })
+
+  it('boosts and re-ranks owned candidates by inclusion', async () => {
+    const { ownedCards, sfMap } = baseCards()
+    const plan = analyzeBuildPlan({ commander: { name: 'Cmd', color_identity: [] }, ownedCards, sfMap })
+    // Default rank is by CMC: Rampant Growth (2) before Cultivate (3).
+    expect(role(plan, ROLE_RAMP).ownedCandidates[0].name).toBe('Rampant Growth')
+
+    const edhrec = {
+      categories: [{
+        header: 'Ramp',
+        cards: [
+          { name: 'Cultivate', inclusion: 90, cmc: 3, type: 'Sorcery' },
+          { name: 'Rampant Growth', inclusion: 20, cmc: 2, type: 'Sorcery' },
+        ],
+      }],
+    }
+    await enrichPlanWithEdhrec(plan, async () => edhrec)
+    // After enrichment, Cultivate (90%) ranks above Rampant Growth (20%).
+    expect(role(plan, ROLE_RAMP).ownedCandidates[0].name).toBe('Cultivate')
+    expect(role(plan, ROLE_RAMP).ownedCandidates[0].edhrecInclusion).toBe(90)
+  })
+
+  it('fills upgrades with high-inclusion cards the user does not own', async () => {
+    const { ownedCards, sfMap } = baseCards()
+    const plan = analyzeBuildPlan({ commander: { name: 'Cmd', color_identity: [] }, ownedCards, sfMap })
+    const edhrec = {
+      categories: [{
+        header: 'Ramp',
+        cards: [
+          { name: 'Cultivate', inclusion: 90, cmc: 3, type: 'Sorcery' }, // owned
+          { name: 'Sol Ring', inclusion: 95, cmc: 1, type: 'Artifact' }, // not owned
+        ],
+      }],
+    }
+    await enrichPlanWithEdhrec(plan, async () => edhrec)
+    const upgrades = role(plan, ROLE_RAMP).edhrecUpgrades.map(u => u.name)
+    expect(upgrades).toContain('Sol Ring')
+    expect(upgrades).not.toContain('Cultivate')
+  })
+})

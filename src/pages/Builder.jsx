@@ -11,6 +11,7 @@ import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 import { useToast } from '../components/ToastContext'
 import { CheckIcon, DeleteIcon, EditIcon, ChevronDownIcon } from '../icons'
+import { GuidedCommanderPicker } from '../components/deckBuilder/GuidedCommanderPicker'
 
 const MANA_SYMBOL_URL = c => `https://svgs.scryfall.io/card-symbols/${c}.svg`
 
@@ -291,6 +292,8 @@ export default function BuilderPage() {
   const [newName, setNewName]     = useState('')
   const [newFormat, setNewFormat] = useState('commander')
   const [creating, setCreating]   = useState(false)
+  const [newMode, setNewMode]     = useState('blank')   // 'blank' | 'guided'
+  const [guidedCmd, setGuidedCmd] = useState(null)      // selected commander sfCard
 
   const [confirmState, setConfirmState] = useState(null)
   const confirmAsync = (message) => new Promise(resolve => setConfirmState({ message, resolve }))
@@ -373,14 +376,27 @@ export default function BuilderPage() {
     if (pageTab === 'community' && !communityLoaded) loadCommunityDecks()
   }, [pageTab, communityLoaded])
 
+  function resetNewDeckForm() {
+    setShowNew(false)
+    setNewName('')
+    setNewMode('blank')
+    setGuidedCmd(null)
+  }
+
   async function createDeck() {
-    if (!newName.trim()) return
+    const guided = newMode === 'guided'
+    if (guided && !guidedCmd) return
+    // Guided decks are Commander and default their name to the commander.
+    const format = guided ? 'commander' : newFormat
+    const name = (newName.trim() || (guided ? guidedCmd?.name : '')).trim()
+    if (!name) return
+
     setCreating(true)
-    const description = JSON.stringify({ format: newFormat })
+    const description = JSON.stringify({ format })
     const { data, error } = await sb.from('folders').insert({
       user_id:     user.id,
       type:        'builder_deck',
-      name:        newName.trim(),
+      name,
       description,
     }).select().single()
     setCreating(false)
@@ -389,9 +405,12 @@ export default function BuilderPage() {
       showToast(`Failed to create deck: ${error?.message || 'unknown error'}`, { tone: 'error', duration: 4000 })
       return
     }
-    setShowNew(false)
-    setNewName('')
-    navigate(`/builder/${data.id}`)
+    const commander = guided ? guidedCmd : null
+    resetNewDeckForm()
+    // For guided decks, hand the chosen commander to DeckBuilder via router
+    // state — it sets the commander (full print resolution) and auto-opens the
+    // build-from-collection wizard.
+    navigate(`/builder/${data.id}`, commander ? { state: { guidedCommander: commander } } : undefined)
   }
 
   async function deleteDeck(id) {
@@ -813,59 +832,96 @@ export default function BuilderPage() {
       )}
 
       {showNew && (
-        <Modal onClose={() => setShowNew(false)} allowOverflow>
+        <Modal onClose={resetNewDeckForm} allowOverflow>
           <h2 style={{ fontFamily: 'var(--font-display)', color: 'var(--gold)', marginBottom: 16, fontSize: '1rem' }}>
             New Builder Deck
           </h2>
+
+          {/* Mode toggle: blank deck vs guided build-from-collection */}
+          <div className={styles.newModeToggle}>
+            <button
+              type="button"
+              className={`${styles.newModeBtn} ${newMode === 'blank' ? styles.newModeActive : ''}`}
+              onClick={() => setNewMode('blank')}
+            >
+              <span className={styles.newModeTitle}>Blank deck</span>
+              <span className={styles.newModeDesc}>Start empty in any format</span>
+            </button>
+            <button
+              type="button"
+              className={`${styles.newModeBtn} ${newMode === 'guided' ? styles.newModeActive : ''}`}
+              onClick={() => setNewMode('guided')}
+            >
+              <span className={styles.newModeTitle}>Guided build</span>
+              <span className={styles.newModeDesc}>Commander, built from your collection</span>
+            </button>
+          </div>
+
           <div className={styles.newDeckForm}>
             <input
               autoFocus
               value={newName}
               onChange={e => setNewName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && createDeck()}
-              placeholder="Deck name…"
+              placeholder={newMode === 'guided' ? 'Deck name (optional — defaults to commander)…' : 'Deck name…'}
               className={styles.newDeckInput}
             />
-            <ResponsiveMenu
-              title="Select Format"
-              align="left"
-              wrapClassName={styles.newDeckSelectWrap}
-              panelClassName={styles.newDeckMenuPanel}
-              trigger={({ open, toggle }) => (
-                <button
-                  type="button"
-                  className={`${styles.newDeckSelect} ${open ? styles.newDeckSelectOpen : ''}`}
-                  onClick={toggle}
-                  aria-haspopup="menu"
-                  aria-expanded={open}
-                >
-                  <span>{currentFormat?.label || 'Select format'}</span>
-                  <span className={styles.newDeckSelectChevron} aria-hidden="true">{open ? '▲' : '▼'}</span>
-                </button>
-              )}
-            >
-              {({ close }) => (
-                <div className={uiStyles.responsiveMenuList}>
-                  {FORMATS.map(f => (
-                    <button
-                      key={f.id}
-                      type="button"
-                      className={`${uiStyles.responsiveMenuAction} ${f.id === newFormat ? uiStyles.responsiveMenuActionActive : ''}`}
-                      onClick={() => { setNewFormat(f.id); close() }}
-                    >
-                      <span>{f.label}</span>
-                      <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">
-                        {f.id === newFormat ? <CheckIcon size={11} /> : ''}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </ResponsiveMenu>
+
+            {newMode === 'blank' ? (
+              <ResponsiveMenu
+                title="Select Format"
+                align="left"
+                wrapClassName={styles.newDeckSelectWrap}
+                panelClassName={styles.newDeckMenuPanel}
+                trigger={({ open, toggle }) => (
+                  <button
+                    type="button"
+                    className={`${styles.newDeckSelect} ${open ? styles.newDeckSelectOpen : ''}`}
+                    onClick={toggle}
+                    aria-haspopup="menu"
+                    aria-expanded={open}
+                  >
+                    <span>{currentFormat?.label || 'Select format'}</span>
+                    <span className={styles.newDeckSelectChevron} aria-hidden="true">{open ? '▲' : '▼'}</span>
+                  </button>
+                )}
+              >
+                {({ close }) => (
+                  <div className={uiStyles.responsiveMenuList}>
+                    {FORMATS.map(f => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        className={`${uiStyles.responsiveMenuAction} ${f.id === newFormat ? uiStyles.responsiveMenuActionActive : ''}`}
+                        onClick={() => { setNewFormat(f.id); close() }}
+                      >
+                        <span>{f.label}</span>
+                        <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">
+                          {f.id === newFormat ? <CheckIcon size={11} /> : ''}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </ResponsiveMenu>
+            ) : (
+              <GuidedCommanderPicker
+                userId={user.id}
+                value={guidedCmd}
+                onSelect={sf => {
+                  setGuidedCmd(sf)
+                  if (!newName.trim()) setNewName(sf.name)
+                }}
+              />
+            )}
+
             <div className={styles.newDeckActions}>
-              <Button onClick={() => setShowNew(false)} style={{ background: 'transparent' }}>Cancel</Button>
-              <Button onClick={createDeck} disabled={creating || !newName.trim()}>
-                {creating ? 'Creating…' : 'Create'}
+              <Button onClick={resetNewDeckForm} style={{ background: 'transparent' }}>Cancel</Button>
+              <Button
+                onClick={createDeck}
+                disabled={creating || (newMode === 'guided' ? !guidedCmd : !newName.trim())}
+              >
+                {creating ? 'Creating…' : (newMode === 'guided' ? 'Start Building' : 'Create')}
               </Button>
             </div>
           </div>
