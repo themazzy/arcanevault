@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   granularToCoarse,
+  edhrecHeaderToRole,
   coarseRole,
   analyzeBuildPlan,
   enrichPlanWithEdhrec,
@@ -75,6 +76,27 @@ describe('granularToCoarse', () => {
     expect(granularToCoarse('Graveyard')).toBe(ROLE_SYNERGY)
     expect(granularToCoarse('Other')).toBe(ROLE_SYNERGY)
     expect(granularToCoarse('anything-unknown')).toBe(ROLE_SYNERGY)
+  })
+})
+
+// ── EDHREC section header → coarse role ───────────────────────────────────────
+describe('edhrecHeaderToRole', () => {
+  it('maps functional EDHREC section headers to coarse roles', () => {
+    expect(edhrecHeaderToRole('Mana Artifacts')).toBe(ROLE_RAMP)
+    expect(edhrecHeaderToRole('Ramp')).toBe(ROLE_RAMP)
+    expect(edhrecHeaderToRole('Card Draw')).toBe(ROLE_DRAW)
+    expect(edhrecHeaderToRole('Card Advantage')).toBe(ROLE_DRAW)
+    expect(edhrecHeaderToRole('Lands')).toBe(ROLE_LANDS)
+    expect(edhrecHeaderToRole('Board Wipes')).toBe(ROLE_WIPE)
+    expect(edhrecHeaderToRole('Protection')).toBe(ROLE_PROTECTION)
+    expect(edhrecHeaderToRole('Removal')).toBe(ROLE_REMOVAL)
+    expect(edhrecHeaderToRole('Counterspells')).toBe(ROLE_REMOVAL)
+  })
+
+  it('returns null for type-based headers (caller falls back to type line)', () => {
+    expect(edhrecHeaderToRole('Creatures')).toBeNull()
+    expect(edhrecHeaderToRole('Instants')).toBeNull()
+    expect(edhrecHeaderToRole('')).toBeNull()
   })
 })
 
@@ -213,6 +235,15 @@ describe('applyTemplateAdjustments', () => {
     expect(out[ROLE_WIPE].min).toBe(0)
   })
 
+  it('recomputes min when a delta drops ideal below the original min', () => {
+    // Removal starts min 8 / ideal 10; -9 pushes ideal to 1, so min must drop
+    // to keep min <= ideal rather than staying at the original 8.
+    const out = applyTemplateAdjustments(COMMANDER_TEMPLATE, { [ROLE_REMOVAL]: -9 })
+    expect(out[ROLE_REMOVAL].ideal).toBe(1)
+    expect(out[ROLE_REMOVAL].min).toBe(0)
+    expect(out[ROLE_REMOVAL].min).toBeLessThanOrEqual(out[ROLE_REMOVAL].ideal)
+  })
+
   it('flexes the Synergy remainder when fixed roles change', () => {
     // Removing 2 board-wipe slots should free 2 slots for Synergy.
     const base = analyzeBuildPlan({ commander: { name: 'C', color_identity: [] } })
@@ -330,10 +361,12 @@ describe('enrichPlanWithEdhrec', () => {
         ],
       }],
     }
-    await enrichPlanWithEdhrec(plan, async () => edhrec)
+    const out = await enrichPlanWithEdhrec(plan, async () => edhrec)
     // After enrichment, Cultivate (90%) ranks above Rampant Growth (20%).
-    expect(role(plan, ROLE_RAMP).ownedCandidates[0].name).toBe('Cultivate')
-    expect(role(plan, ROLE_RAMP).ownedCandidates[0].edhrecInclusion).toBe(90)
+    expect(role(out, ROLE_RAMP).ownedCandidates[0].name).toBe('Cultivate')
+    expect(role(out, ROLE_RAMP).ownedCandidates[0].edhrecInclusion).toBe(90)
+    // The input plan is left untouched (enrichment returns a clone).
+    expect(role(plan, ROLE_RAMP).ownedCandidates[0].name).toBe('Rampant Growth')
   })
 
   it('fills upgrades with high-inclusion cards the user does not own', async () => {
@@ -348,9 +381,56 @@ describe('enrichPlanWithEdhrec', () => {
         ],
       }],
     }
-    await enrichPlanWithEdhrec(plan, async () => edhrec)
-    const upgrades = role(plan, ROLE_RAMP).edhrecUpgrades.map(u => u.name)
+    const out = await enrichPlanWithEdhrec(plan, async () => edhrec)
+    const upgrades = role(out, ROLE_RAMP).edhrecUpgrades.map(u => u.name)
     expect(upgrades).toContain('Sol Ring')
     expect(upgrades).not.toContain('Cultivate')
+  })
+
+  it('caps the upgrade list (8 floor, gap + 4 headroom)', async () => {
+    // Empty collection → Ramp gap == its full ideal (11), so cap = 11 + 4 = 15.
+    const plan = analyzeBuildPlan({ commander: { name: 'Cmd', color_identity: [] } })
+    const cards = Array.from({ length: 30 }, (_, i) => ({
+      name: `Rock ${i}`, inclusion: 100 - i, cmc: 2, type: 'Artifact',
+    }))
+    const edhrec = { categories: [{ header: 'Mana Artifacts', cards }] }
+    const out = await enrichPlanWithEdhrec(plan, async () => edhrec)
+    const ramp = role(out, ROLE_RAMP)
+    expect(ramp.edhrecUpgrades).toHaveLength(ramp.gap + 4)
+    // Sorted by inclusion desc, so the top pick is the highest-inclusion rock.
+    expect(ramp.edhrecUpgrades[0].name).toBe('Rock 0')
+  })
+
+  it('never returns fewer than the floor of 8 upgrades when available', async () => {
+    // Board Wipe ideal is 4. Own 3 wipes that are all already in the deck →
+    // current 3, gap 1, so gap + 4 = 5 < the floor of 8. The cap must hold at 8.
+    const owned = [
+      makeCard('Wrath of God', { oracle: 'Destroy all creatures.', type: 'Sorcery' }),
+      makeCard('Damnation', { oracle: 'Destroy all creatures.', type: 'Sorcery' }),
+      makeCard('Day of Judgment', { oracle: 'Destroy all creatures.', type: 'Sorcery' }),
+    ]
+    const { ownedCards, sfMap } = assemble(owned)
+    const plan = analyzeBuildPlan({
+      commander: { name: 'Cmd', color_identity: [] },
+      ownedCards,
+      sfMap,
+      currentDeckCards: owned.map(c => ({ name: c.row.name })),
+    })
+    const cards = Array.from({ length: 20 }, (_, i) => ({
+      name: `Sweeper ${i}`, inclusion: 100 - i, cmc: 4, type: 'Sorcery',
+    }))
+    const edhrec = { categories: [{ header: 'Board Wipes', cards }] }
+    const out = await enrichPlanWithEdhrec(plan, async () => edhrec)
+    const wipe = role(out, ROLE_WIPE)
+    expect(wipe.gap).toBe(1)
+    expect(wipe.edhrecUpgrades).toHaveLength(8)
+  })
+
+  it('returns the plan unchanged when the fetcher throws', async () => {
+    const { ownedCards, sfMap } = baseCards()
+    const plan = analyzeBuildPlan({ commander: { name: 'Cmd', color_identity: [] }, ownedCards, sfMap })
+    const out = await enrichPlanWithEdhrec(plan, async () => { throw new Error('network down') })
+    expect(out).toBe(plan)
+    expect(role(out, ROLE_RAMP).edhrecUpgrades).toEqual([])
   })
 })

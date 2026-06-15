@@ -125,6 +125,9 @@ export function bracketFlagFor(name, sfCard, gameChangerNames) {
   if (gameChangerNames && (gameChangerNames.has(lower) || gameChangerNames.has(lower.split('//')[0].trim()))) {
     return { label: 'Game Changer', level: 3 }
   }
+  // Oracle-text signals only cover the front face: the cached entry stores just
+  // card_faces[0].oracle_text (see buildEntryFromScryfall), so a back-face
+  // Armageddon/extra-turn on an MDFC won't be flagged here. Acceptable edge case.
   const oracle = sfCard?.oracle_text || ''
   if (oracle && isMassLandDenial(oracle)) return { label: 'Land denial', level: 4 }
   if (oracle && isExtraTurn(oracle)) return { label: 'Extra turn', level: 2 }
@@ -281,13 +284,15 @@ export function analyzeBuildPlan({
   const seenNames = new Set() // de-dupe owned copies by name (singleton format)
 
   for (const card of ownedCards) {
-    const sfCard = sfMap[card?.scryfall_id] || sfMap[card?.scryfall_id?.toString?.()] || null
+    const sfCard = sfMap[card?.scryfall_id] || null
     const name = card?.name || sfCard?.name || ''
     const lowerName = name.toLowerCase()
     if (!lowerName || seenNames.has(lowerName)) continue
 
     // Legality check needs color_identity + legalities; prefer the richer
-    // Scryfall metadata, fall back to the owned row.
+    // Scryfall metadata, fall back to the owned row. Cards whose metadata hasn't
+    // been fetched yet (no legalities) default to "legal" — offline-first, we'd
+    // rather show an owned card than hide it on a cold cache.
     const legalityCard = {
       name,
       color_identity: sfCard?.color_identity || card?.color_identity || [],
@@ -397,23 +402,10 @@ export async function enrichPlanWithEdhrec(plan, fetchEdhrec) {
     for (const c of role.ownedCandidates) ownedNames.add(c.name.toLowerCase())
   }
 
-  // 1) Boost owned candidates by EDHREC inclusion, then re-rank each role.
-  for (const role of plan.roles) {
-    for (const cand of role.ownedCandidates) {
-      const entry = byName.get(cand.name.toLowerCase())
-      if (entry) cand.edhrecInclusion = entry.cv.inclusion ?? 0
-    }
-    role.ownedCandidates.sort((a, b) =>
-      (b.edhrecInclusion - a.edhrecInclusion) ||
-      (a.cmc - b.cmc) ||
-      a.name.localeCompare(b.name),
-    )
-  }
-
-  // 2) Bucket NOT-owned EDHREC cards into coarse roles. EDHREC cardviews lack
-  //    oracle text, so we infer the role from the section header first
-  //    (functional, e.g. "Mana Artifacts" → Ramp) and fall back to the type
-  //    line for type-based sections. Best-effort — the user confirms each pick.
+  // Bucket NOT-owned EDHREC cards into coarse roles. EDHREC cardviews lack
+  // oracle text, so we infer the role from the section header first
+  // (functional, e.g. "Mana Artifacts" → Ramp) and fall back to the type
+  // line for type-based sections. Best-effort — the user confirms each pick.
   const upgradesByRole = new Map(ROLE_ORDER.map(r => [r, []]))
   for (const [key, { cv, header }] of byName) {
     if (ownedNames.has(key)) continue
@@ -430,12 +422,29 @@ export async function enrichPlanWithEdhrec(plan, fetchEdhrec) {
       owned: false,
     })
   }
-  for (const role of plan.roles) {
-    const list = upgradesByRole.get(role.role) || []
-    list.sort((a, b) => b.edhrecInclusion - a.edhrecInclusion)
-    // Cap to keep the wizard tidy; under-built roles get more headroom.
-    role.edhrecUpgrades = list.slice(0, Math.max(8, role.gap + 4))
-  }
 
-  return plan
+  // Return a cloned plan (new role objects + arrays) rather than mutating the
+  // input in place: state-held arrays must not be mutated, and setPlan needs a
+  // fresh reference to re-render. Two transforms per role:
+  //   1) boost owned candidates by EDHREC inclusion, then re-rank
+  //   2) attach the role's not-owned upgrade list, capped (under-built roles get
+  //      more headroom)
+  const roles = plan.roles.map(role => {
+    const ownedCandidates = role.ownedCandidates
+      .map(cand => {
+        const entry = byName.get(cand.name.toLowerCase())
+        return entry ? { ...cand, edhrecInclusion: entry.cv.inclusion ?? 0 } : cand
+      })
+      .sort((a, b) =>
+        (b.edhrecInclusion - a.edhrecInclusion) ||
+        (a.cmc - b.cmc) ||
+        a.name.localeCompare(b.name),
+      )
+    const edhrecUpgrades = (upgradesByRole.get(role.role) || [])
+      .sort((a, b) => b.edhrecInclusion - a.edhrecInclusion)
+      .slice(0, Math.max(8, role.gap + 4))
+    return { ...role, ownedCandidates, edhrecUpgrades }
+  })
+
+  return { ...plan, roles }
 }

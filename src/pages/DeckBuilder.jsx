@@ -5523,7 +5523,12 @@ export default function DeckBuilderPage() {
           onAddCard={addCardToDeck}
           onRemoveCard={removeCardFromDeck}
           onAddToWishlist={addUpgradeToWishlist}
-          onClose={() => setShowBuildAssistant(false)}
+          onClose={() => {
+            // Drop the cached wishlist target so a reopened assistant re-resolves
+            // against the current deck name (it may have been renamed since).
+            assistantWishlistRef.current = null
+            setShowBuildAssistant(false)
+          }}
         />
       )}
 

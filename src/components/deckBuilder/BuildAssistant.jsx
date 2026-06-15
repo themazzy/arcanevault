@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Modal, Button, ProgressBar } from '../UI'
-import { CheckIcon } from '../../icons'
+import { CheckIcon, CloseIcon, WarningIcon } from '../../icons'
 import { getLocalCards, getLocalCardPrints } from '../../lib/db'
 import { getInstantCache, getScryfallKey, getPrice, formatPrice } from '../../lib/scryfall'
 import { useCombosFetch } from '../../hooks/useCombosFetch'
@@ -75,8 +75,25 @@ function cardImageUrl(sfCard) {
   return sfCard ? getCardImageUri(sfCard, 'small') : null
 }
 
+// Shape an owned candidate into a Scryfall-card-like object the parent's
+// addCardToDeck recognizes: it detects a "full card" via `.set` and reads
+// `.id`/`.set` (getDeckBuilderCardMeta). The instant-cache entry only has
+// `set_code`/`collector_number` and no `id`, so we remap and attach the owned
+// row's resolved scryfall_id — otherwise the card falls into the EDHREC-rec
+// branch and gets re-fetched by name, discarding the exact owned printing.
+function ownedCardForAdd(cand) {
+  const sf = cand?.sfCard
+  if (!sf) return cand?.card // no cache entry → let the parent resolve by name
+  return { ...sf, id: cand.card?.scryfall_id || sf.id || null, set: sf.set || sf.set_code || null }
+}
+
 const SUMMARY_STEP = '__summary__'
 const MAX_TILES = 60 // cap owned tiles per step to keep the DOM light
+
+// Budget chip ceilings. Raw numbers compared directly against getPrice() output,
+// which is in the active price_source's native currency — the same source
+// formatPrice() uses below, so threshold and card price always share units.
+const BUDGET_CHIPS = [null, 1, 5, 20]
 
 // Mana pip colors for the manabase step. A color is "thin" (amber) below this
 // many sources — a soft floor, not a hard rule.
@@ -116,7 +133,7 @@ function CardTile({ name, sfCard, subtitle, pips, inclusion, price, flag, overTa
               ? `${flag.label} — pushes deck to Bracket ${flag.level} (${BRACKET_LABELS[flag.level]}), above your target`
               : `${flag.label} — Bracket ${flag.level}+ signal`}
           >
-            {overTarget ? '⚠ ' : ''}{flag.label}
+            {overTarget && <WarningIcon size={11} />}{flag.label}
           </span>
         )}
         {added && <span className={styles.tileCheck}><CheckIcon size={18} /></span>}
@@ -185,14 +202,20 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     setRebuilding(true)
     try {
       const template = applyTemplateAdjustments(COMMANDER_TEMPLATE, archetypeAdjustments(themeSlug))
-      const base = analyzeBuildPlan({ commander, ownedCards: d.ownedNorm, sfMap: d.sfById, template })
+      const base = analyzeBuildPlan({
+        commander,
+        ownedCards: d.ownedNorm,
+        sfMap: d.sfById,
+        currentDeckCards: deckCards,
+        template,
+      })
       const edhrec = await fetchEdhrecCommander(commander.name, 'commander', themeSlug ? { themeSlug } : undefined)
       const enriched = await enrichPlanWithEdhrec(base, async () => edhrec)
       setPlan(enriched)
     } finally {
       setRebuilding(false)
     }
-  }, [commander])
+  }, [commander, deckCards])
 
   useEffect(() => {
     let cancelled = false
@@ -343,7 +366,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     const overRoles = []
     for (const role of plan.roles) {
       const cards = byRole.get(role.role) || []
-      const count = cards.reduce((n, c) => n + 1, 0)
+      const count = cards.length
       const excess = count - role.target
       if (excess <= 0) continue
       const ranked = [...cards].sort((a, b) => (a.inclusion - b.inclusion) || (b.cmc - a.cmc) || a.name.localeCompare(b.name))
@@ -400,7 +423,11 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       .slice(0, 12)
   }, [combos.fetched, combos.almost, deckNames, ownedNameSet])
 
-  // Auto-check combos the first time the summary step is opened.
+  // Auto-check combos the first time the summary step is opened. Intentionally
+  // one-shot (fires only on the first summary visit) to avoid hammering the
+  // combo proxy on every deck edit — if the deck changes afterward the user
+  // re-runs it via the "Check combos" button, and the bracket pill shows a
+  // "(combos not checked)" hint until then.
   useEffect(() => {
     if (onSummary && hasCommander && !combos.fetched && !combos.loading) combos.fetchCombos()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -579,7 +606,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           <div className={styles.themeRow}>
             <span className={styles.themeLabel}>Budget</span>
             <div className={styles.themeChips}>
-              {[null, 1, 5, 20].map(b => (
+              {BUDGET_CHIPS.map(b => (
                 <button
                   key={b ?? 'any'}
                   className={`${styles.themeChip}${maxPrice === b ? ' ' + styles.themeActive : ''}`}
@@ -599,7 +626,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         {/* Over-target warning */}
         {overTarget && deckBracket && (
           <div className={styles.bracketWarn}>
-            ⚠ Deck is at Bracket {deckBracket.bracket} ({BRACKET_LABELS[deckBracket.bracket]}), above your
+            <WarningIcon size={13} /> Deck is at Bracket {deckBracket.bracket} ({BRACKET_LABELS[deckBracket.bracket]}), above your
             target of {targetBracket}. {deckBracket.reasons.filter(r => r.level > targetBracket).map(r => r.reason).join(' · ')}
           </div>
         )}
@@ -677,7 +704,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                             flag={flag}
                             overTarget={targetBracket != null && flag && flag.level > targetBracket}
                             added={isAdded(cand.name)}
-                            onAdd={() => handleAdd(cand.sfCard || cand.card, cand.name)}
+                            onAdd={() => handleAdd(ownedCardForAdd(cand), cand.name)}
                           />
                         )
                       })}
@@ -795,7 +822,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                                 disabled={isAdded(m.name)}
                                 title="Add this owned piece to the deck"
                               >
-                                {isAdded(m.name) ? '✓ ' : '+ '}{m.name}
+                                {isAdded(m.name) ? <CheckIcon size={11} /> : '+ '}{m.name}
                               </button>
                             ) : (
                               <span key={m.name} className={styles.comboNeed} title="Not in your collection">{m.name}</span>
@@ -840,7 +867,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                                 onClick={() => handleRemove(cut.id)}
                                 title={`Remove ${cut.name} (${cut.inclusion}% EDHREC, CMC ${cut.cmc})`}
                               >
-                                ✕ {cut.name}
+                                <CloseIcon size={11} /> {cut.name}
                               </button>
                             ))}
                           </div>
