@@ -1309,6 +1309,11 @@ export default function DeckBuilderPage() {
 
   const renderDeckActionsMenu = ({ close, includeQuickActions = true }) => (
     <div className={uiStyles.responsiveMenuList}>
+      {isEDH && (
+        <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowBuildAssistant(true); close() }}>
+          <span>Build from Collection</span>
+        </button>
+      )}
       <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowImport(true); close() }}>
         <span>Import</span>
       </button>
