@@ -8,7 +8,8 @@ compatibility_date = "2026-06-01"
 routes = [
   { pattern = "deckloom.app/d/*", zone_name = "deckloom.app" },
   { pattern = "deckloom.app/api/rss*", zone_name = "deckloom.app" },
-  { pattern = "deckloom.app/api/import/*", zone_name = "deckloom.app" }
+  { pattern = "deckloom.app/api/import/*", zone_name = "deckloom.app" },
+  { pattern = "deckloom.app/api/recommend*", zone_name = "deckloom.app" }
 ]
 
 [vars]

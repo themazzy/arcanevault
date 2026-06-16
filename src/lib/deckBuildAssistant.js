@@ -658,3 +658,58 @@ export async function enrichPlanWithEdhrec(plan, fetchEdhrec, fetchCardMeta) {
 
   return { ...plan, roles }
 }
+
+// ── Recommander augmentation ──────────────────────────────────────────────────
+// Blend deck-aware recommander.cards picks into an EDHREC-enriched plan. Each
+// recRow is { name, type_line, oracle_text, cmc, colorIdentity, image, score }
+// resolved from card_prints. Cards are classified by real oracle text, with
+// owned / already-listed names dropped, then each role's upgrade list is
+// re-ranked so a recommander score (0–1, scaled to 0–100) competes with EDHREC
+// inclusion %. Pure; returns a cloned plan (unchanged if nothing to add).
+export function mergeRecommenderUpgrades(plan, recRows) {
+  if (!plan?.roles?.length || !recRows?.length) return plan
+
+  const ownedNames = new Set()
+  const seen = new Set() // existing upgrade names + rec names already taken
+  for (const role of plan.roles) {
+    for (const c of role.ownedCandidates) ownedNames.add(c.name.toLowerCase())
+    for (const u of role.edhrecUpgrades) seen.add(u.name.toLowerCase())
+  }
+
+  const recByRole = new Map(ROLE_ORDER.map(r => [r, []]))
+  let added = false
+  for (const row of recRows) {
+    const key = (row?.name || '').toLowerCase()
+    if (!key || ownedNames.has(key) || seen.has(key)) continue
+    seen.add(key)
+    const role = granularToCoarse(getCardCategoryFromCard(
+      { type_line: row.type_line, oracle_text: row.oracle_text || '' },
+      { type_line: row.type_line, oracle_text: row.oracle_text || '' }))
+    recByRole.get(role).push({
+      name: row.name,
+      slug: row.slug || null,
+      cmc: row.cmc ?? 0,
+      type: row.type_line || '',
+      colorIdentity: row.colorIdentity || [],
+      edhrecInclusion: 0,
+      synergy: 0,
+      image: row.image || null,
+      score: row.score ?? 0,
+      source: 'recommander',
+      owned: false,
+    })
+    added = true
+  }
+  if (!added) return plan
+
+  const rankKey = u => Math.max(u.edhrecInclusion || 0, Math.round((u.score || 0) * 100))
+  const roles = plan.roles.map(role => {
+    const recs = recByRole.get(role.role) || []
+    if (!recs.length) return role
+    const edhrecUpgrades = [...role.edhrecUpgrades, ...recs]
+      .sort((a, b) => (rankKey(b) - rankKey(a)) || (a.cmc - b.cmc) || a.name.localeCompare(b.name))
+      .slice(0, Math.max(8, (role.gap || 0) + 4))
+    return { ...role, edhrecUpgrades }
+  })
+  return { ...plan, roles }
+}

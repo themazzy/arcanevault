@@ -270,6 +270,27 @@ export async function fetchCardPrintsByScryfallIds(scryfallIds) {
   return out
 }
 
+// Fetch one printing per oracle_id (keyed by oracle_id, index-backed). Used to
+// resolve recommander.cards recommendations — which return only oracle_id —
+// against our dictionary for name/type/oracle text/art with no Scryfall call.
+export async function fetchCardPrintsByOracleIds(oracleIds) {
+  if (!oracleIds?.length) return new Map()
+  const unique = [...new Set(oracleIds.filter(Boolean))]
+  const out = new Map()
+  for (const batch of chunkRows(unique, CARD_PRINT_QUERY_BATCH)) {
+    const { data, error } = await sb
+      .from('card_prints')
+      .select(CARD_PRINT_SELECT_COLUMNS)
+      .in('oracle_id', batch)
+    if (error) throw error
+    for (const row of data || []) {
+      // Many printings share an oracle_id; the first seen is fine for metadata.
+      if (row.oracle_id && !out.has(row.oracle_id)) out.set(row.oracle_id, row)
+    }
+  }
+  return out
+}
+
 // Same, but keyed by `set_code|collector_number` for cards that have no
 // scryfall_id locally (legacy data).
 export async function fetchCardPrintsBySetCollector(pairs) {

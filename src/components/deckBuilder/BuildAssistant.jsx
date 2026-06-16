@@ -5,8 +5,8 @@ import { getLocalCards, getLocalCardPrints } from '../../lib/db'
 import { getInstantCache, getScryfallKey, getPrice, formatPrice } from '../../lib/scryfall'
 import { useCombosFetch } from '../../hooks/useCombosFetch'
 import { useSettings } from '../SettingsContext'
-import { fetchEdhrecCommander, fetchCardsByNames, fetchCardsByScryfallIds, getCardImageUri } from '../../lib/deckBuilderApi'
-import { fetchCardPrintsByScryfallIds, cardPrintRowToSfEntry } from '../../lib/cardPrints'
+import { fetchEdhrecCommander, fetchCardsByNames, fetchCardsByScryfallIds, fetchRecommenderRecs, getCardImageUri } from '../../lib/deckBuilderApi'
+import { fetchCardPrintsByScryfallIds, fetchCardPrintsByOracleIds, cardPrintRowToSfEntry } from '../../lib/cardPrints'
 import {
   analyzeBracket,
   fetchGameChangerNames,
@@ -26,6 +26,7 @@ import {
   isBasicLandName,
   rankCutCandidates,
   CUT_MODES,
+  mergeRecommenderUpgrades,
   COMMANDER_TEMPLATE,
   ROLE_ORDER,
   ROLE_RAMP,
@@ -275,6 +276,49 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     return names.map(n => cache.get(n.toLowerCase())).filter(Boolean)
   }, [])
 
+  // Deck-aware recommander.cards picks, resolved to metadata via card_prints
+  // (by oracle_id — no Scryfall call) so they can be classified + shown. Cached
+  // per deck snapshot; best-effort (returns [] on any failure → EDHREC-only).
+  const recCacheRef = useRef(new Map())
+  const fetchRecommenderUpgrades = useCallback(async (deck) => {
+    if (!commander?.name) return []
+    const deckNames = (deck || []).filter(d => !d?.is_commander).map(d => d?.name).filter(Boolean)
+    const sig = `${commander.name}|${[...deckNames].sort().join(',')}`
+    const cache = recCacheRef.current
+    if (cache.has(sig)) return cache.get(sig)
+    const recs = await fetchRecommenderRecs(commander.name, deckNames)
+    if (!recs.length) { cache.set(sig, []); return [] }
+    const printMap = await fetchCardPrintsByOracleIds(recs.map(r => r.oracle_id)).catch(() => new Map())
+    const rows = []
+    for (const r of recs) {
+      const row = printMap.get(r.oracle_id)
+      if (!row) continue // not in our dictionary — skip rather than hit Scryfall
+      rows.push({
+        name: r.name || row.name,
+        type_line: row.type_line || '',
+        oracle_text: row.oracle_text || '',
+        cmc: row.cmc ?? 0,
+        colorIdentity: row.color_identity || [],
+        image: getCardImageUri(cardPrintRowToSfEntry(row), 'small'),
+        score: r.score ?? 0,
+      })
+    }
+    cache.set(sig, rows)
+    return rows
+  }, [commander])
+
+  // Layer recommander picks onto an EDHREC-enriched plan. Best-effort: any
+  // failure leaves the EDHREC-only plan intact.
+  const mergeRecommender = useCallback(async (plan, deck) => {
+    if (!plan) return plan
+    try {
+      const recRows = await fetchRecommenderUpgrades(deck)
+      return recRows.length ? mergeRecommenderUpgrades(plan, recRows) : plan
+    } catch {
+      return plan
+    }
+  }, [fetchRecommenderUpgrades])
+
   // Re-run the plan for a given archetype theme: flex the role quotas and swap
   // the suggestion source to that theme's EDHREC page (owned cards re-ranked by
   // theme synergy, upgrades drawn from the theme). '' = balanced template.
@@ -293,11 +337,11 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       })
       const edhrec = await fetchEdhrecCommander(commander.name, 'commander', themeSlug ? { themeSlug } : undefined)
       const enriched = await enrichPlanWithEdhrec(base, async () => edhrec, fetchUpgradeMeta)
-      setPlan(enriched)
+      setPlan(await mergeRecommender(enriched, deckCards))
     } finally {
       setRebuilding(false)
     }
-  }, [commander, deckCards])
+  }, [commander, deckCards, fetchUpgradeMeta, mergeRecommender])
 
   useEffect(() => {
     let cancelled = false
@@ -343,13 +387,14 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           currentDeckCards: deckCards,
         })
         const enriched = await enrichPlanWithEdhrec(base, async () => edhrec, fetchUpgradeMeta)
+        const withRecs = await mergeRecommender(enriched, deckCards)
         if (cancelled) return
         dataRef.current = { ownedNorm, sfById }
         setSfMap(sfById)
         setThemes(edhrec?.themes || [])
         setGameChangers(gcNames || null)
         setOwnedNameSet(new Set((ownedNorm || []).map(c => (c?.name || '').toLowerCase()).filter(Boolean)))
-        setPlan(enriched)
+        setPlan(withRecs)
       } catch (err) {
         if (!cancelled) setError(err?.message || 'Failed to analyze your collection.')
       } finally {
@@ -630,7 +675,8 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       // rebuildPlan owns the plan for the newer selection.
       if (cancelled || selectedThemeRef.current !== theme) return
       const enriched = await enrichPlanWithEdhrec(base, async () => edhrec, fetchUpgradeMeta)
-      if (!cancelled && selectedThemeRef.current === theme) setPlan(enriched)
+      const withRecs = await mergeRecommender(enriched, deckCards)
+      if (!cancelled && selectedThemeRef.current === theme) setPlan(withRecs)
     })()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps

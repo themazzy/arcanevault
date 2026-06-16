@@ -105,10 +105,71 @@ async function handleImport(request) {
   })
 }
 
+// ── Recommander.cards proxy (deckloom.app/api/recommend) ─────────────────────
+// recommander.cards returns deck-aware recommendations but sends no CORS
+// headers, so browser calls from the SPA are blocked and must be proxied. It's
+// a JSON POST, so we also answer the browser's preflight. Body is sanitised and
+// bounded — this must never become an open proxy.
+const RECOMMANDER_URL = 'https://api.recommander.cards/public-release/api/decks/recommend/top'
+const CORS_JSON = { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
+
+function recommendPreflight() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Max-Age': '86400',
+    },
+  })
+}
+
+async function handleRecommend(request) {
+  if (request.method === 'OPTIONS') return recommendPreflight()
+  if (request.method !== 'POST') return new Response('method not allowed', { status: 405, headers: CORS_JSON })
+
+  let payload = null
+  try { payload = await request.json() } catch { /* invalid body handled below */ }
+  const commander = payload?.commander
+  if (!commander || typeof commander !== 'string') {
+    return new Response(JSON.stringify({ result_code: 'error_invalid_cards', data: null }), { status: 400, headers: CORS_JSON })
+  }
+  const str = (v, n) => (typeof v === 'string' ? v.slice(0, n) : null)
+  const body = {
+    card_format: ['name', 'oracle_id', 'scryfall_id'].includes(payload.card_format) ? payload.card_format : 'name',
+    commander: str(commander, 200),
+    partner: str(payload.partner, 200),
+    deck: Array.isArray(payload.deck)
+      ? payload.deck.filter(s => typeof s === 'string').slice(0, 200).map(s => s.slice(0, 200))
+      : [],
+  }
+  try {
+    const upstream = await fetch(RECOMMANDER_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'User-Agent': 'DeckLoom recommender (+https://deckloom.app)',
+      },
+      body: JSON.stringify(body),
+    })
+    const text = await upstream.text()
+    return new Response(text, {
+      status: upstream.status,
+      // Short edge cache absorbs repeated builds for the same deck snapshot.
+      headers: { ...CORS_JSON, 'Cache-Control': 'public, max-age=120' },
+    })
+  } catch {
+    return new Response(JSON.stringify({ result_code: 'error_backend_downstream', data: null }), { status: 502, headers: CORS_JSON })
+  }
+}
+
 export default {
   async fetch(request, env) {
     const pathname = new URL(request.url).pathname
     if (pathname === '/api/rss') return handleRss(request)
+    if (pathname === '/api/recommend') return handleRecommend(request)
     if (pathname.startsWith('/api/import/')) return handleImport(request)
 
     const deckId = request.method === 'GET' ? extractDeckId(request.url) : null

@@ -18,6 +18,7 @@ import {
   rankCutCandidates,
   CUT_MODES,
   edhrecInclusionPct,
+  mergeRecommenderUpgrades,
   COMMANDER_TEMPLATE,
   ROLE_RAMP,
   ROLE_DRAW,
@@ -427,6 +428,48 @@ describe('edhrecInclusionPct', () => {
   it('falls back to the raw value when the denominator is missing', () => {
     expect(edhrecInclusionPct({ inclusion: 42 })).toBe(42)
     expect(edhrecInclusionPct({})).toBe(0)
+  })
+})
+
+// ── Recommander augmentation ──────────────────────────────────────────────────
+describe('mergeRecommenderUpgrades', () => {
+  // A plan with an owned ramp card and one EDHREC draw upgrade already present.
+  const basePlan = () => {
+    const { ownedCards, sfMap } = assemble([
+      makeCard('Llanowar Elves', { oracle: '{T}: Add {G}.', type: 'Creature — Elf Druid' }),
+    ])
+    return analyzeBuildPlan({ commander: { name: 'Cmd', color_identity: ['G'] }, ownedCards, sfMap })
+  }
+
+  it('classifies a rec by oracle text and adds it to that role with art + score', async () => {
+    const plan = basePlan()
+    const recRows = [
+      { name: 'Harmonize', type_line: 'Sorcery', oracle_text: 'Draw three cards.', cmc: 4, image: 'harm.jpg', score: 0.82 },
+    ]
+    const out = mergeRecommenderUpgrades(plan, recRows)
+    const draw = role(out, ROLE_DRAW).edhrecUpgrades.find(u => u.name === 'Harmonize')
+    expect(draw).toBeTruthy()
+    expect(draw.image).toBe('harm.jpg')
+    expect(draw.source).toBe('recommander')
+  })
+
+  it('skips owned cards and de-dupes against existing upgrades / itself', () => {
+    const plan = basePlan()
+    const recRows = [
+      { name: 'Llanowar Elves', type_line: 'Creature — Elf Druid', oracle_text: '{T}: Add {G}.', score: 0.9 }, // owned
+      { name: 'Beast Whisperer', type_line: 'Creature — Elf', oracle_text: 'Whenever you cast a creature spell, draw a card.', score: 0.7 },
+      { name: 'Beast Whisperer', type_line: 'Creature — Elf', oracle_text: 'Whenever you cast a creature spell, draw a card.', score: 0.7 }, // dupe
+    ]
+    const out = mergeRecommenderUpgrades(plan, recRows)
+    const drawNames = role(out, ROLE_DRAW).edhrecUpgrades.map(u => u.name)
+    expect(drawNames).not.toContain('Llanowar Elves')
+    expect(drawNames.filter(n => n === 'Beast Whisperer')).toHaveLength(1)
+  })
+
+  it('returns the plan unchanged when there are no rec rows', () => {
+    const plan = basePlan()
+    expect(mergeRecommenderUpgrades(plan, [])).toBe(plan)
+    expect(mergeRecommenderUpgrades(plan, null)).toBe(plan)
   })
 })
 

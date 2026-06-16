@@ -20,6 +20,28 @@ export function importProxyUrl(source, id) {
   return getProdAppUrl(`/api/import/${source}/${encodeURIComponent(id)}`)
 }
 
+// ── Recommander.cards (deck-aware recommendations) ─────────────────────────────
+// Co-occurrence/ML recommendations that adapt to the current deck. Proxied
+// through our Cloudflare worker (the upstream sends no CORS headers). Returns
+// [{ oracle_id, name, score }] on success, [] on any failure / cold start — the
+// caller falls back to EDHREC. Best-effort and never throws.
+export async function fetchRecommenderRecs(commanderName, deckNames = []) {
+  if (!commanderName) return []
+  try {
+    const res = await fetch(getProdAppUrl('/api/recommend'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ card_format: 'name', commander: commanderName, partner: null, deck: deckNames || [] }),
+    })
+    if (!res.ok) return []
+    const json = await res.json()
+    if (json?.result_code !== 'success') return []
+    return (json.data?.recommendations || []).filter(r => r?.oracle_id && r?.name)
+  } catch {
+    return []
+  }
+}
+
 // ── Formats ───────────────────────────────────────────────────────────────────
 
 export const FORMATS = [
