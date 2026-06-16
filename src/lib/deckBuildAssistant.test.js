@@ -426,6 +426,34 @@ describe('enrichPlanWithEdhrec', () => {
     expect(wipe.edhrecUpgrades).toHaveLength(8)
   })
 
+  it('re-buckets an owned card into EDHREC\'s functional role', async () => {
+    // A mana rock with no oracle text classifies locally as Synergy (the
+    // type-only fallback), but EDHREC lists it under "Mana Artifacts" → Ramp.
+    const { ownedCards, sfMap } = assemble([
+      makeCard('Mystery Rock', { oracle: '', type: 'Artifact', cmc: 2 }),
+    ])
+    const plan = analyzeBuildPlan({ commander: { name: 'Cmd', color_identity: [] }, ownedCards, sfMap })
+    expect(role(plan, ROLE_SYNERGY).ownedCandidates.map(c => c.name)).toContain('Mystery Rock')
+
+    const edhrec = { categories: [{ header: 'Mana Artifacts', cards: [{ name: 'Mystery Rock', inclusion: 80, cmc: 2, type: 'Artifact' }] }] }
+    const out = await enrichPlanWithEdhrec(plan, async () => edhrec)
+    expect(role(out, ROLE_RAMP).ownedCandidates.map(c => c.name)).toContain('Mystery Rock')
+    expect(role(out, ROLE_SYNERGY).ownedCandidates.map(c => c.name)).not.toContain('Mystery Rock')
+  })
+
+  it('keeps the local role when EDHREC\'s header is type-based', async () => {
+    // "Creatures" maps to no functional role (edhrecHeaderToRole → null), so an
+    // owned card there must stay where local classification put it.
+    const { ownedCards, sfMap } = assemble([
+      makeCard('Some Beast', { oracle: '', type: 'Creature', cmc: 4 }),
+    ])
+    const plan = analyzeBuildPlan({ commander: { name: 'Cmd', color_identity: [] }, ownedCards, sfMap })
+    const localRole = plan.roles.find(r => r.ownedCandidates.some(c => c.name === 'Some Beast')).role
+    const edhrec = { categories: [{ header: 'Creatures', cards: [{ name: 'Some Beast', inclusion: 50, cmc: 4, type: 'Creature' }] }] }
+    const out = await enrichPlanWithEdhrec(plan, async () => edhrec)
+    expect(role(out, localRole).ownedCandidates.map(c => c.name)).toContain('Some Beast')
+  })
+
   it('returns the plan unchanged when the fetcher throws', async () => {
     const { ownedCards, sfMap } = baseCards()
     const plan = analyzeBuildPlan({ commander: { name: 'Cmd', color_identity: [] }, ownedCards, sfMap })

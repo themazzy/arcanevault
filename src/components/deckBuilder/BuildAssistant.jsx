@@ -5,7 +5,7 @@ import { getLocalCards, getLocalCardPrints } from '../../lib/db'
 import { getInstantCache, getScryfallKey, getPrice, formatPrice } from '../../lib/scryfall'
 import { useCombosFetch } from '../../hooks/useCombosFetch'
 import { useSettings } from '../SettingsContext'
-import { fetchEdhrecCommander, getCardImageUri } from '../../lib/deckBuilderApi'
+import { fetchEdhrecCommander, fetchCardsByNames, fetchCardsByScryfallIds, getCardImageUri } from '../../lib/deckBuilderApi'
 import {
   analyzeBracket,
   fetchGameChangerNames,
@@ -56,13 +56,15 @@ function roleNameSet(deckCards) {
 }
 
 // Live per-role counts from the actual deck contents (not just owned
-// candidates) so progress bars reflect everything in the deck.
-function countByRole(deckCards, sfMap) {
+// candidates) so progress bars reflect everything in the deck. Prefers the
+// plan's EDHREC-derived role for a card (so a card shown under Ramp also counts
+// as Ramp when added), falling back to local oracle/type classification.
+function countByRole(deckCards, sfMap, roleByName) {
   const counts = new Map(ROLE_ORDER.map(r => [r, 0]))
   for (const dc of deckCards || []) {
     if (dc?.is_commander) continue
     const sfCard = sfMap?.[dc?.scryfall_id] || null
-    const role = coarseRole(dc, sfCard)
+    const role = roleByName?.get((dc?.name || '').toLowerCase()) || coarseRole(dc, sfCard)
     counts.set(role, (counts.get(role) || 0) + (dc.qty || 1))
   }
   return counts
@@ -116,9 +118,11 @@ const CURVE_BUCKETS = [0, 1, 2, 3, 4, 5, 6]
 function curveLabel(b) { return b === 6 ? '6+' : String(b) }
 
 // One card tile: image + name + sub-meta + add action(s).
-function CardTile({ name, sfCard, subtitle, pips, inclusion, price, flag, overTarget, added, wished, showWishlist, onAdd, onUndo, onWishlist }) {
+function CardTile({ name, sfCard, fallbackImg, subtitle, pips, inclusion, price, flag, overTarget, added, wished, showWishlist, onAdd, onUndo, onWishlist }) {
   const canUndo = added && typeof onUndo === 'function'
-  const img = cardImageUrl(sfCard)
+  // Cached collection art first; Scryfall-fetched fallback for unowned upgrades
+  // and any owned card whose cache entry has no image.
+  const img = cardImageUrl(sfCard) || fallbackImg || null
   return (
     <div className={`${styles.tile}${added ? ' ' + styles.tileAdded : ''}`}>
       <div className={styles.tileArt}>
@@ -180,6 +184,10 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const [showBracketReasons, setShowBracketReasons] = useState(false) // inline "why" disclosure
   const [maxPrice, setMaxPrice] = useState(null) // budget filter ceiling, null = off
   const [ownedNameSet, setOwnedNameSet] = useState(() => new Set())
+  const [recImages, setRecImages] = useState({}) // name → Scryfall small image (fallback art)
+  const attemptedImgNamesRef = useRef(new Set()) // names we've already tried to resolve
+  const metaFetchedRef = useRef(false) // owned-card oracle-text backfill ran for this commander
+  const selectedThemeRef = useRef('')  // latest theme, read by the async backfill to avoid a stale-closure revert
 
   const { price_source } = useSettings()
   // Names added/wishlisted this session — instant feedback before the deckCards
@@ -227,6 +235,8 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       try {
         setLoading(true)
         setSelectedTheme('')
+        selectedThemeRef.current = ''
+        metaFetchedRef.current = false
         const [owned, prints, cache, edhrec, gcNames] = await Promise.all([
           getLocalCards(userId),
           getLocalCardPrints().catch(() => []),
@@ -283,10 +293,22 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   function onSelectTheme(slug) {
     if (slug === selectedTheme) return
     setSelectedTheme(slug)
+    selectedThemeRef.current = slug
     rebuildPlan(slug)
   }
 
-  const liveCounts = useMemo(() => countByRole(deckCards, sfMap), [deckCards, sfMap])
+  // Name → role from the (EDHREC-hybrid) plan, so the live counter and trim
+  // logic classify deck cards the same way the steps display them.
+  const roleByName = useMemo(() => {
+    const m = new Map()
+    for (const role of plan?.roles || []) {
+      for (const c of role.ownedCandidates) m.set(c.name.toLowerCase(), role.role)
+      for (const u of role.edhrecUpgrades) m.set(u.name.toLowerCase(), role.role)
+    }
+    return m
+  }, [plan])
+
+  const liveCounts = useMemo(() => countByRole(deckCards, sfMap, roleByName), [deckCards, sfMap, roleByName])
   const deckNames = useMemo(() => roleNameSet(deckCards), [deckCards])
 
   const steps = useMemo(() => [...ROLE_ORDER, SUMMARY_STEP], [])
@@ -358,7 +380,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     for (const dc of deckCards || []) {
       if (dc?.is_commander) continue
       const sf = sfMap?.[dc?.scryfall_id] || null
-      const role = coarseRole(dc, sf)
+      const role = roleByName.get((dc.name || '').toLowerCase()) || coarseRole(dc, sf)
       byRole.get(role)?.push({
         id: dc.id,
         name: dc.name,
@@ -377,7 +399,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     }
     // totalCards and deckSize both include the commander, so this is "over 100".
     return { over: totalCards - plan.deckSize, overRoles }
-  }, [plan, deckCards, sfMap, inclusionByName, totalCards])
+  }, [plan, deckCards, sfMap, inclusionByName, totalCards, roleByName])
 
   // Completed combos in the deck → card-name lists for the bracket analyzer.
   const comboCardLists = useMemo(() => {
@@ -435,6 +457,104 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     if (onSummary && hasCommander && !combos.fetched && !combos.loading) combos.fetchCombos()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onSummary])
+
+  // Resolve fallback art for unowned EDHREC upgrade tiles (which carry no cached
+  // image). Mirrors the DeckBuilder recs/search flow: one batched Scryfall
+  // /cards/collection lookup by name (75/req), keyed name → small image.
+  // attemptedImgNamesRef dedupes so theme switches don't refetch. Owned cards
+  // are handled by the metadata backfill below (by exact scryfall_id), so we
+  // deliberately skip them here to avoid a second, by-name fetch of the same
+  // cards.
+  useEffect(() => {
+    if (!plan) return
+    let cancelled = false
+    const names = []
+    for (const role of plan.roles) {
+      for (const u of role.edhrecUpgrades) {
+        if (u.name && !attemptedImgNamesRef.current.has(u.name)) names.push(u.name)
+      }
+    }
+    if (!names.length) return
+    // Mark only the names we actually fetch this pass; anything past the cap
+    // stays unmarked so a later plan change can still resolve it.
+    const batch = names.slice(0, 225)
+    batch.forEach(n => attemptedImgNamesRef.current.add(n))
+    ;(async () => {
+      const cards = await fetchCardsByNames(batch).catch(() => [])
+      if (cancelled || !cards.length) return
+      setRecImages(prev => {
+        const next = { ...prev }
+        for (const c of cards) {
+          const uri = getCardImageUri(c, 'small')
+          if (uri) next[c.name] = uri
+        }
+        return next
+      })
+    })()
+    return () => { cancelled = true }
+  }, [plan])
+
+  // Backfill real Scryfall oracle text for color-legal owned cards. Neither the
+  // instant cache (when cold) nor card_prints stores oracle text, and the role
+  // classifier needs it to sort cards into Ramp/Draw/Removal/… — without it
+  // every non-land owned card collapses into Synergy and the other steps look
+  // empty. One batched /cards/collection fetch by exact scryfall_id (preserves
+  // the owned printing), merged into the shared sfById map, then we re-plan.
+  // Progressive enhancement: the first plan renders instantly from cache, this
+  // corrects it ~1–4s later. Runs once per commander (metaFetchedRef).
+  useEffect(() => {
+    const d = dataRef.current
+    if (!plan || !d || !commander?.name || metaFetchedRef.current) return
+    const identity = (commander.color_identity || []).filter(c => 'WUBRG'.includes(c))
+    const ids = []
+    const seen = new Set()
+    for (const c of d.ownedNorm || []) {
+      const sid = c?.scryfall_id
+      if (!sid || seen.has(sid)) continue
+      const entry = d.sfById[sid]
+      if (entry?.oracle_text) continue // already have oracle text → classifiable
+      const colors = entry?.color_identity || c?.color_identity || []
+      if (!colors.every(col => identity.includes(col))) continue // outside colors
+      seen.add(sid)
+      ids.push(sid)
+    }
+    metaFetchedRef.current = true
+    if (!ids.length) return
+    let cancelled = false
+    ;(async () => {
+      const cards = await fetchCardsByScryfallIds(ids.slice(0, 500)).catch(() => [])
+      if (cancelled || !cards.length) return
+      const merged = { ...d.sfById }
+      for (const sf of cards) {
+        if (sf?.id) merged[sf.id] = { ...(merged[sf.id] || {}), ...sf }
+      }
+      d.sfById = merged
+      if (cancelled) return
+      setSfMap(merged)
+      // Re-plan with the enriched metadata, reading the *live* theme from the
+      // ref (not the stale closure) so a theme picked during the fetch isn't
+      // reverted. rebuildPlan also runs on theme switch, so the maps converge.
+      const theme = selectedThemeRef.current
+      const template = applyTemplateAdjustments(COMMANDER_TEMPLATE, archetypeAdjustments(theme))
+      const base = analyzeBuildPlan({
+        commander,
+        ownedCards: d.ownedNorm,
+        sfMap: merged,
+        currentDeckCards: deckCards,
+        template,
+      })
+      const edhrec = await fetchEdhrecCommander(
+        commander.name, 'commander', theme ? { themeSlug: theme } : undefined,
+      ).catch(() => null)
+      // Bail if the user switched themes again while we were fetching EDHREC —
+      // rebuildPlan owns the plan for the newer selection.
+      if (cancelled || selectedThemeRef.current !== theme) return
+      const enriched = await enrichPlanWithEdhrec(base, async () => edhrec)
+      if (!cancelled && selectedThemeRef.current === theme) setPlan(enriched)
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plan, commander])
 
   // Manabase: commander colors + live colored-source counts from the deck.
   const cmdColors = useMemo(
@@ -739,6 +859,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                             key={cand.card?.id || cand.name}
                             name={cand.name}
                             sfCard={cand.sfCard}
+                            fallbackImg={recImages[cand.name]}
                             pips={onLands ? item.colors : undefined}
                             subtitle={onLands ? undefined : cand.granularCat}
                             inclusion={onLands ? 0 : cand.edhrecInclusion}
@@ -771,6 +892,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                           key={up.slug || up.name}
                           name={up.name}
                           sfCard={null}
+                          fallbackImg={recImages[up.name]}
                           subtitle={up.type}
                           inclusion={up.edhrecInclusion}
                           flag={flag}

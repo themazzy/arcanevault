@@ -423,27 +423,43 @@ export async function enrichPlanWithEdhrec(plan, fetchEdhrec) {
     })
   }
 
+  // Hybrid re-bucketing of owned candidates. EDHREC's own section is the most
+  // reliable role signal we have for a card — it needs no oracle text, which the
+  // local classifier depends on (and which is often missing on a cold cache).
+  // So when an owned card EDHREC lists has a *function*-based header ("Mana
+  // Artifacts" → Ramp, "Card Draw" → Card Advantage), move it into that role and
+  // tag it with EDHREC inclusion. Cards EDHREC doesn't list — or lists only under
+  // a type-based header ("Creatures", "Instants") where edhrecHeaderToRole is
+  // null — keep their local classification, so nothing the player owns vanishes.
+  const rebucketed = new Map(ROLE_ORDER.map(r => [r, []]))
+  for (const role of plan.roles) {
+    for (const cand of role.ownedCandidates) {
+      const entry = byName.get(cand.name.toLowerCase())
+      const next = entry ? { ...cand, edhrecInclusion: entry.cv.inclusion ?? 0 } : cand
+      const edhrecRole = entry ? edhrecHeaderToRole(entry.header) : null
+      ;(rebucketed.get(edhrecRole || role.role) || rebucketed.get(role.role)).push(next)
+    }
+  }
+
   // Return a cloned plan (new role objects + arrays) rather than mutating the
   // input in place: state-held arrays must not be mutated, and setPlan needs a
-  // fresh reference to re-render. Two transforms per role:
-  //   1) boost owned candidates by EDHREC inclusion, then re-rank
-  //   2) attach the role's not-owned upgrade list, capped (under-built roles get
-  //      more headroom)
+  // fresh reference to re-render. Per role:
+  //   1) re-ranked owned candidates from the re-bucketed pool
+  //   2) recompute current/gap (cards moved between roles), then attach the
+  //      role's not-owned upgrade list, capped (under-built roles get headroom)
   const roles = plan.roles.map(role => {
-    const ownedCandidates = role.ownedCandidates
-      .map(cand => {
-        const entry = byName.get(cand.name.toLowerCase())
-        return entry ? { ...cand, edhrecInclusion: entry.cv.inclusion ?? 0 } : cand
-      })
+    const ownedCandidates = (rebucketed.get(role.role) || [])
       .sort((a, b) =>
         (b.edhrecInclusion - a.edhrecInclusion) ||
         (a.cmc - b.cmc) ||
         a.name.localeCompare(b.name),
       )
+    const current = ownedCandidates.filter(c => c.inDeck).length
+    const gap = Math.max(0, role.target - current)
     const edhrecUpgrades = (upgradesByRole.get(role.role) || [])
       .sort((a, b) => b.edhrecInclusion - a.edhrecInclusion)
-      .slice(0, Math.max(8, role.gap + 4))
-    return { ...role, ownedCandidates, edhrecUpgrades }
+      .slice(0, Math.max(8, gap + 4))
+    return { ...role, current, gap, ownedCandidates, edhrecUpgrades }
   })
 
   return { ...plan, roles }
