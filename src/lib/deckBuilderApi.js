@@ -6,7 +6,7 @@
  * - Recommander.cards: experimental co-occurrence recommendations
  */
 
-import { sfGet, sfUrl } from './scryfall'
+import { sfGet, sfUrl, getImageUri } from './scryfall'
 import { getProdAppUrl } from './publicUrl'
 import { sb } from './supabase'
 
@@ -82,11 +82,10 @@ export function serializeDeckMeta(meta) {
 
 // ── Card image URI helper ─────────────────────────────────────────────────────
 
+// Delegates to scryfall's getImageUri so both helpers share one behavior
+// (including deriving a missing size from the stored 'normal' URL).
 export function getCardImageUri(sfCard, size = 'normal') {
-  if (!sfCard) return null
-  return sfCard.image_uris?.[size]
-    ?? sfCard.card_faces?.[0]?.image_uris?.[size]
-    ?? null
+  return getImageUri(sfCard, size)
 }
 
 export function getPrimaryFaceData(sfCard) {

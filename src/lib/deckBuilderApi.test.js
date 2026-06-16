@@ -5,6 +5,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 vi.mock('./scryfall', () => ({
   sfGet: vi.fn(),
   sfUrl: (u) => u,
+  // getCardImageUri now delegates here; mirror the real lookup so meta tests pass.
+  getImageUri: (c, size = 'normal') =>
+    c?.image_uris?.[size] ?? c?.card_faces?.[0]?.image_uris?.[size] ?? null,
 }))
 
 vi.mock('./supabase', () => ({ sb: { from: vi.fn() } }))

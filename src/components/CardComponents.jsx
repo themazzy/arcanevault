@@ -41,7 +41,7 @@ function scryfallLargeUrl() {
 // ── CardGrid ──────────────────────────────────────────────────────────────────
 function CardItem({ card, sfCard, selectMode, isSelected, totalQty, onSelect, onToggleSelect, onEnterSelectMode, onAdjustQty, splitState, loading }) {
   const displayKey = card._displayKey || card.id
-  const img = getImageUri(sfCard, 'normal')
+  const img = getImageUri(sfCard, 'small') // grid thumbnail; detail view uses normal/large
   const scryfallPrice = getPrice(sfCard, card.foil)
   const unitPrice = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
   const price = unitPrice != null ? unitPrice * totalQty : null

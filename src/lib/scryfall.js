@@ -722,9 +722,29 @@ export function formatPriceMeta(meta) {
   return `${meta.symbol}${meta.value.toFixed(2)}`
 }
 
+// Scryfall CDN image URLs put the size in the path
+// (//cards.scryfall.io/<size>/front/.../id.jpg); small/normal/large/art_crop all
+// share that path and differ only in the size segment. So we can derive a size
+// an entry doesn't store explicitly — e.g. card_prints rows hold only the
+// 'normal' URL, so grid thumbnails ('small') are derived from it. No-op for
+// non-Scryfall URLs (returns them unchanged).
+export function scryfallImageAtSize(url, size) {
+  if (!url || !size) return url || null
+  return url.replace(
+    /(\/\/cards\.scryfall\.io\/)(?:small|normal|large|png|art_crop|border_crop)(\/)/,
+    `$1${size}$2`,
+  )
+}
+
+function anyStoredImageUrl(imgs) {
+  return (imgs && (imgs.normal || imgs.large || imgs.small || imgs.png || imgs.art_crop || imgs.border_crop)) || null
+}
+
 export function getImageUri(sfCard, size = 'normal') {
   if (!sfCard) return null
-  if (sfCard.image_uris) return sfCard.image_uris[size] || sfCard.image_uris.small || null
-  if (sfCard.card_faces?.[0]?.image_uris) return sfCard.card_faces[0].image_uris[size] || sfCard.card_faces[0].image_uris.small || null
-  return null
+  const imgs = sfCard.image_uris || sfCard.card_faces?.[0]?.image_uris
+  if (!imgs) return null
+  // Use the stored URL for the requested size, else derive it from whatever
+  // size the entry does have (card_prints stores only 'normal').
+  return imgs[size] || scryfallImageAtSize(anyStoredImageUrl(imgs), size)
 }
