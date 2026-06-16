@@ -396,10 +396,12 @@ async function enrichFromCardPrints(cards) {
   return cards.filter(c => !resolved.has(c))
 }
 
-// True when an entry is absent, was stripped by clearScryfallCache, or was
-// populated only by card_prints (which has no oracle_text). Vanilla creatures
-// land here with oracle_text === '' (non-null), so they don't perpetually
-// refetch.
+// True when an entry is absent, was stripped by clearScryfallCache, or still
+// lacks oracle text. card_prints now supplies oracle_text for ~99.85% of
+// printings, so most entries are complete straight after enrichFromCardPrints;
+// only the residual (pre-migration rows, or the ~0.15% of prints with no
+// oracle_id) has oracle_text == null and falls through to Scryfall. Vanilla
+// cards carry oracle_text === '' (non-null), so they don't perpetually refetch.
 function entryNeedsScryfall(entry) {
   return !entry || !entry.type_line || entry.oracle_text == null
 }
@@ -422,9 +424,10 @@ export async function enrichCards(cards, onProgress, cacheTtlMs = DEFAULT_TTL_MS
           onProgress?.(100, '')
           return _sfMap
         }
-        // card_prints provides fast type_line/mana/etc. but no oracle_text.
-        // After it fills filter fields, re-check who still lacks oracle_text
-        // and send only those to Scryfall.
+        // card_prints (Supabase) now supplies oracle_text too, alongside
+        // type_line/mana/etc., so this pass completes most cards without any
+        // Scryfall call. Re-check who still lacks oracle text (residual /
+        // pre-migration rows) and send only those to Scryfall.
         await enrichFromCardPrints(missing)
         const stillMissing = cardsNeedingScryfall(missing)
         if (stillMissing.length) {

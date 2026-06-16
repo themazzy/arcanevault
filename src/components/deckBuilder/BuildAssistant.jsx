@@ -6,6 +6,7 @@ import { getInstantCache, getScryfallKey, getPrice, formatPrice } from '../../li
 import { useCombosFetch } from '../../hooks/useCombosFetch'
 import { useSettings } from '../SettingsContext'
 import { fetchEdhrecCommander, fetchCardsByNames, fetchCardsByScryfallIds, getCardImageUri } from '../../lib/deckBuilderApi'
+import { fetchCardPrintsByScryfallIds, cardPrintRowToSfEntry } from '../../lib/cardPrints'
 import {
   analyzeBracket,
   fetchGameChangerNames,
@@ -87,6 +88,20 @@ function ownedCardForAdd(cand) {
   const sf = cand?.sfCard
   if (!sf) return cand?.card // no cache entry → let the parent resolve by name
   return { ...sf, id: cand.card?.scryfall_id || sf.id || null, set: sf.set || sf.set_code || null }
+}
+
+// Overlay new fields onto an existing sfMap entry, skipping null/empty values
+// (mirrors mergeSfEntry in scryfall.js). Used when backfilling from card_prints,
+// whose entries carry null prices/images — a blind spread would wipe the
+// prices/art the cached entry already has.
+function overlayNonNull(base, next) {
+  const out = { ...(base || {}) }
+  for (const [k, v] of Object.entries(next || {})) {
+    if (v == null) continue
+    if (Array.isArray(v) && v.length === 0) continue
+    out[k] = v
+  }
+  return out
 }
 
 const SUMMARY_STEP = '__summary__'
@@ -494,14 +509,15 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     return () => { cancelled = true }
   }, [plan])
 
-  // Backfill real Scryfall oracle text for color-legal owned cards. Neither the
-  // instant cache (when cold) nor card_prints stores oracle text, and the role
-  // classifier needs it to sort cards into Ramp/Draw/Removal/… — without it
-  // every non-land owned card collapses into Synergy and the other steps look
-  // empty. One batched /cards/collection fetch by exact scryfall_id (preserves
-  // the owned printing), merged into the shared sfById map, then we re-plan.
-  // Progressive enhancement: the first plan renders instantly from cache, this
-  // corrects it ~1–4s later. Runs once per commander (metaFetchedRef).
+  // Backfill oracle text for color-legal owned cards so the role classifier can
+  // sort them into Ramp/Draw/Removal/… — without it every non-land owned card
+  // collapses into Synergy and the other steps look empty. Source priority:
+  // check our own card_prints (Supabase) FIRST — it now carries oracle text for
+  // ~99.85% of printings, so no rate-limited Scryfall hit is needed for them —
+  // and fall back to Scryfall (by exact scryfall_id, preserving the printing)
+  // only for the residual it can't supply. Merged into the shared sfById map,
+  // then we re-plan. Progressive enhancement: the first plan renders instantly
+  // from cache, this corrects it shortly after. Runs once per commander.
   useEffect(() => {
     const d = dataRef.current
     if (!plan || !d || !commander?.name || metaFetchedRef.current) return
@@ -522,14 +538,30 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     if (!ids.length) return
     let cancelled = false
     ;(async () => {
-      const cards = await fetchCardsByScryfallIds(ids.slice(0, 500)).catch(() => [])
-      if (cancelled || !cards.length) return
       const merged = { ...d.sfById }
-      for (const sf of cards) {
-        if (sf?.id) merged[sf.id] = { ...(merged[sf.id] || {}), ...sf }
+      let enrichedAny = false
+      // 1) Supabase card_prints first (our DB, no rate limit, has oracle text).
+      const stillMissing = []
+      try {
+        const printRows = await fetchCardPrintsByScryfallIds(ids)
+        for (const sid of ids) {
+          const row = printRows.get(sid)
+          const entry = row ? cardPrintRowToSfEntry(row) : null
+          if (entry) { merged[sid] = overlayNonNull(merged[sid], entry); enrichedAny = true }
+          if (!entry || entry.oracle_text == null) stillMissing.push(sid)
+        }
+      } catch {
+        stillMissing.push(...ids)
       }
+      // 2) Scryfall fallback only for what card_prints couldn't supply.
+      if (stillMissing.length) {
+        const cards = await fetchCardsByScryfallIds(stillMissing.slice(0, 500)).catch(() => [])
+        for (const sf of cards) {
+          if (sf?.id) { merged[sf.id] = overlayNonNull(merged[sf.id], sf); enrichedAny = true }
+        }
+      }
+      if (cancelled || !enrichedAny) return
       d.sfById = merged
-      if (cancelled) return
       setSfMap(merged)
       // Re-plan with the enriched metadata, reading the *live* theme from the
       // ref (not the stale closure) so a theme picked during the fetch isn't
