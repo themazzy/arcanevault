@@ -283,9 +283,21 @@ export function isBasicLandName(name) {
 // over-100 deck. Three modes; Balanced is the user-facing default.
 
 export const CUT_MODES = [
-  { id: 'balanced', label: 'Balanced' },     // blend popularity + curve + redundancy
-  { id: 'popularity', label: 'Least played' }, // pure EDHREC inclusion, then curve
-  { id: 'redundancy', label: 'Overbuilt roles' }, // trim from roles past quota first
+  {
+    id: 'balanced',
+    label: 'Balanced',
+    description: 'Weighs play rate, mana cost, and overfilled categories together. A safe all-round pick.',
+  },
+  {
+    id: 'popularity',
+    label: 'Least played',
+    description: 'Cuts the cards the fewest Commander decks run, first.',
+  },
+  {
+    id: 'redundancy',
+    label: 'Trim excess',
+    description: 'Cuts from the categories you have the most extra cards in (e.g. too much ramp), first.',
+  },
 ]
 
 // Short human reason a card is suggested for the cut.

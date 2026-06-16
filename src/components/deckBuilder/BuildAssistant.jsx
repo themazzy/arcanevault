@@ -1178,7 +1178,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                           key={m.id}
                           className={`${styles.themeChip}${cutMode === m.id ? ' ' + styles.themeActive : ''}`}
                           onClick={() => setCutMode(m.id)}
-                          title={`Rank cuts by: ${m.label}`}
+                          title={m.description}
                         >
                           {m.label}
                         </button>
@@ -1193,6 +1193,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                         {applyingCuts ? 'Cutting…' : `Cut all ${cutAnalysis.recommended.length}`}
                       </button>
                     )}
+                  </div>
+                  <div className={styles.cutModeHint}>
+                    {CUT_MODES.find(m => m.id === cutMode)?.description}
                   </div>
 
                   {cutAnalysis.recommended.length === 0 ? (
