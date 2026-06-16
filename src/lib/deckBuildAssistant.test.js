@@ -18,7 +18,8 @@ import {
   rankCutCandidates,
   CUT_MODES,
   edhrecInclusionPct,
-  mergeRecommenderUpgrades,
+  attachRecommenderUpgrades,
+  selectUpgrades,
   COMMANDER_TEMPLATE,
   ROLE_RAMP,
   ROLE_DRAW,
@@ -432,8 +433,7 @@ describe('edhrecInclusionPct', () => {
 })
 
 // ── Recommander augmentation ──────────────────────────────────────────────────
-describe('mergeRecommenderUpgrades', () => {
-  // A plan with an owned ramp card and one EDHREC draw upgrade already present.
+describe('attachRecommenderUpgrades', () => {
   const basePlan = () => {
     const { ownedCards, sfMap } = assemble([
       makeCard('Llanowar Elves', { oracle: '{T}: Add {G}.', type: 'Creature — Elf Druid' }),
@@ -441,35 +441,55 @@ describe('mergeRecommenderUpgrades', () => {
     return analyzeBuildPlan({ commander: { name: 'Cmd', color_identity: ['G'] }, ownedCards, sfMap })
   }
 
-  it('classifies a rec by oracle text and adds it to that role with art + score', async () => {
+  it('classifies a rec by oracle text into a separate recommenderUpgrades list', () => {
     const plan = basePlan()
     const recRows = [
       { name: 'Harmonize', type_line: 'Sorcery', oracle_text: 'Draw three cards.', cmc: 4, image: 'harm.jpg', score: 0.82 },
     ]
-    const out = mergeRecommenderUpgrades(plan, recRows)
-    const draw = role(out, ROLE_DRAW).edhrecUpgrades.find(u => u.name === 'Harmonize')
+    const out = attachRecommenderUpgrades(plan, recRows)
+    const draw = role(out, ROLE_DRAW).recommenderUpgrades.find(u => u.name === 'Harmonize')
     expect(draw).toBeTruthy()
     expect(draw.image).toBe('harm.jpg')
     expect(draw.source).toBe('recommander')
+    // It does NOT pollute the EDHREC list.
+    expect(role(out, ROLE_DRAW).edhrecUpgrades.map(u => u.name)).not.toContain('Harmonize')
   })
 
-  it('skips owned cards and de-dupes against existing upgrades / itself', () => {
+  it('skips owned cards and de-dupes itself', () => {
     const plan = basePlan()
     const recRows = [
       { name: 'Llanowar Elves', type_line: 'Creature — Elf Druid', oracle_text: '{T}: Add {G}.', score: 0.9 }, // owned
       { name: 'Beast Whisperer', type_line: 'Creature — Elf', oracle_text: 'Whenever you cast a creature spell, draw a card.', score: 0.7 },
       { name: 'Beast Whisperer', type_line: 'Creature — Elf', oracle_text: 'Whenever you cast a creature spell, draw a card.', score: 0.7 }, // dupe
     ]
-    const out = mergeRecommenderUpgrades(plan, recRows)
-    const drawNames = role(out, ROLE_DRAW).edhrecUpgrades.map(u => u.name)
-    expect(drawNames).not.toContain('Llanowar Elves')
-    expect(drawNames.filter(n => n === 'Beast Whisperer')).toHaveLength(1)
+    const out = attachRecommenderUpgrades(plan, recRows)
+    const names = (role(out, ROLE_DRAW).recommenderUpgrades || []).map(u => u.name)
+    expect(names).not.toContain('Llanowar Elves')
+    expect(names.filter(n => n === 'Beast Whisperer')).toHaveLength(1)
   })
 
   it('returns the plan unchanged when there are no rec rows', () => {
     const plan = basePlan()
-    expect(mergeRecommenderUpgrades(plan, [])).toBe(plan)
-    expect(mergeRecommenderUpgrades(plan, null)).toBe(plan)
+    expect(attachRecommenderUpgrades(plan, [])).toBe(plan)
+    expect(attachRecommenderUpgrades(plan, null)).toBe(plan)
+  })
+})
+
+describe('selectUpgrades', () => {
+  const role = {
+    gap: 4,
+    edhrecUpgrades: [{ name: 'Cultivate', cmc: 3, edhrecInclusion: 90 }],
+    recommenderUpgrades: [{ name: 'Harmonize', cmc: 4, score: 0.8 }, { name: 'Cultivate', cmc: 3, score: 0.5 }],
+  }
+  it('returns only the chosen source', () => {
+    expect(selectUpgrades(role, 'edhrec').map(u => u.name)).toEqual(['Cultivate'])
+    expect(selectUpgrades(role, 'recommander').map(u => u.name)).toEqual(['Harmonize', 'Cultivate'])
+  })
+  it('merges and de-dupes for "both", keeping the EDHREC entry', () => {
+    const both = selectUpgrades(role, 'both')
+    expect(both.filter(u => u.name === 'Cultivate')).toHaveLength(1)
+    expect(both.find(u => u.name === 'Cultivate').edhrecInclusion).toBe(90) // kept the EDHREC one
+    expect(both.map(u => u.name)).toContain('Harmonize')
   })
 })
 

@@ -613,6 +613,7 @@ export async function enrichPlanWithEdhrec(plan, fetchEdhrec, fetchCardMeta) {
       edhrecInclusion: edhrecInclusionPct(cv),
       synergy: cv.synergy ?? 0,
       image: meta?.image || null,
+      source: 'edhrec',
       owned: false,
     })
   }
@@ -660,23 +661,22 @@ export async function enrichPlanWithEdhrec(plan, fetchEdhrec, fetchCardMeta) {
 }
 
 // ── Recommander augmentation ──────────────────────────────────────────────────
-// Blend deck-aware recommander.cards picks into an EDHREC-enriched plan. Each
-// recRow is { name, type_line, oracle_text, cmc, colorIdentity, image, score }
-// resolved from card_prints. Cards are classified by real oracle text, with
-// owned / already-listed names dropped, then each role's upgrade list is
-// re-ranked so a recommander score (0–1, scaled to 0–100) competes with EDHREC
-// inclusion %. Pure; returns a cloned plan (unchanged if nothing to add).
-export function mergeRecommenderUpgrades(plan, recRows) {
+// Attach deck-aware recommander.cards picks to a plan as a SEPARATE per-role
+// list (role.recommenderUpgrades), so the UI can show EDHREC, recommander, or a
+// blend. Each recRow is { name, type_line, oracle_text, cmc, colorIdentity,
+// image, score } resolved from card_prints; we classify by real oracle text,
+// drop owned cards, rank by score, and cap per role. Pure; returns a cloned
+// plan (unchanged if nothing to add).
+export function attachRecommenderUpgrades(plan, recRows) {
   if (!plan?.roles?.length || !recRows?.length) return plan
 
   const ownedNames = new Set()
-  const seen = new Set() // existing upgrade names + rec names already taken
   for (const role of plan.roles) {
     for (const c of role.ownedCandidates) ownedNames.add(c.name.toLowerCase())
-    for (const u of role.edhrecUpgrades) seen.add(u.name.toLowerCase())
   }
 
   const recByRole = new Map(ROLE_ORDER.map(r => [r, []]))
+  const seen = new Set()
   let added = false
   for (const row of recRows) {
     const key = (row?.name || '').toLowerCase()
@@ -702,14 +702,29 @@ export function mergeRecommenderUpgrades(plan, recRows) {
   }
   if (!added) return plan
 
-  const rankKey = u => Math.max(u.edhrecInclusion || 0, Math.round((u.score || 0) * 100))
   const roles = plan.roles.map(role => {
-    const recs = recByRole.get(role.role) || []
-    if (!recs.length) return role
-    const edhrecUpgrades = [...role.edhrecUpgrades, ...recs]
-      .sort((a, b) => (rankKey(b) - rankKey(a)) || (a.cmc - b.cmc) || a.name.localeCompare(b.name))
+    const recs = (recByRole.get(role.role) || [])
+      .sort((a, b) => (b.score - a.score) || (a.cmc - b.cmc) || a.name.localeCompare(b.name))
       .slice(0, Math.max(8, (role.gap || 0) + 4))
-    return { ...role, edhrecUpgrades }
+    return { ...role, recommenderUpgrades: recs }
   })
   return { ...plan, roles }
+}
+
+// The upgrade list to show for a role under a given suggestion source.
+// 'edhrec' / 'recommander' return that source's list; 'both' merges them,
+// de-duped by name (keeping the EDHREC entry for its inclusion %), ranked by
+// the stronger of inclusion % / scaled score, capped to the role's headroom.
+export function selectUpgrades(role, source = 'both') {
+  const edhrec = role?.edhrecUpgrades || []
+  const rec = role?.recommenderUpgrades || []
+  if (source === 'edhrec') return edhrec
+  if (source === 'recommander') return rec
+  const byName = new Map()
+  for (const u of edhrec) byName.set(u.name.toLowerCase(), u)
+  for (const u of rec) if (!byName.has(u.name.toLowerCase())) byName.set(u.name.toLowerCase(), u)
+  const rankKey = u => Math.max(u.edhrecInclusion || 0, Math.round((u.score || 0) * 100))
+  return [...byName.values()]
+    .sort((a, b) => (rankKey(b) - rankKey(a)) || (a.cmc - b.cmc) || a.name.localeCompare(b.name))
+    .slice(0, Math.max(8, (role?.gap || 0) + 4))
 }

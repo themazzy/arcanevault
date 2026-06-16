@@ -26,7 +26,8 @@ import {
   isBasicLandName,
   rankCutCandidates,
   CUT_MODES,
-  mergeRecommenderUpgrades,
+  attachRecommenderUpgrades,
+  selectUpgrades,
   COMMANDER_TEMPLATE,
   ROLE_ORDER,
   ROLE_RAMP,
@@ -163,7 +164,7 @@ function curveLabel(b) { return b === 6 ? '6+' : String(b) }
 const CURVE_BAR_MAX_PX = 96
 
 // One card tile: image + name + sub-meta + add action(s).
-function CardTile({ name, sfCard, fallbackImg, subtitle, pips, inclusion, price, flag, overTarget, added, wished, showWishlist, onAdd, onUndo, onWishlist }) {
+function CardTile({ name, sfCard, fallbackImg, subtitle, pips, inclusion, tag, price, flag, overTarget, added, wished, showWishlist, onAdd, onUndo, onWishlist }) {
   const canUndo = added && typeof onUndo === 'function'
   // Cached collection art first; Scryfall-fetched fallback for unowned upgrades
   // and any owned card whose cache entry has no image.
@@ -174,7 +175,9 @@ function CardTile({ name, sfCard, fallbackImg, subtitle, pips, inclusion, price,
         {img
           ? <img src={img} alt={name} loading="lazy" className={styles.tileImg} />
           : <div className={styles.tileNoImg}>{name}</div>}
-        {inclusion > 0 && <span className={styles.tileIncl}>{inclusion}%</span>}
+        {inclusion > 0
+          ? <span className={styles.tileIncl}>{inclusion}%</span>
+          : tag ? <span className={`${styles.tileIncl} ${styles.tileTag}`}>{tag}</span> : null}
         {price && <span className={styles.tilePrice}>{price}</span>}
         {flag && (
           <span
@@ -228,6 +231,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const [targetBracket, setTargetBracket] = useState(null) // null = no target; 1-4
   const [showBracketReasons, setShowBracketReasons] = useState(false) // inline "why" disclosure
   const [maxPrice, setMaxPrice] = useState(null) // budget filter ceiling, null = off
+  const [suggestionSource, setSuggestionSource] = useState('both') // 'both' | 'edhrec' | 'recommander'
   const [cutMode, setCutMode] = useState('balanced') // cut helper ranking mode
   const [lockedCutIds, setLockedCutIds] = useState(() => new Set()) // deck-card ids kept off the cut list
   const [applyingCuts, setApplyingCuts] = useState(false)
@@ -313,7 +317,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     if (!plan) return plan
     try {
       const recRows = await fetchRecommenderUpgrades(deck)
-      return recRows.length ? mergeRecommenderUpgrades(plan, recRows) : plan
+      return recRows.length ? attachRecommenderUpgrades(plan, recRows) : plan
     } catch {
       return plan
     }
@@ -420,9 +424,16 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     for (const role of plan?.roles || []) {
       for (const c of role.ownedCandidates) m.set(c.name.toLowerCase(), role.role)
       for (const u of role.edhrecUpgrades) m.set(u.name.toLowerCase(), role.role)
+      for (const u of role.recommenderUpgrades || []) m.set(u.name.toLowerCase(), role.role)
     }
     return m
   }, [plan])
+
+  // Whether recommander returned anything (gates the source toggle).
+  const hasRecommender = useMemo(
+    () => (plan?.roles || []).some(r => (r.recommenderUpgrades || []).length > 0),
+    [plan],
+  )
 
   const liveCounts = useMemo(() => countByRole(deckCards, sfMap, roleByName), [deckCards, sfMap, roleByName])
   const deckNames = useMemo(() => roleNameSet(deckCards), [deckCards])
@@ -955,6 +966,29 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           </div>
         )}
 
+        {/* Suggestion source — only when recommander returned picks */}
+        {!loading && !error && hasRecommender && (
+          <div className={styles.themeRow}>
+            <span className={styles.themeLabel}>Suggestions</span>
+            <div className={styles.themeChips}>
+              {[
+                { id: 'both', label: 'Both', title: 'EDHREC staples blended with deck-aware recommander picks' },
+                { id: 'edhrec', label: 'EDHREC', title: 'What real decks for this commander run (by inclusion %)' },
+                { id: 'recommander', label: 'Recommander', title: 'Deck-aware ML picks that fit your current list' },
+              ].map(s => (
+                <button
+                  key={s.id}
+                  className={`${styles.themeChip}${suggestionSource === s.id ? ' ' + styles.themeActive : ''}`}
+                  onClick={() => setSuggestionSource(s.id)}
+                  title={s.title}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Over-target warning */}
         {overTarget && deckBracket && (
           <div className={styles.bracketWarn}>
@@ -1072,35 +1106,45 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                 )
               })()}
 
-              {/* EDHREC upgrades (not owned) */}
-              {roleData.edhrecUpgrades.length > 0 && (
-                <>
-                  <div className={styles.sectionLabel}>Popular picks you don’t own</div>
-                  <div className={styles.grid}>
-                    {roleData.edhrecUpgrades.map(up => {
-                      const flag = bracketFlagFor(up.name, null, gameChangers)
-                      return (
-                        <CardTile
-                          key={up.slug || up.name}
-                          name={up.name}
-                          sfCard={null}
-                          fallbackImg={up.image}
-                          subtitle={up.type}
-                          inclusion={up.edhrecInclusion}
-                          flag={flag}
-                          overTarget={targetBracket != null && flag && flag.level > targetBracket}
-                          added={isAdded(up.name)}
-                          wished={isWishlisted(up.name)}
-                          showWishlist={typeof onAddToWishlist === 'function'}
-                          onAdd={() => handleAdd(up, up.name)}
-                          onUndo={() => handleUndoAdd(up.name)}
-                          onWishlist={() => handleWishlist(up.name)}
-                        />
-                      )
-                    })}
-                  </div>
-                </>
-              )}
+              {/* Suggestions you don't own (source per the Suggestions toggle) */}
+              {(() => {
+                const upgrades = selectUpgrades(roleData, hasRecommender ? suggestionSource : 'edhrec')
+                if (!upgrades.length) return null
+                const label = !hasRecommender || suggestionSource === 'edhrec'
+                  ? 'Popular picks you don’t own'
+                  : suggestionSource === 'recommander'
+                    ? 'Deck-aware picks you don’t own'
+                    : 'Suggested picks you don’t own'
+                return (
+                  <>
+                    <div className={styles.sectionLabel}>{label}</div>
+                    <div className={styles.grid}>
+                      {upgrades.map(up => {
+                        const flag = bracketFlagFor(up.name, null, gameChangers)
+                        return (
+                          <CardTile
+                            key={up.slug || up.name}
+                            name={up.name}
+                            sfCard={null}
+                            fallbackImg={up.image}
+                            subtitle={up.type}
+                            inclusion={up.edhrecInclusion}
+                            tag={up.source === 'recommander' ? 'rec' : undefined}
+                            flag={flag}
+                            overTarget={targetBracket != null && flag && flag.level > targetBracket}
+                            added={isAdded(up.name)}
+                            wished={isWishlisted(up.name)}
+                            showWishlist={typeof onAddToWishlist === 'function'}
+                            onAdd={() => handleAdd(up, up.name)}
+                            onUndo={() => handleUndoAdd(up.name)}
+                            onWishlist={() => handleWishlist(up.name)}
+                          />
+                        )
+                      })}
+                    </div>
+                  </>
+                )
+              })()}
             </>
           )}
 

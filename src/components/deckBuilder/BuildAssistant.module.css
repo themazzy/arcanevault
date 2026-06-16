@@ -465,6 +465,13 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Recommander (deck-aware) pick badge — distinguishes it from EDHREC inclusion %. */
+.tileTag {
+  color: #6fb6e8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .tilePrice {
   position: absolute;
   top: 5px;
