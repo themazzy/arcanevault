@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Modal, Button, ProgressBar } from '../UI'
+import { Modal, Button, ProgressBar, ResponsiveMenu } from '../UI'
+import uiStyles from '../UI.module.css'
 import { CheckIcon, DeleteIcon, WarningIcon, ChevronDownIcon } from '../../icons'
 import { getLocalCards, getLocalCardPrints } from '../../lib/db'
 import { getInstantCache, getScryfallKey, getPrice, formatPrice } from '../../lib/scryfall'
 import { useCombosFetch } from '../../hooks/useCombosFetch'
 import { useSettings } from '../SettingsContext'
-import { fetchEdhrecCommander, fetchCardsByNames, fetchCardsByScryfallIds, fetchRecommenderRecs, getCardImageUri } from '../../lib/deckBuilderApi'
+import { fetchEdhrecCommander, fetchCardsByNames, fetchCardsByScryfallIds, fetchRecommenderRecs, fetchPaperPrintingsByNamesFromDb, getCardImageUri } from '../../lib/deckBuilderApi'
 import { fetchCardPrintsByScryfallIds, fetchCardPrintsByOracleIds, cardPrintRowToSfEntry } from '../../lib/cardPrints'
 import {
   analyzeBracket,
@@ -57,6 +58,19 @@ const ROLE_INFO = {
   [ROLE_WINCON]: 'Game plan — how the deck actually closes: combos, extra turns, and big finishers.',
   [ROLE_SYNERGY]: 'Synergy — cards that support your commander’s theme and strategy. The bulk of the deck.',
   [ROLE_LANDS]: 'Mana base — lands, including utility lands. Aim for roughly this many to hit your colors consistently.',
+}
+
+// Compact labels for the node stepper (full role names are too wide to sit
+// under a 24px dot). The full name still shows in the role header + tooltip.
+const STEP_SHORT = {
+  [ROLE_RAMP]: 'Ramp',
+  [ROLE_DRAW]: 'Draw',
+  [ROLE_REMOVAL]: 'Removal',
+  [ROLE_WIPE]: 'Wipe',
+  [ROLE_PROTECTION]: 'Protection',
+  [ROLE_WINCON]: 'Win Cons',
+  [ROLE_SYNERGY]: 'Synergy',
+  [ROLE_LANDS]: 'Lands',
 }
 
 function roleNameSet(deckCards) {
@@ -121,6 +135,13 @@ const MAX_TILES = 60 // cap owned tiles per step to keep the DOM light
 // formatPrice() uses below, so threshold and card price always share units.
 const BUDGET_CHIPS = [null, 1, 5, 20]
 
+// Suggestion source options (shown only when recommander returns picks).
+const SUGGESTION_SOURCES = [
+  { id: 'both', label: 'EDHREC + Recommander' },
+  { id: 'edhrec', label: 'EDHREC' },
+  { id: 'recommander', label: 'Recommander' },
+]
+
 // Mana pip colors for the manabase step. A color is "thin" (amber) below this
 // many sources — a soft floor, not a hard rule.
 const MANA_HEX = { W: '#e9e0c0', U: '#3b7fd4', B: '#7a6b86', R: '#d4503b', G: '#4a9a5a' }
@@ -164,7 +185,7 @@ function curveLabel(b) { return b === 6 ? '6+' : String(b) }
 const CURVE_BAR_MAX_PX = 96
 
 // One card tile: image + name + sub-meta + add action(s).
-function CardTile({ name, sfCard, fallbackImg, subtitle, pips, inclusion, tag, price, flag, overTarget, added, wished, showWishlist, onAdd, onUndo, onWishlist }) {
+function CardTile({ name, sfCard, fallbackImg, pips, inclusion, tag, price, flag, overTarget, added, wished, showWishlist, onAdd, onUndo, onWishlist }) {
   const canUndo = added && typeof onUndo === 'function'
   // Cached collection art first; Scryfall-fetched fallback for unowned upgrades
   // and any owned card whose cache entry has no image.
@@ -178,7 +199,6 @@ function CardTile({ name, sfCard, fallbackImg, subtitle, pips, inclusion, tag, p
         {inclusion > 0
           ? <span className={styles.tileIncl}>{inclusion}%</span>
           : tag ? <span className={`${styles.tileIncl} ${styles.tileTag}`}>{tag}</span> : null}
-        {price && <span className={styles.tilePrice}>{price}</span>}
         {flag && (
           <span
             className={`${styles.tileFlag}${overTarget ? ' ' + styles.tileFlagWarn : ''}`}
@@ -192,17 +212,24 @@ function CardTile({ name, sfCard, fallbackImg, subtitle, pips, inclusion, tag, p
         {added && <span className={styles.tileCheck}><CheckIcon size={18} /></span>}
       </div>
       <div className={styles.tileName} title={name}>{name}</div>
-      {pips?.length ? <div className={styles.tileSub}><ColorPips colors={pips} /></div>
-        : subtitle ? <div className={styles.tileSub}>{subtitle}</div> : null}
+      {pips?.length ? <div className={styles.tileSub}><ColorPips colors={pips} /></div> : null}
       <div className={styles.tileActions}>
-        <button
-          className={`${styles.tileBtn}${added ? ' ' + styles.tileBtnDone : ''}${canUndo ? ' ' + styles.tileBtnUndo : ''}`}
-          onClick={canUndo ? onUndo : onAdd}
-          disabled={added && !canUndo}
-          title={canUndo ? 'Remove from deck' : undefined}
-        >
-          {added ? (canUndo ? 'Remove' : 'Added') : '+ Deck'}
-        </button>
+        <div className={styles.tileActionRow}>
+          <span
+            className={`${styles.tilePriceTag}${price ? '' : ' ' + styles.tilePriceTagEmpty}`}
+            title={price ? 'Cheapest printing' : 'No price data'}
+          >
+            {price || '—'}
+          </span>
+          <button
+            className={`${styles.tileBtn}${added ? ' ' + styles.tileBtnDone : ''}${canUndo ? ' ' + styles.tileBtnUndo : ''}`}
+            onClick={canUndo ? onUndo : onAdd}
+            disabled={added && !canUndo}
+            title={canUndo ? 'Remove from deck' : undefined}
+          >
+            {added ? (canUndo ? 'Remove' : 'Added') : 'Add'}
+          </button>
+        </div>
         {showWishlist && (
           <button
             className={`${styles.tileBtn} ${styles.tileBtnAlt}${wished ? ' ' + styles.tileBtnDone : ''}`}
@@ -218,12 +245,79 @@ function CardTile({ name, sfCard, fallbackImg, subtitle, pips, inclusion, tag, p
   )
 }
 
+// Labeled dropdown control (Theme / Bracket / Budget). Wraps ResponsiveMenu so
+// it renders as a positioned panel on desktop and a bottom sheet on touch. The
+// trigger shows a small uppercase label + the current value; `portal` keeps the
+// panel from being clipped by the modal's overflow.
+function ControlMenu({ label, valueLabel, title, disabled, busy, children }) {
+  return (
+    <ResponsiveMenu
+      title={title || label}
+      align="left"
+      portal
+      wrapClassName={styles.ctrlWrap}
+      panelClassName={styles.ctrlPanel}
+      trigger={({ open, toggle }) => (
+        <button
+          type="button"
+          className={`${styles.ctrlBtn}${open ? ' ' + styles.ctrlBtnOpen : ''}`}
+          onClick={() => !disabled && toggle()}
+          disabled={disabled}
+          aria-haspopup="menu"
+          aria-expanded={disabled ? false : open}
+        >
+          <span className={styles.ctrlLabel}>{label}</span>
+          <span className={styles.ctrlValue}>{busy ? 'updating…' : valueLabel}</span>
+          <ChevronDownIcon
+            size={12}
+            className={`${styles.ctrlChevron}${open ? ' ' + styles.ctrlChevronOpen : ''}`}
+          />
+        </button>
+      )}
+    >
+      {({ close }) => (
+        <div className={uiStyles.responsiveMenuList}>
+          {children(close)}
+        </div>
+      )}
+    </ResponsiveMenu>
+  )
+}
+
+// One option row inside a ControlMenu — mirrors the Select dropdown styling
+// (label on the left, a check on the active row).
+function MenuOption({ active, onClick, children }) {
+  return (
+    <button
+      type="button"
+      className={`${uiStyles.responsiveMenuAction}${active ? ' ' + uiStyles.responsiveMenuActionActive : ''}`}
+      onClick={onClick}
+    >
+      <span>{children}</span>
+      <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">
+        {active ? <CheckIcon size={11} /> : ''}
+      </span>
+    </button>
+  )
+}
+
 export function BuildAssistant({ userId, commander, deckCards = [], accessToken, onAddCard, onRemoveCard, onAddToWishlist, onAddBasics, onClose }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [plan, setPlan] = useState(null) // enriched plan (candidates + upgrades)
   const [sfMap, setSfMap] = useState({})
   const [stepIndex, setStepIndex] = useState(0)
+  // Collapsible card sections (persist across steps). Default expanded.
+  const [collapsed, setCollapsed] = useState({ owned: false, upgrades: false })
+  const toggleCollapsed = key => setCollapsed(prev => ({ ...prev, [key]: !prev[key] }))
+  // Cheapest *English* paper printing per card name → { price, image }. price is
+  // in the active price_source currency (null = no price); image is that printing's
+  // English art. Drives the per-tile price tag, the budget-per-card filter, and the
+  // suggestion-tile art — so a foreign printing never makes a card look cheaper
+  // than its English copy, and foreign card art never shows in recommendations.
+  const [cheapestByName, setCheapestByName] = useState(() => new Map())
+  const stepperRef = useRef(null)   // scroll container for the node stepper
+  const activeStepRef = useRef(null) // current node, auto-centered on mobile
   const [themes, setThemes] = useState([])       // EDHREC archetypes for this commander
   const [selectedTheme, setSelectedTheme] = useState('') // '' = Balanced
   const [rebuilding, setRebuilding] = useState(false)
@@ -443,6 +537,11 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const onSummary = currentRoleName === SUMMARY_STEP
   const roleData = onSummary ? null : (plan?.roles?.find(r => r.role === currentRoleName) || null)
 
+  // Keep the active node centered when the stepper overflows (mobile / narrow).
+  useEffect(() => {
+    activeStepRef.current?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' })
+  }, [stepIndex])
+
   const isAdded = name => addedNames.has(name.toLowerCase()) || deckNames.has(name.toLowerCase())
   const isWishlisted = name => wishlistedNames.has(name.toLowerCase())
 
@@ -470,13 +569,40 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     (sfCard, foil = false) => getPrice(sfCard, foil, { price_source }),
     [price_source],
   )
+  // Cheapest English-printing price for a card name. undefined = not yet looked
+  // up; null = looked up, no price; number = the price. (Entry is { price, image }.)
+  const cheapestOf = useCallback(
+    name => {
+      const e = cheapestByName.get((name || '').toLowerCase())
+      return e === undefined ? undefined : e.price
+    },
+    [cheapestByName],
+  )
+  // English image_uri for the cheapest English printing (used so suggestion tiles
+  // never show a foreign printing's art). null when unknown.
+  const imageEnFor = useCallback(
+    name => cheapestByName.get((name || '').toLowerCase())?.image || null,
+    [cheapestByName],
+  )
+  // Formatted cheapest price for a tile (null when unknown → tile shows "—").
+  const priceLabelFor = useCallback(
+    name => {
+      const v = cheapestOf(name)
+      return v != null ? formatPrice(v, price_source) : null
+    },
+    [cheapestOf, price_source],
+  )
+  // Budget is "per card": judge by the cheapest available printing so an
+  // expensive owned printing doesn't hide a card you could buy cheaply. Falls
+  // back to the owned printing's price until the cheapest lookup resolves.
   const passesBudget = useCallback(
-    (sfCard) => {
+    (name, sfCard) => {
       if (maxPrice == null) return true
-      const v = priceOf(sfCard)
+      const cheap = cheapestOf(name)
+      const v = cheap !== undefined ? cheap : priceOf(sfCard)
       return v == null || v <= maxPrice
     },
-    [maxPrice, priceOf],
+    [maxPrice, cheapestOf, priceOf],
   )
   const deckValue = useMemo(() => {
     let total = 0
@@ -730,6 +856,69 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     [deckCards, sfMap, cmdColors, landsTarget],
   )
 
+  // Drop the cheapest-price cache when the price source changes — the values are
+  // stored in that source's currency, so they must be recomputed.
+  useEffect(() => { setCheapestByName(new Map()) }, [price_source])
+
+  // Resolve the cheapest *English* printing for the cards visible on this step
+  // (capped to what renders). card_prints stores the English name even on foreign
+  // printings (so names are fine), but a foreign printing's price/art can leak in.
+  // So: pull cheap candidate printings from the DB (fast), then batch-verify their
+  // language via Scryfall and pick the cheapest one that is `lang: 'en'`. Bounded
+  // to the shown cards and cached per name, so each card is resolved at most once.
+  const CHEAPEST_CANDIDATES = 6 // cheapest DB printings to language-check per card
+  useEffect(() => {
+    const names = new Set()
+    if (onLands) {
+      for (const l of landCandidates.slice(0, MAX_TILES)) if (l.cand?.name) names.add(l.cand.name)
+    } else if (roleData) {
+      for (const c of roleData.ownedCandidates.slice(0, MAX_TILES)) if (c?.name) names.add(c.name)
+    }
+    if (roleData) {
+      for (const u of selectUpgrades(roleData, hasRecommender ? suggestionSource : 'edhrec')) {
+        if (u?.name) names.add(u.name)
+      }
+    }
+    const missing = [...names].filter(n => !cheapestByName.has(n.toLowerCase()))
+    if (!missing.length) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const printMap = await fetchPaperPrintingsByNamesFromDb(missing)
+        // Cheapest few DB printings per name → the language-check candidate set.
+        const candsByName = new Map()
+        const allIds = new Set()
+        for (const n of missing) {
+          const cands = (printMap.get(n) || [])
+            .map(p => ({ id: p.id, price: getPrice(p, false, { price_source }) }))
+            .filter(p => p.id && p.price != null)
+            .sort((a, b) => a.price - b.price)
+            .slice(0, CHEAPEST_CANDIDATES)
+          candsByName.set(n, cands)
+          for (const c of cands) allIds.add(c.id)
+        }
+        // One batched Scryfall lookup tells us each candidate's language + art.
+        const sfCards = await fetchCardsByScryfallIds([...allIds]).catch(() => [])
+        const byId = new Map(sfCards.map(c => [c.id, c]))
+        const next = new Map(cheapestByName)
+        for (const n of missing) {
+          const cands = candsByName.get(n) || []
+          let chosen = null
+          for (const c of cands) { // cheapest-first
+            const sc = byId.get(c.id)
+            if (sc && sc.lang === 'en') { chosen = { price: c.price, image: getCardImageUri(sc, 'small') }; break }
+          }
+          // No English copy among the cheapest candidates → fall back to the
+          // overall cheapest price (no English art to show).
+          if (!chosen) chosen = cands[0] ? { price: cands[0].price, image: null } : { price: null, image: null }
+          next.set(n.toLowerCase(), chosen)
+        }
+        if (!cancelled) setCheapestByName(next)
+      } catch { /* leave cache as-is; tiles show "—" */ }
+    })()
+    return () => { cancelled = true }
+  }, [onLands, roleData, landCandidates, suggestionSource, hasRecommender, price_source, cheapestByName])
+
   async function handleAdd(cardOrRec, name) {
     const key = name.toLowerCase()
     if (isAdded(name)) return
@@ -833,159 +1022,177 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           )}
         </div>
 
-        {/* Stepper */}
-        <div className={styles.stepper}>
+        {/* Connected node stepper — click through categories */}
+        <div className={styles.stepper} ref={stepperRef} role="tablist" aria-label="Build steps">
           {steps.map((role, i) => {
             const isSummary = role === SUMMARY_STEP
             const c = liveCounts.get(role) || 0
             const t = plan?.roles?.find(r => r.role === role)?.target || 0
             const done = !isSummary && t > 0 && c >= t
+            const active = i === stepIndex
+            // A connector before step i is "filled" once the prior step is met
+            // or we've already moved past it — so the track shows progress.
+            const passed = idx => {
+              const r = steps[idx]
+              if (r === SUMMARY_STEP) return idx < stepIndex
+              const cc = liveCounts.get(r) || 0
+              const tt = plan?.roles?.find(x => x.role === r)?.target || 0
+              return (tt > 0 && cc >= tt) || idx < stepIndex
+            }
             return (
               <button
                 key={role}
-                className={`${styles.step}${i === stepIndex ? ' ' + styles.stepActive : ''}${done ? ' ' + styles.stepDone : ''}`}
+                ref={active ? activeStepRef : null}
+                type="button"
+                className={`${styles.node}${active ? ' ' + styles.nodeActive : ''}${done ? ' ' + styles.nodeDone : ''}`}
                 onClick={() => setStepIndex(i)}
-                aria-current={i === stepIndex ? 'step' : undefined}
+                aria-current={active ? 'step' : undefined}
                 title={isSummary ? 'Summary' : `${role}: ${c}/${t}`}
               >
-                {done && <CheckIcon size={11} />}
-                <span>{isSummary ? 'Summary' : role}</span>
+                <span className={styles.nodeRow}>
+                  <span className={`${styles.connector}${i === 0 ? ' ' + styles.connectorHidden : ''}${i > 0 && passed(i - 1) ? ' ' + styles.connectorFill : ''}`} />
+                  <span className={styles.dot}>
+                    {done ? <CheckIcon size={12} /> : <span className={styles.dotNum}>{isSummary ? '★' : i + 1}</span>}
+                  </span>
+                  <span className={`${styles.connector}${i === steps.length - 1 ? ' ' + styles.connectorHidden : ''}${passed(i) ? ' ' + styles.connectorFill : ''}`} />
+                </span>
+                <span className={styles.nodeLabel}>{isSummary ? 'Summary' : (STEP_SHORT[role] || role)}</span>
               </button>
             )
           })}
         </div>
 
-        {/* Archetype / theme selector — flexes quotas + suggestion source */}
-        {!loading && !error && themes.length > 0 && (
-          <div className={styles.themeRow}>
-            <span className={styles.themeLabel}>Theme</span>
-            <div className={styles.themeChips}>
-              <button
-                className={`${styles.themeChip}${selectedTheme === '' ? ' ' + styles.themeActive : ''}`}
-                onClick={() => onSelectTheme('')}
-                disabled={rebuilding}
-              >
-                Balanced
-              </button>
-              {themes.slice(0, 6).map(t => (
-                <button
-                  key={t.slug}
-                  className={`${styles.themeChip}${selectedTheme === t.slug ? ' ' + styles.themeActive : ''}`}
-                  onClick={() => onSelectTheme(t.slug)}
-                  disabled={rebuilding}
-                  title={`${t.count.toLocaleString()} decks on EDHREC`}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-            {rebuilding && <span className={styles.themeBusy}>updating…</span>}
-          </div>
-        )}
-
-        {/* Bracket target selector + live estimate */}
-        {!loading && !error && gameChangers && (
-          <>
-            <div className={styles.themeRow}>
-              <span className={styles.themeLabel}>Bracket</span>
-              <div className={styles.themeChips}>
-                <button
-                  className={`${styles.themeChip}${targetBracket == null ? ' ' + styles.themeActive : ''}`}
-                  onClick={() => setTargetBracket(null)}
-                >
-                  Any
-                </button>
-                {[1, 2, 3, 4].map(b => (
-                  <button
-                    key={b}
-                    className={`${styles.themeChip}${targetBracket === b ? ' ' + styles.themeActive : ''}`}
-                    onClick={() => setTargetBracket(b)}
-                    title={BRACKET_LABELS[b]}
-                  >
-                    {b} · {BRACKET_LABELS[b]}
-                  </button>
-                ))}
-              </div>
-              {deckBracket && (
-                <button
-                  type="button"
-                  className={`${styles.bracketNow} ${styles.bracketBtn}${overTarget ? ' ' + styles.bracketOver : ''}`}
-                  onClick={() => setShowBracketReasons(v => !v)}
-                  aria-expanded={showBracketReasons}
-                  title="Show what's affecting the bracket estimate"
-                >
-                  Now: B{deckBracket.bracket} {BRACKET_LABELS[deckBracket.bracket]}
-                  {!deckBracket.combosChecked ? ' (combos not checked)' : ''}
-                  <ChevronDownIcon
-                    size={10}
-                    className={`${styles.bracketCaret}${showBracketReasons ? ' ' + styles.bracketCaretOpen : ''}`}
-                  />
-                </button>
-              )}
-            </div>
-            {/* Inline "why" disclosure — touch/keyboard-accessible replacement
-                for the old hover-only tooltip. */}
-            {deckBracket && showBracketReasons && (
-              <div className={styles.bracketReasons}>
-                {deckBracket.reasons.length ? (
-                  deckBracket.reasons.map((r, i) => (
-                    <span
-                      key={i}
-                      className={`${styles.bracketReason}${targetBracket != null && r.level > targetBracket ? ' ' + styles.bracketReasonOver : ''}`}
-                    >
-                      {r.reason}
-                    </span>
-                  ))
-                ) : (
-                  <span className={styles.bracketReasonNone}>No bracket-raising cards detected yet.</span>
-                )}
-              </div>
-            )}
-          </>
-        )}
-
-        {/* Budget selector + live deck value */}
+        {/* Controls: Theme / Bracket / Budget-per-card dropdowns + live readouts */}
         {!loading && !error && (
-          <div className={styles.themeRow}>
-            <span className={styles.themeLabel}>Budget</span>
-            <div className={styles.themeChips}>
-              {BUDGET_CHIPS.map(b => (
-                <button
-                  key={b ?? 'any'}
-                  className={`${styles.themeChip}${maxPrice === b ? ' ' + styles.themeActive : ''}`}
-                  onClick={() => setMaxPrice(b)}
-                  title={b == null ? 'No budget limit' : `Hide suggestions over ${formatPrice(b, price_source)}`}
-                >
-                  {b == null ? 'Any' : `≤ ${formatPrice(b, price_source)}`}
-                </button>
-              ))}
-            </div>
-            <span className={styles.bracketNow} title="Estimated value of the current deck">
+          <div className={styles.controls}>
+            {themes.length > 0 && (
+              <ControlMenu
+                label="Theme"
+                title="Deck theme"
+                busy={rebuilding}
+                valueLabel={selectedTheme === ''
+                  ? 'Balanced'
+                  : (themes.find(t => t.slug === selectedTheme)?.label || 'Balanced')}
+              >
+                {close => (
+                  <>
+                    <MenuOption active={selectedTheme === ''} onClick={() => { onSelectTheme(''); close() }}>
+                      Balanced
+                    </MenuOption>
+                    {themes.slice(0, 8).map(t => (
+                      <MenuOption
+                        key={t.slug}
+                        active={selectedTheme === t.slug}
+                        onClick={() => { onSelectTheme(t.slug); close() }}
+                      >
+                        {t.label}{typeof t.count === 'number' ? ` · ${t.count.toLocaleString()}` : ''}
+                      </MenuOption>
+                    ))}
+                  </>
+                )}
+              </ControlMenu>
+            )}
+
+            {gameChangers && (
+              <ControlMenu
+                label="Bracket"
+                title="Target bracket"
+                valueLabel={targetBracket == null ? 'Any' : `${targetBracket} · ${BRACKET_LABELS[targetBracket]}`}
+              >
+                {close => (
+                  <>
+                    <MenuOption active={targetBracket == null} onClick={() => { setTargetBracket(null); close() }}>
+                      Any
+                    </MenuOption>
+                    {[1, 2, 3, 4].map(b => (
+                      <MenuOption key={b} active={targetBracket === b} onClick={() => { setTargetBracket(b); close() }}>
+                        {b} · {BRACKET_LABELS[b]}
+                      </MenuOption>
+                    ))}
+                  </>
+                )}
+              </ControlMenu>
+            )}
+
+            <ControlMenu
+              label="Budget / card"
+              title="Max price per card"
+              valueLabel={maxPrice == null ? 'Any' : `≤ ${formatPrice(maxPrice, price_source)}`}
+            >
+              {close => (
+                <>
+                  {BUDGET_CHIPS.map(b => (
+                    <MenuOption key={b ?? 'any'} active={maxPrice === b} onClick={() => { setMaxPrice(b); close() }}>
+                      {b == null ? 'Any (no limit)' : `≤ ${formatPrice(b, price_source)} per card`}
+                    </MenuOption>
+                  ))}
+                </>
+              )}
+            </ControlMenu>
+
+            {/* Suggestion source — only when recommander returned picks */}
+            {hasRecommender && (
+              <ControlMenu
+                label="Suggestions"
+                title="Suggestion source"
+                valueLabel={SUGGESTION_SOURCES.find(s => s.id === suggestionSource)?.label || 'EDHREC + Recommander'}
+              >
+                {close => (
+                  <>
+                    {SUGGESTION_SOURCES.map(s => (
+                      <MenuOption
+                        key={s.id}
+                        active={suggestionSource === s.id}
+                        onClick={() => { setSuggestionSource(s.id); close() }}
+                      >
+                        {s.label}
+                      </MenuOption>
+                    ))}
+                  </>
+                )}
+              </ControlMenu>
+            )}
+
+            {/* Live bracket estimate — toggles the reasons disclosure */}
+            {gameChangers && deckBracket && (
+              <button
+                type="button"
+                className={`${styles.bracketNow} ${styles.bracketBtn}${overTarget ? ' ' + styles.bracketOver : ''}`}
+                onClick={() => setShowBracketReasons(v => !v)}
+                aria-expanded={showBracketReasons}
+                title="Show what's affecting the bracket estimate"
+              >
+                Now: B{deckBracket.bracket} {BRACKET_LABELS[deckBracket.bracket]}
+                {!deckBracket.combosChecked ? ' (combos not checked)' : ''}
+                <ChevronDownIcon
+                  size={10}
+                  className={`${styles.bracketCaret}${showBracketReasons ? ' ' + styles.bracketCaretOpen : ''}`}
+                />
+              </button>
+            )}
+
+            {/* Live deck value */}
+            <span className={styles.deckValue} title="Estimated value of the current deck">
               Deck: {formatPrice(deckValue, price_source)}
             </span>
           </div>
         )}
 
-        {/* Suggestion source — only when recommander returned picks */}
-        {!loading && !error && hasRecommender && (
-          <div className={styles.themeRow}>
-            <span className={styles.themeLabel}>Suggestions</span>
-            <div className={styles.themeChips}>
-              {[
-                { id: 'both', label: 'Both', title: 'EDHREC staples blended with deck-aware recommander picks' },
-                { id: 'edhrec', label: 'EDHREC', title: 'What real decks for this commander run (by inclusion %)' },
-                { id: 'recommander', label: 'Recommander', title: 'Deck-aware ML picks that fit your current list' },
-              ].map(s => (
-                <button
-                  key={s.id}
-                  className={`${styles.themeChip}${suggestionSource === s.id ? ' ' + styles.themeActive : ''}`}
-                  onClick={() => setSuggestionSource(s.id)}
-                  title={s.title}
+        {/* Bracket "why" disclosure — touch/keyboard-accessible. */}
+        {!loading && !error && gameChangers && deckBracket && showBracketReasons && (
+          <div className={styles.bracketReasons}>
+            {deckBracket.reasons.length ? (
+              deckBracket.reasons.map((r, i) => (
+                <span
+                  key={i}
+                  className={`${styles.bracketReason}${targetBracket != null && r.level > targetBracket ? ' ' + styles.bracketReasonOver : ''}`}
                 >
-                  {s.label}
-                </button>
-              ))}
-            </div>
+                  {r.reason}
+                </span>
+              ))
+            ) : (
+              <span className={styles.bracketReasonNone}>No bracket-raising cards detected yet.</span>
+            )}
           </div>
         )}
 
@@ -1053,16 +1260,27 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                 </div>
               )}
 
-              {/* Owned candidates */}
-              <div className={styles.sectionLabel}>
-                From your collection · {onLands ? landCandidates.length : roleData.ownedCandidates.length}
-                {onLands && <span className={styles.sectionHint}> · nonbasic, fixers first</span>}
-              </div>
-              {(() => {
+              {/* Owned candidates (collapsible) */}
+              <button
+                type="button"
+                className={styles.sectionHead}
+                onClick={() => toggleCollapsed('owned')}
+                aria-expanded={!collapsed.owned}
+              >
+                <ChevronDownIcon
+                  size={12}
+                  className={`${styles.sectionCaret}${collapsed.owned ? ' ' + styles.sectionCaretClosed : ''}`}
+                />
+                <span className={styles.sectionHeadLabel}>
+                  From your collection · {onLands ? landCandidates.length : roleData.ownedCandidates.length}
+                  {onLands && <span className={styles.sectionHint}> · nonbasic, fixers first</span>}
+                </span>
+              </button>
+              {!collapsed.owned && (() => {
                 // Budget filter (cards with unknown price always pass).
                 const shown = onLands
-                  ? landCandidates.filter(({ cand }) => passesBudget(cand.sfCard))
-                  : roleData.ownedCandidates.filter(c => passesBudget(c.sfCard))
+                  ? landCandidates.filter(({ cand }) => passesBudget(cand.name, cand.sfCard))
+                  : roleData.ownedCandidates.filter(c => passesBudget(c.name, c.sfCard))
                 const baseCount = onLands ? landCandidates.length : roleData.ownedCandidates.length
                 if (baseCount === 0) {
                   return <div className={styles.emptySmall}>
@@ -1079,7 +1297,6 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                     <div className={styles.grid}>
                       {shown.slice(0, MAX_TILES).map(item => {
                         const cand = onLands ? item.cand : item
-                        const priceVal = priceOf(cand.sfCard)
                         const flag = onLands ? null : bracketFlagFor(cand.name, cand.sfCard, gameChangers)
                         return (
                           <CardTile
@@ -1087,9 +1304,8 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                             name={cand.name}
                             sfCard={cand.sfCard}
                             pips={onLands ? item.colors : undefined}
-                            subtitle={onLands ? undefined : cand.granularCat}
                             inclusion={onLands ? 0 : cand.edhrecInclusion}
-                            price={priceVal != null ? formatPrice(priceVal, price_source) : null}
+                            price={priceLabelFor(cand.name)}
                             flag={flag}
                             overTarget={targetBracket != null && flag && flag.level > targetBracket}
                             added={isAdded(cand.name)}
@@ -1108,7 +1324,10 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
 
               {/* Suggestions you don't own (source per the Suggestions toggle) */}
               {(() => {
+                // Budget per card applies to suggestions too — these are the
+                // cards you'd buy, so an over-budget pick shouldn't be offered.
                 const upgrades = selectUpgrades(roleData, hasRecommender ? suggestionSource : 'edhrec')
+                  .filter(u => passesBudget(u.name, null))
                 if (!upgrades.length) return null
                 const label = !hasRecommender || suggestionSource === 'edhrec'
                   ? 'Popular picks you don’t own'
@@ -1117,31 +1336,44 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                     : 'Suggested picks you don’t own'
                 return (
                   <>
-                    <div className={styles.sectionLabel}>{label}</div>
-                    <div className={styles.grid}>
-                      {upgrades.map(up => {
-                        const flag = bracketFlagFor(up.name, null, gameChangers)
-                        return (
-                          <CardTile
-                            key={up.slug || up.name}
-                            name={up.name}
-                            sfCard={null}
-                            fallbackImg={up.image}
-                            subtitle={up.type}
-                            inclusion={up.edhrecInclusion}
-                            tag={up.source === 'recommander' ? 'rec' : undefined}
-                            flag={flag}
-                            overTarget={targetBracket != null && flag && flag.level > targetBracket}
-                            added={isAdded(up.name)}
-                            wished={isWishlisted(up.name)}
-                            showWishlist={typeof onAddToWishlist === 'function'}
-                            onAdd={() => handleAdd(up, up.name)}
-                            onUndo={() => handleUndoAdd(up.name)}
-                            onWishlist={() => handleWishlist(up.name)}
-                          />
-                        )
-                      })}
-                    </div>
+                    <button
+                      type="button"
+                      className={styles.sectionHead}
+                      onClick={() => toggleCollapsed('upgrades')}
+                      aria-expanded={!collapsed.upgrades}
+                    >
+                      <ChevronDownIcon
+                        size={12}
+                        className={`${styles.sectionCaret}${collapsed.upgrades ? ' ' + styles.sectionCaretClosed : ''}`}
+                      />
+                      <span className={styles.sectionHeadLabel}>{label} · {upgrades.length}</span>
+                    </button>
+                    {!collapsed.upgrades && (
+                      <div className={styles.grid}>
+                        {upgrades.map(up => {
+                          const flag = bracketFlagFor(up.name, null, gameChangers)
+                          return (
+                            <CardTile
+                              key={up.slug || up.name}
+                              name={up.name}
+                              sfCard={null}
+                              fallbackImg={imageEnFor(up.name) || up.image}
+                              inclusion={up.edhrecInclusion}
+                              price={priceLabelFor(up.name)}
+                              tag={up.source === 'recommander' ? 'rec' : undefined}
+                              flag={flag}
+                              overTarget={targetBracket != null && flag && flag.level > targetBracket}
+                              added={isAdded(up.name)}
+                              wished={isWishlisted(up.name)}
+                              showWishlist={typeof onAddToWishlist === 'function'}
+                              onAdd={() => handleAdd(up, up.name)}
+                              onUndo={() => handleUndoAdd(up.name)}
+                              onWishlist={() => handleWishlist(up.name)}
+                            />
+                          )
+                        })}
+                      </div>
+                    )}
                   </>
                 )
               })()}

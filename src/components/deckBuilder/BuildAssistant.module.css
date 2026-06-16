@@ -46,47 +46,207 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Stepper ──────────────────────────────────────────────────────────────── */
+/* ── Connected node stepper ───────────────────────────────────────────────── */
 .stepper {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  align-items: flex-start;
   flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
 }
+.stepper::-webkit-scrollbar { display: none; }
 
-.step {
-  display: inline-flex;
+.node {
+  flex: 1 0 auto;
+  min-width: 58px;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 5px 11px;
-  font-size: 0.74rem;
-  border-radius: 999px;
-  border: 1px solid var(--s-border);
-  background: var(--s2);
-  color: var(--text-dim);
+  gap: 5px;
+  padding: 2px 0 0;
+  background: none;
+  border: none;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
-.step:hover { background: var(--s-medium); }
+.nodeRow {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+/* Track segment between two dots. Fills green once the prior step is met. */
+.connector {
+  flex: 1;
+  min-width: 8px;
+  height: 2px;
+  background: var(--s-border2);
+  transition: background 0.2s;
+}
+.connectorFill { background: var(--green); }
+.connectorHidden { visibility: hidden; }
+
+.dot {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  margin: 0 2px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--s2);
+  border: 1px solid var(--s-border2);
+  color: var(--text-dim);
+  transition: background 0.15s, color 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+
+.dotNum {
+  font-size: 0.72rem;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.nodeLabel {
+  font-size: 0.68rem;
+  white-space: nowrap;
+  color: var(--text-faint);
+  transition: color 0.15s;
+}
+
+/* Completed step → green dot + check. */
+.nodeDone .dot {
+  background: rgba(93, 186, 112, 0.16);
+  border-color: rgba(93, 186, 112, 0.55);
+  color: var(--green);
+}
+.nodeDone .nodeLabel { color: var(--text-dim); }
+
+/* Active step → gold ring (wins over the done style). */
+.nodeActive .dot {
+  background: rgba(201, 168, 76, 0.18);
+  border-color: var(--gold);
+  color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(201, 168, 76, 0.18);
+}
+.nodeActive .nodeLabel { color: var(--gold); }
+
+.node:hover .dot { border-color: rgba(201, 168, 76, 0.5); }
 
 /* Keyboard focus ring shared across every custom control in the wizard. */
-.step:focus-visible,
+.node:focus-visible,
+.ctrlBtn:focus-visible,
+.sectionHead:focus-visible,
 .themeChip:focus-visible,
 .tileBtn:focus-visible,
 .miniBtn:focus-visible {
   outline: 2px solid var(--gold);
   outline-offset: 2px;
+  border-radius: 6px;
 }
 
-.stepActive {
-  border-color: rgba(201, 168, 76, 0.65);
-  background: rgba(201, 168, 76, 0.15);
+/* ── Controls row (Theme / Bracket / Budget dropdowns + live readouts) ──────── */
+.controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.ctrlWrap { display: inline-flex; }
+
+.ctrlBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--s-border2);
+  background: var(--s2);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.ctrlBtn:hover:not(:disabled) { background: var(--s-medium); }
+.ctrlBtn:disabled { opacity: 0.55; cursor: default; }
+.ctrlBtnOpen { border-color: rgba(201, 168, 76, 0.6); background: var(--s-medium); }
+
+.ctrlLabel {
+  font-family: var(--font-display);
+  font-size: 0.58rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.ctrlValue {
+  font-size: 0.82rem;
   color: var(--gold);
+  white-space: nowrap;
 }
 
-.stepDone { color: var(--green); }
-.stepDone.stepActive { color: var(--gold); }
+.ctrlChevron { color: var(--text-dim); transition: transform 0.15s; flex-shrink: 0; }
+.ctrlChevronOpen { transform: rotate(180deg); }
+
+/* Min-width so the dropdown panel never feels cramped on desktop. */
+.ctrlPanel { min-width: 220px; }
+
+.deckValue {
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  background: var(--s2);
+  border: 1px solid var(--s-border2);
+  color: var(--text-dim);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Collapsible section header ───────────────────────────────────────────── */
+.sectionHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 2px 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-faint);
+}
+
+.sectionHeadLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  font-family: var(--font-display);
+  font-size: 0.64rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.sectionHeadLabel::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--s-border);
+}
+
+.sectionHead:hover .sectionHeadLabel { color: var(--text-dim); }
+
+.sectionCaret {
+  color: var(--text-dim);
+  flex-shrink: 0;
+  transition: transform 0.18s;
+}
+.sectionCaretClosed { transform: rotate(-90deg); }
 
 /* ── Theme / archetype selector ───────────────────────────────────────────── */
 .themeRow {
@@ -472,18 +632,6 @@
   letter-spacing: 0.04em;
 }
 
-.tilePrice {
-  position: absolute;
-  top: 5px;
-  right: 5px;
-  padding: 2px 6px;
-  border-radius: 5px;
-  background: rgba(0, 0, 0, 0.72);
-  color: var(--green);
-  font-size: 0.7rem;
-  font-variant-numeric: tabular-nums;
-}
-
 .tileCheck {
   position: absolute;
   inset: 0;
@@ -514,9 +662,34 @@
 
 .tileActions {
   display: flex;
+  flex-direction: column;
   gap: 4px;
   margin-top: 1px;
 }
+
+/* Price tag + Add/Remove share one row, ~50/50. */
+.tileActionRow {
+  display: flex;
+  gap: 4px;
+}
+
+.tilePriceTag {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+  font-size: 0.74rem;
+  border-radius: 5px;
+  background: var(--s2);
+  border: 1px solid var(--s-border);
+  color: var(--green);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tilePriceTagEmpty { color: var(--text-faint); }
 
 .tileBtn {
   flex: 1;
@@ -915,28 +1088,22 @@
     max-height: min(92dvh, calc(100dvh - 72px));
   }
   .grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
-  /* Keep the 9-step stepper to one scrollable row instead of wrapping to ~3
-     rows and eating the limited vertical budget. */
-  .stepper {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-    padding-bottom: 2px;
-  }
-  .stepper::-webkit-scrollbar { display: none; }
-  .step { flex-shrink: 0; }
   .curve { gap: 6px; }
+  /* Controls stay on one line and dropdowns flex to share the row. */
+  .ctrlValue { max-width: 11ch; overflow: hidden; text-overflow: ellipsis; }
 }
 
 /* Touch devices: enlarge the primary tap targets to the project's 40px floor. */
 @media (hover: none) and (pointer: coarse) {
   .tileBtn,
   .themeChip,
-  .step,
+  .ctrlBtn,
   .miniBtn,
   .bracketBtn {
     min-height: 40px;
   }
+  .node { min-height: 46px; }
+  .sectionHead { min-height: 40px; }
   .tileActions { gap: 6px; }
   .themeChip { padding-top: 8px; padding-bottom: 8px; }
 }
