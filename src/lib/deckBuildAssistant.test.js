@@ -17,6 +17,7 @@ import {
   isBasicLandName,
   rankCutCandidates,
   CUT_MODES,
+  edhrecInclusionPct,
   COMMANDER_TEMPLATE,
   ROLE_RAMP,
   ROLE_DRAW,
@@ -412,6 +413,20 @@ describe('isBasicLandName', () => {
     expect(isBasicLandName('island')).toBe(true)
     expect(isBasicLandName('Reliquary Tower')).toBe(false)
     expect(isBasicLandName('')).toBe(false)
+  })
+})
+
+// ── EDHREC inclusion percentage ───────────────────────────────────────────────
+describe('edhrecInclusionPct', () => {
+  it('converts a raw deck count to a percentage using the denominator', () => {
+    expect(edhrecInclusionPct({ inclusion: 9000, potentialDecks: 10000 })).toBe(90)
+  })
+  it('caps at 100', () => {
+    expect(edhrecInclusionPct({ inclusion: 11000, potentialDecks: 10000 })).toBe(100)
+  })
+  it('falls back to the raw value when the denominator is missing', () => {
+    expect(edhrecInclusionPct({ inclusion: 42 })).toBe(42)
+    expect(edhrecInclusionPct({})).toBe(0)
   })
 })
 

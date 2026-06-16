@@ -529,6 +529,15 @@ export function analyzeBuildPlan({
  *                                 (inject `fetchEdhrecCommander` from deckBuilderApi)
  * @returns {Promise<BuildPlan>}
  */
+// EDHREC reports `inclusion` as a raw deck count with `potentialDecks` as the
+// denominator; the figure players expect is the percentage. Falls back to the
+// raw value when the denominator is absent (keeps older fixtures/data working).
+export function edhrecInclusionPct(cv) {
+  const inc = cv?.inclusion ?? 0
+  const pot = cv?.potentialDecks ?? 0
+  return pot > 0 ? Math.min(100, Math.round((inc / pot) * 100)) : inc
+}
+
 export async function enrichPlanWithEdhrec(plan, fetchEdhrec) {
   if (!plan?.commander?.name || typeof fetchEdhrec !== 'function') return plan
 
@@ -575,7 +584,7 @@ export async function enrichPlanWithEdhrec(plan, fetchEdhrec) {
       cmc: cv.cmc ?? 0,
       type: cv.type ?? '',
       colorIdentity: cv.colorIdentity || [],
-      edhrecInclusion: cv.inclusion ?? 0,
+      edhrecInclusion: edhrecInclusionPct(cv),
       synergy: cv.synergy ?? 0,
       owned: false,
     })
@@ -593,7 +602,7 @@ export async function enrichPlanWithEdhrec(plan, fetchEdhrec) {
   for (const role of plan.roles) {
     for (const cand of role.ownedCandidates) {
       const entry = byName.get(cand.name.toLowerCase())
-      const next = entry ? { ...cand, edhrecInclusion: entry.cv.inclusion ?? 0 } : cand
+      const next = entry ? { ...cand, edhrecInclusion: edhrecInclusionPct(entry.cv) } : cand
       const edhrecRole = entry ? edhrecHeaderToRole(entry.header) : null
       ;(rebucketed.get(edhrecRole || role.role) || rebucketed.get(role.role)).push(next)
     }

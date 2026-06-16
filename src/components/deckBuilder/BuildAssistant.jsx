@@ -78,9 +78,11 @@ function countByRole(deckCards, sfMap, roleByName) {
 
 // Card image from the cached Scryfall art (cards.scryfall.io CDN). We never hit
 // api.scryfall.com per tile — that endpoint is rate-limited and floods to 429.
-// Unowned upgrades have no cached art and fall back to a text placeholder.
+// Falls back to the 'normal' size because card_prints-derived entries only store
+// `normal` + `art_crop` (no `small`), which otherwise left owned tiles blank.
 function cardImageUrl(sfCard) {
-  return sfCard ? getCardImageUri(sfCard, 'small') : null
+  if (!sfCard) return null
+  return getCardImageUri(sfCard, 'small') || getCardImageUri(sfCard, 'normal')
 }
 
 // Shape an owned candidate into a Scryfall-card-like object the parent's
