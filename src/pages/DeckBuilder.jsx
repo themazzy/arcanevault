@@ -5523,6 +5523,17 @@ export default function DeckBuilderPage() {
           onAddCard={addCardToDeck}
           onRemoveCard={removeCardFromDeck}
           onAddToWishlist={addUpgradeToWishlist}
+          onAddBasics={async (counts) => {
+            // Top up the manabase with the assistant's pip-weighted basics
+            // (additive: add to whatever's already on the main board).
+            for (const [name, add] of Object.entries(counts || {})) {
+              if (!add) continue
+              const existing = deckCardsRef.current.find(dc =>
+                !dc.is_commander && normalizeBoard(dc.board) === 'main' &&
+                (dc.name || '').toLowerCase() === name.toLowerCase())
+              await setBasicLandCount({ name }, (existing?.qty || 0) + add)
+            }
+          }}
           onClose={() => {
             // Drop the cached wishlist target so a reopened assistant re-resolves
             // against the current deck name (it may have been renamed since).

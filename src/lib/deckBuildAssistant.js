@@ -109,10 +109,10 @@ export const COMMANDER_TEMPLATE = {
   [ROLE_RAMP]: { min: 10, ideal: 11 },
   [ROLE_DRAW]: { min: 10, ideal: 12 },
   [ROLE_REMOVAL]: { min: 8, ideal: 10 },
-  [ROLE_WIPE]: { min: 2, ideal: 4 },
-  [ROLE_PROTECTION]: { min: 3, ideal: 5 },
-  [ROLE_WINCON]: { min: 3, ideal: 5 },
-  [ROLE_SYNERGY]: 'remainder',
+  [ROLE_WIPE]: { min: 2, ideal: 3 },
+  [ROLE_PROTECTION]: { min: 3, ideal: 4 },
+  [ROLE_WINCON]: { min: 3, ideal: 10 },
+  [ROLE_SYNERGY]: 'remainder', // remainder shrinks by the net +3 above (15 → 12)
 }
 
 // ── Bracket flags ─────────────────────────────────────────────────────────────
@@ -186,6 +186,96 @@ export function countManaSources(cards, sfMapOrGetter) {
     for (const col of producedColors(oracle, typeLine)) counts[col] += qty
   }
   return { ...counts, lands }
+}
+
+// ── Basic land split ──────────────────────────────────────────────────────────
+// We don't want the Lands step to fill all ~37 slots with nonbasic/utility
+// lands. Instead the player adds owned nonbasics up to a target, and basics top
+// the manabase up to the land count automatically on finish — split across the
+// commander's colors by the deck's actual colored-pip demand.
+
+export const BASIC_LAND_BY_COLOR = { W: 'Plains', U: 'Island', B: 'Swamp', R: 'Mountain', G: 'Forest' }
+const BASIC_LAND_NAME_SET = new Set(Object.values(BASIC_LAND_BY_COLOR).map(n => n.toLowerCase()))
+
+// Rough basic-land count by number of colors in the identity — the rest of the
+// manabase is nonbasic fixing. Grounded in common Commander manabase guidance:
+// mono decks run mostly basics, and each extra color trades basics for duals /
+// fetches / fixing. Used only to suggest the nonbasic target in the Lands step;
+// the actual auto-fill tops the deck up to its land target regardless.
+export function recommendedBasicCount(numColors) {
+  switch (numColors) {
+    case 0: return 0  // colorless — Wastes / utility lands, no basics auto-added
+    case 1: return 28
+    case 2: return 13
+    case 3: return 9
+    case 4: return 5
+    default: return 3 // 5-color
+  }
+}
+
+// Colored pip demand across the deck's nonland cards (mana symbols in each cost;
+// a hybrid pip counts toward each half). Returns { W, U, B, R, G }.
+export function countColorPips(cards, sfMapOrGetter) {
+  const counts = { W: 0, U: 0, B: 0, R: 0, G: 0 }
+  const getSf = typeof sfMapOrGetter === 'function'
+    ? sfMapOrGetter
+    : (c) => (sfMapOrGetter || {})[c?.scryfall_id] || null
+  for (const c of cards || []) {
+    if (c?.is_commander) continue
+    const sf = getSf(c)
+    const type = (sf?.type_line || c?.type_line || '').toLowerCase()
+    if (type.includes('land')) continue
+    const cost = sf?.mana_cost || c?.mana_cost || ''
+    const qty = c?.qty || 1
+    for (const sym of String(cost).match(/\{[^}]+\}/g) || []) {
+      for (const col of WUBRG) if (sym.includes(col)) counts[col] += qty
+    }
+  }
+  return counts
+}
+
+// Plan the basic lands to ADD so total lands reach the land target, distributed
+// across the commander's colors by pip demand (even split when there's no pip
+// data). Purely additive and idempotent: re-running once the target is met adds
+// nothing. Returns { counts: { Forest: n, … }, total } (names → copies to add).
+export function planBasicLands({ deckCards = [], sfMap = {}, colors = [], landTarget = 37 } = {}) {
+  const ids = (colors || []).filter(c => WUBRG.includes(c))
+  if (!ids.length) return { counts: {}, total: 0 }
+
+  const getSf = (c) => sfMap[c?.scryfall_id] || null
+  let lands = 0
+  for (const c of deckCards) {
+    if (c?.is_commander) continue
+    const sf = getSf(c)
+    const type = (sf?.type_line || c?.type_line || '').toLowerCase()
+    if (type.includes('land')) lands += (c?.qty || 1)
+  }
+  const needed = Math.max(0, landTarget - lands)
+  if (!needed) return { counts: {}, total: 0 }
+
+  const pips = countColorPips(deckCards, sfMap)
+  let weights = ids.map(col => pips[col])
+  let sum = weights.reduce((a, b) => a + b, 0)
+  if (sum <= 0) { weights = ids.map(() => 1); sum = ids.length } // no pip data → even
+
+  // Largest-remainder apportionment so the counts sum to exactly `needed`.
+  const slots = ids.map((col, i) => {
+    const exact = (needed * weights[i]) / sum
+    const n = Math.floor(exact)
+    return { col, n, frac: exact - n }
+  })
+  let remainder = needed - slots.reduce((a, s) => a + s.n, 0)
+  slots.sort((a, b) => b.frac - a.frac)
+  for (let i = 0; i < slots.length && remainder > 0; i++, remainder--) slots[i].n++
+
+  const counts = {}
+  for (const s of slots) if (s.n > 0) counts[BASIC_LAND_BY_COLOR[s.col]] = s.n
+  return { counts, total: needed }
+}
+
+// True for a basic land by name (used to keep basics out of the nonbasic step).
+export function isBasicLandName(name) {
+  return BASIC_LAND_NAME_SET.has(String(name || '').toLowerCase())
 }
 
 // ── Archetype-aware quota flexing ─────────────────────────────────────────────

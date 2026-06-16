@@ -11,6 +11,10 @@ import {
   producedColors,
   isManaSource,
   countManaSources,
+  recommendedBasicCount,
+  countColorPips,
+  planBasicLands,
+  isBasicLandName,
   COMMANDER_TEMPLATE,
   ROLE_RAMP,
   ROLE_DRAW,
@@ -26,10 +30,10 @@ import {
 // Build an owned card row + matching Scryfall entry. Keyed by scryfall_id so
 // analyzeBuildPlan's sfMap lookup resolves.
 let idCounter = 0
-function makeCard(name, { oracle = '', type = '', ci = [], legalities, cmc = 0 } = {}) {
+function makeCard(name, { oracle = '', type = '', ci = [], legalities, cmc = 0, mana_cost = '', qty } = {}) {
   const id = `sf-${idCounter++}`
   return {
-    row: { scryfall_id: id, name },
+    row: { scryfall_id: id, name, ...(qty != null ? { qty } : {}) },
     sf: {
       [id]: {
         name,
@@ -37,6 +41,7 @@ function makeCard(name, { oracle = '', type = '', ci = [], legalities, cmc = 0 }
         type_line: type,
         color_identity: ci,
         cmc,
+        mana_cost,
         ...(legalities ? { legalities } : {}),
       },
     },
@@ -328,6 +333,86 @@ describe('countManaSources', () => {
   })
 })
 
+// ── Basic land split ──────────────────────────────────────────────────────────
+describe('recommendedBasicCount', () => {
+  it('drops as the color count rises', () => {
+    expect(recommendedBasicCount(0)).toBe(0)
+    expect(recommendedBasicCount(1)).toBe(28)
+    expect(recommendedBasicCount(2)).toBe(13)
+    expect(recommendedBasicCount(3)).toBe(9)
+    expect(recommendedBasicCount(4)).toBe(5)
+    expect(recommendedBasicCount(5)).toBe(3)
+  })
+})
+
+describe('countColorPips', () => {
+  it('counts colored mana symbols across nonland cards, skipping lands', () => {
+    const { ownedCards, sfMap } = assemble([
+      makeCard('Spell A', { type: 'Sorcery', mana_cost: '{2}{G}{G}' }),
+      makeCard('Spell B', { type: 'Instant', mana_cost: '{W}{U}' }),
+      makeCard('A Land', { type: 'Land', mana_cost: '' }),
+    ])
+    expect(countColorPips(ownedCards, sfMap)).toEqual({ W: 1, U: 1, B: 0, R: 0, G: 2 })
+  })
+
+  it('counts a hybrid pip toward both halves', () => {
+    const { ownedCards, sfMap } = assemble([
+      makeCard('Hybrid', { type: 'Creature', mana_cost: '{W/U}' }),
+    ])
+    expect(countColorPips(ownedCards, sfMap)).toMatchObject({ W: 1, U: 1 })
+  })
+})
+
+describe('planBasicLands', () => {
+  it('fills the whole land target for a mono-color deck', () => {
+    const { ownedCards, sfMap } = assemble([makeCard('Bear', { type: 'Creature', mana_cost: '{1}{G}' })])
+    const { counts, total } = planBasicLands({ deckCards: ownedCards, sfMap, colors: ['G'], landTarget: 37 })
+    expect(total).toBe(37)
+    expect(counts).toEqual({ Forest: 37 })
+  })
+
+  it('splits basics by pip demand and sums to exactly the needed count', () => {
+    const { ownedCards, sfMap } = assemble([
+      makeCard('W heavy', { type: 'Creature', mana_cost: '{W}{W}{W}{W}{W}{W}{W}' }),
+      makeCard('U light', { type: 'Instant', mana_cost: '{U}{U}{U}' }),
+    ])
+    const { counts, total } = planBasicLands({ deckCards: ownedCards, sfMap, colors: ['W', 'U'], landTarget: 10 })
+    expect(total).toBe(10)
+    expect(counts).toEqual({ Plains: 7, Island: 3 })
+  })
+
+  it('subtracts lands already in the deck (additive top-up)', () => {
+    const cards = [
+      makeCard('Forest pip', { type: 'Sorcery', mana_cost: '{G}' }),
+      makeCard('Dual', { type: 'Land', qty: 30 }),
+    ]
+    const { ownedCards, sfMap } = assemble(cards)
+    const { total } = planBasicLands({ deckCards: ownedCards, sfMap, colors: ['G'], landTarget: 37 })
+    expect(total).toBe(7) // 37 - 30 nonbasic lands
+  })
+
+  it('even-splits when there is no pip data', () => {
+    const { ownedCards, sfMap } = assemble([makeCard('Colorless', { type: 'Artifact', mana_cost: '{4}' })])
+    const { counts } = planBasicLands({ deckCards: ownedCards, sfMap, colors: ['W', 'B'], landTarget: 4 })
+    expect(counts).toEqual({ Plains: 2, Swamp: 2 })
+  })
+
+  it('returns nothing for a colorless identity or a met target', () => {
+    const { ownedCards, sfMap } = assemble([makeCard('X', { type: 'Land', qty: 40 })])
+    expect(planBasicLands({ deckCards: ownedCards, sfMap, colors: [], landTarget: 37 })).toEqual({ counts: {}, total: 0 })
+    expect(planBasicLands({ deckCards: ownedCards, sfMap, colors: ['G'], landTarget: 37 })).toEqual({ counts: {}, total: 0 })
+  })
+})
+
+describe('isBasicLandName', () => {
+  it('recognizes the five basics only', () => {
+    expect(isBasicLandName('Forest')).toBe(true)
+    expect(isBasicLandName('island')).toBe(true)
+    expect(isBasicLandName('Reliquary Tower')).toBe(false)
+    expect(isBasicLandName('')).toBe(false)
+  })
+})
+
 // ── enrichPlanWithEdhrec ──────────────────────────────────────────────────────
 describe('enrichPlanWithEdhrec', () => {
   const baseCards = () => {
@@ -402,8 +487,8 @@ describe('enrichPlanWithEdhrec', () => {
   })
 
   it('never returns fewer than the floor of 8 upgrades when available', async () => {
-    // Board Wipe ideal is 4. Own 3 wipes that are all already in the deck →
-    // current 3, gap 1, so gap + 4 = 5 < the floor of 8. The cap must hold at 8.
+    // Board Wipe ideal is 3. Own 3 wipes that are all already in the deck →
+    // current 3, gap 0, so gap + 4 = 4 < the floor of 8. The cap must hold at 8.
     const owned = [
       makeCard('Wrath of God', { oracle: 'Destroy all creatures.', type: 'Sorcery' }),
       makeCard('Damnation', { oracle: 'Destroy all creatures.', type: 'Sorcery' }),
@@ -422,7 +507,7 @@ describe('enrichPlanWithEdhrec', () => {
     const edhrec = { categories: [{ header: 'Board Wipes', cards }] }
     const out = await enrichPlanWithEdhrec(plan, async () => edhrec)
     const wipe = role(out, ROLE_WIPE)
-    expect(wipe.gap).toBe(1)
+    expect(wipe.gap).toBe(0)
     expect(wipe.edhrecUpgrades).toHaveLength(8)
   })
 

@@ -21,6 +21,9 @@ import {
   producedColors,
   countManaSources,
   coarseRole,
+  recommendedBasicCount,
+  planBasicLands,
+  isBasicLandName,
   COMMANDER_TEMPLATE,
   ROLE_ORDER,
   ROLE_RAMP,
@@ -116,6 +119,24 @@ const BUDGET_CHIPS = [null, 1, 5, 20]
 // many sources — a soft floor, not a hard rule.
 const MANA_HEX = { W: '#e9e0c0', U: '#3b7fd4', B: '#7a6b86', R: '#d4503b', G: '#4a9a5a' }
 const THIN_SOURCE_FLOOR = 8
+// Basic land name → its mana color, for the auto-basics breakdown pips.
+const COLOR_OF_BASIC = { Plains: 'W', Island: 'U', Swamp: 'B', Mountain: 'R', Forest: 'G' }
+
+// Render the planned basic-land split as colored count chips (e.g. ● 8  ● 5).
+function BasicsBreakdown({ counts }) {
+  const entries = Object.entries(counts || {})
+  if (!entries.length) return null
+  return (
+    <span className={styles.basicsChips}>
+      {entries.map(([name, n]) => (
+        <span key={name} className={styles.basicChip} title={`${n} ${name}`}>
+          <span className={styles.pip} style={{ background: MANA_HEX[COLOR_OF_BASIC[name]] || '#888' }} />
+          {n}
+        </span>
+      ))}
+    </span>
+  )
+}
 
 function ColorPips({ colors }) {
   if (!colors?.length) return null
@@ -131,6 +152,10 @@ function ColorPips({ colors }) {
 // Mana-curve buckets for the summary step (top end collapses into "6+").
 const CURVE_BUCKETS = [0, 1, 2, 3, 4, 5, 6]
 function curveLabel(b) { return b === 6 ? '6+' : String(b) }
+// Tallest a curve bar can render (px). Heights are computed in px rather than as
+// a % of the flex track — a percentage height inside a flex:1 wrapper collapses
+// to nothing in some engines, which left the bars invisible.
+const CURVE_BAR_MAX_PX = 96
 
 // One card tile: image + name + sub-meta + add action(s).
 function CardTile({ name, sfCard, fallbackImg, subtitle, pips, inclusion, price, flag, overTarget, added, wished, showWishlist, onAdd, onUndo, onWishlist }) {
@@ -185,7 +210,7 @@ function CardTile({ name, sfCard, fallbackImg, subtitle, pips, inclusion, price,
   )
 }
 
-export function BuildAssistant({ userId, commander, deckCards = [], accessToken, onAddCard, onRemoveCard, onAddToWishlist, onClose }) {
+export function BuildAssistant({ userId, commander, deckCards = [], accessToken, onAddCard, onRemoveCard, onAddToWishlist, onAddBasics, onClose }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [plan, setPlan] = useState(null) // enriched plan (candidates + upgrades)
@@ -598,9 +623,11 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
 
   // For the Lands step, annotate candidates with the colors they produce and
   // surface fixers (lands that make more of the commander's colors) first.
+  // Basics are excluded — they're added automatically on finish, not picked here.
   const landCandidates = useMemo(() => {
     if (!onLands || !roleData) return []
     return roleData.ownedCandidates
+      .filter(cand => !isBasicLandName(cand.name))
       .map(cand => {
         const colors = [...producedColors(cand.sfCard?.oracle_text, cand.sfCard?.type_line)]
         const matching = colors.filter(c => cmdColors.includes(c))
@@ -608,6 +635,20 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       })
       .sort((a, b) => (b.score - a.score) || (b.colors.length - a.colors.length) || a.cand.name.localeCompare(b.cand.name))
   }, [onLands, roleData, cmdColors])
+
+  // Land target (Lands role target, theme-adjusted) and the basic/nonbasic split.
+  // recommendedBasics scales with color count; nonbasicTarget is what to aim for
+  // in this step. plannedBasics is the pip-weighted top-up applied on finish.
+  const landsTarget = useMemo(
+    () => plan?.roles?.find(r => r.role === ROLE_LANDS)?.target || 37,
+    [plan],
+  )
+  const recommendedBasics = useMemo(() => recommendedBasicCount(cmdColors.length), [cmdColors])
+  const nonbasicTarget = Math.max(0, landsTarget - recommendedBasics)
+  const plannedBasics = useMemo(
+    () => planBasicLands({ deckCards, sfMap, colors: cmdColors, landTarget: landsTarget }),
+    [deckCards, sfMap, cmdColors, landsTarget],
+  )
 
   async function handleAdd(cardOrRec, name) {
     const key = name.toLowerCase()
@@ -634,6 +675,19 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   async function handleRemove(deckCardId) {
     if (typeof onRemoveCard !== 'function' || !deckCardId) return
     try { await onRemoveCard(deckCardId) } catch { /* parent surfaces errors */ }
+  }
+
+  // Finish: top the manabase up with pip-weighted basics (the last build step),
+  // then close. Additive + idempotent, so finishing twice is safe.
+  const [finishing, setFinishing] = useState(false)
+  async function handleFinish() {
+    if (plannedBasics.total > 0 && typeof onAddBasics === 'function') {
+      setFinishing(true)
+      try { await onAddBasics(plannedBasics.counts) }
+      catch { /* parent surfaces errors */ }
+      finally { setFinishing(false) }
+    }
+    onClose()
   }
 
   // Inline undo from a card tile: drop the session "added" flag and remove the
@@ -863,18 +917,40 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                 </div>
               )}
 
+              {/* Basic/nonbasic split note (Lands step). Encourages leaving room
+                  for basics, which are auto-added (pip-weighted) on finish. */}
+              {onLands && cmdColors.length > 0 && (
+                <div className={styles.basicsNote}>
+                  <span>
+                    Aim for about <strong>{nonbasicTarget}</strong> nonbasic / utility lands — the rest
+                    fill with basics automatically when you finish.
+                  </span>
+                  {plannedBasics.total > 0 && (
+                    <span className={styles.basicsPlan}>
+                      <span className={styles.basicsPlanLabel}>+{plannedBasics.total} basics</span>
+                      <BasicsBreakdown counts={plannedBasics.counts} />
+                    </span>
+                  )}
+                </div>
+              )}
+
               {/* Owned candidates */}
               <div className={styles.sectionLabel}>
-                From your collection · {roleData.ownedCandidates.length}
-                {onLands && <span className={styles.sectionHint}> · fixers first</span>}
+                From your collection · {onLands ? landCandidates.length : roleData.ownedCandidates.length}
+                {onLands && <span className={styles.sectionHint}> · nonbasic, fixers first</span>}
               </div>
               {(() => {
                 // Budget filter (cards with unknown price always pass).
                 const shown = onLands
                   ? landCandidates.filter(({ cand }) => passesBudget(cand.sfCard))
                   : roleData.ownedCandidates.filter(c => passesBudget(c.sfCard))
-                if (roleData.ownedCandidates.length === 0) {
-                  return <div className={styles.emptySmall}>No owned cards match this role in your colors.</div>
+                const baseCount = onLands ? landCandidates.length : roleData.ownedCandidates.length
+                if (baseCount === 0) {
+                  return <div className={styles.emptySmall}>
+                    {onLands
+                      ? 'No owned nonbasic lands in your colors — basics will be added automatically on finish.'
+                      : 'No owned cards match this role in your colors.'}
+                  </div>
                 }
                 if (shown.length === 0) {
                   return <div className={styles.emptySmall}>No owned {currentRoleName.toLowerCase()} cards under your budget.</div>
@@ -967,6 +1043,15 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                 <span>{Math.max(0, plan.deckSize - totalCards)} slots left</span>
                 <span>Value: <strong>{formatPrice(deckValue, price_source)}</strong></span>
               </div>
+              {plannedBasics.total > 0 && (
+                <div className={styles.basicsNote}>
+                  <span>
+                    <strong>{plannedBasics.total}</strong> basic land{plannedBasics.total > 1 ? 's' : ''} added on finish,
+                    split by color demand:
+                  </span>
+                  <BasicsBreakdown counts={plannedBasics.counts} />
+                </div>
+              )}
 
               <div className={styles.sectionLabel}>Mana curve (nonland)</div>
               <div className={styles.curve}>
@@ -975,7 +1060,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                   return CURVE_BUCKETS.map((b, i) => (
                     <div key={b} className={styles.curveCol}>
                       <div className={styles.curveBarWrap}>
-                        <div className={styles.curveBar} style={{ height: `${(curve[i] / max) * 100}%` }} />
+                        <div className={styles.curveBar} style={{ height: `${Math.max(2, Math.round((curve[i] / max) * CURVE_BAR_MAX_PX))}px` }} />
                       </div>
                       <div className={styles.curveCount}>{curve[i]}</div>
                       <div className={styles.curveLabel}>{curveLabel(b)}</div>
@@ -1093,7 +1178,11 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
               Next: {steps[stepIndex + 1] === SUMMARY_STEP ? 'Summary' : steps[stepIndex + 1]}
             </Button>
           ) : (
-            <Button variant="primary" onClick={onClose}>Done</Button>
+            <Button variant="primary" onClick={handleFinish} disabled={finishing}>
+              {plannedBasics.total > 0
+                ? (finishing ? 'Adding basics…' : `Add ${plannedBasics.total} basics & finish`)
+                : 'Done'}
+            </Button>
           )}
         </div>
       </div>

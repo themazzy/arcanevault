@@ -370,6 +370,48 @@
 
 .sectionHint { color: var(--text-faint); text-transform: none; letter-spacing: 0; }
 
+/* Basic/nonbasic land split note + auto-basics breakdown */
+.basicsNote {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--s2);
+  border: 1px solid var(--s-border);
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.basicsPlan {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.basicsPlanLabel {
+  font-size: 0.78rem;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+
+.basicsChips {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.basicChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.82rem;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── Card grid + tiles ────────────────────────────────────────────────────── */
 .grid {
   display: grid;
