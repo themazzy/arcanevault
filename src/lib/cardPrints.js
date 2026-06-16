@@ -39,8 +39,21 @@ const CARD_PRINT_SELECT_COLUMNS = [
   'image_uri', 'art_crop_uri',
   'rarity', 'set_name', 'artist',
   'power', 'toughness', 'produced_mana', 'keywords', 'colors',
-  'card_faces',
+  'card_faces', 'oracle_text',
 ].join(',')
+
+// Oracle text is capped to keep the shared card_prints dictionary bounded; the
+// classifier and CardDetail only need the leading rules text, and the IDB cache
+// applies the same 600-char cap (see buildEntryFromScryfall in scryfall.js).
+const ORACLE_TEXT_CAP = 600
+
+function oracleTextOf(card) {
+  if (card?.oracle_text) return card.oracle_text.slice(0, ORACLE_TEXT_CAP)
+  const faces = Array.isArray(card?.card_faces)
+    ? card.card_faces.map(f => f.oracle_text).filter(Boolean)
+    : []
+  return faces.length ? faces.join('\n//\n').slice(0, ORACLE_TEXT_CAP) : ''
+}
 
 export function buildCardPrintPayload(card) {
   if (!card) return null
@@ -59,9 +72,10 @@ export function buildCardPrintPayload(card) {
     color_identity: card.color_identity || [],
     image_uri: card.image_uri || getCardImage(card, 'normal'),
     art_crop_uri: card.art_crop_uri || getCardImage(card, 'art_crop'),
-    // Slim filter/sort fields. Heavier fields (legalities, oracle_text,
-    // image_uri_small/large) live only in Scryfall + IDB cache to stay
-    // under the Supabase free-tier storage budget.
+    // Slim filter/sort fields. legalities + the large image sizes still live
+    // only in the Scryfall IDB cache; oracle_text is stored here (capped) so a
+    // cold client cache can still classify cards by rules text.
+    oracle_text:   oracleTextOf(card),
     rarity:        card.rarity || null,
     set_name:      card.set_name || null,
     artist:        card.artist || null,
@@ -207,9 +221,10 @@ export function cardPrintRowToSfEntry(row) {
   const normal = row.image_uri     || null
   const artCrop = row.art_crop_uri || null
   const hasImage = !!(normal || artCrop)
-  // legalities / oracle_text / image_uri_small / image_uri_large are
-  // intentionally NOT set here — they live in the Scryfall IDB cache only.
-  // mergeSfEntry skips null/empty so existing entries from Scryfall keep them.
+  // legalities / image_uri_small / image_uri_large are intentionally NOT set
+  // here — they live in the Scryfall IDB cache only. oracle_text IS included
+  // (when card_prints has it) so a cold cache can classify by rules text;
+  // mergeSfEntry skips null/empty so a fuller Scryfall entry still wins.
   return {
     key,
     set_code:         setCode,
@@ -217,6 +232,7 @@ export function cardPrintRowToSfEntry(row) {
     name:             row.name,
     set_name:         row.set_name || null,
     type_line:        row.type_line || null,
+    oracle_text:      row.oracle_text ?? null,
     rarity:           row.rarity || null,
     prices:           null,
     prices_prev:      null,
