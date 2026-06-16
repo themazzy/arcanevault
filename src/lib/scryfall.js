@@ -25,7 +25,6 @@ const DELAY_MS   = 80
 const SF_CONCURRENCY = 2
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000
 const SF_API_ORIGIN = 'https://api.scryfall.com'
-const SF_DEV_PROXY_PREFIX = '/api/scryfall'
 const SCRYFALL_METADATA_UPDATED_AT_KEY = 'scryfall_metadata_updated_at'
 const LEGACY_SCRYFALL_PRICES_UPDATED_AT_KEY = 'scryfall_prices_updated_at'
 
@@ -41,14 +40,12 @@ async function getMetadataUpdatedAt() {
   return null
 }
 
+// Scryfall's API sends `Access-Control-Allow-Origin: *`, so the browser fetches
+// it directly in every environment — no dev proxy. (The old `/api/scryfall`
+// Vite proxy was removed alongside the EDHREC/import proxies; rewriting to it
+// here silently 404'd to the SPA fallback and broke all dev Scryfall search.)
 export function sfUrl(url) {
-  const normalizedUrl = url.startsWith('/')
-    ? `${SF_API_ORIGIN}${url}`
-    : url
-  if (!import.meta.env.DEV) return normalizedUrl
-  return normalizedUrl.startsWith(SF_API_ORIGIN)
-    ? `${SF_DEV_PROXY_PREFIX}${normalizedUrl.slice(SF_API_ORIGIN.length)}`
-    : normalizedUrl
+  return url.startsWith('/') ? `${SF_API_ORIGIN}${url}` : url
 }
 
 // ── Shared Scryfall fetch helper ───────────────────────────────────────────────
