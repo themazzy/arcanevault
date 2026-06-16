@@ -34,7 +34,7 @@ function slimCardFaces(faces) {
 }
 
 const CARD_PRINT_SELECT_COLUMNS = [
-  'id', 'scryfall_id', 'set_code', 'collector_number', 'name',
+  'id', 'scryfall_id', 'oracle_id', 'set_code', 'collector_number', 'name',
   'type_line', 'mana_cost', 'cmc', 'color_identity',
   'image_uri', 'art_crop_uri',
   'rarity', 'set_name', 'artist',
