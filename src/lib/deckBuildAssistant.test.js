@@ -15,6 +15,8 @@ import {
   countColorPips,
   planBasicLands,
   isBasicLandName,
+  rankCutCandidates,
+  CUT_MODES,
   COMMANDER_TEMPLATE,
   ROLE_RAMP,
   ROLE_DRAW,
@@ -410,6 +412,40 @@ describe('isBasicLandName', () => {
     expect(isBasicLandName('island')).toBe(true)
     expect(isBasicLandName('Reliquary Tower')).toBe(false)
     expect(isBasicLandName('')).toBe(false)
+  })
+})
+
+// ── Cut helper ────────────────────────────────────────────────────────────────
+describe('rankCutCandidates', () => {
+  const unpopular = { id: 'a', name: 'Unpopular', role: ROLE_SYNERGY, cmc: 2, inclusion: 10, hasData: true, roleOver: 0 }
+  const offMeta   = { id: 'b', name: 'Off-meta',  role: ROLE_SYNERGY, cmc: 2, inclusion: 0,  hasData: false, roleOver: 0 }
+  const overbuilt = { id: 'c', name: 'Overbuilt', role: ROLE_RAMP,    cmc: 2, inclusion: 90, hasData: true, roleOver: 3 }
+
+  it('exposes the three modes', () => {
+    expect(CUT_MODES.map(m => m.id)).toEqual(['balanced', 'popularity', 'redundancy'])
+  })
+
+  it('balanced cuts an unpopular known card before an off-meta unknown one', () => {
+    const ranked = rankCutCandidates([offMeta, unpopular], 'balanced')
+    expect(ranked[0].name).toBe('Unpopular')
+    expect(ranked[1].name).toBe('Off-meta')
+  })
+
+  it('popularity mode treats unknown cards as most cuttable', () => {
+    const ranked = rankCutCandidates([unpopular, offMeta], 'popularity')
+    expect(ranked[0].name).toBe('Off-meta')
+  })
+
+  it('redundancy mode pushes over-quota cards to the top despite high inclusion', () => {
+    const ranked = rankCutCandidates([unpopular, overbuilt], 'redundancy')
+    expect(ranked[0].name).toBe('Overbuilt')
+    expect(ranked[0].reason).toBe(`extra ${ROLE_RAMP}`)
+  })
+
+  it('attaches a reason and preserves length', () => {
+    const ranked = rankCutCandidates([unpopular, offMeta, overbuilt], 'balanced')
+    expect(ranked).toHaveLength(3)
+    expect(ranked.every(c => typeof c.reason === 'string' && c.reason)).toBe(true)
   })
 })
 

@@ -763,6 +763,127 @@
   color: #f0b0b0;
 }
 
+/* ── Cut-to-100 helper ────────────────────────────────────────────────────── */
+.cutControls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 8px;
+}
+
+.cutApplyBtn {
+  margin-left: auto;
+  padding: 6px 14px;
+  border-radius: 7px;
+  border: 1px solid rgba(204, 85, 85, 0.45);
+  background: rgba(204, 85, 85, 0.12);
+  color: #e08a8a;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.cutApplyBtn:hover:not(:disabled) { background: rgba(204, 85, 85, 0.2); color: #f0b0b0; }
+.cutApplyBtn:disabled { opacity: 0.55; cursor: default; }
+.cutApplyBtn:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+.cutList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cutRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  background: var(--s2);
+  border: 1px solid var(--s-border);
+  font-size: 0.84rem;
+}
+
+.cutName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.cutReason {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--s3);
+  color: var(--text-dim);
+  text-transform: lowercase;
+}
+
+.cutMeta {
+  flex-shrink: 0;
+  font-size: 0.74rem;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.cutKeep {
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--s-border2);
+  background: var(--s3);
+  color: var(--text-dim);
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+
+.cutKeep:hover { background: var(--s-medium); color: var(--text); }
+.cutKeep:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+
+.cutExtraNote {
+  margin-top: 6px;
+  font-size: 0.78rem;
+  color: var(--text-faint);
+}
+
+.cutLockedStrip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.cutLockedLabel {
+  font-size: 0.74rem;
+  color: var(--text-faint);
+}
+
+.cutLockedChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(201, 168, 76, 0.4);
+  background: rgba(201, 168, 76, 0.14);
+  color: var(--gold);
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.cutLockedChip:hover { background: rgba(201, 168, 76, 0.24); }
+.cutLockedChip:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+
+/* Touch: enlarge the cut helper's tap targets to the 40px floor. */
+@media (hover: none) and (pointer: coarse) {
+  .cutKeep, .cutApplyBtn, .cutLockedChip { min-height: 40px; }
+}
+
 /* ── Footer ───────────────────────────────────────────────────────────────── */
 .footer {
   display: flex;

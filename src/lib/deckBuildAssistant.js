@@ -278,6 +278,62 @@ export function isBasicLandName(name) {
   return BASIC_LAND_NAME_SET.has(String(name || '').toLowerCase())
 }
 
+// ── Cut helper ────────────────────────────────────────────────────────────────
+// Rank deck cards by how cuttable they are (most-cuttable first) to help trim an
+// over-100 deck. Three modes; Balanced is the user-facing default.
+
+export const CUT_MODES = [
+  { id: 'balanced', label: 'Balanced' },     // blend popularity + curve + redundancy
+  { id: 'popularity', label: 'Least played' }, // pure EDHREC inclusion, then curve
+  { id: 'redundancy', label: 'Overbuilt roles' }, // trim from roles past quota first
+]
+
+// Short human reason a card is suggested for the cut.
+function cutReason(c, mode) {
+  if (mode === 'redundancy' && c.roleOver > 0) return `extra ${c.role}`
+  if (c.hasData && c.inclusion < 30) return 'rarely played'
+  if (c.roleOver > 0) return `extra ${c.role}`
+  if ((c.cmc || 0) >= 5) return 'high CMC'
+  if (!c.hasData) return 'off-meta'
+  return 'trim'
+}
+
+/**
+ * Rank cut candidates most-cuttable first.
+ * @param {Array} candidates each { id, name, role, cmc, inclusion, hasData, roleOver }
+ *   - inclusion: EDHREC inclusion % (0 when unknown)
+ *   - hasData:   whether EDHREC actually lists the card. Distinguishes a card
+ *     that's genuinely *unpopular* (cuttable) from one that's simply off-meta /
+ *     not on the commander's page — the latter gets a neutral score in Balanced
+ *     so the player's own pet cards aren't auto-dumped.
+ *   - roleOver:  how many copies the card's role is above its target (0 if within)
+ * @param {string} mode  'balanced' | 'popularity' | 'redundancy'
+ * @returns {Array} new array sorted desc by cuttability, each with `reason`.
+ */
+export function rankCutCandidates(candidates, mode = 'balanced') {
+  const scored = (candidates || []).map(c => {
+    const inclusion = Math.max(0, Math.min(100, c.inclusion || 0))
+    // Popularity → cuttability. Unknown cards are neutral (50) except in
+    // popularity mode, where the player explicitly wants raw inclusion to rule.
+    const pop = c.hasData ? inclusion : (mode === 'popularity' ? 0 : 50)
+    const popCut = 100 - pop                 // 0..100, higher = more cuttable
+    const cmcCut = Math.min(10, c.cmc || 0) * 4 // 0..40
+    const redun = Math.max(0, c.roleOver || 0) * 12
+    let score
+    if (mode === 'popularity') score = popCut + cmcCut * 0.25
+    else if (mode === 'redundancy') score = redun * 2 + popCut * 0.4 + cmcCut * 0.2
+    else score = popCut * 0.6 + cmcCut * 0.4 + redun // balanced
+    return { ...c, score }
+  })
+  scored.sort((a, b) =>
+    (b.score - a.score) ||
+    ((a.inclusion || 0) - (b.inclusion || 0)) ||
+    ((b.cmc || 0) - (a.cmc || 0)) ||
+    String(a.name || '').localeCompare(String(b.name || '')),
+  )
+  return scored.map(c => ({ ...c, reason: cutReason(c, mode) }))
+}
+
 // ── Archetype-aware quota flexing ─────────────────────────────────────────────
 // A selected EDHREC theme (Tokens, Spellslinger, Voltron, …) nudges the role
 // quotas. Deltas only touch the FIXED roles — Synergy is the remainder, so

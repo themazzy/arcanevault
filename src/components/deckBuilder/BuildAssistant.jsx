@@ -24,6 +24,8 @@ import {
   recommendedBasicCount,
   planBasicLands,
   isBasicLandName,
+  rankCutCandidates,
+  CUT_MODES,
   COMMANDER_TEMPLATE,
   ROLE_ORDER,
   ROLE_RAMP,
@@ -223,6 +225,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const [targetBracket, setTargetBracket] = useState(null) // null = no target; 1-4
   const [showBracketReasons, setShowBracketReasons] = useState(false) // inline "why" disclosure
   const [maxPrice, setMaxPrice] = useState(null) // budget filter ceiling, null = off
+  const [cutMode, setCutMode] = useState('balanced') // cut helper ranking mode
+  const [lockedCutIds, setLockedCutIds] = useState(() => new Set()) // deck-card ids kept off the cut list
+  const [applyingCuts, setApplyingCuts] = useState(false)
   const [ownedNameSet, setOwnedNameSet] = useState(() => new Set())
   const [recImages, setRecImages] = useState({}) // name → Scryfall small image (fallback art)
   const attemptedImgNamesRef = useRef(new Set()) // names we've already tried to resolve
@@ -411,35 +416,59 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     return m
   }, [plan])
 
-  // "What to cut": when the deck is over size or a role is over its quota,
-  // suggest removals. Per over-quota role, rank that role's deck cards by
-  // least-played (EDHREC inclusion) then highest CMC, and flag the excess.
-  const cutPlan = useMemo(() => {
+  // Cut-to-100 helper. When the deck is over size, rank every (eligible) deck
+  // card by how cuttable it is for the chosen mode and recommend exactly the
+  // overage. Protections: the commander is never a candidate; locked cards are
+  // excluded; lands are only eligible when above the land target, and only the
+  // worst (overage) of them — so trimming never breaks the manabase.
+  const cutAnalysis = useMemo(() => {
     if (!plan) return null
-    const byRole = new Map(ROLE_ORDER.map(r => [r, []]))
+    const over = totalCards - plan.deckSize
+    const targets = new Map(plan.roles.map(r => [r.role, r.target]))
+    const counts = new Map(ROLE_ORDER.map(r => [r, 0]))
+    const rows = []
+    let totalLands = 0
     for (const dc of deckCards || []) {
       if (dc?.is_commander) continue
       const sf = sfMap?.[dc?.scryfall_id] || null
-      const role = roleByName.get((dc.name || '').toLowerCase()) || coarseRole(dc, sf)
-      byRole.get(role)?.push({
-        id: dc.id,
-        name: dc.name,
+      const name = dc.name || ''
+      const role = roleByName.get(name.toLowerCase()) || coarseRole(dc, sf)
+      counts.set(role, (counts.get(role) || 0) + (dc.qty || 1))
+      const isLand = (sf?.type_line || dc?.type_line || '').toLowerCase().includes('land')
+      if (isLand) totalLands += (dc.qty || 1)
+      const inclusion = inclusionByName.get(name.toLowerCase()) ?? 0
+      rows.push({
+        id: dc.id, name, role, isLand,
         cmc: sf?.cmc ?? dc?.cmc ?? 0,
-        inclusion: inclusionByName.get((dc.name || '').toLowerCase()) ?? 0,
+        inclusion, hasData: inclusion > 0,
       })
     }
-    const overRoles = []
-    for (const role of plan.roles) {
-      const cards = byRole.get(role.role) || []
-      const count = cards.length
-      const excess = count - role.target
-      if (excess <= 0) continue
-      const ranked = [...cards].sort((a, b) => (a.inclusion - b.inclusion) || (b.cmc - a.cmc) || a.name.localeCompare(b.name))
-      overRoles.push({ role: role.role, count, target: role.target, excess, cuts: ranked.slice(0, excess) })
+    if (over <= 0) return { over, cutTarget: 0, recommended: [], extra: [], landOver: 0 }
+
+    const landTarget = targets.get(ROLE_LANDS) || 37
+    const landOver = Math.max(0, totalLands - landTarget)
+    const withRoleOver = r => ({ ...r, role: r.isLand ? ROLE_LANDS : r.role,
+      roleOver: Math.max(0, (counts.get(r.role) || 0) - (targets.get(r.role) || 0)) })
+
+    // Eligible pool: unlocked nonland cards, plus the worst `landOver` unlocked
+    // lands (only when the manabase is above target).
+    const nonland = rows.filter(r => !r.isLand && !lockedCutIds.has(r.id)).map(withRoleOver)
+    // Only nonbasic lands are cuttable (singletons); basics are multi-copy rows
+    // managed by the lands step, so cutting one would gut the manabase.
+    let landPool = []
+    if (landOver > 0) {
+      const lands = rows.filter(r => r.isLand && !isBasicLandName(r.name) && !lockedCutIds.has(r.id)).map(withRoleOver)
+      landPool = rankCutCandidates(lands, cutMode).slice(0, landOver)
     }
-    // totalCards and deckSize both include the commander, so this is "over 100".
-    return { over: totalCards - plan.deckSize, overRoles }
-  }, [plan, deckCards, sfMap, inclusionByName, totalCards, roleByName])
+    const ranked = rankCutCandidates([...nonland, ...landPool], cutMode)
+    return {
+      over,
+      cutTarget: over,
+      recommended: ranked.slice(0, over),
+      extra: ranked.slice(over, over + 6), // a few more "also consider"
+      landOver,
+    }
+  }, [plan, deckCards, sfMap, inclusionByName, totalCards, roleByName, cutMode, lockedCutIds])
 
   // Completed combos in the deck → card-name lists for the bracket analyzer.
   const comboCardLists = useMemo(() => {
@@ -675,6 +704,22 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   async function handleRemove(deckCardId) {
     if (typeof onRemoveCard !== 'function' || !deckCardId) return
     try { await onRemoveCard(deckCardId) } catch { /* parent surfaces errors */ }
+  }
+
+  // Cut helper actions: lock a card off the suggestion list, or apply a batch.
+  function toggleCutLock(id) {
+    setLockedCutIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+  async function applyCuts(ids) {
+    if (typeof onRemoveCard !== 'function' || !ids?.length) return
+    setApplyingCuts(true)
+    try {
+      for (const id of ids) { try { await onRemoveCard(id) } catch { /* parent surfaces */ } }
+    } finally { setApplyingCuts(false) }
   }
 
   // Finish: top the manabase up with pip-weighted basics (the last build step),
@@ -1118,46 +1163,91 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                 </div>
               )}
 
-              {/* What to cut */}
-              {cutPlan && (cutPlan.over > 0 || cutPlan.overRoles.length > 0) && (
+              {/* Cut to 100 */}
+              {cutAnalysis && cutAnalysis.over > 0 && (
                 <>
                   <div className={styles.sectionLabel}>
-                    Trim
-                    {cutPlan.over > 0
-                      ? <span className={styles.sectionHint}> · {cutPlan.over} over 100</span>
-                      : <span className={styles.sectionHint}> · roles over quota</span>}
+                    Trim to 100
+                    <span className={styles.sectionHint}> · {cutAnalysis.over} to cut</span>
                   </div>
-                  {cutPlan.overRoles.length === 0 ? (
-                    <div className={styles.emptySmall}>Deck is over 100 but every role is within quota — trim your longest/weakest cards.</div>
+
+                  <div className={styles.cutControls}>
+                    <div className={styles.themeChips}>
+                      {CUT_MODES.map(m => (
+                        <button
+                          key={m.id}
+                          className={`${styles.themeChip}${cutMode === m.id ? ' ' + styles.themeActive : ''}`}
+                          onClick={() => setCutMode(m.id)}
+                          title={`Rank cuts by: ${m.label}`}
+                        >
+                          {m.label}
+                        </button>
+                      ))}
+                    </div>
+                    {cutAnalysis.recommended.length > 0 && (
+                      <button
+                        className={styles.cutApplyBtn}
+                        onClick={() => applyCuts(cutAnalysis.recommended.map(c => c.id))}
+                        disabled={applyingCuts}
+                      >
+                        {applyingCuts ? 'Cutting…' : `Cut all ${cutAnalysis.recommended.length}`}
+                      </button>
+                    )}
+                  </div>
+
+                  {cutAnalysis.recommended.length === 0 ? (
+                    <div className={styles.emptySmall}>Everything else is locked or protected — unlock a card below to get suggestions.</div>
                   ) : (
-                    <div className={styles.comboList}>
-                      {cutPlan.overRoles.map(or => (
-                        <div key={or.role} className={styles.comboRow}>
-                          <div className={styles.comboInfo}>
-                            <div className={styles.comboProduces}>
-                              {or.role}
-                              <span className={`${styles.comboOwnedTag} ${styles.cutTag}`}>
-                                {or.count}/{or.target} · cut {or.excess}
-                              </span>
-                            </div>
-                            <div className={styles.comboUses}>Least-played first</div>
-                          </div>
-                          <div className={styles.comboMissing}>
-                            {or.cuts.map(cut => (
-                              <button
-                                key={cut.id}
-                                className={`${styles.miniBtn} ${styles.cutBtn}`}
-                                onClick={() => handleRemove(cut.id)}
-                                title={`Remove ${cut.name} (${cut.inclusion}% EDHREC, CMC ${cut.cmc})`}
-                              >
-                                <DeleteIcon size={11} /> {cut.name}
-                              </button>
-                            ))}
-                          </div>
+                    <div className={styles.cutList}>
+                      {cutAnalysis.recommended.map(c => (
+                        <div key={c.id} className={styles.cutRow}>
+                          <button
+                            className={styles.cutKeep}
+                            onClick={() => toggleCutLock(c.id)}
+                            title="Keep this card (lock it out of cut suggestions)"
+                          >
+                            Keep
+                          </button>
+                          <span className={styles.cutName} title={c.name}>{c.name}</span>
+                          <span className={styles.cutReason}>{c.reason}</span>
+                          <span className={styles.cutMeta}>{c.hasData ? `${c.inclusion}%` : '—'} · {c.cmc} CMC</span>
+                          <button
+                            className={`${styles.miniBtn} ${styles.cutBtn}`}
+                            onClick={() => handleRemove(c.id)}
+                            title={`Remove ${c.name}`}
+                          >
+                            <DeleteIcon size={11} /> Cut
+                          </button>
                         </div>
                       ))}
                     </div>
                   )}
+
+                  {cutAnalysis.extra.length > 0 && (
+                    <div className={styles.cutExtraNote}>
+                      Also consider: {cutAnalysis.extra.map(c => c.name).join(', ')}
+                    </div>
+                  )}
+
+                  {(() => {
+                    const locked = (deckCards || []).filter(dc => lockedCutIds.has(dc.id))
+                    if (!locked.length) return null
+                    return (
+                      <div className={styles.cutLockedStrip}>
+                        <span className={styles.cutLockedLabel}>Kept:</span>
+                        {locked.map(dc => (
+                          <button
+                            key={dc.id}
+                            className={styles.cutLockedChip}
+                            onClick={() => toggleCutLock(dc.id)}
+                            title="Kept — tap to unlock (allow as a cut suggestion)"
+                          >
+                            <CheckIcon size={10} /> {dc.name}
+                          </button>
+                        ))}
+                      </div>
+                    )
+                  })()}
                 </>
               )}
             </>
