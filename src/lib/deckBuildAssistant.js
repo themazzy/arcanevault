@@ -538,7 +538,7 @@ export function edhrecInclusionPct(cv) {
   return pot > 0 ? Math.min(100, Math.round((inc / pot) * 100)) : inc
 }
 
-export async function enrichPlanWithEdhrec(plan, fetchEdhrec) {
+export async function enrichPlanWithEdhrec(plan, fetchEdhrec, fetchCardMeta) {
   if (!plan?.commander?.name || typeof fetchEdhrec !== 'function') return plan
 
   let data = null
@@ -569,15 +569,41 @@ export async function enrichPlanWithEdhrec(plan, fetchEdhrec) {
     for (const c of role.ownedCandidates) ownedNames.add(c.name.toLowerCase())
   }
 
-  // Bucket NOT-owned EDHREC cards into coarse roles. EDHREC cardviews lack
-  // oracle text, so we infer the role from the section header first
-  // (functional, e.g. "Mana Artifacts" → Ramp) and fall back to the type
-  // line for type-based sections. Best-effort — the user confirms each pick.
+  // Resolve oracle text + art for the top unowned EDHREC cards so we can
+  // classify them by *function* (Card Advantage, Removal, …). EDHREC's default
+  // sections are mostly type-based ("Creatures", "Instants") and only a couple
+  // map to a role ("Mana Artifacts" → Ramp), so without rules text the
+  // functional roles get no suggestions at all. Reuses the same batched name
+  // lookup that resolves the tiles' art. Best-effort: degrades to header/type.
+  let metaByName = new Map()
+  if (typeof fetchCardMeta === 'function') {
+    const unowned = [...byName.entries()]
+      .filter(([key]) => !ownedNames.has(key))
+      .sort((a, b) => (b[1].cv.inclusion ?? 0) - (a[1].cv.inclusion ?? 0))
+      .slice(0, 250)
+      .map(([, v]) => v.cv.name)
+    if (unowned.length) {
+      try {
+        const metas = await fetchCardMeta(unowned)
+        for (const m of metas || []) if (m?.name) metaByName.set(m.name.toLowerCase(), m)
+      } catch { /* fall back to header/type classification below */ }
+    }
+  }
+
+  // Bucket NOT-owned EDHREC cards into coarse roles. Prefer real oracle-text
+  // classification when we resolved it; otherwise infer from the section header
+  // ("Mana Artifacts" → Ramp) and fall back to the type line. The user confirms
+  // each pick regardless.
   const upgradesByRole = new Map(ROLE_ORDER.map(r => [r, []]))
   for (const [key, { cv, header }] of byName) {
     if (ownedNames.has(key)) continue
-    const role = edhrecHeaderToRole(header) ||
-      granularToCoarse(getCardCategoryFromCard({ type_line: cv.type }, { type_line: cv.type }))
+    const meta = metaByName.get(key)
+    const role = meta
+      ? granularToCoarse(getCardCategoryFromCard(
+          { type_line: meta.type_line || cv.type, oracle_text: meta.oracle_text || '' },
+          { type_line: meta.type_line || cv.type, oracle_text: meta.oracle_text || '' }))
+      : (edhrecHeaderToRole(header) ||
+         granularToCoarse(getCardCategoryFromCard({ type_line: cv.type }, { type_line: cv.type })))
     upgradesByRole.get(role).push({
       name: cv.name,
       slug: cv.slug,
@@ -586,6 +612,7 @@ export async function enrichPlanWithEdhrec(plan, fetchEdhrec) {
       colorIdentity: cv.colorIdentity || [],
       edhrecInclusion: edhrecInclusionPct(cv),
       synergy: cv.synergy ?? 0,
+      image: meta?.image || null,
       owned: false,
     })
   }

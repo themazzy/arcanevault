@@ -231,8 +231,6 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const [lockedCutIds, setLockedCutIds] = useState(() => new Set()) // deck-card ids kept off the cut list
   const [applyingCuts, setApplyingCuts] = useState(false)
   const [ownedNameSet, setOwnedNameSet] = useState(() => new Set())
-  const [recImages, setRecImages] = useState({}) // name → Scryfall small image (fallback art)
-  const attemptedImgNamesRef = useRef(new Set()) // names we've already tried to resolve
   const metaFetchedRef = useRef(false) // owned-card oracle-text backfill ran for this commander
   const selectedThemeRef = useRef('')  // latest theme, read by the async backfill to avoid a stale-closure revert
 
@@ -251,6 +249,32 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
 
   const hasCommander = !!commander?.name
 
+  // Resolve oracle text + small art for unowned EDHREC cards so enrichment can
+  // classify them by function (Card Advantage, Removal, …) and the tiles have
+  // art. One batched name lookup, injected into every enrichPlanWithEdhrec call.
+  // Card meta is intrinsic (commander-independent), so we cache by name across
+  // the load, the owned-oracle backfill re-plan, and theme switches — fetching
+  // each name at most once. A null entry marks a name we tried but couldn't
+  // resolve, so it isn't retried.
+  const upgradeMetaCacheRef = useRef(new Map())
+  const fetchUpgradeMeta = useCallback(async (names) => {
+    const cache = upgradeMetaCacheRef.current
+    const missing = names.filter(n => !cache.has(n.toLowerCase()))
+    if (missing.length) {
+      const cards = await fetchCardsByNames(missing).catch(() => [])
+      for (const c of cards) {
+        cache.set((c.name || '').toLowerCase(), {
+          name: c.name,
+          oracle_text: c.oracle_text || c.card_faces?.[0]?.oracle_text || '',
+          type_line: c.type_line || c.card_faces?.[0]?.type_line || '',
+          image: getCardImageUri(c, 'small'),
+        })
+      }
+      for (const n of missing) if (!cache.has(n.toLowerCase())) cache.set(n.toLowerCase(), null)
+    }
+    return names.map(n => cache.get(n.toLowerCase())).filter(Boolean)
+  }, [])
+
   // Re-run the plan for a given archetype theme: flex the role quotas and swap
   // the suggestion source to that theme's EDHREC page (owned cards re-ranked by
   // theme synergy, upgrades drawn from the theme). '' = balanced template.
@@ -268,7 +292,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         template,
       })
       const edhrec = await fetchEdhrecCommander(commander.name, 'commander', themeSlug ? { themeSlug } : undefined)
-      const enriched = await enrichPlanWithEdhrec(base, async () => edhrec)
+      const enriched = await enrichPlanWithEdhrec(base, async () => edhrec, fetchUpgradeMeta)
       setPlan(enriched)
     } finally {
       setRebuilding(false)
@@ -318,7 +342,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           sfMap: sfById,
           currentDeckCards: deckCards,
         })
-        const enriched = await enrichPlanWithEdhrec(base, async () => edhrec)
+        const enriched = await enrichPlanWithEdhrec(base, async () => edhrec, fetchUpgradeMeta)
         if (cancelled) return
         dataRef.current = { ownedNorm, sfById }
         setSfMap(sfById)
@@ -529,41 +553,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onSummary])
 
-  // Resolve fallback art for unowned EDHREC upgrade tiles (which carry no cached
-  // image). Mirrors the DeckBuilder recs/search flow: one batched Scryfall
-  // /cards/collection lookup by name (75/req), keyed name → small image.
-  // attemptedImgNamesRef dedupes so theme switches don't refetch. Owned cards
-  // are handled by the metadata backfill below (by exact scryfall_id), so we
-  // deliberately skip them here to avoid a second, by-name fetch of the same
-  // cards.
-  useEffect(() => {
-    if (!plan) return
-    let cancelled = false
-    const names = []
-    for (const role of plan.roles) {
-      for (const u of role.edhrecUpgrades) {
-        if (u.name && !attemptedImgNamesRef.current.has(u.name)) names.push(u.name)
-      }
-    }
-    if (!names.length) return
-    // Mark only the names we actually fetch this pass; anything past the cap
-    // stays unmarked so a later plan change can still resolve it.
-    const batch = names.slice(0, 225)
-    batch.forEach(n => attemptedImgNamesRef.current.add(n))
-    ;(async () => {
-      const cards = await fetchCardsByNames(batch).catch(() => [])
-      if (cancelled || !cards.length) return
-      setRecImages(prev => {
-        const next = { ...prev }
-        for (const c of cards) {
-          const uri = getCardImageUri(c, 'small')
-          if (uri) next[c.name] = uri
-        }
-        return next
-      })
-    })()
-    return () => { cancelled = true }
-  }, [plan])
+  // (Unowned EDHREC upgrade art is resolved during enrichment via
+  // fetchUpgradeMeta and attached to each upgrade as `image`; owned-card art
+  // comes from the cached sfMap entry. No separate per-tile image fetch.)
 
   // Backfill oracle text for color-legal owned cards so the role classifier can
   // sort them into Ramp/Draw/Removal/… — without it every non-land owned card
@@ -637,7 +629,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       // Bail if the user switched themes again while we were fetching EDHREC —
       // rebuildPlan owns the plan for the newer selection.
       if (cancelled || selectedThemeRef.current !== theme) return
-      const enriched = await enrichPlanWithEdhrec(base, async () => edhrec)
+      const enriched = await enrichPlanWithEdhrec(base, async () => edhrec, fetchUpgradeMeta)
       if (!cancelled && selectedThemeRef.current === theme) setPlan(enriched)
     })()
     return () => { cancelled = true }
@@ -1014,7 +1006,6 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                             key={cand.card?.id || cand.name}
                             name={cand.name}
                             sfCard={cand.sfCard}
-                            fallbackImg={recImages[cand.name]}
                             pips={onLands ? item.colors : undefined}
                             subtitle={onLands ? undefined : cand.granularCat}
                             inclusion={onLands ? 0 : cand.edhrecInclusion}
@@ -1047,7 +1038,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                           key={up.slug || up.name}
                           name={up.name}
                           sfCard={null}
-                          fallbackImg={recImages[up.name]}
+                          fallbackImg={up.image}
                           subtitle={up.type}
                           inclusion={up.edhrecInclusion}
                           flag={flag}

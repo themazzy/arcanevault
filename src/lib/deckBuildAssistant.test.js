@@ -523,6 +523,23 @@ describe('enrichPlanWithEdhrec', () => {
     expect(upgrades).not.toContain('Cultivate')
   })
 
+  it('classifies unowned upgrades by oracle text when card meta is provided', async () => {
+    // EDHREC lists Opt under a type-based "Instants" header (no functional role),
+    // so without rules text it would fall into Synergy. With fetched oracle text
+    // it lands in Card Advantage, and the resolved art is attached.
+    const plan = analyzeBuildPlan({ commander: { name: 'Cmd', color_identity: [] } })
+    const edhrec = { categories: [{ header: 'Instants', cards: [
+      { name: 'Opt', inclusion: 80, potentialDecks: 100, cmc: 1, type: 'Instant' },
+    ] }] }
+    const fetchMeta = async names =>
+      names.map(n => ({ name: n, type_line: 'Instant', oracle_text: 'Draw a card.', image: 'opt.jpg' }))
+    const out = await enrichPlanWithEdhrec(plan, async () => edhrec, fetchMeta)
+    const draw = role(out, ROLE_DRAW).edhrecUpgrades.find(u => u.name === 'Opt')
+    expect(draw).toBeTruthy()
+    expect(draw.image).toBe('opt.jpg')
+    expect(role(out, ROLE_SYNERGY).edhrecUpgrades.map(u => u.name)).not.toContain('Opt')
+  })
+
   it('caps the upgrade list (8 floor, gap + 4 headroom)', async () => {
     // Empty collection → Ramp gap == its full ideal (11), so cap = 11 + 4 = 15.
     const plan = analyzeBuildPlan({ commander: { name: 'Cmd', color_identity: [] } })
