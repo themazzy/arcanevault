@@ -482,6 +482,18 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           const entry = cacheBySetCol[getScryfallKey(p)]
           if (entry) sfById[p.scryfall_id] = entry
         }
+        // Local card_prints is usually empty, but the Scryfall instant cache is
+        // keyed by set-collector and already holds art / oracle text / prices for
+        // every card the user has browsed. Map owned + deck cards into it by their
+        // own set/collector so the engine's sfMap[scryfall_id] lookup resolves
+        // immediately — otherwise tiles render blank (and cards misclassify)
+        // until the slow per-card backfills finish.
+        for (const c of [...(owned || []), ...(deckCards || [])]) {
+          const sid = c?.scryfall_id
+          if (!sid || sfById[sid]) continue
+          const entry = cacheBySetCol[getScryfallKey(c)]
+          if (entry) sfById[sid] = entry
+        }
         // Post-5d owned rows may lack scryfall_id; resolve it via card_prints so
         // the engine's sfMap[card.scryfall_id] lookup hits.
         const ownedNorm = (owned || []).map(c => {
