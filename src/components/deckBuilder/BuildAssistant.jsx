@@ -21,7 +21,9 @@ import {
   bracketFlagFor,
   producedColors,
   countManaSources,
-  coarseRole,
+  roleOfDeckCard,
+  countByRole,
+  pickCheapestEnglish,
   recommendedBasicCount,
   planBasicLands,
   isBasicLandName,
@@ -75,32 +77,6 @@ const STEP_SHORT = {
 
 function roleNameSet(deckCards) {
   return new Set((deckCards || []).map(c => (c?.name || '').toLowerCase()).filter(Boolean))
-}
-
-// Resolve the build role of a deck card. Oracle-text classification wins when
-// it's confident (returns a non-Synergy role), since it's the most reliable
-// signal; otherwise we defer to the plan's EDHREC-derived role (which can
-// re-bucket cards the regex misses, e.g. a mana rock with no cached oracle).
-// Doing it this way stops a stale/empty plan role (Synergy) from overriding a
-// correct oracle classification — which was emptying every role into Synergy
-// when the assistant opened on a filled deck.
-function roleOfDeckCard(dc, sfMap, roleByName) {
-  const sfCard = sfMap?.[dc?.scryfall_id] || null
-  const byOracle = coarseRole(dc, sfCard)
-  if (byOracle !== ROLE_SYNERGY) return byOracle
-  return roleByName?.get((dc?.name || '').toLowerCase()) || ROLE_SYNERGY
-}
-
-// Live per-role counts from the actual deck contents (not just owned
-// candidates) so progress bars reflect everything in the deck.
-function countByRole(deckCards, sfMap, roleByName) {
-  const counts = new Map(ROLE_ORDER.map(r => [r, 0]))
-  for (const dc of deckCards || []) {
-    if (dc?.is_commander) continue
-    const role = roleOfDeckCard(dc, sfMap, roleByName)
-    counts.set(role, (counts.get(role) || 0) + (dc.qty || 1))
-  }
-  return counts
 }
 
 // Card image from the cached Scryfall art (cards.scryfall.io CDN). We never hit
@@ -734,6 +710,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       const inclusion = inclusionByName.get(name.toLowerCase()) ?? 0
       rows.push({
         id: dc.id, name, role, isLand,
+        scryfall_id: dc.scryfall_id,
         cmc: sf?.cmc ?? dc?.cmc ?? 0,
         inclusion, hasData: inclusion > 0,
       })
@@ -1000,17 +977,16 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         // One batched Scryfall lookup tells us each candidate's language + art.
         const sfCards = await fetchCardsByScryfallIds([...allIds]).catch(() => [])
         const byId = new Map(sfCards.map(c => [c.id, c]))
+        const langById = new Map(sfCards.map(c => [c.id, c.lang]))
         const next = new Map(cheapestByName)
         for (const n of missing) {
           const cands = candsByName.get(n) || []
-          let chosen = null
-          for (const c of cands) { // cheapest-first
-            const sc = byId.get(c.id)
-            if (sc && sc.lang === 'en') { chosen = { price: c.price, image: getCardImageUri(sc, 'small') }; break }
-          }
+          const en = pickCheapestEnglish(cands, langById)
           // No English copy among the cheapest candidates → fall back to the
           // overall cheapest price (no English art to show).
-          if (!chosen) chosen = cands[0] ? { price: cands[0].price, image: null } : { price: null, image: null }
+          const chosen = en
+            ? { price: en.price, image: getCardImageUri(byId.get(en.id), 'small') }
+            : (cands[0] ? { price: cands[0].price, image: null } : { price: null, image: null })
           next.set(n.toLowerCase(), chosen)
         }
         if (!cancelled) setCheapestByName(next)
@@ -1062,11 +1038,15 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     } finally { setApplyingCuts(false) }
   }
 
-  // Finish: top the manabase up with pip-weighted basics (the last build step),
-  // then close. Additive + idempotent, so finishing twice is safe.
+  // Finish: optionally top the manabase up with pip-weighted basics (the last
+  // build step), then close. Additive + idempotent, so finishing twice is safe.
+  // The basics top-up is opt-out: it fills to the land target, which would push
+  // a low-land deck over 100, so the summary lets you finish without it.
   const [finishing, setFinishing] = useState(false)
+  const [addBasics, setAddBasics] = useState(true)
+  const willAddBasics = addBasics && plannedBasics.total > 0
   async function handleFinish() {
-    if (plannedBasics.total > 0 && typeof onAddBasics === 'function') {
+    if (willAddBasics && typeof onAddBasics === 'function') {
       setFinishing(true)
       try { await onAddBasics(plannedBasics.counts) }
       catch { /* parent surfaces errors */ }
@@ -1512,13 +1492,23 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                 <span>Value: <strong>{formatPrice(deckValue, price_source)}</strong></span>
               </div>
               {plannedBasics.total > 0 && (
-                <div className={styles.basicsNote}>
-                  <span>
-                    <strong>{plannedBasics.total}</strong> basic land{plannedBasics.total > 1 ? 's' : ''} added on finish,
-                    split by color demand:
-                  </span>
-                  <BasicsBreakdown counts={plannedBasics.counts} />
-                </div>
+                <label className={styles.basicsNote} style={{ cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    className={styles.basicsCheck}
+                    checked={addBasics}
+                    onChange={e => setAddBasics(e.target.checked)}
+                  />
+                  {addBasics ? (
+                    <span>
+                      Add <strong>{plannedBasics.total}</strong> basic land{plannedBasics.total > 1 ? 's' : ''} on finish,
+                      split by color demand:
+                    </span>
+                  ) : (
+                    <span>Basics won’t be added — finish leaves the manabase as-is.</span>
+                  )}
+                  {addBasics && <BasicsBreakdown counts={plannedBasics.counts} />}
+                </label>
               )}
 
               <div className={styles.sectionLabel}>Mana curve (nonland)</div>
@@ -1625,8 +1615,22 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                     <div className={styles.emptySmall}>Everything else is locked or protected — unlock a card below to get suggestions.</div>
                   ) : (
                     <div className={styles.cutList}>
-                      {cutAnalysis.recommended.map(c => (
+                      {cutAnalysis.recommended.map(c => {
+                        const img = cardImageUrl(sfMap?.[c.scryfall_id] || null)
+                        return (
                         <div key={c.id} className={styles.cutRow}>
+                          <span className={styles.cutThumb} aria-hidden="true">
+                            {img
+                              ? <img src={img} alt="" loading="lazy" className={styles.cutThumbImg} />
+                              : <span className={styles.cutThumbFallback} />}
+                          </span>
+                          <span className={styles.cutInfo}>
+                            <span className={styles.cutName} title={c.name}>{c.name}</span>
+                            <span className={styles.cutSub}>
+                              <span className={styles.cutReason}>{c.reason}</span>
+                              <span className={styles.cutMeta}>{c.hasData ? `${c.inclusion}%` : '—'} · {c.cmc} CMC</span>
+                            </span>
+                          </span>
                           <button
                             className={styles.cutKeep}
                             onClick={() => toggleCutLock(c.id)}
@@ -1634,9 +1638,6 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                           >
                             Keep
                           </button>
-                          <span className={styles.cutName} title={c.name}>{c.name}</span>
-                          <span className={styles.cutReason}>{c.reason}</span>
-                          <span className={styles.cutMeta}>{c.hasData ? `${c.inclusion}%` : '—'} · {c.cmc} CMC</span>
                           <button
                             className={`${styles.miniBtn} ${styles.cutBtn}`}
                             onClick={() => handleRemove(c.id)}
@@ -1645,7 +1646,8 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                             <DeleteIcon size={11} /> Cut
                           </button>
                         </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
 
@@ -1695,9 +1697,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
             </Button>
           ) : (
             <Button variant="primary" onClick={handleFinish} disabled={finishing}>
-              {plannedBasics.total > 0
+              {willAddBasics
                 ? (finishing ? 'Adding basics…' : `Add ${plannedBasics.total} basics & finish`)
-                : 'Done'}
+                : 'Finish'}
             </Button>
           )}
         </div>

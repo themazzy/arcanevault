@@ -96,6 +96,43 @@ export function coarseRole(card, sfCard) {
   return granularToCoarse(getCardCategoryFromCard(card, sfCard))
 }
 
+// Resolve the build role of a card already in the deck. Oracle-text
+// classification wins when it's confident (a non-Synergy role), since it's the
+// most reliable signal; otherwise we defer to the plan's EDHREC-derived role
+// (which can re-bucket cards the regex misses, e.g. a mana rock with no cached
+// oracle). This ordering stops a stale/empty plan role from overriding a
+// correct oracle classification — which was collapsing every role into Synergy
+// when the assistant opened on a filled deck.
+export function roleOfDeckCard(dc, sfMap, roleByName) {
+  const sfCard = sfMap?.[dc?.scryfall_id] || null
+  const byOracle = coarseRole(dc, sfCard)
+  if (byOracle !== ROLE_SYNERGY) return byOracle
+  return roleByName?.get((dc?.name || '').toLowerCase()) || ROLE_SYNERGY
+}
+
+// Live per-role counts from the actual deck contents (commander excluded),
+// using roleOfDeckCard so the progress bars match how the steps display cards.
+export function countByRole(deckCards, sfMap, roleByName) {
+  const counts = new Map(ROLE_ORDER.map(r => [r, 0]))
+  for (const dc of deckCards || []) {
+    if (dc?.is_commander) continue
+    const role = roleOfDeckCard(dc, sfMap, roleByName)
+    counts.set(role, (counts.get(role) || 0) + (dc.qty || 1))
+  }
+  return counts
+}
+
+// Pick the cheapest English printing from candidates already sorted
+// cheapest-first. `langById` maps a printing's scryfall id → its language.
+// Returns the chosen candidate (so a foreign printing that happens to be
+// cheaper is skipped), or null when none of the candidates are English.
+export function pickCheapestEnglish(candidates, langById) {
+  for (const c of candidates || []) {
+    if (c?.id && langById?.get?.(c.id) === 'en') return c
+  }
+  return null
+}
+
 // ── Commander deck template ───────────────────────────────────────────────────
 // Target quotas for a typical Commander deck. `ideal` drives gap math and the
 // wizard progress bars; `min` flags a role as under-built. Synergy is the

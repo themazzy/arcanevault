@@ -20,6 +20,9 @@ import {
   edhrecInclusionPct,
   attachRecommenderUpgrades,
   selectUpgrades,
+  roleOfDeckCard,
+  countByRole,
+  pickCheapestEnglish,
   COMMANDER_TEMPLATE,
   ROLE_RAMP,
   ROLE_DRAW,
@@ -676,5 +679,86 @@ describe('enrichPlanWithEdhrec', () => {
     const out = await enrichPlanWithEdhrec(plan, async () => { throw new Error('network down') })
     expect(out).toBe(plan)
     expect(role(out, ROLE_RAMP).edhrecUpgrades).toEqual([])
+  })
+})
+
+// ── roleOfDeckCard / countByRole (deck classification) ────────────────────────
+// Regression coverage for the "everything collapses into Synergy" bug: deck
+// cards must classify by their oracle text when that's confident, and only fall
+// back to the plan's role when oracle text yields nothing functional.
+describe('roleOfDeckCard', () => {
+  const sfMap = {
+    s1: { oracle_text: 'Counter target spell.', type_line: 'Instant' },     // Removal
+    s2: { oracle_text: '', type_line: 'Artifact' },                          // no oracle → Synergy by text
+    s3: { oracle_text: '{T}: Add {C}{C}.', type_line: 'Artifact' },          // Ramp
+  }
+
+  it('uses the confident oracle-text role and ignores the plan role', () => {
+    // The plan (stale) says Synergy, but the oracle clearly makes it Removal.
+    const roleByName = new Map([['counterspell', ROLE_SYNERGY]])
+    expect(roleOfDeckCard({ scryfall_id: 's1', name: 'Counterspell' }, sfMap, roleByName))
+      .toBe(ROLE_REMOVAL)
+  })
+
+  it('falls back to the plan role only when oracle text is non-functional', () => {
+    // s2 has no usable oracle (→ Synergy by text), so EDHREC re-bucketing wins.
+    const roleByName = new Map([['mystery rock', ROLE_RAMP]])
+    expect(roleOfDeckCard({ scryfall_id: 's2', name: 'Mystery Rock' }, sfMap, roleByName))
+      .toBe(ROLE_RAMP)
+  })
+
+  it('lands in Synergy when neither oracle nor plan classify it', () => {
+    expect(roleOfDeckCard({ scryfall_id: 's2', name: 'Unknown' }, sfMap, new Map()))
+      .toBe(ROLE_SYNERGY)
+  })
+
+  it('is missing-sfMap tolerant (no entry → relies on the plan / Synergy)', () => {
+    expect(roleOfDeckCard({ scryfall_id: 'absent', name: 'X' }, sfMap, new Map())).toBe(ROLE_SYNERGY)
+  })
+})
+
+describe('countByRole', () => {
+  const sfMap = {
+    s1: { oracle_text: 'Counter target spell.', type_line: 'Instant' },
+    s3: { oracle_text: '{T}: Add {C}{C}.', type_line: 'Artifact' },
+    sL: { oracle_text: '', type_line: 'Basic Land — Forest' },
+  }
+  it('buckets each deck card and excludes the commander, summing qty', () => {
+    const deckCards = [
+      { scryfall_id: 'cmd', name: 'Cmd', is_commander: true, qty: 1 },
+      { scryfall_id: 's1', name: 'Counterspell', qty: 1 },
+      { scryfall_id: 's3', name: 'Sol Ring', qty: 1 },
+      { scryfall_id: 'sL', name: 'Forest', qty: 8 },
+    ]
+    const counts = countByRole(deckCards, sfMap, new Map())
+    expect(counts.get(ROLE_REMOVAL)).toBe(1)
+    expect(counts.get(ROLE_RAMP)).toBe(1)
+    expect(counts.get(ROLE_LANDS)).toBe(8)   // qty summed
+    expect(counts.get(ROLE_WIPE)).toBe(0)
+  })
+})
+
+// ── pickCheapestEnglish ───────────────────────────────────────────────────────
+describe('pickCheapestEnglish', () => {
+  it('skips a cheaper foreign printing and picks the cheapest English one', () => {
+    // Sorted cheapest-first: a foreign printing is cheapest, but must be skipped.
+    const candidates = [
+      { id: 'zhs', price: 0.50 },
+      { id: 'en1', price: 0.72 },
+      { id: 'en2', price: 1.20 },
+    ]
+    const langById = new Map([['zhs', 'zhs'], ['en1', 'en'], ['en2', 'en']])
+    expect(pickCheapestEnglish(candidates, langById).id).toBe('en1')
+  })
+
+  it('returns null when no candidate is English', () => {
+    const candidates = [{ id: 'ja', price: 1 }, { id: 'de', price: 2 }]
+    const langById = new Map([['ja', 'ja'], ['de', 'de']])
+    expect(pickCheapestEnglish(candidates, langById)).toBeNull()
+  })
+
+  it('tolerates empty input', () => {
+    expect(pickCheapestEnglish([], new Map())).toBeNull()
+    expect(pickCheapestEnglish(null, new Map())).toBeNull()
   })
 })
