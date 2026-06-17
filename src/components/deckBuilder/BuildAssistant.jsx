@@ -148,10 +148,18 @@ const BUDGET_CHIPS = [null, 1, 5, 20]
 
 // Suggestion source options (shown only when recommander returns picks).
 const SUGGESTION_SOURCES = [
-  { id: 'both', label: 'EDHREC + Recommander' },
-  { id: 'edhrec', label: 'EDHREC' },
-  { id: 'recommander', label: 'Recommander' },
+  { id: 'both', label: 'EDHREC + Recommander', desc: 'EDHREC staples blended with deck-aware picks' },
+  { id: 'edhrec', label: 'EDHREC', desc: 'What real decks for this commander run, by inclusion %' },
+  { id: 'recommander', label: 'Recommander', desc: 'Deck-aware ML picks that fit your current list' },
 ]
+
+// One-line meaning for each Commander Bracket, shown under the option.
+const BRACKET_DESC = {
+  1: 'Ultra-casual — no Game Changers',
+  2: 'Average precon power level',
+  3: 'Upgraded — a few Game Changers',
+  4: 'High-power, no restrictions',
+}
 
 // Mana pip colors for the manabase step. A color is "thin" (amber) below this
 // many sources — a soft floor, not a hard rule.
@@ -260,7 +268,7 @@ function CardTile({ name, sfCard, fallbackImg, pips, inclusion, tag, price, flag
 // it renders as a positioned panel on desktop and a bottom sheet on touch. The
 // trigger shows a small uppercase label + the current value; `portal` keeps the
 // panel from being clipped by the modal's overflow.
-function ControlMenu({ label, valueLabel, title, disabled, busy, children }) {
+function ControlMenu({ label, valueLabel, title, hint, disabled, busy, children }) {
   return (
     <ResponsiveMenu
       title={title || label}
@@ -276,6 +284,7 @@ function ControlMenu({ label, valueLabel, title, disabled, busy, children }) {
           disabled={disabled}
           aria-haspopup="menu"
           aria-expanded={disabled ? false : open}
+          title={hint || undefined}
         >
           <span className={styles.ctrlLabel}>{label}</span>
           <span className={styles.ctrlValue}>{busy ? 'updating…' : valueLabel}</span>
@@ -296,15 +305,24 @@ function ControlMenu({ label, valueLabel, title, disabled, busy, children }) {
 }
 
 // One option row inside a ControlMenu — mirrors the Select dropdown styling
-// (label on the left, a check on the active row).
-function MenuOption({ active, onClick, children }) {
+// (label on the left, a check on the active row). `desc` adds a muted sub-line
+// explaining the option (so the dropdowns keep the guidance the old chips had).
+function MenuOption({ active, onClick, children, desc }) {
   return (
     <button
       type="button"
       className={`${uiStyles.responsiveMenuAction}${active ? ' ' + uiStyles.responsiveMenuActionActive : ''}`}
       onClick={onClick}
+      title={typeof desc === 'string' ? desc : undefined}
     >
-      <span>{children}</span>
+      {desc ? (
+        <span className={styles.menuOptText}>
+          <span>{children}</span>
+          <span className={styles.menuOptDesc}>{desc}</span>
+        </span>
+      ) : (
+        <span>{children}</span>
+      )}
       <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">
         {active ? <CheckIcon size={11} /> : ''}
       </span>
@@ -1095,14 +1113,52 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     <Modal onClose={onClose} className={styles.modal} contentClassName={styles.modalContent}>
       <div className={styles.body}>
         <div className={styles.header}>
-          <div>
-            <div className={styles.title}>Build Assistant</div>
-            <div className={styles.commander}>{commander.name}</div>
-          </div>
-          {!onSummary && (
-            <div className={styles.stepCounter}>Step {stepIndex + 1} of {steps.length}</div>
+          <span className={styles.title}>Build Assistant</span>
+          <span className={styles.commander}>{commander.name}</span>
+          {!loading && !error && (
+            <div className={styles.controlsReadouts}>
+              {gameChangers && deckBracket && (
+                <button
+                  type="button"
+                  className={`${styles.bracketNow} ${styles.bracketBtn}${overTarget ? ' ' + styles.bracketOver : ''}`}
+                  onClick={() => setShowBracketReasons(v => !v)}
+                  aria-expanded={showBracketReasons}
+                  title={`Estimated Commander Bracket: ${deckBracket.bracket} (${BRACKET_LABELS[deckBracket.bracket]})`
+                    + (deckBracket.combosChecked ? '' : ' — combos not checked yet, may rise')
+                    + '. Tap to see what drives it.'}
+                >
+                  B{deckBracket.bracket} · {BRACKET_LABELS[deckBracket.bracket]}
+                  {!deckBracket.combosChecked && <WarningIcon size={11} />}
+                  <ChevronDownIcon
+                    size={10}
+                    className={`${styles.bracketCaret}${showBracketReasons ? ' ' + styles.bracketCaretOpen : ''}`}
+                  />
+                </button>
+              )}
+              <span className={styles.deckValue} title="Estimated value of the current deck">
+                {formatPrice(deckValue, price_source)}
+              </span>
+            </div>
           )}
         </div>
+
+        {/* Bracket "why" disclosure — near the estimate badge. */}
+        {!loading && !error && gameChangers && deckBracket && showBracketReasons && (
+          <div className={styles.bracketReasons}>
+            {deckBracket.reasons.length ? (
+              deckBracket.reasons.map((r, i) => (
+                <span
+                  key={i}
+                  className={`${styles.bracketReason}${targetBracket != null && r.level > targetBracket ? ' ' + styles.bracketReasonOver : ''}`}
+                >
+                  {r.reason}
+                </span>
+              ))
+            ) : (
+              <span className={styles.bracketReasonNone}>No bracket-raising cards detected yet.</span>
+            )}
+          </div>
+        )}
 
         {/* Connected node stepper — click through categories */}
         <div className={styles.stepper} ref={stepperRef} role="tablist" aria-label="Build steps">
@@ -1147,10 +1203,12 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         {/* Controls: Theme / Bracket / Budget-per-card dropdowns + live readouts */}
         {!loading && !error && (
           <div className={styles.controls}>
+            <div className={styles.controlsGroup}>
             {themes.length > 0 && (
               <ControlMenu
                 label="Theme"
                 title="Deck theme"
+                hint="Re-weight the role targets and suggestions toward an archetype"
                 busy={rebuilding}
                 valueLabel={selectedTheme === ''
                   ? 'Balanced'
@@ -1179,15 +1237,18 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
               <ControlMenu
                 label="Bracket"
                 title="Target bracket"
+                hint="Target power level — flags cards that push the deck above it"
                 valueLabel={targetBracket == null ? 'Any' : `${targetBracket} · ${BRACKET_LABELS[targetBracket]}`}
               >
                 {close => (
                   <>
-                    <MenuOption active={targetBracket == null} onClick={() => { setTargetBracket(null); close() }}>
+                    <MenuOption active={targetBracket == null} onClick={() => { setTargetBracket(null); close() }}
+                      desc="No power-level target">
                       Any
                     </MenuOption>
                     {[1, 2, 3, 4].map(b => (
-                      <MenuOption key={b} active={targetBracket === b} onClick={() => { setTargetBracket(b); close() }}>
+                      <MenuOption key={b} active={targetBracket === b} onClick={() => { setTargetBracket(b); close() }}
+                        desc={BRACKET_DESC[b]}>
                         {b} · {BRACKET_LABELS[b]}
                       </MenuOption>
                     ))}
@@ -1197,8 +1258,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
             )}
 
             <ControlMenu
-              label="Budget / card"
+              label="Budget"
               title="Max price per card"
+              hint="Hide owned cards and suggestions whose cheapest English printing costs more than this"
               valueLabel={maxPrice == null ? 'Any' : `≤ ${formatPrice(maxPrice, price_source)}`}
             >
               {close => (
@@ -1217,6 +1279,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
               <ControlMenu
                 label="Suggestions"
                 title="Suggestion source"
+                hint="Where the 'don't own' picks come from"
                 valueLabel={SUGGESTION_SOURCES.find(s => s.id === suggestionSource)?.label || 'EDHREC + Recommander'}
               >
                 {close => (
@@ -1226,6 +1289,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                         key={s.id}
                         active={suggestionSource === s.id}
                         onClick={() => { setSuggestionSource(s.id); close() }}
+                        desc={s.desc}
                       >
                         {s.label}
                       </MenuOption>
@@ -1234,47 +1298,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                 )}
               </ControlMenu>
             )}
-
-            {/* Live bracket estimate — toggles the reasons disclosure */}
-            {gameChangers && deckBracket && (
-              <button
-                type="button"
-                className={`${styles.bracketNow} ${styles.bracketBtn}${overTarget ? ' ' + styles.bracketOver : ''}`}
-                onClick={() => setShowBracketReasons(v => !v)}
-                aria-expanded={showBracketReasons}
-                title="Show what's affecting the bracket estimate"
-              >
-                Now: B{deckBracket.bracket} {BRACKET_LABELS[deckBracket.bracket]}
-                {!deckBracket.combosChecked ? ' (combos not checked)' : ''}
-                <ChevronDownIcon
-                  size={10}
-                  className={`${styles.bracketCaret}${showBracketReasons ? ' ' + styles.bracketCaretOpen : ''}`}
-                />
-              </button>
-            )}
-
-            {/* Live deck value */}
-            <span className={styles.deckValue} title="Estimated value of the current deck">
-              Deck: {formatPrice(deckValue, price_source)}
-            </span>
-          </div>
-        )}
-
-        {/* Bracket "why" disclosure — touch/keyboard-accessible. */}
-        {!loading && !error && gameChangers && deckBracket && showBracketReasons && (
-          <div className={styles.bracketReasons}>
-            {deckBracket.reasons.length ? (
-              deckBracket.reasons.map((r, i) => (
-                <span
-                  key={i}
-                  className={`${styles.bracketReason}${targetBracket != null && r.level > targetBracket ? ' ' + styles.bracketReasonOver : ''}`}
-                >
-                  {r.reason}
-                </span>
-              ))
-            ) : (
-              <span className={styles.bracketReasonNone}>No bracket-raising cards detected yet.</span>
-            )}
+            </div>
           </div>
         )}
 
@@ -1292,18 +1316,20 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
 
           {!loading && !error && roleData && (
             <>
+              {/* Pinned so the target + progress stay visible while the card
+                  list scrolls. */}
               <div className={styles.roleHead}>
                 <div className={styles.roleHeadTop}>
-                  <div className={styles.roleName}>{currentRoleName}</div>
+                  <div className={styles.roleName} title={ROLE_INFO[currentRoleName]}>{currentRoleName}</div>
                   <div className={styles.roleCount}>
                     {current} / {target}
                     {gap > 0 ? <span className={styles.gap}> · {gap} to go</span>
                              : <span className={styles.met}> · target met</span>}
                   </div>
                 </div>
-                <div className={styles.roleDesc}>{ROLE_INFO[currentRoleName]}</div>
                 <ProgressBar value={pct} />
               </div>
+              <div className={styles.roleDesc}>{ROLE_INFO[currentRoleName]}</div>
 
               {/* Manabase: colored-source counts (Lands step only) */}
               {onLands && cmdColors.length > 0 && (

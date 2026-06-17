@@ -10,7 +10,7 @@
 .body {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   /* Cap to the viewport (minus overlay + modal padding) so the modal never
      exceeds the screen and only .main scrolls — keeps the footer reachable even
      when every chip row wraps. dvh tracks mobile browser-chrome changes. */
@@ -18,32 +18,24 @@
   max-height: min(88dvh, calc(100dvh - 96px));
 }
 
-/* ── Header ───────────────────────────────────────────────────────────────── */
+/* ── Header — title + commander + live readouts on one line ───────────────── */
 .header {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
   padding-right: 28px; /* room for the modal close button */
 }
 
 .title {
   font-family: var(--font-display);
-  font-size: 1.25rem;
+  font-size: 1.15rem;
   color: var(--gold);
 }
 
 .commander {
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   color: var(--text-dim);
-  margin-top: 2px;
-}
-
-.stepCounter {
-  font-size: 0.78rem;
-  color: var(--text-faint);
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
 }
 
 /* ── Connected node stepper ───────────────────────────────────────────────── */
@@ -155,13 +147,25 @@
   flex-shrink: 0;
 }
 
+/* `display: contents` lets the dropdowns flow as direct flex items of .controls
+   (so they wrap inline with the readouts instead of forcing an extra row), while
+   the readouts stay grouped together and pushed right. */
+.controlsGroup { display: contents; }
+
+.controlsReadouts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
 .ctrlWrap { display: inline-flex; }
 
 .ctrlBtn {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 11px;
+  gap: 6px;
+  padding: 5px 9px;
   border-radius: 8px;
   border: 1px solid var(--s-border2);
   background: var(--s2);
@@ -188,11 +192,26 @@
   white-space: nowrap;
 }
 
-.ctrlChevron { color: var(--text-dim); transition: transform 0.15s; flex-shrink: 0; }
+.ctrlChevron { color: var(--text-dim); transition: transform 0.15s; flex-shrink: 0; margin-left: auto; }
 .ctrlChevronOpen { transform: rotate(180deg); }
 
 /* Min-width so the dropdown panel never feels cramped on desktop. */
-.ctrlPanel { min-width: 220px; }
+.ctrlPanel { min-width: 240px; }
+
+/* Option with a muted explanatory sub-line. */
+.menuOptText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.menuOptDesc {
+  font-size: 0.7rem;
+  line-height: 1.3;
+  color: var(--text-faint);
+  white-space: normal;
+}
 
 .deckValue {
   padding: 3px 9px;
@@ -299,7 +318,6 @@
 
 /* Live bracket estimate badge */
 .bracketNow {
-  margin-left: auto;
   padding: 3px 9px;
   border-radius: 6px;
   font-size: 0.74rem;
@@ -410,11 +428,18 @@
   gap: 10px;
 }
 
+/* Pinned to the top of the scroll area so the role's target + progress bar
+   stay visible while the card list scrolls under them. */
 .roleHead {
+  position: sticky;
+  top: 0;
+  z-index: 5;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding-bottom: 4px;
+  background: var(--bg3);
+  padding: 4px 0 10px;
+  box-shadow: 0 6px 8px -6px rgba(0, 0, 0, 0.45);
 }
 
 .roleHeadTop {
@@ -1084,13 +1109,28 @@
 
 @media (max-width: 600px) {
   .body {
+    gap: 8px;
     height: min(92dvh, calc(100dvh - 72px));
     max-height: min(92dvh, calc(100dvh - 72px));
   }
   .grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
   .curve { gap: 6px; }
-  /* Controls stay on one line and dropdowns flex to share the row. */
-  .ctrlValue { max-width: 11ch; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Phones have little vertical room — cull the chrome so cards show sooner. */
+  .title { font-size: 1rem; }
+  /* The role description is available via the role-name tooltip; hide the
+     multi-line copy here so the card grid starts higher. */
+  .roleDesc { display: none; }
+  .roleHead { padding: 2px 0 8px; }
+
+  /* Lay the dropdowns out as a 2-column grid (full-width chips) so they always
+     take 2 rows instead of wrapping to 3. min-width:0 lets the value truncate
+     within its cell instead of overflowing. */
+  .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .ctrlWrap { display: flex; min-width: 0; }
+  .ctrlBtn { width: 100%; min-width: 0; padding: 7px 9px; gap: 5px; }
+  .ctrlLabel { flex-shrink: 0; }
+  .ctrlValue { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 }
 
 /* Touch devices: enlarge the primary tap targets to the project's 40px floor. */
