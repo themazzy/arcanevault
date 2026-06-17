@@ -291,6 +291,29 @@ export async function fetchCardPrintsByOracleIds(oracleIds) {
   return out
 }
 
+// Fetch one printing per card NAME that actually CARRIES oracle text. Used to
+// recover classification metadata for a card whose exact printing's row is
+// missing oracle text (and sometimes oracle_id too) — oracle text is identical
+// across printings, so any printing's text works. Keyed by name because the
+// blank rows can also lack oracle_id. Returns Map<name, row>.
+export async function fetchOracleTextByNames(names) {
+  if (!names?.length) return new Map()
+  const unique = [...new Set(names.filter(Boolean))]
+  const out = new Map()
+  for (const batch of chunkRows(unique, CARD_PRINT_QUERY_BATCH)) {
+    const { data, error } = await sb
+      .from('card_prints')
+      .select(CARD_PRINT_SELECT_COLUMNS)
+      .in('name', batch)
+      .not('oracle_text', 'is', null)
+    if (error) throw error
+    for (const row of data || []) {
+      if (row.name && row.oracle_text && !out.has(row.name)) out.set(row.name, row)
+    }
+  }
+  return out
+}
+
 // Same, but keyed by `set_code|collector_number` for cards that have no
 // scryfall_id locally (legacy data).
 export async function fetchCardPrintsBySetCollector(pairs) {

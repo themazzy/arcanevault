@@ -17,6 +17,9 @@ const cases = [
   ['Stifle (counter ability)',
     'Counter target activated or triggered ability.',
     'Instant', 'Counterspell'],
+  ['Swan Song (comma-separated type list)',
+    'Counter target enchantment, instant, or sorcery spell. Its controller creates a 2/2 blue Bird creature token with flying.',
+    'Instant', 'Counterspell'],
 
   // ── Board Wipe ───────────────────────────────────────────────────────────
   ['Wrath of God',

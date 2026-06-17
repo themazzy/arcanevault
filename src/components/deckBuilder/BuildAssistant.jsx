@@ -7,7 +7,7 @@ import { getInstantCache, getScryfallKey, getPrice, formatPrice } from '../../li
 import { useCombosFetch } from '../../hooks/useCombosFetch'
 import { useSettings } from '../SettingsContext'
 import { fetchEdhrecCommander, fetchCardsByNames, fetchCardsByScryfallIds, fetchRecommenderRecs, fetchPaperPrintingsByNamesFromDb, getCardImageUri } from '../../lib/deckBuilderApi'
-import { fetchCardPrintsByScryfallIds, fetchCardPrintsByOracleIds, cardPrintRowToSfEntry } from '../../lib/cardPrints'
+import { fetchCardPrintsByScryfallIds, fetchCardPrintsByOracleIds, fetchOracleTextByNames, cardPrintRowToSfEntry } from '../../lib/cardPrints'
 import {
   analyzeBracket,
   fetchGameChangerNames,
@@ -77,16 +77,27 @@ function roleNameSet(deckCards) {
   return new Set((deckCards || []).map(c => (c?.name || '').toLowerCase()).filter(Boolean))
 }
 
+// Resolve the build role of a deck card. Oracle-text classification wins when
+// it's confident (returns a non-Synergy role), since it's the most reliable
+// signal; otherwise we defer to the plan's EDHREC-derived role (which can
+// re-bucket cards the regex misses, e.g. a mana rock with no cached oracle).
+// Doing it this way stops a stale/empty plan role (Synergy) from overriding a
+// correct oracle classification — which was emptying every role into Synergy
+// when the assistant opened on a filled deck.
+function roleOfDeckCard(dc, sfMap, roleByName) {
+  const sfCard = sfMap?.[dc?.scryfall_id] || null
+  const byOracle = coarseRole(dc, sfCard)
+  if (byOracle !== ROLE_SYNERGY) return byOracle
+  return roleByName?.get((dc?.name || '').toLowerCase()) || ROLE_SYNERGY
+}
+
 // Live per-role counts from the actual deck contents (not just owned
-// candidates) so progress bars reflect everything in the deck. Prefers the
-// plan's EDHREC-derived role for a card (so a card shown under Ramp also counts
-// as Ramp when added), falling back to local oracle/type classification.
+// candidates) so progress bars reflect everything in the deck.
 function countByRole(deckCards, sfMap, roleByName) {
   const counts = new Map(ROLE_ORDER.map(r => [r, 0]))
   for (const dc of deckCards || []) {
     if (dc?.is_commander) continue
-    const sfCard = sfMap?.[dc?.scryfall_id] || null
-    const role = roleByName?.get((dc?.name || '').toLowerCase()) || coarseRole(dc, sfCard)
+    const role = roleOfDeckCard(dc, sfMap, roleByName)
     counts.set(role, (counts.get(role) || 0) + (dc.qty || 1))
   }
   return counts
@@ -478,6 +489,52 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           const print = c?.card_print_id ? printById.get(c.card_print_id) : null
           return print?.scryfall_id ? { ...c, scryfall_id: print.scryfall_id } : c
         })
+        // Oracle text for the cards already in the deck, up front (one fast
+        // Supabase query). deck_cards_view carries no oracle text, so without
+        // this every existing deck card classifies as Synergy until the much
+        // larger owned-collection backfill finishes — which on big collections
+        // can take many seconds, leaving the other roles looking empty.
+        const deckIds = [...new Set(
+          (deckCards || [])
+            .filter(dc => !dc?.is_commander && dc?.scryfall_id && !sfById[dc.scryfall_id]?.oracle_text)
+            .map(dc => dc.scryfall_id),
+        )]
+        if (deckIds.length) {
+          try {
+            const printRows = await fetchCardPrintsByScryfallIds(deckIds)
+            // Some printings' rows carry no oracle text (and sometimes no
+            // oracle_id either); remember the card name so we can recover the
+            // text from a sibling printing below.
+            const needOracle = [] // { sid, name }
+            const idToName = new Map((deckCards || []).map(dc => [dc.scryfall_id, dc.name]))
+            for (const sid of deckIds) {
+              const row = printRows.get(sid)
+              const entry = row ? cardPrintRowToSfEntry(row) : null
+              if (entry) sfById[sid] = overlayNonNull(sfById[sid], entry)
+              const name = row?.name || idToName.get(sid)
+              if (!sfById[sid]?.oracle_text && name) needOracle.push({ sid, name })
+            }
+            // Fallback: pull oracle text (+ type/keywords) from any printing of
+            // the same card that has it. Oracle text is identical across
+            // printings, so this fixes cards whose exact printing's row is blank
+            // (otherwise they'd misclassify as Synergy). Keyed by name because
+            // the blank rows can also lack oracle_id. Art/price are left as the
+            // deck's own printing — only classification fields are overlaid.
+            if (needOracle.length) {
+              const byName = await fetchOracleTextByNames(needOracle.map(x => x.name))
+              for (const { sid, name } of needOracle) {
+                const alt = byName.get(name)
+                if (alt?.oracle_text) {
+                  sfById[sid] = overlayNonNull(sfById[sid], {
+                    oracle_text: alt.oracle_text,
+                    type_line: alt.type_line,
+                    keywords: alt.keywords,
+                  })
+                }
+              }
+            }
+          } catch { /* counts will correct once the owned backfill runs */ }
+        }
         const base = analyzeBuildPlan({
           commander,
           ownedCards: ownedNorm,
@@ -640,7 +697,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       if (dc?.is_commander) continue
       const sf = sfMap?.[dc?.scryfall_id] || null
       const name = dc.name || ''
-      const role = roleByName.get(name.toLowerCase()) || coarseRole(dc, sf)
+      const role = roleOfDeckCard(dc, sfMap, roleByName)
       counts.set(role, (counts.get(role) || 0) + (dc.qty || 1))
       const isLand = (sf?.type_line || dc?.type_line || '').toLowerCase().includes('land')
       if (isLand) totalLands += (dc.qty || 1)
@@ -761,6 +818,19 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       if (entry?.oracle_text) continue // already have oracle text → classifiable
       const colors = entry?.color_identity || c?.color_identity || []
       if (!colors.every(col => identity.includes(col))) continue // outside colors
+      seen.add(sid)
+      ids.push(sid)
+    }
+    // Also enrich cards already in the deck. deck_cards_view carries no oracle
+    // text, so without this the live per-role counts (and cut/bracket analysis)
+    // classify every existing deck card as Synergy — emptying the other roles
+    // whenever the assistant opens on a filled deck. No color-identity filter:
+    // a card that's in the deck should be classified regardless.
+    for (const dc of deckCards || []) {
+      if (dc?.is_commander) continue
+      const sid = dc?.scryfall_id
+      if (!sid || seen.has(sid)) continue
+      if (d.sfById[sid]?.oracle_text) continue
       seen.add(sid)
       ids.push(sid)
     }

@@ -85,7 +85,9 @@ export function getCardCategory(oracle = '', typeLine = '', keywords = []) {
   if (t.includes('land')) return 'Land'
 
   // ── Counterspell ──────────────────────────────────────────────────────────
-  if (/counter target [a-z' ]{0,40}(spell|ability)/.test(o)) return 'Counterspell'
+  // Allow commas so type lists match (e.g. Swan Song: "counter target
+  // enchantment, instant, or sorcery spell").
+  if (/counter target [a-z', ]{0,60}(spell|ability)/.test(o)) return 'Counterspell'
   if (/counter (that|the next) (spell|ability)/.test(o)) return 'Counterspell'
 
   // ── Doublers (triggers, tokens, counters, draws — checked early so the
