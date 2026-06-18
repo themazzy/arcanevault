@@ -69,8 +69,9 @@ export function DecksIcon(p) {
 export function BuilderIcon(p) {
   return (
     <Icon {...p}>
-      <path d="M11 2L13 4L7 10L2 14L5 8Z" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" strokeLinejoin="round" />
-      <line x1="10" y1="3" x2="12" y2="5" stroke={p.color ?? 'currentColor'} strokeWidth="1.0" strokeLinecap="round" />
+      <path d="M11.2 3.2 12.8 4.9 5.2 12.5 3.5 10.8 Z" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" strokeLinejoin="round" />
+      <path d="M3.5 10.8 2.6 13.4 5.2 12.5 Z" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" strokeLinejoin="round" />
+      <line x1="9.5" y1="4.9" x2="11.2" y2="6.6" stroke={p.color ?? 'currentColor'} strokeWidth="1.1" strokeLinecap="round" />
     </Icon>
   )
 }
@@ -94,7 +95,7 @@ export function WishlistsIcon(p) {
   return (
     <Icon {...p}>
       <rect x="2" y="2" width="12" height="12" rx="1.2" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" />
-      <path d="M8 5.2L9 7.4l2.4.3-1.7 1.7.4 2.4L8 10.7l-2.1 1.1.4-2.4L4.6 7.7l2.4-.3L8 5.2Z" stroke={p.color ?? 'currentColor'} strokeWidth="1.0" strokeLinejoin="round" />
+      <path d="M8 4.6 8.85 6.83 11.23 6.95 9.38 8.45 10 10.75 8 9.45 6 10.75 6.62 8.45 4.77 6.95 7.15 6.83 Z" stroke={p.color ?? 'currentColor'} strokeWidth="1.0" strokeLinejoin="round" strokeLinecap="round" />
     </Icon>
   )
 }
@@ -133,7 +134,7 @@ export function ScannerIcon(p) {
       <circle cx="8" cy="9" r="2.5" stroke={p.color ?? 'currentColor'} strokeWidth="1.1" />
       <circle cx="8" cy="9" r="0.8" fill={p.color ?? 'currentColor'} />
       <path d="M6 2h4" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" strokeLinecap="round" />
-      <path d="M11.5 4.5l.5-.5" stroke={p.color ?? 'currentColor'} strokeWidth="1.1" strokeLinecap="round" />
+      <circle cx="11.8" cy="6" r="0.7" fill={p.color ?? 'currentColor'} />
     </Icon>
   )
 }
@@ -171,8 +172,9 @@ export function CloseIcon(p) {
 export function EditIcon(p) {
   return (
     <Icon {...p}>
-      <path d="M11 2L13 4L7 10L2 14L5 8Z" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" strokeLinejoin="round" />
-      <line x1="10" y1="3" x2="12" y2="5" stroke={p.color ?? 'currentColor'} strokeWidth="1.0" strokeLinecap="round" />
+      <path d="M11.2 3.2 12.8 4.9 5.2 12.5 3.5 10.8 Z" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" strokeLinejoin="round" />
+      <path d="M3.5 10.8 2.6 13.4 5.2 12.5 Z" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" strokeLinejoin="round" />
+      <line x1="9.5" y1="4.9" x2="11.2" y2="6.6" stroke={p.color ?? 'currentColor'} strokeWidth="1.1" strokeLinecap="round" />
     </Icon>
   )
 }
@@ -318,7 +320,7 @@ export function ListIcon(p) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" className={className} aria-hidden="true">
       <rect x="2" y="2" width="12" height="12" rx="1.2" stroke={color} strokeWidth="1.2" />
-      <path d="M8 5.2L9 7.4l2.4.3-1.7 1.7.4 2.4L8 10.7l-2.1 1.1.4-2.4L4.6 7.7l2.4-.3L8 5.2Z" stroke={color} strokeWidth="1.0" strokeLinejoin="round" />
+      <path d="M8 4.6 8.85 6.83 11.23 6.95 9.38 8.45 10 10.75 8 9.45 6 10.75 6.62 8.45 4.77 6.95 7.15 6.83 Z" stroke={color} strokeWidth="1.0" strokeLinejoin="round" strokeLinecap="round" />
     </svg>
   )
 }
@@ -327,12 +329,11 @@ export function BuilderDeckIcon(p) {
   const { size = 16, color = 'currentColor', className } = p
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" className={className} aria-hidden="true">
-      <rect x="3.5" y="4.5" width="9" height="10" rx="1" stroke={color} strokeWidth="1.2" />
-      <rect x="2" y="3" width="9" height="10" rx="1" stroke={color} strokeWidth="1.1" opacity="0.55" />
-      <line x1="6" y1="7.5" x2="10" y2="7.5" stroke={color} strokeWidth="1.0" strokeLinecap="round" />
-      <line x1="6" y1="9.5" x2="10" y2="9.5" stroke={color} strokeWidth="1.0" strokeLinecap="round" />
-      <path d="M12 1.5l1.5 1.5-1 1-1.5-1.5L12 1.5Z" stroke={color} strokeWidth="1.0" strokeLinejoin="round" />
-      <path d="M9 4.5l2.5-2.5 1.5 1.5-2.5 2.5" stroke={color} strokeWidth="1.0" strokeLinejoin="round" />
+      <rect x="2" y="3" width="9" height="10" rx="1" stroke={color} strokeWidth="1.1" opacity="0.5" />
+      <rect x="4.5" y="4.5" width="9" height="10" rx="1" stroke={color} strokeWidth="1.2" />
+      <line x1="6.8" y1="7" x2="11.2" y2="7" stroke={color} strokeWidth="1.0" strokeLinecap="round" />
+      <line x1="9" y1="9" x2="9" y2="12.4" stroke={color} strokeWidth="1.4" strokeLinecap="round" />
+      <line x1="7.3" y1="10.7" x2="10.7" y2="10.7" stroke={color} strokeWidth="1.4" strokeLinecap="round" />
     </svg>
   )
 }
@@ -446,11 +447,11 @@ export function RestrictedIcon(p) {
 }
 
 export function FoilIcon(p) {
+  const c = p.color ?? 'currentColor'
   return (
     <Icon {...p}>
-      <path d="M8 2l.8 2.4 2.5.1-2 1.6.7 2.4L8 7.2l-2 1.3.7-2.4-2-1.6 2.5-.1L8 2Z" stroke={p.color ?? 'currentColor'} strokeWidth="1.1" strokeLinejoin="round" />
-      <path d="M3.5 10.5l.4 1.2 1.3.1-1 .8.3 1.2-1-.6-1 .6.3-1.2-1-.8 1.3-.1.4-1.2Z" stroke={p.color ?? 'currentColor'} strokeWidth="0.9" strokeLinejoin="round" />
-      <path d="M12 10l.3.9.9.1-.7.6.2.9-.7-.5-.7.5.2-.9-.7-.6.9-.1.3-.9Z" stroke={p.color ?? 'currentColor'} strokeWidth="0.8" strokeLinejoin="round" />
+      <path d="M6.8 4.2 7.79 7.21 10.8 8.2 7.79 9.19 6.8 12.2 5.81 9.19 2.8 8.2 5.81 7.21 Z" fill={c} />
+      <path d="M12 1.6 12.57 3.43 14.4 4 12.57 4.57 12 6.4 11.43 4.57 9.6 4 11.43 3.43 Z" fill={c} />
     </Icon>
   )
 }
@@ -466,12 +467,13 @@ export function StarIcon(p) {
 // ─── Game ──────────────────────────────────────────────────────────────────────
 
 export function SwordIcon(p) {
+  const c = p.color ?? 'currentColor'
   return (
     <Icon {...p}>
-      <line x1="13" y1="3" x2="3" y2="13" stroke={p.color ?? 'currentColor'} strokeWidth="1.4" strokeLinecap="round" />
-      <path d="M13 3l-4 1 3 3 1-4Z" stroke={p.color ?? 'currentColor'} strokeWidth="1.1" strokeLinejoin="round" />
-      <line x1="4.5" y1="9" x2="3" y2="10.5" stroke={p.color ?? 'currentColor'} strokeWidth="1.3" strokeLinecap="round" />
-      <line x1="5.5" y1="11.5" x2="4" y2="13" stroke={p.color ?? 'currentColor'} strokeWidth="1.1" strokeLinecap="round" />
+      <line x1="13" y1="3" x2="6" y2="10" stroke={c} strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M13 3 9.3 3.5 12.5 6.7 Z" stroke={c} strokeWidth="1.1" strokeLinejoin="round" fill={c} />
+      <line x1="4" y1="9" x2="7" y2="12" stroke={c} strokeWidth="1.4" strokeLinecap="round" />
+      <line x1="5.5" y1="10.5" x2="3.3" y2="12.7" stroke={c} strokeWidth="1.4" strokeLinecap="round" />
     </Icon>
   )
 }
@@ -493,13 +495,14 @@ export function LightningIcon(p) {
 }
 
 export function TrophyIcon(p) {
+  const c = p.color ?? 'currentColor'
   return (
     <Icon {...p}>
-      <path d="M5 2h6v5a3 3 0 0 1-6 0V2Z" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" />
-      <path d="M2 2.5h3M11 2.5h3" stroke={p.color ?? 'currentColor'} strokeWidth="1.1" strokeLinecap="round" />
-      <path d="M2 2.5c0 2 1.5 3.5 3 3.5M14 2.5c0 2-1.5 3.5-3 3.5" stroke={p.color ?? 'currentColor'} strokeWidth="1.0" />
-      <line x1="8" y1="10" x2="8" y2="12.5" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" strokeLinecap="round" />
-      <line x1="5" y1="13.5" x2="11" y2="13.5" stroke={p.color ?? 'currentColor'} strokeWidth="1.3" strokeLinecap="round" />
+      <path d="M4.5 2.5h7v3.5a3.5 3.5 0 0 1-7 0V2.5Z" stroke={c} strokeWidth="1.2" strokeLinejoin="round" />
+      <path d="M4.5 3.3C2.2 3.3 2.2 6.6 5 6.8" stroke={c} strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M11.5 3.3C13.8 3.3 13.8 6.6 11 6.8" stroke={c} strokeWidth="1.2" strokeLinecap="round" />
+      <line x1="8" y1="9.5" x2="8" y2="12" stroke={c} strokeWidth="1.3" strokeLinecap="round" />
+      <line x1="5" y1="13.5" x2="11" y2="13.5" stroke={c} strokeWidth="1.4" strokeLinecap="round" />
     </Icon>
   )
 }
@@ -592,17 +595,14 @@ export function LockIcon(p) {
 }
 
 export function BugIcon(p) {
+  const c = p.color ?? 'currentColor'
   return (
     <Icon {...p}>
-      <ellipse cx="8" cy="9" rx="3.5" ry="4.5" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" />
-      <path d="M5 5.5a3 3 0 0 1 6 0" stroke={p.color ?? 'currentColor'} strokeWidth="1.1" />
-      <line x1="8" y1="4.5" x2="8" y2="6" stroke={p.color ?? 'currentColor'} strokeWidth="1.1" strokeLinecap="round" />
-      <line x1="1.5" y1="8" x2="4.5" y2="8" stroke={p.color ?? 'currentColor'} strokeWidth="1.1" strokeLinecap="round" />
-      <line x1="11.5" y1="8" x2="14.5" y2="8" stroke={p.color ?? 'currentColor'} strokeWidth="1.1" strokeLinecap="round" />
-      <line x1="2" y1="11.5" x2="4.5" y2="10.5" stroke={p.color ?? 'currentColor'} strokeWidth="1.0" strokeLinecap="round" />
-      <line x1="14" y1="11.5" x2="11.5" y2="10.5" stroke={p.color ?? 'currentColor'} strokeWidth="1.0" strokeLinecap="round" />
-      <line x1="3" y1="5.5" x2="5" y2="7" stroke={p.color ?? 'currentColor'} strokeWidth="1.0" strokeLinecap="round" />
-      <line x1="13" y1="5.5" x2="11" y2="7" stroke={p.color ?? 'currentColor'} strokeWidth="1.0" strokeLinecap="round" />
+      <ellipse cx="8" cy="8.6" rx="3.3" ry="4.4" stroke={c} strokeWidth="1.2" />
+      <line x1="8" y1="5" x2="8" y2="12.4" stroke={c} strokeWidth="1.0" strokeLinecap="round" />
+      <path d="M6.4 3 7.4 5M9.6 3 8.6 5" stroke={c} strokeWidth="1.1" strokeLinecap="round" />
+      <path d="M4.8 7 2.4 6M4.7 9.2 2.2 9.2M4.9 11.4 2.7 12.6" stroke={c} strokeWidth="1.1" strokeLinecap="round" />
+      <path d="M11.2 7 13.6 6M11.3 9.2 13.8 9.2M11.1 11.4 13.3 12.6" stroke={c} strokeWidth="1.1" strokeLinecap="round" />
     </Icon>
   )
 }
