@@ -54,7 +54,7 @@ const TIPS = {
     bullets: [
       'Save upgrade targets, buy lists, and cards to trade for.',
       'Wishlist cards do not count toward collection value or owned copies.',
-      'Bulk actions only move wishlist items between lists.',
+      'Feature a wishlist on your Trade Post to show others what you want.',
     ],
     actions: [{ label: 'Open trading', to: '/trading' }],
   },
@@ -63,7 +63,7 @@ const TIPS = {
     intro: 'A planning workspace for brewing, imports, stats, combos, and collection sync.',
     bullets: [
       'Build or import decklists before you own every card.',
-      'Use stats and combo tools to tune the list.',
+      'Use the guided Build Assistant, stats, and combo tools to tune the list.',
       'Make a collection deck when the build is ready to become real inventory.',
     ],
     actions: [{ label: 'Browse public decks', to: '/builder?tab=browser' }],
@@ -80,13 +80,13 @@ const TIPS = {
   },
   trading: {
     title: 'Trading',
-    intro: 'Compare both sides of a trade using live prices and exact owned copies.',
+    intro: 'Compare trades, publish a shareable Trade Post, and review proposals.',
     bullets: [
-      'Add cards you are giving and cards you are receiving.',
-      'Custom prices help handle condition, cash, or negotiated values.',
-      'Complete a trade to update local collection placement.',
+      'Compare both sides of a trade using live prices and exact owned copies.',
+      'Open a public Trade Post listing your “For Trade” binder and featured wishlists.',
+      'Receive and accept trade proposals from other players in the Proposals tab.',
     ],
-    actions: [{ label: 'View trade log', to: '/trading?tab=log' }],
+    actions: [{ label: 'Your Trade Post', to: '/trading?tab=post' }],
   },
   'trade-log': {
     title: 'Trade Log',
@@ -138,6 +138,16 @@ const TIPS = {
     ],
     actions: [{ label: 'View game history', to: '/stats?tab=history' }],
   },
+  tournaments: {
+    title: 'Tournaments',
+    intro: 'Run duel or pod events end to end — pairings, results, and standings in one place.',
+    bullets: [
+      'Pick a format and a Single Elimination, Round Robin, or Swiss structure.',
+      'Add players directly or share a join code so they add themselves.',
+      'Record each round and let DeckLoom build the next one and update standings.',
+    ],
+    actions: [{ label: 'Open life tracker', to: '/life' }],
+  },
   scanner: {
     title: 'Scanner',
     intro: 'Camera scanning helps identify cards and send them straight into a binder, deck, or wishlist.',
@@ -152,8 +162,8 @@ const TIPS = {
     title: 'Deck Builder',
     intro: 'The full deck editing workspace — board layout, imports, format checks, recommendations, and collection sync for one specific deck.',
     bullets: [
-      'Drag cards between maindeck, sideboard, considering, and other boards.',
-      'Format legality and commander colour identity are checked as you build.',
+      'Use the Build Assistant to fill a Commander deck role by role from your owned cards.',
+      'Format legality, commander colour identity, and a Commander Bracket estimate update as you build.',
       'Link a builder deck to a collection deck so owned copies stay in sync.',
     ],
     actions: [{ label: 'Try the playtester', to: '' }],
@@ -208,6 +218,7 @@ function getTipId(pathname, search) {
     return 'stats'
   }
   if (pathname === '/life') return 'life'
+  if (pathname === '/tournaments') return 'tournaments'
   if (pathname === '/scanner') return 'scanner'
   if (pathname === '/rules') return 'rules'
   if (pathname === '/settings') return 'settings'

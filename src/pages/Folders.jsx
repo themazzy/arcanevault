@@ -9,13 +9,14 @@ import { useToast } from '../components/ToastContext'
 import { CardGrid, CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
 import { EmptyState, SectionHeader, Button, Modal, ResponsiveHeaderActions, ResponsiveMenu, Select } from '../components/UI'
 import ShareModal from '../components/ShareModal'
+import { isTradeBinder } from '../lib/tradeBinder'
 import AddCardModal from '../components/AddCardModal'
 import ImportModal from '../components/ImportModal'
 import ExportModal from '../components/ExportModal'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import DeckBrowser from './DeckBrowser'
 import styles from './Folders.module.css'
-import { CloseIcon, CheckIcon, AddIcon, SettingsIcon, DeleteIcon, EditIcon, BinderIcon, ImageIcon, ImportIcon, ExportIcon, RemoveIcon, SortIcon, StacksViewIcon } from '../icons'
+import { CloseIcon, CheckIcon, AddIcon, SettingsIcon, DeleteIcon, EditIcon, BinderIcon, ImageIcon, ImportIcon, ExportIcon, RemoveIcon, ShareIcon, SortIcon, StacksViewIcon } from '../icons'
 import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 import { useFilterWorker } from '../hooks/useFilterWorker'
@@ -374,13 +375,14 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
   const value  = meta?.value
   const qty    = meta?.totalQty ?? meta?.count ?? 0
   const bgUrl  = useMemo(() => parseBgUrl(folder.description), [folder.description])
+  const tradeBinder = isTradeBinder(folder)
   const [menuOpen, setMenuOpen] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [renameVal, setRenameVal] = useState('')
   const renameRef = useRef(null)
 
   const longPress = useLongPress(() => {
-    if (selectMode) return
+    if (selectMode || tradeBinder) return
     onEnterSelectMode?.()
     onToggleSelect?.()
   }, { delay: 500 })
@@ -438,10 +440,12 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
         >
           {({ close }) => (
             <div className={uiStyles.responsiveMenuList}>
-              <button className={uiStyles.responsiveMenuAction}
-                onClick={e => { e.stopPropagation(); startRename(); close() }}>
-                <span className={styles.cogMenuItemIcon}><EditIcon size={12} /> Rename</span>
-              </button>
+              {!tradeBinder && (
+                <button className={uiStyles.responsiveMenuAction}
+                  onClick={e => { e.stopPropagation(); startRename(); close() }}>
+                  <span className={styles.cogMenuItemIcon}><EditIcon size={12} /> Rename</span>
+                </button>
+              )}
               <button className={uiStyles.responsiveMenuAction}
                 onClick={e => { e.stopPropagation(); onEditBg(); close() }}>
                 <span className={styles.cogMenuItemIcon}><ImageIcon size={12} /> Set background art</span>
@@ -452,14 +456,18 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
                   <span className={styles.cogMenuItemIcon}><RemoveIcon size={12} /> Clear background</span>
                 </button>
               )}
-              <button className={uiStyles.responsiveMenuAction}
-                onClick={e => { e.stopPropagation(); onMoveToGroup?.(); close() }}>
-                <span className={styles.cogMenuItemIcon}><BinderIcon size={12} /> Move to Group</span>
-              </button>
-              <button className={`${uiStyles.responsiveMenuAction} ${uiStyles.responsiveMenuActionDanger}`}
-                onClick={e => { e.stopPropagation(); onDelete(); close() }}>
-                <span className={styles.cogMenuItemIcon}><DeleteIcon size={12} /> Delete</span>
-              </button>
+              {!tradeBinder && (
+                <button className={uiStyles.responsiveMenuAction}
+                  onClick={e => { e.stopPropagation(); onMoveToGroup?.(); close() }}>
+                  <span className={styles.cogMenuItemIcon}><BinderIcon size={12} /> Move to Group</span>
+                </button>
+              )}
+              {!tradeBinder && (
+                <button className={`${uiStyles.responsiveMenuAction} ${uiStyles.responsiveMenuActionDanger}`}
+                  onClick={e => { e.stopPropagation(); onDelete(); close() }}>
+                  <span className={styles.cogMenuItemIcon}><DeleteIcon size={12} /> Delete</span>
+                </button>
+              )}
             </div>
           )}
         </ResponsiveMenu>
@@ -481,7 +489,10 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
           </div>
         </div>
       ) : (
-        <div className={styles.folderName}>{folder.name}</div>
+        <div className={styles.folderName}>
+          {folder.name}
+          {tradeBinder && <span className={styles.tradeTag}><ShareIcon size={10} /> Trade</span>}
+        </div>
       )}
       <div className={styles.folderMeta}>
         <span>{qty} card{qty !== 1 ? 's' : ''}</span>
@@ -1667,6 +1678,7 @@ export default function FoldersPage({ type }) {
   }
 
   const renameFolder = useCallback(async (folder, newName) => {
+    if (isTradeBinder(folder)) return // the For Trade binder name is protected
     await sb.from('folders').update({ name: newName }).eq('id', folder.id)
     setFolders(prev => prev.map(f => f.id === folder.id ? { ...f, name: newName } : f))
     await invalidateFolderIndexCaches({ includePlacements: false })

@@ -12,7 +12,7 @@ function timeAgo(iso) {
   return `${Math.floor(h / 24)}d`
 }
 
-const VERB = { like: 'liked', comment: 'commented on', follow: 'started following you' }
+const VERB = { like: 'liked', comment: 'commented on', follow: 'started following you', trade_proposal: 'sent you a trade proposal' }
 
 export default function NotificationBell() {
   const [open, setOpen] = useState(false)
@@ -53,7 +53,9 @@ export default function NotificationBell() {
 
   const go = (n) => {
     setOpen(false)
-    if (n.type === 'follow') {
+    if (n.type === 'trade_proposal') {
+      navigate('/trading?tab=proposals')
+    } else if (n.type === 'follow') {
       if (n.actor_name) navigate(`/profile/${encodeURIComponent(n.actor_name)}`)
     } else if (n.deck_id) {
       navigate(`/d/${n.deck_id}`)

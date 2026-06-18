@@ -217,6 +217,11 @@ button.navSubmenuItem {
 /* ── Spacer pushes scan + user bar to the right ── */
 .spacer { flex: 1; }
 
+/* Notification bell sits between the Scan button and the account menu in the
+   desktop pill (.header has no gap). The Scan button supplies 14px on the left;
+   match it on the right so the bell isn't flush against the account menu. */
+.bellSlot { display: inline-flex; align-items: center; margin-right: 14px; }
+
 /* ── Scan CTA button ── */
 .scanBtn {
   display: inline-flex; align-items: center; gap: 6px;

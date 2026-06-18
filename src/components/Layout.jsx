@@ -482,7 +482,7 @@ export default function Layout({ children }) {
                 <ScannerIcon size={13} />Scan
               </NavLink>
 
-              {user && <NotificationBell />}
+              {user && <span className={styles.bellSlot}><NotificationBell /></span>}
 
               <div
                 className={`${styles.userBar} ${styles.accountMenuWrap}`}

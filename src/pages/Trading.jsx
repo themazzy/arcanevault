@@ -24,9 +24,16 @@ import {
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { EmptyState, Modal, ProgressBar, SectionHeader } from '../components/UI'
+import { TradePostManager, ProposalsInbox } from '../components/trade/TradePostPanel'
 import styles from './Trading.module.css'
 
 const SEARCH_LIMIT = 8
+const TRADE_TABS = ['compare', 'post', 'proposals', 'log']
+
+function parseTradeTab(search) {
+  const t = new URLSearchParams(search).get('tab')
+  return TRADE_TABS.includes(t) ? t : 'compare'
+}
 
 function getCollectionCardName(card, sf) {
   return sf?.name || card.name || `${(card.set_code || '').toUpperCase()} #${card.collector_number || ''}`.trim()
@@ -502,10 +509,7 @@ export default function TradingPage() {
   const [offerPicker, setOfferPicker] = useState(null)
   const [wantPicker, setWantPicker] = useState(null)
   const [priceEditor, setPriceEditor] = useState(null)
-  const [tab, setTab] = useState(() => {
-    const params = new URLSearchParams(window.location.search)
-    return params.get('tab') === 'log' ? 'log' : 'compare'
-  })
+  const [tab, setTab] = useState(() => parseTradeTab(window.location.search))
   const [partnerName, setPartnerName] = useState('')
   const [tradeLogRows, setTradeLogRows] = useState([])
   const [tradeLogLoading, setTradeLogLoading] = useState(false)
@@ -1016,9 +1020,7 @@ export default function TradingPage() {
   const delta = wantTotal - offerTotal
 
   useEffect(() => {
-    const params = new URLSearchParams(location.search)
-    const urlTab = params.get('tab') === 'log' ? 'log' : 'compare'
-    setTab(urlTab)
+    setTab(parseTradeTab(location.search))
   }, [location.search])
 
   const loadTradeLog = useCallback(async () => {
@@ -1140,9 +1142,31 @@ export default function TradingPage() {
 
   return (
     <div className={styles.page}>
-      <SectionHeader title={tab === 'log' ? 'Trade Log' : 'Trading'} />
+      <SectionHeader title="Trading" />
 
-      {tab === 'log' ? (
+      <div className={styles.tabBar}>
+        {[
+          ['compare', 'Compare'],
+          ['post', 'Trade Post'],
+          ['proposals', 'Proposals'],
+          ['log', 'Trade Log'],
+        ].map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            className={`${styles.tabBtn}${tab === id ? ' ' + styles.tabBtnActive : ''}`}
+            onClick={() => { setTab(id); window.history.replaceState(null, '', id === 'compare' ? '/trading' : `/trading?tab=${id}`) }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'post' ? (
+        <TradePostManager />
+      ) : tab === 'proposals' ? (
+        <ProposalsInbox />
+      ) : tab === 'log' ? (
         <TradeLogSection rows={tradeLogRows} loading={tradeLogLoading} onRefresh={loadTradeLog} fmt={v => formatPrice(v, price_source)} />
       ) : <>
 

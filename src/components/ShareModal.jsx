@@ -23,7 +23,6 @@ export default function ShareModal({ folder, onClose }) {
   }, [folder.id])
 
   const url = token ? getPublicAppUrl(`/share/${token}`) : ''
-  const isList = folder.type === 'list'
 
   const copy = async () => {
     try {
@@ -41,9 +40,7 @@ export default function ShareModal({ folder, onClose }) {
       {loading ? <p style={{ color: 'var(--text-dim)' }}>Generating link…</p> : (
         <>
           <p style={{ color: 'var(--text-dim)', fontSize: '0.88rem', marginBottom: 12 }}>
-            {isList
-              ? 'Anyone signed in with this link can view this wishlist and mark items as bought — handy for gifts (you won’t see who claimed what):'
-              : `Anyone with this link can view this ${folder.type} (read-only):`}
+            {`Anyone with this link can view this ${folder.type} (read-only):`}
           </p>
           <div style={{ display: 'flex', gap: 8 }}>
             <input readOnly value={url} style={{

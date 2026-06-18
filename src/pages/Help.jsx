@@ -12,15 +12,20 @@ const TOC = [
   { id: 'binders', label: 'Binders' },
   { id: 'decks', label: 'Decks' },
   { id: 'deckbuilder', label: 'Deckbuilder' },
+  { id: 'build-assistant', label: 'Build Assistant' },
+  { id: 'bracket', label: 'Commander Bracket' },
   { id: 'playtester', label: 'Deck Playtester' },
   { id: 'wishlists', label: 'Wishlists' },
   { id: 'trading', label: 'Trading' },
   { id: 'search-filters', label: 'Search, Filters, Sorting, and Views' },
   { id: 'imports', label: 'Imports and Linked Deck Sources' },
   { id: 'stats-prices', label: 'Stats and Prices' },
+  { id: 'set-completion', label: 'Set Completion' },
+  { id: 'tournaments', label: 'Tournaments' },
   { id: 'life-tracker', label: 'Life Tracker' },
   { id: 'profiles', label: 'Public Profiles and Sharing' },
   { id: 'rulebook', label: 'MTG Rulebook' },
+  { id: 'premium', label: 'Premium and Themes' },
   { id: 'settings-sync', label: 'Settings and Sync' },
 ]
 
@@ -52,6 +57,26 @@ const FAQS = [
   {
     q: 'What if a deck import link fails?',
     a: 'Some links are private, expired, or blocked by the source site. If that happens, paste the deck list directly and continue from there.',
+  },
+  {
+    q: 'What does the Build Assistant do?',
+    a: 'It is a guided wizard inside Deckbuilder that walks an EDH/Commander list role by role — ramp, card draw, removal, board wipes, protection, win conditions, synergy, and lands. It surfaces the color-legal cards you already own first and suggests EDHREC picks for the gaps, so you can fill out a deck without leaving the builder.',
+  },
+  {
+    q: 'What is the Commander Bracket on my deck?',
+    a: 'It is an estimate of a Commander deck’s power level on a 1–5 scale (Exhibition, Core, Upgraded, Optimized, cEDH). It looks for Game Changers, mass land denial, extra-turn effects, and two-card combos. It is a guide, not an official rating, and you can override it manually.',
+  },
+  {
+    q: 'Can I link a Deckbuilder deck to an owned Deck?',
+    a: 'Yes. A builder deck and a collection deck can be linked as a pair, and DeckLoom tracks drift between them so you can sync changes in either direction. Opening a linked collection deck takes you to its builder version.',
+  },
+  {
+    q: 'Can I run a tournament in DeckLoom?',
+    a: 'Yes. The Tournaments page supports duel and pod formats (Standard, Modern, Commander, and more) with Single Elimination, Round Robin, or Swiss structures, plus standings and join codes for other players.',
+  },
+  {
+    q: 'How do I unlock the premium themes?',
+    a: 'Premium themes are part of DeckLoom premium. The flag is set on the server after checkout, not from the app, so once your purchase is confirmed the premium themes become selectable in Settings.',
   },
 ]
 
@@ -171,7 +196,7 @@ export default function HelpPage() {
                 </tr>
                 <tr>
                   <td>Deckbuilder</td>
-                  <td>Plan decks before every card is owned, imported, or assigned.</td>
+                  <td>Plan decks before every card is owned, imported, or assigned — with a guided Build Assistant and Commander Bracket estimate.</td>
                 </tr>
                 <tr>
                   <td>Wishlists</td>
@@ -184,6 +209,10 @@ export default function HelpPage() {
                 <tr>
                   <td>Stats</td>
                   <td>Review collection value, top cards, deck value, and broader collection trends.</td>
+                </tr>
+                <tr>
+                  <td>Tournaments</td>
+                  <td>Run duel or pod events with Single Elimination, Round Robin, or Swiss pairings, standings, and join codes.</td>
                 </tr>
                 <tr>
                   <td>Life Tracker</td>
@@ -472,6 +501,13 @@ export default function HelpPage() {
             before you fill that idea with real cards from your collection.
           </Callout>
 
+          <Callout kind="tip" title="Linked deck pairs">
+            A Deckbuilder deck and an owned Deck can be linked as a pair. DeckLoom then tracks the
+            difference between the plan and the owned version so you can sync changes in either
+            direction, and linked decks show a sync badge. Opening a linked owned deck takes you
+            straight to its Deckbuilder version so edits land in the right place.
+          </Callout>
+
           <ScreenshotPlaceholder label="Owned deck view with deck cards, value, and deck actions." />
         </section>
 
@@ -515,6 +551,109 @@ export default function HelpPage() {
           </Callout>
 
           <ScreenshotPlaceholder label="Deckbuilder screen with planned list, grouping controls, and external links." />
+        </section>
+
+        <section id="build-assistant" className={styles.section}>
+          <h2>Build Assistant</h2>
+          <p>
+            The Build Assistant is a guided wizard inside Deckbuilder for Commander and other
+            EDH-style decks. Instead of staring at a blank list, it walks you through the deck one
+            role at a time and shows you the cards that fit each role — putting the cards you
+            already own first and suggesting options for the gaps.
+          </p>
+          <p>
+            It is meant to take a commander and a rough idea and turn it into a coherent,
+            well-rounded list without you having to remember every category a good deck needs.
+          </p>
+
+          <div className={styles.cardGrid}>
+            <article className={styles.infoCard}>
+              <h3>Roles it walks you through</h3>
+              <ul className={styles.list}>
+                <li>Ramp — mana acceleration to deploy ahead of curve</li>
+                <li>Card advantage — draw engines and tutors</li>
+                <li>Removal and board wipes</li>
+                <li>Protection for your commander and key pieces</li>
+                <li>Win conditions and finishers</li>
+                <li>Synergy cards and the mana base</li>
+              </ul>
+            </article>
+            <article className={styles.infoCard}>
+              <h3>How it helps</h3>
+              <ul className={styles.list}>
+                <li>Shows your owned, color-legal cards for each role first</li>
+                <li>Suggests EDHREC picks for cards you do not own yet</li>
+                <li>Tracks how close each role is to a healthy target count</li>
+                <li>Lets you add owned cards or planned upgrades as you go</li>
+                <li>Can suggest basic lands to round out the mana base</li>
+              </ul>
+            </article>
+          </div>
+
+          <Callout kind="tip" title="Owned first, gaps second">
+            Because the assistant surfaces what you already own before suggesting purchases, it is a
+            fast way to see how much of a deck you can build right now versus what still belongs on a
+            Wishlist.
+          </Callout>
+
+          <Callout kind="note" title="It adds to the planning list">
+            Cards added through the assistant go into the Deckbuilder list (the intended contents),
+            not your owned collection. Unowned suggestions are fine to add here — turn the finished
+            plan into an owned Deck once it matches the cards you actually have.
+          </Callout>
+        </section>
+
+        <section id="bracket" className={styles.section}>
+          <h2>Commander Bracket</h2>
+          <p>
+            For Commander decks, DeckLoom estimates a power level using the community 1–5 bracket
+            scale. It is shown as a clickable badge in the deck stats, and opening it explains why
+            the deck landed where it did.
+          </p>
+
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>Bracket</th>
+                  <th>Roughly means</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>1 — Exhibition</td><td>Casual, theme-first decks built for fun over power.</td></tr>
+                <tr><td>2 — Core</td><td>Typical precon-level decks and gentle upgrades.</td></tr>
+                <tr><td>3 — Upgraded</td><td>Tuned decks with stronger cards and a clearer plan.</td></tr>
+                <tr><td>4 — Optimized</td><td>Highly tuned decks pushing toward the top of the format.</td></tr>
+                <tr><td>5 — cEDH</td><td>Competitive EDH built to win as fast and consistently as possible.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div className={styles.cardGrid}>
+            <article className={styles.infoCard}>
+              <h3>What it looks at</h3>
+              <ul className={styles.list}>
+                <li>Game Changers — the format’s flagged high-power cards</li>
+                <li>Mass land denial</li>
+                <li>Extra-turn effects</li>
+                <li>Known two-card combos</li>
+              </ul>
+            </article>
+            <article className={styles.infoCard}>
+              <h3>Good to know</h3>
+              <ul className={styles.list}>
+                <li>The badge lists the specific cards that influenced the estimate</li>
+                <li>You can set a manual 1–5 override if you disagree</li>
+                <li>It only appears for Commander/EDH decks</li>
+              </ul>
+            </article>
+          </div>
+
+          <Callout kind="note" title="An estimate, not an official rating">
+            The bracket is a helpful conversation starter for matching decks at a table. It is not an
+            official Wizards rating, and edge cases exist — use the manual override when you know your
+            deck better than the heuristic does.
+          </Callout>
         </section>
 
         <section id="playtester" className={styles.section}>
@@ -595,31 +734,41 @@ export default function HelpPage() {
         <section id="trading" className={styles.section}>
           <h2>Trading</h2>
           <p>
-            Trading is a value-comparison workspace. You can drop in a want list, match it against
-            cards you actually own, and see two-way totals before agreeing to a trade. It is meant
-            to help you decide whether a deal makes sense, not to negotiate it for you.
+            Trading has three parts: a value-comparison workspace, a shareable <strong>Trade Post</strong>,
+            and an inbox of trade proposals. Use the tabs at the top of the Trading page to switch between them.
           </p>
 
           <div className={styles.cardGrid}>
             <article className={styles.infoCard}>
-              <h3>Typical workflow</h3>
-              <ol className={styles.numberedList}>
-                <li>Paste or build the list of cards the other person is asking for.</li>
-                <li>Build or paste the list of cards being offered to you.</li>
-                <li>Review the two-way totals and per-card values.</li>
-                <li>Decide whether to proceed, adjust, or walk away.</li>
-              </ol>
+              <h3>Compare</h3>
+              <p>
+                Build both sides of a trade, match them against cards you actually own, and see two-way
+                totals and per-card values before agreeing to a deal.
+              </p>
             </article>
             <article className={styles.infoCard}>
-              <h3>Useful for</h3>
-              <ul className={styles.list}>
-                <li>Comparing trade offers at a glance</li>
-                <li>Spotting cards from a want list that you already own</li>
-                <li>Sanity-checking that totals roughly balance</li>
-                <li>Finding the right printings to fulfill a request</li>
-              </ul>
+              <h3>Trade Post</h3>
+              <p>
+                A public page at your trade link showing the cards in your protected <strong>For Trade</strong>
+                binder (your haves) and the wishlists you choose to feature (your wants). Toggle “open to
+                trades” when you’re ready to share it.
+              </p>
+            </article>
+            <article className={styles.infoCard}>
+              <h3>Proposals</h3>
+              <p>
+                Signed-in viewers of your Trade Post can send you proposals — which cards of yours they
+                want and what they’d give. They arrive in your Proposals tab and your notifications, where
+                you can accept or decline.
+              </p>
             </article>
           </div>
+
+          <Callout kind="tip" title="Cards you trade away stay in your collection">
+            Your “For Trade” binder is a normal, protected binder: the cards in it are still owned and
+            counted in your collection. It just marks what you’re willing to trade. Add or remove cards
+            from it in Binders.
+          </Callout>
 
           <Callout kind="note" title="Prices are informational">
             Trade values use the same price source you have selected in Settings. Marketplaces and
@@ -752,7 +901,87 @@ export default function HelpPage() {
             </article>
           </div>
 
+          <Callout kind="tip" title="Value over time">
+            DeckLoom records a daily snapshot of your collection value, so Stats can show how your
+            total has trended over time rather than just today’s number. The history builds up as you
+            keep using the app.
+          </Callout>
+
+          <Callout kind="note" title="Manual price overrides">
+            If a card’s market price does not match what you paid or how you value it, you can set a
+            manual override. The app then uses your number for that card in value displays, while
+            everything else continues to follow your selected price source.
+          </Callout>
+
           <ScreenshotPlaceholder label="Stats or value page showing top cards, deck values, and collection insights." />
+        </section>
+
+        <section id="set-completion" className={styles.section}>
+          <h2>Set Completion</h2>
+          <p>
+            Set Completion helps you track how far along you are toward owning a full set. It compares
+            the cards you own against the cards in a set and shows what is still missing, so you can
+            see your progress at a glance and plan what to chase next.
+          </p>
+
+          <div className={styles.cardGrid}>
+            <article className={styles.infoCard}>
+              <h3>What it shows</h3>
+              <ul className={styles.list}>
+                <li>Which cards from a set you already own</li>
+                <li>The cards you are still missing</li>
+                <li>The estimated cost to finish the set</li>
+              </ul>
+            </article>
+            <article className={styles.infoCard}>
+              <h3>What you can do with it</h3>
+              <ul className={styles.list}>
+                <li>Turn a set into a focused collecting project</li>
+                <li>Send the missing cards straight to a Wishlist</li>
+                <li>Decide whether finishing a set is worth the remaining cost</li>
+              </ul>
+            </article>
+          </div>
+
+          <Callout kind="tip" title="Pair it with a Binder">
+            Set projects work well alongside a dedicated Binder for that set — the Binder mirrors what
+            you physically have, and Set Completion tells you what is left to find.
+          </Callout>
+        </section>
+
+        <section id="tournaments" className={styles.section}>
+          <h2>Tournaments</h2>
+          <p>
+            The Tournaments page lets you run an event from setup to final standings. It supports both
+            one-on-one (duel) and multiplayer (pod) formats and handles pairings and results for you,
+            so you can focus on playing instead of bookkeeping.
+          </p>
+
+          <div className={styles.cardGrid}>
+            <article className={styles.infoCard}>
+              <h3>Formats and structures</h3>
+              <ul className={styles.list}>
+                <li>Duel formats like Standard, Pioneer, Modern, Pauper, and Draft</li>
+                <li>Pod formats like Commander, Oathbreaker, and Planechase</li>
+                <li>Single Elimination, Round Robin, and Swiss pairings</li>
+                <li>Custom duel and custom pod options for house formats</li>
+              </ul>
+            </article>
+            <article className={styles.infoCard}>
+              <h3>Running an event</h3>
+              <ol className={styles.numberedList}>
+                <li>Choose a format and a structure.</li>
+                <li>Add players, or share a join code so they add themselves.</li>
+                <li>Record results each round.</li>
+                <li>Let DeckLoom build the next round and update standings.</li>
+              </ol>
+            </article>
+          </div>
+
+          <Callout kind="tip" title="Join codes for the table">
+            Like the Life Tracker, tournaments use a join code so other players can join from their own
+            device instead of you entering everyone by hand.
+          </Callout>
         </section>
 
         <section id="life-tracker" className={styles.section}>
@@ -830,6 +1059,12 @@ export default function HelpPage() {
             </article>
           </div>
 
+          <Callout kind="tip" title="Want to share what you trade?">
+            Wishlists are no longer shared on their own. Instead, open a <strong>Trade Post</strong> from
+            the Trading page: it publishes the cards in your “For Trade” binder plus the wishlists you
+            choose to feature, and other players can send you trade proposals from it.
+          </Callout>
+
           <Callout kind="note" title="Privacy is opt-in">
             Your profile is only as public as you choose to make it. If a block is disabled, the
             information behind that block is not exposed on the public page. You can change the
@@ -876,6 +1111,39 @@ export default function HelpPage() {
             The Rulebook reproduces the comprehensive rules published by Wizards of the Coast. For
             tournament-level disputes, the head judge&apos;s decision and the official policy
             documents still take precedence.
+          </Callout>
+        </section>
+
+        <section id="premium" className={styles.section}>
+          <h2>Premium and Themes</h2>
+          <p>
+            DeckLoom is free to use, and a premium upgrade unlocks extra appearance options —
+            including a set of premium themes — for players who want to customize the look of the app
+            further.
+          </p>
+
+          <div className={styles.cardGrid}>
+            <article className={styles.infoCard}>
+              <h3>What premium adds</h3>
+              <ul className={styles.list}>
+                <li>Additional premium themes in Settings</li>
+                <li>A more personalized look for the app</li>
+              </ul>
+            </article>
+            <article className={styles.infoCard}>
+              <h3>How it activates</h3>
+              <ul className={styles.list}>
+                <li>Premium is unlocked after a successful checkout</li>
+                <li>The status is applied from the server, not from the app itself</li>
+                <li>Once confirmed, the premium themes become selectable in Settings</li>
+              </ul>
+            </article>
+          </div>
+
+          <Callout kind="note" title="If a premium theme is not showing yet">
+            Premium is granted on the server side after purchase, so there can be a short delay while
+            the app confirms it. Once confirmed, the premium themes appear in the theme picker
+            automatically — there is nothing to toggle on manually.
           </Callout>
         </section>
 

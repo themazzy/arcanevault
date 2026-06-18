@@ -1,0 +1,68 @@
+.panel { display: flex; flex-direction: column; gap: 16px; }
+.intro {
+  font-size: 0.9rem; line-height: 1.5; color: var(--text-dim);
+  padding: 12px 14px; background: var(--s2); border: 1px solid var(--s-border); border-radius: 10px;
+}
+
+.row {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 12px 14px; background: var(--bg2); border: 1px solid var(--s-border); border-radius: 10px;
+}
+.rowTitle { font-weight: 600; font-size: 0.92rem; }
+.rowSub { font-size: 0.8rem; color: var(--text-faint); margin-top: 2px; }
+
+.toggle {
+  flex: 0 0 auto; width: 46px; height: 26px; border-radius: 999px;
+  background: var(--s3); border: 1px solid var(--s-border2); cursor: pointer; position: relative;
+  transition: background 0.15s, border-color 0.15s;
+}
+.toggleOn { background: rgba(201,168,76,0.35); border-color: var(--gold); }
+.knob {
+  position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--text); transition: transform 0.15s;
+}
+.toggleOn .knob { transform: translateX(20px); background: var(--gold); }
+
+.block {
+  padding: 12px 14px; background: var(--bg2); border: 1px solid var(--s-border); border-radius: 10px;
+}
+.blockLabel {
+  font-family: var(--font-display); font-size: 0.68rem; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--text-faint); margin-bottom: 10px;
+}
+.linkRow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.linkInput {
+  flex: 1; min-width: 200px; background: var(--s2); border: 1px solid var(--s-border2);
+  border-radius: 6px; padding: 8px 11px; color: var(--text); font-size: 0.82rem; outline: none;
+}
+.previewLink { font-size: 0.82rem; color: var(--text-dim); text-decoration: none; }
+.previewLink:hover { color: var(--gold); }
+
+.haves { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 0.88rem; }
+.manageLink { font-size: 0.82rem; color: var(--gold); text-decoration: none; }
+.manageLink:hover { text-decoration: underline; }
+
+.wishlist { display: flex; flex-direction: column; gap: 8px; }
+.wishItem { display: flex; align-items: center; gap: 9px; font-size: 0.88rem; cursor: pointer; }
+.wishItem input { width: 16px; height: 16px; accent-color: var(--gold); }
+
+/* ── Inbox ── */
+.inbox { display: flex; flex-direction: column; gap: 12px; }
+.proposal {
+  padding: 14px; background: var(--bg2); border: 1px solid var(--s-border);
+  border-left: 3px solid var(--s-border2); border-radius: 10px;
+}
+.status_pending  { border-left-color: var(--gold); }
+.status_accepted { border-left-color: var(--green); opacity: 0.9; }
+.status_declined, .status_cancelled { border-left-color: var(--text-faint); opacity: 0.7; }
+
+.propHead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.propStatus { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); }
+.propGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 600px) { .propGrid { grid-template-columns: 1fr; } }
+.propLabel { display: block; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); margin-bottom: 5px; }
+.propCards { display: flex; flex-wrap: wrap; gap: 5px; }
+.propChip { padding: 2px 8px; border-radius: 999px; background: var(--s2); border: 1px solid var(--s-border2); font-size: 0.76rem; }
+.propEmpty { color: var(--text-faint); }
+.propNote { margin-top: 10px; font-style: italic; color: var(--text-dim); font-size: 0.86rem; }
+.propActions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }

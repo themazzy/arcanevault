@@ -81,6 +81,7 @@ const FoldersPage = lazy(() => import('./pages/Folders'))
 const ListsPage = lazy(() => import('./pages/Lists'))
 const StatsPage = lazy(() => import('./pages/Stats'))
 const SharePage = lazy(() => import('./pages/Share'))
+const TradePage = lazy(() => import('./pages/Trade'))
 const JoinGamePage = lazy(() => import('./pages/JoinGame'))
 const JoinTournamentPage = lazy(() => import('./pages/JoinTournament'))
 const SettingsPage = lazy(() => import('./pages/Settings'))
@@ -160,6 +161,7 @@ export default function App() {
                   <Route path="/credits" element={<CreditsPage />} />
                   <Route path="/delete-account" element={<DeleteAccountPage />} />
                   <Route path="/share/:token" element={<SharePage />} />
+                  <Route path="/trade/:username" element={<TradePage />} />
                   <Route path="/d/:id" element={<DeckViewPage />} />
                   <Route path="/join/:code" element={<JoinGamePage />} />
                   <Route path="/join-tournament/:code" element={<JoinTournamentPage />} />

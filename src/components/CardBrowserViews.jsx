@@ -7,7 +7,7 @@ import { lastInputWasTouch } from '../lib/inputType'
 import { countActive } from './CardComponents'
 import uiStyles from './UI.module.css'
 import styles from '../pages/DeckBrowser.module.css'
-import { AddIcon, CheckIcon, ExportIcon, FilterIcon, GridViewIcon, ImportIcon, SortIcon, StacksViewIcon, TextViewIcon, TableViewIcon } from '../icons'
+import { AddIcon, CheckIcon, ExportIcon, FilterIcon, GridViewIcon, ImportIcon, ShareIcon, SortIcon, StacksViewIcon, TextViewIcon, TableViewIcon } from '../icons'
 import { CAT_ORDER, CAT_COLORS, getCardCategoryFromCard } from '../lib/cardCategory'
 
 const NON_DRAGGABLE_IMG_PROPS = {
@@ -892,6 +892,7 @@ export function CardBrowserViewControls({
   onAddCards,
   onImport,
   onExport,
+  onShare,
 }) {
   const activeFilters = countActive(filters)
   const sortLabel = BROWSER_SORT_OPTIONS.find(([value]) => value === sort)?.[1] || 'Sort'
@@ -1002,6 +1003,17 @@ export function CardBrowserViewControls({
           >
             <ExportIcon size={15} />
             <span>Export</span>
+          </button>
+        )}
+        {onShare && (
+          <button
+            className={styles.mobileControlsBtn}
+            onClick={onShare}
+            title="Share"
+            aria-label="Share"
+          >
+            <ShareIcon size={15} />
+            <span>Share</span>
           </button>
         )}
       </div>

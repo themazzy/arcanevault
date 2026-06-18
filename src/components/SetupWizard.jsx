@@ -3,6 +3,7 @@ import { sb } from '../lib/supabase'
 import { useAuth } from './Auth'
 import { useSettings, THEMES, PREMIUM_THEMES } from './SettingsContext'
 import { PRICE_SOURCES, sfGet } from '../lib/scryfall'
+import { generateAvailableNickname } from '../lib/nicknameGenerator'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './SetupWizard.module.css'
 
@@ -57,6 +58,8 @@ function SetupWizardModal({ onClose, isManual }) {
   const [nickname, setNickname] = useState(settings.nickname || '')
   const [nicknameStatus, setNicknameStatus] = useState('')
   const nicknameTimer = useRef(null)
+  const userTypedRef = useRef(false)
+  const standinStartedRef = useRef(false)
   const [finishing, setFinishing] = useState(false)
 
   const isLast = step === STEPS.length - 1
@@ -68,9 +71,32 @@ function SetupWizardModal({ onClose, isManual }) {
     trimmedNick.toLowerCase() === (settings.nickname || '').toLowerCase()
   const nicknameValid =
     trimmedNick.length > 0 && (nicknameStatus === 'available' || matchesExisting)
-  const needsNickname = !nicknameValid
+  // A name the user typed that we can't accept yet (still checking, or taken).
+  // An empty field is fine now — finishing/skipping falls back to a generated standin.
+  const typedInvalid = trimmedNick.length > 0 && !nicknameValid
+
+  const checkAvailable = useCallback(async (name) => {
+    const { data } = await sb.rpc('is_username_available', { p_username: name })
+    return !!data
+  }, [])
+
+  // Pre-fill an editable standin nickname when the user has none yet, so the field
+  // is never blank. Bails if they already have a nickname or have started typing.
+  useEffect(() => {
+    if (standinStartedRef.current) return
+    if (settings.nickname || trimmedNick) return
+    standinStartedRef.current = true
+    let cancelled = false
+    generateAvailableNickname(checkAvailable).then(name => {
+      if (cancelled || !name || userTypedRef.current) return
+      setNickname(name)
+      setNicknameStatus('available')
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [settings.nickname, trimmedNick, checkAvailable])
 
   const handleNicknameChange = (val) => {
+    userTypedRef.current = true
     setNickname(val)
     clearTimeout(nicknameTimer.current)
     if (!val.trim()) { setNicknameStatus(''); return }
@@ -79,31 +105,46 @@ function SetupWizardModal({ onClose, isManual }) {
     }
     setNicknameStatus('checking')
     nicknameTimer.current = setTimeout(async () => {
-      const { data } = await sb.rpc('is_username_available', { p_username: val.trim() })
-      setNicknameStatus(data ? 'available' : 'taken')
+      try {
+        const { data } = await sb.rpc('is_username_available', { p_username: val.trim() })
+        setNicknameStatus(data ? 'available' : 'taken')
+      } catch { setNicknameStatus('') }
     }, 600)
   }
 
-  const complete = async () => {
-    if (needsNickname) { setStep(PROFILE_STEP); return }
+  // Resolve the nickname to persist: the valid typed name, otherwise a generated
+  // standin. Returns null only when the user typed a name we can't accept yet and
+  // a standin override isn't permitted (i.e. they're finishing, not skipping).
+  const resolveNickname = async ({ allowStandinOverTyped }) => {
+    if (nicknameValid) return trimmedNick
+    if (trimmedNick && !allowStandinOverTyped) return null
+    return await generateAvailableNickname(checkAvailable)
+  }
+
+  const finishWith = async (nick) => {
     setFinishing(true)
-    if (trimmedNick !== (settings.nickname || '')) settings.save({ nickname: trimmedNick })
+    if (nick && nick !== (settings.nickname || '')) settings.save({ nickname: nick })
     await sb.auth.updateUser({ data: { setup_completed: true } })
     localStorage.setItem(SETUP_LOCAL_KEY, '1')
     onClose()
   }
 
+  const complete = async () => {
+    // A half-typed or taken name blocks finishing — bounce back to the profile step.
+    if (typedInvalid) { setStep(PROFILE_STEP); return }
+    const nick = await resolveNickname({ allowStandinOverTyped: false })
+    await finishWith(nick)
+  }
+
+  // Skip = "just give me defaults": ignore any half-typed name and assign a standin.
   const skip = async () => {
-    if (needsNickname) { setStep(PROFILE_STEP); return }
-    setFinishing(true)
-    await sb.auth.updateUser({ data: { setup_completed: true } })
-    localStorage.setItem(SETUP_LOCAL_KEY, '1')
-    onClose()
+    const nick = await resolveNickname({ allowStandinOverTyped: true })
+    await finishWith(nick)
   }
 
   const handleNext = () => {
     if (isLast) { complete(); return }
-    if (step === PROFILE_STEP && needsNickname) return
+    if (step === PROFILE_STEP && typedInvalid) return
     setStep(s => s + 1)
   }
 
@@ -137,7 +178,7 @@ function SetupWizardModal({ onClose, isManual }) {
           {step === 1 && <ThemeStep settings={settings} />}
           {step === 2 && <TextStep settings={settings} />}
           {step === 3 && <PriceStep settings={settings} />}
-          {step === 4 && <ProfileStep nickname={nickname} onChange={handleNicknameChange} status={nicknameStatus} required />}
+          {step === 4 && <ProfileStep nickname={nickname} onChange={handleNicknameChange} status={nicknameStatus} />}
           {step === 5 && <DoneStep />}
         </div>
 
@@ -154,8 +195,8 @@ function SetupWizardModal({ onClose, isManual }) {
               <button
                 className={styles.btnSkip}
                 onClick={skip}
-                disabled={finishing || (step === PROFILE_STEP && needsNickname)}
-                title={step === PROFILE_STEP && needsNickname ? 'A nickname is required to finish setup' : undefined}
+                disabled={finishing}
+                title="Skip setup — we'll fill in your preferences and a nickname"
               >
                 Skip setup
               </button>
@@ -168,8 +209,8 @@ function SetupWizardModal({ onClose, isManual }) {
             <button
               className={styles.btnNext}
               onClick={handleNext}
-              disabled={finishing || (step === PROFILE_STEP && needsNickname)}
-              title={step === PROFILE_STEP && needsNickname ? 'Pick an available nickname to continue' : undefined}
+              disabled={finishing || (step === PROFILE_STEP && typedInvalid)}
+              title={step === PROFILE_STEP && typedInvalid ? 'That nickname is taken — try another or clear it for a random one' : undefined}
             >
               {isLast ? 'Start exploring →' : 'Next →'}
             </button>
@@ -192,10 +233,10 @@ function WelcomeStep() {
         {[
           ['Scan cards', 'Add cards instantly with your phone camera'],
           ['Organise your collection', 'Binders, decks, wishlists, bulk imports'],
-          ['Build & playtest decks', 'Deckbuilder with format checks, plus an in-app goldfish'],
-          ['Multiplayer life tracker', 'Shared join codes, commander damage, counters'],
-          ['Prices & analytics', 'Daily market values, P&L, and collection charts'],
-          ['Trade & share', 'Compare trade values and share decks or your public profile'],
+          ['Build & playtest decks', 'Build Assistant, format checks, Commander bracket, and an in-app goldfish'],
+          ['Life tracker & tournaments', 'Shared join codes, commander damage, and full tournament brackets'],
+          ['Prices & analytics', 'Daily market values, P&L, set completion, and collection charts'],
+          ['Trade & share', 'Compare trade values and share decks, wishlists, or your public profile'],
         ].map(([title, desc]) => (
           <div key={title} className={styles.featureItem}>
             <div className={styles.featureItemTitle}>{title}</div>
@@ -469,14 +510,14 @@ function PriceStep({ settings }) {
   )
 }
 
-function ProfileStep({ nickname, onChange, status, required }) {
+function ProfileStep({ nickname, onChange, status }) {
   return (
     <div className={styles.stepContent}>
       <h2 className={styles.stepTitle}>Pick your nickname</h2>
       <p className={styles.stepDesc}>
-        Your nickname is your identity across DeckLoom. It powers your public profile URL,
-        shared decks, multiplayer life-tracker games, and trade history, so a nickname is
-        required to finish setup.
+        Your nickname is your identity across DeckLoom — it powers your public profile URL,
+        shared decks, multiplayer life-tracker games, and trade history. We&apos;ve filled in
+        a random one to get you started; keep it or type your own.
       </p>
       <input
         className={styles.nicknameInput}
@@ -486,8 +527,6 @@ function ProfileStep({ nickname, onChange, status, required }) {
         onChange={e => onChange(e.target.value)}
         maxLength={24}
         autoFocus
-        required={required}
-        aria-required={required}
       />
       <div className={styles.nicknameMeta}>
         <span>{nickname.length} / 24 characters</span>

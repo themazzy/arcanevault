@@ -867,6 +867,23 @@
   gap: 12px;
   flex-wrap: wrap;
 }
+/* "Trade" tag on the protected For Trade binder card */
+.tradeTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--gold);
+  background: rgba(201, 168, 76, 0.14);
+  border: 1px solid rgba(201, 168, 76, 0.4);
+  vertical-align: middle;
+}
 .addCardsBtn {
   display: inline-flex;
   align-items: center;
