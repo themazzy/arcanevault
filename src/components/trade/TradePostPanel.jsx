@@ -10,6 +10,7 @@ import { getPublicAppUrl } from '../../lib/publicUrl'
 import { ensureTradeBinder } from '../../lib/tradeBinder'
 import {
   getTradeSettings, setTradeSettings,
+  getTradeBinderCards, setTradeCardOptions,
   getTradeProposals, respondToTradeProposal,
 } from '../../lib/tradePost'
 import styles from './TradePostPanel.module.css'
@@ -23,7 +24,7 @@ export function TradePostManager() {
   const [open, setOpen] = useState(false)
   const [wantIds, setWantIds] = useState([])
   const [wishlists, setWishlists] = useState([])
-  const [haveCount, setHaveCount] = useState(null)
+  const [haves, setHaves] = useState([])
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState(false)
 
@@ -34,24 +35,29 @@ export function TradePostManager() {
       setLoading(true)
       try {
         const binder = await ensureTradeBinder(user.id)
-        const [{ trade_open, trade_wants }, listRes, countRes] = await Promise.all([
+        const [{ trade_open, trade_wants }, listRes, binderCards] = await Promise.all([
           getTradeSettings(user.id),
           sb.from('folders').select('id,name,type,description').eq('user_id', user.id).eq('type', 'list'),
-          binder
-            ? sb.from('folder_cards').select('card_id', { count: 'exact', head: true }).eq('folder_id', binder.id)
-            : Promise.resolve({ count: 0 }),
+          binder ? getTradeBinderCards(binder.id) : Promise.resolve([]),
         ])
         if (cancelled) return
         setOpen(trade_open)
         setWantIds(trade_wants)
         setWishlists((listRes.data || []).filter(f => !isGroupFolder(f)))
-        setHaveCount(countRes.count ?? 0)
+        setHaves(binderCards)
+      } catch {
+        if (!cancelled) toast.error('Could not load your trade post.')
       } finally {
         if (!cancelled) setLoading(false)
       }
     })()
     return () => { cancelled = true }
-  }, [user?.id])
+  }, [user?.id, toast])
+
+  const updateHave = (folderCardId, patch, dbPatch) => {
+    setHaves(prev => prev.map(h => h.folderCardId === folderCardId ? { ...h, ...patch } : h))
+    setTradeCardOptions(folderCardId, dbPatch).catch(() => toast.error('Could not save card option.'))
+  }
 
   const persist = useCallback(async (patch) => {
     try { await setTradeSettings(user.id, patch) }
@@ -114,11 +120,49 @@ export function TradePostManager() {
 
       {/* Haves */}
       <div className={styles.block}>
-        <div className={styles.blockLabel}>Trading away</div>
-        <div className={styles.haves}>
-          <span>{haveCount ?? 0} card{haveCount === 1 ? '' : 's'} in your <strong>For Trade</strong> binder.</span>
-          <Link className={styles.manageLink} to="/binders">Manage in Binders →</Link>
+        <div className={styles.haveHead}>
+          <div className={styles.blockLabel}>Trading away ({haves.length})</div>
+          <Link className={styles.manageLink} to="/binders">Add / remove in Binders →</Link>
         </div>
+        {haves.length ? (
+          <div className={styles.haveList}>
+            {haves.map(h => (
+              <div key={h.folderCardId} className={styles.haveRow}>
+                {h.image_uri
+                  ? <img className={styles.haveThumb} src={h.image_uri} alt="" loading="lazy" />
+                  : <div className={styles.haveThumbEmpty} />}
+                <div className={styles.haveMain}>
+                  <div className={styles.haveName}>{h.name || 'Card'}{h.foil ? ' ✦' : ''}</div>
+                  <div className={styles.haveSet}>
+                    {(h.set_code || '').toUpperCase()} #{h.collector_number}{h.qty > 1 ? ` · ×${h.qty}` : ''}
+                  </div>
+                  <input
+                    className={styles.haveNote}
+                    placeholder="Add a note (condition, language…)"
+                    defaultValue={h.note}
+                    maxLength={160}
+                    onBlur={e => {
+                      const note = e.target.value.trim()
+                      if (note !== h.note) updateHave(h.folderCardId, { note }, { trade_note: note || null })
+                    }}
+                  />
+                </div>
+                <label className={styles.anyToggle} title="Trade any printing of this card">
+                  <input
+                    type="checkbox"
+                    checked={h.anyVersion}
+                    onChange={e => updateHave(h.folderCardId, { anyVersion: e.target.checked }, { trade_any_version: e.target.checked })}
+                  />
+                  <span>Any version</span>
+                </label>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className={styles.rowSub}>
+            Your <strong>For Trade</strong> binder is empty. Add owned cards to it in Binders to list them here.
+          </div>
+        )}
       </div>
 
       {/* Wants */}

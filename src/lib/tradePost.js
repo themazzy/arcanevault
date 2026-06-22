@@ -27,6 +27,41 @@ export async function setTradeSettings(userId, patch) {
   if (error) throw error
 }
 
+// Load the cards in the For Trade binder with their per-card trade options
+// (any-version toggle + note), joined to display fields. Flat queries — never
+// the nested folder_cards(cards(*)) select, which silently returns empty.
+export async function getTradeBinderCards(folderId) {
+  if (!folderId) return []
+  const { data: fc } = await sb
+    .from('folder_cards')
+    .select('id, card_id, qty, trade_any_version, trade_note')
+    .eq('folder_id', folderId)
+  if (!fc?.length) return []
+  const ids = fc.map(r => r.card_id)
+  const { data: cards } = await sb
+    .from('owned_cards_view')
+    .select('id, name, set_code, collector_number, foil, image_uri')
+    .in('id', ids)
+  const byId = Object.fromEntries((cards || []).map(c => [c.id, c]))
+  return fc
+    .map(r => ({
+      folderCardId: r.id,
+      cardId: r.card_id,
+      qty: r.qty,
+      anyVersion: !!r.trade_any_version,
+      note: r.trade_note || '',
+      ...(byId[r.card_id] || {}),
+    }))
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+}
+
+// Patch the trade options on one For Trade placement (folder_cards row).
+export async function setTradeCardOptions(folderCardId, patch) {
+  if (!folderCardId) return
+  const { error } = await sb.from('folder_cards').update(patch).eq('id', folderCardId)
+  if (error) throw error
+}
+
 // Public read of someone's trade post. Returns null if no such user, or
 // { open:false, nickname } when they aren't accepting trades.
 export async function getTradePost(username) {

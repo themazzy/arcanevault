@@ -93,6 +93,7 @@
 .cardInfo { padding: 7px 9px 9px; display: flex; flex-direction: column; gap: 2px; }
 .cardName { font-size: 0.8rem; font-weight: 600; line-height: 1.2; }
 .cardMeta { font-size: 0.68rem; color: var(--text-faint); }
+.cardNote { font-size: 0.7rem; color: var(--text-dim); font-style: italic; line-height: 1.25; margin-top: 1px; }
 .cardCheck {
   position: absolute; top: 6px; right: 6px;
   width: 22px; height: 22px; border-radius: 50%;

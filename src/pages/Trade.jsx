@@ -35,9 +35,11 @@ function CardTile({ card, selectable, selected, onToggle }) {
       <div className={styles.cardInfo}>
         <span className={styles.cardName}>{card.name}{card.foil ? ' ✦' : ''}</span>
         <span className={styles.cardMeta}>
-          {(card.set_code || '').toUpperCase()} {card.qty > 1 ? `· ×${card.qty}` : ''}
+          {card.any_version ? 'Any version' : (card.set_code || '').toUpperCase()}
+          {card.qty > 1 ? ` · ×${card.qty}` : ''}
           {card.price != null ? ` · ${eur(card.price)}` : ''}
         </span>
+        {card.note ? <span className={styles.cardNote}>{card.note}</span> : null}
       </div>
       {selectable && <span className={styles.cardCheck}>{selected ? '✓' : '+'}</span>}
     </button>
