@@ -504,7 +504,7 @@ function CacheStatus({ onClear }) {
             </div>
             <div className={styles.cacheSummarySub}>
               <span>Updated {formatAge(info.ageMs)}</span>
-              <span className={styles.cacheOk}>Available offline</span>
+              <span className={styles.cacheOk}>Cached locally</span>
             </div>
           </div>
         </>

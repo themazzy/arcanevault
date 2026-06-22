@@ -16,7 +16,7 @@ const legalLinks = [
   {
     to: '/storage',
     title: 'Cookies and Local Storage',
-    body: 'A plain-language explanation of browser storage, offline cache, and the fact that the app currently does not use ad-tracking cookies.',
+    body: 'A plain-language explanation of browser storage, the local cache, and the fact that the app currently does not use ad-tracking cookies.',
   },
   {
     to: '/credits',
@@ -79,7 +79,7 @@ export default function LegalPage() {
           <h2>What this covers today</h2>
           <ul className={styles.list}>
             <li>How account, settings, collection, feedback, and diagnostic data are handled.</li>
-            <li>What browser storage is used for auth persistence, offline cache, and app preferences.</li>
+            <li>What browser storage is used for auth persistence, the local cache, and app preferences.</li>
             <li>Which external services power card data, sync, exchange rates, and related features.</li>
             <li>How to submit a deletion request in a way that is actually trackable.</li>
           </ul>

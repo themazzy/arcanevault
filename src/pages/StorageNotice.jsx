@@ -13,9 +13,9 @@ export default function StorageNoticePage() {
           <div className={styles.eyebrow}>Cookies and Local Storage</div>
           <h1 className={styles.title}>What the browser stores for DeckLoom</h1>
           <p className={styles.lead}>
-            DeckLoom currently relies on browser storage for session persistence, settings, cache, and
-            offline-first behavior. At the time of writing, the app does not use advertising cookies or
-            analytics trackers, but it does use local browser storage that you should know about.
+            DeckLoom currently relies on browser storage for session persistence, settings, and a local
+            cache that keeps collection reads fast. At the time of writing, the app does not use advertising
+            cookies or analytics trackers, but it does use local browser storage that you should know about.
           </p>
         </div>
 
