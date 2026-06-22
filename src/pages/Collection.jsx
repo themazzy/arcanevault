@@ -56,50 +56,6 @@ function buildCardFolderMap(folderRows, linkRows) {
   return map
 }
 
-function ConnectionStatusBadge({ isOnline, loading, folderMembershipLoading, enriching, importing, syncCount }) {
-  const [visible, setVisible] = useState(false)
-  const [exiting, setExiting] = useState(false)
-  let tone = 'online'
-  let label = 'Online'
-  const isBusy = loading || folderMembershipLoading || enriching || importing
-
-  if (!isOnline) {
-    tone = 'offline'
-    label = 'Offline'
-  } else if (enriching && syncCount > 0) {
-    tone = 'loading'
-    label = `Syncing ${syncCount} card${syncCount !== 1 ? 's' : ''}…`
-  } else if (isBusy) {
-    tone = 'loading'
-    label = 'Loading data'
-  }
-
-  useEffect(() => {
-    if (!isOnline || isBusy) {
-      setVisible(true)
-      setExiting(false)
-      return undefined
-    }
-
-    setVisible(true)
-    setExiting(false)
-    const exitTimer = setTimeout(() => setExiting(true), 2000)
-    const hideTimer = setTimeout(() => setVisible(false), 2400)
-    return () => {
-      clearTimeout(exitTimer)
-      clearTimeout(hideTimer)
-    }
-  }, [isOnline, isBusy])
-
-  if (!visible) return null
-
-  return (
-    <div className={`${styles.connectionBadge} ${styles[`connectionBadge_${tone}`]}${exiting ? ' ' + styles.connectionBadge_exit : ''}`}>
-      <span className={styles.connectionDot} />
-      {label}
-    </div>
-  )
-}
 
 function OrphanModal({ cards, folders, userId, onAssigned, onDeleted }) {
   const [selectedFolderId, setSelectedFolderId] = useState('')
@@ -1417,16 +1373,6 @@ export default function CollectionPage() {
   const selectedCard = detailCardKey ? displayCards.find(c => (c._displayKey || c.id) === detailCardKey) : null
   const selectedSf   = selectedCard ? sfMap[getScryfallKey(selectedCard)] : null
 
-  const floatingStatusBadge = (
-    <ConnectionStatusBadge
-      isOnline={isOnline}
-      loading={loading}
-      folderMembershipLoading={folderMembershipLoading}
-      enriching={enriching}
-      importing={importing}
-      syncCount={syncCount}
-    />
-  )
   const queryHasCardsPendingState = Array.isArray(cardsQuery.data) && cardsQuery.data.length > 0
   const collectionInitialLoading = !cards.length && (
     loading ||
@@ -1439,7 +1385,6 @@ export default function CollectionPage() {
     return (
       <>
         <EmptyState>Loading your collection...</EmptyState>
-        {floatingStatusBadge}
       </>
     )
   }
@@ -1721,8 +1666,6 @@ export default function CollectionPage() {
           }}
         />
       )}
-
-      {floatingStatusBadge}
     </div>
   )
 }

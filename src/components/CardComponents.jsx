@@ -273,6 +273,14 @@ export function BulkActionBar({ selected, total, onSelectAll, onDeselectAll, onD
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const count = selectedQty ?? selected.size
 
+  // Flag the floating mobile bulk bar so the global ActivityStatusBadge can
+  // lift itself above it (both sit bottom-left on phones).
+  useEffect(() => {
+    if (!floatingMobile) return undefined
+    document.body.classList.add('has-bulk-bar')
+    return () => document.body.classList.remove('has-bulk-bar')
+  }, [floatingMobile])
+
   return (
     <div className={`${styles.bulkBar}${floatingMobile ? ` ${styles.bulkBarFloatingMobile}` : ''}`}>
       <div className={styles.bulkLeft}>
