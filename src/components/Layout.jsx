@@ -7,6 +7,7 @@ import { useAuth } from './Auth'
 import { maskEmailAddress, useSettings } from './SettingsContext'
 import FeedbackModal from './FeedbackModal'
 import NotificationBell from './community/NotificationBell'
+import SyncStatusPill from './SyncStatusPill'
 import PageTips from './PageTips'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './Layout.module.css'
@@ -481,6 +482,8 @@ export default function Layout({ children }) {
               >
                 <ScannerIcon size={13} />Scan
               </NavLink>
+
+              {user && <SyncStatusPill />}
 
               {user && <span className={styles.bellSlot}><NotificationBell /></span>}
 
