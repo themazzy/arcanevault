@@ -6,6 +6,7 @@ import { sb } from '../lib/supabase'
 import { useAuth } from './Auth'
 import { maskEmailAddress, useSettings } from './SettingsContext'
 import FeedbackModal from './FeedbackModal'
+import FeedbackNudge from './FeedbackNudge'
 import NotificationBell from './community/NotificationBell'
 import ActivityStatusBadge from './ActivityStatusBadge'
 import PageTips from './PageTips'
@@ -654,6 +655,9 @@ export default function Layout({ children }) {
 
       {!isNativeScannerRoute && <PageTips />}
       {user && <ActivityStatusBadge />}
+      {user && !showFeedback && !isNativeScannerRoute && (
+        <FeedbackNudge onOpenFeedback={() => setShowFeedback(true)} />
+      )}
       {showFeedback && !isNativeScannerRoute && <FeedbackModal onClose={() => setShowFeedback(false)} />}
     </div>
   )
