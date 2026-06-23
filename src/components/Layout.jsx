@@ -59,6 +59,8 @@ export default function Layout({ children }) {
   const isNativeScannerRoute = isNative && isScannerRoute
   const [menuOpen, setMenuOpen] = useState(false)
   const [showFeedback, setShowFeedback] = useState(false)
+  const [feedbackType, setFeedbackType] = useState('bug')
+  const openFeedback = (type = 'bug') => { setFeedbackType(type); setShowFeedback(true) }
   const [scrolled, setScrolled] = useState(false)
 
   const backPressedRef = useRef(false)
@@ -516,7 +518,7 @@ export default function Layout({ children }) {
                     type="button"
                     role="menuitem"
                     className={styles.navSubmenuItem}
-                    onClick={e => { releaseMenuFocus(e); setShowFeedback(true) }}
+                    onClick={e => { releaseMenuFocus(e); openFeedback('bug') }}
                   >
                     <BugIcon size={14} />
                     Bug / Feature Request
@@ -637,7 +639,7 @@ export default function Layout({ children }) {
               )}
               <button
                 className={styles.mobileNavLink}
-                onClick={() => { setMenuOpen(false); setShowFeedback(true) }}
+                onClick={() => { setMenuOpen(false); openFeedback('bug') }}
                 style={{ background: 'none', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer' }}
               >
                 <span className={styles.mobileNavIcon}><BugIcon size={17} /></span>
@@ -656,9 +658,11 @@ export default function Layout({ children }) {
       {!isNativeScannerRoute && <PageTips />}
       {user && <ActivityStatusBadge />}
       {user && !showFeedback && !isNativeScannerRoute && (
-        <FeedbackNudge onOpenFeedback={() => setShowFeedback(true)} />
+        <FeedbackNudge onOpenFeedback={() => openFeedback('feature')} />
       )}
-      {showFeedback && !isNativeScannerRoute && <FeedbackModal onClose={() => setShowFeedback(false)} />}
+      {showFeedback && !isNativeScannerRoute && (
+        <FeedbackModal initialType={feedbackType} onClose={() => setShowFeedback(false)} />
+      )}
     </div>
   )
 }

@@ -46,10 +46,10 @@ const safeFileName = (fileName) =>
     .replace(/[^a-z0-9._-]+/g, '-')
     .replace(/^-+|-+$/g, '') || 'screenshot.png'
 
-export default function FeedbackModal({ onClose }) {
+export default function FeedbackModal({ onClose, initialType = 'bug' }) {
   const { user } = useAuth()
   const fileInputRef = useRef(null)
-  const [type, setType] = useState('bug')
+  const [type, setType] = useState(initialType === 'feature' ? 'feature' : 'bug')
   const [description, setDescription] = useState('')
   const [contact, setContact] = useState('')
   const [submitting, setSubmitting] = useState(false)
