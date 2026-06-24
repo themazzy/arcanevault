@@ -1,0 +1,4 @@
+# Vendored OpenCV.js is integrity-checked (SHA-384) at runtime. Any line-ending
+# conversion would change its bytes and break the check, so keep it byte-exact
+# across all platforms regardless of core.autocrlf.
+public/opencv/opencv.js binary

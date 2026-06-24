@@ -61,43 +61,124 @@ export function isOpenCVReady() {
          typeof window.cv.Mat !== 'undefined'
 }
 
-const OPENCV_SRC = 'https://docs.opencv.org/4.8.0/opencv.js'
-// SRI hash pinned to the exact bytes of opencv.js 4.8.0. If the CDN ever
-// serves modified bytes (compromise, MITM on dev wifi, version drift),
-// the browser refuses to execute the script — the scanner just fails to
-// initialise instead of running attacker-controlled code with full app
-// privileges (Supabase session token in localStorage, etc.).
+// opencv.js is vendored in public/opencv/ and served from our own origin —
+// no third-party runtime dependency on docs.opencv.org (a documentation host
+// with no uptime/latency guarantee that was the root cause of "scanner won't
+// start"). BASE_URL keeps the path correct in dev and prod.
+const OPENCV_SRC = `${import.meta.env.BASE_URL}opencv/opencv.js`
+// SRI hash pinned to the exact bytes of opencv.js 4.8.0. We download the file
+// ourselves (to report real byte progress), so we reproduce the browser's
+// subresource-integrity check in JS: if the deployed bytes don't match, we
+// refuse to execute them instead of running tampered/corrupted code with full
+// app privileges (Supabase session token in localStorage, etc.).
 // Recompute on version bumps:
-//   curl -sSL <url> | openssl dgst -sha384 -binary | openssl base64 -A
+//   openssl dgst -sha384 -binary public/opencv/opencv.js | openssl base64 -A
 const OPENCV_INTEGRITY = 'sha384-kEC+2KaGZ4b+M4g8HgCNH9N+2TfOMWcNR6Ttw3mclO4ppnH1tX4Xgl9jwfowxoxM'
 
-function ensureOpenCVScriptInjected() {
-  if (typeof document === 'undefined') return
-  if (document.getElementById('opencv-script')) return
-  const s = document.createElement('script')
-  s.id = 'opencv-script'
-  s.async = true
-  s.src = OPENCV_SRC
-  s.integrity = OPENCV_INTEGRITY
-  s.crossOrigin = 'anonymous'
-  document.head.appendChild(s)
+// Memoises the in-flight load so concurrent/repeat callers share one download;
+// cleared on failure so a later attempt can start fresh.
+let _openCVPromise = null
+
+async function verifyOpenCVIntegrity(bytes) {
+  // Same-origin file, but still verify: a corrupted deploy or tampered byte
+  // would otherwise execute. Skip only if WebCrypto is unavailable.
+  if (typeof crypto === 'undefined' || !crypto.subtle) return
+  const digest = await crypto.subtle.digest('SHA-384', bytes)
+  const view = new Uint8Array(digest)
+  let bin = ''
+  for (let i = 0; i < view.length; i++) bin += String.fromCharCode(view[i])
+  if (`sha384-${btoa(bin)}` !== OPENCV_INTEGRITY) {
+    throw new Error('OpenCV.js integrity check failed')
+  }
 }
 
-export function waitForOpenCV(timeoutMs = 20000) {
+function injectOpenCVScript(bytes) {
   return new Promise((resolve, reject) => {
     if (isOpenCVReady()) return resolve()
-    ensureOpenCVScriptInjected()
+    if (typeof document === 'undefined') return reject(new Error('OpenCV.js cannot load without a document'))
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'text/javascript' }))
+    let settled = false
+    const finish = (fn, arg) => {
+      if (settled) return
+      settled = true
+      clearInterval(check)
+      URL.revokeObjectURL(url)
+      fn(arg)
+    }
+    const s = document.createElement('script')
+    s.id = 'opencv-script'
+    s.async = true
+    s.src = url
+    s.onerror = () => finish(reject, new Error('OpenCV.js failed to execute'))
+    document.head.appendChild(s)
+    // opencv.js compiles its embedded WASM asynchronously; cv.Mat only appears
+    // once the runtime has initialised. Poll until then.
     const start = Date.now()
     const check = setInterval(() => {
-      if (isOpenCVReady()) {
-        clearInterval(check)
-        resolve()
-      } else if (Date.now() - start > timeoutMs) {
-        clearInterval(check)
-        reject(new Error('OpenCV.js failed to load within timeout'))
-      }
-    }, 150)
+      if (isOpenCVReady()) finish(resolve)
+      else if (Date.now() - start > 30000) finish(reject, new Error('OpenCV.js failed to initialize'))
+    }, 80)
   })
+}
+
+/**
+ * Download (with byte progress), integrity-check, inject, and wait for OpenCV's
+ * WASM runtime to be ready.
+ *
+ * @param {object|number} [arg] options, or a bare timeoutMs (back-compat)
+ * @param {(p: { received: number, total: number, ratio: number|null }) => void} [arg.onProgress]
+ *   called during download; `ratio` is null when the server omits Content-Length
+ * @param {number} [arg.timeoutMs=90000] overall guard against a hung load
+ * @returns {Promise<void>}
+ */
+export function waitForOpenCV(arg) {
+  const { onProgress, timeoutMs = 90000 } = typeof arg === 'number' ? { timeoutMs: arg } : (arg || {})
+  if (isOpenCVReady()) return Promise.resolve()
+  if (_openCVPromise) return _openCVPromise
+
+  const load = (async () => {
+    const res = await fetch(OPENCV_SRC, { cache: 'force-cache' })
+    if (!res.ok) throw new Error(`OpenCV.js download failed (HTTP ${res.status})`)
+
+    let bytes
+    if (res.body && typeof res.body.getReader === 'function') {
+      const total = Number(res.headers.get('Content-Length')) || 0
+      const reader = res.body.getReader()
+      const chunks = []
+      let received = 0
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        chunks.push(value)
+        received += value.length
+        onProgress?.({ received, total, ratio: total ? received / total : null })
+      }
+      bytes = new Uint8Array(received)
+      let offset = 0
+      for (const c of chunks) { bytes.set(c, offset); offset += c.length }
+    } else {
+      // No streaming support (e.g. older WebView): one read, no byte progress.
+      bytes = new Uint8Array(await res.arrayBuffer())
+      onProgress?.({ received: bytes.length, total: bytes.length, ratio: 1 })
+    }
+
+    await verifyOpenCVIntegrity(bytes)
+    await injectOpenCVScript(bytes)
+  })()
+
+  // Overall guard so a hung download/compile can't wedge scanner startup.
+  _openCVPromise = new Promise((resolve, reject) => {
+    let done = false
+    const timer = setTimeout(() => {
+      if (!done) { done = true; reject(new Error('OpenCV.js failed to load within timeout')) }
+    }, timeoutMs)
+    load.then(
+      () => { if (!done) { done = true; clearTimeout(timer); resolve() } },
+      (e) => { if (!done) { done = true; clearTimeout(timer); reject(e) } },
+    )
+  })
+  _openCVPromise.catch(() => { _openCVPromise = null })
+  return _openCVPromise
 }
 
 function orderPoints(pts) {

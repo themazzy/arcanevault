@@ -162,6 +162,7 @@
 }
 
 .startupProgressBar {
+  position: relative;
   width: 100%;
   height: 10px;
   border-radius: 999px;
@@ -174,6 +175,32 @@
   border-radius: inherit;
   background: linear-gradient(90deg, rgba(201,168,76,0.95), rgba(93,186,112,0.95));
   transition: width 0.3s ease;
+}
+
+/* Indeterminate sweep — shown while we're waiting on something with no numeric
+   progress (OpenCV download, camera start, early cache check). A highlight
+   glides across the whole track so the bar never looks frozen, independent of
+   the underlying fill width. */
+.startupProgressBarBusy::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(255,255,255,0.28) 50%,
+    transparent 100%);
+  transform: translateX(-100%);
+  animation: startupBarSweep 1.15s ease-in-out infinite;
+}
+
+@keyframes startupBarSweep {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .startupProgressBarBusy::after { animation: none; }
 }
 
 .startupChecklist {

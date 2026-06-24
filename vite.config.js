@@ -20,7 +20,9 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
         // Big/rarely-used statics are runtime-cached instead of precached.
-        globIgnores: ['rules/**', 'set-icons/**', '**/*.map'],
+        // opencv.js is ~10 MB — never precache it (would force the download on
+        // every SW install); it's runtime-cached on first scanner use below.
+        globIgnores: ['rules/**', 'set-icons/**', 'opencv/**', '**/*.map'],
         navigateFallback: 'index.html',
         navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
@@ -48,6 +50,17 @@ export default defineConfig({
             options: {
               cacheName: 'local-statics',
               expiration: { maxEntries: 500, maxAgeSeconds: 60 * 60 * 24 * 30 },
+            },
+          },
+          {
+            // Vendored opencv.js (~10 MB). CacheFirst so the scanner loads it
+            // from disk after the first download and works offline thereafter.
+            urlPattern: ({ url, sameOrigin }) => sameOrigin && url.pathname.startsWith('/opencv/'),
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'opencv-engine',
+              expiration: { maxEntries: 4, maxAgeSeconds: 60 * 60 * 24 * 90 },
+              cacheableResponse: { statuses: [0, 200] },
             },
           },
         ],

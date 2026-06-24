@@ -446,6 +446,7 @@ export default function CardScanner({ onMatch, onClose }) {
 
   // ── Scanner state ──────────────────────────────────────────────────────────
   const [cvReady, setCvReady]     = useState(false)
+  const [cvProgress, setCvProgress] = useState(null)  // 0–1 OpenCV download ratio, null until known
   const [dbReady, setDbReady]     = useState(false)
   const [preparing, setPreparing] = useState(true)
   const [startupDismissed, setStartupDismissed] = useState(false)
@@ -554,6 +555,22 @@ export default function CardScanner({ onMatch, onClose }) {
   const hashProgressVisible = !!hashLoadInfo && hashLoadInfo.phase !== 'idle' && hashLoadInfo.phase !== 'ready'
   const hashesReady = !!hashLoadInfo && hashLoadInfo.phase === 'ready' && cardCount > 0
   const startupCanContinue = hashesReady && cvReady && cameraStarted && !errorMsg
+  // Overall startup progress (0–100). The fingerprint-DB load (step 2) reports a
+  // 0–100 of its own; we compress it into the first 80% so the bar doesn't sit
+  // pinned at 100% during the OpenCV/camera tail (step 3). Step 3 now has its
+  // own real signal — OpenCV's byte-download ratio (cvProgress) drives 80→92 —
+  // and only the WASM-compile + camera-start moments (no numeric signal) fall
+  // back to an indeterminate sweep, alongside the early cache check.
+  const hashPct = Math.max(0, Math.min(100, hashLoadInfo?.progress ?? 0))
+  const cvRatio = cvProgress == null ? null : Math.max(0, Math.min(1, cvProgress))
+  const cvDownloading = hashesReady && !cvReady && cvRatio != null && cvRatio < 1
+  const startupProgress = startupCanContinue
+    ? 100
+    : hashesReady
+      ? (cvReady ? 94 : (cvRatio != null ? 80 + Math.round(cvRatio * 12) : 84))
+      : Math.round(hashPct * 0.8)  // step 2 occupies the first 80%
+  const startupIndeterminate = !errorMsg && !startupCanContinue && !cvDownloading &&
+    (hashesReady || !hashLoadInfo?.totalCount)
   const showStartupModal = !startupDismissed
   const anyOverlayOpen = showStartupModal || basketExpanded || addFlowOpen || manualSearchOpen || settingsOpen || setPickerOpen || printingPickerFor !== null
 
@@ -632,7 +649,11 @@ export default function CardScanner({ onMatch, onClose }) {
     mountedRef.current = true
     ;(async () => {
       try {
-        const cvPromise = waitForOpenCV()
+        const cvPromise = waitForOpenCV({
+          onProgress: ({ ratio }) => {
+            if (mountedRef.current && ratio != null) setCvProgress(ratio)
+          },
+        })
         await databaseService.init(status => {
           if (!mountedRef.current) return
           setHashLoadInfo(status)
@@ -1577,13 +1598,19 @@ export default function CardScanner({ onMatch, onClose }) {
                 <div className={styles.startupProgressHeader}>
                   <span className={styles.startupProgressTitle}>{startupPhaseTitle}</span>
                   <span className={styles.startupProgressMeta}>
-                    {hashLoadInfo?.totalCount
-                      ? `${(hashLoadInfo.loadedCount ?? 0).toLocaleString()} / ${hashLoadInfo.totalCount.toLocaleString()}`
-                      : (startupCanContinue ? 'Ready' : 'Starting')}
+                    {startupCanContinue
+                      ? 'Ready'
+                      : hashesReady
+                        ? (cvReady
+                            ? 'Starting camera…'
+                            : (cvDownloading ? `Vision engine ${Math.round(cvRatio * 100)}%` : 'Loading engine…'))
+                        : (hashLoadInfo?.totalCount
+                            ? `${(hashLoadInfo.loadedCount ?? 0).toLocaleString()} / ${hashLoadInfo.totalCount.toLocaleString()}`
+                            : 'Preparing…')}
                   </span>
                 </div>
-                <div className={styles.startupProgressBar}>
-                  <div className={styles.startupProgressFill} style={{ width: `${startupCanContinue ? 100 : (hashLoadInfo?.progress ?? 0)}%` }} />
+                <div className={`${styles.startupProgressBar} ${startupIndeterminate ? styles.startupProgressBarBusy : ''}`}>
+                  <div className={styles.startupProgressFill} style={{ width: `${startupProgress}%` }} />
                 </div>
                 <p className={styles.startupPhaseBody}>{startupPhaseBody}</p>
               </div>
