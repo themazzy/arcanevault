@@ -60,13 +60,35 @@ content_path = "./supabase/templates/reauthentication.html"
 
 ## Variables used
 
-These templates currently use:
+Most templates use:
 
 - `{{ .ConfirmationURL }}`
 - `{{ .Token }}`
 
-DeckLoom currently sends signup confirmation links back to:
+### Recovery template — token_hash (do not revert to ConfirmationURL)
 
-- `https://themazzy.github.io/arcanevault/`
+`recovery.html` intentionally does **not** use `{{ .ConfirmationURL }}`. The
+client runs `flowType: 'pkce'` (for native OAuth), and the PKCE `?code=` link in
+`ConfirmationURL` can only be exchanged in the same browser that requested the
+reset — so reset emails opened on another device fail with
+"Auth session missing!".
 
-That redirect is set in [src/components/Auth.jsx](C:/Users/Jan/Desktop/arcanevault/arcanevault/src/components/Auth.jsx).
+Instead the recovery button links to:
+
+```
+{{ .SiteURL }}/?token_hash={{ .TokenHash }}&type=recovery
+```
+
+The app redeems this via `sb.auth.verifyOtp({ type: 'recovery', token_hash })`
+in `AuthProvider` (`src/components/Auth.jsx`), using the helpers in
+`src/lib/authRecovery.js`. `token_hash` carries no `code_verifier` requirement,
+so the link works on any device.
+
+`{{ .SiteURL }}` must be set to `https://deckloom.app` in the Supabase Dashboard
+(Auth → URL Configuration → Site URL). If you ever want signup confirmation to
+be cross-device too, give `confirmation.html` the same `token_hash` treatment
+(the app's `parseEmailOtpParams` already handles `type=signup`).
+
+DeckLoom sends signup confirmation links back to the production app via the
+`emailRedirectTo` set in [src/components/Auth.jsx](C:/Users/Jan/Desktop/arcanevault/arcanevault/src/components/Auth.jsx)
+(`getProdAppUrl('/')` → `https://deckloom.app/`).

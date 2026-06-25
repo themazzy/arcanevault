@@ -20,11 +20,11 @@
             <p style="margin:0 0 18px;">A password reset was requested for your Deck Loom account.</p>
             <p style="margin:0 0 26px;">This link opens Deck Loom and lets you set a new password for your account.</p>
             <p style="margin:0 0 28px;">
-              <a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:13px 20px;background:#d7b35d;color:#101114;text-decoration:none;border-radius:8px;font-size:15px;font-weight:800;">Reset password</a>
+              <a href="{{ .SiteURL }}/?token_hash={{ .TokenHash }}&type=recovery" style="display:inline-block;padding:13px 20px;background:#d7b35d;color:#101114;text-decoration:none;border-radius:8px;font-size:15px;font-weight:800;">Reset password</a>
             </p>
             <div style="padding:15px 16px;background:#0c0d11;border:1px solid #2c2b26;border-radius:10px;">
               <div style="font-size:12px;line-height:1.4;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:#9f8ee8;margin-bottom:8px;">Fallback link</div>
-              <div style="font-size:13px;line-height:1.55;word-break:break-word;color:#bdb7aa;">{{ .ConfirmationURL }}</div>
+              <div style="font-size:13px;line-height:1.55;word-break:break-word;color:#bdb7aa;">{{ .SiteURL }}/?token_hash={{ .TokenHash }}&type=recovery</div>
             </div>
           </td>
         </tr>

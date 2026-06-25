@@ -2,7 +2,13 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { getPublicBaseUrl, getProdAppUrl } from '../lib/publicUrl'
-import { isNativeApp, openNativeOAuth } from '../lib/nativeAuth'
+import { isNativeApp, openNativeOAuth, NATIVE_AUTH_ERROR_EVENT } from '../lib/nativeAuth'
+import {
+  parseEmailOtpParams,
+  isRecoveryRedirect,
+  redeemEmailOtp,
+  stripOtpParamsFromUrl,
+} from '../lib/authRecovery'
 import { applyTheme } from './SettingsContext'
 import { fetchCardsByNames } from '../lib/deckBuilderApi'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
@@ -12,10 +18,9 @@ const AuthContext = createContext(null)
 export const useAuth = () => useContext(AuthContext)
 const RECOVERY_PENDING_KEY = 'deckloom_password_recovery_pending'
 
-function hasRecoveryRedirectHash() {
+function hasRecoveryRedirect() {
   if (typeof window === 'undefined') return false
-  const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : ''
-  return new URLSearchParams(hash).get('type') === 'recovery'
+  return isRecoveryRedirect(window.location)
 }
 
 function hasStoredPendingRecovery() {
@@ -24,7 +29,7 @@ function hasStoredPendingRecovery() {
 }
 
 function hasPendingRecovery(session = null) {
-  return hasRecoveryRedirectHash() || (Boolean(session) && hasStoredPendingRecovery())
+  return hasRecoveryRedirect() || (Boolean(session) && hasStoredPendingRecovery())
 }
 
 function markPendingRecovery() {
@@ -37,23 +42,44 @@ function clearPendingRecovery() {
 
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(undefined)
+  const [recoveryError, setRecoveryError] = useState('')
   const [authEvent, setAuthEvent] = useState(() => (
-    hasRecoveryRedirectHash() ? 'PASSWORD_RECOVERY' : null
+    hasRecoveryRedirect() ? 'PASSWORD_RECOVERY' : null
   ))
 
   useEffect(() => {
-    const isRecoveryRedirect = hasRecoveryRedirectHash()
-    if (isRecoveryRedirect) markPendingRecovery()
-    sb.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      if (hasPendingRecovery(session)) setAuthEvent('PASSWORD_RECOVERY')
-    })
+    let active = true
     const { data: { subscription } } = sb.auth.onAuthStateChange((event, s) => {
       setSession(s)
       if (event === 'PASSWORD_RECOVERY') markPendingRecovery()
       setAuthEvent(event === 'PASSWORD_RECOVERY' || hasPendingRecovery(s) ? 'PASSWORD_RECOVERY' : event)
     })
-    return () => subscription.unsubscribe()
+
+    ;(async () => {
+      // Recovery / confirmation links arrive as ?token_hash=…&type=…. Redeem
+      // them via verifyOtp (no code_verifier needed) so the link works on any
+      // device — unlike the PKCE ?code= exchange, which only works in the
+      // browser that requested it. Must run before getSession so a session
+      // exists by the time the recovery form calls updateUser().
+      const otp = typeof window !== 'undefined' ? parseEmailOtpParams(window.location) : null
+      if (otp?.tokenHash) {
+        if (otp.type === 'recovery') markPendingRecovery()
+        const { error } = await redeemEmailOtp(sb, otp)
+        stripOtpParamsFromUrl()
+        if (error && active) {
+          setRecoveryError(error.message || 'This link is invalid or has expired. Request a new one.')
+        }
+      } else if (hasRecoveryRedirect()) {
+        markPendingRecovery()
+      }
+
+      const { data: { session } } = await sb.auth.getSession()
+      if (!active) return
+      setSession(session)
+      if (hasPendingRecovery(session)) setAuthEvent('PASSWORD_RECOVERY')
+    })()
+
+    return () => { active = false; subscription.unsubscribe() }
   }, [])
 
   if (session === undefined) return (
@@ -65,9 +91,11 @@ export function AuthProvider({ children }) {
       session,
       user: session?.user || null,
       authEvent,
+      recoveryError,
       clearAuthEvent: () => {
         clearPendingRecovery()
         setAuthEvent(null)
+        setRecoveryError('')
       },
     }}>
       {children}
@@ -318,7 +346,7 @@ function AppPanel({ title, subtitle, icon, eyebrow, accent, metrics = [], highli
 
 // ── Login page ─────────────────────────────────────────────────────────────
 export function LoginPage({ forcedMode = null }) {
-  const { user, clearAuthEvent } = useAuth()
+  const { user, clearAuthEvent, recoveryError } = useAuth()
   const [mode, setMode]         = useState(forcedMode || 'login')
   const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
@@ -396,6 +424,24 @@ export function LoginPage({ forcedMode = null }) {
     const params = new URLSearchParams(hash)
     const description = params.get('error_description')
     if (description) setError(decodeURIComponent(description.replace(/\+/g, ' ')))
+  }, [])
+
+  // A failed recovery/confirmation link redemption (expired or already-used
+  // token) surfaces here so the user knows to request a fresh link instead of
+  // hitting "Auth session missing!" when they submit a new password.
+  useEffect(() => {
+    if (recoveryError) setError(recoveryError)
+  }, [recoveryError])
+
+  // Native (APK) OAuth runs in an in-app browser and returns via deep link. If
+  // that round-trip fails, clear the spinner and show why instead of hanging.
+  useEffect(() => {
+    const onNativeAuthError = (e) => {
+      setError(e?.detail || 'Sign-in could not be completed. Please try again.')
+      setLoading(false)
+    }
+    window.addEventListener(NATIVE_AUTH_ERROR_EVENT, onNativeAuthError)
+    return () => window.removeEventListener(NATIVE_AUTH_ERROR_EVENT, onNativeAuthError)
   }, [])
 
   const submit = async () => {
