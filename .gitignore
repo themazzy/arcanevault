@@ -38,7 +38,25 @@ graphify-out/
 chroma.sqlite3
 mempalace.yaml
 entities.json
+claude design/
 bindersfixplan.md
 collectionfixplan.md
 deckbuilderfix.md
 ownedmap-foil-plan.md
+
+# Internal dev/planning notes at repo root — not part of the app.
+# (CLAUDE.md, AGENTS.md, README.md and docs/** are intentional and kept.)
+/*plan*.md
+/*Plan*.md
+/*PLAN*.md
+/*review*.md
+/*migration*.md
+/*upgrade*.md
+/PLAN.md
+/POST_MIGRATION_VALIDATION.md
+/REACT_QUERY_MIGRATION.md
+/cardscannerv2.md
+/databaseupgrade.md
+/scannerv3.md
+/research-competition.md
+/importlogic.md
