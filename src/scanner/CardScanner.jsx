@@ -154,6 +154,25 @@ function getSetName(setIcons, code) {
 let _uidCounter = Date.now()
 function nextUid() { return String(++_uidCounter) }
 
+// Map detection-frame coordinates to viewport CSS pixels — inverse of the
+// object-fit: cover placement the video/preview uses (same geometry as
+// cropCardFromReticle, in the other direction).
+function mapQuadToViewport(corners, frameW, frameH) {
+  const vw = window.innerWidth, vh = window.innerHeight
+  const scale = Math.max(vw / frameW, vh / frameH)
+  const ox = (frameW * scale - vw) / 2
+  const oy = (frameH * scale - vh) / 2
+  return corners.map(p => ({ x: p.x * scale - ox, y: p.y * scale - oy }))
+}
+
+function quadRoughlyEqual(a, b, eps = 3) {
+  if (!a || !b) return a === b
+  for (let i = 0; i < 4; i++) {
+    if (Math.abs(a[i].x - b[i].x) > eps || Math.abs(a[i].y - b[i].y) > eps) return false
+  }
+  return true
+}
+
 function getAutoScanCardSignature(match, foil = false) {
   return `${String(match?.name || '').trim().toLocaleLowerCase()}|${foil ? 1 : 0}`
 }
@@ -445,6 +464,10 @@ export default function CardScanner({ onMatch, onClose }) {
   const [cameraStarted, setCameraStarted] = useState(false)
   const [cameraRestartTick, setCameraRestartTick] = useState(0)
   const [setIcons, setSetIcons] = useState(() => loadSetIconCache())
+  // Live lock-on overlay: the quad the auto-scan probe currently sees,
+  // in viewport CSS coordinates.
+  const [probeQuad, setProbeQuad] = useState(null)
+  const probeQuadRef = useRef(null)
   const [latestPrintingData, setLatestPrintingData] = useState(null)
   const [latestLanguageOptions, setLatestLanguageOptions] = useState([['en', 'EN']])
   const [printingDataById, setPrintingDataById] = useState({})
@@ -1542,6 +1565,13 @@ export default function CardScanner({ onMatch, onClose }) {
     let stableCount = 0
     let missStreak = 0
 
+    // Update the lock-on overlay, skipping no-op renders (probe ticks at ~10 Hz).
+    const showQuad = (quad) => {
+      if (quadRoughlyEqual(quad, probeQuadRef.current)) return
+      probeQuadRef.current = quad
+      setProbeQuad(quad)
+    }
+
     const quadSig = (corners) => {
       const cx = corners.reduce((s, p) => s + p.x, 0) / 4
       const cy = corners.reduce((s, p) => s + p.y, 0) / 4
@@ -1565,6 +1595,7 @@ export default function CardScanner({ onMatch, onClose }) {
           const corners = frame ? await visionClient.detect(frame.smallImageData, { quick }) : null
           if (corners) {
             missStreak = 0
+            showQuad(mapQuadToViewport(corners, frame.sw, frame.sh))
             const sig = quadSig(corners)
             const stable = lastSig &&
               Math.hypot(sig.cx - lastSig.cx, sig.cy - lastSig.cy) < AUTOSCAN_PROBE_EPS_PX &&
@@ -1588,6 +1619,7 @@ export default function CardScanner({ onMatch, onClose }) {
             missStreak++
             stableCount = 0
             lastSig = null
+            showQuad(null)
           }
         } catch { /* keep probing */ }
       }
@@ -1596,7 +1628,12 @@ export default function CardScanner({ onMatch, onClose }) {
     }
 
     timer = setTimeout(loop, 60)
-    return () => { cancelled = true; clearTimeout(timer) }
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+      probeQuadRef.current = null
+      setProbeQuad(null)
+    }
   }, [autoScan, autoScanPaused, isReady, addFlowOpen, basketExpanded, manualSearchOpen, settingsOpen, setPickerOpen, printingPickerFor, handleScan, captureFrame])
 
   // ── Derived ────────────────────────────────────────────────────────────────
@@ -1836,6 +1873,16 @@ export default function CardScanner({ onMatch, onClose }) {
               </div>
             </div>
           </div>
+        )}
+
+        {/* Live lock-on overlay: quad the auto-scan probe currently sees */}
+        {probeQuad && (
+          <svg className={styles.detectOverlay} aria-hidden="true">
+            <polygon
+              className={styles.detectPoly}
+              points={probeQuad.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')}
+            />
+          </svg>
         )}
 
         {/* Targeting reticle */}

@@ -27,7 +27,7 @@ import {
   rgbToGray32x32, rgbToSaturation32x32, hashToHex as _hashToHex, applyCLAHE,
 } from './hashCore.js'
 import {
-  rgbaToGrayU8, gaussianBlurGray, canny, dilate3,
+  rgbaToGrayU8, rgbaToChromaU8, gaussianBlurGray, canny, dilate3,
   findExternalContours, contourArea, arcLength, approxPolyDP, minAreaRectPoints,
   perspectiveTransform, warpPerspectiveRGBA, bilinearCropResize, areaResizeRGBA,
   rotate180RGBA, grayMedian,
@@ -162,7 +162,7 @@ function findBestQuad(gray, width, height, cannyLo = -1, cannyHi = -1, blurSize 
 // caller must scale back to full-frame coords.
 // maxPasses 1 = adaptive-Canny only: the cheap probe the continuous auto-scan
 // loop runs between full scans.
-export function detectCardCorners(imageData, width, height, { maxPasses = 3 } = {}) {
+export function detectCardCorners(imageData, width, height, { maxPasses = 4 } = {}) {
   const gray = rgbaToGrayU8(imageData.data, width, height)
 
   // Pass 1: adaptive Canny
@@ -177,7 +177,15 @@ export function detectCardCorners(imageData, width, height, { maxPasses = 3 } = 
   // Pass 3: local CLAHE contrast enhancement — better than global equalization for
   // dark-card-on-dark-background scenes where the border blends into the bg.
   const enhanced = applyCLAHE(gray, width, height, 8, 8, 2.0)
-  return findBestQuad(enhanced, width, height, 5, 40, 3)
+  const claheResult = findBestQuad(enhanced, width, height, 5, 40, 3)
+  if (claheResult || maxPasses < 4) return claheResult
+
+  // Pass 4: chroma gradient — a neutral black border on an equally-dark but
+  // COLORED surface (wood, red playmat) has zero luminance edge; the card
+  // boundary still exists as a color difference. Neutral-on-neutral
+  // (black card on black cloth) remains undetectable by any channel.
+  const chroma = rgbaToChromaU8(imageData.data, width, height)
+  return findBestQuad(chroma, width, height, 5, 30, 3)
 }
 
 /**

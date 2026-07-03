@@ -32,6 +32,26 @@ export function rgbaToGrayU8(data, width, height) {
   return out
 }
 
+/**
+ * Colorfulness channel: max pairwise channel difference per pixel. A neutral
+ * black card border reads ~0 while an equally-DARK but colored background
+ * (wood, red playmat) reads 20–60 — the card boundary appears in chroma even
+ * when it is invisible in luminance. Used by detection pass 4.
+ */
+export function rgbaToChromaU8(data, width, height) {
+  const out = new Uint8Array(width * height)
+  for (let i = 0, p = 0; i < out.length; i++, p += 4) {
+    const r = data[p], g = data[p + 1], b = data[p + 2]
+    const rg = r > g ? r - g : g - r
+    const gb = g > b ? g - b : b - g
+    const rb = r > b ? r - b : b - r
+    let m = rg > gb ? rg : gb
+    if (rb > m) m = rb
+    out[i] = m
+  }
+  return out
+}
+
 // ── Gaussian blur (ksize 3 or 5, sigma 0 → fixed binomial kernels) ──────────
 
 // reflect-101 border indexing: -1 → 1, size → size-2

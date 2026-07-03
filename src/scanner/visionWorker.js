@@ -46,7 +46,7 @@ self.onmessage = (event) => {
     if (type === 'detect') {
       const frame = toFrame(payload.frame)
       const corners = detectCardCorners(frame, frame.width, frame.height, {
-        maxPasses: payload.quick ? 1 : 3,
+        maxPasses: payload.quick ? 1 : 4,
       })
       self.postMessage({ id, ok: true, result: { corners } })
       return

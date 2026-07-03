@@ -309,6 +309,19 @@ describe('detectCardCorners (synthetic frames)', () => {
     expectCornersClose(corners, truth, 8)
   })
 
+  it('finds a neutral-black card on an equally-dark COLORED background (chroma pass)', () => {
+    const w = 640, h = 360
+    // Dark brown "wood" background: luma ≈ 0.299·46 + 0.587·22 + 0.114·14 ≈ 28.3
+    const frame = { data: makeRGBA(w, h, [46, 22, 14]), width: w, height: h }
+    // Neutral black border with the SAME luma (28): invisible to passes 1–3.
+    const truth = rotatedRectCorners(320, 180, 195, 272, 0.12)
+    fillQuadRGBA(frame.data, w, h, truth, [28, 28, 28])
+    const corners = detectCardCorners(frame, w, h)
+    expectCornersClose(corners, truth, 8)
+    // …and confirm the luma passes alone genuinely cannot see it.
+    expect(detectCardCorners(frame, w, h, { maxPasses: 3 })).toBeNull()
+  })
+
   it('returns null when no card-like quad exists', () => {
     const w = 320, h = 180
     const frame = { data: makeRGBA(w, h, [40, 40, 40]), width: w, height: h }

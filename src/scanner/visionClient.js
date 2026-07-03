@@ -88,7 +88,7 @@ class VisionClient {
       )
       return corners
     } catch {
-      return detectCardCorners(imageData, imageData.width, imageData.height, { maxPasses: quick ? 1 : 3 })
+      return detectCardCorners(imageData, imageData.width, imageData.height, { maxPasses: quick ? 1 : 4 })
     }
   }
 
