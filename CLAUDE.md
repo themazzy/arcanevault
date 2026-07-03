@@ -609,7 +609,7 @@ Host creates a session → others visit `/join/:code` on their own device → ho
 - `deck_changes` — deck-level action history (printing optimize, visibility, bracket, import, commander); one row per action, capped at 100/deck via the `prune_deck_changes` trigger, RLS owner-only. Logged via `src/lib/deckHistory.js` (`logDeckChange`, `fetchDeckHistory`); shown in the DeckBuilder "Deck History" modal. NOT per-card diffs
 - `feedback` — user bug reports & feature requests: `type ('bug'|'feature'), description, contact, user_id`
 - `feedback_attachments` — optional screenshots linked to `feedback`; files live in the `assets` storage bucket
-- `card_hashes` — **retired** (pipeline v7): clients consume the static hash pack, and the seed script uses the pack as its own state. Pending drop via `supabase/migrations/20260703000000_drop_card_hashes.sql` (apply only after a verified v7 pack is deployed; reclaims ~75 MB)
+- `card_hashes` — **dropped 2026-07-04** (pipeline v7 reclaimed ~75 MB): clients consume the static hash pack, and the seed script uses the pack as its own state. The pack in `public/scanner/hashpack/` (+ git history) is the only copy of the computed hashes; a full re-hash via `generate-card-hashes.js --reseed` rebuilds it from Scryfall in a few hours
 - `admin_users` — users with admin access: `user_id, active`; checked by `isCurrentUserAdmin()`
 - `app_config` — key-value config store used by admin/home: keys include `changelog`, `feedback_resolved`
 - `shared_folders` — shared deck/folder links for public share URLs
