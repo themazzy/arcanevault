@@ -1263,14 +1263,22 @@ export default function CardScanner({ onMatch, onClose }) {
     }
   }, [isNative])
 
-  const scanSingleFrame = useCallback(async ({ cornersOnly = false, allowedSets = null } = {}) => {
-    const frame = await captureFrame()
-    if (!frame) return { status: 'error', stage: 'no frame', best: null, second: null, candidateCount: 0, totalCount: 0 }
-
-    const { getFullImageData, w, h, smallImageData, sw, sh } = frame
-    // Corner detection runs in the vision worker on the pre-downscaled (sw×sh)
-    // frame. Scale corners back to full-res coords for the warp.
-    const cornersSmall = await visionClient.detect(smallImageData)
+  const scanSingleFrame = useCallback(async ({ cornersOnly = false, allowedSets = null, prefetched = null } = {}) => {
+    // The auto-scan probe hands over its frame + detected corners so the
+    // first sample skips a capture (native captureSample costs ~250 ms) and
+    // a detection pass.
+    let getFullImageData, w, h, sw, sh, cornersSmall
+    if (prefetched) {
+      ({ getFullImageData, w, h, sw, sh } = prefetched)
+      cornersSmall = prefetched.corners
+    } else {
+      const frame = await captureFrame()
+      if (!frame) return { status: 'error', stage: 'no frame', best: null, second: null, candidateCount: 0, totalCount: 0 }
+      ;({ getFullImageData, w, h, sw, sh } = frame)
+      // Corner detection runs in the vision worker on the pre-downscaled
+      // (sw×sh) frame. Scale corners back to full-res coords for the warp.
+      cornersSmall = await visionClient.detect(frame.smallImageData)
+    }
     const scaleX = w / sw, scaleY = h / sh
     const corners = cornersSmall?.map(p => ({ x: p.x * scaleX, y: p.y * scaleY })) ?? null
 
@@ -1279,9 +1287,12 @@ export default function CardScanner({ onMatch, onClose }) {
     let bestVariant = null, bestSource = corners ? 'corners' : 'no corners'
     let bestGap = 0
 
-    const updateBest = (candidate, runnerUp, candidateCount, totalCount, variant, sourceLabel, fallback) => {
+    // `diffGap` (distance to the first DIFFERENT-NAME candidate) is the
+    // confidence gap — the raw runner-up is usually a same-art reprint of the
+    // same card at gap ~0, which must not block early exit.
+    const updateBest = (candidate, runnerUp, diffGap, candidateCount, totalCount, variant, sourceLabel, fallback) => {
       if (!candidate) return false
-      const gap = runnerUp ? runnerUp.distance - candidate.distance : 256
+      const gap = diffGap ?? (runnerUp ? runnerUp.distance - candidate.distance : 256)
       if (!best || candidate.distance < best.distance) {
         best = candidate; second = runnerUp
         bestStats = { candidateCount, totalCount }
@@ -1315,10 +1326,10 @@ export default function CardScanner({ onMatch, onClose }) {
           ...(hs.foilHash ? [{ hash: hs.foilHash, label: 'foil' }] : []),
           ...(hs.darkHash ? [{ hash: hs.darkHash, label: 'dark' }] : []),
         ]
-        const { best: c, second: r, candidateCount, totalCount, fallback, bestLabel } =
+        const { best: c, second: r, diffGap, candidateCount, totalCount, fallback, bestLabel } =
           await databaseService.findBestTwoWithStatsAsyncAll(queries, hs.colorHash ?? null, fullHash, matchOpts)
         const label = bestLabel && bestLabel !== 'standard' ? `${sourceLabel}+${bestLabel}` : sourceLabel
-        if (updateBest(c, r, candidateCount, totalCount, variants[i], label, fallback)) return
+        if (updateBest(c, r, diffGap, candidateCount, totalCount, variants[i], label, fallback)) return
       }
     }
 
@@ -1355,7 +1366,7 @@ export default function CardScanner({ onMatch, onClose }) {
 
     if (!best) return { status: 'notfound', stage: 'no candidate', best: null, second: null, candidateCount: bestStats.candidateCount, totalCount: bestStats.totalCount, source: bestSource, cardLoaded }
 
-    const gap = second ? second.distance - best.distance : 256
+    const gap = bestGap   // different-name gap, maintained by updateBest
     const sameNameCluster = !!(best?.name && second?.name && normalizeName(best.name) === normalizeName(second.name))
     return {
       status: best.distance <= MATCH_THRESHOLD && (gap >= MATCH_MIN_GAP || sameNameCluster) ? 'found' : 'notfound',
@@ -1391,8 +1402,11 @@ export default function CardScanner({ onMatch, onClose }) {
     }
   }, [])
 
-  const handleScan = useCallback(async () => {
+  // `options.prefetched` comes from the auto-scan probe (frame + corners for
+  // the first sample). The manual button passes a click event — ignored.
+  const handleScan = useCallback(async (options) => {
     if (!isReady || scanning || !mountedRef.current) return
+    const prefetched = options?.prefetched ?? null
     scanningRef.current = true  // block detection loop before any async OpenCV work
     setScanning(true)
     setScanResult(null)
@@ -1410,7 +1424,11 @@ export default function CardScanner({ onMatch, onClose }) {
         : null
 
       for (let i = 0; i < STABILITY_SAMPLES; i++) {
-        const result = await scanSingleFrame({ cornersOnly: isAutoScan, allowedSets })
+        const result = await scanSingleFrame({
+          cornersOnly: isAutoScan,
+          allowedSets,
+          prefetched: i === 0 ? prefetched : null,
+        })
         anyCardLoaded ||= !!result.cardLoaded
         frameSummaries.push(result.best ? `${i+1}:${result.best.distance}/${result.gap??'?'}` : `${i+1}:${result.stage}`)
         if (result.best && (!bestObserved || result.best.distance < bestObserved.distance)) {
@@ -1556,7 +1574,14 @@ export default function CardScanner({ onMatch, onClose }) {
             if (stableCount >= AUTOSCAN_PROBE_STABLE) {
               stableCount = 0
               lastSig = null
-              await handleScan()
+              // Reuse this probe's frame + corners for the scan's first sample.
+              await handleScan({
+                prefetched: {
+                  getFullImageData: frame.getFullImageData,
+                  w: frame.w, h: frame.h, sw: frame.sw, sh: frame.sh,
+                  corners,
+                },
+              })
               delay = AUTOSCAN_AFTER_SCAN_MS
             }
           } else {

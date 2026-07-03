@@ -151,9 +151,14 @@ export function createMatcher(store) {
    * buildAllowedFlags) restricts the pool when present.
    * Returns { bestIdx, bestDist, secondIdx, secondDist, scanned }.
    */
+  // Top-K kept per rank so the runner-up gap can be measured against the
+  // first DIFFERENT-NAME candidate. Same-art reprints put the same card (in
+  // another set) at gap ~0 — gating scan escalation on the raw #2 distance
+  // made every reprinted card burn the full variant ladder for nothing.
+  const TOP_K = 8
+
   function rank(indices, query, colorQuery, fullQuery, allowedFlags) {
-    let bestIdx = -1, secondIdx = -1
-    let bestDist = Infinity, secondDist = Infinity
+    const top = []   // { idx, d } ascending by d, length ≤ TOP_K
     let scanned = 0
 
     const consider = (chunkIdx, chunk, local, globalIdx) => {
@@ -175,12 +180,11 @@ export function createMatcher(store) {
       } else if (useFull) {
         d = Math.round(0.65 * artDist + 0.35 * FULL_SCALE * hammingDistanceAt(chunk.full, base, fullQuery))
       }
-      if (d < bestDist) {
-        secondIdx = bestIdx; secondDist = bestDist
-        bestIdx = globalIdx; bestDist = d
-      } else if (d < secondDist) {
-        secondIdx = globalIdx; secondDist = d
-      }
+      if (top.length === TOP_K && d >= top[TOP_K - 1].d) return
+      let at = top.length
+      while (at > 0 && top[at - 1].d > d) at--
+      top.splice(at, 0, { idx: globalIdx, d })
+      if (top.length > TOP_K) top.pop()
     }
 
     if (indices) {
@@ -199,13 +203,37 @@ export function createMatcher(store) {
         }
       }
     }
-    return { bestIdx, bestDist, secondIdx, secondDist, scanned }
+
+    const best = top[0] ?? null
+    const second = top[1] ?? null
+    // First entry whose NAME differs from the best's. When all of top-K share
+    // the name, use the last entry's distance as a conservative lower bound.
+    let diffDist = Infinity
+    if (best && top.length > 1) {
+      const bestName = store.rowName(best.idx)
+      const diff = top.find((t, i) => i > 0 && store.rowName(t.idx) !== bestName)
+      diffDist = diff ? diff.d : top[top.length - 1].d
+    }
+    return {
+      bestIdx: best?.idx ?? -1,
+      bestDist: best?.d ?? Infinity,
+      secondIdx: second?.idx ?? -1,
+      secondDist: second?.d ?? Infinity,
+      diffDist,
+      scanned,
+    }
   }
+
+  const diffGapOf = (ranked) =>
+    ranked.bestIdx < 0 ? 0 : (Number.isFinite(ranked.diffDist) ? ranked.diffDist - ranked.bestDist : 256)
 
   function toResult(ranked, fallback) {
     return {
       best: ranked.bestIdx >= 0 ? store.getCardPublic(ranked.bestIdx, ranked.bestDist) : null,
       second: ranked.secondIdx >= 0 ? store.getCardPublic(ranked.secondIdx, ranked.secondDist) : null,
+      // Gap to the first DIFFERENT-NAME candidate — the gate callers should
+      // use for confidence/escalation (same-name reprints sit at raw gap ~0).
+      diffGap: diffGapOf(ranked),
       candidateCount: ranked.scanned,
       totalCount: store.count,
       fallback,
@@ -227,8 +255,7 @@ export function createMatcher(store) {
     const allowedFlags = allowedSets?.size ? buildAllowedFlags(allowedSets) : null
     const isWeak = (ranked) => {
       if (ranked.bestIdx < 0) return true
-      const gap = ranked.secondIdx >= 0 ? ranked.secondDist - ranked.bestDist : 256
-      return ranked.bestDist > weakDistance || gap < weakGap
+      return ranked.bestDist > weakDistance || diffGapOf(ranked) < weakGap
     }
 
     const baseCandidates = getCandidates(query, fullQuery)
@@ -259,23 +286,30 @@ export function createMatcher(store) {
     return toResult(ranked, fallback)
   }
 
-  /** Try several query hashes (standard/foil/dark) and keep the best result. */
+  /**
+   * Try several query hashes (standard/foil/dark) and keep the best result.
+   * Foil/dark are FALLBACK variants — once a query answers non-weakly, the
+   * remaining ones are skipped (each costs a full rank).
+   */
   function matchAll(queries, colorQuery = null, fullQuery = null, opts = {}) {
     if (!store.count) {
       return { best: null, second: null, candidateCount: 0, totalCount: 0, bestLabel: null }
     }
+    const { weakDistance = 122, weakGap = 8 } = opts
     let best = null, second = null, candidateCount = 0
-    let fallback = null, bestLabel = null
+    let fallback = null, bestLabel = null, diffGap = 0
     for (const { hash, label } of queries) {
       if (!hash) continue
       const result = match(hash, colorQuery, fullQuery, opts)
       if (result.best && (!best || result.best.distance < best.distance)) {
         best = result.best; second = result.second
+        diffGap = result.diffGap
         candidateCount = result.candidateCount
         fallback = result.fallback; bestLabel = label
       }
+      if (result.best && result.best.distance <= weakDistance && result.diffGap >= weakGap) break
     }
-    return { best, second, candidateCount, totalCount: store.count, fallback, bestLabel }
+    return { best, second, diffGap, candidateCount, totalCount: store.count, fallback, bestLabel }
   }
 
   return {

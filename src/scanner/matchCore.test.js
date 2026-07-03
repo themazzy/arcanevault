@@ -140,6 +140,45 @@ describe('createMatcher', () => {
     )
   })
 
+  it('measures diffGap against the first different-name candidate', () => {
+    // Two same-art reprints of one card: hashes 2 bits apart. The raw runner-
+    // up gap collapses to ~2, but diffGap must reach past the reprint to the
+    // nearest OTHER card (~random distance) — this is what lets the scanner
+    // exit early on reprinted cards instead of burning the full ladder.
+    const cards = makeCards(2400, { seed: 11, sets: ['aaa', 'bbb'] })
+    const reprintA = { ...cards[100], name: 'Reprint Bolt' }
+    const reprintB = {
+      ...cards[101],
+      name: 'Reprint Bolt',
+      phash_hex: cards[100].phash_hex,      // same art → near-identical hashes
+      phash_hex2: cards[100].phash_hex2,
+      phash_full_hex: cards[100].phash_full_hex,
+    }
+    const all = [...cards]
+    all[100] = reprintA
+    all[101] = reprintB
+    const { matcher } = buildMatcher(all)
+
+    const query = flipBits(hexToHash(reprintA.phash_hex), 10, 5)
+    const result = matcher.match(query)
+    expect(result.best.name).toBe('Reprint Bolt')
+    expect(result.second.name).toBe('Reprint Bolt')                       // raw #2 = the reprint
+    expect(result.second.distance - result.best.distance).toBeLessThan(4) // raw gap collapsed
+    expect(result.diffGap).toBeGreaterThan(40)                            // confidence gap intact
+  })
+
+  it('matchAll stops after a non-weak query instead of ranking fallbacks', () => {
+    const { matcher } = buildMatcher()
+    const strong = flipBits(hexToHash(CARDS[777].phash_hex), 6, 777)
+    const alsoStrong = flipBits(hexToHash(CARDS[888].phash_hex), 6, 888)
+    const result = matcher.matchAll([
+      { hash: strong, label: 'standard' },
+      { hash: alsoStrong, label: 'foil' },   // would win on distance ties — must not run
+    ])
+    expect(result.best.id).toBe(CARDS[777].scryfall_id)
+    expect(result.bestLabel).toBe('standard')
+  })
+
   it('stays correct after appending a chunk post-index-build', () => {
     const store = new HashPackStore()
     store.appendChunkBuffer(encodeHashPack(CARDS.slice(0, 2500), 6))

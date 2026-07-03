@@ -32,8 +32,8 @@ class VisionClient {
   // Main-thread fallback state (mirrors the worker's currentCard slot)
   _localCard = null
   _localCard180 = null
-  _localStrip = null
-  _localTitleStrip = null
+  _localSource = null   // { frame, corners } for lazy strip extraction
+  _localStripConsumed = { collector: false, title: false }
 
   _ensureWorker() {
     if (this._failed || typeof Worker === 'undefined') return null
@@ -104,8 +104,8 @@ class VisionClient {
     } catch {
       this._localCard = warpCard(imageData, corners)
       this._localCard180 = null
-      this._localStrip = this._localCard ? extractCollectorStrip(imageData, corners) : null
-      this._localTitleStrip = this._localCard ? extractTitleStrip(imageData, corners) : null
+      this._localSource = this._localCard ? { frame: imageData, corners } : null
+      this._localStripConsumed = { collector: false, title: false }
       return !!this._localCard
     }
   }
@@ -124,24 +124,35 @@ class VisionClient {
         imageData, imageData.width, imageData.height, viewportWidth, viewportHeight,
       )
       this._localCard180 = null
-      this._localStrip = this._localCard ? extractCollectorStripFromCard(this._localCard) : null
-      this._localTitleStrip = this._localCard ? extractTitleStripFromCard(this._localCard) : null
+      this._localSource = null
+      this._localStripConsumed = { collector: false, title: false }
       return !!this._localCard
     }
   }
 
+  _localStrip(kind) {
+    if (this._localStripConsumed[kind] || !this._localCard) return null
+    this._localStripConsumed[kind] = true
+    if (this._localSource) {
+      return kind === 'title'
+        ? extractTitleStrip(this._localSource.frame, this._localSource.corners)
+        : extractCollectorStrip(this._localSource.frame, this._localSource.corners)
+    }
+    return kind === 'title'
+      ? extractTitleStripFromCard(this._localCard)
+      : extractCollectorStripFromCard(this._localCard)
+  }
+
   /**
    * High-res collector-line strip from the most recent loadWarped/loadReticle
-   * frame, or null. Consumed once (the worker clears its copy on handoff).
+   * frame, or null. Extracted lazily; consumed once.
    */
   async getCollectorStrip() {
     try {
       const { strip } = await this._post('getStrip', { kind: 'collector' })
       return strip
     } catch {
-      const strip = this._localStrip
-      this._localStrip = null
-      return strip
+      return this._localStrip('collector')
     }
   }
 
@@ -151,9 +162,7 @@ class VisionClient {
       const { strip } = await this._post('getStrip', { kind: 'title' })
       return strip
     } catch {
-      const strip = this._localTitleStrip
-      this._localTitleStrip = null
-      return strip
+      return this._localStrip('title')
     }
   }
 

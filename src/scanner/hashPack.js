@@ -318,6 +318,13 @@ export class HashPackStore {
     return [parts[0] ?? '', parts[1] ?? '', parts[2] ?? '']
   }
 
+  /** Just the card name for a global row index (hot-path gap logic). */
+  rowName(globalIdx) {
+    const loc = this.locate(globalIdx)
+    if (!loc) return ''
+    return HashPackStore.rowMeta(loc.chunk, loc.local, this._decoder)[0]
+  }
+
   /** Public card object for match results. */
   getCardPublic(globalIdx, distance) {
     const loc = this.locate(globalIdx)
