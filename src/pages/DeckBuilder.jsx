@@ -985,8 +985,8 @@ export default function DeckBuilderPage() {
     if (visibleColumns.cmc) addColumn(56)
     if (visibleColumns.price) addColumn(78)
     if (visibleColumns.status) addColumn(94)
-    if (visibleColumns.actions) addColumn(64)
     if (visibleColumns.qty) addColumn(58)
+    if (visibleColumns.actions) addColumn(64)
     if (visibleColumns.remove) addColumn(56)
     const gapWidth = Math.max(0, cols.length - 1) * 8
     return {
@@ -4030,30 +4030,79 @@ export default function DeckBuilderPage() {
         <span>Done</span>
       </button>
 
-      {renderDeckHeader(styles.deckHeaderDesktop)}
-
       {/* ── LEFT PANEL ─────────────────────────────────────────── */}
       <div className={styles.left}>
-        <button
-          type="button"
-          className={styles.leftCollapseBtn}
-          onClick={() => setLeftCollapsed(v => !v)}
-          title={leftCollapsed ? 'Expand search panel' : 'Collapse search panel'}
-          aria-label={leftCollapsed ? 'Expand search panel' : 'Collapse search panel'}
-        >
-          {leftCollapsed ? <ChevronRightIcon size={14} /> : <ChevronLeftIcon size={14} />}
-        </button>
         {leftCollapsed && (
           <button
             type="button"
             className={styles.leftRail}
             onClick={() => setLeftCollapsed(false)}
             title="Expand search panel"
+            aria-label="Expand search panel"
           >
+            <ChevronRightIcon size={16} className={styles.leftRailArrow} />
             <span>Search</span>
           </button>
         )}
         <div className={styles.leftContent}>
+        {/* Desktop-only left header — back link, deck title, visibility, quick actions */}
+        <div className={`${styles.leftHeader} ${styles.deskOnly}`}>
+          <Link className={styles.backToDecks} to="/builder" title="Back to decks">
+            <ChevronLeftIcon size={13} />
+            <span>Back to Decklist</span>
+          </Link>
+          <div className={styles.leftTitleRow}>
+            <input
+              className={styles.leftNameInput}
+              value={deckName}
+              onChange={e => setDeckName(e.target.value)}
+              onBlur={saveNameBlur}
+              maxLength={100}
+            />
+            {saving && <span className={styles.savingDot} />}
+            <button
+              type="button"
+              className={styles.leftCollapseBtn}
+              onClick={() => setLeftCollapsed(v => !v)}
+              title="Collapse search panel"
+              aria-label="Collapse search panel"
+            >
+              <CloseIcon size={14} />
+            </button>
+          </div>
+          <div className={styles.visibilityToggleRow}>
+            <div
+              className={`${styles.toggleTrack} ${deckMeta.is_public ? styles.toggleTrackOn : ''}`}
+              onClick={togglePublic}
+            >
+              <div className={styles.toggleThumb} />
+            </div>
+            <span className={`${styles.visibilityText} ${deckMeta.is_public ? styles.visibilityTextOn : ''}`}>
+              Public Visibility
+            </span>
+          </div>
+          <div className={styles.leftActionsRow}>
+            {isEDH && (
+              <button
+                className={`${styles.headerBtnPrimary} ${styles.headerBtnAssist} ${styles.leftActionBtn}`}
+                onClick={() => setShowBuildAssistant(true)}
+                title="Open the guided deck builder — fill each role from your collection"
+              >
+                Build Assistant
+              </button>
+            )}
+            {(isCollectionDeck || deckMeta.linked_deck_id) ? (
+              <button className={`${styles.headerBtnPrimary} ${styles.leftActionBtn}`} onClick={() => setShowSync(true)} disabled={syncRunning} title="Sync collection">
+                {syncLabel}
+              </button>
+            ) : (
+              <button className={`${styles.headerBtnPrimary} ${styles.leftActionBtn}`} onClick={() => setShowMakeDeck(true)} disabled={makeDeckRunning} title="Make Collection Deck">
+                {makeDeckRunning ? 'Creating...' : 'Make Collection Deck'}
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* Mobile panel toggle — rendered outside the left panel so it stays visible */}
         <div className={styles.leftTop}>
           {/* Mobile toggle for format/commander — hidden on desktop via CSS */}
@@ -4193,8 +4242,8 @@ export default function DeckBuilderPage() {
               )}
             </div>
 
-            {/* Public/private toggle */}
-            <div className={`${styles.formatRow} ${styles.visibilityControlRow}`}>
+            {/* Public/private toggle — mobile only; desktop shows it in the left header */}
+            <div className={`${styles.formatRow} ${styles.visibilityControlRow} ${styles.mobileOnly}`}>
               <span className={styles.formatLabel}>Visibility</span>
               <div className={styles.visibilityToggleRow}>
                 <div
@@ -4379,11 +4428,7 @@ export default function DeckBuilderPage() {
             >
               {label}
               {badge != null && (
-                <span style={{
-                  marginLeft: 5, fontSize: '0.68rem', padding: '1px 6px',
-                  borderRadius: 10, background: 'var(--s-border2)',
-                  color: over ? '#e07070' : 'var(--text-faint)',
-                }}>
+                <span className={`${styles.tabBadge}${over ? ' ' + styles.tabBadgeOver : ''}`}>
                   {badge}
                 </span>
               )}
@@ -4429,6 +4474,24 @@ export default function DeckBuilderPage() {
         >
             {renderDeckHeader(styles.deckHeaderMobile)}
 
+            {/* Fallback deck-actions gear when there is no commander banner */}
+            {commanderCards.length === 0 && (
+              <div className={`${styles.deckListGear} ${styles.deskOnly}`}>
+                <ResponsiveMenu
+                  title="Deck Actions"
+                  align="right"
+                  portal
+                  trigger={({ toggle }) => (
+                    <button className={styles.leftGearBtn} onClick={toggle} title="Deck actions" aria-label="Deck actions">
+                      <SettingsIcon size={14} />
+                    </button>
+                  )}
+                >
+                  {args => renderDeckActionsMenu({ ...args, includeQuickActions: true })}
+                </ResponsiveMenu>
+              </div>
+            )}
+
             {/* Commander art display — supports partners */}
             {commanderCards.length > 0 && (
               <div className={styles.cmdArt}>
@@ -4447,28 +4510,37 @@ export default function DeckBuilderPage() {
                 ))}
                 {/* Info panel */}
                 <div className={styles.cmdArtOverlay}>
+                  {colorIdentity.length > 0 && (
+                    <div className={styles.cmdColorPips}>
+                      {colorIdentity.map(c => (
+                        <img key={c} src={manaSymbolUrl(`{${c}}`)} alt={c} width={18} height={18}
+                          style={{ display: 'block', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.7))' }} />
+                      ))}
+                    </div>
+                  )}
                   <span className={styles.cmdArtName}>
                     {commanderCards.map(c => c.name).join(' & ')}
                   </span>
                   <div className={styles.cmdArtMeta}>
                     {format && <span>{format.label}</span>}
-                    {format && <span>&middot;</span>}
-                    <span style={{ color: totalCards > deckSize ? '#e07070' : 'var(--text-dim)' }}>
-                      {totalCards}/{deckSize} cards
-                    </span>
-                    {totalDeckPrice > 0 && <span>&middot;</span>}
                     {totalDeckPrice > 0 && <span style={{ color: 'var(--green)' }}>{formatPrice(totalDeckPrice, price_source)}</span>}
                   </div>
                 </div>
-                {/* Color pips */}
-                {colorIdentity.length > 0 && (
-                  <div className={styles.cmdColorPips}>
-                    {colorIdentity.map(c => (
-                      <img key={c} src={manaSymbolUrl(`{${c}}`)} alt={c} width={18} height={18}
-                        style={{ display: 'block', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.7))' }} />
-                    ))}
-                  </div>
-                )}
+                {/* Deck actions gear — desktop only; mobile header has its own actions */}
+                <div className={`${styles.cmdArtGear} ${styles.deskOnly}`}>
+                  <ResponsiveMenu
+                    title="Deck Actions"
+                    align="right"
+                    portal
+                    trigger={({ toggle }) => (
+                      <button className={styles.cmdArtGearBtn} onClick={toggle} title="Deck actions" aria-label="Deck actions">
+                        <SettingsIcon size={14} />
+                      </button>
+                    )}
+                  >
+                    {args => renderDeckActionsMenu({ ...args, includeQuickActions: true })}
+                  </ResponsiveMenu>
+                </div>
               </div>
             )}
 
@@ -4606,7 +4678,7 @@ export default function DeckBuilderPage() {
                       title="Group cards"
                       aria-label="Group cards"
                     >
-                      <FilterIcon size={15} />
+                      <GridViewIcon size={15} />
                       <span className={styles.toggleLabel}>Group</span>
                     </button>
                   )}
@@ -4781,7 +4853,41 @@ export default function DeckBuilderPage() {
                   onChange={e => setDeckSearch(e.target.value)}
                   placeholder="Search deck..."
                 />
-                <div className={styles.boardFilterGroup}>
+                {/* Desktop: board filter behind a funnel button */}
+                <ResponsiveMenu
+                  title="Board Filter"
+                  wrapClassName={`${styles.filterFunnelWrap} ${styles.deskOnly}`}
+                  portal
+                  align="right"
+                  trigger={({ toggle }) => (
+                    <button
+                      className={`${styles.filterFunnelBtn}${boardFilter !== 'all' ? ' ' + styles.filterFunnelActive : ''}`}
+                      onClick={toggle}
+                      title="Filter by board"
+                      aria-label="Filter by board"
+                    >
+                      <FilterIcon size={15} />
+                    </button>
+                  )}
+                >
+                  {({ close }) => (
+                    <div className={uiStyles.responsiveMenuList}>
+                      {BOARD_FILTERS.map(filter => (
+                        <button
+                          key={filter.id}
+                          className={`${styles.columnMenuItem} ${boardFilter === filter.id ? styles.columnMenuItemActive : ''}`}
+                          onClick={() => { setBoardFilter(filter.id); close?.() }}
+                        >
+                          <span className={styles.columnMenuLabel}>{filter.label}</span>
+                          <span className={styles.columnMenuCheck} aria-hidden="true">
+                            {boardFilter === filter.id ? <CheckIcon size={11} /> : ''}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </ResponsiveMenu>
+                <div className={`${styles.boardFilterGroup} ${styles.mobileOnly}`}>
                   {BOARD_FILTERS.map(filter => (
                     <button
                       key={filter.id}
@@ -4986,9 +5092,9 @@ export default function DeckBuilderPage() {
                   {visibleColumns.cmc && <span className={styles.deckListHeaderMetric}>CMC</span>}
                   {visibleColumns.price && <span className={styles.deckListHeaderMetric}>Price</span>}
                   {visibleColumns.status && <span className={styles.deckListHeaderStatus}>Status</span>}
-                  {visibleColumns.actions && <span className={styles.deckListHeaderActions}>Actions</span>}
                   {visibleColumns.qty && <span className={styles.deckListHeaderQty}>Qty</span>}
-                  {visibleColumns.remove && <span className={styles.deckListHeaderRemove}>Remove</span>}
+                  {visibleColumns.actions && <span className={styles.deckListHeaderActions} aria-label="Actions" />}
+                  {visibleColumns.remove && <span className={styles.deckListHeaderRemove} aria-label="Remove" />}
                 </div>
               )
 

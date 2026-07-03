@@ -144,7 +144,6 @@ export function DeckCardRow({
           <OwnershipBadge ownedQty={ownedQty} ownedFoilAlt={ownedFoilAlt} ownedAlt={ownedAlt} ownedInDeck={ownedInDeck} inCollDeck={inCollDeck} />
         </div>
       )}
-      {visibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} formatId={formatId} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} onOpenCategoryPicker={onOpenCategoryPicker} builderSfMap={builderSfMap} />}
       {visibleColumns.qty && (
         <div className={styles.qtyControls}>
           <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, -1)}>-</button>
@@ -152,6 +151,7 @@ export function DeckCardRow({
           <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, +1)}>+</button>
         </div>
       )}
+      {visibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} formatId={formatId} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} onOpenCategoryPicker={onOpenCategoryPicker} builderSfMap={builderSfMap} />}
       {visibleColumns.remove && <button className={styles.removeBtn} onClick={() => onRemove(dc.id)}><CloseIcon size={13} /></button>}
     </div>
   )
