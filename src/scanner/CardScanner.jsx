@@ -53,8 +53,15 @@ const MATCH_STRONG_SINGLE    = 108
 // Continuous auto-scan: cheap corner probes at this cadence gate full scans.
 const AUTOSCAN_PROBE_INTERVAL_MS  = 90
 const AUTOSCAN_PROBE_STABLE       = 2     // consecutive stable probes before scanning
-const AUTOSCAN_PROBE_EPS_PX       = 7     // max centroid drift between probes (small-frame px)
+const AUTOSCAN_PROBE_EPS_PX       = 10    // max centroid drift between probes (small-frame px)
+const AUTOSCAN_PROBE_AREA_TOL     = 0.2   // max relative bbox-area change between probes
+// After this many consecutive quick-probe misses, every Nth probe escalates to
+// the full 3-pass detection — pass 1 alone misses dark/low-contrast cards that
+// manual scanning (all passes + reticle) still finds.
+const AUTOSCAN_ESCALATE_AFTER     = 3
+const AUTOSCAN_ESCALATE_EVERY     = 3
 const AUTOSCAN_AFTER_SCAN_MS      = 450   // pause after a full scan attempt
+const AUTOSCAN_RESCUE_COOLDOWN_MS = 2500  // min gap between title-OCR rescues in auto-scan
 const PRIMARY_CROP_VARIANTS = [
   { xOffset: 0, yOffset: 0 },
   { xOffset: 0, yOffset: -10 },
@@ -416,6 +423,7 @@ export default function CardScanner({ onMatch, onClose }) {
   const autoScanRef = useRef(false)
   const scanningRef = useRef(false)
   const lastAutoScanSignatureRef = useRef(null)
+  const lastTitleRescueAtRef = useRef(0)
   const lastSoundCardUidRef = useRef(null)
   const sessionStatsRef = useRef({ attempts: 0, hits: 0, totalMs: 0 })
   const [sessionStatsDisplay, setSessionStatsDisplay] = useState({ attempts: 0, hits: 0, totalMs: 0 })
@@ -558,6 +566,17 @@ export default function CardScanner({ onMatch, onClose }) {
     const timer = setTimeout(() => setStartupDismissed(true), 400)
     return () => clearTimeout(timer)
   }, [startupDismissed, startupCanContinue])
+
+  // Pre-warm the OCR engine shortly after the scanner is usable, so the
+  // first printing-correct / title-rescue call doesn't pay the multi-second
+  // Tesseract init inside a scan.
+  useEffect(() => {
+    if (!isReady || !scanOcr) return undefined
+    const timer = setTimeout(() => {
+      import('./collectorOcr').then(m => m.prewarmOcr()).catch(() => {})
+    }, 2500)
+    return () => clearTimeout(timer)
+  }, [isReady, scanOcr])
 
   // Persist basket to localStorage whenever it changes
   useEffect(() => { savePending(pendingCards) }, [pendingCards])
@@ -1426,8 +1445,15 @@ export default function CardScanner({ onMatch, onClose }) {
 
       // Hash came up empty but a card was in the worker this scan → try to
       // identify it by NAME from the title bar (works on any printing/era).
+      // In auto-scan, throttle: OCR takes 0.3–1.5 s serialized, and the
+      // probe loop would otherwise pay it on EVERY miss of the same card.
       if (!match && scanOcr && anyCardLoaded) {
-        match = await rescueByTitle(bestObserved, allowedSets).catch(() => null)
+        const rescueDue = !isAutoScan ||
+          Date.now() - (lastTitleRescueAtRef.current || 0) >= AUTOSCAN_RESCUE_COOLDOWN_MS
+        if (rescueDue) {
+          lastTitleRescueAtRef.current = Date.now()
+          match = await rescueByTitle(bestObserved, allowedSets).catch(() => null)
+        }
       }
 
       if (DEBUG && mountedRef.current) {
@@ -1496,6 +1522,7 @@ export default function CardScanner({ onMatch, onClose }) {
     let timer = null
     let lastSig = null
     let stableCount = 0
+    let missStreak = 0
 
     const quadSig = (corners) => {
       const cx = corners.reduce((s, p) => s + p.x, 0) / 4
@@ -1511,12 +1538,19 @@ export default function CardScanner({ onMatch, onClose }) {
       if (!scanningRef.current) {
         try {
           const frame = await captureFrame()
-          const corners = frame ? await visionClient.detect(frame.smallImageData, { quick: true }) : null
+          // Quick probe = detection pass 1 only. Once it has missed a few
+          // times in a row, periodically escalate to the full 3-pass
+          // detection so dark/low-contrast cards still trigger auto-scan
+          // (costs ~one old-style full detection every ~270 ms while idle).
+          const quick = !(missStreak >= AUTOSCAN_ESCALATE_AFTER &&
+                          missStreak % AUTOSCAN_ESCALATE_EVERY === 0)
+          const corners = frame ? await visionClient.detect(frame.smallImageData, { quick }) : null
           if (corners) {
+            missStreak = 0
             const sig = quadSig(corners)
             const stable = lastSig &&
               Math.hypot(sig.cx - lastSig.cx, sig.cy - lastSig.cy) < AUTOSCAN_PROBE_EPS_PX &&
-              Math.abs(sig.area - lastSig.area) < lastSig.area * 0.15
+              Math.abs(sig.area - lastSig.area) < lastSig.area * AUTOSCAN_PROBE_AREA_TOL
             stableCount = stable ? stableCount + 1 : 1
             lastSig = sig
             if (stableCount >= AUTOSCAN_PROBE_STABLE) {
@@ -1526,6 +1560,7 @@ export default function CardScanner({ onMatch, onClose }) {
               delay = AUTOSCAN_AFTER_SCAN_MS
             }
           } else {
+            missStreak++
             stableCount = 0
             lastSig = null
           }

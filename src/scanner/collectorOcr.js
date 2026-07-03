@@ -228,3 +228,12 @@ export function recognizeTitleStrip(strip) {
   // match downstream absorbs stray symbols (mana cost at the right edge).
   return recognizeText(strip, { psm: 'line', whitelist: '' })
 }
+
+/**
+ * Warm the Tesseract engine (worker + core + traineddata) ahead of the first
+ * recognition — otherwise the first hash-miss rescue stalls a scan for the
+ * multi-second engine init. Assets are same-origin/SW-cached. Best-effort.
+ */
+export function prewarmOcr() {
+  ensureOcrWorker().catch(() => {})
+}
