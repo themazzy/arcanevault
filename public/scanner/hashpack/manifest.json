@@ -1,0 +1,38 @@
+{
+  "formatVersion": 1,
+  "hashVersion": 6,
+  "generatedAt": "2026-07-01T20:58:06.858Z",
+  "totalCount": 106359,
+  "chunks": [
+    {
+      "file": "pack-v6-000-7ed52132e0.bin",
+      "count": 24000,
+      "bytes": 2591836,
+      "sha256": "7ed52132e02845ee530172df495687f5cf6fc9044c21f31daec672b7e2e98ce3"
+    },
+    {
+      "file": "pack-v6-001-285d8bde3b.bin",
+      "count": 24000,
+      "bytes": 2594360,
+      "sha256": "285d8bde3bdd7b142306166d66950a736b7261bf37464be0b7662678e4f07139"
+    },
+    {
+      "file": "pack-v6-002-5f0bf738bd.bin",
+      "count": 24000,
+      "bytes": 2555742,
+      "sha256": "5f0bf738bd8be565278b75e530f28a1baea11caf886959e7f1d0210b195e85db"
+    },
+    {
+      "file": "pack-v6-003-3f781f38fa.bin",
+      "count": 24000,
+      "bytes": 2488947,
+      "sha256": "3f781f38fab5a5f2cd25cb7348801510351c5362df776a3f55e5d915d03460a2"
+    },
+    {
+      "file": "pack-v6-004-7da6302f34.bin",
+      "count": 10359,
+      "bytes": 1060317,
+      "sha256": "7da6302f34ccdc4316d7d1148ed78d6a949be78d74579cb2c44efbd60e07608e"
+    }
+  ]
+}

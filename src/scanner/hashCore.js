@@ -27,6 +27,17 @@ export function hammingDistance(a, b) {
   return d
 }
 
+/**
+ * Hamming distance between `query` (Uint32Array(8)) and the 8 words starting
+ * at `base` inside a packed word array (hash-pack section). Avoids allocating
+ * a subarray view per candidate in the match hot loop.
+ */
+export function hammingDistanceAt(words, base, query) {
+  let d = 0
+  for (let i = 0; i < 8; i++) d += popcount32((words[base + i] ^ query[i]) >>> 0)
+  return d
+}
+
 // ── Hex ↔ Uint32Array(8) conversion ────────────────────────────────────────
 //
 // Hex format: 64 chars, 4 big-endian 64-bit blocks (p1..p4).
@@ -85,8 +96,10 @@ function percentileCap(u8, percentile) {
 }
 
 // ── CLAHE (Contrast Limited Adaptive Histogram Equalisation) ────────────────
+// Exported: also used by visionCore's detection pass 3 (dark-card-on-dark-
+// background contrast boost) with an 8×8 grid on the detection frame.
 
-function applyCLAHE(u8, width, height, tileGridX = 4, tileGridY = 4, clipLimit = 40.0) {
+export function applyCLAHE(u8, width, height, tileGridX = 4, tileGridY = 4, clipLimit = 40.0) {
   const tileW = Math.floor(width / tileGridX)
   const tileH = Math.floor(height / tileGridY)
   const tileArea = tileW * tileH

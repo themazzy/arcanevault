@@ -20,9 +20,10 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
         // Big/rarely-used statics are runtime-cached instead of precached.
-        // opencv.js is ~10 MB — never precache it (would force the download on
-        // every SW install); it's runtime-cached on first scanner use below.
-        globIgnores: ['rules/**', 'set-icons/**', 'opencv/**', '**/*.map'],
+        // scanner/hashpack (~11 MB of binary chunks) is cached in IndexedDB by
+        // the scanner itself; ocr/** (~6 MB tesseract worker/core/traineddata)
+        // is runtime-cached below on first OCR use.
+        globIgnores: ['rules/**', 'set-icons/**', 'scanner/**', 'ocr/**', '**/*.map'],
         navigateFallback: 'index.html',
         navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
@@ -53,13 +54,13 @@ export default defineConfig({
             },
           },
           {
-            // Vendored opencv.js (~10 MB). CacheFirst so the scanner loads it
-            // from disk after the first download and works offline thereafter.
-            urlPattern: ({ url, sameOrigin }) => sameOrigin && url.pathname.startsWith('/opencv/'),
+            // Self-hosted tesseract worker/core/traineddata (~6 MB). CacheFirst
+            // so the scanner's OCR works offline after the first use.
+            urlPattern: ({ url, sameOrigin }) => sameOrigin && url.pathname.startsWith('/ocr/'),
             handler: 'CacheFirst',
             options: {
-              cacheName: 'opencv-engine',
-              expiration: { maxEntries: 4, maxAgeSeconds: 60 * 60 * 24 * 90 },
+              cacheName: 'scanner-ocr',
+              expiration: { maxEntries: 8, maxAgeSeconds: 60 * 60 * 24 * 90 },
               cacheableResponse: { statuses: [0, 200] },
             },
           },

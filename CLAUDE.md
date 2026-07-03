@@ -304,13 +304,23 @@ A linked collection deck navigates to `/builder/<linked_builder_id>` rather than
 | `src/lib/nativeAuth.js` | Capacitor OAuth: `isNativeApp()`, `openNativeOAuth(provider)`, `registerNativeAuthDeepLinkHandler()`; PKCE flow via `deckloom://auth/callback` |
 | `src/lib/tournament.js` | Tournament logic: formats, structures, standings, result recording |
 | `src/lib/networkUtils.js` | `isNetworkLikeError()`, `createOfflineError()` |
-| `src/scanner/DatabaseService.js` | pHash DB: SQLite (native) + Supabase fallback (web); LSH band index, IDB pre-parsed cache |
-| `src/scanner/ScannerEngine.js` | OpenCV.js card detection (multi-pass Canny), perspective warp, art crop, reticle crop, 180° rotation, pHash |
+| `src/scanner/DatabaseService.js` | Hash-pack orchestrator: manifest → IDB blob cache → same-origin fetch; feeds chunks to the match worker; sync fallback matcher |
+| `src/scanner/hashPack.js` | Binary hash-pack format (encode/decode/`HashPackStore`); image URLs derived from scryfall id — shared with Node build script |
+| `src/scanner/matchCore.js` | LSH band index + ranking over packed hash arrays — shared by worker and main-thread fallback |
+| `src/scanner/packLoader.js` | Manifest/chunk fetch + IDB blob caching (`scanner_pack` store); native falls back to deckloom.app for post-APK chunks |
+| `src/scanner/prefetch.js` | Idle-time warmup (app shell): pack chunks → IDB; gated on prior scanner use |
+| `src/scanner/visionCore.js` | Pure-JS vision primitives (replaced OpenCV.js): Canny, contours, approxPolyDP, minAreaRect, perspective warp, INTER_AREA-equivalent resize |
+| `src/scanner/ScannerEngine.js` | Card pipeline over visionCore: 3-pass quad detection + scoring, warp, art/reticle crops, 180° rotation, pHash variants — pure, canvas-free |
+| `src/scanner/visionWorker.js` | Runs the whole vision pipeline off the main thread; holds the current warped card + collector strip between hash batches |
+| `src/scanner/visionClient.js` | Main-thread handle on visionWorker (transferable frames); synchronous main-thread fallback |
+| `src/scanner/collectorOcr.js` | Collector-line OCR (tesseract.js, self-hosted under `public/ocr/`): noise-tolerant parsing, set-candidate expansion; refines printing + language after a scan |
+| `src/scanner/nameMatch.js` | Fuzzy card-name matching for title-OCR rescue: banded prefix-Levenshtein over all pack names, uniqueness-margin gated |
 | `src/scanner/hashCore.js` | Pure-JS pHash core: precomputed DCT cosine table, CLAHE, percentileCap, Hamming distance — shared with seed script |
 | `src/scanner/constants.js` | Shared card/art dimensions: `CARD_W=500, CARD_H=700, ART_X=38, ART_Y=66, ART_W=424, ART_H=248` |
 | `src/scanner/CardScanner.jsx` | Full-screen scanner UI: camera, auto-scan loop, targeting reticle, stability buffer, settings panel, match basket |
 | `src/pages/Scanner.jsx` | Route wrapper for `CardScanner` at `/scanner` |
-| `scripts/generate-card-hashes.js` | Node.js seed script: downloads Scryfall art crops, computes pHashes, uploads to Supabase |
+| `scripts/generate-card-hashes.js` | Node.js seed script (pipeline v7): Scryfall bulk → hashes (art/color/full, incl. DFC back faces) → writes `public/scanner/hashpack/` directly. The pack is its own incremental state — no Supabase involved. Crash-safe checkpoints every 8k rows |
+| `src/scanner/hashCard.js` | Seed-side hash computation from a perfect 500×700 card render — shares the exact 32×32 area-resize with the live scanner |
 | `src/lib/fx.js` | EUR↔USD conversion via frankfurter.app (6 h IDB cache) |
 | `src/lib/valueSnapshots.js` | Daily collection-value snapshots (`collection_value_snapshots`, 1 row/user/day): `recordCollectionValueSnapshot()`, `fetchValueHistory()`, `computeValueDelta()` — powers Stats "Value Over Time" |
 | `src/lib/setCompletion.js` | Set-completion missing-cards view: `fetchSetCards()` (Scryfall, session cache), `computeMissingCards()`, `missingCostTotal()`, `addMissingToWishlist()` |
@@ -489,46 +499,73 @@ onMouseLeave={e => { myOwnLeaveHandler(); lpLeave?.(e) }}
 
 #### Pipeline overview
 
-```
-captureFrame()
-  → full-res ImageData (1280×720 web / native JPEG)   ← for warpCard
-  → small ImageData (640×360, GPU canvas.drawImage)   ← for detectCardCorners
+The vision engine is **pure JS** (`visionCore.js` primitives + `ScannerEngine.js` pipeline) — no OpenCV, no WASM, no canvas inside the pipeline. Everything below `captureFrame()` runs inside **visionWorker** (driven via `visionClient`, which falls back to main-thread execution if Workers fail); matching runs in **hashMatchWorker**. The main thread only captures frames (canvas/video access) and orchestrates. Frames are posted to the worker with their pixel buffers in the transfer list (zero copy — every capture makes fresh ImageData).
 
-detectCardCorners(smallImageData, sw, sh)
-  → 3-pass: adaptive Canny → fixed lo=5/hi=40 → equalizeHist
+```
+captureFrame()  [main thread]
+  → getFullImageData() — fresh full-res ImageData per call (1280×720 web / native JPEG via createImageBitmap)
+  → small ImageData (640×360, GPU canvas.drawImage)
+
+visionClient.detect(smallImageData, { quick })   [visionWorker]
+  → 3-pass: adaptive Canny → fixed lo=5/hi=40 → CLAHE(2.0, 8×8) contrast boost
+  → quick=true runs pass 1 only (auto-scan probe)
   → corners in small-image coords; caller scales back to full-res (×2)
 
-warpCard(imageData, scaledCorners)  →  500×700 ImageData
+visionClient.loadWarped(fullImageData, corners)  → worker warps to 500×700, holds it as "current card"
+visionClient.hashVariants(variants, { rot180 })  → art crops (ART 38,66,424×248) → usability check → 4 hash variants each
 
-cropArtRegion(warpedCard)           →  art crop (ART_X=38, ART_Y=66, ART_W=424, ART_H=248)
+databaseService.findBestTwoWithStatsAsyncAll(queries)   ← match worker: LSH band index + Hamming distance
 
-computePHash256(artCrop)            →  Uint32Array(8) — 256-bit pHash
-
-databaseService.findBestTwoWithStats(hash)   ← LSH band index + Hamming distance
-
-stability voting (up to STABILITY_SAMPLES=3 frames, SAMPLE_DELAY_MS=40)
+stability voting (up to STABILITY_SAMPLES=3 frames, SAMPLE_DELAY_MS=20)
 ```
 
-**Reticle fallback**: when no corners are found, `cropCardFromReticle(srcCanvas, w, h, vw, vh)` crops the reticle region directly from the camera canvas — pass `srcCanvas` (HTMLCanvasElement) to skip the expensive `putImageData` copy.
+**Auto-scan** runs a continuous cheap probe (`detect({ quick: true })`, ~10 Hz, `AUTOSCAN_PROBE_INTERVAL_MS`) and fires a full scan only after a card-like quad holds still for `AUTOSCAN_PROBE_STABLE` consecutive probes — an empty table never triggers 3-pass detection or hashing. There are no fixed miss/match cooldowns anymore; `AUTOSCAN_AFTER_SCAN_MS` paces attempts and the name+foil signature guard suppresses re-adding the card left in frame.
+
+**Reticle fallback**: when no corners are found, `visionClient.loadReticle(fullImageData, vw, vh)` blind-crops the reticle region as the current card (manual scan only, not auto-scan).
 
 **180° rotation fallback**: after each warp/reticle pass, if no decisive match, `rotateCard180(warpedCard)` is tried — catches cards held upside-down.
 
 **Foil fallback**: when standard hash distance > `MATCH_THRESHOLD`, `computePHash256Foil(artCrop)` re-hashes with `percentileCap(0.92)` (aggressive glare suppression). Does not affect stored DB hashes.
 
+#### Collector-line OCR (printing auto-correct)
+
+After an accepted scan (`scanOcr` setting, default on), `refineScanWithOcr` OCRs the card's printed collector line (`0123/0281 R` / `SET • EN`, modern frames 2014+) and refines the basket entry. Same-art reprints are indistinguishable to the art hash — the printed set code is the only reliable signal.
+
+- The strip is warped **from the full-res frame** at 3× card scale inside visionWorker (`extractCollectorStrip`; at 500×700 card scale the text is only ~17 px). The worker keeps it from the matched frame; `visionClient.getCollectorStrip()` hands it off once.
+- `collectorOcr.js`: tesseract.js (lazy-loaded on first accepted scan) with **self-hosted assets** in `public/ocr/` — `worker.min.js`, the SIMD LSTM core, and `eng.traineddata.gz` (4.0.0_best_int, ~3 MB; `fast` reads noticeably worse). No CDN at runtime; non-SIMD browsers silently get OCR disabled. SW runtime-caches `/ocr/` CacheFirst, never precaches (`globIgnores`).
+- Parsing is deliberately lenient (candidate lists for set + collector number, concatenated `MKMEN` splits, edit-distance-1 set recovery via `expandSetCandidates`) because validation happens downstream: `databaseService.lookupPrint(set, coll)` must hit the hash pack (exact or `p`-prefixed promo set), AND the resolved name must equal the matched card's name, AND the set family (set minus leading `p`) must differ from the match. Only then is the printing switched; within-family promo/showcase variants stay the hash's call. Language (`SET • DE` etc.) is applied whenever parsed.
+- A misread can therefore only produce a no-op, never a wrong card. Old frames (no printed set code) and borderless cards parse to nothing — silent no-op.
+
+#### Title-OCR rescue (name identification when hashing fails)
+
+When a scan's hash result is rejected (glare, foils, low light) but a card was warped this scan (`cardLoaded` — a stale strip from a previous card is never used), `rescueByTitle` OCRs the **title bar** (extracted like the collector strip; works on every frame era, pre-2014 included) and fuzzy-matches the text against all pack names via `nameMatch.js`:
+
+- `matchTitle`: banded prefix-Levenshtein (trailing mana-cost junk is free), length-scaled edit budgets, names <5 chars must match exactly (the card "X" exists and would otherwise match garbage), leading ≤2-char junk tokens dropped and retried, and a hit needs the runner-up name ≥2 edits worse. Harness: 13/24 hash-failure scenarios rescued, 0 wrong.
+- Printing: the hash's best same-name observation wins; otherwise the newest printing of the identified name (pack order). Set locks are honored (`identifyByTitle({ allowedSets })`).
+- Known no-op limitations: flavor-named crossover cards (Marvel/Godzilla print a different title), non-English cards (pack has English names only — the art hash covers those), heavily stylized borderless titles, old-frame basics.
+
 #### Hash algorithm — must match seed script exactly
 
-`computePHash256` pipeline (client + `generate-card-hashes.js` must be identical):
-1. `GaussianBlur` σ=1.0 on art crop (424×248)
-2. `resize` to 32×32 with INTER_LANCZOS4
-3. BT.601 grayscale (`rgbToGray32x32`) — weights: 0.299 R, 0.587 G, 0.114 B
-4. `percentileCap(0.98)` — glare suppression
-5. `CLAHE(tileGrid=4×4, clipLimit=40)`
-6. 2D-DCT via `dct2d()` with **precomputed cosine/norm tables** (built at module load in `hashCore.js` — do not add `Math.cos` calls back to the inner loop)
-7. Top-left 16×16 DCT coefficients → median threshold → 256-bit hash
+`computePHash256` pipeline v6 (client + `generate-card-hashes.js` must be identical):
+1. `resize` art crop (424×248) to 32×32 — client uses `areaResizeRGBA` (exact INTER_AREA-equivalent pixel-area averaging), seed uses Sharp `mitchell`; no pre-blur (area-averaging low-passes inherently)
+2. BT.709 grayscale (`rgbToGray32x32`) — weights: 0.2126 R, 0.7152 G, 0.0722 B
+3. `percentileCap(0.98)` — glare suppression
+4. `CLAHE(tileGrid=4×4, clipLimit=40)`
+5. 2D-DCT via `dct2d()` with **precomputed cosine/norm tables** (built at module load in `hashCore.js` — do not add `Math.cos` calls back to the inner loop)
+6. Top-left 16×16 DCT coefficients → median threshold → 256-bit hash
 
-**If any step changes, truncate `card_hashes` and re-seed.** `computePHash256Foil` uses `percentileCap(0.92)` instead of 0.98 — client-side only, never changes stored hashes.
+**If any step changes, run `generate-card-hashes.js --reseed`, bump `HASH_PIPELINE_VERSION` (seed script) and add the new version to `SUPPORTED_HASH_VERSIONS` (packLoader.js).** `computePHash256Foil` uses `percentileCap(0.92)` instead of 0.98 — client-side only, never changes stored hashes.
 
-**BigInt precision**: Supabase BIGINT returned as JS Number loses bits >53. Read `phash_hex TEXT` (64 hex chars) exclusively.
+**Pipeline v7 second signal** (format-v2 packs): `phash_full_hex` — whole-card luma pHash (`computeFullCardHash` client-side, once per warped orientation). `matchCore` combines: art 0.45 + color 0.20 + full 0.35×`FULL_SCALE`(1.14, harness-calibrated so random ≈ art's 126); without a full hash it collapses to the exact v6 formula (0.65/0.35), so v1 packs behave identically. A second LSH band index over full hashes rescues candidates whose art hash was destroyed by glare. v2 packs also carry **DFC back-face rows** (same scryfall id, face=1) and **flavor names** (indexed by the title-OCR rescue — Marvel/Godzilla cards print the flavor name).
+
+#### Hash database delivery — static hash pack
+
+The hash pack (`public/scanner/hashpack/pack-v*-*.bin` + `manifest.json`, newest sets in chunk 0) deploys with the web app and ships inside the Android APK (Capacitor serves `public/` locally — native first run is offline). The client (`packLoader.js` → `DatabaseService.js`) caches chunks as single ArrayBuffer blobs in the IDB `scanner_pack` store and posts them to `hashMatchWorker.js`, which owns the band indexes. Scanning unlocks after the first chunk; the rest streams in the background. The client accepts hash versions 6 and 7 (`SUPPORTED_HASH_VERSIONS`) — v7 features degrade gracefully on a v6 pack.
+
+- **Seeding workflow:** `node scripts/generate-card-hashes.js` → commit `public/scanner/hashpack/`. The pack is the script's own incremental state (Supabase is not involved); new cards produce delta chunks, checkpointed every 8k rows (an interrupted run resumes), and fragmented packs auto-consolidate. `--reseed` rebuilds everything (hash algorithm changes).
+- Chunk filenames are content-hashed; `manifest.json` is the only mutable file.
+- The service worker must never precache `scanner/**` (see `globIgnores` in `vite.config.js`).
+- The old Supabase `card_hashes` table is retired; `supabase/migrations/20260703000000_drop_card_hashes.sql` reclaims its 75 MB — **apply only after a verified v7 pack is committed + deployed**.
 
 ### Life Tracker (`LifeTracker.jsx`)
 
@@ -572,7 +609,7 @@ Host creates a session → others visit `/join/:code` on their own device → ho
 - `deck_changes` — deck-level action history (printing optimize, visibility, bracket, import, commander); one row per action, capped at 100/deck via the `prune_deck_changes` trigger, RLS owner-only. Logged via `src/lib/deckHistory.js` (`logDeckChange`, `fetchDeckHistory`); shown in the DeckBuilder "Deck History" modal. NOT per-card diffs
 - `feedback` — user bug reports & feature requests: `type ('bug'|'feature'), description, contact, user_id`
 - `feedback_attachments` — optional screenshots linked to `feedback`; files live in the `assets` storage bucket
-- `card_hashes` — pHash records for scanner: `scryfall_id, name, set_code, collector_number, image_uri, phash_hex (text, 64 hex chars), phash_hex2 (foil-tuned)`; read-only RLS for all users
+- `card_hashes` — **retired** (pipeline v7): clients consume the static hash pack, and the seed script uses the pack as its own state. Pending drop via `supabase/migrations/20260703000000_drop_card_hashes.sql` (apply only after a verified v7 pack is deployed; reclaims ~75 MB)
 - `admin_users` — users with admin access: `user_id, active`; checked by `isCurrentUserAdmin()`
 - `app_config` — key-value config store used by admin/home: keys include `changelog`, `feedback_resolved`
 - `shared_folders` — shared deck/folder links for public share URLs

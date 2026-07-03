@@ -13,7 +13,7 @@
 import { openDB } from 'idb'
 
 const DB_NAME    = 'arcanevault'
-const DB_VERSION = 8
+const DB_VERSION = 9
 const SCRYFALL_METADATA_UPDATED_AT_KEY = 'scryfall_metadata_updated_at'
 const LEGACY_SCRYFALL_PRICES_UPDATED_AT_KEY = 'scryfall_prices_updated_at'
 
@@ -73,9 +73,14 @@ async function getDb() {
         db.createObjectStore('meta', { keyPath: 'key' })
       }
 
-      if (!db.objectStoreNames.contains('scanner_hashes')) {
-        const sh = db.createObjectStore('scanner_hashes', { keyPath: 'scryfall_id' })
-        sh.createIndex('name', 'name')
+      // v9: the scanner's per-row hash cache (106k object records) is replaced
+      // by scanner_pack — a handful of binary chunk blobs. Deleting the old
+      // store here frees the ~50–100 MB it occupied on existing devices.
+      if (db.objectStoreNames.contains('scanner_hashes')) {
+        db.deleteObjectStore('scanner_hashes')
+      }
+      if (!db.objectStoreNames.contains('scanner_pack')) {
+        db.createObjectStore('scanner_pack', { keyPath: 'file' })
       }
 
       // deck_cards store (v2) — cards in builder decks, independent of collection
@@ -165,29 +170,38 @@ export async function getScryfallCacheInfo() {
   return { count, updatedAt }
 }
 
-export async function getAllScannerHashEntries() {
+// ── Scanner hash-pack chunks ─────────────────────────────────────────────────
+// Each record is one binary pack chunk: { file, buf: ArrayBuffer, bytes, hashVersion }
+
+export async function getPackChunk(file) {
   const db = await getDb()
-  return db.getAll('scanner_hashes')
+  const row = await db.get('scanner_pack', file)
+  return row?.buf instanceof ArrayBuffer ? row : null
 }
 
-export async function putScannerHashEntries(entries) {
-  if (!entries?.length) return
+export async function putPackChunk(record) {
   const db = await getDb()
-  const tx = db.transaction('scanner_hashes', 'readwrite')
+  await db.put('scanner_pack', record)
+}
+
+export async function getPackChunkKeys() {
+  const db = await getDb()
+  return db.getAllKeys('scanner_pack')
+}
+
+export async function deletePackChunks(files) {
+  if (!files?.length) return
+  const db = await getDb()
+  const tx = db.transaction('scanner_pack', 'readwrite')
   await Promise.all([
-    ...entries.map(entry => tx.store.put(entry)),
+    ...files.map(file => tx.store.delete(file)),
     tx.done,
   ])
 }
 
-export async function clearScannerHashEntries() {
+export async function clearPackChunks() {
   const db = await getDb()
-  await db.clear('scanner_hashes')
-}
-
-export async function getScannerHashCount() {
-  const db = await getDb()
-  return db.count('scanner_hashes')
+  await db.clear('scanner_pack')
 }
 
 // ── Cards ─────────────────────────────────────────────────────────────────────

@@ -1,99 +1,118 @@
 /**
- * generate-card-hashes.js
+ * generate-card-hashes.js — hash pipeline v7
  *
- * Pre-computes 256-bit perceptual hashes for MTG cards and uploads them to
- * Supabase `card_hashes`.
+ * Builds the scanner's hash pack (public/scanner/hashpack/) directly from
+ * Scryfall bulk data. The pack itself is the pipeline's state — the old
+ * Supabase card_hashes table is retired (see supabase/migrations for the
+ * drop, to be applied once a v7 pack is verified).
  *
- * The important detail: hashes are computed from the same full-card -> fixed
- * size -> art-box crop geometry used by the live scanner. Do not seed from
- * Scryfall `art_crop` unless the scanner pipeline changes too.
+ * Per card row (front face; plus a second row for the back face of
+ * double-faced cards so back-side-up scans can match):
+ *   phash_hex       — art-crop luma pHash
+ *   phash_hex2      — art-crop saturation pHash
+ *   phash_full_hex  — whole-card luma pHash (v7 second signal)
+ * All hashing goes through src/scanner/hashCard.js, which shares the exact
+ * 32×32 area-resize with the live scanner (v7 unification — before this the
+ * seed used Sharp's mitchell kernel).
  *
- * Setup:
- *   npm install node-fetch sharp @supabase/supabase-js dotenv stream-json
+ * Incremental by default: rows whose (scryfall_id, face) already exist in a
+ * v7 pack are skipped. Progress is checkpointed as append-only delta chunks
+ * every CHECKPOINT_ROWS completed rows, so an interrupted overnight run
+ * resumes where it left off. A finished run consolidates fragmented chunks
+ * back into large newest-first ones (chunk 0 = newest sets — the scanner
+ * unlocks after the first chunk).
  *
  * Usage:
- *   VITE_SUPABASE_URL=https://xxx.supabase.co \
- *   SUPABASE_SERVICE_KEY=your-service-key \
- *   node scripts/generate-card-hashes.js
+ *   node scripts/generate-card-hashes.js [--reseed] [--concurrency N]
  *
- * Flags:
- *   --reseed      Reprocess all cards (ignore existing rows). Required when
- *                 the hash algorithm changes.
- *   --concurrency N  Override parallel download count (default: 20).
+ *   --reseed   discard the existing pack and rebuild everything (required
+ *              when the hash algorithm changes)
+ *
+ * Commit public/scanner/hashpack/ afterwards to deploy.
  */
 
-import 'dotenv/config'
+import { createHash } from 'node:crypto'
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import fetch from 'node-fetch'
 import sharp from 'sharp'
-import { createClient } from '@supabase/supabase-js'
 import { withParserAsStream } from 'stream-json/streamers/stream-array.js'
-import { ART_H, ART_W, ART_X, ART_Y, CARD_H, CARD_W } from '../src/scanner/constants.js'
-import { computeHashFromGray, hashToHex, rgbToGray32x32, rgbToSaturation32x32 } from '../src/scanner/hashCore.js'
+import { CARD_W, CARD_H } from '../src/scanner/constants.js'
+import { computeSeedHashes } from '../src/scanner/hashCard.js'
+import { encodeHashPack, HashPackStore, bytesToUuid } from '../src/scanner/hashPack.js'
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY
-const BATCH_SIZE   = 100
+const HASH_PIPELINE_VERSION = 7
+const CHUNK_SIZE = 24000        // rows per chunk after consolidation
+const CHECKPOINT_ROWS = 8000    // flush a delta chunk every N hashed rows
+const CONSOLIDATE_ABOVE = 8     // repack when the pack fragments past this many chunks
 const FORCE_RESEED = process.argv.includes('--reseed')
-const HASH_PIPELINE_VERSION = 6
+const UA = { 'User-Agent': 'DeckLoomHashSeeder/2.0', Accept: '*/*' }
 
-// Parse --concurrency N from argv, default 20
 const concurrencyArgIdx = process.argv.indexOf('--concurrency')
 const CONCURRENCY = concurrencyArgIdx !== -1
   ? Math.max(1, parseInt(process.argv[concurrencyArgIdx + 1], 10) || 20)
   : 20
 
-if (!SUPABASE_URL || !SUPABASE_KEY) {
-  console.error('Set VITE_SUPABASE_URL and SUPABASE_SERVICE_KEY (service role key required to write card_hashes)')
-  process.exit(1)
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const OUT_DIR = path.join(__dirname, '..', 'public', 'scanner', 'hashpack')
+
+// ── Pack state ────────────────────────────────────────────────────────────────
+
+function readManifest() {
+  const p = path.join(OUT_DIR, 'manifest.json')
+  if (!existsSync(p)) return null
+  try { return JSON.parse(readFileSync(p, 'utf8')) } catch { return null }
 }
 
-const sb = createClient(SUPABASE_URL, SUPABASE_KEY)
-
-/**
- * Two Sharp passes connected via raw pixel buffer (no intermediate PNG encode/decode).
- * Sharp does not support two resize() calls in one pipeline — the second overrides
- * the first, making the extract coordinates invalid. Raw transfer avoids the codec cost.
- *
- * Pipeline v6: removed pre-blur before 32×32 downscale (redundant at 13× reduction;
- * area-averaging inherently low-passes). Browser uses INTER_AREA; seed uses mitchell
- * (closest Sharp equivalent for large downsamples). Reseed required when either changes.
- */
-async function computePHashHex(imageBuffer) {
-  // Pass 1: resize to card dims → extract art region → raw pixels
-  const { data: artRaw, info: artInfo } = await sharp(imageBuffer)
-    .resize(CARD_W, CARD_H, { fit: 'fill', kernel: 'lanczos3' })
-    .extract({ left: ART_X, top: ART_Y, width: ART_W, height: ART_H })
-    .removeAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true })
-
-  // Pass 2: resize to 32×32 (no pre-blur — redundant for large downscales)
-  const { data } = await sharp(artRaw, {
-    raw: { width: artInfo.width, height: artInfo.height, channels: artInfo.channels },
-  })
-    .resize(32, 32, { fit: 'fill', kernel: 'mitchell' })
-    .raw()
-    .toBuffer({ resolveWithObject: true })
-
-  const grayU8 = rgbToGray32x32(data, artInfo.channels)
-  const hash   = computeHashFromGray(grayU8)
-  const hex    = hashToHex(hash)
-
-  const satU8     = rgbToSaturation32x32(data, artInfo.channels)
-  const colorHash = computeHashFromGray(satU8)
-  const hex2      = hashToHex(colorHash)
-
-  const bigints = []
-  for (let i = 0; i < 8; i += 2) {
-    bigints.push((BigInt(hash[i + 1] >>> 0) << 32n) | BigInt(hash[i] >>> 0))
+/** Load the existing v7 pack as seed state. Returns null when unusable. */
+function loadPackState() {
+  const manifest = readManifest()
+  if (!manifest || manifest.hashVersion !== HASH_PIPELINE_VERSION) return null
+  const store = new HashPackStore()
+  try {
+    for (const c of manifest.chunks) {
+      const bytes = readFileSync(path.join(OUT_DIR, c.file))
+      store.appendChunkBuffer(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength))
+    }
+  } catch (e) {
+    console.warn(`Existing pack unreadable (${e.message}) — full rebuild.`)
+    return null
   }
-
-  return { hex, hex2, p1: bigints[0], p2: bigints[1], p3: bigints[2], p4: bigints[3] }
+  return { manifest, store }
 }
 
-// Stream-parse a large JSON array from a URL to avoid Node's string-length limit (~512 MB).
-async function fetchJsonArray(url) {
-  const res = await fetch(url, { timeout: 120000 })
+function writeChunk(rows, seq) {
+  const buf = encodeHashPack(rows, HASH_PIPELINE_VERSION)
+  const sha = createHash('sha256').update(new Uint8Array(buf)).digest('hex')
+  const file = `pack-v${HASH_PIPELINE_VERSION}-${String(seq).padStart(3, '0')}-${sha.slice(0, 10)}.bin`
+  writeFileSync(path.join(OUT_DIR, file), new Uint8Array(buf))
+  return { file, count: rows.length, bytes: buf.byteLength, sha256: sha }
+}
+
+function writeManifest(chunkMetas) {
+  const manifest = {
+    formatVersion: 2,
+    hashVersion: HASH_PIPELINE_VERSION,
+    generatedAt: new Date().toISOString(),
+    totalCount: chunkMetas.reduce((s, c) => s + c.count, 0),
+    chunks: chunkMetas.map(({ file, count, bytes, sha256 }) => ({ file, count, bytes, sha256 })),
+  }
+  writeFileSync(path.join(OUT_DIR, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n')
+  return manifest
+}
+
+function pruneUnreferencedChunks(manifest) {
+  const valid = new Set(manifest.chunks.map(c => c.file))
+  for (const f of readdirSync(OUT_DIR)) {
+    if (f.endsWith('.bin') && !valid.has(f)) rmSync(path.join(OUT_DIR, f))
+  }
+}
+
+// ── Scryfall ─────────────────────────────────────────────────────────────────
+
+async function fetchJsonArrayStream(url) {
+  const res = await fetch(url, { headers: UA, timeout: 120000 })
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`)
   return new Promise((resolve, reject) => {
     const items = []
@@ -105,24 +124,57 @@ async function fetchJsonArray(url) {
   })
 }
 
-async function fetchImage(url) {
-  const res = await fetch(url, { timeout: 20000 })
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`)
-  return Buffer.from(await res.arrayBuffer())
+async function fetchSetReleaseDates() {
+  const res = await fetch('https://api.scryfall.com/sets', { headers: UA })
+  if (!res.ok) throw new Error(`Scryfall /sets HTTP ${res.status}`)
+  const json = await res.json()
+  const dates = new Map()
+  for (const s of json?.data ?? []) dates.set(s.code, s.released_at ?? '0000-00-00')
+  return dates
 }
 
-function getCardImageUri(card) {
-  const face = card.card_faces?.find(f => f.image_uris?.normal) ?? card.card_faces?.[0] ?? null
+/** One task per face that has its own image. */
+function cardFaceTasks(card) {
+  if (card.digital || !/^[0-9a-f-]{36}$/.test(card.id ?? '')) return []
+  const tasks = []
+  const frontUri = card.image_uris?.normal ?? card.card_faces?.[0]?.image_uris?.normal ?? null
+  if (frontUri) {
+    tasks.push({
+      card, face: 0, imageUri: frontUri,
+      flavorName: card.flavor_name ?? card.card_faces?.[0]?.flavor_name ?? '',
+    })
+  }
+  const backUri = card.card_faces?.[1]?.image_uris?.normal ?? null
+  if (backUri) {
+    tasks.push({
+      card, face: 1, imageUri: backUri,
+      flavorName: card.flavor_name ?? card.card_faces?.[1]?.flavor_name ?? '',
+    })
+  }
+  return tasks
+}
+
+async function hashTask(task) {
+  const res = await fetch(task.imageUri, { headers: UA, timeout: 20000 })
+  if (!res.ok) throw new Error(`image HTTP ${res.status}`)
+  const buf = Buffer.from(await res.arrayBuffer())
+  const { data } = await sharp(buf)
+    .resize(CARD_W, CARD_H, { fit: 'fill', kernel: 'lanczos3' })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true })
+  const hashes = computeSeedHashes(new Uint8ClampedArray(data.buffer, data.byteOffset, data.length))
   return {
-    imageUri:   card.image_uris?.normal   ?? face?.image_uris?.normal   ?? null,
-    artCropUri: card.image_uris?.art_crop ?? face?.image_uris?.art_crop ?? null,
+    scryfall_id: task.card.id,
+    name: task.card.name,
+    set_code: task.card.set,
+    collector_number: task.card.collector_number,
+    flavor_name: task.flavorName || '',
+    face: task.face,
+    ...hashes,
   }
 }
 
-/**
- * Worker-pool: keeps CONCURRENCY tasks always in flight rather than waiting
- * for the slowest card in each fixed-size chunk before starting the next batch.
- */
 async function workerPool(items, concurrency, fn) {
   const iter = items[Symbol.iterator]()
   const worker = async () => {
@@ -133,97 +185,138 @@ async function workerPool(items, concurrency, fn) {
   await Promise.all(Array.from({ length: concurrency }, worker))
 }
 
-async function main() {
-  console.log(`Hash pipeline v${HASH_PIPELINE_VERSION}; use --reseed after scanner hash changes.`)
-  console.log('Downloading Scryfall default_cards bulk data...')
-  const bulkRes  = await fetch('https://api.scryfall.com/bulk-data/default-cards')
-  const bulkMeta = await bulkRes.json()
-  console.log('Streaming bulk card data (this may take a minute)...')
-  const cards = await fetchJsonArray(bulkMeta.download_uri)
-  console.log(`Loaded ${cards.length} cards from Scryfall.`)
+// ── Consolidation (repack from state, no downloads) ─────────────────────────
 
-  let existing = new Set()
-  if (!FORCE_RESEED) {
-    console.log('Fetching existing hashes from Supabase...')
-    let page = 0
-    while (true) {
-      const { data } = await sb
-        .from('card_hashes')
-        .select('scryfall_id')
-        .range(page * 1000, page * 1000 + 999)
-      if (!data?.length) break
-      data.forEach(r => existing.add(r.scryfall_id))
-      page++
-      if (data.length < 1000) break
-    }
-    console.log(`${existing.size} cards already in Supabase — will skip.`)
-  } else {
-    console.log('--reseed: processing all cards (ignoring existing rows).')
-    console.log('--reseed: clearing existing card_hashes rows before upload...')
-    const { error } = await sb
-      .from('card_hashes')
-      .delete()
-      .not('scryfall_id', 'is', null)
-    if (error) throw new Error(`Could not clear card_hashes before reseed: ${error.message}`)
-  }
-
-  const todo = cards.filter(card => {
-    const { imageUri } = getCardImageUri(card)
-    return imageUri && !card.digital && !existing.has(card.id)
-  })
-  console.log(`Processing ${todo.length} new cards with concurrency=${CONCURRENCY}...`)
-
-  let done   = 0
-  let errors = 0
-  let lastLog = 0
-  const batch = []
-
-  const flush = async () => {
-    if (!batch.length) return
-    const rows = batch.splice(0)
-    const { error } = await sb.from('card_hashes').upsert(rows, { onConflict: 'scryfall_id' })
-    if (error) console.error('Upsert error:', error.message)
-  }
-
-  const processCard = async (card) => {
-    try {
-      const { imageUri, artCropUri } = getCardImageUri(card)
-      if (!imageUri) throw new Error('No usable full-card image')
-
-      const imageBuffer = await fetchImage(imageUri)
-      const { hex, hex2 } = await computePHashHex(imageBuffer)
-
-      batch.push({
-        scryfall_id:      card.id,
-        oracle_id:        card.oracle_id ?? null,
-        name:             card.name,
-        set_code:         card.set,
-        collector_number: card.collector_number,
-        phash_hex:        hex,
-        phash_hex2:       hex2,
-        image_uri:        imageUri,
-        art_crop_uri:     artCropUri,
+function storeToRows(store) {
+  const decoder = new TextDecoder()
+  const rows = []
+  for (const chunk of store.chunks) {
+    for (let i = 0; i < chunk.count; i++) {
+      const [name, coll, flavor] = HashPackStore.rowMeta(chunk, i, decoder)
+      rows.push({
+        scryfall_id: bytesToUuid(chunk.uuids, i * 16),
+        name,
+        set_code: chunk.sets[chunk.setIdx[i]],
+        collector_number: coll,
+        flavor_name: flavor,
+        face: chunk.faces ? chunk.faces[i] : 0,
+        ...HashPackStore.rowHexes(chunk, i),
       })
-      done++
+    }
+  }
+  return rows
+}
 
-      if (batch.length >= BATCH_SIZE) await flush()
+function collectorSortKey(collNum) {
+  const m = String(collNum ?? '').match(/^(\d+)(.*)$/)
+  return m ? [parseInt(m[1], 10), m[2]] : [Number.MAX_SAFE_INTEGER, String(collNum ?? '')]
+}
+
+function sortNewestFirst(rows, releaseDates) {
+  return rows.slice().sort((a, b) => {
+    const da = releaseDates.get(a.set_code) ?? '0000-00-00'
+    const db = releaseDates.get(b.set_code) ?? '0000-00-00'
+    if (da !== db) return db.localeCompare(da)               // newest set first
+    if (a.set_code !== b.set_code) return String(a.set_code).localeCompare(String(b.set_code))
+    const [na, sa] = collectorSortKey(a.collector_number)
+    const [nb, sb] = collectorSortKey(b.collector_number)
+    if (na !== nb) return na - nb
+    if (sa !== sb) return sa.localeCompare(sb)
+    if (a.scryfall_id !== b.scryfall_id) return String(a.scryfall_id).localeCompare(String(b.scryfall_id))
+    return (a.face ?? 0) - (b.face ?? 0)
+  })
+}
+
+function repackAll(rows, releaseDates) {
+  for (const f of readdirSync(OUT_DIR)) {
+    if (f.endsWith('.bin')) rmSync(path.join(OUT_DIR, f))
+  }
+  const sorted = sortNewestFirst(rows, releaseDates)
+  const metas = []
+  for (let i = 0; i < sorted.length; i += CHUNK_SIZE) {
+    metas.push(writeChunk(sorted.slice(i, i + CHUNK_SIZE), metas.length))
+  }
+  return writeManifest(metas)
+}
+
+// ── Main ─────────────────────────────────────────────────────────────────────
+
+async function main() {
+  console.log(`Hash pack seeder — pipeline v${HASH_PIPELINE_VERSION}${FORCE_RESEED ? ' (forced reseed)' : ''}`)
+  mkdirSync(OUT_DIR, { recursive: true })
+
+  const state = FORCE_RESEED ? null : loadPackState()
+  const have = new Set()
+  if (state) {
+    for (const { id, face } of state.store.entries()) have.add(`${id}|${face}`)
+    console.log(`Existing v7 pack: ${have.size} rows — hashing only what's missing.`)
+  } else {
+    console.log('No usable v7 pack state — full build (a pre-v7 pack is superseded).')
+  }
+
+  console.log('Downloading Scryfall bulk data…')
+  const bulkMeta = await (await fetch('https://api.scryfall.com/bulk-data/default-cards', { headers: UA })).json()
+  const cards = await fetchJsonArrayStream(bulkMeta.download_uri)
+  const releaseDates = await fetchSetReleaseDates()
+  console.log(`${cards.length} cards in bulk data.`)
+
+  const tasks = cards
+    .flatMap(cardFaceTasks)
+    .filter(t => !have.has(`${t.card.id}|${t.face}`))
+  console.log(`${tasks.length} faces to hash (concurrency ${CONCURRENCY}). Estimated download ~${(tasks.length * 0.13 / 1024).toFixed(1)} GB.`)
+
+  let chunkMetas = state ? [...state.manifest.chunks] : []
+  let pending = []
+  let done = 0, errors = 0, lastLog = 0
+
+  const flushCheckpoint = () => {
+    if (!pending.length) return
+    const meta = writeChunk(pending, chunkMetas.length)
+    chunkMetas = [meta, ...chunkMetas]   // newest work first in load order
+    writeManifest(chunkMetas)
+    console.log(`  checkpoint: +${pending.length} rows → ${meta.file}`)
+    pending = []
+  }
+
+  await workerPool(tasks, CONCURRENCY, async task => {
+    try {
+      pending.push(await hashTask(task))
+      done++
+      if (pending.length >= CHECKPOINT_ROWS) flushCheckpoint()
     } catch (e) {
       errors++
-      console.warn(`  x ${card.name} (${card.id}): ${e.message}`)
+      if (errors <= 50) console.warn(`  x ${task.card.name}${task.face ? ' (back)' : ''}: ${e.message}`)
     }
-
     const total = done + errors
-    if (total - lastLog >= 200 || total === todo.length) {
+    if (total - lastLog >= 500) {
       lastLog = total
-      const pct = Math.round((total / todo.length) * 100)
-      console.log(`  ${total}/${todo.length} (${pct}%) — ${done} ok, ${errors} errors`)
+      console.log(`  ${total}/${tasks.length} (${Math.round(total / tasks.length * 100)}%) — ${done} ok, ${errors} errors`)
     }
+  })
+  flushCheckpoint()
+
+  if (!chunkMetas.length) {
+    console.log('Nothing hashed and no existing pack — aborting without a manifest.')
+    process.exit(1)
   }
 
-  await workerPool(todo, CONCURRENCY, processCard)
-  await flush()
+  // Consolidate fragmented packs into large newest-first chunks.
+  let manifest = writeManifest(chunkMetas)
+  if (manifest.chunks.length > CONSOLIDATE_ABOVE) {
+    console.log(`Consolidating ${manifest.chunks.length} chunks…`)
+    const store = new HashPackStore()
+    for (const c of manifest.chunks) {
+      const bytes = readFileSync(path.join(OUT_DIR, c.file))
+      store.appendChunkBuffer(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength))
+    }
+    manifest = repackAll(storeToRows(store), releaseDates)
+  }
+  pruneUnreferencedChunks(manifest)
 
-  console.log(`\nDone. ${done} hashes uploaded, ${errors} errors.`)
+  const mb = manifest.chunks.reduce((s, c) => s + c.bytes, 0) / 1024 / 1024
+  console.log(`\nDone: ${done} hashed, ${errors} errors. Pack: ${manifest.totalCount} rows in ${manifest.chunks.length} chunk(s), ${mb.toFixed(1)} MB.`)
+  if (errors) console.log('Failed faces are retried automatically on the next run.')
+  console.log('Commit public/scanner/hashpack/ to deploy.')
 }
 
 main().catch(e => {

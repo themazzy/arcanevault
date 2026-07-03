@@ -8,18 +8,22 @@
  * change printing, add manually, then save all at once to a chosen folder.
  *
  * ── Scan pipeline ─────────────────────────────────────────────────────────
- * captureFrame() → { imageData, srcCanvas, w, h, smallImageData, sw, sh }
- *   imageData      — full-res, for warpCard
- *   srcCanvas      — HTMLCanvasElement with full frame drawn, for cropCardFromReticle
- *   smallImageData — half-res (GPU-downscaled via drawImage), for detectCardCorners
- *   sw, sh         — small-image dimensions (≈ w/2, h/2)
+ * captureFrame() → { getFullImageData, w, h, smallImageData, sw, sh }
+ *   getFullImageData() — fresh full-res ImageData per call (buffers are
+ *                        transferred to the vision worker and neutered)
+ *   smallImageData     — half-res (GPU-downscaled via drawImage), for detection
  *
- * detectCardCorners() returns coords in small-image space.
- * Scale back to full-res: scaleX = w/sw, scaleY = h/sh, before calling warpCard().
+ * All vision work (corner detection, warp, art crops, hashing) runs in
+ * visionWorker via visionClient; matching runs in hashMatchWorker via
+ * databaseService. The main thread only captures frames and orchestrates.
+ * visionClient.detect() returns coords in small-image space — scale by
+ * w/sw, h/sh before loadWarped().
  *
  * ── Auto-scan ─────────────────────────────────────────────────────────────
  * Toggle in gear menu; persisted to localStorage 'arcanevault_scanner_autoscan'.
- * Cooldowns: 1000 ms after match, 350 ms after miss.
+ * Continuous cheap corner probe (~10 Hz, detection pass 1 only) fires a full
+ * scan only once a card-like quad holds still for consecutive probes — an
+ * empty table costs one quick worker probe per tick, not a full 3-pass scan.
  * Pauses automatically when any overlay is open (basket, add-flow, settings).
  */
 
@@ -29,11 +33,7 @@ import { Capacitor } from '@capacitor/core'
 import { CameraPreview } from '@capacitor-community/camera-preview'
 import { Haptics, ImpactStyle } from '@capacitor/haptics'
 import { databaseService } from './DatabaseService'
-import {
-  waitForOpenCV,
-  detectCardCorners, warpCard, cropArtRegion, cropCardFromReticle,
-  computeAllHashes, rotateCard180,
-} from './ScannerEngine'
+import { visionClient } from './visionClient'
 import { useAuth } from '../components/Auth'
 import { queryClient } from '../lib/queryClient'
 import { invalidateOwnedCollectionQueries, invalidateWishlistQueries } from '../lib/queryInvalidation'
@@ -50,8 +50,11 @@ const MATCH_THRESHOLD        = 122
 const MATCH_MIN_GAP          = 8
 const MATCH_STRONG_THRESHOLD = 134
 const MATCH_STRONG_SINGLE    = 108
-const AUTOSCAN_COOLDOWN_MATCH_MS = 1000
-const AUTOSCAN_COOLDOWN_MISS_MS  = 350
+// Continuous auto-scan: cheap corner probes at this cadence gate full scans.
+const AUTOSCAN_PROBE_INTERVAL_MS  = 90
+const AUTOSCAN_PROBE_STABLE       = 2     // consecutive stable probes before scanning
+const AUTOSCAN_PROBE_EPS_PX       = 7     // max centroid drift between probes (small-frame px)
+const AUTOSCAN_AFTER_SCAN_MS      = 450   // pause after a full scan attempt
 const PRIMARY_CROP_VARIANTS = [
   { xOffset: 0, yOffset: 0 },
   { xOffset: 0, yOffset: -10 },
@@ -71,7 +74,10 @@ const STABILITY_SAMPLES   = 3
 const STABILITY_REQUIRED  = 2
 const SAMPLE_DELAY_MS     = 20
 const DEBUG               = false
-const NATIVE_CAPTURE_SETTLE_MS = 120
+// Short settle between captureSample calls (autofocus/exposure). Was 120 ms —
+// the continuous probe loop keeps the preview warm, so a token pause suffices.
+// If Android frames come back stale/duplicated, raise this first.
+const NATIVE_CAPTURE_SETTLE_MS = 40
 const NATIVE_CAPTURE_QUALITY = 80
 const PENDING_KEY         = 'arcanevault_scan_basket'
 const SET_ICON_CACHE_KEY  = 'arcanevault_scan_set_icons'
@@ -355,34 +361,6 @@ function getStableVote(votes) {
   })[0] ?? null
 }
 
-function isUsableArtCrop(artCrop) {
-  if (!artCrop?.data?.length) return false
-  const { data, width, height } = artCrop
-  const stepX = Math.max(1, Math.floor(width / 64))
-  const stepY = Math.max(1, Math.floor(height / 64))
-  let count = 0
-  let sum = 0
-  let edge = 0
-  for (let y = stepY; y < height; y += stepY) {
-    for (let x = stepX; x < width; x += stepX) {
-      const idx = (y * width + x) * 4
-      const left = (y * width + x - stepX) * 4
-      const up = ((y - stepY) * width + x) * 4
-      const g = 0.2126 * data[idx] + 0.7152 * data[idx + 1] + 0.0722 * data[idx + 2]
-      const gl = 0.2126 * data[left] + 0.7152 * data[left + 1] + 0.0722 * data[left + 2]
-      const gu = 0.2126 * data[up] + 0.7152 * data[up + 1] + 0.0722 * data[up + 2]
-      sum += g
-      edge += Math.abs(g - gl) + Math.abs(g - gu)
-      count++
-    }
-  }
-  if (!count) return false
-  const mean = sum / count
-  const edgeEnergy = edge / (count * 2)
-  return mean > 8 && mean < 248 && edgeEnergy > 1.2
-}
-
-
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
 function getCardImg(sf) {
@@ -445,8 +423,6 @@ export default function CardScanner({ onMatch, onClose }) {
   const setIconFetchesRef = useRef(new Set())
 
   // ── Scanner state ──────────────────────────────────────────────────────────
-  const [cvReady, setCvReady]     = useState(false)
-  const [cvProgress, setCvProgress] = useState(null)  // 0–1 OpenCV download ratio, null until known
   const [dbReady, setDbReady]     = useState(false)
   const [preparing, setPreparing] = useState(true)
   const [startupDismissed, setStartupDismissed] = useState(false)
@@ -533,6 +509,9 @@ export default function CardScanner({ onMatch, onClose }) {
   const [scanSounds, setScanSounds] = useState(() => {
     try { return localStorage.getItem('arcanevault_scanner_sounds') !== '0' } catch { return true }
   })
+  const [scanOcr, setScanOcr] = useState(() => {
+    try { return localStorage.getItem('arcanevault_scanner_ocr') !== '0' } catch { return true }
+  })
   const [minPriceThreshold, setMinPriceThreshold] = useState(() => {
     try { return parseFloat(localStorage.getItem('arcanevault_scanner_min_price') || '0') || 0 } catch { return 0 }
   })
@@ -546,33 +525,39 @@ export default function CardScanner({ onMatch, onClose }) {
   const [setPickerLoading, setSetPickerLoading] = useState(false)
   const [setPickerSearch, setSetPickerSearch] = useState('')
 
-  const isReady = cvReady && dbReady && cameraStarted
+  const isReady = dbReady && cameraStarted
   const availableFlashModes = flashModes.includes('torch')
     ? flashModes.filter(m => m === 'off' || m === 'torch')
     : flashModes
   const flashSupported = availableFlashModes.includes('torch') || availableFlashModes.includes('on')
   const flashEnabled = flashMode === 'torch' || flashMode === 'on'
   const hashProgressVisible = !!hashLoadInfo && hashLoadInfo.phase !== 'idle' && hashLoadInfo.phase !== 'ready'
-  const hashesReady = !!hashLoadInfo && hashLoadInfo.phase === 'ready' && cardCount > 0
-  const startupCanContinue = hashesReady && cvReady && cameraStarted && !errorMsg
+  // First pack chunk in (newest sets) — scanning can start while the rest of
+  // the database streams in the background.
+  const hashesReady = cardCount > 0
+  const startupCanContinue = hashesReady && cameraStarted && !errorMsg
   // Overall startup progress (0–100). The fingerprint-DB load (step 2) reports a
-  // 0–100 of its own; we compress it into the first 80% so the bar doesn't sit
-  // pinned at 100% during the OpenCV/camera tail (step 3). Step 3 now has its
-  // own real signal — OpenCV's byte-download ratio (cvProgress) drives 80→92 —
-  // and only the WASM-compile + camera-start moments (no numeric signal) fall
-  // back to an indeterminate sweep, alongside the early cache check.
+  // 0–100 of its own; we compress it into the first 90% so the bar doesn't sit
+  // pinned at 100% during the camera-start tail (no numeric signal there — it
+  // falls back to an indeterminate sweep, alongside the early cache check).
   const hashPct = Math.max(0, Math.min(100, hashLoadInfo?.progress ?? 0))
-  const cvRatio = cvProgress == null ? null : Math.max(0, Math.min(1, cvProgress))
-  const cvDownloading = hashesReady && !cvReady && cvRatio != null && cvRatio < 1
   const startupProgress = startupCanContinue
     ? 100
     : hashesReady
-      ? (cvReady ? 94 : (cvRatio != null ? 80 + Math.round(cvRatio * 12) : 84))
-      : Math.round(hashPct * 0.8)  // step 2 occupies the first 80%
-  const startupIndeterminate = !errorMsg && !startupCanContinue && !cvDownloading &&
+      ? 92
+      : Math.round(hashPct * 0.9)  // step 2 occupies the first 90%
+  const startupIndeterminate = !errorMsg && !startupCanContinue &&
     (hashesReady || !hashLoadInfo?.totalCount)
   const showStartupModal = !startupDismissed
   const anyOverlayOpen = showStartupModal || basketExpanded || addFlowOpen || manualSearchOpen || settingsOpen || setPickerOpen || printingPickerFor !== null
+
+  // Auto-continue past the startup gate once everything is ready — the modal
+  // is informative during loading, not a required click on every open.
+  useEffect(() => {
+    if (startupDismissed || !startupCanContinue) return undefined
+    const timer = setTimeout(() => setStartupDismissed(true), 400)
+    return () => clearTimeout(timer)
+  }, [startupDismissed, startupCanContinue])
 
   // Persist basket to localStorage whenever it changes
   useEffect(() => { savePending(pendingCards) }, [pendingCards])
@@ -593,6 +578,9 @@ export default function CardScanner({ onMatch, onClose }) {
   useEffect(() => {
     try { localStorage.setItem('arcanevault_scanner_sounds', scanSounds ? '1' : '0') } catch {}
   }, [scanSounds])
+  useEffect(() => {
+    try { localStorage.setItem('arcanevault_scanner_ocr', scanOcr ? '1' : '0') } catch {}
+  }, [scanOcr])
   useEffect(() => {
     try { localStorage.setItem('arcanevault_scanner_min_price', String(minPriceThreshold)) } catch {}
   }, [minPriceThreshold])
@@ -647,41 +635,42 @@ export default function CardScanner({ onMatch, onClose }) {
   // ── Init DB + OpenCV ───────────────────────────────────────────────────────
   useEffect(() => {
     mountedRef.current = true
+    // Marks this device as a scanner user so the app shell prefetches the
+    // hash pack + OpenCV on idle next session (see src/scanner/prefetch.js).
+    try { localStorage.setItem('arcanevault_scanner_used', '1') } catch {}
     ;(async () => {
       try {
-        const cvPromise = waitForOpenCV({
-          onProgress: ({ ratio }) => {
-            if (mountedRef.current && ratio != null) setCvProgress(ratio)
-          },
-        })
-        await databaseService.init(status => {
+        const onDbStatus = status => {
           if (!mountedRef.current) return
           setHashLoadInfo(status)
           setCardCount(status.loadedCount ?? 0)
-        })
-        await databaseService.waitUntilFullyLoaded()
+          if ((status.loadedCount ?? 0) > 0) setDbReady(true)
+        }
+        // init() resolves once the FIRST pack chunk is loaded (newest sets);
+        // the rest streams in the background — scanning starts immediately.
+        await databaseService.init(onDbStatus)
         if (!mountedRef.current) return
         setCardCount(databaseService.cardCount)
         setHashLoadInfo(databaseService.status)
         if (databaseService.cardCount > 0) setDbReady(true)
+        setPreparing(false)
 
-        if (databaseService.cardCount === 0) {
-          await databaseService.sync(status => {
-            if (!mountedRef.current) return
-            setHashLoadInfo(status)
-            setCardCount(status.loadedCount ?? 0)
-          })
-          await databaseService.waitUntilFullyLoaded()
+        // When the background load finishes with nothing (e.g. first run with
+        // a transient network failure), retry once via a forced sync.
+        databaseService.waitUntilFullyLoaded().then(async () => {
+          if (!mountedRef.current || databaseService.cardCount > 0) {
+            if (mountedRef.current) {
+              setCardCount(databaseService.cardCount)
+              setHashLoadInfo(databaseService.status)
+            }
+            return
+          }
+          await databaseService.sync(onDbStatus).catch(() => {})
           if (!mountedRef.current) return
           setCardCount(databaseService.cardCount)
           setHashLoadInfo(databaseService.status)
           if (databaseService.cardCount > 0) setDbReady(true)
-        }
-
-        await cvPromise
-        if (!mountedRef.current) return
-        setCvReady(true)
-        setPreparing(false)
+        }).catch(() => {})
       } catch (e) {
         if (mountedRef.current) setErrorMsg(e.message)
       }
@@ -958,6 +947,64 @@ export default function CardScanner({ onMatch, onClose }) {
     }))
   }, [])
 
+  // Patch basket entries by scryfall id — used by the async OCR refinement,
+  // which resolves after the entry was added (targets all entries of that
+  // print; dedupe means there is normally exactly one).
+  const correctPendingByCardId = useCallback((cardId, patch) => {
+    setPendingCards(prev => prev.map(c => (c.id === cardId ? { ...c, ...patch } : c)))
+  }, [])
+
+  // ── OCR printing refinement (fire-and-forget after an accepted scan) ──────
+  // Reads the collector line (`0123/0281 R` / `SET • EN`) from the high-res
+  // strip the vision worker kept from the matched frame. Used ONLY to
+  //  1. switch to the exact printing when OCR resolves a same-name card in a
+  //     DIFFERENT set family (same-art reprints are invisible to art hashing;
+  //     within-family promo/showcase variants stay the hash's call), and
+  //  2. auto-set the card language.
+  // Never changes the card name — a misread can't add a wrong card. Fails
+  // silently on old frames (no printed set code), borderless cards, glare.
+  const refineScanWithOcr = useCallback(async (match) => {
+    try {
+      const strip = await visionClient.getCollectorStrip()
+      if (!strip) return
+      // Lazy import: tesseract.js + its wasm only load on first accepted scan.
+      const { recognizeCollectorStrip, expandSetCandidates } = await import('./collectorOcr')
+      const ocr = await recognizeCollectorStrip(strip)
+      if (!ocr || !mountedRef.current) return
+
+      const patch = {}
+      if (ocr.lang && ocr.lang !== 'en' && CARD_LANGUAGES.some(([value]) => value === ocr.lang)) {
+        patch.language = ocr.lang
+      }
+
+      if (ocr.setCandidates?.length && ocr.collCandidates?.length) {
+        const sets = expandSetCandidates(ocr.setCandidates, databaseService.knownSets)
+        let resolved = null
+        for (const set of sets) {
+          for (const coll of ocr.collCandidates) {
+            resolved = databaseService.lookupPrint(set, coll)
+            if (resolved) break
+          }
+          if (resolved) break
+        }
+        // First pack-validated candidate decides — weaker candidates are noise.
+        const matchFamily = String(match.setCode || '').toLowerCase().replace(/^p/, '')
+        if (resolved &&
+            normalizeName(resolved.name) === normalizeName(match.name) &&
+            resolved.setCode.replace(/^p/, '') !== matchFamily) {
+          patch.id = resolved.id
+          patch.setCode = resolved.setCode
+          patch.collNum = resolved.collNum
+          patch.imageUri = resolved.imageUri
+        }
+      }
+
+      if (Object.keys(patch).length && mountedRef.current) {
+        correctPendingByCardId(match.id, patch)
+      }
+    } catch { /* best-effort — OCR must never break scanning */ }
+  }, [correctPendingByCardId])
+
   // ── Printing picker ────────────────────────────────────────────────────────
 
   const openPrintingPicker = useCallback(async (uid) => {
@@ -1149,24 +1196,35 @@ export default function CardScanner({ onMatch, onClose }) {
     if (isNative) {
       await sleep(NATIVE_CAPTURE_SETTLE_MS)
       const { value } = await CameraPreview.captureSample({ quality: NATIVE_CAPTURE_QUALITY })
-      const img = await new Promise((resolve, reject) => {
-        const image = new Image()
-        image.onload = () => resolve(image)
-        image.onerror = reject
-        image.src = 'data:image/jpeg;base64,' + value
-      })
-      const w = img.width, h = img.height
+      // base64 → Blob → ImageBitmap: async decode off the main thread. Falls
+      // back to the data-URL <img> path on WebViews without createImageBitmap.
+      let source
+      try {
+        const bin = atob(value)
+        const bytes = new Uint8Array(bin.length)
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+        source = await createImageBitmap(new Blob([bytes], { type: 'image/jpeg' }))
+      } catch {
+        source = await new Promise((resolve, reject) => {
+          const image = new Image()
+          image.onload = () => resolve(image)
+          image.onerror = reject
+          image.src = 'data:image/jpeg;base64,' + value
+        })
+      }
+      const w = source.width, h = source.height
       const canvas = document.createElement('canvas')
       canvas.width = w; canvas.height = h
       const ctx = canvas.getContext('2d', { willReadFrequently: true })
-      ctx.drawImage(img, 0, 0)
+      ctx.drawImage(source, 0, 0)
       // Small frame for corner detection (GPU-downscaled)
       const sw = Math.round(w / 2), sh = Math.round(h / 2)
       const { ctx: smallCtx } = getSmallFrameCanvas(sw, sh)
-      smallCtx.drawImage(img, 0, 0, sw, sh)
+      smallCtx.drawImage(source, 0, 0, sw, sh)
       const smallImageData = smallCtx.getImageData(0, 0, sw, sh)
-      const getImageData = () => ctx.getImageData(0, 0, w, h)
-      return { getImageData, srcCanvas: canvas, w, h, smallImageData, sw, sh }
+      source.close?.()
+      const getFullImageData = () => ctx.getImageData(0, 0, w, h)
+      return { getFullImageData, w, h, smallImageData, sw, sh }
     } else {
       const vid = videoRef.current
       if (!vid?.videoWidth) return null
@@ -1177,13 +1235,12 @@ export default function CardScanner({ onMatch, onClose }) {
       const ctx2d = canvas.getContext('2d', { willReadFrequently: true })
       ctx2d.drawImage(vid, 0, 0)
       // Small frame for corner detection — GPU-accelerated drawImage to 50% size.
-      // Replaces the OpenCV software resize inside detectCardCorners.
       const sw = Math.round(w / 2), sh = Math.round(h / 2)
       const { ctx: smallCtx } = getSmallFrameCanvas(sw, sh)
       smallCtx.drawImage(vid, 0, 0, sw, sh)
       const smallImageData = smallCtx.getImageData(0, 0, sw, sh)
-      const getImageData = () => ctx2d.getImageData(0, 0, w, h)
-      return { getImageData, srcCanvas: canvas, w, h, smallImageData, sw, sh }
+      const getFullImageData = () => ctx2d.getImageData(0, 0, w, h)
+      return { getFullImageData, w, h, smallImageData, sw, sh }
     }
   }, [isNative])
 
@@ -1191,10 +1248,10 @@ export default function CardScanner({ onMatch, onClose }) {
     const frame = await captureFrame()
     if (!frame) return { status: 'error', stage: 'no frame', best: null, second: null, candidateCount: 0, totalCount: 0 }
 
-    const { getImageData, srcCanvas, w, h, smallImageData, sw, sh } = frame
-    // Corner detection runs on the pre-downscaled (sw×sh) frame — cheaper matFromImageData,
-    // cheaper cvtColor, no OpenCV resize. Scale corners back to full-res coords for warpCard.
-    const cornersSmall = detectCardCorners(smallImageData, sw, sh)
+    const { getFullImageData, w, h, smallImageData, sw, sh } = frame
+    // Corner detection runs in the vision worker on the pre-downscaled (sw×sh)
+    // frame. Scale corners back to full-res coords for the warp.
+    const cornersSmall = await visionClient.detect(smallImageData)
     const scaleX = w / sw, scaleY = h / sh
     const corners = cornersSmall?.map(p => ({ x: p.x * scaleX, y: p.y * scaleY })) ?? null
 
@@ -1224,65 +1281,60 @@ export default function CardScanner({ onMatch, onClose }) {
       weakGap: MATCH_MIN_GAP,
     }
 
-    const tryMatch = async (cardImg, sourceLabel, variants) => {
-      for (const variant of variants) {
-        const artCrop = cropArtRegion(cardImg, variant)
-        if (!artCrop) continue
-        if (!isUsableArtCrop(artCrop)) continue
-        // Single resize pass produces all four hash variants including colorHash.
-        let hashes
-        try { hashes = computeAllHashes(artCrop) } catch { continue }
-        const { hash, foilHash, darkHash, colorHash } = hashes
-        if (!hash) continue
-        // Batch standard + foil + dark into one worker round-trip instead of up to 3.
+    // Hash a batch of crop variants in the vision worker, then rank each
+    // against the match worker, stopping early on a decisive match. The
+    // whole-card hash (one per orientation) rides along as a second signal —
+    // matchCore ignores it when the loaded pack predates the v7 reseed.
+    const tryMatch = async (rot180, sourceLabel, variants) => {
+      const { results: hashSets, fullHash } = await visionClient.hashVariants(variants, { rot180 })
+      for (let i = 0; i < variants.length && i < hashSets.length; i++) {
+        const hs = hashSets[i]
+        if (!hs?.hash) continue
+        // Batch standard + foil + dark into one match-worker round-trip.
         const queries = [
-          { hash: Array.from(hash), label: 'standard' },
-          ...(foilHash ? [{ hash: Array.from(foilHash), label: 'foil' }] : []),
-          ...(darkHash ? [{ hash: Array.from(darkHash), label: 'dark' }] : []),
+          { hash: hs.hash, label: 'standard' },
+          ...(hs.foilHash ? [{ hash: hs.foilHash, label: 'foil' }] : []),
+          ...(hs.darkHash ? [{ hash: hs.darkHash, label: 'dark' }] : []),
         ]
         const { best: c, second: r, candidateCount, totalCount, fallback, bestLabel } =
-          await databaseService.findBestTwoWithStatsAsyncAll(queries, colorHash ?? null, matchOpts)
+          await databaseService.findBestTwoWithStatsAsyncAll(queries, hs.colorHash ?? null, fullHash, matchOpts)
         const label = bestLabel && bestLabel !== 'standard' ? `${sourceLabel}+${bestLabel}` : sourceLabel
-        if (updateBest(c, r, candidateCount, totalCount, variant, label, fallback)) return
+        if (updateBest(c, r, candidateCount, totalCount, variants[i], label, fallback)) return
       }
     }
 
-    if (corners) {
-      const imageData = getImageData()
-      const warped = warpCard(imageData, corners)
-      if (warped) {
-        await tryMatch(warped, 'corners', FAST_PRIMARY_VARIANTS)
-        if (shouldExpand()) await tryMatch(warped, 'corners', PRIMARY_CROP_VARIANTS.slice(1))
-        if (shouldTryMarginalVariants()) await tryMatch(warped, 'corners', MARGINAL_CROP_VARIANTS)
-        // 180° rotation fallback — cards held upside-down on a table are common.
-        // Only runs when the upright pass didn't produce a decisive match.
-        if (shouldExpand()) {
-          const warped180 = rotateCard180(warped)
-          await tryMatch(warped180, 'corners+rot180', FAST_PRIMARY_VARIANTS)
-          if (shouldExpand()) await tryMatch(warped180, 'corners+rot180', PRIMARY_CROP_VARIANTS.slice(1))
-          if (shouldTryMarginalVariants()) await tryMatch(warped180, 'corners+rot180', MARGINAL_CROP_VARIANTS)
-        }
+    // Run the standard variant-expansion ladder against the worker's current
+    // card (set by loadWarped / loadReticle below).
+    const runLadder = async (sourceLabel) => {
+      await tryMatch(false, sourceLabel, FAST_PRIMARY_VARIANTS)
+      if (shouldExpand()) await tryMatch(false, sourceLabel, PRIMARY_CROP_VARIANTS.slice(1))
+      if (shouldTryMarginalVariants()) await tryMatch(false, sourceLabel, MARGINAL_CROP_VARIANTS)
+      // 180° rotation fallback — cards held upside-down on a table are common.
+      // Only runs when the upright pass didn't produce a decisive match.
+      if (shouldExpand()) {
+        await tryMatch(true, `${sourceLabel}+rot180`, FAST_PRIMARY_VARIANTS)
+        if (shouldExpand()) await tryMatch(true, `${sourceLabel}+rot180`, PRIMARY_CROP_VARIANTS.slice(1))
+        if (shouldTryMarginalVariants()) await tryMatch(true, `${sourceLabel}+rot180`, MARGINAL_CROP_VARIANTS)
       }
+    }
+
+    // Tracks whether THIS frame put a card (and its OCR strips) into the
+    // worker — the title-rescue path must never consume a stale strip left
+    // over from a previous scan of a different card.
+    let cardLoaded = false
+    if (corners) {
+      const loaded = await visionClient.loadWarped(getFullImageData(), corners)
+      if (loaded) { cardLoaded = true; await runLadder('corners') }
     }
     // Reticle fallback: blind-crop the center of the frame. Useful for manual scan
     // when edge detection misses the card, but disabled in auto-scan (cornersOnly) to
     // prevent false positives from incidental objects in the reticle zone.
     if (!cornersOnly && shouldExpand()) {
-      const reticle = cropCardFromReticle(srcCanvas, w, h, window.innerWidth, window.innerHeight)
-      if (reticle) {
-        await tryMatch(reticle, 'reticle', FAST_PRIMARY_VARIANTS)
-        if (shouldExpand()) await tryMatch(reticle, 'reticle', PRIMARY_CROP_VARIANTS.slice(1))
-        if (shouldTryMarginalVariants()) await tryMatch(reticle, 'reticle', MARGINAL_CROP_VARIANTS)
-        if (shouldExpand()) {
-          const reticle180 = rotateCard180(reticle)
-          await tryMatch(reticle180, 'reticle+rot180', FAST_PRIMARY_VARIANTS)
-          if (shouldExpand()) await tryMatch(reticle180, 'reticle+rot180', PRIMARY_CROP_VARIANTS.slice(1))
-          if (shouldTryMarginalVariants()) await tryMatch(reticle180, 'reticle+rot180', MARGINAL_CROP_VARIANTS)
-        }
-      }
+      const loaded = await visionClient.loadReticle(getFullImageData(), window.innerWidth, window.innerHeight)
+      if (loaded) { cardLoaded = true; await runLadder('reticle') }
     }
 
-    if (!best) return { status: 'notfound', stage: 'no candidate', best: null, second: null, candidateCount: bestStats.candidateCount, totalCount: bestStats.totalCount, source: bestSource }
+    if (!best) return { status: 'notfound', stage: 'no candidate', best: null, second: null, candidateCount: bestStats.candidateCount, totalCount: bestStats.totalCount, source: bestSource, cardLoaded }
 
     const gap = second ? second.distance - best.distance : 256
     const sameNameCluster = !!(best?.name && second?.name && normalizeName(best.name) === normalizeName(second.name))
@@ -1291,9 +1343,34 @@ export default function CardScanner({ onMatch, onClose }) {
       stage: `dist ${best.distance}, gap ${gap}`,
       best, second, gap, sameNameCluster,
       candidateCount: bestStats.candidateCount, totalCount: bestStats.totalCount,
-      variant: bestVariant, source: bestSource,
+      variant: bestVariant, source: bestSource, cardLoaded,
     }
   }, [captureFrame, isNative])
+
+  // ── Title-OCR rescue (name identification when hashing comes up empty) ────
+  // The art hash fails on glare/foils/low light; the card NAME is usually
+  // still readable — and it exists on every frame era, unlike the collector
+  // line. OCR the title strip from the matched frame and fuzzy-match it
+  // against all pack names (unique-margin gated in nameMatch.js). The hash's
+  // best same-name observation picks the printing; otherwise the newest
+  // printing of the identified name is used.
+  const rescueByTitle = useCallback(async (bestObserved, allowedSets) => {
+    try {
+      const strip = await visionClient.getTitleStrip()
+      if (!strip) return null
+      const { recognizeTitleStrip } = await import('./collectorOcr')
+      const text = await recognizeTitleStrip(strip)
+      if (!text || !mountedRef.current) return null
+      const hit = databaseService.identifyByTitle(text, { allowedSets })
+      if (!hit) return null
+      if (bestObserved && normalizeName(bestObserved.name) === normalizeName(hit.card.name)) {
+        return bestObserved
+      }
+      return hit.card
+    } catch {
+      return null
+    }
+  }, [])
 
   const handleScan = useCallback(async () => {
     if (!isReady || scanning || !mountedRef.current) return
@@ -1306,6 +1383,7 @@ export default function CardScanner({ onMatch, onClose }) {
       let bestObserved = null, bestObservedGap = null
       let bestObservedCandidates = null, bestObservedVariant = null
       let bestObservedSource = null, bestObservedSameNameCluster = false
+      let anyCardLoaded = false
       const frameSummaries = []
       const isAutoScan = autoScanRef.current
       const allowedSets = lockSet && lockedSets.size > 0
@@ -1314,6 +1392,7 @@ export default function CardScanner({ onMatch, onClose }) {
 
       for (let i = 0; i < STABILITY_SAMPLES; i++) {
         const result = await scanSingleFrame({ cornersOnly: isAutoScan, allowedSets })
+        anyCardLoaded ||= !!result.cardLoaded
         frameSummaries.push(result.best ? `${i+1}:${result.best.distance}/${result.gap??'?'}` : `${i+1}:${result.stage}`)
         if (result.best && (!bestObserved || result.best.distance < bestObserved.distance)) {
           bestObserved = result.best
@@ -1343,7 +1422,13 @@ export default function CardScanner({ onMatch, onClose }) {
         stableCount: stableVote?.count ?? 0,
         sameNameCluster: bestObservedSameNameCluster,
       })
-      const match = acceptance.accepted ? (stableVote?.best ?? bestObserved) : null
+      let match = acceptance.accepted ? (stableVote?.best ?? bestObserved) : null
+
+      // Hash came up empty but a card was in the worker this scan → try to
+      // identify it by NAME from the title bar (works on any printing/era).
+      if (!match && scanOcr && anyCardLoaded) {
+        match = await rescueByTitle(bestObserved, allowedSets).catch(() => null)
+      }
 
       if (DEBUG && mountedRef.current) {
         setDebugInfo({
@@ -1381,6 +1466,7 @@ export default function CardScanner({ onMatch, onClose }) {
       if (!isDuplicate) {
         if (isAutoScan) lastAutoScanSignatureRef.current = autoScanSignature
         addToPending(match, { foil: preferFoil })
+        if (scanOcr) refineScanWithOcr(match)
       }
       // In manual mode, close any open overlay — result shows in the bottom bar only
       if (!isAutoScan && basketTgl.on) basketTgl.hide()
@@ -1393,20 +1479,65 @@ export default function CardScanner({ onMatch, onClose }) {
       scanningRef.current = false
       if (mountedRef.current) setScanning(false)
     }
-  }, [isReady, scanning, scanSingleFrame, addToPending, onMatch, lockSet, lockedSets, preferFoil])
+  }, [isReady, scanning, scanSingleFrame, addToPending, onMatch, lockSet, lockedSets, preferFoil, scanOcr, refineScanWithOcr, rescueByTitle])
 
   // ── Auto-scan loop ────────────────────────────────────────────────────────
-  // Re-runs whenever scanning goes idle. Schedules the next handleScan() call
-  // after a cooldown: longer after a match so the user can see the result.
-  // Pauses automatically when any overlay is open.
+  // Continuous cheap corner probe: a single-pass detection on the half-res
+  // frame (~10 Hz, in the vision worker) that fires a full multi-pass scan
+  // only once a card-like quad holds still for AUTOSCAN_PROBE_STABLE probes.
+  // An empty table costs one quick probe per tick — no 3-pass scans, no fixed
+  // miss cooldowns. Pauses automatically when any overlay is open.
   // Must be defined after handleScan (useCallback const — TDZ applies).
   useEffect(() => {
-    if (!autoScan || autoScanPaused || !isReady || scanning) return
-    if (addFlowOpen || basketExpanded || manualSearchOpen || settingsOpen || setPickerOpen || printingPickerFor !== null) return
-    const cooldown = scanResult === 'found' ? AUTOSCAN_COOLDOWN_MATCH_MS : AUTOSCAN_COOLDOWN_MISS_MS
-    const timer = setTimeout(() => { handleScan() }, cooldown)
-    return () => clearTimeout(timer)
-  }, [autoScan, autoScanPaused, isReady, scanning, addFlowOpen, basketExpanded, manualSearchOpen, settingsOpen, setPickerOpen, printingPickerFor, handleScan, scanResult])
+    if (!autoScan || autoScanPaused || !isReady) return undefined
+    if (addFlowOpen || basketExpanded || manualSearchOpen || settingsOpen || setPickerOpen || printingPickerFor !== null) return undefined
+
+    let cancelled = false
+    let timer = null
+    let lastSig = null
+    let stableCount = 0
+
+    const quadSig = (corners) => {
+      const cx = corners.reduce((s, p) => s + p.x, 0) / 4
+      const cy = corners.reduce((s, p) => s + p.y, 0) / 4
+      const xs = corners.map(p => p.x), ys = corners.map(p => p.y)
+      const area = (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys))
+      return { cx, cy, area }
+    }
+
+    const loop = async () => {
+      if (cancelled) return
+      let delay = AUTOSCAN_PROBE_INTERVAL_MS
+      if (!scanningRef.current) {
+        try {
+          const frame = await captureFrame()
+          const corners = frame ? await visionClient.detect(frame.smallImageData, { quick: true }) : null
+          if (corners) {
+            const sig = quadSig(corners)
+            const stable = lastSig &&
+              Math.hypot(sig.cx - lastSig.cx, sig.cy - lastSig.cy) < AUTOSCAN_PROBE_EPS_PX &&
+              Math.abs(sig.area - lastSig.area) < lastSig.area * 0.15
+            stableCount = stable ? stableCount + 1 : 1
+            lastSig = sig
+            if (stableCount >= AUTOSCAN_PROBE_STABLE) {
+              stableCount = 0
+              lastSig = null
+              await handleScan()
+              delay = AUTOSCAN_AFTER_SCAN_MS
+            }
+          } else {
+            stableCount = 0
+            lastSig = null
+          }
+        } catch { /* keep probing */ }
+      }
+      if (cancelled) return
+      timer = setTimeout(loop, delay)
+    }
+
+    timer = setTimeout(loop, 60)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [autoScan, autoScanPaused, isReady, addFlowOpen, basketExpanded, manualSearchOpen, settingsOpen, setPickerOpen, printingPickerFor, handleScan, captureFrame])
 
   // ── Derived ────────────────────────────────────────────────────────────────
 
@@ -1476,35 +1607,25 @@ export default function CardScanner({ onMatch, onClose }) {
   const startupPhaseTitle = errorMsg
     ? 'Scanner startup failed'
     : ({
-        'preparing native storage': 'Preparing local scanner storage',
-        'opening local database': 'Opening local scanner database',
-        connecting: 'Checking local cache',
+        connecting: 'Checking for the card database',
         'checking cache': 'Checking local cache',
-        'reading local database': 'Checking downloaded card fingerprints',
         'downloading hashes': 'Downloading card fingerprints',
-        'loading hashes': 'Downloading card fingerprints',
-        'building index': 'Preparing the search index',
-        finalizing: 'Finalizing scanner data',
-        ready: !cvReady ? 'Loading vision engine' : (!cameraStarted ? 'Starting camera' : 'Scanner ready'),
+        'loading hashes': 'Loading card fingerprints',
+        'network retry needed': 'Card database incomplete',
+        ready: !cameraStarted ? 'Starting camera' : 'Scanner ready',
       }[hashLoadInfo?.phase] ?? (preparing ? 'Preparing scanner' : 'Scanner ready'))
 
   const startupPhaseBody = errorMsg
     ? errorMsg
     : ({
-        'preparing native storage': 'DeckLoom is preparing the native storage layer used by the scanner on this device before it checks for cached card fingerprints.',
-        'opening local database': 'The scanner is opening its on-device database so it can reuse previously downloaded card fingerprints instead of fetching them again.',
-        connecting: 'DeckLoom is checking whether this device already has the card fingerprint database cached locally.',
+        connecting: 'DeckLoom is checking which card fingerprint data this device already has.',
         'checking cache': 'DeckLoom is checking whether this device already has the card fingerprint database cached locally.',
-        'reading local database': 'DeckLoom is reading the local fingerprint database to see whether hashes are already available on this device.',
-        'downloading hashes': 'First load on a device can take a while because the scanner downloads the card fingerprint database before it can match cards reliably.',
-        'loading hashes': 'DeckLoom is loading the downloaded fingerprint database into memory so scans can stay fast once startup completes.',
-        'building index': 'The scanner is building its local search index so card lookups are accurate and responsive.',
-        finalizing: 'Finishing the last setup steps and saving the cache for later launches.',
-        ready: !cvReady
-          ? 'The card database is ready. The scanner is now loading the vision engine.'
-          : (!cameraStarted
-            ? 'The card database is ready. The scanner is starting the camera feed.'
-            : 'Everything is ready. Continue to open the live scanner.'),
+        'downloading hashes': 'First load on a device downloads the card fingerprint database. Scanning unlocks as soon as the first part arrives — the rest continues in the background.',
+        'loading hashes': 'DeckLoom is loading the cached fingerprint database into memory so scans stay fast.',
+        'network retry needed': 'Part of the card database could not be downloaded. You can scan with what is loaded; the missing part is retried the next time the scanner opens.',
+        ready: !cameraStarted
+          ? 'The card database is ready. The scanner is starting the camera feed.'
+          : 'Everything is ready. Continue to open the live scanner.',
       }[hashLoadInfo?.phase] ?? 'Preparing the scanner environment.')
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -1524,6 +1645,13 @@ export default function CardScanner({ onMatch, onClose }) {
           <div className={styles.statusRow}>
             {errorMsg && (
               <div className={styles.statusPill}>Error: {errorMsg}</div>
+            )}
+            {!errorMsg && !showStartupModal && hashProgressVisible && (
+              <div className={styles.statusPill}>
+                {hashLoadInfo?.phase === 'network retry needed'
+                  ? `Card DB partial — ${cardCount.toLocaleString()} cards`
+                  : `Card DB ${hashLoadInfo?.progress ?? 0}%`}
+              </div>
             )}
           </div>
           <div className={styles.controlMenu}>
@@ -1601,9 +1729,7 @@ export default function CardScanner({ onMatch, onClose }) {
                     {startupCanContinue
                       ? 'Ready'
                       : hashesReady
-                        ? (cvReady
-                            ? 'Starting camera…'
-                            : (cvDownloading ? `Vision engine ${Math.round(cvRatio * 100)}%` : 'Loading engine…'))
+                        ? 'Starting camera…'
                         : (hashLoadInfo?.totalCount
                             ? `${(hashLoadInfo.loadedCount ?? 0).toLocaleString()} / ${hashLoadInfo.totalCount.toLocaleString()}`
                             : 'Preparing…')}
@@ -1617,7 +1743,7 @@ export default function CardScanner({ onMatch, onClose }) {
 
               <div className={styles.startupChecklist}>
                 <div className={styles.startupStep}>
-                  <span className={`${styles.startupStepDot} ${(['preparing native storage', 'opening local database', 'connecting', 'checking cache', 'reading local database'].includes(hashLoadInfo?.phase) || hashesReady) ? styles.startupStepDotDone : ''}`}>1</span>
+                  <span className={`${styles.startupStepDot} ${(['connecting', 'checking cache'].includes(hashLoadInfo?.phase) || hashProgressVisible || hashesReady) ? styles.startupStepDotDone : ''}`}>1</span>
                   <div>
                     <div className={styles.startupStepTitle}>Check local cache</div>
                     <div className={styles.startupStepBody}>Reuse any hashes already stored on this device before downloading more.</div>
@@ -1631,10 +1757,10 @@ export default function CardScanner({ onMatch, onClose }) {
                   </div>
                 </div>
                 <div className={styles.startupStep}>
-                  <span className={`${styles.startupStepDot} ${(cvReady && cameraStarted) ? styles.startupStepDotDone : ''}`}>3</span>
+                  <span className={`${styles.startupStepDot} ${cameraStarted ? styles.startupStepDotDone : ''}`}>3</span>
                   <div>
-                    <div className={styles.startupStepTitle}>Start camera and vision engine</div>
-                    <div className={styles.startupStepBody}>Finish loading OpenCV and start the live camera feed.</div>
+                    <div className={styles.startupStepTitle}>Start camera</div>
+                    <div className={styles.startupStepBody}>Start the live camera feed for scanning.</div>
                   </div>
                 </div>
               </div>
@@ -1698,7 +1824,7 @@ export default function CardScanner({ onMatch, onClose }) {
         )}
         {DEBUG && !debugInfo && (
           <div className={styles.debugStrip}>
-            hashes: {cardCount.toLocaleString()} {databaseService.isFullyLoaded ? '✓' : '...'} | CV: {cvReady ? '✓' : '...'} | DB: {dbReady ? '✓' : '...'}
+            hashes: {cardCount.toLocaleString()} {databaseService.isFullyLoaded ? '✓' : '...'} | DB: {dbReady ? '✓' : '...'}
           </div>
         )}
 
@@ -2192,6 +2318,18 @@ export default function CardScanner({ onMatch, onClose }) {
             <button role="switch" aria-checked={scanSounds}
               className={`${styles.toggle} ${scanSounds ? styles.toggleOn : ''}`}
               onClick={() => setScanSounds(v => !v)}>
+              <span className={styles.toggleThumb} />
+            </button>
+          </div>
+
+          <div className={styles.settingsRow}>
+            <div className={styles.settingsRowLabel}>
+              <span className={styles.settingsRowTitle}>Auto-fix printing (OCR)</span>
+              <span className={styles.settingsRowDesc}>Read the printed set code and collector number to pick the exact printing and language (modern cards)</span>
+            </div>
+            <button role="switch" aria-checked={scanOcr}
+              className={`${styles.toggle} ${scanOcr ? styles.toggleOn : ''}`}
+              onClick={() => setScanOcr(v => !v)}>
               <span className={styles.toggleThumb} />
             </button>
           </div>

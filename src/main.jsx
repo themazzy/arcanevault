@@ -35,6 +35,18 @@ if (typeof caches !== 'undefined') {
   caches.delete('arcanevault-images-v1').catch(() => {})
 }
 
+// Idle-time scanner warmup for devices that have used the scanner before:
+// hash-pack chunks into IndexedDB, opencv.js into the HTTP/SW cache. Dynamic
+// import keeps the scanner code out of the initial bundle.
+const scheduleIdle = window.requestIdleCallback?.bind(window) ?? (cb => setTimeout(cb, 4000))
+window.addEventListener('load', () => {
+  scheduleIdle(() => {
+    import('./scanner/prefetch')
+      .then(m => m.maybePrefetchScannerAssets())
+      .catch(() => {})
+  })
+}, { once: true })
+
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
