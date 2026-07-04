@@ -276,6 +276,7 @@
   display: flex; align-items: center; justify-content: space-between;
   gap: 12px; margin-bottom: 6px;
 }
+.sectionHeaderActions { display: flex; gap: 8px; align-items: center; }
 .sectionTitle {
   font-family: var(--font-display); font-size: 1rem;
   font-weight: 600; color: var(--gold);
@@ -874,7 +875,8 @@
   padding: 6px 10px; font-size: 0.87rem; color: var(--text-dim); cursor: pointer;
   transition: background 0.1s, color 0.1s;
 }
-.suggItem:hover { background: rgba(201,168,76,0.1); color: var(--text); }
+.suggItem:hover,
+.suggItemActive { background: rgba(201,168,76,0.1); color: var(--text); }
 .suggThumb {
   width: 36px; height: 50px; border-radius: 3px; object-fit: cover;
   flex-shrink: 0; border: 1px solid var(--border);
@@ -913,6 +915,7 @@
 }
 .clearBtn:hover { color: var(--text); border-color: var(--border-hi); }
 
+.loadMoreWrap { text-align: center; margin-top: 16px; }
 .loadMoreBtn {
   display: inline-flex;
   align-items: center;

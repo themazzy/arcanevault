@@ -3,12 +3,17 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { sb } from '../lib/supabase'
 import { getInstantCache, getPriceSource, formatPrice, getImageUri, sfGet } from '../lib/scryfall'
+import { sortByNameRelevance } from '../lib/scryfallSearch'
+import { fetchAutocomplete, buildLookupQuery, hasLookupFilters } from '../lib/cardLookup'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getLocalCards, getLocalFolders, getAllLocalFolderCards, getAllDeckAllocationsForUser, putCards } from '../lib/db'
 import { cardsContentHash } from '../lib/cardsHash'
 import { getProdAppUrl } from '../lib/publicUrl'
+import { CAN_HOVER } from '../lib/deckBuilderConstants'
+import { lastInputWasTouch } from '../lib/inputType'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
+import { FloatingPreview } from '../components/deckBuilder/FloatingPreview'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './Home.module.css'
 import { EMPTY_FILTERS, FilterBar } from '../components/CardComponents'
@@ -192,11 +197,6 @@ async function fetchScryfallSetsMap() {
 async function fetchRandom() {
   return sfGet('https://api.scryfall.com/cards/random')
 }
-// Returns card objects (with images) for the autocomplete dropdown
-async function fetchAutocomplete(q) {
-  const data = await sfGet(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(q)}&unique=names&order=name`)
-  return (data?.data || []).slice(0, 9)
-}
 async function fetchByName(name) {
   return sfGet(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}`)
 }
@@ -343,60 +343,6 @@ async function fetchUpcomingSets() {
     .filter(s => s.released_at > today && interesting.has(s.set_type))
     .sort((a, b) => a.released_at.localeCompare(b.released_at))
     .slice(0, 8)
-}
-
-// ── Lookup filter helpers ─────────────────────────────────────────────────────
-function buildLookupQuery(search, filters) {
-  const tokens = []
-  if (search?.trim()) tokens.push(search.trim())
-
-  if (filters.foil === 'foil') tokens.push('is:foil')
-  if (filters.foil === 'nonfoil') tokens.push('is:nonfoil')
-  if (filters.foil === 'etched') tokens.push('is:etched')
-
-  if (filters.colors?.length) {
-    const selected = filters.colors.filter(c => ['W','U','B','R','G'].includes(c))
-    if (selected.length) {
-      const colorString = selected.join('')
-      if (filters.colorMode === 'exact') tokens.push(`id=${colorString}`)
-      else if (filters.colorMode === 'including') tokens.push(`id>=${colorString}`)
-      else tokens.push(`id:${colorString}`)
-    }
-    if (filters.colors.includes('C')) tokens.push('id:c')
-    if (filters.colors.includes('M')) tokens.push('id>1')
-  }
-
-  if (filters.colorCountMin > 0) tokens.push(`colors>=${filters.colorCountMin}`)
-  if (filters.colorCountMax < 5) tokens.push(`colors<=${filters.colorCountMax}`)
-  filters.rarity?.forEach(r => tokens.push(`rarity:${r}`))
-  filters.typeLine?.forEach(t => tokens.push(`type:"${t}"`))
-  if (filters.oracleText?.trim()) tokens.push(`oracle:"${filters.oracleText.trim()}"`)
-  if (filters.artist?.trim()) tokens.push(`artist:"${filters.artist.trim()}"`)
-  filters.formats?.forEach(f => tokens.push(`format:${f}`))
-  filters.sets?.forEach(s => tokens.push(`set:${s}`))
-
-  const numericFilters = [
-    ['cmc', filters.cmcOp, filters.cmcMin, filters.cmcMax],
-    ['pow', filters.powerOp, filters.powerVal, filters.powerVal2],
-    ['tou', filters.toughOp, filters.toughVal, filters.toughVal2],
-  ]
-  for (const [field, op, val, val2] of numericFilters) {
-    if (!op || op === 'any') continue
-    if (op === 'between') {
-      if (val !== '') tokens.push(`${field}>=${val}`)
-      if (val2 !== '') tokens.push(`${field}<=${val2}`)
-    } else if (op === 'in') {
-      String(val || '').split(',').map(v => v.trim()).filter(Boolean).forEach(v => tokens.push(`${field}:${v}`))
-    } else if (val !== '') {
-      tokens.push(`${field}${op}${val}`)
-    }
-  }
-
-  return tokens.join(' ')
-}
-
-function hasLookupFilters(filters) {
-  return buildLookupQuery('', filters).trim().length > 0
 }
 
 // ── Mana symbol renderer ──────────────────────────────────────────────────────
@@ -653,7 +599,12 @@ function CardLookupSection() {
   const [query, setQuery]         = useState('')
   const [suggestions, setSuggs]   = useState([])
   const [showSuggs, setShowSuggs] = useState(false)
+  const [activeSuggIndex, setActiveSuggIndex] = useState(-1)
   const [card, setCard]           = useState(null)
+  // Where to land when the card detail view is closed — 'idle' (opened from a
+  // suggestion / exact-name match) or 'results' (opened from the results grid,
+  // so closing should restore the grid instead of discarding the search).
+  const [cardOrigin, setCardOrigin] = useState('idle')
   const [results, setResults]     = useState([])
   const [nextPage, setNextPage]   = useState(null)
   const [totalCards, setTotalCards] = useState(0)
@@ -665,6 +616,8 @@ function CardLookupSection() {
   const [filters, setFilters]     = useState({ ...EMPTY_FILTERS })
   const [lookupSets, setLookupSets] = useState([])
   const debounce = useRef(null)
+  const wrapRef = useRef(null)
+  const floatingPreviewRef = useRef(null)
 
   useEffect(() => {
     let cancelled = false
@@ -678,22 +631,57 @@ function CardLookupSection() {
     return () => { cancelled = true }
   }, [])
 
+  // Dismiss the suggestion dropdown on an outside click — without this it
+  // stays open (and stale) once you click anywhere else on the page.
+  useEffect(() => {
+    if (!showSuggs) return
+    const onDocMouseDown = e => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
+        setShowSuggs(false); setActiveSuggIndex(-1)
+      }
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    return () => document.removeEventListener('mousedown', onDocMouseDown)
+  }, [showSuggs])
+
   const handleInput = e => {
     const v = e.target.value
     setQuery(v)
+    setActiveSuggIndex(-1)
     clearTimeout(debounce.current)
     if (v.length < 2) { setSuggs([]); setShowSuggs(false); return }
     debounce.current = setTimeout(async () => {
       const r = await fetchAutocomplete(v)
-      setSuggs(r); setShowSuggs(r.length > 0)
+      setSuggs(r); setShowSuggs(r.length > 0); setActiveSuggIndex(-1)
     }, 250)
   }
 
   // suggestions are now card objects — pick directly, no extra fetch needed
   const pickSuggestion = cardObj => {
-    setQuery(cardObj.name); setShowSuggs(false); setSuggs([])
+    setQuery(cardObj.name); setShowSuggs(false); setSuggs([]); setActiveSuggIndex(-1)
+    setCardOrigin('idle')
     setCard(cardObj); setResults([]); setMode('card')
     addRecentlyViewed(cardObj)
+  }
+
+  // Arrow keys / Enter / Escape while the suggestion dropdown is open.
+  // FilterBar calls this before its own Enter→submit handling and respects
+  // e.preventDefault() to skip it, so this only changes behavior here.
+  const handleSearchKeyDown = e => {
+    if (!showSuggs || suggestions.length === 0) return
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setActiveSuggIndex(i => Math.min(i + 1, suggestions.length - 1))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setActiveSuggIndex(i => Math.max(i - 1, 0))
+    } else if (e.key === 'Enter' && activeSuggIndex >= 0) {
+      e.preventDefault()
+      pickSuggestion(suggestions[activeSuggIndex])
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      setShowSuggs(false); setActiveSuggIndex(-1)
+    }
   }
 
   const handleSearch = async e => {
@@ -702,11 +690,11 @@ function CardLookupSection() {
     if (!query.trim() && !hasFilters) return
     setShowSuggs(false); setCard(null); setLoading(true); setMode('idle')
     const exact = !hasFilters ? await fetchByName(query.trim()) : null
-    if (exact) { setCard(exact); setMode('card'); addRecentlyViewed(exact); setLoading(false); return }
+    if (exact) { setCardOrigin('idle'); setCard(exact); setMode('card'); addRecentlyViewed(exact); setLoading(false); return }
     const scryfallQuery = buildLookupQuery(query, filters)
     setCurrentQuery(scryfallQuery)
     const { data, nextPage: np, total } = await fetchSearchResults(scryfallQuery, null, sort)
-    setResults(data); setNextPage(np); setTotalCards(total)
+    setResults(sortByNameRelevance(data, query)); setNextPage(np); setTotalCards(total)
     setMode('results'); setLoading(false)
   }
 
@@ -714,7 +702,7 @@ function CardLookupSection() {
     if (!nextPage || loadingMore) return
     setLoadingMore(true)
     const { data, nextPage: np } = await fetchSearchResults(null, nextPage, sort)
-    setResults(prev => [...prev, ...data]); setNextPage(np)
+    setResults(prev => [...prev, ...sortByNameRelevance(data, query)]); setNextPage(np)
     setLoadingMore(false)
   }
 
@@ -724,11 +712,22 @@ function CardLookupSection() {
     setFilters({ ...EMPTY_FILTERS })
   }
 
+  const handleSuggHoverEnter = useCallback((uri, e) => {
+    floatingPreviewRef.current?.setPos(e.clientX, e.clientY)
+    floatingPreviewRef.current?.setImages(uri ? [uri] : [])
+  }, [])
+  const handleSuggHoverMove = useCallback((e) => {
+    floatingPreviewRef.current?.setPos(e.clientX, e.clientY)
+  }, [])
+  const handleSuggHoverLeave = useCallback(() => {
+    floatingPreviewRef.current?.setImages([])
+  }, [])
+
   return (
     <section className={styles.section}>
       <div className={styles.sectionHeader}>
         <h2 className={styles.sectionTitle}>Card Lookup</h2>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div className={styles.sectionHeaderActions}>
           {mode !== 'idle' && (
             <button className={styles.clearBtn} onClick={handleClear}>Clear</button>
           )}
@@ -736,7 +735,7 @@ function CardLookupSection() {
       </div>
       <p className={styles.sectionDesc}>Search any Magic card — browse art, oracle text, prices and rulings.</p>
 
-      <div className={styles.lookupFilterWrap}>
+      <div className={styles.lookupFilterWrap} ref={wrapRef}>
         <FilterBar
           mode="lookup"
           search={query}
@@ -747,6 +746,7 @@ function CardLookupSection() {
           setFilters={setFilters}
           sets={lookupSets}
           onSearchSubmit={handleSearch}
+          onSearchKeyDown={handleSearchKeyDown}
           extra={(
             <button className={styles.searchBtn} type="button"
               onClick={handleSearch}
@@ -756,24 +756,37 @@ function CardLookupSection() {
           )}
         />
         {showSuggs && (
-          <ul className={styles.suggList}>
-            {suggestions.map(c => (
-              <li key={c.id} className={styles.suggItem} onMouseDown={() => pickSuggestion(c)}>
-                <img
-                  src={getCardImage(c, 'small')}
-                  alt=""
-                  className={styles.suggThumb}
-                />
-                <span className={styles.suggName}>{c.name}</span>
-                <span className={styles.suggSet}>{c.set_name}</span>
-              </li>
-            ))}
+          <ul className={styles.suggList} role="listbox">
+            {suggestions.map((c, i) => {
+              const img = getCardImage(c, 'small')
+              const hoverableProps = CAN_HOVER && !lastInputWasTouch && img
+                ? {
+                    onMouseEnter: e => handleSuggHoverEnter(img, e),
+                    onMouseMove: handleSuggHoverMove,
+                    onMouseLeave: handleSuggHoverLeave,
+                  }
+                : {}
+              return (
+                <li
+                  key={c.id}
+                  role="option"
+                  aria-selected={i === activeSuggIndex}
+                  className={`${styles.suggItem}${i === activeSuggIndex ? ' ' + styles.suggItemActive : ''}`}
+                  onMouseDown={() => pickSuggestion(c)}
+                  onMouseEnter={() => setActiveSuggIndex(i)}
+                >
+                  <img src={img} alt="" className={styles.suggThumb} {...hoverableProps} />
+                  <span className={styles.suggName}>{c.name}</span>
+                  <span className={styles.suggSet}>{c.set_name}</span>
+                </li>
+              )
+            })}
           </ul>
         )}
       </div>
       {loading && <div className={styles.loadingMsg}>Searching Scryfall…</div>}
       {!loading && mode === 'card' && card && (
-        <CardView card={card} onClose={() => { setCard(null); setMode('idle') }} />
+        <CardView card={card} onClose={() => { setCard(null); setMode(cardOrigin) }} />
       )}
       {!loading && mode === 'results' && (
         results.length === 0
@@ -783,9 +796,9 @@ function CardLookupSection() {
                 {totalCards > 0 ? `${totalCards.toLocaleString()} total` : `${results.length}`} result{results.length !== 1 ? 's' : ''}
                 {results.length < totalCards ? ` — showing ${results.length}` : ''} — click a card for details
               </div>
-              <SearchResultGrid results={results} onSelect={c => { setCard(c); setMode('card'); addRecentlyViewed(c) }} />
+              <SearchResultGrid results={results} onSelect={c => { setCardOrigin('results'); setCard(c); setMode('card'); addRecentlyViewed(c) }} />
               {nextPage && (
-                <div style={{ textAlign: 'center', marginTop: 16 }}>
+                <div className={styles.loadMoreWrap}>
                   <button className={styles.loadMoreBtn} onClick={handleLoadMore} disabled={loadingMore}>
                     {loadingMore ? 'Loading…' : `Load more (${results.length} / ${totalCards.toLocaleString()})`}
                   </button>
@@ -793,6 +806,7 @@ function CardLookupSection() {
               )}
             </>
       )}
+      <FloatingPreview ref={floatingPreviewRef} />
     </section>
   )
 }

@@ -1497,6 +1497,7 @@ export function FilterBar({
   sets = [], languages = [],
   mode = 'collection',
   onSearchSubmit,
+  onSearchKeyDown,
   hideActionsMobile = false,
   hideSortFilterMobile = false,
   filterOpen: controlledOpen,
@@ -1553,6 +1554,8 @@ export function FilterBar({
           name="card-search"
           value={search} onChange={e => setSearch(e.target.value)}
           onKeyDown={e => {
+            onSearchKeyDown?.(e)
+            if (e.defaultPrevented) return
             if (e.key === 'Enter') {
               e.preventDefault()
               onSearchSubmit?.()
