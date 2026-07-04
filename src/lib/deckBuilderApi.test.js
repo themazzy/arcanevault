@@ -212,6 +212,41 @@ describe('searchCards — empty-query bail', () => {
     expect(sfGet).toHaveBeenCalledOnce()
     expect(result.cards[0].name).toBe('Lightning Bolt')
   })
+
+  it('anchors the query to the name field so oracle-text mentions are excluded', async () => {
+    sfGet.mockResolvedValueOnce({ data: [], has_more: false })
+    await searchCards({ query: 'void' })
+    const url = sfGet.mock.calls[0][0]
+    expect(url).toContain(encodeURIComponent('name:"void"'))
+  })
+
+  it('floats an exact name match to the top even under edhrec popularity order', async () => {
+    // "Void" itself is a real but obscure card; EDHREC order would otherwise
+    // rank it beneath more popular cards whose name merely contains "void".
+    sfGet.mockResolvedValueOnce({
+      data: [
+        { id: 'popular-1', name: 'Void Winnower' },
+        { id: 'popular-2', name: 'Encroaching Void' },
+        { id: 'exact', name: 'Void' },
+      ],
+      has_more: false,
+    })
+    const result = await searchCards({ query: 'void', format: 'commander' })
+    expect(result.cards[0].name).toBe('Void')
+  })
+
+  it('ranks a name-prefix match above other partial matches, exact match first', async () => {
+    sfGet.mockResolvedValueOnce({
+      data: [
+        { id: 'a', name: 'Waking Nightmare' },
+        { id: 'b', name: 'Nightmare Shepherd' },
+        { id: 'c', name: 'Nightmare' },
+      ],
+      has_more: false,
+    })
+    const result = await searchCards({ query: 'nightmare' })
+    expect(result.cards.map(c => c.name)).toEqual(['Nightmare', 'Nightmare Shepherd', 'Waking Nightmare'])
+  })
 })
 
 describe('fetchPaperPrintings — face-name collision', () => {

@@ -9,6 +9,7 @@
 import { sfGet, sfUrl, getImageUri } from './scryfall'
 import { getProdAppUrl } from './publicUrl'
 import { sb } from './supabase'
+import { sortByNameRelevance } from './scryfallSearch'
 
 const SF = 'https://api.scryfall.com'
 const EDHREC = 'https://json.edhrec.com'
@@ -172,10 +173,16 @@ const sfFetch = sfGet
 
 /** Search cards with optional color identity filter.
  *  Format is intentionally NOT applied as a Scryfall filter — illegal cards
- *  are still returned and surfaced to the user with a legality warning. */
+ *  are still returned and surfaced to the user with a legality warning.
+ *  The query is anchored to `name:` (rather than sent bare) so a common word
+ *  doesn't pull in every card that merely mentions it in oracle text; results
+ *  are then re-ranked by sortByNameRelevance() so an exact name match always
+ *  outranks Scryfall's requested order (edhrec popularity can otherwise bury
+ *  a literal match like "Void" under more popular "Void ___" cards). */
 export async function searchCards({ query = '', format, colorIdentity, cardType, cmcMin, cmcMax, page = 1 } = {}) {
+  const trimmedQuery = query.trim()
   const parts = []
-  if (query.trim()) parts.push(query.trim())
+  if (trimmedQuery) parts.push(`name:"${trimmedQuery.replace(/"/g, '')}"`)
   if (colorIdentity?.length) parts.push(`id<=${colorIdentity.join('')}`)
   if (cardType)      parts.push(`t:${cardType}`)
   if (cmcMin !== '' && cmcMin != null) parts.push(`cmc>=${cmcMin}`)
@@ -189,7 +196,8 @@ export async function searchCards({ query = '', format, colorIdentity, cardType,
   const order = format === 'commander' ? 'edhrec' : 'name'
   const data = await sfFetch(`${SF}/cards/search?q=${q}&order=${order}&unique=cards&page=${page}`)
   if (!data) return { cards: [], hasMore: false, error: true }
-  return { cards: data.data || [], hasMore: data.has_more || false }
+  const cards = trimmedQuery ? sortByNameRelevance(data.data || [], trimmedQuery) : (data.data || [])
+  return { cards, hasMore: data.has_more || false }
 }
 
 /** Search for valid commanders */
