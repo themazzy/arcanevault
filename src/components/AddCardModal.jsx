@@ -171,19 +171,15 @@ export default function AddCardModal({
   initialCardName = null,
 }) {
   // Guards the overlay click / Escape / X-button paths (all three funnel
-  // through Modal's single onClose prop) so an accidental dismissal can't
-  // silently drop in-progress work — a queued card, OR a card mid-configure
-  // that hasn't been added to the queue yet, OR a typed search. Refs (not
-  // state) since AddFlow reports on every change and we only need the latest
-  // value at the moment the user tries to close. A completely untouched
-  // modal still closes instantly with no prompt.
+  // through Modal's single onClose prop) with an always-on confirm — every
+  // attempt to close this way prompts, even on a completely untouched modal,
+  // so an accidental dismissal can never silently drop in-progress work.
+  // Refs (not state) since AddFlow reports on every change and we only need
+  // the latest value at the moment the user tries to close.
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   const queueCountRef = useRef(0)
   const hasProgressRef = useRef(false)
-  const requestClose = () => {
-    if (queueCountRef.current > 0 || hasProgressRef.current) { setConfirmDiscard(true); return }
-    onClose()
-  }
+  const requestClose = () => setConfirmDiscard(true)
   const handleProgressChange = useCallback((queueCount, hasProgress) => {
     queueCountRef.current = queueCount
     hasProgressRef.current = hasProgress
@@ -206,12 +202,19 @@ export default function AddCardModal({
             <p className={styles.discardMsg}>
               {queueCountRef.current > 0
                 ? `Discard ${queueCountRef.current} queued card${queueCountRef.current !== 1 ? 's' : ''}? This can't be undone.`
-                : "Discard your in-progress card? This can't be undone."}
+                : hasProgressRef.current
+                  ? "Discard your in-progress card? This can't be undone."
+                  : 'Close without adding a card?'}
             </p>
             <div className={styles.discardActions}>
-              <Button variant="ghost" onClick={() => setConfirmDiscard(false)}>Keep editing</Button>
-              <Button variant="danger" onClick={() => { setConfirmDiscard(false); onClose() }}>
-                {queueCountRef.current > 0 ? 'Discard queue' : 'Discard'}
+              <Button variant="ghost" onClick={() => setConfirmDiscard(false)}>
+                {queueCountRef.current > 0 || hasProgressRef.current ? 'Keep editing' : 'Cancel'}
+              </Button>
+              <Button
+                variant={queueCountRef.current > 0 || hasProgressRef.current ? 'danger' : 'default'}
+                onClick={() => { setConfirmDiscard(false); onClose() }}
+              >
+                {queueCountRef.current > 0 ? 'Discard queue' : hasProgressRef.current ? 'Discard' : 'Close'}
               </Button>
             </div>
           </div>
