@@ -2,10 +2,18 @@ import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import styles from '../../pages/DeckBuilder.module.css'
 
+// .floatingImg is a fixed 300px-wide card render at MTG's 63:88mm aspect ratio,
+// so the actual box height (~419px) is taller than it looks from the width alone.
+const PREVIEW_HEIGHT = 300 * (88 / 63)
+const PREVIEW_MARGIN = 16
+
 export function computeFloatingPreviewPos(x, y, imageCount) {
   const width = imageCount > 1 ? 400 : 300
   const left = x > window.innerWidth - (width + 40) ? x - (width - 60) : x + 16
-  const top = Math.min(y - 30, window.innerHeight - 330)
+  const top = Math.max(
+    PREVIEW_MARGIN,
+    Math.min(y - 30, window.innerHeight - PREVIEW_HEIGHT - PREVIEW_MARGIN)
+  )
   return { left, top }
 }
 
