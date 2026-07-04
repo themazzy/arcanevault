@@ -407,6 +407,20 @@ export default function DeckBuilderPage() {
   // Hover preview — FloatingPreview owns its own state and is updated imperatively,
   // so neither pointer movement nor enter/leave triggers a DeckBuilder re-render.
   const floatingPreviewRef = useRef(null)
+  // Deck-list scroll container — measured (via a callback ref so it fires once the
+  // list actually mounts, not before data loads) so the tab bar can inset its right
+  // edge by the exact scrollbar width and line up pixel-perfectly with the banner.
+  const deckListScrollObs = useRef(null)
+  const deckListScrollRef = useCallback((el) => {
+    const root = document.documentElement
+    if (deckListScrollObs.current) { deckListScrollObs.current.disconnect(); deckListScrollObs.current = null }
+    if (!el) { root.style.removeProperty('--deck-scrollbar-w'); return }
+    const update = () => root.style.setProperty('--deck-scrollbar-w', `${el.offsetWidth - el.clientWidth}px`)
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    deckListScrollObs.current = ro
+  }, [])
   const setHoverImages = useCallback((uris) => {
     floatingPreviewRef.current?.setImages(uris)
   }, [])
@@ -985,9 +999,9 @@ export default function DeckBuilderPage() {
     if (visibleColumns.cmc) addColumn(56)
     if (visibleColumns.price) addColumn(78)
     if (visibleColumns.status) addColumn(94)
-    if (visibleColumns.qty) addColumn(58)
-    if (visibleColumns.actions) addColumn(64)
-    if (visibleColumns.remove) addColumn(56)
+    if (visibleColumns.qty) addColumn(64)
+    if (visibleColumns.actions) addColumn(32)
+    if (visibleColumns.remove) addColumn(32)
     const gapWidth = Math.max(0, cols.length - 1) * 8
     return {
       template: cols.join(' '),
@@ -4434,6 +4448,22 @@ export default function DeckBuilderPage() {
               )}
             </button>
           ))}
+          {/* Deck actions gear — desktop only; pinned to the always-visible tab bar
+              so it never scrolls out of view with the banner. */}
+          <div className={`${styles.tabBarGear} ${styles.deskOnly}`}>
+            <ResponsiveMenu
+              title="Deck Actions"
+              align="right"
+              portal
+              trigger={({ toggle }) => (
+                <button className={styles.cmdArtGearBtn} onClick={toggle} title="Deck actions" aria-label="Deck actions">
+                  <SettingsIcon size={15} />
+                </button>
+              )}
+            >
+              {args => renderDeckActionsMenu({ ...args, includeQuickActions: true })}
+            </ResponsiveMenu>
+          </div>
         </div>
 
         {visibleDeckWarnings.length > 0 && (() => {
@@ -4470,6 +4500,7 @@ export default function DeckBuilderPage() {
 
         {/* Deck list tab */}
         <div
+          ref={deckListScrollRef}
           className={`${styles.deckList}${rightTab !== 'deck' ? ' ' + styles.tabPaneHidden : ''}`}
         >
             {renderDeckHeader(styles.deckHeaderMobile)}
@@ -4525,21 +4556,6 @@ export default function DeckBuilderPage() {
                     {format && <span>{format.label}</span>}
                     {totalDeckPrice > 0 && <span style={{ color: 'var(--green)' }}>{formatPrice(totalDeckPrice, price_source)}</span>}
                   </div>
-                </div>
-                {/* Deck actions gear — desktop only; mobile header has its own actions */}
-                <div className={`${styles.cmdArtGear} ${styles.deskOnly}`}>
-                  <ResponsiveMenu
-                    title="Deck Actions"
-                    align="right"
-                    portal
-                    trigger={({ toggle }) => (
-                      <button className={styles.cmdArtGearBtn} onClick={toggle} title="Deck actions" aria-label="Deck actions">
-                        <SettingsIcon size={14} />
-                      </button>
-                    )}
-                  >
-                    {args => renderDeckActionsMenu({ ...args, includeQuickActions: true })}
-                  </ResponsiveMenu>
                 </div>
               </div>
             )}
@@ -5010,7 +5026,7 @@ export default function DeckBuilderPage() {
             {visibleDeckCards.length > 0 && (
               <div
                 className={deckView === 'list' ? `${styles.deckListWide} ${styles.deckListTableScroller}` : undefined}
-                style={deckView === 'list' ? { '--deck-list-min-width': listGridMinWidth } : undefined}
+                style={deckView === 'list' ? { '--deck-list-min-width': listGridMinWidth, '--deck-list-columns': listGridTemplate } : undefined}
               >
               {(() => {
               const deckRowProps = (dc) => {

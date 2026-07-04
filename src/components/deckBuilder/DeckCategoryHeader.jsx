@@ -133,11 +133,13 @@ export function DeckCategoryHeader({
       onKeyDown={isStacksView ? stackKeyDown : undefined}
       style={!isStacksView ? { cursor: 'pointer' } : undefined}
     >
-      <span className={`${styles.groupArrow}${collapsed ? ' ' + styles.groupArrowCollapsed : ''}`} aria-hidden="true">
-        <ChevronDownIcon size={12} />
+      <span className={styles.groupHeaderMain}>
+        <span className={`${styles.groupArrow}${collapsed ? ' ' + styles.groupArrowCollapsed : ''}`} aria-hidden="true">
+          <ChevronDownIcon size={12} />
+        </span>
+        <span className={titleClass} style={!isStacksView && groupColor ? { color: groupColor } : undefined}>{group}</span>
+        {!isStacksView && groupPrice > 0 && <span className={styles.groupPrice}>{formatPrice(groupPrice, priceSource)}</span>}
       </span>
-      <span className={titleClass} style={!isStacksView && groupColor ? { color: groupColor } : undefined}>{group}</span>
-      {!isStacksView && groupPrice > 0 && <span className={styles.groupPrice}>{formatPrice(groupPrice, priceSource)}</span>}
       <span className={countClass}>{groupQty}</span>
       <CategoryControls
         group={group}
