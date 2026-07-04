@@ -3,7 +3,7 @@
 // This module is pure and synchronous (except `enrichPlanWithEdhrec`, which
 // wraps a single network call): given a commander, the user's owned cards, and
 // Scryfall metadata, it sorts color-legal owned cards into a small set of
-// *coarse build roles* (Ramp, Card Advantage, Removal, …) and compares each
+// *coarse build roles* (Ramp, Draw, Removal, …) and compares each
 // role's count against a target quota, surfacing the gaps a player should fill.
 //
 // It deliberately reuses the existing functional classifier in cardCategory.js
@@ -21,7 +21,7 @@ import { isMassLandDenial, isExtraTurn } from './commanderBracket'
 // through to Synergy — those are the deck's "stuff" that fills the remainder.
 
 export const ROLE_RAMP = 'Ramp'
-export const ROLE_DRAW = 'Card Advantage'
+export const ROLE_DRAW = 'Draw'
 export const ROLE_REMOVAL = 'Removal'
 export const ROLE_WIPE = 'Board Wipe'
 export const ROLE_PROTECTION = 'Protection'
@@ -77,7 +77,7 @@ export function granularToCoarse(granularCategory) {
 
 // EDHREC cardviews carry no oracle text, so not-owned upgrades can't go through
 // the regex classifier. Their EDHREC section header is the best functional hint
-// we have ("Mana Artifacts" → Ramp, "Card Draw" → Card Advantage, …). Returns a
+// we have ("Mana Artifacts" → Ramp, "Card Draw" → Draw, …). Returns a
 // coarse role or null when the header is type-based ("Creatures", "Instants")
 // and the caller should fall back to type-line classification.
 export function edhrecHeaderToRole(header = '') {
@@ -607,7 +607,7 @@ export async function enrichPlanWithEdhrec(plan, fetchEdhrec, fetchCardMeta) {
   }
 
   // Resolve oracle text + art for the top unowned EDHREC cards so we can
-  // classify them by *function* (Card Advantage, Removal, …). EDHREC's default
+  // classify them by *function* (Draw, Removal, …). EDHREC's default
   // sections are mostly type-based ("Creatures", "Instants") and only a couple
   // map to a role ("Mana Artifacts" → Ramp), so without rules text the
   // functional roles get no suggestions at all. Reuses the same batched name
@@ -659,7 +659,7 @@ export async function enrichPlanWithEdhrec(plan, fetchEdhrec, fetchCardMeta) {
   // reliable role signal we have for a card — it needs no oracle text, which the
   // local classifier depends on (and which is often missing on a cold cache).
   // So when an owned card EDHREC lists has a *function*-based header ("Mana
-  // Artifacts" → Ramp, "Card Draw" → Card Advantage), move it into that role and
+  // Artifacts" → Ramp, "Card Draw" → Draw), move it into that role and
   // tag it with EDHREC inclusion. Cards EDHREC doesn't list — or lists only under
   // a type-based header ("Creatures", "Instants") where edhrecHeaderToRole is
   // null — keep their local classification, so nothing the player owns vanishes.

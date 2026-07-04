@@ -45,7 +45,7 @@ import {
 import styles from './BuildAssistant.module.css'
 
 // Guided "build from collection" wizard. Walks the user role-by-role (Ramp →
-// Card Advantage → Removal → …), surfacing their owned color-legal cards first
+// Draw → Removal → …), surfacing their owned color-legal cards first
 // and EDHREC suggestions for what they don't own yet. Adding a card delegates
 // to the parent's addCardToDeck (owned → full Scryfall object, upgrades → EDHREC
 // rec object; deck_cards is intended contents, so unowned cards are addable).
@@ -53,7 +53,7 @@ import styles from './BuildAssistant.module.css'
 // What each role does + why the target count, shown at the top of each step.
 const ROLE_INFO = {
   [ROLE_RAMP]: 'Mana acceleration — rocks, dorks, and land fetch. Helps you deploy your commander and spells ahead of curve.',
-  [ROLE_DRAW]: 'Card advantage — draw engines and tutors that refill your hand and find your key pieces.',
+  [ROLE_DRAW]: 'Draw — card advantage engines and tutors that refill your hand and find your key pieces.',
   [ROLE_REMOVAL]: 'Spot interaction — destroy, exile, bounce, counter, or burn a single problematic permanent or spell.',
   [ROLE_WIPE]: 'Board wipes — mass removal to reset the board when you fall behind.',
   [ROLE_PROTECTION]: 'Protection — keep your commander and key permanents safe (hexproof, indestructible, redirects).',
@@ -354,7 +354,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const hasCommander = !!commander?.name
 
   // Resolve oracle text + small art for unowned EDHREC cards so enrichment can
-  // classify them by function (Card Advantage, Removal, …) and the tiles have
+  // classify them by function (Draw, Removal, …) and the tiles have
   // art. One batched name lookup, injected into every enrichPlanWithEdhrec call.
   // Card meta is intrinsic (commander-independent), so we cache by name across
   // the load, the owned-oracle backfill re-plan, and theme switches — fetching

@@ -571,7 +571,7 @@ export default function HelpPage() {
               <h3>Roles it walks you through</h3>
               <ul className={styles.list}>
                 <li>Ramp — mana acceleration to deploy ahead of curve</li>
-                <li>Card advantage — draw engines and tutors</li>
+                <li>Draw — card advantage engines and tutors</li>
                 <li>Removal and board wipes</li>
                 <li>Protection for your commander and key pieces</li>
                 <li>Win conditions and finishers</li>
