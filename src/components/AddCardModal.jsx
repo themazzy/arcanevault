@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { CheckIcon, CloseIcon } from '../icons'
 import { sb } from '../lib/supabase'
 import { putCards } from '../lib/db'
@@ -170,20 +170,59 @@ export default function AddCardModal({
   folderMode = false, defaultFolderType = 'binder', defaultFolderId = null,
   initialCardName = null,
 }) {
+  // Guards the overlay click / Escape / X-button paths (all three funnel
+  // through Modal's single onClose prop) so an accidental dismissal can't
+  // silently drop in-progress work — a queued card, OR a card mid-configure
+  // that hasn't been added to the queue yet, OR a typed search. Refs (not
+  // state) since AddFlow reports on every change and we only need the latest
+  // value at the moment the user tries to close. A completely untouched
+  // modal still closes instantly with no prompt.
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
+  const queueCountRef = useRef(0)
+  const hasProgressRef = useRef(false)
+  const requestClose = () => {
+    if (queueCountRef.current > 0 || hasProgressRef.current) { setConfirmDiscard(true); return }
+    onClose()
+  }
+  const handleProgressChange = useCallback((queueCount, hasProgress) => {
+    queueCountRef.current = queueCount
+    hasProgressRef.current = hasProgress
+  }, [])
+
   return (
-    <Modal onClose={onClose}>
-      {prefillCard?.id
-        ? <EditForm card={prefillCard} onClose={onClose} onSaved={onSaved} />
-        : <AddFlow userId={userId} onClose={onClose} onSaved={onSaved}
-            folderMode={folderMode} defaultFolderType={defaultFolderType} defaultFolderId={defaultFolderId}
-            initialCardName={initialCardName} />
-      }
-    </Modal>
+    <>
+      <Modal onClose={requestClose}>
+        {prefillCard?.id
+          ? <EditForm card={prefillCard} onClose={onClose} onSaved={onSaved} />
+          : <AddFlow userId={userId} onClose={requestClose} onSaved={onSaved}
+              folderMode={folderMode} defaultFolderType={defaultFolderType} defaultFolderId={defaultFolderId}
+              initialCardName={initialCardName}
+              onProgressChange={handleProgressChange} />
+        }
+      </Modal>
+      {confirmDiscard && (
+        <div className={styles.discardOverlay} onClick={() => setConfirmDiscard(false)}>
+          <div className={styles.discardDialog} onClick={e => e.stopPropagation()}>
+            <p className={styles.discardMsg}>
+              {queueCountRef.current > 0
+                ? `Discard ${queueCountRef.current} queued card${queueCountRef.current !== 1 ? 's' : ''}? This can't be undone.`
+                : "Discard your in-progress card? This can't be undone."}
+            </p>
+            <div className={styles.discardActions}>
+              <Button variant="ghost" onClick={() => setConfirmDiscard(false)}>Keep editing</Button>
+              <Button variant="danger" onClick={() => { setConfirmDiscard(false); onClose() }}>
+                {queueCountRef.current > 0 ? 'Discard queue' : 'Discard'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 
 // ── Add flow ──────────────────────────────────────────────────────────────────
-function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderType = 'binder', defaultFolderId = null, initialCardName = null }) {
+function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderType = 'binder', defaultFolderId = null, initialCardName = null, onProgressChange }) {
   const { price_source } = useSettings()
 
   // Format a printing's non-foil price using the user's price source
@@ -220,6 +259,13 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
 
   // Queue
   const [queue, setQueue] = useState([])
+  // Reported up so the modal's close guard fires not just for a non-empty
+  // queue, but also for a card mid-configure (picked, not yet queued) or a
+  // typed-but-unsubmitted search — anything an accidental close would lose.
+  useEffect(() => {
+    const hasProgress = queue.length > 0 || !!selectedName || query.trim().length > 0
+    onProgressChange?.(queue.length, hasProgress)
+  }, [queue.length, selectedName, query, onProgressChange])
 
   // Destination
   const [destTab, setDestTab]           = useState(folderMode ? (defaultFolderType || 'binder') : 'binder')
