@@ -1,0 +1,428 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  z-index: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.modal {
+  background: var(--bg2);
+  border: 1px solid var(--border-hi);
+  border-top: 2px solid rgba(201, 168, 76, 0.45);
+  border-radius: 10px;
+  width: min(900px, 95vw);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+/* ── Body: settings sidebar + card list, side by side on wide screens ──── */
+
+.body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.sidebar {
+  width: 300px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+@media (max-width: 700px) {
+  .body {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .sidebar {
+    width: 100%;
+    flex-shrink: 0;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    overflow-y: visible;
+  }
+
+  .main {
+    flex: 1;
+    min-height: 260px;
+  }
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.title {
+  font-family: var(--font-display);
+  color: var(--gold);
+  font-size: 1rem;
+  letter-spacing: 0.04em;
+}
+
+.closeBtn {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 4px;
+  display: inline-flex;
+  border-radius: 4px;
+}
+
+.closeBtn:hover {
+  color: var(--text);
+  background: var(--s-medium);
+}
+
+.loading {
+  padding: 40px;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 0.85rem;
+}
+
+/* ── Option checkboxes ─────────────────────────────────────────────────── */
+
+.options {
+  padding: 14px 20px 10px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.optionRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.optionRowDisabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.optionCheckbox {
+  accent-color: var(--gold);
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.optionLabel {
+  font-size: 0.84rem;
+  color: var(--text-dim);
+}
+
+.optionSub {
+  font-size: 0.75rem;
+  color: var(--text-faint);
+}
+
+/* ── Stat summary ──────────────────────────────────────────────────────── */
+
+.statGrid {
+  padding: 8px 20px;
+  background: var(--s1);
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.statCard {
+  background: var(--s2);
+  border: 1px solid var(--border);
+  border-top: 2px solid rgba(201, 168, 76, 0.35);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+.statValue {
+  color: var(--gold);
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+}
+
+.statValueOk { color: var(--green, #4a9a5a); }
+.statValueBad { color: #e07070; }
+
+.statLabel {
+  color: var(--text-faint);
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.statusLine {
+  padding: 8px 20px;
+  background: var(--s1);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--gold);
+  font-size: 0.81rem;
+  flex-shrink: 0;
+}
+
+/* ── Card rows ─────────────────────────────────────────────────────────── */
+
+.rowsList {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.empty {
+  padding: 40px;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 0.85rem;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  padding: 8px 20px;
+  gap: 12px;
+  min-height: 60px;
+  border-bottom: 1px solid var(--s-border);
+}
+
+.rowThumb {
+  width: 48px;
+  height: 67px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.rowThumbPlaceholder {
+  composes: rowThumb;
+  background: var(--s3);
+}
+
+.rowInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.rowName {
+  display: block;
+  font-size: 0.84rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rowSub {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rowStatus {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.79rem;
+  flex-shrink: 0;
+}
+
+.rowStatus svg { flex-shrink: 0; }
+
+.statusOk   { color: var(--green, #4a9a5a); }
+.statusAlt  { color: #c9a84c; }
+.statusMiss { color: #e07070; }
+.statusNew  { color: var(--gold); }
+
+.rowActionWrap {
+  padding: 0 20px 8px;
+}
+
+.rowActionBtn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 10px;
+  color: var(--text-dim);
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.rowActionBtn:hover {
+  background: var(--s-medium);
+  color: var(--text);
+}
+
+/* ── Missing-card resolution ───────────────────────────────────────────── */
+
+.missingSection {
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.missingIntro {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+}
+
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.choiceRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.choiceRow:hover {
+  border-color: var(--s-border2);
+}
+
+.choiceRowActive {
+  border-color: rgba(201, 168, 76, 0.4);
+  background: rgba(201, 168, 76, 0.06);
+}
+
+.choiceInput {
+  accent-color: var(--gold);
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.choiceLabel {
+  font-size: 0.84rem;
+  color: var(--text-dim);
+}
+
+.choiceSub {
+  font-size: 0.75rem;
+  color: var(--text-faint);
+}
+
+.wishlistRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding-left: 28px;
+  margin-top: 2px;
+}
+
+.wishlistSelect {
+  flex: 1;
+  min-width: 0;
+}
+
+.wishlistInput {
+  background: var(--s3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 10px;
+  color: var(--text);
+  font-size: 0.84rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.wishlistInput:focus {
+  outline: none;
+  border-color: rgba(201, 168, 76, 0.45);
+}
+
+/* ── Footer ────────────────────────────────────────────────────────────── */
+
+.footer {
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.footerNote {
+  flex: 1;
+  font-size: 0.76rem;
+  color: var(--text-faint);
+}
+
+.footerNoteError {
+  color: #e07070;
+}
+
+.btn {
+  background: transparent;
+  border: 1px solid var(--s-border2);
+  border-radius: 5px;
+  color: var(--text-dim);
+  padding: 7px 16px;
+  font-size: 0.83rem;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--s-medium);
+}
+
+.btnPrimary {
+  background: rgba(74, 154, 90, 0.15);
+  border: 1px solid rgba(74, 154, 90, 0.4);
+  border-radius: 5px;
+  color: var(--green, #4a9a5a);
+  padding: 7px 16px;
+  font-size: 0.83rem;
+  cursor: pointer;
+}
+
+.btnPrimary:hover:not(:disabled) {
+  background: rgba(74, 154, 90, 0.25);
+}
+
+.btn:disabled,
+.btnPrimary:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

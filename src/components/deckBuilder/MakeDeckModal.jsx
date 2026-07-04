@@ -1,24 +1,43 @@
-import { useState, useEffect, useMemo } from 'react'
-import { CloseIcon } from '../../icons'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { CheckIcon, CloseIcon, InfoIcon, WarningIcon, AddIcon } from '../../icons'
 import { Select } from '../UI'
-import { BASIC_LANDS } from '../../lib/deckBuilderConstants'
+import { BASIC_LANDS, CAN_HOVER } from '../../lib/deckBuilderConstants'
+import { lastInputWasTouch } from '../../lib/inputType'
 import { isGroupFolder, normalizeCardName } from '../../lib/deckBuilderHelpers'
 import { buildChosenAllocations, buildChosenPrintingSelections } from '../../lib/deckSyncDecisions'
 import { planDeckAllocations } from '../../lib/deckAllocationPlanner'
 import { loadLocalPlacementSnapshot, refreshRemotePlacementSnapshot } from '../../lib/deckPlacementData'
 import PrintingPickerModal from './PrintingPickerModal'
+import { FloatingPreview } from './FloatingPreview'
+import styles from './MakeDeckModal.module.css'
+
+const MISSING_ACTIONS = [
+  ['skip',     'Skip missing cards',       'Cards not found in your collection won\'t be added'],
+  ['add',      'Add missing to collection', 'Creates new owned copies for cards you don\'t have, placed directly in this deck'],
+  ['wishlist', 'Add missing to wishlist',   'Save missing cards to a wishlist for future tracking'],
+  ['new',      'Add all as new copies',     'Skip cards you already own — build this deck entirely from freshly added copies'],
+]
 
 // ── Make Deck row ─────────────────────────────────────────────────────────────
-function MakeDeckRow({ item }) {
+function MakeDeckRow({ item, addAllAsNew, onHoverEnter, onHoverMove, onHoverLeave }) {
   const { dc, neededQty, addExact, addOther, totalAdd, missingQty } = item
   const img = dc.image_uri
-  let statusColor, statusIcon, statusDetail
-  if (totalAdd === 0) {
-    statusColor = '#e07070'; statusIcon = 'x'; statusDetail = 'not owned'
+  const hoverableProps = CAN_HOVER && !lastInputWasTouch && img
+    ? {
+        onMouseEnter: e => onHoverEnter?.(img, e),
+        onMouseMove: e => onHoverMove?.(e),
+        onMouseLeave: () => onHoverLeave?.(),
+      }
+    : {}
+  let statusClass, statusGlyph, statusDetail
+  if (addAllAsNew) {
+    statusClass = styles.statusNew; statusGlyph = <AddIcon size={13} />; statusDetail = `${neededQty}x new`
+  } else if (totalAdd === 0) {
+    statusClass = styles.statusMiss; statusGlyph = <WarningIcon size={13} />; statusDetail = 'not owned'
   } else if (missingQty === 0 && addOther === 0) {
-    statusColor = 'var(--green, #4a9a5a)'; statusIcon = 'OK'; statusDetail = `${totalAdd}x exact`
+    statusClass = styles.statusOk; statusGlyph = <CheckIcon size={13} />; statusDetail = `${totalAdd}x exact`
   } else {
-    statusColor = '#c9a84c'; statusIcon = 'Alt'
+    statusClass = styles.statusAlt; statusGlyph = <InfoIcon size={13} />
     const parts = []
     if (addExact > 0) parts.push(`${addExact}x exact`)
     if (addOther > 0) parts.push(`${addOther}x other print`)
@@ -32,23 +51,21 @@ function MakeDeckRow({ item }) {
     })
     .join(', ')
   return (
-    <div style={{ display:'flex', alignItems:'center', padding:'5px 20px', borderBottom:'1px solid var(--s-border)', gap:10, minHeight:36 }}>
+    <div className={styles.row}>
       {img
-        ? <img src={img} alt="" style={{ width:26, height:18, objectFit:'cover', borderRadius:2, flexShrink:0 }} />
-        : <div style={{ width:26, height:18, background:'var(--s3)', borderRadius:2, flexShrink:0 }} />
+        ? <img src={img} alt="" className={styles.rowThumb} {...hoverableProps} />
+        : <div className={styles.rowThumbPlaceholder} />
       }
-      <div style={{ flex:1, minWidth:0 }}>
-        <span style={{ fontSize:'0.84rem', color:'var(--text)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', display:'block' }}>
+      <div className={styles.rowInfo}>
+        <span className={styles.rowName}>
           {neededQty > 1 ? `${neededQty}x ` : ''}{dc.name}
         </span>
         {allocationDetail && (
-          <span style={{ fontSize:'0.72rem', color:'var(--text-faint)', display:'block', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
-            Uses: {allocationDetail}
-          </span>
+          <span className={styles.rowSub}>Uses: {allocationDetail}</span>
         )}
       </div>
-      <div style={{ fontSize:'0.79rem', color:statusColor, flexShrink:0, display:'flex', alignItems:'center', gap:4 }}>
-        <span>{statusIcon}</span><span>{statusDetail}</span>
+      <div className={`${styles.rowStatus} ${statusClass}`}>
+        {statusGlyph}<span>{statusDetail}</span>
       </div>
     </div>
   )
@@ -65,11 +82,27 @@ export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose })
   const [exactVersionOnly, setExactVersionOnly] = useState(true)
   const [pullFromOtherDecks, setPullFromOtherDecks] = useState(false)
   const [wishlists, setWishlists] = useState([])
-  const [missingAction, setMissingAction] = useState('skip') // 'skip' | 'add' | 'wishlist'
+  const [missingAction, setMissingAction] = useState('skip') // 'skip' | 'add' | 'wishlist' | 'new'
   const [selectedWishlistId, setSelectedWishlistId] = useState('')
   const [newWishlistName, setNewWishlistName] = useState('')
   const [chosenOtherCardIds, setChosenOtherCardIds] = useState({})
   const [pickerItem, setPickerItem] = useState(null)
+
+  // 'new' bypasses ownership matching entirely (see planningOwnedCards below) —
+  // it's one of the missing-card strategies, just one that makes every card missing.
+  const addAllAsNew = missingAction === 'new'
+
+  const floatingPreviewRef = useRef(null)
+  const handleRowHoverEnter = useCallback((uri, e) => {
+    floatingPreviewRef.current?.setPos(e.clientX, e.clientY)
+    floatingPreviewRef.current?.setImages(uri ? [uri] : [])
+  }, [])
+  const handleRowHoverMove = useCallback((e) => {
+    floatingPreviewRef.current?.setPos(e.clientX, e.clientY)
+  }, [])
+  const handleRowHoverLeave = useCallback(() => {
+    floatingPreviewRef.current?.setImages([])
+  }, [])
 
   // Intentional: modal mounts fresh on each open - one-shot load from current props snapshot.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -122,7 +155,11 @@ export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose })
     return () => { cancelled = true }
   }, [])
 
+  // "All New Copies" bypasses ownership matching entirely — planDeckAllocations
+  // then sees no owned cards, so every deck card comes back as missingQty and
+  // goes through the same skip/add/wishlist choice as an ordinary missing card.
   const planningOwnedCards = useMemo(() => {
+    if (addAllAsNew) return []
     return ownedCardsForPlanning
       .map(card => {
         const binderQty = binderQtyByCardId.get(card.id) || 0
@@ -134,7 +171,7 @@ export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose })
         }
       })
       .filter(card => (card.qty || 0) > 0)
-  }, [ownedCardsForPlanning, binderQtyByCardId, deckAllocatedQtyByCardId, pullFromOtherDecks])
+  }, [addAllAsNew, ownedCardsForPlanning, binderQtyByCardId, deckAllocatedQtyByCardId, pullFromOtherDecks])
 
   const previewItems = useMemo(
     () => planDeckAllocations(deckCards, planningOwnedCards),
@@ -158,118 +195,145 @@ export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose })
   const wishlistReady = missingCount === 0
     || missingAction === 'skip'
     || missingAction === 'add'
+    || missingAction === 'new'
     || (selectedWishlistId ? (selectedWishlistId === 'new' ? !!newWishlistName.trim() : true) : true)
-  const canConfirm    = remoteReady && (addItems.length > 0 || missingAction === 'add') && wishlistReady
+  const canConfirm    = remoteReady && (addItems.length > 0 || missingAction === 'add' || missingAction === 'new') && wishlistReady
 
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:700, display:'flex', alignItems:'center', justifyContent:'center' }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, width:560, maxWidth:'95vw', maxHeight:'90vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
-        <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-          <span style={{ fontFamily:'var(--font-display)', color:'var(--gold)', fontSize:'1rem' }}>Make Collection Deck</span>
-          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.2rem', cursor:'pointer' }}><CloseIcon size={13} /></button>
+    <div className={styles.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className={styles.modal}>
+        <div className={styles.header}>
+          <span className={styles.title}>Make Collection Deck</span>
+          <button type="button" className={styles.closeBtn} onClick={onClose} aria-label="Close">
+            <CloseIcon size={13} />
+          </button>
         </div>
         {loading ? (
-          <div style={{ padding:40, textAlign:'center', color:'var(--text-faint)', fontSize:'0.85rem' }}>Checking your collection...</div>
+          <div className={styles.loading}>Checking your collection...</div>
         ) : (
           <>
-            <div style={{ padding:'10px 20px', borderBottom:'1px solid var(--border)', display:'flex', flexDirection:'column', gap:8 }}>
-              {[
-                [skipBasicLands,    setSkipBasicLands,    'Skip basic lands',                          'Island, Plains, Forest, Mountain, Swamp'],
-                [exactVersionOnly,  setExactVersionOnly,  'Use specified version only',                'Won\'t substitute a different printing'],
-                [!pullFromOtherDecks, v => setPullFromOtherDecks(!v), 'Skip cards already in another deck', 'Avoids pulling the same copy into two decks'],
-              ].map(([val, set, label, sub]) => (
-                <label key={label} style={{ display:'flex', alignItems:'flex-start', gap:8, cursor:'pointer' }}>
-                  <input type="checkbox" checked={val} onChange={e => set(e.target.checked)} style={{ accentColor:'var(--gold)', marginTop:2, flexShrink:0 }} />
-                  <span>
-                    <div style={{ fontSize:'0.84rem', color:'var(--text-dim)' }}>{label}</div>
-                    <div style={{ fontSize:'0.75rem', color:'var(--text-faint)' }}>{sub}</div>
-                  </span>
-                </label>
-              ))}
-            </div>
-            <div style={{ padding:'8px 20px', background:'var(--s1)', borderBottom:'1px solid var(--border)', display:'flex', gap:16, fontSize:'0.81rem', flexWrap:'wrap' }}>
-              <span style={{ color:'var(--green, #4a9a5a)' }}>OK {exactCount} exact</span>
-              {fallbackCount > 0 && <span style={{ color:'#c9a84c' }}>Alt {fallbackCount} different printing</span>}
-              {missingCount > 0 && <span style={{ color:'#e07070' }}>x {missingCount} missing</span>}
-            </div>
-            <div style={{ flex:1, overflowY:'auto', minHeight:0 }}>
-              {filtered.length === 0
-                ? <div style={{ padding:40, textAlign:'center', color:'var(--text-faint)', fontSize:'0.85rem' }}>No cards to add.</div>
-                : filtered.map(item => (
-                  <div key={item.dc.id}>
-                    <MakeDeckRow item={item} />
-                    {!exactVersionOnly && (item.otherCandidates?.length || 0) > 1 && item.totalAdd > 0 && (
-                      <div style={{ padding:'0 20px 8px' }}>
-                        <button
-                          onClick={() => setPickerItem(item)}
-                          style={{ background:'none', border:'1px solid var(--border)', borderRadius:4, padding:'5px 10px', color:'var(--text-dim)', fontSize:'0.76rem', cursor:'pointer' }}>
-                          Choose owned printing
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))
-              }
-            </div>
-            {missingCount > 0 && (
-              <div style={{ padding:'12px 20px', borderTop:'1px solid var(--border)' }}>
-                <div style={{ fontSize:'0.82rem', color:'var(--text-dim)', marginBottom:10 }}>
-                  {missingItems.reduce((s, i) => s + i.missingQty, 0)} missing card{missingCount !== 1 ? 's' : ''}:
-                </div>
-                <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+            <div className={styles.body}>
+              <div className={styles.sidebar}>
+                <div className={styles.options}>
                   {[
-                    ['skip', 'Skip missing cards',     'They will not be added to the deck'],
-                    ['add',  'Add to collection',      'Creates owned copies placed directly in this deck'],
-                    ['wishlist', 'Add to wishlist',    'Save to a wishlist for future tracking'],
-                  ].map(([value, label, sub]) => (
-                    <label key={value} style={{ display:'flex', alignItems:'flex-start', gap:8, cursor:'pointer' }}>
-                      <input type="radio" name="missingAction" value={value} checked={missingAction === value}
-                        onChange={() => setMissingAction(value)}
-                        style={{ accentColor:'var(--gold)', marginTop:2, flexShrink:0 }} />
+                    [skipBasicLands,    setSkipBasicLands,    'Skip basic lands',                          'Island, Plains, Forest, Mountain, Swamp', false],
+                    [exactVersionOnly,  setExactVersionOnly,  'Use specified version only',                'Won\'t substitute a different printing', addAllAsNew],
+                    [!pullFromOtherDecks, v => setPullFromOtherDecks(!v), 'Skip cards already in another deck', 'Avoids pulling the same copy into two decks', addAllAsNew],
+                  ].map(([val, set, label, sub, disabled]) => (
+                    <label key={label} className={`${styles.optionRow}${disabled ? ' ' + styles.optionRowDisabled : ''}`}>
+                      <input type="checkbox" className={styles.optionCheckbox} checked={val} disabled={disabled} onChange={e => set(e.target.checked)} />
                       <span>
-                        <div style={{ fontSize:'0.84rem', color:'var(--text-dim)' }}>{label}</div>
-                        <div style={{ fontSize:'0.75rem', color:'var(--text-faint)' }}>{sub}</div>
+                        <div className={styles.optionLabel}>{label}</div>
+                        <div className={styles.optionSub}>{sub}</div>
                       </span>
                     </label>
                   ))}
-                  {missingAction === 'wishlist' && (
-                    <div style={{ display:'flex', gap:8, alignItems:'center', paddingLeft:24 }}>
-                      <Select value={selectedWishlistId} onChange={e => setSelectedWishlistId(e.target.value)}
-                        menuDirection="up"
-                        style={{ background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:4, padding:'6px 10px', color:'var(--text)', fontSize:'0.84rem', flex:1, minWidth:0 }}
-                        title="Select wishlist">
-                        <option value="">Choose wishlist</option>
-                        {wishlists.map(wl => <option key={wl.id} value={wl.id}>{wl.name}</option>)}
-                        <option value="new">+ Create new wishlist...</option>
-                      </Select>
-                      {selectedWishlistId === 'new' && (
-                        <input autoFocus placeholder="Wishlist name..." value={newWishlistName} onChange={e => setNewWishlistName(e.target.value)}
-                          maxLength={100}
-                          style={{ background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:4, padding:'6px 10px', color:'var(--text)', fontSize:'0.84rem', flex:1 }} />
-                      )}
+                </div>
+
+                {addAllAsNew ? (
+                  <div className={styles.statusLine}>
+                    <AddIcon size={13} /> {missingCount} card{missingCount !== 1 ? 's' : ''} not yet in your collection
+                  </div>
+                ) : (
+                  <div className={styles.statGrid}>
+                    <div className={styles.statCard}>
+                      <div className={`${styles.statValue} ${styles.statValueOk}`}>{exactCount}</div>
+                      <div className={styles.statLabel}>Exact</div>
                     </div>
-                  )}
+                    <div className={styles.statCard}>
+                      <div className={styles.statValue}>{fallbackCount}</div>
+                      <div className={styles.statLabel}>Alt Print</div>
+                    </div>
+                    <div className={styles.statCard}>
+                      <div className={`${styles.statValue}${missingCount > 0 ? ' ' + styles.statValueBad : ''}`}>{missingCount}</div>
+                      <div className={styles.statLabel}>Missing</div>
+                    </div>
+                  </div>
+                )}
+
+                <div className={styles.missingSection}>
+                  <div className={styles.missingIntro}>
+                    {missingCount > 0
+                      ? `${missingItems.reduce((s, i) => s + i.missingQty, 0)} card${missingCount !== 1 ? 's' : ''} not matched from your collection:`
+                      : 'All cards matched from your collection.'}
+                  </div>
+                  <div className={styles.choices}>
+                    {MISSING_ACTIONS.map(([value, label, sub]) => (
+                      <label key={value} className={`${styles.choiceRow}${missingAction === value ? ' ' + styles.choiceRowActive : ''}`}>
+                        <input type="radio" name="missingAction" className={styles.choiceInput} value={value} checked={missingAction === value}
+                          onChange={() => setMissingAction(value)} />
+                        <span>
+                          <div className={styles.choiceLabel}>{label}</div>
+                          <div className={styles.choiceSub}>{sub}</div>
+                        </span>
+                      </label>
+                    ))}
+                    {missingAction === 'wishlist' && (
+                      <div className={styles.wishlistRow}>
+                        <Select value={selectedWishlistId} onChange={e => setSelectedWishlistId(e.target.value)}
+                          menuDirection="up"
+                          className={styles.wishlistSelect}
+                          title="Select wishlist">
+                          <option value="">Choose wishlist</option>
+                          {wishlists.map(wl => <option key={wl.id} value={wl.id}>{wl.name}</option>)}
+                          <option value="new">+ Create new wishlist...</option>
+                        </Select>
+                        {selectedWishlistId === 'new' && (
+                          <input autoFocus placeholder="Wishlist name..." className={styles.wishlistInput} value={newWishlistName} onChange={e => setNewWishlistName(e.target.value)}
+                            maxLength={100} />
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-            )}
-            <div style={{ padding:'12px 20px', borderTop:'1px solid var(--border)', display:'flex', gap:8, justifyContent:'flex-end' }}>
-              <div style={{ flex:1, color:refreshError ? '#e07070' : 'var(--text-faint)', fontSize:'0.76rem', alignSelf:'center' }}>
+
+              <div className={styles.main}>
+                <div className={styles.rowsList}>
+                  {filtered.length === 0
+                    ? <div className={styles.empty}>No cards to add.</div>
+                    : filtered.map(item => (
+                      <div key={item.dc.id}>
+                        <MakeDeckRow
+                          item={item}
+                          addAllAsNew={addAllAsNew}
+                          onHoverEnter={handleRowHoverEnter}
+                          onHoverMove={handleRowHoverMove}
+                          onHoverLeave={handleRowHoverLeave}
+                        />
+                        {!exactVersionOnly && (item.otherCandidates?.length || 0) > 1 && item.totalAdd > 0 && (
+                          <div className={styles.rowActionWrap}>
+                            <button type="button" className={styles.rowActionBtn} onClick={() => setPickerItem(item)}>
+                              Choose owned printing
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  }
+                </div>
+              </div>
+            </div>
+
+            <div className={styles.footer}>
+              <div className={`${styles.footerNote}${refreshError ? ' ' + styles.footerNoteError : ''}`}>
                 {!remoteReady ? (refreshError || 'Refreshing collection placements...') : ''}
               </div>
-              <button onClick={onClose} style={{ background:'none', border:'1px solid var(--border)', borderRadius:4, padding:'7px 16px', color:'var(--text-dim)', fontSize:'0.83rem', cursor:'pointer' }}>Cancel</button>
+              <button type="button" className={styles.btn} onClick={onClose}>Cancel</button>
               <button
+                type="button"
+                className={styles.btnPrimary}
                 onClick={() => onConfirm({
                   addItems,
                   missingItems,
                   printingSelections: buildChosenPrintingSelections(filtered, chosenOtherCardIds),
-                  addMissing: missingAction === 'add',
+                  addMissing: missingAction === 'add' || missingAction === 'new',
                   wishlistId: missingAction === 'wishlist' && selectedWishlistId !== 'new' ? (selectedWishlistId || null) : null,
                   wishlistName: missingAction === 'wishlist' && selectedWishlistId === 'new' ? newWishlistName.trim() : null,
                 })}
                 disabled={!canConfirm}
-                style={{ background:'rgba(74,154,90,0.15)', border:'1px solid rgba(74,154,90,0.4)', borderRadius:4, padding:'7px 16px', color:'var(--green, #4a9a5a)', fontSize:'0.83rem', cursor:'pointer', opacity:canConfirm ? 1 : 0.45 }}>
-                Create Deck ({addItems.reduce((s, i) => s + i.totalAdd, 0) + (missingAction === 'add' ? missingItems.reduce((s, i) => s + i.missingQty, 0) : 0)} cards)
+              >
+                Create Deck ({addItems.reduce((s, i) => s + i.totalAdd, 0) + ((missingAction === 'add' || missingAction === 'new') ? missingItems.reduce((s, i) => s + i.missingQty, 0) : 0)} cards)
               </button>
             </div>
           </>
@@ -287,6 +351,7 @@ export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose })
           onClose={() => setPickerItem(null)}
         />
       )}
+      <FloatingPreview ref={floatingPreviewRef} />
     </div>
   )
 }
