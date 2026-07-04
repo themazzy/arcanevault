@@ -335,9 +335,9 @@ export default function DeckImportModal({
           <div className={styles.pane}>
             <div className={styles.statGrid}>
               {[
-                ['Rows', importSummary?.totalRows || 0, false],
+                ['Unique Cards', importSummary?.totalRows || 0, false],
                 ['Matched', importSummary?.matchedRows || 0, false],
-                ['Copies', importSummary?.matchedCopies || 0, false],
+                ['Cards', importSummary?.matchedCopies || 0, false],
                 ['Unresolved', importSummary?.missingRows || 0, !!importSummary?.missingRows],
               ].map(([label, value, bad]) => (
                 <div key={label} className={styles.statCard}>

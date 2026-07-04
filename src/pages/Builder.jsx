@@ -292,7 +292,7 @@ export default function BuilderPage() {
   const [newName, setNewName]     = useState('')
   const [newFormat, setNewFormat] = useState('commander')
   const [creating, setCreating]   = useState(false)
-  const [newMode, setNewMode]     = useState('blank')   // 'blank' | 'guided'
+  const [newMode, setNewMode]     = useState('blank')   // 'blank' | 'guided' | 'import'
   const [guidedCmd, setGuidedCmd] = useState(null)      // selected commander sfCard
 
   const [confirmState, setConfirmState] = useState(null)
@@ -385,6 +385,7 @@ export default function BuilderPage() {
 
   async function createDeck() {
     const guided = newMode === 'guided'
+    const doImport = newMode === 'import'
     if (guided && !guidedCmd) return
     // Guided decks are Commander and default their name to the commander.
     const format = guided ? 'commander' : newFormat
@@ -409,8 +410,10 @@ export default function BuilderPage() {
     resetNewDeckForm()
     // For guided decks, hand the chosen commander to DeckBuilder via router
     // state — it sets the commander (full print resolution) and auto-opens the
-    // build-from-collection wizard.
-    navigate(`/builder/${data.id}`, commander ? { state: { guidedCommander: commander } } : undefined)
+    // build-from-collection wizard. For import, just flag the import modal to
+    // auto-open once the fresh deck lands there.
+    const routerState = commander ? { guidedCommander: commander } : (doImport ? { autoOpenImport: true } : null)
+    navigate(`/builder/${data.id}`, routerState ? { state: routerState } : undefined)
   }
 
   async function deleteDeck(id) {
@@ -837,7 +840,7 @@ export default function BuilderPage() {
             New Builder Deck
           </h2>
 
-          {/* Mode toggle: blank deck vs guided build-from-collection */}
+          {/* Mode toggle: blank deck vs guided build-from-collection vs import */}
           <div className={styles.newModeToggle}>
             <button
               type="button"
@@ -855,6 +858,14 @@ export default function BuilderPage() {
               <span className={styles.newModeTitle}>Guided build</span>
               <span className={styles.newModeDesc}>Commander, built from your collection</span>
             </button>
+            <button
+              type="button"
+              className={`${styles.newModeBtn} ${newMode === 'import' ? styles.newModeActive : ''}`}
+              onClick={() => setNewMode('import')}
+            >
+              <span className={styles.newModeTitle}>Import deck</span>
+              <span className={styles.newModeDesc}>Paste a list, upload a file, or import a URL</span>
+            </button>
           </div>
 
           <div className={styles.newDeckForm}>
@@ -867,7 +878,7 @@ export default function BuilderPage() {
               className={styles.newDeckInput}
             />
 
-            {newMode === 'blank' ? (
+            {newMode !== 'guided' ? (
               <ResponsiveMenu
                 title="Select Format"
                 align="left"
@@ -921,7 +932,7 @@ export default function BuilderPage() {
                 onClick={createDeck}
                 disabled={creating || (newMode === 'guided' ? !guidedCmd : !newName.trim())}
               >
-                {creating ? 'Creating…' : (newMode === 'guided' ? 'Start Building' : 'Create')}
+                {creating ? 'Creating…' : (newMode === 'guided' ? 'Start Building' : newMode === 'import' ? 'Create & Import' : 'Create')}
               </Button>
             </div>
           </div>

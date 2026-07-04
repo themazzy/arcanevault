@@ -17,12 +17,13 @@
 
 .newModeToggle {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 16px;
 }
 
 .newModeBtn {
-  flex: 1;
+  flex: 1 1 150px;
   display: flex;
   flex-direction: column;
   gap: 3px;

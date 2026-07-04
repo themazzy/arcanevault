@@ -3090,6 +3090,18 @@ export default function DeckBuilderPage() {
     })()
   }, [location.state, location.pathname, loading, navigate])
 
+  // Import-on-create: Builder.jsx's "Import deck" new-deck mode creates a
+  // blank deck then navigates here flagging the import modal to auto-open,
+  // skipping the blank-deck → menu → import detour.
+  const autoImportHandledRef = useRef(false)
+  useEffect(() => {
+    if (autoImportHandledRef.current || loading) return
+    if (!location.state?.autoOpenImport) return
+    autoImportHandledRef.current = true
+    setShowImport(true)
+    navigate(location.pathname, { replace: true, state: {} })
+  }, [location.state, location.pathname, loading, navigate])
+
   function matchesAllocationRow(dc, row) {
     const sameF = (dc.foil ?? false) === (row.foil ?? false)
     if (dc.scryfall_id && row.scryfall_id) return dc.scryfall_id === row.scryfall_id && sameF
