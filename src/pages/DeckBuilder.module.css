@@ -1171,6 +1171,27 @@
   background: var(--s2);
 }
 
+/* Two-commander crossfade — same blend technique as the deck-tile art on the
+   Builder index (src/pages/Builder.module.css .deckArtSlice), but split
+   left/right instead of top/bottom since this pane is landscape. */
+.cmdArtSlice {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background-size: cover;
+  background-position: center 15%;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+.cmdArtSlice:first-child {
+  -webkit-mask-image: linear-gradient(to right, #000 0%, #000 74%, transparent 100%);
+  mask-image: linear-gradient(to right, #000 0%, #000 74%, transparent 100%);
+}
+.cmdArtSlice:last-child {
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 26%, #000 100%);
+  mask-image: linear-gradient(to right, transparent 0%, #000 26%, #000 100%);
+}
+
 /* Info section — left: name/colors/commander/meta stack, right: notes (desktop) */
 .cmdArtOverlay {
   position: relative;

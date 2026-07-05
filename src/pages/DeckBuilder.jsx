@@ -4568,16 +4568,39 @@ export default function DeckBuilderPage() {
                 <div className={styles.cmdArtBg}
                   style={{ backgroundImage: `url(${toArtCropImg(commanderCards[0].image_uri)})` }} />
               )}
-              {/* Art thumbnails */}
-              {commanderCards.map(card => (
-                <div key={card.id} className={styles.cmdArtPane}
-                  onClick={() => unsetCommander(card.id)} title="Click to remove commander status">
-                  {card.image_uri
-                    ? <img className={styles.cmdArtImg} src={toArtCropImg(card.image_uri)} alt={card.name} />
-                    : <div className={styles.cmdArtImgPlaceholder} />
-                  }
+              {/* Art thumbnail — single pane; two commanders blend into one merged image
+                  (same crossfade technique as the deck-tile art on the Builder index). */}
+              {commanderCards.length > 0 && (
+                <div
+                  className={styles.cmdArtPane}
+                  {...(commanderCards.length === 1
+                    ? { onClick: () => unsetCommander(commanderCards[0].id), title: 'Click to remove commander status' }
+                    : {})}
+                >
+                  {commanderCards.length === 1 ? (
+                    commanderCards[0].image_uri
+                      ? <img className={styles.cmdArtImg} src={toArtCropImg(commanderCards[0].image_uri)} alt={commanderCards[0].name} />
+                      : <div className={styles.cmdArtImgPlaceholder} />
+                  ) : (
+                    commanderCards.map((card, i) => {
+                      const isPair = commanderCards.length === 2
+                      return (
+                        <div
+                          key={card.id}
+                          className={styles.cmdArtSlice}
+                          style={{
+                            left: isPair ? (i === 0 ? '0%' : '42%') : `${(i / commanderCards.length) * 100}%`,
+                            width: isPair ? '58%' : `${100 / commanderCards.length}%`,
+                            backgroundImage: card.image_uri ? `url(${toArtCropImg(card.image_uri)})` : undefined,
+                          }}
+                          onClick={() => unsetCommander(card.id)}
+                          title={`Click to remove ${card.name} as commander`}
+                        />
+                      )
+                    })
+                  )}
                 </div>
-              ))}
+              )}
               {/* Info panel */}
               <div className={styles.cmdArtOverlay}>
                 <div className={styles.cmdArtInfo}>
