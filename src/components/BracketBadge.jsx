@@ -26,7 +26,7 @@ export const BRACKET_META = {
  */
 const COMBO_PREVIEW_COUNT = 5
 
-export default function BracketBadge({ analysis, bracket, isOverridden, onOverride, combos }) {
+export default function BracketBadge({ analysis, bracket, isOverridden, onOverride, combos, variant }) {
   const [open, setOpen] = useState(false)
   const [showAllCombos, setShowAllCombos] = useState(false)
   const [popoverStyle, setPopoverStyle] = useState(null)
@@ -99,7 +99,7 @@ export default function BracketBadge({ analysis, bracket, isOverridden, onOverri
     <div className={styles.root} ref={rootRef}>
       <button
         type="button"
-        className={styles.pill}
+        className={`${styles.pill} ${variant === 'onArt' ? styles.pillOnArt : ''}`}
         style={{ borderColor: `${meta.color}55`, color: meta.color }}
         onClick={() => setOpen(v => !v)}
         aria-expanded={open}

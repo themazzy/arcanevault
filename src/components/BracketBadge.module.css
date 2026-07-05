@@ -26,6 +26,19 @@
   background: var(--s-medium);
 }
 
+/* Sits on top of the deck art banner's blurred photo background — the
+   theme-adaptive var(--s1) tint isn't opaque enough to keep text legible
+   against arbitrary artwork, so this variant uses a solid dark backdrop. */
+.pillOnArt {
+  background: rgba(10, 8, 6, 0.72);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+
+.pillOnArt:hover {
+  background: rgba(20, 16, 12, 0.8);
+}
+
 .pillNumber {
   display: inline-flex;
   align-items: center;

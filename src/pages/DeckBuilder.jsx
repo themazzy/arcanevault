@@ -4639,6 +4639,7 @@ export default function DeckBuilderPage() {
                         analysis={bracketAnalysis}
                         bracket={effectiveBracket}
                         isOverridden={statsBracketOverride != null}
+                        variant="onArt"
                         onOverride={(n) => {
                           setStatsBracketOverride(n)
                           logDeckChange(deckId, user?.id, 'Bracket', n == null ? 'Reset to auto' : `Set to ${n}`)
