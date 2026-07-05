@@ -30,6 +30,11 @@ const ORACLE = {
   impendingDisaster:'At the beginning of your upkeep, if there are seven or more lands on the battlefield, sacrifice this enchantment and destroy all lands.',
   wrathOfGod:       "Destroy all creatures. They can't be regenerated.",
   smallpox:         'Each player loses 1 life, discards a card, sacrifices a creature of their choice, then sacrifices a land of their choice.',
+  wildfire:         'Each player sacrifices four lands of their choice. Wildfire deals 4 damage to each creature.',
+  burningOfXinye:   'You destroy four lands you control, then target opponent destroys four lands they control. Then Burning of Xinye deals 4 damage to each creature.',
+  tectonicHellion:  'Haste\nWhenever this creature attacks, each player who controls the most lands sacrifices two lands of their choice.',
+  keldonArsonist:   '{1}, Sacrifice two lands: Destroy target land.',
+  lotusField:       'Hexproof\nThis land enters tapped.\nWhen this land enters, sacrifice two lands.\n{T}: Add three mana of any one color.',
   timeWarp:         'Target player takes an extra turn after this one.',
   nexusOfFate:      "Take an extra turn after this one.\nIf Nexus of Fate would be put into a graveyard from anywhere, reveal Nexus of Fate and shuffle it into its owner's library instead.",
   temporalMastery:  "Take an extra turn after this one. Exile Temporal Mastery.\nMiracle {1}{U}",
@@ -54,6 +59,15 @@ describe('isMassLandDenial', () => {
     expect(isMassLandDenial(ORACLE.smallpox)).toBe(false)
     expect(isMassLandDenial('')).toBe(false)
     expect(isMassLandDenial(null)).toBe(false)
+  })
+  it('detects fixed-count symmetric land destruction', () => {
+    expect(isMassLandDenial(ORACLE.wildfire)).toBe(true)
+    expect(isMassLandDenial(ORACLE.burningOfXinye)).toBe(true)
+    expect(isMassLandDenial(ORACLE.tectonicHellion)).toBe(true)
+  })
+  it('does not flag land-sacrifice activation costs', () => {
+    expect(isMassLandDenial(ORACLE.keldonArsonist)).toBe(false)
+    expect(isMassLandDenial(ORACLE.lotusField)).toBe(false)
   })
 })
 
@@ -124,10 +138,10 @@ describe('analyzeBracket', () => {
   const GC = normalizeGameChangerNames(['Rhystic Study', 'Cyclonic Rift', 'Demonic Tutor', 'The One Ring', 'Thassa\'s Oracle'])
   const card = (name, oracle = '', cmc = 0) => ({ name, oracle_text: oracle, cmc, qty: 1 })
 
-  it('returns Bracket 1 for a deck with no flags', () => {
+  it('returns Bracket 2 (precon baseline) for a deck with no flags', () => {
     const result = analyzeBracket({ cards: [card('Wrath of God', ORACLE.wrathOfGod, 4), card('Cultivate', ORACLE.cultivate, 3)], gameChangerNames: GC })
-    expect(result.bracket).toBe(1)
-    expect(result.label).toBe('Exhibition')
+    expect(result.bracket).toBe(2)
+    expect(result.label).toBe('Core')
     expect(result.reasons).toHaveLength(0)
   })
 
@@ -193,7 +207,7 @@ describe('analyzeBracket', () => {
 
   it('ignores 3+ card combos for the two-card floor', () => {
     const result = analyzeBracket({ cards: [card('A'), card('B'), card('C')], gameChangerNames: new Set(), comboCardLists: [['A', 'B', 'C']] })
-    expect(result.bracket).toBe(1)
+    expect(result.bracket).toBe(2)
     expect(result.twoCardCombos).toHaveLength(0)
   })
 
@@ -202,7 +216,7 @@ describe('analyzeBracket', () => {
       cards: [card('Diabolic Tutor', ORACLE.diabolicTutor, 4), card('Sol Ring', ORACLE.solRing, 1)],
       gameChangerNames: GC,
     })
-    expect(result.bracket).toBe(1)
+    expect(result.bracket).toBe(2)
     expect(result.tutors).toEqual(['Diabolic Tutor'])
     expect(result.fastMana).toEqual(['Sol Ring'])
   })

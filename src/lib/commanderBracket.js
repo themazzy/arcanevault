@@ -3,6 +3,7 @@
 //
 // Hard floors implemented (cross-checked against the official announcements
 // and the major community calculators):
+//   - Baseline is Bracket 2 ("Core", average precon power) — see analyzeBracket
 //   - Game Changers: 1–3 cards → Bracket 3+, 4+ cards → Bracket 4+
 //   - Mass land denial → Bracket 4+
 //   - Two-card infinite combos: fast (combined MV ≤ 6) → Bracket 4+,
@@ -10,7 +11,9 @@
 //   - Extra-turn spells: any → Bracket 2+, 3 or more → Bracket 3+
 //   - Tutor restrictions were REMOVED from the official system (Oct 2025
 //     update) — tutors and fast mana are reported as soft signals only.
-//   - Bracket 5 (cEDH) is a tournament-intent declaration, never auto-assigned.
+//   - Bracket 1 (Exhibition) and Bracket 5 (cEDH) are self-declared intent,
+//     never auto-assigned — there's no card-level signal for "casual jank"
+//     or "tournament-ready" the way there is for Game Changers or combos.
 //
 // The Game Changers list ships from Scryfall (`is:gamechanger`, 53 cards as of
 // Feb 2026) so the analyzer stays current without code changes when WotC
@@ -42,6 +45,13 @@ const MLD_PATTERNS = [
   /lands don't untap during/i,
   /can't untap more than \w+ (?:land|permanent)/i, // Winter Orb, Static Orb
   /players? skip(?:s)? (?:their|your) untap step/i, // Stasis
+  // Fixed-count symmetric land destruction ("each player sacrifices four
+  // lands", "target opponent destroys four lands") — Wildfire, Destructive
+  // Force, Burning of Xinye, Tectonic Hellion. Scoping to "each player" /
+  // "target opponent" as the subject (rather than any "sacrifice N lands")
+  // keeps this from matching land-sac activation costs like Keldon Arsonist
+  // or Lotus Field, which use singular "land" or aren't symmetric effects.
+  /(?:each (?:player|opponent)|target opponent)[^.\n]*(?:sacrifices?|destroys?)[^.\n]*\blands\b/i,
 ]
 
 export function isMassLandDenial(oracleText) {
@@ -191,7 +201,12 @@ export function analyzeBracket({ cards, gameChangerNames, comboCardLists = null 
     twoCardCombos.push({ names, totalCmc, early: totalCmc <= FAST_COMBO_MV_MAX })
   }
 
-  let bracket = 1
+  // Baseline is Bracket 2 ("Core" — average modern precon power), not 1.
+  // Bracket 1 ("Exhibition") is a self-declared casual/jank intent with no
+  // detectable card-level signal, same as Bracket 5 (cEDH) below — neither
+  // is ever auto-assigned. Absent any flagged signal, a built 100-card deck
+  // is assumed to meet the Bracket 2 floor.
+  let bracket = 2
   const reasons = []
   const floor = (level, reason) => {
     if (level > bracket) bracket = level

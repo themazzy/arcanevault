@@ -131,7 +131,8 @@ export default function BracketBadge({ analysis, bracket, isOverridden, onOverri
             {analysis.reasons.length === 0 ? (
               <div className={styles.popClean}>
                 No Game Changers, mass land denial, extra turns, or detected two-card
-                combos — fits Bracket 1–2 expectations.
+                combos — sits at the Bracket 2 baseline. Set to 1 manually for an
+                intentionally casual/exhibition deck.
               </div>
             ) : (
               <ul className={styles.reasonList}>
