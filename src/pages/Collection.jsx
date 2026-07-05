@@ -14,6 +14,7 @@ import { useToast } from '../components/ToastContext'
 import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
 import VirtualCardGrid from '../components/VirtualCardGrid'
 import { DropZone, ProgressBar, ErrorBox, EmptyState, SectionHeader, Button, ResponsiveMenu, Select } from '../components/UI'
+import { AddIcon, ScannerIcon } from '../icons'
 import AddCardModal from '../components/AddCardModal'
 import ExportModal from '../components/ExportModal'
 import ImportModal from '../components/ImportModal'
@@ -1397,14 +1398,16 @@ export default function CollectionPage() {
           action={
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               {!isOnline && <span style={{ fontSize: '0.72rem', color: '#e0a852', border: '1px solid rgba(224,168,82,0.3)', borderRadius: 3, padding: '3px 8px' }}>Offline</span>}
-              <Button
-                variant="purple"
-                onClick={() => { if (!blockOfflineChange()) setShowAdd(true) }}
-                disabled={!isOnline}
-                title={!isOnline ? 'Reconnect to add cards' : undefined}
-              >
-                + Add Card
-              </Button>
+              {cards.length > 0 && (
+                <Button
+                  variant="purple"
+                  onClick={() => { if (!blockOfflineChange()) setShowAdd(true) }}
+                  disabled={!isOnline}
+                  title={!isOnline ? 'Reconnect to add cards' : undefined}
+                >
+                  + Add Card
+                </Button>
+              )}
             </div>
           }
         />
@@ -1422,13 +1425,21 @@ export default function CollectionPage() {
             accept=".csv,.txt"
             title="Import Your Collection"
             subtitle="Open the import flow, or drop a CSV or decklist file here." />
-          <Link to="/scanner" className={styles.scannerQuickBox}>
-            <div>
-              <div className={styles.scannerQuickText}>Or you can scan your cards.</div>
-            </div>
-            <span className={styles.scannerQuickLink}>
-              Open Scanner
-            </span>
+          <button
+            type="button"
+            className={styles.actionBox}
+            onClick={() => { if (!blockOfflineChange()) setShowAdd(true) }}
+            disabled={!isOnline}
+            title={!isOnline ? 'Reconnect to add cards' : undefined}
+          >
+            <div className={styles.actionIcon}><AddIcon size={38} /></div>
+            <div className={styles.actionTitle}>Add a Card</div>
+            <div className={styles.actionSub}>Search and add a single card to your collection.</div>
+          </button>
+          <Link to="/scanner" className={styles.actionBox}>
+            <div className={styles.actionIcon}><ScannerIcon size={38} /></div>
+            <div className={styles.actionTitle}>Scan Your Cards</div>
+            <div className={styles.actionSub}>Use your camera to scan and add cards instantly.</div>
           </Link>
         </div>
       ) : (
