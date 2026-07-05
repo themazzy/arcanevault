@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { BRACKET_LABELS } from '../lib/commanderBracket'
 import { EditIcon } from '../icons'
 import styles from './BracketBadge.module.css'
@@ -28,17 +29,55 @@ const COMBO_PREVIEW_COUNT = 5
 export default function BracketBadge({ analysis, bracket, isOverridden, onOverride, combos }) {
   const [open, setOpen] = useState(false)
   const [showAllCombos, setShowAllCombos] = useState(false)
+  const [popoverStyle, setPopoverStyle] = useState(null)
   const rootRef = useRef(null)
+  const popoverRef = useRef(null)
   const meta = BRACKET_META[bracket] || BRACKET_META[1]
   const canOverride = typeof onOverride === 'function'
 
   useEffect(() => {
     if (!open) return
     const onDocClick = (e) => {
-      if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false)
+      if (rootRef.current && !rootRef.current.contains(e.target) &&
+          !(popoverRef.current && popoverRef.current.contains(e.target))) {
+        setOpen(false)
+      }
     }
     document.addEventListener('mousedown', onDocClick)
     return () => document.removeEventListener('mousedown', onDocClick)
+  }, [open])
+
+  // Positioned as a fixed-position portal so the popover always renders above
+  // surrounding chrome and is never clipped by an ancestor's overflow:hidden
+  // (e.g. the deck art banner).
+  useLayoutEffect(() => {
+    if (!open) return
+    const updatePosition = () => {
+      const rootEl = rootRef.current
+      if (!rootEl) return
+      const rect = rootEl.getBoundingClientRect()
+      const sideGap = 12
+      const width = Math.min(360, window.innerWidth - sideGap * 2)
+      const left = Math.min(
+        Math.max(sideGap, Math.floor(rect.left)),
+        Math.max(sideGap, window.innerWidth - sideGap - width)
+      )
+      const availableBelow = window.innerHeight - rect.bottom - 12
+      const availableAbove = rect.top - 12
+      const openAbove = availableBelow < 200 && availableAbove > availableBelow
+      const maxHeight = Math.min(480, Math.max(160, openAbove ? availableAbove : availableBelow))
+      const style = { position: 'fixed', left, width, maxHeight, zIndex: 1000 }
+      if (openAbove) style.bottom = Math.max(12, window.innerHeight - rect.top + 6)
+      else style.top = Math.min(rect.bottom + 6, window.innerHeight - 12 - maxHeight)
+      setPopoverStyle(style)
+    }
+    updatePosition()
+    window.addEventListener('resize', updatePosition)
+    window.addEventListener('scroll', updatePosition, true)
+    return () => {
+      window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('scroll', updatePosition, true)
+    }
   }, [open])
 
   if (!analysis) return null
@@ -73,8 +112,8 @@ export default function BracketBadge({ analysis, bracket, isOverridden, onOverri
         <span className={styles.pillChevron}>{open ? '▴' : '▾'}</span>
       </button>
 
-      {open && (
-        <div className={styles.popover}>
+      {open && popoverStyle && createPortal(
+        <div ref={popoverRef} className={styles.popover} style={popoverStyle}>
           <div className={styles.popHeader}>
             <span className={styles.popCircle} style={{ background: meta.color }}>{bracket}</span>
             <div>
@@ -192,7 +231,8 @@ export default function BracketBadge({ analysis, bracket, isOverridden, onOverri
             is live from Scryfall. Brackets are a pregame conversation tool.
             {!analysis.combosChecked && combos ? ' Combo detection has not run yet.' : ''}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )

@@ -4056,14 +4056,14 @@ export default function DeckBuilderPage() {
           <span className={styles.btnLabelMobile}>{shareBusy ? '...' : 'Share'}</span>
         </button>
         <ResponsiveMenu
-          title="Deck Actions"
+          title="More"
           wrapClassName={styles.headerActionsMenu}
           align="right"
           trigger={({ toggle }) => (
-            <button className={`${styles.headerBtn} ${styles.headerActionsTrigger}`} onClick={toggle} title="Deck actions">
+            <button className={`${styles.headerBtn} ${styles.headerActionsTrigger}`} onClick={toggle} title="More">
               <span className={`${styles.btnIcon} ${styles.headerActionsGear}`} aria-hidden="true"><SettingsIcon size={14} /></span>
-              <span className={styles.btnLabel}>Deck Actions</span>
-              <span className={styles.btnLabelMobile}>Actions</span>
+              <span className={styles.btnLabel}>More</span>
+              <span className={styles.btnLabelMobile}>More</span>
             </button>
           )}
         >
@@ -4147,25 +4147,28 @@ export default function DeckBuilderPage() {
               </Select>
             </div>
           </div>
-          <div className={styles.leftActionsRow}>
-            {isEDH && (
-              <button
-                className={`${styles.headerBtnPrimary} ${styles.headerBtnAssist} ${styles.leftActionBtn}`}
-                onClick={() => setShowBuildAssistant(true)}
-                title="Open the guided deck builder — fill each role from your collection"
-              >
-                Build Assistant
-              </button>
-            )}
-            {(isCollectionDeck || deckMeta.linked_deck_id) ? (
-              <button className={`${styles.headerBtnPrimary} ${styles.leftActionBtn}`} onClick={() => setShowSync(true)} disabled={syncRunning} title="Sync collection">
-                {syncLabel}
-              </button>
-            ) : (
-              <button className={`${styles.headerBtnPrimary} ${styles.leftActionBtn}`} onClick={() => setShowMakeDeck(true)} disabled={makeDeckRunning} title="Make Collection Deck">
-                {makeDeckRunning ? 'Creating...' : 'Make Collection Deck'}
-              </button>
-            )}
+          <div className={styles.leftActionsSection}>
+            <span className={styles.formatLabel}>Actions</span>
+            <div className={styles.leftActionsRow}>
+              {isEDH && (
+                <button
+                  className={`${styles.headerBtnPrimary} ${styles.headerBtnAssist} ${styles.leftActionBtn}`}
+                  onClick={() => setShowBuildAssistant(true)}
+                  title="Open the guided deck builder — fill each role from your collection"
+                >
+                  Build Assistant
+                </button>
+              )}
+              {(isCollectionDeck || deckMeta.linked_deck_id) ? (
+                <button className={`${styles.headerBtnPrimary} ${styles.leftActionBtn}`} onClick={() => setShowSync(true)} disabled={syncRunning} title="Sync collection">
+                  {syncLabel}
+                </button>
+              ) : (
+                <button className={`${styles.headerBtnPrimary} ${styles.leftActionBtn}`} onClick={() => setShowMakeDeck(true)} disabled={makeDeckRunning} title="Make Collection Deck">
+                  {makeDeckRunning ? 'Creating...' : 'Make Collection Deck'}
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -4504,13 +4507,13 @@ export default function DeckBuilderPage() {
               so it never scrolls out of view with the banner. */}
           <div className={`${styles.tabBarGear} ${styles.deskOnly}`}>
             <ResponsiveMenu
-              title="Deck Actions"
+              title="More"
               align="right"
               portal
               trigger={({ toggle }) => (
-                <button className={styles.cmdArtGearBtn} onClick={toggle} title="Deck actions" aria-label="Deck actions">
+                <button className={styles.cmdArtGearBtn} onClick={toggle} title="More" aria-label="More">
                   <SettingsIcon size={15} />
-                  <span>Deck Actions</span>
+                  <span>More</span>
                 </button>
               )}
             >
@@ -4936,18 +4939,18 @@ export default function DeckBuilderPage() {
                   </button>
                 )}
                 <ResponsiveMenu
-                  title="Deck Actions"
+                  title="More"
                   wrapClassName={`${styles.columnMenuWrap} ${styles.pillOnly}`}
                   portal
                   trigger={({ toggle }) => (
                     <button
                       className={`${styles.groupToggle} ${styles.groupToggleIcon}`}
                       onClick={toggle}
-                      title="Deck actions"
-                      aria-label="Deck actions"
+                      title="More"
+                      aria-label="More"
                     >
                       <MenuIcon size={15} />
-                      <span className={styles.toggleLabel}>Actions</span>
+                      <span className={styles.toggleLabel}>More</span>
                     </button>
                   )}
                 >

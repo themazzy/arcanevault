@@ -359,10 +359,11 @@
 }
 
 .cmdImg {
-  width: 28px;
-  height: 20px;
+  width: 34px;
+  height: 47px;
+  flex-shrink: 0;
   object-fit: cover;
-  border-radius: 2px;
+  border-radius: 3px;
 }
 
 .cmdName {
@@ -4628,6 +4629,13 @@
 }
 .backToDecks svg { display: block; }
 
+.leftActionsSection {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 8px;
+}
+
 .leftActionsRow {
   display: flex;
   align-items: stretch;
@@ -4749,14 +4757,14 @@
   .cmdArtBg { filter: blur(7px) brightness(0.52) saturate(1.55); }
   .cmdArtPane { width: 306px; height: 197px; }
   .cmdArtOverlay { gap: 28px; }
-  /* Info only needs as much width as its (short) content — cap it so the
-     notes column gets the rest of the banner's free space, not a 50/50 split. */
-  .cmdArtInfo { flex: 0 1 320px; gap: 8px; }
+  /* Info needs enough width for long deck names — cap it below the notes
+     column's cap so neither one dominates the banner's free space. */
+  .cmdArtInfo { flex: 0 1 460px; gap: 8px; }
   .cmdArtNameInput { font-size: 1.8rem; }
   .cmdArtCommander { font-size: 1rem; }
   .cmdArtMeta { font-size: 1rem; gap: 8px; }
   /* Push down to line up with the colors row, not the (taller) deck name row */
-  .cmdArtNotes { flex: 1; margin-top: 44px; }
+  .cmdArtNotes { flex: 1 1 380px; max-width: 440px; margin-top: 44px; }
   .cmdArtNotes .deckMetaDesc { min-height: 0; flex: 1; resize: none; background: rgba(0,0,0,0.28); border-color: rgba(255,255,255,0.12); color: #f0e6d2; }
   .cmdArtNotes .deckMetaDesc::placeholder { color: rgba(240,230,210,0.5); }
 
