@@ -1,5 +1,58 @@
 .page { max-width: 680px; }
 
+/* ── Search ───────────────────────────────────────────────────────────────── */
+.searchWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 13px;
+  color: var(--text-faint);
+  pointer-events: none;
+}
+
+.searchInput {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--s-card);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 10px 36px;
+  color: var(--text);
+  font-family: var(--font-serif);
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.searchInput:focus { border-color: var(--border-hi); box-shadow: var(--input-focus); }
+.searchInput::placeholder { color: var(--text-faint); }
+
+.searchClear {
+  position: absolute;
+  right: 10px;
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+}
+.searchClear:hover { color: var(--text); background: var(--s-medium); }
+
+.noResults {
+  text-align: center;
+  padding: 20px;
+  color: var(--text-faint);
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
 .section {
   background: var(--s-card);
   border: 1px solid var(--border);
@@ -518,6 +571,90 @@
   gap: 8px;
   margin-top: 10px;
   flex-wrap: wrap;
+}
+
+/* ── Backup / restore panel ──────────────────────────────────────────────── */
+.backupPanel {
+  margin: 18px 20px 20px;
+  padding: 16px;
+  border: 1px solid var(--s-border2);
+  border-radius: 7px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--gold) 6%, transparent), transparent 60%),
+    var(--overlay);
+}
+
+.backupIntro {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.backupTitle {
+  font-family: var(--font-display);
+  color: var(--gold);
+  font-size: 0.9rem;
+  letter-spacing: 0.04em;
+}
+
+.backupText {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.backupButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.backupDivider {
+  height: 1px;
+  background: var(--s-border);
+  margin: 18px 0;
+}
+
+.backupSuccess,
+.backupError {
+  margin-top: 12px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.backupSuccess { color: var(--green); }
+.backupError { color: var(--red); }
+
+.backupConfirmPanel {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--s-border2);
+  border-radius: 6px;
+  background: rgba(0,0,0,0.14);
+}
+
+.backupConfirmText {
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.backupConfirmText strong {
+  color: var(--gold);
+  font-family: var(--font-display);
+  letter-spacing: 0.02em;
+}
+
+.backupWarning {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(224,166,66,0.35);
+  border-radius: 5px;
+  background: rgba(224,166,66,0.08);
+  color: var(--text);
+  font-size: 0.78rem;
+  line-height: 1.45;
 }
 
 .dangerSuccess,

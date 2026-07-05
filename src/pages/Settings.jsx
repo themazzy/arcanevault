@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useContext, createContext } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
@@ -9,7 +9,9 @@ import { useSetupWizard } from '../components/SetupWizard'
 import { clearScryfallCache, PRICE_SOURCES, sfGet } from '../lib/scryfall'
 import { deleteLocalFoldersAndPlacements, getDbStats, setMeta } from '../lib/db'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
+import { downloadCollectionBackup, restoreCollectionBackup, validateBackupFile, summarizeBackup } from '../lib/backup'
 import { Button, SectionHeader, Select as UISelect } from '../components/UI'
+import { SearchIcon, CloseIcon } from '../icons'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './Settings.module.css'
 
@@ -52,6 +54,43 @@ function chunk(items, size = CLEAR_BATCH_SIZE) {
   return chunks
 }
 
+// ── Section search keyword blobs ─────────────────────────────────────────────
+// One constant per section, referenced both by its <SettingsSection keywords>
+// prop and by SECTION_DEFS below (used only to detect a fully-empty search).
+const KW_GUIDED_HELP = 'setup wizard rerun tutorial onboarding theme price market nickname page tips reset explanatory modals'
+const KW_ADMIN = 'admin console deletion request review queue allowlisted'
+const KW_APPEARANCE = 'colour theme color palette premium themes obsidian crimson court verdant realm archive dark light oled black mode pixels power contrast higher borders separation'
+const KW_ACCESSIBILITY = 'body font serif sans-serif font weight thin regular medium bold font size small large text preview card name size compact default large reduced motion hover lifts transitions animation'
+const KW_PRICES = 'price source marketplace price type cardmarket tcgplayer show price cards grid label'
+const KW_COLLECTION = 'default sort name price quantity set recently added grid density cozy comfortable compact cards per row'
+const KW_DECKBUILDER = 'deck builder default sort mana value color type rarity set price default grouping category type ungrouped'
+const KW_CACHE = 'local cache card metadata scryfall clear cached storage'
+const KW_COLLECTION_MGMT = 'clear collection locations binders decks wishlists delete permanently backup restore download export json file collection data safekeeping migration'
+const KW_PROFILE = 'nickname in-game name identity multiplayer lobbies tournaments public profile url view profile'
+const KW_APP = 'version installed app build keep screen awake wake lock dim sleep'
+const KW_SYNC = 'sync status settings synced pending idle error sync now manual show settings sync errors failure message'
+const KW_ACCOUNT = 'account signed in email change password reset sign out everywhere devices session delete request deletion form'
+const KW_LEGAL = 'legal hub privacy policy cookies local storage indexeddb cache credits fan content notice wizards disclaimer third-party'
+const KW_SUPPORT = 'support development unlock premium themes obsidian night crimson court verdant realm arcane archive stripe payment one-time'
+
+const SECTION_DEFS = [
+  ['Guided Help', KW_GUIDED_HELP],
+  ['Admin', KW_ADMIN],
+  ['Appearance', KW_APPEARANCE],
+  ['Accessibility', KW_ACCESSIBILITY],
+  ['Prices', KW_PRICES],
+  ['Collection', KW_COLLECTION],
+  ['Deck Builder', KW_DECKBUILDER],
+  ['Local Cache', KW_CACHE],
+  ['Collection Management', KW_COLLECTION_MGMT],
+  ['Profile', KW_PROFILE],
+  ['App', KW_APP],
+  ['Settings Sync', KW_SYNC],
+  ['Account', KW_ACCOUNT],
+  ['Legal & Privacy', KW_LEGAL],
+  ['Support', KW_SUPPORT],
+]
+
 function formatAge(ms) {
   if (ms < 60000) return 'just now'
   if (ms < 3600000) return `${Math.round(ms / 60000)}m ago`
@@ -59,7 +98,40 @@ function formatAge(ms) {
   return `${Math.round(ms / 86400000)}d ago`
 }
 
+// ── Settings search ─────────────────────────────────────────────────────────
+// A single search box at the top of the page filters rows by label/description
+// text. SectionSearchContext tells each row whether a query is active and
+// whether its own section already matched on the section title/keywords (in
+// which case every row in that section stays visible, since the user was
+// clearly searching for the section itself, not one specific row).
+const SectionSearchContext = createContext({ query: '', showAll: true })
+
+export function matchesSearch(query, title, keywords = '') {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  return title.toLowerCase().includes(q) || keywords.toLowerCase().includes(q)
+}
+
+function SettingsSection({ id, title, keywords = '', query = '', children }) {
+  const q = query.trim().toLowerCase()
+  if (q && !matchesSearch(q, title, keywords)) return null
+  const showAll = !q || title.toLowerCase().includes(q)
+  return (
+    <SectionSearchContext.Provider value={{ query: q, showAll }}>
+      <div className={styles.section} id={id}>
+        <div className={styles.sectionTitle}>{title}</div>
+        {children}
+      </div>
+    </SectionSearchContext.Provider>
+  )
+}
+
 function SettingRow({ label, description, children, onRowClick }) {
+  const { query, showAll } = useContext(SectionSearchContext)
+  if (query && !showAll) {
+    const haystack = `${label} ${description || ''}`.toLowerCase()
+    if (!haystack.includes(query)) return null
+  }
   return (
     <div className={styles.row} onClick={onRowClick} style={onRowClick ? { cursor: 'pointer' } : undefined}>
       <div className={styles.rowLabel}>
@@ -698,6 +770,155 @@ function ClearCollectionData({ userId }) {
   )
 }
 
+function BackupRestore({ userId }) {
+  const fileInputRef = useRef(null)
+  const [downloadBusy, setDownloadBusy] = useState(false)
+  const [downloadMsg, setDownloadMsg] = useState('')
+  const [downloadError, setDownloadError] = useState('')
+
+  const [pendingBackup, setPendingBackup] = useState(null)
+  const [pendingFileName, setPendingFileName] = useState('')
+  const [parseError, setParseError] = useState('')
+  const [restoreBusy, setRestoreBusy] = useState(false)
+  const [restoreResult, setRestoreResult] = useState(null)
+  const [restoreError, setRestoreError] = useState('')
+
+  const handleDownload = async () => {
+    setDownloadBusy(true)
+    setDownloadMsg('')
+    setDownloadError('')
+    try {
+      const counts = await downloadCollectionBackup(userId)
+      setDownloadMsg(
+        `Downloaded ${counts.folders.toLocaleString()} folders and ${counts.cards.toLocaleString()} owned cards.`
+      )
+    } catch (err) {
+      setDownloadError(err?.message || 'Could not build backup.')
+    } finally {
+      setDownloadBusy(false)
+    }
+  }
+
+  const handleFilePicked = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setParseError('')
+    setRestoreResult(null)
+    setRestoreError('')
+    setPendingBackup(null)
+    setPendingFileName(file.name)
+    try {
+      const text = await file.text()
+      const parsed = JSON.parse(text)
+      const invalid = validateBackupFile(parsed)
+      if (invalid) {
+        setParseError(invalid)
+        return
+      }
+      setPendingBackup(parsed)
+    } catch {
+      setParseError('Could not read that file as a DeckLoom backup (invalid JSON).')
+    }
+  }
+
+  const handleConfirmRestore = async () => {
+    if (!pendingBackup || !userId) return
+    setRestoreBusy(true)
+    setRestoreError('')
+    try {
+      const result = await restoreCollectionBackup(userId, pendingBackup)
+      setRestoreResult(result)
+      setPendingBackup(null)
+      setPendingFileName('')
+    } catch (err) {
+      setRestoreError(err?.message || 'Restore failed partway through — some items above may already be in your account.')
+    } finally {
+      setRestoreBusy(false)
+    }
+  }
+
+  const pendingSummary = pendingBackup ? summarizeBackup(pendingBackup) : null
+
+  return (
+    <div className={styles.backupPanel}>
+      <div className={styles.backupIntro}>
+        <div className={styles.backupTitle}>Download a backup</div>
+        <div className={styles.backupText}>
+          Saves every binder, deck, wishlist, and owned card to a single JSON file on your device — useful before
+          clearing data above, switching accounts, or just for safekeeping.
+        </div>
+      </div>
+      <div className={styles.backupButtons}>
+        <Button size="sm" onClick={handleDownload} disabled={!userId || downloadBusy}>
+          {downloadBusy ? 'Building backup...' : 'Download Backup (.json)'}
+        </Button>
+      </div>
+      {downloadMsg && <div className={styles.backupSuccess}>{downloadMsg}</div>}
+      {downloadError && <div className={styles.backupError}>{downloadError}</div>}
+
+      <div className={styles.backupDivider} />
+
+      <div className={styles.backupIntro}>
+        <div className={styles.backupTitle}>Restore from a backup</div>
+        <div className={styles.backupText}>
+          Adds everything in the file to your account as new binders, decks, wishlists, and cards. This never
+          deletes or overwrites anything currently in your collection — restoring the same file twice, or into an
+          account that already has some of this data, will create duplicates.
+        </div>
+      </div>
+      <div className={styles.backupButtons}>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/json,.json"
+          onChange={handleFilePicked}
+          style={{ display: 'none' }}
+        />
+        <Button size="sm" onClick={() => fileInputRef.current?.click()} disabled={!userId || restoreBusy}>
+          Choose Backup File...
+        </Button>
+      </div>
+      {parseError && <div className={styles.backupError}>{parseError}</div>}
+
+      {pendingBackup && pendingSummary && (
+        <div className={styles.backupConfirmPanel}>
+          <div className={styles.backupConfirmText}>
+            <strong>{pendingFileName}</strong> contains {pendingSummary.folders.toLocaleString()} folders,{' '}
+            {pendingSummary.cards.toLocaleString()} owned cards, {pendingSummary.listItems.toLocaleString()} wishlist
+            items, and {pendingSummary.deckCards.toLocaleString()} deck-builder cards. Restoring adds all of it to
+            this account.
+          </div>
+          <div className={styles.backupWarning}>
+            This action cannot be undone or reversed. Once restored, these items become part of your collection
+            just like anything else you added yourself — removing them afterward means deleting them by hand.
+          </div>
+          <div className={styles.confirmControls}>
+            <Button size="sm" onClick={handleConfirmRestore} disabled={restoreBusy}>
+              {restoreBusy ? 'Restoring...' : 'Confirm Restore'}
+            </Button>
+            <Button size="sm" onClick={() => { setPendingBackup(null); setPendingFileName('') }} disabled={restoreBusy}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {restoreResult && (
+        <div className={styles.backupSuccess}>
+          Restored {restoreResult.folders.toLocaleString()} folders, {restoreResult.cards.toLocaleString()} owned
+          cards, {restoreResult.listItems.toLocaleString()} wishlist items, and {restoreResult.deckCards.toLocaleString()} deck-builder
+          cards. Reload the app to see the restored data everywhere.
+          <div className={styles.backupButtons} style={{ marginTop: 10 }}>
+            <Button size="sm" onClick={() => window.location.reload()}>Reload App</Button>
+          </div>
+        </div>
+      )}
+      {restoreError && <div className={styles.backupError}>{restoreError}</div>}
+    </div>
+  )
+}
+
 export default function SettingsPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -713,6 +934,8 @@ export default function SettingsPage() {
   const [checkoutError, setCheckoutError] = useState('')
   const [isAdmin, setIsAdmin] = useState(false)
   const [tipsResetMsg, setTipsResetMsg] = useState('')
+  const [search, setSearch] = useState('')
+  const noResults = !!search.trim() && !SECTION_DEFS.some(([title, kw]) => matchesSearch(search, title, kw))
 
   // Nickname availability check
   const [nicknameStatus, setNicknameStatus] = useState('')
@@ -842,8 +1065,24 @@ export default function SettingsPage() {
     <div className={styles.page}>
       <SectionHeader title="Settings" />
 
-      <div className={styles.section}>
-        <div className={styles.sectionTitle}>Guided Help</div>
+      <div className={styles.searchWrap}>
+        <SearchIcon size={14} className={styles.searchIcon} />
+        <input
+          className={styles.searchInput}
+          type="text"
+          placeholder="Search settings..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+        {search && (
+          <button type="button" className={styles.searchClear} onClick={() => setSearch('')} aria-label="Clear search">
+            <CloseIcon size={12} />
+          </button>
+        )}
+      </div>
+      {noResults && <div className={styles.noResults}>No settings match &quot;{search.trim()}&quot;.</div>}
+
+      <SettingsSection title="Guided Help" keywords={KW_GUIDED_HELP} query={search}>
         <SettingRow label="Setup Wizard" description="Rerun the first-time setup to pick your theme, price market, and nickname.">
           <Button size="sm" onClick={openWizard}>Rerun Setup</Button>
         </SettingRow>
@@ -853,11 +1092,10 @@ export default function SettingsPage() {
             {tipsResetMsg && <span className={styles.inlineSuccess}>{tipsResetMsg}</span>}
           </div>
         </SettingRow>
-      </div>
+      </SettingsSection>
 
       {isAdmin && (
-        <div className={styles.section}>
-          <div className={styles.sectionTitle}>Admin</div>
+        <SettingsSection title="Admin" keywords={KW_ADMIN} query={search}>
           <SettingRow
             label="Admin Console"
             description="Open the deletion-request review queue. Access is restricted to allowlisted admin users."
@@ -865,12 +1103,10 @@ export default function SettingsPage() {
           >
             <Button size="sm" onClick={() => navigate('/admin')}>Admin</Button>
           </SettingRow>
-        </div>
+        </SettingsSection>
       )}
 
-      <div className={styles.section}>
-        <div className={styles.sectionTitle}>Appearance</div>
-
+      <SettingsSection title="Appearance" keywords={KW_APPEARANCE} query={search}>
         <div className={styles.themeRow}>
           <div className={styles.themeLabel}>
             <div className={styles.rowTitle}>Colour Theme</div>
@@ -912,10 +1148,9 @@ export default function SettingsPage() {
         >
           <Toggle value={!!settings.higher_contrast} onChange={v => set('higher_contrast', v)} />
         </SettingRow>
-      </div>
+      </SettingsSection>
 
-      <div className={styles.section}>
-        <div className={styles.sectionTitle}>Accessibility</div>
+      <SettingsSection title="Accessibility" keywords={KW_ACCESSIBILITY} query={search}>
         <SettingRow label="Body Font" description="Serif feels more arcane; Sans-serif is cleaner and easier to read for long sessions.">
           <div className={styles.fontWeightOptions}>
             {[
@@ -1032,11 +1267,9 @@ export default function SettingsPage() {
         >
           <Toggle value={!!settings.reduce_motion} onChange={v => set('reduce_motion', v)} />
         </SettingRow>
-      </div>
+      </SettingsSection>
 
-      <div className={styles.section}>
-        <div className={styles.sectionTitle}>Prices</div>
-
+      <SettingsSection title="Prices" keywords={KW_PRICES} query={search}>
         <SettingRow label="Price Source" description="Marketplace and price type used throughout the app">
           <UISelect
             className={styles.priceSourceSelect}
@@ -1075,10 +1308,9 @@ export default function SettingsPage() {
         >
           <Toggle value={settings.show_price} onChange={v => set('show_price', v)} />
         </SettingRow>
-      </div>
+      </SettingsSection>
 
-      <div className={styles.section}>
-        <div className={styles.sectionTitle}>Collection</div>
+      <SettingsSection title="Collection" keywords={KW_COLLECTION} query={search}>
         <SettingRow label="Default Sort" description="Initial sort for the collection, binders, decks, and wishlists.">
           <Select value={settings.default_sort} onChange={v => set('default_sort', v)}
             options={[
@@ -1098,10 +1330,9 @@ export default function SettingsPage() {
               ['compact', 'Compact (more, smaller)'],
             ]} />
         </SettingRow>
-      </div>
+      </SettingsSection>
 
-      <div className={styles.section}>
-        <div className={styles.sectionTitle}>Deck Builder</div>
+      <SettingsSection title="Deck Builder" keywords={KW_DECKBUILDER} query={search}>
         <SettingRow label="Default Sort" description="Initial sort for cards inside the deck builder.">
           <Select value={settings.deckbuilder_sort || 'price_asc'} onChange={v => set('deckbuilder_sort', v)}
             options={[
@@ -1125,22 +1356,20 @@ export default function SettingsPage() {
               ['none', 'Ungrouped'],
             ]} />
         </SettingRow>
-      </div>
+      </SettingsSection>
 
-      <div className={styles.section}>
-        <div className={styles.sectionTitle}>Local Cache</div>
+      <SettingsSection title="Local Cache" keywords={KW_CACHE} query={search}>
         <div className={styles.cachePanelWrap}>
           <CacheStatus />
         </div>
-      </div>
+      </SettingsSection>
 
-      <div className={styles.section}>
-        <div className={styles.sectionTitle}>Collection Management</div>
+      <SettingsSection title="Collection Management" keywords={KW_COLLECTION_MGMT} query={search}>
+        <BackupRestore userId={user?.id} />
         <ClearCollectionData userId={user?.id} />
-      </div>
+      </SettingsSection>
 
-      <div className={styles.section}>
-        <div className={styles.sectionTitle}>Profile</div>
+      <SettingsSection title="Profile" keywords={KW_PROFILE} query={search}>
         <SettingRow label="Nickname" description="Your identity across the app — multiplayer lobbies, tournaments, and your public profile URL.">
           <div className={styles.usernameRow}>
             <input
@@ -1164,10 +1393,9 @@ export default function SettingsPage() {
             </Button>
           </SettingRow>
         )}
-      </div>
+      </SettingsSection>
 
-      <div className={styles.section}>
-        <div className={styles.sectionTitle}>App</div>
+      <SettingsSection title="App" keywords={KW_APP} query={search}>
         <SettingRow label="Version" description="Installed app version for this build.">
           <span className={styles.appVersion}>v{APP_VERSION}</span>
         </SettingRow>
@@ -1178,10 +1406,9 @@ export default function SettingsPage() {
         >
           <Toggle value={!!settings.keep_screen_awake} onChange={v => set('keep_screen_awake', v)} />
         </SettingRow>
-      </div>
+      </SettingsSection>
 
-      <div className={styles.section}>
-        <div className={styles.sectionTitle}>Settings Sync</div>
+      <SettingsSection title="Settings Sync" keywords={KW_SYNC} query={search}>
         <SettingRow
           label="Sync Status"
           description={lastSyncAge ? `Last successful settings sync ${lastSyncAge}.` : 'No successful settings sync yet in this session.'}
@@ -1205,10 +1432,9 @@ export default function SettingsPage() {
         {settings.show_sync_errors && settings.syncError && (
           <div className={styles.syncErrorBox}>{settings.syncError}</div>
         )}
-      </div>
+      </SettingsSection>
 
-      <div className={styles.section}>
-        <div className={styles.sectionTitle}>Account</div>
+      <SettingsSection title="Account" keywords={KW_ACCOUNT} query={search}>
         <div className={styles.accountCard}>
           <div className={styles.accountEyebrow}>Signed in as</div>
           <div className={styles.accountEmail}>{maskEmailAddress(user?.email, true)}</div>
@@ -1257,10 +1483,9 @@ export default function SettingsPage() {
             Delete Request Form
           </Button>
         </SettingRow>
-      </div>
+      </SettingsSection>
 
-      <div className={styles.section}>
-        <div className={styles.sectionTitle}>Legal & Privacy</div>
+      <SettingsSection title="Legal & Privacy" keywords={KW_LEGAL} query={search}>
         <SettingRow
           label="Legal Hub"
           description="Open the overview page for privacy, browser storage, credits, and deletion."
@@ -1289,10 +1514,9 @@ export default function SettingsPage() {
         >
           <Button size="sm" onClick={() => navigate('/credits')}>Credits</Button>
         </SettingRow>
-      </div>
+      </SettingsSection>
 
-      <div className={styles.section} id="support">
-        <div className={styles.sectionTitle}>Support</div>
+      <SettingsSection id="support" title="Support" keywords={KW_SUPPORT} query={search}>
         <div className={styles.supportCard}>
           <div className={styles.supportEyebrow}>Keep DeckLoom growing</div>
           <div className={styles.supportTitle}>Unlock Premium Themes</div>
@@ -1349,7 +1573,7 @@ export default function SettingsPage() {
             ))}
           </div>
         </div>
-      </div>
+      </SettingsSection>
 
       {isSyncing && <div className={styles.savingIndicator}>Saving...</div>}
     </div>
