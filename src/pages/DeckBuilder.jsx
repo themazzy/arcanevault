@@ -4106,7 +4106,7 @@ export default function DeckBuilderPage() {
           <div className={styles.leftHeaderTopRow}>
             <Link className={styles.backToDecks} to="/builder" title="Back to decks">
               <ChevronLeftIcon size={13} />
-              <span>Back to Decklist</span>
+              <span>Back to Decks</span>
             </Link>
             <button
               type="button"
