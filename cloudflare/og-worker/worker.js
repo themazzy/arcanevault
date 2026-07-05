@@ -48,6 +48,47 @@ async function handleRss(request) {
   })
 }
 
+// ── Article thumbnail proxy (deckloom.app/api/og-image?url=<article-url>) ────
+// MTGGoldfish and MTG Arena Zone's feeds carry no image data at all (no
+// enclosure, no media:*, no inline <img> in the description) — the only place
+// a thumbnail exists is the article page's own og:image meta tag. Strict host
+// allow-list — this must never become an open proxy/SSRF vector.
+const OG_IMAGE_ALLOWED_HOSTS = new Set([
+  'www.mtggoldfish.com',
+  'mtggoldfish.com',
+  'edhrec.com',
+  'www.edhrec.com',
+  'mtgazone.com',
+  'www.mtgazone.com',
+])
+
+async function handleOgImage(request) {
+  const raw = new URL(request.url).searchParams.get('url')
+  const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
+  let target = null
+  try { target = raw ? new URL(raw) : null } catch { target = null }
+  if (!target || target.protocol !== 'https:' || !OG_IMAGE_ALLOWED_HOSTS.has(target.hostname)) {
+    return new Response(JSON.stringify({ image: null }), { status: 400, headers })
+  }
+  try {
+    const upstream = await fetch(target.toString(), {
+      headers: { 'User-Agent': 'DeckLoom RSS fetcher (+https://deckloom.app)' },
+      // Article art never changes after publish — cache the scrape for a day.
+      cf: { cacheTtl: 86400, cacheEverything: true },
+    })
+    const html = await upstream.text()
+    const match = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)
+      || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i)
+    const image = match?.[1] && /^https?:\/\//.test(match[1]) ? match[1] : null
+    return new Response(JSON.stringify({ image }), {
+      status: 200,
+      headers: { ...headers, 'Cache-Control': 'public, max-age=86400, s-maxage=86400' },
+    })
+  } catch {
+    return new Response(JSON.stringify({ image: null }), { status: 502, headers })
+  }
+}
+
 async function fetchDeckMeta(deckId, env) {
   try {
     const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/get_deck_og_meta`, {
@@ -169,6 +210,7 @@ export default {
   async fetch(request, env) {
     const pathname = new URL(request.url).pathname
     if (pathname === '/api/rss') return handleRss(request)
+    if (pathname === '/api/og-image') return handleOgImage(request)
     if (pathname === '/api/recommend') return handleRecommend(request)
     if (pathname.startsWith('/api/import/')) return handleImport(request)
 

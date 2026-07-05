@@ -140,7 +140,7 @@ function SelectBody({ options, value, handleSelect, close, searchable }) {
   )
 }
 
-export function Select({ value, onChange, children, className = '', style, disabled = false, title = 'Select option', menuDirection = 'down', portal = false, searchable = false }) {
+export function Select({ value, onChange, children, className = '', panelClassName = '', style, disabled = false, title = 'Select option', menuDirection = 'down', portal = false, searchable = false }) {
   // Flatten <option> and <optgroup> children. Groups become non-selectable
   // header rows ({ isGroup, label }) followed by their options.
   const rawOptions = []
@@ -187,7 +187,7 @@ export function Select({ value, onChange, children, className = '', style, disab
       align="left"
       direction={menuDirection}
       wrapClassName={styles.selectWrap}
-      panelClassName={styles.selectPanel}
+      panelClassName={`${styles.selectPanel} ${panelClassName}`}
       portal={portal}
       trigger={({ open, toggle }) => (
         <button

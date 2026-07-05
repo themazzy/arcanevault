@@ -8,7 +8,7 @@ import styles from '../../pages/DeckBuilder.module.css'
 // badges and a controls row (edit menu, qty +/-, remove).
 function DeckCardGrid({
   dc, legalityWarnings, warningTitle,
-  gridDensity, priceLabel, ownership,
+  priceLabel, ownership,
   isEDH, formatId, builderSfMap,
   onChangeQty, onRemove, onOpenDetail, onContextMenu, onDragStart,
   onPickVersion, onToggleFoil, onSetCommander, onMoveBoard, onOpenCategoryPicker,
@@ -26,7 +26,7 @@ function DeckCardGrid({
     >
       <div className={styles.visualImgWrap}>
         {dc.image_uri
-          ? <img src={gridDensity === 'compact' ? dc.image_uri?.replace(/\/(normal|large|png|border_crop|art_crop)\//, '/small/') : dc.image_uri} alt={dc.name} className={styles.visualCardImg} loading="lazy" />
+          ? <img src={dc.image_uri.replace(/\/(normal|large|png|border_crop|art_crop)\//, '/small/')} alt={dc.name} className={styles.visualCardImg} loading="lazy" />
           : <div className={styles.visualCardPlaceholder}>{dc.name}</div>}
         {dc.qty > 1 && <span className={styles.visualCardQty}>x{dc.qty}</span>}
         {dc.foil && <span className={styles.visualCardFoil} title="Foil">*</span>}

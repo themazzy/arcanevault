@@ -9,6 +9,12 @@ Also hosts the **RSS proxy** at `deckloom.app/api/rss?feed=<url>` for the Home
 page news section — allow-listed feeds only (`RSS_ALLOWED_FEEDS` in
 `worker.js`), edge-cached 15 minutes, CORS `*` so dev/Capacitor work too.
 
+And the **article thumbnail proxy** at `deckloom.app/api/og-image?url=<article-url>`
+— MTGGoldfish and MTG Arena Zone's RSS feeds carry no image data at all, so the
+Home page news section backfills their thumbnails by scraping `og:image` off
+the article page itself. Host allow-listed (`OG_IMAGE_ALLOWED_HOSTS` in
+`worker.js`), edge-cached 24 hours (article art never changes after publish).
+
 ## How it works
 
 ```

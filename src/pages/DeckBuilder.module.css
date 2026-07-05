@@ -18,7 +18,7 @@
   grid-column: 1;
   grid-row: 2;
   border-right: 1px solid var(--border);
-  background: rgba(0,0,0,0.2);
+  background: var(--bg);
   overflow: hidden;
   position: relative;
 }
@@ -39,8 +39,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 30px;
+  width: 38px;
+  height: 38px;
   border-radius: 4px;
   border: 1px solid var(--border);
   background: var(--bg2);
@@ -143,18 +143,45 @@
   white-space: nowrap;
 }
 
+/* Format + Visibility as two equal-width columns (desktop left header):
+   grid guarantees a true 50/50 split regardless of each side's content
+   width (flex-basis distribution could get skewed by min-content sizes). */
+.formatVisibilityRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+  gap: 12px;
+}
+
+.formatCol,
+.visibilityCol {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .formatSelect {
+  width: 100%;
+  box-sizing: border-box;
   flex: 1;
   background: var(--s-subtle);
   border: 1px solid var(--border);
   border-radius: 4px;
-  color: var(--text);
+  color: #e0d0b0;
   font-family: var(--font-serif);
-  font-size: 0.9rem;
+  font-size: 0.8rem;
   padding: 9px 12px;
   outline: none;
   cursor: pointer;
   transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.formatSelect > span:first-child {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .formatSelect:focus {
@@ -165,6 +192,11 @@
 .formatSelect option {
   background: var(--bg3);
   color: var(--text);
+}
+
+/* Format / Visibility dropdown panel — option text in the same light-gold tone */
+.formatSelectPanel button {
+  color: #e0d0b0;
 }
 
 /* Visibility toggle (Public / Private) */
@@ -430,10 +462,12 @@
 .tabActive {
   color: var(--gold, #c9a84c);
   border-bottom-color: rgba(201,168,76,0.75);
+  background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--gold) 6%, transparent));
 }
 
 .rightTabBar {
-  min-height: 36px;
+  min-height: 32px;
+  margin-bottom: 8px;
   border-bottom: 0;
   background: color-mix(in srgb, var(--bg2) 28%, transparent);
 }
@@ -448,14 +482,10 @@
 }
 
 .rightTab {
-  min-height: 36px;
+  min-height: 32px;
   font-size: 0.74rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-}
-
-.rightTab.tabActive {
-  background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--gold) 6%, transparent));
 }
 
 /* ── Search panel ── */
@@ -885,7 +915,8 @@
   border: none;
   border-bottom: 1px solid transparent;
   color: var(--gold, #c9a84c);
-  font-family: var(--font-display);
+  font-family: var(--font-serif);
+  font-weight: 600;
   font-size: 1.05rem;
   letter-spacing: 0.06em;
   outline: none;
@@ -1098,6 +1129,11 @@
   opacity: 0;
 }
 
+/* No commander set yet (or non-EDH format) — plain gradient instead of art */
+.cmdArtNoCmdr {
+  background: linear-gradient(135deg, rgba(201,168,76,0.16) 0%, rgba(138,111,196,0.12) 100%);
+}
+
 /* Blurred background layer */
 .cmdArtBg {
   position: absolute;
@@ -1134,9 +1170,18 @@
   background: var(--s2);
 }
 
-/* Info section */
+/* Info section — left: name/colors/commander/meta stack, right: notes (desktop) */
 .cmdArtOverlay {
   position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.cmdArtInfo {
   flex: 1;
   min-width: 0;
   display: flex;
@@ -1144,10 +1189,45 @@
   gap: 3px;
 }
 
-.cmdArtName {
-  font-family: var(--font-display);
+.cmdArtNotes {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cmdArtNameRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cmdArtNameInput {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  border-bottom: 1px solid transparent;
+  outline: none;
+  padding: 1px 0;
+  font-family: var(--font-serif);
+  font-weight: 600;
   font-size: 0.95rem;
-  color: #fff;
+  letter-spacing: 0.03em;
+  color: #e0d0b0;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: border-color 0.15s;
+}
+.cmdArtNameInput:focus { border-bottom-color: var(--gold, #c9a84c); }
+
+.cmdArtCommander {
+  font-size: 0.72rem;
+  color: var(--gold);
   text-shadow: 0 1px 3px rgba(0,0,0,0.9);
   white-space: nowrap;
   overflow: hidden;
@@ -1160,6 +1240,10 @@
   display: flex;
   gap: 6px;
   align-items: center;
+}
+
+.cmdArtBracketRow {
+  padding: 2px 0;
 }
 
 /* Description + tags panel */
@@ -4504,16 +4588,24 @@
    persistent deck search + funnel, restyled tabs/toolbar
    ══════════════════════════════════════════════════════════════════ */
 
-/* ── Left panel header: back link · title + menu · visibility · actions ── */
+/* ── Left panel header: back link + collapse · format · visibility · actions ── */
 .leftHeader {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   flex-shrink: 0;
   padding: 8px 12px 0;
 }
 
+.leftHeaderTopRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .backToDecks {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4536,28 +4628,6 @@
 }
 .backToDecks svg { display: block; }
 
-.leftTitleRow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.leftNameInput {
-  flex: 1;
-  min-width: 0;
-  background: none;
-  border: none;
-  border-bottom: 1px solid transparent;
-  color: var(--gold, #c9a84c);
-  font-family: var(--font-display);
-  font-size: 1.05rem;
-  letter-spacing: 0.06em;
-  outline: none;
-  padding: 2px 0;
-  transition: border-color 0.15s;
-}
-.leftNameInput:focus { border-bottom-color: var(--gold, #c9a84c); }
-
 .leftActionsRow {
   display: flex;
   align-items: stretch;
@@ -4567,43 +4637,14 @@
 .leftActionBtn {
   flex: 1;
   min-width: 0;
-  padding: 0 6px;
+  padding: 6px;
   min-height: 34px;
-  white-space: nowrap;
+  white-space: normal;
+  text-align: center;
+  line-height: 1;
   font-size: 0.62rem;
   letter-spacing: 0.03em;
 }
-
-/* Fallback deck-actions gear (no commander banner) — top-right of the list */
-.deckListGear {
-  position: absolute;
-  top: 12px;
-  right: 24px;
-  z-index: 5;
-  display: inline-flex;
-}
-
-.leftGearBtn {
-  width: 30px;
-  min-width: 30px;
-  height: 30px;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  border: 1px solid var(--s-border2);
-  background: var(--s2);
-  color: var(--text-dim);
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
-.leftGearBtn:hover {
-  background: var(--s-medium);
-  color: var(--text);
-  border-color: var(--border-hi);
-}
-.leftGearBtn svg { display: block; }
 
 /* ── Right tab badge — plain inline count ("Deck 100/100") ── */
 .tabBadge {
@@ -4637,34 +4678,30 @@
 }
 .filterFunnelBtn svg { display: block; }
 
-/* ── Banner gear (deck actions) ── */
-.cmdArtGear {
-  position: absolute;
-  top: 15px;
-  right: 15px;
-  z-index: 2;
-  display: inline-flex;
-}
-
-/* Sits on the blurred (always dark) art — literal dark fill is intentional */
+/* ── Tab bar gear (deck actions) — pinned next to Deck/Stats/Combos tabs ── */
 .cmdArtGearBtn {
-  width: 30px;
-  height: 30px;
+  height: 32px;
+  padding: 0 12px;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 6px;
   border-radius: 4px;
   border: 1px solid rgba(140,140,140,0.25);
   background: rgba(27,27,27,0.84);
   color: #a89878;
   cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
   transition: color 0.15s, border-color 0.15s;
 }
 .cmdArtGearBtn:hover {
   color: var(--gold);
   border-color: rgba(201,168,76,0.45);
 }
-.cmdArtGearBtn svg { display: block; }
+.cmdArtGearBtn svg { display: block; flex-shrink: 0; }
 
 /* ── Desktop layout — left panel spans full height, hero banner ── */
 @media (min-width: 901px) {
@@ -4676,6 +4713,9 @@
 
   /* Stacked field labels (Format / Commander / Companion) */
   .formatRow { flex-direction: column; align-items: stretch; gap: 4px; }
+  /* Format is duplicated into .leftHeader for desktop layout — hide the
+     mobile collapsible copy inside .leftTopContent so it isn't shown twice. */
+  .leftTopContent .formatRow { display: none; }
   .formatLabel {
     font-family: var(--font-serif);
     font-size: 0.72rem;
@@ -4708,9 +4748,17 @@
   }
   .cmdArtBg { filter: blur(7px) brightness(0.52) saturate(1.55); }
   .cmdArtPane { width: 306px; height: 197px; }
-  .cmdArtOverlay { gap: 8px; }
-  .cmdArtName { font-size: 1.8rem; }
+  .cmdArtOverlay { gap: 28px; }
+  /* Info only needs as much width as its (short) content — cap it so the
+     notes column gets the rest of the banner's free space, not a 50/50 split. */
+  .cmdArtInfo { flex: 0 1 320px; gap: 8px; }
+  .cmdArtNameInput { font-size: 1.8rem; }
+  .cmdArtCommander { font-size: 1rem; }
   .cmdArtMeta { font-size: 1rem; gap: 8px; }
+  /* Push down to line up with the colors row, not the (taller) deck name row */
+  .cmdArtNotes { flex: 1; margin-top: 44px; }
+  .cmdArtNotes .deckMetaDesc { min-height: 0; flex: 1; resize: none; background: rgba(0,0,0,0.28); border-color: rgba(255,255,255,0.12); color: #f0e6d2; }
+  .cmdArtNotes .deckMetaDesc::placeholder { color: rgba(240,230,210,0.5); }
 
   /* Toolbar / filter bar — flush with the list, no divider chrome */
   .deckToolbar { border-bottom: 0; padding: 8px 0; margin-bottom: 0; }

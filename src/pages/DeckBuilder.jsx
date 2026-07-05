@@ -24,6 +24,8 @@ import { useToast } from '../components/ToastContext'
 import PromptDialog from '../components/PromptDialog'
 import { CardDetail } from '../components/CardComponents'
 import DeckStats, { normalizeDeckBuilderCards, CAT_COLORS, CAT_ORDER } from '../components/DeckStats'
+import BracketBadge from '../components/BracketBadge'
+import { analyzeBracket, fetchGameChangerNames } from '../lib/commanderBracket'
 import { getScryfallKey, formatPrice, getPrice } from '../lib/scryfall'
 import { getCardCategoryFromCard, isTypeFallbackCategory } from '../lib/cardCategory'
 import { pickPrintingForMode, PRINTING_MODES } from '../lib/printingOptimize'
@@ -964,14 +966,37 @@ export default function DeckBuilderPage() {
     [mainDeckCards, builderSfMap, price_source]
   )
 
-  // Two-card combo names for the Bracket estimate in DeckStats (the Game
-  // Changers fetch + analysis live inside DeckStats/BracketBadge now).
+  // Two-card combo names for the Bracket estimate.
   const comboNameLists = useMemo(() => {
     if (!combosFetched) return null
     return combosIncluded.map(c =>
       (c.uses || []).map(u => u.card?.name || u.template?.name).filter(Boolean)
     )
   }, [combosFetched, combosIncluded])
+
+  // Commander Bracket estimate — computed once here (not inside DeckStats) so
+  // the art banner's BracketBadge and the Stats tab's can share the same
+  // analysis instead of double-fetching Game Changers / re-analyzing.
+  const [gameChangerNames, setGameChangerNames] = useState(null)
+  useEffect(() => {
+    if (!isEDH || gameChangerNames) return
+    let active = true
+    fetchGameChangerNames()
+      .then(names => { if (active) setGameChangerNames(names) })
+      .catch(() => { if (active) setGameChangerNames(new Set()) })
+    return () => { active = false }
+  }, [isEDH, gameChangerNames])
+
+  const bracketAnalysis = useMemo(() => {
+    if (!isEDH) return null
+    return analyzeBracket({
+      cards: normalizedStatsCards,
+      gameChangerNames: gameChangerNames || new Set(),
+      comboCardLists: combosFetched ? (comboNameLists || []) : null,
+    })
+  }, [isEDH, normalizedStatsCards, gameChangerNames, combosFetched, comboNameLists])
+
+  const effectiveBracket = statsBracketOverride ?? bracketAnalysis?.bracket ?? 1
 
   // Auto-collapse format/commander section on mobile once commander is set
   useEffect(() => {
@@ -1950,9 +1975,10 @@ export default function DeckBuilderPage() {
     }
   }
 
-  async function togglePublic() {
+  async function setVisibility(nextPublic) {
     const previous = deckMeta.is_public
-    const newMeta = { ...deckMeta, is_public: !previous }
+    if (nextPublic === previous) return
+    const newMeta = { ...deckMeta, is_public: nextPublic }
     setDeckMeta(newMeta)
     try {
       await sbExec(sb.from('folders').update({ description: serializeDeckMeta(withPersistentMetaFields(newMeta)) }).eq('id', deckId), { label: 'Toggle public failed' })
@@ -1960,6 +1986,10 @@ export default function DeckBuilderPage() {
     } catch {
       setDeckMeta(prev => ({ ...prev, is_public: previous }))
     }
+  }
+
+  async function togglePublic() {
+    await setVisibility(!deckMeta.is_public)
   }
 
   async function loadDeckGameResults() {
@@ -4071,21 +4101,13 @@ export default function DeckBuilderPage() {
           </button>
         )}
         <div className={styles.leftContent}>
-        {/* Desktop-only left header — back link, deck title, visibility, quick actions */}
+        {/* Desktop-only left header — back link, format, visibility, quick actions */}
         <div className={`${styles.leftHeader} ${styles.deskOnly}`}>
-          <Link className={styles.backToDecks} to="/builder" title="Back to decks">
-            <ChevronLeftIcon size={13} />
-            <span>Back to Decklist</span>
-          </Link>
-          <div className={styles.leftTitleRow}>
-            <input
-              className={styles.leftNameInput}
-              value={deckName}
-              onChange={e => setDeckName(e.target.value)}
-              onBlur={saveNameBlur}
-              maxLength={100}
-            />
-            {saving && <span className={styles.savingDot} />}
+          <div className={styles.leftHeaderTopRow}>
+            <Link className={styles.backToDecks} to="/builder" title="Back to decks">
+              <ChevronLeftIcon size={13} />
+              <span>Back to Decklist</span>
+            </Link>
             <button
               type="button"
               className={styles.leftCollapseBtn}
@@ -4096,16 +4118,34 @@ export default function DeckBuilderPage() {
               <CloseIcon size={14} />
             </button>
           </div>
-          <div className={styles.visibilityToggleRow}>
-            <div
-              className={`${styles.toggleTrack} ${deckMeta.is_public ? styles.toggleTrackOn : ''}`}
-              onClick={togglePublic}
-            >
-              <div className={styles.toggleThumb} />
+          <div className={styles.formatVisibilityRow}>
+            <div className={styles.formatCol}>
+              <span className={styles.formatLabel}>Format</span>
+              <Select
+                className={styles.formatSelect}
+                panelClassName={styles.formatSelectPanel}
+                value={deckMeta.format || 'commander'}
+                onChange={e => handleFormatChange(e.target.value)}
+                title="Select format"
+                portal
+              >
+                {FORMATS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+              </Select>
             </div>
-            <span className={`${styles.visibilityText} ${deckMeta.is_public ? styles.visibilityTextOn : ''}`}>
-              Public Visibility
-            </span>
+            <div className={styles.visibilityCol}>
+              <span className={styles.formatLabel}>Visibility</span>
+              <Select
+                className={styles.formatSelect}
+                panelClassName={styles.formatSelectPanel}
+                value={deckMeta.is_public ? 'public' : 'private'}
+                onChange={e => setVisibility(e.target.value === 'public')}
+                title="Select visibility"
+                portal
+              >
+                <option value="private">Private</option>
+                <option value="public">Public</option>
+              </Select>
+            </div>
           </div>
           <div className={styles.leftActionsRow}>
             {isEDH && (
@@ -4470,6 +4510,7 @@ export default function DeckBuilderPage() {
               trigger={({ toggle }) => (
                 <button className={styles.cmdArtGearBtn} onClick={toggle} title="Deck actions" aria-label="Deck actions">
                   <SettingsIcon size={15} />
+                  <span>Deck Actions</span>
                 </button>
               )}
             >
@@ -4517,42 +4558,36 @@ export default function DeckBuilderPage() {
         >
             {renderDeckHeader(styles.deckHeaderMobile)}
 
-            {/* Fallback deck-actions gear when there is no commander banner */}
-            {commanderCards.length === 0 && (
-              <div className={`${styles.deckListGear} ${styles.deskOnly}`}>
-                <ResponsiveMenu
-                  title="Deck Actions"
-                  align="right"
-                  portal
-                  trigger={({ toggle }) => (
-                    <button className={styles.leftGearBtn} onClick={toggle} title="Deck actions" aria-label="Deck actions">
-                      <SettingsIcon size={14} />
-                    </button>
-                  )}
-                >
-                  {args => renderDeckActionsMenu({ ...args, includeQuickActions: true })}
-                </ResponsiveMenu>
-              </div>
-            )}
-
-            {/* Commander art display — supports partners */}
-            {commanderCards.length > 0 && (
-              <div className={styles.cmdArt}>
-                {/* Blurred background layer */}
+            {/* Art banner — deck name always shown; commander art + names when set */}
+            <div className={`${styles.cmdArt}${commanderCards.length === 0 ? ' ' + styles.cmdArtNoCmdr : ''}`}>
+              {/* Blurred background layer — falls back to a plain gradient with no commander */}
+              {commanderCards.length > 0 && (
                 <div className={styles.cmdArtBg}
                   style={{ backgroundImage: `url(${toArtCropImg(commanderCards[0].image_uri)})` }} />
-                {/* Art thumbnails */}
-                {commanderCards.map(card => (
-                  <div key={card.id} className={styles.cmdArtPane}
-                    onClick={() => unsetCommander(card.id)} title="Click to remove commander status">
-                    {card.image_uri
-                      ? <img className={styles.cmdArtImg} src={toArtCropImg(card.image_uri)} alt={card.name} />
-                      : <div className={styles.cmdArtImgPlaceholder} />
-                    }
+              )}
+              {/* Art thumbnails */}
+              {commanderCards.map(card => (
+                <div key={card.id} className={styles.cmdArtPane}
+                  onClick={() => unsetCommander(card.id)} title="Click to remove commander status">
+                  {card.image_uri
+                    ? <img className={styles.cmdArtImg} src={toArtCropImg(card.image_uri)} alt={card.name} />
+                    : <div className={styles.cmdArtImgPlaceholder} />
+                  }
+                </div>
+              ))}
+              {/* Info panel */}
+              <div className={styles.cmdArtOverlay}>
+                <div className={styles.cmdArtInfo}>
+                  <div className={styles.cmdArtNameRow}>
+                    <input
+                      className={styles.cmdArtNameInput}
+                      value={deckName}
+                      onChange={e => setDeckName(e.target.value)}
+                      onBlur={saveNameBlur}
+                      maxLength={100}
+                    />
+                    {saving && <span className={styles.savingDot} />}
                   </div>
-                ))}
-                {/* Info panel */}
-                <div className={styles.cmdArtOverlay}>
                   {colorIdentity.length > 0 && (
                     <div className={styles.cmdColorPips}>
                       {colorIdentity.map(c => (
@@ -4561,20 +4596,68 @@ export default function DeckBuilderPage() {
                       ))}
                     </div>
                   )}
-                  <span className={styles.cmdArtName}>
-                    {commanderCards.map(c => c.name).join(' & ')}
-                  </span>
+                  {(commanderCards.length > 0 || deckMeta.companion) && (
+                    <span className={styles.cmdArtCommander}>
+                      {commanderCards.map(c => c.name).join(' & ')}
+                      {commanderCards.length > 0 && deckMeta.companion && ' · '}
+                      {deckMeta.companion && `${deckMeta.companion.name} (Companion)`}
+                    </span>
+                  )}
                   <div className={styles.cmdArtMeta}>
                     {format && <span>{format.label}</span>}
                     {totalDeckPrice > 0 && <span style={{ color: 'var(--green)' }}>{formatPrice(totalDeckPrice, price_source)}</span>}
                   </div>
+                  {isEDH && bracketAnalysis && (
+                    <div className={styles.cmdArtBracketRow}>
+                      <BracketBadge
+                        analysis={bracketAnalysis}
+                        bracket={effectiveBracket}
+                        isOverridden={statsBracketOverride != null}
+                        onOverride={(n) => {
+                          setStatsBracketOverride(n)
+                          logDeckChange(deckId, user?.id, 'Bracket', n == null ? 'Reset to auto' : `Set to ${n}`)
+                        }}
+                        combos={{ fetched: combosFetched, loading: combosLoading, nameLists: comboNameLists, onCheck: fetchCombos }}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Description + Tags — free space to the right (desktop only) */}
+                <div className={`${styles.cmdArtNotes} ${styles.deskOnly}`}>
+                  <textarea
+                    className={styles.deckMetaDesc}
+                    value={cmdDescription}
+                    onChange={e => setCmdDescription(e.target.value)}
+                    onBlur={e => saveDescription(e.target.value)}
+                    placeholder="Add description..."
+                    rows={3}
+                    maxLength={1000}
+                  />
+                  <div className={styles.deckMetaTagRow}>
+                    {cmdTags.map(tag => (
+                      <span key={tag} className={styles.deckMetaTag}>
+                        {tag}
+                        <button className={styles.deckMetaTagRemove} onClick={() => removeTag(tag)}><CloseIcon size={13} /></button>
+                      </span>
+                    ))}
+                    <input
+                      className={styles.deckMetaTagInput}
+                      value={newTagInput}
+                      onChange={e => setNewTagInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(newTagInput) } }}
+                      onBlur={() => { if (newTagInput.trim()) addTag(newTagInput) }}
+                      placeholder={cmdTags.length === 0 ? 'Add tags...' : '+'}
+                      maxLength={30}
+                    />
+                  </div>
                 </div>
               </div>
-            )}
+            </div>
 
-            {/* Description + Tags */}
+            {/* Description + Tags — mobile only (no room for it in the compact banner) */}
             {(cmdDescription.trim() || cmdTags.length > 0) && (
-            <div className={styles.deckMetaPanel}>
+            <div className={`${styles.deckMetaPanel} ${styles.mobileOnly}`}>
               <textarea
                 className={styles.deckMetaDesc}
                 value={cmdDescription}
@@ -5082,7 +5165,6 @@ export default function DeckBuilderPage() {
                     stackContext={stackContext}
                     legalityWarnings={legalityWarnings}
                     warningTitle={warningTitle}
-                    gridDensity={grid_density}
                     compactVisibleColumns={compactVisibleColumns}
                     canHover={CAN_HOVER}
                     lastInputWasTouch={lastInputWasTouch}
@@ -5297,6 +5379,8 @@ export default function DeckBuilderPage() {
                     logDeckChange(deckId, user?.id, 'Bracket', n == null ? 'Reset to auto' : `Set to ${n}`)
                   }}
                   showBracket={isEDH}
+                  bracketAnalysis={bracketAnalysis}
+                  gameChangerNames={gameChangerNames}
                   combos={{ fetched: combosFetched, loading: combosLoading, nameLists: comboNameLists, onCheck: fetchCombos }}
                 />
               : <div style={{ color: 'var(--text-faint)', fontSize: '0.85rem', padding: '20px 0', textAlign: 'center' }}>

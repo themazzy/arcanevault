@@ -890,31 +890,36 @@ function TokensExtras({ allItems, tokenImages }) {
  * @param {number|null} bracketOverride  - Manual bracket override (null = auto)
  * @param {Function} onBracketOverride  - Callback to set override
  */
-export default function DeckStats({ cards, bracketOverride, onBracketOverride, price_source, showBracket = true, combos = null }) {
+export default function DeckStats({ cards, bracketOverride, onBracketOverride, price_source, showBracket = true, combos = null, bracketAnalysis: bracketAnalysisProp = null, gameChangerNames: gameChangerNamesProp = null }) {
   const [curveMode, setCurveMode] = useState('flat')
   const [tokenImages, setTokenImages] = useState({}) // name → img uri | null
   const fetchedRef = useRef(new Set())
 
   // Commander Bracket estimate — Game Changers list is live from Scryfall
-  // (7-day localStorage cache inside fetchGameChangerNames).
-  const [gameChangerNames, setGameChangerNames] = useState(null)
+  // (7-day localStorage cache inside fetchGameChangerNames). A caller that
+  // already computed this (e.g. DeckBuilder, to share it with the art banner)
+  // can pass it in directly and skip the fetch/analysis below entirely.
+  const [gameChangerNamesState, setGameChangerNames] = useState(null)
+  const gameChangerNames = gameChangerNamesProp || gameChangerNamesState
   useEffect(() => {
+    if (bracketAnalysisProp || gameChangerNamesProp) return
     if (!showBracket || gameChangerNames) return
     let active = true
     fetchGameChangerNames()
       .then(names => { if (active) setGameChangerNames(names) })
       .catch(() => { if (active) setGameChangerNames(new Set()) })
     return () => { active = false }
-  }, [showBracket, gameChangerNames])
+  }, [showBracket, gameChangerNames, bracketAnalysisProp, gameChangerNamesProp])
 
   const bracketAnalysis = useMemo(() => {
+    if (bracketAnalysisProp) return bracketAnalysisProp
     if (!showBracket) return null
     return analyzeBracket({
       cards,
       gameChangerNames: gameChangerNames || new Set(),
       comboCardLists: combos?.fetched ? (combos.nameLists || []) : null,
     })
-  }, [showBracket, cards, gameChangerNames, combos?.fetched, combos?.nameLists])
+  }, [bracketAnalysisProp, showBracket, cards, gameChangerNames, combos?.fetched, combos?.nameLists])
 
   const stats = useMemo(() => {
     const curve = {}

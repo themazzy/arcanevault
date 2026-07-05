@@ -244,6 +244,13 @@ const NEWS_FEEDS = [
   { url: 'https://mtgazone.com/feed',        label: 'MTG Arena Zone', color: '#5aafcc' },
 ]
 
+// WordPress serves the RSS "featured image" at its generated crop size
+// (e.g. "...-150x150.jpg", visibly blurry at card size) — stripping the size
+// suffix recovers the full-resolution original at the same URL.
+function upgradeWpThumbnail(url) {
+  return url.replace(/-\d{2,4}x\d{2,4}(?=\.\w+(?:[?#]|$))/, '')
+}
+
 function parseRssFeed(xmlText, label, color) {
   try {
     const doc    = new DOMParser().parseFromString(xmlText, 'text/xml')
@@ -292,7 +299,7 @@ function parseRssFeed(xmlText, label, color) {
         link:        link.startsWith('http') ? link : '',
         pubDate,
         description: desc,
-        thumbnail:   thumbnail?.startsWith('http') ? thumbnail : null,
+        thumbnail:   thumbnail?.startsWith('http') ? upgradeWpThumbnail(thumbnail) : null,
         author,
         _source:     label,
         _sourceColor: color,
@@ -301,8 +308,27 @@ function parseRssFeed(xmlText, label, color) {
   } catch { return [] }
 }
 
-const NEWS_CACHE_KEY = 'av_mtg_news_v1'
+const NEWS_CACHE_KEY = 'av_mtg_news_v2'
 const NEWS_CACHE_TTL_MS = 15 * 60 * 1000
+
+// MTGGoldfish and MTG Arena Zone's feeds carry no image data at all — backfill
+// their thumbnails by asking the worker to scrape og:image off the article
+// page itself (edge-cached 24h there, so repeat articles are near-instant).
+async function backfillThumbnails(articles) {
+  const missing = articles.filter(a => !a.thumbnail && a.link)
+  if (!missing.length) return articles
+  await Promise.allSettled(missing.map(async a => {
+    try {
+      const res = await fetch(`${getProdAppUrl('/api/og-image')}?url=${encodeURIComponent(a.link)}`, {
+        signal: AbortSignal.timeout?.(6000),
+      })
+      if (!res.ok) return
+      const { image } = await res.json()
+      if (image?.startsWith('http')) a.thumbnail = image
+    } catch { /* leave thumbnail null — placeholder icon shown */ }
+  }))
+  return articles
+}
 
 async function fetchMTGNews() {
   // Session cache: repeat Home visits within 15 min skip the network entirely
@@ -327,6 +353,8 @@ async function fetchMTGNews() {
     .flatMap(r => r.value)
     .sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate))
     .slice(0, 12)
+
+  await backfillThumbnails(articles)
 
   if (articles.length) {
     try { sessionStorage.setItem(NEWS_CACHE_KEY, JSON.stringify({ at: Date.now(), articles })) } catch { /* storage full */ }
@@ -1294,7 +1322,7 @@ function MTGNewsSection() {
                   : <div className={styles.newsCardImgPlaceholder}><ImageIcon size={24} /></div>
                 }
                 <span className={styles.newsCardBadge}
-                  style={{ background: article._sourceColor + '22', color: article._sourceColor, borderColor: article._sourceColor + '55' }}>
+                  style={{ color: article._sourceColor, borderColor: article._sourceColor }}>
                   {article._source}
                 </span>
               </div>
