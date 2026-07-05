@@ -15,6 +15,7 @@ import ImportModal from '../components/ImportModal'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import styles from './DeckBrowser.module.css'
 import { parseDeckMeta, serializeDeckMeta } from '../lib/deckBuilderApi'
+import { resolveBracketBadge } from '../lib/commanderBracket'
 import { buildSyncDiff, getSyncState, markLinkedPairUnsynced, summarizeSyncDiff, withLinkedPair, writeSyncState } from '../lib/deckSync'
 import { useLongPress } from '../hooks/useLongPress'
 import { useFilterWorker } from '../hooks/useFilterWorker'
@@ -1197,6 +1198,15 @@ export default function DeckBrowser({ folder, onBack }) {
           <div className={styles.headerMeta}>
             <span>{totalQty} cards</span>
             <span className={styles.deckValue}>{formatPrice(totalValue, price_source)}</span>
+            {resolveBracketBadge(deckMeta.bracket) && (
+              <span
+                className={styles.bracketBadge}
+                style={{ borderColor: `${resolveBracketBadge(deckMeta.bracket).color}55`, color: resolveBracketBadge(deckMeta.bracket).color }}
+                title={resolveBracketBadge(deckMeta.bracket).desc}
+              >
+                B{deckMeta.bracket} · {resolveBracketBadge(deckMeta.bracket).label}
+              </span>
+            )}
             <div className={styles.headerActionsDesktop}>
               <button className={styles.addCardsBtn} onClick={() => setShowImport(true)}>
                 <ImportIcon size={12} /> Import

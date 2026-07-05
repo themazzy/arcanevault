@@ -1,8 +1,6 @@
 /* ── Page ────────────────────────────────────────────────────────── */
 .page {
   padding: 24px;
-  max-width: 1440px;
-  margin: 0 auto;
   background-image: radial-gradient(circle, rgba(201,168,76,0.04) 1px, transparent 1px);
   background-size: 28px 28px;
   min-height: 100%;
@@ -249,7 +247,7 @@
 /* ── Deck grid ──────────────────────────────────────────────────── */
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
   gap: 16px;
   align-items: stretch;
 }
@@ -376,6 +374,16 @@
   border: 1px solid rgba(224,176,76,0.3);
   border-radius: 4px;
   padding: 1px 6px;
+}
+
+.bracketBadge {
+  display: inline-block;
+  font-size: 0.62rem;
+  background: var(--s2);
+  border: 1px solid var(--s-border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  letter-spacing: 0.02em;
 }
 
 /* Name & commander */

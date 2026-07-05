@@ -33,6 +33,30 @@ export const BRACKET_LABELS = {
   5: 'cEDH',
 }
 
+// Official 5-bracket system (Commander Brackets beta, Feb 2026 rules).
+export const BRACKET_META = {
+  1: { label: BRACKET_LABELS[1], color: '#6aaa6a', desc: 'Themed and experimental decks — winning is not the point.' },
+  2: { label: BRACKET_LABELS[2], color: '#5a9abb', desc: 'Average modern precon power. No Game Changers, no mass land denial.' },
+  3: { label: BRACKET_LABELS[3], color: '#c9a84c', desc: 'Tuned decks with up to three Game Changers; no fast two-card combos.' },
+  4: { label: BRACKET_LABELS[4], color: '#e08a3c', desc: 'No deckbuilding restrictions — anything short of tournament play.' },
+  5: { label: BRACKET_LABELS[5], color: '#cc5555', desc: 'Competitive EDH — a declared tournament intent, never auto-detected.' },
+}
+
+// Read-only bracket badge lookup for list/browser views that only have the
+// persisted bracket number (not a full analyzeBracket() result) to show.
+export function resolveBracketBadge(bracket) {
+  if (!bracket) return null
+  return BRACKET_META[bracket] || BRACKET_META[1]
+}
+
+// Returns the next deck-meta object to persist when the effective bracket
+// changes, or null when it already matches (avoids redundant Supabase writes).
+export function computeBracketMetaPatch(currentMeta, bracket, manual) {
+  const current = currentMeta || {}
+  if (current.bracket === bracket && !!current.bracketManual === manual) return null
+  return { ...current, bracket, bracketManual: manual }
+}
+
 // ── Oracle-text detectors ────────────────────────────────────────────────────
 // Patterns derived from real Scryfall oracle text (Armageddon, Jokulhaups,
 // Ruination, Sunder, Winter Orb, Stasis, Time Warp, …) — see the test file.

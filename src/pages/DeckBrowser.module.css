@@ -28,6 +28,15 @@
 }
 .headerMeta { display: flex; align-items: center; gap: 12px; color: var(--text-dim); font-size: 0.85rem; flex-wrap: wrap; }
 .deckValue { color: var(--green); font-family: var(--font-display); font-size: 1rem; font-weight: 600; }
+.bracketBadge {
+  display: inline-block;
+  font-size: 0.72rem;
+  background: var(--s2);
+  border: 1px solid var(--s-border);
+  border-radius: 4px;
+  padding: 2px 7px;
+  letter-spacing: 0.02em;
+}
 .headerActionsDesktop { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .headerActionsMobile { display: none; }
 .addCardsBtn {

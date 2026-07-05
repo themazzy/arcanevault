@@ -333,6 +333,7 @@ export default function DeckViewPage() {
       }
       setDeck(folder)
       setDeckMeta(meta)
+      setStatsBracketOverride(meta.bracketManual ? (meta.bracket ?? null) : null)
 
       // Fetch creator nickname via security-definer RPC (bypasses user_settings RLS)
       sb.rpc('get_user_nickname', { p_user_id: folder.user_id })

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, Link, useLocation } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
@@ -12,6 +12,10 @@ import { useLongPress } from '../hooks/useLongPress'
 import { useToast } from '../components/ToastContext'
 import { CheckIcon, DeleteIcon, EditIcon, ChevronDownIcon } from '../icons'
 import { GuidedCommanderPicker } from '../components/deckBuilder/GuidedCommanderPicker'
+import { resolveBracketBadge, analyzeBracket, fetchGameChangerNames, computeBracketMetaPatch } from '../lib/commanderBracket'
+import { fetchDeckCards, fetchDeckAllocations } from '../lib/deckData'
+import { normalizeDeckBuilderCards } from '../components/DeckStats'
+import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 
 const MANA_SYMBOL_URL = c => `https://svgs.scryfall.io/card-symbols/${c}.svg`
 
@@ -119,6 +123,7 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
   const isCollection = deck.type === 'deck'
   const description = plainPreview(meta.deckDescription)
   const tags = clampTags(meta.tags)
+  const bracketMeta = fmt?.isEDH ? resolveBracketBadge(meta.bracket) : null
 
   return (
     <div
@@ -139,6 +144,15 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
             }
             {isCollection && fmt && (
               <span className={styles.formatBadge}>{fmt.label}</span>
+            )}
+            {bracketMeta && (
+              <span
+                className={styles.bracketBadge}
+                style={{ borderColor: `${bracketMeta.color}55`, color: bracketMeta.color }}
+                title={bracketMeta.desc}
+              >
+                B{meta.bracket} · {bracketMeta.label}
+              </span>
             )}
             {isUnsynced && (
               <span className={styles.unsyncedBadge}>Unsynced</span>
@@ -321,6 +335,7 @@ export default function BuilderPage() {
 
   const [selectMode, setSelectMode]   = useState(false)
   const [selectedIds, setSelectedIds] = useState(new Set())
+  const backfillRunningRef = useRef(false)
 
   const COLOR_ORDER = ['W', 'U', 'B', 'R', 'G', 'C']
 
@@ -343,8 +358,45 @@ export default function BuilderPage() {
         return true
       } catch { return true }
     })
-    setDecks(attachDeckMeta(await enrichDecksWithCommanderArt(nonGroupDecks, { persist: true })))
+    const withArt = attachDeckMeta(await enrichDecksWithCommanderArt(nonGroupDecks, { persist: true }))
+    setDecks(withArt)
     setLoading(false)
+    backfillMissingBrackets(withArt)
+  }
+
+  // One-time-per-deck bracket estimate for decks that existed before bracket
+  // persistence shipped (or were never opened in Builder since). Runs quietly
+  // in the background so "My Decks" tiles show a pill without the user having
+  // to open every deck once. Skips anything that already has a stored value.
+  async function backfillMissingBrackets(deckList) {
+    if (backfillRunningRef.current) return
+    const targets = (deckList || []).filter(d => {
+      const fmt = FORMATS.find(f => f.id === (d.__meta.format || 'commander'))
+      return fmt?.isEDH && d.__meta.bracket == null
+    })
+    if (!targets.length) return
+    backfillRunningRef.current = true
+    try {
+      const gameChangerNames = await fetchGameChangerNames()
+      for (const deck of targets) {
+        try {
+          const cardList = deck.type === 'deck'
+            ? await fetchDeckAllocations(deck.id)
+            : await fetchDeckCards(deck.id)
+          const sfMap = cardList.length ? await loadCardMapWithSharedPrices(cardList, { requireOracle: true }) : {}
+          const normalized = normalizeDeckBuilderCards(cardList, sfMap)
+          const { bracket } = analyzeBracket({ cards: normalized, gameChangerNames })
+          const nextMeta = computeBracketMetaPatch(deck.__meta, bracket, false)
+          if (!nextMeta) continue
+          await sb.from('folders').update({ description: serializeDeckMeta(nextMeta) }).eq('id', deck.id)
+          setDecks(prev => prev.map(d => d.id === deck.id ? { ...d, __meta: nextMeta } : d))
+        } catch (err) {
+          console.warn('[Builder] bracket backfill failed for deck', deck.id, err)
+        }
+      }
+    } finally {
+      backfillRunningRef.current = false
+    }
   }
 
   async function loadCommunityDecks() {

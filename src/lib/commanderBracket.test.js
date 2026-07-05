@@ -11,6 +11,8 @@ import {
   normalizeGameChangerNames,
   fetchGameChangerNames,
   analyzeBracket,
+  resolveBracketBadge,
+  computeBracketMetaPatch,
 } from './commanderBracket'
 import { sfGet } from './scryfall'
 
@@ -230,5 +232,43 @@ describe('analyzeBracket', () => {
     const gc = normalizeGameChangerNames(["Tergrid, God of Fright // Tergrid's Lantern"])
     const result = analyzeBracket({ cards: [card('Tergrid, God of Fright')], gameChangerNames: gc })
     expect(result.bracket).toBe(3)
+  })
+})
+
+describe('resolveBracketBadge', () => {
+  it('returns null for no bracket (non-EDH decks, or never analyzed)', () => {
+    expect(resolveBracketBadge(null)).toBeNull()
+    expect(resolveBracketBadge(undefined)).toBeNull()
+    expect(resolveBracketBadge(0)).toBeNull()
+  })
+
+  it('returns the matching bracket meta for 1-5', () => {
+    expect(resolveBracketBadge(3).label).toBe('Upgraded')
+    expect(resolveBracketBadge(5).label).toBe('cEDH')
+  })
+
+  it('falls back to bracket 1 for an out-of-range value', () => {
+    expect(resolveBracketBadge(9)).toBe(resolveBracketBadge(1))
+  })
+})
+
+describe('computeBracketMetaPatch', () => {
+  it('returns a patch when the deck has never had a bracket stored', () => {
+    const patch = computeBracketMetaPatch({}, 3, false)
+    expect(patch).toEqual({ bracket: 3, bracketManual: false })
+  })
+
+  it('returns null when the stored value already matches (no redundant write)', () => {
+    expect(computeBracketMetaPatch({ bracket: 3, bracketManual: false }, 3, false)).toBeNull()
+  })
+
+  it('returns a patch when only the manual flag changed', () => {
+    const patch = computeBracketMetaPatch({ bracket: 3, bracketManual: false }, 3, true)
+    expect(patch).toEqual({ bracket: 3, bracketManual: true })
+  })
+
+  it('preserves unrelated meta fields already on the deck', () => {
+    const patch = computeBracketMetaPatch({ commanderName: 'Atraxa', bracket: 2, bracketManual: false }, 4, false)
+    expect(patch).toEqual({ commanderName: 'Atraxa', bracket: 4, bracketManual: false })
   })
 })

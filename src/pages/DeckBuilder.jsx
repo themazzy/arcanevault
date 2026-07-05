@@ -25,7 +25,7 @@ import PromptDialog from '../components/PromptDialog'
 import { CardDetail } from '../components/CardComponents'
 import DeckStats, { normalizeDeckBuilderCards, CAT_COLORS, CAT_ORDER } from '../components/DeckStats'
 import BracketBadge from '../components/BracketBadge'
-import { analyzeBracket, fetchGameChangerNames } from '../lib/commanderBracket'
+import { analyzeBracket, fetchGameChangerNames, computeBracketMetaPatch } from '../lib/commanderBracket'
 import { getScryfallKey, formatPrice, getPrice } from '../lib/scryfall'
 import { getCardCategoryFromCard, isTypeFallbackCategory } from '../lib/cardCategory'
 import { pickPrintingForMode, PRINTING_MODES } from '../lib/printingOptimize'
@@ -766,6 +766,7 @@ export default function DeckBuilderPage() {
         setDeckName(folder.name)
         setCmdDescription(meta.deckDescription || '')
         setCmdTags(meta.tags || [])
+        setStatsBracketOverride(meta.bracketManual ? (meta.bracket ?? null) : null)
         const categoryRows = await fetchDeckCategories(deckId)
         if (!ignore) setDeckCategories(categoryRows)
 
@@ -997,6 +998,18 @@ export default function DeckBuilderPage() {
   }, [isEDH, normalizedStatsCards, gameChangerNames, combosFetched, comboNameLists])
 
   const effectiveBracket = statsBracketOverride ?? bracketAnalysis?.bracket ?? 1
+
+  // Persist the effective bracket to the deck's meta blob so list/browser views
+  // (Builder.jsx tiles, DeckBrowser) can show a pill without re-fetching every
+  // deck's cards and re-running analyzeBracket just to render a list.
+  useEffect(() => {
+    if (!deckId || !isEDH || !bracketAnalysis) return
+    const nextMeta = computeBracketMetaPatch(deckMetaRef.current, effectiveBracket, statsBracketOverride != null)
+    if (!nextMeta) return
+    setDeckMeta(nextMeta)
+    deckMetaRef.current = nextMeta
+    sbExec(sb.from('folders').update({ description: serializeDeckMeta(nextMeta) }).eq('id', deckId), { silent: true }).catch(() => {})
+  }, [deckId, isEDH, bracketAnalysis, effectiveBracket, statsBracketOverride])
 
   // Auto-collapse format/commander section on mobile once commander is set
   useEffect(() => {
@@ -1903,6 +1916,9 @@ export default function DeckBuilderPage() {
       delete newMeta.partnerName
       delete newMeta.partnerScryfallId
       delete newMeta.commanders
+      delete newMeta.bracket
+      delete newMeta.bracketManual
+      setStatsBracketOverride(null)
     }
     setDeckMeta(newMeta)
     await saveMeta(newMeta)

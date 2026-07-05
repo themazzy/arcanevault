@@ -1,17 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { BRACKET_LABELS } from '../lib/commanderBracket'
+import { BRACKET_META } from '../lib/commanderBracket'
 import { EditIcon } from '../icons'
 import styles from './BracketBadge.module.css'
 
-// Official 5-bracket system (Commander Brackets beta, Feb 2026 rules).
-export const BRACKET_META = {
-  1: { label: BRACKET_LABELS[1], color: '#6aaa6a', desc: 'Themed and experimental decks — winning is not the point.' },
-  2: { label: BRACKET_LABELS[2], color: '#5a9abb', desc: 'Average modern precon power. No Game Changers, no mass land denial.' },
-  3: { label: BRACKET_LABELS[3], color: '#c9a84c', desc: 'Tuned decks with up to three Game Changers; no fast two-card combos.' },
-  4: { label: BRACKET_LABELS[4], color: '#e08a3c', desc: 'No deckbuilding restrictions — anything short of tournament play.' },
-  5: { label: BRACKET_LABELS[5], color: '#cc5555', desc: 'Competitive EDH — a declared tournament intent, never auto-detected.' },
-}
+export { BRACKET_META }
 
 /**
  * Commander Bracket pill for the deck stats row. Click to expand the full
