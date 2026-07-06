@@ -173,6 +173,32 @@ function quadRoughlyEqual(a, b, eps = 3) {
   return true
 }
 
+const DETECT_FRAME_RADIUS = 18 // px — rounding applied to the live tracking-frame quad
+
+// Builds an SVG path for a quadrilateral with rounded corners: each vertex is
+// replaced with a short quadratic curve toward its neighbors (radius clamped
+// to half the shorter adjacent edge so tiny/skewed quads don't self-intersect).
+function roundedQuadPath(points, radius) {
+  const n = points.length
+  const parts = []
+  for (let i = 0; i < n; i++) {
+    const curr = points[i]
+    const prev = points[(i - 1 + n) % n]
+    const next = points[(i + 1) % n]
+    const toPrev = { x: prev.x - curr.x, y: prev.y - curr.y }
+    const toNext = { x: next.x - curr.x, y: next.y - curr.y }
+    const prevLen = Math.hypot(toPrev.x, toPrev.y) || 1
+    const nextLen = Math.hypot(toNext.x, toNext.y) || 1
+    const r = Math.min(radius, prevLen / 2, nextLen / 2)
+    const p1 = { x: curr.x + (toPrev.x / prevLen) * r, y: curr.y + (toPrev.y / prevLen) * r }
+    const p2 = { x: curr.x + (toNext.x / nextLen) * r, y: curr.y + (toNext.y / nextLen) * r }
+    parts.push(`${i === 0 ? 'M' : 'L'} ${p1.x.toFixed(1)} ${p1.y.toFixed(1)}`)
+    parts.push(`Q ${curr.x.toFixed(1)} ${curr.y.toFixed(1)} ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`)
+  }
+  parts.push('Z')
+  return parts.join(' ')
+}
+
 function getAutoScanCardSignature(match, foil = false) {
   return `${String(match?.name || '').trim().toLocaleLowerCase()}|${foil ? 1 : 0}`
 }
@@ -1888,23 +1914,19 @@ export default function CardScanner({ onMatch, onClose }) {
           </div>
         )}
 
-        {/* Live lock-on overlay: quad the auto-scan probe currently sees */}
-        {probeQuad && (
+        {/* Tracking frame: follows the detected card quad in green with rounded
+            corners; falls back to a centered red placeholder while no card
+            is being tracked. */}
+        {probeQuad ? (
           <svg className={styles.detectOverlay} aria-hidden="true">
-            <polygon
-              className={styles.detectPoly}
-              points={probeQuad.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')}
+            <path
+              className={`${styles.detectPoly} ${styles.detectPolyFound}`}
+              d={roundedQuadPath(probeQuad, DETECT_FRAME_RADIUS)}
             />
           </svg>
+        ) : (
+          <div className={styles.trackFrameIdle} aria-hidden="true" />
         )}
-
-        {/* Targeting reticle */}
-        <div className={styles.frameReticle} aria-hidden="true">
-          <span className={`${styles.reticleCorner} ${styles.reticleCornerTl}`} />
-          <span className={`${styles.reticleCorner} ${styles.reticleCornerTr}`} />
-          <span className={`${styles.reticleCorner} ${styles.reticleCornerBr}`} />
-          <span className={`${styles.reticleCorner} ${styles.reticleCornerBl}`} />
-        </div>
 
         {pendingCards.length > 0 && (
           <div className={styles.scannedValueBadge}>
@@ -1915,10 +1937,9 @@ export default function CardScanner({ onMatch, onClose }) {
           </div>
         )}
 
-        {/* Status elements fixed at frame center — spinner, scan line, set lock badge */}
+        {/* Status elements fixed at frame center — spinner, set lock badge */}
         <div className={styles.frameCenterContent}>
           {preparing && !errorMsg && !hashProgressVisible && !showStartupModal && <div className={styles.preparingSpinner}>+</div>}
-          {scanning && <div className={styles.pausedLabel}>Scanning...</div>}
           {lockSet && lockedSets.size > 0 && (
             <div className={styles.lockedSetBadge}>
               <span className={styles.lockedSetIcon}>⬡</span>

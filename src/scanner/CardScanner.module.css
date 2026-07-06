@@ -345,7 +345,7 @@
 .closeBtn:hover { background: rgba(255,255,255,0.15); }
 .closeBtn:active { transform: scale(0.94); }
 
-/* Live lock-on quad drawn from the auto-scan probe's detected corners */
+/* Live tracking frame drawn from the auto-scan probe's detected corners */
 .detectOverlay {
   position: absolute;
   inset: 0;
@@ -355,77 +355,32 @@
 }
 
 .detectPoly {
-  fill: rgba(201, 168, 76, 0.06);
-  stroke: rgba(201, 168, 76, 0.85);
+  fill: rgba(138, 184, 122, 0.08);
   stroke-width: 2.5;
   stroke-linejoin: round;
-  filter: drop-shadow(0 0 6px rgba(201, 168, 76, 0.35));
 }
 
-.frameReticle {
+.detectPolyFound {
+  stroke: var(--green);
+  filter: drop-shadow(0 0 6px rgba(138, 184, 122, 0.45));
+}
+
+/* Idle placeholder for the tracking frame — shown before a card is found */
+.trackFrameIdle {
   position: absolute;
   top: 50%;
   left: 50%;
   width: 280px;
   height: 392px;
   transform: translate(-50%, -52%);
+  border: 2.5px solid var(--red);
+  border-radius: 22px;
+  box-shadow: 0 0 6px rgba(196, 96, 96, 0.35);
   pointer-events: none;
-  opacity: 0.92;
+  opacity: 0.85;
 }
 
-.frameReticle::before,
-.frameReticle::after {
-  content: "";
-  position: absolute;
-  left: 18px;
-  right: 18px;
-  border-top: 1px solid rgba(201,168,76,0.18);
-}
-
-.frameReticle::before { top: 50%; }
-.frameReticle::after { top: calc(50% + 1px); }
-
-.reticleCorner {
-  position: absolute;
-  width: 38px;
-  height: 38px;
-  border-color: rgba(201,168,76,0.76);
-  filter: drop-shadow(0 0 8px rgba(201,168,76,0.28));
-}
-
-.reticleCornerTl {
-  top: 0;
-  left: 0;
-  border-top: 2px solid;
-  border-left: 2px solid;
-  border-top-left-radius: 10px;
-}
-
-.reticleCornerTr {
-  top: 0;
-  right: 0;
-  border-top: 2px solid;
-  border-right: 2px solid;
-  border-top-right-radius: 10px;
-}
-
-.reticleCornerBr {
-  right: 0;
-  bottom: 0;
-  border-right: 2px solid;
-  border-bottom: 2px solid;
-  border-bottom-right-radius: 10px;
-}
-
-.reticleCornerBl {
-  bottom: 0;
-  left: 0;
-  border-bottom: 2px solid;
-  border-left: 2px solid;
-  border-bottom-left-radius: 10px;
-}
-
-/* Status elements (spinner, scan line, set lock) fixed at frame center */
+/* Status elements (spinner, set lock) fixed at frame center */
 .frameCenterContent {
   position: absolute;
   top: 50%;
@@ -491,7 +446,7 @@
     padding: 12px 14px;
     font-size: 0.82rem;
   }
-  .frameReticle,
+  .trackFrameIdle,
   .frameCenterContent {
     width: 240px;
     height: 336px;
@@ -504,18 +459,6 @@
     height: 38px;
     min-height: 38px;
   }
-}
-
-/* Paused label inside reticle */
-.pausedLabel {
-  position: absolute;
-  top: 50%; left: 50%;
-  transform: translate(-50%, -50%);
-  font-family: var(--font-display);
-  font-size: 0.7rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: rgba(255,255,255,0.45);
 }
 
 /* Spinner shown while DB/CV loading */
@@ -2253,7 +2196,7 @@
   .scannerOverlay,
   .scannerOverlayClosing,
   .topBar,
-  .frameReticle,
+  .trackFrameIdle,
   .spinner,
   .bottomBar,
   .saveNotice,
