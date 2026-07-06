@@ -55,6 +55,11 @@ const AUTOSCAN_PROBE_INTERVAL_MS  = 90
 const AUTOSCAN_PROBE_STABLE       = 2     // consecutive stable probes before scanning
 const AUTOSCAN_PROBE_EPS_PX       = 10    // max centroid drift between probes (small-frame px)
 const AUTOSCAN_PROBE_AREA_TOL     = 0.2   // max relative bbox-area change between probes
+// Looser than the frame-to-frame probe epsilon above — this compares the
+// triggering quad of one accepted scan against the next, which can be a
+// second or more apart, so a genuinely still card needs a bit more slack.
+const DUPLICATE_POSITION_EPS_PX   = 16
+const DUPLICATE_POSITION_AREA_TOL = 0.15
 // After this many consecutive quick-probe misses, every Nth probe escalates to
 // the full 3-pass detection — pass 1 alone misses dark/low-contrast cards that
 // manual scanning (all passes + reticle) still finds.
@@ -171,6 +176,23 @@ function quadRoughlyEqual(a, b, eps = 3) {
     if (Math.abs(a[i].x - b[i].x) > eps || Math.abs(a[i].y - b[i].y) > eps) return false
   }
   return true
+}
+
+// Cheap position/size fingerprint for a detected quad — used both for the
+// probe loop's frame-to-frame stability check and to tell whether two
+// separate accepted scans landed on the same physical card placement.
+function quadSig(corners) {
+  const cx = corners.reduce((s, p) => s + p.x, 0) / 4
+  const cy = corners.reduce((s, p) => s + p.y, 0) / 4
+  const xs = corners.map(p => p.x), ys = corners.map(p => p.y)
+  const area = (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys))
+  return { cx, cy, area }
+}
+
+function quadSigRoughlyEqual(a, b, epsPx, areaTol) {
+  if (!a || !b) return false
+  return Math.hypot(a.cx - b.cx, a.cy - b.cy) < epsPx &&
+    Math.abs(a.area - b.area) < b.area * areaTol
 }
 
 const DETECT_FRAME_RADIUS = 18 // px — rounding applied to the live tracking-frame quad
@@ -473,6 +495,11 @@ export default function CardScanner({ onMatch, onClose }) {
   // accepted match is allowed to count as a new card even if the name matches
   // (e.g. two different-printing Forests scanned back to back).
   const autoScanCardLostRef = useRef(false)
+  // Position/size of the quad that triggered the last accepted auto-scan.
+  // A swap straight into the next card (no visible gap for autoScanCardLostRef
+  // to catch) still lands the new card in a different spot almost always —
+  // used as a second, independent signal that this is a new placement.
+  const lastAcceptedQuadSigRef = useRef(null)
   const lastTitleRescueAtRef = useRef(0)
   const lastSoundCardUidRef = useRef(null)
   const sessionStatsRef = useRef({ attempts: 0, hits: 0, totalMs: 0 })
@@ -1576,14 +1603,22 @@ export default function CardScanner({ onMatch, onClose }) {
       setScanResult('found')
       // In auto-scan mode, skip adding if this is the same card as the last scan,
       // even if the matcher flips between different printings of that card while
-      // the physical card is still sitting in frame.
+      // the physical card is still sitting in frame. Two independent signals say
+      // otherwise: a sustained detection gap (autoScanCardLostRef), or — for a
+      // fast swap with no visible gap — the new quad landing somewhere else.
       const autoScanSignature = getAutoScanCardSignature(match, preferFoil)
-      const isDuplicate = isAutoScan && !autoScanCardLostRef.current &&
+      const currentQuadSig = prefetched?.corners ? quadSig(prefetched.corners) : null
+      const samePlacement = quadSigRoughlyEqual(
+        currentQuadSig, lastAcceptedQuadSigRef.current,
+        DUPLICATE_POSITION_EPS_PX, DUPLICATE_POSITION_AREA_TOL,
+      )
+      const isDuplicate = isAutoScan && !autoScanCardLostRef.current && samePlacement &&
         autoScanSignature === lastAutoScanSignatureRef.current
       if (!isDuplicate) {
         if (isAutoScan) {
           lastAutoScanSignatureRef.current = autoScanSignature
           autoScanCardLostRef.current = false
+          lastAcceptedQuadSigRef.current = currentQuadSig
         }
         addToPending(match, { foil: preferFoil })
         if (scanOcr) refineScanWithOcr(match)
@@ -1625,14 +1660,6 @@ export default function CardScanner({ onMatch, onClose }) {
       setProbeQuad(quad)
     }
 
-    const quadSig = (corners) => {
-      const cx = corners.reduce((s, p) => s + p.x, 0) / 4
-      const cy = corners.reduce((s, p) => s + p.y, 0) / 4
-      const xs = corners.map(p => p.x), ys = corners.map(p => p.y)
-      const area = (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys))
-      return { cx, cy, area }
-    }
-
     const loop = async () => {
       if (cancelled) return
       let delay = AUTOSCAN_PROBE_INTERVAL_MS
@@ -1650,9 +1677,7 @@ export default function CardScanner({ onMatch, onClose }) {
             missStreak = 0
             showQuad(mapQuadToViewport(corners, frame.sw, frame.sh))
             const sig = quadSig(corners)
-            const stable = lastSig &&
-              Math.hypot(sig.cx - lastSig.cx, sig.cy - lastSig.cy) < AUTOSCAN_PROBE_EPS_PX &&
-              Math.abs(sig.area - lastSig.area) < lastSig.area * AUTOSCAN_PROBE_AREA_TOL
+            const stable = quadSigRoughlyEqual(sig, lastSig, AUTOSCAN_PROBE_EPS_PX, AUTOSCAN_PROBE_AREA_TOL)
             stableCount = stable ? stableCount + 1 : 1
             lastSig = sig
             if (stableCount >= AUTOSCAN_PROBE_STABLE) {
