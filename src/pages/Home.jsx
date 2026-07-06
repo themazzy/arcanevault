@@ -6,7 +6,8 @@ import { getInstantCache, getPriceSource, formatPrice, getImageUri, sfGet } from
 import { sortByNameRelevance } from '../lib/scryfallSearch'
 import { fetchAutocomplete, buildLookupQuery, hasLookupFilters } from '../lib/cardLookup'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
-import { getLocalCards, getLocalFolders, getAllLocalFolderCards, getAllDeckAllocationsForUser, putCards } from '../lib/db'
+import { getLocalCards, getLocalFolders, getAllLocalFolderCards, getAllDeckAllocationsForUser } from '../lib/db'
+import { syncOwnedCards } from '../lib/collectionFetchers'
 import { cardsContentHash } from '../lib/cardsHash'
 import { getProdAppUrl } from '../lib/publicUrl'
 import { CAN_HOVER } from '../lib/deckBuilderConstants'
@@ -152,21 +153,13 @@ async function loadCollectionData(userId) {
 
 // Syncs cards from Supabase into IDB and returns updated cards array if anything changed.
 // Returns null when offline or when the data matches what we already have.
+// Delegates to syncOwnedCards, which only pulls what changed since the last
+// sync (a full re-fetch of a large collection previously took 10s+).
 async function syncCardsFromSupabase(userId, currentCards) {
   if (!navigator.onLine) return null
   try {
-    let fresh = [], from = 0
-    while (true) {
-      const { data, error } = await sb.from('owned_cards_view')
-        .select('*').eq('user_id', userId).order('id')
-        .range(from, from + 999)
-      if (error) { console.warn('[Home] sync error:', error.message); return null }
-      if (data?.length) fresh = [...fresh, ...data]
-      if (!data || data.length < 1000) break
-      from += 1000
-    }
+    const fresh = await syncOwnedCards(userId)
     if (cardsContentHash(fresh) === cardsContentHash(currentCards)) return null
-    await putCards(fresh)
     return fresh
   } catch (e) {
     console.warn('[Home] sync exception:', e)
