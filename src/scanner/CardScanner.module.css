@@ -2019,6 +2019,27 @@
   opacity: 0.8;
 }
 
+/* Resets the auto-scan duplicate guard — for a deliberate same-name rescan */
+.nextCardBtn {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  justify-content: center;
+  padding: 10px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.75);
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  min-height: 42px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+.nextCardBtn:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.28); }
+.nextCardBtn:active { transform: scale(0.97); }
+
 /* ── Locked set badge (inside reticle) ── */
 .lockedSetBadge {
   display: flex;

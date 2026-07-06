@@ -213,9 +213,7 @@ function roundedQuadPath(points, radius) {
 }
 
 function getAutoScanCardSignature(match, foil = false) {
-  const name = String(match?.name || '').trim().toLocaleLowerCase()
-  const set = String(match?.setCode || '').trim().toLocaleLowerCase()
-  return `${name}|${set}|${foil ? 1 : 0}`
+  return `${String(match?.name || '').trim().toLocaleLowerCase()}|${foil ? 1 : 0}`
 }
 
 const CONDITIONS = ['NM', 'LP', 'MP', 'HP', 'DMG']
@@ -1579,10 +1577,12 @@ export default function CardScanner({ onMatch, onClose }) {
       sessionStatsRef.current.hits++
       sessionStatsRef.current.totalMs += elapsed
       setSessionStatsDisplay({ ...sessionStatsRef.current })
-      // In auto-scan mode, skip adding if this is the same name+set+foil as the
-      // last scan — keyed on set so a different printing (e.g. a different
-      // Forest) always counts as a new card, while the matcher wobbling
-      // between samples of one still card doesn't cause a re-add.
+      // In auto-scan mode, skip adding if this is the same name+foil as the last
+      // scan, even if the matcher flips between different printings of that card
+      // while it's still sitting in frame (name-only is deliberately loose — sets
+      // with near-identical prints, like basics, would otherwise get re-added on
+      // every wobble). The "Next Card" button below resets this for a deliberate
+      // same-name rescan.
       const autoScanSignature = getAutoScanCardSignature(match, preferFoil)
       const isDuplicate = isAutoScan && autoScanSignature === lastAutoScanSignatureRef.current
       if (!isDuplicate) {
@@ -1601,6 +1601,15 @@ export default function CardScanner({ onMatch, onClose }) {
       if (mountedRef.current) setScanning(false)
     }
   }, [isReady, scanning, scanSingleFrame, addToPending, onMatch, lockSet, lockedSets, preferFoil, scanOcr, refineScanWithOcr, rescueByTitle])
+
+  // Manual override for the auto-scan duplicate guard: clears the remembered
+  // name+foil so the next match is never treated as a repeat, even if it's the
+  // same name as what was just scanned (e.g. moving on to a different-set
+  // basic land instead of rescanning the one still in frame).
+  const resetAutoScanGuard = useCallback(() => {
+    lastAutoScanSignatureRef.current = null
+    Haptics.impact({ style: ImpactStyle.Light }).catch(() => {})
+  }, [])
 
   // ── Auto-scan loop ────────────────────────────────────────────────────────
   // Continuous cheap corner probe: a single-pass detection on the half-res
@@ -2090,6 +2099,15 @@ export default function CardScanner({ onMatch, onClose }) {
               >
                 <span className={styles.autoScanDot} />
                 {autoScanPaused ? 'Resume' : 'Pause'}
+              </button>
+            )}
+            {isReady && autoScan && (
+              <button
+                className={styles.nextCardBtn}
+                onClick={resetAutoScanGuard}
+                title="Scanning a different card with the same name (e.g. another basic land)? Tap this first."
+              >
+                Next Card
               </button>
             )}
           </div>
