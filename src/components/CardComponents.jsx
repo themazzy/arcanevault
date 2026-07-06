@@ -1022,6 +1022,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, deleteQty 
                         align="left"
                         panelClassName={styles.printingsMenuPanel}
                         onOpenChange={open => { if (open) loadPrintings() }}
+                        portal
                         trigger={({ open, toggle }) => (
                           <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.ghost} ${styles.changePrintingBtn}${open ? ' ' + styles.changePrintingBtnOpen : ''}`} onClick={toggle}>
                             Change Printing
