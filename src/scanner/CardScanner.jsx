@@ -528,6 +528,9 @@ export default function CardScanner({ onMatch, onClose }) {
   const setPickerOpen    = setPickerTgl.on
   const setPickerClosing = setPickerTgl.closing
 
+  // ── Image preview (tap a basket thumbnail to view it full-size) ────────────
+  const [previewImage, setPreviewImage] = useState(null)   // { uri, name } | null
+
   // ── Printing picker ────────────────────────────────────────────────────────
   const [printingPickerFor, setPrintingPickerFor]         = useState(null)   // uid
   const [printingPickerResults, setPrintingPickerResults] = useState([])
@@ -535,6 +538,7 @@ export default function CardScanner({ onMatch, onClose }) {
   const [printingPickerSearch, setPrintingPickerSearch]   = useState('')
   const [printingPickerClosing, setPrintingPickerClosing] = useState(false)
   const printingPickerTimerRef = useRef(null)
+  const printingPickerRequestRef = useRef(0)
 
   // ── Manual search ──────────────────────────────────────────────────────────
   const [manualSearchQuery, setManualSearchQuery]   = useState('')
@@ -611,7 +615,7 @@ export default function CardScanner({ onMatch, onClose }) {
   const startupIndeterminate = !errorMsg && !startupCanContinue &&
     (hashesReady || !hashLoadInfo?.totalCount)
   const showStartupModal = !startupDismissed
-  const anyOverlayOpen = showStartupModal || basketExpanded || addFlowOpen || manualSearchOpen || settingsOpen || setPickerOpen || printingPickerFor !== null
+  const anyOverlayOpen = showStartupModal || basketExpanded || addFlowOpen || manualSearchOpen || settingsOpen || setPickerOpen || printingPickerFor !== null || previewImage !== null
 
   // Auto-continue past the startup gate once everything is ready — the modal
   // is informative during loading, not a required click on every open.
@@ -1090,12 +1094,26 @@ export default function CardScanner({ onMatch, onClose }) {
     setPrintingPickerLoading(true)
     setPrintingPickerResults([])
     setPrintingPickerSearch('')
+    const requestId = printingPickerRequestRef.current + 1
+    printingPickerRequestRef.current = requestId
+    const isStale = () => !mountedRef.current || printingPickerRequestRef.current !== requestId
     try {
       const encodedName = encodeURIComponent(`!"${card.name}" not:digital`)
-      const data = await sfGet(`/cards/search?q=${encodedName}&unique=prints&order=released&dir=desc`)
-      if (mountedRef.current) setPrintingPickerResults(data?.data ?? [])
+      let url = `/cards/search?q=${encodedName}&unique=prints&order=released&dir=desc`
+      let all = []
+      // Scryfall paginates search results at 175/page. Basic lands and other
+      // heavily-reprinted cards run to 500+ prints, so a single page silently
+      // misses older sets — follow next_page until exhausted (capped well
+      // above any real card's print count) so set/code search can find them.
+      for (let page = 0; page < 20 && url; page++) {
+        const data = await sfGet(url)
+        if (isStale() || !data?.data) break
+        all = all.concat(data.data)
+        setPrintingPickerResults([...all])
+        url = data.has_more ? data.next_page : null
+      }
     } catch { /* ignore */ }
-    if (mountedRef.current) setPrintingPickerLoading(false)
+    if (!isStale()) setPrintingPickerLoading(false)
   }, [pendingCards])
 
   const closePrintingPicker = useCallback(() => {
@@ -2128,7 +2146,17 @@ export default function CardScanner({ onMatch, onClose }) {
               return (
                 <div key={card.uid} className={styles.historyItem}>
                   {card.imageUri
-                    ? <img src={card.imageUri} className={styles.historyItemImg} alt={card.name} />
+                    ? (
+                      <button
+                        type="button"
+                        className={styles.historyItemImgBtn}
+                        onClick={() => setPreviewImage({ uri: card.imageUri, name: card.name })}
+                        title="View card image"
+                        aria-label="View card image"
+                      >
+                        <img src={card.imageUri} className={styles.historyItemImg} alt={card.name} />
+                      </button>
+                    )
                     : <div className={styles.historyItemImgPlaceholder}>{card.name[0]}</div>
                   }
                   <div className={styles.historyItemBody}>
@@ -2227,6 +2255,21 @@ export default function CardScanner({ onMatch, onClose }) {
               Add {pendingTotalQty}
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Full-size image preview — tap a basket thumbnail to open */}
+      {previewImage && (
+        <div className={styles.imagePreviewOverlay} onClick={() => setPreviewImage(null)}>
+          <button className={styles.imagePreviewClose} onClick={() => setPreviewImage(null)} aria-label="Close">
+            <CloseIcon size={15} />
+          </button>
+          <img
+            src={previewImage.uri}
+            alt={previewImage.name}
+            className={styles.imagePreviewImg}
+            onClick={e => e.stopPropagation()}
+          />
         </div>
       )}
 
