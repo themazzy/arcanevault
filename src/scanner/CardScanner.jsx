@@ -2288,7 +2288,7 @@ export default function CardScanner({ onMatch, onClose }) {
           <div className={styles.searchInputRow}>
             <input
               className={styles.searchInput}
-              placeholder="Filter by set name or code…"
+              placeholder="Filter by set name, code, or year…"
               value={printingPickerSearch}
               onChange={e => setPrintingPickerSearch(e.target.value)}
               autoFocus
@@ -2299,7 +2299,9 @@ export default function CardScanner({ onMatch, onClose }) {
             {printingPickerResults.filter(sf => {
               if (!printingPickerSearch) return true
               const q = printingPickerSearch.toLowerCase()
-              return (sf.set_name?.toLowerCase().includes(q)) || (sf.set?.toLowerCase().includes(q))
+              return (sf.set_name?.toLowerCase().includes(q)) ||
+                (sf.set?.toLowerCase().includes(q)) ||
+                (sf.released_at?.slice(0, 4).includes(q))
             }).map(sf => {
               const img = getCardImg(sf)
               const pickerCard = pendingCards.find(c => c.uid === printingPickerFor)
@@ -2317,7 +2319,7 @@ export default function CardScanner({ onMatch, onClose }) {
                   {img && <img src={img} className={styles.printingCardImg} alt={sf.name} />}
                   <div className={styles.printingCardLabel}>
                     {setIcon && <img src={setIcon} alt="" className={styles.printingCardSetIcon} />}
-                    <span>{sf.set?.toUpperCase()} #{sf.collector_number}</span>
+                    <span>{sf.set?.toUpperCase()} #{sf.collector_number}{sf.released_at ? ` · ${sf.released_at.slice(0, 4)}` : ''}</span>
                   </div>
                   <div className={styles.printingCardPrice}>
                     {activePriceMeta ? formatPriceMeta(activePriceMeta) : '—'}
