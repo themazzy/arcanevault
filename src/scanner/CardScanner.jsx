@@ -442,6 +442,11 @@ export default function CardScanner({ onMatch, onClose }) {
   const autoScanRef = useRef(false)
   const scanningRef = useRef(false)
   const lastAutoScanSignatureRef = useRef(null)
+  // Set once the probe loop loses the card for a sustained streak (not a single-
+  // frame flicker) — proof the physical card actually left the frame, so the next
+  // accepted match is allowed to count as a new card even if the name matches
+  // (e.g. two different-printing Forests scanned back to back).
+  const autoScanCardLostRef = useRef(false)
   const lastTitleRescueAtRef = useRef(0)
   const lastSoundCardUidRef = useRef(null)
   const sessionStatsRef = useRef({ attempts: 0, hits: 0, totalMs: 0 })
@@ -1529,9 +1534,13 @@ export default function CardScanner({ onMatch, onClose }) {
       // even if the matcher flips between different printings of that card while
       // the physical card is still sitting in frame.
       const autoScanSignature = getAutoScanCardSignature(match, preferFoil)
-      const isDuplicate = isAutoScan && autoScanSignature === lastAutoScanSignatureRef.current
+      const isDuplicate = isAutoScan && !autoScanCardLostRef.current &&
+        autoScanSignature === lastAutoScanSignatureRef.current
       if (!isDuplicate) {
-        if (isAutoScan) lastAutoScanSignatureRef.current = autoScanSignature
+        if (isAutoScan) {
+          lastAutoScanSignatureRef.current = autoScanSignature
+          autoScanCardLostRef.current = false
+        }
         addToPending(match, { foil: preferFoil })
         if (scanOcr) refineScanWithOcr(match)
       }
@@ -1620,6 +1629,10 @@ export default function CardScanner({ onMatch, onClose }) {
             stableCount = 0
             lastSig = null
             showQuad(null)
+            // A sustained loss (not a one-frame flicker) means the physical
+            // card actually left the frame — let the next accepted match
+            // count as new even if its name+foil signature repeats.
+            if (missStreak >= AUTOSCAN_ESCALATE_AFTER) autoScanCardLostRef.current = true
           }
         } catch { /* keep probing */ }
       }
