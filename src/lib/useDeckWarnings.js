@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { getCardLegalityWarnings } from './deckLegality'
 import { normalizeBoard, normalizeCardName } from './deckBuilderHelpers'
 import { getScryfallKey } from './scryfall'
+import { isBasicLandName } from './basicLands'
 
 // Computes per-card legality warnings (format legality, EDH color identity,
 // singleton violations, restricted-list violations). Returns a Map keyed by
@@ -56,8 +57,7 @@ export function useDeckCardLegalityWarnings({
       for (const [, cards] of nameGroups) {
         const qty = cards.reduce((sum, dc) => sum + (dc.qty || 0), 0)
         if (qty <= 1) continue
-        const typeLine = String(cards[0]?.type_line || '').toLowerCase()
-        if (typeLine.includes('basic land')) continue
+        if (isBasicLandName(cards[0]?.name)) continue
         for (const dc of cards) {
           addWarnings(dc.id, [{
             reason: 'duplicate',

@@ -2041,6 +2041,12 @@
   color: #ff9b9b;
 }
 
+.stateBadgePending {
+  background: var(--s-subtle);
+  border: 1px solid var(--s-border);
+  color: var(--text-faint);
+}
+
 .deckCardLeft {
   display: flex;
   align-items: center;

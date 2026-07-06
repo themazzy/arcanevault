@@ -42,7 +42,11 @@ export function ManaCostInline({ cost, size = 14 }) {
   )
 }
 
-export function OwnershipBadge({ ownedQty, ownedFoilAlt, ownedAlt, ownedInDeck, inCollDeck }) {
+export function OwnershipBadge({ ownedQty, ownedFoilAlt, ownedAlt, ownedInDeck, inCollDeck, ownershipReady = true }) {
+  // Allocation indicators (inOtherDeckSet/collDeckSfSet) load slightly after
+  // the deck's own card list — until they're in, ownedInDeck/inCollDeck default
+  // to false and would misreport a card committed elsewhere as merely "Owned".
+  if (!ownershipReady) return <span className={`${styles.stateBadge} ${styles.stateBadgePending}`} title="Checking ownership…">…</span>
   if (inCollDeck) return <span className={`${styles.stateBadge} ${styles.stateBadgeAssigned}`} title="Assigned to this collection deck">In Deck</span>
   if (ownedQty > 0 && !ownedInDeck) return <span className={`${styles.stateBadge} ${styles.stateBadgeOwned}`} title="Owned and available">Owned</span>
   if (ownedInDeck) return <span className={`${styles.stateBadge} ${styles.stateBadgeCommitted}`} title="Owned, but committed to another deck">In Other Deck</span>

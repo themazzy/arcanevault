@@ -29,7 +29,7 @@ import { analyzeBracket, fetchGameChangerNames, computeBracketMetaPatch } from '
 import { getScryfallKey, formatPrice, getPrice } from '../lib/scryfall'
 import { getCardCategoryFromCard, isTypeFallbackCategory } from '../lib/cardCategory'
 import { pickPrintingForMode, PRINTING_MODES } from '../lib/printingOptimize'
-import { BASIC_LAND_TYPES, BASIC_LAND_NAMES } from '../lib/basicLands'
+import { BASIC_LAND_TYPES, BASIC_LAND_NAMES, isBasicLandName } from '../lib/basicLands'
 import { addMissingToWishlist } from '../lib/setCompletion'
 import { isOathbreaker, isSignatureSpell, getOathbreakerPairIssue, validateCompanion, companionDeckSizeBonus } from '../lib/commandZone'
 import { logDeckChange, fetchDeckHistory } from '../lib/deckHistory'
@@ -399,6 +399,10 @@ export default function DeckBuilderPage() {
   const [ownedFoilMap,   setOwnedFoilMap]   = useState(new Map())
   const [inOtherDeckSet,  setInOtherDeckSet]  = useState(new Set())
   const [collDeckSfSet,   setCollDeckSfSet]   = useState(new Set())
+  // False until the allocation indicators (inOtherDeckSet/collDeckSfSet) have
+  // loaded at least once — the ownership badge must not render "Owned" from
+  // the default empty sets before we know whether the card is really free.
+  const [ownershipReady,  setOwnershipReady]  = useState(false)
   // Version picker
   const [versionPickCard, setVersionPickCard] = useState(null)
   const [addFeedback, setAddFeedback] = useState(null)
@@ -739,6 +743,7 @@ export default function DeckBuilderPage() {
     let ignore = false
     ;(async () => {
       setLoading(true)
+      setOwnershipReady(false)
       try {
         // Load deck folder
         const { data: folder, error } = await sb.from('folders').select('*').eq('id', deckId).single()
@@ -910,6 +915,7 @@ export default function DeckBuilderPage() {
               .filter(row => row.deck_id !== deckId && row.deck_id !== allocDeckId)
               .flatMap(row => deckAllocationKeys(row))
           ))
+          if (!ignore) setOwnershipReady(true)
         } catch (ownedErr) {
           console.error('[DeckBuilder] owned card indicators failed to load:', ownedErr)
         }
@@ -1057,7 +1063,8 @@ export default function DeckBuilderPage() {
     ownedAlt: ownedNameMap.get((dc.name || '').toLowerCase()) ?? 0,
     ownedInDeck: allocationSetHas(inOtherDeckSet, dc),
     inCollDeck: allocationSetHas(collDeckSfSet, dc),
-  }), [ownedFoilMap, ownedNameMap, inOtherDeckSet, collDeckSfSet])
+    ownershipReady,
+  }), [ownedFoilMap, ownedNameMap, inOtherDeckSet, collDeckSfSet, ownershipReady])
 
   const getDeckCardPriceLabel = useCallback((dc) => {
     if (!dc?.set_code || !dc?.collector_number) return '—'
@@ -1149,8 +1156,7 @@ export default function DeckBuilderPage() {
       for (const [name, qty] of nameQty) {
         if (qty <= 1) continue
         const sample = playableCards.find(dc => normalizeCardName(dc.name) === name)
-        const typeLine = String(sample?.type_line || '').toLowerCase()
-        if (!typeLine.includes('basic land')) {
+        if (!isBasicLandName(sample?.name || name)) {
           pushWarning({ key: `duplicate:${name}`, level: 'error', summary: `${sample?.name || name}: ${qty} copies`, detail: `${sample?.name || name} exceeds singleton limits for this format.` })
         }
       }

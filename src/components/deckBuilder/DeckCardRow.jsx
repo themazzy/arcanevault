@@ -116,7 +116,7 @@ export function EditMenu({
 // List-view row for a deck card. Renders a thumbnail, name, optional
 // columns (set/mana/cmc/price/status/actions/qty/remove) per visibleColumns.
 export function DeckCardRow({
-  dc, ownedQty, ownedFoilAlt, ownedAlt, ownedInDeck, inCollDeck,
+  dc, ownedQty, ownedFoilAlt, ownedAlt, ownedInDeck, inCollDeck, ownershipReady,
   onChangeQty, onRemove, onMouseEnter, onMouseLeave, onMouseMove, onContextMenu, touchContextMenuHandlers, onDragStart,
   onPickVersion, onToggleFoil, onSetCommander, onMoveBoard, onOpenCategoryPicker, isEDH, formatId,
   visibleColumns, listGridTemplate, priceLabel, onOpenDetail, legalityWarnings = [],
@@ -141,7 +141,7 @@ export function DeckCardRow({
       {visibleColumns.price && <div className={styles.deckCardMetric}>{priceLabel}</div>}
       {visibleColumns.status && (
         <div className={styles.deckCardStatus}>
-          <OwnershipBadge ownedQty={ownedQty} ownedFoilAlt={ownedFoilAlt} ownedAlt={ownedAlt} ownedInDeck={ownedInDeck} inCollDeck={inCollDeck} />
+          <OwnershipBadge ownedQty={ownedQty} ownedFoilAlt={ownedFoilAlt} ownedAlt={ownedAlt} ownedInDeck={ownedInDeck} inCollDeck={inCollDeck} ownershipReady={ownershipReady} />
         </div>
       )}
       {visibleColumns.qty && (

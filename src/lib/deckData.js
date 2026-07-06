@@ -40,10 +40,17 @@ export async function fetchDeckAllocations(deckId) {
   return data || []
 }
 
+// Only used to build the ownership-badge match sets (deckAllocationKeys needs
+// card_print_id/scryfall_id/name/foil, plus deck_id to exclude the current
+// deck). Selecting just these columns — instead of deck_allocations_view's
+// full column list, which joins card_prints for several unused wide fields —
+// lets Postgres prune that join's projection: ~3x faster for users with a
+// few thousand allocations, where the unpruned query risked the 8s
+// authenticated statement timeout and left the badge showing stale data.
 export async function fetchDeckAllocationsForUser(userId) {
   const { data, error } = await sb
     .from('deck_allocations_view')
-    .select('*')
+    .select('deck_id, card_print_id, scryfall_id, name, foil')
     .eq('user_id', userId)
 
   if (error) throw error
