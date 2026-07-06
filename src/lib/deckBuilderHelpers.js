@@ -59,6 +59,23 @@ export function allocationSetHas(set, cardLike) {
   return deckAllocationKeys(cardLike).some(key => set.has(key))
 }
 
+// Collects the identifying fields (print id, scryfall id, name) present across
+// a list of cards, for scoping an allocation lookup to just "could this match
+// one of these cards" instead of fetching a user's entire collection. Mirrors
+// the three tiers deckAllocationKeys checks, since a different printing of the
+// same card is only findable by name once print/scryfall ids diverge.
+export function collectCardIdentities(cards) {
+  const cardPrintIds = []
+  const scryfallIds = []
+  const names = []
+  for (const c of cards || []) {
+    if (c?.card_print_id) cardPrintIds.push(c.card_print_id)
+    if (c?.scryfall_id) scryfallIds.push(c.scryfall_id)
+    if (c?.name) names.push(c.name)
+  }
+  return { cardPrintIds, scryfallIds, names }
+}
+
 export function normalizePrintKey(cardLike) {
   const setCode = String(cardLike?.set_code || cardLike?.set || '').trim().toLowerCase()
   const collectorNumber = String(cardLike?.collector_number || '').trim()

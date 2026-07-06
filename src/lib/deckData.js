@@ -40,35 +40,51 @@ export async function fetchDeckAllocations(deckId) {
   return data || []
 }
 
+const ALLOCATION_MATCH_COLS = 'deck_id, card_print_id, scryfall_id, name, foil'
+
 // Only used to build the ownership-badge match sets (deckAllocationKeys needs
 // card_print_id/scryfall_id/name/foil, plus deck_id to exclude the current
-// deck). Selecting just these columns — instead of deck_allocations_view's
-// full column list, which joins card_prints for several unused wide fields —
-// lets Postgres prune that join's projection: ~3x faster for users with a
-// few thousand allocations, where the unpruned query risked the 8s
-// authenticated statement timeout and left the badge showing stale data.
+// deck). Scoped to the identities of one deck's card list — via
+// collectCardIdentities() — instead of fetching every allocation the user
+// owns across all their decks: that scaled with total collection size (an
+// unbounded query previously either risked the 8s authenticated statement
+// timeout, or silently truncated at PostgREST's 1000-row default and dropped
+// the exact allocation the badge needed to find). This scales with the
+// current deck's card count instead, which stays bounded regardless of how
+// large the rest of the collection grows.
 //
-// Paginated — PostgREST caps an unbounded query at 1000 rows by default, and
-// a large collection can have several thousand allocations. Without this,
-// rows past the first page are silently dropped, which showed up as the
-// ownership badge saying "Owned" for a card that was actually allocated to
-// another deck outside the truncated result.
-const PAGE_SIZE = 1000
-export async function fetchDeckAllocationsForUser(userId) {
-  const rows = []
-  let from = 0
-  while (true) {
-    const { data, error } = await sb
-      .from('deck_allocations_view')
-      .select('deck_id, card_print_id, scryfall_id, name, foil')
-      .eq('user_id', userId)
-      .order('id')
-      .range(from, from + PAGE_SIZE - 1)
+// Runs the print/scryfall/name tiers as separate queries and merges the
+// results, since deckAllocationKeys' name+foil fallback tier is how a
+// different printing of the same card (no print/scryfall id overlap) still
+// gets found.
+export async function fetchDeckAllocationsForCardIdentities(userId, { cardPrintIds = [], scryfallIds = [], names = [] } = {}) {
+  const uniqueCardPrintIds = [...new Set(cardPrintIds.filter(Boolean))]
+  const uniqueScryfallIds = [...new Set(scryfallIds.filter(Boolean))]
+  const uniqueNames = [...new Set(names.filter(Boolean))]
+  if (!uniqueCardPrintIds.length && !uniqueScryfallIds.length && !uniqueNames.length) return []
 
+  const queries = []
+  if (uniqueCardPrintIds.length) {
+    queries.push(sb.from('deck_allocations_view').select(ALLOCATION_MATCH_COLS).eq('user_id', userId).in('card_print_id', uniqueCardPrintIds))
+  }
+  if (uniqueScryfallIds.length) {
+    queries.push(sb.from('deck_allocations_view').select(ALLOCATION_MATCH_COLS).eq('user_id', userId).in('scryfall_id', uniqueScryfallIds))
+  }
+  if (uniqueNames.length) {
+    queries.push(sb.from('deck_allocations_view').select(ALLOCATION_MATCH_COLS).eq('user_id', userId).in('name', uniqueNames))
+  }
+
+  const results = await Promise.all(queries)
+  const rows = []
+  const seen = new Set()
+  for (const { data, error } of results) {
     if (error) throw error
-    if (data?.length) rows.push(...data)
-    if (!data || data.length < PAGE_SIZE) break
-    from += PAGE_SIZE
+    for (const row of data || []) {
+      const key = `${row.deck_id}|${row.card_print_id}|${row.scryfall_id}|${row.foil}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      rows.push(row)
+    }
   }
   return rows
 }

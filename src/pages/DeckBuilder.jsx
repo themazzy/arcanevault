@@ -34,7 +34,7 @@ import { addMissingToWishlist } from '../lib/setCompletion'
 import { isOathbreaker, isSignatureSpell, getOathbreakerPairIssue, validateCompanion, companionDeckSizeBonus } from '../lib/commandZone'
 import { logDeckChange, fetchDeckHistory } from '../lib/deckHistory'
 import ExportModal from '../components/ExportModal'
-import { fetchDeckAllocations, fetchDeckAllocationsForUser, fetchDeckCards, mergeAllocationRows, upsertDeckAllocations } from '../lib/deckData'
+import { fetchDeckAllocations, fetchDeckAllocationsForCardIdentities, fetchDeckCards, mergeAllocationRows, upsertDeckAllocations } from '../lib/deckData'
 import {
   createDeckCategory,
   deleteDeckCategory,
@@ -133,6 +133,7 @@ import {
   getNonCommanderDeckCoverArt,
   getCommanderPairIssue,
   findCommanderTransferHint,
+  collectCardIdentities,
 } from '../lib/deckBuilderHelpers'
 import {
   formatOwnedPrinting,
@@ -911,7 +912,7 @@ export default function DeckBuilderPage() {
           const thisAllocations = await fetchDeckAllocations(allocDeckId)
           const collSet = new Set((thisAllocations || []).flatMap(row => deckAllocationKeys(row)))
 
-          const allAllocations = await fetchDeckAllocationsForUser(user.id)
+          const allAllocations = await fetchDeckAllocationsForCardIdentities(user.id, collectCardIdentities(cardList))
           const otherSet = new Set(
             (allAllocations || [])
               .filter(row => row.deck_id !== deckId && row.deck_id !== allocDeckId)
@@ -3074,7 +3075,7 @@ export default function DeckBuilderPage() {
       setCollDeckSfSet(new Set())
     }
 
-    const allAllocations = await fetchDeckAllocationsForUser(user.id)
+    const allAllocations = await fetchDeckAllocationsForCardIdentities(user.id, collectCardIdentities(deckCardsRef.current))
     setInOtherDeckSet(new Set(
       (allAllocations || [])
         .filter(row => row.deck_id !== allocationDeckId)

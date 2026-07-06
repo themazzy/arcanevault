@@ -1,22 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// In-memory stand-in for deck_allocations_view, large enough to require
-// pagination (PostgREST caps an unbounded query at 1000 rows by default).
+// In-memory stand-in for deck_allocations_view supporting the .in()-based
+// filtering fetchDeckAllocationsForCardIdentities issues per identity tier.
 const sbState = { rows: [] }
 
 function makeQuery() {
-  const filters = {}
-  let rangeFrom = 0
-  let rangeTo = Infinity
+  const eqFilters = {}
+  const inFilters = {}
   const q = {
     select() { return q },
-    eq(col, val) { filters[col] = val; return q },
-    order() { return q },
-    range(from, to) { rangeFrom = from; rangeTo = to; return q },
+    eq(col, val) { eqFilters[col] = val; return q },
+    in(col, vals) { inFilters[col] = vals; return q },
     then(resolve, reject) {
       let rows = sbState.rows
-      for (const [col, val] of Object.entries(filters)) rows = rows.filter(r => r[col] === val)
-      rows = rows.slice().sort((a, b) => a.id - b.id).slice(rangeFrom, rangeTo + 1)
+      for (const [col, val] of Object.entries(eqFilters)) rows = rows.filter(r => r[col] === val)
+      for (const [col, vals] of Object.entries(inFilters)) rows = rows.filter(r => vals.includes(r[col]))
       return Promise.resolve({ data: rows, error: null }).then(resolve, reject)
     },
   }
@@ -25,7 +23,7 @@ function makeQuery() {
 
 vi.mock('./supabase', () => ({ sb: { from: () => makeQuery() } }))
 
-import { fetchDeckAllocationsForUser } from './deckData'
+import { fetchDeckAllocationsForCardIdentities } from './deckData'
 
 const USER = 'user-1'
 
@@ -33,45 +31,57 @@ beforeEach(() => {
   sbState.rows = []
 })
 
-describe('fetchDeckAllocationsForUser', () => {
-  it('returns all rows even when the user has more than one page (1000) of allocations', async () => {
-    // 1500 rows for this user, spanning many decks — plus one row that would
-    // land in the second page if pagination were missing.
-    for (let i = 0; i < 1500; i++) {
-      sbState.rows.push({
-        id: i,
-        user_id: USER,
-        deck_id: `deck-${i % 20}`,
-        card_print_id: `print-${i}`,
-        scryfall_id: `sf-${i}`,
-        name: `Card ${i}`,
-        foil: false,
-      })
-    }
-    // The specific allocation a badge check needs to find, deliberately past
-    // row 1000 so a missing .range() loop would silently drop it.
-    sbState.rows.push({
-      id: 1499.5,
-      user_id: USER,
-      deck_id: 'temmet-zombies',
-      card_print_id: 'raise-the-palisade-print',
-      scryfall_id: 'raise-the-palisade-sf',
-      name: 'Raise the Palisade',
-      foil: false,
-    })
-
-    const result = await fetchDeckAllocationsForUser(USER)
-
-    expect(result.length).toBe(1501)
-    expect(result.some(r => r.name === 'Raise the Palisade')).toBe(true)
+describe('fetchDeckAllocationsForCardIdentities', () => {
+  it('matches an allocation via card_print_id', async () => {
+    sbState.rows = [
+      { deck_id: 'temmet-zombies', card_print_id: 'ltc-23', scryfall_id: 'sf-1', name: 'Raise the Palisade', foil: false, user_id: USER },
+    ]
+    const result = await fetchDeckAllocationsForCardIdentities(USER, { cardPrintIds: ['ltc-23'] })
+    expect(result).toHaveLength(1)
+    expect(result[0].name).toBe('Raise the Palisade')
   })
 
-  it('only returns rows for the requested user', async () => {
+  it('matches a different printing of the same card via the name fallback tier', async () => {
+    // Deck's card is print A; the owned+allocated copy is print B of the same
+    // name — no card_print_id/scryfall_id overlap, only name matches.
     sbState.rows = [
-      { id: 1, user_id: USER, deck_id: 'd1', card_print_id: 'p1', scryfall_id: 's1', name: 'Sol Ring', foil: false },
-      { id: 2, user_id: 'other-user', deck_id: 'd2', card_print_id: 'p2', scryfall_id: 's2', name: 'Mana Crypt', foil: false },
+      { deck_id: 'other-deck', card_print_id: 'print-B', scryfall_id: 'sf-B', name: 'Sol Ring', foil: false, user_id: USER },
     ]
-    const result = await fetchDeckAllocationsForUser(USER)
+    const result = await fetchDeckAllocationsForCardIdentities(USER, {
+      cardPrintIds: ['print-A'],
+      scryfallIds: ['sf-A'],
+      names: ['Sol Ring'],
+    })
+    expect(result).toHaveLength(1)
+    expect(result[0].card_print_id).toBe('print-B')
+  })
+
+  it('deduplicates a row that matches on more than one tier', async () => {
+    sbState.rows = [
+      { deck_id: 'other-deck', card_print_id: 'print-A', scryfall_id: 'sf-A', name: 'Sol Ring', foil: false, user_id: USER },
+    ]
+    const result = await fetchDeckAllocationsForCardIdentities(USER, {
+      cardPrintIds: ['print-A'],
+      scryfallIds: ['sf-A'],
+      names: ['Sol Ring'],
+    })
+    expect(result).toHaveLength(1)
+  })
+
+  it('only matches rows for the requested user', async () => {
+    sbState.rows = [
+      { deck_id: 'd1', card_print_id: 'print-A', scryfall_id: 'sf-A', name: 'Sol Ring', foil: false, user_id: USER },
+      { deck_id: 'd2', card_print_id: 'print-A', scryfall_id: 'sf-A', name: 'Sol Ring', foil: false, user_id: 'other-user' },
+    ]
+    const result = await fetchDeckAllocationsForCardIdentities(USER, { cardPrintIds: ['print-A'] })
     expect(result).toEqual([sbState.rows[0]])
+  })
+
+  it('returns an empty array and issues no query when given no identities', async () => {
+    sbState.rows = [
+      { deck_id: 'd1', card_print_id: 'print-A', scryfall_id: 'sf-A', name: 'Sol Ring', foil: false, user_id: USER },
+    ]
+    const result = await fetchDeckAllocationsForCardIdentities(USER, {})
+    expect(result).toEqual([])
   })
 })
