@@ -421,9 +421,25 @@ export function LoginPage({ forcedMode = null }) {
 
   useEffect(() => {
     const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : ''
-    const params = new URLSearchParams(hash)
-    const description = params.get('error_description')
+    const hashParams = new URLSearchParams(hash)
+    const queryParams = new URLSearchParams(window.location.search)
+    // PKCE-flow provider errors (e.g. user cancels the Google consent screen)
+    // come back as query params; the implicit-flow style ?/#error_description
+    // is kept as a fallback for older links.
+    const description = queryParams.get('error_description') || hashParams.get('error_description')
     if (description) setError(decodeURIComponent(description.replace(/\+/g, ' ')))
+  }, [])
+
+  // If the user starts a web OAuth redirect and then hits the browser Back
+  // button, Chrome/Safari can restore this page from bfcache instead of
+  // reloading it — which resurrects the in-flight `loading` state from before
+  // the redirect and leaves the Sign In button stuck spinning forever.
+  useEffect(() => {
+    const onPageShow = (e) => {
+      if (e.persisted) setLoading(false)
+    }
+    window.addEventListener('pageshow', onPageShow)
+    return () => window.removeEventListener('pageshow', onPageShow)
   }, [])
 
   // A failed recovery/confirmation link redemption (expired or already-used

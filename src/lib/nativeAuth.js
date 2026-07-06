@@ -20,6 +20,11 @@ export function isNativeApp() {
   try { return Capacitor.isNativePlatform() } catch { return false }
 }
 
+// True while the in-app browser is open for an OAuth round-trip — cleared
+// either by the deep-link callback firing or by the browser closing without
+// one ever arriving (user backed out / dismissed it manually).
+let oauthPending = false
+
 export async function openNativeOAuth(provider) {
   const { data, error } = await sb.auth.signInWithOAuth({
     provider,
@@ -30,6 +35,7 @@ export async function openNativeOAuth(provider) {
   })
   if (error) throw error
   if (!data?.url) throw new Error('No OAuth URL returned')
+  oauthPending = true
   await Browser.open({ url: data.url, presentationStyle: 'fullscreen' })
 }
 
@@ -39,8 +45,18 @@ export function registerNativeAuthDeepLinkHandler() {
   if (registered || !isNativeApp()) return
   registered = true
 
+  // The user closed the in-app browser (back gesture / X) before the OAuth
+  // provider ever redirected to our deep link. Without this, `oauthPending`
+  // stays true and the login button's spinner never clears.
+  Browser.addListener('browserFinished', () => {
+    if (!oauthPending) return
+    oauthPending = false
+    emitNativeAuthError('Sign-in was cancelled.')
+  })
+
   App.addListener('appUrlOpen', async ({ url }) => {
     if (!url || !url.startsWith('deckloom://auth/callback')) return
+    oauthPending = false
 
     try {
       const parsed = new URL(url)
