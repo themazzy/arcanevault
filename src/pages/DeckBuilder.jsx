@@ -885,7 +885,12 @@ export default function DeckBuilderPage() {
         putDeckCards(cardList).catch(() => {})
         if (!ignore) setLoading(false)
 
-        // Build owned maps — failures here must not block the deck display
+        // Build owned maps — failures here must not block the deck display.
+        // Everything is computed into locals first and only applied via
+        // setState at the end (guarded by `ignore`) — otherwise a slower,
+        // cancelled load for a *previous* deck can finish after this one and
+        // silently overwrite inOtherDeckSet/ownedFoilMap with data scoped to
+        // the wrong deck, since navigating away doesn't abort in-flight awaits.
         try {
           const owned = await getLocalCards(user.id)
           const map     = new Map()
@@ -900,22 +905,27 @@ export default function DeckBuilderPage() {
             const n = (c.name || '').toLowerCase()
             if (n) nameMap.set(n, (nameMap.get(n) ?? 0) + (c.qty || 1))
           }
-          setOwnedMap(map)
-          setOwnedNameMap(nameMap)
-          setOwnedFoilMap(foilMap)
 
           // For linked builder decks, allocations live on the paired collection deck
           const allocDeckId = meta.linked_deck_id || (folder.type === 'deck' ? deckId : null) || deckId
           const thisAllocations = await fetchDeckAllocations(allocDeckId)
-          setCollDeckSfSet(new Set((thisAllocations || []).flatMap(row => deckAllocationKeys(row))))
+          const collSet = new Set((thisAllocations || []).flatMap(row => deckAllocationKeys(row)))
 
           const allAllocations = await fetchDeckAllocationsForUser(user.id)
-          setInOtherDeckSet(new Set(
+          const otherSet = new Set(
             (allAllocations || [])
               .filter(row => row.deck_id !== deckId && row.deck_id !== allocDeckId)
               .flatMap(row => deckAllocationKeys(row))
-          ))
-          if (!ignore) setOwnershipReady(true)
+          )
+
+          if (!ignore) {
+            setOwnedMap(map)
+            setOwnedNameMap(nameMap)
+            setOwnedFoilMap(foilMap)
+            setCollDeckSfSet(collSet)
+            setInOtherDeckSet(otherSet)
+            setOwnershipReady(true)
+          }
         } catch (ownedErr) {
           console.error('[DeckBuilder] owned card indicators failed to load:', ownedErr)
         }

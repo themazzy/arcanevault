@@ -47,14 +47,30 @@ export async function fetchDeckAllocations(deckId) {
 // lets Postgres prune that join's projection: ~3x faster for users with a
 // few thousand allocations, where the unpruned query risked the 8s
 // authenticated statement timeout and left the badge showing stale data.
+//
+// Paginated — PostgREST caps an unbounded query at 1000 rows by default, and
+// a large collection can have several thousand allocations. Without this,
+// rows past the first page are silently dropped, which showed up as the
+// ownership badge saying "Owned" for a card that was actually allocated to
+// another deck outside the truncated result.
+const PAGE_SIZE = 1000
 export async function fetchDeckAllocationsForUser(userId) {
-  const { data, error } = await sb
-    .from('deck_allocations_view')
-    .select('deck_id, card_print_id, scryfall_id, name, foil')
-    .eq('user_id', userId)
+  const rows = []
+  let from = 0
+  while (true) {
+    const { data, error } = await sb
+      .from('deck_allocations_view')
+      .select('deck_id, card_print_id, scryfall_id, name, foil')
+      .eq('user_id', userId)
+      .order('id')
+      .range(from, from + PAGE_SIZE - 1)
 
-  if (error) throw error
-  return data || []
+    if (error) throw error
+    if (data?.length) rows.push(...data)
+    if (!data || data.length < PAGE_SIZE) break
+    from += PAGE_SIZE
+  }
+  return rows
 }
 
 export async function upsertDeckAllocations(deckId, userId, rows) {
