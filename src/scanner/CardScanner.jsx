@@ -55,11 +55,6 @@ const AUTOSCAN_PROBE_INTERVAL_MS  = 90
 const AUTOSCAN_PROBE_STABLE       = 2     // consecutive stable probes before scanning
 const AUTOSCAN_PROBE_EPS_PX       = 10    // max centroid drift between probes (small-frame px)
 const AUTOSCAN_PROBE_AREA_TOL     = 0.2   // max relative bbox-area change between probes
-// Looser than the frame-to-frame probe epsilon above — this compares the
-// triggering quad of one accepted scan against the next, which can be a
-// second or more apart, so a genuinely still card needs a bit more slack.
-const DUPLICATE_POSITION_EPS_PX   = 16
-const DUPLICATE_POSITION_AREA_TOL = 0.15
 // After this many consecutive quick-probe misses, every Nth probe escalates to
 // the full 3-pass detection — pass 1 alone misses dark/low-contrast cards that
 // manual scanning (all passes + reticle) still finds.
@@ -178,9 +173,9 @@ function quadRoughlyEqual(a, b, eps = 3) {
   return true
 }
 
-// Cheap position/size fingerprint for a detected quad — used both for the
-// probe loop's frame-to-frame stability check and to tell whether two
-// separate accepted scans landed on the same physical card placement.
+// Cheap position/size fingerprint for a detected quad — used by the probe
+// loop's frame-to-frame stability check (has the card held still long
+// enough to fire a scan?).
 function quadSig(corners) {
   const cx = corners.reduce((s, p) => s + p.x, 0) / 4
   const cy = corners.reduce((s, p) => s + p.y, 0) / 4
@@ -222,7 +217,9 @@ function roundedQuadPath(points, radius) {
 }
 
 function getAutoScanCardSignature(match, foil = false) {
-  return `${String(match?.name || '').trim().toLocaleLowerCase()}|${foil ? 1 : 0}`
+  const name = String(match?.name || '').trim().toLocaleLowerCase()
+  const set = String(match?.setCode || '').trim().toLocaleLowerCase()
+  return `${name}|${set}|${foil ? 1 : 0}`
 }
 
 const CONDITIONS = ['NM', 'LP', 'MP', 'HP', 'DMG']
@@ -490,16 +487,6 @@ export default function CardScanner({ onMatch, onClose }) {
   const autoScanRef = useRef(false)
   const scanningRef = useRef(false)
   const lastAutoScanSignatureRef = useRef(null)
-  // Set once the probe loop loses the card for a sustained streak (not a single-
-  // frame flicker) — proof the physical card actually left the frame, so the next
-  // accepted match is allowed to count as a new card even if the name matches
-  // (e.g. two different-printing Forests scanned back to back).
-  const autoScanCardLostRef = useRef(false)
-  // Position/size of the quad that triggered the last accepted auto-scan.
-  // A swap straight into the next card (no visible gap for autoScanCardLostRef
-  // to catch) still lands the new card in a different spot almost always —
-  // used as a second, independent signal that this is a new placement.
-  const lastAcceptedQuadSigRef = useRef(null)
   const lastTitleRescueAtRef = useRef(0)
   const lastSoundCardUidRef = useRef(null)
   const sessionStatsRef = useRef({ attempts: 0, hits: 0, totalMs: 0 })
@@ -1601,25 +1588,14 @@ export default function CardScanner({ onMatch, onClose }) {
       sessionStatsRef.current.totalMs += elapsed
       setSessionStatsDisplay({ ...sessionStatsRef.current })
       setScanResult('found')
-      // In auto-scan mode, skip adding if this is the same card as the last scan,
-      // even if the matcher flips between different printings of that card while
-      // the physical card is still sitting in frame. Two independent signals say
-      // otherwise: a sustained detection gap (autoScanCardLostRef), or — for a
-      // fast swap with no visible gap — the new quad landing somewhere else.
+      // In auto-scan mode, skip adding if this is the same name+set+foil as the
+      // last scan — keyed on set so a different printing (e.g. a different
+      // Forest) always counts as a new card, while the matcher wobbling
+      // between samples of one still card doesn't cause a re-add.
       const autoScanSignature = getAutoScanCardSignature(match, preferFoil)
-      const currentQuadSig = prefetched?.corners ? quadSig(prefetched.corners) : null
-      const samePlacement = quadSigRoughlyEqual(
-        currentQuadSig, lastAcceptedQuadSigRef.current,
-        DUPLICATE_POSITION_EPS_PX, DUPLICATE_POSITION_AREA_TOL,
-      )
-      const isDuplicate = isAutoScan && !autoScanCardLostRef.current && samePlacement &&
-        autoScanSignature === lastAutoScanSignatureRef.current
+      const isDuplicate = isAutoScan && autoScanSignature === lastAutoScanSignatureRef.current
       if (!isDuplicate) {
-        if (isAutoScan) {
-          lastAutoScanSignatureRef.current = autoScanSignature
-          autoScanCardLostRef.current = false
-          lastAcceptedQuadSigRef.current = currentQuadSig
-        }
+        if (isAutoScan) lastAutoScanSignatureRef.current = autoScanSignature
         addToPending(match, { foil: preferFoil })
         if (scanOcr) refineScanWithOcr(match)
       }
@@ -1698,10 +1674,6 @@ export default function CardScanner({ onMatch, onClose }) {
             stableCount = 0
             lastSig = null
             showQuad(null)
-            // A sustained loss (not a one-frame flicker) means the physical
-            // card actually left the frame — let the next accepted match
-            // count as new even if its name+foil signature repeats.
-            if (missStreak >= AUTOSCAN_ESCALATE_AFTER) autoScanCardLostRef.current = true
           }
         } catch { /* keep probing */ }
       }
