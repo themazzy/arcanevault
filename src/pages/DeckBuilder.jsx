@@ -4590,7 +4590,7 @@ export default function DeckBuilderPage() {
                 <div
                   className={styles.cmdArtPane}
                   {...(commanderCards.length === 1
-                    ? { onClick: () => unsetCommander(commanderCards[0].id), title: 'Click to remove commander status' }
+                    ? { onClick: () => openDeckCardDetail(commanderCards[0]), title: 'Click to view card details' }
                     : {})}
                 >
                   {commanderCards.length === 1 ? (
@@ -4609,8 +4609,8 @@ export default function DeckBuilderPage() {
                             width: isPair ? '58%' : `${100 / commanderCards.length}%`,
                             backgroundImage: card.image_uri ? `url(${toArtCropImg(card.image_uri)})` : undefined,
                           }}
-                          onClick={() => unsetCommander(card.id)}
-                          title={`Click to remove ${card.name} as commander`}
+                          onClick={() => openDeckCardDetail(card)}
+                          title={`Click to view ${card.name}`}
                         />
                       )
                     })
