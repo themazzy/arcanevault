@@ -146,10 +146,6 @@ function getSetIcon(setIcons, code) {
   const v = setIcons[code]
   return typeof v === 'string' ? v : v?.icon ?? null
 }
-function getSetName(setIcons, code) {
-  const v = setIcons[code]
-  return typeof v === 'string' ? null : v?.name ?? null
-}
 
 let _uidCounter = Date.now()
 function nextUid() { return String(++_uidCounter) }
@@ -500,14 +496,12 @@ export default function CardScanner({ onMatch, onClose }) {
   const [startupDismissed, setStartupDismissed] = useState(false)
   const [errorMsg, setErrorMsg]   = useState(null)
   const [scanning, setScanning]   = useState(false)
-  const [scanResult, setScanResult] = useState(null)   // 'found' | 'notfound' | null
   const [cardCount, setCardCount] = useState(0)
   const [debugInfo, setDebugInfo] = useState(null)
   const [hashLoadInfo, setHashLoadInfo] = useState(databaseService.status)
   const [flashModes, setFlashModes] = useState([])
   const [flashMode, setFlashMode]   = useState('off')
   const [cameraStarted, setCameraStarted] = useState(false)
-  const [cameraRestartTick, setCameraRestartTick] = useState(0)
   const [setIcons, setSetIcons] = useState(() => loadSetIconCache())
   // Live lock-on overlay: the quad the auto-scan probe currently sees,
   // in viewport CSS coordinates.
@@ -629,7 +623,6 @@ export default function CardScanner({ onMatch, onClose }) {
   const startupIndeterminate = !errorMsg && !startupCanContinue &&
     (hashesReady || !hashLoadInfo?.totalCount)
   const showStartupModal = !startupDismissed
-  const anyOverlayOpen = showStartupModal || basketExpanded || addFlowOpen || manualSearchOpen || settingsOpen || setPickerOpen || printingPickerFor !== null || previewImage !== null
 
   // Auto-continue past the startup gate once everything is ready — the modal
   // is informative during loading, not a required click on every open.
@@ -846,7 +839,7 @@ export default function CardScanner({ onMatch, onClose }) {
         videoRef.current.srcObject = null
       }
     }
-  }, [cameraRestartTick, isNative])
+  }, [isNative])
 
   useEffect(() => {
     if (!cameraStarted) return
@@ -1495,7 +1488,6 @@ export default function CardScanner({ onMatch, onClose }) {
     const prefetched = options?.prefetched ?? null
     scanningRef.current = true  // block detection loop before any async OpenCV work
     setScanning(true)
-    setScanResult(null)
     const scanStart = Date.now()
     try {
       const votes = new Map()
@@ -1565,6 +1557,7 @@ export default function CardScanner({ onMatch, onClose }) {
           dist: bestObserved?.distance ?? '-',
           gap:  bestObservedGap ?? '-',
           src:  bestObservedSource ?? '-',
+          variant: bestObservedVariant ?? '-',
           votes: stableVote?.count ?? 0,
           cands: bestObservedCandidates ?? '-',
           total: databaseService.cardCount,
@@ -1579,7 +1572,6 @@ export default function CardScanner({ onMatch, onClose }) {
         sessionStatsRef.current.attempts++
         sessionStatsRef.current.totalMs += elapsed
         setSessionStatsDisplay({ ...sessionStatsRef.current })
-        setScanResult('notfound')
         return
       }
 
@@ -1587,7 +1579,6 @@ export default function CardScanner({ onMatch, onClose }) {
       sessionStatsRef.current.hits++
       sessionStatsRef.current.totalMs += elapsed
       setSessionStatsDisplay({ ...sessionStatsRef.current })
-      setScanResult('found')
       // In auto-scan mode, skip adding if this is the same name+set+foil as the
       // last scan — keyed on set so a different printing (e.g. a different
       // Forest) always counts as a new card, while the matcher wobbling
@@ -1605,7 +1596,6 @@ export default function CardScanner({ onMatch, onClose }) {
       onMatch?.(match)
     } catch (e) {
       if (DEBUG && mountedRef.current) setDebugInfo(d => ({ ...(d||{}), decision: `error: ${e.message}` }))
-      setScanResult('error')
     } finally {
       scanningRef.current = false
       if (mountedRef.current) setScanning(false)
