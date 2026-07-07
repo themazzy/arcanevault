@@ -16,10 +16,10 @@ export function extractTokenNames(oracle) {
   let match
   while ((match = namedRe.exec(oracle)) !== null) names.add(match[1])
 
-  const creatureRe = /create\s+(?:a\s+|an\s+|one\s+|two\s+|three\s+|four\s+|five\s+|six\s+|x\s+|\d+\s+)*(?:tapped\s+|attacking\s+)?(?:[+-]?\d+\/[+-]?\d+\s+)?(?:(?:white|blue|black|red|green|colorless|silver|gold)\s+)*(?:legendary\s+|snow\s+)?([A-Z][a-zA-Z]*(?:\s+[A-Z][a-zA-Z]*)*)\s+(?:artifact\s+)?creature\s+tokens?/gi
+  const creatureRe = /create\s+(?:a\s+|an\s+|one\s+|two\s+|three\s+|four\s+|five\s+|six\s+|x\s+|\d+\s+)*(?:tapped\s+|attacking\s+)?(?:[+-]?\d+\/[+-]?\d+\s+)?(?:(?:white|blue|black|red|green|colorless|silver|gold)\s+)*(?:legendary\s+|snow\s+)?([A-Z][a-zA-Z]*(?:\s+[A-Z][a-zA-Z]*)*?)\s+(?:artifact\s+)?creature\s+tokens?/gi
   while ((match = creatureRe.exec(oracle)) !== null) {
     const raw = match[1]?.trim()
-    if (!raw || /^(A|An|The|X|Your|Their|Each|All|Another|That|This|Copy|Token)$/.test(raw)) continue
+    if (!raw || /^(A|An|The|X|Your|Their|Each|All|Another|That|This|Copy|Token|Artifact)$/i.test(raw)) continue
     const words = raw.split(/\s+/)
     const name = words[words.length - 1]
     if (name && name.length > 1) names.add(name)

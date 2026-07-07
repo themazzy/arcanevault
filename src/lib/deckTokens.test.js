@@ -12,6 +12,15 @@ describe('deck token detection', () => {
     expect(extractTokenNames(oracle)).toEqual(['Treasure', 'Soldier', 'Cursed Role'])
   })
 
+  it('does not mistake the artifact type for a token name', () => {
+    const oracle = [
+      'Create a 1/1 colorless Thopter artifact creature token with flying.',
+      'Create a 1/1 colorless artifact creature token.',
+    ].join('\n')
+
+    expect(extractTokenNames(oracle)).toEqual(['Thopter'])
+  })
+
   it('detects non-token game pieces used by the deck', () => {
     const oracle = 'You take the initiative. The Ring tempts you. Venture into the dungeon. You get an emblem.'
     expect(extractTokenExtras(oracle)).toEqual(['The Initiative', 'The Ring', 'Dungeon', 'Emblem'])
