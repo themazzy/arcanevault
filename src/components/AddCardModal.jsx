@@ -8,6 +8,7 @@ import { getPrice, formatPrice, getPriceSource, sfGet } from '../lib/scryfall'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
 import { toOwnedCardRow, toListItemRow, mergeNonNull } from '../lib/deckBuilderWrites'
 import { removeAcquiredFromWishlists } from '../lib/wishlistSync'
+import { sortByNameRelevance } from '../lib/scryfallSearch'
 import styles from './AddCardModal.module.css'
 import uiStyles from './UI.module.css'
 
@@ -323,7 +324,10 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
         const data = await sfGet(
           `https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}&unique=cards&order=name&limit=8`
         )
-        const cards = data?.data?.slice(0, 8) || []
+        // Rank the complete Scryfall page before truncating suggestions. If we
+        // slice first, an exact match such as "Swamp" can sit just below eight
+        // alphabetically earlier partial matches and disappear entirely.
+        const cards = sortByNameRelevance(data?.data || [], query).slice(0, 8)
         setSuggestions(cards)
         setSuggestOpen(cards.length > 0)
       } catch {}
