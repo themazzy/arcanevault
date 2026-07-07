@@ -5,6 +5,8 @@ import { useAuth } from '../components/Auth'
 import { fetchDeckCards } from '../lib/deckData'
 import { FORMATS, fetchCardsByScryfallIds, getCardImageUri, parseDeckMeta } from '../lib/deckBuilderApi'
 import { CardDetail } from '../components/CardComponents'
+import { fetchDeckTokenCard, getDeckTokenItems } from '../lib/deckTokens'
+import { CloseIcon } from '../icons'
 import styles from './DeckGoldfish.module.css'
 
 const ZONE_LABELS = {
@@ -145,7 +147,15 @@ function MiniCard({ card, zone, onOpenMenu, onHoverCard, onPreviewStart, onPrevi
       title={card.name}
     >
       <span className={styles.cardImageWrap}>
-        {img
+        {card.isCustomToken
+          ? (
+              <span className={styles.customTokenFace} style={{ '--token-background': getTokenBackground(card.tokenColors) }}>
+                <strong>{card.name}</strong>
+                <span>Token</span>
+                <b>{card.power}/{card.toughness}</b>
+              </span>
+            )
+          : img
           ? <img className={styles.cardImage} src={img} alt="" loading="lazy" />
           : <span className={styles.cardPlaceholder}>{card.name}</span>
         }
@@ -167,13 +177,13 @@ function DropZone({
   onPreviewStart,
   onPreviewMove,
   onPreviewEnd,
+  onCreateToken,
   variant = 'default',
 }) {
   function handleDrop(event) {
     event.preventDefault()
     try {
       const data = JSON.parse(event.dataTransfer.getData('application/json') || '{}')
-      if (!data.fromZone || !data.instanceId) return
       const body = event.currentTarget.querySelector('[data-zone-body="true"]')
       const rect = body?.getBoundingClientRect()
       const placement = id === 'battlefield' && rect
@@ -182,6 +192,11 @@ function DropZone({
             y: Math.max(0, Math.min(event.clientY - rect.top - 82, rect.height - 164)),
           }
         : {}
+      if (data.tokenKey) {
+        if (id === 'battlefield') onCreateToken(data.tokenKey, placement)
+        return
+      }
+      if (!data.fromZone || !data.instanceId) return
       onMove(data.fromZone, data.instanceId, id === 'library' ? 'bottom' : id, placement)
     } catch {}
   }
@@ -234,7 +249,7 @@ function HoverPreview({ preview }) {
   )
 }
 
-function CardActionMenu({ menu, onMove, onInspect, onToggleTapped, onFlip, onClose }) {
+function CardActionMenu({ menu, onMove, onInspect, onToggleTapped, onFlip, onRemove, onClose }) {
   if (!menu) return null
   const actions = getCardActions(menu.zone)
   return (
@@ -242,7 +257,7 @@ function CardActionMenu({ menu, onMove, onInspect, onToggleTapped, onFlip, onClo
       <button className={styles.menuBackdrop} aria-label="Close card menu" onClick={onClose} />
       <div className={styles.cardMenu} style={{ left: menu.x, top: menu.y }}>
         <div className={styles.cardMenuTitle}>{menu.card.name}</div>
-        <button onClick={() => { onInspect(menu.card); onClose() }}>View Card</button>
+        {!menu.card.isCustomToken && <button onClick={() => { onInspect(menu.card); onClose() }}>View Card</button>}
         {menu.zone === 'battlefield' && (
           <button onClick={() => { onToggleTapped(menu.card.instanceId); onClose() }}>
             {menu.card.tapped ? 'Untap' : 'Tap'}
@@ -253,7 +268,7 @@ function CardActionMenu({ menu, onMove, onInspect, onToggleTapped, onFlip, onClo
             Flip Card
           </button>
         )}
-        {actions.map(action => (
+        {!menu.card.isToken && actions.map(action => (
           <button
             key={action}
             onClick={() => {
@@ -264,8 +279,160 @@ function CardActionMenu({ menu, onMove, onInspect, onToggleTapped, onFlip, onClo
             Move to {actionLabel(action)}
           </button>
         ))}
+        {menu.card.isToken && (
+          <button onClick={() => { onRemove(menu.zone, menu.card.instanceId); onClose() }}>Remove Token</button>
+        )}
       </div>
     </>
+  )
+}
+
+const TOKEN_COLORS = [
+  { id: 'W', label: 'White', hex: '#d9d1aa' },
+  { id: 'U', label: 'Blue', hex: '#3978a8' },
+  { id: 'B', label: 'Black', hex: '#4b4350' },
+  { id: 'R', label: 'Red', hex: '#a84236' },
+  { id: 'G', label: 'Green', hex: '#3d8055' },
+  { id: 'C', label: 'Colorless', hex: '#777b83' },
+]
+
+function getTokenBackground(colorIds = ['C']) {
+  const colors = colorIds
+    .map(id => TOKEN_COLORS.find(color => color.id === id)?.hex)
+    .filter(Boolean)
+  if (colors.length <= 1) return colors[0] || TOKEN_COLORS[5].hex
+  const step = 100 / colors.length
+  const stops = colors.flatMap((color, index) => [
+    `${color} ${index * step}%`,
+    `${color} ${(index + 1) * step}%`,
+  ])
+  return `linear-gradient(135deg, ${stops.join(', ')})`
+}
+
+function TokenTray({ tokens, loading, onCreate, onAddCustom, onRemoveCustom }) {
+  const [showCustom, setShowCustom] = useState(false)
+  const [name, setName] = useState('Custom Token')
+  const [power, setPower] = useState('1')
+  const [toughness, setToughness] = useState('1')
+  const [colors, setColors] = useState(['C'])
+
+  function toggleColor(colorId) {
+    setColors(current => {
+      if (colorId === 'C') return ['C']
+      const withoutColorless = current.filter(id => id !== 'C')
+      if (withoutColorless.includes(colorId)) {
+        const next = withoutColorless.filter(id => id !== colorId)
+        return next.length ? next : ['C']
+      }
+      const selected = new Set([...withoutColorless, colorId])
+      return TOKEN_COLORS.filter(color => selected.has(color.id)).map(color => color.id)
+    })
+  }
+
+  function submitCustom(event) {
+    event.preventDefault()
+    const trimmedName = name.trim()
+    if (!trimmedName) return
+    onAddCustom({ name: trimmedName, power: power.trim() || '0', toughness: toughness.trim() || '0', tokenColors: colors })
+    setShowCustom(false)
+  }
+
+  return (
+    <section className={`${styles.tokenTray}${showCustom ? ` ${styles.tokenTrayCustomOpen}` : ''}`} aria-label="Deck tokens and extras">
+      <div className={styles.tokenTrayHeader}>
+        <span>Tokens &amp; Extras</span>
+        <button type="button" onClick={() => setShowCustom(value => !value)}>+ Custom</button>
+      </div>
+      {showCustom && (
+        <form className={styles.customTokenForm} onSubmit={submitCustom}>
+          <label className={styles.customTokenField}>
+            <span>Name</span>
+            <input value={name} onChange={event => setName(event.target.value)} placeholder="Token name" autoFocus />
+          </label>
+          <div className={styles.customTokenStats}>
+            <label className={styles.customTokenField}>
+              <span>Power</span>
+              <input value={power} onChange={event => setPower(event.target.value)} placeholder="P" inputMode="text" />
+            </label>
+            <span className={styles.statDivider}>/</span>
+            <label className={styles.customTokenField}>
+              <span>Toughness</span>
+              <input value={toughness} onChange={event => setToughness(event.target.value)} placeholder="T" inputMode="text" />
+            </label>
+          </div>
+          <fieldset className={styles.colorPicker}>
+            <legend>Colors</legend>
+            <div className={styles.colorOptions}>
+              {TOKEN_COLORS.map(color => (
+                <button
+                  type="button"
+                  key={color.id}
+                  className={`${styles.colorOption}${colors.includes(color.id) ? ` ${styles.colorOptionActive}` : ''}`}
+                  style={{ '--swatch-color': color.hex }}
+                  aria-label={color.label}
+                  aria-pressed={colors.includes(color.id)}
+                  title={color.label}
+                  onClick={() => toggleColor(color.id)}
+                >
+                  <span className={styles.colorSwatch} />
+                  <span>{color.id}</span>
+                </button>
+              ))}
+            </div>
+          </fieldset>
+          <button className={styles.addCustomTokenBtn} type="submit">Add to tray</button>
+        </form>
+      )}
+      <div className={styles.tokenList}>
+        {tokens.map(token => (
+          <div
+            className={`${styles.tokenTile}${token.isCustomToken ? '' : ` ${styles.tokenTileImported}`}`}
+            key={token.key}
+          >
+            <button
+              type="button"
+              className={styles.tokenTileCreate}
+              draggable
+              onClick={() => onCreate(token.key)}
+              onDragStart={event => {
+                event.dataTransfer.effectAllowed = 'copy'
+                event.dataTransfer.setData('application/json', JSON.stringify({ tokenKey: token.key }))
+              }}
+              title={`Create ${token.name} on the battlefield`}
+            >
+              <span className={styles.tokenImage}>
+                {token.isCustomToken
+                  ? (
+                      <span className={styles.customTokenFace} style={{ '--token-background': getTokenBackground(token.tokenColors) }}>
+                        <strong>{token.name}</strong>
+                        <span>Token</span>
+                        <b>{token.power}/{token.toughness}</b>
+                      </span>
+                    )
+                  : token.imageUri
+                    ? <img src={token.imageUri} alt="" loading="lazy" />
+                    : <span>{loading ? 'Loading…' : token.name}</span>
+                }
+              </span>
+              <span className={styles.tokenName}>{token.name}</span>
+            </button>
+            {token.isCustomToken && (
+              <button
+                type="button"
+                className={styles.deleteCustomToken}
+                aria-label={`Delete ${token.name} custom token`}
+                title="Delete custom token"
+                onClick={() => onRemoveCustom(token.key)}
+              >
+                <CloseIcon size={11} />
+              </button>
+            )}
+          </div>
+        ))}
+        {!tokens.length && <div className={styles.tokenEmpty}>{loading ? 'Finding deck tokens…' : 'No deck tokens detected.'}</div>}
+      </div>
+      <p className={styles.tokenHint}>Click or drag a token onto the battlefield.</p>
+    </section>
   )
 }
 
@@ -362,6 +529,8 @@ export default function DeckGoldfishPage() {
   const [hoveredCard, setHoveredCard] = useState(null)
   const [libraryAction, setLibraryAction] = useState(null)
   const [hoverPreview, setHoverPreview] = useState(null)
+  const [loadedTokenCatalog, setLoadedTokenCatalog] = useState({ sourceKey: '', items: [] })
+  const [customTokens, setCustomTokens] = useState([])
   const hoverPreviewTimer = useRef(null)
 
   useEffect(() => {
@@ -385,6 +554,9 @@ export default function DeckGoldfishPage() {
                 image_uris: full.image_uris || null,
                 card_faces: full.card_faces || null,
                 layout: full.layout || card.layout || null,
+                oracle_text: full.oracle_text || card.oracle_text || '',
+                type_line: full.type_line || card.type_line || '',
+                keywords: full.keywords || card.keywords || [],
               }
             : card
         })
@@ -402,6 +574,30 @@ export default function DeckGoldfishPage() {
 
   const deckMeta = useMemo(() => parseDeckMeta(deck?.description), [deck?.description])
   const format = FORMATS.find(f => f.id === (deckMeta.format || 'commander'))
+  const detectedTokenItems = useMemo(() => getDeckTokenItems(deckCards), [deckCards])
+  const detectedTokenKey = detectedTokenItems.map(item => `${item.kind}:${item.name}`).join('|')
+
+  useEffect(() => {
+    let active = true
+    if (!detectedTokenItems.length) return () => { active = false }
+    Promise.all(detectedTokenItems.map(async item => {
+      try {
+        const result = await fetchDeckTokenCard(item)
+        return { ...result, key: `${item.kind}:${item.name}` }
+      } catch {
+        return { ...item, key: `${item.kind}:${item.name}`, imageUri: null, card: null }
+      }
+    })).then(results => {
+      if (active) setLoadedTokenCatalog({ sourceKey: detectedTokenKey, items: results })
+    })
+    return () => { active = false }
+  }, [detectedTokenItems, detectedTokenKey])
+
+  const tokenCatalog = loadedTokenCatalog.sourceKey === detectedTokenKey
+    ? loadedTokenCatalog.items
+    : detectedTokenItems.map(item => ({ ...item, key: `${item.kind}:${item.name}`, imageUri: null, card: null }))
+  const tokensLoading = Boolean(detectedTokenItems.length && loadedTokenCatalog.sourceKey !== detectedTokenKey)
+  const allTokens = useMemo(() => [...tokenCatalog, ...customTokens], [tokenCatalog, customTokens])
 
   const deckSummary = useMemo(() => {
     const mainRows = deckCards.filter(card => (!card.board || card.board === 'main') && !card.is_commander)
@@ -470,6 +666,46 @@ export default function DeckGoldfishPage() {
       }
       return next
     })
+  }
+
+  function createToken(tokenKey, placement = {}) {
+    const template = allTokens.find(token => token.key === tokenKey)
+    if (!template) return
+    setState(prev => {
+      if (!prev) return prev
+      const index = prev.battlefield.length
+      const source = template.card || {}
+      const token = {
+        ...source,
+        name: template.name,
+        image_uri: template.imageUri || source.image_uri || null,
+        instanceId: `token:${crypto.randomUUID()}`,
+        qty: 1,
+        isToken: true,
+        isCustomToken: Boolean(template.isCustomToken),
+        tokenColors: template.tokenColors,
+        power: template.power ?? source.power,
+        toughness: template.toughness ?? source.toughness,
+        battlefieldX: placement.x ?? 24 + (index % 6) * 24,
+        battlefieldY: placement.y ?? 24 + Math.floor(index / 6) * 24,
+      }
+      return { ...prev, battlefield: [...prev.battlefield, token] }
+    })
+  }
+
+  function addCustomToken(token) {
+    setCustomTokens(prev => [
+      ...prev,
+      { ...token, key: `custom:${crypto.randomUUID()}`, kind: 'custom', isCustomToken: true, imageUri: null, card: null },
+    ])
+  }
+
+  function removeCustomToken(tokenKey) {
+    setCustomTokens(prev => prev.filter(token => token.key !== tokenKey))
+  }
+
+  function removeCard(zone, instanceId) {
+    setState(prev => prev ? { ...prev, [zone]: removeFromZone(prev[zone] || [], instanceId).cards } : prev)
   }
 
   function updateCardInZones(instanceId, updater) {
@@ -684,6 +920,7 @@ export default function DeckGoldfishPage() {
               <strong>{state.library.length}</strong>
             </div>
             <button className={styles.secondaryBtn} onClick={shuffleLibraryOnly}>Shuffle Library</button>
+            <TokenTray tokens={allTokens} loading={tokensLoading} onCreate={createToken} onAddCustom={addCustomToken} onRemoveCustom={removeCustomToken} />
           </aside>
 
           <div className={styles.table}>
@@ -693,7 +930,7 @@ export default function DeckGoldfishPage() {
               <DropZone id="exile" title="Exile" cards={state.exile} collapsed={collapsed.exile} onToggle={() => toggleZone('exile')} onMove={moveCard} onOpenMenu={openCardMenu} onHoverCard={setHoveredCard} onPreviewStart={startHoverPreview} onPreviewMove={moveHoverPreview} onPreviewEnd={clearHoverPreview} variant="side" />
               <DropZone id="library" title="Library" cards={state.library} collapsed={collapsed.library} onToggle={() => toggleZone('library')} onMove={moveCard} onOpenMenu={openCardMenu} onHoverCard={setHoveredCard} onPreviewStart={startHoverPreview} onPreviewMove={moveHoverPreview} onPreviewEnd={clearHoverPreview} variant="side" />
             </div>
-            <DropZone id="battlefield" title="Battlefield" cards={state.battlefield} collapsed={false} onMove={moveCard} onOpenMenu={openCardMenu} onHoverCard={setHoveredCard} onPreviewStart={startHoverPreview} onPreviewMove={moveHoverPreview} onPreviewEnd={clearHoverPreview} variant="battlefield" />
+            <DropZone id="battlefield" title="Battlefield" cards={state.battlefield} collapsed={false} onMove={moveCard} onCreateToken={createToken} onOpenMenu={openCardMenu} onHoverCard={setHoveredCard} onPreviewStart={startHoverPreview} onPreviewMove={moveHoverPreview} onPreviewEnd={clearHoverPreview} variant="battlefield" />
             <DropZone id="hand" title="Hand" cards={state.hand} collapsed={false} onMove={moveCard} onOpenMenu={openCardMenu} onHoverCard={setHoveredCard} onPreviewStart={startHoverPreview} onPreviewMove={moveHoverPreview} onPreviewEnd={clearHoverPreview} variant="hand" />
           </div>
         </main>
@@ -707,6 +944,7 @@ export default function DeckGoldfishPage() {
         onInspect={setDetailCard}
         onToggleTapped={toggleTapped}
         onFlip={flipCard}
+        onRemove={removeCard}
         onClose={() => setCardMenu(null)}
       />
 

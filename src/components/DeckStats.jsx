@@ -1,11 +1,12 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { sfGet, getPrice, formatPrice } from '../lib/scryfall'
+import { getPrice, formatPrice } from '../lib/scryfall'
 import { CAT_ORDER, CAT_COLORS, getCardCategory } from '../lib/cardCategory'
 import BracketBadge from './BracketBadge'
 import { analyzeBracket, fetchGameChangerNames } from '../lib/commanderBracket'
 import { CloseIcon } from '../icons'
 import { Select } from './UI'
 import { hypergeomAtLeast, expectedCount, openingHandLands } from '../lib/deckProbability'
+import { extractTokenExtras, extractTokenNames, fetchDeckTokenCard } from '../lib/deckTokens'
 import styles from './DeckStats.module.css'
 
 // Re-export so existing consumers that import from DeckStats keep working.
@@ -93,46 +94,6 @@ export function getCreatureTypeCounts(cards) {
     }
   }
   return Object.entries(counts).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 14)
-}
-
-// Extract token type names from oracle text (returns deduplicated array)
-function extractTokenNames(oracle) {
-  if (!oracle) return []
-  const names = new Set()
-
-  // Named utility tokens (Treasure, Food, Clue, etc.)
-  const namedRe = /\b(Treasure|Food|Clue|Blood|Powerstone|Junk|Map|Shard|Incubator|Gold)\s+tokens?/g
-  let m
-  while ((m = namedRe.exec(oracle)) !== null) names.add(m[1])
-
-  // "create a X/Y [colors] [Subtype] creature/artifact creature token"
-  const creatureRe = /create\s+(?:a\s+|an\s+|one\s+|two\s+|three\s+|four\s+|five\s+|six\s+|x\s+|\d+\s+)*(?:tapped\s+|attacking\s+)?(?:[+\-]?\d+\/[+\-]?\d+\s+)?(?:(?:white|blue|black|red|green|colorless|silver|gold)\s+)*(?:legendary\s+|snow\s+)?([A-Z][a-zA-Z]*(?:\s+[A-Z][a-zA-Z]*)*)\s+(?:artifact\s+)?creature\s+tokens?/g
-  while ((m = creatureRe.exec(oracle)) !== null) {
-    const raw = m[1]?.trim()
-    if (!raw || /^(A|An|The|X|Your|Their|Each|All|Another|That|This|Copy|Token)$/.test(raw)) continue
-    const words = raw.split(/\s+/)
-    const name = words[words.length - 1]
-    if (name && name.length > 1) names.add(name)
-  }
-
-  // Role tokens
-  const roleRe = /\b(Blessed|Cursed|Wicked|Monster|Royal|Sorcerer|Young Hero)\s+Role\s+token/g
-  while ((m = roleRe.exec(oracle)) !== null) names.add(`${m[1]} Role`)
-
-  return [...names]
-}
-
-// Detect special non-token game pieces referenced in oracle text
-function extractExtras(oracle) {
-  if (!oracle) return []
-  const extras = new Set()
-  const t = oracle.toLowerCase()
-  if (/\bmonarch\b/.test(t)) extras.add('Monarch')
-  if (/\binitiative\b/.test(t)) extras.add('The Initiative')
-  if (/the ring tempts you/.test(t)) extras.add('The Ring')
-  if (/venture into the dungeon/.test(t)) extras.add('Dungeon')
-  if (/you get an? emblem/.test(t)) extras.add('Emblem')
-  return [...extras]
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -993,7 +954,7 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride, p
     const creatureTypeCounts = getCreatureTypeCounts(cards)
     const combinedOracle = cards.map(c => c.oracle_text || '').join('\n')
     const tokenNames = extractTokenNames(combinedOracle)
-    const extras = extractExtras(combinedOracle)
+    const extras = extractTokenExtras(combinedOracle)
 
     // Price stats
     let totalPrice = 0, pricedCardCount = 0
@@ -1022,15 +983,6 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride, p
     return { curve, curveByColor, curveByType, costColors, costCards, prodMana, typeCounts, catCounts, totalCostPips, totalProdMana, nonLandCount, avgCmc, kwCounts, creatureTypeCounts, tokenNames, extras, totalPrice, avgPrice, priceByCategory, topCards }
   }, [cards])
 
-  // Scryfall queries for non-token extras
-  const EXTRA_QUERIES = {
-    'Monarch':        't:conspiracy !"Monarch" game:paper',
-    'The Initiative': '!"The Initiative" game:paper',
-    'The Ring':       't:emblem !"The Ring"',
-    'Dungeon':        't:dungeon game:paper',
-    'Emblem':         't:emblem game:paper',
-  }
-
   // Fetch token + extra images from Scryfall — newest paper printing
   useEffect(() => {
     const allItems = [...stats.tokenNames, ...stats.extras]
@@ -1043,16 +995,15 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride, p
       const results = {}
       for (const name of toFetch) {
         if (!active) break
-        const rawQ = EXTRA_QUERIES[name] ?? `t:token !"${name}" game:paper`
-        const q = encodeURIComponent(rawQ)
         // Many token/mechanic names (e.g. "The Ring") have no matching paper
         // card and 404 — swallow per item so one miss neither spams the
         // console nor aborts the remaining fetches.
         try {
-          const data = await sfGet(`/cards/search?q=${q}&order=released&dir=desc&unique=prints`)
-          const hit = data?.data?.[0]
-          // Double-faced tokens (e.g. The Ring) carry images on the faces.
-          results[name] = hit?.image_uris?.small ?? hit?.card_faces?.[0]?.image_uris?.small ?? null
+          const result = await fetchDeckTokenCard({
+            name,
+            kind: stats.extras.includes(name) ? 'extra' : 'token',
+          }, 'small')
+          results[name] = result.imageUri
         } catch {
           results[name] = null
         }
