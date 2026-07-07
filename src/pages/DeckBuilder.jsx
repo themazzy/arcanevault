@@ -12,6 +12,7 @@ import {
   fetchRecommendationMetadataByNames,
   fetchEdhrecCommander, fetchPaperPrintings,
   fetchPaperPrintingsFromDb, fetchPaperPrintingsByNamesFromDb,
+  pickAutomaticDeckPrinting,
 } from '../lib/deckBuilderApi'
 import {
   getLocalCards, getDeckCards, putDeckCards, deleteDeckCardLocal, getMeta, setMeta,
@@ -2253,7 +2254,9 @@ export default function DeckBuilderPage() {
       }
     }
 
-    const newest = printings[0] || fallbackSfCard || null
+    // Automatic choices prefer English artwork. An exact owned printing is
+    // resolved above and remains untouched, including foreign-language copies.
+    const newest = pickAutomaticDeckPrinting(printings, fallbackSfCard)
     return newest ? { sfCard: newest, foil: defaultFoilForPrinting(newest), card_print_id: null } : null
   }
 

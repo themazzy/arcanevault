@@ -16,6 +16,7 @@ import {
   parseTextDecklist, parseImportUrl, searchCards, fetchPaperPrintings,
   getDeckBuilderCardMeta, importProxyUrl, fetchPaperPrintingsByNamesFromDb,
   fetchRecommendationMetadataByNames, recommendationMetadataRowToCard,
+  pickAutomaticDeckPrinting,
 } from './deckBuilderApi'
 import { sfGet } from './scryfall'
 import { sb } from './supabase'
@@ -65,13 +66,13 @@ describe('recommendation metadata', () => {
   it('maps an RPC row into the existing Scryfall-like card shape', () => {
     expect(recommendationMetadataRowToCard({
       requested_name: 'Ashling, Rekindled',
-      scryfall_id: 'print-1', oracle_id: 'oracle-1', name: 'Sol Ring',
+      scryfall_id: 'print-1', oracle_id: 'oracle-1', name: 'Sol Ring', lang: 'en',
       set_code: 'cmm', collector_number: '396', type_line: 'Artifact',
       mana_cost: '{1}', cmc: 1, color_identity: [], image_uri: 'https://img/normal.jpg',
       art_crop_uri: 'https://img/art.jpg', oracle_text: '{T}: Add {C}{C}.',
       legalities: { commander: 'legal' }, keywords: [], colors: [], produced_mana: ['C'],
     })).toMatchObject({
-      requested_name: 'Ashling, Rekindled', id: 'print-1', oracle_id: 'oracle-1', name: 'Sol Ring', set: 'cmm',
+      requested_name: 'Ashling, Rekindled', id: 'print-1', oracle_id: 'oracle-1', name: 'Sol Ring', set: 'cmm', lang: 'en',
       collector_number: '396', legalities: { commander: 'legal' },
       image_uris: {
         small: 'https://img/normal.jpg', normal: 'https://img/normal.jpg',
@@ -120,6 +121,25 @@ describe('recommendation metadata', () => {
   it('surfaces RPC failures to callers so they can degrade explicitly', async () => {
     sb.rpc.mockResolvedValue({ data: null, error: new Error('rpc unavailable') })
     await expect(fetchRecommendationMetadataByNames(['Sol Ring'])).rejects.toThrow('rpc unavailable')
+  })
+})
+
+describe('pickAutomaticDeckPrinting', () => {
+  it('prefers an English printing over a newer foreign printing', () => {
+    const zh = { id: 'zh-new', lang: 'zhs' }
+    const en = { id: 'en-old', lang: 'en' }
+    expect(pickAutomaticDeckPrinting([zh, en])).toBe(en)
+  })
+
+  it('uses an English recommendation fallback before unknown catalog rows', () => {
+    const unknown = { id: 'legacy', lang: null }
+    const fallback = { id: 'oracle-en', lang: 'en' }
+    expect(pickAutomaticDeckPrinting([unknown], fallback)).toBe(fallback)
+  })
+
+  it('keeps the previous fallback when no English identity is known', () => {
+    const first = { id: 'legacy', lang: null }
+    expect(pickAutomaticDeckPrinting([first])).toBe(first)
   })
 })
 

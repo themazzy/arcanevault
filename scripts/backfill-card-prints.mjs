@@ -50,6 +50,7 @@ function buildPayload(card) {
     name: card.name,
     set_code: card.set,
     collector_number: card.collector_number,
+    lang: card.lang || null,
     oracle_id: card.oracle_id || null,
     type_line: card.type_line || null,
     mana_cost: card.mana_cost || card.card_faces?.[0]?.mana_cost || null,
@@ -103,7 +104,7 @@ async function downloadBulkFile(url, destination) {
   })
 }
 
-// Only target rows that still need backfilling (rarity is the canary). This
+// Only target rows that still need metadata or language backfilling. This
 // avoids rewriting already-populated rows, which would create dead tuples and
 // inflate the table until VACUUM FULL.
 async function loadExistingScryfallIds() {
@@ -114,7 +115,7 @@ async function loadExistingScryfallIds() {
       .from('card_prints')
       .select('scryfall_id')
       .not('scryfall_id', 'is', null)
-      .is('rarity', null)
+      .or('rarity.is.null,lang.is.null')
       .order('scryfall_id', { ascending: true })
       .range(from, from + FETCH_BATCH_SIZE - 1)
     if (error) throw error

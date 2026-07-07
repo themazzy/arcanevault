@@ -247,6 +247,7 @@ export function recommendationMetadataRowToCard(row) {
   return {
     requested_name: row.requested_name || row.name,
     id: row.scryfall_id,
+    lang: row.lang || null,
     oracle_id: row.oracle_id || null,
     name: row.name,
     set: row.set_code || null,
@@ -369,6 +370,7 @@ function dbPrintToScryfallShape(p, priceRow, setReleases) {
     set: p.set_code,
     set_code: p.set_code,
     collector_number: p.collector_number,
+    lang: p.lang || null,
     type_line: p.type_line,
     mana_cost: p.mana_cost,
     cmc: p.cmc,
@@ -399,7 +401,7 @@ export async function fetchPaperPrintingsByNamesFromDb(names) {
     const batch = uniqueNames.slice(i, i + 200)
     const { data, error } = await sb
       .from('card_prints')
-      .select('scryfall_id,name,set_code,collector_number,type_line,mana_cost,cmc,color_identity,image_uri')
+      .select('scryfall_id,name,set_code,collector_number,lang,type_line,mana_cost,cmc,color_identity,image_uri')
       .in('name', batch)
     if (error) throw error
     if (data) allPrints.push(...data)
@@ -436,6 +438,14 @@ export async function fetchPaperPrintingsFromDb(name) {
   if (!name) return []
   const map = await fetchPaperPrintingsByNamesFromDb([name])
   return map.get(name) || []
+}
+
+export function pickAutomaticDeckPrinting(printings, fallbackCard = null) {
+  return (printings || []).find(print => print.lang === 'en')
+    || (fallbackCard?.lang === 'en' ? fallbackCard : null)
+    || (printings || [])[0]
+    || fallbackCard
+    || null
 }
 
 // ── EDHRec ────────────────────────────────────────────────────────────────────

@@ -35,6 +35,7 @@ function slimCardFaces(faces) {
 
 const CARD_PRINT_SELECT_COLUMNS = [
   'id', 'scryfall_id', 'oracle_id', 'set_code', 'collector_number', 'name',
+  'lang',
   'type_line', 'mana_cost', 'cmc', 'color_identity',
   'image_uri', 'art_crop_uri',
   'rarity', 'set_name', 'artist',
@@ -66,6 +67,7 @@ export function buildCardPrintPayload(card) {
     name: card.name,
     set_code: setCode,
     collector_number: collectorNumber,
+    lang: card.lang || null,
     type_line: card.type_line || null,
     mana_cost: card.mana_cost || card.card_faces?.[0]?.mana_cost || null,
     cmc: card.cmc ?? null,
@@ -230,6 +232,7 @@ export function cardPrintRowToSfEntry(row) {
     set_code:         setCode,
     collector_number: collectorNumber,
     name:             row.name,
+    lang:             row.lang || null,
     set_name:         row.set_name || null,
     type_line:        row.type_line || null,
     oracle_text:      row.oracle_text ?? null,
