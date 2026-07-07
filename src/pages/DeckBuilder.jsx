@@ -9,6 +9,7 @@ import {
   FORMATS, TYPE_GROUPS, classifyCardType,
   parseDeckMeta, serializeDeckMeta, getCardImageUri,
   fetchCardsByNames, fetchCardsByScryfallIds, getDeckBuilderCardMeta,
+  fetchRecommendationMetadataByNames,
   fetchEdhrecCommander, fetchPaperPrintings,
   fetchPaperPrintingsFromDb, fetchPaperPrintingsByNamesFromDb,
 } from '../lib/deckBuilderApi'
@@ -387,6 +388,7 @@ export default function DeckBuilderPage() {
   // Recommendations
   const [recs,         setRecs]         = useState([])
   const [recImages,    setRecImages]    = useState({}) // name -> image_uri
+  const [recCards,     setRecCards]     = useState({}) // name -> Supabase-resolved card
   const [recLegalities, setRecLegalities] = useState({}) // name -> legalities object
   const [recsLoading,   setRecsLoading]   = useState(false)
   const [recsError,     setRecsError]     = useState(null)
@@ -1439,18 +1441,17 @@ export default function DeckBuilderPage() {
     </div>
   )
 
-  // Open card detail modal by card name (recs / combos — no scryfall_id available)
+  // Open recommendation/combo details from the shared Supabase dictionary.
   const openCardDetailByName = useCallback(async (name) => {
     try {
-      const res = await fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}`)
-      if (!res.ok) return
-      const data = await res.json()
+      const data = recCards[name] || (await fetchRecommendationMetadataByNames([name]))[0]
+      if (!data) return
       setDetailCard({
         card: { scryfall_id: data.id, set_code: data.set, collector_number: data.collector_number, name: data.name, qty: 1, foil: false },
         sfCard: data,
       })
     } catch {}
-  }, [])
+  }, [recCards])
 
 
   const visibleDeckCards = useMemo(() => {
@@ -2456,7 +2457,7 @@ export default function DeckBuilderPage() {
       colorId    = meta.color_identity
       imageUri   = meta.image_uri
     } else {
-      // EDHRec rec — enrich from scryfall cache or fetch
+      // EDHRec/assistant rec — resolve from the shared Supabase dictionary.
       name       = sfCardOrRec.name
       scryfallId = null
       setCode    = null
@@ -2466,9 +2467,10 @@ export default function DeckBuilderPage() {
       colorId    = sfCardOrRec.colorIdentity
       imageUri   = recImages[name] || null
 
-      // Try to fetch full Scryfall data for the card
+      // Reuse the Recommendations-tab batch when available; assistant/combo
+      // additions resolve one name through the same bounded database RPC.
       try {
-        const [full] = await fetchCardsByNames([name])
+        const full = recCards[name] || (await fetchRecommendationMetadataByNames([name]))[0]
         if (full) {
           const meta = getDeckBuilderCardMeta(full)
           scryfallId = meta.scryfall_id
@@ -2684,9 +2686,9 @@ export default function DeckBuilderPage() {
   // session so repeated adds land in the same place.
   const assistantWishlistRef = useRef(null) // { id, name }
   async function addUpgradeToWishlist(name) {
-    const [full] = await fetchCardsByNames([name])
+    const full = recCards[name] || (await fetchRecommendationMetadataByNames([name]))[0]
     if (!full) {
-      showToast(`Couldn't find ${name} on Scryfall.`, { tone: 'error' })
+      showToast(`Couldn't find ${name} in the card database.`, { tone: 'error' })
       throw new Error('card not found')
     }
     let target = assistantWishlistRef.current
@@ -2885,6 +2887,7 @@ export default function DeckBuilderPage() {
     setRecsError(null)
     setRecs([])
     setRecImages({})
+    setRecCards({})
     setRecLegalities({})
     setCollapsedCats(new Set())
 
@@ -2902,15 +2905,19 @@ export default function DeckBuilderPage() {
 
     const allRecNames = data.categories.flatMap(c => c.cards.map(r => r.name))
 
-    const sfCards = await fetchCardsByNames(allRecNames.slice(0, 150))
+    const sfCards = await fetchRecommendationMetadataByNames(allRecNames).catch(() => [])
     const imgMap = {}
+    const cardMap = {}
     const legMap = {}
     for (const c of sfCards) {
+      const requestedName = c.requested_name || c.name
+      cardMap[requestedName] = c
       const uri = getCardImageUri(c, 'small')
-      if (uri) imgMap[c.name] = uri
-      if (c.legalities) legMap[c.name] = c.legalities
+      if (uri) imgMap[requestedName] = uri
+      if (c.legalities) legMap[requestedName] = c.legalities
     }
     setRecImages(imgMap)
+    setRecCards(cardMap)
     setRecLegalities(legMap)
     if (needsLegality) setRecsLoading(false)
   }
@@ -4490,7 +4497,7 @@ export default function DeckBuilderPage() {
                               key={rec.name}
                               rec={rec}
                               imageUri={recImages[rec.name] || null}
-                              ownedQty={ownedMap.get(rec.slug) ?? 0}
+                              ownedQty={ownedNameMap.get(rec.name.toLowerCase()) ?? 0}
                               onAdd={addCardToDeck}
                               onHoverEnter={CAN_HOVER && !lastInputWasTouch ? (uri, e) => { updateHoverPos(e.clientX, e.clientY); setHoverImages(uri ? [uri] : []) } : undefined}
                               onHoverMove={CAN_HOVER ? e => updateHoverPos(e.clientX, e.clientY) : undefined}

@@ -10,9 +10,13 @@ vi.mock('./scryfall', () => ({
     c?.image_uris?.[size] ?? c?.card_faces?.[0]?.image_uris?.[size] ?? null,
 }))
 
-vi.mock('./supabase', () => ({ sb: { from: vi.fn() } }))
+vi.mock('./supabase', () => ({ sb: { from: vi.fn(), rpc: vi.fn() } }))
 
-import { parseTextDecklist, parseImportUrl, searchCards, fetchPaperPrintings, getDeckBuilderCardMeta, importProxyUrl, fetchPaperPrintingsByNamesFromDb } from './deckBuilderApi'
+import {
+  parseTextDecklist, parseImportUrl, searchCards, fetchPaperPrintings,
+  getDeckBuilderCardMeta, importProxyUrl, fetchPaperPrintingsByNamesFromDb,
+  fetchRecommendationMetadataByNames, recommendationMetadataRowToCard,
+} from './deckBuilderApi'
 import { sfGet } from './scryfall'
 import { sb } from './supabase'
 
@@ -52,6 +56,70 @@ describe('getDeckBuilderCardMeta', () => {
     expect(meta.image_uri).toBe('https://img/front.jpg')
     expect(meta.type_line).toBe('Legendary Creature — Human')
     expect(meta.mana_cost).toBe('{1}{W}')
+  })
+})
+
+describe('recommendation metadata', () => {
+  beforeEach(() => { sb.rpc.mockReset() })
+
+  it('maps an RPC row into the existing Scryfall-like card shape', () => {
+    expect(recommendationMetadataRowToCard({
+      requested_name: 'Ashling, Rekindled',
+      scryfall_id: 'print-1', oracle_id: 'oracle-1', name: 'Sol Ring',
+      set_code: 'cmm', collector_number: '396', type_line: 'Artifact',
+      mana_cost: '{1}', cmc: 1, color_identity: [], image_uri: 'https://img/normal.jpg',
+      art_crop_uri: 'https://img/art.jpg', oracle_text: '{T}: Add {C}{C}.',
+      legalities: { commander: 'legal' }, keywords: [], colors: [], produced_mana: ['C'],
+    })).toMatchObject({
+      requested_name: 'Ashling, Rekindled', id: 'print-1', oracle_id: 'oracle-1', name: 'Sol Ring', set: 'cmm',
+      collector_number: '396', legalities: { commander: 'legal' },
+      image_uris: {
+        small: 'https://img/normal.jpg', normal: 'https://img/normal.jpg',
+        large: 'https://img/normal.jpg', art_crop: 'https://img/art.jpg',
+      },
+    })
+  })
+
+  it('deduplicates names and resolves them through the bounded Supabase RPC', async () => {
+    sb.rpc.mockResolvedValue({
+      data: [{ scryfall_id: 'print-1', oracle_id: 'oracle-1', name: 'Sol Ring', set_code: 'cmm', legalities: {} }],
+      error: null,
+    })
+
+    const cards = await fetchRecommendationMetadataByNames(['Sol Ring', 'Sol Ring', ''])
+
+    expect(sb.rpc).toHaveBeenCalledWith('get_recommendation_card_metadata', {
+      requested_names: ['Sol Ring'],
+    })
+    expect(cards).toHaveLength(1)
+    expect(cards[0].id).toBe('print-1')
+  })
+
+  it('batches every recommendation instead of truncating cards below the fold', async () => {
+    const names = Array.from({ length: 305 }, (_, index) => `Card ${index}`)
+    sb.rpc.mockImplementation(async (_fn, { requested_names }) => ({
+      data: requested_names.map((name, index) => ({
+        scryfall_id: `${name}-${index}`,
+        oracle_id: `oracle-${name}`,
+        name,
+        set_code: 'tst',
+        legalities: { commander: 'legal' },
+      })),
+      error: null,
+    }))
+
+    const cards = await fetchRecommendationMetadataByNames(names)
+
+    expect(sb.rpc).toHaveBeenCalledTimes(2)
+    expect(sb.rpc.mock.calls[0][1].requested_names).toHaveLength(300)
+    expect(sb.rpc.mock.calls[1][1].requested_names).toHaveLength(5)
+    expect(cards).toHaveLength(305)
+    expect(cards.at(-1).name).toBe('Card 304')
+  })
+
+  it('surfaces RPC failures to callers so they can degrade explicitly', async () => {
+    sb.rpc.mockResolvedValue({ data: null, error: new Error('rpc unavailable') })
+    await expect(fetchRecommendationMetadataByNames(['Sol Ring'])).rejects.toThrow('rpc unavailable')
   })
 })
 

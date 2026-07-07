@@ -6,7 +6,7 @@ import { getLocalCards, getLocalCardPrints } from '../../lib/db'
 import { getInstantCache, getScryfallKey, getPrice, formatPrice } from '../../lib/scryfall'
 import { useCombosFetch } from '../../hooks/useCombosFetch'
 import { useSettings } from '../SettingsContext'
-import { fetchEdhrecCommander, fetchCardsByNames, fetchCardsByScryfallIds, fetchRecommenderRecs, fetchPaperPrintingsByNamesFromDb, getCardImageUri } from '../../lib/deckBuilderApi'
+import { fetchEdhrecCommander, fetchRecommendationMetadataByNames, fetchCardsByScryfallIds, fetchRecommenderRecs, fetchPaperPrintingsByNamesFromDb, getCardImageUri } from '../../lib/deckBuilderApi'
 import { fetchCardPrintsByScryfallIds, fetchCardPrintsByOracleIds, fetchOracleTextByNames, cardPrintRowToSfEntry } from '../../lib/cardPrints'
 import {
   analyzeBracket,
@@ -365,10 +365,11 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     const cache = upgradeMetaCacheRef.current
     const missing = names.filter(n => !cache.has(n.toLowerCase()))
     if (missing.length) {
-      const cards = await fetchCardsByNames(missing).catch(() => [])
+      const cards = await fetchRecommendationMetadataByNames(missing).catch(() => [])
       for (const c of cards) {
-        cache.set((c.name || '').toLowerCase(), {
-          name: c.name,
+        const requestedName = c.requested_name || c.name
+        cache.set((requestedName || '').toLowerCase(), {
+          name: requestedName,
           oracle_text: c.oracle_text || c.card_faces?.[0]?.oracle_text || '',
           type_line: c.type_line || c.card_faces?.[0]?.type_line || '',
           image: getCardImageUri(c, 'small'),

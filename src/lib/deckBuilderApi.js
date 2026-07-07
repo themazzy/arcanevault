@@ -231,6 +231,65 @@ export async function fetchCardsByNames(names) {
   return results
 }
 
+// Convert the bounded recommendation RPC response into the Scryfall-like shape
+// already consumed throughout DeckBuilder. Image variants intentionally point
+// at the stored normal image; recommendation tiles do not need a second CDN URL.
+export function recommendationMetadataRowToCard(row) {
+  if (!row?.name || !row?.scryfall_id) return null
+  const imageUris = row.image_uri || row.art_crop_uri
+    ? {
+        small: row.image_uri || row.art_crop_uri,
+        normal: row.image_uri || row.art_crop_uri,
+        large: row.image_uri || row.art_crop_uri,
+        art_crop: row.art_crop_uri || row.image_uri,
+      }
+    : null
+  return {
+    requested_name: row.requested_name || row.name,
+    id: row.scryfall_id,
+    oracle_id: row.oracle_id || null,
+    name: row.name,
+    set: row.set_code || null,
+    set_code: row.set_code || null,
+    collector_number: row.collector_number || null,
+    set_name: row.set_name || null,
+    type_line: row.type_line || '',
+    oracle_text: row.oracle_text || '',
+    mana_cost: row.mana_cost || '',
+    cmc: row.cmc ?? 0,
+    color_identity: row.color_identity || [],
+    colors: row.colors || [],
+    legalities: row.legalities || {},
+    image_uris: imageUris,
+    rarity: row.rarity || null,
+    artist: row.artist || null,
+    power: row.power ?? null,
+    toughness: row.toughness ?? null,
+    produced_mana: row.produced_mana || [],
+    keywords: row.keywords || [],
+    card_faces: row.card_faces || null,
+  }
+}
+
+/**
+ * Resolve recommendation names from the shared Supabase card dictionary.
+ * Rankings still come from EDHREC/Recommander; this replaces runtime Scryfall
+ * enrichment for images, rules text, print identity, and format legalities.
+ */
+export async function fetchRecommendationMetadataByNames(names) {
+  const uniqueNames = [...new Set((names || []).map(name => String(name || '').trim()).filter(Boolean))]
+  if (!uniqueNames.length) return []
+  const cards = []
+  for (let i = 0; i < uniqueNames.length; i += 300) {
+    const { data, error } = await sb.rpc('get_recommendation_card_metadata', {
+      requested_names: uniqueNames.slice(i, i + 300),
+    })
+    if (error) throw error
+    cards.push(...(data || []).map(recommendationMetadataRowToCard).filter(Boolean))
+  }
+  return cards
+}
+
 export async function fetchCardsByScryfallIds(ids) {
   if (!ids?.length) return []
   const results = []
