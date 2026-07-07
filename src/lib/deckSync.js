@@ -1,8 +1,55 @@
 import { sb } from './supabase'
-import { parseDeckMeta, serializeDeckMeta } from './deckBuilderApi'
+import { parseDeckMeta } from './deckBuilderApi'
 
 function normalizeName(name) {
   return String(name || '').trim().toLowerCase()
+}
+
+export function diffDeckMeta(baseMeta = {}, nextMeta = {}) {
+  const base = baseMeta || {}
+  const next = nextMeta || {}
+  const patch = {}
+  const removeKeys = []
+  const keys = new Set([...Object.keys(base), ...Object.keys(next)])
+  for (const key of keys) {
+    if (!Object.prototype.hasOwnProperty.call(next, key)) {
+      removeKeys.push(key)
+      continue
+    }
+    if (JSON.stringify(base[key]) !== JSON.stringify(next[key])) patch[key] = next[key]
+  }
+  return { patch, removeKeys }
+}
+
+export async function patchDeckMeta(folderId, baseMeta, nextMeta) {
+  if (!folderId) throw new Error('Missing folder id')
+  const { patch, removeKeys } = diffDeckMeta(baseMeta, nextMeta)
+  if (!Object.keys(patch).length && !removeKeys.length) return nextMeta || {}
+  const { data, error } = await sb.rpc('patch_deck_meta', {
+    p_folder_id: folderId,
+    p_patch: patch,
+    p_remove_keys: removeKeys,
+  })
+  if (error) throw error
+  return data || nextMeta || {}
+}
+
+export async function linkDeckPair(builderDeckId, collectionDeckId) {
+  const { data, error } = await sb.rpc('link_deck_pair', {
+    p_builder_id: builderDeckId,
+    p_collection_id: collectionDeckId,
+  })
+  if (error) throw error
+  return data
+}
+
+export async function setLinkedDeckVisibility(deckId, isPublic) {
+  const { data, error } = await sb.rpc('set_linked_deck_visibility', {
+    p_deck_id: deckId,
+    p_is_public: !!isPublic,
+  })
+  if (error) throw error
+  return data
 }
 
 export function getLinkedDeckIds(folderOrMeta) {
@@ -222,11 +269,11 @@ export async function persistLinkedSyncSnapshot({
     unsynced_builder: hasUnresolved,
     unsynced_collection: hasUnresolved,
   })
-  await Promise.all([
-    sb.from('folders').update({ description: serializeDeckMeta(builderNext) }).eq('id', builderDeckId),
-    sb.from('folders').update({ description: serializeDeckMeta(collectionNext) }).eq('id', collectionDeckId),
+  const [persistedBuilder, persistedCollection] = await Promise.all([
+    patchDeckMeta(builderDeckId, builderMeta, builderNext),
+    patchDeckMeta(collectionDeckId, collectionMeta, collectionNext),
   ])
-  return { builderNext, collectionNext }
+  return { builderNext: persistedBuilder, collectionNext: persistedCollection }
 }
 
 export async function markLinkedPairUnsynced({ builderDeckId, collectionDeckId }) {
@@ -261,20 +308,19 @@ export async function markLinkedPairUnsynced({ builderDeckId, collectionDeckId }
     unsynced_collection: true,
   })
 
-  await Promise.all([
-    sb.from('folders').update({ description: serializeDeckMeta(builderNext) }).eq('id', builderDeckId),
-    sb.from('folders').update({ description: serializeDeckMeta(collectionNext) }).eq('id', collectionDeckId),
+  const [persistedBuilder, persistedCollection] = await Promise.all([
+    patchDeckMeta(builderDeckId, builderMeta, builderNext),
+    patchDeckMeta(collectionDeckId, collectionMeta, collectionNext),
   ])
 
-  return { builderNext, collectionNext }
+  return { builderNext: persistedBuilder, collectionNext: persistedCollection }
 }
 
 export async function unlinkPairedDeck({ counterpart }) {
   if (!counterpart?.id) return null
   const counterMeta = parseDeckMeta(counterpart.description)
   const cleared = clearLinkedPair(counterMeta, counterpart.type === 'deck' ? 'collection' : 'builder')
-  await sb.from('folders').update({ description: serializeDeckMeta(cleared) }).eq('id', counterpart.id)
-  return cleared
+  return patchDeckMeta(counterpart.id, counterMeta, cleared)
 }
 
 export async function fetchLinkedDeckPair(builderDeckId, collectionDeckId) {

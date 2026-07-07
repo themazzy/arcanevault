@@ -4,7 +4,7 @@ import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
 import { Button, Modal, EmptyState, SectionHeader, ResponsiveMenu } from '../components/UI'
 import { parseDeckMeta, serializeDeckMeta, FORMATS } from '../lib/deckBuilderApi'
-import { unlinkPairedDeck, getSyncState } from '../lib/deckSync'
+import { unlinkPairedDeck, getSyncState, patchDeckMeta } from '../lib/deckSync'
 import { hasDeckArtSource, mergeDeckCommanderArt, useDeckArts, enrichDecksWithCommanderArt } from '../lib/deckArt'
 import styles from './Builder.module.css'
 import uiStyles from '../components/UI.module.css'
@@ -388,8 +388,8 @@ export default function BuilderPage() {
           const { bracket } = analyzeBracket({ cards: normalized, gameChangerNames })
           const nextMeta = computeBracketMetaPatch(deck.__meta, bracket, false)
           if (!nextMeta) continue
-          await sb.from('folders').update({ description: serializeDeckMeta(nextMeta) }).eq('id', deck.id)
-          setDecks(prev => prev.map(d => d.id === deck.id ? { ...d, __meta: nextMeta } : d))
+          const persisted = await patchDeckMeta(deck.id, deck.__meta, nextMeta)
+          setDecks(prev => prev.map(d => d.id === deck.id ? { ...d, description: serializeDeckMeta(persisted), __meta: persisted } : d))
         } catch (err) {
           console.warn('[Builder] bracket backfill failed for deck', deck.id, err)
         }
@@ -441,7 +441,7 @@ export default function BuilderPage() {
     if (guided && !guidedCmd) return
     // Guided decks are Commander and default their name to the commander.
     const format = guided ? 'commander' : newFormat
-    const name = (newName.trim() || (guided ? guidedCmd?.name : '')).trim()
+    const name = (newName.trim() || (guided ? guidedCmd.name : '')).trim()
     if (!name) return
 
     setCreating(true)
@@ -475,11 +475,11 @@ export default function BuilderPage() {
       const ok = await confirmAsync('Hide this deck from the builder list?\n\nThis is a collection deck, so it cannot be deleted here — only hidden. Your deck and cards are kept safe and can be restored any time by clicking "Edit in Builder" from the Decks page.')
       if (!ok) return
       setDecks(d => d.filter(x => x.id !== id))
-      let meta = {}
-      try { meta = JSON.parse(deck.description || '{}') } catch {}
-      meta.hideFromBuilder = true
-      const { error } = await sb.from('folders').update({ description: JSON.stringify(meta) }).eq('id', id).eq('user_id', user.id)
-      if (error) {
+      const baseMeta = parseDeckMeta(deck.description || '{}')
+      const meta = { ...baseMeta, hideFromBuilder: true }
+      try {
+        await patchDeckMeta(id, baseMeta, meta)
+      } catch (error) {
         console.error('[Builder] hide deck failed:', error)
         showToast(`Failed to hide deck: ${error.message}`, { tone: 'error', duration: 4000 })
         await loadDecks()
@@ -536,15 +536,11 @@ export default function BuilderPage() {
 
     try {
       // Hide collection decks: one upsert per deck since description differs per row.
-      const hideResults = await Promise.all(collectionIds.map(async id => {
+      await Promise.all(collectionIds.map(async id => {
         const deck = decksById.get(id)
-        let meta = {}
-        try { meta = JSON.parse(deck?.description || '{}') } catch {}
-        meta.hideFromBuilder = true
-        return sb.from('folders').update({ description: JSON.stringify(meta) }).eq('id', id).eq('user_id', user.id)
+        const baseMeta = parseDeckMeta(deck?.description || '{}')
+        return patchDeckMeta(id, baseMeta, { ...baseMeta, hideFromBuilder: true })
       }))
-      const hideErr = hideResults.find(r => r?.error)?.error
-      if (hideErr) throw hideErr
 
       // Unlink any paired collection counterparts before deleting builder decks.
       const counterpartIds = builderIds

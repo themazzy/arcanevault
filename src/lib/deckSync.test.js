@@ -5,7 +5,27 @@ import {
   buildSyncDiff,
   buildSyncSnapshot,
   summarizeSyncDiff,
+  diffDeckMeta,
 } from './deckSync'
+
+describe('diffDeckMeta', () => {
+  it('patches only changed keys so stale snapshots cannot revert visibility', () => {
+    const base = { format: 'commander', is_public: false, tags: [] }
+    const edited = { format: 'commander', is_public: false, tags: ['artifact'] }
+
+    expect(diffDeckMeta(base, edited)).toEqual({
+      patch: { tags: ['artifact'] },
+      removeKeys: [],
+    })
+  })
+
+  it('records explicit key removals without replacing unrelated metadata', () => {
+    expect(diffDeckMeta(
+      { linked_deck_id: 'deck-1', is_public: true, format: 'commander' },
+      { is_public: true, format: 'commander' },
+    )).toEqual({ patch: {}, removeKeys: ['linked_deck_id'] })
+  })
+})
 
 describe('getLogicalKey — print identity (CR-001)', () => {
   it('keys by card_print_id when present', () => {

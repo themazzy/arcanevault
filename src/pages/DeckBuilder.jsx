@@ -53,7 +53,10 @@ import {
   buildSyncSnapshot,
   getSyncState,
   getLogicalKey,
+  linkDeckPair,
+  patchDeckMeta,
   persistLinkedSyncSnapshot,
+  setLinkedDeckVisibility,
   summarizeSyncDiff,
   unlinkPairedDeck,
   withLinkedPair,
@@ -766,8 +769,10 @@ export default function DeckBuilderPage() {
         }
         // Re-show in builder list if user navigated here directly (e.g. "Edit in Builder")
         if (meta.hideFromBuilder) {
+          const hiddenMeta = { ...meta }
           delete meta.hideFromBuilder
-          sb.from('folders').update({ description: serializeDeckMeta(meta) }).eq('id', deckId)
+          try { await patchDeckMeta(deckId, hiddenMeta, meta) }
+          catch (err) { console.warn('[DeckBuilder] failed to unhide deck:', err) }
         }
         setDeck(folder)
         setDeckMeta(meta)
@@ -1026,9 +1031,11 @@ export default function DeckBuilderPage() {
     if (!deckId || !isEDH || !bracketAnalysis) return
     const nextMeta = computeBracketMetaPatch(deckMetaRef.current, effectiveBracket, statsBracketOverride != null)
     if (!nextMeta) return
-    setDeckMeta(nextMeta)
-    deckMetaRef.current = nextMeta
-    sbExec(sb.from('folders').update({ description: serializeDeckMeta(nextMeta) }).eq('id', deckId), { silent: true }).catch(() => {})
+    const baseMeta = deckMetaRef.current || {}
+    applyLocalDeckMeta(nextMeta)
+    patchDeckMeta(deckId, baseMeta, nextMeta)
+      .then(applyLocalDeckMeta)
+      .catch(err => console.warn('[DeckBuilder] bracket metadata save failed:', err))
   }, [deckId, isEDH, bracketAnalysis, effectiveBracket, statsBracketOverride])
 
   // Auto-collapse format/commander section on mobile once commander is set
@@ -1249,15 +1256,7 @@ export default function DeckBuilderPage() {
     const wasPrivate = !deckMeta.is_public
     try {
       if (wasPrivate) {
-        const nextMeta = { ...deckMeta, is_public: true }
-        const persistedMeta = withPersistentMetaFields(nextMeta)
-        clearTimeout(saveMetaTimer.current)
-        const { error } = await sb.from('folders')
-          .update({ description: serializeDeckMeta(persistedMeta), updated_at: new Date().toISOString() })
-          .eq('id', deckId)
-        if (error) throw error
-        setDeckMeta(persistedMeta)
-        deckMetaRef.current = persistedMeta
+        await setVisibility(true)
       }
 
       const copied = await copyShareLink(url)
@@ -1926,6 +1925,7 @@ export default function DeckBuilderPage() {
 
   // ── Format change ─────────────────────────────────────────────────────────
   async function handleFormatChange(fmtId) {
+    const baseMeta = deckMetaRef.current || deckMeta
     const newMeta = { ...deckMeta, format: fmtId }
     if (!FORMATS.find(f => f.id === fmtId)?.isEDH) {
       delete newMeta.commanderName
@@ -1939,8 +1939,8 @@ export default function DeckBuilderPage() {
       delete newMeta.bracketManual
       setStatsBracketOverride(null)
     }
-    setDeckMeta(newMeta)
-    await saveMeta(newMeta)
+    applyLocalDeckMeta(newMeta)
+    await saveMeta(newMeta, baseMeta)
   }
 
   // ── Save helpers ──────────────────────────────────────────────────────────
@@ -1952,14 +1952,39 @@ export default function DeckBuilderPage() {
     return next
   }
 
-  async function saveMeta(meta) {
+  function applyLocalDeckMeta(meta) {
+    const next = meta || {}
+    deckMetaRef.current = next
+    setDeckMeta(next)
+    setDeck(prev => prev ? { ...prev, description: serializeDeckMeta(next) } : prev)
+    return next
+  }
+
+  async function persistMetaNow(nextMeta, baseMeta = deckMetaRef.current) {
     clearTimeout(saveMetaTimer.current)
+    const next = withPersistentMetaFields(nextMeta, baseMeta)
+    const persisted = await patchDeckMeta(deckId, baseMeta || {}, next)
+    return applyLocalDeckMeta(persisted)
+  }
+
+  async function saveMeta(meta, baseMeta = deckMetaRef.current || {}) {
+    clearTimeout(saveMetaTimer.current)
+    const nextMeta = withPersistentMetaFields(meta, baseMeta)
     saveMetaTimer.current = setTimeout(async () => {
-      const nextMeta = withPersistentMetaFields(meta)
       try {
-        await sbExec(sb.from('folders').update({ description: serializeDeckMeta(nextMeta) }).eq('id', deckId), { label: 'Save deck info failed' })
-      } catch {}
+        const persisted = await patchDeckMeta(deckId, baseMeta, nextMeta)
+        applyLocalDeckMeta(persisted)
+      } catch (err) {
+        console.error('[DeckBuilder] save meta failed:', err)
+        showToast('Save deck info failed', { tone: 'error' })
+      }
     }, 600)
+  }
+
+  function applyAndSaveMeta(nextMeta) {
+    const baseMeta = deckMetaRef.current || {}
+    applyLocalDeckMeta(nextMeta)
+    return saveMeta(nextMeta, baseMeta)
   }
 
   useEffect(() => {
@@ -1969,16 +1994,14 @@ export default function DeckBuilderPage() {
     const currentMeta = deckMetaRef.current || {}
     if (coverArtUri === currentMeta.coverArtUri) return
     const nextMeta = { ...currentMeta, coverArtUri }
-    setDeckMeta(nextMeta)
-    saveMeta(nextMeta)
+    applyAndSaveMeta(nextMeta)
     // Intentionally exclude `deckMeta` — we read latest via deckMetaRef to avoid
     // a feedback loop where setDeckMeta retriggers this effect.
   }, [builderSfMap, deck, deckId, isCollectionDeck, isEDH, mainDeckCards, price_source])
 
   function saveDescription(val) {
     const newMeta = { ...deckMeta, deckDescription: val }
-    setDeckMeta(newMeta)
-    saveMeta(newMeta)
+    applyAndSaveMeta(newMeta)
   }
 
   function addTag(raw) {
@@ -1988,16 +2011,14 @@ export default function DeckBuilderPage() {
     setCmdTags(next)
     setNewTagInput('')
     const newMeta = { ...deckMeta, tags: next }
-    setDeckMeta(newMeta)
-    saveMeta(newMeta)
+    applyAndSaveMeta(newMeta)
   }
 
   function removeTag(tag) {
     const next = cmdTags.filter(t => t !== tag)
     setCmdTags(next)
     const newMeta = { ...deckMeta, tags: next }
-    setDeckMeta(newMeta)
-    saveMeta(newMeta)
+    applyAndSaveMeta(newMeta)
   }
 
   async function saveNameBlur() {
@@ -2011,15 +2032,20 @@ export default function DeckBuilderPage() {
   }
 
   async function setVisibility(nextPublic) {
-    const previous = deckMeta.is_public
+    const previousMeta = deckMetaRef.current || deckMeta
+    const previous = !!previousMeta.is_public
     if (nextPublic === previous) return
-    const newMeta = { ...deckMeta, is_public: nextPublic }
-    setDeckMeta(newMeta)
+    clearTimeout(saveMetaTimer.current)
+    const newMeta = { ...previousMeta, is_public: nextPublic }
+    applyLocalDeckMeta(newMeta)
     try {
-      await sbExec(sb.from('folders').update({ description: serializeDeckMeta(withPersistentMetaFields(newMeta)) }).eq('id', deckId), { label: 'Toggle public failed' })
-      logDeckChange(deckId, user?.id, 'Visibility', newMeta.is_public ? 'Made public' : 'Made private')
-    } catch {
-      setDeckMeta(prev => ({ ...prev, is_public: previous }))
+      const result = await setLinkedDeckVisibility(deckId, nextPublic)
+      applyLocalDeckMeta(result?.deck_meta || newMeta)
+      logDeckChange(deckId, user?.id, 'Visibility', nextPublic ? 'Made public' : 'Made private')
+    } catch (err) {
+      applyLocalDeckMeta(previousMeta)
+      showToast(`Toggle public failed: ${err?.message || 'unknown error'}`, { tone: 'error' })
+      throw err
     }
   }
 
@@ -2051,6 +2077,7 @@ export default function DeckBuilderPage() {
   // to the deck (mutates deck_cards + folder description meta).
   async function pickCommander(sfCard) {
     closeCmdPicker()
+    const baseMeta = deckMetaRef.current || deckMeta
 
     // The commander search returns whichever single print Scryfall considers
     // canonical (unique=cards), which can be an art-series/special printing.
@@ -2072,7 +2099,7 @@ export default function DeckBuilderPage() {
       coverArtUri: getCardImageUri(cmdCard, 'art_crop'),
       commanderColorIdentity: cmdCard.color_identity,
     }
-    setDeckMeta(newMeta)
+    applyLocalDeckMeta(newMeta)
 
     // Remove any existing commander — use ref to avoid stale closure
     const existingCmd = deckCardsRef.current.find(dc => dc.is_commander)
@@ -2119,7 +2146,7 @@ export default function DeckBuilderPage() {
     // Save meta immediately (not debounced) so navigation away won't lose the commander
     clearTimeout(saveMetaTimer.current)
     try {
-      await sbExec(sb.from('folders').update({ description: serializeDeckMeta(withPersistentMetaFields(newMeta)) }).eq('id', deckId), { label: 'Save commander info failed' })
+      await persistMetaNow(newMeta, baseMeta)
       logDeckChange(deckId, user?.id, 'Commander', `Set to ${cmdCard.name}`)
     } catch {}
   }
@@ -2139,16 +2166,14 @@ export default function DeckBuilderPage() {
       keywords:       sfCard.keywords || [],
     }
     const newMeta = { ...deckMeta, companion }
-    setDeckMeta(newMeta)
-    saveMeta(newMeta)
+    applyAndSaveMeta(newMeta)
     logDeckChange(deckId, user?.id, 'Companion', `Set to ${companion.name}`)
   }
 
   function clearCompanion() {
     const newMeta = { ...deckMeta }
     delete newMeta.companion
-    setDeckMeta(newMeta)
-    saveMeta(newMeta)
+    applyAndSaveMeta(newMeta)
   }
 
   // ── Card search ───────────────────────────────────────────────────────────
@@ -2823,6 +2848,7 @@ export default function DeckBuilderPage() {
       color_identity: c.color_identity ?? [],
       image_uri: c.image_uri || null,
     }))
+    const baseMeta = deckMetaRef.current || deckMeta
     const newMeta = {
       ...deckMeta,
       commanders,
@@ -2834,16 +2860,17 @@ export default function DeckBuilderPage() {
     }
     delete newMeta.partnerName
     delete newMeta.partnerScryfallId
-    setDeckMeta(newMeta)
+    applyLocalDeckMeta(newMeta)
     // Save meta immediately (not debounced) — navigating away quickly would lose the commander name otherwise
     clearTimeout(saveMetaTimer.current)
     try {
-      await sbExec(sb.from('folders').update({ description: serializeDeckMeta(withPersistentMetaFields(newMeta)) }).eq('id', deckId), { label: 'Save commander failed' })
+      await persistMetaNow(newMeta, baseMeta)
     } catch {}
     // Recs are loaded lazily when the Recommendations tab is opened
   }
 
   async function unsetCommander(deckCardId) {
+    const baseMeta = deckMetaRef.current || deckMeta
     const previous = deckCardsRef.current.find(dc => dc.id === deckCardId)
     setDeckCards(prev => prev.map(dc => dc.id === deckCardId ? { ...dc, is_commander: false } : dc))
     try {
@@ -2876,10 +2903,10 @@ export default function DeckBuilderPage() {
     }
     delete nextMeta.partnerName
     delete nextMeta.partnerScryfallId
-    setDeckMeta(nextMeta)
+    applyLocalDeckMeta(nextMeta)
     clearTimeout(saveMetaTimer.current)
     try {
-      await sbExec(sb.from('folders').update({ description: serializeDeckMeta(withPersistentMetaFields(nextMeta)) }).eq('id', deckId), { label: 'Unset commander failed' })
+      await persistMetaNow(nextMeta, baseMeta)
     } catch {}
   }
 
@@ -3539,7 +3566,7 @@ export default function DeckBuilderPage() {
     const cleanupStack = []
     let createdCollectionDeckId = null
     let createdWishlistId = null
-    const builderMetaSnapshot = parseDeckMeta(deck.description)
+    const builderMetaSnapshot = { ...(deckMetaRef.current || deckMeta) }
     try {
       const builderMeta = builderMetaSnapshot
       const { data: newCollectionDeck, error: createDeckErr } = await sb
@@ -3559,17 +3586,14 @@ export default function DeckBuilderPage() {
         await sb.from('folders').delete().eq('id', newCollectionDeck.id).eq('user_id', user.id)
       })
 
-      const linkedBuilderMeta = withLinkedPair(builderMeta, { linkedDeckId: newCollectionDeck.id })
-      const linkedCollectionMeta = withLinkedPair(parseDeckMeta(newCollectionDeck.description), { linkedBuilderId: deckId })
-      await Promise.all([
-        sb.from('folders').update({ description: serializeDeckMeta(linkedBuilderMeta) }).eq('id', deckId),
-        sb.from('folders').update({ description: serializeDeckMeta(linkedCollectionMeta) }).eq('id', newCollectionDeck.id),
-      ])
+      const linkResult = await linkDeckPair(deckId, newCollectionDeck.id)
+      const linkedBuilderMeta = linkResult?.builder_meta || withLinkedPair(builderMeta, { linkedDeckId: newCollectionDeck.id })
+      const linkedCollectionMeta = linkResult?.collection_meta || withLinkedPair(parseDeckMeta(newCollectionDeck.description), { linkedBuilderId: deckId })
       cleanupStack.push(async () => {
-        await sb.from('folders').update({ description: serializeDeckMeta(builderMetaSnapshot) }).eq('id', deckId)
-        setDeckMeta(builderMetaSnapshot)
+        await patchDeckMeta(deckId, linkedBuilderMeta, builderMetaSnapshot)
+        applyLocalDeckMeta(builderMetaSnapshot)
       })
-      setDeckMeta(linkedBuilderMeta)
+      applyLocalDeckMeta(linkedBuilderMeta)
       await applyExplicitPrintingSelections(printingSelections)
       const touchedPlacementDeckIds = new Set([newCollectionDeck.id])
       const touchedPlacementFolderIds = new Set()
@@ -3840,10 +3864,11 @@ export default function DeckBuilderPage() {
     if (inserts.length) putDeckCards(nextDeckCards.filter(dc => inserts.some(row => row.id === dc.id))).catch(() => {})
     if (updates.length) putDeckCards(nextDeckCards.filter(dc => updates.some(u => u.id === dc.id))).catch(() => {})
 
-    const nextMeta = buildCommanderMetaFromCards(nextDeckCards, deckMeta)
-    if (serializeDeckMeta(nextMeta) !== serializeDeckMeta(deckMeta)) {
-      setDeckMeta(nextMeta)
-      await sbExec(sb.from('folders').update({ description: serializeDeckMeta(nextMeta) }).eq('id', deckId), { silent: true })
+    const baseMeta = deckMetaRef.current || deckMeta
+    const nextMeta = buildCommanderMetaFromCards(nextDeckCards, baseMeta)
+    if (serializeDeckMeta(nextMeta) !== serializeDeckMeta(baseMeta)) {
+      applyLocalDeckMeta(nextMeta)
+      await persistMetaNow(nextMeta, baseMeta)
     }
 
     deckCardsRef.current = nextDeckCards
