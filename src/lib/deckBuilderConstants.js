@@ -55,7 +55,7 @@ export const DEFAULT_LIST_COLUMNS = {
   set: false,
   manaValue: true,
   cmc: false,
-  price: false,
+  price: true,
   status: true,
   actions: true,
   qty: true,
