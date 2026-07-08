@@ -87,7 +87,7 @@ export function parseImportText(text) {
       language: card.language || 'en',
       purchasePrice: card.purchase_price || 0,
       currency: card.currency || null,
-      sourceLocation: card._binderName || null,
+      sourceLocation: card._binderKey || card._binderName || null,
       lineNumber: index + 2,
     })))
     return { source: IMPORT_SOURCE.CSV, entries, folders }

@@ -16,6 +16,19 @@ describe('parseImportText — CSV vs text heuristic', () => {
     expect(result.entries[0].name).toBe('Lightning Bolt')
   })
 
+  it('preserves same-named ManaBox deck and wishlist as separate source locations', () => {
+    const csv = [
+      'name,set code,quantity,binder name,binder type',
+      'Arachnogenesis,dsc,1,Tadeas,list',
+      'Arcades the Strategist,m19,1,Tadeas,deck',
+    ].join('\n')
+
+    const result = parseImportText(csv)
+
+    expect(Object.keys(result.folders).sort()).toEqual(['deck|Tadeas', 'list|Tadeas'])
+    expect(result.entries.map(entry => entry.sourceLocation)).toEqual(['list|Tadeas', 'deck|Tadeas'])
+  })
+
   it('does NOT route a decklist line that happens to contain "name" + comma (regression)', () => {
     // First line starts with a qty token → must be treated as a decklist,
     // even though it contains a comma and the word "name".

@@ -684,9 +684,9 @@ export default function CollectionPage() {
     if (!parsed.length) { setError('No cards found.'); return }
     setImporting(true)
 
-    const listFolderNames  = new Set(Object.values(folders).filter(f => f.type === 'list').map(f => f.name))
-    const ownedCards       = parsed.filter(c => !listFolderNames.has(c._binderName))
-    const listCards        = parsed.filter(c =>  listFolderNames.has(c._binderName))
+    const listFolderKeys   = new Set(Object.entries(folders).filter(([, f]) => f.type === 'list').map(([key]) => key))
+    const ownedCards       = parsed.filter(c => !listFolderKeys.has(c._binderKey))
+    const listCards        = parsed.filter(c =>  listFolderKeys.has(c._binderKey))
     const folderList       = Object.values(folders)
 
     setProgLabel(`Parsed ${ownedCards.length} owned + ${listCards.length} wishlist cards across ${folderList.length} folders`)
@@ -710,7 +710,7 @@ export default function CollectionPage() {
       const batch = dedupedCardsWithPrints.slice(i, i + CARD_BATCH).map(c => {
         const c2 = { ...c, user_id: user.id }
         if (c2.id == null) delete c2.id
-        delete c2._localId; delete c2._binderName; return c2
+        delete c2._localId; delete c2._binderName; delete c2._binderKey; return c2
       })
       const { error: err } = await sb.from('cards')
         .upsert(batch.map(toOwnedCardRow), { onConflict: 'user_id,card_print_id,foil,language,condition', ignoreDuplicates: false })

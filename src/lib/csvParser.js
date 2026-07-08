@@ -122,7 +122,10 @@ export function parseManaboxCSV(text) {
     const misprint        = get(row, 'misprint').toLowerCase() === 'true'
     const altered         = (get(row, 'altered', 'alter', 'altered art')).toLowerCase() === 'true'
     const binderName      = get(row, 'binder name')
-    const binderType      = get(row, 'binder type') || 'binder'
+    const rawBinderType   = get(row, 'binder type') || 'binder'
+    const binderType      = ['deck', 'list'].includes(rawBinderType) ? rawBinderType : 'binder'
+    // ManaBox allows different location types to share a display name.
+    const binderKey       = binderName ? `${binderType}|${binderName}` : null
 
     const card = {
       name,
@@ -139,16 +142,16 @@ export function parseManaboxCSV(text) {
       altered,
       _localId: `${setCode}-${collectorNumber}-${foil ? 'f' : 'n'}-${language}-${condition}`,
       _binderName: binderName || null,
+      _binderKey: binderKey,
     }
 
     allCards.push(card)
 
     if (binderName) {
-      if (!folders[binderName]) {
-        const type = ['deck', 'list'].includes(binderType) ? binderType : 'binder'
-        folders[binderName] = { name: binderName, type, cards: [] }
+      if (!folders[binderKey]) {
+        folders[binderKey] = { name: binderName, type: binderType, cards: [] }
       }
-      folders[binderName].cards.push(card)
+      folders[binderKey].cards.push(card)
     }
   }
 

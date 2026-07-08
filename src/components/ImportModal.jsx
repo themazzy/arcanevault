@@ -1054,7 +1054,8 @@ export default function ImportModal({
                     {formatSet(row) && <span className={styles.previewSet}>{formatSet(row)}</span>}
                     {row.sourceLocation && (
                       <span className={styles.previewLocation}>
-                        {sourceFolders[row.sourceLocation]?.type ? `${getFolderTypeLabel(sourceFolders[row.sourceLocation].type)}: ` : ''}{row.sourceLocation}
+                        {sourceFolders[row.sourceLocation]?.type ? `${getFolderTypeLabel(sourceFolders[row.sourceLocation].type)}: ` : ''}
+                        {sourceFolders[row.sourceLocation]?.name || row.sourceLocation}
                       </span>
                     )}
                     {row.status === 'missing' && <span className={styles.previewMissing}>missing</span>}

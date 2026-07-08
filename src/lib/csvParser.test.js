@@ -35,10 +35,25 @@ describe('parseManaboxCSV — header validation', () => {
     ].join('\n')
     const { cards, folders } = parseManaboxCSV(csv)
     expect(cards).toHaveLength(3)
-    expect(Object.keys(folders).sort()).toEqual(['Red Deck', 'Want List'])
-    expect(folders['Red Deck'].type).toBe('deck')
-    expect(folders['Red Deck'].cards).toHaveLength(2)
-    expect(folders['Want List'].type).toBe('list')
+    expect(Object.keys(folders).sort()).toEqual(['deck|Red Deck', 'list|Want List'])
+    expect(folders['deck|Red Deck'].type).toBe('deck')
+    expect(folders['deck|Red Deck'].cards).toHaveLength(2)
+    expect(folders['list|Want List'].type).toBe('list')
+  })
+
+  it('keeps same-named locations separate when their types differ', () => {
+    const csv = [
+      'name,set code,quantity,binder name,binder type',
+      'Arachnogenesis,dsc,1,Tadeas,list',
+      'Arcades the Strategist,m19,1,Tadeas,deck',
+    ].join('\n')
+
+    const { cards, folders } = parseManaboxCSV(csv)
+
+    expect(Object.keys(folders).sort()).toEqual(['deck|Tadeas', 'list|Tadeas'])
+    expect(folders['deck|Tadeas'].cards.map(card => card.name)).toEqual(['Arcades the Strategist'])
+    expect(folders['list|Tadeas'].cards.map(card => card.name)).toEqual(['Arachnogenesis'])
+    expect(cards.map(card => card._binderKey)).toEqual(['list|Tadeas', 'deck|Tadeas'])
   })
 
   it('handles quoted fields with embedded commas', () => {
