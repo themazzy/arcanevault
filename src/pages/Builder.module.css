@@ -637,6 +637,68 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Color match-mode cycle button (Includes / Exactly / At most) */
+.colorModeBtn {
+  min-height: 26px;
+  background: var(--s2);
+  border: 1px solid var(--s-border2);
+  border-radius: 999px;
+  color: var(--gold);
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 0.62rem;
+  letter-spacing: 0.05em;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+.colorModeBtn:hover { background: var(--s-medium); }
+
+/* ── Active-filter chips row ── */
+.chipsRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: -8px 0 16px;
+}
+.chipsCount {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  margin-right: 4px;
+  white-space: nowrap;
+}
+.filterChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(201, 168, 76, 0.12);
+  border: 1px solid rgba(201, 168, 76, 0.35);
+  border-radius: 999px;
+  color: var(--gold);
+  cursor: pointer;
+  font-size: 0.68rem;
+  padding: 3px 10px;
+  transition: border-color 0.14s, background 0.14s;
+}
+.filterChip:hover { border-color: rgba(201, 168, 76, 0.65); }
+.chipsClearAll {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 0.68rem;
+  padding: 3px 6px;
+  text-decoration: underline;
+}
+.chipsClearAll:hover { color: var(--text-dim); }
+
+/* Card count on deck tiles (My Decks + community) */
+.cardCount {
+  font-size: 0.62rem;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
 .trendingSection {
   margin-bottom: 26px;
   padding: 16px 18px 20px;

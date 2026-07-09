@@ -10,9 +10,14 @@ import styles from './Builder.module.css'
 import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 import { useToast } from '../components/ToastContext'
-import { CheckIcon, DeleteIcon, EditIcon, ChevronDownIcon } from '../icons'
+import { CheckIcon, CloseIcon, DeleteIcon, EditIcon, ChevronDownIcon } from '../icons'
 import { GuidedCommanderPicker } from '../components/deckBuilder/GuidedCommanderPicker'
-import { resolveBracketBadge, analyzeBracket, fetchGameChangerNames, computeBracketMetaPatch } from '../lib/commanderBracket'
+import { resolveBracketBadge, analyzeBracket, fetchGameChangerNames, computeBracketMetaPatch, BRACKET_LABELS } from '../lib/commanderBracket'
+import {
+  EMPTY_DECK_INDEX_FILTERS, DECK_INDEX_SORTS, COLOR_MODE_LABELS, COLOR_MATCH_MODES,
+  filterDeckIndex, sortDeckIndex, describeActiveFilters, clearFilterChip,
+  loadViewPrefs, saveViewPrefs,
+} from '../lib/deckIndexFilters'
 import { fetchDeckCards, fetchDeckAllocations } from '../lib/deckData'
 import { normalizeDeckBuilderCards } from '../components/DeckStats'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
@@ -201,6 +206,9 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
               >
                 <EditIcon size={12} /> Edit
               </Link>
+              {deck.card_count != null && (
+                <span className={styles.cardCount}>{deck.card_count} cards</span>
+              )}
               <div className={styles.editedDate}>{fmtRelDate(deck.updated_at)}</div>
               <button
                 className={styles.deleteBtn}
@@ -273,6 +281,9 @@ function CommunityDeckTile({ deck, meta, fmt, isOwn, creatorNick, navigate }) {
             >
               <EditIcon size={12} /> View
             </button>
+            {deck.card_count != null && (
+              <span className={styles.cardCount}>{deck.card_count} cards</span>
+            )}
             {(deck.like_count > 0 || deck.comment_count > 0) && (
               <span className={styles.communityStats}>♥ {deck.like_count || 0} · 💬 {deck.comment_count || 0}</span>
             )}
@@ -284,16 +295,125 @@ function CommunityDeckTile({ deck, meta, fmt, isOwn, creatorNick, navigate }) {
   )
 }
 
-// Render order: Name pair first (alphabetical convention), Format, then the
-// date-based default at the bottom. `useState('updated')` still defaults the
-// page to Recently Updated regardless of menu order.
-const SORT_LABELS = {
-  name: 'Name A→Z',
-  name_desc: 'Name Z→A',
-  format: 'Format',
-  updated: 'Recently Updated',
-}
 const TYPE_LABELS = [['all', 'All'], ['builder', 'Builder'], ['collection', 'Collection']]
+
+const MYDECKS_VIEW_KEY   = 'deckloom_mydecks_view_v1'
+const COMMUNITY_VIEW_KEY = 'deckloom_community_view_v1'
+const TRENDING_WINDOW_MS = 30 * 24 * 3600 * 1000
+
+const BRACKET_OPTIONS = [
+  ['all', 'Any Bracket'],
+  ...Object.entries(BRACKET_LABELS).map(([n, label]) => [n, `B${n} · ${label}`]),
+]
+const COMMUNITY_SORTS = [
+  ['trending', 'Trending'], ['recent', 'Recent'], ['created', 'Newest'],
+  ['commented', 'Comments'], ['name', 'A→Z'],
+]
+
+// ── Filter-bar building blocks (shared by My Decks + community tab) ──────────
+
+function PillMenu({ label, title, options, value, onChange, active }) {
+  const current = options.find(([v]) => v === value)
+  const isActive = active != null ? active : value !== options[0]?.[0]
+  return (
+    <ResponsiveMenu
+      title={title || label}
+      wrapClassName={styles.sortMenuWrap}
+      trigger={({ toggle }) => (
+        <button className={`${styles.filterPill}${isActive ? ' ' + styles.filterPillActive : ''}`} onClick={toggle}>
+          {label ? `${label}: ` : ''}{current?.[1] ?? value} <ChevronDownIcon size={10} />
+        </button>
+      )}
+    >
+      {({ close }) => (
+        <div className={uiStyles.responsiveMenuList}>
+          {options.map(([v, optLabel]) => (
+            <button key={v}
+              className={`${uiStyles.responsiveMenuAction} ${value === v ? uiStyles.responsiveMenuActionActive : ''}`}
+              onClick={() => { onChange(v); close() }}>
+              <span>{optLabel}</span>
+              <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">
+                {value === v ? <CheckIcon size={11} /> : ''}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </ResponsiveMenu>
+  )
+}
+
+// Multi-select tag menu — stays open so several tags can be toggled in a row.
+function TagsMenu({ tags, selected, onToggle }) {
+  return (
+    <ResponsiveMenu
+      title="Tags"
+      wrapClassName={styles.sortMenuWrap}
+      trigger={({ toggle }) => (
+        <button className={`${styles.filterPill}${selected.length ? ' ' + styles.filterPillActive : ''}`} onClick={toggle}>
+          Tags{selected.length ? ` (${selected.length})` : ''} <ChevronDownIcon size={10} />
+        </button>
+      )}
+    >
+      {() => (
+        <div className={uiStyles.responsiveMenuList}>
+          {tags.map(t => (
+            <button key={t}
+              className={`${uiStyles.responsiveMenuAction} ${selected.includes(t) ? uiStyles.responsiveMenuActionActive : ''}`}
+              onClick={() => onToggle(t)}>
+              <span>{t}</span>
+              <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">
+                {selected.includes(t) ? <CheckIcon size={11} /> : ''}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </ResponsiveMenu>
+  )
+}
+
+function ColorPipsFilter({ colors, colorMode, onToggleColor, onCycleMode }) {
+  return (
+    <div className={styles.filterGroup}>
+      {COMMUNITY_COLOR_ORDER.map(c => (
+        <button key={c}
+          className={`${styles.colorFilterPip}${colors.includes(c) ? ' ' + styles.colorFilterPipActive : ''}`}
+          title={`Filter ${c}`}
+          onClick={() => onToggleColor(c)}>
+          <img src={MANA_SYMBOL_URL(c)} alt={c} />
+        </button>
+      ))}
+      {colors.length > 0 && (
+        <button className={styles.colorModeBtn} onClick={onCycleMode}
+          title="How selected colors match the deck's color identity">
+          {COLOR_MODE_LABELS[colorMode] || 'Includes'}
+        </button>
+      )}
+    </div>
+  )
+}
+
+function cycleColorMode(mode) {
+  const i = COLOR_MATCH_MODES.indexOf(mode)
+  return COLOR_MATCH_MODES[(i + 1) % COLOR_MATCH_MODES.length]
+}
+
+function FilterChips({ chips, countLabel, onClearChip, onClearAll }) {
+  if (!chips.length) return null
+  return (
+    <div className={styles.chipsRow}>
+      {countLabel && <span className={styles.chipsCount}>{countLabel}</span>}
+      {chips.map(chip => (
+        <button key={chip.key} className={styles.filterChip} onClick={() => onClearChip(chip.key)}
+          title="Remove filter">
+          {chip.label} <CloseIcon size={9} />
+        </button>
+      ))}
+      <button className={styles.chipsClearAll} onClick={onClearAll}>Clear all</button>
+    </div>
+  )
+}
 
 export default function BuilderPage() {
   const { user } = useAuth()
@@ -322,16 +442,47 @@ export default function BuilderPage() {
   const [communityLoading, setCommunityLoading] = useState(false)
   const [communityLoaded,  setCommunityLoaded]  = useState(false)
   const [communitySearch,  setCommunitySearch]  = useState('')
-  const [communityFormat,  setCommunityFormat]  = useState('all')
-  const [communitySort,    setCommunitySort]    = useState('recent')   // trending | recent | commented | name
-  const [communityColors,  setCommunityColors]  = useState(() => new Set())
-  const [communityPage,    setCommunityPage]    = useState(1)
+  const [communityQuery,   setCommunityQuery]   = useState('')  // debounced communitySearch
+  const [communityFilters, setCommunityFilters] = useState(() => {
+    const saved = loadViewPrefs(COMMUNITY_VIEW_KEY, {})
+    return {
+      format:    saved.format || 'all',
+      colors:    Array.isArray(saved.colors) ? saved.colors : [],
+      colorMode: COLOR_MATCH_MODES.includes(saved.colorMode) ? saved.colorMode : 'includes',
+      bracket:   saved.bracket || 'all',
+    }
+  })
+  const [communitySort, setCommunitySort] = useState(() => {
+    const saved = loadViewPrefs(COMMUNITY_VIEW_KEY, {})
+    return COMMUNITY_SORTS.some(([v]) => v === saved.sort) ? saved.sort : 'recent'
+  })
+  const [communityTotal, setCommunityTotal] = useState(0)
+  const [trendingDecks,  setTrendingDecks]  = useState([])
+  const [communityPage,  setCommunityPage]  = useState(1)
   const COMMUNITY_PAGE_SIZE = 36
 
-  const [search, setSearch]         = useState('')
-  const [typeFilter, setTypeFilter] = useState('all')
-  const [visFilter, setVisFilter]   = useState('all')
-  const [sortBy, setSortBy]         = useState('updated')
+  const [filters, setFilters] = useState(() => {
+    const saved = loadViewPrefs(MYDECKS_VIEW_KEY, {})
+    return { ...EMPTY_DECK_INDEX_FILTERS, ...(saved.filters || {}), search: '' }
+  })
+  const [sortBy, setSortBy] = useState(() => {
+    const saved = loadViewPrefs(MYDECKS_VIEW_KEY, {})
+    return DECK_INDEX_SORTS[saved.sortBy] ? saved.sortBy : 'updated'
+  })
+
+  // Remember view preferences (search box intentionally not persisted)
+  useEffect(() => {
+    saveViewPrefs(MYDECKS_VIEW_KEY, { sortBy, filters: { ...filters, search: '' } })
+  }, [sortBy, filters])
+  useEffect(() => {
+    saveViewPrefs(COMMUNITY_VIEW_KEY, { sort: communitySort, ...communityFilters })
+  }, [communitySort, communityFilters])
+
+  // Debounce the community search so typing doesn't spam the RPC
+  useEffect(() => {
+    const t = setTimeout(() => setCommunityQuery(communitySearch.trim()), 300)
+    return () => clearTimeout(t)
+  }, [communitySearch])
 
   const [selectMode, setSelectMode]   = useState(false)
   const [selectedIds, setSelectedIds] = useState(new Set())
@@ -399,34 +550,87 @@ export default function BuilderPage() {
     }
   }
 
-  async function loadCommunityDecks() {
-    if (communityLoading) return
+  // Batch-fetch nicknames for the creators on the current page and merge them
+  // into the map (pages share creators — never throw known names away).
+  function fetchNicknames(rows) {
+    const uniqueIds = [...new Set(rows.map(d => d.user_id).filter(Boolean))]
+    if (!uniqueIds.length) return
+    sb.rpc('get_user_nicknames', { p_user_ids: uniqueIds })
+      .then(({ data, error }) => {
+        if (error) { console.warn('[Builder] get_user_nicknames failed:', error); return }
+        setCommunityNicks(prev => ({ ...prev, ...Object.fromEntries((data || []).map(row => [row.user_id, row.nickname])) }))
+      })
+      .catch(() => {})
+  }
+
+  // Filters, sorting, and pagination all run server-side in the RPC — the
+  // client only ever holds the current page.
+  async function loadCommunityPage() {
     setCommunityLoading(true)
     try {
-      const { data } = await sb.rpc('get_community_decks')
-      const decks = Array.isArray(data) ? data : []
-      setCommunityDecks(attachDeckMeta(await enrichDecksWithCommanderArt(decks)))
+      const { data, error } = await sb.rpc('get_community_decks', {
+        p_search:     communityQuery || null,
+        p_format:     communityFilters.format === 'all' ? null : communityFilters.format,
+        p_colors:     communityFilters.colors.length ? communityFilters.colors : null,
+        p_color_mode: communityFilters.colorMode,
+        p_bracket:    communityFilters.bracket === 'all' ? null : Number(communityFilters.bracket),
+        p_sort:       communitySort,
+        p_limit:      COMMUNITY_PAGE_SIZE,
+        p_offset:     (communityPage - 1) * COMMUNITY_PAGE_SIZE,
+      })
+      if (error) throw error
+      const rows = Array.isArray(data?.decks) ? data.decks : []
+      setCommunityTotal(Number(data?.total) || 0)
+      setCommunityDecks(attachDeckMeta(await enrichDecksWithCommanderArt(rows)))
       setCommunityLoaded(true)
-      // Batch-fetch nicknames for all unique creators in one RPC round trip.
-      const uniqueIds = [...new Set(decks.map(d => d.user_id).filter(Boolean))]
-      if (uniqueIds.length) {
-        sb.rpc('get_user_nicknames', { p_user_ids: uniqueIds })
-          .then(({ data, error }) => {
-            if (error) { console.warn('[Builder] get_user_nicknames failed:', error); return }
-            setCommunityNicks(Object.fromEntries((data || []).map(row => [row.user_id, row.nickname])))
-          })
-          .catch(() => {})
-      }
-    } catch {
+      fetchNicknames(rows)
+    } catch (err) {
+      console.warn('[Builder] community fetch failed:', err)
       setCommunityDecks([])
+      setCommunityTotal(0)
     } finally {
       setCommunityLoading(false)
     }
   }
 
+  // "Trending now" headliner: top-liked decks touched in the last 30 days,
+  // fetched once per visit, shown only on the unfiltered first page.
+  const trendingLoadedRef = useRef(false)
+  async function loadTrendingDecks() {
+    try {
+      const { data } = await sb.rpc('get_community_decks', { p_sort: 'trending', p_limit: 3 })
+      const rows = (Array.isArray(data?.decks) ? data.decks : []).filter(d =>
+        (d.like_count || 0) > 0 &&
+        (Date.now() - (Date.parse(d.updated_at || d.created_at || 0) || 0)) < TRENDING_WINDOW_MS)
+      setTrendingDecks(attachDeckMeta(await enrichDecksWithCommanderArt(rows)))
+      fetchNicknames(rows)
+    } catch {
+      setTrendingDecks([])
+    }
+  }
+
+  // One fetch per criteria/page change; a criteria change first snaps back to
+  // page 1 (the page-state change re-runs the effect and does the fetch).
+  const communityCriteriaKey = JSON.stringify({ q: communityQuery, ...communityFilters, sort: communitySort })
+  const lastCriteriaRef = useRef(communityCriteriaKey)
   useEffect(() => {
-    if (pageTab === 'community' && !communityLoaded) loadCommunityDecks()
-  }, [pageTab, communityLoaded])
+    if (pageTab !== 'community') return
+    if (lastCriteriaRef.current !== communityCriteriaKey && communityPage !== 1) {
+      lastCriteriaRef.current = communityCriteriaKey
+      setCommunityPage(1)
+      return
+    }
+    lastCriteriaRef.current = communityCriteriaKey
+    loadCommunityPage()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageTab, communityCriteriaKey, communityPage])
+
+  useEffect(() => {
+    if (pageTab !== 'community' || trendingLoadedRef.current) return
+    trendingLoadedRef.current = true
+    loadTrendingDecks()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageTab])
 
   function resetNewDeckForm() {
     setShowNew(false)
@@ -569,68 +773,30 @@ export default function BuilderPage() {
 
   const currentFormat = FORMATS.find(f => f.id === newFormat) || FORMATS[0]
 
-  const filtered = decks
-    .filter(d => {
-      if (search && !d.name.toLowerCase().includes(search.toLowerCase())) return false
-      if (typeFilter === 'builder' && d.type !== 'builder_deck') return false
-      if (typeFilter === 'collection' && d.type !== 'deck') return false
-      if (visFilter !== 'all') {
-        const isPublic = !!(d.__meta?.is_public)
-        if (visFilter === 'public' && !isPublic) return false
-        if (visFilter === 'private' && isPublic) return false
-      }
-      return true
-    })
-    .sort((a, b) => {
-      if (sortBy === 'name')      return a.name.localeCompare(b.name)
-      if (sortBy === 'name_desc') return b.name.localeCompare(a.name)
-      if (sortBy === 'format') {
-        return (a.__meta?.format || '').localeCompare(b.__meta?.format || '')
-      }
-      // 'updated' (default) — explicitly sort by updated_at desc instead of relying
-      // on RPC ordering. Falls back to created_at / id for stability.
-      const ta = Date.parse(a.updated_at || a.created_at || 0) || 0
-      const tb = Date.parse(b.updated_at || b.created_at || 0) || 0
-      return tb - ta
-    })
+  const filtered = sortDeckIndex(filterDeckIndex(decks, filters), sortBy)
 
-  const communityColorActive  = communityColors.size > 0
-  const communityFiltersActive = !!communitySearch.trim() || communityFormat !== 'all' || communityColorActive
+  // Filter-menu source data for the My Decks bar
+  const myFormatOptions = [
+    ['all', 'All Formats'],
+    ...FORMATS.filter(f => decks.some(d => (d.__meta?.format || 'commander') === f.id)).map(f => [f.id, f.label]),
+  ]
+  const allDeckTags = [...new Set(decks.flatMap(d => d.__meta?.tags || []).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b))
+  const myChips = describeActiveFilters(filters, {
+    formatLabel: FORMATS.find(f => f.id === filters.format)?.label,
+  })
 
-  const filteredCommunity = communityDecks
-    .filter(d => {
-      const meta = d.__meta || parseDeckMeta(d.description)
-      const q = communitySearch.trim().toLowerCase()
-      if (q) {
-        const cmd = (meta.commanders?.map(c => c.name).join(' ') || meta.commanderName || '').toLowerCase()
-        if (!d.name.toLowerCase().includes(q) && !cmd.includes(q)) return false
-      }
-      if (communityFormat !== 'all' && meta.format !== communityFormat) return false
-      if (communityColorActive) {
-        const ci = d.deck_color_identity || meta.commanderColorIdentity || []
-        for (const c of communityColors) if (!ci.includes(c)) return false
-      }
-      return true
-    })
-    .sort((a, b) => {
-      if (communitySort === 'name')      return (a.name || '').localeCompare(b.name || '')
-      if (communitySort === 'commented') return (b.comment_count || 0) - (a.comment_count || 0)
-      if (communitySort === 'trending')  return (b.like_count || 0) - (a.like_count || 0)
-      return (Date.parse(b.updated_at || b.created_at || 0) || 0) - (Date.parse(a.updated_at || a.created_at || 0) || 0)
-    })
-
-  // "Trending recently": most-liked decks touched in the last 30 days. Only on
-  // the unfiltered landing view; excluded from the grid below to avoid repeats.
-  const TRENDING_WINDOW_MS = 30 * 24 * 3600 * 1000
-  const trendingDecks = communityFiltersActive ? [] : [...communityDecks]
-    .filter(d => (d.like_count || 0) > 0 && (Date.now() - (Date.parse(d.updated_at || d.created_at || 0) || 0)) < TRENDING_WINDOW_MS)
-    .sort((a, b) => (b.like_count || 0) - (a.like_count || 0))
-    .slice(0, 3)
+  // Community page comes pre-filtered/sorted/paged from the server
+  const communityFiltersActive = !!communityQuery || communityFilters.format !== 'all'
+    || communityFilters.colors.length > 0 || communityFilters.bracket !== 'all'
+  const showTrending = !communityFiltersActive && communityPage === 1 && trendingDecks.length > 0
   const trendingIds = new Set(trendingDecks.map(d => d.id))
-  const communityGrid = trendingDecks.length ? filteredCommunity.filter(d => !trendingIds.has(d.id)) : filteredCommunity
-
-  const communityTotalPages = Math.max(1, Math.ceil(communityGrid.length / COMMUNITY_PAGE_SIZE))
-  const communityPageDecks  = communityGrid.slice((communityPage - 1) * COMMUNITY_PAGE_SIZE, communityPage * COMMUNITY_PAGE_SIZE)
+  const communityPageDecks = showTrending ? communityDecks.filter(d => !trendingIds.has(d.id)) : communityDecks
+  const communityTotalPages = Math.max(1, Math.ceil(communityTotal / COMMUNITY_PAGE_SIZE))
+  const communityChips = describeActiveFilters(
+    { ...EMPTY_DECK_INDEX_FILTERS, ...communityFilters },
+    { formatLabel: FORMATS.find(f => f.id === communityFilters.format)?.label },
+  )
 
   return (
     <div className={styles.page}>
@@ -645,15 +811,15 @@ export default function BuilderPage() {
         <div className={styles.filterBar}>
           <input
             className={styles.filterInput}
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search decks…"
+            value={filters.search}
+            onChange={e => setFilters(f => ({ ...f, search: e.target.value }))}
+            placeholder="Search decks, commanders, tags…"
           />
           <div className={styles.filterGroup}>
             {TYPE_LABELS.map(([v, label]) => (
               <button key={v}
-                className={`${styles.filterPill}${typeFilter === v ? ' ' + styles.filterPillActive : ''}`}
-                onClick={() => setTypeFilter(v)}>
+                className={`${styles.filterPill}${filters.type === v ? ' ' + styles.filterPillActive : ''}`}
+                onClick={() => setFilters(f => ({ ...f, type: v }))}>
                 {label}
               </button>
             ))}
@@ -661,42 +827,63 @@ export default function BuilderPage() {
           <div className={styles.filterGroup}>
             {[['all','All'],['public','Public'],['private','Private']].map(([v, label]) => (
               <button key={v}
-                className={`${styles.filterPill}${visFilter === v ? ' ' + styles.filterPillActive : ''}`}
-                onClick={() => setVisFilter(v)}>
+                className={`${styles.filterPill}${filters.visibility === v ? ' ' + styles.filterPillActive : ''}`}
+                onClick={() => setFilters(f => ({ ...f, visibility: v }))}>
                 {label}
               </button>
             ))}
           </div>
-          <ResponsiveMenu
+          <PillMenu
+            title="Format"
+            options={myFormatOptions}
+            value={filters.format}
+            onChange={v => setFilters(f => ({ ...f, format: v }))}
+          />
+          <ColorPipsFilter
+            colors={filters.colors}
+            colorMode={filters.colorMode}
+            onToggleColor={c => setFilters(f => ({
+              ...f,
+              colors: f.colors.includes(c) ? f.colors.filter(x => x !== c) : [...f.colors, c],
+            }))}
+            onCycleMode={() => setFilters(f => ({ ...f, colorMode: cycleColorMode(f.colorMode) }))}
+          />
+          <PillMenu
+            title="Bracket"
+            options={BRACKET_OPTIONS}
+            value={String(filters.bracket)}
+            onChange={v => setFilters(f => ({ ...f, bracket: v }))}
+          />
+          {allDeckTags.length > 0 && (
+            <TagsMenu
+              tags={allDeckTags}
+              selected={filters.tags}
+              onToggle={t => setFilters(f => ({
+                ...f,
+                tags: f.tags.includes(t) ? f.tags.filter(x => x !== t) : [...f.tags, t],
+              }))}
+            />
+          )}
+          <PillMenu
             title="Sort By"
-            wrapClassName={styles.sortMenuWrap}
-            trigger={({ toggle }) => (
-              <button className={`${styles.filterPill} ${styles.filterPillActive}`} onClick={toggle}>
-                {SORT_LABELS[sortBy]} <ChevronDownIcon size={10} />
-              </button>
-            )}
-          >
-            {({ close }) => (
-              <div className={uiStyles.responsiveMenuList}>
-                {Object.entries(SORT_LABELS).map(([v, label]) => (
-                  <button key={v}
-                    className={`${uiStyles.responsiveMenuAction} ${sortBy === v ? uiStyles.responsiveMenuActionActive : ''}`}
-                    onClick={() => { setSortBy(v); close() }}>
-                    <span>{label}</span>
-                    <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">
-                      {sortBy === v ? <CheckIcon size={11} /> : ''}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </ResponsiveMenu>
+            options={Object.entries(DECK_INDEX_SORTS)}
+            value={sortBy}
+            onChange={setSortBy}
+            active
+          />
           <button
             className={`${styles.filterPill}${selectMode ? ' ' + styles.filterPillActive : ''}`}
             onClick={toggleSelectMode}>
             {selectMode ? 'Cancel' : 'Select'}
           </button>
         </div>
+
+        <FilterChips
+          chips={myChips}
+          countLabel={`${filtered.length} of ${decks.length} decks`}
+          onClearChip={key => setFilters(f => clearFilterChip(f, key))}
+          onClearAll={() => setFilters(f => ({ ...EMPTY_DECK_INDEX_FILTERS, search: f.search }))}
+        />
 
         {selectMode && selectedIds.size > 0 && (
           <div className={styles.bulkBar}>
@@ -756,43 +943,52 @@ export default function BuilderPage() {
           <input
             className={styles.filterInput}
             value={communitySearch}
-            onChange={e => { setCommunitySearch(e.target.value); setCommunityPage(1) }}
-            placeholder="Search by deck or commander…"
+            onChange={e => setCommunitySearch(e.target.value)}
+            placeholder="Search decks, commanders, tags…"
+          />
+          <PillMenu
+            title="Format"
+            options={[['all', 'All Formats'], ...FORMATS.map(f => [f.id, f.label])]}
+            value={communityFilters.format}
+            onChange={v => setCommunityFilters(f => ({ ...f, format: v }))}
+          />
+          <ColorPipsFilter
+            colors={communityFilters.colors}
+            colorMode={communityFilters.colorMode}
+            onToggleColor={c => setCommunityFilters(f => ({
+              ...f,
+              colors: f.colors.includes(c) ? f.colors.filter(x => x !== c) : [...f.colors, c],
+            }))}
+            onCycleMode={() => setCommunityFilters(f => ({ ...f, colorMode: cycleColorMode(f.colorMode) }))}
+          />
+          <PillMenu
+            title="Bracket"
+            options={BRACKET_OPTIONS}
+            value={String(communityFilters.bracket)}
+            onChange={v => setCommunityFilters(f => ({ ...f, bracket: v }))}
           />
           <div className={styles.filterGroup}>
-            {[['all','All'],['commander','Commander'],['standard','Standard'],['modern','Modern'],['pioneer','Pioneer'],['legacy','Legacy']].map(([v, label]) => (
-              <button key={v}
-                className={`${styles.filterPill}${communityFormat === v ? ' ' + styles.filterPillActive : ''}`}
-                onClick={() => { setCommunityFormat(v); setCommunityPage(1) }}>
-                {label}
-              </button>
-            ))}
-          </div>
-          <div className={styles.filterGroup}>
-            {COLOR_ORDER.map(c => (
-              <button key={c}
-                className={`${styles.colorFilterPip}${communityColors.has(c) ? ' ' + styles.colorFilterPipActive : ''}`}
-                title={`Filter ${c}`}
-                onClick={() => {
-                  setCommunityColors(prev => { const n = new Set(prev); n.has(c) ? n.delete(c) : n.add(c); return n })
-                  setCommunityPage(1)
-                }}>
-                <img src={MANA_SYMBOL_URL(c)} alt={c} />
-              </button>
-            ))}
-          </div>
-          <div className={styles.filterGroup}>
-            {[['trending','Trending'],['recent','Recent'],['commented','Comments'],['name','A→Z']].map(([v, label]) => (
+            {COMMUNITY_SORTS.map(([v, label]) => (
               <button key={v}
                 className={`${styles.filterPill}${communitySort === v ? ' ' + styles.filterPillActive : ''}`}
-                onClick={() => { setCommunitySort(v); setCommunityPage(1) }}>
+                onClick={() => setCommunitySort(v)}>
                 {label}
               </button>
             ))}
           </div>
         </div>
 
-        {!communityLoading && trendingDecks.length > 0 && (
+        <FilterChips
+          chips={communityChips}
+          countLabel={communityLoaded ? `${communityTotal} deck${communityTotal !== 1 ? 's' : ''}` : ''}
+          onClearChip={key => setCommunityFilters(f => {
+            const cleared = clearFilterChip({ ...EMPTY_DECK_INDEX_FILTERS, ...f }, key)
+            return { format: cleared.format, colors: cleared.colors, colorMode: cleared.colorMode, bracket: cleared.bracket }
+          })}
+          onClearAll={() => setCommunityFilters({ format: 'all', colors: [], colorMode: 'includes', bracket: 'all' })}
+        />
+
+        {!communityLoading && showTrending && (
           <div className={styles.trendingSection}>
             <div className={styles.trendingLabel}>Trending now</div>
             <div className={styles.trendingGrid}>
@@ -819,16 +1015,16 @@ export default function BuilderPage() {
         {communityLoading && <EmptyState>Loading community decks…</EmptyState>}
         {!communityLoading && !communityLoaded && <EmptyState>Loading…</EmptyState>}
 
-        {!communityLoading && communityLoaded && filteredCommunity.length === 0 && (
+        {!communityLoading && communityLoaded && communityDecks.length === 0 && (
           <EmptyState>
-            No public decks found{communitySearch || communityFormat !== 'all' ? ' matching your filter' : ''}.<br />
+            No public decks found{communityFiltersActive ? ' matching your filter' : ''}.<br />
             Be the first — open a deck in the builder and enable &quot;Public&quot; in the Stats tab.
           </EmptyState>
         )}
 
-        {!communityLoading && communityGrid.length > 0 && (
+        {!communityLoading && communityPageDecks.length > 0 && (
           <>
-            {trendingDecks.length > 0 && <div className={styles.communityAllLabel}>All Decks</div>}
+            {showTrending && <div className={styles.communityAllLabel}>All Decks</div>}
             <div className={styles.grid}>
               {communityPageDecks.map(deck => {
                 const meta  = deck.__meta || parseDeckMeta(deck.description)

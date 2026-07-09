@@ -102,6 +102,18 @@ import {
 } from '../icons'
 import { lastInputWasTouch } from '../lib/inputType'
 import { bindTouchContextMenu, consumeLongPressClick } from '../lib/touchContextMenu'
+import {
+  EMPTY_DECK_CARD_FILTERS,
+  DECK_CARD_TYPE_OPTIONS,
+  DECK_CARD_RARITY_OPTIONS,
+  countActiveCardFilters,
+  matchesDeckCardFilters,
+  manaValueGroupKey,
+  colorGroupKey,
+  MANA_VALUE_GROUP_ORDER,
+  COLOR_GROUP_ORDER,
+} from '../lib/deckCardFilters'
+import { COLOR_MODE_LABELS, COLOR_MATCH_MODES } from '../lib/deckIndexFilters'
 
 import {
   CAN_HOVER,
@@ -214,6 +226,124 @@ function areSearchResultRowPropsEqual(prev, next) {
   const nextWarnings = next.legalityWarnings || []
   if (prevWarnings.length !== nextWarnings.length) return false
   return prevWarnings.every((warning, index) => warning.text === nextWarnings[index]?.text)
+}
+
+// ── Deck filter panel ─────────────────────────────────────────────────────────
+// Shared body for every "filter the deck list" surface (toolbar menu, filter-bar
+// funnel, mobile sheet): board + color/type/rarity/CMC filters. Search stays in
+// the host UI when it already has an input (showSearch=false).
+const GROUPBY_STORE_KEY = 'deckloom_deckbuilder_groupby_v1'
+const DECK_GROUP_MODES = ['none', 'type', 'category', 'cmc', 'color', 'rarity', 'set']
+
+function cycleColorMode(mode) {
+  const i = COLOR_MATCH_MODES.indexOf(mode)
+  return COLOR_MATCH_MODES[(i + 1) % COLOR_MATCH_MODES.length]
+}
+
+function DeckFilterPanel({ filters, setFilters, boardFilter, setBoardFilter, showSearch, deckSearch, setDeckSearch }) {
+  const set = patch => setFilters(f => ({ ...f, ...patch }))
+  const toggleIn = (key, v) => setFilters(f => ({
+    ...f,
+    [key]: f[key].includes(v) ? f[key].filter(x => x !== v) : [...f[key], v],
+  }))
+  const anythingActive = countActiveCardFilters(filters) > 0 || boardFilter !== 'all'
+  return (
+    <div className={styles.deckFilterMenuBody}>
+      {showSearch && (
+        <input
+          className={styles.deckSearchInput}
+          value={deckSearch}
+          onChange={e => setDeckSearch(e.target.value)}
+          placeholder="Search deck..."
+          autoFocus
+        />
+      )}
+      <div className={styles.deckFilterMenuBoardLabel}>Board</div>
+      <div className={styles.boardFilterGroup}>
+        {BOARD_FILTERS.map(filter => (
+          <button
+            key={filter.id}
+            className={`${styles.boardFilterBtn}${boardFilter === filter.id ? ' ' + styles.boardFilterBtnActive : ''}`}
+            onClick={() => setBoardFilter(filter.id)}
+          >
+            {filter.label}
+          </button>
+        ))}
+      </div>
+      <div className={styles.deckFilterMenuBoardLabel}>Colors</div>
+      <div className={styles.deckFilterPips}>
+        {['W', 'U', 'B', 'R', 'G', 'C'].map(c => (
+          <button
+            key={c}
+            className={`${styles.deckFilterPip}${filters.colors.includes(c) ? ' ' + styles.deckFilterPipActive : ''}`}
+            title={`Filter ${c}`}
+            onClick={() => toggleIn('colors', c)}
+          >
+            <img src={manaSymbolUrl(c)} alt={c} />
+          </button>
+        ))}
+        {filters.colors.length > 0 && (
+          <button
+            className={styles.deckFilterModeBtn}
+            onClick={() => set({ colorMode: cycleColorMode(filters.colorMode) })}
+            title="How selected colors match the card's color identity"
+          >
+            {COLOR_MODE_LABELS[filters.colorMode] || 'Includes'}
+          </button>
+        )}
+      </div>
+      <div className={styles.deckFilterMenuBoardLabel}>Type</div>
+      <div className={`${styles.boardFilterGroup} ${styles.deckFilterWrapGroup}`}>
+        {DECK_CARD_TYPE_OPTIONS.map(t => (
+          <button
+            key={t}
+            className={`${styles.boardFilterBtn}${filters.types.includes(t) ? ' ' + styles.boardFilterBtnActive : ''}`}
+            onClick={() => toggleIn('types', t)}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+      <div className={styles.deckFilterMenuBoardLabel}>Rarity</div>
+      <div className={`${styles.boardFilterGroup} ${styles.deckFilterWrapGroup}`}>
+        {DECK_CARD_RARITY_OPTIONS.map(r => (
+          <button
+            key={r}
+            className={`${styles.boardFilterBtn}${filters.rarities.includes(r) ? ' ' + styles.boardFilterBtnActive : ''}`}
+            onClick={() => toggleIn('rarities', r)}
+          >
+            {r[0].toUpperCase() + r.slice(1)}
+          </button>
+        ))}
+      </div>
+      <div className={styles.deckFilterMenuBoardLabel}>Mana Value</div>
+      <div className={styles.deckFilterCmcRow}>
+        <input
+          type="number" min="0" inputMode="numeric"
+          className={styles.deckFilterCmcInput}
+          value={filters.cmcMin}
+          onChange={e => set({ cmcMin: e.target.value })}
+          placeholder="Min"
+        />
+        <span className={styles.deckFilterCmcDash}>–</span>
+        <input
+          type="number" min="0" inputMode="numeric"
+          className={styles.deckFilterCmcInput}
+          value={filters.cmcMax}
+          onChange={e => set({ cmcMax: e.target.value })}
+          placeholder="Max"
+        />
+      </div>
+      {anythingActive && (
+        <button
+          className={styles.deckFilterClearBtn}
+          onClick={() => { setFilters({ ...EMPTY_DECK_CARD_FILTERS }); setBoardFilter('all') }}
+        >
+          Clear filters
+        </button>
+      )}
+    </div>
+  )
 }
 
 // ── Single card row in EDHRec recommendations ─────────────────────────────────
@@ -463,7 +593,20 @@ export default function DeckBuilderPage() {
   const wasMobileLayoutRef = useRef(typeof window !== 'undefined' ? window.innerWidth <= 900 : false)
   const [leftCollapsed, setLeftCollapsed] = useState(false)
   const [deckSort,    setDeckSort]    = useState(deckbuilder_sort || 'price_asc')   // 'name' | 'cmc_asc' | 'cmc_desc' | 'color' | 'type' | 'price_asc' | 'price_desc' | 'set' | 'rarity_asc' | 'rarity_desc'
-  const [groupBy, setGroupBy] = useState(default_grouping === 'category' ? 'category' : default_grouping === 'none' ? 'none' : 'type')
+  // Last-used grouping wins over the default_grouping setting (which stays the
+  // fallback for devices that never changed it).
+  const [groupBy, setGroupByState] = useState(() => {
+    try {
+      const saved = localStorage.getItem(GROUPBY_STORE_KEY)
+      if (saved && DECK_GROUP_MODES.includes(saved)) return saved
+    } catch { /* private mode */ }
+    return default_grouping === 'category' ? 'category' : default_grouping === 'none' ? 'none' : 'type'
+  })
+  const setGroupBy = useCallback((v) => {
+    setGroupByState(v)
+    try { localStorage.setItem(GROUPBY_STORE_KEY, v) } catch { /* private mode */ }
+  }, [])
+  const [deckFilters, setDeckFilters] = useState(() => ({ ...EMPTY_DECK_CARD_FILTERS }))
   const [visibleColumns, setVisibleColumns] = useState(DEFAULT_LIST_COLUMNS)
   const [compactVisibleColumns, setCompactVisibleColumns] = useState(DEFAULT_COMPACT_COLUMNS)
   const [builderSfMap, setBuilderSfMap] = useState({})
@@ -635,7 +778,9 @@ export default function DeckBuilderPage() {
   }, [])
 
   useEffect(() => {
-    setGroupBy(default_grouping === 'category' ? 'category' : default_grouping === 'none' ? 'none' : 'type')
+    // A remembered per-device grouping wins over the settings default.
+    try { if (localStorage.getItem(GROUPBY_STORE_KEY)) return } catch { /* private mode */ }
+    setGroupByState(default_grouping === 'category' ? 'category' : default_grouping === 'none' ? 'none' : 'type')
   }, [default_grouping])
 
   useEffect(() => {
@@ -1458,6 +1603,7 @@ export default function DeckBuilderPage() {
     const q = deckSearch.trim().toLowerCase()
     return deckCards.filter(dc => {
       if (boardFilter !== 'all' && normalizeBoard(dc.board) !== boardFilter) return false
+      if (!matchesDeckCardFilters(dc, builderSfMap[getScryfallKey(dc)], deckFilters)) return false
       if (!q) return true
       return [
         dc.name,
@@ -1467,7 +1613,7 @@ export default function DeckBuilderPage() {
         dc.collector_number,
       ].some(value => String(value || '').toLowerCase().includes(q))
     })
-  }, [deckCards, deckSearch, boardFilter])
+  }, [deckCards, deckSearch, boardFilter, deckFilters, builderSfMap])
 
   const sortedDeckCards = useMemo(() => {
     if (deckSort === 'type') return visibleDeckCards // type uses grouped rendering
@@ -1609,6 +1755,8 @@ export default function DeckBuilderPage() {
     }
     if (groupBy === 'rarity') return sf.rarity || 'common'
     if (groupBy === 'set') return sf.set_name || (dc.set_code ? dc.set_code.toUpperCase() : 'Unknown')
+    if (groupBy === 'cmc') return dc.is_commander ? 'Commander' : manaValueGroupKey(dc)
+    if (groupBy === 'color') return dc.is_commander ? 'Commander' : colorGroupKey(dc)
     return dc.is_commander ? 'Commander' : classifyCardType(dc.type_line)
   }, [builderSfMap, groupBy, categoryById])
 
@@ -1641,6 +1789,17 @@ export default function DeckBuilderPage() {
     for (const category of [...present].sort()) push(category)
     return order
   }, [getDeckCardGroup, sortedDeckCategories])
+
+  // Group header order for the current groupBy — shared by the stacks and
+  // list/grid renderers so the two views never disagree.
+  const getGroupOrder = useCallback((cards) => {
+    if (groupBy === 'category') return getCategoryOrder(cards)
+    if (groupBy === 'rarity')   return RARITY_ORDER.filter(r => cards.some(dc => getDeckCardGroup(dc) === r))
+    if (groupBy === 'set')      return [...new Set(cards.map(getDeckCardGroup))].sort()
+    if (groupBy === 'cmc')      return ['Commander', ...MANA_VALUE_GROUP_ORDER].filter(g => cards.some(dc => getDeckCardGroup(dc) === g))
+    if (groupBy === 'color')    return ['Commander', ...COLOR_GROUP_ORDER].filter(g => cards.some(dc => getDeckCardGroup(dc) === g))
+    return TYPE_GROUPS
+  }, [groupBy, getCategoryOrder, getDeckCardGroup])
 
   // De-dupes concurrent createDeckCategory calls for the same (deckId, lowercased name)
   // so two parallel addCardToDeck() invocations don't both insert "Removal".
@@ -4891,7 +5050,7 @@ export default function DeckBuilderPage() {
                 >
                   {({ close }) => (
                     <div className={uiStyles.responsiveMenuList}>
-                      {[['none','None'],['type','By Type'],['category','By Category'],['rarity','By Rarity'],['set','By Set']].map(([v, label]) => (
+                      {[['none','None'],['type','By Type'],['category','By Category'],['cmc','By Mana Value'],['color','By Color'],['rarity','By Rarity'],['set','By Set']].map(([v, label]) => (
                         <button
                           key={v}
                           className={`${styles.columnMenuItem} ${groupBy === v ? styles.columnMenuItemActive : ''}`}
@@ -4911,42 +5070,32 @@ export default function DeckBuilderPage() {
                   wrapClassName={`${styles.columnMenuWrap} ${styles.deckFilterMenuWrap} ${styles.deskOnly}`}
                   portal
                   trigger={({ toggle }) => {
-                    const filterActive = (deckSearch.trim().length > 0) || (boardFilter !== 'all')
+                    const activeCount = countActiveCardFilters(deckFilters)
+                      + (deckSearch.trim() ? 1 : 0) + (boardFilter !== 'all' ? 1 : 0)
                     return (
                       <button
-                        className={`${styles.groupToggle} ${styles.groupToggleIcon}${filterActive ? ' '+styles.groupToggleActive : ''}`}
+                        className={`${styles.groupToggle} ${styles.groupToggleIcon}${activeCount ? ' '+styles.groupToggleActive : ''}`}
                         onClick={toggle}
                         title="Filter deck"
                         aria-label="Filter deck"
                       >
                         <SearchIcon size={15} />
                         <span className={styles.toggleLabel}>Filter</span>
+                        {activeCount > 0 && <span className={styles.filterCountBadge}>{activeCount}</span>}
                       </button>
                     )
                   }}
                 >
                   {() => (
-                    <div className={styles.deckFilterMenuBody}>
-                      <input
-                        className={styles.deckSearchInput}
-                        value={deckSearch}
-                        onChange={e => setDeckSearch(e.target.value)}
-                        placeholder="Search deck..."
-                        autoFocus
-                      />
-                      <div className={styles.deckFilterMenuBoardLabel}>Board</div>
-                      <div className={styles.boardFilterGroup}>
-                        {BOARD_FILTERS.map(filter => (
-                          <button
-                            key={filter.id}
-                            className={`${styles.boardFilterBtn}${boardFilter === filter.id ? ' ' + styles.boardFilterBtnActive : ''}`}
-                            onClick={() => setBoardFilter(filter.id)}
-                          >
-                            {filter.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                    <DeckFilterPanel
+                      filters={deckFilters}
+                      setFilters={setDeckFilters}
+                      boardFilter={boardFilter}
+                      setBoardFilter={setBoardFilter}
+                      showSearch
+                      deckSearch={deckSearch}
+                      setDeckSearch={setDeckSearch}
+                    />
                   )}
                 </ResponsiveMenu>
                 {(deckView === 'list' || deckView === 'compact') && (
@@ -5059,38 +5208,34 @@ export default function DeckBuilderPage() {
                   onChange={e => setDeckSearch(e.target.value)}
                   placeholder="Search deck..."
                 />
-                {/* Desktop: board filter behind a funnel button */}
+                {/* Funnel button: full filter panel (board + colors/type/rarity/CMC) */}
                 <ResponsiveMenu
-                  title="Board Filter"
-                  wrapClassName={`${styles.filterFunnelWrap} ${styles.deskOnly}`}
+                  title="Filter Deck"
+                  wrapClassName={styles.filterFunnelWrap}
                   portal
                   align="right"
-                  trigger={({ toggle }) => (
-                    <button
-                      className={`${styles.filterFunnelBtn}${boardFilter !== 'all' ? ' ' + styles.filterFunnelActive : ''}`}
-                      onClick={toggle}
-                      title="Filter by board"
-                      aria-label="Filter by board"
-                    >
-                      <FilterIcon size={15} />
-                    </button>
-                  )}
+                  trigger={({ toggle }) => {
+                    const activeCount = countActiveCardFilters(deckFilters) + (boardFilter !== 'all' ? 1 : 0)
+                    return (
+                      <button
+                        className={`${styles.filterFunnelBtn}${activeCount ? ' ' + styles.filterFunnelActive : ''}`}
+                        onClick={toggle}
+                        title="Filter deck"
+                        aria-label="Filter deck"
+                      >
+                        <FilterIcon size={15} />
+                        {activeCount > 0 && <span className={styles.filterCountBadge}>{activeCount}</span>}
+                      </button>
+                    )
+                  }}
                 >
-                  {({ close }) => (
-                    <div className={uiStyles.responsiveMenuList}>
-                      {BOARD_FILTERS.map(filter => (
-                        <button
-                          key={filter.id}
-                          className={`${styles.columnMenuItem} ${boardFilter === filter.id ? styles.columnMenuItemActive : ''}`}
-                          onClick={() => { setBoardFilter(filter.id); close?.() }}
-                        >
-                          <span className={styles.columnMenuLabel}>{filter.label}</span>
-                          <span className={styles.columnMenuCheck} aria-hidden="true">
-                            {boardFilter === filter.id ? <CheckIcon size={11} /> : ''}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
+                  {() => (
+                    <DeckFilterPanel
+                      filters={deckFilters}
+                      setFilters={setDeckFilters}
+                      boardFilter={boardFilter}
+                      setBoardFilter={setBoardFilter}
+                    />
                   )}
                 </ResponsiveMenu>
                 <div className={`${styles.boardFilterGroup} ${styles.mobileOnly}`}>
@@ -5308,13 +5453,7 @@ export default function DeckBuilderPage() {
               // on every render. See definitions near categoryNameOrder above.
 
               const renderStacks = (cards, board) => {
-                const groupOrder = groupBy === 'category'
-                  ? getCategoryOrder(cards)
-                  : groupBy === 'rarity'
-                  ? RARITY_ORDER.filter(r => cards.some(dc => getDeckCardGroup(dc) === r))
-                  : groupBy === 'set'
-                  ? [...new Set(cards.map(getDeckCardGroup))].sort()
-                  : TYPE_GROUPS
+                const groupOrder = getGroupOrder(cards)
 
                 const groups = groupBy !== 'none'
                   ? groupOrder
@@ -5365,10 +5504,7 @@ export default function DeckBuilderPage() {
                 if (deckView === 'stacks') return renderStacks(cards, board)
 
                 if (groupBy !== 'none') {
-                  const baseOrder = groupBy === 'category' ? getCategoryOrder(cards)
-                    : groupBy === 'rarity' ? RARITY_ORDER.filter(r => cards.some(dc => getDeckCardGroup(dc) === r))
-                    : groupBy === 'set' ? [...new Set(cards.map(getDeckCardGroup))].sort()
-                    : TYPE_GROUPS
+                  const baseOrder = getGroupOrder(cards)
                   const groupMap = new Map(baseOrder.map(g => [g, []]))
                   for (const dc of cards) {
                     const g = getDeckCardGroup(dc)
