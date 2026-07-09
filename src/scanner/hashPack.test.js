@@ -22,7 +22,7 @@ function fakeUuid(i) {
   return `0000${String(i).padStart(4, '0')}-0000-4000-8000-${String(i).padStart(12, '0')}`
 }
 
-export function makeCards(count, { seed = 42, sets = ['abc', 'xyz', 'p123'] } = {}) {
+export function makeCards(count, { seed = 42, sets = ['abc', 'xyz', 'p123'], tileGrid = 0 } = {}) {
   const rng = mulberry32(seed)
   return Array.from({ length: count }, (_, i) => ({
     scryfall_id: fakeUuid(i),
@@ -34,6 +34,9 @@ export function makeCards(count, { seed = 42, sets = ['abc', 'xyz', 'p123'] } = 
     phash_hex: randomHex64(rng),
     phash_hex2: randomHex64(rng),
     phash_full_hex: randomHex64(rng),
+    ...(tileGrid > 0
+      ? { phash_tiles_hex: Array.from({ length: tileGrid * tileGrid }, () => randomHex64(rng)) }
+      : {}),
   }))
 }
 
@@ -136,6 +139,44 @@ describe('encodeHashPack / decodeHashPack', () => {
     expect(card.collNum).toBe(cards[2].collector_number || null)
     expect(card.flavorName).toBe(null)
     expect(HashPackStore.rowHexes(store.chunks[0], 2).phash_full_hex).toBe(null)
+  })
+
+  it('round-trips format-v3 chunks with tile hashes', () => {
+    const cards = makeCards(101, { tileGrid: 3 })
+    const buf = encodeHashPack(cards, 8, { tileGrid: 3 })
+    const store = new HashPackStore()
+    const chunk = store.appendChunkBuffer(buf)
+
+    expect(chunk.formatVersion).toBe(3)
+    expect(chunk.tileGrid).toBe(3)
+    expect(store.tileGrid).toBe(3)
+    expect(chunk.tiles.length).toBe(101 * 9 * 8)
+
+    // Tile hashes survive bit-for-bit, in row-major tile order.
+    const { chunk: c, local } = store.locate(37)
+    const hexes = HashPackStore.rowHexes(c, local)
+    expect(hexes.phash_tiles_hex).toEqual(cards[37].phash_tiles_hex)
+    expect(hexes.phash_hex).toBe(cards[37].phash_hex)
+    // Meta and identity sections are unaffected by the new tile section.
+    const card = store.getCardPublic(37, 0)
+    expect(card.id).toBe(cards[37].scryfall_id)
+    expect(card.name).toBe(cards[37].name)
+  })
+
+  it('store.tileGrid is 0 when chunks disagree or lack tiles', () => {
+    const store = new HashPackStore()
+    store.appendChunkBuffer(encodeHashPack(makeCards(5, { tileGrid: 3 }), 8, { tileGrid: 3 }))
+    store.appendChunkBuffer(encodeHashPack(makeCards(5, { seed: 9 }), 8))
+    expect(store.tileGrid).toBe(0)
+  })
+
+  it('rejects rows with missing or malformed tile hashes', () => {
+    const cards = makeCards(3, { tileGrid: 2 })
+    cards[1].phash_tiles_hex = cards[1].phash_tiles_hex.slice(0, 3)
+    expect(() => encodeHashPack(cards, 8, { tileGrid: 2 })).toThrow(/Expected 4 tile hashes/)
+    const bad = makeCards(3, { tileGrid: 2 })
+    bad[2].phash_tiles_hex[1] = 'zz'
+    expect(() => encodeHashPack(bad, 8, { tileGrid: 2 })).toThrow(/Invalid phash_tiles_hex/)
   })
 
   it('spans multiple chunks with correct global indexing', () => {

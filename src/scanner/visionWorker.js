@@ -14,6 +14,7 @@ import {
   extractCollectorStrip, extractCollectorStripFromCard,
   extractTitleStrip, extractTitleStripFromCard,
 } from './ScannerEngine.js'
+import { flattenTileHashes } from './tileHash.js'
 
 // Current card being scanned (set by loadWarped / loadReticle). The source
 // frame + corners are retained so OCR strips are extracted LAZILY — only the
@@ -37,6 +38,8 @@ function serializeHashes(h) {
     foilHash: h.foilHash ? Array.from(h.foilHash) : null,
     darkHash: h.darkHash ? Array.from(h.darkHash) : null,
     colorHash: h.colorHash ? Array.from(h.colorHash) : null,
+    // Flat number[] (G²×8 words) — the layout matchCore's tileQuery expects.
+    tileHashes: h.tileHashes ? Array.from(flattenTileHashes(h.tileHashes)) : null,
   }
 }
 
@@ -111,11 +114,12 @@ self.onmessage = (event) => {
         return
       }
       const results = []
+      const tileGrid = payload.tileGrid || 0
       for (const variant of payload.variants) {
         const art = cropArtRegion(base, variant)
         if (!art || !isUsableArtCrop(art)) { results.push(null); continue }
         try {
-          results.push(serializeHashes(computeAllHashes(art)))
+          results.push(serializeHashes(computeAllHashes(art, { tileGrid })))
         } catch {
           results.push(null)
         }

@@ -15,29 +15,31 @@
  *
  *  Header (32 bytes):
  *    0  u32  magic 'AVH1' (bytes 41 56 48 31)
- *    4  u16  formatVersion (1 or 2 — v2 adds full-card hashes, face flags,
- *            and flavor names; the decoder reads both)
+ *    4  u16  formatVersion (1, 2, or 3 — v2 adds full-card hashes, face
+ *            flags, and flavor names; v3 adds per-tile art hashes; the
+ *            decoder reads all three)
  *    6  u16  hashVersion — scanner hash pipeline version; the client accepts
  *            any supported version and enables features per chunk
  *    8  u32  count — number of rows (a double-faced card contributes TWO
  *            rows in v2: face 0 = front, face 1 = back, same scryfall id)
  *   12  u32  metaBytesLen — byte length of the meta section
  *   16  u16  setCount — entries in the set table
- *   18  u16  (pad)
+ *   18  u16  tileGrid — tiles per side for the B3 section (v3; 0 = none)
  *   20  u32  setTableLen — byte length of the set table
  *   24  u64  (reserved)
  *
  *  Sections (u32-aligned where typed views need it):
  *   A   luma pHashes    count × 32 B  (8 × u32 per row) — art crop
  *   B   color pHashes   count × 32 B  — art-crop saturation channel
- *   B2  full pHashes    count × 32 B  — whole 500×700 card   [v2 only]
+ *   B2  full pHashes    count × 32 B  — whole 500×700 card   [v2+]
+ *   B3  tile pHashes    count × tileGrid² × 32 B — row-major art tiles [v3]
  *   C   scryfall UUIDs  count × 16 B  (raw bytes, no dashes)
- *   FC  face flags      count × 1 B (0 front / 1 back), pad ×4 [v2 only]
+ *   FC  face flags      count × 1 B (0 front / 1 back), pad ×4 [v2+]
  *   D   set indices     count × 2 B   (u16 into set table), padded to ×4
  *   E   meta offsets    (count+1) × 4 B (u32 byte offsets into meta)
  *   F   meta bytes      UTF-8 per row:
  *                         v1: name \x1F collector_number
- *                         v2: name \x1F collector_number \x1F flavor_name
+ *                         v2+: name \x1F collector_number \x1F flavor_name
  *   G   set table       setCount × [u8 len][len bytes] lowercase set codes
  *
  * Hashes are stored in the same Uint32Array(8) word order produced by
@@ -49,7 +51,7 @@
 import { hexToHash, hashToHex } from './hashCore.js'
 
 export const PACK_MAGIC = 0x31485641 // 'AVH1' read as LE u32
-export const PACK_FORMAT_VERSION = 2
+export const PACK_FORMAT_VERSION = 3
 const HEADER_BYTES = 32
 const META_SEP = '\x1F'
 
@@ -92,15 +94,20 @@ export function deriveImageUri(scryfallId) {
 // ── Encoding (Node seed script + tests) ──────────────────────────────────────
 
 /**
- * Encode rows into a single pack chunk (format v2).
+ * Encode rows into a single pack chunk (format v2, or v3 when tileGrid > 0).
  * @param {Array<{scryfall_id, name, set_code, collector_number, flavor_name?,
- *                face?, phash_hex, phash_hex2, phash_full_hex}>} rows
+ *                face?, phash_hex, phash_hex2, phash_full_hex,
+ *                phash_tiles_hex?}>} rows — phash_tiles_hex is an array of
+ *                tileGrid² 64-char hex hashes (row-major tiles)
  * @param {number} hashVersion — scanner hash pipeline version stamp
+ * @param {{tileGrid?: number}} [opts] — tiles per side; 0/absent = v2 chunk
  * @returns {ArrayBuffer}
  */
-export function encodeHashPack(rows, hashVersion) {
+export function encodeHashPack(rows, hashVersion, { tileGrid = 0 } = {}) {
   const count = rows.length
   const encoder = new TextEncoder()
+  const tileCount = tileGrid > 0 ? tileGrid * tileGrid : 0
+  const formatVersion = tileGrid > 0 ? 3 : 2
 
   const setIndexByCode = new Map()
   const setCodes = []
@@ -109,6 +116,7 @@ export function encodeHashPack(rows, hashVersion) {
   const parsedLuma = []
   const parsedColor = []
   const parsedFull = []
+  const parsedTiles = []
   const metaParts = []
   let metaBytesLen = 0
 
@@ -123,6 +131,15 @@ export function encodeHashPack(rows, hashVersion) {
     parsedLuma.push(luma)
     parsedColor.push(color)
     parsedFull.push(full)
+    if (tileCount) {
+      const tiles = r.phash_tiles_hex
+      if (!Array.isArray(tiles) || tiles.length !== tileCount) {
+        throw new Error(`Expected ${tileCount} tile hashes for ${r.scryfall_id}`)
+      }
+      const parsed = tiles.map(hex => hexToHash(hex))
+      if (parsed.some(t => !t)) throw new Error(`Invalid phash_tiles_hex for ${r.scryfall_id}`)
+      parsedTiles.push(parsed)
+    }
 
     const code = String(r.set_code || '').toLowerCase()
     let setIdx = setIndexByCode.get(code)
@@ -151,7 +168,8 @@ export function encodeHashPack(rows, hashVersion) {
   const offA = HEADER_BYTES
   const offB = offA + count * 32
   const offB2 = offB + count * 32
-  const offC = offB2 + count * 32
+  const offB3 = offB2 + count * 32
+  const offC = offB3 + count * tileCount * 32
   const offFC = offC + count * 16
   const offD = offFC + pad4(count)
   const offE = offD + pad4(count * 2)
@@ -164,16 +182,18 @@ export function encodeHashPack(rows, hashVersion) {
   const u8 = new Uint8Array(buf)
 
   view.setUint32(0, PACK_MAGIC, true)
-  view.setUint16(4, PACK_FORMAT_VERSION, true)
+  view.setUint16(4, formatVersion, true)
   view.setUint16(6, hashVersion, true)
   view.setUint32(8, count, true)
   view.setUint32(12, metaBytesLen, true)
   view.setUint16(16, setCodes.length, true)
+  view.setUint16(18, tileGrid, true)
   view.setUint32(20, setTableLen, true)
 
   const luma = new Uint32Array(buf, offA, count * 8)
   const color = new Uint32Array(buf, offB, count * 8)
   const full = new Uint32Array(buf, offB2, count * 8)
+  const tilesArr = tileCount ? new Uint32Array(buf, offB3, count * tileCount * 8) : null
   const faces = new Uint8Array(buf, offFC, count)
   const setIdxArr = new Uint16Array(buf, offD, count)
   const metaOffsets = new Uint32Array(buf, offE, count + 1)
@@ -183,6 +203,11 @@ export function encodeHashPack(rows, hashVersion) {
     luma.set(parsedLuma[i], i * 8)
     color.set(parsedColor[i], i * 8)
     full.set(parsedFull[i], i * 8)
+    if (tilesArr) {
+      for (let t = 0; t < tileCount; t++) {
+        tilesArr.set(parsedTiles[i][t], (i * tileCount + t) * 8)
+      }
+    }
     if (!uuidToBytes(rows[i].scryfall_id, u8, offC + i * 16)) {
       throw new Error(`Non-UUID scryfall_id: ${rows[i].scryfall_id}`)
     }
@@ -207,9 +232,10 @@ export function encodeHashPack(rows, hashVersion) {
 // ── Decoding ─────────────────────────────────────────────────────────────────
 
 /**
- * Decode a chunk buffer (format v1 or v2) into typed-array views (zero copy
- * over `buf`). v1 chunks decode with `full`/`faces` = null and no flavor
- * names. Throws on malformed input.
+ * Decode a chunk buffer (format v1, v2, or v3) into typed-array views (zero
+ * copy over `buf`). v1 chunks decode with `full`/`faces` = null and no flavor
+ * names; pre-v3 chunks decode with `tiles` = null / `tileGrid` = 0. Throws on
+ * malformed input.
  */
 export function decodeHashPack(buf) {
   if (!(buf instanceof ArrayBuffer) || buf.byteLength < HEADER_BYTES) {
@@ -218,20 +244,23 @@ export function decodeHashPack(buf) {
   const view = new DataView(buf)
   if (view.getUint32(0, true) !== PACK_MAGIC) throw new Error('Hash pack: bad magic')
   const formatVersion = view.getUint16(4, true)
-  if (formatVersion !== 1 && formatVersion !== 2) {
+  if (formatVersion !== 1 && formatVersion !== 2 && formatVersion !== 3) {
     throw new Error(`Hash pack: unsupported format v${formatVersion}`)
   }
   const hashVersion = view.getUint16(6, true)
   const count = view.getUint32(8, true)
   const metaBytesLen = view.getUint32(12, true)
   const setCount = view.getUint16(16, true)
+  const tileGrid = formatVersion >= 3 ? view.getUint16(18, true) : 0
   const setTableLen = view.getUint32(20, true)
 
-  const v2 = formatVersion === 2
+  const v2 = formatVersion >= 2
+  const tileCount = tileGrid * tileGrid
   const offA = HEADER_BYTES
   const offB = offA + count * 32
   const offB2 = offB + count * 32
-  const offC = (v2 ? offB2 + count * 32 : offB2)
+  const offB3 = (v2 ? offB2 + count * 32 : offB2)
+  const offC = offB3 + count * tileCount * 32
   const offFC = offC + count * 16
   const offD = v2 ? offFC + pad4(count) : offFC
   const offE = offD + pad4(count * 2)
@@ -253,9 +282,11 @@ export function decodeHashPack(buf) {
     formatVersion,
     hashVersion,
     count,
+    tileGrid,
     luma: new Uint32Array(buf, offA, count * 8),
     color: new Uint32Array(buf, offB, count * 8),
     full: v2 ? new Uint32Array(buf, offB2, count * 8) : null,
+    tiles: tileCount ? new Uint32Array(buf, offB3, count * tileCount * 8) : null,
     uuids: new Uint8Array(buf, offC, count * 16),
     faces: v2 ? new Uint8Array(buf, offFC, count) : null,
     setIdx: new Uint16Array(buf, offD, count),
@@ -296,6 +327,17 @@ export class HashPackStore {
   /** True when every chunk carries full-card hashes (format v2). */
   get hasFullHashes() {
     return this.chunks.length > 0 && this.chunks.every(c => !!c.full)
+  }
+
+  /**
+   * Tile grid shared by every chunk (format v3), or 0 when any chunk lacks
+   * tiles / grids disagree — matching then falls back to whole-art distance.
+   */
+  get tileGrid() {
+    if (!this.chunks.length) return 0
+    const grid = this.chunks[0].tileGrid || 0
+    if (!grid) return 0
+    return this.chunks.every(c => (c.tileGrid || 0) === grid && !!c.tiles) ? grid : 0
   }
 
   /** Map a global row index to { chunk, chunkIdx, local }. */
@@ -403,12 +445,22 @@ export class HashPackStore {
 
   /** Re-hex the stored hashes for a chunk-local row (seed-state diffing). */
   static rowHexes(chunk, local) {
+    const tileCount = (chunk.tileGrid || 0) ** 2
+    let tiles = null
+    if (tileCount && chunk.tiles) {
+      tiles = []
+      const base = local * tileCount * 8
+      for (let t = 0; t < tileCount; t++) {
+        tiles.push(hashToHex(chunk.tiles.subarray(base + t * 8, base + (t + 1) * 8)))
+      }
+    }
     return {
       phash_hex: hashToHex(chunk.luma.subarray(local * 8, local * 8 + 8)),
       phash_hex2: hashToHex(chunk.color.subarray(local * 8, local * 8 + 8)),
       phash_full_hex: chunk.full
         ? hashToHex(chunk.full.subarray(local * 8, local * 8 + 8))
         : null,
+      phash_tiles_hex: tiles,
     }
   }
 }

@@ -26,6 +26,7 @@ import {
   computeHashFromGray, computeHashFromGrayGlare, computeHashFromGrayDark,
   rgbToGray32x32, rgbToSaturation32x32, hashToHex as _hashToHex, applyCLAHE,
 } from './hashCore.js'
+import { computeTileHashes } from './tileHash.js'
 import {
   rgbaToGrayU8, rgbaToChromaU8, gaussianBlurGray, canny, dilate3,
   findExternalContours, contourArea, arcLength, approxPolyDP, minAreaRectPoints,
@@ -355,10 +356,12 @@ export function computeFullCardHash(cardImageData) {
 }
 
 /**
- * Compute all four hash variants from a single art crop in one resize pass.
- * Returns { hash, foilHash, darkHash, colorHash } — caller uses whichever are non-null.
+ * Compute all hash variants from a single art crop in one resize pass.
+ * Returns { hash, foilHash, darkHash, colorHash, tileHashes } — caller uses
+ * whichever are non-null. `tileGrid` > 0 (the loaded pack's grid) adds the v8
+ * per-tile hashes (array of G² Uint32Array(8), row-major).
  */
-export function computeAllHashes(artImageData) {
+export function computeAllHashes(artImageData, { tileGrid = 0 } = {}) {
   const rgba = resizeArtTo32(artImageData)
   const gray = rgbToGray32x32(rgba, 4)
   const mean = gray.reduce((s, v) => s + v, 0) / gray.length
@@ -367,6 +370,7 @@ export function computeAllHashes(artImageData) {
     foilHash:  computeHashFromGrayGlare(gray),
     darkHash:  mean < 80 ? computeHashFromGrayDark(gray) : null,
     colorHash: computeHashFromGray(rgbToSaturation32x32(rgba, 4)),
+    tileHashes: tileGrid > 0 ? computeTileHashes(artImageData, tileGrid) : null,
   }
 }
 

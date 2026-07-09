@@ -8,15 +8,17 @@
  *
  * Per card row (front face; plus a second row for the back face of
  * double-faced cards so back-side-up scans can match):
- *   phash_hex       — art-crop luma pHash
- *   phash_hex2      — art-crop saturation pHash
- *   phash_full_hex  — whole-card luma pHash (v7 second signal)
+ *   phash_hex        — art-crop luma pHash
+ *   phash_hex2       — art-crop saturation pHash
+ *   phash_full_hex   — whole-card luma pHash (v7 second signal)
+ *   phash_tiles_hex  — per-tile art hashes, only when TILE_GRID > 0 (the v8
+ *                      tile experiment; currently OFF — see constants.js)
  * All hashing goes through src/scanner/hashCard.js, which shares the exact
  * 32×32 area-resize with the live scanner (v7 unification — before this the
  * seed used Sharp's mitchell kernel).
  *
  * Incremental by default: rows whose (scryfall_id, face) already exist in a
- * v7 pack are skipped. Progress is checkpointed as append-only delta chunks
+ * current-version pack are skipped. Progress is checkpointed as delta chunks
  * every CHECKPOINT_ROWS completed rows, so an interrupted overnight run
  * resumes where it left off. A finished run consolidates fragmented chunks
  * back into large newest-first ones (chunk 0 = newest sets — the scanner
@@ -38,11 +40,16 @@ import { fileURLToPath } from 'node:url'
 import fetch from 'node-fetch'
 import sharp from 'sharp'
 import { withParserAsStream } from 'stream-json/streamers/stream-array.js'
-import { CARD_W, CARD_H } from '../src/scanner/constants.js'
+import { CARD_W, CARD_H, TILE_GRID } from '../src/scanner/constants.js'
 import { computeSeedHashes } from '../src/scanner/hashCard.js'
 import { encodeHashPack, HashPackStore, bytesToUuid } from '../src/scanner/hashPack.js'
 
+// Stays at 7: the v8 tile experiment measurably REDUCED lookalike margins
+// (see scripts/scanner-grid-harness.js + TILE_GRID in constants.js), so the
+// shipped pack keeps the v7 pipeline. With TILE_GRID = 0 the encoder emits
+// format-v2 chunks — bump both here and TILE_GRID together to ship tiles.
 const HASH_PIPELINE_VERSION = 7
+const PACK_FORMAT = 2
 const CHUNK_SIZE = 24000        // rows per chunk after consolidation
 const CHECKPOINT_ROWS = 8000    // flush a delta chunk every N hashed rows
 const CONSOLIDATE_ABOVE = 8     // repack when the pack fragments past this many chunks
@@ -65,7 +72,7 @@ function readManifest() {
   try { return JSON.parse(readFileSync(p, 'utf8')) } catch { return null }
 }
 
-/** Load the existing v7 pack as seed state. Returns null when unusable. */
+/** Load the existing v8 pack as seed state. Returns null when unusable. */
 function loadPackState() {
   const manifest = readManifest()
   if (!manifest || manifest.hashVersion !== HASH_PIPELINE_VERSION) return null
@@ -83,7 +90,7 @@ function loadPackState() {
 }
 
 function writeChunk(rows, seq) {
-  const buf = encodeHashPack(rows, HASH_PIPELINE_VERSION)
+  const buf = encodeHashPack(rows, HASH_PIPELINE_VERSION, { tileGrid: TILE_GRID })
   const sha = createHash('sha256').update(new Uint8Array(buf)).digest('hex')
   const file = `pack-v${HASH_PIPELINE_VERSION}-${String(seq).padStart(3, '0')}-${sha.slice(0, 10)}.bin`
   writeFileSync(path.join(OUT_DIR, file), new Uint8Array(buf))
@@ -92,7 +99,7 @@ function writeChunk(rows, seq) {
 
 function writeManifest(chunkMetas) {
   const manifest = {
-    formatVersion: 2,
+    formatVersion: PACK_FORMAT,
     hashVersion: HASH_PIPELINE_VERSION,
     generatedAt: new Date().toISOString(),
     totalCount: chunkMetas.reduce((s, c) => s + c.count, 0),
@@ -249,9 +256,9 @@ async function main() {
   const have = new Set()
   if (state) {
     for (const { id, face } of state.store.entries()) have.add(`${id}|${face}`)
-    console.log(`Existing v7 pack: ${have.size} rows — hashing only what's missing.`)
+    console.log(`Existing v${HASH_PIPELINE_VERSION} pack: ${have.size} rows — hashing only what's missing.`)
   } else {
-    console.log('No usable v7 pack state — full build (a pre-v7 pack is superseded).')
+    console.log(`No usable v${HASH_PIPELINE_VERSION} pack state — full build (an older pack is superseded).`)
   }
 
   console.log('Downloading Scryfall bulk data…')

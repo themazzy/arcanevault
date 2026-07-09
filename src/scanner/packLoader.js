@@ -26,9 +26,10 @@ import {
 
 // Hash pipeline versions this client can consume. v6 = art+color hashes
 // (format v1); v7 adds whole-card hashes, back faces, and flavor names
-// (format v2) — features degrade gracefully on a v6 pack, so the client
-// works before AND after the v7 reseed is published.
-export const SUPPORTED_HASH_VERSIONS = [6, 7]
+// (format v2); v8 adds per-tile art hashes (format v3) — features degrade
+// gracefully on an older pack, so the client works before AND after a
+// reseed is published.
+export const SUPPORTED_HASH_VERSIONS = [6, 7, 8]
 export const MANIFEST_META_KEY = 'scanner_pack_manifest'
 const PACK_PATH = 'scanner/hashpack/'
 const CHUNK_FETCH_TIMEOUT_MS = 120000
@@ -38,7 +39,7 @@ const remoteUrl = file => getProdAppUrl(`/${PACK_PATH}${file}`)
 
 export function isValidManifest(m) {
   return !!m &&
-    (m.formatVersion === 1 || m.formatVersion === 2) &&
+    (m.formatVersion === 1 || m.formatVersion === 2 || m.formatVersion === 3) &&
     SUPPORTED_HASH_VERSIONS.includes(m.hashVersion) &&
     Array.isArray(m.chunks) &&
     m.chunks.length > 0 &&

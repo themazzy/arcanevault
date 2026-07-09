@@ -179,6 +179,70 @@ describe('createMatcher', () => {
     expect(result.bestLabel).toBe('standard')
   })
 
+  it('ranks by tile distance on a v3 pack (lookalike-art discrimination)', () => {
+    // Two "lookalike" cards: identical whole-art, color, and full hashes —
+    // indistinguishable to the v7 formula — but different tile hashes.
+    const cards = makeCards(2400, { seed: 21, sets: ['aaa', 'bbb'], tileGrid: 3 })
+    const twin = {
+      ...cards[201],
+      scryfall_id: cards[201].scryfall_id.replace('0000', '9999'),
+      name: 'Lookalike Twin',
+      phash_hex: cards[200].phash_hex,
+      phash_hex2: cards[200].phash_hex2,
+      phash_full_hex: cards[200].phash_full_hex,
+      // tiles stay cards[201]'s own → the only separating signal
+    }
+    const all = [...cards]
+    all[201] = twin
+    const store = new HashPackStore()
+    store.appendChunkBuffer(encodeHashPack(all, 8, { tileGrid: 3 }))
+    const matcher = createMatcher(store)
+
+    const query = hexToHash(cards[200].phash_hex)
+    const colorQuery = hexToHash(cards[200].phash_hex2)
+    const fullQuery = hexToHash(cards[200].phash_full_hex)
+    const tileQuery = new Uint32Array(9 * 8)
+    cards[200].phash_tiles_hex.forEach((hex, t) => tileQuery.set(hexToHash(hex), t * 8))
+
+    // Without tiles the twin ties the true card; with tiles the true card
+    // must win with a clear margin.
+    const withTiles = matcher.match(query, colorQuery, fullQuery, { tileQuery })
+    expect(withTiles.best.id).toBe(cards[200].scryfall_id)
+    expect(withTiles.second.id).toBe(twin.scryfall_id)
+    expect(withTiles.second.distance - withTiles.best.distance).toBeGreaterThan(10)
+  })
+
+  it('tolerates fully corrupted tiles up to the drop budget (glare)', () => {
+    const cards = makeCards(2400, { seed: 22, sets: ['aaa'], tileGrid: 3 })
+    const store = new HashPackStore()
+    store.appendChunkBuffer(encodeHashPack(cards, 8, { tileGrid: 3 }))
+    const matcher = createMatcher(store)
+
+    const target = cards[300]
+    const query = flipBits(hexToHash(target.phash_hex), 8, 300)
+    const tileQuery = new Uint32Array(9 * 8)
+    target.phash_tiles_hex.forEach((hex, t) => tileQuery.set(hexToHash(hex), t * 8))
+    // Destroy two tiles completely (the 3×3 drop budget is floor(9/4) = 2).
+    tileQuery.set(flipBits(hexToHash(target.phash_tiles_hex[0]), 128, 1), 0)
+    tileQuery.set(flipBits(hexToHash(target.phash_tiles_hex[4]), 128, 2), 4 * 8)
+
+    const result = matcher.match(query, null, null, { tileQuery })
+    expect(result.best.id).toBe(target.scryfall_id)
+    // Kept-tiles mean must ignore the corrupted tiles entirely.
+    expect(result.best.distance).toBeLessThan(30)
+  })
+
+  it('produces the exact v7 distances when the pack has no tiles', () => {
+    const { matcher } = buildMatcher()
+    const query = flipBits(hexToHash(CARDS[42].phash_hex), 8, 42)
+    const colorQuery = flipBits(hexToHash(CARDS[42].phash_hex2), 6, 43)
+    const tileQuery = new Uint32Array(9 * 8).fill(0xFFFFFFFF)
+    const withTileQuery = matcher.match(query, colorQuery, null, { tileQuery, broadFallbackOnWeak: true })
+    const withoutTileQuery = matcher.match(query, colorQuery, null, { broadFallbackOnWeak: true })
+    expect(withTileQuery.best.id).toBe(withoutTileQuery.best.id)
+    expect(withTileQuery.best.distance).toBe(withoutTileQuery.best.distance)
+  })
+
   it('stays correct after appending a chunk post-index-build', () => {
     const store = new HashPackStore()
     store.appendChunkBuffer(encodeHashPack(CARDS.slice(0, 2500), 6))

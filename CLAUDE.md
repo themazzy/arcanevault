@@ -278,6 +278,7 @@ A linked collection deck navigates to `/builder/<linked_builder_id>` rather than
 ### CORS-restricted third-party APIs
 
 - **EDHREC** needs no proxy: `json.edhrec.com/pages/` sends `Access-Control-Allow-Origin: *` and is fetched directly in all environments.
+- **Recommendation metadata** (images, rules text, print identity, legalities) comes from the `get_recommendation_card_metadata(text[])` Supabase RPC, not Scryfall's card API. Rankings still come from EDHREC/Recommander. `oracle_cards` stores legalities once per `oracle_id` and is refreshed weekly by `scripts/sync-oracle-cards.mjs` from Scryfall's bulk export.
 - **Deck URL imports** (Archidekt, Moxfield, Goldfish) go through the Cloudflare Worker at `deckloom.app/api/import/<source>/<id>` in all environments (strict source/id validation in `cloudflare/og-worker/worker.js`). Archidekt and Moxfield work; **MTGGoldfish blocks server-side fetches** with a Cloudflare JS challenge — its import fails with a message steering users to paste the decklist.
 - **Commander Spellbook combos**: dev uses the `/api/combos` Vite proxy (the only proxy left in `vite.config.js`); prod uses the `combo-proxy` Supabase Edge Function.
 
@@ -305,8 +306,10 @@ A linked collection deck navigates to `/builder/<linked_builder_id>` rather than
 | `src/lib/tournament.js` | Tournament logic: formats, structures, standings, result recording |
 | `src/lib/networkUtils.js` | `isNetworkLikeError()`, `createOfflineError()` |
 | `src/scanner/DatabaseService.js` | Hash-pack orchestrator: manifest → IDB blob cache → same-origin fetch; feeds chunks to the match worker; sync fallback matcher |
-| `src/scanner/hashPack.js` | Binary hash-pack format (encode/decode/`HashPackStore`); image URLs derived from scryfall id — shared with Node build script |
-| `src/scanner/matchCore.js` | LSH band index + ranking over packed hash arrays — shared by worker and main-thread fallback |
+| `src/scanner/hashPack.js` | Binary hash-pack format (encode/decode/`HashPackStore`, format v3 adds the tile section); image URLs derived from scryfall id — shared with Node build script |
+| `src/scanner/matchCore.js` | LSH band index + ranking over packed hash arrays (incl. dormant best-k-of-G² tile blend) — shared by worker and main-thread fallback |
+| `src/scanner/tileHash.js` | Per-tile art hashes (`computeTileHashes`) — v8 experiment, dormant (`TILE_GRID = 0`; harness showed margin regression); shared by client, seed script, and grid harness |
+| `src/scanner/hashFusion.js` | Multi-frame per-bit majority hash fusion — CardScanner's fused-match rescue |
 | `src/scanner/packLoader.js` | Manifest/chunk fetch + IDB blob caching (`scanner_pack` store); native falls back to deckloom.app for post-APK chunks |
 | `src/scanner/prefetch.js` | Idle-time warmup (app shell): pack chunks → IDB; gated on prior scanner use |
 | `src/scanner/visionCore.js` | Pure-JS vision primitives (replaced OpenCV.js): Canny, contours, approxPolyDP, minAreaRect, perspective warp, INTER_AREA-equivalent resize |
@@ -316,17 +319,19 @@ A linked collection deck navigates to `/builder/<linked_builder_id>` rather than
 | `src/scanner/collectorOcr.js` | Collector-line OCR (tesseract.js, self-hosted under `public/ocr/`): noise-tolerant parsing, set-candidate expansion; refines printing + language after a scan |
 | `src/scanner/nameMatch.js` | Fuzzy card-name matching for title-OCR rescue: banded prefix-Levenshtein over all pack names, uniqueness-margin gated |
 | `src/scanner/hashCore.js` | Pure-JS pHash core: precomputed DCT cosine table, CLAHE, percentileCap, Hamming distance — shared with seed script |
-| `src/scanner/constants.js` | Shared card/art dimensions: `CARD_W=500, CARD_H=700, ART_X=38, ART_Y=66, ART_W=424, ART_H=248` |
+| `src/scanner/constants.js` | Shared card/art dimensions: `CARD_W=500, CARD_H=700, ART_X=38, ART_Y=66, ART_W=424, ART_H=248` + `TILE_GRID` (0 = tiles off; see comment there for the harness verdict) |
+| `scripts/scanner-grid-harness.js` | Tile-grid A/B experiment: real Scryfall renders + simulated capture degradation → measures lookalike margins per grid (verdict: tiles regress; keep off) |
 | `src/scanner/CardScanner.jsx` | Full-screen scanner UI: camera, auto-scan loop, targeting reticle, stability buffer, settings panel, match basket |
 | `src/pages/Scanner.jsx` | Route wrapper for `CardScanner` at `/scanner` |
 | `scripts/generate-card-hashes.js` | Node.js seed script (pipeline v7): Scryfall bulk → hashes (art/color/full, incl. DFC back faces) → writes `public/scanner/hashpack/` directly. The pack is its own incremental state — no Supabase involved. Crash-safe checkpoints every 8k rows |
-| `src/scanner/hashCard.js` | Seed-side hash computation from a perfect 500×700 card render — shares the exact 32×32 area-resize with the live scanner |
+| `src/scanner/hashCard.js` | Seed-side hash computation from a perfect 500×700 card render (art/color/full; tiles only when `TILE_GRID > 0`) — shares the exact 32×32 area-resize with the live scanner |
 | `src/lib/fx.js` | EUR↔USD conversion via frankfurter.app (6 h IDB cache) |
 | `src/lib/valueSnapshots.js` | Daily collection-value snapshots (`collection_value_snapshots`, 1 row/user/day): `recordCollectionValueSnapshot()`, `fetchValueHistory()`, `computeValueDelta()` — powers Stats "Value Over Time" |
 | `src/lib/setCompletion.js` | Set-completion missing-cards view: `fetchSetCards()` (Scryfall, session cache), `computeMissingCards()`, `missingCostTotal()`, `addMissingToWishlist()` |
 | `src/lib/deckBuilderApi.js` | Deck builder helpers + external API calls |
 | `src/lib/deckSync.js` | Linked deck sync: `getLinkedDeckIds()`, `getSyncState()`, `withLinkedPair()`, `clearLinkedPair()`, `writeSyncState()`, `normalizeBuilderCards()` |
 | `src/lib/deckLegality.js` | `getCardLegalityWarnings()` — format legality + commander color identity checks |
+| `scripts/sync-oracle-cards.mjs` | Weekly Scryfall bulk-data sync into `oracle_cards`; supplies legality data for recommendation enrichment without runtime Scryfall API calls |
 | `src/lib/commanderBracket.js` | Commander Bracket estimator: `analyzeBracket()` (Game Changers / MLD / extra turns / 2-card combos), `fetchGameChangerNames()` (Scryfall `is:gamechanger`, 7-day localStorage cache). UI: `components/BracketBadge.jsx` — clickable pill in the DeckStats pills row (popover with reasons, flagged cards, combo check, manual 1–5 override). `DeckStats` accepts `showBracket` + `combos` props; DeckBuilder passes `showBracket={isEDH}` |
 | `src/lib/importFlow.js` | Import pipeline: `parseImportText()`, `resolveImportEntries()`, `summarizeImportRows()`, `aggregateResolvedRows()`, `fetchPaperPrintings()` |
 | `src/lib/csvParser.js` | Manabox CSV → cards + folders |
@@ -558,9 +563,13 @@ When a scan's hash result is rejected (glare, foils, low light) but a card was w
 
 **Pipeline v7 second signal** (format-v2 packs): `phash_full_hex` — whole-card luma pHash (`computeFullCardHash` client-side, once per warped orientation). `matchCore` combines: art 0.45 + color 0.20 + full 0.35×`FULL_SCALE`(1.14, harness-calibrated so random ≈ art's 126); without a full hash it collapses to the exact v6 formula (0.65/0.35), so v1 packs behave identically. A second LSH band index over full hashes rescues candidates whose art hash was destroyed by glare. v2 packs also carry **DFC back-face rows** (same scryfall id, face=1) and **flavor names** (indexed by the title-OCR rescue — Marvel/Godzilla cards print the flavor name).
 
+**Multi-frame fusion** (`hashFusion.js`, shipped): when no sampled frame passes the acceptance gates, CardScanner per-bit majority-votes the frames' primary hash sets (art/color/full/tiles) and tries one fused match labeled `fused` — glare flips different bits in different frames, so the majority hash is cleaner than any single capture. Rescue-only: it runs after the normal path failed and is judged by the same distance/gap/cluster gates.
+
+**Tile hashes (v8 experiment — built, measured, NOT shipped):** `tileHash.js` (G×G per-tile art hashes), pack format v3 (`phash_tiles_hex` section), and the `matchCore` tile blend (best G²−⌊G²/4⌋ tile distances at art 0.15 + tiles 0.30 + color 0.20 + full 0.35×`FULL_SCALE`) all exist, are unit-tested, and are fully wired through the client — but `TILE_GRID = 0` keeps them dormant. `scripts/scanner-grid-harness.js` (400 probes over a 1050-card lookalike-heavy pool, simulated capture degradation) showed every grid **reduces** the same-name wrong-art margin (p10: baseline 60.2 → 2×2 59.5 → 3×3 55.1 → 4×4 51.7): under corner-detection error/blur the correct card's tile distances inflate faster than its whole-art distance. Do not enable tiles without re-running the harness and beating the baseline margin. The shipped pack stays pipeline v7 / format v2.
+
 #### Hash database delivery — static hash pack
 
-The hash pack (`public/scanner/hashpack/pack-v*-*.bin` + `manifest.json`, newest sets in chunk 0) deploys with the web app and ships inside the Android APK (Capacitor serves `public/` locally — native first run is offline). The client (`packLoader.js` → `DatabaseService.js`) caches chunks as single ArrayBuffer blobs in the IDB `scanner_pack` store and posts them to `hashMatchWorker.js`, which owns the band indexes. Scanning unlocks after the first chunk; the rest streams in the background. The client accepts hash versions 6 and 7 (`SUPPORTED_HASH_VERSIONS`) — v7 features degrade gracefully on a v6 pack.
+The hash pack (`public/scanner/hashpack/pack-v*-*.bin` + `manifest.json`, newest sets in chunk 0) deploys with the web app and ships inside the Android APK (Capacitor serves `public/` locally — native first run is offline). The client (`packLoader.js` → `DatabaseService.js`) caches chunks as single ArrayBuffer blobs in the IDB `scanner_pack` store and posts them to `hashMatchWorker.js`, which owns the band indexes. Scanning unlocks after the first chunk; the rest streams in the background. The client accepts hash versions 6, 7, and 8 (`SUPPORTED_HASH_VERSIONS`) — newer-pipeline features degrade gracefully on an older pack.
 
 - **Seeding workflow:** `node scripts/generate-card-hashes.js` → commit `public/scanner/hashpack/`. The pack is the script's own incremental state (Supabase is not involved); new cards produce delta chunks, checkpointed every 8k rows (an interrupted run resumes), and fragmented packs auto-consolidate. `--reseed` rebuilds everything (hash algorithm changes).
 - Chunk filenames are content-hashed; `manifest.json` is the only mutable file.
@@ -599,6 +608,7 @@ Host creates a session → others visit `/join/:code` on their own device → ho
 - `deck_cards` — builder deck cards (separate from collection ownership)
 - `deck_cards_view` — view joining `deck_cards` with card/print data; queried by `fetchDeckCards()`
 - `card_prints` — normalized print metadata shared across ownership, deck builder, prices, and scanner
+- `oracle_cards` — one row per `oracle_id` with legalities, representative image/printing metadata, and double-faced `face_names`; read-only to clients and refreshed from Scryfall bulk data. `get_recommendation_card_metadata(text[])` prefers `card_prints`, then falls back to this table and resolves EDHREC front-face aliases
 - `user_settings` — single row per user; includes `nickname`, `anonymize_email`, `reduce_motion`, `higher_contrast`, `card_name_size`, `default_grouping`, `keep_screen_awake`, `show_sync_errors`, `premium`, `profile_config`
 - `card_prices` — shared daily market prices keyed by `scryfall_id + snapshot_date`; app keeps only today and yesterday
 - `collection_value_snapshots` — per-user daily collection value: `user_id, snapshot_date, total_eur, total_usd, card_count`; RLS owner-only. Written two ways: a pg_cron job (`daily-collection-value-snapshots`, 04:30 UTC, after the 03:20 price sync) runs `record_daily_value_snapshots()` with `ON CONFLICT DO NOTHING`, and Stats upserts on visit with manual price overrides applied (client value wins). The cron function is SECURITY DEFINER with EXECUTE revoked from anon/authenticated

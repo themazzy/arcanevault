@@ -308,6 +308,22 @@ class DatabaseService {
     return this._matcher.match(hash, colorHash, fullHash, opts)
   }
 
+  // Worker payloads must be structured-clone friendly: Sets → arrays,
+  // tileQuery (Uint32Array or number[]) → plain array.
+  _serializeMatchOpts(opts) {
+    return {
+      ...opts,
+      allowedSets: opts.allowedSets?.size ? [...opts.allowedSets] : null,
+      tileQuery: opts.tileQuery ? Array.from(opts.tileQuery) : null,
+    }
+  }
+
+  // The sync matcher wants a Uint32Array tileQuery (subarray views in rank).
+  _normalizeMatchOpts(opts) {
+    if (!opts.tileQuery || opts.tileQuery instanceof Uint32Array) return opts
+    return { ...opts, tileQuery: new Uint32Array(opts.tileQuery) }
+  }
+
   async findBestTwoWithStatsAsync(hash, colorHash = null, fullHash = null, opts = {}) {
     if (!this._store.count) {
       return { best: null, second: null, candidateCount: 0, totalCount: 0 }
@@ -317,10 +333,10 @@ class DatabaseService {
         hash: Array.from(hash),
         colorHash: colorHash ? Array.from(colorHash) : null,
         fullHash: fullHash ? Array.from(fullHash) : null,
-        opts: { ...opts, allowedSets: opts.allowedSets?.size ? [...opts.allowedSets] : null },
+        opts: this._serializeMatchOpts(opts),
       })
     } catch {
-      return this._matcher.match(hash, colorHash, fullHash, opts)
+      return this._matcher.match(hash, colorHash, fullHash, this._normalizeMatchOpts(opts))
     }
   }
 
@@ -335,14 +351,14 @@ class DatabaseService {
         queries: queries.map(({ hash, label }) => ({ hash: hash ? Array.from(hash) : null, label })),
         colorHash: colorHash ? Array.from(colorHash) : null,
         fullHash: fullHash ? Array.from(fullHash) : null,
-        opts: { ...opts, allowedSets: opts.allowedSets?.size ? [...opts.allowedSets] : null },
+        opts: this._serializeMatchOpts(opts),
       })
     } catch {
       const normalized = queries.map(({ hash, label }) => ({
         hash: hash ? new Uint32Array(hash) : null,
         label,
       }))
-      return this._matcher.matchAll(normalized, colorHash, fullHash, opts)
+      return this._matcher.matchAll(normalized, colorHash, fullHash, this._normalizeMatchOpts(opts))
     }
   }
 
@@ -400,6 +416,8 @@ class DatabaseService {
   }
 
   get cardCount()       { return this._store.count }
+  /** Tile grid of the loaded pack (0 = pack has no tile hashes). */
+  get tileGrid()        { return this._store.tileGrid }
   get isReady()         { return this._initialized }
   get isSyncing()       { return this._syncing }
   get isFullyLoaded()   { return this._fullyLoaded }

@@ -14,6 +14,7 @@ import {
   extractCollectorStrip, extractCollectorStripFromCard,
   extractTitleStrip, extractTitleStripFromCard,
 } from './ScannerEngine.js'
+import { flattenTileHashes } from './tileHash.js'
 
 function serializeHashes(h) {
   return {
@@ -21,6 +22,7 @@ function serializeHashes(h) {
     foilHash: h.foilHash ? Array.from(h.foilHash) : null,
     darkHash: h.darkHash ? Array.from(h.darkHash) : null,
     colorHash: h.colorHash ? Array.from(h.colorHash) : null,
+    tileHashes: h.tileHashes ? Array.from(flattenTileHashes(h.tileHashes)) : null,
   }
 }
 
@@ -169,13 +171,14 @@ class VisionClient {
   /**
    * Compute all hash variants for a batch of crop variants against the
    * current card (optionally rotated 180°), plus the shared whole-card hash
-   * for that orientation. Returns { results, fullHash }; result entries are
-   * null when the crop was unusable. Hash arrays are plain number[] ready
+   * for that orientation. `tileGrid` (the loaded pack's grid, 0 = none) adds
+   * v8 tile hashes per variant. Returns { results, fullHash }; result entries
+   * are null when the crop was unusable. Hash arrays are plain number[] ready
    * for the match worker.
    */
-  async hashVariants(variants, { rot180 = false } = {}) {
+  async hashVariants(variants, { rot180 = false, tileGrid = 0 } = {}) {
     try {
-      return await this._post('hashVariants', { variants, rot180 })
+      return await this._post('hashVariants', { variants, rot180, tileGrid })
     } catch {
       let base = this._localCard
       if (rot180 && base) {
@@ -186,7 +189,7 @@ class VisionClient {
       const results = variants.map(variant => {
         const art = cropArtRegion(base, variant)
         if (!art || !isUsableArtCrop(art)) return null
-        try { return serializeHashes(computeAllHashes(art)) } catch { return null }
+        try { return serializeHashes(computeAllHashes(art, { tileGrid })) } catch { return null }
       })
       let fullHash = null
       try {

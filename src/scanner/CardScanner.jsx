@@ -34,6 +34,7 @@ import { CameraPreview } from '@capacitor-community/camera-preview'
 import { Haptics, ImpactStyle } from '@capacitor/haptics'
 import { databaseService } from './DatabaseService'
 import { visionClient } from './visionClient'
+import { fuseFrameHashes } from './hashFusion'
 import { useAuth } from '../components/Auth'
 import { queryClient } from '../lib/queryClient'
 import { invalidateOwnedCollectionQueries, invalidateWishlistQueries } from '../lib/queryInvalidation'
@@ -418,6 +419,7 @@ function isDecisiveCandidate(best, gap) {
   if (!best) return false
   return best.distance <= MATCH_STRONG_SINGLE && gap >= MATCH_MIN_GAP
 }
+
 
 function getStableVote(votes) {
   return [...votes.values()].sort((a, b) => {
@@ -1363,6 +1365,9 @@ export default function CardScanner({ onMatch, onClose }) {
     let bestStats = { candidateCount: 0, totalCount: databaseService.cardCount }
     let bestVariant = null, bestSource = corners ? 'corners' : 'no corners'
     let bestGap = 0
+    // First usable upright hash set of this frame — the multi-frame fusion
+    // input. First-variant-first keeps the crop consistent across frames.
+    let primaryHashes = null
 
     // `diffGap` (distance to the first DIFFERENT-NAME candidate) is the
     // confidence gap — the raw runner-up is usually a same-art reprint of the
@@ -1390,21 +1395,31 @@ export default function CardScanner({ onMatch, onClose }) {
 
     // Hash a batch of crop variants in the vision worker, then rank each
     // against the match worker, stopping early on a decisive match. The
-    // whole-card hash (one per orientation) rides along as a second signal —
-    // matchCore ignores it when the loaded pack predates the v7 reseed.
+    // whole-card hash (one per orientation) and the v8 tile hashes ride along
+    // as extra signals — matchCore ignores whichever the loaded pack lacks.
+    const packTileGrid = databaseService.tileGrid
     const tryMatch = async (rot180, sourceLabel, variants) => {
-      const { results: hashSets, fullHash } = await visionClient.hashVariants(variants, { rot180 })
+      const { results: hashSets, fullHash } = await visionClient.hashVariants(variants, { rot180, tileGrid: packTileGrid })
       for (let i = 0; i < variants.length && i < hashSets.length; i++) {
         const hs = hashSets[i]
         if (!hs?.hash) continue
+        if (!rot180 && !primaryHashes) {
+          primaryHashes = {
+            hash: hs.hash,
+            colorHash: hs.colorHash ?? null,
+            fullHash: fullHash ?? null,
+            tileHashes: hs.tileHashes ?? null,
+          }
+        }
         // Batch standard + foil + dark into one match-worker round-trip.
         const queries = [
           { hash: hs.hash, label: 'standard' },
           ...(hs.foilHash ? [{ hash: hs.foilHash, label: 'foil' }] : []),
           ...(hs.darkHash ? [{ hash: hs.darkHash, label: 'dark' }] : []),
         ]
+        const opts = hs.tileHashes ? { ...matchOpts, tileQuery: hs.tileHashes } : matchOpts
         const { best: c, second: r, diffGap, candidateCount, totalCount, fallback, bestLabel } =
-          await databaseService.findBestTwoWithStatsAsyncAll(queries, hs.colorHash ?? null, fullHash, matchOpts)
+          await databaseService.findBestTwoWithStatsAsyncAll(queries, hs.colorHash ?? null, fullHash, opts)
         const label = bestLabel && bestLabel !== 'standard' ? `${sourceLabel}+${bestLabel}` : sourceLabel
         if (updateBest(c, r, diffGap, candidateCount, totalCount, variants[i], label, fallback)) return
       }
@@ -1441,7 +1456,7 @@ export default function CardScanner({ onMatch, onClose }) {
       if (loaded) { cardLoaded = true; await runLadder('reticle') }
     }
 
-    if (!best) return { status: 'notfound', stage: 'no candidate', best: null, second: null, candidateCount: bestStats.candidateCount, totalCount: bestStats.totalCount, source: bestSource, cardLoaded }
+    if (!best) return { status: 'notfound', stage: 'no candidate', best: null, second: null, candidateCount: bestStats.candidateCount, totalCount: bestStats.totalCount, source: bestSource, cardLoaded, primaryHashes }
 
     const gap = bestGap   // different-name gap, maintained by updateBest
     const sameNameCluster = !!(best?.name && second?.name && normalizeName(best.name) === normalizeName(second.name))
@@ -1450,7 +1465,7 @@ export default function CardScanner({ onMatch, onClose }) {
       stage: `dist ${best.distance}, gap ${gap}`,
       best, second, gap, sameNameCluster,
       candidateCount: bestStats.candidateCount, totalCount: bestStats.totalCount,
-      variant: bestVariant, source: bestSource, cardLoaded,
+      variant: bestVariant, source: bestSource, cardLoaded, primaryHashes,
     }
   }, [captureFrame, isNative])
 
@@ -1493,6 +1508,7 @@ export default function CardScanner({ onMatch, onClose }) {
       let bestObservedCandidates = null, bestObservedVariant = null
       let bestObservedSource = null, bestObservedSameNameCluster = false
       let anyCardLoaded = false
+      const fusionFrames = []
       const frameSummaries = []
       const isAutoScan = autoScanRef.current
       const allowedSets = lockSet && lockedSets.size > 0
@@ -1506,6 +1522,7 @@ export default function CardScanner({ onMatch, onClose }) {
           prefetched: i === 0 ? prefetched : null,
         })
         anyCardLoaded ||= !!result.cardLoaded
+        if (result.primaryHashes) fusionFrames.push(result.primaryHashes)
         frameSummaries.push(result.best ? `${i+1}:${result.best.distance}/${result.gap??'?'}` : `${i+1}:${result.stage}`)
         if (result.best && (!bestObserved || result.best.distance < bestObserved.distance)) {
           bestObserved = result.best
@@ -1536,6 +1553,40 @@ export default function CardScanner({ onMatch, onClose }) {
         sameNameCluster: bestObservedSameNameCluster,
       })
       let match = acceptance.accepted ? (stableVote?.best ?? bestObserved) : null
+
+      // Multi-frame fusion rescue: no single frame passed the gates, but a
+      // per-bit majority vote across the sampled frames often reconstructs a
+      // clean hash out of glare-corrupted captures. One extra match, judged
+      // by the same distance/gap/cluster gates as a normal frame.
+      if (!match && fusionFrames.length >= 2) {
+        const fused = fuseFrameHashes(fusionFrames)
+        if (fused) {
+          const fusedOpts = {
+            allowedSets,
+            allowSetFallback: !!allowedSets?.size,
+            broadFallbackOnWeak: true,
+            weakDistance: MATCH_THRESHOLD,
+            weakGap: MATCH_MIN_GAP,
+            ...(fused.tileHashes ? { tileQuery: fused.tileHashes } : {}),
+          }
+          const fusedResult = await databaseService.findBestTwoWithStatsAsyncAll(
+            [{ hash: fused.hash, label: 'fused' }], fused.colorHash, fused.fullHash, fusedOpts,
+          ).catch(() => null)
+          if (fusedResult?.best) {
+            const fusedGap = fusedResult.diffGap ?? 0
+            const fusedCluster = !!(fusedResult.second?.name &&
+              normalizeName(fusedResult.best.name) === normalizeName(fusedResult.second.name))
+            if (fusedResult.best.distance <= MATCH_THRESHOLD && (fusedGap >= MATCH_MIN_GAP || fusedCluster)) {
+              match = fusedResult.best
+              bestObservedSource = `fused×${fusionFrames.length}`
+              if (!bestObserved || fusedResult.best.distance < bestObserved.distance) {
+                bestObserved = fusedResult.best
+                bestObservedGap = fusedGap
+              }
+            }
+          }
+        }
+      }
 
       // Hash came up empty but a card was in the worker this scan → try to
       // identify it by NAME from the title bar (works on any printing/era).

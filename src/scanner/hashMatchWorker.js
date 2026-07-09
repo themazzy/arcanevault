@@ -13,6 +13,12 @@ let matcher = createMatcher(store)
 
 const toSet = (arr) => (arr?.length ? new Set(arr.map(code => String(code).toLowerCase())) : null)
 
+const toOpts = (opts) => ({
+  ...(opts || {}),
+  allowedSets: toSet(opts?.allowedSets),
+  tileQuery: opts?.tileQuery ? new Uint32Array(opts.tileQuery) : null,
+})
+
 self.onmessage = (event) => {
   const { id, type, payload } = event.data || {}
   try {
@@ -34,7 +40,7 @@ self.onmessage = (event) => {
       const hash = new Uint32Array(payload.hash)
       const colorHash = payload.colorHash ? new Uint32Array(payload.colorHash) : null
       const fullHash = payload.fullHash ? new Uint32Array(payload.fullHash) : null
-      const opts = { ...(payload.opts || {}), allowedSets: toSet(payload.opts?.allowedSets) }
+      const opts = toOpts(payload.opts)
       self.postMessage({ id, ok: true, result: matcher.match(hash, colorHash, fullHash, opts) })
       return
     }
@@ -42,7 +48,7 @@ self.onmessage = (event) => {
     if (type === 'matchAll') {
       const colorHash = payload.colorHash ? new Uint32Array(payload.colorHash) : null
       const fullHash = payload.fullHash ? new Uint32Array(payload.fullHash) : null
-      const opts = { ...(payload.opts || {}), allowedSets: toSet(payload.opts?.allowedSets) }
+      const opts = toOpts(payload.opts)
       const queries = (payload.queries || []).map(({ hash, label }) => ({
         hash: hash ? new Uint32Array(hash) : null,
         label,

@@ -40,6 +40,21 @@ const INDEX_MIN_CARDS = 2000
 // distances on the same scale the acceptance thresholds were tuned for.
 const FULL_SCALE = 1.14
 
+// v8 tile weights (format-v3 packs). The whole-art weight splits between the
+// raw art hash and the tile distance — tiles carry the local structure that
+// separates lookalike arts, while the whole-art hash keeps the variant ladder
+// (foil/dark re-hashes) meaningful. Tile distance is already on the same
+// 0–256 scale (mean over kept tiles), so no extra scaling factor.
+// Without a tileQuery or on a pre-v3 pack these are never used.
+const TILE_W_ART = 0.15
+const TILE_W_TILES = 0.30
+const TILE_W_COLOR = 0.20
+const TILE_W_FULL = 0.35
+// Matching keeps the best (tileCount − floor(tileCount/4)) tiles — dropping
+// the worst ~¼ is the glare tolerance (a highlight ruins the tiles it
+// touches, not the descriptor).
+export const tileKeepCount = (tileCount) => tileCount - Math.floor(tileCount / 4)
+
 export function createMatcher(store) {
   // CSR band indexes over global row indices (art always; full when the pack
   // carries full-card hashes — a glare-corrupted art hash can miss the true
@@ -157,9 +172,28 @@ export function createMatcher(store) {
   // made every reprinted card burn the full variant ladder for nothing.
   const TOP_K = 8
 
-  function rank(indices, query, colorQuery, fullQuery, allowedFlags) {
+  function rank(indices, query, colorQuery, fullQuery, tileQuery, allowedFlags) {
     const top = []   // { idx, d } ascending by d, length ≤ TOP_K
     let scanned = 0
+
+    // Tile query prep: per-tile Uint32Array(8) views + a reusable distance
+    // scratch. Tiles only participate when the chunk stores the same grid.
+    const tileCount = tileQuery ? tileQuery.length >> 3 : 0
+    const tileKeep = tileCount ? tileKeepCount(tileCount) : 0
+    const tileViews = []
+    for (let t = 0; t < tileCount; t++) tileViews.push(tileQuery.subarray(t * 8, t * 8 + 8))
+    const tileDists = tileCount ? new Float64Array(tileCount) : null
+
+    const tileDistanceFor = (chunk, local) => {
+      const base = local * tileCount * 8
+      for (let t = 0; t < tileCount; t++) {
+        tileDists[t] = hammingDistanceAt(chunk.tiles, base + t * 8, tileViews[t])
+      }
+      tileDists.sort()
+      let sum = 0
+      for (let t = 0; t < tileKeep; t++) sum += tileDists[t]
+      return sum / tileKeep   // mean over kept tiles — same 0–256 scale
+    }
 
     const consider = (chunkIdx, chunk, local, globalIdx) => {
       if (allowedFlags && !allowedFlags[chunkIdx][chunk.setIdx[local]]) return
@@ -168,8 +202,19 @@ export function createMatcher(store) {
       const artDist = hammingDistanceAt(chunk.luma, base, query)
       const useColor = !!colorQuery
       const useFull = !!(fullQuery && chunk.full)
+      const useTiles = !!(tileCount && chunk.tiles && (chunk.tileGrid || 0) ** 2 === tileCount)
       let d = artDist
-      if (useColor && useFull) {
+      if (useTiles) {
+        // v8 blend. Weights of absent optional signals fold into the art
+        // weight so the combined distance stays on the 0–256 scale.
+        let acc = TILE_W_TILES * tileDistanceFor(chunk, local)
+        let wArt = TILE_W_ART
+        if (useColor) acc += TILE_W_COLOR * hammingDistanceAt(chunk.color, base, colorQuery)
+        else wArt += TILE_W_COLOR
+        if (useFull) acc += TILE_W_FULL * FULL_SCALE * hammingDistanceAt(chunk.full, base, fullQuery)
+        else wArt += TILE_W_FULL
+        d = Math.round(acc + wArt * artDist)
+      } else if (useColor && useFull) {
         d = Math.round(
           0.45 * artDist +
           0.20 * hammingDistanceAt(chunk.color, base, colorQuery) +
@@ -250,6 +295,9 @@ export function createMatcher(store) {
       broadFallbackOnWeak = false,
       weakDistance = 122,
       weakGap = 8,
+      // Flat Uint32Array(G²×8) of tile hashes (see tileHash.js). Ignored on
+      // packs without a matching tile grid.
+      tileQuery = null,
     } = opts
 
     const allowedFlags = allowedSets?.size ? buildAllowedFlags(allowedSets) : null
@@ -263,15 +311,15 @@ export function createMatcher(store) {
     // Rank the (set-filtered) indexed candidates; when that comes back empty
     // or weak, widen to the full (set-filtered) pool.
     const rankWithFallback = (flags, source) => {
-      let ranked = baseCandidates ? rank(baseCandidates, query, colorQuery, fullQuery, flags) : null
+      let ranked = baseCandidates ? rank(baseCandidates, query, colorQuery, fullQuery, tileQuery, flags) : null
       let usedIndexedSubset = !!baseCandidates
       if (!ranked || ranked.bestIdx < 0) {
-        ranked = rank(null, query, colorQuery, fullQuery, flags)
+        ranked = rank(null, query, colorQuery, fullQuery, tileQuery, flags)
         usedIndexedSubset = false
       }
       let fallback = source
       if (broadFallbackOnWeak && usedIndexedSubset && isWeak(ranked)) {
-        ranked = rank(null, query, colorQuery, fullQuery, flags)
+        ranked = rank(null, query, colorQuery, fullQuery, tileQuery, flags)
         fallback = `${source}+broad`
       }
       return { ranked, fallback }
