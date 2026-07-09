@@ -41,6 +41,26 @@ export async function fetchDeckAllocations(deckId) {
 }
 
 const ALLOCATION_MATCH_COLS = 'deck_id, card_print_id, scryfall_id, name, foil'
+const ALLOCATION_PAGE_SIZE = 1000
+
+// PostgREST silently caps an unbounded query at 1000 rows. Each identity tier
+// below can plausibly exceed that (e.g. a basic land allocated across dozens
+// of collection decks matches once per deck in the name tier), so every tier
+// pages through its full result instead of trusting a single response.
+async function fetchAllAllocationPages(buildQuery) {
+  const rows = []
+  let from = 0
+  while (true) {
+    const { data, error } = await buildQuery()
+      .order('id')
+      .range(from, from + ALLOCATION_PAGE_SIZE - 1)
+    if (error) throw error
+    if (data?.length) rows.push(...data)
+    if (!data || data.length < ALLOCATION_PAGE_SIZE) break
+    from += ALLOCATION_PAGE_SIZE
+  }
+  return rows
+}
 
 // Only used to build the ownership-badge match sets (deckAllocationKeys needs
 // card_print_id/scryfall_id/name/foil, plus deck_id to exclude the current
@@ -65,21 +85,20 @@ export async function fetchDeckAllocationsForCardIdentities(userId, { cardPrintI
 
   const queries = []
   if (uniqueCardPrintIds.length) {
-    queries.push(sb.from('deck_allocations_view').select(ALLOCATION_MATCH_COLS).eq('user_id', userId).in('card_print_id', uniqueCardPrintIds))
+    queries.push(fetchAllAllocationPages(() => sb.from('deck_allocations_view').select(ALLOCATION_MATCH_COLS).eq('user_id', userId).in('card_print_id', uniqueCardPrintIds)))
   }
   if (uniqueScryfallIds.length) {
-    queries.push(sb.from('deck_allocations_view').select(ALLOCATION_MATCH_COLS).eq('user_id', userId).in('scryfall_id', uniqueScryfallIds))
+    queries.push(fetchAllAllocationPages(() => sb.from('deck_allocations_view').select(ALLOCATION_MATCH_COLS).eq('user_id', userId).in('scryfall_id', uniqueScryfallIds)))
   }
   if (uniqueNames.length) {
-    queries.push(sb.from('deck_allocations_view').select(ALLOCATION_MATCH_COLS).eq('user_id', userId).in('name', uniqueNames))
+    queries.push(fetchAllAllocationPages(() => sb.from('deck_allocations_view').select(ALLOCATION_MATCH_COLS).eq('user_id', userId).in('name', uniqueNames)))
   }
 
   const results = await Promise.all(queries)
   const rows = []
   const seen = new Set()
-  for (const { data, error } of results) {
-    if (error) throw error
-    for (const row of data || []) {
+  for (const tierRows of results) {
+    for (const row of tierRows) {
       const key = `${row.deck_id}|${row.card_print_id}|${row.scryfall_id}|${row.foil}`
       if (seen.has(key)) continue
       seen.add(key)

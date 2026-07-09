@@ -7,14 +7,21 @@ const sbState = { rows: [] }
 function makeQuery() {
   const eqFilters = {}
   const inFilters = {}
+  let rangeFrom = 0
+  // PostgREST caps an unpaged response at 1000 rows even when a larger range
+  // is requested — the mock reproduces that so a missing pagination loop fails.
+  let rangeTo = 999
   const q = {
     select() { return q },
     eq(col, val) { eqFilters[col] = val; return q },
     in(col, vals) { inFilters[col] = vals; return q },
+    order() { return q },
+    range(from, to) { rangeFrom = from; rangeTo = Math.min(to, from + 999); return q },
     then(resolve, reject) {
       let rows = sbState.rows
       for (const [col, val] of Object.entries(eqFilters)) rows = rows.filter(r => r[col] === val)
       for (const [col, vals] of Object.entries(inFilters)) rows = rows.filter(r => vals.includes(r[col]))
+      rows = rows.slice().sort((a, b) => (a.id ?? 0) - (b.id ?? 0)).slice(rangeFrom, rangeTo + 1)
       return Promise.resolve({ data: rows, error: null }).then(resolve, reject)
     },
   }
@@ -75,6 +82,25 @@ describe('fetchDeckAllocationsForCardIdentities', () => {
     ]
     const result = await fetchDeckAllocationsForCardIdentities(USER, { cardPrintIds: ['print-A'] })
     expect(result).toEqual([sbState.rows[0]])
+  })
+
+  it('returns all rows when a single identity tier exceeds one page (1000 rows)', async () => {
+    // A basic land allocated across many decks matches once per deck in the
+    // name tier — enough rows to overflow PostgREST's silent 1000-row cap.
+    for (let i = 0; i < 1200; i++) {
+      sbState.rows.push({
+        id: i,
+        deck_id: `deck-${i}`,
+        card_print_id: `forest-print-${i % 7}`,
+        scryfall_id: `forest-sf-${i % 7}`,
+        name: 'Forest',
+        foil: false,
+        user_id: USER,
+      })
+    }
+    const result = await fetchDeckAllocationsForCardIdentities(USER, { names: ['Forest'] })
+    expect(result).toHaveLength(1200)
+    expect(result.some(r => r.deck_id === 'deck-1150')).toBe(true)
   })
 
   it('returns an empty array and issues no query when given no identities', async () => {
