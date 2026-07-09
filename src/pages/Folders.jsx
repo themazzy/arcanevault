@@ -27,6 +27,7 @@ import { queryClient } from '../lib/queryClient'
 import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
 import { unlinkPairedDeck } from '../lib/deckSync'
+import { deckBracketBadge } from '../lib/commanderBracket'
 
 
 // ── Sort dropdown (custom, dark-themed — native <option> can't be styled) ─────
@@ -376,6 +377,11 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
   const qty    = meta?.totalQty ?? meta?.count ?? 0
   const bgUrl  = useMemo(() => parseBgUrl(folder.description), [folder.description])
   const tradeBinder = isTradeBinder(folder)
+  const deckDesc = useMemo(
+    () => (folder.type === 'deck' ? parseFolderDesc(folder.description) : null),
+    [folder.type, folder.description]
+  )
+  const bracketBadge = deckDesc ? deckBracketBadge(deckDesc.format, deckDesc.bracket) : null
   const [menuOpen, setMenuOpen] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [renameVal, setRenameVal] = useState('')
@@ -492,6 +498,15 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
         <div className={styles.folderName}>
           {folder.name}
           {tradeBinder && <span className={styles.tradeTag}><ShareIcon size={10} /> Trade</span>}
+          {bracketBadge && (
+            <span
+              className={styles.bracketTag}
+              style={{ borderColor: `${bracketBadge.color}55`, color: bracketBadge.color }}
+              title={bracketBadge.desc}
+            >
+              B{deckDesc.bracket} · {bracketBadge.label}
+            </span>
+          )}
         </div>
       )}
       <div className={styles.folderMeta}>

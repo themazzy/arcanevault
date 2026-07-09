@@ -49,6 +49,20 @@ export function resolveBracketBadge(bracket) {
   return BRACKET_META[bracket] || BRACKET_META[1]
 }
 
+// Format ids the bracket system applies to. Kept local (not imported from
+// deckBuilderApi's FORMATS) so this module stays free of the supabase/scryfall
+// dependency graph; deckBuilderApi.test.js asserts the two stay in sync.
+export const EDH_FORMAT_IDS = new Set(['commander', 'oathbreaker', 'brawl', 'standardbrawl'])
+
+// Bracket badge for deck tiles/headers that only carry a format id and the
+// persisted bracket number. Missing format defaults to commander (same rule
+// as the Builder index). Non-EDH formats never show a badge, even when a
+// stale bracket is still stored (e.g. the deck's format changed later).
+export function deckBracketBadge(formatId, bracket) {
+  if (!EDH_FORMAT_IDS.has(formatId || 'commander')) return null
+  return resolveBracketBadge(bracket)
+}
+
 // Returns the next deck-meta object to persist when the effective bracket
 // changes, or null when it already matches (avoids redundant Supabase writes).
 export function computeBracketMetaPatch(currentMeta, bracket, manual) {

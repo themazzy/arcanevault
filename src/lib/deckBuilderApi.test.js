@@ -16,8 +16,9 @@ import {
   parseTextDecklist, parseImportUrl, searchCards, fetchPaperPrintings,
   getDeckBuilderCardMeta, importProxyUrl, fetchPaperPrintingsByNamesFromDb,
   fetchRecommendationMetadataByNames, recommendationMetadataRowToCard,
-  pickAutomaticDeckPrinting,
+  pickAutomaticDeckPrinting, FORMATS,
 } from './deckBuilderApi'
+import { EDH_FORMAT_IDS } from './commanderBracket'
 import { sfGet } from './scryfall'
 import { sb } from './supabase'
 
@@ -29,6 +30,15 @@ describe('importProxyUrl', () => {
   })
   it('escapes ids so they cannot extend the path', () => {
     expect(importProxyUrl('moxfield', 'a/b')).toBe('https://deckloom.app/api/import/moxfield/a%2Fb')
+  })
+})
+
+describe('FORMATS', () => {
+  // commanderBracket keeps its own EDH-format-id set (to stay out of this
+  // module's supabase/scryfall dependency graph) — catch any drift here.
+  it('isEDH flags stay in sync with commanderBracket EDH_FORMAT_IDS', () => {
+    const edhIds = FORMATS.filter(f => f.isEDH).map(f => f.id).sort()
+    expect(edhIds).toEqual([...EDH_FORMAT_IDS].sort())
   })
 })
 

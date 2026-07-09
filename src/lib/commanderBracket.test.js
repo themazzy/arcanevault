@@ -12,6 +12,7 @@ import {
   fetchGameChangerNames,
   analyzeBracket,
   resolveBracketBadge,
+  deckBracketBadge,
   computeBracketMetaPatch,
 } from './commanderBracket'
 import { sfGet } from './scryfall'
@@ -249,6 +250,32 @@ describe('resolveBracketBadge', () => {
 
   it('falls back to bracket 1 for an out-of-range value', () => {
     expect(resolveBracketBadge(9)).toBe(resolveBracketBadge(1))
+  })
+})
+
+describe('deckBracketBadge', () => {
+  it('returns the bracket meta for EDH-style formats', () => {
+    expect(deckBracketBadge('commander', 3)?.label).toBe('Upgraded')
+    expect(deckBracketBadge('oathbreaker', 4)?.label).toBe('Optimized')
+    expect(deckBracketBadge('brawl', 2)?.label).toBe('Core')
+    expect(deckBracketBadge('standardbrawl', 5)?.label).toBe('cEDH')
+  })
+
+  it('defaults a missing format id to commander (same rule as the Builder index)', () => {
+    expect(deckBracketBadge(null, 3)?.label).toBe('Upgraded')
+    expect(deckBracketBadge(undefined, 3)?.label).toBe('Upgraded')
+    expect(deckBracketBadge('', 3)?.label).toBe('Upgraded')
+  })
+
+  it('returns null for non-EDH formats even when a stale bracket is stored', () => {
+    expect(deckBracketBadge('modern', 3)).toBeNull()
+    expect(deckBracketBadge('standard', 3)).toBeNull()
+  })
+
+  it('returns null when no bracket has been persisted', () => {
+    expect(deckBracketBadge('commander', null)).toBeNull()
+    expect(deckBracketBadge('commander', undefined)).toBeNull()
+    expect(deckBracketBadge('commander', 0)).toBeNull()
   })
 })
 

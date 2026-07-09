@@ -16,6 +16,7 @@ import { CloseIcon, CheckIcon, ChevronDownIcon, GridViewIcon, SearchIcon, SortIc
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import Markdown, { extractHeadings } from '../lib/miniMarkdown.jsx'
 import { DeckLikeButton, DeckComments } from '../components/community/DeckSocial'
+import { deckBracketBadge } from '../lib/commanderBracket'
 
 const RARITY_ORDER = ['mythic', 'rare', 'uncommon', 'common']
 const RARITY_GROUP_ORDER = ['Mythic', 'Rare', 'Uncommon', 'Common', 'Unknown']
@@ -488,6 +489,7 @@ export default function DeckViewPage() {
   const isViewer   = user && deck?.user_id !== user.id
   const builderEditId = deck?.type === 'deck' && deckMeta?.linked_builder_id ? deckMeta.linked_builder_id : id
   const format     = FORMATS.find(f => f.id === deckMeta.format)
+  const bracketBadge = deckBracketBadge(deckMeta.format, deckMeta.bracket)
   const totalCards = useMemo(() => cards.reduce((s, c) => s + c.qty, 0), [cards])
   const visibleCards = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -723,6 +725,15 @@ export default function DeckViewPage() {
             )}
             <div className={styles.deckMeta}>
               {format && <span className={styles.metaPill}>{format.label}</span>}
+              {bracketBadge && (
+                <span
+                  className={styles.metaPill}
+                  style={{ borderColor: `${bracketBadge.color}55`, color: bracketBadge.color }}
+                  title={bracketBadge.desc}
+                >
+                  B{deckMeta.bracket} · {bracketBadge.label}
+                </span>
+              )}
               <span className={styles.metaPill}>{totalCards} cards</span>
               {totalValueFmt && <span className={`${styles.metaPill} ${styles.deckValue}`}>{totalValueFmt}</span>}
               {deckMeta.commanders?.length > 0 && (

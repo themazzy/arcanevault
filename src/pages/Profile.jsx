@@ -12,6 +12,7 @@ import { MILESTONES } from '../lib/milestones'
 import { checkAndNotifyMilestones } from '../lib/milestoneTracker'
 import FollowButton from '../components/community/FollowButton'
 import { hasDeckArtSource, mergeDeckCommanderArt, useDeckArt } from '../lib/deckArt'
+import { deckBracketBadge } from '../lib/commanderBracket'
 import { useToast } from '../components/ToastContext'
 import {
   DndContext,
@@ -530,6 +531,7 @@ function FeaturedDeckInner({ deck, standoutCards, deckStats, editMode, decks, on
   const colors = Array.isArray(deck.color_identity) ? deck.color_identity : []
   const tags = Array.isArray(deck.tags) ? deck.tags.filter(Boolean) : []
   const description = (deck.deck_description || '').trim()
+  const bracketBadge = deckBracketBadge(deck.format, deck.bracket)
   const [showPicker, setShowPicker] = useState(false)
   // Build commander display name from commanders array (new) or legacy commander_name
   const commanderDisplayName = useMemo(() => {
@@ -554,6 +556,15 @@ function FeaturedDeckInner({ deck, standoutCards, deckStats, editMode, decks, on
             <div className={styles.featuredDeckMeta}>
               {deck.format && FORMAT_LABEL[deck.format] && (
                 <span className={styles.deckBadgeFormat}>{FORMAT_LABEL[deck.format]}</span>
+              )}
+              {bracketBadge && (
+                <span
+                  className={styles.deckBadgeFormat}
+                  style={{ borderColor: `${bracketBadge.color}55`, color: bracketBadge.color }}
+                  title={bracketBadge.desc}
+                >
+                  B{deck.bracket} · {bracketBadge.label}
+                </span>
               )}
               {colors.length > 0 && (
                 <div className={styles.deckTilePips}>
@@ -682,6 +693,7 @@ function ProfileDeckTile({ deck }) {
   const colors = Array.isArray(deck.color_identity) ? deck.color_identity : []
   const fmtLabel     = FORMAT_LABEL[deck.format] || null
   const isCollection = deck.type === 'deck'
+  const bracketBadge = deckBracketBadge(deck.format, deck.bracket)
   // Commander display: prefer commanders array, fall back to commander_name
   const commanderDisplay = useMemo(() => {
     const commanders = Array.isArray(deck.commanders) ? deck.commanders : null
@@ -699,6 +711,15 @@ function ProfileDeckTile({ deck }) {
               : <span className={styles.deckBadgeFormat}>{fmtLabel || 'Builder'}</span>
             }
             {isCollection && fmtLabel && <span className={styles.deckBadgeFormat}>{fmtLabel}</span>}
+            {bracketBadge && (
+              <span
+                className={styles.deckBadgeFormat}
+                style={{ borderColor: `${bracketBadge.color}55`, color: bracketBadge.color }}
+                title={bracketBadge.desc}
+              >
+                B{deck.bracket} · {bracketBadge.label}
+              </span>
+            )}
           </div>
         </div>
         <div className={styles.deckTileBottom}>
