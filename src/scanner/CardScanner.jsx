@@ -39,6 +39,7 @@ import { useAuth } from '../components/Auth'
 import { queryClient } from '../lib/queryClient'
 import { invalidateOwnedCollectionQueries, invalidateWishlistQueries } from '../lib/queryInvalidation'
 import { formatPriceMeta, getPriceWithMeta, sfGet } from '../lib/scryfall'
+import { sortByNameRelevance } from '../lib/scryfallSearch'
 import { sb } from '../lib/supabase'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
 import { toOwnedCardRow, toListItemRow, mergeNonNull } from '../lib/deckBuilderWrites'
@@ -1169,7 +1170,10 @@ export default function CardScanner({ onMatch, onClose }) {
       try {
         const data = await sfGet(`/cards/search?q=${encodeURIComponent(q)}&unique=cards&order=name`)
         if (!mountedRef.current || manualSearchRequestRef.current !== requestId) return
-        setManualSearchResults(data?.data?.slice(0, 20) ?? [])
+        // Rank the full page before truncating — otherwise an exact match like
+        // "Crush" or "Nightmare" sits below 20 alphabetically earlier partial
+        // matches and never shows (same fix as AddCardModal suggestions).
+        setManualSearchResults(sortByNameRelevance(data?.data ?? [], q).slice(0, 20))
       } catch {
         if (!mountedRef.current || manualSearchRequestRef.current !== requestId) return
         setManualSearchResults([])
