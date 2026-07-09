@@ -90,6 +90,32 @@ function cardsSyncCursorKey(userId) {
   return `cards_synced_at:${userId}`
 }
 
+// The cursor is derived from server-written updated_at values (see
+// advanceCursor), never the device clock — a client clock running ahead of
+// the server would otherwise permanently skip rows another device changed
+// inside the skew window. The overlap re-fetches a few minutes of already-seen
+// rows on every sync, which is idempotent (putCards overwrites), and covers
+// writes that committed after our fetch with an updated_at just below the
+// cursor (in-flight transactions, sub-second timestamp ties).
+export const SYNC_CURSOR_OVERLAP_MS = 5 * 60 * 1000
+
+export function advanceCursor(currentCursor, rows) {
+  let max = currentCursor || null
+  let maxMs = max ? Date.parse(max) : -Infinity
+  for (const row of rows || []) {
+    if (!row?.updated_at) continue
+    const ms = Date.parse(row.updated_at)
+    if (Number.isFinite(ms) && ms > maxMs) { max = row.updated_at; maxMs = ms }
+  }
+  return max
+}
+
+function cursorWithOverlap(cursor) {
+  const ms = Date.parse(cursor)
+  if (!Number.isFinite(ms)) return cursor
+  return new Date(ms - SYNC_CURSOR_OVERLAP_MS).toISOString()
+}
+
 // Fetches the current owned-cards snapshot for a user, syncing only what
 // changed since the last call instead of re-pulling the whole collection
 // every time (a full re-fetch previously took 10s+ for large collections,
@@ -97,21 +123,23 @@ function cardsSyncCursorKey(userId) {
 // through IDB and returns the merged full list — same contract as a full
 // fetch, callers don't need to know it's incremental under the hood.
 export async function syncOwnedCards(userId) {
-  const syncStartedAt = new Date().toISOString()
   const cursor = await getMeta(cardsSyncCursorKey(userId))
 
   if (!cursor) {
     const fullRows = await fetchAllOwnedCards(userId)
     await deleteAllCards(userId)
     await putCards(fullRows)
-    await setMeta(cardsSyncCursorKey(userId), syncStartedAt)
+    // An empty collection stores no cursor and stays on the (trivially cheap)
+    // full-fetch path until it has a server timestamp to anchor to.
+    const nextCursor = advanceCursor(null, fullRows)
+    if (nextCursor) await setMeta(cardsSyncCursorKey(userId), nextCursor)
     return fullRows
   }
 
   const localCards = await getLocalCards(userId)
   const localIds = new Set(localCards.map(c => c.id))
 
-  const changed = await fetchCardsUpdatedSince(userId, cursor)
+  const changed = await fetchCardsUpdatedSince(userId, cursorWithOverlap(cursor))
   await putCards(changed)
 
   const freshIds = new Set(await fetchOwnedCardIds(userId))
@@ -119,7 +147,7 @@ export async function syncOwnedCards(userId) {
     await deleteCard(id)
   }
 
-  await setMeta(cardsSyncCursorKey(userId), syncStartedAt)
+  await setMeta(cardsSyncCursorKey(userId), advanceCursor(cursor, changed))
   return getLocalCards(userId)
 }
 

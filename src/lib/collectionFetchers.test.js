@@ -11,7 +11,9 @@ const idbState = { cards: [], meta: new Map() }
 function applyFilters(rows, filters) {
   let out = rows
   for (const [col, val] of Object.entries(filters.eq)) out = out.filter(r => r[col] === val)
-  for (const [col, val] of Object.entries(filters.gt)) out = out.filter(r => r[col] > val)
+  // gt is only used on updated_at; compare as timestamps like Postgres would,
+  // since the client (JS toISOString) and server format timestamps differently.
+  for (const [col, val] of Object.entries(filters.gt)) out = out.filter(r => Date.parse(r[col]) > Date.parse(val))
   return out
 }
 
@@ -97,7 +99,19 @@ describe('syncOwnedCards', () => {
 
     expect(result.map(c => c.id).sort()).toEqual(['c1', 'c2'])
     expect(idbState.cards.map(c => c.id).sort()).toEqual(['c1', 'c2'])
-    expect(idbState.meta.get(`cards_synced_at:${USER}`)).toBeTruthy()
+    // The cursor must be the newest *server* timestamp seen, not the device
+    // clock — a fast client clock would otherwise skip other devices' writes.
+    expect(idbState.meta.get(`cards_synced_at:${USER}`)).toBe('2026-01-01T00:00:00Z')
+  })
+
+  it('stores no cursor after a first sync of an empty collection', async () => {
+    sbState.ownedCardsView = []
+    sbState.cardsTable = []
+
+    const result = await syncOwnedCards(USER)
+
+    expect(result).toEqual([])
+    expect(idbState.meta.get(`cards_synced_at:${USER}`)).toBeUndefined()
   })
 
   it('only fetches rows changed since the cursor on a later sync', async () => {
@@ -121,6 +135,38 @@ describe('syncOwnedCards', () => {
     const byId = Object.fromEntries(result.map(c => [c.id, c]))
     expect(byId.c1.qty).toBe(1) // untouched, preserved from IDB
     expect(byId.c2.qty).toBe(2) // merged in from the incremental fetch
+    // Cursor advances to the newest updated_at that was actually fetched.
+    expect(idbState.meta.get(`cards_synced_at:${USER}`)).toBe('2026-02-01T00:00:00Z')
+  })
+
+  it('picks up a row whose updated_at falls just before the cursor (overlap window)', async () => {
+    // A write committed on another device after our last fetch can carry an
+    // updated_at slightly *below* the stored cursor (in-flight transaction,
+    // shared timestamps). The overlap re-queries that window so it still lands.
+    idbState.meta.set(`cards_synced_at:${USER}`, '2026-01-01T00:10:00.000Z')
+    idbState.cards = [{ id: 'c1', user_id: USER, name: 'Forest', qty: 1 }]
+    sbState.ownedCardsView = [
+      { id: 'c1', user_id: USER, name: 'Forest', qty: 3, updated_at: '2026-01-01T00:07:00.000Z' },
+    ]
+    sbState.cardsTable = [{ id: 'c1', user_id: USER }]
+
+    const result = await syncOwnedCards(USER)
+
+    expect(result[0].qty).toBe(3)
+    // The cursor never regresses below its previous value, even though the
+    // overlap fetch only saw an older timestamp.
+    expect(idbState.meta.get(`cards_synced_at:${USER}`)).toBe('2026-01-01T00:10:00.000Z')
+  })
+
+  it('keeps the cursor unchanged when nothing changed server-side', async () => {
+    idbState.meta.set(`cards_synced_at:${USER}`, '2026-01-01T00:00:00.000Z')
+    idbState.cards = [{ id: 'c1', user_id: USER, name: 'Forest', qty: 1 }]
+    sbState.ownedCardsView = []
+    sbState.cardsTable = [{ id: 'c1', user_id: USER }]
+
+    await syncOwnedCards(USER)
+
+    expect(idbState.meta.get(`cards_synced_at:${USER}`)).toBe('2026-01-01T00:00:00.000Z')
   })
 
   it('removes cards that were deleted server-side (hard delete has no updated_at trace)', async () => {
