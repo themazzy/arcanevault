@@ -9,6 +9,15 @@ Also hosts the **RSS proxy** at `deckloom.app/api/rss?feed=<url>` for the Home
 page news section — allow-listed feeds only (`RSS_ALLOWED_FEEDS` in
 `worker.js`), edge-cached 15 minutes, CORS `*` so dev/Capacitor work too.
 
+Also hosts the **raw decklist endpoint** at
+`deckloom.app/api/decklist/<deck-id>.txt` (`.txt` optional) — plain-text MTG
+decklist lines (`1 Sol Ring`, with `// Sideboard` / `// Commander` sections,
+maybeboard omitted) for third-party integrations like Tabletop Simulator deck
+importers that can't run the SPA's JS. Backed by the public-gated
+`get_deck_cards_for_view` RPC: private/unknown decks return **404**, malformed
+ids **400**. CORS `*`, edge-cached 5 minutes. Pure helpers in `decklist.js`,
+unit-tested by `src/lib/decklistWorker.test.js`.
+
 And the **article thumbnail proxy** at `deckloom.app/api/og-image?url=<article-url>`
 — MTGGoldfish and MTG Arena Zone's RSS feeds carry no image data at all, so the
 Home page news section backfills their thumbnails by scraping `og:image` off

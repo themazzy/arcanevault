@@ -13,6 +13,7 @@
 // returns null for any deck that is not public — private decks never leak.
 
 import { extractDeckId, isCrawler, renderOgHtml } from './og.js'
+import { extractDecklistDeckId, renderDecklistText } from './decklist.js'
 
 // ── RSS proxy (deckloom.app/api/rss?feed=<url>) ──────────────────────────────
 // The Home page news section needs CORS-free access to third-party RSS feeds;
@@ -105,6 +106,39 @@ async function fetchDeckMeta(deckId, env) {
     return data && typeof data === 'object' ? data : null
   } catch {
     return null
+  }
+}
+
+// ── Raw decklist (deckloom.app/api/decklist/<deck-id>.txt) ───────────────────
+// Plain-text decklist for third-party integrations (Tabletop Simulator deck
+// importers etc.) that can't run the SPA's JS. Backed by the same public-gated
+// SECURITY DEFINER RPC as DeckView — private decks return 404, never cards.
+async function handleDecklist(request, env) {
+  const headers = { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
+  const deckId = extractDecklistDeckId(request.url)
+  if (!deckId) return new Response('bad decklist request', { status: 400, headers })
+  try {
+    const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/get_deck_cards_for_view`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: env.SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${env.SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({ p_deck_id: deckId }),
+    })
+    if (!res.ok) return new Response('deck lookup failed', { status: 502, headers })
+    const rows = await res.json()
+    // The RPC returns [] for missing AND private decks alike — both are 404.
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return new Response('deck not found', { status: 404, headers })
+    }
+    return new Response(renderDecklistText(rows), {
+      status: 200,
+      headers: { ...headers, 'Cache-Control': 'public, max-age=300' },
+    })
+  } catch {
+    return new Response('deck lookup failed', { status: 502, headers })
   }
 }
 
@@ -213,6 +247,7 @@ export default {
     if (pathname === '/api/og-image') return handleOgImage(request)
     if (pathname === '/api/recommend') return handleRecommend(request)
     if (pathname.startsWith('/api/import/')) return handleImport(request)
+    if (pathname.startsWith('/api/decklist/')) return handleDecklist(request, env)
 
     const deckId = request.method === 'GET' ? extractDeckId(request.url) : null
 

@@ -103,6 +103,7 @@ Deck share links are the direct `https://deckloom.app/d/<id>` URL (built via `ge
 - Deck metadata comes from the `get_deck_og_meta(uuid)` SECURITY DEFINER RPC, which **returns null for any non-public deck** — private decks never leak.
 - Deployed manually via `wrangler deploy` (see `cloudflare/og-worker/README.md`); requires the Cloudflare DNS records to be **Proxied** (orange cloud) and SSL mode **Full**.
 - Pure helpers in `og.js` are unit-tested in `src/lib/ogWorker.test.js`.
+- The worker also serves a **raw decklist endpoint** `deckloom.app/api/decklist/<deck-id>.txt` (`.txt` optional) for third-party integrations (e.g. Tabletop Simulator importers) that can't run the SPA's JS: plain `1 Sol Ring` lines + `// Sideboard` / `// Commander` sections, maybeboard omitted, same-name printings merged. Backed by the public-gated `get_deck_cards_for_view` RPC — private/unknown decks 404. Pure helpers in `decklist.js`, tested in `src/lib/decklistWorker.test.js`.
 - History: a previous `og-deck` Supabase Edge Function did the same job but made share links point at `*.supabase.co` (ugly, plus the Edge Runtime forces `Content-Type: text/plain` on the shared domain). It was removed 2026-06 and replaced by this worker.
 
 ---
