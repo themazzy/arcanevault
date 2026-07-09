@@ -17,6 +17,7 @@ import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import Markdown, { extractHeadings } from '../lib/miniMarkdown.jsx'
 import { DeckLikeButton, DeckComments } from '../components/community/DeckSocial'
 import { deckBracketBadge } from '../lib/commanderBracket'
+import { scryfallCardDetailUrls } from '../lib/cardDetailUrls'
 
 const RARITY_ORDER = ['mythic', 'rare', 'uncommon', 'common']
 const RARITY_GROUP_ORDER = ['Mythic', 'Rare', 'Uncommon', 'Common', 'Unknown']
@@ -104,18 +105,31 @@ function ManaText({ text, imgStyle }) {
 }
 
 // ── Lightweight card detail modal (fetches from Scryfall) ────────────────────
-function CardDetailModal({ cardName, onClose }) {
+// `card` is either a deck-card row (shows the deck's exact printing) or a bare
+// card name string (combo suggestions — Scryfall's default printing is fine).
+function CardDetailModal({ card, onClose }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!cardName) return
+    if (!card) return
+    let cancelled = false
     setLoading(true)
-    fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(cardName)}&format=json`)
-      .then(r => r.json())
-      .then(d => { setData(d); setLoading(false) })
-      .catch(() => setLoading(false))
-  }, [cardName])
+    setData(null)
+    ;(async () => {
+      for (const url of scryfallCardDetailUrls(card)) {
+        try {
+          const r = await fetch(url)
+          if (!r.ok) continue // e.g. stale scryfall_id — try the next lookup
+          const d = await r.json()
+          if (!cancelled) { setData(d); setLoading(false) }
+          return
+        } catch { /* network hiccup — try the next lookup */ }
+      }
+      if (!cancelled) setLoading(false)
+    })()
+    return () => { cancelled = true }
+  }, [card])
 
   const face  = data?.card_faces?.[0] || data
   const face2 = data?.card_faces?.[1] || null
@@ -663,7 +677,7 @@ export default function DeckViewPage() {
     <div className={styles.page}>
 
       {/* Card detail modal */}
-      {detailCard && <CardDetailModal cardName={detailCard} onClose={() => setDetailCard(null)} />}
+      {detailCard && <CardDetailModal card={detailCard} onClose={() => setDetailCard(null)} />}
 
       {/* ── Top bar ── */}
       <div className={styles.topBar}>
@@ -970,7 +984,7 @@ export default function DeckViewPage() {
               groupResolver={groupResolver}
               groupOrder={groupOrder}
               density={cardSize}
-              onSelect={card => setDetailCard(card.name)}
+              onSelect={card => setDetailCard(card)}
               onHover={effectiveViewMode !== 'grid' ? img => setHoverImg(img) : undefined}
               onHoverEnd={effectiveViewMode !== 'grid' ? () => setHoverImg(null) : undefined}
             />
