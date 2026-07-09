@@ -18,10 +18,54 @@ const SCRYFALL_METADATA_UPDATED_AT_KEY = 'scryfall_metadata_updated_at'
 const LEGACY_SCRYFALL_PRICES_UPDATED_AT_KEY = 'scryfall_prices_updated_at'
 
 let _db = null
+let _dbPromise = null
 
-async function getDb() {
-  if (_db) return _db
-  _db = await openDB(DB_NAME, DB_VERSION, {
+// The browser can close an IDB connection behind our back — typically after
+// the tab sits backgrounded on Android and the OS reclaims resources. The
+// cached handle then throws "The database connection is closing" on every
+// transaction until the page is reloaded. A dead handle is only detectable by
+// trying it, so probe with an empty transaction (auto-commits, microseconds)
+// before handing the cache out, and reopen when it fails.
+function isDbLive(db) {
+  try {
+    db.transaction('meta', 'readonly')
+    return true
+  } catch {
+    return false
+  }
+}
+
+function getDb() {
+  if (_db) {
+    if (isDbLive(_db)) return Promise.resolve(_db)
+    _db = null
+  }
+  if (!_dbPromise) {
+    _dbPromise = openConnection()
+      .then(db => { _db = db; _dbPromise = null; return db })
+      .catch(err => { _dbPromise = null; throw err })
+  }
+  return _dbPromise
+}
+
+// Test-only: closes the underlying connection while leaving it cached, the
+// same state a browser-initiated close leaves behind.
+export async function _simulateExternalConnectionClose() {
+  const db = await getDb()
+  db.close()
+}
+
+async function openConnection() {
+  return openDB(DB_NAME, DB_VERSION, {
+    // The browser terminated the connection abnormally; drop the cache so the
+    // next call reopens instead of failing forever.
+    terminated() { _db = null },
+    // Another tab (running newer code after a deploy) requested a version
+    // upgrade; keeping this connection open would block it indefinitely.
+    blocking() {
+      try { _db?.close() } catch { /* already closing */ }
+      _db = null
+    },
     upgrade(db, oldVersion, _newVersion, transaction) {
       // scryfall store — card data from Scryfall API
       if (!db.objectStoreNames.contains('scryfall')) {
@@ -107,7 +151,6 @@ async function getDb() {
       }
     }
   })
-  return _db
 }
 
 // ── Meta helpers ──────────────────────────────────────────────────────────────
