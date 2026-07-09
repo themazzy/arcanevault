@@ -10,7 +10,7 @@ import styles from './Builder.module.css'
 import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 import { useToast } from '../components/ToastContext'
-import { CheckIcon, CloseIcon, DeleteIcon, EditIcon, ChevronDownIcon } from '../icons'
+import { CheckIcon, CloseIcon, DeleteIcon, ChevronDownIcon } from '../icons'
 import { GuidedCommanderPicker } from '../components/deckBuilder/GuidedCommanderPicker'
 import { resolveBracketBadge, analyzeBracket, fetchGameChangerNames, computeBracketMetaPatch, BRACKET_LABELS } from '../lib/commanderBracket'
 import {
@@ -135,7 +135,9 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
       className={`${styles.card}${isSelected ? ' ' + styles.cardSelected : ''}`}
       onClick={() => {
         if (lpFired.current) { lpFired.current = false; return }
-        selectMode ? onToggleSelect(deck.id) : navigate(`/builder/${effectiveId}`)
+        if (selectMode) { onToggleSelect(deck.id); return }
+        // Unsynced pairs open straight into the sync prompt (was the Edit link's job)
+        navigate(`/builder/${effectiveId}`, isUnsynced ? { state: { openSync: true, source: 'builder' } } : undefined)
       }}
       {...lpRest}
     >
@@ -198,14 +200,6 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
           )}
           {!selectMode && (
             <div className={styles.cardActions}>
-              <Link
-                to={`/builder/${effectiveId}`}
-                state={isUnsynced ? { openSync: true, source: 'builder' } : undefined}
-                className={styles.editLink}
-                onClick={e => e.stopPropagation()}
-              >
-                <EditIcon size={12} /> Edit
-              </Link>
               {deck.card_count != null && (
                 <span className={styles.cardCount}>{deck.card_count} cards</span>
               )}
@@ -275,12 +269,6 @@ function CommunityDeckTile({ deck, meta, fmt, isOwn, creatorNick, navigate }) {
             </div>
           )}
           <div className={styles.cardActions}>
-            <button
-              className={styles.editLink}
-              onClick={e => { e.stopPropagation(); navigate(`/d/${deck.id}`) }}
-            >
-              <EditIcon size={12} /> View
-            </button>
             {deck.card_count != null && (
               <span className={styles.cardCount}>{deck.card_count} cards</span>
             )}

@@ -481,29 +481,6 @@
   white-space: nowrap;
 }
 
-.editLink {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-family: var(--font-display);
-  font-size: 0.68rem;
-  letter-spacing: 0.04em;
-  color: var(--text-dim);
-  text-decoration: none !important;
-  background: var(--s2);
-  border: 1px solid var(--s-border2);
-  border-radius: 6px;
-  padding: 3px 8px;
-  cursor: pointer;
-  transition: color 0.15s, background 0.15s, border-color 0.15s;
-}
-.editLink:hover {
-  color: var(--gold);
-  background: rgba(201,168,76,0.1);
-  border-color: rgba(201,168,76,0.3);
-  text-decoration: none;
-}
-
 .deleteBtn {
   display: inline-flex;
   align-items: center;
