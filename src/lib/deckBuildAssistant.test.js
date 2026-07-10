@@ -649,6 +649,37 @@ describe('planBasicLands', () => {
     expect(planBasicLands({ deckCards: ownedCards, sfMap, colors: [], landTarget: 37 })).toEqual({ counts: {}, total: 0 })
     expect(planBasicLands({ deckCards: ownedCards, sfMap, colors: ['G'], landTarget: 37 })).toEqual({ counts: {}, total: 0 })
   })
+
+  it('closes Karsten shortfalls before pip weighting', () => {
+    // W is pip-heavier but already at its source target (20 Plains ≥ the 15
+    // that a {4}{W} five-drop wants); U is far below the 30 a {U}{U} two-drop
+    // wants. Every added basic must be an Island despite W's pip lead.
+    const { ownedCards, sfMap } = assemble([
+      makeCard('Angel', { type: 'Creature', mana_cost: '{4}{W}', cmc: 5 }),
+      makeCard('Sunblade', { type: 'Creature', mana_cost: '{4}{W}', cmc: 5 }),
+      makeCard('Counterspell', { type: 'Instant', mana_cost: '{U}{U}', cmc: 2 }),
+      makeCard('Plains', { type: 'Basic Land — Plains', qty: 20 }),
+    ])
+    const { counts, total } = planBasicLands({ deckCards: ownedCards, sfMap, colors: ['W', 'U'], landTarget: 24 })
+    expect(total).toBe(4)
+    expect(counts).toEqual({ Island: 4 })
+  })
+
+  it('falls back to pip weights once every shortfall is closed', () => {
+    // Both colors comfortably above their 1-pip targets → phase 1 adds
+    // nothing, so the split follows pip demand (3 W pips vs 1 U pip).
+    const { ownedCards, sfMap } = assemble([
+      makeCard('W spell', { type: 'Sorcery', mana_cost: '{4}{W}', cmc: 5 }),
+      makeCard('W spell 2', { type: 'Sorcery', mana_cost: '{4}{W}', cmc: 5 }),
+      makeCard('W spell 3', { type: 'Sorcery', mana_cost: '{4}{W}', cmc: 5 }),
+      makeCard('U spell', { type: 'Instant', mana_cost: '{4}{U}', cmc: 5 }),
+      makeCard('Plains', { type: 'Basic Land — Plains', qty: 18 }),
+      makeCard('Island', { type: 'Basic Land — Island', qty: 18 }),
+    ])
+    const { counts, total } = planBasicLands({ deckCards: ownedCards, sfMap, colors: ['W', 'U'], landTarget: 40 })
+    expect(total).toBe(4)
+    expect(counts).toEqual({ Plains: 3, Island: 1 })
+  })
 })
 
 describe('isBasicLandName', () => {

@@ -952,26 +952,31 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const karstenReqs = useMemo(() => karstenColorRequirements(deckCards, sfMap), [deckCards, sfMap])
   const onLands = currentRoleName === ROLE_LANDS
 
-  // Annotate land candidates with the colors they produce and surface fixers
-  // (lands that make more of the commander's colors) first. Basics are excluded
-  // — they're added automatically on finish, not picked here. Computed from the
-  // plan (not the current step) because auto-fill needs it on any step.
+  // Annotate land candidates with the colors they produce; rank lands covering
+  // colors that are BELOW their Karsten source target first, then broader
+  // fixers. Basics are excluded — they're added automatically on finish, not
+  // picked here. Computed from the plan (not the current step) because
+  // auto-fill needs it on any step; auto-fill consumes this same order, so its
+  // land picks chase the shortfalls too.
   const landCandidates = useMemo(() => {
     const landsRole = plan?.roles?.find(r => r.role === ROLE_LANDS)
     if (!landsRole) return []
+    const needy = cmdColors.filter(c => (karstenReqs[c]?.needed || 0) > (manaSources[c] || 0))
     return landsRole.ownedCandidates
       .filter(cand => !isBasicLandName(cand.name))
       .map(cand => {
         const colors = [...producedColors(cand.sfCard?.oracle_text, cand.sfCard?.type_line)]
         const matching = colors.filter(c => cmdColors.includes(c))
-        return { cand, colors, score: matching.length }
+        const needScore = matching.filter(c => needy.includes(c)).length
+        return { cand, colors, score: matching.length, needScore }
       })
-      .sort((a, b) => (b.score - a.score) || (b.colors.length - a.colors.length) || a.cand.name.localeCompare(b.cand.name))
-  }, [plan, cmdColors])
+      .sort((a, b) => (b.needScore - a.needScore) || (b.score - a.score) || (b.colors.length - a.colors.length) || a.cand.name.localeCompare(b.cand.name))
+  }, [plan, cmdColors, karstenReqs, manaSources])
 
   // Land target (Lands role target, theme-adjusted) and the basic/nonbasic split.
   // recommendedBasics scales with color count; nonbasicTarget is what to aim for
-  // in this step. plannedBasics is the pip-weighted top-up applied on finish.
+  // in this step. plannedBasics is the top-up applied on finish (Karsten
+  // shortfalls first, then pip weights — see planBasicLands).
   const landsTarget = useMemo(
     () => plan?.roles?.find(r => r.role === ROLE_LANDS)?.target || 37,
     [plan],
@@ -1520,7 +1525,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                   title="Only binder copies are offered — cards allocated to other decks show under suggestions with an 'In another deck' note"
                 >
                   From your binders · {onLands ? landCandidates.length : roleData.ownedCandidates.length}
-                  {onLands && <span className={styles.sectionHint}> · nonbasic, fixers first</span>}
+                  {onLands && <span className={styles.sectionHint}> · nonbasic, needed colors first</span>}
                 </span>
               </button>
               {!collapsed.owned && (() => {

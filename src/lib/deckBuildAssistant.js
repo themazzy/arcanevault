@@ -351,10 +351,13 @@ export function countColorPips(cards, sfMapOrGetter) {
   return counts
 }
 
-// Plan the basic lands to ADD so total lands reach the land target, distributed
-// across the commander's colors by pip demand (even split when there's no pip
-// data). Purely additive and idempotent: re-running once the target is met adds
-// nothing. Returns { counts: { Forest: n, … }, total } (names → copies to add).
+// Plan the basic lands to ADD so total lands reach the land target. Two-phase
+// split across the commander's colors: first close Karsten source shortfalls
+// (each basic is +1 source of its color, so basics go greedily to the color
+// furthest below its per-deck target), then distribute what's left by pip
+// demand (even split when there's no pip data). Purely additive and
+// idempotent: re-running once the target is met adds nothing. Returns
+// { counts: { Forest: n, … }, total } (names → copies to add).
 export function planBasicLands({ deckCards = [], sfMap = {}, colors = [], landTarget = 37 } = {}) {
   const ids = (colors || []).filter(c => WUBRG.includes(c))
   if (!ids.length) return { counts: {}, total: 0 }
@@ -370,23 +373,50 @@ export function planBasicLands({ deckCards = [], sfMap = {}, colors = [], landTa
   const needed = Math.max(0, landTarget - lands)
   if (!needed) return { counts: {}, total: 0 }
 
-  const pips = countColorPips(deckCards, sfMap)
-  let weights = ids.map(col => pips[col])
-  let sum = weights.reduce((a, b) => a + b, 0)
-  if (sum <= 0) { weights = ids.map(() => 1); sum = ids.length } // no pip data → even
+  const alloc = Object.fromEntries(ids.map(col => [col, 0]))
+  let left = needed
 
-  // Largest-remainder apportionment so the counts sum to exactly `needed`.
-  const slots = ids.map((col, i) => {
-    const exact = (needed * weights[i]) / sum
-    const n = Math.floor(exact)
-    return { col, n, frac: exact - n }
-  })
-  let remainder = needed - slots.reduce((a, s) => a + s.n, 0)
-  slots.sort((a, b) => b.frac - a.frac)
-  for (let i = 0; i < slots.length && remainder > 0; i++, remainder--) slots[i].n++
+  // Phase 1 — Karsten shortfalls. Greedy by largest remaining shortfall (ties
+  // resolve in commander-color order), decrementing as we go since each added
+  // basic is itself a source.
+  const reqs = karstenColorRequirements(deckCards, sfMap)
+  const sources = countManaSources(deckCards, sfMap)
+  const shortfall = {}
+  for (const col of ids) {
+    shortfall[col] = Math.max(0, (reqs[col]?.needed || 0) - (sources[col] || 0))
+  }
+  while (left > 0) {
+    let best = null
+    for (const col of ids) {
+      if (shortfall[col] > 0 && (best == null || shortfall[col] > shortfall[best])) best = col
+    }
+    if (best == null) break
+    alloc[best]++
+    shortfall[best]--
+    left--
+  }
+
+  // Phase 2 — pip-weighted largest-remainder apportionment for the rest, so
+  // the counts sum to exactly `needed`.
+  if (left > 0) {
+    const pips = countColorPips(deckCards, sfMap)
+    let weights = ids.map(col => pips[col])
+    let sum = weights.reduce((a, b) => a + b, 0)
+    if (sum <= 0) { weights = ids.map(() => 1); sum = ids.length } // no pip data → even
+
+    const slots = ids.map((col, i) => {
+      const exact = (left * weights[i]) / sum
+      const n = Math.floor(exact)
+      return { col, n, frac: exact - n }
+    })
+    let remainder = left - slots.reduce((a, s) => a + s.n, 0)
+    slots.sort((a, b) => b.frac - a.frac)
+    for (let i = 0; i < slots.length && remainder > 0; i++, remainder--) slots[i].n++
+    for (const s of slots) alloc[s.col] += s.n
+  }
 
   const counts = {}
-  for (const s of slots) if (s.n > 0) counts[BASIC_LAND_BY_COLOR[s.col]] = s.n
+  for (const col of ids) if (alloc[col] > 0) counts[BASIC_LAND_BY_COLOR[col]] = alloc[col]
   return { counts, total: needed }
 }
 
