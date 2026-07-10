@@ -1526,18 +1526,18 @@ export default function DeckBuilderPage() {
 
   const renderDeckActionsMenu = ({ close, includeQuickActions = true }) => (
     <div className={uiStyles.responsiveMenuList}>
+      {includeQuickActions && (
+        <button className={uiStyles.responsiveMenuAction} onClick={() => { handleShareDeck(); close() }} disabled={shareBusy}>
+          <span>{shareBusy ? 'Sharing...' : 'Share'}</span>
+          <ShareIcon size={13} />
+        </button>
+      )}
       <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowImport(true); close() }}>
         <span>Import</span>
       </button>
       <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowExport(true); close() }}>
         <span>Export</span>
       </button>
-      {includeQuickActions && isEDH && (
-        <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowBuildAssistant(true); close() }}>
-          <span>Build Assistant</span>
-          <LightningIcon size={13} />
-        </button>
-      )}
       {includeQuickActions && (
         <Link className={uiStyles.responsiveMenuAction} to={`/builder/${deckId}/playtest`} onClick={close}>
           <span>Playtest</span>
@@ -1577,11 +1577,6 @@ export default function DeckBuilderPage() {
         <button className={`${uiStyles.responsiveMenuAction} ${uiStyles.responsiveMenuActionDanger}`} onClick={() => { handleDeleteBuilderDeck(); close() }} disabled={deleteDeckBusy}>
           <span>{deleteDeckBusy ? 'Deleting...' : 'Delete Deck'}</span>
           <DeleteIcon size={13} />
-        </button>
-      )}
-      {includeQuickActions && (
-        <button className={uiStyles.responsiveMenuAction} onClick={() => { handleShareDeck(); close() }} disabled={shareBusy}>
-          <span>{shareBusy ? 'Sharing...' : 'Share'}</span>
         </button>
       )}
       {includeQuickActions && (

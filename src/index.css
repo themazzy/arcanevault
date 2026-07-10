@@ -434,7 +434,11 @@ body {
 }
 
 a { color: var(--purple); text-decoration: none; }
-a:hover { text-decoration: underline; }
+/* Underline on hover only for bare prose links. Component links all carry a
+   CSS-module class and style themselves — the old unscoped rule kept leaking
+   underlines onto button-shaped <Link>s (menu items, header buttons). Classed
+   links that want the underline declare it in their own module. */
+a:not([class]):hover { text-decoration: underline; }
 
 a,
 button,
