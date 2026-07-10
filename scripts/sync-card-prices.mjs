@@ -19,6 +19,10 @@ const BULK_DOWNLOAD_PATH = path.join(process.cwd(), '.tmp', 'scryfall-all-cards.
 // a single full-table update would double the heap with dead tuples and risk
 // the 500 MB free-tier cap. Steady state is ~0 backfills per run.
 const PRINT_BACKFILL_LIMIT = Number(process.env.PRINT_BACKFILL_LIMIT ?? 20000)
+// card_prints upserts write every index including the trigram GIN, so batches
+// of 500 can exceed the statement timeout (bit us on the first backfill run —
+// the standalone backfill script uses 100 for the same reason).
+const PRINT_UPSERT_BATCH_SIZE = 100
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   console.error('Missing SUPABASE_URL and/or SUPABASE_SERVICE_ROLE_KEY.')
@@ -161,12 +165,14 @@ function createPrintSync(printState) {
 
   async function flush() {
     if (!state.pending.length) return
-    const batch = state.pending
+    const rows = state.pending
     state.pending = []
-    const { error } = await sb
-      .from('card_prints')
-      .upsert(batch, { onConflict: 'scryfall_id', ignoreDuplicates: false })
-    if (error) throw error
+    for (let i = 0; i < rows.length; i += PRINT_UPSERT_BATCH_SIZE) {
+      const { error } = await sb
+        .from('card_prints')
+        .upsert(rows.slice(i, i + PRINT_UPSERT_BATCH_SIZE), { onConflict: 'scryfall_id', ignoreDuplicates: false })
+      if (error) throw error
+    }
   }
 
   async function offer(card) {
