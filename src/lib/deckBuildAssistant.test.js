@@ -116,7 +116,7 @@ describe('binderPlacedCardIds', () => {
 
 // ── Auto-fill planning ────────────────────────────────────────────────────────
 describe('planAutoFill', () => {
-  const cand = name => ({ name, sfCard: null })
+  const cand = (name, inclusion = 0) => ({ name, sfCard: null, edhrecInclusion: inclusion })
   const roles = [
     { role: ROLE_RAMP, target: 2, ownedCandidates: [cand('Sol Ring'), cand('Arcane Signet'), cand('Cultivate')] },
     { role: ROLE_DRAW, target: 1, ownedCandidates: [cand('Divination')] },
@@ -189,9 +189,9 @@ describe('planAutoFill', () => {
     expect(picks).toHaveLength(0)
   })
 
-  it('ignores suggestion pools unless includeUpgrades is set', () => {
+  it('ignores suggestion pools with the default binders-only source', () => {
     const withUpgrades = [
-      { role: ROLE_DRAW, target: 3, ownedCandidates: [cand('Divination')], upgrades: [cand('Rhystic Study')] },
+      { role: ROLE_DRAW, target: 3, ownedCandidates: [cand('Divination')], upgrades: [cand('Rhystic Study', 60)] },
     ]
     const picks = planAutoFill({
       roles: withUpgrades,
@@ -203,38 +203,39 @@ describe('planAutoFill', () => {
     expect(picks[0].owned).toBe(true)
   })
 
-  it('tops up each role from its suggestions when includeUpgrades is set', () => {
+  it("source 'recommended' ranks owned + suggestions purely by recommendation strength", () => {
+    // The unowned staples outrank the owned card — ownership must not matter.
     const withUpgrades = [
-      { role: ROLE_DRAW, target: 3, ownedCandidates: [cand('Divination')], upgrades: [cand('Rhystic Study'), cand('Mystic Remora')] },
+      { role: ROLE_DRAW, target: 3, ownedCandidates: [cand('Divination', 5)], upgrades: [cand('Rhystic Study', 60), cand('Mystic Remora', 40)] },
     ]
     const picks = planAutoFill({
       roles: withUpgrades,
       liveCounts: counts([[ROLE_DRAW, 0]]),
       totalCards: 1, deckSize: 100,
       landsTarget: 0, currentLands: 0,
-      includeUpgrades: true,
+      source: 'recommended',
     })
     expect(picks.map(p => [p.cand.name, p.owned])).toEqual([
-      ['Divination', true],
       ['Rhystic Study', false],
       ['Mystic Remora', false],
+      ['Divination', true],
     ])
   })
 
-  it('fills the lands gap from land suggestions after owned nonbasics, skipping basics', () => {
+  it("source 'recommended' merges land pools by rank and skips basics", () => {
     const picks = planAutoFill({
       roles: [{ role: ROLE_LANDS, target: 37, ownedCandidates: [] }],
       liveCounts: counts([]),
       totalCards: 1, deckSize: 100,
       landsTarget: 37, currentLands: 0,
       nonbasicTarget: 3, currentNonbasicLands: 0,
-      landCandidates: [cand('Command Tower')],
-      landUpgrades: [cand('Forest'), cand('Exotic Orchard'), cand('Reliquary Tower')],
-      includeUpgrades: true,
+      landCandidates: [cand('Command Tower', 30)],
+      landUpgrades: [cand('Forest', 99), cand('Exotic Orchard', 50), cand('Reliquary Tower', 20)],
+      source: 'recommended',
     })
     expect(picks.map(p => [p.cand.name, p.owned])).toEqual([
-      ['Command Tower', true],
       ['Exotic Orchard', false],
+      ['Command Tower', true],
       ['Reliquary Tower', false],
     ])
   })

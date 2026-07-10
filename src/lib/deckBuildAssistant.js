@@ -495,17 +495,22 @@ export function rankCutCandidates(candidates, mode = 'balanced') {
 
 // ── Auto-fill ─────────────────────────────────────────────────────────────────
 // One-click fill: pick the top candidates for every role's remaining gap. Pure
-// planning only — the caller adds the picks and the existing finish step tops
-// up basics. Owned (binder-placed) candidates always come first; with
-// `includeUpgrades` each role's leftover gap is then filled from its unowned
-// suggestion list (`spec.upgrades` / `landUpgrades`). Slot math: whatever the
-// deck still needs to reach `deckSize` is split into a lands reserve (filled
-// here with nonbasics up to `nonbasicTarget`, later with basics on finish) and
-// a nonland budget spent role-by-role in template order. `exclude` injects the
-// caller's live filters (already added, over budget, over the target bracket).
-// Each name is picked at most once (singleton format).
+// planning only — the caller adds the picks (and the basics). Two sources:
+//   'owned'        — binder-placed candidates only, in their given order.
+//   'recommended'  — ownership-blind: each role's owned candidates and unowned
+//                    suggestions (`spec.upgrades` / `landUpgrades`) are merged
+//                    and re-ranked purely by recommendation strength (EDHREC
+//                    inclusion %, or recommander score for score-only picks),
+//                    so the deck is "what the data says", not "what I own".
+// Slot math: whatever the deck still needs to reach `deckSize` is split into a
+// lands reserve (filled here with nonbasics up to `nonbasicTarget`, the rest
+// left for basics) and a nonland budget spent role-by-role in template order.
+// `exclude` injects the caller's live filters (already added, over budget,
+// over the target bracket). Each name is picked at most once (singleton).
 //
 // Returns [{ role, cand, owned }] in add order.
+const recRank = c => Math.max(c?.edhrecInclusion || 0, Math.round((c?.score || 0) * 100))
+
 export function planAutoFill({
   roles = [],              // plan.roles: [{ role, target, ownedCandidates, upgrades? }]
   liveCounts,              // Map role → current count (countByRole)
@@ -516,8 +521,8 @@ export function planAutoFill({
   nonbasicTarget = 0,
   currentNonbasicLands = 0,
   landCandidates = [],     // nonbasic owned land candidates, fixers first
-  landUpgrades = [],       // unowned land suggestions (used with includeUpgrades)
-  includeUpgrades = false,
+  landUpgrades = [],       // unowned land suggestions (used with source 'recommended')
+  source = 'owned',        // 'owned' | 'recommended'
   exclude = () => false,
 } = {}) {
   const picks = []
@@ -528,16 +533,28 @@ export function planAutoFill({
   const landsReserve = Math.min(slotsLeft, Math.max(0, landsTarget - currentLands))
   let nonlandBudget = slotsLeft - landsReserve
 
+  // Pool for a role under the chosen source: tagged { cand, owned } entries.
+  const poolFor = (owned, upgrades) => {
+    if (source !== 'recommended') return (owned || []).map(cand => ({ cand, owned: true }))
+    return [
+      ...(owned || []).map(cand => ({ cand, owned: true })),
+      ...(upgrades || []).map(cand => ({ cand, owned: false })),
+    ].sort((a, b) =>
+      (recRank(b.cand) - recRank(a.cand)) ||
+      ((a.cand.cmc ?? 0) - (b.cand.cmc ?? 0)) ||
+      String(a.cand.name || '').localeCompare(b.cand.name || ''))
+  }
+
   // Take up to `need` picks from `pool`, honoring the shared name/exclude
   // gates. Returns how many were taken.
-  const takeFrom = (pool, need, role, owned) => {
+  const takeFrom = (pool, need, role) => {
     let n = 0
-    for (const cand of pool || []) {
+    for (const entry of pool) {
       if (n >= need) break
-      const key = (cand?.name || '').toLowerCase()
-      if (!key || taken.has(key) || isBasicLandName(key) || exclude(cand)) continue
+      const key = (entry.cand?.name || '').toLowerCase()
+      if (!key || taken.has(key) || isBasicLandName(key) || exclude(entry.cand)) continue
       taken.add(key)
-      picks.push({ role, cand, owned })
+      picks.push({ role, cand: entry.cand, owned: entry.owned })
       n++
     }
     return n
@@ -545,19 +562,16 @@ export function planAutoFill({
 
   for (const spec of roles) {
     if (spec.role === ROLE_LANDS) continue
-    let need = Math.min(
+    const need = Math.min(
       Math.max(0, (spec.target || 0) - (liveCounts?.get?.(spec.role) || 0)),
       nonlandBudget,
     )
     if (need <= 0) continue
-    let got = takeFrom(spec.ownedCandidates, need, spec.role, true)
-    if (includeUpgrades && got < need) got += takeFrom(spec.upgrades, need - got, spec.role, false)
-    nonlandBudget -= got
+    nonlandBudget -= takeFrom(poolFor(spec.ownedCandidates, spec.upgrades), need, spec.role)
   }
 
-  let landNeed = Math.min(Math.max(0, nonbasicTarget - currentNonbasicLands), landsReserve)
-  landNeed -= takeFrom(landCandidates, landNeed, ROLE_LANDS, true)
-  if (includeUpgrades && landNeed > 0) takeFrom(landUpgrades, landNeed, ROLE_LANDS, false)
+  const landNeed = Math.min(Math.max(0, nonbasicTarget - currentNonbasicLands), landsReserve)
+  if (landNeed > 0) takeFrom(poolFor(landCandidates, landUpgrades), landNeed, ROLE_LANDS)
 
   return picks
 }

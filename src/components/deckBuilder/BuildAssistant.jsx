@@ -1033,27 +1033,63 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     [hasRecommender, suggestionSource],
   )
 
-  // Two dry runs drive the modal's option labels: binders only, and binders
-  // topped up with unowned suggestions.
+  // Two dry runs drive the modal's option labels: binders only, and the
+  // ownership-blind "top recommendations" build.
   const autoFillPicksOwned = useMemo(
     () => (autoFillBase ? planAutoFill({ ...autoFillBase, roles: plan.roles }) : []),
     [autoFillBase, plan],
   )
-  const autoFillPicksAll = useMemo(() => {
+  const autoFillPicksRec = useMemo(() => {
     if (!autoFillBase) return []
     const roles = plan.roles.map(r => ({ ...r, upgrades: upgradesFor(r) }))
     const landsRole = plan.roles.find(r => r.role === ROLE_LANDS)
     const landUpgrades = landsRole
       ? upgradesFor(landsRole).filter(u => (u.type || '').toLowerCase().includes('land'))
       : []
-    return planAutoFill({ ...autoFillBase, roles, landUpgrades, includeUpgrades: true })
+    return planAutoFill({ ...autoFillBase, roles, landUpgrades, source: 'recommended' })
   }, [autoFillBase, plan, upgradesFor])
 
   const [autoFillOpen, setAutoFillOpen] = useState(false)
-  const [autoFillSource, setAutoFillSource] = useState('owned') // 'owned' | 'all'
+  const [autoFillSource, setAutoFillSource] = useState('owned') // 'owned' | 'recommended'
   const [autoFilling, setAutoFilling] = useState(null) // { total, bulk } | { done, total }
-  const [autoFillResult, setAutoFillResult] = useState(null) // { added, skipped }
-  const autoFillSelected = autoFillSource === 'all' ? autoFillPicksAll : autoFillPicksOwned
+  const [autoFillResult, setAutoFillResult] = useState(null) // { added, skipped, basics }
+  const autoFillSelected = autoFillSource === 'recommended' ? autoFillPicksRec : autoFillPicksOwned
+
+  // Basics the deck will need once `picks` are in — predicted against the
+  // pre-add deck plus pseudo-rows for the picks, because the deckCards prop
+  // won't have round-tripped yet when we add them right after the bulk call.
+  function basicsAfterPicks(picks) {
+    const pseudo = picks.map(p => ({
+      name: p.cand.name,
+      type_line: p.cand.sfCard?.type_line || p.cand.type || '',
+      mana_cost: p.cand.sfCard?.mana_cost || p.cand.mana_cost || '',
+      cmc: p.cand.cmc ?? p.cand.sfCard?.cmc ?? 0,
+      oracle_text: p.cand.sfCard?.oracle_text || '',
+      qty: 1,
+    }))
+    return planBasicLands({
+      deckCards: [...deckCards, ...pseudo],
+      sfMap,
+      colors: cmdColors,
+      landTarget: landsTarget,
+    })
+  }
+
+  // Auto-fill completes the whole build in one go: role picks, nonbasic lands,
+  // then the pip/Karsten-weighted basics — and lands on the summary step so
+  // the result (composition, buy list, trim) is immediately visible.
+  async function finishAutoFill(picks, added, skipped) {
+    let basics = 0
+    const planned = basicsAfterPicks(picks)
+    if (planned.total > 0 && typeof onAddBasics === 'function') {
+      try {
+        await onAddBasics(planned.counts)
+        basics = planned.total
+      } catch { /* parent surfaces errors; summary still offers the top-up */ }
+    }
+    setAutoFillResult({ added, skipped, basics })
+    setStepIndex(steps.length - 1)
+  }
 
   async function startAutoFill() {
     const picks = autoFillSelected
@@ -1072,9 +1108,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           for (const p of picks) next.add(p.cand.name.toLowerCase())
           return next
         })
-        setAutoFillResult({ added: res?.added ?? picks.length, skipped: res?.skipped ?? 0 })
+        await finishAutoFill(picks, res?.added ?? picks.length, res?.skipped ?? 0)
       } catch {
-        setAutoFillResult({ added: 0, skipped: picks.length })
+        setAutoFillResult({ added: 0, skipped: picks.length, basics: 0 })
       } finally {
         setAutoFilling(null)
       }
@@ -1087,7 +1123,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         await handleAdd(p.owned ? ownedCardForAdd(p.cand) : p.cand, p.cand.name)
         setAutoFilling({ done: i + 1, total: picks.length })
       }
-      setAutoFillResult({ added: picks.length, skipped: 0 })
+      await finishAutoFill(picks, picks.length, 0)
     } finally {
       setAutoFilling(null)
     }
@@ -1960,7 +1996,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           >
             Back
           </Button>
-          {!loading && !error && plan && (autoFilling || autoFillPicksOwned.length > 0 || autoFillPicksAll.length > 0) && (
+          {!loading && !error && plan && (autoFilling || autoFillPicksOwned.length > 0 || autoFillPicksRec.length > 0) && (
             <Button
               variant="ghost"
               className={styles.autoFillBtn}
@@ -2013,29 +2049,28 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                       </span>
                     </span>
                   </label>
-                  <label className={`${styles.afOption}${autoFillSource === 'all' ? ' ' + styles.afOptionActive : ''}`}>
+                  <label className={`${styles.afOption}${autoFillSource === 'recommended' ? ' ' + styles.afOptionActive : ''}`}>
                     <input
                       type="radio"
                       name="af-source"
                       className={styles.afRadio}
-                      checked={autoFillSource === 'all'}
-                      onChange={() => setAutoFillSource('all')}
+                      checked={autoFillSource === 'recommended'}
+                      onChange={() => setAutoFillSource('recommended')}
                     />
                     <span className={styles.afOptionBody}>
-                      <span className={styles.afOptionLabel}>Binders + suggestions</span>
+                      <span className={styles.afOptionLabel}>Top recommendations</span>
                       <span className={styles.afOptionDesc}>
                         {(() => {
-                          const owned = autoFillPicksAll.filter(p => p.owned).length
-                          const sugg = autoFillPicksAll.length - owned
-                          return autoFillPicksAll.length
-                            ? `Adds ${owned} from your binders and ${sugg} suggested card${sugg === 1 ? '' : 's'} you don’t own — those land in the summary’s buy list.`
-                            : 'No fitting cards or suggestions left.'
+                          const sugg = autoFillPicksRec.filter(p => !p.owned).length
+                          return autoFillPicksRec.length
+                            ? `Adds the ${autoFillPicksRec.length} most-recommended cards for this commander, ignoring what you own — the ${sugg} unowned land in the summary’s buy list.`
+                            : 'No fitting recommendations left.'
                         })()}
                       </span>
                     </span>
                   </label>
                   <div className={styles.afNote}>
-                    Your budget and bracket filters apply. Basic lands are still added when you finish.
+                    Your budget and bracket filters apply. Basic lands are added automatically, then you land on the summary.
                   </div>
                   <div className={styles.afActions}>
                     <Button variant="ghost" onClick={() => setAutoFillOpen(false)}>Cancel</Button>
@@ -2056,6 +2091,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                 <>
                   <div className={styles.afResult}>
                     Added {autoFillResult.added} card{autoFillResult.added === 1 ? '' : 's'}
+                    {autoFillResult.basics ? ` and ${autoFillResult.basics} basic land${autoFillResult.basics === 1 ? '' : 's'}` : ''}
                     {autoFillResult.skipped ? ` · ${autoFillResult.skipped} skipped (no card data)` : ''}.
                   </div>
                   <div className={styles.afActions}>
