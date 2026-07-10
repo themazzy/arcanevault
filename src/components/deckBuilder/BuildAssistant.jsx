@@ -1087,7 +1087,12 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         basics = planned.total
       } catch { /* parent surfaces errors; summary still offers the top-up */ }
     }
-    setAutoFillResult({ added, skipped, basics })
+    // Slots the run could NOT fill (candidate pools ran dry) — called out in
+    // the result so an under-100 build doesn't read as a complete deck.
+    // totalCards is the pre-add count: this closure was created before the
+    // deckCards prop round-tripped.
+    const left = Math.max(0, (plan?.deckSize || 100) - (totalCards + added + basics))
+    setAutoFillResult({ added, skipped, basics, left })
     setStepIndex(steps.length - 1)
   }
 
@@ -2094,6 +2099,14 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                     {autoFillResult.basics ? ` and ${autoFillResult.basics} basic land${autoFillResult.basics === 1 ? '' : 's'}` : ''}
                     {autoFillResult.skipped ? ` · ${autoFillResult.skipped} skipped (no card data)` : ''}.
                   </div>
+                  {autoFillResult.left > 0 && (
+                    <div className={styles.afShortfall}>
+                      <WarningIcon size={12} /> The deck is still {autoFillResult.left} card{autoFillResult.left === 1 ? '' : 's'} short —
+                      {autoFillSource === 'owned'
+                        ? ' your binders ran out of fitting cards. Re-run with “Top recommendations”, or add from the suggestion tiles.'
+                        : ' not enough fitting recommendations were found. Add the rest from the role steps.'}
+                    </div>
+                  )}
                   <div className={styles.afActions}>
                     <Button variant="primary" onClick={() => { setAutoFillResult(null); setAutoFillOpen(false) }}>
                       Done
