@@ -34,6 +34,18 @@ const cases = [
   ['Toxic Deluge (-X/-X wipe)',
     'Pay X life. All creatures get -X/-X until end of turn.',
     'Sorcery', 'Board Wipe'],
+  ['Tragic Arrogance (choose-one-each, mass sacrifice)',
+    'For each player, you choose from among the permanents that player controls an artifact, a creature, an enchantment, and a planeswalker. Then each player sacrifices all other nonland permanents they control.',
+    'Sorcery', 'Board Wipe'],
+  ['Wave of Vitriol (each player sacrifices all)',
+    'Each player sacrifices all artifacts, enchantments, and nonbasic lands they control. For each land sacrificed this way, its controller may search their library for a basic land card and put it onto the battlefield tapped. Then each player who searched their library this way shuffles.',
+    'Sorcery', 'Board Wipe'],
+  ['Cataclysm (choose survivors, sacrifices the rest)',
+    'Each player chooses from among the permanents they control an artifact, a creature, an enchantment, and a land, then sacrifices the rest.',
+    'Sorcery', 'Board Wipe'],
+  ['Fleshbag Marauder (single-sac edict is NOT a wipe)',
+    'When this creature enters, each player sacrifices a creature of their choice.',
+    'Creature — Zombie Warrior', 'Creature'],
 
   // ── Ramp ─────────────────────────────────────────────────────────────────
   ['Cultivate (basic-land tutor)',

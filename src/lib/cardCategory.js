@@ -125,6 +125,13 @@ export function getCardCategory(oracle = '', typeLine = '', keywords = []) {
   if (/deals? \d+ damage to each (creature|other creature)/.test(o)) return 'Board Wipe'
   // Mass bounce (Sunderflock-style "return all X to their owners' hands")
   if (/return all [a-z' -]{0,40}(creatures|permanents|nonland)[^.]{0,40}to (their|its) owner[s'’]+ hands?/.test(o)) return 'Board Wipe'
+  // Mass sacrifice (Tragic Arrogance, Wave of Vitriol, Fraying Omnipotence):
+  // "each player sacrifices all/half …". Edicts ("each player sacrifices a
+  // creature") stay out — sacrificing one permanent is spot removal, not a wipe.
+  if (/each player sacrifices (all|half)/.test(o)) return 'Board Wipe'
+  // Choose-and-keep wipes (Cataclysm, Cataclysmic Gearhulk): each player picks
+  // survivors, "then sacrifices the rest".
+  if (/then sacrifices the rest/.test(o)) return 'Board Wipe'
 
   // ── Landfall (before Ramp/Tokens so Lotus Cobra, Avenger, etc. stay here) ─
   if (/landfall ?[—-]/.test(o)) return 'Landfall'

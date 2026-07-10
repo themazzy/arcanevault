@@ -172,6 +172,24 @@ describe('analyzeBuildPlan', () => {
     expect(draw).not.toContain('Channel')
   })
 
+  it('excludes tokens/emblems even when legality metadata is missing', () => {
+    const cards = [
+      // Owned token row with NO legalities — the offline-first "default legal"
+      // fallback must not let it through as a candidate.
+      makeCard('Wizard', { oracle: 'Whenever you cast a noncreature spell, this token deals 1 damage to each opponent.', type: 'Token Creature — Wizard' }),
+      makeCard('Monarch Emblem', { oracle: 'At the beginning of your end step, draw a card.', type: 'Emblem' }),
+      makeCard('Murder', { oracle: 'Destroy target creature.', type: 'Instant', ci: ['B'] }),
+    ]
+    const { ownedCards, sfMap } = assemble(cards)
+    const plan = analyzeBuildPlan({ commander: { name: 'Cmd', color_identity: ['B'] }, ownedCards, sfMap })
+
+    expect(plan.totalOwnedLegal).toBe(1)
+    const all = plan.roles.flatMap(r => r.ownedCandidates.map(c => c.name))
+    expect(all).toContain('Murder')
+    expect(all).not.toContain('Wizard')
+    expect(all).not.toContain('Monarch Emblem')
+  })
+
   it('de-dupes owned copies by name (singleton)', () => {
     const a = makeCard('Sol Ring', { oracle: '{T}: Add {C}{C}.', type: 'Artifact' })
     // Second physical copy, different scryfall_id (different printing).

@@ -490,6 +490,13 @@ export function analyzeBuildPlan({
     const lowerName = name.toLowerCase()
     if (!lowerName || seenNames.has(lowerName)) continue
 
+    // Tokens/emblems/dungeons can be physically owned (scanned alongside real
+    // cards) but can never go in a deck. Their all-not_legal legalities are
+    // often uncached, so the offline-first "default legal" fallback below would
+    // otherwise let them through as candidates.
+    const typeLine = (sfCard?.type_line || card?.type_line || '').toLowerCase()
+    if (/\btoken\b|\bemblem\b|\bdungeon\b/.test(typeLine)) continue
+
     // Legality check needs color_identity + legalities; prefer the richer
     // Scryfall metadata, fall back to the owned row. Cards whose metadata hasn't
     // been fetched yet (no legalities) default to "legal" — offline-first, we'd
