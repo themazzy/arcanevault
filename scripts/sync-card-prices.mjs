@@ -4,13 +4,21 @@ import path from 'node:path'
 import { Readable } from 'node:stream'
 import { createClient } from '@supabase/supabase-js'
 import { streamArray } from 'stream-json/streamers/stream-array.js'
+import { shouldInsertPrint, buildPrintRow } from './lib/print-sync-core.mjs'
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
 const BULK_DATA_TYPE = 'all_cards'
 const UPSERT_BATCH_SIZE = 500
 const DELETE_BATCH_SIZE = 500
+const FETCH_BATCH_SIZE = 1000
 const BULK_DOWNLOAD_PATH = path.join(process.cwd(), '.tmp', 'scryfall-all-cards.json')
+// Rows already in card_prints but missing the search-metadata columns
+// (released_at etc.) get re-upserted from the same bulk stream, capped per run
+// so the one-time backfill of ~119k legacy rows is spread over several days —
+// a single full-table update would double the heap with dead tuples and risk
+// the 500 MB free-tier cap. Steady state is ~0 backfills per run.
+const PRINT_BACKFILL_LIMIT = Number(process.env.PRINT_BACKFILL_LIMIT ?? 20000)
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   console.error('Missing SUPABASE_URL and/or SUPABASE_SERVICE_ROLE_KEY.')
@@ -112,7 +120,93 @@ async function downloadBulkFile(url, destination) {
   })
 }
 
-async function processBulkFile(snapshotDate) {
+// ── card_prints sync (same bulk stream, separate table) ─────────────────────
+// The daily bulk pass doubles as the card_prints freshness pipeline: prints
+// missing from the table are inserted (new sets become searchable the day
+// Scryfall publishes them) and legacy rows missing search metadata are
+// re-upserted, capped by PRINT_BACKFILL_LIMIT. Failures here must never break
+// the price sync — the whole feature degrades to the client's Scryfall
+// fallback.
+
+async function loadCardPrintState() {
+  const existingIds = new Set()
+  const needsMetadataIds = new Set()
+  let from = 0
+  while (true) {
+    const { data, error } = await sb
+      .from('card_prints')
+      .select('scryfall_id,released_at')
+      .not('scryfall_id', 'is', null)
+      .order('scryfall_id', { ascending: true })
+      .range(from, from + FETCH_BATCH_SIZE - 1)
+    if (error) throw error
+    if (!data?.length) break
+    for (const row of data) {
+      existingIds.add(row.scryfall_id)
+      if (row.released_at == null) needsMetadataIds.add(row.scryfall_id)
+    }
+    if (data.length < FETCH_BATCH_SIZE) break
+    from += FETCH_BATCH_SIZE
+  }
+  return { existingIds, needsMetadataIds }
+}
+
+function createPrintSync(printState) {
+  const state = {
+    pending: [],
+    inserted: 0,
+    backfilled: 0,
+    failed: false,
+  }
+
+  async function flush() {
+    if (!state.pending.length) return
+    const batch = state.pending
+    state.pending = []
+    const { error } = await sb
+      .from('card_prints')
+      .upsert(batch, { onConflict: 'scryfall_id', ignoreDuplicates: false })
+    if (error) throw error
+  }
+
+  async function offer(card) {
+    if (state.failed || !card?.id || card.object !== 'card') return
+    try {
+      if (!printState.existingIds.has(card.id)) {
+        if (!shouldInsertPrint(card)) return
+        printState.existingIds.add(card.id)
+        state.pending.push(buildPrintRow(card))
+        state.inserted++
+      } else if (printState.needsMetadataIds.has(card.id) && state.backfilled < PRINT_BACKFILL_LIMIT) {
+        printState.needsMetadataIds.delete(card.id)
+        state.pending.push(buildPrintRow(card))
+        state.backfilled++
+      } else {
+        return
+      }
+      if (state.pending.length >= UPSERT_BATCH_SIZE) await flush()
+    } catch (error) {
+      state.failed = true
+      state.pending = []
+      console.error('[Price Sync] card_prints sync failed (prices continue):', error.message)
+    }
+  }
+
+  async function finish() {
+    if (state.failed) return state
+    try {
+      await flush()
+    } catch (error) {
+      state.failed = true
+      console.error('[Price Sync] card_prints final flush failed:', error.message)
+    }
+    return state
+  }
+
+  return { offer, finish }
+}
+
+async function processBulkFile(snapshotDate, printSync) {
   let skipped = 0
   let processed = 0
   let duplicateRows = 0
@@ -123,6 +217,8 @@ async function processBulkFile(snapshotDate) {
     .pipe(streamArray.withParserAsStream())
 
   for await (const { value: card } of pipeline) {
+    if (printSync) await printSync.offer(card)
+
     if (!shouldKeepCard(card)) {
       skipped++
       continue
@@ -246,11 +342,28 @@ async function main() {
     console.log('[Price Sync] Downloading bulk card data to disk...')
     await downloadBulkFile(downloadUrl, BULK_DOWNLOAD_PATH)
 
+    let printSync = null
+    try {
+      console.log('[Price Sync] Loading card_prints state...')
+      const printState = await loadCardPrintState()
+      console.log(`[Price Sync] card_prints: ${printState.existingIds.size.toLocaleString()} known prints, ${printState.needsMetadataIds.size.toLocaleString()} awaiting metadata backfill.`)
+      printSync = createPrintSync(printState)
+    } catch (error) {
+      console.error('[Price Sync] Could not load card_prints state — skipping print sync:', error.message)
+      process.exitCode = 1
+    }
+
     console.log('[Price Sync] Streaming bulk card data...')
-    const { processed, skipped, duplicateRows } = await processBulkFile(snapshotDate)
+    const { processed, skipped, duplicateRows } = await processBulkFile(snapshotDate, printSync)
     console.log(`[Price Sync] Finished writing ${processed.toLocaleString()} live rows (${skipped.toLocaleString()} skipped).`)
     if (duplicateRows) {
       console.log(`[Price Sync] Collapsed ${duplicateRows.toLocaleString()} duplicate rows while staging.`)
+    }
+
+    if (printSync) {
+      const printResult = await printSync.finish()
+      console.log(`[Price Sync] card_prints: inserted ${printResult.inserted.toLocaleString()} new prints, backfilled ${printResult.backfilled.toLocaleString()} rows.`)
+      if (printResult.failed) process.exitCode = 1
     }
 
     await pruneLiveRows(snapshotDate, retentionCutoff)

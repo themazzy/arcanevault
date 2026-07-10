@@ -336,6 +336,8 @@ A linked collection deck navigates to `/builder/<linked_builder_id>` rather than
 | `src/lib/commanderBracket.js` | Commander Bracket estimator: `analyzeBracket()` (Game Changers / MLD / extra turns / 2-card combos), `fetchGameChangerNames()` (Scryfall `is:gamechanger`, 7-day localStorage cache). UI: `components/BracketBadge.jsx` — clickable pill in the DeckStats pills row (popover with reasons, flagged cards, combo check, manual 1–5 override). `DeckStats` accepts `showBracket` + `combos` props; DeckBuilder passes `showBracket={isEDH}` |
 | `src/lib/importFlow.js` | Import pipeline: `parseImportText()`, `resolveImportEntries()`, `summarizeImportRows()`, `aggregateResolvedRows()`, `fetchPaperPrintings()` |
 | `src/lib/csvParser.js` | Manabox CSV → cards + folders |
+| `src/lib/cardSearch.js` | Name-based card search from our own tables: `searchCardNames()` (ranked `search_card_names` RPC over `oracle_cards`), `fetchPrintingsByName()`/`fetchPrintingsForNames()` (`card_prints`, newest first, shared prices attached). Every entry point falls back to the equivalent Scryfall query on error/empty. Used by AddCardModal, scanner manual search + printing picker, Trading want-list, Home autocomplete |
+| `scripts/lib/print-sync-core.mjs` | Pure helpers for the daily card_prints sync (`shouldInsertPrint`, `buildPrintRow`); tested in `src/lib/printSyncCore.test.js` |
 | `src/components/CardComponents.jsx` | `FilterBar`, `CardDetail`, `CardGrid`, `EMPTY_FILTERS`, `applyFilterSort`, `BulkActionBar` |
 | `src/components/VirtualCardGrid.jsx` | Virtualised card grid (@tanstack/react-virtual) |
 | `src/components/UI.jsx` | Shared UI primitives: `Button`, `Input`, `Modal`, `SectionHeader`, `Select`, `Badge`, `EmptyState`, `ErrorBox`, `ProgressBar` |
@@ -608,7 +610,7 @@ Host creates a session → others visit `/join/:code` on their own device → ho
 - `list_items` — wishlist items: `folder_id, name, set_code, collector_number, scryfall_id, foil, qty`
 - `deck_cards` — builder deck cards (separate from collection ownership)
 - `deck_cards_view` — view joining `deck_cards` with card/print data; queried by `fetchDeckCards()`
-- `card_prints` — normalized print metadata shared across ownership, deck builder, prices, and scanner
+- `card_prints` — normalized print metadata shared across ownership, deck builder, prices, scanner, and name-based search (~119k English paper prints, near-complete Scryfall coverage). The daily price-sync workflow inserts newly-released prints from the same bulk stream and backfills search metadata (`released_at`, `edhrec_rank`, `illustration_id`, `finishes`), capped by `PRINT_BACKFILL_LIMIT`/run to avoid dead-tuple bloat. Trigram GIN index on `name`
 - `oracle_cards` — one row per `oracle_id` with legalities, representative image/printing metadata, and double-faced `face_names`; read-only to clients and refreshed from Scryfall bulk data. `get_recommendation_card_metadata(text[])` prefers `card_prints`, then falls back to this table and resolves EDHREC front-face aliases
 - `user_settings` — single row per user; includes `nickname`, `anonymize_email`, `reduce_motion`, `higher_contrast`, `card_name_size`, `default_grouping`, `keep_screen_awake`, `show_sync_errors`, `premium`, `profile_config`
 - `card_prices` — shared daily market prices keyed by `scryfall_id + snapshot_date`; app keeps only today and yesterday
@@ -635,7 +637,7 @@ Host creates a session → others visit `/join/:code` on their own device → ho
 
 | Service | Usage | Notes |
 |---|---|---|
-| Scryfall | Card data, search, autocomplete, catalog | Rate-limited: 75 cards/batch, 120 ms delay |
+| Scryfall | Card data, search, autocomplete, catalog | Rate-limited: 75 cards/batch, 120 ms delay. Name-based search surfaces (AddCardModal, scanner manual add, Trading, Home autocomplete) are served from our own `oracle_cards`/`card_prints` tables via `src/lib/cardSearch.js` with Scryfall as fallback only; syntax search, rulings, catalogs, sets, `unique=art`, and images stay on Scryfall |
 | Supabase | Auth, cloud sync | RLS enforced; never bypass with service key |
 | frankfurter.app | EUR↔USD rates | Cached 6 h in IDB |
 | EDHRec | Commander recommendations | Direct fetch — `json.edhrec.com/pages/` sends CORS `*` |

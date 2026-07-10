@@ -4,6 +4,7 @@ import { sb } from '../lib/supabase'
 import { queryClient } from '../lib/queryClient'
 import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
 import { formatPrice, getImageUri, getInstantCache, getPrice, sfGet } from '../lib/scryfall'
+import { searchCardNames, fetchPrintingsForNames } from '../lib/cardSearch'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { currencyForPriceSource } from '../lib/priceSourceCurrency'
 import {
@@ -190,11 +191,9 @@ function buildCardFolderMap(folderRows, linkRows) {
   return map
 }
 
-async function fetchWantedCards(query) {
-  if (!query.trim()) return []
-  const json = await sfGet(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(query.trim())}&order=name&unique=prints`)
+function groupWantedPrints(cards) {
   const grouped = new Map()
-  for (const card of (json?.data || []).slice(0, 80)) {
+  for (const card of cards) {
     const key = card.oracle_id || card.name?.toLowerCase() || card.id
     const existing = grouped.get(key)
     if (existing) {
@@ -214,6 +213,21 @@ async function fetchWantedCards(query) {
   return [...grouped.values()]
     .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
     .slice(0, SEARCH_LIMIT)
+}
+
+async function fetchWantedCards(query) {
+  if (!query.trim()) return []
+  // Our own tables first: ranked name matches, then every paper printing of
+  // those names (with shared prices) in one query each.
+  try {
+    const named = await searchCardNames(query, { limit: SEARCH_LIMIT })
+    if (named.length) {
+      const prints = await fetchPrintingsForNames(named.map(c => c.name))
+      if (prints.length) return groupWantedPrints(prints)
+    }
+  } catch { /* fall back to Scryfall */ }
+  const json = await sfGet(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(query.trim())}&order=name&unique=prints`)
+  return groupWantedPrints((json?.data || []).slice(0, 80))
 }
 
 async function applyTradeResultToLocalDb(result) {

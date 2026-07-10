@@ -4,20 +4,17 @@
  * name-relevance fix) can be unit tested without dragging in the whole page's
  * dependency graph.
  */
-import { sfGet } from './scryfall'
-import { sortByNameRelevance } from './scryfallSearch'
+import { searchCardNames } from './cardSearch'
 
 // Returns card objects (with images) for the autocomplete dropdown.
-// Anchored to `name:` (not a bare term) so a common word like "void" doesn't
-// pull in every card that merely mentions it in oracle text — with the list
-// capped to 9, those oracle-text-only matches could otherwise crowd out the
-// literal named card entirely. sortByNameRelevance() then floats an exact (or
-// prefix) name match to the top before the cap is applied.
+// Served from our own oracle_cards table (name-anchored by design, ranked
+// exact → prefix → fuzzy) with a Scryfall fallback inside the helper — so an
+// exact match like "Void" always tops the list instead of being crowded out
+// by oracle-text-only matches.
 export async function fetchAutocomplete(q) {
   const term = q.trim()
   if (!term) return []
-  const data = await sfGet(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(`name:"${term.replace(/"/g, '')}"`)}&unique=names&order=name`)
-  return sortByNameRelevance(data?.data || [], term).slice(0, 9)
+  return searchCardNames(term, { limit: 9 })
 }
 
 // ── Lookup filter helpers ─────────────────────────────────────────────────────

@@ -4,11 +4,11 @@ import { sb } from '../lib/supabase'
 import { putCards } from '../lib/db'
 import { Modal, Button, ErrorBox, ResponsiveMenu } from './UI'
 import { useSettings } from './SettingsContext'
-import { getPrice, formatPrice, getPriceSource, sfGet } from '../lib/scryfall'
+import { getPrice, formatPrice, getPriceSource } from '../lib/scryfall'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
 import { toOwnedCardRow, toListItemRow, mergeNonNull } from '../lib/deckBuilderWrites'
 import { removeAcquiredFromWishlists } from '../lib/wishlistSync'
-import { sortByNameRelevance } from '../lib/scryfallSearch'
+import { searchCardNames, fetchPrintingsByName } from '../lib/cardSearch'
 import styles from './AddCardModal.module.css'
 import uiStyles from './UI.module.css'
 
@@ -321,13 +321,9 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
     }
     searchDebounce.current = setTimeout(async () => {
       try {
-        const data = await sfGet(
-          `https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}&unique=cards&order=name&limit=8`
-        )
-        // Rank the complete Scryfall page before truncating suggestions. If we
-        // slice first, an exact match such as "Swamp" can sit just below eight
-        // alphabetically earlier partial matches and disappear entirely.
-        const cards = sortByNameRelevance(data?.data || [], query).slice(0, 8)
+        // Served from our own oracle_cards table (ranked exact → prefix →
+        // fuzzy), with a Scryfall fallback inside the helper.
+        const cards = await searchCardNames(query, { limit: 8 })
         setSuggestions(cards)
         setSuggestOpen(cards.length > 0)
       } catch {}
@@ -347,10 +343,9 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
     setPrintings([]); setAllPrintings([]); setShowAllPrintings(false)
     setView('configure')
     try {
-      const data = await sfGet(
-        `https://api.scryfall.com/cards/search?q=!"${encodeURIComponent(name)}"&unique=prints&order=released&dir=desc`
-      )
-      const prints = data?.data || []
+      // card_prints first (newest-first, shared prices attached), Scryfall
+      // fallback inside the helper.
+      const prints = await fetchPrintingsByName(name)
       setPrintings(prints)     // manual: show all (no art filtering)
       setAllPrintings(prints)
       if (prints.length > 0) {

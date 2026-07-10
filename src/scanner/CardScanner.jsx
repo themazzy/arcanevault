@@ -39,7 +39,7 @@ import { useAuth } from '../components/Auth'
 import { queryClient } from '../lib/queryClient'
 import { invalidateOwnedCollectionQueries, invalidateWishlistQueries } from '../lib/queryInvalidation'
 import { formatPriceMeta, getPriceWithMeta, sfGet } from '../lib/scryfall'
-import { sortByNameRelevance } from '../lib/scryfallSearch'
+import { searchCardNames, fetchPrintingsByName } from '../lib/cardSearch'
 import { sb } from '../lib/supabase'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
 import { toOwnedCardRow, toListItemRow, mergeNonNull } from '../lib/deckBuilderWrites'
@@ -1106,20 +1106,13 @@ export default function CardScanner({ onMatch, onClose }) {
     printingPickerRequestRef.current = requestId
     const isStale = () => !mountedRef.current || printingPickerRequestRef.current !== requestId
     try {
-      const encodedName = encodeURIComponent(`!"${card.name}" not:digital`)
-      let url = `/cards/search?q=${encodedName}&unique=prints&order=released&dir=desc`
-      let all = []
-      // Scryfall paginates search results at 175/page. Basic lands and other
-      // heavily-reprinted cards run to 500+ prints, so a single page silently
-      // misses older sets — follow next_page until exhausted (capped well
-      // above any real card's print count) so set/code search can find them.
-      for (let page = 0; page < 20 && url; page++) {
-        const data = await sfGet(url)
-        if (isStale() || !data?.data) break
-        all = all.concat(data.data)
-        setPrintingPickerResults([...all])
-        url = data.has_more ? data.next_page : null
-      }
+      // card_prints first (single query, newest-first, shared prices attached
+      // — the picker rows render getPriceWithMeta); the helper's Scryfall
+      // fallback paginates so basic lands' older sets stay findable.
+      const prints = await fetchPrintingsByName(card.name, {
+        onPartial: partial => { if (!isStale()) setPrintingPickerResults(partial) },
+      })
+      if (!isStale()) setPrintingPickerResults(prints)
     } catch { /* ignore */ }
     if (!isStale()) setPrintingPickerLoading(false)
   }, [pendingCards])
@@ -1168,12 +1161,12 @@ export default function CardScanner({ onMatch, onClose }) {
       if (!mountedRef.current || manualSearchRequestRef.current !== requestId) return
       setManualSearchLoading(true)
       try {
-        const data = await sfGet(`/cards/search?q=${encodeURIComponent(q)}&unique=cards&order=name`)
+        // Served from oracle_cards (ranked exact → prefix → fuzzy) with a
+        // Scryfall fallback inside the helper — both paths keep the
+        // exact-match-first ordering that used to need sortByNameRelevance.
+        const cards = await searchCardNames(q, { limit: 20 })
         if (!mountedRef.current || manualSearchRequestRef.current !== requestId) return
-        // Rank the full page before truncating — otherwise an exact match like
-        // "Crush" or "Nightmare" sits below 20 alphabetically earlier partial
-        // matches and never shows (same fix as AddCardModal suggestions).
-        setManualSearchResults(sortByNameRelevance(data?.data ?? [], q).slice(0, 20))
+        setManualSearchResults(cards)
       } catch {
         if (!mountedRef.current || manualSearchRequestRef.current !== requestId) return
         setManualSearchResults([])
