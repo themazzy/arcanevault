@@ -3933,17 +3933,21 @@
 
   /* Banner grows with its content (name, pips, commander, meta, bracket) —
      the desktop 80px strip clipped the bottom rows on phones. Keep an explicit
-     max-height so the collapse-on-scroll transition still animates. */
+     max-height so the collapse-on-scroll transition still animates. The 8px
+     margin matches the header→banner rhythm above it. */
   .cmdArt {
     height: auto;
     max-height: 170px;
     padding-top: 8px;
     padding-bottom: 8px;
+    margin-bottom: 8px;
+    transition: max-height 180ms ease, padding 180ms ease, margin 180ms ease, opacity 140ms ease, border-color 140ms ease;
   }
   .cmdArtHidden {
     max-height: 0;
     padding-top: 0;
     padding-bottom: 0;
+    margin-bottom: 0;
   }
   .deckFilterBar .boardFilterGroup {
     flex-basis: 100%;
