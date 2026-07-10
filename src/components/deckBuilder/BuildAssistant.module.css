@@ -693,6 +693,77 @@
   white-space: nowrap;
 }
 
+/* ── Auto-fill footer button ─────────────────────────────────────────────── */
+.autoFillBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--gold);
+  border: 1px solid rgba(201, 168, 76, 0.35);
+}
+
+.autoFillBtn:hover:not(:disabled) {
+  border-color: rgba(201, 168, 76, 0.65);
+}
+
+/* ── Buy the gap (summary) ───────────────────────────────────────────────── */
+.gapActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chipLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-decoration: none;
+}
+
+.gapList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.gapRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--s1);
+  font-size: 0.78rem;
+}
+
+.gapQty {
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  min-width: 20px;
+}
+
+.gapName {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gapElsewhere {
+  color: var(--gold);
+  opacity: 0.85;
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
+.gapPrice {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 /* Owned card whose every copy is allocated to another deck — shown on
    suggestion tiles so ownership isn't silently hidden. */
 .tileOwnedNote {

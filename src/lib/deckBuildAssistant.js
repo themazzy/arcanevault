@@ -408,6 +408,113 @@ export function rankCutCandidates(candidates, mode = 'balanced') {
   return scored.map(c => ({ ...c, reason: cutReason(c, mode) }))
 }
 
+// ── Auto-fill ─────────────────────────────────────────────────────────────────
+// One-click fill: pick the top available (binder-placed) candidates for every
+// role's remaining gap. Pure planning only — the caller adds the picks and the
+// existing finish step tops up basics. Slot math: whatever the deck still needs
+// to reach `deckSize` is split into a lands reserve (filled here with nonbasics
+// up to `nonbasicTarget`, later with basics on finish) and a nonland budget
+// spent role-by-role in template order. `exclude` injects the caller's live
+// filters (already added, over budget, over the target bracket). Each name is
+// picked at most once (singleton format).
+//
+// Returns [{ role, cand }] in add order.
+export function planAutoFill({
+  roles = [],              // plan.roles: [{ role, target, ownedCandidates }]
+  liveCounts,              // Map role → current count (countByRole)
+  totalCards = 0,          // current deck size incl. commander
+  deckSize = COMMANDER_DECK_SIZE,
+  landsTarget = 0,
+  currentLands = 0,
+  nonbasicTarget = 0,
+  currentNonbasicLands = 0,
+  landCandidates = [],     // nonbasic owned land candidates, fixers first
+  exclude = () => false,
+} = {}) {
+  const picks = []
+  const taken = new Set()
+  const slotsLeft = Math.max(0, deckSize - totalCards)
+  if (!slotsLeft) return picks
+
+  const landsReserve = Math.min(slotsLeft, Math.max(0, landsTarget - currentLands))
+  let nonlandBudget = slotsLeft - landsReserve
+
+  for (const spec of roles) {
+    if (spec.role === ROLE_LANDS) continue
+    let need = Math.min(
+      Math.max(0, (spec.target || 0) - (liveCounts?.get?.(spec.role) || 0)),
+      nonlandBudget,
+    )
+    if (need <= 0) continue
+    for (const cand of spec.ownedCandidates || []) {
+      if (need <= 0) break
+      const key = (cand?.name || '').toLowerCase()
+      if (!key || taken.has(key) || exclude(cand)) continue
+      taken.add(key)
+      picks.push({ role: spec.role, cand })
+      need--
+      nonlandBudget--
+    }
+  }
+
+  let landNeed = Math.min(Math.max(0, nonbasicTarget - currentNonbasicLands), landsReserve)
+  for (const cand of landCandidates) {
+    if (landNeed <= 0) break
+    const key = (cand?.name || '').toLowerCase()
+    if (!key || taken.has(key) || exclude(cand)) continue
+    taken.add(key)
+    picks.push({ role: ROLE_LANDS, cand })
+    landNeed--
+  }
+
+  return picks
+}
+
+// ── Buy the gap ───────────────────────────────────────────────────────────────
+// Deck cards not available in the user's binders, merged by name (a deck can
+// hold several printings of one name). Basics are skipped — they're auto-added
+// on finish and buying them is noise. Split into `toBuy` (not owned anywhere)
+// and `elsewhere` (owned, but every copy is allocated to another deck — moving
+// it is an alternative to buying). Both sorted by name.
+export function buildBuyList(deckCards, availableNameKeys, elsewhereNameKeys) {
+  const byName = new Map()
+  for (const dc of deckCards || []) {
+    const name = dc?.name
+    if (!name || isBasicLandName(name)) continue
+    const keys = cardNameMatchKeys(name)
+    if (keys.some(k => availableNameKeys?.has?.(k))) continue
+    const key = keys[0]
+    const prev = byName.get(key)
+    if (prev) { prev.qty += dc.qty || 1; continue }
+    byName.set(key, {
+      name,
+      qty: dc.qty || 1,
+      elsewhere: keys.some(k => elsewhereNameKeys?.has?.(k)),
+    })
+  }
+  const all = [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
+  return {
+    toBuy: all.filter(m => !m.elsewhere),
+    elsewhere: all.filter(m => m.elsewhere),
+  }
+}
+
+// Plain-text buy list ("1 Sol Ring" lines) — the format every deck site's mass
+// entry / import accepts.
+export function buyListText(items) {
+  return (items || []).map(m => `${m.qty} ${m.name}`).join('\n')
+}
+
+// TCGplayer Mass Entry deep link. DFC names are sent as the front face only —
+// mass entry doesn't match "Front // Back".
+export function tcgplayerMassEntryUrl(items) {
+  if (!items?.length) return null
+  const list = items
+    .map(m => `${m.qty} ${String(m.name).split('//')[0].trim()}`)
+    .join('||')
+  return `https://www.tcgplayer.com/massentry?c=${encodeURIComponent(list)}`
+}
+
 // ── Archetype-aware quota flexing ─────────────────────────────────────────────
 // A selected EDHREC theme (Tokens, Spellslinger, Voltron, …) nudges the role
 // quotas. Deltas only touch the FIXED roles — Synergy is the remainder, so

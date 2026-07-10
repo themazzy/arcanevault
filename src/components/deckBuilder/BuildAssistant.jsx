@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Modal, Button, ProgressBar, ResponsiveMenu } from '../UI'
 import uiStyles from '../UI.module.css'
-import { CheckIcon, DeleteIcon, WarningIcon, ChevronDownIcon } from '../../icons'
+import { CheckIcon, DeleteIcon, WarningIcon, ChevronDownIcon, LightningIcon, ExternalLinkIcon } from '../../icons'
 import { getLocalCards, getLocalCardPrints, getLocalFolders, getAllLocalFolderCards } from '../../lib/db'
 import { getInstantCache, getScryfallKey, getPrice, formatPrice } from '../../lib/scryfall'
 import { useCombosFetch } from '../../hooks/useCombosFetch'
@@ -16,6 +16,10 @@ import {
 import {
   analyzeBuildPlan,
   binderPlacedCardIds,
+  buildBuyList,
+  buyListText,
+  tcgplayerMassEntryUrl,
+  planAutoFill,
   enrichPlanWithEdhrec,
   archetypeAdjustments,
   applyTemplateAdjustments,
@@ -944,12 +948,14 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const manaSources = useMemo(() => countManaSources(deckCards, sfMap), [deckCards, sfMap])
   const onLands = currentRoleName === ROLE_LANDS
 
-  // For the Lands step, annotate candidates with the colors they produce and
-  // surface fixers (lands that make more of the commander's colors) first.
-  // Basics are excluded — they're added automatically on finish, not picked here.
+  // Annotate land candidates with the colors they produce and surface fixers
+  // (lands that make more of the commander's colors) first. Basics are excluded
+  // — they're added automatically on finish, not picked here. Computed from the
+  // plan (not the current step) because auto-fill needs it on any step.
   const landCandidates = useMemo(() => {
-    if (!onLands || !roleData) return []
-    return roleData.ownedCandidates
+    const landsRole = plan?.roles?.find(r => r.role === ROLE_LANDS)
+    if (!landsRole) return []
+    return landsRole.ownedCandidates
       .filter(cand => !isBasicLandName(cand.name))
       .map(cand => {
         const colors = [...producedColors(cand.sfCard?.oracle_text, cand.sfCard?.type_line)]
@@ -957,7 +963,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         return { cand, colors, score: matching.length }
       })
       .sort((a, b) => (b.score - a.score) || (b.colors.length - a.colors.length) || a.cand.name.localeCompare(b.cand.name))
-  }, [onLands, roleData, cmdColors])
+  }, [plan, cmdColors])
 
   // Land target (Lands role target, theme-adjusted) and the basic/nonbasic split.
   // recommendedBasics scales with color count; nonbasicTarget is what to aim for
@@ -972,6 +978,89 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     () => planBasicLands({ deckCards, sfMap, colors: cmdColors, landTarget: landsTarget }),
     [deckCards, sfMap, cmdColors, landsTarget],
   )
+
+  // ── Auto-fill ───────────────────────────────────────────────────────────────
+  // One click adds the top binder-available candidate for every remaining role
+  // slot (budget + target bracket respected), plus nonbasic lands; basics still
+  // top up on finish. The dry-run memo drives the button label, so the user
+  // sees exactly how many cards a click will add.
+  const currentBasicLands = useMemo(() => {
+    let n = 0
+    for (const dc of deckCards || []) {
+      if (!dc?.is_commander && isBasicLandName(dc?.name)) n += dc.qty || 1
+    }
+    return n
+  }, [deckCards])
+
+  const autoFillExclude = useCallback(cand => {
+    if (!cand?.name || isAdded(cand.name)) return true
+    if (!passesBudget(cand.name, cand.sfCard)) return true
+    if (targetBracket != null) {
+      const flag = bracketFlagFor(cand.name, cand.sfCard, gameChangers)
+      if (flag && flag.level > targetBracket) return true
+    }
+    return false
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addedNames, deckNames, passesBudget, targetBracket, gameChangers])
+
+  const autoFillPicks = useMemo(() => {
+    if (!plan || loading) return []
+    return planAutoFill({
+      roles: plan.roles,
+      liveCounts,
+      totalCards,
+      deckSize: plan.deckSize,
+      landsTarget,
+      currentLands: manaSources.lands,
+      nonbasicTarget,
+      currentNonbasicLands: Math.max(0, manaSources.lands - currentBasicLands),
+      landCandidates: landCandidates.map(l => l.cand),
+      exclude: autoFillExclude,
+    })
+  }, [plan, loading, liveCounts, totalCards, landsTarget, manaSources.lands,
+      nonbasicTarget, currentBasicLands, landCandidates, autoFillExclude])
+
+  const [autoFilling, setAutoFilling] = useState(null) // { done, total } while running
+  async function handleAutoFill() {
+    if (autoFilling || !autoFillPicks.length) return
+    const picks = autoFillPicks
+    setAutoFilling({ done: 0, total: picks.length })
+    try {
+      for (let i = 0; i < picks.length; i++) {
+        await handleAdd(ownedCardForAdd(picks[i].cand), picks[i].cand.name)
+        setAutoFilling({ done: i + 1, total: picks.length })
+      }
+    } finally {
+      setAutoFilling(null)
+    }
+  }
+
+  // ── Buy the gap ─────────────────────────────────────────────────────────────
+  // Deck cards not available in the binders, split into "to buy" and "owned in
+  // another deck". Prices come from the same cheapest-English cache the tiles
+  // use (resolved for these names by the effect below when the summary opens).
+  const buyGap = useMemo(
+    () => buildBuyList(deckCards, ownedNameSet, inOtherDeckNames),
+    [deckCards, ownedNameSet, inOtherDeckNames],
+  )
+  const buyGapPrice = useMemo(() => {
+    let total = 0
+    let unpriced = 0
+    for (const m of buyGap.toBuy) {
+      const v = cheapestOf(m.name)
+      if (v != null) total += v * m.qty
+      else unpriced++
+    }
+    return { total, unpriced }
+  }, [buyGap, cheapestOf])
+  const [copiedGap, setCopiedGap] = useState(false)
+  async function handleCopyBuyList() {
+    try {
+      await navigator.clipboard.writeText(buyListText(buyGap.toBuy))
+      setCopiedGap(true)
+      setTimeout(() => setCopiedGap(false), 2000)
+    } catch { /* clipboard unavailable — the list is still on screen */ }
+  }
 
   // Drop the cheapest-price cache when the price source changes — the values are
   // stored in that source's currency, so they must be recomputed.
@@ -995,6 +1084,10 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       for (const u of selectUpgrades(roleData, hasRecommender ? suggestionSource : 'edhrec')) {
         if (u?.name) names.add(u.name)
       }
+    }
+    // Summary: price the buy-the-gap list with the same cheapest-English data.
+    if (onSummary) {
+      for (const m of [...buyGap.toBuy, ...buyGap.elsewhere]) names.add(m.name)
     }
     const missing = [...names].filter(n => !cheapestByName.has(n.toLowerCase()))
     if (!missing.length) return
@@ -1033,7 +1126,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       } catch { /* leave cache as-is; tiles show "—" */ }
     })()
     return () => { cancelled = true }
-  }, [onLands, roleData, landCandidates, suggestionSource, hasRecommender, price_source, cheapestByName])
+  }, [onLands, onSummary, buyGap, roleData, landCandidates, suggestionSource, hasRecommender, price_source, cheapestByName])
 
   async function handleAdd(cardOrRec, name) {
     const key = name.toLowerCase()
@@ -1405,8 +1498,11 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                   size={12}
                   className={`${styles.sectionCaret}${collapsed.owned ? ' ' + styles.sectionCaretClosed : ''}`}
                 />
-                <span className={styles.sectionHeadLabel}>
-                  From your collection · {onLands ? landCandidates.length : roleData.ownedCandidates.length}
+                <span
+                  className={styles.sectionHeadLabel}
+                  title="Only binder copies are offered — cards allocated to other decks show under suggestions with an 'In another deck' note"
+                >
+                  From your binders · {onLands ? landCandidates.length : roleData.ownedCandidates.length}
                   {onLands && <span className={styles.sectionHint}> · nonbasic, fixers first</span>}
                 </span>
               </button>
@@ -1419,12 +1515,12 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                 if (baseCount === 0) {
                   return <div className={styles.emptySmall}>
                     {onLands
-                      ? 'No owned nonbasic lands in your colors — basics will be added automatically on finish.'
-                      : 'No owned cards match this role in your colors.'}
+                      ? 'No nonbasic lands available in your binders — basics will be added automatically on finish.'
+                      : 'Nothing in your binders matches this role in your colors. Copies already allocated to other decks aren’t offered.'}
                   </div>
                 }
                 if (shown.length === 0) {
-                  return <div className={styles.emptySmall}>No owned {currentRoleName.toLowerCase()} cards under your budget.</div>
+                  return <div className={styles.emptySmall}>No {currentRoleName.toLowerCase()} cards in your binders under your budget.</div>
                 }
                 return (
                   <>
@@ -1450,7 +1546,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                       })}
                     </div>
                     {shown.length > MAX_TILES && (
-                      <div className={styles.moreNote}>+{shown.length - MAX_TILES} more in your collection</div>
+                      <div className={styles.moreNote}>+{shown.length - MAX_TILES} more in your binders</div>
                     )}
                   </>
                 )
@@ -1558,6 +1654,62 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                 </label>
               )}
 
+              {/* Buy the gap — deck cards not available in the binders */}
+              <div className={styles.sectionLabel}>
+                Missing from your binders
+                {(buyGap.toBuy.length + buyGap.elsewhere.length) > 0 && (
+                  <span className={styles.sectionHint}>
+                    {' '}· {buyGap.toBuy.length + buyGap.elsewhere.length} cards
+                    {buyGapPrice.total > 0 && ` · ~${formatPrice(buyGapPrice.total, price_source)} to buy`}
+                    {buyGapPrice.unpriced > 0 && ` (${buyGapPrice.unpriced} unpriced)`}
+                  </span>
+                )}
+              </div>
+              {buyGap.toBuy.length === 0 && buyGap.elsewhere.length === 0 ? (
+                <div className={styles.emptySmall}>Every nonbasic card is available in your binders.</div>
+              ) : (
+                <>
+                  {buyGap.toBuy.length > 0 && (
+                    <div className={styles.gapActions}>
+                      <button className={styles.themeChip} onClick={handleCopyBuyList}>
+                        {copiedGap ? 'Copied!' : `Copy buy list (${buyGap.toBuy.length})`}
+                      </button>
+                      <a
+                        className={`${styles.themeChip} ${styles.chipLink}`}
+                        href={tcgplayerMassEntryUrl(buyGap.toBuy)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Open the buy list in TCGplayer Mass Entry"
+                      >
+                        TCGplayer <ExternalLinkIcon size={11} />
+                      </a>
+                    </div>
+                  )}
+                  <div className={styles.gapList}>
+                    {[...buyGap.toBuy, ...buyGap.elsewhere].map(m => {
+                      const v = cheapestOf(m.name)
+                      return (
+                        <div key={m.name} className={styles.gapRow}>
+                          <span className={styles.gapQty}>{m.qty}×</span>
+                          <span className={styles.gapName} title={m.name}>{m.name}</span>
+                          {m.elsewhere && (
+                            <span
+                              className={styles.gapElsewhere}
+                              title="You own this card — every copy is allocated to another deck"
+                            >
+                              in another deck
+                            </span>
+                          )}
+                          <span className={styles.gapPrice}>
+                            {v != null ? formatPrice(v, price_source) : '—'}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
+
               <div className={styles.sectionLabel}>Mana curve (nonland)</div>
               <div className={styles.curve}>
                 {(() => {
@@ -1613,7 +1765,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                                 {isAdded(m.name) ? <CheckIcon size={11} /> : '+ '}{m.name}
                               </button>
                             ) : (
-                              <span key={m.name} className={styles.comboNeed} title="Not in your collection">{m.name}</span>
+                              <span key={m.name} className={styles.comboNeed} title="Not available — unowned, or every copy is in another deck">{m.name}</span>
                             )
                           ))}
                         </div>
@@ -1737,6 +1889,20 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           >
             Back
           </Button>
+          {!loading && !error && plan && (autoFilling || autoFillPicks.length > 0) && (
+            <Button
+              variant="ghost"
+              className={styles.autoFillBtn}
+              onClick={handleAutoFill}
+              disabled={!!autoFilling}
+              title="Fill every remaining role with the top available cards from your binders (budget and bracket target respected); basics still top up on finish"
+            >
+              <LightningIcon size={13} />
+              {autoFilling
+                ? ` Adding ${autoFilling.done}/${autoFilling.total}…`
+                : ` Auto-fill +${autoFillPicks.length}`}
+            </Button>
+          )}
           <div className={styles.footerSpacer} />
           {stepIndex < steps.length - 1 ? (
             <Button variant="primary" onClick={() => setStepIndex(i => Math.min(steps.length - 1, i + 1))}>

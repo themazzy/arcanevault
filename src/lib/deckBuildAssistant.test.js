@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
   binderPlacedCardIds,
+  buildBuyList,
+  buyListText,
+  tcgplayerMassEntryUrl,
+  planAutoFill,
   granularToCoarse,
   edhrecHeaderToRole,
   coarseRole,
@@ -105,6 +109,128 @@ describe('binderPlacedCardIds', () => {
   it('handles null/absent inputs', () => {
     expect(binderPlacedCardIds(null, null).size).toBe(0)
     expect(binderPlacedCardIds(folders, null).size).toBe(0)
+  })
+})
+
+// ── Auto-fill planning ────────────────────────────────────────────────────────
+describe('planAutoFill', () => {
+  const cand = name => ({ name, sfCard: null })
+  const roles = [
+    { role: ROLE_RAMP, target: 2, ownedCandidates: [cand('Sol Ring'), cand('Arcane Signet'), cand('Cultivate')] },
+    { role: ROLE_DRAW, target: 1, ownedCandidates: [cand('Divination')] },
+    { role: ROLE_LANDS, target: 37, ownedCandidates: [] },
+  ]
+  const counts = entries => new Map(entries)
+
+  it('fills each role gap with top candidates in order', () => {
+    const picks = planAutoFill({
+      roles,
+      liveCounts: counts([[ROLE_RAMP, 0], [ROLE_DRAW, 0]]),
+      totalCards: 1, deckSize: 100,
+      landsTarget: 0, currentLands: 0,
+    })
+    expect(picks.map(p => p.cand.name)).toEqual(['Sol Ring', 'Arcane Signet', 'Divination'])
+  })
+
+  it('respects the live count (partially filled role)', () => {
+    const picks = planAutoFill({
+      roles,
+      liveCounts: counts([[ROLE_RAMP, 1], [ROLE_DRAW, 1]]),
+      totalCards: 3, deckSize: 100,
+      landsTarget: 0, currentLands: 0,
+    })
+    expect(picks.map(p => p.cand.name)).toEqual(['Sol Ring'])
+  })
+
+  it('skips excluded candidates (added / budget / bracket)', () => {
+    const picks = planAutoFill({
+      roles,
+      liveCounts: counts([[ROLE_RAMP, 0], [ROLE_DRAW, 0]]),
+      totalCards: 1, deckSize: 100,
+      landsTarget: 0, currentLands: 0,
+      exclude: c => c.name === 'Sol Ring',
+    })
+    expect(picks.map(p => p.cand.name)).toEqual(['Arcane Signet', 'Cultivate', 'Divination'])
+  })
+
+  it('reserves land slots: nonland picks stop at deckSize minus the lands still needed', () => {
+    // 3 slots left, 2 reserved for lands → only 1 nonland pick allowed.
+    const picks = planAutoFill({
+      roles,
+      liveCounts: counts([[ROLE_RAMP, 0], [ROLE_DRAW, 0]]),
+      totalCards: 97, deckSize: 100,
+      landsTarget: 37, currentLands: 35,
+    })
+    expect(picks.filter(p => p.role !== ROLE_LANDS)).toHaveLength(1)
+  })
+
+  it('adds nonbasic lands up to the nonbasic target, never a name twice', () => {
+    const picks = planAutoFill({
+      roles: [{ role: ROLE_LANDS, target: 37, ownedCandidates: [] }],
+      liveCounts: counts([]),
+      totalCards: 1, deckSize: 100,
+      landsTarget: 37, currentLands: 0,
+      nonbasicTarget: 2, currentNonbasicLands: 0,
+      landCandidates: [cand('Command Tower'), cand('Command Tower'), cand('Exotic Orchard'), cand('Path of Ancestry')],
+    })
+    expect(picks.map(p => p.cand.name)).toEqual(['Command Tower', 'Exotic Orchard'])
+    expect(picks.every(p => p.role === ROLE_LANDS)).toBe(true)
+  })
+
+  it('returns nothing when the deck is already full', () => {
+    const picks = planAutoFill({
+      roles,
+      liveCounts: counts([[ROLE_RAMP, 0]]),
+      totalCards: 100, deckSize: 100,
+      landsTarget: 37, currentLands: 30,
+    })
+    expect(picks).toHaveLength(0)
+  })
+})
+
+// ── Buy the gap ───────────────────────────────────────────────────────────────
+describe('buildBuyList / buyListText / tcgplayerMassEntryUrl', () => {
+  const available = new Set(['sol ring'])
+  const elsewhere = new Set(['rhystic study'])
+
+  it('splits missing deck cards into to-buy and owned-elsewhere, skipping basics and available cards', () => {
+    const { toBuy, elsewhere: inDecks } = buildBuyList([
+      { name: 'Sol Ring', qty: 1 },        // available in binders
+      { name: 'Rhystic Study', qty: 1 },   // owned, but in another deck
+      { name: 'Smothering Tithe', qty: 1 },// not owned
+      { name: 'Forest', qty: 12 },         // basic — never listed
+    ], available, elsewhere)
+    expect(toBuy.map(m => m.name)).toEqual(['Smothering Tithe'])
+    expect(inDecks.map(m => m.name)).toEqual(['Rhystic Study'])
+  })
+
+  it('merges multiple printings of one name and sums qty', () => {
+    const { toBuy } = buildBuyList([
+      { name: 'Shock', qty: 2 },
+      { name: 'Shock', qty: 1 },
+    ], new Set(), new Set())
+    expect(toBuy).toEqual([{ name: 'Shock', qty: 3, elsewhere: false }])
+  })
+
+  it('matches availability by front face for DFCs', () => {
+    const { toBuy } = buildBuyList(
+      [{ name: 'Henrika Domnathi // Henrika, Infernal Seer', qty: 1 }],
+      new Set(['henrika domnathi']),
+      new Set(),
+    )
+    expect(toBuy).toHaveLength(0)
+  })
+
+  it('renders the plain-text list and the mass-entry URL (front faces only)', () => {
+    const items = [
+      { name: 'Smothering Tithe', qty: 1 },
+      { name: 'Henrika Domnathi // Henrika, Infernal Seer', qty: 1 },
+    ]
+    expect(buyListText(items)).toBe('1 Smothering Tithe\n1 Henrika Domnathi // Henrika, Infernal Seer')
+    const url = tcgplayerMassEntryUrl(items)
+    expect(url).toContain('tcgplayer.com/massentry?c=')
+    expect(decodeURIComponent(url.split('c=')[1])).toBe('1 Smothering Tithe||1 Henrika Domnathi')
+    expect(tcgplayerMassEntryUrl([])).toBeNull()
   })
 })
 
