@@ -87,6 +87,23 @@ export function allocationSetHas(set, cardLike) {
   return deckAllocationKeys(cardLike).some(key => set.has(key))
 }
 
+// Merge allocation rows fetched for cards added after the initial deck load
+// into the existing other-deck key set. The load-time fetch is scoped to the
+// deck's card list at load, so late additions (search, recs, assistant,
+// import) need their allocations folded in or the ownership badge reports an
+// owned-but-committed copy as available. Rows belonging to the current deck
+// pair (the builder deck itself and its linked collection deck) are excluded.
+export function mergeOtherDeckAllocationKeys(prevSet, allocationRows, excludedDeckIds = []) {
+  const excluded = new Set((excludedDeckIds || []).filter(Boolean))
+  const keys = (allocationRows || [])
+    .filter(row => !excluded.has(row.deck_id))
+    .flatMap(row => deckAllocationKeys(row))
+  if (!keys.length) return prevSet
+  const next = new Set(prevSet)
+  for (const key of keys) next.add(key)
+  return next
+}
+
 // Collects the identifying fields (print id, scryfall id, name) present across
 // a list of cards, for scoping an allocation lookup to just "could this match
 // one of these cards" instead of fetching a user's entire collection. Mirrors

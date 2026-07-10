@@ -227,7 +227,7 @@ export default function DeckImportModal({
         .join(', ')
       const skipped = missedRows.length ? ` Skipped ${missedRows.length} unresolved row${missedRows.length !== 1 ? 's' : ''}.` : ''
       setImportDone(`Imported ${importedCopies} card${importedCopies !== 1 ? 's' : ''}${boardSummary ? ` (${boardSummary})` : ''}.${skipped}`)
-      onImported?.(importedCopies)
+      onImported?.(importedCopies, hydratedRows)
       setImportText('')
       setImportUrl('')
       setImportRows([])

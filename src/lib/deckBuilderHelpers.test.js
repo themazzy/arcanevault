@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { deckAllocationKeys, allocationSetHas, collectCardIdentities, mainBoardCards, chunkIds, cardNameMatchKeys } from './deckBuilderHelpers'
+import { deckAllocationKeys, allocationSetHas, mergeOtherDeckAllocationKeys, collectCardIdentities, mainBoardCards, chunkIds, cardNameMatchKeys } from './deckBuilderHelpers'
 
 describe('deckAllocationKeys / allocationSetHas', () => {
   it('matches a deck card against an allocation in another deck via the shared card_print_id', () => {
@@ -41,6 +41,49 @@ describe('deckAllocationKeys / allocationSetHas', () => {
     const dc = { card_print_id: 'print-A', scryfall_id: 'sf-A', name: 'Forest', foil: false }
     const set = new Set(deckAllocationKeys({ card_print_id: 'print-B', scryfall_id: 'sf-B', name: 'Island', foil: false }))
     expect(allocationSetHas(set, dc)).toBe(false)
+  })
+})
+
+describe('mergeOtherDeckAllocationKeys', () => {
+  // Regression: a card added from search/recs after the deck loaded was never
+  // part of the load-time allocation fetch, so the ownership badge showed
+  // "Owned" even when every copy was committed to another deck. Late adds
+  // fetch their own allocations and merge them into the existing set.
+  it('marks a late-added card as committed when its allocation lives in another deck', () => {
+    const prev = new Set(['name:sol ring|0'])
+    const addedCard = { scryfall_id: 'sf-bolt', name: 'Lightning Bolt', foil: false }
+    const allocations = [
+      { scryfall_id: 'sf-bolt', card_print_id: 'print-bolt', name: 'Lightning Bolt', foil: false, deck_id: 'other-deck' },
+    ]
+
+    const next = mergeOtherDeckAllocationKeys(prev, allocations, ['this-deck', 'linked-coll-deck'])
+    expect(allocationSetHas(next, addedCard)).toBe(true)
+    // Existing entries survive the merge
+    expect(next.has('name:sol ring|0')).toBe(true)
+  })
+
+  it('excludes allocations belonging to the current deck pair', () => {
+    const allocations = [
+      { scryfall_id: 'sf-bolt', name: 'Lightning Bolt', foil: false, deck_id: 'linked-coll-deck' },
+    ]
+    const next = mergeOtherDeckAllocationKeys(new Set(), allocations, ['this-deck', 'linked-coll-deck'])
+    expect(next.size).toBe(0)
+  })
+
+  it('returns the previous set unchanged when nothing merges (no re-render churn)', () => {
+    const prev = new Set(['name:sol ring|0'])
+    expect(mergeOtherDeckAllocationKeys(prev, [], ['this-deck'])).toBe(prev)
+    expect(mergeOtherDeckAllocationKeys(prev, null, [null])).toBe(prev)
+  })
+
+  it('ignores null entries in the excluded deck ids (unlinked builder deck)', () => {
+    const allocations = [
+      { scryfall_id: 'sf-bolt', name: 'Lightning Bolt', foil: false, deck_id: 'some-deck' },
+    ]
+    // getAllocationDeckId() returns null for an unlinked builder deck — a null
+    // exclusion must not filter out real allocation rows.
+    const next = mergeOtherDeckAllocationKeys(new Set(), allocations, ['this-deck', null])
+    expect(allocationSetHas(next, { name: 'Lightning Bolt', foil: false })).toBe(true)
   })
 })
 

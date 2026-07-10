@@ -142,6 +142,7 @@ import {
   manaSymbolUrl,
   deckAllocationKeys,
   allocationSetHas,
+  mergeOtherDeckAllocationKeys,
   normalizePrintKey,
   printingSupportsFoil,
   printingSupportsNonfoil,
@@ -720,6 +721,8 @@ export default function DeckBuilderPage() {
   const printingLookupCache = useRef(new Map())
   const ownedPrintingCandidatesCache = useRef(new Map())
   const ownedPrintingRefreshPromises = useRef(new Map())
+  const ownershipRefreshRowsRef = useRef([])
+  const ownershipRefreshTimerRef = useRef(null)
 
   const invalidateCollectionPlacementQueries = useCallback(async ({ includeFolders = false, includeCards = false } = {}) => {
     const invalidations = [
@@ -2313,6 +2316,7 @@ export default function DeckBuilderPage() {
     try {
       await sbExec(sb.from('deck_cards').upsert(hydratedRows.map(toDeckCardRow), { onConflict: 'id' }), { label: 'Save commander deck failed' })
       putDeckCards(hydratedRows).catch(() => {})
+      queueOwnershipRefreshForRows([hydratedCmdRow])
     } catch { return }
 
     // Save meta immediately (not debounced) so navigation away won't lose the commander
@@ -2467,9 +2471,11 @@ export default function DeckBuilderPage() {
     return !!aKey && aKey === bKey
   }
 
+  // Returns the final deck-card row (the merged existing row or the new row)
+  // so callers can refresh ownership indicators with its resolved identity.
   async function applyResolvedPrintingToDeckRow(placeholderRow, resolved) {
-    if (!resolved?.sfCard) return
-    if (!deckCardsRef.current.some(dc => dc.id === placeholderRow.id)) return
+    if (!resolved?.sfCard) return null
+    if (!deckCardsRef.current.some(dc => dc.id === placeholderRow.id)) return null
     const meta = getDeckBuilderCardMeta(resolved.sfCard)
     const now = new Date().toISOString()
     const [printing] = await requireCardPrintIds([{
@@ -2507,7 +2513,7 @@ export default function DeckBuilderPage() {
         putDeckCards([updatedExisting]).catch(() => {})
         deleteDeckCardLocal(placeholderRow.id).catch(() => {})
       } catch {}
-      return
+      return updatedExisting
     }
 
     deckCardsRef.current = deckCardsRef.current.map(dc => dc.id === placeholderRow.id ? nextRow : dc)
@@ -2516,6 +2522,7 @@ export default function DeckBuilderPage() {
       await sbExec(sb.from('deck_cards').insert(toDeckCardRow(nextRow)), { label: 'Add card failed' })
       putDeckCards([nextRow]).catch(() => {})
     } catch {}
+    return nextRow
   }
 
   // ── Optimize printings ──────────────────────────────────────────────────────
@@ -2731,7 +2738,8 @@ export default function DeckBuilderPage() {
       : (scryfallId ? { id: scryfallId, name, set: setCode, collector_number: collNum, type_line: typeLine, mana_cost: manaCost, cmc, color_identity: colorId, image_uris: imageUri ? { normal: imageUri } : null } : null)
     try {
       const resolved = await resolvePreferredDeckPrinting(name, fallbackSfCard)
-      await applyResolvedPrintingToDeckRow(placeholderRow, resolved)
+      const finalRow = await applyResolvedPrintingToDeckRow(placeholderRow, resolved)
+      queueOwnershipRefreshForRows([finalRow])
     } catch (err) {
       console.error('[DeckBuilder] failed to resolve preferred printing:', err)
       deckCardsRef.current = deckCardsRef.current.filter(dc => dc.id !== placeholderRow.id)
@@ -3314,6 +3322,40 @@ export default function DeckBuilderPage() {
         .flatMap(row => deckAllocationKeys(row))
     ))
   }
+
+  // The load-time allocation fetch is scoped to the deck's cards at load, so a
+  // card added afterwards (search, recs, assistant, combos, commander pick,
+  // import) has no entry in inOtherDeckSet and its badge would report any
+  // owned copy as available even when it's committed to another deck. Every
+  // late-add path queues its final rows here; adds within 300 ms coalesce into
+  // one scoped allocation fetch whose keys merge into the existing set.
+  function queueOwnershipRefreshForRows(rows) {
+    const valid = (rows || []).filter(Boolean)
+    if (!valid.length || !user?.id) return
+    ownershipRefreshRowsRef.current.push(...valid)
+    if (ownershipRefreshTimerRef.current) clearTimeout(ownershipRefreshTimerRef.current)
+    ownershipRefreshTimerRef.current = setTimeout(async () => {
+      const batch = ownershipRefreshRowsRef.current
+      ownershipRefreshRowsRef.current = []
+      ownershipRefreshTimerRef.current = null
+      try {
+        const identities = collectCardIdentities(batch)
+        if (!identities.cardPrintIds.length && !identities.scryfallIds.length && !identities.names.length) return
+        const allocations = await fetchDeckAllocationsForCardIdentities(user.id, identities)
+        setInOtherDeckSet(prev => mergeOtherDeckAllocationKeys(prev, allocations, [deckId, getAllocationDeckId()]))
+      } catch (err) {
+        console.warn('[DeckBuilder] ownership refresh for added cards failed:', err)
+      }
+    }, 300)
+  }
+
+  // Drop any queued ownership refresh when switching decks or unmounting — a
+  // late timer would merge keys computed against the previous deck's pair.
+  useEffect(() => () => {
+    if (ownershipRefreshTimerRef.current) clearTimeout(ownershipRefreshTimerRef.current)
+    ownershipRefreshTimerRef.current = null
+    ownershipRefreshRowsRef.current = []
+  }, [deckId])
 
   // Stable string key for the sync baseline + linked deck id, so meta edits like
   // description/tags/public-toggle don't refire fetchDeckAllocations.
@@ -6049,7 +6091,10 @@ export default function DeckBuilderPage() {
         userId={user.id}
         deckCardsRef={deckCardsRef}
         setDeckCards={setDeckCards}
-        onImported={(copies) => logDeckChange(deckId, user?.id, 'Import', `Imported ${copies} card${copies === 1 ? '' : 's'}`)}
+        onImported={(copies, rows) => {
+          logDeckChange(deckId, user?.id, 'Import', `Imported ${copies} card${copies === 1 ? '' : 's'}`)
+          queueOwnershipRefreshForRows(rows)
+        }}
       />
 
       {/* Read-only card detail modal */}
