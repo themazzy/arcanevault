@@ -10,7 +10,7 @@ import styles from './Builder.module.css'
 import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 import { useToast } from '../components/ToastContext'
-import { CheckIcon, CloseIcon, DeleteIcon, ChevronDownIcon } from '../icons'
+import { CheckIcon, CloseIcon, DeleteIcon, ChevronDownIcon, FilterIcon } from '../icons'
 import { GuidedCommanderPicker } from '../components/deckBuilder/GuidedCommanderPicker'
 import { resolveBracketBadge, analyzeBracket, fetchGameChangerNames, computeBracketMetaPatch, BRACKET_LABELS } from '../lib/commanderBracket'
 import {
@@ -385,6 +385,45 @@ function ColorPipsFilter({ colors, colorMode, onToggleColor, onCycleMode }) {
 function cycleColorMode(mode) {
   const i = COLOR_MATCH_MODES.indexOf(mode)
   return COLOR_MATCH_MODES[(i + 1) % COLOR_MATCH_MODES.length]
+}
+
+// Phone-only "Filters" pill + bottom sheet. The inline pill groups are hidden
+// ≤640px (ResponsiveMenu's sheet breakpoint) and re-rendered inside the sheet.
+function FiltersSheet({ count, children }) {
+  return (
+    <ResponsiveMenu
+      title="Filters"
+      wrapClassName={styles.filtersTriggerWrap}
+      trigger={({ toggle }) => (
+        <button className={`${styles.filterPill}${count ? ' ' + styles.filterPillActive : ''}`} onClick={toggle}>
+          <FilterIcon size={12} /> Filters
+          {count > 0 && <span className={styles.filterCountBadge}>{count}</span>}
+        </button>
+      )}
+    >
+      {() => <div className={styles.filtersMenuBody}>{children}</div>}
+    </ResponsiveMenu>
+  )
+}
+
+function SheetSection({ label, children }) {
+  return (
+    <>
+      <div className={styles.filtersMenuLabel}>{label}</div>
+      <div className={styles.filtersMenuGroup}>{children}</div>
+    </>
+  )
+}
+
+// Single-select pill row for the sheet — same look as the inline bar pills.
+function SheetPills({ options, value, onChange }) {
+  return options.map(([v, label]) => (
+    <button key={v}
+      className={`${styles.filterPill}${value === v ? ' ' + styles.filterPillActive : ''}`}
+      onClick={() => onChange(v)}>
+      {label}
+    </button>
+  ))
 }
 
 function FilterChips({ chips, countLabel, onClearChip, onClearAll }) {
@@ -803,55 +842,106 @@ export default function BuilderPage() {
             onChange={e => setFilters(f => ({ ...f, search: e.target.value }))}
             placeholder="Search decks, commanders, tags…"
           />
-          <div className={styles.filterGroup}>
-            {TYPE_LABELS.map(([v, label]) => (
-              <button key={v}
-                className={`${styles.filterPill}${filters.type === v ? ' ' + styles.filterPillActive : ''}`}
-                onClick={() => setFilters(f => ({ ...f, type: v }))}>
-                {label}
-              </button>
-            ))}
-          </div>
-          <div className={styles.filterGroup}>
-            {[['all','All'],['public','Public'],['private','Private']].map(([v, label]) => (
-              <button key={v}
-                className={`${styles.filterPill}${filters.visibility === v ? ' ' + styles.filterPillActive : ''}`}
-                onClick={() => setFilters(f => ({ ...f, visibility: v }))}>
-                {label}
-              </button>
-            ))}
-          </div>
-          <PillMenu
-            title="Format"
-            options={myFormatOptions}
-            value={filters.format}
-            onChange={v => setFilters(f => ({ ...f, format: v }))}
-          />
-          <ColorPipsFilter
-            colors={filters.colors}
-            colorMode={filters.colorMode}
-            onToggleColor={c => setFilters(f => ({
-              ...f,
-              colors: f.colors.includes(c) ? f.colors.filter(x => x !== c) : [...f.colors, c],
-            }))}
-            onCycleMode={() => setFilters(f => ({ ...f, colorMode: cycleColorMode(f.colorMode) }))}
-          />
-          <PillMenu
-            title="Bracket"
-            options={BRACKET_OPTIONS}
-            value={String(filters.bracket)}
-            onChange={v => setFilters(f => ({ ...f, bracket: v }))}
-          />
-          {allDeckTags.length > 0 && (
-            <TagsMenu
-              tags={allDeckTags}
-              selected={filters.tags}
-              onToggle={t => setFilters(f => ({
-                ...f,
-                tags: f.tags.includes(t) ? f.tags.filter(x => x !== t) : [...f.tags, t],
-              }))}
+          <div className={styles.inlineFilters}>
+            <div className={styles.filterGroup}>
+              {TYPE_LABELS.map(([v, label]) => (
+                <button key={v}
+                  className={`${styles.filterPill}${filters.type === v ? ' ' + styles.filterPillActive : ''}`}
+                  onClick={() => setFilters(f => ({ ...f, type: v }))}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className={styles.filterGroup}>
+              {[['all','All'],['public','Public'],['private','Private']].map(([v, label]) => (
+                <button key={v}
+                  className={`${styles.filterPill}${filters.visibility === v ? ' ' + styles.filterPillActive : ''}`}
+                  onClick={() => setFilters(f => ({ ...f, visibility: v }))}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <PillMenu
+              title="Format"
+              options={myFormatOptions}
+              value={filters.format}
+              onChange={v => setFilters(f => ({ ...f, format: v }))}
             />
-          )}
+            <ColorPipsFilter
+              colors={filters.colors}
+              colorMode={filters.colorMode}
+              onToggleColor={c => setFilters(f => ({
+                ...f,
+                colors: f.colors.includes(c) ? f.colors.filter(x => x !== c) : [...f.colors, c],
+              }))}
+              onCycleMode={() => setFilters(f => ({ ...f, colorMode: cycleColorMode(f.colorMode) }))}
+            />
+            <PillMenu
+              title="Bracket"
+              options={BRACKET_OPTIONS}
+              value={String(filters.bracket)}
+              onChange={v => setFilters(f => ({ ...f, bracket: v }))}
+            />
+            {allDeckTags.length > 0 && (
+              <TagsMenu
+                tags={allDeckTags}
+                selected={filters.tags}
+                onToggle={t => setFilters(f => ({
+                  ...f,
+                  tags: f.tags.includes(t) ? f.tags.filter(x => x !== t) : [...f.tags, t],
+                }))}
+              />
+            )}
+          </div>
+          <FiltersSheet count={myChips.length}>
+            <SheetSection label="Type">
+              <SheetPills options={TYPE_LABELS} value={filters.type}
+                onChange={v => setFilters(f => ({ ...f, type: v }))} />
+            </SheetSection>
+            <SheetSection label="Visibility">
+              <SheetPills options={[['all','All'],['public','Public'],['private','Private']]} value={filters.visibility}
+                onChange={v => setFilters(f => ({ ...f, visibility: v }))} />
+            </SheetSection>
+            <SheetSection label="Format">
+              <SheetPills options={myFormatOptions} value={filters.format}
+                onChange={v => setFilters(f => ({ ...f, format: v }))} />
+            </SheetSection>
+            <SheetSection label="Colors">
+              <ColorPipsFilter
+                colors={filters.colors}
+                colorMode={filters.colorMode}
+                onToggleColor={c => setFilters(f => ({
+                  ...f,
+                  colors: f.colors.includes(c) ? f.colors.filter(x => x !== c) : [...f.colors, c],
+                }))}
+                onCycleMode={() => setFilters(f => ({ ...f, colorMode: cycleColorMode(f.colorMode) }))}
+              />
+            </SheetSection>
+            <SheetSection label="Bracket">
+              <SheetPills options={BRACKET_OPTIONS} value={String(filters.bracket)}
+                onChange={v => setFilters(f => ({ ...f, bracket: v }))} />
+            </SheetSection>
+            {allDeckTags.length > 0 && (
+              <SheetSection label="Tags">
+                {allDeckTags.map(t => (
+                  <button key={t}
+                    className={`${styles.filterPill}${filters.tags.includes(t) ? ' ' + styles.filterPillActive : ''}`}
+                    onClick={() => setFilters(f => ({
+                      ...f,
+                      tags: f.tags.includes(t) ? f.tags.filter(x => x !== t) : [...f.tags, t],
+                    }))}>
+                    {t}
+                  </button>
+                ))}
+              </SheetSection>
+            )}
+            {myChips.length > 0 && (
+              <button className={styles.filtersClearBtn}
+                onClick={() => setFilters(f => ({ ...EMPTY_DECK_INDEX_FILTERS, search: f.search }))}>
+                Clear filters
+              </button>
+            )}
+          </FiltersSheet>
           <PillMenu
             title="Sort By"
             options={Object.entries(DECK_INDEX_SORTS)}
@@ -934,36 +1024,69 @@ export default function BuilderPage() {
             onChange={e => setCommunitySearch(e.target.value)}
             placeholder="Search decks, commanders, tags…"
           />
-          <PillMenu
-            title="Format"
-            options={[['all', 'All Formats'], ...FORMATS.map(f => [f.id, f.label])]}
-            value={communityFilters.format}
-            onChange={v => setCommunityFilters(f => ({ ...f, format: v }))}
-          />
-          <ColorPipsFilter
-            colors={communityFilters.colors}
-            colorMode={communityFilters.colorMode}
-            onToggleColor={c => setCommunityFilters(f => ({
-              ...f,
-              colors: f.colors.includes(c) ? f.colors.filter(x => x !== c) : [...f.colors, c],
-            }))}
-            onCycleMode={() => setCommunityFilters(f => ({ ...f, colorMode: cycleColorMode(f.colorMode) }))}
-          />
-          <PillMenu
-            title="Bracket"
-            options={BRACKET_OPTIONS}
-            value={String(communityFilters.bracket)}
-            onChange={v => setCommunityFilters(f => ({ ...f, bracket: v }))}
-          />
-          <div className={styles.filterGroup}>
-            {COMMUNITY_SORTS.map(([v, label]) => (
-              <button key={v}
-                className={`${styles.filterPill}${communitySort === v ? ' ' + styles.filterPillActive : ''}`}
-                onClick={() => setCommunitySort(v)}>
-                {label}
-              </button>
-            ))}
+          <div className={styles.inlineFilters}>
+            <PillMenu
+              title="Format"
+              options={[['all', 'All Formats'], ...FORMATS.map(f => [f.id, f.label])]}
+              value={communityFilters.format}
+              onChange={v => setCommunityFilters(f => ({ ...f, format: v }))}
+            />
+            <ColorPipsFilter
+              colors={communityFilters.colors}
+              colorMode={communityFilters.colorMode}
+              onToggleColor={c => setCommunityFilters(f => ({
+                ...f,
+                colors: f.colors.includes(c) ? f.colors.filter(x => x !== c) : [...f.colors, c],
+              }))}
+              onCycleMode={() => setCommunityFilters(f => ({ ...f, colorMode: cycleColorMode(f.colorMode) }))}
+            />
+            <PillMenu
+              title="Bracket"
+              options={BRACKET_OPTIONS}
+              value={String(communityFilters.bracket)}
+              onChange={v => setCommunityFilters(f => ({ ...f, bracket: v }))}
+            />
+            <div className={styles.filterGroup}>
+              {COMMUNITY_SORTS.map(([v, label]) => (
+                <button key={v}
+                  className={`${styles.filterPill}${communitySort === v ? ' ' + styles.filterPillActive : ''}`}
+                  onClick={() => setCommunitySort(v)}>
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
+          <FiltersSheet count={communityChips.length}>
+            <SheetSection label="Format">
+              <SheetPills options={[['all', 'All Formats'], ...FORMATS.map(f => [f.id, f.label])]}
+                value={communityFilters.format}
+                onChange={v => setCommunityFilters(f => ({ ...f, format: v }))} />
+            </SheetSection>
+            <SheetSection label="Colors">
+              <ColorPipsFilter
+                colors={communityFilters.colors}
+                colorMode={communityFilters.colorMode}
+                onToggleColor={c => setCommunityFilters(f => ({
+                  ...f,
+                  colors: f.colors.includes(c) ? f.colors.filter(x => x !== c) : [...f.colors, c],
+                }))}
+                onCycleMode={() => setCommunityFilters(f => ({ ...f, colorMode: cycleColorMode(f.colorMode) }))}
+              />
+            </SheetSection>
+            <SheetSection label="Bracket">
+              <SheetPills options={BRACKET_OPTIONS} value={String(communityFilters.bracket)}
+                onChange={v => setCommunityFilters(f => ({ ...f, bracket: v }))} />
+            </SheetSection>
+            <SheetSection label="Sort">
+              <SheetPills options={COMMUNITY_SORTS} value={communitySort} onChange={setCommunitySort} />
+            </SheetSection>
+            {communityChips.length > 0 && (
+              <button className={styles.filtersClearBtn}
+                onClick={() => setCommunityFilters({ format: 'all', colors: [], colorMode: 'includes', bracket: 'all' })}>
+                Clear filters
+              </button>
+            )}
+          </FiltersSheet>
         </div>
 
         <FilterChips

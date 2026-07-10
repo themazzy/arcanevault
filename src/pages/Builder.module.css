@@ -244,6 +244,69 @@
 
 .sortMenuWrap { position: relative; }
 
+/* ── Phone filters sheet (≤640px, matches ResponsiveMenu's sheet breakpoint) ── */
+/* display:contents keeps the inline groups participating in .filterBar's flex
+   wrap on desktop/tablet; the phone rule below swaps them for the sheet. */
+.inlineFilters { display: contents; }
+.filtersTriggerWrap { display: none; }
+
+.filtersMenuBody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 4px;
+}
+.filtersMenuLabel {
+  font-family: var(--font-display);
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-top: 4px;
+}
+.filtersMenuLabel:first-child { margin-top: 0; }
+.filtersMenuGroup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.filtersClearBtn {
+  align-self: flex-start;
+  margin-top: 6px;
+  background: none;
+  border: 1px solid var(--s-border2);
+  border-radius: 8px;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 0.72rem;
+  padding: 6px 12px;
+}
+.filtersClearBtn:hover { color: var(--text); background: var(--s-medium); }
+
+/* Active-filter count badge on the Filters trigger */
+.filterCountBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  margin-left: 3px;
+  padding: 0 4px;
+  background: rgba(201, 168, 76, 0.9);
+  border-radius: 999px;
+  color: #1a1710;
+  font-size: 0.58rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+@media (max-width: 640px) {
+  .inlineFilters { display: none; }
+  .filtersTriggerWrap { display: inline-flex; }
+  .filterInput { width: 100%; }
+}
+
 /* ── Deck grid ──────────────────────────────────────────────────── */
 .grid {
   display: grid;
@@ -748,7 +811,9 @@
 
 @media (max-width: 480px) {
   .page { padding: 12px; }
-  .filterBar { flex-direction: column; align-items: stretch; }
+  /* Search takes its own full-width row; the Filters/Sort/Select pills share
+     the next row (the heavy filter groups live in the sheet at this width). */
+  .filterBar { gap: 6px; }
   .filterGroup { flex-wrap: wrap; }
   .grid { grid-template-columns: 1fr; gap: 10px; }
   .card { height: 240px; }
