@@ -306,7 +306,7 @@ function MenuOption({ active, onClick, children, desc }) {
   )
 }
 
-export function BuildAssistant({ userId, commander, deckCards = [], accessToken, onAddCard, onRemoveCard, onAddToWishlist, onAddBasics, onClose }) {
+export function BuildAssistant({ userId, commander, deckCards = [], accessToken, onAddCard, onRemoveCard, onRemoveCards, onAddToWishlist, onAddBasics, onClose }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [plan, setPlan] = useState(null) // enriched plan (candidates + upgrades)
@@ -1032,10 +1032,16 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     })
   }
   async function applyCuts(ids) {
-    if (typeof onRemoveCard !== 'function' || !ids?.length) return
+    if (!ids?.length) return
     setApplyingCuts(true)
     try {
-      for (const id of ids) { try { await onRemoveCard(id) } catch { /* parent surfaces */ } }
+      if (typeof onRemoveCards === 'function') {
+        // One state update + one DB delete for the whole batch — cutting per
+        // card re-renders the assistant and reruns the plan after every cut.
+        try { await onRemoveCards(ids) } catch { /* parent surfaces */ }
+      } else if (typeof onRemoveCard === 'function') {
+        for (const id of ids) { try { await onRemoveCard(id) } catch { /* parent surfaces */ } }
+      }
     } finally { setApplyingCuts(false) }
   }
 

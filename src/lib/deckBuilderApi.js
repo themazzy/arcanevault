@@ -148,6 +148,23 @@ export function getDeckBuilderCardMeta(sfCard) {
 export function nameToSlug(name) {
   return name
     .toLowerCase()
+    // EDHREC drops diacritics rather than deleting the letter (Jötun → jotun).
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    // A hyphen in the printed name stays a word break: "Nine-Fingers Keene" →
+    // nine-fingers-keene. Stripping it with the other punctuation produced
+    // "ninefingers-keene", which 403s.
+    .replace(/-/g, ' ')
+    .replace(/[^a-z0-9\s]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+}
+
+// Pre-fix slugger that deleted hyphens/diacritics outright ("ninefingers-keene").
+// Kept as a lower-priority candidate in case any EDHREC page still sanitizes
+// that way; for names without hyphens it dedupes away.
+function legacyNameToSlug(name) {
+  return String(name || '')
+    .toLowerCase()
     .replace(/[^a-z0-9\s]/g, '')
     .trim()
     .replace(/\s+/g, '-')
@@ -162,6 +179,8 @@ function getEdhrecCommanderSlugCandidates(name) {
   const candidates = [
     nameToSlug(name),
     ...parts.map(part => nameToSlug(part)),
+    legacyNameToSlug(name),
+    ...parts.map(part => legacyNameToSlug(part)),
   ].filter(Boolean)
 
   return [...new Set(candidates)]

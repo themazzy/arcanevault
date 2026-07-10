@@ -459,6 +459,13 @@ export async function deleteDeckCardLocal(id) {
   await db.delete('deck_cards', id)
 }
 
+export async function deleteDeckCardsLocal(ids) {
+  if (!ids?.length) return
+  const db = await getDb()
+  const tx = db.transaction('deck_cards', 'readwrite')
+  await Promise.all([...ids.map(id => tx.store.delete(id)), tx.done])
+}
+
 export async function deleteAllDeckCardsLocal(deckId) {
   const db = await getDb()
   const all = await db.getAllFromIndex('deck_cards', 'deck_id', deckId)

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { deckAllocationKeys, allocationSetHas, collectCardIdentities } from './deckBuilderHelpers'
+import { deckAllocationKeys, allocationSetHas, collectCardIdentities, mainBoardCards, chunkIds } from './deckBuilderHelpers'
 
 describe('deckAllocationKeys / allocationSetHas', () => {
   it('matches a deck card against an allocation in another deck via the shared card_print_id', () => {
@@ -61,5 +61,52 @@ describe('collectCardIdentities', () => {
   it('returns empty arrays for an empty or missing card list', () => {
     expect(collectCardIdentities([])).toEqual({ cardPrintIds: [], scryfallIds: [], names: [] })
     expect(collectCardIdentities(undefined)).toEqual({ cardPrintIds: [], scryfallIds: [], names: [] })
+  })
+})
+
+describe('mainBoardCards', () => {
+  // Regression: the Deck tab counter and the Build Assistant were summing
+  // side/maybe rows into the main-deck count.
+  it('keeps only main-board rows, commander included', () => {
+    const rows = [
+      { name: 'Atraxa', board: 'main', is_commander: true, qty: 1 },
+      { name: 'Sol Ring', board: 'main', qty: 1 },
+      { name: 'Negate', board: 'side', qty: 2 },
+      { name: 'Craterhoof Behemoth', board: 'maybe', qty: 1 },
+    ]
+    expect(mainBoardCards(rows).map(r => r.name)).toEqual(['Atraxa', 'Sol Ring'])
+  })
+
+  it('treats missing or unknown board values as main', () => {
+    const rows = [
+      { name: 'Legacy row with no board', qty: 1 },
+      { name: 'Garbage board', board: 'bogus', qty: 1 },
+      { name: 'Maybe row', board: 'maybe', qty: 1 },
+    ]
+    expect(mainBoardCards(rows).map(r => r.name)).toEqual(['Legacy row with no board', 'Garbage board'])
+  })
+
+  it('returns an empty array for a missing list', () => {
+    expect(mainBoardCards(undefined)).toEqual([])
+  })
+})
+
+describe('chunkIds', () => {
+  // .in() filters put ids in the request URL; bulk deletes must chunk so a
+  // large batch can't overflow URL-length limits.
+  it('splits ids into batches of the given size', () => {
+    expect(chunkIds(['a', 'b', 'c', 'd', 'e'], 2)).toEqual([['a', 'b'], ['c', 'd'], ['e']])
+  })
+
+  it('defaults to batches of 100', () => {
+    const ids = Array.from({ length: 250 }, (_, i) => `id-${i}`)
+    const batches = chunkIds(ids)
+    expect(batches.map(b => b.length)).toEqual([100, 100, 50])
+    expect(batches.flat()).toEqual(ids)
+  })
+
+  it('returns no batches for an empty or missing list', () => {
+    expect(chunkIds([])).toEqual([])
+    expect(chunkIds(undefined)).toEqual([])
   })
 })

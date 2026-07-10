@@ -1150,10 +1150,23 @@
 .footerSpacer { flex: 1; }
 
 @media (max-width: 600px) {
+  /* Full-screen sheet: the wizard needs every pixel on a phone. width:100vw +
+     -16px margins cancel .overlay's 16px padding (UI.module.css) so the modal
+     reaches the screen edges without touching the shared Modal component. */
+  .modal {
+    width: 100vw;
+    min-height: 100dvh;
+    margin: -16px;
+    flex-shrink: 0;
+    border: none;
+    border-radius: 0;
+    padding: 12px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  }
   .body {
     gap: 8px;
-    height: min(92dvh, calc(100dvh - 72px));
-    max-height: min(92dvh, calc(100dvh - 72px));
+    /* Fill the sheet exactly: viewport minus the modal's own padding. */
+    height: calc(100dvh - 22px - env(safe-area-inset-bottom, 0px));
+    max-height: none;
   }
   .grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
   .curve { gap: 6px; }
@@ -1164,6 +1177,40 @@
      multi-line copy here so the card grid starts higher. */
   .roleDesc { display: none; }
   .roleHead { padding: 2px 0 8px; }
+
+  /* Header: commander name truncates on row 1 next to the title; the bracket +
+     deck-value readouts get their own full row instead of squeezing it out. */
+  .commander {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .controlsReadouts {
+    flex-basis: 100%;
+    margin-left: 0;
+    justify-content: space-between;
+  }
+
+  /* Stepper: dots only. 9 labelled nodes are ~580px wide — they can't fit, and
+     a clipped scroll row reads as broken. The active role's name is shown in
+     the role header right below, so the labels are redundant here; label-less
+     nodes compress evenly and the whole track always fits on screen. */
+  .nodeLabel { display: none; }
+  .stepper { padding-bottom: 0; }
+  .stepper .node {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 40px;
+    justify-content: center;
+  }
+  .connector { min-width: 4px; }
+  .dot { width: 22px; height: 22px; margin: 0 1px; }
+
+  /* Role header: let the count wrap under a long role name instead of
+     squeezing it into an ellipsis-free overflow. */
+  .roleHeadTop { flex-wrap: wrap; }
 
   /* Lay the dropdowns out as a 2-column grid (full-width chips) so they always
      take 2 rows instead of wrapping to 3. min-width:0 lets the value truncate

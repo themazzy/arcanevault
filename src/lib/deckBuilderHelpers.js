@@ -14,6 +14,22 @@ export function normalizeBoard(board) {
   return BOARD_ORDER.includes(board) ? board : 'main'
 }
 
+// Main-board rows only — what "the deck" means for counters and the Build
+// Assistant. The commander stays included (it always lives on the main board);
+// side/maybe rows are excluded, and unknown boards normalize to main.
+export function mainBoardCards(rows) {
+  return (rows || []).filter(dc => normalizeBoard(dc?.board) === 'main')
+}
+
+// Split ids for PostgREST .in() filters — the ids ride in the request URL, so
+// unbounded lists overflow URL-length limits somewhere past ~200 uuids. 100
+// matches the batch size used by the app's other bulk writes.
+export function chunkIds(ids, size = 100) {
+  const out = []
+  for (let i = 0; i < (ids?.length || 0); i += size) out.push(ids.slice(i, i + size))
+  return out
+}
+
 export function normalizeCardName(name) {
   return String(name || '').trim().toLowerCase()
 }

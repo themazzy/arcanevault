@@ -15,7 +15,7 @@ import {
   pickAutomaticDeckPrinting,
 } from '../lib/deckBuilderApi'
 import {
-  getLocalCards, getDeckCards, putDeckCards, deleteDeckCardLocal, getMeta, setMeta,
+  getLocalCards, getDeckCards, putDeckCards, deleteDeckCardLocal, deleteDeckCardsLocal, getMeta, setMeta,
   deleteDeckAllocationsByIds, replaceDeckAllocations, putDeckAllocations, putFolderCards, putCards,
   replaceLocalFolderCards,
 } from '../lib/db'
@@ -132,6 +132,8 @@ import {
 } from '../lib/deckBuilderConstants'
 import {
   normalizeBoard,
+  mainBoardCards,
+  chunkIds,
   normalizeCardName,
   isGroupFolder,
   toLargeImg,
@@ -1110,7 +1112,7 @@ export default function DeckBuilderPage() {
     toggleSection: toggleComboSection,
     fetchCombos,
   } = useCombosFetch({ commanderCard, deckCards, accessToken: session?.access_token })
-  const mainDeckCards  = useMemo(() => deckCards.filter(dc => normalizeBoard(dc.board) === 'main'), [deckCards])
+  const mainDeckCards  = useMemo(() => mainBoardCards(deckCards), [deckCards])
 
   // Cards in the deck the user does NOT own (by name), basic lands excluded.
   // Keeps a representative deck-card row per name so we can add the deck's
@@ -1190,7 +1192,9 @@ export default function DeckBuilderPage() {
       setLeftTopOpen(false)
     }
   }, [commanderCard])
-  const totalCards     = useMemo(() => deckCards.reduce((s, dc) => s + dc.qty, 0), [deckCards])
+  // Main-board copies only — side/maybe cards must not count against deckSize
+  // in the Deck tab badge (matches the mainQty legality warnings).
+  const totalCards     = useMemo(() => mainDeckCards.reduce((s, dc) => s + dc.qty, 0), [mainDeckCards])
   const totalDeckPrice = useMemo(() => mainDeckCards.reduce((sum, dc) => {
     const sf = builderSfMap[getScryfallKey(dc)]
     const p = sf ? getPrice(sf, dc.foil, { price_source }) : null
@@ -2768,6 +2772,29 @@ export default function DeckBuilderPage() {
     }
   }
 
+  // Bulk removal (Build Assistant "Cut all"): one state update + one Supabase
+  // delete for the whole batch. Removing per card re-renders the assistant and
+  // reruns its plan/enrichment work once per cut.
+  async function removeCardsFromDeck(deckCardIds) {
+    const idSet = new Set(deckCardIds || [])
+    const removed = deckCardsRef.current.filter(dc => idSet.has(dc.id))
+    if (!removed.length) return
+    setDeckCards(prev => prev.filter(dc => !idSet.has(dc.id)))
+    const batches = chunkIds(removed.map(dc => dc.id))
+    for (let i = 0; i < batches.length; i += 1) {
+      try {
+        await sbExec(sb.from('deck_cards').delete().in('id', batches[i]), { label: 'Remove cards failed' })
+        deleteDeckCardsLocal(batches[i]).catch(() => {})
+      } catch {
+        // Earlier batches are already deleted server-side — restore only the
+        // rows that never reached the DB.
+        const notDeleted = new Set(batches.slice(i).flat())
+        setDeckCards(prev => [...prev, ...removed.filter(dc => notDeleted.has(dc.id))])
+        return
+      }
+    }
+  }
+
   // Add Basic Lands helper — set the exact count of one basic land on the main
   // board. Reuses addCardToDeck (which resolves a real printing) for the first
   // copy, then writes the target quantity directly.
@@ -4017,9 +4044,9 @@ export default function DeckBuilderPage() {
       }
       await sbExec(sb.from('deck_cards').insert(hydratedInserts.map(toDeckCardRow)), { silent: true })
     }
-    for (const id of deletes) {
-      await sbExec(sb.from('deck_cards').delete().eq('id', id), { silent: true })
-      deleteDeckCardLocal(id).catch(() => {})
+    for (const ids of chunkIds(deletes)) {
+      await sbExec(sb.from('deck_cards').delete().in('id', ids), { silent: true })
+      deleteDeckCardsLocal(ids).catch(() => {})
     }
     if (inserts.length) putDeckCards(nextDeckCards.filter(dc => inserts.some(row => row.id === dc.id))).catch(() => {})
     if (updates.length) putDeckCards(nextDeckCards.filter(dc => updates.some(u => u.id === dc.id))).catch(() => {})
@@ -5980,10 +6007,11 @@ export default function DeckBuilderPage() {
         <BuildAssistant
           userId={user.id}
           commander={commanderCard ? { name: commanderCard.name, color_identity: colorIdentity } : null}
-          deckCards={deckCards}
+          deckCards={mainDeckCards}
           accessToken={session?.access_token}
           onAddCard={addCardToDeck}
           onRemoveCard={removeCardFromDeck}
+          onRemoveCards={removeCardsFromDeck}
           onAddToWishlist={addUpgradeToWishlist}
           onAddBasics={async (counts) => {
             // Top up the manabase with the assistant's pip-weighted basics

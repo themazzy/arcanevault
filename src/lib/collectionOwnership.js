@@ -51,6 +51,25 @@ export async function pruneUnplacedCards(cardIds) {
   return orphanIds
 }
 
+// Bulk-remove binder/list placements. Takes rows of { id: card_id, folderId }
+// and issues one folder_cards delete per source folder (chunked), instead of
+// one request per row. Delete errors are ignored — matching the callers'
+// previous per-row behavior; the post-action IDB refresh resyncs state.
+export async function removeFolderCardPlacements(rows) {
+  const byFolder = new Map()
+  for (const row of rows || []) {
+    if (!row?.id || !row?.folderId) continue
+    const ids = byFolder.get(row.folderId) || []
+    ids.push(row.id)
+    byFolder.set(row.folderId, ids)
+  }
+  for (const [folderId, cardIds] of byFolder) {
+    for (const ids of chunk(cardIds)) {
+      await sb.from('folder_cards').delete().eq('folder_id', folderId).in('card_id', ids)
+    }
+  }
+}
+
 export async function getPlacedQtyByCardIds(cardIds) {
   const uniqueIds = [...new Set((cardIds || []).filter(Boolean))]
   const qtyByCardId = new Map()

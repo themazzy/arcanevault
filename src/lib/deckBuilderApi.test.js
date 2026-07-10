@@ -16,7 +16,7 @@ import {
   parseTextDecklist, parseImportUrl, searchCards, fetchPaperPrintings,
   getDeckBuilderCardMeta, importProxyUrl, fetchPaperPrintingsByNamesFromDb,
   fetchRecommendationMetadataByNames, recommendationMetadataRowToCard,
-  pickAutomaticDeckPrinting, FORMATS,
+  pickAutomaticDeckPrinting, FORMATS, nameToSlug,
 } from './deckBuilderApi'
 import { EDH_FORMAT_IDS } from './commanderBracket'
 import { sfGet } from './scryfall'
@@ -30,6 +30,24 @@ describe('importProxyUrl', () => {
   })
   it('escapes ids so they cannot extend the path', () => {
     expect(importProxyUrl('moxfield', 'a/b')).toBe('https://deckloom.app/api/import/moxfield/a%2Fb')
+  })
+})
+
+describe('nameToSlug (EDHREC commander slugs)', () => {
+  // Regression: hyphens were stripped with the rest of the punctuation, so
+  // "Nine-Fingers Keene" became ninefingers-keene and every EDHREC page 403'd.
+  it('keeps a printed hyphen as a word break', () => {
+    expect(nameToSlug('Nine-Fingers Keene')).toBe('nine-fingers-keene')
+    expect(nameToSlug("Will-o'-the-Wisp")).toBe('will-o-the-wisp')
+  })
+
+  it('drops apostrophes and commas without splitting the word', () => {
+    expect(nameToSlug("Atraxa, Praetors' Voice")).toBe('atraxa-praetors-voice')
+    expect(nameToSlug('Krenko, Mob Boss')).toBe('krenko-mob-boss')
+  })
+
+  it('transliterates diacritics instead of deleting the letter', () => {
+    expect(nameToSlug('Jötun Grunt')).toBe('jotun-grunt')
   })
 })
 

@@ -20,7 +20,7 @@ import { CloseIcon, CheckIcon, AddIcon, SettingsIcon, DeleteIcon, EditIcon, Bind
 import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 import { useFilterWorker } from '../hooks/useFilterWorker'
-import { getPlacedQtyByCardIds, pruneUnplacedCards } from '../lib/collectionOwnership'
+import { getPlacedQtyByCardIds, pruneUnplacedCards, removeFolderCardPlacements } from '../lib/collectionOwnership'
 import { getPublicAppUrl } from '../lib/publicUrl'
 import { getLocalFolderCards, getAllLocalFolderCards, getDeckAllocations, getAllDeckAllocationsForFolders, getCardsByIds, getLocalFolders, putCards, putFolderCards, putDeckAllocations, replaceLocalFolderCards, replaceDeckAllocations, getFolderMetaCache, setFolderMetaCache } from '../lib/db'
 import { queryClient } from '../lib/queryClient'
@@ -809,10 +809,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
         ? toUpdate.push({ id: card.id, folderId: card._sourceFolderId || folder.id, remaining })
         : toDelete.push({ id: card.id, folderId: card._sourceFolderId || folder.id })
     }
-    for (const row of toDelete) {
-      await sb.from('folder_cards').delete()
-        .eq('folder_id', row.folderId).eq('card_id', row.id)
-    }
+    await removeFolderCardPlacements(toDelete)
     for (const { id, folderId, remaining } of toUpdate) {
       await sb.from('folder_cards').update({ qty: remaining }).eq('folder_id', folderId).eq('card_id', id)
     }
@@ -875,10 +872,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
       placementRows
     )
 
-    for (const row of toDelete) {
-      await sb.from('folder_cards').delete()
-        .eq('folder_id', row.folderId).eq('card_id', row.id)
-    }
+    await removeFolderCardPlacements(toDelete)
     for (const { id, folderId, remaining } of toUpdate) {
       await sb.from('folder_cards').update({ qty: remaining }).eq('folder_id', folderId).eq('card_id', id)
     }
