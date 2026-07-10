@@ -42,6 +42,7 @@ import {
   ROLE_SYNERGY,
   ROLE_LANDS,
 } from '../../lib/deckBuildAssistant'
+import { cardNameMatchKeys } from '../../lib/deckBuilderHelpers'
 import styles from './BuildAssistant.module.css'
 
 // Guided "build from collection" wizard. Walks the user role-by-role (Ramp →
@@ -76,7 +77,9 @@ const STEP_SHORT = {
 }
 
 function roleNameSet(deckCards) {
-  return new Set((deckCards || []).map(c => (c?.name || '').toLowerCase()).filter(Boolean))
+  // Full + front-face keys, so EDHREC/combo names (front face for DFCs) still
+  // match deck rows stored under the full "Front // Back" name.
+  return new Set((deckCards || []).flatMap(c => cardNameMatchKeys(c?.name)))
 }
 
 // Card image from the cached Scryfall art (cards.scryfall.io CDN). We never hit
@@ -555,7 +558,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         setSfMap(sfById)
         setThemes(edhrec?.themes || [])
         setGameChangers(gcNames || null)
-        setOwnedNameSet(new Set((ownedNorm || []).map(c => (c?.name || '').toLowerCase()).filter(Boolean)))
+        setOwnedNameSet(new Set((ownedNorm || []).flatMap(c => cardNameMatchKeys(c?.name))))
         setPlan(withRecs)
       } catch (err) {
         if (!cancelled) setError(err?.message || 'Failed to analyze your collection.')
@@ -580,9 +583,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const roleByName = useMemo(() => {
     const m = new Map()
     for (const role of plan?.roles || []) {
-      for (const c of role.ownedCandidates) m.set(c.name.toLowerCase(), role.role)
-      for (const u of role.edhrecUpgrades) m.set(u.name.toLowerCase(), role.role)
-      for (const u of role.recommenderUpgrades || []) m.set(u.name.toLowerCase(), role.role)
+      for (const c of role.ownedCandidates) for (const k of cardNameMatchKeys(c.name)) m.set(k, role.role)
+      for (const u of role.edhrecUpgrades) for (const k of cardNameMatchKeys(u.name)) m.set(k, role.role)
+      for (const u of role.recommenderUpgrades || []) for (const k of cardNameMatchKeys(u.name)) m.set(k, role.role)
     }
     return m
   }, [plan])
@@ -682,8 +685,8 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const inclusionByName = useMemo(() => {
     const m = new Map()
     for (const role of plan?.roles || []) {
-      for (const c of role.ownedCandidates) m.set(c.name.toLowerCase(), c.edhrecInclusion || 0)
-      for (const u of role.edhrecUpgrades) m.set(u.name.toLowerCase(), u.edhrecInclusion || 0)
+      for (const c of role.ownedCandidates) for (const k of cardNameMatchKeys(c.name)) m.set(k, c.edhrecInclusion || 0)
+      for (const u of role.edhrecUpgrades) for (const k of cardNameMatchKeys(u.name)) m.set(k, u.edhrecInclusion || 0)
     }
     return m
   }, [plan])
@@ -708,7 +711,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       counts.set(role, (counts.get(role) || 0) + (dc.qty || 1))
       const isLand = (sf?.type_line || dc?.type_line || '').toLowerCase().includes('land')
       if (isLand) totalLands += (dc.qty || 1)
-      const inclusion = inclusionByName.get(name.toLowerCase()) ?? 0
+      const inclusion = cardNameMatchKeys(name).map(k => inclusionByName.get(k)).find(v => v != null) ?? 0
       rows.push({
         id: dc.id, name, role, isLand,
         scryfall_id: dc.scryfall_id,
@@ -1068,7 +1071,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     const key = name.toLowerCase()
     setAddedNames(prev => { const next = new Set(prev); next.delete(key); return next })
     if (typeof onRemoveCard !== 'function') return
-    const dc = (deckCards || []).find(c => !c?.is_commander && (c?.name || '').toLowerCase() === key)
+    const dc = (deckCards || []).find(c => !c?.is_commander && cardNameMatchKeys(c?.name).includes(key))
     if (dc?.id) {
       try { await onRemoveCard(dc.id) } catch { /* parent surfaces errors */ }
     }

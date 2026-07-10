@@ -135,6 +135,7 @@ import {
   mainBoardCards,
   chunkIds,
   normalizeCardName,
+  cardNameMatchKeys,
   isGroupFolder,
   toLargeImg,
   toArtCropImg,
@@ -1058,8 +1059,10 @@ export default function DeckBuilderPage() {
               const fk = `${c.scryfall_id}|${c.foil ? '1' : '0'}`
               foilMap.set(fk, (foilMap.get(fk) ?? 0) + (c.qty || 1))
             }
-            const n = (c.name || '').toLowerCase()
-            if (n) nameMap.set(n, (nameMap.get(n) ?? 0) + (c.qty || 1))
+            // Both full and front-face keys — rec surfaces look DFCs up by front face
+            for (const n of cardNameMatchKeys(c.name)) {
+              nameMap.set(n, (nameMap.get(n) ?? 0) + (c.qty || 1))
+            }
           }
 
           // For linked builder decks, allocations live on the paired collection deck
@@ -2056,7 +2059,12 @@ export default function DeckBuilderPage() {
     return map
   }, [deckCards, recImages])
 
-  const deckNameSet = useMemo(() => new Set(deckCards.map(dc => dc.name.toLowerCase())), [deckCards])
+  // Keyed by full name AND front-face name — EDHREC recs identify DFCs by the
+  // front face only, and they must still filter out once the card is in-deck.
+  const deckNameSet = useMemo(
+    () => new Set(deckCards.flatMap(dc => cardNameMatchKeys(dc.name))),
+    [deckCards],
+  )
   const visualCardMinWidth = useMemo(() => {
     const densityMap = {
       cozy: 170,

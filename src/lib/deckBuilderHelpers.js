@@ -34,6 +34,18 @@ export function normalizeCardName(name) {
   return String(name || '').trim().toLowerCase()
 }
 
+// Recommendation feeds (EDHREC, Recommander, Commander Spellbook) identify
+// double-faced cards by their front-face name, while deck/collection rows
+// store the full Scryfall "Front // Back" name. Whenever names from the two
+// sides are matched against each other, key sets/maps with every key this
+// name can appear under so a lookup from either side hits.
+export function cardNameMatchKeys(name) {
+  const full = normalizeCardName(name)
+  if (!full) return []
+  const front = full.split('//')[0].trim()
+  return front && front !== full ? [full, front] : [full]
+}
+
 export function isGroupFolder(folder) {
   try { return JSON.parse(folder?.description || '{}').isGroup === true } catch { return false }
 }

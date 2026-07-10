@@ -476,6 +476,23 @@ describe('attachRecommenderUpgrades', () => {
     expect(attachRecommenderUpgrades(plan, [])).toBe(plan)
     expect(attachRecommenderUpgrades(plan, null)).toBe(plan)
   })
+
+  it('skips an owned DFC recommended by its front-face name', () => {
+    // Owned rows carry the full "Front // Back" name; rec feeds may name the
+    // same card by front face only. It must still count as owned.
+    const { ownedCards, sfMap } = assemble([
+      makeCard('Jugan Defends the Temple // Remnant of the Rising Star', {
+        oracle: 'Create a 1/1 green Human Monk creature token.', type: 'Enchantment — Saga',
+      }),
+    ])
+    const plan = analyzeBuildPlan({ commander: { name: 'Cmd', color_identity: ['G'] }, ownedCards, sfMap })
+    const recRows = [
+      { name: 'Jugan Defends the Temple', type_line: 'Enchantment — Saga', oracle_text: 'Create a token.', score: 0.9 },
+    ]
+    const out = attachRecommenderUpgrades(plan, recRows)
+    const allRecs = (out.roles || []).flatMap(r => r.recommenderUpgrades || [])
+    expect(allRecs.map(u => u.name)).not.toContain('Jugan Defends the Temple')
+  })
 })
 
 describe('selectUpgrades', () => {
@@ -680,6 +697,27 @@ describe('enrichPlanWithEdhrec', () => {
     expect(out).toBe(plan)
     expect(role(out, ROLE_RAMP).edhrecUpgrades).toEqual([])
   })
+
+  it('recognizes an owned DFC listed by EDHREC under its front-face name', async () => {
+    // Regression: EDHREC names DFCs by front face only, owned rows carry the
+    // full "Front // Back" name. The card must be enriched as owned — not
+    // duplicated into the not-owned upgrade list.
+    const { ownedCards, sfMap } = assemble([
+      makeCard("Azusa's Many Journeys // Likeness of the Seeker", {
+        oracle: 'You may play an additional land each turn.', type: 'Enchantment — Saga', cmc: 2,
+      }),
+    ])
+    const plan = analyzeBuildPlan({ commander: { name: 'Cmd', color_identity: [] }, ownedCards, sfMap })
+    const edhrec = { categories: [{ header: 'Ramp', cards: [
+      { name: "Azusa's Many Journeys", inclusion: 50, cmc: 2, type: 'Enchantment' },
+    ] }] }
+    const out = await enrichPlanWithEdhrec(plan, async () => edhrec)
+    const ramp = role(out, ROLE_RAMP)
+    expect(ramp.edhrecUpgrades.map(u => u.name)).not.toContain("Azusa's Many Journeys")
+    const owned = out.roles.flatMap(r => r.ownedCandidates)
+      .find(c => c.name === "Azusa's Many Journeys // Likeness of the Seeker")
+    expect(owned.edhrecInclusion).toBe(50)
+  })
 })
 
 // ── roleOfDeckCard / countByRole (deck classification) ────────────────────────
@@ -714,6 +752,14 @@ describe('roleOfDeckCard', () => {
 
   it('is missing-sfMap tolerant (no entry → relies on the plan / Synergy)', () => {
     expect(roleOfDeckCard({ scryfall_id: 'absent', name: 'X' }, sfMap, new Map())).toBe(ROLE_SYNERGY)
+  })
+
+  it('resolves a DFC deck row against a plan role keyed by front-face name', () => {
+    // EDHREC upgrade entries name DFCs by front face; the deck row added from
+    // one carries the full "Front // Back" name and must still find its role.
+    const roleByName = new Map([['mystery rock', ROLE_RAMP]])
+    expect(roleOfDeckCard({ scryfall_id: 's2', name: 'Mystery Rock // Hidden Gem' }, sfMap, roleByName))
+      .toBe(ROLE_RAMP)
   })
 })
 

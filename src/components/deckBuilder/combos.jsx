@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { cardNameMatchKeys } from '../../lib/deckBuilderHelpers'
 
 // Lazy-fetches a card image from Scryfall for combo-card thumbnails. Caches
 // per-name in a ref so multiple thumbs of the same card don't refetch.
@@ -75,7 +76,10 @@ export function ComboResultCard({ combo, highlight, deckCardNames, deckImages, o
     zone: (r.zoneLocations || []).join(''),
   })).filter(r => r.name)
   const results = (combo.produces || []).map(p => p.feature?.name || '').filter(Boolean)
-  const deckSet = new Set(deckCardNames || [])
+  // Full + front-face keys: Spellbook may name a DFC by front face while the
+  // deck row carries the full "Front // Back" name (and vice versa).
+  const deckSet = new Set((deckCardNames || []).flatMap(n => cardNameMatchKeys(n)))
+  const inDeck = name => !deckCardNames || cardNameMatchKeys(name).some(k => deckSet.has(k))
   const steps   = combo.description || ''
   const prereqs = [combo.easyPrerequisites, combo.notablePrerequisites].filter(Boolean).join(' ')
   const manaNeeded = combo.manaNeeded || ''
@@ -91,7 +95,7 @@ export function ComboResultCard({ combo, highlight, deckCardNames, deckImages, o
     }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: bottomGap ? 12 : 0 }}>
         {uses.map((name, i) => (
-          <ComboCardThumb key={i} name={name} inDeck={!deckCardNames || deckSet.has(name)} existingUri={deckImages?.[name]} onAdd={!deckCardNames || deckSet.has(name) ? undefined : onAddCard} onOpenDetail={onOpenDetail} />
+          <ComboCardThumb key={i} name={name} inDeck={inDeck(name)} existingUri={deckImages?.[name]} onAdd={inDeck(name) ? undefined : onAddCard} onOpenDetail={onOpenDetail} />
         ))}
       </div>
       {requires.length > 0 && (

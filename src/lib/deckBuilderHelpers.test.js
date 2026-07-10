@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { deckAllocationKeys, allocationSetHas, collectCardIdentities, mainBoardCards, chunkIds } from './deckBuilderHelpers'
+import { deckAllocationKeys, allocationSetHas, collectCardIdentities, mainBoardCards, chunkIds, cardNameMatchKeys } from './deckBuilderHelpers'
 
 describe('deckAllocationKeys / allocationSetHas', () => {
   it('matches a deck card against an allocation in another deck via the shared card_print_id', () => {
@@ -108,5 +108,29 @@ describe('chunkIds', () => {
   it('returns no batches for an empty or missing list', () => {
     expect(chunkIds([])).toEqual([])
     expect(chunkIds(undefined)).toEqual([])
+  })
+})
+
+describe('cardNameMatchKeys', () => {
+  // Regression: EDHREC recommends DFCs by front-face name ("Michiko's Reign of
+  // Truth") while deck rows store the full Scryfall name — the rec never
+  // disappeared from the Recommendations tab after being added to the deck.
+  it('returns the full name and the front-face name for a DFC', () => {
+    expect(cardNameMatchKeys("Michiko's Reign of Truth // Portrait of Michiko-hime"))
+      .toEqual(["michiko's reign of truth // portrait of michiko-hime", "michiko's reign of truth"])
+  })
+
+  it('handles the separator without surrounding spaces', () => {
+    expect(cardNameMatchKeys('Fire//Ice')).toEqual(['fire//ice', 'fire'])
+  })
+
+  it('returns a single lowercased key for a normal card', () => {
+    expect(cardNameMatchKeys('Sol Ring')).toEqual(['sol ring'])
+  })
+
+  it('returns no keys for empty input', () => {
+    expect(cardNameMatchKeys('')).toEqual([])
+    expect(cardNameMatchKeys(null)).toEqual([])
+    expect(cardNameMatchKeys(undefined)).toEqual([])
   })
 })

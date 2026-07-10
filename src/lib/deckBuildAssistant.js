@@ -13,6 +13,7 @@
 import { getCardCategoryFromCard } from './cardCategory'
 import { getCardLegalityWarnings } from './deckLegality'
 import { isMassLandDenial, isExtraTurn } from './commanderBracket'
+import { cardNameMatchKeys } from './deckBuilderHelpers'
 
 // ── Coarse role taxonomy ──────────────────────────────────────────────────────
 // Collapses the ~30 granular categories from getCardCategory into the 8 build
@@ -107,7 +108,12 @@ export function roleOfDeckCard(dc, sfMap, roleByName) {
   const sfCard = sfMap?.[dc?.scryfall_id] || null
   const byOracle = coarseRole(dc, sfCard)
   if (byOracle !== ROLE_SYNERGY) return byOracle
-  return roleByName?.get((dc?.name || '').toLowerCase()) || ROLE_SYNERGY
+  // Try the front-face key too — EDHREC upgrade entries name DFCs by front face
+  for (const key of cardNameMatchKeys(dc?.name)) {
+    const role = roleByName?.get(key)
+    if (role) return role
+  }
+  return ROLE_SYNERGY
 }
 
 // Live per-role counts from the actual deck contents (commander excluded),
@@ -470,7 +476,7 @@ export function analyzeBuildPlan({
   // Names already in the deck — used to mark candidates as added and to count
   // current per-role fill. Foil/non-foil collapse to the same name (singleton).
   const deckNames = new Set(
-    currentDeckCards.map(c => (c?.name || '').toLowerCase()).filter(Boolean),
+    currentDeckCards.flatMap(c => cardNameMatchKeys(c?.name)),
   )
 
   // ── Classify owned cards into roles, filtered by commander legality ─────────
@@ -601,9 +607,11 @@ export async function enrichPlanWithEdhrec(plan, fetchEdhrec, fetchCardMeta) {
     }
   }
 
+  // Both full and front-face keys — EDHREC names DFCs by front face, owned
+  // rows carry the full "Front // Back" name.
   const ownedNames = new Set()
   for (const role of plan.roles) {
-    for (const c of role.ownedCandidates) ownedNames.add(c.name.toLowerCase())
+    for (const c of role.ownedCandidates) for (const k of cardNameMatchKeys(c.name)) ownedNames.add(k)
   }
 
   // Resolve oracle text + art for the top unowned EDHREC cards so we can
@@ -666,7 +674,8 @@ export async function enrichPlanWithEdhrec(plan, fetchEdhrec, fetchCardMeta) {
   const rebucketed = new Map(ROLE_ORDER.map(r => [r, []]))
   for (const role of plan.roles) {
     for (const cand of role.ownedCandidates) {
-      const entry = byName.get(cand.name.toLowerCase())
+      // byName is keyed by EDHREC names (front face for DFCs) — try both forms
+      const entry = cardNameMatchKeys(cand.name).map(k => byName.get(k)).find(Boolean)
       const next = entry ? { ...cand, edhrecInclusion: edhrecInclusionPct(entry.cv) } : cand
       const edhrecRole = entry ? edhrecHeaderToRole(entry.header) : null
       ;(rebucketed.get(edhrecRole || role.role) || rebucketed.get(role.role)).push(next)
@@ -709,7 +718,7 @@ export function attachRecommenderUpgrades(plan, recRows) {
 
   const ownedNames = new Set()
   for (const role of plan.roles) {
-    for (const c of role.ownedCandidates) ownedNames.add(c.name.toLowerCase())
+    for (const c of role.ownedCandidates) for (const k of cardNameMatchKeys(c.name)) ownedNames.add(k)
   }
 
   const recByRole = new Map(ROLE_ORDER.map(r => [r, []]))

@@ -5,6 +5,7 @@ import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { parseDeckMeta, serializeDeckMeta, FORMATS, classifyCardType, groupDeckCards, TYPE_GROUPS } from '../lib/deckBuilderApi'
 import { toDeckCardRow } from '../lib/deckBuilderWrites'
+import { cardNameMatchKeys } from '../lib/deckBuilderHelpers'
 import DeckStats, { CAT_ORDER, getCardCategory, normalizeDeckBuilderCards } from '../components/DeckStats'
 import styles from './DeckView.module.css'
 import uiStyles from '../components/UI.module.css'
@@ -254,7 +255,9 @@ function ComboCard({ combo, deckNames, deckImages, dim, onOpenDetail }) {
   const results = (combo.produces || []).map(p => p.feature?.name || '').filter(Boolean)
   const prereqs = [combo.easyPrerequisites, combo.notablePrerequisites].filter(Boolean).join(' ')
   const steps = combo.description || ''
-  const deckSet = new Set([...deckNames].map(name => name.toLowerCase()))
+  // Full + front-face keys: Spellbook may name a DFC by front face while the
+  // deck row carries the full "Front // Back" name (and vice versa).
+  const deckSet = new Set([...deckNames].flatMap(name => cardNameMatchKeys(name)))
 
   return (
     <div className={`${styles.comboCard}${dim ? ' ' + styles.comboCardDim : ''}`}>
@@ -263,7 +266,7 @@ function ComboCard({ combo, deckNames, deckImages, dim, onOpenDetail }) {
           <ComboThumb
             key={`${name}-${index}`}
             name={name}
-            inDeck={deckSet.has(name.toLowerCase())}
+            inDeck={cardNameMatchKeys(name).some(k => deckSet.has(k))}
             imageUri={deckImages[name]}
             onOpenDetail={onOpenDetail}
           />
