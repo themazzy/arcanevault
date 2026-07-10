@@ -693,6 +693,12 @@
   white-space: nowrap;
 }
 
+/* Karsten target next to the live source count ("14/26"). */
+.sourceTarget {
+  color: var(--text-faint);
+  font-size: 0.85em;
+}
+
 /* ── Auto-fill footer button ─────────────────────────────────────────────── */
 .autoFillBtn {
   display: inline-flex;

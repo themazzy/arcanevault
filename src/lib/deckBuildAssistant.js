@@ -250,6 +250,61 @@ export function countManaSources(cards, sfMapOrGetter) {
   return { ...counts, lands }
 }
 
+// ── Karsten colored-source requirements ───────────────────────────────────────
+// From Frank Karsten's "How Many Sources Do You Need to Consistently Cast Your
+// Spells? A 2022 Update" (TCGplayer Infinite), 99-card Commander column —
+// assumes ~41 lands, the Commander free mulligan + opening draw, and ~90%
+// on-curve castability. KARSTEN_99[pips][cmc] = colored sources of one color
+// the deck should run to cast a spell with that many pips on curve.
+const KARSTEN_99 = {
+  1: { 1: 19, 2: 19, 3: 18, 4: 16, 5: 15, 6: 14 },
+  2: { 2: 30, 3: 28, 4: 26, 5: 23, 6: 22, 7: 20 },
+  3: { 3: 36, 4: 33, 5: 30, 6: 28, 7: 26 },
+  4: { 4: 39, 5: 36 },
+}
+
+// Sources needed for `pips` pips of one color on a spell of mana value `cmc`.
+// CMC clamps into the table's range (cheaper spells can't have that many pips;
+// pricier ones keep the last row's requirement). 5+ pips reuse the 4-pip row.
+export function karstenSourcesNeeded(pips, cmc) {
+  const row = KARSTEN_99[Math.min(4, Math.max(1, pips))]
+  const turns = Object.keys(row).map(Number)
+  const t = Math.min(Math.max(Math.round(cmc || 0), Math.min(...turns)), Math.max(...turns))
+  return row[t]
+}
+
+// Per-color source targets for a deck: Karsten's method — the deck's most
+// demanding spell of each color sets that color's requirement. Only strict
+// single-color pips count ({W}); hybrid ({W/U}, {2/W}) and Phyrexian ({W/P})
+// pips are payable another way and set no hard requirement. Lands are skipped;
+// the commander is included (cards array decides). Returns
+// { W: { needed, pips, cmc, card }, … } for colors with at least one pip.
+export function karstenColorRequirements(cards, sfMapOrGetter) {
+  const getSf = typeof sfMapOrGetter === 'function'
+    ? sfMapOrGetter
+    : (c) => (sfMapOrGetter || {})[c?.scryfall_id] || null
+  const out = {}
+  for (const c of cards || []) {
+    const sf = getSf(c)
+    const typeLine = (sf?.type_line || c?.type_line || '').toLowerCase()
+    if (typeLine.includes('land')) continue
+    const cost = sf?.mana_cost || c?.mana_cost || ''
+    const cmc = sf?.cmc ?? c?.cmc ?? 0
+    const pipCounts = {}
+    for (const sym of String(cost).match(/\{[^}]+\}/g) || []) {
+      const inner = sym.slice(1, -1).toUpperCase()
+      if (WUBRG.includes(inner)) pipCounts[inner] = (pipCounts[inner] || 0) + 1
+    }
+    for (const [col, pips] of Object.entries(pipCounts)) {
+      const needed = karstenSourcesNeeded(pips, cmc)
+      if (!out[col] || needed > out[col].needed) {
+        out[col] = { needed, pips, cmc, card: c?.name || sf?.name || '' }
+      }
+    }
+  }
+  return out
+}
+
 // ── Basic land split ──────────────────────────────────────────────────────────
 // We don't want the Lands step to fill all ~37 slots with nonbasic/utility
 // lands. Instead the player adds owned nonbasics up to a target, and basics top

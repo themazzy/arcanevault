@@ -26,6 +26,7 @@ import {
   bracketFlagFor,
   producedColors,
   countManaSources,
+  karstenColorRequirements,
   roleOfDeckCard,
   countByRole,
   pickCheapestEnglish,
@@ -946,6 +947,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     [commander],
   )
   const manaSources = useMemo(() => countManaSources(deckCards, sfMap), [deckCards, sfMap])
+  // Karsten per-color source targets from the deck's own pip demands (incl.
+  // the commander — you want to cast it on curve too).
+  const karstenReqs = useMemo(() => karstenColorRequirements(deckCards, sfMap), [deckCards, sfMap])
   const onLands = currentRoleName === ROLE_LANDS
 
   // Annotate land candidates with the colors they produce and surface fixers
@@ -1450,18 +1454,31 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
               </div>
               <div className={styles.roleDesc}>{ROLE_INFO[currentRoleName]}</div>
 
-              {/* Manabase: colored-source counts (Lands step only) */}
+              {/* Manabase: colored sources vs Karsten targets (Lands step only).
+                  Each color's target comes from the deck's most demanding spell
+                  of that color (Karsten 2022, 99-card column); no spells of a
+                  color → no target, plain count with the old soft floor. */}
               {onLands && cmdColors.length > 0 && (
                 <div className={styles.sources}>
-                  <span className={styles.sourcesLabel}>Mana sources</span>
+                  <span
+                    className={styles.sourcesLabel}
+                    title="Colored sources (lands, rocks, dorks) vs the count Frank Karsten's math says your most demanding spell of each color wants"
+                  >
+                    Mana sources
+                  </span>
                   {cmdColors.map(c => {
                     const n = manaSources[c] || 0
-                    const thin = n < THIN_SOURCE_FLOOR
+                    const req = karstenReqs[c]
+                    const thin = req ? n < req.needed : n < THIN_SOURCE_FLOOR
+                    const title = req
+                      ? `${c}: ${n} of ${req.needed} sources — most demanding: ${req.card} (${c.repeat(req.pips)} at ${req.cmc} mana)`
+                        + (thin ? ' — consider more fixing' : '')
+                      : `${c}: ${n} sources${thin ? ' — consider more fixing' : ''}`
                     return (
-                      <span key={c} className={`${styles.sourceItem}${thin ? ' ' + styles.sourceThin : ''}`}
-                        title={thin ? `${c}: only ${n} sources — consider more fixing` : `${c}: ${n} sources`}>
+                      <span key={c} className={`${styles.sourceItem}${thin ? ' ' + styles.sourceThin : ''}`} title={title}>
                         <span className={styles.pip} style={{ background: MANA_HEX[c] }} />
                         {n}
+                        {req && <span className={styles.sourceTarget}>/{req.needed}</span>}
                         {thin && <span className={styles.sourceThinTag}>low</span>}
                       </span>
                     )

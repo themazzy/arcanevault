@@ -5,6 +5,8 @@ import {
   buyListText,
   tcgplayerMassEntryUrl,
   planAutoFill,
+  karstenSourcesNeeded,
+  karstenColorRequirements,
   granularToCoarse,
   edhrecHeaderToRole,
   coarseRole,
@@ -185,6 +187,57 @@ describe('planAutoFill', () => {
       landsTarget: 37, currentLands: 30,
     })
     expect(picks).toHaveLength(0)
+  })
+})
+
+// ── Karsten source requirements ───────────────────────────────────────────────
+describe('karstenSourcesNeeded', () => {
+  it('matches the 2022 99-card table on exact entries', () => {
+    expect(karstenSourcesNeeded(1, 1)).toBe(19) // C — Monastery Swiftspear
+    expect(karstenSourcesNeeded(1, 2)).toBe(19) // 1C — Ledger Shredder
+    expect(karstenSourcesNeeded(2, 2)).toBe(30) // CC — Lord of Atlantis
+    expect(karstenSourcesNeeded(2, 4)).toBe(26) // 2CC — Wrath of God
+    expect(karstenSourcesNeeded(3, 4)).toBe(33) // 1CCC — Cryptic Command
+    expect(karstenSourcesNeeded(4, 4)).toBe(39) // CCCC — Dawn Elemental
+  })
+
+  it('clamps mana value into the table range', () => {
+    expect(karstenSourcesNeeded(1, 9)).toBe(14)  // beyond 6 → 6-drop requirement
+    expect(karstenSourcesNeeded(2, 1)).toBe(30)  // below range → first row
+    expect(karstenSourcesNeeded(5, 5)).toBe(36)  // 5+ pips reuse the 4-pip row
+  })
+})
+
+describe('karstenColorRequirements', () => {
+  const card = (name, mana_cost, cmc, type = 'Creature') =>
+    ({ name, mana_cost, cmc, type_line: type })
+
+  it('takes the most demanding spell per color and reports it', () => {
+    const reqs = karstenColorRequirements([
+      card('Divine Smite', '{1}{W}', 2),
+      card('Wrath of God', '{2}{W}{W}', 4),
+      card('Island', '', 0, 'Basic Land — Island'),
+    ], () => null)
+    expect(reqs.W).toEqual({ needed: 26, pips: 2, cmc: 4, card: 'Wrath of God' })
+    expect(reqs.U).toBeUndefined() // lands never set requirements
+  })
+
+  it('ignores hybrid and Phyrexian pips (payable another way)', () => {
+    const reqs = karstenColorRequirements([
+      card('Kitchen Finks', '{1}{G/W}{G/W}', 3),
+      card('Dismember', '{1}{B/P}{B/P}', 3),
+    ], () => null)
+    expect(reqs).toEqual({})
+  })
+
+  it('sets independent requirements per color of a multicolor cost', () => {
+    const reqs = karstenColorRequirements([
+      card('Narset, Parter of Veils', '{1}{U}{U}', 3),
+      card('Lightning Helix', '{R}{W}', 2),
+    ], () => null)
+    expect(reqs.U.needed).toBe(28) // 1CC row
+    expect(reqs.R.needed).toBe(19) // 1C row
+    expect(reqs.W.needed).toBe(19)
   })
 })
 
