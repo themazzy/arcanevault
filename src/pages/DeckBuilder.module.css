@@ -2641,14 +2641,10 @@
     display: inline;
   }
 
-  .deckFilterBar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
+  /* Filter bar keeps the ≤900px wrap-row layout (search + funnel share row 1);
+     stacking it into a column left the funnel stranded on its own row. */
   .deckSearchInput {
     min-width: 0;
-    width: 100%;
   }
 
   .boardFilterGroup {
@@ -3911,7 +3907,7 @@
   }
 
   /* Inline filter bar — three-row layout on mobile.
-     Row 1: full-width Search input
+     Row 1: Search input + filter funnel (shared row)
      Row 2: full-width segmented Board filter (All/Main/Side/Maybe)
      Row 3: View ▾ · Columns ▾  (split 50/50) */
   .deckFilterBar {
@@ -3923,11 +3919,31 @@
     margin-bottom: 8px;
   }
   .deckFilterBar .deckSearchInput {
-    flex-basis: 100%;
-    width: 100%;
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
     height: 30px;
     padding: 4px 10px;
     font-size: 0.8rem;
+  }
+  .deckFilterBar .filterFunnelBtn {
+    width: 30px;
+    height: 30px;
+  }
+
+  /* Banner grows with its content (name, pips, commander, meta, bracket) —
+     the desktop 80px strip clipped the bottom rows on phones. Keep an explicit
+     max-height so the collapse-on-scroll transition still animates. */
+  .cmdArt {
+    height: auto;
+    max-height: 170px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+  .cmdArtHidden {
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
   }
   .deckFilterBar .boardFilterGroup {
     flex-basis: 100%;

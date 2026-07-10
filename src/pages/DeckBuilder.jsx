@@ -5150,6 +5150,18 @@ export default function DeckBuilderPage() {
                     )}
                   </ResponsiveMenu>
                 )}
+                {/* Mobile-only: guided deck builder (EDH decks) */}
+                {isEDH && (
+                  <button
+                    className={`${styles.groupToggle} ${styles.groupToggleIcon} ${styles.pillOnly}`}
+                    onClick={() => setShowBuildAssistant(true)}
+                    title="Build Assistant"
+                    aria-label="Build Assistant"
+                  >
+                    <LightningIcon size={15} />
+                    <span className={styles.toggleLabel}>Assist</span>
+                  </button>
+                )}
                 {/* Mobile-only: Add / Recs / Settings — gateways to left panel */}
                 <button
                   className={`${styles.groupToggle} ${styles.groupToggleIcon} ${styles.pillOnly}`}
