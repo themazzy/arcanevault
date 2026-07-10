@@ -11,6 +11,8 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  /* Anchor for the in-panel auto-fill overlay. */
+  position: relative;
   /* Cap to the viewport (minus overlay + modal padding) so the modal never
      exceeds the screen and only .main scrolls — keeps the footer reachable even
      when every chip row wraps. dvh tracks mobile browser-chrome changes. */
@@ -710,6 +712,90 @@
 
 .autoFillBtn:hover:not(:disabled) {
   border-color: rgba(201, 168, 76, 0.65);
+}
+
+/* ── Auto-fill dialog (in-panel overlay) ─────────────────────────────────── */
+.afOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 8px;
+}
+
+.afCard {
+  width: min(440px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  background: var(--bg2);
+  border: 1px solid var(--border-hi);
+  border-top: 2px solid rgba(201, 168, 76, 0.5);
+  border-radius: 10px;
+}
+
+.afTitle {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  color: var(--gold);
+}
+
+.afOption {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px;
+  border: 1px solid var(--s-border);
+  border-radius: 8px;
+  background: var(--s1);
+  cursor: pointer;
+}
+
+.afOptionActive {
+  border-color: rgba(201, 168, 76, 0.55);
+  background: rgba(201, 168, 76, 0.08);
+}
+
+.afRadio { margin-top: 2px; accent-color: var(--gold); }
+
+.afOptionBody {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.afOptionLabel {
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.afOptionDesc {
+  font-size: 0.74rem;
+  color: var(--text-dim);
+}
+
+.afNote {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+}
+
+.afActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.afProgress,
+.afResult {
+  font-size: 0.85rem;
+  color: var(--text);
+  padding: 8px 0;
 }
 
 /* ── Buy the gap (summary) ───────────────────────────────────────────────── */

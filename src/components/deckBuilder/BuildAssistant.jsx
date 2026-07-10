@@ -323,7 +323,7 @@ function MenuOption({ active, onClick, children, desc }) {
   )
 }
 
-export function BuildAssistant({ userId, commander, deckCards = [], accessToken, onAddCard, onRemoveCard, onRemoveCards, onAddToWishlist, onAddBasics, onClose }) {
+export function BuildAssistant({ userId, commander, deckCards = [], accessToken, onAddCard, onAddCards, onRemoveCard, onRemoveCards, onAddToWishlist, onAddBasics, onClose }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [plan, setPlan] = useState(null) // enriched plan (candidates + upgrades)
@@ -1012,10 +1012,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addedNames, deckNames, passesBudget, targetBracket, gameChangers])
 
-  const autoFillPicks = useMemo(() => {
-    if (!plan || loading) return []
-    return planAutoFill({
-      roles: plan.roles,
+  const autoFillBase = useMemo(() => {
+    if (!plan || loading) return null
+    return {
       liveCounts,
       totalCards,
       deckSize: plan.deckSize,
@@ -1025,20 +1024,70 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       currentNonbasicLands: Math.max(0, manaSources.lands - currentBasicLands),
       landCandidates: landCandidates.map(l => l.cand),
       exclude: autoFillExclude,
-    })
+    }
   }, [plan, loading, liveCounts, totalCards, landsTarget, manaSources.lands,
       nonbasicTarget, currentBasicLands, landCandidates, autoFillExclude])
 
-  const [autoFilling, setAutoFilling] = useState(null) // { done, total } while running
-  async function handleAutoFill() {
-    if (autoFilling || !autoFillPicks.length) return
-    const picks = autoFillPicks
+  const upgradesFor = useCallback(
+    role => selectUpgrades(role, hasRecommender ? suggestionSource : 'edhrec'),
+    [hasRecommender, suggestionSource],
+  )
+
+  // Two dry runs drive the modal's option labels: binders only, and binders
+  // topped up with unowned suggestions.
+  const autoFillPicksOwned = useMemo(
+    () => (autoFillBase ? planAutoFill({ ...autoFillBase, roles: plan.roles }) : []),
+    [autoFillBase, plan],
+  )
+  const autoFillPicksAll = useMemo(() => {
+    if (!autoFillBase) return []
+    const roles = plan.roles.map(r => ({ ...r, upgrades: upgradesFor(r) }))
+    const landsRole = plan.roles.find(r => r.role === ROLE_LANDS)
+    const landUpgrades = landsRole
+      ? upgradesFor(landsRole).filter(u => (u.type || '').toLowerCase().includes('land'))
+      : []
+    return planAutoFill({ ...autoFillBase, roles, landUpgrades, includeUpgrades: true })
+  }, [autoFillBase, plan, upgradesFor])
+
+  const [autoFillOpen, setAutoFillOpen] = useState(false)
+  const [autoFillSource, setAutoFillSource] = useState('owned') // 'owned' | 'all'
+  const [autoFilling, setAutoFilling] = useState(null) // { total, bulk } | { done, total }
+  const [autoFillResult, setAutoFillResult] = useState(null) // { added, skipped }
+  const autoFillSelected = autoFillSource === 'all' ? autoFillPicksAll : autoFillPicksOwned
+
+  async function startAutoFill() {
+    const picks = autoFillSelected
+    if (!picks.length || autoFilling) return
+    // Fast path: one batched parent call instead of a network round-trip per
+    // card. Falls back to sequential adds when the parent doesn't provide it.
+    if (typeof onAddCards === 'function') {
+      setAutoFilling({ total: picks.length, bulk: true })
+      try {
+        const items = picks.map(p => p.owned
+          ? { ...ownedCardForAdd(p.cand), foil: !!p.cand.card?.foil, card_print_id: p.cand.card?.card_print_id || null }
+          : p.cand)
+        const res = await onAddCards(items)
+        setAddedNames(prev => {
+          const next = new Set(prev)
+          for (const p of picks) next.add(p.cand.name.toLowerCase())
+          return next
+        })
+        setAutoFillResult({ added: res?.added ?? picks.length, skipped: res?.skipped ?? 0 })
+      } catch {
+        setAutoFillResult({ added: 0, skipped: picks.length })
+      } finally {
+        setAutoFilling(null)
+      }
+      return
+    }
     setAutoFilling({ done: 0, total: picks.length })
     try {
       for (let i = 0; i < picks.length; i++) {
-        await handleAdd(ownedCardForAdd(picks[i].cand), picks[i].cand.name)
+        const p = picks[i]
+        await handleAdd(p.owned ? ownedCardForAdd(p.cand) : p.cand, p.cand.name)
         setAutoFilling({ done: i + 1, total: picks.length })
       }
+      setAutoFillResult({ added: picks.length, skipped: 0 })
     } finally {
       setAutoFilling(null)
     }
@@ -1911,18 +1960,18 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           >
             Back
           </Button>
-          {!loading && !error && plan && (autoFilling || autoFillPicks.length > 0) && (
+          {!loading && !error && plan && (autoFilling || autoFillPicksOwned.length > 0 || autoFillPicksAll.length > 0) && (
             <Button
               variant="ghost"
               className={styles.autoFillBtn}
-              onClick={handleAutoFill}
+              onClick={() => { setAutoFillResult(null); setAutoFillOpen(true) }}
               disabled={!!autoFilling}
-              title="Fill every remaining role with the top available cards from your binders (budget and bracket target respected); basics still top up on finish"
+              title="Fill every remaining role automatically — from your binders only, or topped up with suggestions"
             >
               <LightningIcon size={13} />
               {autoFilling
-                ? ` Adding ${autoFilling.done}/${autoFilling.total}…`
-                : ` Auto-fill +${autoFillPicks.length}`}
+                ? (autoFilling.bulk ? ' Adding…' : ` Adding ${autoFilling.done}/${autoFilling.total}…`)
+                : ` Auto-fill +${autoFillSelected.length}`}
             </Button>
           )}
           <div className={styles.footerSpacer} />
@@ -1938,6 +1987,87 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
             </Button>
           )}
         </div>
+
+        {/* Auto-fill dialog — in-panel overlay (the assistant is already a
+            modal; stacking a second Modal would double the body scroll lock). */}
+        {autoFillOpen && (
+          <div className={styles.afOverlay} role="dialog" aria-modal="true" aria-label="Auto-fill deck">
+            <div className={styles.afCard}>
+              <div className={styles.afTitle}>Auto-fill deck</div>
+              {!autoFilling && !autoFillResult && (
+                <>
+                  <label className={`${styles.afOption}${autoFillSource === 'owned' ? ' ' + styles.afOptionActive : ''}`}>
+                    <input
+                      type="radio"
+                      name="af-source"
+                      className={styles.afRadio}
+                      checked={autoFillSource === 'owned'}
+                      onChange={() => setAutoFillSource('owned')}
+                    />
+                    <span className={styles.afOptionBody}>
+                      <span className={styles.afOptionLabel}>From your binders only</span>
+                      <span className={styles.afOptionDesc}>
+                        {autoFillPicksOwned.length
+                          ? `Adds ${autoFillPicksOwned.length} card${autoFillPicksOwned.length === 1 ? '' : 's'} you can pull from binders right now.`
+                          : 'Nothing left to add from your binders.'}
+                      </span>
+                    </span>
+                  </label>
+                  <label className={`${styles.afOption}${autoFillSource === 'all' ? ' ' + styles.afOptionActive : ''}`}>
+                    <input
+                      type="radio"
+                      name="af-source"
+                      className={styles.afRadio}
+                      checked={autoFillSource === 'all'}
+                      onChange={() => setAutoFillSource('all')}
+                    />
+                    <span className={styles.afOptionBody}>
+                      <span className={styles.afOptionLabel}>Binders + suggestions</span>
+                      <span className={styles.afOptionDesc}>
+                        {(() => {
+                          const owned = autoFillPicksAll.filter(p => p.owned).length
+                          const sugg = autoFillPicksAll.length - owned
+                          return autoFillPicksAll.length
+                            ? `Adds ${owned} from your binders and ${sugg} suggested card${sugg === 1 ? '' : 's'} you don’t own — those land in the summary’s buy list.`
+                            : 'No fitting cards or suggestions left.'
+                        })()}
+                      </span>
+                    </span>
+                  </label>
+                  <div className={styles.afNote}>
+                    Your budget and bracket filters apply. Basic lands are still added when you finish.
+                  </div>
+                  <div className={styles.afActions}>
+                    <Button variant="ghost" onClick={() => setAutoFillOpen(false)}>Cancel</Button>
+                    <Button variant="primary" disabled={autoFillSelected.length === 0} onClick={startAutoFill}>
+                      Add {autoFillSelected.length} card{autoFillSelected.length === 1 ? '' : 's'}
+                    </Button>
+                  </div>
+                </>
+              )}
+              {autoFilling && (
+                <div className={styles.afProgress}>
+                  {autoFilling.bulk
+                    ? `Adding ${autoFilling.total} cards…`
+                    : `Adding ${autoFilling.done} / ${autoFilling.total}…`}
+                </div>
+              )}
+              {!autoFilling && autoFillResult && (
+                <>
+                  <div className={styles.afResult}>
+                    Added {autoFillResult.added} card{autoFillResult.added === 1 ? '' : 's'}
+                    {autoFillResult.skipped ? ` · ${autoFillResult.skipped} skipped (no card data)` : ''}.
+                  </div>
+                  <div className={styles.afActions}>
+                    <Button variant="primary" onClick={() => { setAutoFillResult(null); setAutoFillOpen(false) }}>
+                      Done
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </Modal>
   )

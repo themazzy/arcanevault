@@ -188,6 +188,56 @@ describe('planAutoFill', () => {
     })
     expect(picks).toHaveLength(0)
   })
+
+  it('ignores suggestion pools unless includeUpgrades is set', () => {
+    const withUpgrades = [
+      { role: ROLE_DRAW, target: 3, ownedCandidates: [cand('Divination')], upgrades: [cand('Rhystic Study')] },
+    ]
+    const picks = planAutoFill({
+      roles: withUpgrades,
+      liveCounts: counts([[ROLE_DRAW, 0]]),
+      totalCards: 1, deckSize: 100,
+      landsTarget: 0, currentLands: 0,
+    })
+    expect(picks.map(p => p.cand.name)).toEqual(['Divination'])
+    expect(picks[0].owned).toBe(true)
+  })
+
+  it('tops up each role from its suggestions when includeUpgrades is set', () => {
+    const withUpgrades = [
+      { role: ROLE_DRAW, target: 3, ownedCandidates: [cand('Divination')], upgrades: [cand('Rhystic Study'), cand('Mystic Remora')] },
+    ]
+    const picks = planAutoFill({
+      roles: withUpgrades,
+      liveCounts: counts([[ROLE_DRAW, 0]]),
+      totalCards: 1, deckSize: 100,
+      landsTarget: 0, currentLands: 0,
+      includeUpgrades: true,
+    })
+    expect(picks.map(p => [p.cand.name, p.owned])).toEqual([
+      ['Divination', true],
+      ['Rhystic Study', false],
+      ['Mystic Remora', false],
+    ])
+  })
+
+  it('fills the lands gap from land suggestions after owned nonbasics, skipping basics', () => {
+    const picks = planAutoFill({
+      roles: [{ role: ROLE_LANDS, target: 37, ownedCandidates: [] }],
+      liveCounts: counts([]),
+      totalCards: 1, deckSize: 100,
+      landsTarget: 37, currentLands: 0,
+      nonbasicTarget: 3, currentNonbasicLands: 0,
+      landCandidates: [cand('Command Tower')],
+      landUpgrades: [cand('Forest'), cand('Exotic Orchard'), cand('Reliquary Tower')],
+      includeUpgrades: true,
+    })
+    expect(picks.map(p => [p.cand.name, p.owned])).toEqual([
+      ['Command Tower', true],
+      ['Exotic Orchard', false],
+      ['Reliquary Tower', false],
+    ])
+  })
 })
 
 // ── Karsten source requirements ───────────────────────────────────────────────

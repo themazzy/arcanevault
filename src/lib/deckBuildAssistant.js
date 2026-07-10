@@ -494,18 +494,20 @@ export function rankCutCandidates(candidates, mode = 'balanced') {
 }
 
 // ── Auto-fill ─────────────────────────────────────────────────────────────────
-// One-click fill: pick the top available (binder-placed) candidates for every
-// role's remaining gap. Pure planning only — the caller adds the picks and the
-// existing finish step tops up basics. Slot math: whatever the deck still needs
-// to reach `deckSize` is split into a lands reserve (filled here with nonbasics
-// up to `nonbasicTarget`, later with basics on finish) and a nonland budget
-// spent role-by-role in template order. `exclude` injects the caller's live
-// filters (already added, over budget, over the target bracket). Each name is
-// picked at most once (singleton format).
+// One-click fill: pick the top candidates for every role's remaining gap. Pure
+// planning only — the caller adds the picks and the existing finish step tops
+// up basics. Owned (binder-placed) candidates always come first; with
+// `includeUpgrades` each role's leftover gap is then filled from its unowned
+// suggestion list (`spec.upgrades` / `landUpgrades`). Slot math: whatever the
+// deck still needs to reach `deckSize` is split into a lands reserve (filled
+// here with nonbasics up to `nonbasicTarget`, later with basics on finish) and
+// a nonland budget spent role-by-role in template order. `exclude` injects the
+// caller's live filters (already added, over budget, over the target bracket).
+// Each name is picked at most once (singleton format).
 //
-// Returns [{ role, cand }] in add order.
+// Returns [{ role, cand, owned }] in add order.
 export function planAutoFill({
-  roles = [],              // plan.roles: [{ role, target, ownedCandidates }]
+  roles = [],              // plan.roles: [{ role, target, ownedCandidates, upgrades? }]
   liveCounts,              // Map role → current count (countByRole)
   totalCards = 0,          // current deck size incl. commander
   deckSize = COMMANDER_DECK_SIZE,
@@ -514,6 +516,8 @@ export function planAutoFill({
   nonbasicTarget = 0,
   currentNonbasicLands = 0,
   landCandidates = [],     // nonbasic owned land candidates, fixers first
+  landUpgrades = [],       // unowned land suggestions (used with includeUpgrades)
+  includeUpgrades = false,
   exclude = () => false,
 } = {}) {
   const picks = []
@@ -524,6 +528,21 @@ export function planAutoFill({
   const landsReserve = Math.min(slotsLeft, Math.max(0, landsTarget - currentLands))
   let nonlandBudget = slotsLeft - landsReserve
 
+  // Take up to `need` picks from `pool`, honoring the shared name/exclude
+  // gates. Returns how many were taken.
+  const takeFrom = (pool, need, role, owned) => {
+    let n = 0
+    for (const cand of pool || []) {
+      if (n >= need) break
+      const key = (cand?.name || '').toLowerCase()
+      if (!key || taken.has(key) || isBasicLandName(key) || exclude(cand)) continue
+      taken.add(key)
+      picks.push({ role, cand, owned })
+      n++
+    }
+    return n
+  }
+
   for (const spec of roles) {
     if (spec.role === ROLE_LANDS) continue
     let need = Math.min(
@@ -531,26 +550,14 @@ export function planAutoFill({
       nonlandBudget,
     )
     if (need <= 0) continue
-    for (const cand of spec.ownedCandidates || []) {
-      if (need <= 0) break
-      const key = (cand?.name || '').toLowerCase()
-      if (!key || taken.has(key) || exclude(cand)) continue
-      taken.add(key)
-      picks.push({ role: spec.role, cand })
-      need--
-      nonlandBudget--
-    }
+    let got = takeFrom(spec.ownedCandidates, need, spec.role, true)
+    if (includeUpgrades && got < need) got += takeFrom(spec.upgrades, need - got, spec.role, false)
+    nonlandBudget -= got
   }
 
   let landNeed = Math.min(Math.max(0, nonbasicTarget - currentNonbasicLands), landsReserve)
-  for (const cand of landCandidates) {
-    if (landNeed <= 0) break
-    const key = (cand?.name || '').toLowerCase()
-    if (!key || taken.has(key) || exclude(cand)) continue
-    taken.add(key)
-    picks.push({ role: ROLE_LANDS, cand })
-    landNeed--
-  }
+  landNeed -= takeFrom(landCandidates, landNeed, ROLE_LANDS, true)
+  if (includeUpgrades && landNeed > 0) takeFrom(landUpgrades, landNeed, ROLE_LANDS, false)
 
   return picks
 }

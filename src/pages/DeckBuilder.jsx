@@ -2752,6 +2752,105 @@ export default function DeckBuilderPage() {
     }
   }
 
+  // Batched add for the Build Assistant's auto-fill: one metadata batch, one
+  // card_print_id batch, one deck_cards insert, one state update. The per-card
+  // path above costs several network round-trips per card, which made a full
+  // auto-build take minutes. Owned picks arrive with their exact printing
+  // (set/collector/foil/card_print_id) already chosen by the assistant;
+  // name-only recs resolve through the same bounded recommendation RPC as
+  // single adds. Returns { added, skipped }.
+  async function addCardsToDeckBulk(items) {
+    const list = (items || []).filter(it => it?.name)
+    if (!list.length) return { added: 0, skipped: 0 }
+
+    const nameOnly = list.filter(it => !it.set && !it.set_code)
+    const metaByName = new Map()
+    if (nameOnly.length) {
+      try {
+        const metas = await fetchRecommendationMetadataByNames(nameOnly.map(it => it.name))
+        for (const m of metas || []) {
+          const key = (m.requested_name || m.name || '').toLowerCase()
+          if (key) metaByName.set(key, m)
+        }
+      } catch { /* unresolved names are skipped below */ }
+    }
+
+    const now = new Date().toISOString()
+    const prepared = []
+    for (const it of list) {
+      const src = (it.set || it.set_code) ? it : metaByName.get(it.name.toLowerCase())
+      if (!src) continue
+      const meta = getDeckBuilderCardMeta(src)
+      prepared.push({
+        sfCard: src,
+        row: {
+          id:               crypto.randomUUID(),
+          deck_id:          deckId,
+          user_id:          user.id,
+          card_print_id:    it.card_print_id || null,
+          scryfall_id:      meta.scryfall_id,
+          name:             src.name || it.name,
+          set_code:         meta.set_code,
+          collector_number: meta.collector_number,
+          type_line:        meta.type_line,
+          mana_cost:        meta.mana_cost,
+          cmc:              meta.cmc,
+          color_identity:   meta.color_identity,
+          image_uri:        meta.image_uri,
+          qty:              1,
+          foil:             !!it.foil,
+          is_commander:     false,
+          board:            'main',
+          created_at:       now,
+          updated_at:       now,
+        },
+      })
+    }
+    let skipped = list.length - prepared.length
+    if (!prepared.length) return { added: 0, skipped }
+
+    // card_print_ids in one batch; a single unresolvable print aborts
+    // requireCardPrintIds, so on failure retry per row and drop the failures.
+    let rows
+    try {
+      rows = await requireCardPrintIds(prepared.map(p => p.row), 'Deck card printing')
+    } catch {
+      rows = []
+      for (const p of prepared) {
+        try { rows.push((await requireCardPrintIds([p.row], 'Deck card printing'))[0]) }
+        catch { skipped++ }
+      }
+    }
+    if (!rows.length) return { added: 0, skipped }
+
+    // Same category inference as single adds; ensureDeckCategoryForName caches
+    // in-flight creations, so each unique category costs one write.
+    const sfByRowId = new Map(prepared.map(p => [p.row.id, p.sfCard]))
+    for (const row of rows) {
+      const inferred = getCardCategoryFromCard({ type_line: row.type_line }, sfByRowId.get(row.id))
+      if (inferred && inferred !== 'Other' && !isTypeFallbackCategory(inferred)) {
+        try { row.category_id = (await ensureDeckCategoryForName(inferred))?.id || null }
+        catch { row.category_id = null }
+      }
+    }
+
+    deckCardsRef.current = [...deckCardsRef.current, ...rows]
+    setDeckCards(deckCardsRef.current)
+    try {
+      await sbExec(sb.from('deck_cards').insert(rows.map(toDeckCardRow)), { label: 'Auto-fill failed' })
+    } catch {
+      // Nothing persisted — roll the optimistic rows back.
+      const ids = new Set(rows.map(r => r.id))
+      deckCardsRef.current = deckCardsRef.current.filter(dc => !ids.has(dc.id))
+      setDeckCards(deckCardsRef.current)
+      return { added: 0, skipped: skipped + rows.length }
+    }
+    putDeckCards(rows).catch(() => {})
+    queueOwnershipRefreshForRows(rows)
+    logDeckChange(deckId, user?.id, 'Auto-fill', `${rows.length} card${rows.length === 1 ? '' : 's'} added`)
+    return { added: rows.length, skipped }
+  }
+
   function changeQty(deckCardId, delta) {
     const current = deckCardsRef.current.find(dc => dc.id === deckCardId)
     if (!current) return
@@ -6064,6 +6163,7 @@ export default function DeckBuilderPage() {
           deckCards={mainDeckCards}
           accessToken={session?.access_token}
           onAddCard={addCardToDeck}
+          onAddCards={addCardsToDeckBulk}
           onRemoveCard={removeCardFromDeck}
           onRemoveCards={removeCardsFromDeck}
           onAddToWishlist={addUpgradeToWishlist}
