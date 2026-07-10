@@ -214,7 +214,6 @@ export default function CollectionPage() {
   const [filterOpen, setFilterOpen] = useState(false)
   const [importModalText, setImportModalText] = useState('')
   const [importing, setImporting] = useState(false)
-  const [syncCount, setSyncCount] = useState(0)
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState(new Set())
   const [splitState, setSplitState] = useState(new Map())
@@ -637,18 +636,9 @@ export default function CollectionPage() {
   const startEnrichment = useCallback(async (rawCards) => {
     if (enrichingRef.current) return
 
-    // Count cards that aren't already in the IDB cache so the pill can show
-    // an accurate "Syncing N cards…" instead of a generic spinner.
     enrichingRef.current = true
     setEnriching(true); setProgress(0)
     try {
-      const cacheMap = await getInstantCache(Number.MAX_SAFE_INTEGER) || {}
-      const missingCount = rawCards.filter(c => {
-        const entry = cacheMap[`${c.set_code}-${c.collector_number}`]
-        return !entry || !entry.type_line
-      }).length
-      setSyncCount(missingCount)
-
       const map = await loadCardMapWithSharedPrices(rawCards, {
         onProgress: (pct, lbl) => { setProgress(pct); setProgLabel(lbl) },
         cacheTtlMs: ttlMsRef.current,
@@ -662,7 +652,7 @@ export default function CollectionPage() {
         if (partial) setSfMap(partial)
       } catch {}
     } finally {
-      setEnriching(false); setProgLabel(''); setSyncCount(0)
+      setEnriching(false); setProgLabel('')
       enrichingRef.current = false
     }
   }, [])
@@ -1397,7 +1387,6 @@ export default function CollectionPage() {
           title={`Collection${cards.length ? ` · ${cards.length} cards` : ''}`}
           action={
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {!isOnline && <span style={{ fontSize: '0.72rem', color: '#e0a852', border: '1px solid rgba(224,168,82,0.3)', borderRadius: 3, padding: '3px 8px' }}>Offline</span>}
               {cards.length > 0 && (
                 <Button
                   variant="purple"

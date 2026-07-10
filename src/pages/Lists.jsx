@@ -4,6 +4,7 @@ import { getLocalFolders, getLocalListItems, getAllLocalListItemsForFolders, put
 import { toListItemRow } from '../lib/deckBuilderWrites'
 import { queryClient } from '../lib/queryClient'
 import { invalidateWishlistQueries } from '../lib/queryInvalidation'
+import { trackActivity } from '../lib/activity'
 import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { useAuth } from '../components/Auth'
@@ -353,7 +354,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
     toast.success('Deleted 1 wishlist item.')
   }
 
-  const handleBulkDelete = async () => {
+  const handleBulkDelete = () => trackActivity(async () => {
     const deleteCount = [...selectedItems].reduce((sum, id) => sum + (splitState.get(id) ?? 1), 0)
     const toDelete = [], toUpdate = []
     for (const id of selectedItems) {
@@ -388,9 +389,9 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
     await invalidateListCaches()
     setSelectedItems(new Set()); setSplitState(new Map()); setSelectMode(false)
     toast.success(`Deleted ${deleteCount} ${deleteCount === 1 ? 'wishlist item' : 'wishlist items'}.`)
-  }
+  })
 
-  const handleMoveToWishlist = async (targetFolder) => {
+  const handleMoveToWishlist = (targetFolder) => trackActivity(async () => {
     const toDelete = []
     const toUpdate = []
     const upsertMap = new Map()
@@ -458,7 +459,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
     await invalidateListCaches()
     const movedQty = incomingRows.reduce((sum, row) => sum + row.qty, 0)
     if (movedQty > 0) toast.success(`Moved ${movedQty} ${movedQty === 1 ? 'item' : 'items'} to ${targetFolder.name}.`)
-  }
+  })
 
   if (loading) return <EmptyState>Loading…</EmptyState>
 
@@ -1049,7 +1050,7 @@ export default function ListsPage() {
   }
   const exitSelectMode = () => { setSelectMode(false); setSelectedIds(new Set()) }
 
-  const handleBulkDelete = async () => {
+  const handleBulkDelete = () => trackActivity(async () => {
     const selected = folders.filter(f => selectedIds.has(f.id) && !isGroupFolder(f))
     await Promise.all(selected.map(async f => {
       await sb.from('list_items').delete().eq('folder_id', f.id)
@@ -1060,7 +1061,7 @@ export default function ListsPage() {
     setSelectedIds(new Set())
     setSelectMode(false)
     await invalidateListIndexCaches()
-  }
+  })
 
   const bulkMoveToGroup = async (groupId) => {
     const selected = folders.filter(f => selectedIds.has(f.id) && !isGroupFolder(f))

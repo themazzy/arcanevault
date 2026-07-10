@@ -35,6 +35,7 @@ import { BASIC_LAND_TYPES, BASIC_LAND_NAMES, isBasicLandName } from '../lib/basi
 import { addMissingToWishlist } from '../lib/setCompletion'
 import { isOathbreaker, isSignatureSpell, getOathbreakerPairIssue, validateCompanion, companionDeckSizeBonus } from '../lib/commandZone'
 import { logDeckChange, fetchDeckHistory } from '../lib/deckHistory'
+import { beginActivity } from '../lib/activity'
 import ExportModal from '../components/ExportModal'
 import { fetchDeckAllocations, fetchDeckAllocationsForCardIdentities, fetchDeckCards, mergeAllocationRows, upsertDeckAllocations } from '../lib/deckData'
 import {
@@ -454,6 +455,7 @@ export default function DeckBuilderPage() {
   // on REST errors — it returns { data, error }. We unwrap and toast on failure.
   const sbExec = useCallback(async (resultPromise, opts = {}) => {
     const { silent = false, label = 'Save failed' } = opts
+    const endActivity = beginActivity()
     try {
       const res = await resultPromise
       if (res && res.error) {
@@ -466,6 +468,8 @@ export default function DeckBuilderPage() {
       if (!silent) showToast(`${label}: ${err?.message || 'network error'}`, { tone: 'error', duration: 4000 })
       console.error('[DeckBuilder] supabase write threw:', err)
       throw err
+    } finally {
+      endActivity()
     }
   }, [showToast])
 

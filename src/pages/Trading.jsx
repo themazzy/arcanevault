@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { queryClient } from '../lib/queryClient'
 import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
+import { beginActivity } from '../lib/activity'
 import { formatPrice, getImageUri, getInstantCache, getPrice, sfGet } from '../lib/scryfall'
 import { searchCardNames, fetchPrintingsForNames } from '../lib/cardSearch'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
@@ -582,6 +583,7 @@ export default function TradingPage() {
   const syncRemoteCollection = useCallback(async () => {
     if (!navigator.onLine) return
 
+    const endActivity = beginActivity()
     setCollectionLoading(true)
     setBackgroundSyncing(true)
     setProgress(current => Math.max(current, 40))
@@ -654,6 +656,7 @@ export default function TradingPage() {
     } finally {
       setBackgroundSyncing(false)
       setCollectionLoading(false)
+      endActivity()
     }
   }, [applyCollectionData, user.id])
 

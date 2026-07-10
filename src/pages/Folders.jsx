@@ -27,6 +27,7 @@ import { queryClient } from '../lib/queryClient'
 import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
 import { unlinkPairedDeck } from '../lib/deckSync'
+import { trackActivity } from '../lib/activity'
 
 
 // ── Sort dropdown (custom, dark-themed — native <option> can't be styled) ─────
@@ -795,7 +796,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
     }, 0)
   , [selectedCards, splitState])
 
-  const handleBulkDelete = async () => {
+  const handleBulkDelete = () => trackActivity(async () => {
     const toDelete = [], toUpdate = []
     const selectedQtyByCardId = new Map()
     for (const id of selectedCards) {
@@ -846,9 +847,9 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
     }).filter(Boolean))
     clearSelect()
     toast.success(`Deleted ${selectedQty} ${selectedQty === 1 ? 'card' : 'cards'}.`)
-  }
+  })
 
-  const handleMoveToFolder = async (targetFolder) => {
+  const handleMoveToFolder = (targetFolder) => trackActivity(async () => {
     const toDelete = [], toUpdate = []
     const placementRows = []
     const targetIsDeck = targetFolder.type === 'deck'
@@ -908,7 +909,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
     clearSelect()
     const movedQty = placementRows.reduce((sum, row) => sum + row.qty, 0)
     if (movedQty > 0) toast.success(`Moved ${movedQty} ${movedQty === 1 ? 'card' : 'cards'} to ${targetFolder.name}.`)
-  }
+  })
 
   if (loading) return <EmptyState>Loading…</EmptyState>
 
@@ -1697,7 +1698,7 @@ export default function FoldersPage({ type }) {
       setBulkDeleteData({ nonEmpty, empty })
     } else {
       // All empty — delete directly
-      Promise.all(selected.map(f => sb.from('folders').delete().eq('id', f.id))).then(async () => {
+      trackActivity(Promise.all(selected.map(f => sb.from('folders').delete().eq('id', f.id))).then(async () => {
         const ids = selected.map(f => f.id)
         if (type === 'deck') await replaceDeckAllocations(ids, []).catch(() => {})
         else await replaceLocalFolderCards(ids, []).catch(() => {})
@@ -1705,7 +1706,7 @@ export default function FoldersPage({ type }) {
         setFolders(prev => prev.filter(f => !selectedIds.has(f.id)))
         setSelectedIds(new Set())
         setSelectMode(false)
-      })
+      }))
     }
   }
 
