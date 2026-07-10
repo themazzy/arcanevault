@@ -717,14 +717,16 @@
 /* ── Auto-fill dialog (in-panel overlay) ─────────────────────────────────── */
 .afOverlay {
   position: absolute;
-  inset: 0;
+  /* Extend past .body over the Modal's own 22px padding so the backdrop
+     reaches the modal edges; the modal's overflow:hidden clips the corners
+     to its border-radius. */
+  inset: -22px;
   z-index: 6;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
+  padding: 24px;
   background: rgba(0, 0, 0, 0.55);
-  border-radius: 8px;
 }
 
 .afCard {

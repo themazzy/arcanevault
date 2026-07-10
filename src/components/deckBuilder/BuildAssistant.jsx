@@ -1971,7 +1971,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
               <LightningIcon size={13} />
               {autoFilling
                 ? (autoFilling.bulk ? ' Adding…' : ` Adding ${autoFilling.done}/${autoFilling.total}…`)
-                : ` Auto-fill +${autoFillSelected.length}`}
+                : ' Auto-fill'}
             </Button>
           )}
           <div className={styles.footerSpacer} />
