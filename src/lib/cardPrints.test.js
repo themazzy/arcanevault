@@ -20,12 +20,28 @@ const DB_ROWS = [
   // (an incomplete seed); a sibling printing carries the text.
   { id: 'p3', oracle_id: null, scryfall_id: 's3', name: 'Resonating Lute', type_line: 'Artifact', oracle_text: null },
   { id: 'p3b', oracle_id: 'o3', scryfall_id: 's3b', name: 'Resonating Lute', type_line: 'Artifact', oracle_text: 'Lands you control have "{T}: Add two mana…"' },
+  // Henrika: only foreign + unknown-lang printings exist in card_prints and the
+  // oracle sync hasn't reached her — the Spanish row comes back FIRST, but an
+  // English/unknown printing must still win the pick.
+  { id: 'p4', oracle_id: 'o4', scryfall_id: 's4-es', name: 'Henrika Domnathi // Henrika, Infernal Seer', lang: 'es', image_uri: 'henrika-es.jpg' },
+  { id: 'p4b', oracle_id: 'o4', scryfall_id: 's4-en', name: 'Henrika Domnathi // Henrika, Infernal Seer', lang: 'en', image_uri: 'henrika-en.jpg' },
+  // Only-foreign-and-unknown card: unknown lang should beat explicit foreign.
+  { id: 'p5', oracle_id: 'o5', scryfall_id: 's5-de', name: 'Beispiel', lang: 'de', image_uri: 'beispiel-de.jpg' },
+  { id: 'p5b', oracle_id: 'o5', scryfall_id: 's5-x', name: 'Beispiel', lang: null, image_uri: 'beispiel-unknown.jpg' },
 ]
 
-function makeQuery() {
+// oracle_cards: English-only oracle bulk, one row per oracle_id. o1/o2 are
+// covered; o3/o4/o5 deliberately are NOT (sync hasn't reached them) so those
+// resolve via the card_prints fallback.
+const ORACLE_ROWS = [
+  { oracle_id: 'o1', scryfall_id: 's1-oc', name: 'Sol Ring', type_line: 'Artifact', oracle_text: '{T}: Add {C}{C}.', image_uri: 'sol-en.jpg' },
+  { oracle_id: 'o2', scryfall_id: 's2-oc', name: 'Cultivate', type_line: 'Sorcery', oracle_text: 'Search your library…', image_uri: 'cultivate-en.jpg' },
+]
+
+function makeQuery(rows) {
   let cols = []
   const filters = []
-  const run = () => DB_ROWS
+  const run = () => rows
     .filter(r => filters.every(f =>
       f.kind === 'in' ? f.batch.includes(r[f.col])
         : f.kind === 'notNull' ? r[f.col] != null
@@ -46,7 +62,7 @@ function makeQuery() {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  sb.from.mockImplementation(() => makeQuery())
+  sb.from.mockImplementation(table => makeQuery(table === 'oracle_cards' ? ORACLE_ROWS : DB_ROWS))
 })
 
 describe('fetchCardPrintsByOracleIds', () => {
@@ -66,10 +82,25 @@ describe('fetchCardPrintsByOracleIds', () => {
     expect(map.get('o2').name).toBe('Cultivate')
   })
 
-  it('keeps the first printing when several share an oracle_id', async () => {
+  it('prefers the oracle_cards English record over card_prints printings', async () => {
     const map = await fetchCardPrintsByOracleIds(['o2'])
     expect(map.size).toBe(1)
-    expect(map.get('o2').scryfall_id).toBe('s2') // first seen, not s2b
+    expect(map.get('o2').scryfall_id).toBe('s2-oc') // oracle_cards row, not p2/p2b
+    expect(map.get('o2').lang).toBe('en')
+  })
+
+  it('falls back to card_prints preferring English over a foreign printing seen first', async () => {
+    // o4 is not in oracle_cards; the Spanish row is returned before the English
+    // one. The English printing's art must win the recommendation tile.
+    const map = await fetchCardPrintsByOracleIds(['o4'])
+    expect(map.size).toBe(1)
+    expect(map.get('o4').scryfall_id).toBe('s4-en')
+    expect(map.get('o4').image_uri).toBe('henrika-en.jpg')
+  })
+
+  it('prefers unknown-lang (legacy, mostly English) over an explicit foreign printing', async () => {
+    const map = await fetchCardPrintsByOracleIds(['o5'])
+    expect(map.get('o5').scryfall_id).toBe('s5-x')
   })
 
   it('de-dupes the requested ids', async () => {

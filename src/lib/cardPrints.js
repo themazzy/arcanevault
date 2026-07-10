@@ -273,22 +273,55 @@ export async function fetchCardPrintsByScryfallIds(scryfallIds) {
   return out
 }
 
-// Fetch one printing per oracle_id (keyed by oracle_id, index-backed). Used to
-// resolve recommander.cards recommendations — which return only oracle_id —
-// against our dictionary for name/type/oracle text/art with no Scryfall call.
+// oracle_cards carries the same metadata shape minus print-specific fields
+// (id, lang) — it's Scryfall's English-only oracle bulk, one row per oracle_id.
+const ORACLE_CARD_SELECT_COLUMNS = [
+  'scryfall_id', 'oracle_id', 'set_code', 'collector_number', 'name',
+  'type_line', 'mana_cost', 'cmc', 'color_identity',
+  'image_uri', 'art_crop_uri',
+  'rarity', 'set_name', 'artist',
+  'power', 'toughness', 'produced_mana', 'keywords', 'colors',
+  'card_faces', 'oracle_text',
+].join(',')
+
+// English first; unknown lang next (legacy rows predating the language
+// backfill, overwhelmingly English); explicit foreign printings last.
+const langRank = lang => (lang === 'en' ? 0 : lang == null ? 1 : 2)
+
+// Fetch one card record per oracle_id (keyed by oracle_id). Used to resolve
+// recommander.cards recommendations — which return only oracle_id — against
+// our dictionary for name/type/oracle text/art with no Scryfall call.
+// oracle_cards is the primary source: one guaranteed-English representative
+// row per oracle identity. card_prints also contains foreign printings
+// (inserted when a user owns one) whose image_uri is the localized card —
+// picking "first seen" there put foreign art on recommendation tiles — so it
+// is only a fallback for identities the weekly oracle sync hasn't reached,
+// and even then English (or unknown-lang) printings win over foreign ones.
 export async function fetchCardPrintsByOracleIds(oracleIds) {
   if (!oracleIds?.length) return new Map()
   const unique = [...new Set(oracleIds.filter(Boolean))]
   const out = new Map()
   for (const batch of chunkRows(unique, CARD_PRINT_QUERY_BATCH)) {
     const { data, error } = await sb
+      .from('oracle_cards')
+      .select(ORACLE_CARD_SELECT_COLUMNS)
+      .in('oracle_id', batch)
+    if (error) throw error
+    for (const row of data || []) {
+      if (row.oracle_id && !out.has(row.oracle_id)) out.set(row.oracle_id, { ...row, lang: 'en' })
+    }
+  }
+  const missing = unique.filter(id => !out.has(id))
+  for (const batch of chunkRows(missing, CARD_PRINT_QUERY_BATCH)) {
+    const { data, error } = await sb
       .from('card_prints')
       .select(CARD_PRINT_SELECT_COLUMNS)
       .in('oracle_id', batch)
     if (error) throw error
     for (const row of data || []) {
-      // Many printings share an oracle_id; the first seen is fine for metadata.
-      if (row.oracle_id && !out.has(row.oracle_id)) out.set(row.oracle_id, row)
+      if (!row.oracle_id) continue
+      const prev = out.get(row.oracle_id)
+      if (!prev || langRank(row.lang) < langRank(prev.lang)) out.set(row.oracle_id, row)
     }
   }
   return out
