@@ -13,7 +13,7 @@
 import { getCardCategoryFromCard } from './cardCategory'
 import { getCardLegalityWarnings } from './deckLegality'
 import { isMassLandDenial, isExtraTurn } from './commanderBracket'
-import { cardNameMatchKeys } from './deckBuilderHelpers'
+import { cardNameMatchKeys, isGroupFolder } from './deckBuilderHelpers'
 
 // ── Coarse role taxonomy ──────────────────────────────────────────────────────
 // Collapses the ~30 granular categories from getCardCategory into the 8 build
@@ -143,17 +143,13 @@ export function pickCheapestEnglish(candidates, langById) {
 // Owned copies available for building are the BINDER-placed ones: a card whose
 // every placement is a collection-deck allocation is already in use by another
 // deck and must not be offered as "from your collection". Group folders are
-// organisational containers and never hold cards (same isGroup check as
-// collectionFetchers.isGroupFolder — inlined so this module stays free of the
-// Supabase import). Returns the Set of cards.id values with at least one
-// binder placement; callers pre-filter analyzeBuildPlan's ownedCards with it.
+// organisational containers and never hold cards. Returns the Set of cards.id
+// values with at least one binder placement; callers pre-filter
+// analyzeBuildPlan's ownedCards with it.
 export function binderPlacedCardIds(folders, folderCards) {
   const binderIds = new Set()
   for (const f of folders || []) {
-    if (f?.type !== 'binder' || !f.id) continue
-    let isGroup = false
-    try { isGroup = JSON.parse(f.description || '{}').isGroup === true } catch { /* not JSON → placement folder */ }
-    if (!isGroup) binderIds.add(f.id)
+    if (f?.type === 'binder' && f.id && !isGroupFolder(f)) binderIds.add(f.id)
   }
   const out = new Set()
   for (const fc of folderCards || []) {

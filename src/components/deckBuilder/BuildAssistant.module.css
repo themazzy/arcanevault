@@ -693,6 +693,17 @@
   white-space: nowrap;
 }
 
+/* Owned card whose every copy is allocated to another deck — shown on
+   suggestion tiles so ownership isn't silently hidden. */
+.tileOwnedNote {
+  font-size: 0.66rem;
+  color: var(--gold);
+  opacity: 0.85;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .tileActions {
   display: flex;
   flex-direction: column;

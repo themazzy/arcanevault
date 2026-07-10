@@ -184,7 +184,7 @@ function curveLabel(b) { return b === 6 ? '6+' : String(b) }
 const CURVE_BAR_MAX_PX = 96
 
 // One card tile: image + name + sub-meta + add action(s).
-function CardTile({ name, sfCard, fallbackImg, pips, inclusion, tag, price, flag, overTarget, added, wished, showWishlist, onAdd, onUndo, onWishlist }) {
+function CardTile({ name, sfCard, fallbackImg, pips, inclusion, tag, price, flag, overTarget, added, wished, showWishlist, ownedElsewhere, onAdd, onUndo, onWishlist }) {
   const canUndo = added && typeof onUndo === 'function'
   // Cached collection art first; Scryfall-fetched fallback for unowned upgrades
   // and any owned card whose cache entry has no image.
@@ -211,6 +211,14 @@ function CardTile({ name, sfCard, fallbackImg, pips, inclusion, tag, price, flag
         {added && <span className={styles.tileCheck}><CheckIcon size={18} /></span>}
       </div>
       <div className={styles.tileName} title={name}>{name}</div>
+      {ownedElsewhere && (
+        <div
+          className={styles.tileOwnedNote}
+          title="You own this card, but every copy is allocated to another deck"
+        >
+          In another deck
+        </div>
+      )}
       {pips?.length ? <div className={styles.tileSub}><ColorPips colors={pips} /></div> : null}
       <div className={styles.tileActions}>
         <div className={styles.tileActionRow}>
@@ -339,6 +347,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const [lockedCutIds, setLockedCutIds] = useState(() => new Set()) // deck-card ids kept off the cut list
   const [applyingCuts, setApplyingCuts] = useState(false)
   const [ownedNameSet, setOwnedNameSet] = useState(() => new Set())
+  // Names owned overall but with every copy allocated to another collection
+  // deck — excluded from the owned pool, badged on suggestion tiles instead.
+  const [inOtherDeckNames, setInOtherDeckNames] = useState(() => new Set())
   const metaFetchedRef = useRef(false) // owned-card oracle-text backfill ran for this commander
   const selectedThemeRef = useRef('')  // latest theme, read by the async backfill to avoid a stale-closure revert
 
@@ -505,6 +516,10 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         // every copy is allocated to another collection deck is already in use.
         // Skipped when either IDB read failed (null), so a local hiccup degrades
         // to the old everything-owned pool instead of emptying the wizard.
+        // Names removed here (owned, but no free binder copy) are remembered so
+        // suggestion tiles can carry an "In another deck" note instead of
+        // silently presenting the card as unowned.
+        let elsewhereKeys = new Set()
         if (folders) {
           const binderFolderIds = folders.filter(f => f?.type === 'binder').map(f => f.id)
           const binderRows = binderFolderIds.length
@@ -512,7 +527,11 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
             : []
           if (binderRows) {
             const availableIds = binderPlacedCardIds(folders, binderRows)
+            const excluded = ownedNorm.filter(c => !availableIds.has(c.id))
             ownedNorm = ownedNorm.filter(c => availableIds.has(c.id))
+            elsewhereKeys = new Set(excluded.flatMap(c => cardNameMatchKeys(c?.name)))
+            // A name with both a binder copy and a deck copy is still available.
+            for (const c of ownedNorm) for (const k of cardNameMatchKeys(c?.name)) elsewhereKeys.delete(k)
           }
         }
         // Oracle text for the cards already in the deck, up front (one fast
@@ -575,6 +594,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         setThemes(edhrec?.themes || [])
         setGameChangers(gcNames || null)
         setOwnedNameSet(new Set((ownedNorm || []).flatMap(c => cardNameMatchKeys(c?.name))))
+        setInOtherDeckNames(elsewhereKeys)
         setPlan(withRecs)
       } catch (err) {
         if (!cancelled) setError(err?.message || 'Failed to analyze your collection.')
@@ -1477,6 +1497,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                               tag={up.source === 'recommander' ? 'rec' : undefined}
                               flag={flag}
                               overTarget={targetBracket != null && flag && flag.level > targetBracket}
+                              ownedElsewhere={cardNameMatchKeys(up.name).some(k => inOtherDeckNames.has(k))}
                               added={isAdded(up.name)}
                               wished={isWishlisted(up.name)}
                               showWishlist={typeof onAddToWishlist === 'function'}
