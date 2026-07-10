@@ -139,6 +139,29 @@ export function pickCheapestEnglish(candidates, langById) {
   return null
 }
 
+// ── Binder availability ───────────────────────────────────────────────────────
+// Owned copies available for building are the BINDER-placed ones: a card whose
+// every placement is a collection-deck allocation is already in use by another
+// deck and must not be offered as "from your collection". Group folders are
+// organisational containers and never hold cards (same isGroup check as
+// collectionFetchers.isGroupFolder — inlined so this module stays free of the
+// Supabase import). Returns the Set of cards.id values with at least one
+// binder placement; callers pre-filter analyzeBuildPlan's ownedCards with it.
+export function binderPlacedCardIds(folders, folderCards) {
+  const binderIds = new Set()
+  for (const f of folders || []) {
+    if (f?.type !== 'binder' || !f.id) continue
+    let isGroup = false
+    try { isGroup = JSON.parse(f.description || '{}').isGroup === true } catch { /* not JSON → placement folder */ }
+    if (!isGroup) binderIds.add(f.id)
+  }
+  const out = new Set()
+  for (const fc of folderCards || []) {
+    if (fc?.card_id && binderIds.has(fc.folder_id) && (fc.qty ?? 1) > 0) out.add(fc.card_id)
+  }
+  return out
+}
+
 // ── Commander deck template ───────────────────────────────────────────────────
 // Target quotas for a typical Commander deck. `ideal` drives gap math and the
 // wizard progress bars; `min` flags a role as under-built. Synergy is the

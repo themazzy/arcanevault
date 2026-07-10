@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  binderPlacedCardIds,
   granularToCoarse,
   edhrecHeaderToRole,
   coarseRole,
@@ -65,6 +66,47 @@ function assemble(cards) {
 function role(plan, name) {
   return plan.roles.find(r => r.role === name)
 }
+
+// ── Binder availability ───────────────────────────────────────────────────────
+describe('binderPlacedCardIds', () => {
+  const folders = [
+    { id: 'b1', type: 'binder', description: '' },
+    { id: 'b2', type: 'binder', description: '{"isGroup":true}' }, // group container
+    { id: 'd1', type: 'deck', description: '' },
+    { id: 'l1', type: 'list', description: '' },
+  ]
+
+  it('includes cards placed in a real binder', () => {
+    const ids = binderPlacedCardIds(folders, [{ folder_id: 'b1', card_id: 'c1', qty: 2 }])
+    expect(ids.has('c1')).toBe(true)
+  })
+
+  it('excludes cards placed only in decks or lists', () => {
+    const ids = binderPlacedCardIds(folders, [
+      { folder_id: 'd1', card_id: 'c-deck', qty: 1 },
+      { folder_id: 'l1', card_id: 'c-list', qty: 1 },
+    ])
+    expect(ids.size).toBe(0)
+  })
+
+  it('ignores group binder folders and zero-qty placements', () => {
+    const ids = binderPlacedCardIds(folders, [
+      { folder_id: 'b2', card_id: 'c-group', qty: 1 },
+      { folder_id: 'b1', card_id: 'c-zero', qty: 0 },
+    ])
+    expect(ids.size).toBe(0)
+  })
+
+  it('treats a missing qty as placed (legacy rows)', () => {
+    const ids = binderPlacedCardIds(folders, [{ folder_id: 'b1', card_id: 'c1' }])
+    expect(ids.has('c1')).toBe(true)
+  })
+
+  it('handles null/absent inputs', () => {
+    expect(binderPlacedCardIds(null, null).size).toBe(0)
+    expect(binderPlacedCardIds(folders, null).size).toBe(0)
+  })
+})
 
 // ── Granular → coarse mapping ─────────────────────────────────────────────────
 describe('granularToCoarse', () => {

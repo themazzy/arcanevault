@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Modal, Button, ProgressBar, ResponsiveMenu } from '../UI'
 import uiStyles from '../UI.module.css'
 import { CheckIcon, DeleteIcon, WarningIcon, ChevronDownIcon } from '../../icons'
-import { getLocalCards, getLocalCardPrints } from '../../lib/db'
+import { getLocalCards, getLocalCardPrints, getLocalFolders, getAllLocalFolderCards } from '../../lib/db'
 import { getInstantCache, getScryfallKey, getPrice, formatPrice } from '../../lib/scryfall'
 import { useCombosFetch } from '../../hooks/useCombosFetch'
 import { useSettings } from '../SettingsContext'
@@ -15,6 +15,7 @@ import {
 } from '../../lib/commanderBracket'
 import {
   analyzeBuildPlan,
+  binderPlacedCardIds,
   enrichPlanWithEdhrec,
   archetypeAdjustments,
   applyTemplateAdjustments,
@@ -459,12 +460,13 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         setSelectedTheme('')
         selectedThemeRef.current = ''
         metaFetchedRef.current = false
-        const [owned, prints, cache, edhrec, gcNames] = await Promise.all([
+        const [owned, prints, cache, edhrec, gcNames, folders] = await Promise.all([
           getLocalCards(userId),
           getLocalCardPrints().catch(() => []),
           getInstantCache().catch(() => null),
           fetchEdhrecCommander(commander.name).catch(() => null),
           fetchGameChangerNames().catch(() => null),
+          getLocalFolders(userId).catch(() => null),
         ])
         // The instant cache is keyed by `${set}-${collector}` (getScryfallKey),
         // but the engine looks cards up by scryfall_id. Build a scryfall_id →
@@ -494,11 +496,25 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         }
         // Post-5d owned rows may lack scryfall_id; resolve it via card_prints so
         // the engine's sfMap[card.scryfall_id] lookup hits.
-        const ownedNorm = (owned || []).map(c => {
+        let ownedNorm = (owned || []).map(c => {
           if (c?.scryfall_id) return c
           const print = c?.card_print_id ? printById.get(c.card_print_id) : null
           return print?.scryfall_id ? { ...c, scryfall_id: print.scryfall_id } : c
         })
+        // Only binder-placed copies are available to build with — a card whose
+        // every copy is allocated to another collection deck is already in use.
+        // Skipped when either IDB read failed (null), so a local hiccup degrades
+        // to the old everything-owned pool instead of emptying the wizard.
+        if (folders) {
+          const binderFolderIds = folders.filter(f => f?.type === 'binder').map(f => f.id)
+          const binderRows = binderFolderIds.length
+            ? await getAllLocalFolderCards(binderFolderIds).catch(() => null)
+            : []
+          if (binderRows) {
+            const availableIds = binderPlacedCardIds(folders, binderRows)
+            ownedNorm = ownedNorm.filter(c => availableIds.has(c.id))
+          }
+        }
         // Oracle text for the cards already in the deck, up front (one fast
         // Supabase query). deck_cards_view carries no oracle text, so without
         // this every existing deck card classifies as Synergy until the much
