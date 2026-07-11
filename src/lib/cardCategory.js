@@ -114,7 +114,10 @@ export function getCardCategory(oracle = '', typeLine = '', keywords = []) {
   if (/copy [a-z ]{0,40}target [a-z' /]{0,40}(spell|instant|sorcery|creature|permanent|activated ability|triggered ability)/.test(o)) return 'Copy'
   if (/copy target (spell|instant|sorcery|creature|permanent|activated ability|triggered ability)/.test(o)) return 'Copy'
   if (/token that's a copy of/.test(o)) return 'Copy'
-  if (/(becomes|enters? the battlefield as) a copy of/.test(o)) return 'Copy'
+  // "enters as a copy of" is the modern clone wording (Phyrexian Metamorph,
+  // Sculpting Steel, Spark Double); "enters the battlefield as" is the older
+  // templating — the optional group catches both, plus bare "becomes a copy of".
+  if (/(becomes|enters?( the battlefield)? as) a copy of/.test(o)) return 'Copy'
   if (/copy that (spell|ability)/.test(o)) return 'Copy'
 
   // ── Board Wipe (check before single-target Removal) ───────────────────────
@@ -153,7 +156,9 @@ export function getCardCategory(oracle = '', typeLine = '', keywords = []) {
   if (/create [a-z\d ]{0,40}powerstone tokens?/.test(o)) return 'Ramp'
 
   // ── Tutor ─────────────────────────────────────────────────────────────────
-  if (/search your library for (a|an|up to (one|two|three|four)) [a-z, ]{0,40}(card|instant|sorcery|creature|artifact|enchantment|planeswalker|legendary)/.test(o)) return 'Tutor'
+  // Optional "and/or graveyard" catches Finale of Devastation / Wildest Dreams
+  // wording ("Search your library and/or graveyard for a creature card").
+  if (/search your library (and\/or graveyard )?for (a|an|up to (one|two|three|four)) [a-z, ]{0,40}(card|instant|sorcery|creature|artifact|enchantment|planeswalker|legendary)/.test(o)) return 'Tutor'
 
   // ── Sacrifice (after Tutor so Birthing Pod / Diabolic Intent stay Tutor) ──
   if (/sacrifice (a|an|another|one|two|three|\d+|x|\{[a-z\d]+\}) [a-z ]{0,30}(creature|permanent|artifact|nontoken|token)/.test(o)) return 'Sacrifice'
@@ -171,6 +176,10 @@ export function getCardCategory(oracle = '', typeLine = '', keywords = []) {
       /(\{t\}|tap)[^.]{0,80}adds? [a-z ]{0,30}(\{|one|two|three|x mana|an amount)/.test(o)) return 'Ramp'
   if (!t.includes('land') && /adds? [a-z ]{0,30}\{[wubrgc2]/.test(o)) return 'Ramp'
   if (!t.includes('land') && /adds? [a-z ]{0,30}(one|two|three|x|\d+) mana/.test(o)) return 'Ramp'
+  // Untap-a-land dorks (Arbor Elf, Voyaging Satyr, Kiora's Follower): untapping
+  // a land is mana acceleration. Anchored to a specific land noun so it can't
+  // catch "untap target creature/permanent" combat/untap tricks.
+  if (/untap target [a-z ]{0,15}(land|forest|island|swamp|mountain|plains|wastes?)/.test(o)) return 'Ramp'
 
   // ── Cost Reduction ────────────────────────────────────────────────────────
   if (/costs? (\{[\dx]+\}|one|two|three|four|five|six|seven|x|\d+) less to cast/.test(o)) return 'Cost Reduction'

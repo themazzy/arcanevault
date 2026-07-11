@@ -86,6 +86,12 @@ const cases = [
   ['Mind Stone (mana rock + draw → Ramp wins)',
     '{T}: Add {C}. {1}, {T}, Sacrifice Mind Stone: Draw a card.',
     'Artifact', 'Ramp'],
+  ['Arbor Elf (untap-a-Forest dork)',
+    '{T}: Untap target Forest.',
+    'Creature — Elf Druid', 'Ramp'],
+  ['Voyaging Satyr (untap any land)',
+    '{T}: Untap target land.',
+    'Creature — Satyr Druid', 'Ramp'],
 
   // ── Tutor ────────────────────────────────────────────────────────────────
   ['Demonic Tutor',
@@ -96,6 +102,9 @@ const cases = [
     'Instant', 'Tutor'],
   ['Idyllic Tutor',
     'Search your library for an enchantment card, reveal it, put it into your hand, then shuffle.',
+    'Sorcery', 'Tutor'],
+  ['Finale of Devastation (library and/or graveyard search)',
+    'Search your library and/or graveyard for a creature card with mana value X or less and put it onto the battlefield. If you search your library this way, shuffle.',
     'Sorcery', 'Tutor'],
 
   // ── Card Draw ────────────────────────────────────────────────────────────
@@ -315,6 +324,12 @@ const cases = [
   ['Clone',
     'You may have Clone enter the battlefield as a copy of any creature on the battlefield.',
     'Creature — Shapeshifter', 'Copy'],
+  ['Phyrexian Metamorph (modern "enter as a copy" wording)',
+    'You may have this creature enter as a copy of any artifact or creature on the battlefield, except it\'s an artifact in addition to its other types.',
+    'Artifact Creature — Shapeshifter', 'Copy'],
+  ['Sculpting Steel (artifact "enter as a copy")',
+    'You may have this artifact enter as a copy of any artifact on the battlefield.',
+    'Artifact', 'Copy'],
   ['Pyromancer\'s Goggles',
     '{T}: Add {R}. Whenever you cast an instant or sorcery spell with {R} in its cost, you may copy that spell. You may choose new targets for the copy.',
     'Legendary Artifact', 'Copy'],
