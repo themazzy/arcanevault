@@ -16,7 +16,7 @@ import {
   parseTextDecklist, parseImportUrl, searchCards, fetchPaperPrintings,
   getDeckBuilderCardMeta, importProxyUrl, fetchPaperPrintingsByNamesFromDb,
   fetchRecommendationMetadataByNames, recommendationMetadataRowToCard,
-  pickAutomaticDeckPrinting, FORMATS, nameToSlug,
+  pickAutomaticDeckPrinting, FORMATS, nameToSlug, getEdhrecPartnerSlugCandidates,
 } from './deckBuilderApi'
 import { EDH_FORMAT_IDS } from './commanderBracket'
 import { sfGet } from './scryfall'
@@ -48,6 +48,26 @@ describe('nameToSlug (EDHREC commander slugs)', () => {
 
   it('transliterates diacritics instead of deleting the letter', () => {
     expect(nameToSlug('Jötun Grunt')).toBe('jotun-grunt')
+  })
+})
+
+describe('getEdhrecPartnerSlugCandidates', () => {
+  it('combines both commander slugs, alphabetical order first', () => {
+    const out = getEdhrecPartnerSlugCandidates('Tymna the Weaver', 'Thrasios, Triton Hero')
+    // canonical (sorted) form is the first candidate for the pair
+    expect(out[0]).toBe('thrasios-triton-hero-tymna-the-weaver')
+    // both orders present as fallbacks (EDHREC serves either)
+    expect(out).toContain('tymna-the-weaver-thrasios-triton-hero')
+  })
+
+  it('handles a Background pairing the same way', () => {
+    const out = getEdhrecPartnerSlugCandidates('Wilson, Refined Grizzly', 'Agent of the Iron Throne')
+    expect(out).toContain('agent-of-the-iron-throne-wilson-refined-grizzly')
+  })
+
+  it('dedupes', () => {
+    const out = getEdhrecPartnerSlugCandidates('Krenko, Mob Boss', 'Krenko, Mob Boss')
+    expect(out).toEqual([...new Set(out)])
   })
 })
 

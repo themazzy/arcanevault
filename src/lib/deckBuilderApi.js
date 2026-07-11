@@ -26,13 +26,13 @@ export function importProxyUrl(source, id) {
 // through our Cloudflare worker (the upstream sends no CORS headers). Returns
 // [{ oracle_id, name, score }] on success, [] on any failure / cold start — the
 // caller falls back to EDHREC. Best-effort and never throws.
-export async function fetchRecommenderRecs(commanderName, deckNames = []) {
+export async function fetchRecommenderRecs(commanderName, deckNames = [], partnerName = null) {
   if (!commanderName) return []
   try {
     const res = await fetch(getProdAppUrl('/api/recommend'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ card_format: 'name', commander: commanderName, partner: null, deck: deckNames || [] }),
+      body: JSON.stringify({ card_format: 'name', commander: commanderName, partner: partnerName || null, deck: deckNames || [] }),
     })
     if (!res.ok) return []
     const json = await res.json()
@@ -184,6 +184,25 @@ function getEdhrecCommanderSlugCandidates(name) {
   ].filter(Boolean)
 
   return [...new Set(candidates)]
+}
+
+// EDHREC partner / background pair pages combine both commander slugs with a
+// hyphen. The site serves either order (verified), but we try alphabetical
+// first (its canonical form) then the reverse to be safe. Cartesian over each
+// commander's own slug candidates so diacritic/hyphen variants still resolve.
+export function getEdhrecPartnerSlugCandidates(nameA, nameB) {
+  const a = getEdhrecCommanderSlugCandidates(nameA)
+  const b = getEdhrecCommanderSlugCandidates(nameB)
+  const out = []
+  for (const sa of a) {
+    for (const sb of b) {
+      if (!sa || !sb) continue
+      out.push([sa, sb].sort().join('-'))
+      out.push(`${sa}-${sb}`)
+      out.push(`${sb}-${sa}`)
+    }
+  }
+  return [...new Set(out)]
 }
 
 // ── Scryfall helpers ──────────────────────────────────────────────────────────
@@ -506,13 +525,18 @@ async function edhrecFetch(path) {
   }
 }
 
-export async function fetchEdhrecCommander(commanderName, formatId = 'commander', { themeSlug = '' } = {}) {
-  const slugs = getEdhrecCommanderSlugCandidates(commanderName)
+export async function fetchEdhrecCommander(commanderName, formatId = 'commander', { themeSlug = '', partnerName = '' } = {}) {
+  // With a partner/background, EDHREC's pair page (both slugs) is far more
+  // representative than either solo page; solo candidates stay as the fallback.
+  const partnerSlugs = partnerName ? getEdhrecPartnerSlugCandidates(commanderName, partnerName) : []
+  const slugs = [...partnerSlugs, ...getEdhrecCommanderSlugCandidates(commanderName)]
   // EDHRec has dedicated Brawl pages at /pages/commanders/<slug>/brawl.json and
   // per-archetype theme pages at /pages/commanders/<slug>/<theme>.json. A theme
   // takes precedence over the brawl subpath; both fall back to the base page.
   const subPath = themeSlug ? `/${themeSlug}` : (formatId === 'brawl' ? '/brawl' : '')
-  const cacheKey = themeSlug ? `theme:${themeSlug}` : (formatId === 'brawl' ? 'brawl' : 'commander')
+  const cacheKey = themeSlug
+    ? `theme:${themeSlug}${partnerName ? ':' + nameToSlug(partnerName) : ''}`
+    : (formatId === 'brawl' ? 'brawl' : 'commander') + (partnerName ? ':' + nameToSlug(partnerName) : '')
   for (const slug of slugs) {
     const hit = edhCacheGet(`${cacheKey}:${slug}`)
     if (hit) return hit

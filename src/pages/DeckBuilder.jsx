@@ -6161,7 +6161,7 @@ export default function DeckBuilderPage() {
       {showBuildAssistant && (
         <BuildAssistant
           userId={user.id}
-          commander={commanderCard ? { name: commanderCard.name, color_identity: colorIdentity } : null}
+          commander={commanderCard ? { name: commanderCard.name, color_identity: colorIdentity, partnerName: commanderCards[1]?.name || null } : null}
           deckCards={mainDeckCards}
           accessToken={session?.access_token}
           onAddCard={addCardToDeck}

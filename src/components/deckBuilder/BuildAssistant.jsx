@@ -410,7 +410,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     const sig = `${commander.name}|${[...deckNames].sort().join(',')}`
     const cache = recCacheRef.current
     if (cache.has(sig)) return cache.get(sig)
-    const recs = await fetchRecommenderRecs(commander.name, deckNames)
+    const recs = await fetchRecommenderRecs(commander.name, deckNames, commander.partnerName || null)
     if (!recs.length) { cache.set(sig, []); return [] }
     const printMap = await fetchCardPrintsByOracleIds(recs.map(r => r.oracle_id)).catch(() => new Map())
     const rows = []
@@ -459,7 +459,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         currentDeckCards: deckCards,
         template,
       })
-      const edhrec = await fetchEdhrecCommander(commander.name, 'commander', themeSlug ? { themeSlug } : undefined)
+      const edhrec = await fetchEdhrecCommander(commander.name, 'commander', { themeSlug: themeSlug || '', partnerName: commander.partnerName || '' })
       const enriched = await enrichPlanWithEdhrec(base, async () => edhrec, fetchUpgradeMeta)
       setPlan(await mergeRecommender(enriched, deckCards))
     } finally {
@@ -480,7 +480,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           getLocalCards(userId),
           getLocalCardPrints().catch(() => []),
           getInstantCache().catch(() => null),
-          fetchEdhrecCommander(commander.name).catch(() => null),
+          fetchEdhrecCommander(commander.name, 'commander', { partnerName: commander.partnerName || '' }).catch(() => null),
           fetchGameChangerNames().catch(() => null),
           getLocalFolders(userId).catch(() => null),
         ])
@@ -610,7 +610,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     return () => { cancelled = true }
     // Re-run only when the commander identity changes — not on every deck edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, commander?.name, (commander?.color_identity || []).join('')])
+  }, [userId, commander?.name, commander?.partnerName, (commander?.color_identity || []).join('')])
 
   function onSelectTheme(slug) {
     if (slug === selectedTheme) return
@@ -928,7 +928,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         template,
       })
       const edhrec = await fetchEdhrecCommander(
-        commander.name, 'commander', theme ? { themeSlug: theme } : undefined,
+        commander.name, 'commander', { themeSlug: theme || '', partnerName: commander.partnerName || '' },
       ).catch(() => null)
       // Bail if the user switched themes again while we were fetching EDHREC —
       // rebuildPlan owns the plan for the newer selection.
