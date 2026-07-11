@@ -270,22 +270,6 @@
 .sectionCaretClosed { transform: rotate(-90deg); }
 
 /* ── Theme / archetype selector ───────────────────────────────────────────── */
-.themeRow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-  flex-wrap: wrap;
-}
-
-.themeLabel {
-  font-family: var(--font-display);
-  font-size: 0.62rem;
-  letter-spacing: 0.12em;
-  color: var(--text-faint);
-  text-transform: uppercase;
-}
-
 .themeChips {
   display: flex;
   flex-wrap: wrap;
@@ -310,12 +294,6 @@
   border-color: rgba(201, 168, 76, 0.6);
   background: rgba(201, 168, 76, 0.15);
   color: var(--gold);
-}
-
-.themeBusy {
-  font-size: 0.74rem;
-  color: var(--text-faint);
-  font-style: italic;
 }
 
 /* Live bracket estimate badge */
@@ -1147,12 +1125,6 @@
   color: var(--green);
   border-color: rgba(93, 186, 112, 0.4);
   cursor: default;
-}
-
-/* Gold count tag on an over-quota cut row (was an inline style). */
-.cutTag {
-  color: var(--gold);
-  border-color: rgba(201, 168, 76, 0.4);
 }
 
 .cutBtn {
