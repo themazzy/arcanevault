@@ -2758,10 +2758,12 @@ export default function DeckBuilderPage() {
   // auto-build take minutes. Owned picks arrive with their exact printing
   // (set/collector/foil/card_print_id) already chosen by the assistant;
   // name-only recs resolve through the same bounded recommendation RPC as
-  // single adds. Returns { added, skipped }.
+  // single adds. Returns { added, skipped, rows } — rows are the resolved
+  // deck-card rows (with id/name/mana_cost/type_line), so the caller can mark
+  // exactly what landed, predict basics from real pip costs, and offer undo.
   async function addCardsToDeckBulk(items) {
     const list = (items || []).filter(it => it?.name)
-    if (!list.length) return { added: 0, skipped: 0 }
+    if (!list.length) return { added: 0, skipped: 0, rows: [] }
 
     const nameOnly = list.filter(it => !it.set && !it.set_code)
     const metaByName = new Map()
@@ -2807,7 +2809,7 @@ export default function DeckBuilderPage() {
       })
     }
     let skipped = list.length - prepared.length
-    if (!prepared.length) return { added: 0, skipped }
+    if (!prepared.length) return { added: 0, skipped, rows: [] }
 
     // card_print_ids in one batch; a single unresolvable print aborts
     // requireCardPrintIds, so on failure retry per row and drop the failures.
@@ -2821,7 +2823,7 @@ export default function DeckBuilderPage() {
         catch { skipped++ }
       }
     }
-    if (!rows.length) return { added: 0, skipped }
+    if (!rows.length) return { added: 0, skipped, rows: [] }
 
     // Same category inference as single adds; ensureDeckCategoryForName caches
     // in-flight creations, so each unique category costs one write.
@@ -2843,12 +2845,12 @@ export default function DeckBuilderPage() {
       const ids = new Set(rows.map(r => r.id))
       deckCardsRef.current = deckCardsRef.current.filter(dc => !ids.has(dc.id))
       setDeckCards(deckCardsRef.current)
-      return { added: 0, skipped: skipped + rows.length }
+      return { added: 0, skipped: skipped + rows.length, rows: [] }
     }
     putDeckCards(rows).catch(() => {})
     queueOwnershipRefreshForRows(rows)
     logDeckChange(deckId, user?.id, 'Auto-fill', `${rows.length} card${rows.length === 1 ? '' : 's'} added`)
-    return { added: rows.length, skipped }
+    return { added: rows.length, skipped, rows }
   }
 
   function changeQty(deckCardId, delta) {

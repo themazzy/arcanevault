@@ -1055,36 +1055,42 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const [autoFillResult, setAutoFillResult] = useState(null) // { added, skipped, basics }
   const autoFillSelected = autoFillSource === 'recommended' ? autoFillPicksRec : autoFillPicksOwned
 
-  // Basics the deck will need once `picks` are in — predicted against the
-  // pre-add deck plus pseudo-rows for the picks, because the deckCards prop
-  // won't have round-tripped yet when we add them right after the bulk call.
-  function basicsAfterPicks(picks) {
-    const pseudo = picks.map(p => ({
-      name: p.cand.name,
-      type_line: p.cand.sfCard?.type_line || p.cand.type || '',
-      mana_cost: p.cand.sfCard?.mana_cost || p.cand.mana_cost || '',
-      cmc: p.cand.cmc ?? p.cand.sfCard?.cmc ?? 0,
-      oracle_text: p.cand.sfCard?.oracle_text || '',
-      qty: 1,
-    }))
+  // Basics the deck will need once `rows` are in — predicted against the
+  // pre-add deck plus the just-added rows (which carry real mana_cost /
+  // type_line), because the deckCards prop won't have round-tripped yet.
+  // `rows` come from the bulk-add's return; in the sequential fallback we build
+  // pseudo-rows from the picks instead (owned picks have sfCard for pips).
+  function basicsAfterRows(rows) {
     return planBasicLands({
-      deckCards: [...deckCards, ...pseudo],
+      deckCards: [...deckCards, ...rows],
       sfMap,
       colors: cmdColors,
       landTarget: landsTarget,
     })
   }
+  const picksToPseudoRows = picks => picks.map(p => ({
+    name: p.cand.name,
+    type_line: p.cand.sfCard?.type_line || p.cand.type || '',
+    mana_cost: p.cand.sfCard?.mana_cost || p.cand.mana_cost || '',
+    cmc: p.cand.cmc ?? p.cand.sfCard?.cmc ?? 0,
+    oracle_text: p.cand.sfCard?.oracle_text || '',
+    qty: 1,
+  }))
 
   // Auto-fill completes the whole build in one go: role picks, nonbasic lands,
   // then the pip/Karsten-weighted basics — and lands on the summary step so
-  // the result (composition, buy list, trim) is immediately visible.
-  async function finishAutoFill(picks, added, skipped) {
+  // the result (composition, buy list, trim) is immediately visible. `rows` are
+  // what actually landed (bulk path) or the pseudo-rows (sequential path);
+  // `addedCardIds` are the deck-card ids to remove on undo.
+  async function finishAutoFill(rows, added, skipped, addedCardIds) {
     let basics = 0
-    const planned = basicsAfterPicks(picks)
+    let basicCounts = null
+    const planned = basicsAfterRows(rows)
     if (planned.total > 0 && typeof onAddBasics === 'function') {
       try {
         await onAddBasics(planned.counts)
         basics = planned.total
+        basicCounts = planned.counts
       } catch { /* parent surfaces errors; summary still offers the top-up */ }
     }
     // Slots the run could NOT fill (candidate pools ran dry) — called out in
@@ -1092,7 +1098,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     // totalCards is the pre-add count: this closure was created before the
     // deckCards prop round-tripped.
     const left = Math.max(0, (plan?.deckSize || 100) - (totalCards + added + basics))
-    setAutoFillResult({ added, skipped, basics, left })
+    setAutoFillResult({ added, skipped, basics, left, addedCardIds: addedCardIds || [], basicCounts })
     setStepIndex(steps.length - 1)
   }
 
@@ -1108,14 +1114,16 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           ? { ...ownedCardForAdd(p.cand), foil: !!p.cand.card?.foil, card_print_id: p.cand.card?.card_print_id || null }
           : p.cand)
         const res = await onAddCards(items)
+        const rows = res?.rows || []
+        // Mark exactly what landed (skipped names must not read as Added).
         setAddedNames(prev => {
           const next = new Set(prev)
-          for (const p of picks) next.add(p.cand.name.toLowerCase())
+          for (const r of rows) if (r?.name) next.add(r.name.toLowerCase())
           return next
         })
-        await finishAutoFill(picks, res?.added ?? picks.length, res?.skipped ?? 0)
+        await finishAutoFill(rows, res?.added ?? rows.length, res?.skipped ?? 0, rows.map(r => r.id))
       } catch {
-        setAutoFillResult({ added: 0, skipped: picks.length, basics: 0 })
+        setAutoFillResult({ added: 0, skipped: picks.length, basics: 0, left: 0, addedCardIds: [], basicCounts: null })
       } finally {
         setAutoFilling(null)
       }
@@ -1128,7 +1136,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         await handleAdd(p.owned ? ownedCardForAdd(p.cand) : p.cand, p.cand.name)
         setAutoFilling({ done: i + 1, total: picks.length })
       }
-      await finishAutoFill(picks, picks.length, 0)
+      // Sequential path has no returned rows/ids — undo falls back to name-based
+      // removal via the normal per-tile Remove, so no addedCardIds here.
+      await finishAutoFill(picksToPseudoRows(picks), picks.length, 0, [])
     } finally {
       setAutoFilling(null)
     }
@@ -1693,7 +1703,11 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                     {!collapsed.upgrades && (
                       <div className={styles.grid}>
                         {upgrades.map(up => {
-                          const flag = bracketFlagFor(up.name, null, gameChangers)
+                          // Feed the resolved oracle text (from the upgrade meta
+                          // cache) so mass-land-denial / extra-turn bracket flags
+                          // fire on unowned suggestions too, not just Game Changers.
+                          const meta = upgradeMetaCacheRef.current.get(up.name.toLowerCase())
+                          const flag = bracketFlagFor(up.name, meta?.oracle_text ? { oracle_text: meta.oracle_text } : null, gameChangers)
                           return (
                             <CardTile
                               key={up.slug || up.name}
