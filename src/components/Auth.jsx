@@ -11,6 +11,14 @@ import {
 } from '../lib/authRecovery'
 import { applyTheme } from './SettingsContext'
 import { fetchCardsByNames } from '../lib/deckBuilderApi'
+import {
+  BuilderIcon,
+  CheckIcon,
+  ChevronRightIcon,
+  CollectionIcon,
+  LightningIcon,
+  TargetIcon,
+} from '../icons'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './Auth.module.css'
 
@@ -211,6 +219,20 @@ const BUILDER_CARD_POOL = [
   'Birds of Paradise',
 ]
 
+const BUILD_ASSIST_ROLES = [
+  { name: 'Ramp', count: 10, target: 10 },
+  { name: 'Draw', count: 8, target: 10 },
+  { name: 'Removal', count: 9, target: 10 },
+  { name: 'Protection', count: 5, target: 7 },
+]
+
+const BUILD_ASSIST_PROOFS = [
+  'Starts with available cards from your binders',
+  'Tunes suggestions to theme, budget, and target bracket',
+  'Balances roles, colored mana sources, and basic lands',
+  'Builds a buy list, helps cut to 100, then opens playtest',
+]
+
 function shuffleAndTake(cards, count) {
   const copy = [...cards]
   for (let i = copy.length - 1; i > 0; i -= 1) {
@@ -235,9 +257,9 @@ const FEATURES = [
   },
   {
     icon: '⚔',
-    title: 'Deck Builder',
-    desc: 'Build decklists with combo detection, format legality checks, commander colour identity warnings, and one-click sync from your owned cards.',
-    stat: 'Commander-focused deck workflow',
+    title: 'Build Assist',
+    desc: 'Auto build from your binders or choose every card role by role, with deck-aware picks, bracket and budget controls, mana balancing, and cut-to-100 help.',
+    stat: 'Automatic or fully guided builds',
   },
   {
     icon: '◐',
@@ -370,7 +392,7 @@ export function LoginPage({ forcedMode = null }) {
     {
       number: '02',
       title: 'Organise & Build',
-      desc: 'Sort cards into binders, wishlists, and decks. The deck builder ties straight back to your owned cards so you always know what you still need.',
+      desc: 'Sort cards into binders, wishlists, and decks. Build Assist can draft from cards you own or guide each pick while keeping the gaps visible.',
       cards: builderCards.slice(0, 3),
       artsKey: 'builder0',
     },
@@ -539,15 +561,15 @@ export function LoginPage({ forcedMode = null }) {
       <section className={styles.hero}>
         <div className={styles.heroLeft}>
           <div className={styles.heroLogo}>
-            <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" fetchpriority="high" decoding="async" />
+            <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" fetchPriority="high" decoding="async" />
             <span className={styles.logoText}>Deck<span>Loom</span></span>
           </div>
           <h1 className={styles.tagline}>
-            All in one<br />Magic: The Gathering companion.
+            Build better Commander decks,<br />your way.
           </h1>
           <p className={styles.taglineSub}>
-            Scan cards, organise your collection, build decks, and run multiplayer life totals —
-            every tool a Magic player needs, in a single app.
+            Let Build Assist shape a complete list from your binders in seconds, or work
+            role by role with collection-aware suggestions, budget controls, and a clear path to 100 cards.
           </p>
 
           <div className={styles.featurePills}>
@@ -571,8 +593,8 @@ export function LoginPage({ forcedMode = null }) {
             </div>
             <div className={styles.heroStatDivider} />
             <div className={styles.heroStat}>
-              <span className={styles.heroStatNum}>Deck Builder</span>
-              <span className={styles.heroStatLabel}>Build, playtest, share</span>
+              <span className={styles.heroStatNum}>Build Assist</span>
+              <span className={styles.heroStatLabel}>Auto build or tune every pick</span>
             </div>
             <div className={styles.heroStatDivider} />
             <div className={styles.heroStat}>
@@ -792,7 +814,130 @@ export function LoginPage({ forcedMode = null }) {
         </div>
       )}
 
-      {/* ── Feature grid ── */}
+      {/* Build Assist spotlight */}
+      <section className={styles.buildAssist}>
+        <div className={styles.buildAssistCopy}>
+          <div className={styles.buildAssistLabel}>
+            <LightningIcon size={14} /> Standout deck-building feature
+          </div>
+          <h2 className={styles.buildAssistTitle}>From commander to complete deck</h2>
+          <p className={styles.buildAssistLead}>
+            Build Assist turns your commander, collection, and preferred power level into a
+            practical deck plan. Take the fast route or stay in control of every card.
+          </p>
+
+          <div className={styles.buildModes}>
+            <div className={styles.buildMode}>
+              <div className={styles.buildModeIcon}><LightningIcon size={18} /></div>
+              <div>
+                <h3>Auto Build</h3>
+                <p>Fill open roles from binder cards or top recommendations, then add a balanced mana base in one pass.</p>
+              </div>
+            </div>
+            <div className={styles.buildMode}>
+              <div className={styles.buildModeIcon}><TargetIcon size={18} /></div>
+              <div>
+                <h3>Build Your Way</h3>
+                <p>Choose cards role by role, compare owned and recommended picks, and adjust the plan as you go.</p>
+              </div>
+            </div>
+          </div>
+
+          <div className={styles.buildProofs}>
+            {BUILD_ASSIST_PROOFS.map(item => (
+              <div key={item} className={styles.buildProof}>
+                <CheckIcon size={14} />
+                <span>{item}</span>
+              </div>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            className={styles.buildAssistCta}
+            onClick={() => { switchMode('register'); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+          >
+            Start building free <ChevronRightIcon size={16} />
+          </button>
+        </div>
+
+        <div className={styles.buildAssistDemo} aria-label="Build Assist workflow preview">
+          <div className={styles.demoTopbar}>
+            <div className={styles.demoTitle}>
+              <BuilderIcon size={17} />
+              <span>Build Assist</span>
+            </div>
+            <div className={styles.demoCommander}>Atraxa, Praetors' Voice</div>
+            <div className={styles.demoBracket}>B3 · Upgraded</div>
+          </div>
+
+          <div className={styles.demoControls}>
+            <span>Theme <strong>+1/+1 Counters</strong></span>
+            <span>Budget <strong>≤ €10 / card</strong></span>
+            <span>Suggestions <strong>Deck-aware</strong></span>
+          </div>
+
+          <div className={styles.demoBody}>
+            <div className={styles.demoRoles}>
+              <div className={styles.demoSectionLabel}>Deck structure</div>
+              {BUILD_ASSIST_ROLES.map(role => {
+                const pct = `${Math.round((role.count / role.target) * 100)}%`
+                return (
+                  <div key={role.name} className={styles.demoRole}>
+                    <div className={styles.demoRoleLine}>
+                      <span>{role.name}</span>
+                      <strong>{role.count}/{role.target}</strong>
+                    </div>
+                    <div className={styles.demoProgress}>
+                      <span style={{ width: pct }} />
+                    </div>
+                  </div>
+                )
+              })}
+              <div className={styles.demoMana}>
+                <span>Mana sources</span>
+                <div className={styles.demoPips}>
+                  <i className={styles.pipWhite} />
+                  <i className={styles.pipBlue} />
+                  <i className={styles.pipBlack} />
+                  <i className={styles.pipGreen} />
+                </div>
+                <strong>36 lands</strong>
+              </div>
+            </div>
+
+            <div className={styles.demoPicks}>
+              <div className={styles.demoPicksHead}>
+                <div>
+                  <span className={styles.demoSectionLabel}>From your binders</span>
+                  <strong>Draw · 2 to go</strong>
+                </div>
+                <span className={styles.demoOwned}><CollectionIcon size={12} /> Owned first</span>
+              </div>
+              <div className={styles.demoCards}>
+                {builderCards.slice(0, 3).map((name, i) => (
+                  <div key={name} className={styles.demoCard}>
+                    {builderArts[i]
+                      ? <img src={builderArts[i]} alt="" loading="lazy" />
+                      : <div className={styles.demoCardPlaceholder} />}
+                    <span>{name}</span>
+                    <small>{i < 2 ? 'In your binder' : 'Recommended'}</small>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className={styles.demoFooter}>
+            <span><strong>92</strong> cards · <strong>€146.30</strong> estimated</span>
+            <div>
+              <span className={styles.demoSecondaryAction}>Review picks</span>
+              <span className={styles.demoPrimaryAction}>Auto fill deck</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section className={styles.features}>
         <div className={styles.sectionHeader}>
           <div className={styles.sectionLabel}>Everything you need</div>
@@ -886,15 +1031,15 @@ export function LoginPage({ forcedMode = null }) {
           />
           <AppPanel
             icon="⚔"
-            title="DECK BUILDER"
-            eyebrow="Plan before you pull cards"
-            subtitle="Builder, sync, sharing, and collection deck flow"
+            title="BUILD ASSIST"
+            eyebrow="Auto build or choose every card"
+            subtitle="Turn your commander and collection into a balanced deck plan"
             accent="builder"
             metrics={[
-              { value: 'Sync', label: 'Move owned copies into decks' },
-              { value: 'Combos', label: 'Review lines and package ideas' },
+              { value: 'Owned first', label: 'Build from available binder copies' },
+              { value: '100 cards', label: 'Fill gaps, balance mana, trim excess' },
             ]}
-            highlights={['Recommendations', 'Collection Decks', 'Sharing']}
+            highlights={['Auto Build', 'Custom Path', 'Playtest']}
             cards={builderCards}
             arts={builderArts}
           />
@@ -927,7 +1072,7 @@ export function LoginPage({ forcedMode = null }) {
       {/* ── Footer CTA ── */}
       <footer className={styles.footerCta}>
         <div className={styles.footerLogo}>
-          <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" fetchpriority="high" decoding="async" />
+          <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" fetchPriority="high" decoding="async" />
           <span className={styles.logoText}>Deck<span>Loom</span></span>
         </div>
         <p className={styles.footerText}>Your Magic collection deserves a proper home.</p>

@@ -60,7 +60,7 @@ const FAQS = [
   },
   {
     q: 'What does the Build Assistant do?',
-    a: 'It is a guided wizard inside Deckbuilder that walks an EDH/Commander list role by role — ramp, card draw, removal, board wipes, protection, win conditions, synergy, and lands. It surfaces the color-legal cards you already own first and suggests EDHREC picks for the gaps, so you can fill out a deck without leaving the builder.',
+    a: 'Build Assist can auto build a Commander deck from available binder cards or top recommendations, or guide every pick role by role. Theme, budget, bracket, role, and mana-source targets shape the plan; the summary then helps with the buy gap, cuts to 100, basic lands, and playtesting.',
   },
   {
     q: 'What is the Commander Bracket on my deck?',
@@ -556,44 +556,49 @@ export default function HelpPage() {
         <section id="build-assistant" className={styles.section}>
           <h2>Build Assistant</h2>
           <p>
-            The Build Assistant is a guided wizard inside Deckbuilder for Commander and other
-            EDH-style decks. Instead of staring at a blank list, it walks you through the deck one
-            role at a time and shows you the cards that fit each role — putting the cards you
-            already own first and suggesting options for the gaps.
+            Build Assist is the Commander workflow inside Deckbuilder. Start with a commander,
+            then choose Auto Build for a fast complete pass or Build Your Way to work through the
+            deck role by role. Both paths use your available binder cards first and surface
+            recommendations for the gaps.
           </p>
           <p>
-            It is meant to take a commander and a rough idea and turn it into a coherent,
-            well-rounded list without you having to remember every category a good deck needs.
+            The plan adapts to your commander, chosen theme, current deck, budget, and target
+            Commander Bracket. It keeps role counts and the mana base visible while you build, so
+            the result is practical to assemble rather than just a list of popular cards.
           </p>
 
           <div className={styles.cardGrid}>
             <article className={styles.infoCard}>
-              <h3>Roles it walks you through</h3>
+              <h3>Choose your path</h3>
               <ul className={styles.list}>
-                <li>Ramp — mana acceleration to deploy ahead of curve</li>
-                <li>Draw — card advantage engines and tutors</li>
-                <li>Removal and board wipes</li>
-                <li>Protection for your commander and key pieces</li>
-                <li>Win conditions and finishers</li>
-                <li>Synergy cards and the mana base</li>
+                <li>Auto Build from available binder cards only</li>
+                <li>Auto Build from top owned and recommended picks</li>
+                <li>Build Your Way through ramp, draw, interaction, protection, finishers, synergy, and lands</li>
+                <li>Undo an automatic fill if you want to take a different direction</li>
               </ul>
             </article>
             <article className={styles.infoCard}>
-              <h3>How it helps</h3>
+              <h3>What it keeps in balance</h3>
               <ul className={styles.list}>
-                <li>Shows your owned, color-legal cards for each role first</li>
-                <li>Suggests EDHREC picks for cards you do not own yet</li>
-                <li>Tracks how close each role is to a healthy target count</li>
-                <li>Lets you add owned cards or planned upgrades as you go</li>
-                <li>Can suggest basic lands to round out the mana base</li>
+                <li>Role targets flex to the deck theme you select</li>
+                <li>Budget limits apply to owned and recommended choices</li>
+                <li>Bracket warnings flag picks above your power target</li>
+                <li>Colored-source targets follow the mana costs in your deck</li>
+                <li>Basic lands are split by color demand when finishing</li>
               </ul>
             </article>
           </div>
 
           <Callout kind="tip" title="Owned first, gaps second">
-            Because the assistant surfaces what you already own before suggesting purchases, it is a
-            fast way to see how much of a deck you can build right now versus what still belongs on a
-            Wishlist.
+            Only available binder copies are offered as owned picks. Cards already allocated to
+            another collection deck are identified separately, so Auto Build does not quietly reuse
+            a copy that is already spoken for.
+          </Callout>
+
+          <Callout kind="tip" title="Finish the deck, not just the first draft">
+            The summary can copy a priced buy list for cards you still need, recommend cuts when the
+            list is over 100 cards, fill remaining basics, and send the finished list directly to the
+            playtester.
           </Callout>
 
           <Callout kind="note" title="It adds to the planning list">

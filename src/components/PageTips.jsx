@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from './Auth'
 import { useSettings } from './SettingsContext'
 import { Button, Modal } from './UI'
@@ -60,10 +60,10 @@ const TIPS = {
   },
   builder: {
     title: 'Deck Builder',
-    intro: 'A planning workspace for brewing, imports, stats, combos, and collection sync.',
+    intro: 'Plan decks manually, import a list, or start with Build Assist and a commander.',
     bullets: [
       'Build or import decklists before you own every card.',
-      'Use the guided Build Assistant, stats, and combo tools to tune the list.',
+      'Build Assist can auto build from your binders or guide every role and recommendation.',
       'Make a collection deck when the build is ready to become real inventory.',
     ],
     actions: [{ label: 'Browse public decks', to: '/builder?tab=browser' }],
@@ -162,11 +162,11 @@ const TIPS = {
     title: 'Deck Builder',
     intro: 'The full deck editing workspace — board layout, imports, format checks, recommendations, and collection sync for one specific deck.',
     bullets: [
-      'Use the Build Assistant to fill a Commander deck role by role from your owned cards.',
-      'Format legality, commander colour identity, and a Commander Bracket estimate update as you build.',
-      'Link a builder deck to a collection deck so owned copies stay in sync.',
+      'For Commander decks, Build Assist can auto fill open roles or let you choose every card.',
+      'Binder-first picks, deck-aware recommendations, budget, bracket, and mana targets keep the build grounded.',
+      'Review the buy gap, cut an overbuilt list to 100, then open the playtester.',
     ],
-    actions: [{ label: 'Try the playtester', to: '' }],
+    actions: [{ label: 'Open Build Assist', intent: 'build-assist' }],
   },
   playtester: {
     title: 'Deck Playtester',
@@ -229,13 +229,16 @@ export default function PageTips() {
   const { user } = useAuth()
   const settings = useSettings()
   const location = useLocation()
+  const navigate = useNavigate()
 
   const tipId = useMemo(() => getTipId(location.pathname, location.search), [location.pathname, location.search])
   const tip = tipId ? TIPS[tipId] : null
+  const guidedTipSuppressed = tipId === 'deck-builder'
+    && Boolean(location.state?.guidedCommander || location.state?.suppressDeckBuilderTip)
   const setupDone = !!user?.user_metadata?.setup_completed || localStorage.getItem(SETUP_LOCAL_KEY) === '1'
   const seen = settings.page_tips_seen || {}
 
-  if (!user || !settings.loaded || !setupDone || !tip || seen[tipId]) return null
+  if (!user || !settings.loaded || !setupDone || !tip || seen[tipId] || guidedTipSuppressed) return null
 
   const dismiss = () => {
     settings.save({
@@ -244,6 +247,21 @@ export default function PageTips() {
         [tipId]: new Date().toISOString(),
       },
     })
+  }
+
+  const runAction = (action) => {
+    dismiss()
+    if (action.intent === 'build-assist') {
+      navigate(location.pathname, {
+        replace: true,
+        state: { ...(location.state || {}), openBuildAssistant: true },
+      })
+      return
+    }
+
+    let target = action.to
+    if (!target && tipId === 'playtester') target = location.pathname.replace(/\/playtest$/, '')
+    if (target) navigate(target)
   }
 
   return (
@@ -260,6 +278,17 @@ export default function PageTips() {
           </ul>
         </div>
         <div className={styles.footer}>
+          {(tip.actions || []).map(action => (
+            <Button
+              key={action.label}
+              size="sm"
+              variant="primary"
+              onClick={() => runAction(action)}
+              className={styles.tipAction}
+            >
+              {action.label}
+            </Button>
+          ))}
           <Button size="sm" onClick={dismiss} className={styles.closeAction}>Got it</Button>
         </div>
       </div>

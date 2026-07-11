@@ -91,9 +91,11 @@
   padding: 16px 24px 20px;
   display: flex;
   justify-content: flex-end;
+  gap: 10px;
   background: color-mix(in srgb, var(--s-card) 90%, var(--s1));
 }
 
+.tipAction,
 .closeAction {
   min-width: 104px;
 }
@@ -114,8 +116,10 @@
   .footer {
     padding: 14px 18px 18px;
     justify-content: stretch;
+    flex-direction: column;
   }
 
+  .tipAction,
   .closeAction {
     width: 100%;
   }

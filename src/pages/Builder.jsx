@@ -1210,8 +1210,8 @@ export default function BuilderPage() {
               className={`${styles.newModeBtn} ${newMode === 'guided' ? styles.newModeActive : ''}`}
               onClick={() => setNewMode('guided')}
             >
-              <span className={styles.newModeTitle}>Guided build</span>
-              <span className={styles.newModeDesc}>Commander, built from your collection</span>
+              <span className={styles.newModeTitle}>Build Assist</span>
+              <span className={styles.newModeDesc}>Auto build from your binders or choose every card</span>
             </button>
             <button
               type="button"

@@ -233,7 +233,7 @@ function WelcomeStep() {
         {[
           ['Scan cards', 'Add cards instantly with your phone camera'],
           ['Organise your collection', 'Binders, decks, wishlists, bulk imports'],
-          ['Build & playtest decks', 'Build Assistant, format checks, Commander bracket, and an in-app goldfish'],
+          ['Build & playtest decks', 'Auto build from your binders or choose cards role by role, then test the result in-app'],
           ['Life tracker & tournaments', 'Shared join codes, commander damage, and full tournament brackets'],
           ['Prices & analytics', 'Daily market values, P&L, set completion, and collection charts'],
           ['Trade & share', 'Compare trade values and share decks, wishlists, or your public profile'],
@@ -544,7 +544,7 @@ function DoneStep() {
       <div className={styles.doneGlyph}>✦</div>
       <h2 className={styles.stepTitle}>You&apos;re all set</h2>
       <p className={styles.stepDesc}>
-        Your preferences have been saved and will sync across devices. Head to Collection to start adding cards, or explore at your own pace.
+        Your preferences have been saved and will sync across devices. Add cards to your Collection, or choose a commander and let Build Assist shape your first deck.
       </p>
       <div className={styles.doneNote}>
         You can revisit these settings any time — go to <strong>Settings → Rerun Setup Wizard</strong>.

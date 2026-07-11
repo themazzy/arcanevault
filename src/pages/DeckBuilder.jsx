@@ -3527,6 +3527,14 @@ export default function DeckBuilderPage() {
     navigate(location.pathname, { replace: true, state: {} })
   }, [location.state, location.pathname, loading, isCollectionDeck, deckMeta.linked_deck_id, navigate])
 
+  // Page Tips can hand users directly into the assistant instead of merely
+  // describing where its button lives.
+  useEffect(() => {
+    if (loading || !location.state?.openBuildAssistant) return
+    setShowBuildAssistant(true)
+    navigate(location.pathname, { replace: true, state: {} })
+  }, [location.state, location.pathname, loading, navigate])
+
   // Guided deck creation: Builder.jsx navigates here with the chosen commander
   // in router state. Set it (full print resolution via pickCommander), then
   // auto-open the build-from-collection wizard. Runs once per navigation.
@@ -3545,7 +3553,7 @@ export default function DeckBuilderPage() {
         console.warn('[DeckBuilder] guided commander pick failed:', err)
       }
       setShowBuildAssistant(true)
-      navigate(location.pathname, { replace: true, state: {} })
+      navigate(location.pathname, { replace: true, state: { suppressDeckBuilderTip: true } })
     })()
   }, [location.state, location.pathname, loading, navigate])
 
