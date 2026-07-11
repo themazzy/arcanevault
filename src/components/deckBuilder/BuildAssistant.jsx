@@ -323,7 +323,7 @@ function MenuOption({ active, onClick, children, desc }) {
   )
 }
 
-export function BuildAssistant({ userId, commander, deckCards = [], accessToken, onAddCard, onAddCards, onRemoveCard, onRemoveCards, onAddToWishlist, onAddBasics, onClose }) {
+export function BuildAssistant({ userId, commander, deckCards = [], accessToken, onAddCard, onAddCards, onUndoAutoFill, onPlaytest, onRemoveCard, onRemoveCards, onAddToWishlist, onAddBasics, onClose }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [plan, setPlan] = useState(null) // enriched plan (candidates + upgrades)
@@ -340,6 +340,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const [cheapestByName, setCheapestByName] = useState(() => new Map())
   const stepperRef = useRef(null)   // scroll container for the node stepper
   const activeStepRef = useRef(null) // current node, auto-centered on mobile
+  const afCardRef = useRef(null)     // auto-fill dialog card, focused on open
   const [themes, setThemes] = useState([])       // EDHREC archetypes for this commander
   const [selectedTheme, setSelectedTheme] = useState('') // '' = Balanced
   const [rebuilding, setRebuilding] = useState(false)
@@ -1143,6 +1144,32 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       setAutoFilling(null)
     }
   }
+
+  // Move focus into the auto-fill dialog when it opens, so keyboard users land
+  // inside it and Escape/Tab behave (the overlay handles Escape).
+  useEffect(() => {
+    if (autoFillOpen) afCardRef.current?.focus()
+  }, [autoFillOpen])
+
+  const [undoing, setUndoing] = useState(false)
+  async function handleAutoFillUndo() {
+    const r = autoFillResult
+    if (!r || undoing || typeof onUndoAutoFill !== 'function') return
+    setUndoing(true)
+    try {
+      await onUndoAutoFill(r.addedCardIds || [], r.basicCounts || {})
+      // Drop the session "added" flags for the removed cards so their tiles
+      // revert (names aren't tracked per-id, so clear the whole session set —
+      // deckNames still reflects anything the user added manually).
+      setAddedNames(new Set())
+      setAutoFillResult(null)
+      setAutoFillOpen(false)
+    } finally {
+      setUndoing(false)
+    }
+  }
+  // Undo is only reliable on the bulk path (we have the exact row ids).
+  const canUndo = typeof onUndoAutoFill === 'function' && (autoFillResult?.addedCardIds?.length > 0 || autoFillResult?.basics > 0)
 
   // ── Buy the gap ─────────────────────────────────────────────────────────────
   // Deck cards not available in the binders, split into "to buy" and "owned in
@@ -2035,19 +2062,44 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
               Next: {steps[stepIndex + 1] === SUMMARY_STEP ? 'Summary' : steps[stepIndex + 1]}
             </Button>
           ) : (
-            <Button variant="primary" onClick={handleFinish} disabled={finishing}>
-              {willAddBasics
-                ? (finishing ? 'Adding basics…' : `Add ${plannedBasics.total} basics & finish`)
-                : 'Finish'}
-            </Button>
+            <>
+              {typeof onPlaytest === 'function' && totalCards > 1 && (
+                <Button variant="ghost" onClick={onPlaytest} disabled={finishing}>
+                  Playtest
+                </Button>
+              )}
+              <Button variant="primary" onClick={handleFinish} disabled={finishing}>
+                {willAddBasics
+                  ? (finishing ? 'Adding basics…' : `Add ${plannedBasics.total} basics & finish`)
+                  : 'Finish'}
+              </Button>
+            </>
           )}
         </div>
 
         {/* Auto-fill dialog — in-panel overlay (the assistant is already a
             modal; stacking a second Modal would double the body scroll lock). */}
         {autoFillOpen && (
-          <div className={styles.afOverlay} role="dialog" aria-modal="true" aria-label="Auto-fill deck">
-            <div className={styles.afCard}>
+          <div
+            className={styles.afOverlay}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Auto-fill deck"
+            onKeyDown={e => {
+              // Escape cancels — but never mid-run (a partial add is worse than
+              // waiting) and never while an undo is in flight.
+              if (e.key === 'Escape' && !autoFilling && !undoing) {
+                e.stopPropagation()
+                setAutoFillResult(null)
+                setAutoFillOpen(false)
+              }
+            }}
+          >
+            <div
+              className={styles.afCard}
+              ref={afCardRef}
+              tabIndex={-1}
+            >
               <div className={styles.afTitle}>Auto-fill deck</div>
               {!autoFilling && !autoFillResult && (
                 <>
@@ -2122,7 +2174,21 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                     </div>
                   )}
                   <div className={styles.afActions}>
-                    <Button variant="primary" onClick={() => { setAutoFillResult(null); setAutoFillOpen(false) }}>
+                    {canUndo && (
+                      <Button variant="ghost" onClick={handleAutoFillUndo} disabled={undoing}>
+                        {undoing ? 'Undoing…' : 'Undo'}
+                      </Button>
+                    )}
+                    {typeof onPlaytest === 'function' && autoFillResult.added > 0 && (
+                      <Button
+                        variant="ghost"
+                        onClick={() => { setAutoFillResult(null); setAutoFillOpen(false); onPlaytest() }}
+                        disabled={undoing}
+                      >
+                        Playtest
+                      </Button>
+                    )}
+                    <Button variant="primary" onClick={() => { setAutoFillResult(null); setAutoFillOpen(false) }} disabled={undoing}>
                       Done
                     </Button>
                   </div>

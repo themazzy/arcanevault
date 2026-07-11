@@ -2853,6 +2853,23 @@ export default function DeckBuilderPage() {
     return { added: rows.length, skipped, rows }
   }
 
+  // Undo an auto-fill run: delete exactly the rows it added, then decrement the
+  // basics it added back to their prior counts (clamped at 0). Mirrors the
+  // additive onAddBasics so the manabase returns to its pre-run state.
+  async function undoAutoFill(cardIds, basicCounts) {
+    if (cardIds?.length) {
+      try { await removeCardsFromDeck(cardIds) } catch { /* parent surfaces */ }
+    }
+    for (const [name, add] of Object.entries(basicCounts || {})) {
+      if (!add) continue
+      const existing = deckCardsRef.current.find(dc =>
+        !dc.is_commander && normalizeBoard(dc.board) === 'main' &&
+        (dc.name || '').toLowerCase() === name.toLowerCase())
+      if (!existing) continue
+      await setBasicLandCount({ name }, Math.max(0, (existing.qty || 0) - add))
+    }
+  }
+
   function changeQty(deckCardId, delta) {
     const current = deckCardsRef.current.find(dc => dc.id === deckCardId)
     if (!current) return
@@ -6166,6 +6183,8 @@ export default function DeckBuilderPage() {
           accessToken={session?.access_token}
           onAddCard={addCardToDeck}
           onAddCards={addCardsToDeckBulk}
+          onUndoAutoFill={undoAutoFill}
+          onPlaytest={() => navigate(`/builder/${deckId}/playtest`)}
           onRemoveCard={removeCardFromDeck}
           onRemoveCards={removeCardsFromDeck}
           onAddToWishlist={addUpgradeToWishlist}
