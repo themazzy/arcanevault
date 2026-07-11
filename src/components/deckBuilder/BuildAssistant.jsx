@@ -1087,10 +1087,16 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       nonbasicTarget,
       currentNonbasicLands: Math.max(0, manaSources.lands - currentBasicLands),
       landCandidates: landCandidates.map(l => l.cand),
+      // Curve plays a subordinate role in which good cards get picked: within a
+      // band of similarly-recommended cards, auto-fill favors the ones that pull
+      // the deck toward its target curve (see rankComparator/curveFitKey).
+      targetCmc: curveTarget,
+      curveStatus: curveStatus.status,
       exclude: autoFillExclude,
     }
   }, [plan, loading, liveCounts, totalCards, landsTarget, manaSources.lands,
-      nonbasicTarget, currentBasicLands, landCandidates, autoFillExclude])
+      nonbasicTarget, currentBasicLands, landCandidates, autoFillExclude,
+      curveTarget, curveStatus.status])
 
   // Auto-fill draws the FULL retained pool (Infinity), not the small display
   // cap — planAutoFill's exclude gate then removes over-budget / over-bracket /

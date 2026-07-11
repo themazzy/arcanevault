@@ -34,6 +34,7 @@ import {
   selectUpgrades,
   upgradeDisplayLimit,
   upgradePoolDepth,
+  curveFitKey,
   archetypeTargetAvgCmc,
   edhrecTargetAvgCmc,
   planTargetAvgCmc,
@@ -284,6 +285,72 @@ describe('planAutoFill', () => {
       ['Command Tower', true],
       ['Reliquary Tower', false],
     ])
+  })
+
+  // ── Curve-aware picking ──────────────────────────────────────────────────────
+  const candC = (name, inclusion, cmc) => ({ name, sfCard: null, edhrecInclusion: inclusion, cmc })
+
+  it('breaks near-ties toward the curve the deck needs, keeping strong cards on top', () => {
+    // Three similarly-rated draw spells (inclusion within one bucket) at CMC
+    // 2/4/6, plus a clearly stronger staple. Deck runs HIGH → cheaper wins the
+    // tie, but the strong card still leads regardless of its curve fit.
+    const roles = [{
+      role: ROLE_DRAW, target: 4, ownedCandidates: [],
+      upgrades: [candC('Cheap Draw', 41, 2), candC('Mid Draw', 40, 4), candC('Pricey Draw', 42, 6), candC('Best Draw', 90, 6)],
+    }]
+    const picks = planAutoFill({
+      roles,
+      liveCounts: new Map([[ROLE_DRAW, 0]]),
+      totalCards: 1, deckSize: 100,
+      landsTarget: 0, currentLands: 0,
+      source: 'recommended',
+      targetCmc: 3, curveStatus: 'high',
+    })
+    const order = picks.map(p => p.cand.name)
+    expect(order[0]).toBe('Best Draw')                    // strongest card first, curve be damned
+    expect(order.indexOf('Cheap Draw')).toBeLessThan(order.indexOf('Pricey Draw')) // cheaper wins the tie
+  })
+
+  it('a low deck curve pulls the pricier of two near-equal cards up', () => {
+    const roles = [{
+      role: ROLE_DRAW, target: 4, ownedCandidates: [],
+      upgrades: [candC('Cheap Draw', 41, 2), candC('Pricey Draw', 42, 6)],
+    }]
+    const picks = planAutoFill({
+      roles,
+      liveCounts: new Map([[ROLE_DRAW, 0]]),
+      totalCards: 1, deckSize: 100,
+      landsTarget: 0, currentLands: 0,
+      source: 'recommended',
+      targetCmc: 3, curveStatus: 'low',
+    })
+    const order = picks.map(p => p.cand.name)
+    expect(order.indexOf('Pricey Draw')).toBeLessThan(order.indexOf('Cheap Draw'))
+  })
+
+  it('without a curve target the order is unchanged (pure rank then cmc)', () => {
+    const roles = [{
+      role: ROLE_DRAW, target: 4, ownedCandidates: [],
+      upgrades: [candC('Pricey Draw', 42, 6), candC('Cheap Draw', 41, 2)],
+    }]
+    const picks = planAutoFill({
+      roles,
+      liveCounts: new Map([[ROLE_DRAW, 0]]),
+      totalCards: 1, deckSize: 100,
+      landsTarget: 0, currentLands: 0,
+      source: 'recommended',
+      // no targetCmc → legacy behavior: higher inclusion first, then cmc asc
+    })
+    expect(picks.map(p => p.cand.name)).toEqual(['Pricey Draw', 'Cheap Draw'])
+  })
+})
+
+describe('curveFitKey', () => {
+  it('prefers cheaper when high, pricier when low, near-target when on curve', () => {
+    expect(curveFitKey(2, 'high', 3)).toBeLessThan(curveFitKey(6, 'high', 3))
+    expect(curveFitKey(6, 'low', 3)).toBeLessThan(curveFitKey(2, 'low', 3))
+    expect(curveFitKey(3, 'on', 3)).toBeLessThan(curveFitKey(6, 'on', 3))
+    expect(curveFitKey(3, 'on', 3)).toBeLessThan(curveFitKey(1, 'on', 3))
   })
 })
 

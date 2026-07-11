@@ -571,6 +571,41 @@ export function upgradePoolDepth(gap = 0) {
   return Math.min(150, Math.max(75, (gap || 0) * 4 + 20))
 }
 
+// ── Curve-aware ranking ───────────────────────────────────────────────────────
+// How well a card's mana value fits what the deck's curve NEEDS (lower = better
+// fit): a deck already running pricier than target wants cheaper cards first,
+// a cheap deck has room for a bomb, an on-curve deck prefers cards near target.
+export function curveFitKey(cmc, curveStatus = 'on', targetCmc = 3) {
+  const c = cmc ?? 0
+  if (curveStatus === 'high') return c        // too pricey → cheaper first
+  if (curveStatus === 'low') return -c        // too cheap → pricier first
+  return Math.abs(c - (targetCmc ?? 3))       // on curve → nearest target first
+}
+
+// Auto-fill candidate comparator. Recommendation strength dominates — but it's
+// BUCKETED (RANK_BUCKET-wide bands), so curve fit only reorders cards of
+// *similar* quality and never demotes a clearly stronger card for a cheaper
+// weaker one. With no curve target it collapses to the plain rank→cmc→name order
+// (behavior unchanged). This is how the deck trends toward its target curve
+// while still recommending the good cards.
+const RANK_BUCKET = 6
+function bestRankBucket(cand) {
+  return Math.round(recRank(cand) / RANK_BUCKET)
+}
+function rankComparator(targetCmc, curveStatus) {
+  if (targetCmc == null) {
+    return (a, b) =>
+      (recRank(b.cand) - recRank(a.cand)) ||
+      ((a.cand.cmc ?? 0) - (b.cand.cmc ?? 0)) ||
+      String(a.cand.name || '').localeCompare(b.cand.name || '')
+  }
+  return (a, b) =>
+    (bestRankBucket(b.cand) - bestRankBucket(a.cand)) ||
+    (curveFitKey(a.cand.cmc, curveStatus, targetCmc) - curveFitKey(b.cand.cmc, curveStatus, targetCmc)) ||
+    (recRank(b.cand) - recRank(a.cand)) ||
+    String(a.cand.name || '').localeCompare(b.cand.name || '')
+}
+
 export function planAutoFill({
   roles = [],              // plan.roles: [{ role, target, ownedCandidates, upgrades? }]
   liveCounts,              // Map role → current count (countByRole)
@@ -583,6 +618,8 @@ export function planAutoFill({
   landCandidates = [],     // nonbasic owned land candidates, fixers first
   landUpgrades = [],       // unowned land suggestions (used with source 'recommended')
   source = 'owned',        // 'owned' | 'recommended'
+  targetCmc = null,        // target avg mana value; null = curve not considered
+  curveStatus = 'on',      // 'high' | 'on' | 'low' — deck's current curve vs target
   exclude = () => false,
 } = {}) {
   const picks = []
@@ -592,17 +629,21 @@ export function planAutoFill({
 
   const landsReserve = Math.min(slotsLeft, Math.max(0, landsTarget - currentLands))
   let nonlandBudget = slotsLeft - landsReserve
+  const cmp = rankComparator(targetCmc, curveStatus)
 
   // Pool for a role under the chosen source: tagged { cand, owned } entries.
+  // The owned-only pool keeps its incoming (inclusion) order unless a curve
+  // target is set, in which case it's re-ranked curve-aware like the blended
+  // pool — so "complete from binders" respects the curve too.
   const poolFor = (owned, upgrades) => {
-    if (source !== 'recommended') return (owned || []).map(cand => ({ cand, owned: true }))
+    if (source !== 'recommended') {
+      const pool = (owned || []).map(cand => ({ cand, owned: true }))
+      return targetCmc == null ? pool : pool.sort(cmp)
+    }
     return [
       ...(owned || []).map(cand => ({ cand, owned: true })),
       ...(upgrades || []).map(cand => ({ cand, owned: false })),
-    ].sort((a, b) =>
-      (recRank(b.cand) - recRank(a.cand)) ||
-      ((a.cand.cmc ?? 0) - (b.cand.cmc ?? 0)) ||
-      String(a.cand.name || '').localeCompare(b.cand.name || ''))
+    ].sort(cmp)
   }
 
   // Take up to `need` picks from `pool`, honoring the shared name/exclude
@@ -644,10 +685,7 @@ export function planAutoFill({
         spill.push({ ...entry, role: spec.role })
       }
     }
-    spill.sort((a, b) =>
-      (recRank(b.cand) - recRank(a.cand)) ||
-      ((a.cand.cmc ?? 0) - (b.cand.cmc ?? 0)) ||
-      String(a.cand.name || '').localeCompare(b.cand.name || ''))
+    spill.sort(cmp)
     nonlandBudget -= takeFrom(spill, nonlandBudget)
   }
 
