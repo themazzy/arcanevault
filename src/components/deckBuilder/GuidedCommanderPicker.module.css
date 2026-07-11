@@ -33,6 +33,78 @@
   font-size: 0.84rem;
 }
 
+.preview {
+  display: flex;
+  gap: 12px;
+  padding: 10px;
+  border-radius: 9px;
+  background: rgba(201, 168, 76, 0.09);
+  border: 1px solid rgba(201, 168, 76, 0.35);
+}
+
+.previewArt,
+.previewArtEmpty {
+  width: 96px;
+  flex-shrink: 0;
+  aspect-ratio: 488 / 680;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--bg3);
+}
+
+.previewArtEmpty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.66rem;
+  color: var(--text-faint);
+  border: 1px dashed var(--s-border2);
+}
+
+.previewInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.previewName {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  color: var(--gold);
+}
+
+.previewCost {
+  font-family: var(--font-body, inherit);
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  letter-spacing: 0.02em;
+}
+
+.previewType {
+  font-size: 0.74rem;
+  color: var(--text-dim);
+}
+
+.previewOracle {
+  font-size: 0.76rem;
+  line-height: 1.4;
+  color: var(--text);
+  white-space: pre-wrap;
+  max-height: 132px;
+  overflow-y: auto;
+}
+
+.previewOracleEmpty {
+  font-size: 0.74rem;
+  color: var(--text-faint);
+  font-style: italic;
+}
+
 .scroll {
   display: flex;
   flex-direction: column;

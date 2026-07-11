@@ -177,20 +177,41 @@ export const COMMANDER_TEMPLATE = {
   [ROLE_SYNERGY]: 'remainder', // remainder shrinks by the net +3 above (15 → 12)
 }
 
+// ── Face-aware card text ──────────────────────────────────────────────────────
+// MDFC / transform / split cards carry their second half in card_faces[]. A
+// cached entry's top-level oracle_text/type_line is the front face only (or,
+// for a card_prints-sourced entry, both faces already joined). To reason about
+// the WHOLE card — a back-face land that taps for mana, a back-face Armageddon,
+// the land half of a spell//land MDFC — we scan every face's text/type together.
+// Duplication (when the top-level field already concatenates faces) is harmless:
+// these strings are only regex-scanned / substring-tested, never displayed.
+export function faceOracleText(sf, card) {
+  const parts = []
+  const top = sf?.oracle_text ?? card?.oracle_text
+  if (top) parts.push(top)
+  for (const f of sf?.card_faces || []) if (f?.oracle_text) parts.push(f.oracle_text)
+  return parts.join('\n')
+}
+export function faceTypeLine(sf, card) {
+  const parts = []
+  const top = sf?.type_line ?? card?.type_line
+  if (top) parts.push(top)
+  for (const f of sf?.card_faces || []) if (f?.type_line) parts.push(f.type_line)
+  return parts.join(' // ')
+}
+
 // ── Bracket flags ─────────────────────────────────────────────────────────────
 // Does a card raise the deck's Commander Bracket? Game Changers are matched by
 // name (works for unowned EDHREC upgrades too, where we have no oracle text);
-// mass land denial / extra turns need oracle text (owned cards). Returns
+// mass land denial / extra turns need oracle text (owned cards). Both faces are
+// scanned, so a back-face Armageddon / extra-turn on an MDFC is caught. Returns
 // { label, level } (the bracket floor the card implies) or null.
 export function bracketFlagFor(name, sfCard, gameChangerNames) {
   const lower = String(name || '').toLowerCase()
   if (gameChangerNames && (gameChangerNames.has(lower) || gameChangerNames.has(lower.split('//')[0].trim()))) {
     return { label: 'Game Changer', level: 3 }
   }
-  // Oracle-text signals only cover the front face: the cached entry stores just
-  // card_faces[0].oracle_text (see buildEntryFromScryfall), so a back-face
-  // Armageddon/extra-turn on an MDFC won't be flagged here. Acceptable edge case.
-  const oracle = sfCard?.oracle_text || ''
+  const oracle = faceOracleText(sfCard)
   if (oracle && isMassLandDenial(oracle)) return { label: 'Land denial', level: 4 }
   if (oracle && isExtraTurn(oracle)) return { label: 'Extra turn', level: 2 }
   return null
@@ -240,8 +261,11 @@ export function countManaSources(cards, sfMapOrGetter) {
     : (c) => (sfMapOrGetter || {})[c?.scryfall_id] || null
   for (const c of cards || []) {
     const sf = getSf(c)
-    const oracle = sf?.oracle_text || c?.oracle_text || ''
-    const typeLine = sf?.type_line || c?.type_line || ''
+    // Face-aware: a spell//land MDFC or a transforming land taps for mana and
+    // plays as a land off its back face, which the front-face-only type/oracle
+    // would miss entirely.
+    const oracle = faceOracleText(sf, c)
+    const typeLine = faceTypeLine(sf, c)
     const qty = c?.qty || 1
     if (typeLine.toLowerCase().includes('land')) lands += qty
     if (!isManaSource(oracle, typeLine)) continue
@@ -531,6 +555,22 @@ export function recRank(c) {
   return Math.max(c?.edhrecInclusion || 0, Math.round((c?.score || 0) * 100))
 }
 
+// ── Upgrade pool sizing ───────────────────────────────────────────────────────
+// Two caps, deliberately different:
+//   • display  — how many suggestion tiles a role shows on screen (small).
+//   • retained — how many candidates each role KEEPS in the plan. Kept much
+//     deeper than the display cap so that budget / bracket / owned filters
+//     applied downstream (and auto-fill's exclude gate) still have candidates
+//     left under harsh filters — a €1 budget can knock out most of a shallow
+//     pool and starve auto-fill short of 100. Bounded so a huge EDHREC page
+//     doesn't bloat state.
+export function upgradeDisplayLimit(gap = 0) {
+  return Math.max(24, (gap || 0) + 8)
+}
+export function upgradePoolDepth(gap = 0) {
+  return Math.min(150, Math.max(75, (gap || 0) * 4 + 20))
+}
+
 export function planAutoFill({
   roles = [],              // plan.roles: [{ role, target, ownedCandidates, upgrades? }]
   liveCounts,              // Map role → current count (countByRole)
@@ -720,6 +760,21 @@ export function analyzeCut({
     extra: ranked.slice(over, over + 6), // a few more "also consider"
     landOver,
   }
+}
+
+// ── Combo inclusion by bracket ────────────────────────────────────────────────
+// How many-piece a combo should be to suit a target Commander Bracket, following
+// the WotC bracket guidance that fast 2-card infinite combos belong to
+// high-power decks while lower brackets prefer longer chains — or none:
+//   • null (Any) / 4+ (Optimized, cEDH) : any combo, incl. fast 2-card
+//   • 3        (Upgraded)                : 3-or-more-card combos only
+//   • ≤ 2      (Core / Exhibition)       : no combos suggested
+// `pieceCount` is the total number of cards the combo uses.
+export function comboFitsBracket(pieceCount, targetBracket) {
+  if (targetBracket == null) return true
+  if (targetBracket >= 4) return true
+  if (targetBracket === 3) return (pieceCount || 0) >= 3
+  return false
 }
 
 // ── Archetype-aware quota flexing ─────────────────────────────────────────────
@@ -1032,7 +1087,7 @@ export async function enrichPlanWithEdhrec(plan, fetchEdhrec, fetchCardMeta) {
     const gap = Math.max(0, role.target - current)
     const edhrecUpgrades = (upgradesByRole.get(role.role) || [])
       .sort((a, b) => b.edhrecInclusion - a.edhrecInclusion)
-      .slice(0, Math.max(24, gap + 8))
+      .slice(0, upgradePoolDepth(gap))
     return { ...role, current, gap, ownedCandidates, edhrecUpgrades }
   })
 
@@ -1082,7 +1137,7 @@ export function attachRecommenderUpgrades(plan, recRows) {
   const roles = plan.roles.map(role => {
     const recs = (recByRole.get(role.role) || [])
       .sort((a, b) => (b.score - a.score) || (a.cmc - b.cmc) || a.name.localeCompare(b.name))
-      .slice(0, Math.max(24, (role.gap || 0) + 8))
+      .slice(0, upgradePoolDepth(role.gap || 0))
     return { ...role, recommenderUpgrades: recs }
   })
   return { ...plan, roles }
@@ -1092,15 +1147,104 @@ export function attachRecommenderUpgrades(plan, recRows) {
 // 'edhrec' / 'recommander' return that source's list; 'both' merges them,
 // de-duped by name (keeping the EDHREC entry for its inclusion %), ranked by
 // the stronger of inclusion % / scaled score, capped to the role's headroom.
-export function selectUpgrades(role, source = 'both') {
+// `limit` caps the returned list. Default is the on-screen display cap; the
+// auto-fill path passes a deep limit (or Infinity) so it can draw from the full
+// retained pool after its own budget/bracket exclusions.
+export function selectUpgrades(role, source = 'both', limit) {
+  const cap = limit == null ? upgradeDisplayLimit(role?.gap || 0) : limit
   const edhrec = role?.edhrecUpgrades || []
   const rec = role?.recommenderUpgrades || []
-  if (source === 'edhrec') return edhrec
-  if (source === 'recommander') return rec
+  if (source === 'edhrec') return edhrec.slice(0, cap)
+  if (source === 'recommander') return rec.slice(0, cap)
   const byName = new Map()
   for (const u of edhrec) byName.set(u.name.toLowerCase(), u)
   for (const u of rec) if (!byName.has(u.name.toLowerCase())) byName.set(u.name.toLowerCase(), u)
   return [...byName.values()]
     .sort((a, b) => (recRank(b) - recRank(a)) || (a.cmc - b.cmc) || a.name.localeCompare(b.name))
-    .slice(0, Math.max(24, (role?.gap || 0) + 8))
+    .slice(0, cap)
+}
+
+// ── Mana curve targeting ──────────────────────────────────────────────────────
+// The "right" average mana value differs by deck type: an aggressive or
+// spellslinger list wants a low curve, a ramp / control / superfriends list
+// tolerates a higher one. We target EDHREC's own data when we have it (the
+// inclusion-weighted mean mana value of the cards real decks for this commander
+// run — already theme-specific when a theme page was fetched), and fall back to
+// a per-archetype heuristic otherwise.
+
+// Per-archetype fallback target average mana value (nonland). First matching
+// rule wins; default is a middling 3.2.
+const CURVE_TARGET_RULES = [
+  { match: /aggro|aggression|\bhaste\b|\bblitz\b/, avg: 2.6 },
+  { match: /voltron|aura|equipment|hatebear|weenie/, avg: 2.8 },
+  { match: /spell|storm|magecraft|prowess|cantrip/, avg: 2.9 },
+  { match: /token|\bgo.?wide\b|swarm|sacrifice|aristocrat/, avg: 3.0 },
+  { match: /\bcombo\b/, avg: 3.0 },
+  { match: /control|tempo|stax|prison|\btax(es)?\b/, avg: 3.4 },
+  { match: /reanimat|graveyard|recursion|self.?mill/, avg: 3.4 },
+  { match: /land|landfall|ramp|big.?mana|superfriends|planeswalker/, avg: 3.6 },
+]
+export function archetypeTargetAvgCmc(themeSlug = '') {
+  const slug = String(themeSlug || '').toLowerCase()
+  const rule = slug && CURVE_TARGET_RULES.find(r => r.match.test(slug))
+  return rule ? rule.avg : 3.2
+}
+
+// Inclusion-weighted mean nonland mana value across an EDHREC commander payload's
+// cardviews. Returns null when the payload is missing or too sparse (< 15 nonland
+// cardviews), so the caller falls back to the archetype heuristic.
+export function edhrecTargetAvgCmc(edhrec) {
+  let wsum = 0
+  let w = 0
+  let n = 0
+  for (const cat of edhrec?.categories || []) {
+    for (const cv of cat.cards || []) {
+      if (/\bland\b/i.test(cv.type || '')) continue
+      const cmc = cv.cmc ?? 0
+      const weight = Math.max(1, cv.inclusion ?? 0)
+      wsum += cmc * weight
+      w += weight
+      n++
+    }
+  }
+  if (n < 15 || w <= 0) return null
+  return wsum / w
+}
+
+// The target average mana value for a plan: EDHREC data first, archetype
+// heuristic as the fallback. `themeSlug` narrows the heuristic when EDHREC is
+// unavailable.
+export function planTargetAvgCmc(edhrec, themeSlug = '') {
+  return edhrecTargetAvgCmc(edhrec) ?? archetypeTargetAvgCmc(themeSlug)
+}
+
+// Deck's current average nonland mana value (commander excluded). Returns null
+// for an empty nonland deck.
+export function deckAvgCmc(deckCards, sfMapOrGetter) {
+  const getSf = typeof sfMapOrGetter === 'function'
+    ? sfMapOrGetter
+    : (c) => (sfMapOrGetter || {})[c?.scryfall_id] || null
+  let sum = 0
+  let n = 0
+  for (const c of deckCards || []) {
+    if (c?.is_commander) continue
+    const sf = getSf(c)
+    const type = (sf?.type_line || c?.type_line || '').toLowerCase()
+    if (type.includes('land')) continue
+    const cmc = sf?.cmc ?? c?.cmc ?? 0
+    const qty = c?.qty || 1
+    sum += cmc * qty
+    n += qty
+  }
+  return n ? sum / n : null
+}
+
+// Verdict comparing a deck's average mana value to its target. `tolerance` is
+// the half-width of the "on curve" band. status ∈ 'low' | 'on' | 'high'.
+export function curveVerdict(avg, target, tolerance = 0.35) {
+  if (avg == null || target == null) return { status: 'on', delta: 0 }
+  const delta = avg - target
+  if (delta > tolerance) return { status: 'high', delta }
+  if (delta < -tolerance) return { status: 'low', delta }
+  return { status: 'on', delta }
 }

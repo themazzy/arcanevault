@@ -25,7 +25,10 @@ import {
   archetypeAdjustments,
   applyTemplateAdjustments,
   bracketFlagFor,
+  comboFitsBracket,
   producedColors,
+  faceOracleText,
+  faceTypeLine,
   countManaSources,
   karstenColorRequirements,
   roleOfDeckCard,
@@ -39,6 +42,11 @@ import {
   CUT_MODES,
   attachRecommenderUpgrades,
   selectUpgrades,
+  upgradeDisplayLimit,
+  upgradePoolDepth,
+  deckAvgCmc,
+  planTargetAvgCmc,
+  curveVerdict,
   COMMANDER_TEMPLATE,
   ROLE_ORDER,
   ROLE_RAMP,
@@ -417,6 +425,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const [targetBracket, setTargetBracket] = useState(null) // null = no target; 1-4
   const [showBracketReasons, setShowBracketReasons] = useState(false) // inline "why" disclosure
   const [maxPrice, setMaxPrice] = useState(null) // budget filter ceiling, null = off
+  const [curveTarget, setCurveTarget] = useState(null) // target avg CMC (EDHREC data → archetype fallback)
   const [suggestionSource, setSuggestionSource] = useState('both') // 'both' | 'edhrec' | 'recommander'
   const [cutMode, setCutMode] = useState('balanced') // cut helper ranking mode
   const [lockedCutIds, setLockedCutIds] = useState(() => new Set()) // deck-card ids kept off the cut list
@@ -532,6 +541,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         template,
       })
       const edhrec = await fetchEdhrecCommander(commander.name, 'commander', { themeSlug: themeSlug || '', partnerName: commander.partnerName || '' })
+      setCurveTarget(planTargetAvgCmc(edhrec, themeSlug))
       const enriched = await enrichPlanWithEdhrec(base, async () => edhrec, fetchUpgradeMeta)
       setPlan(await mergeRecommender(enriched, deckCards))
     } finally {
@@ -669,6 +679,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         dataRef.current = { ownedNorm, sfById }
         setSfMap(sfById)
         setThemes(edhrec?.themes || [])
+        setCurveTarget(planTargetAvgCmc(edhrec, ''))
         setGameChangers(gcNames || null)
         setOwnedNameSet(new Set((ownedNorm || []).flatMap(c => cardNameMatchKeys(c?.name))))
         setInOtherDeckNames(elsewhereKeys)
@@ -737,6 +748,12 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     }
     return counts
   }, [deckCards, sfMap])
+
+  // Deck's current average nonland mana value + verdict vs. the target curve
+  // (EDHREC data for this commander/theme, or an archetype fallback). Advisory —
+  // shown on the summary curve so the player can see if the deck runs heavy.
+  const avgCmc = useMemo(() => deckAvgCmc(deckCards, sfMap), [deckCards, sfMap])
+  const curveStatus = useMemo(() => curveVerdict(avgCmc, curveTarget), [avgCmc, curveTarget])
 
   const totalCards = useMemo(
     () => (deckCards || []).reduce((sum, dc) => sum + (dc.qty || 1), 0),
@@ -864,6 +881,22 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       .slice(0, 12)
   }, [combos.fetched, combos.almost, deckNames, ownedNameSet])
 
+  // Combos that suit the target bracket (B3 → 3+ card, B4/cEDH → incl. fast
+  // 2-card, B≤2 → none). Drives the summary suggestion list. When some combos
+  // were hidden purely by the bracket filter we say so, rather than reading as
+  // "no combos".
+  const suggestedCombos = useMemo(
+    () => almostCombos.filter(c => comboFitsBracket(c.uses.length, targetBracket)),
+    [almostCombos, targetBracket],
+  )
+  const combosHiddenByBracket = almostCombos.length > 0 && suggestedCombos.length === 0 && targetBracket != null
+  // Bracket-appropriate combos we could finish entirely from owned pieces —
+  // gates the auto-fill "complete combos" opt-in.
+  const finishableCombos = useMemo(
+    () => suggestedCombos.filter(c => c.missing.every(m => m.owned)),
+    [suggestedCombos],
+  )
+
   // Auto-check combos the first time the summary step is opened. Intentionally
   // one-shot (fires only on the first summary visit) to avoid hammering the
   // combo proxy on every deck edit — if the deck changes afterward the user
@@ -963,6 +996,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       // Bail if the user switched themes again while we were fetching EDHREC —
       // rebuildPlan owns the plan for the newer selection.
       if (cancelled || selectedThemeRef.current !== theme) return
+      setCurveTarget(planTargetAvgCmc(edhrec, theme))
       const enriched = await enrichPlanWithEdhrec(base, async () => edhrec, fetchUpgradeMeta)
       const withRecs = await mergeRecommender(enriched, deckCards)
       if (!cancelled && selectedThemeRef.current === theme) setPlan(withRecs)
@@ -995,7 +1029,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     return landsRole.ownedCandidates
       .filter(cand => !isBasicLandName(cand.name))
       .map(cand => {
-        const colors = [...producedColors(cand.sfCard?.oracle_text, cand.sfCard?.type_line)]
+        const colors = [...producedColors(faceOracleText(cand.sfCard), faceTypeLine(cand.sfCard))]
         const matching = colors.filter(c => cmdColors.includes(c))
         const needScore = matching.filter(c => needy.includes(c)).length
         return { cand, colors, score: matching.length, needScore }
@@ -1058,8 +1092,12 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   }, [plan, loading, liveCounts, totalCards, landsTarget, manaSources.lands,
       nonbasicTarget, currentBasicLands, landCandidates, autoFillExclude])
 
+  // Auto-fill draws the FULL retained pool (Infinity), not the small display
+  // cap — planAutoFill's exclude gate then removes over-budget / over-bracket /
+  // owned picks, so a deep pool is what keeps harsh filters from starving the
+  // build short of 100.
   const upgradesFor = useCallback(
-    role => selectUpgrades(role, hasRecommender ? suggestionSource : 'edhrec'),
+    role => selectUpgrades(role, hasRecommender ? suggestionSource : 'edhrec', Infinity),
     [hasRecommender, suggestionSource],
   )
 
@@ -1081,9 +1119,47 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
 
   const [autoFillOpen, setAutoFillOpen] = useState(false)
   const [autoFillSource, setAutoFillSource] = useState('owned') // 'owned' | 'recommended'
+  const [autoFillCombos, setAutoFillCombos] = useState(false)   // opt-in: complete combos too
   const [autoFilling, setAutoFilling] = useState(null) // { total, bulk } | { done, total }
   const [autoFillResult, setAutoFillResult] = useState(null) // { added, skipped, basics }
-  const autoFillSelected = autoFillSource === 'recommended' ? autoFillPicksRec : autoFillPicksOwned
+
+  // Owned pieces that finish a bracket-appropriate combo — added first when the
+  // "complete combos" opt-in is on. Added by name (like the per-combo Add
+  // button); the parent resolves the owned printing. Budget/added gates applied.
+  const autoFillComboItems = useMemo(() => {
+    if (!autoFillCombos) return []
+    const seen = new Set()
+    const out = []
+    for (const combo of finishableCombos) {
+      for (const m of combo.missing) {
+        const key = m.name.toLowerCase()
+        if (seen.has(key) || isAdded(m.name) || !passesBudget(m.name, null)) continue
+        seen.add(key)
+        out.push({ role: ROLE_WINCON, cand: { name: m.name }, owned: false, combo: true })
+      }
+    }
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoFillCombos, finishableCombos, addedNames, deckNames, maxPrice, cheapestByName])
+
+  // Final auto-fill pick list: combo pieces first (when opted in), then the
+  // source's role/land picks, de-duped by name and capped to the deck's open
+  // slots so completing combos can't push the deck past its target — the
+  // lowest-priority tail picks give way, and basics still top up on finish.
+  const autoFillSelected = useMemo(() => {
+    const base = autoFillSource === 'recommended' ? autoFillPicksRec : autoFillPicksOwned
+    if (!autoFillCombos || !autoFillComboItems.length) return base
+    const slots = Math.max(0, afTarget - totalCards)
+    const seen = new Set()
+    const merged = []
+    for (const p of [...autoFillComboItems, ...base]) {
+      const k = (p.cand?.name || '').toLowerCase()
+      if (!k || seen.has(k)) continue
+      seen.add(k)
+      merged.push(p)
+    }
+    return merged.slice(0, slots)
+  }, [autoFillSource, autoFillPicksRec, autoFillPicksOwned, autoFillCombos, autoFillComboItems, afTarget, totalCards])
 
   // Pseudo-rows for the sequential fallback (no bulk-add return): built from the
   // picks so the basics predictor sees real mana_cost / type_line before the
@@ -1245,7 +1321,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       for (const c of roleData.ownedCandidates.slice(0, MAX_TILES)) if (c?.name) names.add(c.name)
     }
     if (roleData) {
-      for (const u of selectUpgrades(roleData, hasRecommender ? suggestionSource : 'edhrec')) {
+      // Price the DEEP pool (not just the display cap) so the budget filter that
+      // trims this list downstream judges every candidate it might surface.
+      for (const u of selectUpgrades(roleData, hasRecommender ? suggestionSource : 'edhrec', upgradePoolDepth(roleData.gap || 0))) {
         if (u?.name) names.add(u.name)
       }
     }
@@ -1789,8 +1867,13 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
               {(() => {
                 // Budget per card applies to suggestions too — these are the
                 // cards you'd buy, so an over-budget pick shouldn't be offered.
-                const upgrades = selectUpgrades(roleData, hasRecommender ? suggestionSource : 'edhrec')
+                // Filter the DEEP pool first, then take the display cap, so a
+                // tight budget doesn't blank the section when cheaper picks
+                // exist further down the list.
+                const gap = roleData.gap || 0
+                const upgrades = selectUpgrades(roleData, hasRecommender ? suggestionSource : 'edhrec', upgradePoolDepth(gap))
                   .filter(u => passesBudget(u.name, null))
+                  .slice(0, upgradeDisplayLimit(gap))
                 if (!upgrades.length) return null
                 const label = !hasRecommender || suggestionSource === 'edhrec'
                   ? 'Popular picks you don’t own'
@@ -1965,7 +2048,29 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                 </>
               )}
 
-              <div className={styles.sectionLabel}>Mana curve (nonland)</div>
+              <div className={styles.sectionLabel}>
+                Mana curve (nonland)
+                {avgCmc != null && (
+                  <span className={styles.sectionHint}>
+                    {' · avg '}{avgCmc.toFixed(2)}
+                    {curveTarget != null && (
+                      <>
+                        {' · target ~'}{curveTarget.toFixed(1)}
+                        {curveStatus.status !== 'on' && (
+                          <span
+                            className={`${styles.curveVerdict} ${curveStatus.status === 'high' ? styles.curveHigh : styles.curveLow}`}
+                            title={curveStatus.status === 'high'
+                              ? 'Your curve runs higher than a typical deck for this commander — consider cheaper cards or more ramp.'
+                              : 'Your curve runs lower than a typical deck for this commander — you have room for pricier bombs.'}
+                          >
+                            {curveStatus.status === 'high' ? 'a bit high' : 'a bit low'}
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </span>
+                )}
+              </div>
               <div className={styles.curve}>
                 {(() => {
                   const max = Math.max(1, ...curve)
@@ -1984,7 +2089,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
               {/* Combos */}
               <div className={styles.sectionLabel}>
                 Combos
-                {combos.fetched && <span className={styles.sectionHint}> · {(combos.included || []).length} complete in deck</span>}
+                {combos.fetched && <span className={styles.sectionHint}> · {(combos.included || []).length} complete in deck{targetBracket != null ? ` · Bracket ${targetBracket} filter` : ''}</span>}
               </div>
               {!combos.fetched ? (
                 <div>
@@ -1992,17 +2097,24 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                     {combos.loading ? 'Checking combos…' : 'Check combos'}
                   </button>
                 </div>
-              ) : almostCombos.length === 0 ? (
+              ) : combosHiddenByBracket ? (
+                <div className={styles.emptySmall}>
+                  {targetBracket <= 2
+                    ? `Combos are discouraged at Bracket ${targetBracket} — none suggested. Raise the target bracket to see combo options.`
+                    : `Near-complete combos found, but all are 2-card (fast) combos — raise the target bracket to Bracket 4 to include them.`}
+                </div>
+              ) : suggestedCombos.length === 0 ? (
                 <div className={styles.emptySmall}>No near-complete combos found from your current list.</div>
               ) : (
                 <div className={styles.comboList}>
-                  {almostCombos.map(combo => {
+                  {suggestedCombos.map(combo => {
                     const allOwned = combo.missing.every(m => m.owned)
                     return (
                       <div key={combo.id} className={styles.comboRow}>
                         <div className={styles.comboInfo}>
                           <div className={styles.comboProduces}>
                             {combo.produces.slice(0, 2).join(', ') || 'Combo'}
+                            <span className={styles.comboPieces}>{combo.uses.length}-card</span>
                             {allOwned && <span className={styles.comboOwnedTag}>you own the missing piece{combo.missing.length > 1 ? 's' : ''}</span>}
                           </div>
                           <div className={styles.comboUses}>{combo.uses.join(' + ')}</div>
@@ -2294,6 +2406,25 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                       </span>
                     </span>
                   </label>
+                  {finishableCombos.length > 0 && (
+                    <label className={`${styles.afOption} ${styles.afOptionCheck}${autoFillCombos ? ' ' + styles.afOptionActive : ''}`}>
+                      <input
+                        type="checkbox"
+                        className={styles.afRadio}
+                        checked={autoFillCombos}
+                        onChange={() => setAutoFillCombos(v => !v)}
+                      />
+                      <span className={styles.afOptionBody}>
+                        <span className={styles.afOptionLabel}>
+                          Also complete combos I can finish
+                          <span className={styles.afComboCount}>{finishableCombos.length}</span>
+                        </span>
+                        <span className={styles.afOptionDesc}>
+                          Adds the owned pieces that finish {finishableCombos.length === 1 ? 'a' : `${finishableCombos.length}`} bracket-appropriate combo{finishableCombos.length === 1 ? '' : 's'} first{targetBracket != null ? ` (Bracket ${targetBracket})` : ''}.
+                        </span>
+                      </span>
+                    </label>
+                  )}
                   <div className={styles.afNote}>
                     Your budget and bracket filters apply. Basic lands will top up the rest of the deck, then you will be able to review your new deck.
                   </div>

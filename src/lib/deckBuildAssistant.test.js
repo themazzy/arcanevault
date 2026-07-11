@@ -14,7 +14,10 @@ import {
   enrichPlanWithEdhrec,
   archetypeAdjustments,
   applyTemplateAdjustments,
+  comboFitsBracket,
   bracketFlagFor,
+  faceOracleText,
+  faceTypeLine,
   producedColors,
   isManaSource,
   countManaSources,
@@ -29,6 +32,13 @@ import {
   edhrecInclusionPct,
   attachRecommenderUpgrades,
   selectUpgrades,
+  upgradeDisplayLimit,
+  upgradePoolDepth,
+  archetypeTargetAvgCmc,
+  edhrecTargetAvgCmc,
+  planTargetAvgCmc,
+  deckAvgCmc,
+  curveVerdict,
   roleOfDeckCard,
   countByRole,
   pickCheapestEnglish,
@@ -617,6 +627,40 @@ describe('bracketFlagFor', () => {
     expect(bracketFlagFor('Llanowar Elves', { oracle_text: '{T}: Add {G}.' }, gc)).toBeNull()
     expect(bracketFlagFor('Rhystic Study', null, null)).toBeNull()
   })
+
+  it('flags a back-face effect on an MDFC/transform card', () => {
+    // Front face is a harmless creature; the back face is an Armageddon-style
+    // land wipe. The top-level oracle text is the front face only.
+    const sf = {
+      oracle_text: 'Flying.',
+      card_faces: [
+        { type_line: 'Creature — Angel', oracle_text: 'Flying.' },
+        { type_line: 'Sorcery', oracle_text: 'Destroy all lands.' },
+      ],
+    }
+    expect(bracketFlagFor('Faceless Menace', sf, gc)).toEqual({ label: 'Land denial', level: 4 })
+  })
+})
+
+// ── Face-aware text helpers (MDFC / split / transform) ────────────────────────
+describe('faceOracleText / faceTypeLine', () => {
+  it('merges every face plus the top-level fields', () => {
+    const sf = {
+      type_line: 'Instant',
+      oracle_text: 'Your creatures gain indestructible.',
+      card_faces: [
+        { type_line: 'Instant', oracle_text: 'Your creatures gain indestructible.' },
+        { type_line: 'Land', oracle_text: '{T}: Add {B}.' },
+      ],
+    }
+    expect(faceTypeLine(sf).toLowerCase()).toContain('land')
+    expect(faceOracleText(sf)).toContain('Add {B}')
+  })
+
+  it('falls back to the owned row when the sf entry is missing', () => {
+    expect(faceTypeLine(null, { type_line: 'Land' })).toBe('Land')
+    expect(faceOracleText(null, { oracle_text: '{T}: Add {G}.' })).toBe('{T}: Add {G}.')
+  })
 })
 
 // ── Mana base ─────────────────────────────────────────────────────────────────
@@ -664,6 +708,99 @@ describe('countManaSources', () => {
     expect(out.lands).toBe(2)          // Forest + the any-color land
     expect(out.G).toBe(3)              // forest, any-color land, elf
     expect(out.W).toBe(1)              // any-color land only
+  })
+
+  it('credits the land back face of a spell//land MDFC', () => {
+    // e.g. Malakir Rebirth // Malakir Mire — front is an Instant, back is a
+    // Swamp-like land that taps for {B}. Front-face-only reads would miss it.
+    const cards = [{ scryfall_id: 'm', qty: 1 }]
+    const sfMap = {
+      m: {
+        type_line: 'Instant',
+        oracle_text: 'Choose target creature you control.',
+        card_faces: [
+          { type_line: 'Instant', oracle_text: 'Choose target creature you control.' },
+          { type_line: 'Land', oracle_text: '{T}: Add {B}.' },
+        ],
+      },
+    }
+    const out = countManaSources(cards, sfMap)
+    expect(out.lands).toBe(1)
+    expect(out.B).toBe(1)
+  })
+})
+
+// ── Combo inclusion by bracket ────────────────────────────────────────────────
+describe('comboFitsBracket', () => {
+  it('allows any combo at Any / Bracket 4+ (incl. fast 2-card)', () => {
+    expect(comboFitsBracket(2, null)).toBe(true)
+    expect(comboFitsBracket(2, 4)).toBe(true)
+    expect(comboFitsBracket(3, 5)).toBe(true)
+  })
+  it('at Bracket 3 allows only 3+ card combos', () => {
+    expect(comboFitsBracket(2, 3)).toBe(false)
+    expect(comboFitsBracket(3, 3)).toBe(true)
+    expect(comboFitsBracket(4, 3)).toBe(true)
+  })
+  it('suggests no combos at Bracket ≤ 2', () => {
+    expect(comboFitsBracket(2, 2)).toBe(false)
+    expect(comboFitsBracket(3, 2)).toBe(false)
+    expect(comboFitsBracket(4, 1)).toBe(false)
+  })
+})
+
+// ── Mana curve targeting ──────────────────────────────────────────────────────
+describe('mana curve targeting', () => {
+  it('archetypeTargetAvgCmc: aggro is low, ramp is high, default middling', () => {
+    expect(archetypeTargetAvgCmc('aggro')).toBeLessThan(3)
+    expect(archetypeTargetAvgCmc('landfall')).toBeGreaterThan(3.4)
+    expect(archetypeTargetAvgCmc('')).toBe(3.2)
+    expect(archetypeTargetAvgCmc('some-unknown-theme')).toBe(3.2)
+  })
+
+  it('edhrecTargetAvgCmc: inclusion-weighted nonland mean, null when sparse', () => {
+    const sparse = { categories: [{ cards: [{ cmc: 2, inclusion: 100, type: 'Creature' }] }] }
+    expect(edhrecTargetAvgCmc(sparse)).toBeNull() // < 15 nonland cardviews
+
+    const cards = []
+    for (let i = 0; i < 20; i++) cards.push({ cmc: 2, inclusion: 100, type: 'Creature' })
+    cards.push({ cmc: 8, inclusion: 100, type: 'Creature' })       // one expensive card
+    cards.push({ cmc: 0, inclusion: 100, type: 'Land' })           // lands excluded
+    const avg = edhrecTargetAvgCmc({ categories: [{ cards }] })
+    // (20×2 + 8) / 21 ≈ 2.29 — the land is ignored.
+    expect(avg).toBeCloseTo(48 / 21, 2)
+  })
+
+  it('planTargetAvgCmc: EDHREC data wins, archetype is the fallback', () => {
+    const cards = []
+    for (let i = 0; i < 16; i++) cards.push({ cmc: 3, inclusion: 50, type: 'Creature' })
+    expect(planTargetAvgCmc({ categories: [{ cards }] }, 'aggro')).toBeCloseTo(3, 5)
+    expect(planTargetAvgCmc(null, 'aggro')).toBe(archetypeTargetAvgCmc('aggro'))
+  })
+
+  it('deckAvgCmc: nonland mean weighted by qty, commander excluded', () => {
+    const deck = [
+      { scryfall_id: 'cmd', is_commander: true },
+      { scryfall_id: 'a', qty: 2 },
+      { scryfall_id: 'b', qty: 1 },
+      { scryfall_id: 'l', qty: 5 },
+    ]
+    const sfMap = {
+      cmd: { cmc: 6, type_line: 'Legendary Creature' },
+      a: { cmc: 2, type_line: 'Creature' },
+      b: { cmc: 5, type_line: 'Sorcery' },
+      l: { cmc: 0, type_line: 'Basic Land — Forest' },
+    }
+    // (2×2 + 5) / 3 = 3
+    expect(deckAvgCmc(deck, sfMap)).toBeCloseTo(3, 5)
+    expect(deckAvgCmc([{ scryfall_id: 'l' }], sfMap)).toBeNull() // all-land
+  })
+
+  it('curveVerdict: banded high/on/low', () => {
+    expect(curveVerdict(3.9, 3.2).status).toBe('high')
+    expect(curveVerdict(2.4, 3.2).status).toBe('low')
+    expect(curveVerdict(3.3, 3.2).status).toBe('on')
+    expect(curveVerdict(null, 3.2).status).toBe('on') // no data → neutral
   })
 })
 
@@ -907,6 +1044,27 @@ describe('selectUpgrades', () => {
     expect(both.find(u => u.name === 'Cultivate').edhrecInclusion).toBe(90) // kept the EDHREC one
     expect(both.map(u => u.name)).toContain('Harmonize')
   })
+  it('honors an explicit limit (display cap vs deep auto-fill pool)', () => {
+    const deep = { gap: 0, edhrecUpgrades: Array.from({ length: 100 }, (_, i) => ({ name: `U${i}`, cmc: 2, edhrecInclusion: 100 - i })) }
+    expect(selectUpgrades(deep, 'edhrec')).toHaveLength(upgradeDisplayLimit(0)) // 24 display cap
+    expect(selectUpgrades(deep, 'edhrec', Infinity)).toHaveLength(100)          // full pool for auto-fill
+    expect(selectUpgrades(deep, 'edhrec', 5)).toHaveLength(5)
+  })
+})
+
+describe('upgrade pool sizing', () => {
+  it('retained pool is always deeper than the display cap', () => {
+    for (const gap of [0, 5, 11, 20, 40]) {
+      expect(upgradePoolDepth(gap)).toBeGreaterThan(upgradeDisplayLimit(gap))
+    }
+  })
+  it('display cap grows with the gap but floors at 24', () => {
+    expect(upgradeDisplayLimit(0)).toBe(24)
+    expect(upgradeDisplayLimit(30)).toBe(38)
+  })
+  it('pool depth is bounded so a huge page cannot bloat state', () => {
+    expect(upgradePoolDepth(1000)).toBeLessThanOrEqual(150)
+  })
 })
 
 // ── Cut helper ────────────────────────────────────────────────────────────────
@@ -1073,26 +1231,27 @@ describe('enrichPlanWithEdhrec', () => {
     expect(role(out, ROLE_SYNERGY).edhrecUpgrades.map(u => u.name)).not.toContain('Opt')
   })
 
-  it('caps the upgrade list (24 floor, gap + 8 headroom)', async () => {
-    // Empty collection → Ramp gap == its full ideal (11); gap + 8 = 19 is
-    // under the 24 floor, so the cap is 24. The floor is deliberately deep:
-    // auto-fill's "Top recommendations" mode draws from these lists, and
-    // shallow pools left it unable to reach 100 cards.
+  it('retains a deep candidate pool for auto-fill (well past the display cap)', async () => {
+    // Empty collection → Ramp gap == its full ideal (11). The retained pool is
+    // kept much deeper than the on-screen display cap so budget/bracket filters
+    // downstream still leave auto-fill enough candidates to reach 100. With 40
+    // rocks available and a deep pool, all 40 are retained.
     const plan = analyzeBuildPlan({ commander: { name: 'Cmd', color_identity: [] } })
-    const cards = Array.from({ length: 30 }, (_, i) => ({
+    const cards = Array.from({ length: 40 }, (_, i) => ({
       name: `Rock ${i}`, inclusion: 100 - i, cmc: 2, type: 'Artifact',
     }))
     const edhrec = { categories: [{ header: 'Mana Artifacts', cards }] }
     const out = await enrichPlanWithEdhrec(plan, async () => edhrec)
     const ramp = role(out, ROLE_RAMP)
-    expect(ramp.edhrecUpgrades).toHaveLength(24)
+    expect(ramp.edhrecUpgrades.length).toBeGreaterThan(24) // deeper than display
+    expect(ramp.edhrecUpgrades).toHaveLength(40)           // all available retained
     // Sorted by inclusion desc, so the top pick is the highest-inclusion rock.
     expect(ramp.edhrecUpgrades[0].name).toBe('Rock 0')
   })
 
-  it('keeps the deep floor even when the gap is 0', async () => {
+  it('keeps every available card when the gap is 0', async () => {
     // Board Wipe ideal is 3. Own 3 wipes that are all already in the deck →
-    // current 3, gap 0; the 24 floor still admits every available sweeper.
+    // current 3, gap 0; the deep pool still admits every available sweeper.
     const owned = [
       makeCard('Wrath of God', { oracle: 'Destroy all creatures.', type: 'Sorcery' }),
       makeCard('Damnation', { oracle: 'Destroy all creatures.', type: 'Sorcery' }),
@@ -1112,7 +1271,7 @@ describe('enrichPlanWithEdhrec', () => {
     const out = await enrichPlanWithEdhrec(plan, async () => edhrec)
     const wipe = role(out, ROLE_WIPE)
     expect(wipe.gap).toBe(0)
-    expect(wipe.edhrecUpgrades).toHaveLength(20) // all 20 available, under the 24 floor
+    expect(wipe.edhrecUpgrades).toHaveLength(20) // all 20 available, well under the pool depth
   })
 
   it('re-buckets an owned card into EDHREC\'s functional role', async () => {

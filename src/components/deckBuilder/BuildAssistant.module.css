@@ -922,6 +922,19 @@
 
 .afRadio { margin-top: 2px; accent-color: var(--gold); }
 
+/* Combo opt-in reads as a lighter secondary choice below the two source radios. */
+.afOptionCheck { padding: 10px 12px; }
+
+.afComboCount {
+  margin-left: 7px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: var(--gold);
+  background: rgba(201, 168, 76, 0.16);
+}
+
 .afOptionBody {
   display: flex;
   flex-direction: column;
@@ -1344,6 +1357,25 @@
   color: var(--text-faint);
 }
 
+.curveVerdict {
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.curveHigh {
+  background: rgba(212, 80, 59, 0.16);
+  color: #d4503b;
+}
+
+.curveLow {
+  background: rgba(59, 127, 212, 0.16);
+  color: #5b96e0;
+}
+
 /* ── Combos (summary step) ────────────────────────────────────────────────── */
 .comboList {
   display: flex;
@@ -1378,6 +1410,17 @@
   font-size: 0.66rem;
   color: var(--green);
   border: 1px solid rgba(93, 186, 112, 0.4);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.comboPieces {
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  border: 1px solid var(--s-border2);
   border-radius: 4px;
   padding: 1px 6px;
 }

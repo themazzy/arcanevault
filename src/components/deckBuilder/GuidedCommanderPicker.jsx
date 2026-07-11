@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CheckIcon } from '../../icons'
 import { getLocalCards, getLocalCardPrints } from '../../lib/db'
-import { getInstantCache, getScryfallKey } from '../../lib/scryfall'
+import { getInstantCache, getScryfallKey, getImageUri } from '../../lib/scryfall'
 import { searchCommanders } from '../../lib/deckBuilderApi'
 import styles from './GuidedCommanderPicker.module.css'
 
@@ -20,6 +20,40 @@ function isCommanderType(typeLine = '') {
 // MDFCs can hide the legendary creature on face 0).
 function typeLineOf(sf) {
   return sf?.type_line || sf?.card_faces?.[0]?.type_line || ''
+}
+
+// Rules text for the preview: a single-faced card's oracle_text, or both faces
+// of a DFC joined (so a transforming/MDFC commander shows its whole text).
+function oracleTextOf(sf) {
+  if (sf?.oracle_text) return sf.oracle_text
+  const faces = (sf?.card_faces || []).map(f => f?.oracle_text).filter(Boolean)
+  return faces.join('\n//\n')
+}
+
+// Preview card shown once a commander is picked: art + name + type + rules text.
+// Degrades gracefully when the selection is a minimal owned-fallback object
+// (cold Scryfall cache) with no image / oracle text — shows what it has.
+function CommanderPreview({ sf }) {
+  const img = getImageUri(sf, 'normal')
+  const type = typeLineOf(sf)
+  const oracle = oracleTextOf(sf)
+  return (
+    <div className={styles.preview}>
+      {img
+        ? <img src={img} alt={sf.name} loading="lazy" className={styles.previewArt} />
+        : <div className={styles.previewArtEmpty}>No preview</div>}
+      <div className={styles.previewInfo}>
+        <div className={styles.previewName}>
+          {sf.name}
+          {sf.mana_cost ? <span className={styles.previewCost}>{sf.mana_cost}</span> : null}
+        </div>
+        {type && <div className={styles.previewType}>{type}</div>}
+        {oracle
+          ? <div className={styles.previewOracle}>{oracle}</div>
+          : <div className={styles.previewOracleEmpty}>Rules text loads when its card data is cached.</div>}
+      </div>
+    </div>
+  )
 }
 
 export function GuidedCommanderPicker({ userId, value, onSelect }) {
@@ -147,11 +181,7 @@ export function GuidedCommanderPicker({ userId, value, onSelect }) {
         aria-label="Search commanders"
       />
 
-      {value && (
-        <div className={styles.selected}>
-          <span>Commander: <strong>{value.name}</strong></span>
-        </div>
-      )}
+      {value && <CommanderPreview sf={value} />}
 
       <div className={styles.scroll}>
         {/* Owned commanders */}
