@@ -509,7 +509,12 @@ export function rankCutCandidates(candidates, mode = 'balanced') {
 // over the target bracket). Each name is picked at most once (singleton).
 //
 // Returns [{ role, cand, owned }] in add order.
-const recRank = c => Math.max(c?.edhrecInclusion || 0, Math.round((c?.score || 0) * 100))
+// Recommendation strength of an upgrade/candidate: EDHREC inclusion % or the
+// recommander score scaled to the same 0-100 range, whichever is higher.
+// Shared by auto-fill ranking and selectUpgrades' blended sort.
+export function recRank(c) {
+  return Math.max(c?.edhrecInclusion || 0, Math.round((c?.score || 0) * 100))
+}
 
 export function planAutoFill({
   roles = [],              // plan.roles: [{ role, target, ownedCandidates, upgrades? }]
@@ -771,13 +776,11 @@ export function analyzeBuildPlan({
     seenNames.add(lowerName)
     totalOwnedLegal++
 
-    const granularCat = getCardCategoryFromCard(card, sfCard)
-    const role = granularToCoarse(granularCat)
+    const role = granularToCoarse(getCardCategoryFromCard(card, sfCard))
     buckets.get(role).push({
       card,
       sfCard,
       name,
-      granularCat,
       cmc: sfCard?.cmc ?? card?.cmc ?? 0,
       edhrecInclusion: 0, // populated by enrichPlanWithEdhrec
       inDeck: deckNames.has(lowerName),
@@ -795,16 +798,13 @@ export function analyzeBuildPlan({
   const roles = ROLE_ORDER.map(role => {
     const spec = template[role]
     const target = spec === 'remainder' ? synergyTarget : (spec?.ideal ?? 0)
-    const min = spec === 'remainder' ? synergyTarget : (spec?.min ?? 0)
     const candidates = buckets.get(role)
     const current = candidates.filter(c => c.inDeck).length
     return {
       role,
       target,
-      min,
       current,
       gap: Math.max(0, target - current),
-      underMin: current < min,
       ownedCandidates: candidates,
       edhrecUpgrades: [], // filled by enrichPlanWithEdhrec
     }
@@ -916,10 +916,8 @@ export async function enrichPlanWithEdhrec(plan, fetchEdhrec, fetchCardMeta) {
       type: cv.type ?? '',
       colorIdentity: cv.colorIdentity || [],
       edhrecInclusion: edhrecInclusionPct(cv),
-      synergy: cv.synergy ?? 0,
       image: meta?.image || null,
       source: 'edhrec',
-      owned: false,
     })
   }
 
@@ -998,11 +996,9 @@ export function attachRecommenderUpgrades(plan, recRows) {
       type: row.type_line || '',
       colorIdentity: row.colorIdentity || [],
       edhrecInclusion: 0,
-      synergy: 0,
       image: row.image || null,
       score: row.score ?? 0,
       source: 'recommander',
-      owned: false,
     })
     added = true
   }
@@ -1029,8 +1025,7 @@ export function selectUpgrades(role, source = 'both') {
   const byName = new Map()
   for (const u of edhrec) byName.set(u.name.toLowerCase(), u)
   for (const u of rec) if (!byName.has(u.name.toLowerCase())) byName.set(u.name.toLowerCase(), u)
-  const rankKey = u => Math.max(u.edhrecInclusion || 0, Math.round((u.score || 0) * 100))
   return [...byName.values()]
-    .sort((a, b) => (rankKey(b) - rankKey(a)) || (a.cmc - b.cmc) || a.name.localeCompare(b.name))
+    .sort((a, b) => (recRank(b) - recRank(a)) || (a.cmc - b.cmc) || a.name.localeCompare(b.name))
     .slice(0, Math.max(24, (role?.gap || 0) + 8))
 }
