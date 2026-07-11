@@ -420,6 +420,21 @@ export function planBasicLands({ deckCards = [], sfMap = {}, colors = [], landTa
   return { counts, total: needed }
 }
 
+// Basics to add when auto-fill finishes: planBasicLands's Karsten/pip color
+// split, but capped to the deck's open slots so the deck lands at exactly
+// deckSize. Without the cap a DFC/MDFC land (e.g. Treasure Map // Treasure Cove)
+// can be typed as a land in the candidate pool that picked it yet as a nonland
+// in the freshly-added row's type_line — the "landTarget − lands" math then
+// over-counts the basics needed and the deck finishes at 101. Re-running with a
+// reduced target keeps the shortfall-first split while pinning the total to the
+// open slots. `openSlots` clamps to ≥ 0. Returns { counts, total }.
+export function basicsForAutoFill({ deckCards = [], sfMap = {}, colors = [], landTarget = 37, openSlots = 0 } = {}) {
+  const slots = Math.max(0, openSlots)
+  const planned = planBasicLands({ deckCards, sfMap, colors, landTarget })
+  if (planned.total <= slots) return planned
+  return planBasicLands({ deckCards, sfMap, colors, landTarget: landTarget - planned.total + slots })
+}
+
 // True for a basic land by name (used to keep basics out of the nonbasic step).
 export function isBasicLandName(name) {
   return BASIC_LAND_NAME_SET.has(String(name || '').toLowerCase())

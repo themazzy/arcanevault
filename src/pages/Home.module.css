@@ -221,6 +221,12 @@
   border-left: 2px solid var(--s-border);
   line-height: 1.4;
 }
+.changelogItem a {
+  color: var(--gold);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.changelogItem a:hover { color: var(--text); }
 
 .hero {
   text-align: center;

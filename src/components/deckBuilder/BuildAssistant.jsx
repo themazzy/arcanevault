@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Modal, Button, ProgressBar, ResponsiveMenu } from '../UI'
 import uiStyles from '../UI.module.css'
 import { CheckIcon, DeleteIcon, WarningIcon, ChevronDownIcon, LightningIcon, ExternalLinkIcon } from '../../icons'
@@ -32,6 +33,7 @@ import {
   pickCheapestEnglish,
   recommendedBasicCount,
   planBasicLands,
+  basicsForAutoFill,
   isBasicLandName,
   analyzeCut,
   CUT_MODES,
@@ -191,6 +193,59 @@ function ColorPips({ colors }) {
         <span key={c} className={styles.pip} style={{ background: MANA_HEX[c] || '#888' }} title={c} />
       ))}
     </span>
+  )
+}
+
+// Flavor phrases cycled while auto-fill runs — pure garnish, MTG-themed so the
+// wait reads as part of the game rather than a generic spinner.
+const AUTOFILL_PHRASES = [
+  'Untapping your lands…',
+  'Consulting the Oracle…',
+  'Shuffling up the library…',
+  'Searching for the perfect curve…',
+  'Paying the commander tax…',
+  'Fetching dual lands…',
+  'Weighing every ramp package…',
+  'Tutoring for the answers…',
+  'Drawing the opening hand…',
+  'Counting your mana symbols…',
+  'Assembling the game plan…',
+  'Summoning your all-stars…',
+]
+// Order the pips animate through — WUBRG, the canonical color wheel.
+const AUTOFILL_MANA = ['W', 'U', 'B', 'R', 'G']
+
+// Animated auto-fill loader: a ring of pulsing mana pips over a cycling MTG
+// flavor phrase. `progress` (optional { done, total }) shows a live count on the
+// sequential add path; the bulk path just cycles phrases. Honors reduce_motion —
+// with motion off the pips sit still and the phrase doesn't rotate.
+function AutoFillLoader({ progress, reduceMotion }) {
+  const [phrase, setPhrase] = useState(() => AUTOFILL_PHRASES[0])
+  useEffect(() => {
+    if (reduceMotion) return
+    let i = 0
+    const id = setInterval(() => {
+      i = (i + 1) % AUTOFILL_PHRASES.length
+      setPhrase(AUTOFILL_PHRASES[i])
+    }, 1700)
+    return () => clearInterval(id)
+  }, [reduceMotion])
+  return (
+    <div className={styles.afLoader}>
+      <div className={`${styles.afMana}${reduceMotion ? ' ' + styles.afManaStill : ''}`}>
+        {AUTOFILL_MANA.map((c, i) => (
+          <span
+            key={c}
+            className={styles.afManaPip}
+            style={{ background: MANA_HEX[c], animationDelay: `${i * 0.13}s` }}
+          />
+        ))}
+      </div>
+      <div key={phrase} className={styles.afPhrase}>{phrase}</div>
+      {progress
+        ? <div className={styles.afCount}>{progress.done} / {progress.total} cards</div>
+        : <div className={styles.afCount}>Building your deck</div>}
+    </div>
   )
 }
 
@@ -366,6 +421,10 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const [cutMode, setCutMode] = useState('balanced') // cut helper ranking mode
   const [lockedCutIds, setLockedCutIds] = useState(() => new Set()) // deck-card ids kept off the cut list
   const [applyingCuts, setApplyingCuts] = useState(false)
+  // Large-image card preview shown from the summary lists: hover-follows the
+  // cursor on pointer devices, or a centered tap-to-dismiss lightbox on touch.
+  // { name, scryfall_id, x, y } | null.
+  const [preview, setPreview] = useState(null)
   const [ownedNameSet, setOwnedNameSet] = useState(() => new Set())
   // Names owned overall but with every copy allocated to another collection
   // deck — excluded from the owned pool, badged on suggestion tiles instead.
@@ -373,7 +432,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const metaFetchedRef = useRef(false) // owned-card oracle-text backfill ran for this commander
   const selectedThemeRef = useRef('')  // latest theme, read by the async backfill to avoid a stale-closure revert
 
-  const { price_source } = useSettings()
+  const { price_source, reduce_motion } = useSettings()
   // Names added/wishlisted this session — instant feedback before the deckCards
   // prop round-trips back from the parent.
   const [addedNames, setAddedNames] = useState(() => new Set())
@@ -683,6 +742,8 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     () => (deckCards || []).reduce((sum, dc) => sum + (dc.qty || 1), 0),
     [deckCards],
   )
+  // Target deck size (100 for Commander) — drives the auto-fill "→ 100" framing.
+  const afTarget = plan?.deckSize || 100
 
   // Pricing helpers (budget guidance). Cards with no price data pass the budget
   // filter (we can't judge them) and aren't counted in deck value.
@@ -1024,19 +1085,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const [autoFillResult, setAutoFillResult] = useState(null) // { added, skipped, basics }
   const autoFillSelected = autoFillSource === 'recommended' ? autoFillPicksRec : autoFillPicksOwned
 
-  // Basics the deck will need once `rows` are in — predicted against the
-  // pre-add deck plus the just-added rows (which carry real mana_cost /
-  // type_line), because the deckCards prop won't have round-tripped yet.
-  // `rows` come from the bulk-add's return; in the sequential fallback we build
-  // pseudo-rows from the picks instead (owned picks have sfCard for pips).
-  function basicsAfterRows(rows) {
-    return planBasicLands({
-      deckCards: [...deckCards, ...rows],
-      sfMap,
-      colors: cmdColors,
-      landTarget: landsTarget,
-    })
-  }
+  // Pseudo-rows for the sequential fallback (no bulk-add return): built from the
+  // picks so the basics predictor sees real mana_cost / type_line before the
+  // deckCards prop round-trips. Owned picks carry sfCard for pips.
   const picksToPseudoRows = picks => picks.map(p => ({
     name: p.cand.name,
     type_line: p.cand.sfCard?.type_line || p.cand.type || '',
@@ -1054,7 +1105,16 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   async function finishAutoFill(rows, added, skipped, addedCardIds) {
     let basics = 0
     let basicCounts = null
-    const planned = basicsAfterRows(rows)
+    // Basics top up the rest of the deck, capped to the open slots so a DFC/MDFC
+    // land type quirk can't push the deck past deckSize (see basicsForAutoFill).
+    const openSlots = Math.max(0, (plan?.deckSize || 100) - (totalCards + added))
+    const planned = basicsForAutoFill({
+      deckCards: [...deckCards, ...rows],
+      sfMap,
+      colors: cmdColors,
+      landTarget: landsTarget,
+      openSlots,
+    })
     if (planned.total > 0 && typeof onAddBasics === 'function') {
       try {
         await onAddBasics(planned.counts)
@@ -1259,6 +1319,53 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     try { await onRemoveCard(deckCardId) } catch { /* parent surfaces errors */ }
   }
 
+  // Pointer devices get a hover preview; touch devices tap to toggle a centered
+  // image. Evaluated once — the input class doesn't change mid-session.
+  const hoverCapable = useMemo(
+    () => typeof window === 'undefined' || !window.matchMedia
+      ? true
+      : window.matchMedia('(hover: hover) and (pointer: fine)').matches,
+    [],
+  )
+
+  // Resolve a card name to the scryfall_id of its deck row, so the buy-list
+  // (whose items are merged by name) can still show art + remove the right rows.
+  const deckRowsForName = name => {
+    const key = (name || '').toLowerCase()
+    return (deckCards || []).filter(c => !c?.is_commander && cardNameMatchKeys(c?.name).includes(key))
+  }
+
+  // Event handlers that drive the large-image preview for one card. On pointer
+  // devices the image follows the cursor (mouseenter/move/leave); on touch a tap
+  // toggles a centered lightbox. `card` = { name, scryfall_id }.
+  const previewHandlers = card => {
+    if (!card?.scryfall_id) return {} // no art to show → no preview affordance
+    if (hoverCapable) {
+      return {
+        onMouseEnter: e => setPreview({ ...card, x: e.clientX, y: e.clientY }),
+        onMouseMove: e => setPreview(p => (p ? { ...p, x: e.clientX, y: e.clientY } : p)),
+        onMouseLeave: () => setPreview(null),
+      }
+    }
+    return {
+      onClick: () => setPreview(p =>
+        p && p.scryfall_id === card.scryfall_id ? null : { ...card }),
+    }
+  }
+
+  // Trash action for a summary card: remove every deck row of that name (a card
+  // can hold several printings). Batched when the parent supports it.
+  async function removeCardByName(name) {
+    const ids = deckRowsForName(name).map(c => c.id).filter(Boolean)
+    if (!ids.length) return
+    if (preview?.name?.toLowerCase() === name.toLowerCase()) setPreview(null)
+    if (typeof onRemoveCards === 'function') {
+      try { await onRemoveCards(ids) } catch { /* parent surfaces errors */ }
+    } else if (typeof onRemoveCard === 'function') {
+      for (const id of ids) { try { await onRemoveCard(id) } catch { /* parent surfaces errors */ } }
+    }
+  }
+
   // Cut helper actions: lock a card off the suggestion list, or apply a batch.
   function toggleCutLock(id) {
     setLockedCutIds(prev => {
@@ -1309,6 +1416,81 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       try { await onRemoveCard(dc.id) } catch { /* parent surfaces errors */ }
     }
   }
+
+  // Theme / Bracket / Budget tuning dropdowns — shared between the main controls
+  // bar and the "Finish this deck" auto-fill dialog. Both surfaces drive the same
+  // state, so a change in either place re-plans/re-filters the picks live.
+  const renderThemeMenu = () => themes.length > 0 && (
+    <ControlMenu
+      label="Theme"
+      title="Deck theme"
+      hint="Re-weight the role targets and suggestions toward an archetype"
+      busy={rebuilding}
+      valueLabel={selectedTheme === ''
+        ? 'Balanced'
+        : (themes.find(t => t.slug === selectedTheme)?.label || 'Balanced')}
+    >
+      {close => (
+        <>
+          <MenuOption active={selectedTheme === ''} onClick={() => { onSelectTheme(''); close() }}>
+            Balanced
+          </MenuOption>
+          {themes.slice(0, 8).map(t => (
+            <MenuOption
+              key={t.slug}
+              active={selectedTheme === t.slug}
+              onClick={() => { onSelectTheme(t.slug); close() }}
+            >
+              {t.label}{typeof t.count === 'number' ? ` · ${t.count.toLocaleString()}` : ''}
+            </MenuOption>
+          ))}
+        </>
+      )}
+    </ControlMenu>
+  )
+
+  const renderBracketMenu = () => gameChangers && (
+    <ControlMenu
+      label="Bracket"
+      title="Target bracket"
+      hint="Target power level — flags cards that push the deck above it"
+      valueLabel={targetBracket == null ? 'Any' : `${targetBracket} · ${BRACKET_LABELS[targetBracket]}`}
+    >
+      {close => (
+        <>
+          <MenuOption active={targetBracket == null} onClick={() => { setTargetBracket(null); close() }}
+            desc="No power-level target">
+            Any
+          </MenuOption>
+          {[1, 2, 3, 4].map(b => (
+            <MenuOption key={b} active={targetBracket === b} onClick={() => { setTargetBracket(b); close() }}
+              desc={BRACKET_DESC[b]}>
+              {b} · {BRACKET_LABELS[b]}
+            </MenuOption>
+          ))}
+        </>
+      )}
+    </ControlMenu>
+  )
+
+  const renderBudgetMenu = () => (
+    <ControlMenu
+      label="Budget"
+      title="Max price per card"
+      hint="Hide owned cards and suggestions whose cheapest English printing costs more than this"
+      valueLabel={maxPrice == null ? 'Any' : `≤ ${formatPrice(maxPrice, price_source)}`}
+    >
+      {close => (
+        <>
+          {BUDGET_CHIPS.map(b => (
+            <MenuOption key={b ?? 'any'} active={maxPrice === b} onClick={() => { setMaxPrice(b); close() }}>
+              {b == null ? 'Any (no limit)' : `≤ ${formatPrice(b, price_source)} per card`}
+            </MenuOption>
+          ))}
+        </>
+      )}
+    </ControlMenu>
+  )
 
   if (!hasCommander) {
     return (
@@ -1427,75 +1609,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         {!loading && !error && (
           <div className={styles.controls}>
             <div className={styles.controlsGroup}>
-            {themes.length > 0 && (
-              <ControlMenu
-                label="Theme"
-                title="Deck theme"
-                hint="Re-weight the role targets and suggestions toward an archetype"
-                busy={rebuilding}
-                valueLabel={selectedTheme === ''
-                  ? 'Balanced'
-                  : (themes.find(t => t.slug === selectedTheme)?.label || 'Balanced')}
-              >
-                {close => (
-                  <>
-                    <MenuOption active={selectedTheme === ''} onClick={() => { onSelectTheme(''); close() }}>
-                      Balanced
-                    </MenuOption>
-                    {themes.slice(0, 8).map(t => (
-                      <MenuOption
-                        key={t.slug}
-                        active={selectedTheme === t.slug}
-                        onClick={() => { onSelectTheme(t.slug); close() }}
-                      >
-                        {t.label}{typeof t.count === 'number' ? ` · ${t.count.toLocaleString()}` : ''}
-                      </MenuOption>
-                    ))}
-                  </>
-                )}
-              </ControlMenu>
-            )}
-
-            {gameChangers && (
-              <ControlMenu
-                label="Bracket"
-                title="Target bracket"
-                hint="Target power level — flags cards that push the deck above it"
-                valueLabel={targetBracket == null ? 'Any' : `${targetBracket} · ${BRACKET_LABELS[targetBracket]}`}
-              >
-                {close => (
-                  <>
-                    <MenuOption active={targetBracket == null} onClick={() => { setTargetBracket(null); close() }}
-                      desc="No power-level target">
-                      Any
-                    </MenuOption>
-                    {[1, 2, 3, 4].map(b => (
-                      <MenuOption key={b} active={targetBracket === b} onClick={() => { setTargetBracket(b); close() }}
-                        desc={BRACKET_DESC[b]}>
-                        {b} · {BRACKET_LABELS[b]}
-                      </MenuOption>
-                    ))}
-                  </>
-                )}
-              </ControlMenu>
-            )}
-
-            <ControlMenu
-              label="Budget"
-              title="Max price per card"
-              hint="Hide owned cards and suggestions whose cheapest English printing costs more than this"
-              valueLabel={maxPrice == null ? 'Any' : `≤ ${formatPrice(maxPrice, price_source)}`}
-            >
-              {close => (
-                <>
-                  {BUDGET_CHIPS.map(b => (
-                    <MenuOption key={b ?? 'any'} active={maxPrice === b} onClick={() => { setMaxPrice(b); close() }}>
-                      {b == null ? 'Any (no limit)' : `≤ ${formatPrice(b, price_source)} per card`}
-                    </MenuOption>
-                  ))}
-                </>
-              )}
-            </ControlMenu>
+            {renderThemeMenu()}
+            {renderBracketMenu()}
+            {renderBudgetMenu()}
 
             {/* Suggestion source — only when recommander returned picks */}
             {hasRecommender && (
@@ -1809,10 +1925,17 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                   <div className={styles.gapList}>
                     {[...buyGap.toBuy, ...buyGap.elsewhere].map(m => {
                       const v = cheapestOf(m.name)
+                      const sid = deckRowsForName(m.name)[0]?.scryfall_id || null
                       return (
                         <div key={m.name} className={styles.gapRow}>
                           <span className={styles.gapQty}>{m.qty}×</span>
-                          <span className={styles.gapName} title={m.name}>{m.name}</span>
+                          <span
+                            className={styles.gapName}
+                            title={m.name}
+                            {...previewHandlers({ name: m.name, scryfall_id: sid })}
+                          >
+                            {m.name}
+                          </span>
                           {m.elsewhere && (
                             <span
                               className={styles.gapElsewhere}
@@ -1824,6 +1947,17 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                           <span className={styles.gapPrice}>
                             {v != null ? formatPrice(v, price_source) : '—'}
                           </span>
+                          {typeof onRemoveCard === 'function' && (
+                            <button
+                              type="button"
+                              className={styles.gapTrash}
+                              onClick={() => removeCardByName(m.name)}
+                              title={`Remove ${m.name} from the deck`}
+                              aria-label={`Remove ${m.name} from the deck`}
+                            >
+                              <DeleteIcon size={13} />
+                            </button>
+                          )}
                         </div>
                       )
                     })}
@@ -1939,18 +2073,25 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                         const img = cardImageUrl(sfMap?.[c.scryfall_id] || null)
                         return (
                         <div key={c.id} className={styles.cutRow}>
-                          <span className={styles.cutThumb} aria-hidden="true">
-                            {img
-                              ? <img src={img} alt="" loading="lazy" className={styles.cutThumbImg} />
-                              : <span className={styles.cutThumbFallback} />}
-                          </span>
-                          <span className={styles.cutInfo}>
-                            <span className={styles.cutName} title={c.name}>{c.name}</span>
-                            <span className={styles.cutSub}>
-                              <span className={styles.cutReason}>{c.reason}</span>
-                              <span className={styles.cutMeta}>{c.hasData ? `${c.inclusion}%` : '—'} · {c.cmc} CMC</span>
+                          <button
+                            type="button"
+                            className={styles.cutPeek}
+                            title={`View ${c.name}`}
+                            {...previewHandlers({ name: c.name, scryfall_id: c.scryfall_id })}
+                          >
+                            <span className={styles.cutThumb} aria-hidden="true">
+                              {img
+                                ? <img src={img} alt="" loading="lazy" className={styles.cutThumbImg} />
+                                : <span className={styles.cutThumbFallback} />}
                             </span>
-                          </span>
+                            <span className={styles.cutInfo}>
+                              <span className={styles.cutName} title={c.name}>{c.name}</span>
+                              <span className={styles.cutSub}>
+                                <span className={styles.cutReason}>{c.reason}</span>
+                                <span className={styles.cutMeta}>{c.hasData ? `${c.inclusion}%` : '—'} · {c.cmc} CMC</span>
+                              </span>
+                            </span>
+                          </button>
                           <button
                             className={styles.cutKeep}
                             onClick={() => toggleCutLock(c.id)}
@@ -2068,9 +2209,54 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
               ref={afCardRef}
               tabIndex={-1}
             >
-              <div className={styles.afTitle}>Auto-fill deck</div>
+              <div className={styles.afHead}>
+                <span className={styles.afHeadIcon}><LightningIcon size={16} /></span>
+                <div>
+                  <div className={styles.afTitle}>{autoFillResult ? 'Deck built' : 'Finish this deck'}</div>
+                  {!autoFillResult && (
+                    <div className={styles.afSubtitle}>
+                      Fills every empty role and fills your deck to {afTarget} cards.
+                    </div>
+                  )}
+                </div>
+              </div>
               {!autoFilling && !autoFillResult && (
                 <>
+                  <div className={styles.afMeter}>
+                    <div className={styles.afMeterHead}>
+                      <span>Deck size</span>
+                      <span className={styles.afMeterNums}>
+                        <b>{totalCards}</b>
+                        <span className={styles.afMeterArrow}>→</span>
+                        <b className={styles.afMeterGoal}>{afTarget}</b>
+                      </span>
+                    </div>
+                    <div className={styles.afMeterTrack}>
+                      <div
+                        className={styles.afMeterProjected}
+                        style={{ width: `${Math.min(100, ((totalCards + autoFillSelected.length) / afTarget) * 100)}%` }}
+                      />
+                      <div
+                        className={styles.afMeterFill}
+                        style={{ width: `${Math.min(100, (totalCards / afTarget) * 100)}%` }}
+                      />
+                    </div>
+                    <div className={styles.afMeterLegend}>
+                      <span><i className={styles.afSwatchNow} /> In deck now</span>
+                      <span><i className={styles.afSwatchAdd} /> +{autoFillSelected.length} from auto-fill</span>
+                      <span><i className={styles.afSwatchBasics} /> basics finish to {afTarget}</span>
+                    </div>
+                  </div>
+                  {/* Tune the build — same theme / bracket / budget knobs as the
+                      main controls bar; changing them re-plans the picks live. */}
+                  <div className={styles.afTune}>
+                    <span className={styles.afTuneLabel}>Tune the build</span>
+                    <div className={styles.afTuneRow}>
+                      {renderThemeMenu()}
+                      {renderBracketMenu()}
+                      {renderBudgetMenu()}
+                    </div>
+                  </div>
                   <label className={`${styles.afOption}${autoFillSource === 'owned' ? ' ' + styles.afOptionActive : ''}`}>
                     <input
                       type="radio"
@@ -2080,10 +2266,10 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                       onChange={() => setAutoFillSource('owned')}
                     />
                     <span className={styles.afOptionBody}>
-                      <span className={styles.afOptionLabel}>From your binders only</span>
+                      <span className={styles.afOptionLabel}>Complete it from your binders</span>
                       <span className={styles.afOptionDesc}>
                         {autoFillPicksOwned.length
-                          ? `Adds ${autoFillPicksOwned.length} card${autoFillPicksOwned.length === 1 ? '' : 's'} you can pull from binders right now.`
+                          ? `Fills the deck to ${afTarget} using only cards you can pull right now — adds ${autoFillPicksOwned.length}, then basic lands.`
                           : 'Nothing left to add from your binders.'}
                       </span>
                     </span>
@@ -2097,34 +2283,33 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                       onChange={() => setAutoFillSource('recommended')}
                     />
                     <span className={styles.afOptionBody}>
-                      <span className={styles.afOptionLabel}>Top recommendations</span>
+                      <span className={styles.afOptionLabel}>Complete it with the best cards</span>
                       <span className={styles.afOptionDesc}>
                         {(() => {
                           const sugg = autoFillPicksRec.filter(p => !p.owned).length
                           return autoFillPicksRec.length
-                            ? `Adds the ${autoFillPicksRec.length} most-recommended cards for this commander, ignoring what you own — the ${sugg} unowned land in the summary’s buy list.`
+                            ? `Fills the deck to ${afTarget} with the top cards for this commander, whatever you own — the ${sugg} you’re missing go to the summary’s buy list.`
                             : 'No fitting recommendations left.'
                         })()}
                       </span>
                     </span>
                   </label>
                   <div className={styles.afNote}>
-                    Your budget and bracket filters apply. Basic lands are added automatically, then you land on the summary.
+                    Your budget and bracket filters apply. Basic lands will top up the rest of the deck, then you will be able to review your new deck.
                   </div>
                   <div className={styles.afActions}>
                     <Button variant="ghost" onClick={() => setAutoFillOpen(false)}>Cancel</Button>
                     <Button variant="primary" disabled={autoFillSelected.length === 0} onClick={startAutoFill}>
-                      Add {autoFillSelected.length} card{autoFillSelected.length === 1 ? '' : 's'}
+                      Auto build deck
                     </Button>
                   </div>
                 </>
               )}
               {autoFilling && (
-                <div className={styles.afProgress}>
-                  {autoFilling.bulk
-                    ? `Adding ${autoFilling.total} cards…`
-                    : `Adding ${autoFilling.done} / ${autoFilling.total}…`}
-                </div>
+                <AutoFillLoader
+                  reduceMotion={reduce_motion}
+                  progress={autoFilling.bulk ? null : autoFilling}
+                />
               )}
               {!autoFilling && autoFillResult && (
                 <>
@@ -2165,7 +2350,42 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
             </div>
           </div>
         )}
+
       </div>
+
+      {/* Large-image card preview — portaled to <body> so it floats above the
+          modal at viewport coordinates. Hover-follows the cursor on pointer
+          devices; a centered tap-to-dismiss lightbox on touch. */}
+      {preview && (() => {
+        const sf = sfMap?.[preview.scryfall_id] || null
+        const img = getCardImageUri(sf, 'normal') || cardImageUrl(sf) || null
+        if (!img) return null
+        const node = hoverCapable ? (
+          <div className={styles.hoverPreview} style={cardPreviewStyle(preview.x, preview.y)}>
+            <img src={img} alt={preview.name} className={styles.hoverPreviewImg} />
+          </div>
+        ) : (
+          <div className={styles.previewLightbox} onClick={() => setPreview(null)} role="presentation">
+            <img src={img} alt={preview.name} className={styles.previewLightboxImg} />
+          </div>
+        )
+        return createPortal(node, document.body)
+      })()}
     </Modal>
   )
+}
+
+// Fixed-position style for the hover preview: sits beside the cursor, flips to
+// the other side / clamps so a 240×336 card image never spills off-screen.
+function cardPreviewStyle(x, y) {
+  const W = 240, H = 336, pad = 12, off = 22
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 1200
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 800
+  let left = x + off
+  if (left + W + pad > vw) left = x - W - off
+  if (left < pad) left = pad
+  let top = y - H / 2
+  if (top < pad) top = pad
+  if (top + H + pad > vh) top = vh - H - pad
+  return { left, top, width: W }
 }

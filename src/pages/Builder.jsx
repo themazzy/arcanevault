@@ -10,7 +10,7 @@ import styles from './Builder.module.css'
 import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 import { useToast } from '../components/ToastContext'
-import { CheckIcon, CloseIcon, DeleteIcon, ChevronDownIcon, FilterIcon } from '../icons'
+import { CheckIcon, CloseIcon, DeleteIcon, ChevronDownIcon, FilterIcon, LightningIcon, ImportIcon, DeckIcon, BuilderDeckIcon } from '../icons'
 import { GuidedCommanderPicker } from '../components/deckBuilder/GuidedCommanderPicker'
 import { resolveBracketBadge, analyzeBracket, fetchGameChangerNames, computeBracketMetaPatch, BRACKET_LABELS } from '../lib/commanderBracket'
 import {
@@ -1191,9 +1191,13 @@ export default function BuilderPage() {
 
       {showNew && (
         <Modal onClose={resetNewDeckForm} allowOverflow>
-          <h2 style={{ fontFamily: 'var(--font-display)', color: 'var(--gold)', marginBottom: 16, fontSize: '1rem' }}>
-            New Builder Deck
-          </h2>
+          <div className={styles.newDeckHead}>
+            <span className={styles.newDeckHeadIcon}><BuilderDeckIcon size={18} /></span>
+            <div>
+              <h2 className={styles.newDeckTitle}>New Builder Deck</h2>
+              <p className={styles.newDeckSubtitle}>Start blank, let Build Assist do the work, or import an existing list.</p>
+            </div>
+          </div>
 
           {/* Mode toggle: blank deck vs guided build-from-collection vs import */}
           <div className={styles.newModeToggle}>
@@ -1202,22 +1206,26 @@ export default function BuilderPage() {
               className={`${styles.newModeBtn} ${newMode === 'blank' ? styles.newModeActive : ''}`}
               onClick={() => setNewMode('blank')}
             >
+              <span className={styles.newModeIcon}><DeckIcon size={17} /></span>
               <span className={styles.newModeTitle}>Blank deck</span>
               <span className={styles.newModeDesc}>Start empty in any format</span>
             </button>
             <button
               type="button"
-              className={`${styles.newModeBtn} ${newMode === 'guided' ? styles.newModeActive : ''}`}
+              className={`${styles.newModeBtn} ${styles.newModeBtnFeatured} ${newMode === 'guided' ? styles.newModeActive : ''}`}
               onClick={() => setNewMode('guided')}
             >
+              <span className={styles.newModeBadge}>Recommended</span>
+              <span className={`${styles.newModeIcon} ${styles.newModeIconGold}`}><LightningIcon size={17} /></span>
               <span className={styles.newModeTitle}>Build Assist</span>
-              <span className={styles.newModeDesc}>Auto build from your binders or choose every card</span>
+              <span className={styles.newModeDesc}>Auto build a full deck from your binders — or choose every card</span>
             </button>
             <button
               type="button"
               className={`${styles.newModeBtn} ${newMode === 'import' ? styles.newModeActive : ''}`}
               onClick={() => setNewMode('import')}
             >
+              <span className={styles.newModeIcon}><ImportIcon size={17} /></span>
               <span className={styles.newModeTitle}>Import deck</span>
               <span className={styles.newModeDesc}>Paste a list, upload a file, or import a URL</span>
             </button>

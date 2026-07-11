@@ -704,41 +704,220 @@
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  animation: afOverlayIn 0.18s ease-out;
+}
+
+@keyframes afOverlayIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .afCard {
-  width: min(440px, 100%);
+  width: min(460px, 100%);
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 16px;
-  background: var(--bg2);
+  gap: 14px;
+  padding: 20px;
+  /* Layered fantasy surface: a faint gold glow bleeds from the top, sitting on
+     the panel fill — reads richer than a flat bg2 rectangle. */
+  background:
+    radial-gradient(120% 80% at 50% -10%, rgba(201, 168, 76, 0.12), transparent 60%),
+    linear-gradient(180deg, var(--bg2), var(--bg));
   border: 1px solid var(--border-hi);
-  border-top: 2px solid rgba(201, 168, 76, 0.5);
-  border-radius: 10px;
+  border-radius: 14px;
+  box-shadow:
+    0 24px 60px -18px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(201, 168, 76, 0.06) inset;
+  animation: afCardIn 0.2s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+/* Gold hairline crown along the very top edge. */
+.afCard::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 16px;
+  right: 16px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+  opacity: 0.7;
+}
+.afCard { position: relative; }
+
+@keyframes afCardIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Header: gilded lightning glyph + title + one-line subtitle. */
+.afHead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.afHeadIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 9px;
+  color: var(--gold);
+  background: radial-gradient(circle at 30% 25%, rgba(201, 168, 76, 0.28), rgba(201, 168, 76, 0.08));
+  border: 1px solid rgba(201, 168, 76, 0.35);
 }
 
 .afTitle {
   font-family: var(--font-display);
-  font-size: 0.95rem;
+  font-size: 1.05rem;
+  letter-spacing: 0.01em;
   color: var(--gold);
+}
+
+.afSubtitle {
+  font-size: 0.76rem;
+  color: var(--text-dim);
+  margin-top: 1px;
+}
+
+/* Deck-size meter — makes "we take you to 100" the visual headline. */
+.afMeter {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px;
+  border: 1px solid var(--s-border);
+  border-radius: 10px;
+  background: var(--s1);
+}
+
+.afMeterHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.afMeterNums {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.95rem;
+  color: var(--text);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.afMeterNums b { font-variant-numeric: tabular-nums; }
+.afMeterArrow { color: var(--text-faint); font-size: 0.8rem; }
+.afMeterGoal { color: var(--gold); }
+
+.afMeterTrack {
+  position: relative;
+  height: 9px;
+  border-radius: 6px;
+  overflow: hidden;
+  /* Faint hatched "to 100" backdrop so the empty portion reads as basics. */
+  background:
+    repeating-linear-gradient(-45deg, rgba(201, 168, 76, 0.12) 0 4px, transparent 4px 8px),
+    var(--s3);
+}
+
+/* Projected (current + auto-fill picks) — a softer gold, sits behind the solid. */
+.afMeterProjected {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 6px;
+  background: rgba(201, 168, 76, 0.38);
+  transition: width 0.35s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+/* Solid = cards in the deck right now. */
+.afMeterFill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #b8942f, var(--gold));
+  transition: width 0.35s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.afMeterLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 0.66rem;
+  color: var(--text-faint);
+}
+.afMeterLegend span { display: inline-flex; align-items: center; gap: 5px; }
+.afMeterLegend i { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+.afSwatchNow { background: var(--gold); }
+.afSwatchAdd { background: rgba(201, 168, 76, 0.38); }
+.afSwatchBasics { background: repeating-linear-gradient(-45deg, rgba(201, 168, 76, 0.35) 0 3px, transparent 3px 6px); }
+
+/* Tune-the-build knobs inside the auto-fill dialog. */
+.afTune {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.afTuneLabel {
+  font-size: 0.66rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.afTuneRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+/* Each knob sizes to its own content and wraps to the next line when it doesn't
+   fit — so the label + value are always shown in full (never truncated), which
+   reads far more premium than three cramped, ellipsised columns. */
+.afTuneRow > * { flex: 0 1 auto; }
+.afTuneRow .ctrlValue { white-space: nowrap; }
+
+/* When the three knobs can't sit on one line, stack them below each other at
+   full width rather than leaving a ragged 2-then-1 wrap. */
+@media (max-width: 480px) {
+  .afTuneRow { flex-direction: column; }
+  .afTuneRow > * { flex: 1 1 auto; width: 100%; }
+  .afTuneRow .ctrlWrap { display: flex; width: 100%; }
+  .afTuneRow .ctrlBtn { width: 100%; }
 }
 
 .afOption {
   display: flex;
-  gap: 10px;
+  gap: 11px;
   align-items: flex-start;
-  padding: 10px;
+  padding: 12px;
   border: 1px solid var(--s-border);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--s1);
   cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
 }
 
-.afOptionActive {
-  border-color: rgba(201, 168, 76, 0.55);
-  background: rgba(201, 168, 76, 0.08);
+.afOption:hover {
+  border-color: var(--s-border2);
+  background: var(--s2);
+}
+
+.afOptionActive,
+.afOptionActive:hover {
+  border-color: rgba(201, 168, 76, 0.6);
+  background: rgba(201, 168, 76, 0.09);
+  box-shadow: 0 0 0 1px rgba(201, 168, 76, 0.18) inset;
 }
 
 .afRadio { margin-top: 2px; accent-color: var(--gold); }
@@ -746,17 +925,19 @@
 .afOptionBody {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   min-width: 0;
 }
 
 .afOptionLabel {
-  font-size: 0.85rem;
+  font-size: 0.88rem;
+  font-weight: 600;
   color: var(--text);
 }
 
 .afOptionDesc {
   font-size: 0.74rem;
+  line-height: 1.35;
   color: var(--text-dim);
 }
 
@@ -771,11 +952,106 @@
   gap: 8px;
 }
 
-.afProgress,
 .afResult {
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   color: var(--text);
-  padding: 8px 0;
+  padding: 4px 0;
+}
+
+/* ── Animated auto-fill loader ───────────────────────────────────────────── */
+.afLoader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 22px 8px 18px;
+}
+
+/* Ring of five WUBRG mana pips that pulse in sequence. */
+.afMana {
+  display: flex;
+  gap: 9px;
+}
+
+.afManaPip {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25) inset, 0 1px 3px rgba(0, 0, 0, 0.35);
+  animation: afPipPulse 1.1s ease-in-out infinite;
+}
+
+/* reduce_motion: hold the pips at a calm, even glow. */
+.afManaStill .afManaPip {
+  animation: none;
+  opacity: 0.85;
+}
+
+@keyframes afPipPulse {
+  0%, 100% { transform: scale(0.7); opacity: 0.4; }
+  40% { transform: scale(1.15); opacity: 1; }
+}
+
+.afPhrase {
+  font-family: var(--font-display);
+  font-size: 0.92rem;
+  color: var(--gold);
+  text-align: center;
+  animation: afPhraseIn 0.4s ease;
+}
+
+@keyframes afPhraseIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.afCount {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Large-image card preview (hover / tap) ──────────────────────────────── */
+/* Portaled to <body>, positioned inline via JS at viewport coords. */
+.hoverPreview {
+  position: fixed;
+  z-index: 2000;
+  pointer-events: none; /* never eat the hover that's driving it */
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 18px 44px -12px rgba(0, 0, 0, 0.75);
+  animation: hoverPreviewIn 0.12s ease-out;
+}
+
+.hoverPreviewImg { display: block; width: 100%; height: auto; border-radius: 12px; }
+
+@keyframes hoverPreviewIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Touch: centered lightbox, tap anywhere to dismiss. */
+.previewLightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  animation: afOverlayIn 0.18s ease-out;
+}
+
+.previewLightboxImg {
+  width: min(78vw, 360px);
+  height: auto;
+  border-radius: 14px;
+  box-shadow: 0 24px 60px -18px rgba(0, 0, 0, 0.8);
+  animation: afCardIn 0.2s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
 /* Under-100 callout: the run stopped because candidate pools ran dry. */
@@ -834,6 +1110,32 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* Hover / tap here surfaces the large card image. */
+  cursor: pointer;
+  transition: color 0.12s;
+}
+.gapName:hover { color: var(--gold); }
+
+/* Remove-from-deck trash, sitting after the price on each buy-list row. */
+.gapTrash {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 6px;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
+}
+.gapTrash:hover {
+  color: var(--red, #d4503b);
+  background: var(--s-medium);
+  border-color: var(--s-border2);
 }
 
 .gapElsewhere {
@@ -1183,6 +1485,27 @@
   border: 1px solid var(--s-border);
   font-size: 0.84rem;
 }
+
+/* Clickable thumb+info region of a cut row — opens the card-detail overlay. */
+.cutPeek {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: opacity 0.12s;
+}
+.cutPeek:hover { opacity: 0.82; }
+.cutPeek:hover .cutName { color: var(--gold); }
 
 /* Card thumbnail at the start of a cut row. */
 .cutThumb {

@@ -21,6 +21,7 @@ import {
   recommendedBasicCount,
   countColorPips,
   planBasicLands,
+  basicsForAutoFill,
   isBasicLandName,
   rankCutCandidates,
   analyzeCut,
@@ -765,6 +766,45 @@ describe('planBasicLands', () => {
     const { counts, total } = planBasicLands({ deckCards: ownedCards, sfMap, colors: ['W', 'U'], landTarget: 40 })
     expect(total).toBe(4)
     expect(counts).toEqual({ Plains: 3, Island: 1 })
+  })
+})
+
+describe('basicsForAutoFill', () => {
+  it('passes planBasicLands through untouched when it fits the open slots', () => {
+    const { ownedCards, sfMap } = assemble([makeCard('Bear', { type: 'Creature', mana_cost: '{1}{G}' })])
+    // 10 basics wanted, 20 open slots → no cap.
+    const res = basicsForAutoFill({ deckCards: ownedCards, sfMap, colors: ['G'], landTarget: 10, openSlots: 20 })
+    expect(res.total).toBe(10)
+    expect(res.counts).toEqual({ Forest: 10 })
+  })
+
+  it('caps the basics top-up to the open slots (DFC land over-count → never past 100)', () => {
+    // A DFC land counted as a nonland by type_line: the land-target math wants
+    // more basics than there are open slots. The cap pins the total to the slots
+    // so the deck lands at exactly deckSize instead of overshooting to 101.
+    const { ownedCards, sfMap } = assemble([makeCard('Elf', { type: 'Creature', mana_cost: '{G}' })])
+    const res = basicsForAutoFill({ deckCards: ownedCards, sfMap, colors: ['G'], landTarget: 37, openSlots: 1 })
+    expect(res.total).toBe(1)
+    expect(res.counts).toEqual({ Forest: 1 })
+  })
+
+  it('adds nothing when there are no open slots', () => {
+    const { ownedCards, sfMap } = assemble([makeCard('Elf', { type: 'Creature', mana_cost: '{G}' })])
+    const res = basicsForAutoFill({ deckCards: ownedCards, sfMap, colors: ['G'], landTarget: 37, openSlots: 0 })
+    expect(res).toEqual({ counts: {}, total: 0 })
+  })
+
+  it('keeps the shortfall-first color split when capping', () => {
+    // U is far below its Karsten target, W is met; only 2 slots are open even
+    // though the land target wants more. Both basics must be Islands.
+    const { ownedCards, sfMap } = assemble([
+      makeCard('Angel', { type: 'Creature', mana_cost: '{4}{W}', cmc: 5 }),
+      makeCard('Counterspell', { type: 'Instant', mana_cost: '{U}{U}', cmc: 2 }),
+      makeCard('Plains', { type: 'Basic Land — Plains', qty: 20 }),
+    ])
+    const res = basicsForAutoFill({ deckCards: ownedCards, sfMap, colors: ['W', 'U'], landTarget: 24, openSlots: 2 })
+    expect(res.total).toBe(2)
+    expect(res.counts).toEqual({ Island: 2 })
   })
 })
 

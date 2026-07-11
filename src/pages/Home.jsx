@@ -1430,12 +1430,13 @@ const CL_CACHE_TTL = 60 * 60 * 1000 // 1 hour
 
 const CHANGELOG_DEFAULT = [
   {
-    version: 'Apr 2, 2026',
-    label: 'Latest',
+    version: 'July 11, 2026',
+    label: 'New',
     updates: [
-      'Collection decks are more reliable — adding, removing, and moving cards between decks works correctly',
-      'When building a deck, you can now pick which printing or foil version of a card to use from your collection',
-      'Deck Builder got a cleaner layout on mobile with better card images and improved tabs',
+      'Build Assist got a major glow-up — one <strong>Auto build deck</strong> button now fills your Commander deck all the way to 100, pulling the best cards straight from your binders (or the top picks for your commander if you prefer to buy in).',
+      'Shape the deck as it builds: choose a <strong>theme</strong>, target a <strong>power bracket</strong>, and set a <strong>per-card budget</strong> right from the build screen.',
+      'The new summary shows your mana curve, combos you are one card away from, and a buy list for anything missing — with hover-to-preview card art and a one-click trim-to-100.',
+      'Take it for a spin: open the <a href="/builder">Deck Builder</a>, start a new deck, and pick <strong>Build Assist</strong>. ✨',
     ],
   },
 ]

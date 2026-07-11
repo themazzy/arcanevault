@@ -13,40 +13,146 @@
   gap: 12px;
 }
 
+/* Gilded header: builder-deck glyph + title + one-line subtitle. */
+.newDeckHead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.newDeckHeadIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: 10px;
+  color: var(--gold);
+  background: radial-gradient(circle at 30% 25%, rgba(201, 168, 76, 0.28), rgba(201, 168, 76, 0.07));
+  border: 1px solid rgba(201, 168, 76, 0.35);
+}
+
+.newDeckTitle {
+  font-family: var(--font-display);
+  color: var(--gold);
+  font-size: 1.1rem;
+  margin: 0;
+  letter-spacing: 0.01em;
+}
+
+.newDeckSubtitle {
+  margin: 2px 0 0;
+  font-size: 0.76rem;
+  color: var(--text-dim);
+}
+
 .newModeToggle {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 16px;
+  gap: 10px;
+  margin-bottom: 18px;
 }
 
 .newModeBtn {
+  position: relative;
   flex: 1 1 150px;
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: 11px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--s-subtle);
+  gap: 6px;
+  padding: 14px 13px;
+  border-radius: 11px;
+  border: 1px solid var(--s-border);
+  background: linear-gradient(180deg, var(--s-subtle), transparent);
   color: var(--text-dim);
   cursor: pointer;
   text-align: left;
-  transition: border-color 0.15s, background 0.15s;
+  overflow: hidden;
+  transition: border-color 0.15s, background 0.15s, transform 0.1s, box-shadow 0.15s;
 }
 
 .newModeBtn:hover {
-  border-color: var(--border-hi);
+  border-color: var(--s-border2);
+  background: var(--s2);
+  transform: translateY(-1px);
 }
 
-.newModeActive {
+.newModeActive,
+.newModeActive:hover {
   border-color: rgba(201, 168, 76, 0.6);
-  background: rgba(201, 168, 76, 0.12);
+  background:
+    radial-gradient(120% 90% at 50% -20%, rgba(201, 168, 76, 0.16), transparent 60%),
+    rgba(201, 168, 76, 0.1);
+  box-shadow: 0 0 0 1px rgba(201, 168, 76, 0.2) inset, 0 10px 26px -16px rgba(201, 168, 76, 0.5);
+}
+
+/* Gold crown along the top edge of the selected card. */
+.newModeActive::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 12px;
+  right: 12px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+}
+
+/* Featured (Build Assist) card carries a faint gold hint even when unselected,
+   so the recommended path reads as special before you click it. */
+.newModeBtnFeatured {
+  border-color: rgba(201, 168, 76, 0.32);
+  padding-top: 16px;
+}
+.newModeBtnFeatured:hover {
+  border-color: rgba(201, 168, 76, 0.5);
+}
+
+/* Icon badge at the top of each card. */
+.newModeIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  color: var(--text-dim);
+  background: var(--s3);
+  border: 1px solid var(--s-border);
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.newModeIconGold {
+  color: var(--gold);
+  background: radial-gradient(circle at 30% 25%, rgba(201, 168, 76, 0.26), rgba(201, 168, 76, 0.06));
+  border-color: rgba(201, 168, 76, 0.35);
+}
+
+.newModeActive .newModeIcon {
+  color: var(--gold);
+  border-color: rgba(201, 168, 76, 0.4);
+}
+
+/* "Recommended" ribbon on the featured (Build Assist) card. */
+.newModeBadge {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  font-family: var(--font-display);
+  font-size: 0.56rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #1a1406;
+  background: linear-gradient(180deg, #e0bd63, var(--gold));
+  padding: 2.5px 7px;
+  border-radius: 999px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 
 .newModeTitle {
   font-family: var(--font-display);
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   color: var(--text);
 }
 
@@ -56,6 +162,7 @@
 
 .newModeDesc {
   font-size: 0.72rem;
+  line-height: 1.35;
   color: var(--text-faint);
 }
 
