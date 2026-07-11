@@ -603,7 +603,7 @@ Host creates a session → others visit `/join/:code` on their own device → ho
 ## Supabase Table Notes
 
 - `cards` — user's owned cards, RLS by `user_id`
-- `folders` — type is `'binder' | 'deck' | 'list' | 'builder_deck'`; description JSON may include `isGroup: true` for group folders
+- `folders` — type is `'binder' | 'deck' | 'list' | 'builder_deck'`; description JSON may include `isGroup: true` for group folders. Deck folders also carry cached rollups `deck_color_identity` + `deck_card_count`, maintained by statement-level triggers on `deck_cards`/`deck_allocations` (`refresh_deck_rollups`) — the Builder index RPCs (`get_my_decks`, `get_community_decks`) read these instead of re-joining `card_prints` per card (which blew statement timeouts under autovacuum I/O). Never write these columns from the client; if you add another write path to deck contents, the triggers cover it automatically
 - `folder_cards` — links `folder_id` + `card_id` + `qty` for binders/lists
 - `deck_allocations` — links `deck_id` + `card_id` + `qty` for owned cards assigned into collection decks
 - `deck_allocations_view` — view joining `deck_allocations` with card data
