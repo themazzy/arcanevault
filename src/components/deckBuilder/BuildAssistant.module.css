@@ -704,10 +704,20 @@
   align-items: center;
   justify-content: center;
   padding: 24px;
+  /* Scroll the dialog rather than clip it: with the tune knobs, source options
+     and combo opt-in the card can out-grow a short (landscape phone / small
+     tablet) viewport. */
+  overflow-y: auto;
   background: rgba(0, 0, 0, 0.62);
   backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(3px);
   animation: afOverlayIn 0.18s ease-out;
+}
+
+/* Short viewports: pin the dialog to the top so its header stays reachable and
+   the body scrolls under it instead of being vertically centered off-screen. */
+@media (max-height: 760px) {
+  .afOverlay { align-items: flex-start; }
 }
 
 @keyframes afOverlayIn {

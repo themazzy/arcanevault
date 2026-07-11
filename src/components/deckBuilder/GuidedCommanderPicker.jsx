@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { CheckIcon } from '../../icons'
 import { getLocalCards, getLocalCardPrints } from '../../lib/db'
 import { getInstantCache, getScryfallKey, getImageUri } from '../../lib/scryfall'
-import { searchCommanders } from '../../lib/deckBuilderApi'
+import { searchCommanders, fetchCardsByScryfallIds } from '../../lib/deckBuilderApi'
+import { manaSymbolUrl } from '../../lib/deckBuilderHelpers'
 import styles from './GuidedCommanderPicker.module.css'
 
 // Commander picker for guided deck creation: lists the user's OWNED commanders
@@ -30,26 +31,88 @@ function oracleTextOf(sf) {
   return faces.join('\n//\n')
 }
 
-// Preview card shown once a commander is picked: art + name + type + rules text.
-// Degrades gracefully when the selection is a minimal owned-fallback object
-// (cold Scryfall cache) with no image / oracle text — shows what it has.
+// Front-face mana cost (DFC top-level mana_cost is empty; the cost lives on the
+// front face).
+function manaCostOf(sf) {
+  return sf?.mana_cost || sf?.card_faces?.[0]?.mana_cost || ''
+}
+
+// Power/toughness, front face first for a DFC creature. null when the card
+// isn't a creature (no P/T on any face).
+function ptOf(sf) {
+  if (sf?.power != null && sf?.toughness != null) return `${sf.power}/${sf.toughness}`
+  const face = (sf?.card_faces || []).find(f => f?.power != null && f?.toughness != null)
+  return face ? `${face.power}/${face.toughness}` : null
+}
+
+// Split a string on {…} mana/tap tokens, rendering each token as its Scryfall
+// symbol SVG and keeping the surrounding text. Shared by the mana cost and the
+// symbols embedded in rules text so {T}/{G}/{W/U} render as MTG images, not text.
+function withSymbols(text, keyPrefix) {
+  return String(text || '').split(/(\{[^}]+\})/g).map((part, i) => {
+    if (!part) return null
+    if (/^\{[^}]+\}$/.test(part)) {
+      return (
+        <img key={`${keyPrefix}-${i}`} className={styles.sym} src={manaSymbolUrl(part)} alt={part} loading="lazy" />
+      )
+    }
+    return <span key={`${keyPrefix}-${i}`}>{part}</span>
+  })
+}
+
+// Multi-line rules text with inline symbols, preserving line breaks.
+function OracleText({ text }) {
+  return (
+    <div className={styles.previewOracle}>
+      {String(text).split('\n').map((line, i) => (
+        <div key={i} className={styles.oracleLine}>{line ? withSymbols(line, `l${i}`) : ' '}</div>
+      ))}
+    </div>
+  )
+}
+
+// Preview card shown once a commander is picked: a legible (normal-size) image
+// plus name, mana cost, type, P/T, and rules text with MTG symbols. When the
+// selection is a minimal owned-fallback object (cold Scryfall cache) with no
+// image / oracle text, we fetch the full card by id so the preview is complete.
 function CommanderPreview({ sf }) {
-  const img = getImageUri(sf, 'normal')
-  const type = typeLineOf(sf)
-  const oracle = oracleTextOf(sf)
+  const [full, setFull] = useState(sf)
+  useEffect(() => {
+    setFull(sf)
+    const needsFetch = sf?.id && (!getImageUri(sf, 'normal') || (!sf.oracle_text && !sf.card_faces?.length))
+    if (!needsFetch) return
+    let cancelled = false
+    ;(async () => {
+      const [card] = await fetchCardsByScryfallIds([sf.id]).catch(() => [])
+      if (!cancelled && card) setFull(card)
+    })()
+    return () => { cancelled = true }
+  }, [sf])
+
+  const card = full || sf
+  const img = getImageUri(card, 'normal')
+  const type = typeLineOf(card)
+  const oracle = oracleTextOf(card)
+  const cost = manaCostOf(card)
+  const pt = ptOf(card)
   return (
     <div className={styles.preview}>
       {img
-        ? <img src={img} alt={sf.name} loading="lazy" className={styles.previewArt} />
-        : <div className={styles.previewArtEmpty}>No preview</div>}
+        ? <img src={img} alt={card.name} loading="lazy" className={styles.previewArt} />
+        : <div className={styles.previewArtEmpty}>Loading…</div>}
       <div className={styles.previewInfo}>
         <div className={styles.previewName}>
-          {sf.name}
-          {sf.mana_cost ? <span className={styles.previewCost}>{sf.mana_cost}</span> : null}
+          <span className={styles.previewNameText}>{card.name}</span>
+          {cost ? <span className={styles.previewCost}>{withSymbols(cost, 'cost')}</span> : null}
         </div>
-        {type && <div className={styles.previewType}>{type}</div>}
+        {type && (
+          <div className={styles.previewType}>
+            <span>{type}</span>
+            {pt && <span className={styles.previewPt}>{pt}</span>}
+          </div>
+        )}
         {oracle
-          ? <div className={styles.previewOracle}>{oracle}</div>
+          ? <OracleText text={oracle} />
           : <div className={styles.previewOracleEmpty}>Rules text loads when its card data is cached.</div>}
       </div>
     </div>

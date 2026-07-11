@@ -35,74 +35,113 @@
 
 .preview {
   display: flex;
-  gap: 12px;
-  padding: 10px;
-  border-radius: 9px;
+  gap: 14px;
+  padding: 12px;
+  border-radius: 10px;
   background: rgba(201, 168, 76, 0.09);
   border: 1px solid rgba(201, 168, 76, 0.35);
 }
 
 .previewArt,
 .previewArtEmpty {
-  width: 96px;
+  width: clamp(140px, 40%, 188px);
   flex-shrink: 0;
+  align-self: flex-start;
   aspect-ratio: 488 / 680;
-  border-radius: 6px;
+  border-radius: 8px;
   object-fit: cover;
   background: var(--bg3);
+  box-shadow: 0 6px 18px -8px rgba(0, 0, 0, 0.6);
 }
 
 .previewArtEmpty {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.66rem;
+  font-size: 0.72rem;
   color: var(--text-faint);
   border: 1px dashed var(--s-border2);
+  box-shadow: none;
 }
 
 .previewInfo {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
   min-width: 0;
+  flex: 1;
 }
 
 .previewName {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px 10px;
   font-family: var(--font-display);
-  font-size: 0.95rem;
+  font-size: 1rem;
+  line-height: 1.2;
   color: var(--gold);
 }
 
+.previewNameText { min-width: 0; }
+
 .previewCost {
-  font-family: var(--font-body, inherit);
-  font-size: 0.72rem;
-  color: var(--text-faint);
-  letter-spacing: 0.02em;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* Inline MTG mana / tap symbol, sized to the surrounding text. */
+.sym {
+  width: 0.95em;
+  height: 0.95em;
+  vertical-align: -0.13em;
+  display: inline-block;
 }
 
 .previewType {
-  font-size: 0.74rem;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  font-size: 0.76rem;
   color: var(--text-dim);
 }
 
-.previewOracle {
-  font-size: 0.76rem;
-  line-height: 1.4;
+.previewPt {
+  font-variant-numeric: tabular-nums;
   color: var(--text);
-  white-space: pre-wrap;
-  max-height: 132px;
-  overflow-y: auto;
+  font-weight: 600;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--s3);
+  border: 1px solid var(--s-border2);
 }
+
+.previewOracle {
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--text);
+  max-height: clamp(120px, 34vh, 220px);
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.oracleLine { min-height: 0.6em; }
+.oracleLine + .oracleLine { margin-top: 4px; }
 
 .previewOracleEmpty {
   font-size: 0.74rem;
   color: var(--text-faint);
   font-style: italic;
+}
+
+/* Phones: stack the image above the text so both stay legible in a narrow modal. */
+@media (max-width: 460px) {
+  .preview { flex-direction: column; }
+  .previewArt,
+  .previewArtEmpty { width: 150px; align-self: center; }
+  .previewInfo { align-items: stretch; }
 }
 
 .scroll {
