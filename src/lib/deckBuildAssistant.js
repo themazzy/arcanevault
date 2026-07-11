@@ -647,6 +647,66 @@ export function tcgplayerMassEntryUrl(items) {
   return `https://www.tcgplayer.com/massentry?c=${encodeURIComponent(list)}`
 }
 
+// ── Cut-to-100 analysis ───────────────────────────────────────────────────────
+// When the deck is over `deckSize`, rank every eligible card by cuttability
+// (via rankCutCandidates) and recommend exactly the overage. Protections: the
+// commander is never a candidate, locked ids are excluded, and lands are only
+// eligible when the manabase is above its target — and then only the worst
+// `landOver` nonbasics, so trimming never breaks the mana base. Pure; the
+// component wraps this in a useMemo. `roleOf(dc)` resolves a deck card's coarse
+// role (injected so the component can share its plan-aware classifier);
+// `inclusionOf(name)` returns EDHREC inclusion % (0 when unknown).
+export function analyzeCut({
+  plan, deckCards = [], sfMap = {}, totalCards = 0, cutMode = 'balanced',
+  lockedIds = new Set(), roleOf, inclusionOf,
+}) {
+  if (!plan) return null
+  const over = totalCards - plan.deckSize
+  const targets = new Map(plan.roles.map(r => [r.role, r.target]))
+  const counts = new Map(ROLE_ORDER.map(r => [r, 0]))
+  const rows = []
+  let totalLands = 0
+  for (const dc of deckCards || []) {
+    if (dc?.is_commander) continue
+    const sf = sfMap?.[dc?.scryfall_id] || null
+    const name = dc.name || ''
+    const role = roleOf(dc)
+    counts.set(role, (counts.get(role) || 0) + (dc.qty || 1))
+    const isLand = (sf?.type_line || dc?.type_line || '').toLowerCase().includes('land')
+    if (isLand) totalLands += (dc.qty || 1)
+    const inclusion = inclusionOf(name) ?? 0
+    rows.push({
+      id: dc.id, name, role, isLand,
+      scryfall_id: dc.scryfall_id,
+      cmc: sf?.cmc ?? dc?.cmc ?? 0,
+      inclusion, hasData: inclusion > 0,
+    })
+  }
+  if (over <= 0) return { over, cutTarget: 0, recommended: [], extra: [], landOver: 0 }
+
+  const landTarget = targets.get(ROLE_LANDS) || 37
+  const landOver = Math.max(0, totalLands - landTarget)
+  const withRoleOver = r => ({ ...r, role: r.isLand ? ROLE_LANDS : r.role,
+    roleOver: Math.max(0, (counts.get(r.role) || 0) - (targets.get(r.role) || 0)) })
+
+  const nonland = rows.filter(r => !r.isLand && !lockedIds.has(r.id)).map(withRoleOver)
+  // Only nonbasic lands are cuttable (singletons); basics are multi-copy rows
+  // managed by the lands step, so cutting one would gut the manabase.
+  let landPool = []
+  if (landOver > 0) {
+    const lands = rows.filter(r => r.isLand && !isBasicLandName(r.name) && !lockedIds.has(r.id)).map(withRoleOver)
+    landPool = rankCutCandidates(lands, cutMode).slice(0, landOver)
+  }
+  const ranked = rankCutCandidates([...nonland, ...landPool], cutMode)
+  return {
+    over,
+    cutTarget: over,
+    recommended: ranked.slice(0, over),
+    extra: ranked.slice(over, over + 6), // a few more "also consider"
+    landOver,
+  }
+}
+
 // ── Archetype-aware quota flexing ─────────────────────────────────────────────
 // A selected EDHREC theme (Tokens, Spellslinger, Voltron, …) nudges the role
 // quotas. Deltas only touch the FIXED roles — Synergy is the remainder, so

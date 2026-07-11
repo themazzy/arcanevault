@@ -23,6 +23,7 @@ import {
   planBasicLands,
   isBasicLandName,
   rankCutCandidates,
+  analyzeCut,
   CUT_MODES,
   edhrecInclusionPct,
   attachRecommenderUpgrades,
@@ -869,6 +870,60 @@ describe('selectUpgrades', () => {
 })
 
 // ── Cut helper ────────────────────────────────────────────────────────────────
+describe('analyzeCut', () => {
+  const plan = {
+    deckSize: 100,
+    roles: [
+      { role: ROLE_RAMP, target: 10 },
+      { role: ROLE_LANDS, target: 37 },
+      { role: ROLE_SYNERGY, target: 12 },
+    ],
+  }
+  // 103-card deck: 3 over. All ramp so roleOver drives cuttability; give
+  // distinct inclusion so the ranking is deterministic.
+  const deck = [
+    { id: 'cmd', name: 'Cmd', is_commander: true },
+    ...Array.from({ length: 66 }, (_, i) => ({ id: `r${i}`, name: `Rock ${i}`, qty: 1 })),
+    ...Array.from({ length: 36 }, (_, i) => ({ id: `l${i}`, name: `Nonbasic ${i}`, qty: 1 })),
+  ]
+  // Each card keyed to its own scryfall entry so lands read as lands.
+  const deckWithSf = deck.map(dc => ({ ...dc, scryfall_id: dc.id }))
+  const sf = {}
+  for (const dc of deckWithSf) sf[dc.id] = { type_line: dc.name.startsWith('Nonbasic') ? 'Land' : 'Artifact' }
+
+  const base = {
+    plan, deckCards: deckWithSf, sfMap: sf, cutMode: 'balanced',
+    lockedIds: new Set(),
+    roleOf: dc => (dc.name.startsWith('Nonbasic') ? ROLE_LANDS : ROLE_RAMP),
+    inclusionOf: name => Number(name.split(' ')[1]) || 0,
+  }
+
+  it('recommends exactly the overage and never the commander', () => {
+    const out = analyzeCut({ ...base, totalCards: 103 })
+    expect(out.over).toBe(3)
+    expect(out.recommended).toHaveLength(3)
+    expect(out.recommended.some(c => c.id === 'cmd')).toBe(false)
+  })
+
+  it('returns an empty recommendation when at/under size', () => {
+    const out = analyzeCut({ ...base, totalCards: 100 })
+    expect(out.over).toBe(0)
+    expect(out.recommended).toEqual([])
+  })
+
+  it('excludes locked ids from recommendations', () => {
+    const lockedIds = new Set(Array.from({ length: 66 }, (_, i) => `r${i}`))
+    const out = analyzeCut({ ...base, totalCards: 103, lockedIds })
+    // Only lands remain eligible, and only when over the land target (36 > 37 is
+    // false here → landOver 0), so nothing nonland is left to cut.
+    expect(out.recommended.every(c => !lockedIds.has(c.id))).toBe(true)
+  })
+
+  it('returns null without a plan', () => {
+    expect(analyzeCut({ ...base, plan: null, totalCards: 103 })).toBeNull()
+  })
+})
+
 describe('rankCutCandidates', () => {
   const unpopular = { id: 'a', name: 'Unpopular', role: ROLE_SYNERGY, cmc: 2, inclusion: 10, hasData: true, roleOver: 0 }
   const offMeta   = { id: 'b', name: 'Off-meta',  role: ROLE_SYNERGY, cmc: 2, inclusion: 0,  hasData: false, roleOver: 0 }

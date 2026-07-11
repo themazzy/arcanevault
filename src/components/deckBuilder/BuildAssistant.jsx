@@ -33,7 +33,7 @@ import {
   recommendedBasicCount,
   planBasicLands,
   isBasicLandName,
-  rankCutCandidates,
+  analyzeCut,
   CUT_MODES,
   attachRecommenderUpgrades,
   selectUpgrades,
@@ -750,55 +750,11 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // overage. Protections: the commander is never a candidate; locked cards are
   // excluded; lands are only eligible when above the land target, and only the
   // worst (overage) of them — so trimming never breaks the manabase.
-  const cutAnalysis = useMemo(() => {
-    if (!plan) return null
-    const over = totalCards - plan.deckSize
-    const targets = new Map(plan.roles.map(r => [r.role, r.target]))
-    const counts = new Map(ROLE_ORDER.map(r => [r, 0]))
-    const rows = []
-    let totalLands = 0
-    for (const dc of deckCards || []) {
-      if (dc?.is_commander) continue
-      const sf = sfMap?.[dc?.scryfall_id] || null
-      const name = dc.name || ''
-      const role = roleOfDeckCard(dc, sfMap, roleByName)
-      counts.set(role, (counts.get(role) || 0) + (dc.qty || 1))
-      const isLand = (sf?.type_line || dc?.type_line || '').toLowerCase().includes('land')
-      if (isLand) totalLands += (dc.qty || 1)
-      const inclusion = cardNameMatchKeys(name).map(k => inclusionByName.get(k)).find(v => v != null) ?? 0
-      rows.push({
-        id: dc.id, name, role, isLand,
-        scryfall_id: dc.scryfall_id,
-        cmc: sf?.cmc ?? dc?.cmc ?? 0,
-        inclusion, hasData: inclusion > 0,
-      })
-    }
-    if (over <= 0) return { over, cutTarget: 0, recommended: [], extra: [], landOver: 0 }
-
-    const landTarget = targets.get(ROLE_LANDS) || 37
-    const landOver = Math.max(0, totalLands - landTarget)
-    const withRoleOver = r => ({ ...r, role: r.isLand ? ROLE_LANDS : r.role,
-      roleOver: Math.max(0, (counts.get(r.role) || 0) - (targets.get(r.role) || 0)) })
-
-    // Eligible pool: unlocked nonland cards, plus the worst `landOver` unlocked
-    // lands (only when the manabase is above target).
-    const nonland = rows.filter(r => !r.isLand && !lockedCutIds.has(r.id)).map(withRoleOver)
-    // Only nonbasic lands are cuttable (singletons); basics are multi-copy rows
-    // managed by the lands step, so cutting one would gut the manabase.
-    let landPool = []
-    if (landOver > 0) {
-      const lands = rows.filter(r => r.isLand && !isBasicLandName(r.name) && !lockedCutIds.has(r.id)).map(withRoleOver)
-      landPool = rankCutCandidates(lands, cutMode).slice(0, landOver)
-    }
-    const ranked = rankCutCandidates([...nonland, ...landPool], cutMode)
-    return {
-      over,
-      cutTarget: over,
-      recommended: ranked.slice(0, over),
-      extra: ranked.slice(over, over + 6), // a few more "also consider"
-      landOver,
-    }
-  }, [plan, deckCards, sfMap, inclusionByName, totalCards, roleByName, cutMode, lockedCutIds])
+  const cutAnalysis = useMemo(() => analyzeCut({
+    plan, deckCards, sfMap, totalCards, cutMode, lockedIds: lockedCutIds,
+    roleOf: dc => roleOfDeckCard(dc, sfMap, roleByName),
+    inclusionOf: name => cardNameMatchKeys(name).map(k => inclusionByName.get(k)).find(v => v != null),
+  }), [plan, deckCards, sfMap, inclusionByName, totalCards, roleByName, cutMode, lockedCutIds])
 
   // Completed combos in the deck → card-name lists for the bracket analyzer.
   const comboCardLists = useMemo(() => {
