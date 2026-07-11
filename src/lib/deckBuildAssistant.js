@@ -546,7 +546,8 @@ export function planAutoFill({
   }
 
   // Take up to `need` picks from `pool`, honoring the shared name/exclude
-  // gates. Returns how many were taken.
+  // gates. Returns how many were taken. Entries may carry their own role
+  // (spillover pool); `role` is the fallback.
   const takeFrom = (pool, need, role) => {
     let n = 0
     for (const entry of pool) {
@@ -554,7 +555,7 @@ export function planAutoFill({
       const key = (entry.cand?.name || '').toLowerCase()
       if (!key || taken.has(key) || isBasicLandName(key) || exclude(entry.cand)) continue
       taken.add(key)
-      picks.push({ role, cand: entry.cand, owned: entry.owned })
+      picks.push({ role: entry.role || role, cand: entry.cand, owned: entry.owned })
       n++
     }
     return n
@@ -568,6 +569,26 @@ export function planAutoFill({
     )
     if (need <= 0) continue
     nonlandBudget -= takeFrom(poolFor(spec.ownedCandidates, spec.upgrades), need, spec.role)
+  }
+
+  // Spillover: role quotas are ideals, not hard walls. When a role's pool ran
+  // dry (or a role had no gap left to justify its pool), the remaining nonland
+  // budget is spent on the best-ranked candidates left in ANY role's pool —
+  // otherwise every starved role leaves permanent holes and the build lands
+  // short of `deckSize` even though fitting cards exist elsewhere.
+  if (nonlandBudget > 0) {
+    const spill = []
+    for (const spec of roles) {
+      if (spec.role === ROLE_LANDS) continue
+      for (const entry of poolFor(spec.ownedCandidates, spec.upgrades)) {
+        spill.push({ ...entry, role: spec.role })
+      }
+    }
+    spill.sort((a, b) =>
+      (recRank(b.cand) - recRank(a.cand)) ||
+      ((a.cand.cmc ?? 0) - (b.cand.cmc ?? 0)) ||
+      String(a.cand.name || '').localeCompare(b.cand.name || ''))
+    nonlandBudget -= takeFrom(spill, nonlandBudget)
   }
 
   const landNeed = Math.min(Math.max(0, nonbasicTarget - currentNonbasicLands), landsReserve)
@@ -938,7 +959,7 @@ export async function enrichPlanWithEdhrec(plan, fetchEdhrec, fetchCardMeta) {
     const gap = Math.max(0, role.target - current)
     const edhrecUpgrades = (upgradesByRole.get(role.role) || [])
       .sort((a, b) => b.edhrecInclusion - a.edhrecInclusion)
-      .slice(0, Math.max(8, gap + 4))
+      .slice(0, Math.max(24, gap + 8))
     return { ...role, current, gap, ownedCandidates, edhrecUpgrades }
   })
 
@@ -990,7 +1011,7 @@ export function attachRecommenderUpgrades(plan, recRows) {
   const roles = plan.roles.map(role => {
     const recs = (recByRole.get(role.role) || [])
       .sort((a, b) => (b.score - a.score) || (a.cmc - b.cmc) || a.name.localeCompare(b.name))
-      .slice(0, Math.max(8, (role.gap || 0) + 4))
+      .slice(0, Math.max(24, (role.gap || 0) + 8))
     return { ...role, recommenderUpgrades: recs }
   })
   return { ...plan, roles }
@@ -1011,5 +1032,5 @@ export function selectUpgrades(role, source = 'both') {
   const rankKey = u => Math.max(u.edhrecInclusion || 0, Math.round((u.score || 0) * 100))
   return [...byName.values()]
     .sort((a, b) => (rankKey(b) - rankKey(a)) || (a.cmc - b.cmc) || a.name.localeCompare(b.name))
-    .slice(0, Math.max(8, (role?.gap || 0) + 4))
+    .slice(0, Math.max(24, (role?.gap || 0) + 8))
 }

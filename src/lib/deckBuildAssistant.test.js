@@ -124,27 +124,44 @@ describe('planAutoFill', () => {
   ]
   const counts = entries => new Map(entries)
 
-  it('fills each role gap with top candidates in order', () => {
+  it('fills each role gap with top candidates in order, then spills leftovers into open slots', () => {
     const picks = planAutoFill({
       roles,
       liveCounts: counts([[ROLE_RAMP, 0], [ROLE_DRAW, 0]]),
       totalCards: 1, deckSize: 100,
       landsTarget: 0, currentLands: 0,
     })
-    expect(picks.map(p => p.cand.name)).toEqual(['Sol Ring', 'Arcane Signet', 'Divination'])
+    // Quota picks first (Ramp 2, Draw 1), then the leftover Ramp candidate
+    // spills over — an empty slot is worse than extra ramp.
+    expect(picks.map(p => p.cand.name)).toEqual(['Sol Ring', 'Arcane Signet', 'Divination', 'Cultivate'])
+    expect(picks[3].role).toBe(ROLE_RAMP) // spillover keeps its origin role
   })
 
-  it('respects the live count (partially filled role)', () => {
+  it('respects the live count for quota picks (spillover fills the rest)', () => {
     const picks = planAutoFill({
       roles,
       liveCounts: counts([[ROLE_RAMP, 1], [ROLE_DRAW, 1]]),
       totalCards: 3, deckSize: 100,
       landsTarget: 0, currentLands: 0,
     })
-    expect(picks.map(p => p.cand.name)).toEqual(['Sol Ring'])
+    // Quota pass takes only Sol Ring (Ramp 1/2 → need 1; Draw already met);
+    // 96 slots remain, so the rest of the pools spill in rank order.
+    expect(picks[0].cand.name).toBe('Sol Ring')
+    expect(picks.map(p => p.cand.name).sort()).toEqual(['Arcane Signet', 'Cultivate', 'Divination', 'Sol Ring'])
   })
 
-  it('skips excluded candidates (added / budget / bracket)', () => {
+  it('does not spill when the budget is already spent', () => {
+    // 2 slots, 2 quota picks → the leftover Ramp candidates must NOT spill.
+    const picks = planAutoFill({
+      roles,
+      liveCounts: counts([[ROLE_RAMP, 0], [ROLE_DRAW, 0]]),
+      totalCards: 98, deckSize: 100,
+      landsTarget: 0, currentLands: 0,
+    })
+    expect(picks).toHaveLength(2)
+  })
+
+  it('skips excluded candidates (added / budget / bracket) — even in spillover', () => {
     const picks = planAutoFill({
       roles,
       liveCounts: counts([[ROLE_RAMP, 0], [ROLE_DRAW, 0]]),
@@ -153,6 +170,23 @@ describe('planAutoFill', () => {
       exclude: c => c.name === 'Sol Ring',
     })
     expect(picks.map(p => p.cand.name)).toEqual(['Arcane Signet', 'Cultivate', 'Divination'])
+  })
+
+  it("spillover tops up from other roles' suggestions when one role's pool runs dry", () => {
+    // Wincon has no candidates at all; Draw has more suggestions than its own
+    // gap. With slots left, the surplus Draw picks must fill the hole.
+    const picks = planAutoFill({
+      roles: [
+        { role: ROLE_WINCON, target: 3, ownedCandidates: [], upgrades: [] },
+        { role: ROLE_DRAW, target: 1, ownedCandidates: [], upgrades: [cand('Rhystic Study', 60), cand('Mystic Remora', 40), cand('Brainstorm', 30)] },
+      ],
+      liveCounts: counts([[ROLE_WINCON, 0], [ROLE_DRAW, 0]]),
+      totalCards: 96, deckSize: 100,
+      landsTarget: 0, currentLands: 0,
+      source: 'recommended',
+    })
+    expect(picks.map(p => p.cand.name)).toEqual(['Rhystic Study', 'Mystic Remora', 'Brainstorm'])
+    expect(picks.map(p => p.role)).toEqual([ROLE_DRAW, ROLE_DRAW, ROLE_DRAW])
   })
 
   it('reserves land slots: nonland picks stop at deckSize minus the lands still needed', () => {
@@ -944,8 +978,11 @@ describe('enrichPlanWithEdhrec', () => {
     expect(role(out, ROLE_SYNERGY).edhrecUpgrades.map(u => u.name)).not.toContain('Opt')
   })
 
-  it('caps the upgrade list (8 floor, gap + 4 headroom)', async () => {
-    // Empty collection → Ramp gap == its full ideal (11), so cap = 11 + 4 = 15.
+  it('caps the upgrade list (24 floor, gap + 8 headroom)', async () => {
+    // Empty collection → Ramp gap == its full ideal (11); gap + 8 = 19 is
+    // under the 24 floor, so the cap is 24. The floor is deliberately deep:
+    // auto-fill's "Top recommendations" mode draws from these lists, and
+    // shallow pools left it unable to reach 100 cards.
     const plan = analyzeBuildPlan({ commander: { name: 'Cmd', color_identity: [] } })
     const cards = Array.from({ length: 30 }, (_, i) => ({
       name: `Rock ${i}`, inclusion: 100 - i, cmc: 2, type: 'Artifact',
@@ -953,14 +990,14 @@ describe('enrichPlanWithEdhrec', () => {
     const edhrec = { categories: [{ header: 'Mana Artifacts', cards }] }
     const out = await enrichPlanWithEdhrec(plan, async () => edhrec)
     const ramp = role(out, ROLE_RAMP)
-    expect(ramp.edhrecUpgrades).toHaveLength(ramp.gap + 4)
+    expect(ramp.edhrecUpgrades).toHaveLength(24)
     // Sorted by inclusion desc, so the top pick is the highest-inclusion rock.
     expect(ramp.edhrecUpgrades[0].name).toBe('Rock 0')
   })
 
-  it('never returns fewer than the floor of 8 upgrades when available', async () => {
+  it('keeps the deep floor even when the gap is 0', async () => {
     // Board Wipe ideal is 3. Own 3 wipes that are all already in the deck →
-    // current 3, gap 0, so gap + 4 = 4 < the floor of 8. The cap must hold at 8.
+    // current 3, gap 0; the 24 floor still admits every available sweeper.
     const owned = [
       makeCard('Wrath of God', { oracle: 'Destroy all creatures.', type: 'Sorcery' }),
       makeCard('Damnation', { oracle: 'Destroy all creatures.', type: 'Sorcery' }),
@@ -980,7 +1017,7 @@ describe('enrichPlanWithEdhrec', () => {
     const out = await enrichPlanWithEdhrec(plan, async () => edhrec)
     const wipe = role(out, ROLE_WIPE)
     expect(wipe.gap).toBe(0)
-    expect(wipe.edhrecUpgrades).toHaveLength(8)
+    expect(wipe.edhrecUpgrades).toHaveLength(20) // all 20 available, under the 24 floor
   })
 
   it('re-buckets an owned card into EDHREC\'s functional role', async () => {
