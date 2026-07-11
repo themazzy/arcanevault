@@ -126,6 +126,20 @@ function overlayNonNull(base, next) {
 const SUMMARY_STEP = '__summary__'
 const MAX_TILES = 60 // cap owned tiles per step to keep the DOM light
 
+// Module-scope caches so reopening the assistant is instant — both hold
+// intrinsic data that doesn't change within a page session:
+//   • upgrade meta is keyed by card name (oracle/type/art — printing-agnostic)
+//   • recommander picks are keyed by commander + sorted deck signature
+// Bounded LRU (oldest evicted) so long sessions don't grow unbounded.
+const UPGRADE_META_CACHE = new Map() // name → { name, oracle_text, type_line, image } | null
+const RECOMMENDER_CACHE = new Map()  // sig  → rows[]
+const CACHE_CAP = 4000
+function cachePut(map, key, value) {
+  if (map.has(key)) map.delete(key)
+  map.set(key, value)
+  while (map.size > CACHE_CAP) map.delete(map.keys().next().value)
+}
+
 // Budget chip ceilings. Raw numbers compared directly against getPrice() output,
 // which is in the active price_source's native currency — the same source
 // formatPrice() uses below, so threshold and card price always share units.
@@ -381,22 +395,21 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // the load, the owned-oracle backfill re-plan, and theme switches — fetching
   // each name at most once. A null entry marks a name we tried but couldn't
   // resolve, so it isn't retried.
-  const upgradeMetaCacheRef = useRef(new Map())
   const fetchUpgradeMeta = useCallback(async (names) => {
-    const cache = upgradeMetaCacheRef.current
+    const cache = UPGRADE_META_CACHE
     const missing = names.filter(n => !cache.has(n.toLowerCase()))
     if (missing.length) {
       const cards = await fetchRecommendationMetadataByNames(missing).catch(() => [])
       for (const c of cards) {
         const requestedName = c.requested_name || c.name
-        cache.set((requestedName || '').toLowerCase(), {
+        cachePut(cache, (requestedName || '').toLowerCase(), {
           name: requestedName,
           oracle_text: c.oracle_text || c.card_faces?.[0]?.oracle_text || '',
           type_line: c.type_line || c.card_faces?.[0]?.type_line || '',
           image: getCardImageUri(c, 'small'),
         })
       }
-      for (const n of missing) if (!cache.has(n.toLowerCase())) cache.set(n.toLowerCase(), null)
+      for (const n of missing) if (!cache.has(n.toLowerCase())) cachePut(cache, n.toLowerCase(), null)
     }
     return names.map(n => cache.get(n.toLowerCase())).filter(Boolean)
   }, [])
@@ -404,15 +417,14 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // Deck-aware recommander.cards picks, resolved to metadata via card_prints
   // (by oracle_id — no Scryfall call) so they can be classified + shown. Cached
   // per deck snapshot; best-effort (returns [] on any failure → EDHREC-only).
-  const recCacheRef = useRef(new Map())
   const fetchRecommenderUpgrades = useCallback(async (deck) => {
     if (!commander?.name) return []
     const deckNames = (deck || []).filter(d => !d?.is_commander).map(d => d?.name).filter(Boolean)
-    const sig = `${commander.name}|${[...deckNames].sort().join(',')}`
-    const cache = recCacheRef.current
+    const sig = `${commander.name}|${commander.partnerName || ''}|${[...deckNames].sort().join(',')}`
+    const cache = RECOMMENDER_CACHE
     if (cache.has(sig)) return cache.get(sig)
     const recs = await fetchRecommenderRecs(commander.name, deckNames, commander.partnerName || null)
-    if (!recs.length) { cache.set(sig, []); return [] }
+    if (!recs.length) { cachePut(cache, sig, []); return [] }
     const printMap = await fetchCardPrintsByOracleIds(recs.map(r => r.oracle_id)).catch(() => new Map())
     const rows = []
     for (const r of recs) {
@@ -428,7 +440,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         score: r.score ?? 0,
       })
     }
-    cache.set(sig, rows)
+    cachePut(cache, sig, rows)
     return rows
   }, [commander])
 
@@ -1733,7 +1745,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                           // Feed the resolved oracle text (from the upgrade meta
                           // cache) so mass-land-denial / extra-turn bracket flags
                           // fire on unowned suggestions too, not just Game Changers.
-                          const meta = upgradeMetaCacheRef.current.get(up.name.toLowerCase())
+                          const meta = UPGRADE_META_CACHE.get(up.name.toLowerCase())
                           const flag = bracketFlagFor(up.name, meta?.oracle_text ? { oracle_text: meta.oracle_text } : null, gameChangers)
                           return (
                             <CardTile
