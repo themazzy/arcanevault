@@ -437,6 +437,7 @@ import CombosTab from '../components/deckBuilder/CombosTab'
 import ShareDeckModal from '../components/deckBuilder/ShareDeckModal'
 import DeckMetaModal from '../components/deckBuilder/DeckMetaModal'
 import { BuildAssistant } from '../components/deckBuilder/BuildAssistant'
+import GuidedBuildOverlay from '../components/deckBuilder/GuidedBuildOverlay'
 import { useCommanderSearch } from '../hooks/useCommanderSearch'
 import { useCardSearch } from '../hooks/useCardSearch'
 import { useCombosFetch } from '../hooks/useCombosFetch'
@@ -509,6 +510,12 @@ export default function DeckBuilderPage() {
 
   // Build-from-collection assistant (guided wizard)
   const [showBuildAssistant, setShowBuildAssistant] = useState(false)
+  // Guided-build blocker: raised from mount when arriving via Builder's guided
+  // "Start Building" (router state carries the commander), held over the deck
+  // load + commander print resolution, dropped once the Build Assistant opens.
+  // Name captured once here because the guided effect replaces location.state.
+  const guidedPrepNameRef = useRef(location.state?.guidedCommander?.name || '')
+  const [guidedPreparing, setGuidedPreparing] = useState(() => !!location.state?.guidedCommander)
 
   // Card detail modal (read-only, used throughout the builder)
   const [detailCard, setDetailCard] = useState(null) // { card, sfCard }
@@ -3618,6 +3625,8 @@ export default function DeckBuilderPage() {
         console.warn('[DeckBuilder] guided commander pick failed:', err)
       }
       setShowBuildAssistant(true)
+      // Assistant is up — fade out the blocker.
+      setGuidedPreparing(false)
       navigate(location.pathname, { replace: true, state: { suppressDeckBuilderTip: true } })
     })()
   }, [location.state, location.pathname, loading, navigate])
@@ -4467,7 +4476,12 @@ export default function DeckBuilderPage() {
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
-  if (loading) return <div style={{ padding: 40, color: 'var(--text-faint)' }}>Loading deck...</div>
+  if (loading) return (
+    <>
+      <GuidedBuildOverlay visible={guidedPreparing} commanderName={guidedPrepNameRef.current} />
+      <div style={{ padding: 40, color: 'var(--text-faint)' }}>Loading deck...</div>
+    </>
+  )
   if (loadError) return (
     <div style={{ padding: 40 }}>
       <div style={{ color: '#e07070', marginBottom: 12 }}>{loadError}</div>
@@ -6306,6 +6320,7 @@ export default function DeckBuilderPage() {
         />
       )}
       <WarningTooltip tooltip={warningTooltip} />
+      <GuidedBuildOverlay visible={guidedPreparing} commanderName={guidedPrepNameRef.current} />
     </div>
   )
 }

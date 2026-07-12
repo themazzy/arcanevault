@@ -12,6 +12,7 @@ import { useLongPress } from '../hooks/useLongPress'
 import { useToast } from '../components/ToastContext'
 import { CheckIcon, CloseIcon, DeleteIcon, ChevronDownIcon, FilterIcon, LightningIcon, ImportIcon, DeckIcon, BuilderDeckIcon } from '../icons'
 import { GuidedCommanderPicker } from '../components/deckBuilder/GuidedCommanderPicker'
+import GuidedBuildOverlay from '../components/deckBuilder/GuidedBuildOverlay'
 import { resolveBracketBadge, analyzeBracket, fetchGameChangerNames, computeBracketMetaPatch, BRACKET_LABELS } from '../lib/commanderBracket'
 import {
   EMPTY_DECK_INDEX_FILTERS, DECK_INDEX_SORTS, COLOR_MODE_LABELS, COLOR_MATCH_MODES,
@@ -456,6 +457,11 @@ export default function BuilderPage() {
   const [newMode, setNewMode]     = useState('blank')   // 'blank' | 'guided' | 'import'
   const [guidedCmd, setGuidedCmd] = useState(null)      // selected commander sfCard
   const [guidedPartner, setGuidedPartner] = useState(null) // optional partner/background sfCard
+  // Guided-build blocker: shown from the "Start Building" click, through the
+  // route change, until DeckBuilder takes over the overlay. Name captured
+  // before resetNewDeckForm() clears guidedCmd.
+  const [guidedPreparing, setGuidedPreparing] = useState(false)
+  const [guidedPrepName, setGuidedPrepName] = useState('')
 
   const [confirmState, setConfirmState] = useState(null)
   const confirmAsync = (message) => new Promise(resolve => setConfirmState({ message, resolve }))
@@ -688,20 +694,39 @@ export default function BuilderPage() {
 
     setCreating(true)
     const description = JSON.stringify({ format })
-    const { data, error } = await sb.from('folders').insert({
-      user_id:     user.id,
-      type:        'builder_deck',
-      name,
-      description,
-    }).select().single()
+    // `folders` is unique on (user_id, name, type). Guided decks default their
+    // name to the commander, so building a second deck for the same commander
+    // collides. Auto-disambiguate with a numeric suffix and retry instead of
+    // dead-ending the user on a raw constraint error.
+    let data = null, error = null
+    for (let attempt = 0; attempt < 25; attempt++) {
+      const tryName = attempt === 0 ? name : `${name} ${attempt + 1}`
+      const res = await sb.from('folders').insert({
+        user_id:     user.id,
+        type:        'builder_deck',
+        name:        tryName,
+        description,
+      }).select().single()
+      if (!res.error && res.data) { data = res.data; error = null; break }
+      error = res.error
+      // 23505 = unique_violation → try the next suffix; anything else is fatal.
+      if (res.error?.code !== '23505') break
+    }
     setCreating(false)
     if (error || !data) {
       console.error('[Builder] createDeck failed:', error)
-      showToast(`Failed to create deck: ${error?.message || 'unknown error'}`, { tone: 'error', duration: 4000 })
+      const msg = error?.code === '23505'
+        ? 'A deck with this name already exists — try a different name.'
+        : `Failed to create deck: ${error?.message || 'unknown error'}`
+      showToast(msg, { tone: 'error', duration: 4000 })
       return
     }
     const commander = guided ? guidedCmd : null
     const partner = guided ? guidedPartner : null
+    // Raise the blocker immediately so the user gets instant feedback and never
+    // stares at an empty builder while the deck loads + commander resolves.
+    // DeckBuilder re-raises the same overlay on mount, so it survives the nav.
+    if (commander) { setGuidedPrepName(commander.name); setGuidedPreparing(true) }
     resetNewDeckForm()
     // For guided decks, hand the chosen commander (and optional partner /
     // background) to DeckBuilder via router state — it sets them (full print
@@ -1314,6 +1339,8 @@ export default function BuilderPage() {
           </div>
         </Modal>
       )}
+
+      <GuidedBuildOverlay visible={guidedPreparing} commanderName={guidedPrepName} />
     </div>
   )
 }
