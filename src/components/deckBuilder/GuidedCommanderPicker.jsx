@@ -91,6 +91,7 @@ function CommanderPreview({ sf }) {
   }, [sf])
 
   const card = full || sf
+  if (!card) return null
   const img = getImageUri(card, 'normal')
   const type = typeLineOf(card)
   const oracle = oracleTextOf(card)
@@ -335,7 +336,7 @@ export function GuidedCommanderPicker({ userId, value, onSelect, partnerValue = 
         )}
       </div>
 
-      {value && <CommanderPreview sf={fullCommander} />}
+      {value && <CommanderPreview sf={fullCommander || value} />}
 
       {partnerActive && (
         <div className={styles.partnerPanel}>
