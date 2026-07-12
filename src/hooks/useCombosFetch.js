@@ -30,9 +30,20 @@ export function useCombosFetch({ commanderCard, deckCards, accessToken }) {
     if (loading) return
     setLoading(true)
     try {
+      // Include EVERY commander (partners / backgrounds), not just the primary,
+      // so partner-specific combos are found for both the bracket estimate and
+      // the "combos you're close to" suggestions. Names come from the deck's
+      // is_commander rows, plus the passed commanderCard and its partnerName —
+      // BuildAssistant hands in a synthetic commander object, not deck rows.
+      const cmdNames = new Set()
+      for (const dc of deckCards || []) {
+        if (dc?.is_commander && dc?.name) cmdNames.add(dc.name)
+      }
+      if (commanderCard?.name) cmdNames.add(commanderCard.name)
+      if (commanderCard?.partnerName) cmdNames.add(commanderCard.partnerName)
       const body = {
-        commanders: commanderCard ? [{ card: commanderCard.name }] : [],
-        main: deckCards
+        commanders: [...cmdNames].map(card => ({ card })),
+        main: (deckCards || [])
           .filter(dc => !dc.is_commander && normalizeBoard(dc.board) === 'main')
           .map(dc => ({ card: dc.name })),
       }
