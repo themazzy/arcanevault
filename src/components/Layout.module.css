@@ -37,12 +37,12 @@
   pointer-events: auto;
 }
 
-/* scrolled: dock to top edge — side padding matches .main at each breakpoint */
+/* scrolled: dock to top edge — only the vertical padding collapses so the pill
+   slides up and squares its top corners without changing width (no horizontal
+   jump on first scroll). Side padding is inherited from the at-top state. */
 .scrolled.headerWrap {
   padding-top: 0;
   padding-bottom: 0;
-  padding-left: 40px;
-  padding-right: 40px;
 }
 
 /* ── Glass pill header ── */
@@ -491,25 +491,21 @@ button.navSubmenuItem {
 
 @media (max-width: 1180px) {
   .headerWrap { padding-left: 10px; padding-right: 10px; }
-  .scrolled.headerWrap { padding-left: 22px; padding-right: 22px; }
   .main { padding: calc(var(--nav-h) + 12px) 22px 20px; }
 }
 
 @media (max-width: 980px) {
   .headerWrap { padding-left: 8px; padding-right: 8px; }
-  .scrolled.headerWrap { padding-left: 12px; padding-right: 12px; }
   .main { padding: calc(var(--nav-h) + 10px) 12px 14px; }
 }
 
 @media (max-width: 768px) {
   .headerWrap { padding-left: 8px; padding-right: 8px; }
-  .scrolled.headerWrap { padding-left: 10px; padding-right: 10px; }
   .main { padding: calc(var(--nav-h) + 8px) 10px 12px; }
 }
 
 @media (max-width: 480px) {
   .headerWrap { padding-left: 6px; padding-right: 6px; }
-  .scrolled.headerWrap { padding-left: 8px; padding-right: 8px; }
   .main { padding: calc(var(--nav-h) + 6px) 8px 8px; }
 }
 
