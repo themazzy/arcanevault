@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, Link, useLocation } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
@@ -668,6 +668,15 @@ export default function BuilderPage() {
     setGuidedPartner(null)
   }
 
+  // Stable so typing the deck name doesn't hand GuidedCommanderPicker a fresh
+  // onSelect each keystroke (which would re-render its whole owned-commander
+  // list — the source of the input-lag violations). Functional setNewName keeps
+  // it independent of the current name value.
+  const handleGuidedSelect = useCallback(sf => {
+    setGuidedCmd(sf)
+    setNewName(prev => (prev.trim() ? prev : sf.name))
+  }, [])
+
   async function createDeck() {
     const guided = newMode === 'guided'
     const doImport = newMode === 'import'
@@ -1287,10 +1296,7 @@ export default function BuilderPage() {
               <GuidedCommanderPicker
                 userId={user.id}
                 value={guidedCmd}
-                onSelect={sf => {
-                  setGuidedCmd(sf)
-                  if (!newName.trim()) setNewName(sf.name)
-                }}
+                onSelect={handleGuidedSelect}
                 partnerValue={guidedPartner}
                 onSelectPartner={setGuidedPartner}
               />

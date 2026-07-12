@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { CheckIcon } from '../../icons'
 import { getLocalCards, getLocalCardPrints } from '../../lib/db'
 import { getInstantCache, getScryfallKey, getImageUri } from '../../lib/scryfall'
@@ -11,6 +11,11 @@ import styles from './GuidedCommanderPicker.module.css'
 // first (legendary creatures from their collection) and offers a Scryfall search
 // to pick any legal commander. Selecting one calls onSelect(sfCard) — a full
 // Scryfall card object, the same shape pickCommander() expects.
+
+// Cap the owned-commander DOM: a large collection can hold hundreds of
+// legendaries, and rendering them all is the slow first paint. The search box
+// narrows past the cap.
+const OWNED_CAP = 60
 
 function isCommanderType(typeLine = '') {
   const t = typeLine.toLowerCase()
@@ -121,7 +126,7 @@ function CommanderPreview({ sf }) {
   )
 }
 
-export function GuidedCommanderPicker({ userId, value, onSelect, partnerValue = null, onSelectPartner }) {
+function GuidedCommanderPickerBase({ userId, value, onSelect, partnerValue = null, onSelectPartner }) {
   const [owned, setOwned] = useState(null) // null = loading
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
@@ -379,7 +384,12 @@ export function GuidedCommanderPicker({ userId, value, onSelect, partnerValue = 
             {owned?.length ? 'No owned commanders match.' : 'No commanders in your collection yet.'}
           </div>
         ) : (
-          <div className={styles.list}>{filteredOwned.map(renderItem)}</div>
+          <>
+            <div className={styles.list}>{filteredOwned.slice(0, OWNED_CAP).map(renderItem)}</div>
+            {filteredOwned.length > OWNED_CAP && (
+              <div className={styles.hint}>+{filteredOwned.length - OWNED_CAP} more — type to filter</div>
+            )}
+          </>
         )}
 
         {/* Scryfall search results (only the not-owned ones, to avoid dupes) */}
@@ -403,3 +413,9 @@ export function GuidedCommanderPicker({ userId, value, onSelect, partnerValue = 
     </div>
   )
 }
+
+// Memoized: the picker holds its own commander/partner search state, so typing
+// the deck name in the parent modal must not re-render its (potentially large)
+// owned-commander list. With stable props (see handleGuidedSelect in Builder)
+// this skips those re-renders entirely.
+export const GuidedCommanderPicker = memo(GuidedCommanderPickerBase)
