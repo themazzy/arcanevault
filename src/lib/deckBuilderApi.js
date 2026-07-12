@@ -10,6 +10,7 @@ import { sfGet, sfUrl, getImageUri } from './scryfall'
 import { getProdAppUrl } from './publicUrl'
 import { sb } from './supabase'
 import { sortByNameRelevance } from './scryfallSearch'
+import { legalPartnerQuery } from './commanderPartners'
 
 const SF = 'https://api.scryfall.com'
 const EDHREC = 'https://json.edhrec.com'
@@ -245,6 +246,30 @@ export async function searchCommanders(q, scope = 'commander') {
   const query = encodeURIComponent(`"${q}" ${filter}`)
   const data = await sfFetch(`${SF}/cards/search?q=${query}&order=edhrec&unique=cards`)
   return (data?.data || []).slice(0, 12)
+}
+
+/**
+ * List the legal partners for a commander with a partner-style ability.
+ * `descriptor` comes from detectPartnerType; `typed` is the second search-bar
+ * filter. For "Partner with [name]" the specifically-named partner is pinned to
+ * the top (and fetched if EDHREC ordering pushed it off the returned page).
+ */
+export async function searchLegalPartners(descriptor, commanderName, typed = '') {
+  const q = legalPartnerQuery(descriptor, commanderName, typed)
+  if (!q) return []
+  const data = await sfFetch(`${SF}/cards/search?q=${encodeURIComponent(q)}&order=edhrec&unique=cards`)
+  let cards = data?.data || []
+  if (descriptor?.type === 'partner-with' && descriptor.name) {
+    const target = descriptor.name.toLowerCase()
+    if (!cards.some(c => (c.name || '').toLowerCase() === target)) {
+      const [named] = await fetchCardsByNames([descriptor.name]).catch(() => [])
+      if (named) cards = [named, ...cards]
+    } else {
+      cards = [...cards].sort((a, b) =>
+        (b.name?.toLowerCase() === target ? 1 : 0) - (a.name?.toLowerCase() === target ? 1 : 0))
+    }
+  }
+  return cards.slice(0, 40)
 }
 
 /** Batch-fetch Scryfall card data by name list (for enriching EDHRec results) */

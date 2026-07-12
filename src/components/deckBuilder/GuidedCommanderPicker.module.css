@@ -24,6 +24,100 @@
   outline-offset: 2px;
 }
 
+/* Commander + partner search bars sit side by side; stack on narrow screens. */
+.searchRow {
+  display: flex;
+  gap: 8px;
+}
+.searchRow .search {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+.partnerSearch {
+  border-color: rgba(201, 168, 76, 0.5);
+}
+
+/* ── Partner panel ────────────────────────────────────────────────────────── */
+.partnerPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(201, 168, 76, 0.3);
+  background: rgba(201, 168, 76, 0.06);
+}
+
+.partnerHead {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.partnerBadge {
+  font-family: var(--font-display);
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--gold);
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(201, 168, 76, 0.4);
+  background: rgba(201, 168, 76, 0.12);
+}
+
+.partnerHint {
+  font-size: 0.74rem;
+  color: var(--text-dim);
+}
+
+.partnerResults {
+  max-height: 200px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.partnerSelected {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.partnerRemove {
+  align-self: flex-start;
+  padding: 5px 12px;
+  border-radius: 7px;
+  border: 1px solid var(--s-border2);
+  background: var(--s3);
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.partnerRemove:hover {
+  background: rgba(204, 85, 85, 0.14);
+  border-color: rgba(204, 85, 85, 0.4);
+  color: #e08a8a;
+}
+.partnerRemove:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+.suggestedTag {
+  margin-left: 8px;
+  font-size: 0.6rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--gold);
+  border: 1px solid rgba(201, 168, 76, 0.4);
+  border-radius: 4px;
+  padding: 0 5px;
+}
+
+@media (max-width: 520px) {
+  .searchRow { flex-direction: column; }
+}
+
 .selected {
   padding: 6px 10px;
   border-radius: 6px;

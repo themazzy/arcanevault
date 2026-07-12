@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { CheckIcon } from '../../icons'
 import { getLocalCards, getLocalCardPrints } from '../../lib/db'
 import { getInstantCache, getScryfallKey, getImageUri } from '../../lib/scryfall'
-import { searchCommanders, fetchCardsByScryfallIds } from '../../lib/deckBuilderApi'
+import { searchCommanders, fetchCardsByScryfallIds, searchLegalPartners } from '../../lib/deckBuilderApi'
 import { manaSymbolUrl } from '../../lib/deckBuilderHelpers'
+import { detectPartnerType, partnerHint } from '../../lib/commanderPartners'
 import styles from './GuidedCommanderPicker.module.css'
 
 // Commander picker for guided deck creation: lists the user's OWNED commanders
@@ -119,12 +120,67 @@ function CommanderPreview({ sf }) {
   )
 }
 
-export function GuidedCommanderPicker({ userId, value, onSelect }) {
+export function GuidedCommanderPicker({ userId, value, onSelect, partnerValue = null, onSelectPartner }) {
   const [owned, setOwned] = useState(null) // null = loading
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [searching, setSearching] = useState(false)
   const searchTimer = useRef(null)
+
+  // The selected commander enriched with full Scryfall data (oracle/faces), so
+  // both the preview and partner detection work even when `value` is a minimal
+  // cold-cache object.
+  const [fullCommander, setFullCommander] = useState(value)
+  useEffect(() => {
+    setFullCommander(value)
+    const needsFetch = value?.id && (!value.oracle_text && !value.card_faces?.length)
+    if (!needsFetch) return
+    let cancelled = false
+    ;(async () => {
+      const [card] = await fetchCardsByScryfallIds([value.id]).catch(() => [])
+      if (!cancelled && card) setFullCommander(card)
+    })()
+    return () => { cancelled = true }
+  }, [value])
+
+  const partnerDesc = useMemo(() => detectPartnerType(fullCommander), [fullCommander])
+  const partnerActive = !!(partnerDesc && typeof onSelectPartner === 'function')
+
+  // Partner search bar state (only used when the commander has a partner ability).
+  const [pQuery, setPQuery] = useState('')
+  const [pResults, setPResults] = useState([])
+  const [pSearching, setPSearching] = useState(false)
+  const pTimer = useRef(null)
+
+  // Changing the primary commander invalidates a partner chosen for the old one
+  // (different identity / mechanic), so clear it and reset the partner search.
+  const primaryName = value?.name || ''
+  useEffect(() => {
+    if (typeof onSelectPartner === 'function' && partnerValue) onSelectPartner(null)
+    setPQuery('')
+    setPResults([])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [primaryName])
+
+  // Load legal partners for the active mechanic, filtered by the partner search
+  // box. Debounced; runs with an empty query too so options show immediately.
+  useEffect(() => {
+    if (!partnerActive) return
+    if (pTimer.current) clearTimeout(pTimer.current)
+    setPSearching(true)
+    pTimer.current = setTimeout(async () => {
+      try {
+        const res = await searchLegalPartners(partnerDesc, fullCommander?.name || '', pQuery.trim())
+        setPResults(res || [])
+      } catch {
+        setPResults([])
+      } finally {
+        setPSearching(false)
+      }
+    }, pQuery.trim() ? 300 : 0)
+    return () => { if (pTimer.current) clearTimeout(pTimer.current) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [partnerActive, partnerDesc?.type, partnerDesc?.name, fullCommander?.name, pQuery])
 
   // Load owned commanders once. We resolve each owned card's type line from
   // card_prints (always present locally) rather than the Scryfall in-memory
@@ -234,17 +290,83 @@ export function GuidedCommanderPicker({ userId, value, onSelect }) {
     )
   }
 
+  const partnerName = (partnerValue?.name || '').toLowerCase()
+  const suggestedName = partnerDesc?.type === 'partner-with' ? (partnerDesc.name || '').toLowerCase() : ''
+  const renderPartnerItem = sf => {
+    const selected = (sf.name || '').toLowerCase() === partnerName
+    const suggested = (sf.name || '').toLowerCase() === suggestedName
+    return (
+      <button
+        key={sf.id || sf.name}
+        type="button"
+        className={`${styles.item}${selected ? ' ' + styles.itemSelected : ''}`}
+        onClick={() => onSelectPartner(sf)}
+      >
+        <span className={styles.itemName}>
+          {sf.name}
+          {suggested && <span className={styles.suggestedTag}>suggested</span>}
+        </span>
+        <span className={styles.itemMeta}>
+          <span className={styles.itemType}>{typeLineOf(sf).replace(/^Legendary Creature — /, '').replace(/^Enchantment — /, '')}</span>
+          {selected && <CheckIcon size={13} />}
+        </span>
+      </button>
+    )
+  }
+
   return (
     <div className={styles.picker}>
-      <input
-        className={styles.search}
-        value={query}
-        onChange={e => setQuery(e.target.value)}
-        placeholder="Search commanders…"
-        aria-label="Search commanders"
-      />
+      <div className={styles.searchRow}>
+        <input
+          className={styles.search}
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="Search commanders…"
+          aria-label="Search commanders"
+        />
+        {partnerActive && (
+          <input
+            className={`${styles.search} ${styles.partnerSearch}`}
+            value={pQuery}
+            onChange={e => setPQuery(e.target.value)}
+            placeholder={`Search ${partnerDesc.type === 'choose-background' ? 'backgrounds' : 'legal partners'}…`}
+            aria-label="Search legal partners"
+          />
+        )}
+      </div>
 
-      {value && <CommanderPreview sf={value} />}
+      {value && <CommanderPreview sf={fullCommander} />}
+
+      {partnerActive && (
+        <div className={styles.partnerPanel}>
+          <div className={styles.partnerHead}>
+            <span className={styles.partnerBadge}>{partnerDesc.label}</span>
+            <span className={styles.partnerHint}>{partnerHint(partnerDesc)}</span>
+          </div>
+          {partnerValue ? (
+            <div className={styles.partnerSelected}>
+              <CommanderPreview sf={partnerValue} />
+              <button
+                type="button"
+                className={styles.partnerRemove}
+                onClick={() => onSelectPartner(null)}
+              >
+                Remove partner
+              </button>
+            </div>
+          ) : (
+            <div className={styles.partnerResults}>
+              {pSearching && !pResults.length ? (
+                <div className={styles.hint}>Finding partners…</div>
+              ) : pResults.length === 0 ? (
+                <div className={styles.hint}>No legal partners found.</div>
+              ) : (
+                <div className={styles.list}>{pResults.map(renderPartnerItem)}</div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className={styles.scroll}>
         {/* Owned commanders */}

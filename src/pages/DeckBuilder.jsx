@@ -2313,6 +2313,9 @@ export default function DeckBuilderPage() {
     const hydratedRows = await requireCardPrintIds(allRows, 'Commander deck card')
     const hydratedCmdRow = hydratedRows[0]
     const hydratedNonCmd = hydratedRows.slice(1)
+    // Keep the ref in lockstep (the deckCards→ref sync effect only runs after the
+    // next render) so a follow-up call like addSecondCommander sees this commander.
+    deckCardsRef.current = [hydratedCmdRow, ...hydratedNonCmd]
     setDeckCards([hydratedCmdRow, ...hydratedNonCmd])
     // Upsert all rows: this handles collection decks where non-commander cards came from the
     // folder_cards fallback and were never saved to deck_cards in Supabase. Without this,
@@ -2328,6 +2331,64 @@ export default function DeckBuilderPage() {
     try {
       await persistMetaNow(newMeta, baseMeta)
       logDeckChange(deckId, user?.id, 'Commander', `Set to ${cmdCard.name}`)
+    } catch {}
+  }
+
+  // Add a SECOND commander (partner / background) alongside the primary, used by
+  // the guided flow when the picker selected a partner. Unlike pickCommander it
+  // appends rather than replacing, and rebuilds meta.commanders (+ combined
+  // color identity) from every commander card now in the deck.
+  async function addSecondCommander(sfCard) {
+    if (!sfCard?.name) return
+    const baseMeta = deckMetaRef.current || deckMeta
+    let resolved = null
+    try {
+      resolved = await resolvePreferredDeckPrinting(sfCard.name, sfCard)
+    } catch (err) {
+      console.warn('[DeckBuilder] partner printing resolution failed:', err)
+    }
+    const cmdCard = resolved?.sfCard || sfCard
+    const cmdRow = {
+      id:            crypto.randomUUID(),
+      deck_id:       deckId,
+      user_id:       user.id,
+      name:          cmdCard.name,
+      ...getDeckBuilderCardMeta(cmdCard),
+      qty:           1,
+      foil:          !!resolved?.foil,
+      is_commander:  true,
+      board:         'main',
+      card_print_id: resolved?.card_print_id || undefined,
+      created_at:    new Date().toISOString(),
+      updated_at:    new Date().toISOString(),
+    }
+    const [hydratedCmd] = await requireCardPrintIds([cmdRow], 'Partner commander deck card')
+    deckCardsRef.current = [...deckCardsRef.current, hydratedCmd]
+    setDeckCards(deckCardsRef.current)
+    try {
+      await sbExec(sb.from('deck_cards').upsert([hydratedCmd].map(toDeckCardRow), { onConflict: 'id' }), { label: 'Save partner commander failed' })
+      putDeckCards([hydratedCmd]).catch(() => {})
+      queueOwnershipRefreshForRows([hydratedCmd])
+    } catch { return }
+    // Rebuild the commanders array + combined identity from every commander card.
+    const cmdCards = deckCardsRef.current.filter(c => c.is_commander)
+    const commanders = cmdCards.map(c => ({
+      name: c.name,
+      scryfall_id: c.scryfall_id,
+      color_identity: c.color_identity ?? [],
+      image_uri: c.image_uri || null,
+    }))
+    const combinedIdentity = [...new Set(commanders.flatMap(c => c.color_identity || []))]
+    const newMeta = {
+      ...(deckMetaRef.current || deckMeta),
+      commanders,
+      commanderColorIdentity: combinedIdentity,
+    }
+    applyLocalDeckMeta(newMeta)
+    clearTimeout(saveMetaTimer.current)
+    try {
+      await persistMetaNow(newMeta, baseMeta)
+      logDeckChange(deckId, user?.id, 'Commander', `Added partner ${cmdCard.name}`)
     } catch {}
   }
 
@@ -3544,10 +3605,14 @@ export default function DeckBuilderPage() {
     const guided = location.state?.guidedCommander
     if (!guided) return
     guidedHandledRef.current = true
+    const partner = location.state?.guidedPartner
     ;(async () => {
       try {
         if (!deckCardsRef.current.some(dc => dc.is_commander)) {
           await pickCommander(guided)
+          // Partner / background chosen in the picker → add it as a second
+          // commander so Build Assist plans against the combined identity.
+          if (partner) await addSecondCommander(partner)
         }
       } catch (err) {
         console.warn('[DeckBuilder] guided commander pick failed:', err)

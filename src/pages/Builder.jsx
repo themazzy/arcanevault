@@ -455,6 +455,7 @@ export default function BuilderPage() {
   const [creating, setCreating]   = useState(false)
   const [newMode, setNewMode]     = useState('blank')   // 'blank' | 'guided' | 'import'
   const [guidedCmd, setGuidedCmd] = useState(null)      // selected commander sfCard
+  const [guidedPartner, setGuidedPartner] = useState(null) // optional partner/background sfCard
 
   const [confirmState, setConfirmState] = useState(null)
   const confirmAsync = (message) => new Promise(resolve => setConfirmState({ message, resolve }))
@@ -664,6 +665,7 @@ export default function BuilderPage() {
     setNewName('')
     setNewMode('blank')
     setGuidedCmd(null)
+    setGuidedPartner(null)
   }
 
   async function createDeck() {
@@ -690,12 +692,15 @@ export default function BuilderPage() {
       return
     }
     const commander = guided ? guidedCmd : null
+    const partner = guided ? guidedPartner : null
     resetNewDeckForm()
-    // For guided decks, hand the chosen commander to DeckBuilder via router
-    // state — it sets the commander (full print resolution) and auto-opens the
-    // build-from-collection wizard. For import, just flag the import modal to
-    // auto-open once the fresh deck lands there.
-    const routerState = commander ? { guidedCommander: commander } : (doImport ? { autoOpenImport: true } : null)
+    // For guided decks, hand the chosen commander (and optional partner /
+    // background) to DeckBuilder via router state — it sets them (full print
+    // resolution) and auto-opens the build-from-collection wizard. For import,
+    // just flag the import modal to auto-open once the fresh deck lands there.
+    const routerState = commander
+      ? { guidedCommander: commander, ...(partner ? { guidedPartner: partner } : {}) }
+      : (doImport ? { autoOpenImport: true } : null)
     navigate(`/builder/${data.id}`, routerState ? { state: routerState } : undefined)
   }
 
@@ -1286,6 +1291,8 @@ export default function BuilderPage() {
                   setGuidedCmd(sf)
                   if (!newName.trim()) setNewName(sf.name)
                 }}
+                partnerValue={guidedPartner}
+                onSelectPartner={setGuidedPartner}
               />
             )}
 
