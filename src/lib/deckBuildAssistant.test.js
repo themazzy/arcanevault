@@ -13,8 +13,14 @@ import {
   analyzeBuildPlan,
   enrichPlanWithEdhrec,
   archetypeAdjustments,
+  bracketAdjustments,
+  combineTemplateDeltas,
   applyTemplateAdjustments,
   comboFitsBracket,
+  mapAlmostCombos,
+  comboTargetForBracket,
+  effectiveComboBracket,
+  planComboCompletion,
   bracketFlagFor,
   faceOracleText,
   faceTypeLine,
@@ -678,7 +684,7 @@ describe('analyzeBuildPlan', () => {
 describe('archetypeAdjustments', () => {
   it('returns {} for balanced / unknown / empty themes', () => {
     expect(archetypeAdjustments('')).toEqual({})
-    expect(archetypeAdjustments('group-hug')).toEqual({})
+    expect(archetypeAdjustments('some-nonexistent-theme')).toEqual({})
   })
 
   it('matches known archetypes by slug', () => {
@@ -687,6 +693,73 @@ describe('archetypeAdjustments', () => {
     expect(archetypeAdjustments('spellslinger')[ROLE_DRAW]).toBe(2)
     expect(archetypeAdjustments('voltron')[ROLE_PROTECTION]).toBe(3)
     expect(archetypeAdjustments('lands-matter')[ROLE_LANDS]).toBe(2)
+  })
+
+  it('covers the widened archetype set', () => {
+    expect(archetypeAdjustments('group-hug')[ROLE_WIPE]).toBe(1)
+    expect(archetypeAdjustments('blink')[ROLE_REMOVAL]).toBe(1)
+    expect(archetypeAdjustments('wheels')[ROLE_DRAW]).toBe(2)
+    expect(archetypeAdjustments('artifacts')[ROLE_RAMP]).toBe(1)
+    expect(archetypeAdjustments('mill')[ROLE_DRAW]).toBe(1)
+    expect(archetypeAdjustments('theft')[ROLE_REMOVAL]).toBe(1)
+    expect(archetypeAdjustments('elves')[ROLE_WIPE]).toBe(-1) // tribal
+    expect(archetypeAdjustments('big-mana')[ROLE_RAMP]).toBe(2)
+  })
+
+  it('classifies enchantress as a draw engine, not voltron', () => {
+    const e = archetypeAdjustments('enchantress')
+    expect(e[ROLE_DRAW]).toBe(2)
+    expect(e[ROLE_PROTECTION]).toBe(1)   // engine protection, not voltron's +3
+    expect(e[ROLE_WIPE]).toBeUndefined() // voltron's -2 wipe must not apply
+  })
+
+  it('does not misfire the +1/+1 counters rule on counterspell control', () => {
+    // "control" wins first (earlier rule), so a control slug gets removal, not
+    // the +1/+1-counter draw/wipe deltas.
+    const c = archetypeAdjustments('control')
+    expect(c[ROLE_REMOVAL]).toBe(2)
+  })
+})
+
+describe('bracketAdjustments', () => {
+  it('returns {} for null and the B3 baseline', () => {
+    expect(bracketAdjustments(null)).toEqual({})
+    expect(bracketAdjustments(3)).toEqual({})
+  })
+  it('shifts the whole template toward casual at low brackets', () => {
+    const b1 = bracketAdjustments(1)
+    expect(b1[ROLE_LANDS]).toBe(2)
+    expect(b1[ROLE_RAMP]).toBe(-2)
+    expect(b1[ROLE_WINCON]).toBe(2)
+    expect(b1[ROLE_REMOVAL]).toBe(-2)
+  })
+  it('shifts toward competitive at high brackets', () => {
+    const b4 = bracketAdjustments(4)
+    expect(b4[ROLE_LANDS]).toBe(-2)
+    expect(b4[ROLE_RAMP]).toBe(2)
+    expect(b4[ROLE_REMOVAL]).toBe(2)
+    expect(b4[ROLE_WINCON]).toBe(-2)
+    expect(b4[ROLE_WIPE]).toBe(-1)
+  })
+})
+
+describe('combineTemplateDeltas', () => {
+  it('sums overlapping role deltas and passes through singletons', () => {
+    const out = combineTemplateDeltas(
+      { [ROLE_LANDS]: 2, [ROLE_RAMP]: 1 },
+      { [ROLE_LANDS]: -2, [ROLE_DRAW]: 1 },
+    )
+    expect(out[ROLE_LANDS]).toBe(0)   // +2 archetype, -2 bracket cancel
+    expect(out[ROLE_RAMP]).toBe(1)
+    expect(out[ROLE_DRAW]).toBe(1)
+  })
+  it('tolerates null / empty maps', () => {
+    expect(combineTemplateDeltas(null, {}, undefined)).toEqual({})
+  })
+  it('composes a B4 Landfall deck so its lands stay high', () => {
+    const merged = combineTemplateDeltas(archetypeAdjustments('landfall'), bracketAdjustments(4))
+    expect(merged[ROLE_LANDS]).toBe(0)  // +2 landfall, -2 bracket → net 0 (lands unchanged)
+    expect(merged[ROLE_RAMP]).toBe(3)   // +1 landfall, +2 bracket
   })
 })
 
@@ -717,6 +790,13 @@ describe('applyTemplateAdjustments', () => {
     expect(out[ROLE_REMOVAL].ideal).toBe(1)
     expect(out[ROLE_REMOVAL].min).toBe(0)
     expect(out[ROLE_REMOVAL].min).toBeLessThanOrEqual(out[ROLE_REMOVAL].ideal)
+  })
+
+  it('never drops the Lands ideal below the land floor', () => {
+    // A big -lands shift (only reachable by stacking archetype + bracket) must
+    // not gut the manabase — LAND_FLOOR (33) is the hard minimum.
+    const out = applyTemplateAdjustments(COMMANDER_TEMPLATE, { [ROLE_LANDS]: -10 })
+    expect(out[ROLE_LANDS].ideal).toBe(33)
   })
 
   it('flexes the Synergy remainder when fixed roles change', () => {
@@ -1552,5 +1632,136 @@ describe('pickCheapestEnglish', () => {
   it('tolerates empty input', () => {
     expect(pickCheapestEnglish([], new Map())).toBeNull()
     expect(pickCheapestEnglish(null, new Map())).toBeNull()
+  })
+})
+
+// ── Post-fill combo completion ────────────────────────────────────────────────
+// Raw Commander Spellbook `almostIncluded` row shape.
+const rawCombo = (id, useNames, produce = 'infinite mana') => ({
+  id,
+  uses: useNames.map(name => ({ card: { name } })),
+  produces: [{ feature: { name: produce } }],
+})
+
+describe('mapAlmostCombos', () => {
+  it('keeps 1–2-missing combos, flags owned pieces, sorts owned-first', () => {
+    const almost = [
+      rawCombo('a', ['Have A', 'Have B', 'Need Unowned']),   // 1 missing, unowned
+      rawCombo('b', ['Have A', 'Need Owned']),                // 1 missing, owned
+      rawCombo('c', ['Need X', 'Need Y', 'Need Z']),          // 3 missing → dropped
+    ]
+    const deckNameKeys = new Set(['have a', 'have b'])
+    const ownedNameKeys = new Set(['need owned'])
+    const out = mapAlmostCombos({ almost, deckNameKeys, ownedNameKeys })
+    expect(out.map(c => c.id)).toEqual(['b', 'a']) // owned-missing combo first
+    expect(out[0].missing).toEqual([{ name: 'Need Owned', owned: true }])
+    expect(out[1].missing).toEqual([{ name: 'Need Unowned', owned: false }])
+  })
+
+  it('honors the limit', () => {
+    const almost = [rawCombo('a', ['H', 'N1']), rawCombo('b', ['H', 'N2'])]
+    const out = mapAlmostCombos({ almost, deckNameKeys: new Set(['h']), ownedNameKeys: new Set(), limit: 1 })
+    expect(out).toHaveLength(1)
+  })
+
+  it('tolerates empty / missing input', () => {
+    expect(mapAlmostCombos({})).toEqual([])
+    expect(mapAlmostCombos({ almost: null })).toEqual([])
+  })
+})
+
+describe('comboTargetForBracket / effectiveComboBracket', () => {
+  it('scales the combo target by bracket', () => {
+    expect(comboTargetForBracket(null)).toBe(1) // no bracket → aim low
+    expect(comboTargetForBracket(1)).toBe(0)
+    expect(comboTargetForBracket(2)).toBe(0)
+    expect(comboTargetForBracket(3)).toBe(2)
+    expect(comboTargetForBracket(4)).toBe(3)
+    expect(comboTargetForBracket(5)).toBe(3)
+  })
+  it('maps a null bracket to 3 for combo-fit filtering (no fast 2-card)', () => {
+    expect(effectiveComboBracket(null)).toBe(3)
+    expect(effectiveComboBracket(4)).toBe(4)
+  })
+})
+
+describe('planComboCompletion', () => {
+  // Normalized combos (as mapAlmostCombos would return). 3-card so they pass the
+  // bracket-3 fit filter (comboFitsBracket needs ≥ 3 pieces at bracket 3).
+  const owned1 = { id: 'o1', uses: ['A', 'B', 'X'], missing: [{ name: 'B', owned: true }] }
+  const owned2 = { id: 'o2', uses: ['C', 'D', 'Y'], missing: [{ name: 'D', owned: true }] }
+  const owned3 = { id: 'o3', uses: ['E', 'F', 'Z'], missing: [{ name: 'F', owned: true }] }
+  const unowned = { id: 'u1', uses: ['G', 'H', 'W'], missing: [{ name: 'H', owned: false }] }
+
+  it('adds nothing at bracket ≤ 2', () => {
+    const r = planComboCompletion({ almostCombos: [owned1], targetBracket: 2, source: 'owned' })
+    expect(r.pieces).toEqual([])
+    expect(r.combosCompleted).toBe(0)
+  })
+
+  it("owned source: only completes combos whose missing pieces are owned", () => {
+    const r = planComboCompletion({ almostCombos: [unowned, owned1], targetBracket: 3, source: 'owned' })
+    expect(r.combosCompleted).toBe(1)
+    expect(r.pieces).toEqual([{ name: 'B', owned: true }])
+  })
+
+  it('recommended source: reaches for unowned pieces too', () => {
+    const r = planComboCompletion({ almostCombos: [unowned], targetBracket: 3, source: 'recommended' })
+    expect(r.combosCompleted).toBe(1)
+    expect(r.pieces).toEqual([{ name: 'H', owned: false }])
+  })
+
+  it('respects the bracket-scaled target (bracket 3 → 2 combos)', () => {
+    const r = planComboCompletion({ almostCombos: [owned1, owned2, owned3], targetBracket: 3, source: 'owned' })
+    expect(r.combosCompleted).toBe(2)
+    expect(r.pieces.map(p => p.name)).toEqual(['B', 'D'])
+  })
+
+  it('bracket 4 allows fast 2-card combos and a higher target', () => {
+    const fast = [0, 1].map(i => ({ id: `t${i}`, uses: ['P1', `Q${i}`], missing: [{ name: `Q${i}`, owned: true }] }))
+    const r = planComboCompletion({ almostCombos: fast, targetBracket: 4, source: 'owned' })
+    expect(r.combosCompleted).toBe(2)
+  })
+
+  it('null bracket excludes fast 2-card combos and aims for 1', () => {
+    const fast = { id: 'f', uses: ['P1', 'P2'], missing: [{ name: 'P2', owned: true }] } // 2-card
+    const threeCard = { id: 'tc', uses: ['A', 'B', 'C'], missing: [{ name: 'C', owned: true }] }
+    const r = planComboCompletion({ almostCombos: [fast, threeCard], targetBracket: null, source: 'owned' })
+    expect(r.combosCompleted).toBe(1)
+    expect(r.pieces).toEqual([{ name: 'C', owned: true }]) // fast 2-card skipped
+  })
+
+  it('filters pieces by budget', () => {
+    const r = planComboCompletion({
+      almostCombos: [owned1], targetBracket: 3, source: 'owned',
+      passesBudget: name => name !== 'B',
+    })
+    expect(r.pieces).toEqual([])
+    expect(r.combosCompleted).toBe(0)
+  })
+
+  it('de-dupes pieces across combos and against already-added / in-deck names', () => {
+    const shareB = { id: 's', uses: ['A', 'B'], missing: [{ name: 'B', owned: true }] }
+    const r = planComboCompletion({
+      almostCombos: [owned1, shareB, owned2], targetBracket: 4, source: 'owned',
+      addedNames: new Set(), deckNameKeys: new Set(),
+    })
+    // owned1 adds B; shareB completes with no new piece (B already taken); owned2 adds D.
+    expect(r.combosCompleted).toBe(3)
+    expect(r.pieces.map(p => p.name)).toEqual(['B', 'D'])
+  })
+
+  it('reports protectedNames covering every piece of the completed combos', () => {
+    const r = planComboCompletion({ almostCombos: [owned1], targetBracket: 3, source: 'owned' })
+    expect(r.protectedNames).toEqual(new Set(['a', 'b', 'x']))
+  })
+
+  it('skips pieces already in the deck', () => {
+    const r = planComboCompletion({
+      almostCombos: [owned1], targetBracket: 3, source: 'owned',
+      deckNameKeys: new Set(['b']),
+    })
+    expect(r.pieces).toEqual([])       // B already present
+    expect(r.combosCompleted).toBe(1)  // still counts as completed
   })
 })

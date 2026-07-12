@@ -816,26 +816,138 @@ export function comboFitsBracket(pieceCount, targetBracket) {
   return false
 }
 
+// ── Post-fill combo completion ────────────────────────────────────────────────
+// After auto-fill populates the deck we re-query Commander Spellbook on the FULL
+// list and try to actually land some combos — adding the missing pieces and
+// cutting lower-priority cards to make room. These pure helpers pick WHICH
+// combos and pieces; the component resolves the cuts (via analyzeCut) + applies.
+
+// Normalize Commander Spellbook `almostIncluded` rows into the compact combo
+// shape the wizard reasons about, against a given deck + ownership snapshot.
+// Kept 1–2-missing (the only ones worth "completing"), sorted owned-missing
+// first then fewest-missing. Pure — the component and the post-fill pass share
+// it so the summary list and the auto-completer agree. `deckNameKeys` /
+// `ownedNameKeys` are Sets of lowercased card names.
+export function mapAlmostCombos({ almost = [], deckNameKeys = new Set(), ownedNameKeys = new Set(), limit = Infinity } = {}) {
+  return (almost || [])
+    .map(c => {
+      const uses = (c.uses || []).map(u => u.card?.name || u.template?.name || '').filter(Boolean)
+      const produces = (c.produces || []).map(p => p.feature?.name).filter(Boolean)
+      const missing = uses
+        .filter(n => !deckNameKeys.has(n.toLowerCase()))
+        .map(n => ({ name: n, owned: ownedNameKeys.has(n.toLowerCase()) }))
+      return { id: c.id, uses, produces, missing }
+    })
+    .filter(c => c.missing.length >= 1 && c.missing.length <= 2)
+    .sort((a, b) => {
+      const ao = a.missing.every(m => m.owned) ? 0 : 1
+      const bo = b.missing.every(m => m.owned) ? 0 : 1
+      return (ao - bo) || (a.missing.length - b.missing.length)
+    })
+    .slice(0, limit)
+}
+
+// How many combos the post-fill pass should aim to complete, scaled by the
+// target bracket (higher bracket → more combos, more cuts allowed). With no
+// bracket chosen we aim LOW — a casual bracket-2 / low-3 deck — rather than the
+// "Any" that comboFitsBracket treats null as, so an unspecified build doesn't
+// get aggressively comboed. Bracket ≤ 2 explicitly wants none.
+export function comboTargetForBracket(targetBracket) {
+  if (targetBracket == null) return 1  // no bracket → aim for ~bracket 2 / low 3
+  if (targetBracket <= 2) return 0     // Core / Exhibition — combos discouraged
+  if (targetBracket === 3) return 2    // Upgraded
+  return 3                             // Optimized / cEDH
+}
+
+// The bracket used to FILTER combos by piece count in the pass. A null target
+// (no bracket chosen) maps to 3 — 3+-card combos only, no fast 2-card — matching
+// the conservative comboTargetForBracket(null) aim.
+export function effectiveComboBracket(targetBracket) {
+  return targetBracket == null ? 3 : targetBracket
+}
+
+// Plan the post-fill combo completion: from the freshly-mapped near-complete
+// combos, pick bracket-appropriate ones we can finish and collect the pieces to
+// add, up to the bracket-scaled target. Source-aware, mirroring the auto-fill
+// source the user chose:
+//   • 'owned'       — only combos whose every missing piece is owned.
+//   • 'recommended' — unowned pieces allowed too (they land on the buy list).
+// Budget still gates every piece. Pieces are de-duped across combos and against
+// what's already added / in the deck; a combo whose pieces were all pulled in by
+// an earlier combo still counts as completed. Returns
+// { pieces: [{ name, owned }], combosCompleted, protectedNames } — protectedNames
+// (lowercased) are every card the chosen combos use, so the caller can keep the
+// combos' already-in-deck pieces out of the cut pool.
+export function planComboCompletion({
+  almostCombos = [],
+  targetBracket = null,
+  source = 'owned',
+  addedNames = new Set(),
+  deckNameKeys = new Set(),
+  passesBudget = () => true,
+} = {}) {
+  const target = comboTargetForBracket(targetBracket)
+  if (target <= 0) return { pieces: [], combosCompleted: 0, protectedNames: new Set() }
+  const effBracket = effectiveComboBracket(targetBracket)
+
+  const finishable = (almostCombos || [])
+    .filter(c => comboFitsBracket(c.uses.length, effBracket))
+    .filter(c => c.missing.every(m => (source === 'recommended' || m.owned) && passesBudget(m.name)))
+    .sort((a, b) => (a.missing.length - b.missing.length) || (a.uses.length - b.uses.length))
+
+  const seen = new Set()
+  const pieces = []
+  const protectedNames = new Set()
+  let combosCompleted = 0
+  for (const combo of finishable) {
+    if (combosCompleted >= target) break
+    for (const m of combo.missing) {
+      const key = m.name.toLowerCase()
+      if (seen.has(key) || addedNames.has(key) || deckNameKeys.has(key)) continue
+      seen.add(key)
+      pieces.push({ name: m.name, owned: m.owned })
+    }
+    for (const u of combo.uses) protectedNames.add(String(u).toLowerCase())
+    combosCompleted++
+  }
+  return { pieces, combosCompleted, protectedNames }
+}
+
 // ── Archetype-aware quota flexing ─────────────────────────────────────────────
 // A selected EDHREC theme (Tokens, Spellslinger, Voltron, …) nudges the role
 // quotas. Deltas only touch the FIXED roles — Synergy is the remainder, so
 // trimming fixed roles automatically grows the themed-synergy slots, and adding
 // to them shrinks it. First matching rule wins (slug matched case-insensitively).
+// Order matters: first matching rule wins, so specific patterns precede generic
+// ones (e.g. `self.?mill` reanimator before bare `mill`; `landfall` before the
+// generic `\bramp\b` big-mana rule). EDHREC theme slugs are the tag's `sanitized`
+// value (e.g. "aristocrats", "1-1-counters", "elves", "group-hug").
 export const ARCHETYPE_RULES = [
-  { match: /voltron|aura|equipment|enchantress/, deltas: { [ROLE_PROTECTION]: 3, [ROLE_RAMP]: 1, [ROLE_WIPE]: -2 } },
+  { match: /voltron|\baura|equipment|\bvehicle/, deltas: { [ROLE_PROTECTION]: 3, [ROLE_RAMP]: 1, [ROLE_WIPE]: -2 } },
+  { match: /enchant/, deltas: { [ROLE_DRAW]: 2, [ROLE_PROTECTION]: 1 } }, // enchantress = draw engine, NOT voltron
   { match: /superfriends|planeswalker|\bwalkers?\b/, deltas: { [ROLE_PROTECTION]: 2, [ROLE_RAMP]: 1, [ROLE_WIPE]: 1, [ROLE_REMOVAL]: 1 } },
   { match: /spell|storm|magecraft|prowess|cantrip/, deltas: { [ROLE_DRAW]: 2, [ROLE_REMOVAL]: 1 } },
   { match: /control|tempo/, deltas: { [ROLE_REMOVAL]: 2, [ROLE_DRAW]: 1, [ROLE_WIPE]: 1 } },
   { match: /\bcombo\b/, deltas: { [ROLE_DRAW]: 2, [ROLE_PROTECTION]: 1, [ROLE_REMOVAL]: 1 } },
   { match: /infect|poison|toxic/, deltas: { [ROLE_PROTECTION]: 2, [ROLE_WIPE]: -1 } },
+  { match: /group.?hug|politics|pillow.?fort|\bhug\b/, deltas: { [ROLE_WIPE]: 1, [ROLE_PROTECTION]: 1, [ROLE_DRAW]: 1 } },
+  { match: /reanimat|graveyard|recursion|self.?mill|dredge/, deltas: { [ROLE_DRAW]: 1 } },
+  { match: /\bmill\b/, deltas: { [ROLE_REMOVAL]: 1, [ROLE_DRAW]: 1 } },
+  { match: /blink|flicker/, deltas: { [ROLE_DRAW]: 1, [ROLE_REMOVAL]: 1 } },
+  { match: /wheel/, deltas: { [ROLE_DRAW]: 2 } },
+  { match: /theft|\bsteal|\bthief|mind.?control|\bthievery/, deltas: { [ROLE_REMOVAL]: 1 } },
   { match: /land|landfall/, deltas: { [ROLE_LANDS]: 2, [ROLE_RAMP]: 1 } },
+  { match: /big.?mana|eldrazi|cheat|\bpolymorph|\bramp\b/, deltas: { [ROLE_RAMP]: 2, [ROLE_LANDS]: 1 } },
+  { match: /cascade/, deltas: { [ROLE_DRAW]: 1, [ROLE_RAMP]: 1 } },
+  { match: /artifact|affinity|\bthopter|treasure/, deltas: { [ROLE_RAMP]: 1, [ROLE_DRAW]: 1 } },
   { match: /token|\bgo.?wide\b|swarm/, deltas: { [ROLE_REMOVAL]: -1, [ROLE_WIPE]: -1 } },
+  { match: /tribal|typal|\belves?\b|\bgoblins?\b|\bzombies?\b|\bdragons?\b|\bvampires?\b|\bslivers?\b|\bmerfolk\b|\bwarriors?\b|\bwizards?\b|\bknights?\b|\bcats?\b|\bdinosaur|\bhumans?\b|\bangels?\b|\bdemons?\b/, deltas: { [ROLE_REMOVAL]: -1, [ROLE_WIPE]: -1 } },
   { match: /sacrifice|aristocrat|\bblood\b|morbid|\bdeath/, deltas: { [ROLE_REMOVAL]: -1 } },
-  { match: /counter/, deltas: { [ROLE_DRAW]: 1, [ROLE_WIPE]: -1 } },
-  { match: /stax|hatebear|\btax(es)?\b|prison/, deltas: { [ROLE_RAMP]: 1 } },
-  { match: /reanimat|graveyard|recursion|self.?mill/, deltas: { [ROLE_DRAW]: 1 } },
-  { match: /lifegain|life.?gain/, deltas: { [ROLE_WIPE]: -1 } },
-  { match: /aggro|aggression|\bhaste\b/, deltas: { [ROLE_LANDS]: -1, [ROLE_RAMP]: -1 } },
+  { match: /\bcounters?\b|\+1\/\+1|proliferate/, deltas: { [ROLE_DRAW]: 1, [ROLE_WIPE]: -1 } },
+  { match: /stax|hatebear|\btax(es)?\b|prison|discard/, deltas: { [ROLE_RAMP]: 1 } },
+  { match: /devotion/, deltas: { [ROLE_RAMP]: 1 } },
+  { match: /lifegain|life.?gain|life.?drain/, deltas: { [ROLE_WIPE]: -1 } },
+  { match: /aggro|aggression|\bhaste\b|\bblitz\b/, deltas: { [ROLE_LANDS]: -1, [ROLE_RAMP]: -1 } },
 ]
 
 // Returns the quota delta map for a theme slug ({} when no rule matches / balanced).
@@ -846,8 +958,49 @@ export function archetypeAdjustments(themeSlug = '') {
   return rule ? rule.deltas : {}
 }
 
+// ── Bracket-aware quota flexing ───────────────────────────────────────────────
+// Target Commander Bracket reshapes the WHOLE fixed-role template off the B3
+// "Upgraded" baseline (= COMMANDER_TEMPLATE as-is). Higher power → fewer lands +
+// more ramp (lower curves, more fast mana), more card advantage + interaction,
+// fewer board wipes (games end faster), more protection (defend the wincon), and
+// fewer dedicated finisher slots (a compact combo wins). Lower power inverts it.
+// The wizard's picker only offers 1–4 (cEDH/5 is never a *target*), so B4 is the
+// competitive ceiling. null (no target) → no shift. These SUM with the archetype
+// deltas (see combineTemplateDeltas), so e.g. a B4 Landfall deck's −2 land bracket
+// shift and +2 land archetype shift cancel, keeping its lands high on purpose.
+export const BRACKET_TEMPLATE_DELTAS = {
+  1: { [ROLE_LANDS]: 2,  [ROLE_RAMP]: -2, [ROLE_DRAW]: -1, [ROLE_REMOVAL]: -2, [ROLE_WIPE]: 1,  [ROLE_PROTECTION]: -1, [ROLE_WINCON]: 2 },
+  2: { [ROLE_LANDS]: 1,  [ROLE_RAMP]: -1, [ROLE_DRAW]: -1, [ROLE_REMOVAL]: -1, [ROLE_WIPE]: 1,  [ROLE_WINCON]: 1 },
+  3: {},
+  4: { [ROLE_LANDS]: -2, [ROLE_RAMP]: 2,  [ROLE_DRAW]: 1,  [ROLE_REMOVAL]: 2,  [ROLE_WIPE]: -1, [ROLE_PROTECTION]: 1,  [ROLE_WINCON]: -2 },
+}
+
+// Quota delta map for a target bracket ({} for null / unknown / the B3 baseline).
+export function bracketAdjustments(targetBracket) {
+  if (targetBracket == null) return {}
+  return BRACKET_TEMPLATE_DELTAS[targetBracket] || {}
+}
+
+// Sum any number of {role: delta} maps into one (missing roles treated as 0).
+// Used to compose the archetype and bracket adjustments before applying them.
+export function combineTemplateDeltas(...deltaMaps) {
+  const out = {}
+  for (const m of deltaMaps) {
+    if (!m) continue
+    for (const [role, d] of Object.entries(m)) out[role] = (out[role] || 0) + (d || 0)
+  }
+  return out
+}
+
+// Hard floor on the land count no archetype/bracket combination may drop below,
+// so a stacked "−lands" shift can't gut the manabase (Karsten colored-source math
+// stays the real check underneath). ~33 is the low end of a functional Commander
+// manabase paired with adequate ramp.
+export const LAND_FLOOR = 33
+
 // Returns a new template with the (fixed-role) deltas applied. Counts clamp at
-// 0 and min never exceeds ideal. Synergy stays 'remainder'.
+// 0 and min never exceeds ideal; the Lands ideal never drops below LAND_FLOOR.
+// Synergy stays 'remainder'.
 export function applyTemplateAdjustments(template, deltas = {}) {
   if (!deltas || !Object.keys(deltas).length) return template
   const out = {}
@@ -855,7 +1008,8 @@ export function applyTemplateAdjustments(template, deltas = {}) {
     const spec = template[role]
     const d = deltas[role]
     if (!spec || spec === 'remainder' || !d) { out[role] = spec; continue }
-    const ideal = Math.max(0, (spec.ideal ?? 0) + d)
+    let ideal = Math.max(0, (spec.ideal ?? 0) + d)
+    if (role === ROLE_LANDS) ideal = Math.max(LAND_FLOOR, ideal)
     const min = Math.min(ideal, Math.max(0, (spec.min ?? 0) + d))
     out[role] = { min, ideal }
   }

@@ -23,9 +23,14 @@ import {
   planAutoFill,
   enrichPlanWithEdhrec,
   archetypeAdjustments,
+  bracketAdjustments,
+  combineTemplateDeltas,
   applyTemplateAdjustments,
   bracketFlagFor,
   comboFitsBracket,
+  mapAlmostCombos,
+  comboTargetForBracket,
+  planComboCompletion,
   producedColors,
   faceOracleText,
   faceTypeLine,
@@ -439,6 +444,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const [inOtherDeckNames, setInOtherDeckNames] = useState(() => new Set())
   const metaFetchedRef = useRef(false) // owned-card oracle-text backfill ran for this commander
   const selectedThemeRef = useRef('')  // latest theme, read by the async backfill to avoid a stale-closure revert
+  const targetBracketRef = useRef(null) // latest target bracket, read by the async re-plans (same stale-closure guard)
 
   const { price_source, reduce_motion } = useSettings()
   // Names added/wishlisted this session — instant feedback before the deckCards
@@ -531,7 +537,10 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     if (!d || !commander?.name) return
     setRebuilding(true)
     try {
-      const template = applyTemplateAdjustments(COMMANDER_TEMPLATE, archetypeAdjustments(themeSlug))
+      const template = applyTemplateAdjustments(
+        COMMANDER_TEMPLATE,
+        combineTemplateDeltas(archetypeAdjustments(themeSlug), bracketAdjustments(targetBracketRef.current)),
+      )
       const base = analyzeBuildPlan({
         commander,
         ownedCards: d.ownedNorm,
@@ -701,6 +710,19 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     rebuildPlan(slug)
   }
 
+  // Re-plan when the target bracket changes: the bracket reshapes the whole
+  // fixed-role template (bracketAdjustments), composed with the active archetype.
+  // Skips the initial mount (bracket starts null = no shift) and waits until the
+  // collection has loaded. rebuildPlan reads the live bracket from the ref.
+  const bracketInit = useRef(true)
+  useEffect(() => {
+    targetBracketRef.current = targetBracket
+    if (bracketInit.current) { bracketInit.current = false; return }
+    if (!dataRef.current) return
+    rebuildPlan(selectedThemeRef.current)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetBracket])
+
   // Name → role from the (EDHREC-hybrid) plan, so the live counter and trim
   // logic classify deck cards the same way the steps display them.
   const roleByName = useMemo(() => {
@@ -862,22 +884,12 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // Combos you're close to completing (1-2 missing pieces), owned-missing first.
   const almostCombos = useMemo(() => {
     if (!combos.fetched) return []
-    return (combos.almost || [])
-      .map(c => {
-        const uses = (c.uses || []).map(u => u.card?.name || u.template?.name || '').filter(Boolean)
-        const produces = (c.produces || []).map(p => p.feature?.name).filter(Boolean)
-        const missing = uses
-          .filter(n => !deckNames.has(n.toLowerCase()))
-          .map(n => ({ name: n, owned: ownedNameSet.has(n.toLowerCase()) }))
-        return { id: c.id, uses, produces, missing }
-      })
-      .filter(c => c.missing.length >= 1 && c.missing.length <= 2)
-      .sort((a, b) => {
-        const ao = a.missing.every(m => m.owned) ? 0 : 1
-        const bo = b.missing.every(m => m.owned) ? 0 : 1
-        return (ao - bo) || (a.missing.length - b.missing.length)
-      })
-      .slice(0, 12)
+    return mapAlmostCombos({
+      almost: combos.almost,
+      deckNameKeys: deckNames,
+      ownedNameKeys: ownedNameSet,
+      limit: 12,
+    })
   }, [combos.fetched, combos.almost, deckNames, ownedNameSet])
 
   // Combos that suit the target bracket (B3 → 3+ card, B4/cEDH → incl. fast
@@ -889,12 +901,6 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     [almostCombos, targetBracket],
   )
   const combosHiddenByBracket = almostCombos.length > 0 && suggestedCombos.length === 0 && targetBracket != null
-  // Bracket-appropriate combos we could finish entirely from owned pieces —
-  // gates the auto-fill "complete combos" opt-in.
-  const finishableCombos = useMemo(
-    () => suggestedCombos.filter(c => c.missing.every(m => m.owned)),
-    [suggestedCombos],
-  )
 
   // Auto-check combos the first time the summary step is opened. Intentionally
   // one-shot (fires only on the first summary visit) to avoid hammering the
@@ -981,7 +987,10 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       // ref (not the stale closure) so a theme picked during the fetch isn't
       // reverted. rebuildPlan also runs on theme switch, so the maps converge.
       const theme = selectedThemeRef.current
-      const template = applyTemplateAdjustments(COMMANDER_TEMPLATE, archetypeAdjustments(theme))
+      const template = applyTemplateAdjustments(
+        COMMANDER_TEMPLATE,
+        combineTemplateDeltas(archetypeAdjustments(theme), bracketAdjustments(targetBracketRef.current)),
+      )
       const base = analyzeBuildPlan({
         commander,
         ownedCards: d.ownedNorm,
@@ -1135,43 +1144,16 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const [autoFilling, setAutoFilling] = useState(null) // { total, bulk } | { done, total }
   const [autoFillResult, setAutoFillResult] = useState(null) // { added, skipped, basics }
 
-  // Owned pieces that finish a bracket-appropriate combo — added first when the
-  // "complete combos" opt-in is on. Added by name (like the per-combo Add
-  // button); the parent resolves the owned printing. Budget/added gates applied.
-  const autoFillComboItems = useMemo(() => {
-    if (!autoFillCombos) return []
-    const seen = new Set()
-    const out = []
-    for (const combo of finishableCombos) {
-      for (const m of combo.missing) {
-        const key = m.name.toLowerCase()
-        if (seen.has(key) || isAdded(m.name) || !passesBudget(m.name, null)) continue
-        seen.add(key)
-        out.push({ role: ROLE_WINCON, cand: { name: m.name }, owned: false, combo: true })
-      }
-    }
-    return out
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoFillCombos, finishableCombos, addedNames, deckNames, maxPrice, cheapestByName])
+  // How many combos the post-fill pass will aim for at the current target
+  // bracket — gates + labels the opt-in. Combos are completed in a SECOND pass
+  // after the deck is populated (see runComboPass), not injected up front, so
+  // this doesn't depend on the pre-fill deck already being close to a combo.
+  const comboPassTarget = comboTargetForBracket(targetBracket)
 
-  // Final auto-fill pick list: combo pieces first (when opted in), then the
-  // source's role/land picks, de-duped by name and capped to the deck's open
-  // slots so completing combos can't push the deck past its target — the
-  // lowest-priority tail picks give way, and basics still top up on finish.
-  const autoFillSelected = useMemo(() => {
-    const base = autoFillSource === 'recommended' ? autoFillPicksRec : autoFillPicksOwned
-    if (!autoFillCombos || !autoFillComboItems.length) return base
-    const slots = Math.max(0, afTarget - totalCards)
-    const seen = new Set()
-    const merged = []
-    for (const p of [...autoFillComboItems, ...base]) {
-      const k = (p.cand?.name || '').toLowerCase()
-      if (!k || seen.has(k)) continue
-      seen.add(k)
-      merged.push(p)
-    }
-    return merged.slice(0, slots)
-  }, [autoFillSource, autoFillPicksRec, autoFillPicksOwned, autoFillCombos, autoFillComboItems, afTarget, totalCards])
+  // Final auto-fill pick list: just the chosen source's role/land picks
+  // (already capped to the deck's open slots by planAutoFill). Combo completion
+  // happens post-fill in runComboPass, which cuts filler to make room.
+  const autoFillSelected = autoFillSource === 'recommended' ? autoFillPicksRec : autoFillPicksOwned
 
   // Pseudo-rows for the sequential fallback (no bulk-add return): built from the
   // picks so the basics predictor sees real mana_cost / type_line before the
@@ -1185,19 +1167,121 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     qty: 1,
   }))
 
+  // Post-fill combo pass (opt-in). Re-queries Commander Spellbook on the just-
+  // populated deck, completes as many bracket-appropriate combos as the target
+  // allows (source-aware: 'owned' uses owned pieces only, 'recommended' may reach
+  // for unowned pieces → buy list), and cuts an equal number of just-filled
+  // filler cards so the deck size holds. Only cards THIS run added are cuttable —
+  // never the user's existing cards, and never a piece of a combo being completed
+  // — which also keeps undo coherent (undo returns to the pre-fill deck).
+  // `populated` = [...deckCards, ...fillRows]; `fillIds` = this run's added ids.
+  // Returns { comboRows, cutIds, combosCompleted }; best-effort, zeros on failure.
+  async function runComboPass(populated, fillIds) {
+    const empty = { comboRows: [], cutIds: [], combosCompleted: 0 }
+    if (comboPassTarget <= 0) return empty
+    try {
+      const res = await combos.fetchCombos(populated)
+      if (!res) return empty
+      const deckKeys = new Set(
+        populated.filter(d => !d?.is_commander).flatMap(d => cardNameMatchKeys(d?.name)),
+      )
+      const almost = mapAlmostCombos({
+        almost: res.almost,
+        deckNameKeys: deckKeys,
+        ownedNameKeys: ownedNameSet,
+      })
+      const { pieces, combosCompleted, protectedNames } = planComboCompletion({
+        almostCombos: almost,
+        targetBracket,
+        source: autoFillSource,
+        deckNameKeys: deckKeys,
+        passesBudget: name => passesBudget(name, null),
+      })
+      if (!pieces.length) return { ...empty, combosCompleted }
+
+      // Cuttable = this run's filler, minus any card that's a piece of a combo
+      // we're completing. Lock everything else so analyzeCut only pulls from it.
+      const fillSet = new Set(fillIds || [])
+      const cuttableIds = new Set(
+        populated
+          .filter(d => !d?.is_commander && fillSet.has(d.id)
+            && !cardNameMatchKeys(d?.name).some(k => protectedNames.has(k)))
+          .map(d => d.id),
+      )
+      const lockedIds = new Set(
+        populated.filter(d => !d?.is_commander && !cuttableIds.has(d.id)).map(d => d.id),
+      )
+      // over = (populated − deckSize) + pieces added → exactly the cuts needed to
+      // hold the size, absorbing any open slots the fill left.
+      const cut = analyzeCut({
+        plan, deckCards: populated, sfMap,
+        totalCards: populated.length + pieces.length,
+        cutMode: 'balanced', lockedIds,
+        roleOf: dc => roleOfDeckCard(dc, sfMap, roleByName),
+        inclusionOf: name => cardNameMatchKeys(name).map(k => inclusionByName.get(k)).find(v => v != null),
+      })
+      const cutIds = (cut?.recommended || []).map(r => r.id).filter(Boolean)
+
+      if (cutIds.length && typeof onRemoveCards === 'function') {
+        try { await onRemoveCards(cutIds) } catch { /* parent surfaces errors */ }
+      }
+      let comboRows = []
+      try {
+        const addRes = await onAddCards(pieces.map(p => ({ name: p.name })))
+        comboRows = addRes?.rows || []
+        setAddedNames(prev => {
+          const next = new Set(prev)
+          for (const r of comboRows) if (r?.name) next.add(r.name.toLowerCase())
+          return next
+        })
+      } catch { /* parent surfaces errors */ }
+      return { comboRows, cutIds, combosCompleted }
+    } catch {
+      return empty
+    }
+  }
+
   // Auto-fill completes the whole build in one go: role picks, nonbasic lands,
-  // then the pip/Karsten-weighted basics — and lands on the summary step so
-  // the result (composition, buy list, trim) is immediately visible. `rows` are
-  // what actually landed (bulk path) or the pseudo-rows (sequential path);
-  // `addedCardIds` are the deck-card ids to remove on undo.
+  // an optional post-fill combo pass, then the pip/Karsten-weighted basics — and
+  // lands on the summary step so the result (composition, buy list, trim) is
+  // immediately visible. `rows` are what actually landed (bulk path) or the
+  // pseudo-rows (sequential path); `addedCardIds` are the deck-card ids to
+  // remove on undo.
   async function finishAutoFill(rows, added, skipped, addedCardIds) {
+    let effectiveRows = rows
+    let effectiveAdded = added
+    let effectiveAddedIds = addedCardIds || []
+    let combosCompleted = 0
+    let comboAdded = 0
+    let cutCount = 0
+
+    // Combo pass runs before basics so completed-combo pieces take real slots and
+    // basics top up whatever's left. Bulk path only (needs the fill row ids to
+    // know what's cuttable); the sequential fallback skips it.
+    if (autoFillCombos && typeof onAddCards === 'function' && (addedCardIds?.length)) {
+      const populated = [...deckCards, ...rows]
+      const pass = await runComboPass(populated, addedCardIds)
+      combosCompleted = pass.combosCompleted
+      comboAdded = pass.comboRows.length
+      cutCount = pass.cutIds.length
+      if (cutCount || comboAdded) {
+        const cutSet = new Set(pass.cutIds)
+        effectiveRows = [...rows.filter(r => !cutSet.has(r.id)), ...pass.comboRows]
+        effectiveAdded = added - cutCount + comboAdded
+        effectiveAddedIds = [
+          ...(addedCardIds || []).filter(id => !cutSet.has(id)),
+          ...pass.comboRows.map(r => r.id).filter(Boolean),
+        ]
+      }
+    }
+
     let basics = 0
     let basicCounts = null
     // Basics top up the rest of the deck, capped to the open slots so a DFC/MDFC
     // land type quirk can't push the deck past deckSize (see basicsForAutoFill).
-    const openSlots = Math.max(0, (plan?.deckSize || 100) - (totalCards + added))
+    const openSlots = Math.max(0, (plan?.deckSize || 100) - (totalCards + effectiveAdded))
     const planned = basicsForAutoFill({
-      deckCards: [...deckCards, ...rows],
+      deckCards: [...deckCards, ...effectiveRows],
       sfMap,
       colors: cmdColors,
       landTarget: landsTarget,
@@ -1214,8 +1298,12 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     // the result so an under-100 build doesn't read as a complete deck.
     // totalCards is the pre-add count: this closure was created before the
     // deckCards prop round-tripped.
-    const left = Math.max(0, (plan?.deckSize || 100) - (totalCards + added + basics))
-    setAutoFillResult({ added, skipped, basics, left, addedCardIds: addedCardIds || [], basicCounts })
+    const left = Math.max(0, (plan?.deckSize || 100) - (totalCards + effectiveAdded + basics))
+    setAutoFillResult({
+      added: effectiveAdded, skipped, basics, left,
+      addedCardIds: effectiveAddedIds, basicCounts,
+      combosCompleted, comboAdded, cutCount,
+    })
     setStepIndex(steps.length - 1)
   }
 
@@ -2418,7 +2506,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                       </span>
                     </span>
                   </label>
-                  {finishableCombos.length > 0 && (
+                  {comboPassTarget > 0 && (
                     <label className={`${styles.afOption} ${styles.afOptionCheck}${autoFillCombos ? ' ' + styles.afOptionActive : ''}`}>
                       <input
                         type="checkbox"
@@ -2428,11 +2516,12 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                       />
                       <span className={styles.afOptionBody}>
                         <span className={styles.afOptionLabel}>
-                          Also complete combos I can finish
-                          <span className={styles.afComboCount}>{finishableCombos.length}</span>
+                          Also land some combos
+                          <span className={styles.afComboCount}>~{comboPassTarget}</span>
                         </span>
                         <span className={styles.afOptionDesc}>
-                          Adds the owned pieces that finish {finishableCombos.length === 1 ? 'a' : `${finishableCombos.length}`} bracket-appropriate combo{finishableCombos.length === 1 ? '' : 's'} first{targetBracket != null ? ` (Bracket ${targetBracket})` : ''}.
+                          After filling, re-checks combos on the full deck and completes up to {comboPassTarget} bracket-appropriate combo{comboPassTarget === 1 ? '' : 's'}
+                          {targetBracket != null ? ` (Bracket ${targetBracket})` : ' (aiming low — Bracket 2/3)'}, adding the missing {autoFillSource === 'owned' ? 'owned ' : ''}piece{comboPassTarget === 1 ? '' : 's'} and cutting the weakest just-filled cards to make room.
                         </span>
                       </span>
                     </label>
@@ -2460,6 +2549,12 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                     Added {autoFillResult.added} card{autoFillResult.added === 1 ? '' : 's'}
                     {autoFillResult.basics ? ` and ${autoFillResult.basics} basic land${autoFillResult.basics === 1 ? '' : 's'}` : ''}
                     {autoFillResult.skipped ? ` · ${autoFillResult.skipped} skipped (no card data)` : ''}.
+                    {autoFillResult.combosCompleted > 0 && (
+                      <> Landed {autoFillResult.combosCompleted} combo{autoFillResult.combosCompleted === 1 ? '' : 's'}
+                        {autoFillResult.comboAdded ? ` (+${autoFillResult.comboAdded} piece${autoFillResult.comboAdded === 1 ? '' : 's'}` : ''}
+                        {autoFillResult.comboAdded && autoFillResult.cutCount ? `, −${autoFillResult.cutCount} cut)` : autoFillResult.comboAdded ? ')' : ''}.
+                      </>
+                    )}
                   </div>
                   {autoFillResult.left > 0 && (
                     <div className={styles.afShortfall}>

@@ -26,8 +26,14 @@ export function useCombosFetch({ commanderCard, deckCards, accessToken }) {
     setSectionsOpen(prev => ({ ...prev, [section]: !prev[section] }))
   }, [])
 
-  const fetchCombos = useCallback(async () => {
-    if (loading) return
+  // `deckOverride` lets a caller pass the exact deck to check (e.g. auto-fill's
+  // just-populated list) instead of the `deckCards` prop, which hasn't
+  // round-tripped through React state yet inside the same async handler.
+  // Resolves to the parsed `{ included, almost }` so that flow can act on the
+  // results immediately, not only via the state it also updates.
+  const fetchCombos = useCallback(async (deckOverride) => {
+    if (loading) return null
+    const deck = deckOverride || deckCards
     setLoading(true)
     try {
       // Include EVERY commander (partners / backgrounds), not just the primary,
@@ -36,14 +42,14 @@ export function useCombosFetch({ commanderCard, deckCards, accessToken }) {
       // is_commander rows, plus the passed commanderCard and its partnerName —
       // BuildAssistant hands in a synthetic commander object, not deck rows.
       const cmdNames = new Set()
-      for (const dc of deckCards || []) {
+      for (const dc of deck || []) {
         if (dc?.is_commander && dc?.name) cmdNames.add(dc.name)
       }
       if (commanderCard?.name) cmdNames.add(commanderCard.name)
       if (commanderCard?.partnerName) cmdNames.add(commanderCard.partnerName)
       const body = {
         commanders: [...cmdNames].map(card => ({ card })),
-        main: (deckCards || [])
+        main: (deck || [])
           .filter(dc => !dc.is_commander && normalizeBoard(dc.board) === 'main')
           .map(dc => ({ card: dc.name })),
       }
@@ -65,13 +71,18 @@ export function useCombosFetch({ commanderCard, deckCards, accessToken }) {
       if (!res.ok) throw new Error(`API ${res.status}`)
       const data = await res.json()
       const r = data.results || {}
-      setIncluded(r.included || [])
-      setAlmost([...(r.almostIncluded || []), ...(r.almostIncludedByAddingColors || [])])
+      const inc = r.included || []
+      const alm = [...(r.almostIncluded || []), ...(r.almostIncludedByAddingColors || [])]
+      setIncluded(inc)
+      setAlmost(alm)
       setFetched(true)
+      setLoading(false)
+      return { included: inc, almost: alm }
     } catch (e) {
       console.warn('[Combos]', e)
+      setLoading(false)
+      return null
     }
-    setLoading(false)
   }, [loading, commanderCard, deckCards, accessToken])
 
   return { fetched, loading, included, almost, sectionsOpen, toggleSection, fetchCombos }
