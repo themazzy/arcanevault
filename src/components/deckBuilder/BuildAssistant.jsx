@@ -35,7 +35,6 @@ import {
   countByRole,
   pickCheapestEnglish,
   recommendedBasicCount,
-  planBasicLands,
   basicsForAutoFill,
   isBasicLandName,
   analyzeCut,
@@ -1047,9 +1046,16 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   )
   const recommendedBasics = useMemo(() => recommendedBasicCount(cmdColors.length), [cmdColors])
   const nonbasicTarget = Math.max(0, landsTarget - recommendedBasics)
+  // Finish top-up: fill the manabase toward the land target, but never past the
+  // deck's open slots — a deck already at (or over) deckSize gets 0 basics, so
+  // "Finish" can't push a 100/101-card deck to 101/102. Mirrors the auto-fill
+  // path (basicsForAutoFill); planBasicLands alone ignores deck size.
   const plannedBasics = useMemo(
-    () => planBasicLands({ deckCards, sfMap, colors: cmdColors, landTarget: landsTarget }),
-    [deckCards, sfMap, cmdColors, landsTarget],
+    () => basicsForAutoFill({
+      deckCards, sfMap, colors: cmdColors, landTarget: landsTarget,
+      openSlots: Math.max(0, afTarget - totalCards),
+    }),
+    [deckCards, sfMap, cmdColors, landsTarget, afTarget, totalCards],
   )
 
   // ── Auto-fill ───────────────────────────────────────────────────────────────
