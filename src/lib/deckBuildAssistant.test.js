@@ -31,6 +31,7 @@ import {
   CUT_MODES,
   edhrecInclusionPct,
   attachRecommenderUpgrades,
+  backfillWinconUpgrades,
   selectUpgrades,
   upgradeDisplayLimit,
   upgradePoolDepth,
@@ -465,6 +466,8 @@ describe('granularToCoarse', () => {
     expect(granularToCoarse('Protection')).toBe(ROLE_PROTECTION)
     expect(granularToCoarse('Combo')).toBe(ROLE_WINCON)
     expect(granularToCoarse('Extra Turns')).toBe(ROLE_WINCON)
+    expect(granularToCoarse('Drain')).toBe(ROLE_WINCON)
+    expect(granularToCoarse('Finisher')).toBe(ROLE_WINCON)
     expect(granularToCoarse('Land')).toBe(ROLE_LANDS)
   })
 
@@ -474,6 +477,62 @@ describe('granularToCoarse', () => {
     expect(granularToCoarse('Graveyard')).toBe(ROLE_SYNERGY)
     expect(granularToCoarse('Other')).toBe(ROLE_SYNERGY)
     expect(granularToCoarse('anything-unknown')).toBe(ROLE_SYNERGY)
+  })
+})
+
+describe('backfillWinconUpgrades', () => {
+  const upg = (name, type, inc) => ({ name, type, edhrecInclusion: inc })
+  const mapWith = (win, syn) => new Map([
+    [ROLE_WINCON, win],
+    [ROLE_SYNERGY, syn],
+  ])
+
+  it('borrows top-inclusion Synergy creatures into an empty Win Cons pool', () => {
+    const m = mapWith([], [
+      upg('Craterhoof Behemoth', 'Creature — Beast', 42),
+      upg('Rhythm of the Wild', 'Enchantment', 55),   // not a creature — skipped
+      upg('Pathbreaker Ibex', 'Creature — Goat', 30),
+    ])
+    backfillWinconUpgrades(m, 0)
+    const winNames = m.get(ROLE_WINCON).map(u => u.name)
+    // Highest-inclusion creature first; the non-creature enchantment is left alone.
+    expect(winNames).toEqual(['Craterhoof Behemoth', 'Pathbreaker Ibex'])
+    expect(m.get(ROLE_SYNERGY).map(u => u.name)).toEqual(['Rhythm of the Wild'])
+  })
+
+  it('does not backfill when the win-con pool already meets the target', () => {
+    const win = Array.from({ length: 10 }, (_, i) => upg(`Win ${i}`, 'Creature', 20))
+    const m = mapWith(win, [upg('Beater', 'Creature', 99)])
+    backfillWinconUpgrades(m, 0)
+    expect(m.get(ROLE_WINCON)).toHaveLength(10)
+    expect(m.get(ROLE_SYNERGY).map(u => u.name)).toEqual(['Beater'])
+  })
+
+  it('counts owned win-cons against the target so the borrow stops early', () => {
+    const m = mapWith([], [
+      upg('A', 'Creature', 50), upg('B', 'Creature', 40), upg('C', 'Creature', 30),
+    ])
+    // 8 owned + 0 in pool vs ideal 10 → only 2 slots short.
+    backfillWinconUpgrades(m, 8)
+    expect(m.get(ROLE_WINCON).map(u => u.name)).toEqual(['A', 'B'])
+    expect(m.get(ROLE_SYNERGY).map(u => u.name)).toEqual(['C'])
+  })
+
+  it('is a no-op when Synergy has no creatures or planeswalkers to lend', () => {
+    const m = mapWith([], [upg('Anthem', 'Enchantment', 60)])
+    backfillWinconUpgrades(m, 0)
+    expect(m.get(ROLE_WINCON)).toEqual([])
+    expect(m.get(ROLE_SYNERGY).map(u => u.name)).toEqual(['Anthem'])
+  })
+
+  it('also borrows planeswalkers (superfriends finishers)', () => {
+    const m = mapWith([], [
+      upg('Teferi, Temporal Archmage', 'Legendary Planeswalker — Teferi', 70),
+      upg('Mana Rock', 'Artifact', 90),  // not a threat — left in Synergy
+    ])
+    backfillWinconUpgrades(m, 0)
+    expect(m.get(ROLE_WINCON).map(u => u.name)).toEqual(['Teferi, Temporal Archmage'])
+    expect(m.get(ROLE_SYNERGY).map(u => u.name)).toEqual(['Mana Rock'])
   })
 })
 

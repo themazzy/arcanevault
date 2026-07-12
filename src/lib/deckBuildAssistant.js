@@ -63,6 +63,7 @@ export const COARSE_ROLE_MAP = {
   Combo: ROLE_WINCON,
   'Extra Turns': ROLE_WINCON,
   Drain: ROLE_WINCON,
+  Finisher: ROLE_WINCON,
 
   Land: ROLE_LANDS,
 
@@ -1009,6 +1010,40 @@ export function edhrecInclusionPct(cv) {
   return pot > 0 ? Math.min(100, Math.round((inc / pot) * 100)) : inc
 }
 
+// Win-cons safety net. For creature-combat / voltron / aggro commanders the
+// deck's actual win conditions are big evasive beaters that classify as
+// Synergy, not one of the win-con categories (Combo / Extra Turns / Drain /
+// Finisher). That can leave the Win Cons step empty even for a deck with an
+// obvious game plan. When the win-con upgrade pool is short of the role's
+// ideal, borrow the highest-inclusion unowned *creatures and planeswalkers*
+// from the Synergy pool (planeswalkers are the finishers in a superfriends
+// list) so the step always offers real threats. Moves (not copies) so a card
+// never appears in two steps. Mutates + returns `upgradesByRole`.
+export function backfillWinconUpgrades(upgradesByRole, ownedWinCount = 0) {
+  const winPool = upgradesByRole.get(ROLE_WINCON) || []
+  const target = COMMANDER_TEMPLATE[ROLE_WINCON]?.ideal || 10
+  const short = target - ownedWinCount - winPool.length
+  if (short <= 0) return upgradesByRole
+
+  const syn = upgradesByRole.get(ROLE_SYNERGY) || []
+  const takenIdx = new Set()
+  const picks = []
+  const threats = syn
+    .map((u, i) => ({ u, i }))
+    .filter(({ u }) => /(creature|planeswalker)/i.test(u.type || ''))
+    .sort((a, b) => (b.u.edhrecInclusion || 0) - (a.u.edhrecInclusion || 0))
+  for (const { u, i } of threats) {
+    if (picks.length >= short) break
+    picks.push(u)
+    takenIdx.add(i)
+  }
+  if (!picks.length) return upgradesByRole
+
+  upgradesByRole.set(ROLE_SYNERGY, syn.filter((_, i) => !takenIdx.has(i)))
+  upgradesByRole.set(ROLE_WINCON, [...winPool, ...picks])
+  return upgradesByRole
+}
+
 export async function enrichPlanWithEdhrec(plan, fetchEdhrec, fetchCardMeta) {
   if (!plan?.commander?.name || typeof fetchEdhrec !== 'function') return plan
 
@@ -1109,6 +1144,10 @@ export async function enrichPlanWithEdhrec(plan, fetchEdhrec, fetchCardMeta) {
       ;(rebucketed.get(edhrecRole || role.role) || rebucketed.get(role.role)).push(next)
     }
   }
+
+  // Safety net: top up a thin Win Cons pool with the deck's best creatures so
+  // combat-combo / voltron commanders never see an empty step (see helper).
+  backfillWinconUpgrades(upgradesByRole, (rebucketed.get(ROLE_WINCON) || []).length)
 
   // Return a cloned plan (new role objects + arrays) rather than mutating the
   // input in place: state-held arrays must not be mutated, and setPlan needs a

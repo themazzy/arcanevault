@@ -17,7 +17,7 @@ export const CAT_ORDER = [
   'Sacrifice', 'Blink', 'Landfall', 'Lifegain', 'Copy', 'Doublers', 'Cheat',
   'Graveyard', 'Mill',
   'Drain', 'Discard', 'Stax',
-  'Protection', 'Extra Turns', 'Combo',
+  'Protection', 'Extra Turns', 'Combo', 'Finisher',
   'Creature', 'Artifact', 'Enchantment', 'Instant', 'Sorcery', 'Planeswalker',
   'Land', 'Other',
 ]
@@ -63,6 +63,7 @@ export const CAT_COLORS = {
   'Protection': '#aaaaaa',
   'Extra Turns': '#cc88aa',
   'Combo': '#c9a84c',
+  'Finisher': '#c85a3c',
   'Creature': '#5a8a5a',
   'Artifact': '#8a8a9a',
   'Enchantment': '#7a6aaa',
@@ -199,6 +200,17 @@ export function getCardCategory(oracle = '', typeLine = '', keywords = []) {
   if (/(each opponent|target (opponent|player)|opponents?) loses? [a-z\d ]{0,30}life/.test(o)) return 'Drain'
   if (/loses? [x\d]+ life[^.]{0,60}gains? [x\d]+ life/.test(o)) return 'Drain'
 
+  // ── Finisher (scalable direct damage — burn / spellslinger win condition) ─
+  // Ahead of Removal/Burn: X-damage (or damage divided among any number of
+  // targets) that can hit players is a finisher, not spot removal — Fireball,
+  // Comet Storm, Blaze, Banefire, Rolling Thunder, Crackle with Power ("five
+  // times X"), Fall of the Titans, Bonfire of the Damned. Fixed-amount burn
+  // (Lightning Bolt's "3 damage") and fight-style "damage equal to its power"
+  // (Soul's Fire) lack the literal "X damage" token and stay Removal/Burn below.
+  if (/deals? (five times )?x damage to (any target|target player|target opponent|each opponent|each player)/.test(o)) return 'Finisher'
+  if (/deals? (five times )?x damage to each of/.test(o)) return 'Finisher'
+  if (/deals? x damage divided [a-z,'\d ]{0,40}among/.test(o)) return 'Finisher'
+
   // ── Removal (single target) ───────────────────────────────────────────────
   // Optional `x|N` prefix catches Curse of the Swine ("Exile X target creatures").
   // Plural noun forms catch the same X-target wording.
@@ -232,6 +244,14 @@ export function getCardCategory(oracle = '', typeLine = '', keywords = []) {
   if (/create (a|an|one|two|three|four|five|six|seven|eight|nine|ten|x|\d+)[^.]{0,80}tokens?/.test(o)) return 'Tokens'
   if (/\bpopulate\b/.test(o)) return 'Tokens'
 
+  // ── Finisher (mass mill — the mill archetype's win condition) ─────────────
+  // Ahead of the generic Mill rule so wincon-scale mill ("half their library",
+  // or every opponent at once) reads as a Win Con instead of graveyard synergy.
+  // Self-mill for graveyard fuel ("mill three cards") has neither signal and
+  // stays Mill below. Traumatize / Fleet Swallower / Maddening Cacophony.
+  if (/mills? half (of )?(their|his or her|its) library/.test(o)) return 'Finisher'
+  if (/each opponent mills/.test(o)) return 'Finisher'
+
   // ── Mill (before Graveyard; library → graveyard) ──────────────────────────
   if (/puts? (the top |an? )?(\w+ )?cards? (of [a-z' ]+library |from the top of [a-z' ]+library )?into [a-z' ]+graveyard/.test(o)) return 'Mill'
   if (/mills? (a|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x) cards?/.test(o)) return 'Mill'
@@ -259,6 +279,26 @@ export function getCardCategory(oracle = '', typeLine = '', keywords = []) {
   // collective subject ("creatures you control" / "other X creatures").
   if (!t.includes('instant') && !t.includes('sorcery') &&
       /whenever [^.]{0,120}(creatures you control|other [a-z ]{1,30}creatures|each (other )?creature)[^.]{0,30}get \+\d+\/\+\d+/.test(o)) return 'Anthem'
+
+  // ── Finisher / win-condition payoffs ──────────────────────────────────────
+  // Placed *between* the triggered- and static-anthem rules on purpose. A
+  // repeatable "whenever …" team pump (Balmor, Goldnight Commander) is an
+  // Anthem engine and is caught above; a one-shot mass pump-and-trample
+  // ("gain trample … until end of turn") is an alpha-strike finisher — even
+  // when its +N/+N would otherwise read as a static anthem (End-Raze
+  // Forerunners, whose "+2/+2 … until end of turn" sits just past the static
+  // rule's 30-char lookahead). "gain" (not "have") keeps permanent trample
+  // anthems out; both clause orders (pump-then-trample, trample-then-pump)
+  // occur in the wild (Overrun vs Craterhoof Behemoth).
+  if (/creatures you control get \+[\dx]+\/\+[\dx]+ and gain [a-z, ]{0,40}trample/.test(o)) return 'Finisher'
+  if (/creatures you control gain trample[a-z, ]{0,40}get \+[\dx]+\/\+[\dx]+/.test(o)) return 'Finisher'
+  // Extra combat phases (Aggravated Assault, Aurelia, Combat Celebrant,
+  // Scourge of the Throne, Relentless Assault, World at War) — repeatable
+  // combat is how these decks close. Ahead of +1/+1 Counters so Scourge's
+  // Dethrone counter doesn't hijack it.
+  if (/(additional|extra) combat phase/.test(o)) return 'Finisher'
+  // Team-wide double strike (Berserkers' Onslaught) doubles all combat damage.
+  if (/creatures you control (have|gain) double strike/.test(o)) return 'Finisher'
 
   // ── Anthem (static buff; combat tricks excluded same-sentence) ────────────
   // The negative lookahead is sentence-scoped via [^.]{0,30} so an unrelated
