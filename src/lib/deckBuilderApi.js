@@ -605,15 +605,21 @@ export async function fetchEdhrecCommander(commanderName, formatId = 'commander'
         .map(cl => ({
           header: cl.header,
           tag:    cl.tag,
+          // EDHREC renamed the per-card deck count `inclusion` → `num_decks`
+          // (kept `inclusion` as a fallback for older fixtures/caches), and this
+          // payload no longer carries per-card `cmc`/`type`/`color_identity` at
+          // all — those are resolved downstream from our own card metadata RPC.
+          // Missing `num_decks` here silently zeroed every recommendation's
+          // inclusion %, collapsing the "best cards" ranking to curve/alpha order.
           cards:  cl.cardviews.map(cv => ({
             name:           cv.name,
             slug:           cv.sanitized,
-            inclusion:      cv.inclusion      ?? 0,
+            inclusion:      cv.num_decks       ?? cv.inclusion ?? 0,
             potentialDecks: cv.potential_decks ?? 0,
-            synergy:        cv.synergy        ?? 0,
-            cmc:            cv.cmc            ?? 0,
-            type:           cv.type           ?? '',
-            colorIdentity:  cv.color_identity || [],
+            synergy:        cv.synergy         ?? 0,
+            cmc:            cv.cmc             ?? 0,
+            type:           cv.type            ?? '',
+            colorIdentity:  cv.color_identity  || [],
           })),
         })),
     }

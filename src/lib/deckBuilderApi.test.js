@@ -17,6 +17,7 @@ import {
   getDeckBuilderCardMeta, importProxyUrl, fetchPaperPrintingsByNamesFromDb,
   fetchRecommendationMetadataByNames, recommendationMetadataRowToCard,
   pickAutomaticDeckPrinting, FORMATS, nameToSlug, getEdhrecPartnerSlugCandidates,
+  fetchEdhrecCommander,
 } from './deckBuilderApi'
 import { EDH_FORMAT_IDS } from './commanderBracket'
 import { sfGet } from './scryfall'
@@ -412,6 +413,33 @@ describe('fetchPaperPrintings — face-name collision', () => {
     })
     const printings = await fetchPaperPrintings('Fire // Ice')
     expect(printings).toHaveLength(1)
+  })
+})
+
+describe('fetchEdhrecCommander', () => {
+  afterEach(() => { vi.restoreAllMocks() })
+
+  // Minimal EDHREC commander page in the CURRENT schema: per-card deck count is
+  // `num_decks` (was `inclusion`), and cardviews carry no cmc/type any more.
+  const edhrecPage = {
+    container: { json_dict: { cardlists: [{
+      header: 'High Synergy Cards',
+      tag: 'highsynergycards',
+      cardviews: [
+        { name: 'Slick Sequence', sanitized: 'slick-sequence', num_decks: 2525, potential_decks: 2782, synergy: 0.87 },
+        { name: 'Expressive Iteration', sanitized: 'expressive-iteration', num_decks: 2487, potential_decks: 2782, synergy: 0.65 },
+      ],
+    }] } },
+    commanders: [{ name: 'Lilah, Undefeated Slickshot' }],
+    panels: { taglinks: [] },
+  }
+
+  it('maps num_decks → inclusion so recommendation ranking is non-zero', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => edhrecPage })
+    const res = await fetchEdhrecCommander('Lilah, Undefeated Slickshot')
+    const cards = res.categories[0].cards
+    expect(cards[0]).toMatchObject({ name: 'Slick Sequence', inclusion: 2525, potentialDecks: 2782 })
+    expect(cards[1].inclusion).toBe(2487)
   })
 })
 

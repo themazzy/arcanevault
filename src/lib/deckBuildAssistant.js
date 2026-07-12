@@ -1080,9 +1080,11 @@ export async function enrichPlanWithEdhrec(plan, fetchEdhrec, fetchCardMeta) {
     upgradesByRole.get(role).push({
       name: cv.name,
       slug: cv.slug,
-      cmc: cv.cmc ?? 0,
-      type: cv.type ?? '',
-      colorIdentity: cv.colorIdentity || [],
+      // EDHREC's payload no longer carries cmc/type/color identity — prefer the
+      // resolved metadata (our card RPC) so curve fit + display aren't all zero.
+      cmc: meta?.cmc ?? cv.cmc ?? 0,
+      type: meta?.type_line || cv.type || '',
+      colorIdentity: meta?.color_identity || cv.colorIdentity || [],
       edhrecInclusion: edhrecInclusionPct(cv),
       image: meta?.image || null,
       source: 'edhrec',
@@ -1245,7 +1247,10 @@ export function edhrecTargetAvgCmc(edhrec) {
       n++
     }
   }
-  if (n < 15 || w <= 0) return null
+  // wsum <= 0 means the payload carried no usable cmc (EDHREC dropped per-card
+  // cmc from the commander page) — fall back to the archetype heuristic rather
+  // than targeting an impossible average of 0 (which flags every deck as "high").
+  if (n < 15 || w <= 0 || wsum <= 0) return null
   return wsum / w
 }
 

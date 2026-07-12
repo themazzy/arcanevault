@@ -838,6 +838,14 @@ describe('mana curve targeting', () => {
     expect(avg).toBeCloseTo(48 / 21, 2)
   })
 
+  it('edhrecTargetAvgCmc: null when the payload carries no cmc (EDHREC dropped it)', () => {
+    // Modern EDHREC commander pages have plenty of cardviews but no per-card cmc,
+    // which used to yield a target of 0 (every deck flagged "high curve").
+    const cards = []
+    for (let i = 0; i < 20; i++) cards.push({ cmc: 0, inclusion: 100, type: 'Creature' })
+    expect(edhrecTargetAvgCmc({ categories: [{ cards }] })).toBeNull()
+  })
+
   it('planTargetAvgCmc: EDHREC data wins, archetype is the fallback', () => {
     const cards = []
     for (let i = 0; i < 16; i++) cards.push({ cmc: 3, inclusion: 50, type: 'Creature' })
