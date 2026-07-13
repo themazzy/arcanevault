@@ -160,6 +160,42 @@ describe('enrichDecksWithCommanderArt', () => {
     expect(updateCalls).toHaveLength(0)
   })
 
+  it('uses commander rows from the hidden builder side of a linked collection deck', async () => {
+    const decks = [
+      {
+        id: 'collection-1',
+        type: 'deck',
+        description: JSON.stringify({ linked_builder_id: 'builder-1' }),
+      },
+    ]
+    const { client, updateCalls } = makeFakeClient({
+      deck_cards_view: {
+        selectResponse: {
+          data: [{
+            deck_id: 'builder-1',
+            name: 'Urtet, Remnant of Memnarch',
+            scryfall_id: 'sf-urtet',
+            color_identity: ['W', 'U', 'B', 'R', 'G'],
+            image_uri: 'http://example/urtet.jpg',
+            art_crop_uri: 'http://example/urtet-crop.jpg',
+            is_commander: true,
+          }],
+          error: null,
+        },
+      },
+    })
+
+    const result = await enrichDecksWithCommanderArt(decks, { client, persist: true })
+    await new Promise(r => setTimeout(r, 10))
+
+    const meta = JSON.parse(result[0].description)
+    expect(meta.commanderName).toBe('Urtet, Remnant of Memnarch')
+    expect(meta.commanderScryfallId).toBe('sf-urtet')
+    expect(meta.coverArtUri).toBe('http://example/urtet-crop.jpg')
+    expect(updateCalls).toHaveLength(1)
+    expect(updateCalls[0]).toMatchObject({ table: 'folders', col: 'id', val: 'collection-1' })
+  })
+
   it('does not persist when persist=false even with enrichments', async () => {
     const decks = [
       { id: 'd1', type: 'builder_deck', description: '{}' },

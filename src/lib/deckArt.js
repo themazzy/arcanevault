@@ -185,15 +185,37 @@ export async function enrichDecksWithCommanderArt(decks, { persist = false, clie
   const missingIds = missingDecks.map(deck => deck.id)
   if (!missingIds.length) return decks
 
+  // The builder index shows the collection side of a linked pair and hides its
+  // builder counterpart. Commander flags live in deck_cards on the builder side,
+  // while older collection-folder metadata may contain only linked_builder_id.
+  // Include those source deck IDs in the lookup, then route their commander rows
+  // back to the visible collection tile below.
+  const linkedBuilderByCollection = new Map()
+  for (const deck of missingDecks) {
+    if (deck.type !== 'deck') continue
+    const linkedBuilderId = parseDeckMeta(deck.description).linked_builder_id
+    if (linkedBuilderId) linkedBuilderByCollection.set(deck.id, linkedBuilderId)
+  }
+  const commanderSourceIds = [...new Set([
+    ...missingIds,
+    ...linkedBuilderByCollection.values(),
+  ])]
+
   const { data, error } = await client.from('deck_cards_view')
     .select('deck_id,name,scryfall_id,color_identity,image_uri,art_crop_uri,is_commander')
-    .in('deck_id', missingIds)
+    .in('deck_id', commanderSourceIds)
     .eq('is_commander', true)
 
   const byDeck = new Map()
   for (const row of error ? [] : (data || [])) {
     if (!byDeck.has(row.deck_id)) byDeck.set(row.deck_id, [])
     byDeck.get(row.deck_id).push(row)
+  }
+
+  for (const [collectionId, builderId] of linkedBuilderByCollection) {
+    if (!byDeck.has(collectionId) && byDeck.has(builderId)) {
+      byDeck.set(collectionId, byDeck.get(builderId))
+    }
   }
 
   const stillMissing = missingDecks.filter(deck => !byDeck.has(deck.id))
