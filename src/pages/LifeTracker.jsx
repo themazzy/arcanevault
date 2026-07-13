@@ -1844,6 +1844,7 @@ function PlayerPanel({
     <div
       className={[
         styles.playerPanel,
+        player.artCropUrl ? styles.playerPanelArt : '',
         isDead  ? styles.playerDead     : '',
         isLow   ? styles.playerLifeLow  : '',
         isCrit  ? styles.playerLifeCrit : '',
@@ -2006,6 +2007,12 @@ export default function LifeTrackerPage() {
   const [deckStatsMap, setDeckStatsMap] = useState({})
   const [gameLog,      setGameLog]      = useState([])   // flat [{ts, type, playerName, playerColor, ...}]
   const [showGameLog,  setShowGameLog]  = useState(false)
+
+  useEffect(() => {
+    const root = document.documentElement
+    root.setAttribute('data-life-tracker', '')
+    return () => root.removeAttribute('data-life-tracker')
+  }, [])
 
   const addGameLogEvent = useCallback((event) => {
     setGameLog(prev => [event, ...prev].slice(0, 120))
