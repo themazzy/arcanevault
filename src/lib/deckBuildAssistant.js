@@ -929,25 +929,29 @@ export const ARCHETYPE_RULES = [
   { match: /spell|storm|magecraft|prowess|cantrip/, deltas: { [ROLE_DRAW]: 2, [ROLE_REMOVAL]: 1 } },
   { match: /control|tempo/, deltas: { [ROLE_REMOVAL]: 2, [ROLE_DRAW]: 1, [ROLE_WIPE]: 1 } },
   { match: /\bcombo\b/, deltas: { [ROLE_DRAW]: 2, [ROLE_PROTECTION]: 1, [ROLE_REMOVAL]: 1 } },
+  { match: /extra.?turn/, deltas: { [ROLE_DRAW]: 1, [ROLE_PROTECTION]: 1 } }, // chain-and-protect finish
+  { match: /extra.?combat|forced.?combat/, deltas: { [ROLE_PROTECTION]: 1, [ROLE_WIPE]: -1 } }, // aggro/voltron finisher
   { match: /infect|poison|toxic/, deltas: { [ROLE_PROTECTION]: 2, [ROLE_WIPE]: -1 } },
   { match: /group.?hug|politics|pillow.?fort|\bhug\b/, deltas: { [ROLE_WIPE]: 1, [ROLE_PROTECTION]: 1, [ROLE_DRAW]: 1 } },
+  { match: /\bburn\b|group.?slug|\bpinger|\bpunish/, deltas: { [ROLE_REMOVAL]: 1, [ROLE_WIPE]: -1 } }, // direct damage doubles as reach
   { match: /reanimat|graveyard|recursion|self.?mill|dredge/, deltas: { [ROLE_DRAW]: 1 } },
   { match: /\bmill\b/, deltas: { [ROLE_REMOVAL]: 1, [ROLE_DRAW]: 1 } },
   { match: /blink|flicker/, deltas: { [ROLE_DRAW]: 1, [ROLE_REMOVAL]: 1 } },
   { match: /wheel/, deltas: { [ROLE_DRAW]: 2 } },
+  { match: /monarch/, deltas: { [ROLE_DRAW]: 1, [ROLE_REMOVAL]: 1 } }, // draw engine you must defend
   { match: /theft|\bsteal|\bthief|mind.?control|\bthievery/, deltas: { [ROLE_REMOVAL]: 1 } },
   { match: /land|landfall/, deltas: { [ROLE_LANDS]: 2, [ROLE_RAMP]: 1 } },
-  { match: /big.?mana|eldrazi|cheat|\bpolymorph|\bramp\b/, deltas: { [ROLE_RAMP]: 2, [ROLE_LANDS]: 1 } },
+  { match: /big.?mana|eldrazi|cheat|\bpolymorph|\bramp\b|stompy/, deltas: { [ROLE_RAMP]: 2, [ROLE_LANDS]: 1 } },
   { match: /cascade/, deltas: { [ROLE_DRAW]: 1, [ROLE_RAMP]: 1 } },
   { match: /artifact|affinity|\bthopter|treasure/, deltas: { [ROLE_RAMP]: 1, [ROLE_DRAW]: 1 } },
-  { match: /token|\bgo.?wide\b|swarm/, deltas: { [ROLE_REMOVAL]: -1, [ROLE_WIPE]: -1 } },
+  { match: /token|\bgo.?wide\b|swarm|weenie|\banthem|populate/, deltas: { [ROLE_REMOVAL]: -1, [ROLE_WIPE]: -1 } },
   { match: /tribal|typal|\belves?\b|\bgoblins?\b|\bzombies?\b|\bdragons?\b|\bvampires?\b|\bslivers?\b|\bmerfolk\b|\bwarriors?\b|\bwizards?\b|\bknights?\b|\bcats?\b|\bdinosaur|\bhumans?\b|\bangels?\b|\bdemons?\b/, deltas: { [ROLE_REMOVAL]: -1, [ROLE_WIPE]: -1 } },
   { match: /sacrifice|aristocrat|\bblood\b|morbid|\bdeath/, deltas: { [ROLE_REMOVAL]: -1 } },
   { match: /\bcounters?\b|\+1\/\+1|proliferate/, deltas: { [ROLE_DRAW]: 1, [ROLE_WIPE]: -1 } },
   { match: /stax|hatebear|\btax(es)?\b|prison|discard/, deltas: { [ROLE_RAMP]: 1 } },
   { match: /devotion/, deltas: { [ROLE_RAMP]: 1 } },
   { match: /lifegain|life.?gain|life.?drain/, deltas: { [ROLE_WIPE]: -1 } },
-  { match: /aggro|aggression|\bhaste\b|\bblitz\b/, deltas: { [ROLE_LANDS]: -1, [ROLE_RAMP]: -1 } },
+  { match: /aggro|aggression|\bhaste\b|\bblitz\b|\bzoo\b/, deltas: { [ROLE_LANDS]: -1, [ROLE_RAMP]: -1 } },
 ]
 
 // Returns the quota delta map for a theme slug ({} when no rule matches / balanced).

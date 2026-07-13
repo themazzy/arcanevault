@@ -706,6 +706,41 @@ describe('archetypeAdjustments', () => {
     expect(archetypeAdjustments('big-mana')[ROLE_RAMP]).toBe(2)
   })
 
+  it('covers the newly-audited strategic shapes', () => {
+    // Direct-damage family — removal doubles as reach, fewer wipes
+    const burn = archetypeAdjustments('burn')
+    expect(burn[ROLE_REMOVAL]).toBe(1)
+    expect(burn[ROLE_WIPE]).toBe(-1)
+    expect(archetypeAdjustments('group-slug')[ROLE_REMOVAL]).toBe(1)
+    expect(archetypeAdjustments('pingers')[ROLE_REMOVAL]).toBe(1)
+    // Monarch — draw engine you must defend
+    const mon = archetypeAdjustments('monarch')
+    expect(mon[ROLE_DRAW]).toBe(1)
+    expect(mon[ROLE_REMOVAL]).toBe(1)
+    // Extra turns — chain-and-protect finish
+    const turns = archetypeAdjustments('extra-turns')
+    expect(turns[ROLE_DRAW]).toBe(1)
+    expect(turns[ROLE_PROTECTION]).toBe(1)
+    // Extra combats — aggro/voltron finisher
+    const combats = archetypeAdjustments('extra-combats')
+    expect(combats[ROLE_PROTECTION]).toBe(1)
+    expect(combats[ROLE_WIPE]).toBe(-1)
+  })
+
+  it('folds named themes into existing families', () => {
+    expect(archetypeAdjustments('stompy')[ROLE_RAMP]).toBe(2)   // → big-mana
+    expect(archetypeAdjustments('zoo')[ROLE_LANDS]).toBe(-1)    // → aggro
+    expect(archetypeAdjustments('weenies')[ROLE_WIPE]).toBe(-1) // → go-wide/token
+    expect(archetypeAdjustments('anthems')[ROLE_REMOVAL]).toBe(-1)
+    expect(archetypeAdjustments('populate')[ROLE_WIPE]).toBe(-1)
+  })
+
+  it('group-slug does not collide with the group-hug rule', () => {
+    // group-hug adds +1 wipe (defensive); group-slug must NOT — it's a damage plan
+    expect(archetypeAdjustments('group-hug')[ROLE_WIPE]).toBe(1)
+    expect(archetypeAdjustments('group-slug')[ROLE_WIPE]).toBe(-1)
+  })
+
   it('classifies enchantress as a draw engine, not voltron', () => {
     const e = archetypeAdjustments('enchantress')
     expect(e[ROLE_DRAW]).toBe(2)
