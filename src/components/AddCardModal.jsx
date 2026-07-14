@@ -9,6 +9,8 @@ import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints
 import { toOwnedCardRow, toListItemRow, mergeNonNull } from '../lib/deckBuilderWrites'
 import { removeAcquiredFromWishlists } from '../lib/wishlistSync'
 import { searchCardNames, fetchPrintingsByName } from '../lib/cardSearch'
+import { getDiscardDialogModel } from '../lib/addCardDiscard'
+import { scheduleInitialCardSelection } from '../lib/initialCardSelection'
 import styles from './AddCardModal.module.css'
 import uiStyles from './UI.module.css'
 
@@ -175,16 +177,22 @@ export default function AddCardModal({
   // through Modal's single onClose prop) with an always-on confirm — every
   // attempt to close this way prompts, even on a completely untouched modal,
   // so an accidental dismissal can never silently drop in-progress work.
-  // Refs (not state) since AddFlow reports on every change and we only need
-  // the latest value at the moment the user tries to close.
-  const [confirmDiscard, setConfirmDiscard] = useState(false)
+  // Refs receive AddFlow's frequent progress reports without rerendering the
+  // modal. A close attempt snapshots them into state for stable dialog copy.
+  const [discardSnapshot, setDiscardSnapshot] = useState(null)
   const queueCountRef = useRef(0)
   const hasProgressRef = useRef(false)
-  const requestClose = () => setConfirmDiscard(true)
+  const requestClose = useCallback(() => {
+    setDiscardSnapshot({
+      queueCount: queueCountRef.current,
+      hasProgress: hasProgressRef.current,
+    })
+  }, [])
   const handleProgressChange = useCallback((queueCount, hasProgress) => {
     queueCountRef.current = queueCount
     hasProgressRef.current = hasProgress
   }, [])
+  const discardDialog = discardSnapshot ? getDiscardDialogModel(discardSnapshot) : null
 
   return (
     <>
@@ -197,25 +205,19 @@ export default function AddCardModal({
               onProgressChange={handleProgressChange} />
         }
       </Modal>
-      {confirmDiscard && (
-        <div className={styles.discardOverlay} onClick={() => setConfirmDiscard(false)}>
+      {discardDialog && (
+        <div className={styles.discardOverlay} onClick={() => setDiscardSnapshot(null)}>
           <div className={styles.discardDialog} onClick={e => e.stopPropagation()}>
-            <p className={styles.discardMsg}>
-              {queueCountRef.current > 0
-                ? `Discard ${queueCountRef.current} queued card${queueCountRef.current !== 1 ? 's' : ''}? This can't be undone.`
-                : hasProgressRef.current
-                  ? "Discard your in-progress card? This can't be undone."
-                  : 'Close without adding a card?'}
-            </p>
+            <p className={styles.discardMsg}>{discardDialog.message}</p>
             <div className={styles.discardActions}>
-              <Button variant="ghost" onClick={() => setConfirmDiscard(false)}>
-                {queueCountRef.current > 0 || hasProgressRef.current ? 'Keep editing' : 'Cancel'}
+              <Button variant="ghost" onClick={() => setDiscardSnapshot(null)}>
+                {discardDialog.keepLabel}
               </Button>
               <Button
-                variant={queueCountRef.current > 0 || hasProgressRef.current ? 'danger' : 'default'}
-                onClick={() => { setConfirmDiscard(false); onClose() }}
+                variant={discardDialog.discardVariant}
+                onClick={() => { setDiscardSnapshot(null); onClose() }}
               >
-                {queueCountRef.current > 0 ? 'Discard queue' : hasProgressRef.current ? 'Discard' : 'Close'}
+                {discardDialog.discardLabel}
               </Button>
             </div>
           </div>
@@ -298,12 +300,6 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
     if (f) setFolderSearch(f.name)
   }, [folderMode, defaultFolderId, folders])
 
-  // Pre-fill card from the standalone scanner: auto-search on mount
-  useEffect(() => {
-    if (initialCardName) selectCard(initialCardName)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
   // Close suggestions on outside click
   useEffect(() => {
     const handler = e => {
@@ -356,6 +352,12 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
     } catch {}
     setLoadingPrintings(false)
   }
+
+  // Pre-fill card from the standalone scanner: auto-search on mount
+  useEffect(() => {
+    return scheduleInitialCardSelection(initialCardName, selectCard)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const choosePrinting = (p) => {
     setSelectedPrinting(p)

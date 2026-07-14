@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { getDbStats, clearScryfallStore } from '../lib/db'
 import { clearScryfallCache, clearAllScryfallCache } from '../lib/scryfall'
 import { SyncIcon } from '../icons'
+import { useNow } from '../hooks/useNow'
 import styles from './CacheDebug.module.css'
 
 function Row({ label, value, ok, warn }) {
@@ -15,6 +16,7 @@ function Row({ label, value, ok, warn }) {
 }
 
 export default function CacheDebug() {
+  const now = useNow(60000)
   const [open, setOpen]   = useState(false)
   const [stats, setStats] = useState(null)
   const [msg, setMsg]     = useState('')
@@ -41,7 +43,7 @@ export default function CacheDebug() {
   }
 
   const ageLabel = stats?.sfUpdatedAt
-    ? `${(( Date.now() - stats.sfUpdatedAt) / 3600000).toFixed(1)}h ago`
+    ? `${((now - stats.sfUpdatedAt) / 3600000).toFixed(1)}h ago`
     : 'Never cached'
 
   return (

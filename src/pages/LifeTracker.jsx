@@ -10,6 +10,7 @@ import { buildLifeChange } from '../lib/lifeChange'
 import styles from './LifeTracker.module.css'
 import { CheckIcon, CloseIcon, CopyIcon, EditIcon, SyncIcon, ChevronDownIcon, ChevronUpIcon, SettingsIcon } from '../icons'
 import { Select } from '../components/UI'
+import { useNow } from '../hooks/useNow'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const SESSION_KEY = 'av_life_tracker'
@@ -397,7 +398,7 @@ function ArtPicker({ onSelect, onClear, onClose, rotation = 0 }) {
 
 // ── Unified Game Log Overlay ───────────────────────────────────────────────────
 function GameLogOverlay({ events, onClose }) {
-  const now = Date.now()
+  const now = useNow()
   const fmtTime = (ts) => {
     const s = Math.floor((now - ts) / 1000)
     if (s < 5)  return 'just now'

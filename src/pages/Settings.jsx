@@ -14,6 +14,7 @@ import { Button, SectionHeader, Select as UISelect } from '../components/UI'
 import { SearchIcon, CloseIcon } from '../icons'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './Settings.module.css'
+import { useNow } from '../hooks/useNow'
 
 const APP_VERSION = __APP_VERSION__
 const CLEAR_BATCH_SIZE = 100
@@ -920,6 +921,7 @@ function BackupRestore({ userId }) {
 }
 
 export default function SettingsPage() {
+  const now = useNow(60000)
   const { user } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -976,7 +978,7 @@ export default function SettingsPage() {
   }
 
   const lastSyncAge = settings.lastSyncedAt
-    ? formatAge(Date.now() - new Date(settings.lastSyncedAt).getTime())
+    ? formatAge(now - new Date(settings.lastSyncedAt).getTime())
     : null
   const syncStatusLabel = settings.syncState === 'syncing' ? 'Syncing'
     : settings.syncState === 'saved' ? 'Synced'

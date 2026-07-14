@@ -40,6 +40,7 @@ import { queryClient } from '../lib/queryClient'
 import { invalidateOwnedCollectionQueries, invalidateWishlistQueries } from '../lib/queryInvalidation'
 import { formatPriceMeta, getPriceWithMeta, sfGet } from '../lib/scryfall'
 import { searchCardNames, fetchPrintingsByName } from '../lib/cardSearch'
+import { isCurrentManualSearchRequest } from './manualSearchRequest'
 import { sb } from '../lib/supabase'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
 import { toOwnedCardRow, toListItemRow, mergeNonNull } from '../lib/deckBuilderWrites'
@@ -1169,14 +1170,25 @@ export default function CardScanner({ onMatch, onClose }) {
         // Scryfall fallback inside the helper — both paths keep the
         // exact-match-first ordering that used to need sortByNameRelevance.
         const cards = await searchCardNames(q, { limit: 20 })
-        if (!mountedRef.current || manualSearchRequestRef.current !== requestId) return
+        if (!isCurrentManualSearchRequest({
+          mounted: mountedRef.current,
+          activeRequestId: manualSearchRequestRef.current,
+          requestId,
+        })) return
         setManualSearchResults(cards)
       } catch {
-        if (!mountedRef.current || manualSearchRequestRef.current !== requestId) return
+        if (!isCurrentManualSearchRequest({
+          mounted: mountedRef.current,
+          activeRequestId: manualSearchRequestRef.current,
+          requestId,
+        })) return
         setManualSearchResults([])
       } finally {
-        if (!mountedRef.current || manualSearchRequestRef.current !== requestId) return
-        setManualSearchLoading(false)
+        if (isCurrentManualSearchRequest({
+          mounted: mountedRef.current,
+          activeRequestId: manualSearchRequestRef.current,
+          requestId,
+        })) setManualSearchLoading(false)
       }
     }, 250)
 

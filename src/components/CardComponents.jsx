@@ -1497,6 +1497,25 @@ function SetDropdown({ sets, selected, onChange }) {
 }
 
 // ── FilterBar ─────────────────────────────────────────────────────────────────
+function FilterChevron({ open = false }) {
+  return (
+    <svg
+      className={`${styles.filterChevron}${open ? ` ${styles.filterChevronOpen}` : ''}`}
+      width="10"
+      height="10"
+      viewBox="0 0 10 10"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <polyline points="2,3 5,6.5 8,3" />
+    </svg>
+  )
+}
+
 export function FilterBar({
   search, setSearch, sort, setSort,
   filters, setFilters,
@@ -1537,23 +1556,6 @@ export function FilterBar({
   ]
   const lookupSortOptions = sortOptions.filter(([v]) => !['pl_desc', 'pl_asc', 'qty', 'added'].includes(v))
   const visibleSortOptions = mode === 'lookup' ? lookupSortOptions : sortOptions
-  const Chevron = ({ open = false }) => (
-    <svg
-      className={`${styles.filterChevron}${open ? ` ${styles.filterChevronOpen}` : ''}`}
-      width="10"
-      height="10"
-      viewBox="0 0 10 10"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <polyline points="2,3 5,6.5 8,3" />
-    </svg>
-  )
-
   return (
     <div className={styles.filterWrap}>
       <div className={`${styles.filterBar}${mode === 'lookup' ? ' ' + styles.filterBarLookup : ''}`}>
@@ -1589,7 +1591,7 @@ export function FilterBar({
             trigger={({ open, toggle }) => (
               <button className={styles.filterSortBtn} onClick={toggle}>
                 <span>Sort</span>
-                <Chevron open={open} />
+                <FilterChevron open={open} />
               </button>
             )}
           >
@@ -1613,7 +1615,7 @@ export function FilterBar({
             onClick={() => setOpen(!open)}
           >
             <span>{activeCount > 0 ? `Filters (${activeCount})` : 'Filters'}</span>
-            <Chevron open={open} />
+            <FilterChevron open={open} />
           </button>
         </div>
         <div className={`${styles.filterBarActions}${hideActionsMobile ? ' ' + styles.filterBarActionsHideMobile : ''}`}>
