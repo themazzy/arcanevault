@@ -27,6 +27,7 @@ import { queryClient } from '../lib/queryClient'
 import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
 import { toDeckCardRow } from '../lib/deckBuilderWrites'
 import { CAT_ORDER, CAT_COLORS, getCardCategoryFromCard } from '../lib/cardCategory'
+import { boardForCard } from '../lib/attractions'
 
 const CAN_HOVER = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover) and (pointer: fine)').matches
 
@@ -755,7 +756,7 @@ export default function DeckBrowser({ folder, onBack }) {
             qty: row.qty || 1,
             foil: row.foil ?? false,
             is_commander: false,
-            board: 'main',
+            board: boardForCard(row, null, row.board || 'main'),
             created_at: now,
             updated_at: now,
           }))

@@ -25,15 +25,17 @@ export const FOLDER_TAG_BORDER = {
   list: 'rgba(100,180,100,0.3)',
 }
 
-export const BOARD_ORDER = ['main', 'side', 'maybe']
+export const BOARD_ORDER = ['main', 'attraction', 'side', 'maybe']
 export const BOARD_LABELS = {
   main: 'Mainboard',
+  attraction: 'Attraction Deck',
   side: 'Sideboard',
   maybe: 'Maybeboard',
 }
 export const BOARD_FILTERS = [
   { id: 'all', label: 'All' },
   { id: 'main', label: 'Main' },
+  { id: 'attraction', label: 'Attractions' },
   { id: 'side', label: 'Side' },
   { id: 'maybe', label: 'Maybe' },
 ]

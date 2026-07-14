@@ -47,6 +47,7 @@ import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { useSettings } from '../components/SettingsContext'
 import styles from './CardScanner.module.css'
 import { playMatchSound } from './scanSounds'
+import { formatAttractionLights } from '../lib/attractions'
 
 const MATCH_THRESHOLD        = 122
 const MATCH_MIN_GAP          = 8
@@ -1053,7 +1054,7 @@ export default function CardScanner({ onMatch, onClose }) {
       const strip = await visionClient.getCollectorStrip()
       if (!strip) return
       // Lazy import: tesseract.js + its wasm only load on first accepted scan.
-      const { recognizeCollectorStrip, expandSetCandidates } = await import('./collectorOcr')
+      const { recognizeCollectorStrip, expandSetCandidates, isCollectorSuffixVariant } = await import('./collectorOcr')
       const ocr = await recognizeCollectorStrip(strip)
       if (!ocr || !mountedRef.current) return
 
@@ -1074,9 +1075,12 @@ export default function CardScanner({ onMatch, onClose }) {
         }
         // First pack-validated candidate decides — weaker candidates are noise.
         const matchFamily = String(match.setCode || '').toLowerCase().replace(/^p/, '')
+        const resolvedFamily = String(resolved?.setCode || '').toLowerCase().replace(/^p/, '')
+        const exactSuffixVariant = resolvedFamily === matchFamily &&
+          isCollectorSuffixVariant(match.collNum, resolved?.collNum)
         if (resolved &&
             normalizeName(resolved.name) === normalizeName(match.name) &&
-            resolved.setCode.replace(/^p/, '') !== matchFamily) {
+            (resolvedFamily !== matchFamily || exactSuffixVariant)) {
           patch.id = resolved.id
           patch.setCode = resolved.setCode
           patch.collNum = resolved.collNum
@@ -2367,7 +2371,7 @@ export default function CardScanner({ onMatch, onClose }) {
                   {img && <img src={img} className={styles.printingCardImg} alt={sf.name} />}
                   <div className={styles.printingCardLabel}>
                     {setIcon && <img src={setIcon} alt="" className={styles.printingCardSetIcon} />}
-                    <span>{sf.set?.toUpperCase()} #{sf.collector_number}{sf.released_at ? ` · ${sf.released_at.slice(0, 4)}` : ''}</span>
+                    <span>{sf.set?.toUpperCase()} #{sf.collector_number}{formatAttractionLights(sf) ? ` · Lights ${formatAttractionLights(sf)}` : ''}{sf.released_at ? ` · ${sf.released_at.slice(0, 4)}` : ''}</span>
                   </div>
                   <div className={styles.printingCardPrice}>
                     {activePriceMeta ? formatPriceMeta(activePriceMeta) : '—'}

@@ -40,7 +40,7 @@ const CARD_PRINT_SELECT_COLUMNS = [
   'image_uri', 'art_crop_uri',
   'rarity', 'set_name', 'artist',
   'power', 'toughness', 'produced_mana', 'keywords', 'colors',
-  'card_faces', 'oracle_text',
+  'card_faces', 'oracle_text', 'attraction_lights',
 ].join(',')
 
 // Oracle text is capped to keep the shared card_prints dictionary bounded; the
@@ -87,6 +87,7 @@ export function buildCardPrintPayload(card) {
     keywords:      card.keywords || [],
     colors:        card.colors || [],
     card_faces:    slimCardFaces(card.card_faces),
+    attraction_lights: Array.isArray(card.attraction_lights) ? card.attraction_lights : null,
   }
 }
 
@@ -250,6 +251,7 @@ export function cardPrintRowToSfEntry(row) {
     image_uris: hasImage ? { normal, art_crop: artCrop } : null,
     mana_cost:  row.mana_cost || null,
     card_faces: Array.isArray(row.card_faces) ? row.card_faces : null,
+    attraction_lights: Array.isArray(row.attraction_lights) ? row.attraction_lights : null,
     source: 'card_prints',
   }
 }

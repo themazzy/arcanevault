@@ -6,6 +6,7 @@ import { normalizeBoard, canBeCommander } from '../../lib/deckBuilderHelpers'
 import { isOathbreaker, isSignatureSpell } from '../../lib/commandZone'
 import { getScryfallKey } from '../../lib/scryfall'
 import { consumeLongPressClick } from '../../lib/touchContextMenu'
+import { formatAttractionLights, isAttractionCard } from '../../lib/attractions'
 import styles from '../../pages/DeckBuilder.module.css'
 import uiStyles from '../UI.module.css'
 
@@ -25,8 +26,10 @@ export function DeckCardActionsMenuBody({
   builderSfMap = {},
 }) {
   const currentBoard = normalizeBoard(dc.board)
-  const boardOptions = BOARD_ORDER.filter(board => board !== currentBoard && !(dc.is_commander && board !== 'main'))
   const sf = dc.set_code && dc.collector_number ? builderSfMap[getScryfallKey(dc)] || null : null
+  const attraction = isAttractionCard(dc, sf)
+  const allowedBoards = attraction ? ['attraction', 'maybe'] : ['main', 'side', 'maybe']
+  const boardOptions = BOARD_ORDER.filter(board => allowedBoards.includes(board) && board !== currentBoard && !(dc.is_commander && board !== 'main'))
   // Oathbreaker uses the same command-zone slots but accepts a planeswalker
   // (the Oathbreaker) and an instant/sorcery (the Signature Spell).
   const isOath = formatId === 'oathbreaker'
@@ -41,7 +44,7 @@ export function DeckCardActionsMenuBody({
           <span>{unsetLabel}</span>
         </button>
       )}
-      {isEDH && !dc.is_commander && canLead && (
+      {isEDH && !dc.is_commander && !attraction && canLead && (
         <button className={uiStyles.responsiveMenuAction} onClick={() => { onSetCommander(dc, true); close() }}>
           <span>{setLabel}</span>
         </button>
@@ -120,12 +123,28 @@ export function DeckCardRow({
   onChangeQty, onRemove, onMouseEnter, onMouseLeave, onMouseMove, onContextMenu, touchContextMenuHandlers, onDragStart,
   onPickVersion, onToggleFoil, onSetCommander, onMoveBoard, onOpenCategoryPicker, isEDH, formatId,
   visibleColumns, listGridTemplate, priceLabel, onOpenDetail, legalityWarnings = [],
+  isWarningTarget = false,
   listGridMinWidth,
   builderSfMap = {},
 }) {
-  const setLabel = dc.set_code ? `${String(dc.set_code).toUpperCase()}${dc.collector_number ? ` #${dc.collector_number}` : ''}` : '-'
+  const sf = dc.set_code && dc.collector_number ? builderSfMap[getScryfallKey(dc)] || null : null
+  const lights = formatAttractionLights(dc, sf)
+  const setLabel = dc.set_code ? `${String(dc.set_code).toUpperCase()}${dc.collector_number ? ` #${dc.collector_number}` : ''}${lights ? ` · Lights ${lights}` : ''}` : '-'
+  const attractionQtyLocked = normalizeBoard(dc.board) === 'attraction' && dc.qty >= 1
   return (
-    <div className={`${styles.deckCardRow}${dc.is_commander ? ' ' + styles.isCommander : ''}${legalityWarnings.length ? ' ' + styles.deckCardIllegal : ''}`} title={(legalityWarnings.map(w => w.text).join('\n')) || undefined} style={{ '--deck-list-columns': listGridTemplate, '--deck-list-min-width': listGridMinWidth }} onContextMenu={onContextMenu} {...(touchContextMenuHandlers || {})} draggable onDragStart={onDragStart}>
+    <div
+      className={`${styles.deckCardRow}${dc.is_commander ? ' ' + styles.isCommander : ''}${legalityWarnings.length ? ' ' + styles.deckCardIllegal : ''}${isWarningTarget ? ' ' + styles.warningCardTarget : ''}`}
+      data-deck-card-id={dc.id}
+      tabIndex={-1}
+      role="group"
+      aria-label={`Deck card ${dc.name}`}
+      title={(legalityWarnings.map(w => w.text).join('\n')) || undefined}
+      style={{ '--deck-list-columns': listGridTemplate, '--deck-list-min-width': listGridMinWidth }}
+      onContextMenu={onContextMenu}
+      {...(touchContextMenuHandlers || {})}
+      draggable
+      onDragStart={onDragStart}
+    >
       <div className={styles.deckCardLeft} style={{ cursor: 'pointer' }} onClick={(e) => { if (consumeLongPressClick(e)) return; onOpenDetail?.(dc) }}>
         {dc.image_uri
           ? <img className={styles.deckThumb} src={dc.image_uri} alt="" loading="lazy" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove} />
@@ -148,7 +167,7 @@ export function DeckCardRow({
         <div className={styles.qtyControls}>
           <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, -1)}>-</button>
           <span className={styles.qtyVal}>{dc.qty}</span>
-          <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, +1)}>+</button>
+          <button className={styles.qtyBtn} disabled={attractionQtyLocked} title={attractionQtyLocked ? 'Constructed Attraction decks allow one card of each English name.' : undefined} onClick={() => onChangeQty(dc.id, +1)}>+</button>
         </div>
       )}
       {visibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} formatId={formatId} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} onOpenCategoryPicker={onOpenCategoryPicker} builderSfMap={builderSfMap} />}

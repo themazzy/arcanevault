@@ -67,6 +67,14 @@ describe('renderDecklistText', () => {
     )
   })
 
+  it('renders Attractions in their own supplementary section', () => {
+    const text = renderDecklistText([
+      row('Mountain', { qty: 20 }),
+      row('Balloon Stand', { board: 'attraction' }),
+    ])
+    expect(text).toBe('20 Mountain\n\n// Attractions\n1 Balloon Stand\n')
+  })
+
   it('tolerates malformed rows and empty input', () => {
     expect(renderDecklistText([])).toBe('\n')
     expect(renderDecklistText(null)).toBe('\n')

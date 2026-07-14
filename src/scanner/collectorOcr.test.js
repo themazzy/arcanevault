@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseCollectorLine, normalizeCollectorNumber, expandSetCandidates } from './collectorOcr.js'
+import { parseCollectorLine, normalizeCollectorNumber, expandSetCandidates, isCollectorSuffixVariant } from './collectorOcr.js'
 import { encodeHashPack, HashPackStore } from './hashPack.js'
 import { makeCards } from './hashPack.test.js'
 
@@ -15,6 +15,13 @@ describe('normalizeCollectorNumber', () => {
 })
 
 describe('parseCollectorLine', () => {
+  it('preserves Attraction collector suffixes', () => {
+    const parsed = parseCollectorLine('0200D\nUNF · EN')
+    expect(parsed.collCandidates).toContain('200d')
+    expect(isCollectorSuffixVariant('200a', '200d')).toBe(true)
+    expect(isCollectorSuffixVariant('200a', '201a')).toBe(false)
+  })
+
   // Raw texts below are real Tesseract outputs from the harness runs.
   it('parses the modern zero-padded layout', () => {
     const p = parseCollectorLine('U 0061\nTMT • EN Justyna Dura')

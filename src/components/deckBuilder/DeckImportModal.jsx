@@ -4,6 +4,7 @@ import { normalizeImportedDeckCards, parseImportText, resolveImportEntries, summ
 import { getDeckBuilderCardMeta, importDeckFromUrl } from '../../lib/deckBuilderApi'
 import { BOARD_ORDER, BOARD_LABELS } from '../../lib/deckBuilderConstants'
 import { normalizeBoard } from '../../lib/deckBuilderHelpers'
+import { boardForCard } from '../../lib/attractions'
 import { toDeckCardRow, requireCardPrintIds } from '../../lib/deckBuilderWrites'
 import { putDeckCards } from '../../lib/db'
 import { CheckIcon, CloseIcon, WarningIcon } from '../../icons'
@@ -145,7 +146,7 @@ export default function DeckImportModal({
           qty:              entry.qty,
           foil:             entry.foil ?? false,
           is_commander:     isCmd,
-          board:            isCmd ? 'main' : normalizeBoard(entry.board),
+          board:            isCmd ? 'main' : boardForCard({ type_line: meta.type_line }, sf, normalizeBoard(entry.board)),
           created_at:       now,
           updated_at:       now,
         })
@@ -268,14 +269,14 @@ export default function DeckImportModal({
           {importTab === 'text' && (
             <div className={styles.pane}>
               <p className={styles.hint}>
-                Paste a decklist in standard format. Supports <code>Commander:</code>, <code>Sideboard:</code>, and <code>Maybeboard:</code> sections.
+                Paste a decklist in standard format. Supports <code>Commander:</code>, <code>Attractions:</code>, <code>Sideboard:</code>, and <code>Maybeboard:</code> sections.
               </p>
               <textarea
                 autoFocus
                 className={styles.textarea}
                 value={importText}
                 onChange={e => setImportText(e.target.value)}
-                placeholder={"Commander:\n1 Sheoldred, the Apocalypse\n\nDeck:\n1 Sol Ring\n1 Swamp\n\nSideboard:\n1 Duress\n\nMaybeboard:\n1 Bitterblossom"}
+                placeholder={"Commander:\n1 Myra the Magnificent\n\nDeck:\n1 Sol Ring\n1 Island\n\nAttractions:\n1 Balloon Stand (UNF) 200d\n\nMaybeboard:\n1 Storybook Ride"}
                 rows={10}
               />
             </div>

@@ -59,7 +59,7 @@ export function cardsToText(cards, sfMap = {}, { includeFoilIndicator = true } =
   }).join('\n')
 }
 
-// Board helpers (deck cards carry board: 'main' | 'side' | 'maybe' and is_commander).
+// Board helpers (deck cards carry board: main/attraction/side/maybe and is_commander).
 const cardName = (c, sfMap) =>
   c.name || (sfMap[`${c.set_code}-${c.collector_number}`] || {}).name || 'Unknown'
 const cardQty = c => c._folder_qty ?? c.qty ?? 1
@@ -70,7 +70,7 @@ const boardOf = c => {
 
 /**
  * MTG Arena import format:  "1 Lightning Bolt (M10) 146"
- * Sections: Commander / Deck / Sideboard. The "maybe" board is excluded.
+ * Sections: Commander / Deck / Attractions / Sideboard. The "maybe" board is excluded.
  * Falls back to "<qty> <name>" when a card has no set/collector number.
  */
 export function cardsToArena(cards, sfMap = {}) {
@@ -80,11 +80,13 @@ export function cardsToArena(cards, sfMap = {}) {
   }
   const commander = cards.filter(c => c.is_commander)
   const main = cards.filter(c => !c.is_commander && boardOf(c) === 'main')
+  const attractions = cards.filter(c => !c.is_commander && boardOf(c) === 'attraction')
   const side = cards.filter(c => !c.is_commander && boardOf(c) === 'side')
 
   const blocks = []
   if (commander.length) blocks.push(['Commander', commander])
   blocks.push(['Deck', main])
+  if (attractions.length) blocks.push(['Attractions', attractions])
   if (side.length) blocks.push(['Sideboard', side])
 
   return blocks
@@ -98,10 +100,11 @@ const escXml = s => String(s ?? '').replace(/[<>&"']/g, ch =>
 
 /**
  * Magic Online ".dek" XML. Commander + main go in the deck; the "side" board
- * becomes Sideboard="true". The "maybe" board is excluded.
+ * becomes Sideboard="true". Maybeboard and Attractions are excluded because
+ * Magic Online has no Attraction-deck zone.
  */
 export function cardsToMtgoDek(cards, sfMap = {}) {
-  const playable = cards.filter(c => c.is_commander || boardOf(c) !== 'maybe')
+  const playable = cards.filter(c => c.is_commander || !['maybe', 'attraction'].includes(boardOf(c)))
   const row = c =>
     `  <Cards CatID="0" Quantity="${cardQty(c)}" Sideboard="${!c.is_commander && boardOf(c) === 'side' ? 'true' : 'false'}" Name="${escXml(cardName(c, sfMap))}" />`
   return [

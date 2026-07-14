@@ -1,5 +1,6 @@
 ﻿import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { formatAttractionLights } from '../lib/attractions'
 import { getImageUri, getPrice, formatPrice, getPriceSource, getScryfallKey } from '../lib/scryfall'
 import { Modal, Badge, ResponsiveMenu, Select } from './UI'
 import styles from './CardComponents.module.css'
@@ -537,6 +538,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, deleteQty 
   }, [activeTab, card.scryfall_id, card.set_code, card.collector_number, rulings])
 
   const fc = fullCard || sfCard || {}
+  const attractionLights = formatAttractionLights(card, fc)
   const faces = fc.card_faces || null
   const hasFaces = Array.isArray(faces) && faces.length > 1
   const displayFace = hasFaces ? (faces[face] || fc) : fc
@@ -809,6 +811,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, deleteQty 
               <div className={styles.infoGrid}>
                 {typeLine && <div className={styles.infoCell}><span className={styles.infoLabel}>Type</span><span className={styles.infoVal}>{typeLine}</span></div>}
                 {fc.rarity && <div className={styles.infoCell}><span className={styles.infoLabel}>Rarity</span><span className={styles.infoVal} style={{ textTransform: 'capitalize' }}>{fc.rarity}</span></div>}
+                {attractionLights && <div className={styles.infoCell}><span className={styles.infoLabel}>Lit Numbers</span><span className={styles.infoVal}>{attractionLights}</span></div>}
                 {fc.cmc != null && <div className={styles.infoCell}><span className={styles.infoLabel}>Mana Value</span><span className={styles.infoVal}>{fc.cmc}</span></div>}
                 {(fc.power != null || faces?.[0]?.power != null) && (
                   <div className={styles.infoCell}>
@@ -1048,7 +1051,7 @@ export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, deleteQty 
                                 </div>
                                 <div className={styles.printingCardLabel}>
                                   <span className={styles.printingCardSet}>{p.set_name}</span>
-                                  <span className={styles.printingCardMeta}>{(p.set || '').toUpperCase()} #{p.collector_number}{p.lang && p.lang !== 'en' ? ` · ${p.lang.toUpperCase()}` : ''}</span>
+                                  <span className={styles.printingCardMeta}>{(p.set || '').toUpperCase()} #{p.collector_number}{formatAttractionLights(p) ? ` · Lights ${formatAttractionLights(p)}` : ''}{p.lang && p.lang !== 'en' ? ` · ${p.lang.toUpperCase()}` : ''}</span>
                                 </div>
                               </button>
                             ))}

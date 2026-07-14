@@ -6,7 +6,7 @@
 // The endpoint exists for third-party integrations (e.g. Tabletop Simulator
 // deck importers) that cannot execute the SPA's JavaScript and therefore
 // cannot read anything from the /d/<id> page itself. Output is plain MTG
-// decklist lines (`1 Sol Ring`), with `// Sideboard` and `// Commander`
+// decklist lines (`1 Sol Ring`), with `// Attractions`, `// Sideboard`, and `// Commander`
 // section markers.
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -40,12 +40,15 @@ function mergedLines(rows) {
 export function renderDecklistText(rows) {
   const list = Array.isArray(rows) ? rows : []
   const commander = list.filter(r => r?.is_commander)
-  const main = list.filter(r => !r?.is_commander && r?.board !== 'side' && r?.board !== 'maybe')
+  const main = list.filter(r => !r?.is_commander && !['attraction', 'side', 'maybe'].includes(r?.board))
+  const attractions = list.filter(r => !r?.is_commander && r?.board === 'attraction')
   const side = list.filter(r => !r?.is_commander && r?.board === 'side')
 
   const lines = mergedLines(main)
+  const attractionLines = mergedLines(attractions)
   const sideLines = mergedLines(side)
   const commanderLines = mergedLines(commander)
+  if (attractionLines.length) lines.push('', '// Attractions', ...attractionLines)
   if (sideLines.length) lines.push('', '// Sideboard', ...sideLines)
   if (commanderLines.length) lines.push('', '// Commander', ...commanderLines)
   return lines.join('\n').trim() + '\n'

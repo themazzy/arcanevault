@@ -95,6 +95,13 @@ describe('normalizeBuilderCards', () => {
     ])
     expect(result[0].is_commander).toBe(true)
   })
+
+  it('infers the Attraction board from collection allocation metadata', () => {
+    const result = normalizeBuilderCards([
+      { card_print_id: 'cp-attraction', name: 'Balloon Stand', type_line: 'Artifact — Attraction', qty: 1 },
+    ])
+    expect(result[0].board).toBe('attraction')
+  })
 })
 
 describe('buildSyncDiff / summarizeSyncDiff', () => {

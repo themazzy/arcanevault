@@ -95,6 +95,7 @@ export function buildPrintRow(card) {
     keywords: card.keywords || [],
     colors: card.colors || [],
     card_faces: slimFaces(card.card_faces),
+    attraction_lights: Array.isArray(card.attraction_lights) ? card.attraction_lights : null,
     released_at: card.released_at || null,
     edhrec_rank: Number.isFinite(card.edhrec_rank) ? card.edhrec_rank : null,
     illustration_id: card.illustration_id || card.card_faces?.[0]?.illustration_id || null,

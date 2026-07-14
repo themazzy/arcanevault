@@ -1,5 +1,6 @@
 import { sb } from './supabase'
 import { parseDeckMeta } from './deckBuilderApi'
+import { boardForCard } from './attractions'
 
 function normalizeName(name) {
   return String(name || '').trim().toLowerCase()
@@ -123,7 +124,7 @@ export function normalizeBuilderCards(rows) {
       set_code: row.set_code || null,
       collector_number: row.collector_number || null,
       foil: !!row.foil,
-      board: row.board || 'main',
+      board: boardForCard(row, null, row.board || 'main'),
       qty: 0,
       is_commander: false,
     }
@@ -146,7 +147,7 @@ export function normalizeCollectionAllocations(rows) {
       set_code: row.set_code || null,
       collector_number: row.collector_number || null,
       foil: !!row.foil,
-      board: row.board || 'main',
+      board: boardForCard(row, null, row.board || 'main'),
       qty: 0,
       allocations: [],
     }

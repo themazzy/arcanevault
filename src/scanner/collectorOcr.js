@@ -86,7 +86,7 @@ export function parseCollectorLine(text) {
   //    (modern cards print `0123`); optional letter suffix ('23s' promos)
   for (const m of raw.matchAll(/\b0+(\d{1,3}[A-Z]?)\b/g)) pushColl(m[1])
   // 3. any remaining 2–4 digit token (skip 1-digit noise unless zero-padded)
-  for (const m of raw.matchAll(/\b(\d{2,4})[A-Z]?\b/g)) pushColl(m[1])
+  for (const m of raw.matchAll(/\b(\d{2,4}[A-Z]?)\b/g)) pushColl(m[1])
 
   return {
     setCode: setCandidates[0] ?? null,
@@ -95,6 +95,14 @@ export function parseCollectorLine(text) {
     collCandidates,
     lang,
   }
+}
+
+// Attraction light-pattern variants share their set and numeric collector
+// number; the a-d suffix is the exact physical printing identity.
+export function isCollectorSuffixVariant(a, b) {
+  const left = String(a || '').toLowerCase().match(/^(\d+)([a-z])$/)
+  const right = String(b || '').toLowerCase().match(/^(\d+)([a-z])$/)
+  return !!left && !!right && left[1] === right[1] && left[2] !== right[2]
 }
 
 /**

@@ -22,7 +22,7 @@ import { scryfallCardDetailUrls } from '../lib/cardDetailUrls'
 
 const RARITY_ORDER = ['mythic', 'rare', 'uncommon', 'common']
 const RARITY_GROUP_ORDER = ['Mythic', 'Rare', 'Uncommon', 'Common', 'Unknown']
-const BOARD_LABELS = { main: 'Mainboard', side: 'Sideboard', maybe: 'Maybeboard' }
+const BOARD_LABELS = { main: 'Mainboard', attraction: 'Attraction Deck', side: 'Sideboard', maybe: 'Maybeboard' }
 const COLOR_GROUP_ORDER = ['W', 'U', 'B', 'R', 'G', 'Multicolor', 'Colorless']
 // Deck-context order: Type/Color lead because grouping by them is the most
 // useful deck-building view. Name pair next, then numeric sorts paired
@@ -57,7 +57,7 @@ const CARD_SIZE_OPTIONS = [
 ]
 
 function normalizeBoard(board) {
-  return board === 'side' || board === 'maybe' ? board : 'main'
+  return board === 'attraction' || board === 'side' || board === 'maybe' ? board : 'main'
 }
 
 function rarityLabel(rarity) {
@@ -182,6 +182,7 @@ function CardDetailModal({ card, onClose }) {
                 <div className={styles.modalTags}>
                   {data.set_name     && <span className={styles.modalTag}>{data.set_name}</span>}
                   {data.rarity       && <span className={styles.modalTag}>{data.rarity}</span>}
+                  {data.attraction_lights?.length > 0 && <span className={styles.modalTag}>Lights {data.attraction_lights.join(', ')}</span>}
                   {face?.power != null && <span className={styles.modalTag}>{face.power}/{face.toughness}</span>}
                   {data.loyalty      && <span className={styles.modalTag}>Loyalty {data.loyalty}</span>}
                 </div>
@@ -378,14 +379,12 @@ export default function DeckViewPage() {
       const combosUrl = import.meta.env.DEV
         ? '/api/combos/find-my-combos/'
         : `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/combo-proxy`
-      const body = import.meta.env.DEV
-        ? {
-            commanders: cards.filter(c => c.is_commander).map(c => ({ card: c.name })),
-            main: cards
-              .filter(c => !c.is_commander && normalizeBoard(c.board) === 'main')
-              .map(c => ({ card: c.name })),
-          }
-        : { deck_id: id }
+      const body = {
+        commanders: cards.filter(c => c.is_commander).map(c => ({ card: c.name })),
+        main: cards
+          .filter(c => !c.is_commander && normalizeBoard(c.board) === 'main')
+          .map(c => ({ card: c.name })),
+      }
       const res = await fetch(combosUrl, {
         method: 'POST',
         headers: {
@@ -507,7 +506,9 @@ export default function DeckViewPage() {
   const builderEditId = deck?.type === 'deck' && deckMeta?.linked_builder_id ? deckMeta.linked_builder_id : id
   const format     = FORMATS.find(f => f.id === deckMeta.format)
   const bracketBadge = deckBracketBadge(deckMeta.format, deckMeta.bracket)
-  const totalCards = useMemo(() => cards.reduce((s, c) => s + c.qty, 0), [cards])
+  const totalCards = useMemo(() => cards.filter(c => normalizeBoard(c.board) === 'main').reduce((s, c) => s + c.qty, 0), [cards])
+  const allCardsTotal = useMemo(() => cards.reduce((s, c) => s + c.qty, 0), [cards])
+  const attractionCount = useMemo(() => cards.filter(c => normalizeBoard(c.board) === 'attraction').reduce((s, c) => s + c.qty, 0), [cards])
   const visibleCards = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return cards
@@ -541,7 +542,7 @@ export default function DeckViewPage() {
     if (groupBy === 'category') return categoryOrder
     if (groupBy === 'type') return TYPE_GROUPS
     if (groupBy === 'rarity') return RARITY_GROUP_ORDER
-    if (groupBy === 'board') return ['Mainboard', 'Sideboard', 'Maybeboard']
+    if (groupBy === 'board') return ['Mainboard', 'Attraction Deck', 'Sideboard', 'Maybeboard']
     if (groupBy === 'color') return COLOR_GROUP_ORDER
     if (groupBy === 'set') {
       return [...new Set(visibleCards.map(card => getSfCard(sfMap, card)?.set_name || card.set_code?.toUpperCase() || 'Unknown'))]
@@ -627,7 +628,8 @@ export default function DeckViewPage() {
   }
   const buildDecklist = useCallback(() => {
     const commander = cards.filter(c => c.is_commander)
-    const main      = cards.filter(c => !c.is_commander && c.board !== 'side' && c.board !== 'maybe')
+    const main      = cards.filter(c => !c.is_commander && normalizeBoard(c.board) === 'main')
+    const attractions = cards.filter(c => normalizeBoard(c.board) === 'attraction')
     const side      = cards.filter(c => c.board === 'side')
     const lines = []
     if (commander.length) {
@@ -637,7 +639,7 @@ export default function DeckViewPage() {
     }
     if (groupBy === 'type') {
       TYPE_GROUPS.forEach(group => {
-        const gc = groupedCards.get(group)?.filter(c => !c.is_commander && c.board !== 'side' && c.board !== 'maybe')
+        const gc = groupedCards.get(group)?.filter(c => !c.is_commander && normalizeBoard(c.board) === 'main')
         if (!gc?.length) return
         lines.push(`// ${group}`)
         sortCards(gc).forEach(c => lines.push(cardLine(c)))
@@ -649,6 +651,11 @@ export default function DeckViewPage() {
         sortCards(main).forEach(c => lines.push(cardLine(c)))
         lines.push('')
       }
+    }
+    if (attractions.length) {
+      lines.push('// Attractions')
+      sortCards(attractions).forEach(c => lines.push(cardLine(c)))
+      lines.push('')
     }
     if (side.length) {
       lines.push('// Sideboard')
@@ -752,6 +759,7 @@ export default function DeckViewPage() {
                 </span>
               )}
               <span className={styles.metaPill}>{totalCards} cards</span>
+              {attractionCount > 0 && <span className={styles.metaPill}>{attractionCount} attractions</span>}
               {totalValueFmt && <span className={`${styles.metaPill} ${styles.deckValue}`}>{totalValueFmt}</span>}
               {deckMeta.commanders?.length > 0 && (
                 <span className={styles.commanderBadge}>⚔ {deckMeta.commanders.map(c => c.name).join(' + ')}</span>
@@ -856,7 +864,7 @@ export default function DeckViewPage() {
             <div className={styles.listHeading}>
               <span className={styles.listLabel}>Decklist</span>
               <span className={styles.listCount}>
-                {visibleCards.reduce((sum, card) => sum + (card.qty || 0), 0)} / {totalCards}
+                {visibleCards.reduce((sum, card) => sum + (card.qty || 0), 0)} / {allCardsTotal}
               </span>
             </div>
             <div className={styles.listToolbar}>
@@ -1071,7 +1079,7 @@ export default function DeckViewPage() {
             <div>
               <div className={styles.sectionLabel}>Stats</div>
               <DeckStats
-                cards={normalizeDeckBuilderCards(cards, sfMap)}
+                cards={normalizeDeckBuilderCards(cards.filter(card => normalizeBoard(card.board) === 'main'), sfMap)}
                 bracketOverride={statsBracketOverride}
                 onBracketOverride={isOwner ? setStatsBracketOverride : undefined}
               />

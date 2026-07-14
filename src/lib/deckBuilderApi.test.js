@@ -18,6 +18,7 @@ import {
   fetchRecommendationMetadataByNames, recommendationMetadataRowToCard,
   pickAutomaticDeckPrinting, FORMATS, nameToSlug, getEdhrecPartnerSlugCandidates,
   fetchEdhrecCommander,
+  importFromArchidekt, importFromMoxfield,
 } from './deckBuilderApi'
 import { EDH_FORMAT_IDS } from './commanderBracket'
 import { sfGet } from './scryfall'
@@ -271,10 +272,44 @@ describe('parseTextDecklist', () => {
       expect(result[1].isCommander).toBe(false)
     })
 
+    it('preserves an Attractions section and exact suffixed collector number', () => {
+      const result = parseTextDecklist('Attractions:\n1 Balloon Stand (UNF) 200d')
+      expect(result[0]).toMatchObject({
+        name: 'Balloon Stand', board: 'attraction',
+        setCode: 'unf', collectorNumber: '200d',
+      })
+    })
+
     it('skips // comments', () => {
       const result = parseTextDecklist('// my deck\n4 Lightning Bolt')
       expect(result).toHaveLength(1)
     })
+  })
+})
+
+describe('external Attraction zones', () => {
+  afterEach(() => { vi.restoreAllMocks() })
+
+  it('maps Archidekt Attraction categories', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({
+      name: 'Myra', deckFormat: 3,
+      categories: [{ name: 'Attraction', isPremier: false }],
+      cards: [{ quantity: 1, categories: ['Attraction'], card: {
+        uid: 'sf-200d', collectorNumber: '200d', edition: { editioncode: 'unf' },
+        oracleCard: { name: 'Balloon Stand' },
+      } }],
+    }) })
+    const result = await importFromArchidekt('123')
+    expect(result.cards[0]).toMatchObject({ board: 'attraction', scryfallId: 'sf-200d', collectorNumber: '200d' })
+  })
+
+  it('maps Moxfield dedicated attractions', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({
+      name: 'Myra', format: 'commander',
+      attractions: { one: { quantity: 1, card: { name: 'Balloon Stand', scryfall_id: 'sf-200d', set: 'unf', cn: '200d' } } },
+    }) })
+    const result = await importFromMoxfield('abc123')
+    expect(result.cards[0]).toMatchObject({ board: 'attraction', scryfallId: 'sf-200d', collectorNumber: '200d' })
   })
 })
 

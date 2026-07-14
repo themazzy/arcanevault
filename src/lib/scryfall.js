@@ -514,6 +514,7 @@ function buildEntryFromScryfall(r) {
       name: f.name,
       mana_cost: f.mana_cost || null,
     })) || null,
+    attraction_lights: Array.isArray(r.attraction_lights) ? r.attraction_lights : null,
   }
 }
 

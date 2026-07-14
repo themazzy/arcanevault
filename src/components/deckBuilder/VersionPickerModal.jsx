@@ -6,6 +6,7 @@ import { getPrice, formatPrice } from '../../lib/scryfall'
 import { CAN_HOVER, FOLDER_TAG_COLOR, FOLDER_TAG_BORDER } from '../../lib/deckBuilderConstants'
 import { normalizeCardName } from '../../lib/deckBuilderHelpers'
 import { CloseIcon, FolderTypeIcon } from '../../icons'
+import { formatAttractionLights } from '../../lib/attractions'
 
 function PrintingLocationTags({ locations }) {
   if (!locations?.length) return null
@@ -156,6 +157,7 @@ export default function VersionPickerModal({ dc, ownedMap, userId, priceSource =
                 const isActive = p.id === dc.scryfall_id
                 const locations = locationsByScryfallId.get(p.id) || []
                 const priceEntry = priceByKey.get(p.id)
+                const lights = formatAttractionLights(p)
                 const priceValue = priceEntry ? getPrice(priceEntry, !!dc.foil, { price_source: priceSource }) : null
                 return (
                   <button key={p.id} onClick={() => onSelect(p)}
@@ -170,7 +172,8 @@ export default function VersionPickerModal({ dc, ownedMap, userId, priceSource =
                       : <div style={{ width:imageWidth, height:imageHeight, background:'var(--s3)', borderRadius:4 }} />
                     }
                     <div style={{ fontSize:desktopPicker ? '0.78rem' : '0.62rem', color: isActive ? 'var(--gold)' : 'var(--text-dim)', textAlign:'center', lineHeight:1.25, wordBreak:'break-word' }}>
-                      {p.set_name}
+                      {p.set_name}{p.collector_number ? ` #${p.collector_number}` : ''}
+                      {lights ? <><br />Lights {lights}</> : null}
                     </div>
                     <div style={{ fontSize:desktopPicker ? '0.78rem' : '0.66rem', color: priceValue != null ? 'var(--green)' : 'var(--text-faint)', fontVariantNumeric:'tabular-nums' }}>
                       {priceValue != null ? formatPrice(priceValue, priceSource) : '—'}

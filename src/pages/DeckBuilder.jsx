@@ -115,6 +115,8 @@ import {
   COLOR_GROUP_ORDER,
 } from '../lib/deckCardFilters'
 import { COLOR_MODE_LABELS, COLOR_MATCH_MODES } from '../lib/deckIndexFilters'
+import { boardForCard, getAttractionDeckWarnings } from '../lib/attractions'
+import { getWarningTargetIds, groupDeckWarnings } from '../lib/deckWarningNavigation'
 
 import {
   CAN_HOVER,
@@ -446,7 +448,7 @@ import { useCombosFetch } from '../hooks/useCombosFetch'
 export default function DeckBuilderPage() {
   const { id: deckId } = useParams()
   const { user, session } = useAuth()
-  const { grid_density, price_source, default_grouping, deckbuilder_sort } = useSettings()
+  const { grid_density, price_source, default_grouping, deckbuilder_sort, reduce_motion } = useSettings()
   const navigate       = useNavigate()
   const location       = useLocation()
   const { showToast }  = useToast()
@@ -569,9 +571,11 @@ export default function DeckBuilderPage() {
   // list actually mounts, not before data loads) so the tab bar can inset its right
   // edge by the exact scrollbar width and line up pixel-perfectly with the banner.
   const deckListScrollObs = useRef(null)
+  const deckListScrollEl = useRef(null)
   const deckListScrollRef = useCallback((el) => {
     const root = document.documentElement
     if (deckListScrollObs.current) { deckListScrollObs.current.disconnect(); deckListScrollObs.current = null }
+    deckListScrollEl.current = el
     if (!el) { root.style.removeProperty('--deck-scrollbar-w'); return }
     const update = () => root.style.setProperty('--deck-scrollbar-w', `${el.offsetWidth - el.clientWidth}px`)
     update()
@@ -633,6 +637,7 @@ export default function DeckBuilderPage() {
   const [boardFilter, setBoardFilter] = useState('all')
   const [warningsOpen, setWarningsOpen] = useState(false)
   const [warningTooltip, setWarningTooltip] = useState(null)
+  const [warningTarget, setWarningTarget] = useState(null)
   useEffect(() => {
     if (!warningTooltip || CAN_HOVER) return
     const dismiss = (e) => {
@@ -729,6 +734,7 @@ export default function DeckBuilderPage() {
   const dragAutoScrollActive = useRef(false)
   const dragAutoScrollFrame = useRef(null)
   const dragAutoScrollPoint = useRef({ x: 0, y: 0 })
+  const warningTargetTimer = useRef(null)
   const printingLookupCache = useRef(new Map())
   const ownedPrintingCandidatesCache = useRef(new Map())
   const ownedPrintingRefreshPromises = useRef(new Map())
@@ -751,6 +757,7 @@ export default function DeckBuilderPage() {
     return () => {
       clearTimeout(saveMetaTimer.current)
       clearTimeout(addFeedbackTimer.current)
+      clearTimeout(warningTargetTimer.current)
       if (dragAutoScrollFrame.current) cancelAnimationFrame(dragAutoScrollFrame.current)
       for (const timer of qtyTimers.current.values()) clearTimeout(timer)
     }
@@ -1034,7 +1041,7 @@ export default function DeckBuilderPage() {
                 qty: row.qty || 1,
                 foil: row.foil ?? false,
                 is_commander: false,
-                board: 'main',
+                board: boardForCard(row, null, row.board || 'main'),
                 category_id: null,
                 created_at: now,
                 updated_at: now,
@@ -1301,6 +1308,7 @@ export default function DeckBuilderPage() {
   const deckWarnings = useMemo(() => {
     const warnings = []
     const playableCards = deckCards.filter(dc => normalizeBoard(dc.board) !== 'maybe')
+    const normalDeckCards = playableCards.filter(dc => normalizeBoard(dc.board) !== 'attraction')
     const mainQty = mainDeckCards.reduce((sum, dc) => sum + (dc.qty || 0), 0)
     const sideQty = deckCards.filter(dc => normalizeBoard(dc.board) === 'side').reduce((sum, dc) => sum + (dc.qty || 0), 0)
     const maybeQty = deckCards.filter(dc => normalizeBoard(dc.board) === 'maybe').reduce((sum, dc) => sum + (dc.qty || 0), 0)
@@ -1319,22 +1327,23 @@ export default function DeckBuilderPage() {
         const sf = dc.set_code && dc.collector_number ? builderSfMap[getScryfallKey(dc)] : null
         const merged = { ...dc, type_line: sf?.type_line || dc.type_line }
         const valid = isOath ? (isOathbreaker(merged) || isSignatureSpell(merged)) : canBeCommander(dc, sf)
-        if (!valid) pushWarning({ key: `commander:${dc.id}`, level: 'error', summary: `${dc.name}: invalid ${isOath ? 'command-zone card' : 'commander'}`, detail: `${dc.name} cannot be ${isOath ? 'in the Oathbreaker command zone' : 'your commander'}.` })
+        if (!valid) pushWarning({ key: `commander:${dc.id}`, level: 'error', targetCardId: dc.id, summary: `${dc.name}: invalid ${isOath ? 'command-zone card' : 'commander'}`, detail: `${dc.name} cannot be ${isOath ? 'in the Oathbreaker command zone' : 'your commander'}.` })
       }
     }
     if (isEDH && sideQty > 0) pushWarning({ key: 'sideboard-edh', level: 'info', summary: `Sideboard ${sideQty}`, detail: `Sideboard has ${sideQty} card${sideQty === 1 ? '' : 's'}. Collection sync includes it, but Commander stats and combo checks ignore it.` })
     if (maybeQty > 0) pushWarning({ key: 'maybeboard', level: 'info', summary: `Maybeboard ${maybeQty}`, detail: `Maybeboard has ${maybeQty} card${maybeQty === 1 ? '' : 's'} and is excluded from stats, combos, and collection sync.` })
+    getAttractionDeckWarnings(deckCards, builderSfMap).forEach(pushWarning)
 
     if (isEDH && colorIdentity.length > 0) {
       for (const dc of playableCards) {
         if (dc.is_commander) continue
         const outside = (dc.color_identity || []).filter(color => !colorIdentity.includes(color))
-        if (outside.length) pushWarning({ key: `color:${dc.id}`, level: 'error', summary: `${dc.name}: off-color`, detail: `${dc.name} is outside the commander's color identity because it includes ${outside.join('')}.` })
+        if (outside.length) pushWarning({ key: `color:${dc.id}`, level: 'error', targetCardId: dc.id, summary: `${dc.name}: off-color`, detail: `${dc.name} is outside the commander's color identity because it includes ${outside.join('')}.` })
       }
     }
 
     const nameQty = new Map()
-    for (const dc of playableCards) {
+    for (const dc of normalDeckCards) {
       const name = normalizeCardName(dc.name)
       if (!name) continue
       nameQty.set(name, (nameQty.get(name) || 0) + (dc.qty || 0))
@@ -1342,9 +1351,15 @@ export default function DeckBuilderPage() {
     if (isEDH) {
       for (const [name, qty] of nameQty) {
         if (qty <= 1) continue
-        const sample = playableCards.find(dc => normalizeCardName(dc.name) === name)
+        const sample = normalDeckCards.find(dc => normalizeCardName(dc.name) === name)
         if (!isBasicLandName(sample?.name || name)) {
-          pushWarning({ key: `duplicate:${name}`, level: 'error', summary: `${sample?.name || name}: ${qty} copies`, detail: `${sample?.name || name} exceeds singleton limits for this format.` })
+          pushWarning({
+            key: `duplicate:${name}`,
+            level: 'error',
+            targetCardIds: normalDeckCards.filter(dc => normalizeCardName(dc.name) === name).map(dc => dc.id),
+            summary: `${sample?.name || name}: ${qty} copies`,
+            detail: `${sample?.name || name} exceeds singleton limits for this format.`,
+          })
         }
       }
     }
@@ -1358,9 +1373,9 @@ export default function DeckBuilderPage() {
         continue
       }
       if (legality === 'not_legal' || legality === 'banned') {
-        pushWarning({ key: `legality:${dc.id}`, level: 'error', summary: `${dc.name}: ${legality.replace('_', ' ')}`, detail: `${dc.name} is ${legality.replace('_', ' ')} in ${formatLabel}.` })
+        pushWarning({ key: `legality:${dc.id}`, level: 'error', targetCardId: dc.id, summary: `${dc.name}: ${legality.replace('_', ' ')}`, detail: `${dc.name} is ${legality.replace('_', ' ')} in ${formatLabel}.` })
       } else if (legality === 'restricted' && (dc.qty || 0) > 1) {
-        pushWarning({ key: `restricted:${dc.id}`, level: 'error', summary: `${dc.name}: restricted`, detail: `${dc.name} is restricted in ${formatLabel}, so only one copy is allowed.` })
+        pushWarning({ key: `restricted:${dc.id}`, level: 'error', targetCardId: dc.id, summary: `${dc.name}: restricted`, detail: `${dc.name} is restricted in ${formatLabel}, so only one copy is allowed.` })
       }
     }
     if (unknownLegalityCount > 0) {
@@ -1369,7 +1384,14 @@ export default function DeckBuilderPage() {
 
     if (deckMeta.companion) {
       if (companionValidation && !companionValidation.ok) {
-        pushWarning({ key: 'companion', level: 'error', summary: `Companion: ${companionValidation.offenders.length} illegal`, detail: `${deckMeta.companion.name}: ${companionValidation.note} Offenders: ${companionValidation.offenders.slice(0, 8).join(', ')}${companionValidation.offenders.length > 8 ? '…' : ''}.` })
+        const offenderNames = new Set(companionValidation.offenders.map(normalizeCardName))
+        pushWarning({
+          key: 'companion',
+          level: 'error',
+          targetCardIds: mainDeckCards.filter(dc => offenderNames.has(normalizeCardName(dc.name))).map(dc => dc.id),
+          summary: `Companion: ${companionValidation.offenders.length} illegal`,
+          detail: `${deckMeta.companion.name}: ${companionValidation.note} Offenders: ${companionValidation.offenders.slice(0, 8).join(', ')}${companionValidation.offenders.length > 8 ? '…' : ''}.`,
+        })
       }
       if (isEDH && colorIdentity.length) {
         const outside = (deckMeta.companion.color_identity || []).filter(c => !colorIdentity.includes(c))
@@ -1384,6 +1406,7 @@ export default function DeckBuilderPage() {
     () => deckWarnings.filter(w => w.level === 'error'),
     [deckWarnings]
   )
+  const warningGroups = useMemo(() => groupDeckWarnings(visibleDeckWarnings), [visibleDeckWarnings])
 
   const deckCardLegalityWarnings = useDeckCardLegalityWarnings({
     deckCards,
@@ -1822,6 +1845,65 @@ export default function DeckBuilderPage() {
     if (groupBy === 'color')    return ['Commander', ...COLOR_GROUP_ORDER].filter(g => cards.some(dc => getDeckCardGroup(dc) === g))
     return TYPE_GROUPS
   }, [groupBy, getCategoryOrder, getDeckCardGroup])
+
+  const revealWarningCard = useCallback((cardId) => {
+    const targetId = String(cardId || '')
+    const card = deckCardsRef.current.find(row => String(row.id) === targetId)
+    if (!card) return
+
+    setWarningTooltip(null)
+    setRightTab('deck')
+
+    if (!visibleDeckCards.some(row => String(row.id) === targetId)) {
+      setDeckSearch('')
+      setBoardFilter('all')
+      setDeckFilters({
+        ...EMPTY_DECK_CARD_FILTERS,
+        colors: [],
+        types: [],
+        rarities: [],
+      })
+    }
+
+    if (groupBy !== 'none') {
+      const board = normalizeBoard(card.board)
+      const group = getDeckCardGroup(card)
+      const collapsedKey = deckView === 'stacks' ? `${board}:stack:${group}` : `${board}:${group}`
+      setCollapsedGroups(prev => {
+        if (!prev.has(collapsedKey)) return prev
+        const next = new Set(prev)
+        next.delete(collapsedKey)
+        return next
+      })
+    }
+
+    clearTimeout(warningTargetTimer.current)
+    setWarningTarget(null)
+
+    const locateAndFocus = (attempt = 0) => {
+      requestAnimationFrame(() => {
+        const target = [...(deckListScrollEl.current?.querySelectorAll('[data-deck-card-id]') || [])]
+          .find(element => element.dataset.deckCardId === targetId)
+        if (!target && attempt < 5) {
+          locateAndFocus(attempt + 1)
+          return
+        }
+        if (!target) return
+        target.scrollIntoView({
+          behavior: reduce_motion ? 'auto' : 'smooth',
+          block: 'center',
+          inline: 'nearest',
+        })
+        try { target.focus({ preventScroll: true }) } catch { target.focus() }
+        warningTargetTimer.current = setTimeout(() => setWarningTarget(null), 2400)
+      })
+    }
+
+    requestAnimationFrame(() => {
+      setWarningTarget({ id: targetId, at: Date.now() })
+      locateAndFocus()
+    })
+  }, [deckView, getDeckCardGroup, groupBy, reduce_motion, visibleDeckCards])
 
   // De-dupes concurrent createDeckCategory calls for the same (deckId, lowercased name)
   // so two parallel addCardToDeck() invocations don't both insert "Removal".
@@ -2571,7 +2653,14 @@ export default function DeckBuilderPage() {
     const shouldPersistCategory =
       inferredCategory && inferredCategory !== 'Other' && !isTypeFallbackCategory(inferredCategory)
     const initialCategory = shouldPersistCategory ? await ensureDeckCategoryForName(inferredCategory) : null
-    const nextRow = { ...placeholderRow, ...printing, category_id: initialCategory?.id || null, foil: !!resolved.foil, updated_at: now }
+    const nextRow = {
+      ...placeholderRow,
+      ...printing,
+      board: boardForCard(printing, resolved.sfCard, placeholderRow.board),
+      category_id: initialCategory?.id || null,
+      foil: !!resolved.foil,
+      updated_at: now,
+    }
     const existing = deckCardsRef.current.find(dc => dc.id !== placeholderRow.id && isSameDeckPrinting(dc, nextRow))
 
     if (existing) {
@@ -2795,7 +2884,7 @@ export default function DeckBuilderPage() {
       qty:              1,
       foil:             false,
       is_commander:     false,
-      board:            'main',
+      board:            boardForCard({ type_line: typeLine }, isSfCard ? sfCardOrRec : null, 'main'),
       created_at:       new Date().toISOString(),
       updated_at:       new Date().toISOString(),
     }
@@ -2870,7 +2959,7 @@ export default function DeckBuilderPage() {
           qty:              1,
           foil:             !!it.foil,
           is_commander:     false,
-          board:            'main',
+          board:            boardForCard({ type_line: meta.type_line }, src, 'main'),
           created_at:       now,
           updated_at:       now,
         },
@@ -2941,6 +3030,7 @@ export default function DeckBuilderPage() {
   function changeQty(deckCardId, delta) {
     const current = deckCardsRef.current.find(dc => dc.id === deckCardId)
     if (!current) return
+    if (normalizeBoard(current.board) === 'attraction' && delta > 0 && current.qty >= 1) return
 
     const nextQty = current.qty + delta
     if (nextQty <= 0) {
@@ -3157,6 +3247,8 @@ export default function DeckBuilderPage() {
     const card = deckCardsRef.current.find(dc => dc.id === deckCardId)
     if (!card || normalizeBoard(card.board) === nextBoard) return
     if (card.is_commander && nextBoard !== 'main') return
+    const sf = card.set_code && card.collector_number ? builderSfMap[getScryfallKey(card)] : null
+    if (boardForCard(card, sf, nextBoard) !== nextBoard) return
 
     const matchingTarget = deckCardsRef.current.find(dc =>
       dc.id !== deckCardId &&
@@ -4239,7 +4331,7 @@ export default function DeckBuilderPage() {
           qty: desiredQty,
           foil: base.foil ?? false,
           is_commander: !!commanderHint.is_commander,
-          board: base.board || 'main',
+          board: boardForCard(base, null, base.board || 'main'),
           created_at: now,
           updated_at: now,
         }
@@ -5040,30 +5132,88 @@ export default function DeckBuilderPage() {
           const errorCount = visibleDeckWarnings.filter(w => w.level === 'error').length
           const summary = `${visibleDeckWarnings.length} ${visibleDeckWarnings.length === 1 ? 'warning' : 'warnings'}`
           const details = visibleDeckWarnings.map(w => w.summary || w.text)
+          const deckCardIdSet = new Set(deckCards.map(card => String(card.id)))
           const showTooltip = (x, y) => setWarningTooltip({ summary, details, x, y })
           const hideTooltip = () => setWarningTooltip(null)
           return (
             <div className={styles.warningPanel}>
-              <button
-                type="button"
-                className={`${styles.warningSummaryBtn}${errorCount > 0 ? ' ' + styles.warningSummaryBtnError : ''}`}
-                onMouseEnter={CAN_HOVER ? e => showTooltip(e.clientX, e.clientY) : undefined}
-                onMouseMove={CAN_HOVER ? e => setWarningTooltip(prev => prev ? { ...prev, x: e.clientX, y: e.clientY } : prev) : undefined}
-                onMouseLeave={CAN_HOVER ? hideTooltip : undefined}
-                onFocus={CAN_HOVER ? e => {
-                  const rect = e.currentTarget.getBoundingClientRect()
-                  showTooltip(rect.left, rect.bottom)
-                } : undefined}
-                onBlur={CAN_HOVER ? hideTooltip : undefined}
-                onClick={!CAN_HOVER ? e => {
-                  if (warningTooltip) { hideTooltip(); return }
-                  const rect = e.currentTarget.getBoundingClientRect()
-                  showTooltip(rect.left, rect.bottom)
-                } : undefined}
-              >
-                <span className={styles.warningSummaryIcon} aria-hidden="true">!</span>
-                <span className={styles.warningSummaryLabel}>{summary}</span>
-              </button>
+              <div className={styles.warningPanelBar}>
+                <button
+                  type="button"
+                  className={`${styles.warningSummaryBtn}${errorCount > 0 ? ' ' + styles.warningSummaryBtnError : ''}`}
+                  title={warningsOpen ? 'Hide deck warnings' : 'Review deck warnings'}
+                  aria-label={`${summary}. ${warningsOpen ? 'Hide' : 'Show'} warning details`}
+                  onMouseEnter={CAN_HOVER ? e => showTooltip(e.clientX, e.clientY) : undefined}
+                  onMouseMove={CAN_HOVER ? e => setWarningTooltip(prev => prev ? { ...prev, x: e.clientX, y: e.clientY } : prev) : undefined}
+                  onMouseLeave={CAN_HOVER ? hideTooltip : undefined}
+                  onFocus={CAN_HOVER ? e => {
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    showTooltip(rect.left, rect.bottom)
+                  } : undefined}
+                  onBlur={CAN_HOVER ? hideTooltip : undefined}
+                  onClick={() => {
+                    hideTooltip()
+                    setWarningsOpen(open => !open)
+                  }}
+                >
+                  <span className={styles.warningSummaryIcon} aria-hidden="true">!</span>
+                  <span className={styles.warningSummaryLabel}>{summary}</span>
+                </button>
+                <button
+                  type="button"
+                  className={styles.warningDetailsBtn}
+                  aria-expanded={warningsOpen}
+                  aria-controls="deck-warning-details"
+                  onClick={() => {
+                    hideTooltip()
+                    setWarningsOpen(open => !open)
+                  }}
+                >
+                  <span>{warningsOpen ? 'Hide issues' : 'Review issues'}</span>
+                  <ChevronDownIcon size={12} className={warningsOpen ? styles.warningDetailsChevronOpen : undefined} />
+                </button>
+              </div>
+              {warningsOpen && (
+                <div id="deck-warning-details" className={styles.warningDetails} role="region" aria-label="Deck warning details">
+                  {warningGroups.map(group => (
+                    <section key={group.id} className={styles.warningGroup}>
+                      <div className={styles.warningGroupTitle}>
+                        <span>{group.label}</span>
+                        <span className={styles.warningGroupCount}>{group.warnings.length}</span>
+                      </div>
+                      <div className={styles.warningList}>
+                        {group.warnings.map(warning => {
+                          const targetId = getWarningTargetIds(warning).find(id => deckCardIdSet.has(id))
+                          const content = (
+                            <>
+                              <span className={styles.warningItemText}>
+                                <span className={styles.warningItemSummary}>{warning.summary || warning.text}</span>
+                                {warning.detail && <span className={styles.warningItemDetail}>{warning.detail}</span>}
+                              </span>
+                              {targetId && <ChevronRightIcon size={13} className={styles.warningItemArrow} aria-hidden="true" />}
+                            </>
+                          )
+                          return targetId ? (
+                            <button
+                              key={warning.key}
+                              type="button"
+                              className={`${styles.warningItem} ${styles.warningItemError} ${styles.warningItemAction}`}
+                              onClick={() => revealWarningCard(targetId)}
+                              title={`Go to ${deckCards.find(card => String(card.id) === targetId)?.name || 'affected card'}`}
+                            >
+                              {content}
+                            </button>
+                          ) : (
+                            <div key={warning.key} className={`${styles.warningItem} ${styles.warningItemError}`}>
+                              {content}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              )}
             </div>
           )
         })()}
@@ -5688,6 +5838,7 @@ export default function DeckBuilderPage() {
                 priceLabel: getDeckCardPriceLabel(dc),
                 onOpenDetail: openDeckCardDetail,
                 legalityWarnings: deckCardLegalityWarnings.get(dc.id) || [],
+                isWarningTarget: warningTarget?.id === String(dc.id),
                 builderSfMap,
                 };
               }
@@ -5704,6 +5855,7 @@ export default function DeckBuilderPage() {
                     stackContext={stackContext}
                     legalityWarnings={legalityWarnings}
                     warningTitle={warningTitle}
+                    isWarningTarget={warningTarget?.id === String(dc.id)}
                     compactVisibleColumns={compactVisibleColumns}
                     canHover={CAN_HOVER}
                     lastInputWasTouch={lastInputWasTouch}

@@ -666,7 +666,7 @@ export function parseImportUrl(url) {
  *   "4 Lightning Bolt [M10]"                (bracket set code)
  *   "4 *F* Lightning Bolt"                  (MTGO foil marker)
  *   "4 Lightning Bolt (M10) 155 [Foil]"     (Moxfield-style foil)
- *   Section headers: "Commander:", "Deck:", "Sideboard:", "// Comment"
+ *   Section headers: "Commander:", "Deck:", "Attractions:", "Sideboard:", "// Comment"
  * Returns [{ name, qty, isCommander, board, setCode, collectorNumber, foil }]
  */
 export function parseTextDecklist(text) {
@@ -679,6 +679,7 @@ export function parseTextDecklist(text) {
     // Section headers
     if (/^(\/\/\s*)?(commander|commanders)/i.test(line)) { inCommander = true; board = 'main'; continue }
     if (/^(\/\/\s*)?(deck|mainboard|main board)/i.test(line)) { inCommander = false; board = 'main'; continue }
+    if (/^(\/\/\s*)?(attractions?|attraction deck)/i.test(line)) { inCommander = false; board = 'attraction'; continue }
     if (/^(\/\/\s*)?(sideboard|side board)/i.test(line)) { inCommander = false; board = 'side'; continue }
     if (/^(\/\/\s*)?(maybeboard|maybe)/i.test(line)) { inCommander = false; board = 'maybe'; continue }
     if (line.startsWith('//')) continue // other comments
@@ -753,6 +754,7 @@ export async function importFromArchidekt(deckId) {
   const FORMAT_MAP = { 3: 'commander', 1: 'standard', 2: 'modern', 11: 'pioneer', 4: 'legacy', 5: 'vintage', 10: 'pauper', 14: 'brawl' }
   const getArchidektBoard = (categories = []) => {
     const names = categories.map(cat => String(cat?.name || cat || '').trim().toLowerCase())
+    if (names.some(name => name === 'attraction' || name === 'attractions' || name.includes('attraction deck'))) return 'attraction'
     if (names.some(name => name.includes('maybeboard') || name === 'maybe' || name.includes('maybe board'))) return 'maybe'
     if (names.some(name => name.includes('sideboard') || name.includes('side board'))) return 'side'
     return 'main'
@@ -811,6 +813,7 @@ export async function importFromMoxfield(deckId) {
 
   addBoard(data.commanders, 'main', true)
   addBoard(data.mainboard,  'main', false)
+  addBoard(data.attractions, 'attraction', false)
   addBoard(data.sideboard,  'side', false)
   addBoard(data.maybeboard, 'maybe', false)
 

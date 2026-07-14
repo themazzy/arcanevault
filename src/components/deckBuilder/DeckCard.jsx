@@ -3,11 +3,16 @@ import { CloseIcon } from '../../icons'
 import { EditMenu } from './DeckCardRow'
 import { bindTouchContextMenu, consumeLongPressClick } from '../../lib/touchContextMenu'
 import styles from '../../pages/DeckBuilder.module.css'
+import { normalizeBoard } from '../../lib/deckBuilderHelpers'
+
+function attractionQtyLocked(dc) {
+  return normalizeBoard(dc?.board) === 'attraction' && dc?.qty >= 1
+}
 
 // Grid-view tile for a deck card. Renders a portrait image with qty/foil
 // badges and a controls row (edit menu, qty +/-, remove).
 function DeckCardGrid({
-  dc, legalityWarnings, warningTitle,
+  dc, legalityWarnings, warningTitle, isWarningTarget,
   priceLabel, ownership,
   isEDH, formatId, builderSfMap,
   onChangeQty, onRemove, onOpenDetail, onContextMenu, onDragStart,
@@ -16,7 +21,11 @@ function DeckCardGrid({
   return (
     <div
       key={dc.id}
-      className={`${styles.visualCard}${dc.is_commander ? ' '+styles.isCommander : ''}${legalityWarnings.length ? ' '+styles.visualCardIllegal : ''}`}
+      className={`${styles.visualCard}${dc.is_commander ? ' '+styles.isCommander : ''}${legalityWarnings.length ? ' '+styles.visualCardIllegal : ''}${isWarningTarget ? ' '+styles.warningCardTarget : ''}`}
+      data-deck-card-id={dc.id}
+      tabIndex={-1}
+      role="group"
+      aria-label={`Deck card ${dc.name}`}
       title={warningTitle || undefined}
       draggable
       onDragStart={e => onDragStart(dc, e)}
@@ -40,7 +49,7 @@ function DeckCardGrid({
           <EditMenu dc={dc} isEDH={isEDH} formatId={formatId} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} onOpenCategoryPicker={onOpenCategoryPicker} builderSfMap={builderSfMap} />
           <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); onChangeQty(dc.id, -1) }}>-</button>
           <span className={styles.visualCardCount}>{dc.qty}</span>
-          <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); onChangeQty(dc.id, +1) }}>+</button>
+          <button className={styles.visualCardBtn} disabled={attractionQtyLocked(dc)} onClick={(ev) => { ev.stopPropagation(); onChangeQty(dc.id, +1) }}>+</button>
           <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); onRemove(dc.id) }}><CloseIcon size={13} /></button>
         </div>
       </div>
@@ -52,7 +61,7 @@ function DeckCardGrid({
 // pushdown behavior. Tracks which card in the stack is currently "active"
 // so touch users can two-tap (first to expand, second to open detail).
 function DeckCardStack({
-  dc, legalityWarnings, warningTitle,
+  dc, legalityWarnings, warningTitle, isWarningTarget,
   stackContext, stackHoverState, touchActiveStack, setStackHoverState, setTouchActiveStack,
   canHover, lastInputWasTouch,
   priceLabel, ownership,
@@ -70,7 +79,11 @@ function DeckCardStack({
   return (
     <div
       key={dc.id}
-      className={`${styles.stackCard}${dc.is_commander ? ' '+styles.isCommander : ''}${legalityWarnings.length ? ' '+styles.stackCardIllegal : ''}${isPushedDown ? ' '+styles.stackCardPushedDown : ''}${isTouchActive ? ' '+styles.stackCardActive : ''}`}
+      className={`${styles.stackCard}${dc.is_commander ? ' '+styles.isCommander : ''}${legalityWarnings.length ? ' '+styles.stackCardIllegal : ''}${isPushedDown ? ' '+styles.stackCardPushedDown : ''}${isTouchActive ? ' '+styles.stackCardActive : ''}${isWarningTarget ? ' '+styles.warningCardTarget : ''}`}
+      data-deck-card-id={dc.id}
+      tabIndex={-1}
+      role="group"
+      aria-label={`Deck card ${dc.name}`}
       style={{ zIndex: isTouchActive ? 200 : (stackContext?.idx ?? 0) }}
       title={warningTitle || dc.name}
       draggable
@@ -123,7 +136,7 @@ function DeckCardStack({
           <EditMenu dc={dc} isEDH={isEDH} formatId={formatId} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} onOpenCategoryPicker={onOpenCategoryPicker} builderSfMap={builderSfMap} />
           <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); onChangeQty(dc.id, -1) }}>-</button>
           <span className={styles.stackControlCount}>{dc.qty}</span>
-          <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); onChangeQty(dc.id, +1) }}>+</button>
+          <button className={styles.stackControlBtn} disabled={attractionQtyLocked(dc)} onClick={(ev) => { ev.stopPropagation(); onChangeQty(dc.id, +1) }}>+</button>
           <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); onRemove(dc.id) }}><CloseIcon size={13} /></button>
         </div>
       </div>
@@ -134,7 +147,7 @@ function DeckCardStack({
 // Compact-view row: dense single-line entry with optional columns driven by
 // `compactVisibleColumns`.
 function DeckCardCompact({
-  dc, legalityWarnings, warningTitle,
+  dc, legalityWarnings, warningTitle, isWarningTarget,
   compactVisibleColumns,
   canHover,
   priceLabel, ownership,
@@ -146,7 +159,11 @@ function DeckCardCompact({
   return (
     <div
       key={dc.id}
-      className={`${styles.compactRow}${dc.is_commander ? ' '+styles.isCommander : ''}${legalityWarnings.length ? ' '+styles.deckCardIllegal : ''}`}
+      className={`${styles.compactRow}${dc.is_commander ? ' '+styles.isCommander : ''}${legalityWarnings.length ? ' '+styles.deckCardIllegal : ''}${isWarningTarget ? ' '+styles.warningCardTarget : ''}`}
+      data-deck-card-id={dc.id}
+      tabIndex={-1}
+      role="group"
+      aria-label={`Deck card ${dc.name}`}
       title={warningTitle || undefined}
       onContextMenu={e => onContextMenu(dc, e)}
       {...bindTouchContextMenu(e => onContextMenu(dc, e))}
@@ -173,7 +190,7 @@ function DeckCardCompact({
         <div className={styles.qtyControls}>
           <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, -1)}>-</button>
           <span className={styles.qtyVal}>{dc.qty}</span>
-          <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, +1)}>+</button>
+          <button className={styles.qtyBtn} disabled={attractionQtyLocked(dc)} onClick={() => onChangeQty(dc.id, +1)}>+</button>
         </div>
       )}
       {compactVisibleColumns.remove && <button className={styles.removeBtn} onClick={() => onRemove(dc.id)}><CloseIcon size={13} /></button>}
