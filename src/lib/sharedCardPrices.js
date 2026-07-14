@@ -206,7 +206,7 @@ export async function overlaySharedCardPrices(cards, baseMap = {}, { priceLookup
   }
 }
 
-async function overlaySharedCardPricesInner(cards, baseMap = {}, { priceLookup = 'exact' } = {}) {
+async function overlaySharedCardPricesInner(cards, baseMap = {}, { priceLookup: _priceLookup = 'exact' } = {}) {
   const requestedKeys = new Set(cards.map(getCardKey).filter(Boolean))
   const requestedIds = [...new Set(cards.map(getScryfallId).filter(Boolean))]
   if (!requestedKeys.size) return { ...baseMap }

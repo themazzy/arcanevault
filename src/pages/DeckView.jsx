@@ -12,7 +12,7 @@ import uiStyles from '../components/UI.module.css'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
 import { ResponsiveMenu } from '../components/UI'
-import { CardBrowserContent, CARD_BROWSER_VIEW_MODES } from '../components/CardBrowserViews'
+import { CardBrowserContent } from '../components/CardBrowserViews'
 import { CloseIcon, CheckIcon, ChevronDownIcon, GridViewIcon, SearchIcon, SortIcon, StacksViewIcon, TextViewIcon, TableViewIcon } from '../icons'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import Markdown, { extractHeadings } from '../lib/miniMarkdown.jsx'
@@ -610,13 +610,13 @@ export default function DeckViewPage() {
   const effectiveViewMode = viewMode === 'list' ? 'table' : viewMode
 
   // Total deck value
-  const { totalValue, totalValueFmt } = useMemo(() => {
+  const totalValueFmt = useMemo(() => {
     const v = cards.reduce((sum, c) => {
       const sfCard = sfMap[getScryfallKey(c)]
       const p = getPrice(sfCard, c.foil, { price_source })
       return p != null ? sum + p * c.qty : sum
     }, 0)
-    return { totalValue: v, totalValueFmt: v > 0 ? formatPrice(v, price_source) : null }
+    return v > 0 ? formatPrice(v, price_source) : null
   }, [cards, sfMap, price_source])
 
   // Build plain-text decklist for copy

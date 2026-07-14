@@ -141,7 +141,7 @@ function useCardLookup(allNames) {
         .catch(() => {})
     })
     return () => { cancelled = true; cancelIdle() }
-  }, [allNames]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [allNames])
   return byName
 }
 

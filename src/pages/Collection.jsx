@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { sb } from '../lib/supabase'
 import { getScryfallKey, getPrice, formatPrice, getInstantCache } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
-import { getLocalCards, putCards, deleteCard, deleteAllCards, getAllLocalFolderCards, putFolderCards, getLocalFolders, putFolders, setMeta, getMeta, deleteFolder as deleteLocalFolder, replaceLocalFolderCards, getAllDeckAllocationsForUser, putDeckAllocations, replaceDeckAllocations, deleteDeckAllocationsByCardIds, deleteFolderCardsByCardIds } from '../lib/db'
+import { getLocalCards, putCards, deleteCard, deleteAllCards, putFolderCards, getLocalFolders, putFolders, setMeta, getMeta, deleteFolder as deleteLocalFolder, replaceLocalFolderCards, putDeckAllocations, replaceDeckAllocations, deleteDeckAllocationsByCardIds, deleteFolderCardsByCardIds } from '../lib/db'
 import { parseManaboxCSV } from '../lib/csvParser'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
 import { toOwnedCardRow, toListItemRow } from '../lib/deckBuilderWrites'
@@ -39,10 +39,6 @@ function hasActiveCollectionFilters(filters) {
     if (Array.isArray(empty)) return Array.isArray(current) && current.length > 0
     return current !== empty
   })
-}
-
-function isGroupFolder(folder) {
-  try { return JSON.parse(folder?.description || '{}').isGroup === true } catch { return false }
 }
 
 function buildCardFolderMap(folderRows, linkRows) {
@@ -223,7 +219,6 @@ export default function CollectionPage() {
   const [cardFolderMap, setCardFolderMap] = useState({})
   const [folderMembershipLoading, setFolderMembershipLoading] = useState(true)
   const [folderMembershipSynced, setFolderMembershipSynced] = useState(false)
-  const [folderMembershipReloadKey, setFolderMembershipReloadKey] = useState(0)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [orphanCards, setOrphanCards] = useState([])
   const workerReqId  = useRef(0)
@@ -279,7 +274,7 @@ export default function CollectionPage() {
     queryClient.invalidateQueries({ queryKey: ['sfMap', user.id] })
   }, [queryClient, user.id])
 
-  const loadCards = useCallback(async () => {
+  const _loadCards = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: ['cards', user.id] })
     await cardsQuery.refetch()
   }, [cardsQuery, queryClient, user.id])
@@ -409,7 +404,7 @@ export default function CollectionPage() {
   }, [sfMapQuery.data, sfMapQuery.error, sfMapQuery.isError, sfMapQuery.isFetching, sfMapQuery.isSuccess])
 
   // ── Load cards — IDB first, Supabase sync in background ──────────────────────
-  const loadCardsLegacy = useCallback(async () => {
+  const _loadCardsLegacy = useCallback(async () => {
     const loadSeq = ++cardsLoadSeq.current
     const isCurrentLoad = () => loadSeq === cardsLoadSeq.current
     setLoading(true)

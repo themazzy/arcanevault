@@ -317,8 +317,6 @@ function ThemeStep({ settings }) {
   )
 }
 
-// Mirrors DENSITY_MIN_WIDTH in VirtualCardGrid.jsx and CardBrowserViews.jsx
-const DENSITY_MIN_WIDTH = { cozy: 210, comfortable: 168, compact: 128 }
 const MOBILE_DENSITY_COLS = { cozy: 1, comfortable: 2, compact: 3 }
 const PREVIEW_COUNT = 8
 
@@ -338,7 +336,6 @@ function DensityPreview({ density }) {
     return () => { cancelled = true }
   }, [])
 
-  const minW = DENSITY_MIN_WIDTH[density] || 168
   const mobileCols = MOBILE_DENSITY_COLS[density] || 2
   const gridCols = `repeat(${mobileCols}, minmax(0, 1fr))`
 

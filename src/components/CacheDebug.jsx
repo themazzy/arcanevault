@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getDbStats, clearScryfallStore } from '../lib/db'
+import { getDbStats } from '../lib/db'
 import { clearScryfallCache, clearAllScryfallCache } from '../lib/scryfall'
 import { SyncIcon } from '../icons'
 import { useNow } from '../hooks/useNow'

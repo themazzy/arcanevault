@@ -469,7 +469,7 @@ export function createTournament(config) {
   const mode = format.mode
   const participantIds = shuffle(config.participants.map(p => p.id))
 
-  let rounds = []
+  let rounds
   if (config.structureId === 'single_elimination') {
     rounds = [buildSingleEliminationRound(participantIds, 1)]
   } else if (config.structureId === 'round_robin') {

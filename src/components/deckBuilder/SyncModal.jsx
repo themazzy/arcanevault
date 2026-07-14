@@ -36,7 +36,6 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
   const [pickerItem, setPickerItem] = useState(null)
 
   // Intentional: modal mounts fresh on each open - one-shot load from current props snapshot.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     let cancelled = false
     const applyInitialLocalDiff = async (targetDeckId, baseline) => {

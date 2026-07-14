@@ -127,22 +127,6 @@ function InlineMana({ cost, size = 14 }) {
   )
 }
 
-function TypeIcon({ type, size = 14, style }) {
-  const icons = {
-    Commander: <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor" style={style}><path d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm2 4h10v-2H7v2z"/></svg>,
-    Creatures: <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor" style={style}><path d="M20.71 3.29a1 1 0 00-1.42 0L13 9.59l-1.29-1.3-1.42 1.42 1.3 1.29L3 19.59V21h1.41l8.59-8.59 1.29 1.3 1.42-1.42-1.3-1.29 6.3-6.29a1 1 0 000-1.42z"/><path d="M6.5 17.5l-2 2 1 1 2-2z" opacity=".5"/></svg>,
-    Planeswalkers: <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor" style={style}><circle cx="12" cy="5" r="2"/><path d="M12 9c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4zm-1 9h2l1 4h-4l1-4z"/><path d="M10 9l-3 5h2l-1 5h4l-1-5h2z" opacity=".3"/></svg>,
-    Battles: <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor" style={style}><path d="M12 2L4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5l-8-3zm0 15l-5-5 1.41-1.41L12 14.17l7.59-7.59L21 8l-9 9z"/></svg>,
-    Instants: <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor" style={style}><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>,
-    Sorceries: <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor" style={style}><path d="M12 23c-4.97 0-9-4.03-9-9 0-4.97 3.5-8.5 7-10 .5 1.5-.5 3.5-1 4.5 1.5-1 3-2 3.5-3.5C13 8.5 14 11.5 12 14c1 0 2.5-.5 3-1.5.5 2.5-.5 5-1 6 3-1.5 5-4.5 5-8 0-5.52-4.48-10-10-10C4.48 0 0 4.48 0 10c0 5.52 4.48 10 10 10h2c-4.42 0-8-3.58-8-8 0-1.5.42-2.89 1.15-4.08C5.77 10.76 8 13.5 8 15c.5-1.5-.5-4 0-6 1 1.5 2 3 1.5 5.5C10.5 13 11 12 12 12c-1 4-4 6-4 9 0 .34.03.67.08 1H12z"/></svg>,
-    Artifacts: <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor" style={style}><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96a7 7 0 00-1.62-.94l-.36-2.54A.484.484 0 0014 2h-4a.484.484 0 00-.48.41l-.36 2.54a7.4 7.4 0 00-1.62.94l-2.39-.96a.48.48 0 00-.59.22L2.74 8.47c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.63-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.36 1.04.67 1.62.94l.36 2.54c.05.24.27.41.48.41h4c.24 0 .44-.17.47-.41l.36-2.54a7.4 7.4 0 001.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.47.47 0 00-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>,
-    Enchantments: <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor" style={style}><path d="M12 3L9.5 8.5H4l4.5 3.5L7 17.5l5-3.5 5 3.5-1.5-5.5L20 8.5h-5.5z" opacity=".35"/><path d="M12 2l1.09 3.26L16.18 4l-2.09 2.74L17 9l-3.35-.5L12 12l-1.65-3.5L7 9l2.91-2.26L7.82 4l3.09 1.26z"/></svg>,
-    Lands: <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor" style={style}><path d="M14 6l-1-2H5v17h2v-7h5l1 2h7V6h-6zm4 8h-4l-1-2H7V6h5l1 2h5v6z"/></svg>,
-    Other: <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor" style={style}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/></svg>,
-  }
-  return icons[type] || icons.Other
-}
-
 function rowFolderMeta(card) {
   return card._folderName ? (
     <div style={{ fontSize: '0.66rem', color: 'var(--gold-dim)', marginTop: 2, letterSpacing: '0.03em' }}>
@@ -553,7 +537,7 @@ function TableView({ cards, sfMap, priceSource, groups, groupOrder, groupBy, onS
   )
 }
 
-function StackCard({ card, sf, idx, stackIdx, isPushedDown, priceSource, selectMode, isSelected, onSelect, onToggleSelect, onAdjustQty, splitState, onHoverPreview, onHoverPreviewEnd, onPinPreview, onHoverStart, onHoverEnd, onEnterSelectMode }) {
+function StackCard({ card, sf, idx, isPushedDown, priceSource, selectMode, isSelected, onSelect, onToggleSelect, onAdjustQty, splitState, onHoverPreview, onHoverPreviewEnd, onPinPreview, onHoverStart, onHoverEnd, onEnterSelectMode }) {
   const img = getBrowserCardImage(card, sf)
   const totalQty = card._folder_qty ?? card.qty ?? 1
   const scryfallPrice = getPrice(sf, card.foil, { price_source: priceSource })
@@ -741,7 +725,7 @@ function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, selectMo
   )
 }
 
-function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onToggleSelect, onAdjustQty, splitState, onHover, onHoverEnd, onEnterSelectMode }) {
+function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode }) {
   const img = getBrowserCardImage(card, sf)
   const totalQty = card._folder_qty ?? card.qty ?? 1
   const scryfallPrice = getPrice(sf, card.foil, { price_source: priceSource })

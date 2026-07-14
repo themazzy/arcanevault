@@ -271,22 +271,6 @@ function TypeIcon({ type, size = 14, style: extraStyle }) {
   return icons[type] || icons.Other
 }
 
-function InlineMana({ cost, size = 14 }) {
-  if (!cost) return null
-  const syms = [...cost.matchAll(/\{([^}]+)\}/g)].map(m => m[1])
-  return (
-    <span style={{ display: 'inline-flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-      {syms.map((s, i) => (
-        <img key={i}
-          src={`https://svgs.scryfall.io/card-symbols/${s.replace(/\//g, '').toUpperCase()}.svg`}
-          alt={`{${s}}`}
-          style={{ width: size, height: size, verticalAlign: 'middle', display: 'inline-block', flexShrink: 0 }}
-        />
-      ))}
-    </span>
-  )
-}
-
 function ColorStackBar({ colorCounts, totalPips, title, cardCounts = null }) {
   const allKeys = [...COLOR_ORDER, 'C']
   const entries = allKeys.map(c => ({ c, v: colorCounts[c] || 0 })).filter(x => x.v > 0)
@@ -1012,7 +996,6 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride, p
     })()
 
     return () => { active = false }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stats.tokenNames, stats.extras])
 
   const { curve, curveByColor, curveByType, costColors, costCards, prodMana, typeCounts, catCounts, totalCostPips, totalProdMana, nonLandCount, avgCmc, kwCounts, creatureTypeCounts, tokenNames, extras, totalPrice, avgPrice, priceByCategory, topCards } = stats

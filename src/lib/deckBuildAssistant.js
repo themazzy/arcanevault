@@ -687,7 +687,7 @@ export function planAutoFill({
       }
     }
     spill.sort(cmp)
-    nonlandBudget -= takeFrom(spill, nonlandBudget)
+    takeFrom(spill, nonlandBudget)
   }
 
   const landNeed = Math.min(Math.max(0, nonbasicTarget - currentNonbasicLands), landsReserve)
@@ -1205,7 +1205,7 @@ export function backfillWinconUpgrades(upgradesByRole, ownedWinCount = 0) {
 export async function enrichPlanWithEdhrec(plan, fetchEdhrec, fetchCardMeta) {
   if (!plan?.commander?.name || typeof fetchEdhrec !== 'function') return plan
 
-  let data = null
+  let data
   try {
     data = await fetchEdhrec(plan.commander.name)
   } catch {

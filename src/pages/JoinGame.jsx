@@ -3,7 +3,6 @@ import { CloseIcon, SyncIcon } from '../icons'
 import { useParams, Link } from 'react-router-dom'
 import { useAuth } from '../components/Auth'
 import { ResponsiveMenu } from '../components/UI'
-import uiStyles from '../components/UI.module.css'
 import { sb } from '../lib/supabase'
 import styles from './JoinGame.module.css'
 
@@ -265,7 +264,7 @@ export default function JoinGamePage() {
               title="Select Deck"
               align="left"
               wrapClassName={styles.claimDeckWrap}
-              trigger={({ open, toggle }) => (
+              trigger={() => (
               <button
                 className={`${styles.claimDeckBtn} ${deckOpen ? styles.claimDeckBtnOpen : ''}`}
                 onClick={() => setDeckOpen(v => !v)}>

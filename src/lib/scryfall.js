@@ -10,7 +10,7 @@
 
 import {
   getAllScryfallEntries, putScryfallEntries,
-  clearScryfallStore, getScryfallCacheInfo, setMeta, getMeta
+  clearScryfallStore, setMeta, getMeta
 } from './db'
 import {
   cardPrintRowToSfEntry,

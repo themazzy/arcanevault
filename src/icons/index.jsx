@@ -1,7 +1,7 @@
 // Unified SVG icon system — all icons 16×16 viewBox, currentColor
 // Props: size (default 16), color (default 'currentColor'), className
 
-function Icon({ size = 16, color = 'currentColor', className, children, viewBox = '0 0 16 16' }) {
+function Icon({ size = 16, className, children, viewBox = '0 0 16 16' }) {
   return (
     <svg
       width={size}

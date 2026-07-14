@@ -15,8 +15,8 @@ import {
   pickAutomaticDeckPrinting,
 } from '../lib/deckBuilderApi'
 import {
-  getLocalCards, getDeckCards, putDeckCards, deleteDeckCardLocal, deleteDeckCardsLocal, getMeta, setMeta,
-  deleteDeckAllocationsByIds, replaceDeckAllocations, putDeckAllocations, putFolderCards, putCards,
+  getLocalCards, putDeckCards, deleteDeckCardLocal, deleteDeckCardsLocal, getMeta, setMeta,
+  deleteDeckAllocationsByIds, replaceDeckAllocations, putDeckAllocations, putCards,
   replaceLocalFolderCards,
 } from '../lib/db'
 import styles from './DeckBuilder.module.css'
@@ -68,7 +68,6 @@ import { getPublicAppUrl } from '../lib/publicUrl'
 import { loadLocalPlacementSnapshot, refreshRemotePlacementSnapshot } from '../lib/deckPlacementData'
 import {
   toDeckCardRow,
-  toCardPrintSource,
   requireCardPrintIds,
   ownedCardKey,
   additiveSaveOwnedCards,
@@ -83,7 +82,6 @@ import {
   SortIcon,
   FilterIcon,
   SearchIcon,
-  StarIcon,
   ChevronDownIcon,
   ChevronUpIcon,
   ChevronLeftIcon,
@@ -103,7 +101,7 @@ import {
   WishlistsIcon,
 } from '../icons'
 import { lastInputWasTouch } from '../lib/inputType'
-import { bindTouchContextMenu, consumeLongPressClick } from '../lib/touchContextMenu'
+import { bindTouchContextMenu } from '../lib/touchContextMenu'
 import {
   EMPTY_DECK_CARD_FILTERS,
   DECK_CARD_TYPE_OPTIONS,
@@ -123,14 +121,10 @@ import {
   CAN_HOVER,
   RARITY_ORDER,
   RARITY_COLORS,
-  FOLDER_TAG_COLOR,
-  FOLDER_TAG_BORDER,
   BOARD_ORDER,
   BOARD_LABELS,
   BOARD_FILTERS,
   UNCATEGORIZED,
-  PIP_COLORS,
-  BASIC_LANDS,
   DEFAULT_LIST_COLUMNS,
   DEFAULT_COMPACT_COLUMNS,
 } from '../lib/deckBuilderConstants'
@@ -148,25 +142,15 @@ import {
   allocationSetHas,
   mergeOtherDeckAllocationKeys,
   normalizePrintKey,
-  printingSupportsFoil,
-  printingSupportsNonfoil,
   defaultFoilForPrinting,
   getCommanderOracle,
-  normalizePartnerName,
-  getCommanderProfile,
   canBeCommander,
   getNonCommanderDeckCoverArt,
   getCommanderPairIssue,
   findCommanderTransferHint,
   collectCardIdentities,
 } from '../lib/deckBuilderHelpers'
-import {
-  formatOwnedPrinting,
-  formatQtyLabel,
-} from '../lib/deckSyncDecisions'
-
-import { ManaCostInline, OwnershipBadge } from '../components/deckBuilder/primitives'
-import { DeckCardActionsMenuBody, DeckCardRow, EditMenu } from '../components/deckBuilder/DeckCardRow'
+import { DeckCardActionsMenuBody, DeckCardRow } from '../components/deckBuilder/DeckCardRow'
 import { DeckCategoryHeader } from '../components/deckBuilder/DeckCategoryHeader'
 import { DeckCardSection } from '../components/deckBuilder/DeckCardSection'
 import { DeckCard } from '../components/deckBuilder/DeckCard'
@@ -494,7 +478,6 @@ export default function DeckBuilderPage() {
   const {
     query:       cmdQuery,
     results:     cmdResults,
-    loading:     cmdLoading,
     isOpen:      showCmdPicker,
     setIsOpen:   setShowCmdPicker,
     handleQuery: handleCmdQuery,
@@ -648,9 +631,6 @@ export default function DeckBuilderPage() {
     document.addEventListener('click', dismiss, true)
     return () => document.removeEventListener('click', dismiss, true)
   }, [warningTooltip])
-  const [isMobileWarnings, setIsMobileWarnings] = useState(() => (
-    typeof window !== 'undefined' ? window.innerWidth <= 900 : false
-  ))
   const [syncStatus, setSyncStatus] = useState({ loading: false, dirty: false, count: 0, unavailable: false })
 
   useEffect(() => {
@@ -675,12 +655,8 @@ export default function DeckBuilderPage() {
   // Make Deck / Sync
   const [showMakeDeck,    setShowMakeDeck]    = useState(false)
   const [showSync,        setShowSync]        = useState(false)
-  const [makeDeckDone,    setMakeDeckDone]    = useState(false)
-  const [makeDeckMsg,     setMakeDeckMsg]     = useState('')
   const [makeDeckRunning, setMakeDeckRunning] = useState(false)
   const [syncRunning,     setSyncRunning]     = useState(false)
-  const [syncDone,        setSyncDone]        = useState(false)
-  const [syncMsg,         setSyncMsg]         = useState('')
   const [pendingOwnedMove, setPendingOwnedMove] = useState(null)
 
   // Description & tags
@@ -793,14 +769,6 @@ export default function DeckBuilderPage() {
   useEffect(() => {
     setMeta('deckbuilder_compact_visible_columns_v1', compactVisibleColumns).catch(() => {})
   }, [compactVisibleColumns])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return undefined
-    const onResize = () => setIsMobileWarnings(window.innerWidth <= 900)
-    onResize()
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
 
   useEffect(() => {
     // A remembered per-device grouping wins over the settings default.
@@ -2514,7 +2482,7 @@ export default function DeckBuilderPage() {
     if (printingLookupCache.current.has(key)) return printingLookupCache.current.get(key)
     // Source from our own card_prints/card_prices catalog first (no Scryfall
     // rate limit); only fall back to a live Scryfall search if we have no rows.
-    let printings = []
+    let printings
     try { printings = await fetchPaperPrintingsFromDb(name) } catch { printings = [] }
     if (!printings.length) {
       try { printings = await fetchPaperPrintings(name) } catch { printings = [] }
@@ -3740,7 +3708,7 @@ export default function DeckBuilderPage() {
     return (dc.name || '').toLowerCase() === (row.name || '').toLowerCase() && sameF
   }
 
-  async function getOwnedMoveRowsForDeckCard(dc, desiredQty) {
+  async function _getOwnedMoveRowsForDeckCard(dc, desiredQty) {
     const allocationDeckId = getAllocationDeckId()
     if (!allocationDeckId) return []
 
@@ -3897,7 +3865,7 @@ export default function DeckBuilderPage() {
     }
   }
 
-  async function promptToMoveOwnedCopies({ title, message, items, onComplete }) {
+  async function _promptToMoveOwnedCopies({ title, message, items, onComplete }) {
     const folders = await loadMoveTargets(getAllocationDeckId())
     setPendingOwnedMove({
       title,
@@ -4096,7 +4064,6 @@ export default function DeckBuilderPage() {
     // without a per-row baseline). If that step throws, we report it but the
     // owned cards table may have stale qty bumps — same risk as before this fix.
     const cleanupStack = []
-    let createdCollectionDeckId = null
     let createdWishlistId = null
     const builderMetaSnapshot = { ...(deckMetaRef.current || deckMeta) }
     try {
@@ -4112,7 +4079,6 @@ export default function DeckBuilderPage() {
         .select()
         .single()
       if (createDeckErr || !newCollectionDeck) throw createDeckErr || new Error('Failed to create linked collection deck.')
-      createdCollectionDeckId = newCollectionDeck.id
       cleanupStack.push(async () => {
         await sb.from('deck_allocations').delete().eq('deck_id', newCollectionDeck.id)
         await sb.from('folders').delete().eq('id', newCollectionDeck.id).eq('user_id', user.id)
@@ -4227,13 +4193,6 @@ export default function DeckBuilderPage() {
       await invalidateCollectionPlacementQueries({ includeFolders: true, includeCards: addMissing && missingItems.length > 0 })
       setSyncStatus({ loading: false, dirty: false, count: 0, unavailable: false, diff: null })
 
-      const addCount = addItems.reduce((s, i) => s + i.totalAdd, 0)
-      const misCount = missingItems.reduce((s, i) => s + i.missingQty, 0)
-      let msg = `${addCount} card${addCount !== 1 ? 's' : ''} added to collection deck`
-      if (addMissing && misCount > 0) msg += `, ${misCount} missing card${misCount !== 1 ? 's' : ''} added to collection`
-      else if (targetWishlistId && misCount > 0) msg += `, ${misCount} added to wishlist`
-      setMakeDeckMsg(msg)
-      setMakeDeckDone(true)
     } catch (err) {
       console.error('[MakeDeck]', err)
       // Best-effort rollback in reverse order. Cleanup failures are logged but
@@ -4243,8 +4202,6 @@ export default function DeckBuilderPage() {
           console.error('[MakeDeck] cleanup step failed:', cleanupErr)
         }
       }
-      setMakeDeckMsg('Failed to make collection deck. Try again.')
-      setMakeDeckDone(true)
     }
     setMakeDeckRunning(false)
   }
@@ -4556,12 +4513,8 @@ export default function DeckBuilderPage() {
       })
       const nextSummary = summarizeSyncDiff(nextDiff)
       setSyncStatus({ loading: false, dirty: hasUnresolved || nextSummary.dirty, count: nextSummary.total, unavailable: false, diff: nextDiff })
-      setSyncMsg(hasUnresolved ? 'Sync applied. Some differences were kept.' : 'Sync complete')
-      setSyncDone(true)
     } catch (err) {
       console.error('[Sync]', err)
-      setSyncMsg('Sync failed. Try again.')
-      setSyncDone(true)
     }
     setSyncRunning(false)
   }

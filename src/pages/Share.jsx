@@ -3,8 +3,6 @@ import { useParams } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
-import { getPrice, formatPrice } from '../lib/scryfall'
-import { useSettings } from '../components/SettingsContext'
 import { CardGrid, CardDetail, FilterBar, applyFilterSort } from '../components/CardComponents'
 import { EmptyState, ProgressBar } from '../components/UI'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
@@ -13,7 +11,6 @@ import styles from './Share.module.css'
 export default function SharePage() {
   const { token } = useParams()
   const { user, loading: authLoading } = useAuth()
-  const { price_source } = useSettings()
   const [folder, setFolder] = useState(null)
   const [cards, setCards] = useState([])
   const [sfMap, setSfMap] = useState({})

@@ -502,7 +502,7 @@ export default function TradingPage() {
   const location = useLocation()
 
   const [cards, setCards] = useState([])
-  const [folders, setFolders] = useState([])
+  const [, setFolders] = useState([])
   const [cardFolderMap, setCardFolderMap] = useState({})
   const [sfMap, setSfMap] = useState({})
   const [collectionLoaded, setCollectionLoaded] = useState(false)

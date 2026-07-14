@@ -22,7 +22,7 @@ import { useFilterWorker } from '../hooks/useFilterWorker'
 import { lastInputWasTouch } from '../lib/inputType'
 import { getPlacedQtyByCardIds, pruneUnplacedCards } from '../lib/collectionOwnership'
 import { fetchDeckAllocations, fetchDeckCards } from '../lib/deckData'
-import { getDeckAllocations, getCardsByIds, getLocalFolders, replaceDeckAllocations, putCards, putDeckAllocations, putFolderCards, replaceLocalFolderCards } from '../lib/db'
+import { getDeckAllocations, getCardsByIds, getLocalFolders, replaceDeckAllocations, putCards, putDeckAllocations, putFolderCards } from '../lib/db'
 import { queryClient } from '../lib/queryClient'
 import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
 import { toDeckCardRow } from '../lib/deckBuilderWrites'
@@ -227,7 +227,7 @@ function TextRow({ card, selectMode, isSelected, onToggleSelect, onEnterSelectMo
   )
 }
 
-function TextView({ groups, groupOrder, selectMode, selectedCards, onToggleSelect, onEnterSelectMode, hideHeaders }) {
+function _TextView({ groups, groupOrder, selectMode, selectedCards, onToggleSelect, onEnterSelectMode, hideHeaders }) {
   return (
     <div className={styles.textView}>
       {groupOrder.filter(g => groups[g]?.length).map(group => {
@@ -260,7 +260,7 @@ function TextView({ groups, groupOrder, selectMode, selectedCards, onToggleSelec
 
 // ── View: Table ───────────────────────────────────────────────────────────────
 
-function TableView({ cards, sfMap, priceSource, onSelect, selectMode, selectedCards, onToggleSelect, onEnterSelectMode }) {
+const _TableView = function TableView({ cards, sfMap, priceSource, onSelect, selectMode, selectedCards, onToggleSelect, onEnterSelectMode }) {
   const [sortCol, setSortCol] = useState('name')
   const [sortDir, setSortDir] = useState(1)
 
@@ -411,7 +411,7 @@ function StackCard({ card, sf, idx, priceSource, selectMode, isSelected, totalQt
   )
 }
 
-function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, onHover, onHoverEnd, selectMode, selectedCards, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, hideHeaders }) {
+function _StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, onHover, onHoverEnd, selectMode, selectedCards, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, hideHeaders }) {
   return (
     <div className={styles.stacksWrap}>
       {groupOrder.filter(g => groups[g]?.length).map(group => {
@@ -498,7 +498,7 @@ function DeckListRow({ card, sfCard, priceSource, onClick, onHover, onHoverEnd, 
   )
 }
 
-function DeckListGroup({ groupName, cards, sfMap, priceSource, onSelect, color, onHover, onHoverEnd, selectMode, selectedCards, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, hideHeader }) {
+const _DeckListGroup = function DeckListGroup({ groupName, cards, sfMap, priceSource, onSelect, color, onHover, onHoverEnd, selectMode, selectedCards, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, hideHeader }) {
   const [collapsed, setCollapsed] = useState(false)
   const total = cards.reduce((s,c) => s+(c._folder_qty||c.qty||1), 0)
 
@@ -602,7 +602,7 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, totalQty, onS
   )
 }
 
-function DeckCardGrid({ cards, sfMap, priceSource, onSelect, onHover, onHoverEnd, selectMode, selectedCards, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode }) {
+function _DeckCardGrid({ cards, sfMap, priceSource, onSelect, onHover, onHoverEnd, selectMode, selectedCards, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode }) {
   return (
     <div className={styles.cardGrid}>
       {cards.map(card => {
@@ -635,7 +635,7 @@ function DeckCardGrid({ cards, sfMap, priceSource, onSelect, onHover, onHoverEnd
 
 export default function DeckBrowser({ folder, onBack }) {
   const navigate = useNavigate()
-  const { price_source, default_sort, grid_density } = useSettings()
+  const { price_source, grid_density } = useSettings()
   const { user } = useAuth()
   const toast = useToast()
   const [cards, setCards]           = useState([])
@@ -658,7 +658,6 @@ export default function DeckBrowser({ folder, onBack }) {
   }, [isUnsynced])
   const [viewMode, setViewMode]     = useState('grid')
   const [groupBy, setGroupBy]       = useState('none')
-  const [bracketOverride, setBracketOverride] = useState(null)
   const [search, setSearch]     = useState('')
   const [sort, setSort]         = useState('cmc_asc')
   const [filters, setFilters]   = useState({ ...EMPTY_FILTERS })
@@ -889,7 +888,7 @@ export default function DeckBrowser({ folder, onBack }) {
         const diff = buildSyncDiff({ baseline, builderCards, collectionCards })
         const summary = summarizeSyncDiff(diff)
         setSyncCheck({ loading: false, dirty: summary.dirty, count: summary.total, unavailable: false })
-      } catch (err) {
+      } catch {
         if (!cancelled) setSyncCheck({ loading: false, dirty: false, count: 0, unavailable: true })
       }
     }
@@ -1110,7 +1109,7 @@ export default function DeckBrowser({ folder, onBack }) {
   }, [cards, sfMap])
 
   // Build groups based on groupBy mode
-  const { groups, groupOrder } = useMemo(() => {
+  const { groups: _groups, groupOrder: _groupOrder } = useMemo(() => {
     if (groupBy === 'none') return { groups: { 'All': filtered }, groupOrder: ['All'] }
     const g = {}
     const order = groupBy === 'category' ? CAT_ORDER : TYPE_ORDER

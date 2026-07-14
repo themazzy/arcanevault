@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { formatAttractionLights } from '../lib/attractions'
-import { getImageUri, getPrice, formatPrice, getPriceSource, getScryfallKey } from '../lib/scryfall'
+import { getImageUri, getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
 import { Modal, Badge, ResponsiveMenu, Select } from './UI'
 import styles from './CardComponents.module.css'
 import uiStyles from './UI.module.css'
@@ -363,17 +363,6 @@ function Sym({ sym, size = 16 }) {
   )
 }
 
-// Parse a string containing {SYMBOL} tokens and return React nodes
-function parseSymbols(text, symSize = 15) {
-  if (!text) return null
-  const parts = text.split(/(\{[^}]+\})/)
-  return parts.map((part, i) =>
-    /^\{[^}]+\}$/.test(part)
-      ? <Sym key={i} sym={part} size={symSize} />
-      : part
-  )
-}
-
 // Mana cost row — e.g. {2}{W}{U}
 function ManaSymbols({ cost, size = 18 }) {
   if (!cost) return null
@@ -472,7 +461,7 @@ export function CardDetail(props) {
   return <CardDetailContent {...props} />
 }
 
-function CardDetailContent({ card, sfCard, onClose, onEdit, onDelete, deleteQty = null, folders, priceSource = 'cardmarket_trend', onSave, currentFolderId = null, currentFolderType = null, readOnly = false }) {
+function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, folders, priceSource = 'cardmarket_trend', onSave, currentFolderId = null, currentFolderType = null, readOnly = false }) {
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('card')
   const [face, setFace] = useState(0)
@@ -602,7 +591,7 @@ function CardDetailContent({ card, sfCard, onClose, onEdit, onDelete, deleteQty 
     setSaving(true)
     setSaveError('')
     let folderQty = card._folder_qty
-    let ownedQty = editQty
+    let ownedQty
 
     if (currentFolderId && card._folder_qty != null) {
       const table = scopedFolderType === 'deck' ? 'deck_allocations' : 'folder_cards'
@@ -879,7 +868,7 @@ function CardDetailContent({ card, sfCard, onClose, onEdit, onDelete, deleteQty 
                   ['USD', fc.prices?.usd,     'TCGPlayer',       'USD', fc.purchase_uris?.tcgplayer],
                   ['USD', fc.prices?.usd_foil, 'TCGPlayer Foil',  'USD', fc.purchase_uris?.tcgplayer],
                   ['TIX', fc.prices?.tix,     'Cardhoarder',     'tix', fc.purchase_uris?.cardhoarder],
-                ].map(([cur, val, label, unit, href]) => val ? (
+                ].map(([cur, val, label, _unit, href]) => val ? (
                   href
                     ? <a key={label} href={href} target="_blank" rel="noreferrer" className={styles.priceDetailBlock}>
                         <div className={styles.priceDetailLabel}>{label}</div>

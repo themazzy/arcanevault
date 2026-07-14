@@ -100,8 +100,6 @@ async function loadCollectionData(userId) {
     allCards = data || []
   }
 
-  const folderIds = allFolders.map(f => f.id)
-
   const deckIds = allFolders.filter(f => f.type === 'deck').map(f => f.id)
   const placementFolderIds = allFolders.filter(f => f.type !== 'deck').map(f => f.id)
 
@@ -265,7 +263,7 @@ function parseRssFeed(xmlText, label, color) {
       }
 
       // Atom <link> has href attribute; RSS <link> has text content or <guid>
-      let link = ''
+      let link
       if (isAtom) {
         const el = node.querySelector('link[rel="alternate"], link[type="text/html"], link')
         link = el?.getAttribute('href') || el?.textContent?.trim() || ''
@@ -914,7 +912,7 @@ function SetRow({ row }) {
   )
 }
 
-function SetCompletionSection({ data, loading }) {
+const _SetCompletionSection = function SetCompletionSection({ data, loading }) {
   const [setsMap,  setSetsMap]  = useState(null)
   const [expanded, setExpanded] = useState(false)
 

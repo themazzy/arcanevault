@@ -165,7 +165,7 @@ function toMap(rows) {
 export function buildSyncSnapshot({ builderCards, collectionCards }) {
   return {
     builder_cards: normalizeBuilderCards(builderCards),
-    collection_cards: normalizeCollectionAllocations(collectionCards).map(({ allocations, ...rest }) => rest),
+    collection_cards: normalizeCollectionAllocations(collectionCards).map(({ allocations: _allocations, ...rest }) => rest),
   }
 }
 
@@ -173,7 +173,7 @@ export function buildSyncDiff({ baseline, builderCards, collectionCards }) {
   const baseBuilder = toMap(baseline?.builder_cards || [])
   const baseCollection = toMap(baseline?.collection_cards || [])
   const currentBuilder = toMap(normalizeBuilderCards(builderCards))
-  const currentCollection = toMap(normalizeCollectionAllocations(collectionCards).map(({ allocations, ...rest }) => rest))
+  const currentCollection = toMap(normalizeCollectionAllocations(collectionCards).map(({ allocations: _allocations, ...rest }) => rest))
 
   const allKeys = new Set([
     ...baseBuilder.keys(),

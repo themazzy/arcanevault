@@ -105,7 +105,6 @@ export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose })
   }, [])
 
   // Intentional: modal mounts fresh on each open - one-shot load from current props snapshot.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     let cancelled = false
     const deckNameSet = new Set((deckCards || []).map(card => normalizeCardName(card.name)).filter(Boolean))

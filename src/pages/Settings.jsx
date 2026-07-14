@@ -7,7 +7,7 @@ import { maskEmailAddress, THEMES, PREMIUM_THEMES, THEME_TIERS, useSettings, get
 import { getLocalFolders } from '../lib/db'
 import { useSetupWizard } from '../components/SetupWizard'
 import { clearScryfallCache, PRICE_SOURCES, sfGet } from '../lib/scryfall'
-import { deleteLocalFoldersAndPlacements, getDbStats, setMeta } from '../lib/db'
+import { deleteLocalFoldersAndPlacements, getDbStats } from '../lib/db'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { downloadCollectionBackup, restoreCollectionBackup, validateBackupFile, summarizeBackup } from '../lib/backup'
 import { Button, SectionHeader, Select as UISelect } from '../components/UI'

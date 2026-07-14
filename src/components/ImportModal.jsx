@@ -1,10 +1,9 @@
 import { Fragment, useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { sb } from '../lib/supabase'
 import { Modal, ResponsiveMenu } from './UI'
-import { fetchPaperPrintings, importDeckFromUrl } from '../lib/deckBuilderApi'
+import { fetchPaperPrintings } from '../lib/deckBuilderApi'
 import {
   aggregateResolvedRows,
-  normalizeImportedDeckCards,
   parseImportText,
   resolveImportEntries,
   summarizeImportRows,
@@ -86,7 +85,7 @@ async function upsertInBatches(table, rows, options, selectColumns = '*', onBatc
   for (let i = 0; i < batches.length; i++) {
     const batch = batches[i].map(row => {
       if (row?.id != null) return row
-      const { id, ...rest } = row
+      const { id: _id, ...rest } = row
       return rest
     })
     const rowsWithId = batch.filter(row => row.id != null)
@@ -147,7 +146,7 @@ async function additiveUpsertInBatches(table, rows, keyFields, options, selectCo
       return existing
         ? { ...row, id: existing.id, qty: (existing.qty || 0) + (row.qty || 0) }
         : (() => {
-            const { id, ...rest } = row
+            const { id: _id, ...rest } = row
             return rest
           })()
     })
@@ -186,9 +185,6 @@ export default function ImportModal({
   const initialEntries = initialImport.entries
   const [step, setStep] = useState(initialText ? 'preview' : 'input')
   const [text, setText] = useState(initialText || '')
-  const [importUrl, setImportUrl] = useState('')
-  const [urlLoading, setUrlLoading] = useState(false)
-  const [urlError, setUrlError] = useState('')
   const [parsed, setParsed] = useState(initialEntries)
   const [sourceFolders, setSourceFolders] = useState(initialImport.folders || {})
   const [resolvedRows, setResolvedRows] = useState([])
@@ -332,25 +328,6 @@ export default function ImportModal({
     setPreviewPage(0)
     setStep('preview')
     resolvePreview(result.entries)
-  }
-
-  const handleUrlFetch = async () => {
-    if (!importUrl.trim()) return
-    setUrlLoading(true)
-    setUrlError('')
-    try {
-      const result = await importDeckFromUrl(importUrl.trim())
-      const converted = normalizeImportedDeckCards(result.cards)
-      if (!converted.length) throw new Error('No cards found in the deck.')
-      setParsed(converted)
-      setSourceFolders({})
-      setPreviewPage(0)
-      setStep('preview')
-      resolvePreview(converted)
-    } catch (e) {
-      setUrlError(e.message)
-    }
-    setUrlLoading(false)
   }
 
   const handleCreateFolder = async () => {

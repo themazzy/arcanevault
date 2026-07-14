@@ -817,7 +817,6 @@ function renderArchiveAmbient(el, cards) {
     canvas.appendChild(tile)
   })
   // Force reflow so the incoming tiles transition in from opacity 0.
-  // eslint-disable-next-line no-unused-expressions
   el.offsetHeight
   requestAnimationFrame(() => {
     el.querySelectorAll('.av-archive-card-incoming').forEach(t => t.classList.remove('av-archive-card-incoming'))
@@ -978,7 +977,7 @@ export function SettingsProvider({ children }) {
       return { ok: false, error: error.message }
     }
     if (data) {
-      const { user_id, updated_at, ...rest } = data
+      const { user_id: _userId, updated_at: _updatedAt, ...rest } = data
       let merged = { ...DEFAULTS, ...rest }
       if (!Object.prototype.hasOwnProperty.call(rest, 'theme')) {
         const local = loadLocal()

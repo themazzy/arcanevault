@@ -94,7 +94,13 @@ function safeBgUrl(raw) {
 
 function sanitizeStr(s, maxLen = 64) {
   if (typeof s !== 'string') return ''
-  return s.replace(/[\u0000-\u001f\u007f-\u009f]/g, '').slice(0, maxLen)
+  return [...s]
+    .filter(char => {
+      const code = char.charCodeAt(0)
+      return code > 31 && (code < 127 || code > 159)
+    })
+    .join('')
+    .slice(0, maxLen)
 }
 
 function sanitizeGameRow(row) {

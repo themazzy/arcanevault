@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button, ResponsiveMenu } from '../components/UI'
+import { ResponsiveMenu } from '../components/UI'
 import uiStyles from '../components/UI.module.css'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
@@ -509,7 +509,7 @@ function CmdDmgOverlay({ players, selfId, layout, viewerRotation = 0, onCmdDmgCh
           <button className={styles.cmdOverlayClose} onClick={onClose}><CloseIcon size={13} /></button>
         </div>
         <div className={styles.cmdGrid} style={{ '--gcols': layout.cols }}>
-          {players.map((p, idx) => {
+          {players.map(p => {
             if (p.id === selfId) {
               return (
                 <div
@@ -1349,7 +1349,7 @@ function HistoryEntry({ game }) {
 }
 
 // ── Pre-game Setup Screen ──────────────────────────────────────────────────────
-function GameHistoryPanel({ rows, loading, decks, onRefresh, onUpdate, onDelete }) {
+const _GameHistoryPanel = function GameHistoryPanel({ rows, loading, decks, onRefresh, onUpdate, onDelete }) {
   const [editingId, setEditingId] = useState(null)
   const [editNotes, setEditNotes] = useState('')
   const [editPlacement, setEditPlacement] = useState(1)
@@ -1774,7 +1774,7 @@ function EndGameDialog({ players, onSave, onCancel }) {
 // ── Player Panel ───────────────────────────────────────────────────────────────
 function PlayerPanel({
   player, opponents,
-  onLifeChange, onCmdDmgChange, onNameChange, onCmdTaxChange,
+  onLifeChange, onNameChange, onCmdTaxChange,
   onRequestPlayerSettings, onRequestCmdDmgOverlay,
   showCommander, rotation = 0,
 }) {

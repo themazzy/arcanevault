@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { sb } from '../lib/supabase'
-import { getScryfallKey, getPrice, getPriceSource, formatPrice, sfGet } from '../lib/scryfall'
+import { getScryfallKey, getPrice, formatPrice, sfGet } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { useToast } from '../components/ToastContext'
-import { CardGrid, CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
+import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
 import { EmptyState, SectionHeader, Button, Modal, ResponsiveHeaderActions, ResponsiveMenu, Select } from '../components/UI'
 import ShareModal from '../components/ShareModal'
 import { isTradeBinder } from '../lib/tradeBinder'
@@ -21,8 +21,7 @@ import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 import { useFilterWorker } from '../hooks/useFilterWorker'
 import { getPlacedQtyByCardIds, pruneUnplacedCards, removeFolderCardPlacements } from '../lib/collectionOwnership'
-import { getPublicAppUrl } from '../lib/publicUrl'
-import { getLocalFolderCards, getAllLocalFolderCards, getDeckAllocations, getAllDeckAllocationsForFolders, getCardsByIds, getLocalFolders, putCards, putFolderCards, putDeckAllocations, replaceLocalFolderCards, replaceDeckAllocations, getFolderMetaCache, setFolderMetaCache } from '../lib/db'
+import { getLocalFolderCards, getAllLocalFolderCards, getAllDeckAllocationsForFolders, getCardsByIds, getLocalFolders, putCards, putFolderCards, putDeckAllocations, replaceLocalFolderCards, replaceDeckAllocations, getFolderMetaCache, setFolderMetaCache } from '../lib/db'
 import { queryClient } from '../lib/queryClient'
 import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
@@ -506,7 +505,7 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
 }
 
 // ── Binder list view ─────────────────────────────────────────────────────────
-function BinderListView({ cards, sfMap, priceSource }) {
+function _BinderListView({ cards, sfMap, priceSource }) {
   return (
     <div className={styles.listTable}>
       <div className={styles.listHeader}>
@@ -597,7 +596,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
   useEffect(() => {
     const load = async () => {
       setLoading(true)
-      let cardList = []
+      let cardList
       if (isAllView) {
         const folderNameById = Object.fromEntries(folders.map(f => [f.id, f.name]))
         const allFcRows = await getAllLocalFolderCards(folderIds)
@@ -1822,10 +1821,6 @@ export default function FoldersPage({ type }) {
     }
     return map
   }, [regularFolders])
-  const ungroupedFolders = useMemo(
-    () => regularFolders.filter(f => !parseFolderDesc(f.description).groupId),
-    [regularFolders]
-  )
   const normalizedFolderSearch = folderSearch.trim().toLowerCase()
   const filteredRegularFolders = useMemo(() => {
     if (!normalizedFolderSearch) return regularFolders

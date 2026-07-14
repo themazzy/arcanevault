@@ -394,8 +394,6 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
     item.id === id ? { ...item, qty: Math.max(1, item.qty + delta) } : item
   ))
 
-  const destFolders = folders.filter(f => f.type === destTab)
-
   // Folder mode: filtered folders by selected type + search text, excluding groups
   const filteredFoldersByType = (() => {
     const byType = folders.filter(f => {

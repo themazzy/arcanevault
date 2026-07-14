@@ -5,7 +5,7 @@ import { toListItemRow } from '../lib/deckBuilderWrites'
 import { queryClient } from '../lib/queryClient'
 import { invalidateWishlistQueries } from '../lib/queryInvalidation'
 import { trackActivity } from '../lib/activity'
-import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
+import { getPrice, formatPrice } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
@@ -346,7 +346,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
     invalidateWishlistQueries(queryClient, user?.id, options).catch(() => {})
   ), [user?.id])
 
-  const handleDelete = async (id) => {
+  const _handleDelete = async (id) => {
     await sb.from('list_items').delete().eq('id', id)
     setItems(prev => prev.filter(i => i.id !== id))
     try { await deleteListItemsByIds([id]) } catch {}
@@ -1164,10 +1164,6 @@ export default function ListsPage() {
     }
     return map
   }, [regularFolders])
-  const ungroupedFolders = useMemo(
-    () => regularFolders.filter(f => !parseFolderDesc(f.description).groupId),
-    [regularFolders]
-  )
   const normalizedFolderSearch = folderSearch.trim().toLowerCase()
   const filteredRegularFolders = useMemo(() => {
     if (!normalizedFolderSearch) return regularFolders
