@@ -2034,6 +2034,117 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           {/* Summary step */}
           {!loading && !error && onSummary && plan && (
             <>
+              {/* Cut to 100 — surfaced first when the deck is over size so
+                  trimming is the primary action before reviewing the rest. */}
+              {cutAnalysis && cutAnalysis.over > 0 && (
+                <>
+                  <div className={styles.sectionLabel}>
+                    Trim to 100
+                    <span className={styles.sectionHint}> · {cutAnalysis.over} to cut</span>
+                  </div>
+
+                  <div className={styles.cutControls}>
+                    <div className={styles.themeChips}>
+                      {CUT_MODES.map(m => (
+                        <button
+                          key={m.id}
+                          className={`${styles.themeChip}${cutMode === m.id ? ' ' + styles.themeActive : ''}`}
+                          onClick={() => setCutMode(m.id)}
+                          title={m.description}
+                        >
+                          {m.label}
+                        </button>
+                      ))}
+                    </div>
+                    {cutAnalysis.recommended.length > 0 && (
+                      <button
+                        className={styles.cutApplyBtn}
+                        onClick={() => applyCuts(cutAnalysis.recommended.map(c => c.id))}
+                        disabled={applyingCuts}
+                      >
+                        {applyingCuts ? 'Cutting…' : `Cut all ${cutAnalysis.recommended.length}`}
+                      </button>
+                    )}
+                  </div>
+                  <div className={styles.cutModeHint}>
+                    {CUT_MODES.find(m => m.id === cutMode)?.description}
+                  </div>
+
+                  {cutAnalysis.recommended.length === 0 ? (
+                    <div className={styles.emptySmall}>Everything else is locked or protected — unlock a card below to get suggestions.</div>
+                  ) : (
+                    <div className={styles.cutList}>
+                      {cutAnalysis.recommended.map(c => {
+                        const img = cardImageUrl(sfMap?.[c.scryfall_id] || null)
+                        return (
+                        <div key={c.id} className={styles.cutRow}>
+                          <button
+                            type="button"
+                            className={styles.cutPeek}
+                            title={`View ${c.name}`}
+                            {...previewHandlers({ name: c.name, scryfall_id: c.scryfall_id })}
+                          >
+                            <span className={styles.cutThumb} aria-hidden="true">
+                              {img
+                                ? <img src={img} alt="" loading="lazy" className={styles.cutThumbImg} />
+                                : <span className={styles.cutThumbFallback} />}
+                            </span>
+                            <span className={styles.cutInfo}>
+                              <span className={styles.cutName} title={c.name}>{c.name}</span>
+                              <span className={styles.cutSub}>
+                                <span className={styles.cutReason}>{c.reason}</span>
+                                <span className={styles.cutMeta}>{c.hasData ? `${c.inclusion}%` : '—'} · {c.cmc} CMC</span>
+                              </span>
+                            </span>
+                          </button>
+                          <button
+                            className={styles.cutKeep}
+                            onClick={() => toggleCutLock(c.id)}
+                            title="Keep this card (lock it out of cut suggestions)"
+                          >
+                            Keep
+                          </button>
+                          <button
+                            className={`${styles.miniBtn} ${styles.cutBtn}`}
+                            onClick={() => handleRemove(c.id)}
+                            title={`Remove ${c.name}`}
+                          >
+                            <DeleteIcon size={11} /> Cut
+                          </button>
+                        </div>
+                        )
+                      })}
+                    </div>
+                  )}
+
+                  {cutAnalysis.extra.length > 0 && (
+                    <div className={styles.cutExtraNote}>
+                      Also consider: {cutAnalysis.extra.map(c => c.name).join(', ')}
+                    </div>
+                  )}
+
+                  {(() => {
+                    const locked = (deckCards || []).filter(dc => lockedCutIds.has(dc.id))
+                    if (!locked.length) return null
+                    return (
+                      <div className={styles.cutLockedStrip}>
+                        <span className={styles.cutLockedLabel}>Kept:</span>
+                        {locked.map(dc => (
+                          <button
+                            key={dc.id}
+                            className={styles.cutLockedChip}
+                            onClick={() => toggleCutLock(dc.id)}
+                            title="Kept — tap to unlock (allow as a cut suggestion)"
+                          >
+                            <CheckIcon size={10} /> {dc.name}
+                          </button>
+                        ))}
+                      </div>
+                    )
+                  })()}
+                </>
+              )}
+
               <div className={styles.sectionLabel}>Deck composition</div>
               <div className={styles.summaryGrid}>
                 {plan.roles.map(r => {
@@ -2240,116 +2351,6 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                     )
                   })}
                 </div>
-              )}
-
-              {/* Cut to 100 */}
-              {cutAnalysis && cutAnalysis.over > 0 && (
-                <>
-                  <div className={styles.sectionLabel}>
-                    Trim to 100
-                    <span className={styles.sectionHint}> · {cutAnalysis.over} to cut</span>
-                  </div>
-
-                  <div className={styles.cutControls}>
-                    <div className={styles.themeChips}>
-                      {CUT_MODES.map(m => (
-                        <button
-                          key={m.id}
-                          className={`${styles.themeChip}${cutMode === m.id ? ' ' + styles.themeActive : ''}`}
-                          onClick={() => setCutMode(m.id)}
-                          title={m.description}
-                        >
-                          {m.label}
-                        </button>
-                      ))}
-                    </div>
-                    {cutAnalysis.recommended.length > 0 && (
-                      <button
-                        className={styles.cutApplyBtn}
-                        onClick={() => applyCuts(cutAnalysis.recommended.map(c => c.id))}
-                        disabled={applyingCuts}
-                      >
-                        {applyingCuts ? 'Cutting…' : `Cut all ${cutAnalysis.recommended.length}`}
-                      </button>
-                    )}
-                  </div>
-                  <div className={styles.cutModeHint}>
-                    {CUT_MODES.find(m => m.id === cutMode)?.description}
-                  </div>
-
-                  {cutAnalysis.recommended.length === 0 ? (
-                    <div className={styles.emptySmall}>Everything else is locked or protected — unlock a card below to get suggestions.</div>
-                  ) : (
-                    <div className={styles.cutList}>
-                      {cutAnalysis.recommended.map(c => {
-                        const img = cardImageUrl(sfMap?.[c.scryfall_id] || null)
-                        return (
-                        <div key={c.id} className={styles.cutRow}>
-                          <button
-                            type="button"
-                            className={styles.cutPeek}
-                            title={`View ${c.name}`}
-                            {...previewHandlers({ name: c.name, scryfall_id: c.scryfall_id })}
-                          >
-                            <span className={styles.cutThumb} aria-hidden="true">
-                              {img
-                                ? <img src={img} alt="" loading="lazy" className={styles.cutThumbImg} />
-                                : <span className={styles.cutThumbFallback} />}
-                            </span>
-                            <span className={styles.cutInfo}>
-                              <span className={styles.cutName} title={c.name}>{c.name}</span>
-                              <span className={styles.cutSub}>
-                                <span className={styles.cutReason}>{c.reason}</span>
-                                <span className={styles.cutMeta}>{c.hasData ? `${c.inclusion}%` : '—'} · {c.cmc} CMC</span>
-                              </span>
-                            </span>
-                          </button>
-                          <button
-                            className={styles.cutKeep}
-                            onClick={() => toggleCutLock(c.id)}
-                            title="Keep this card (lock it out of cut suggestions)"
-                          >
-                            Keep
-                          </button>
-                          <button
-                            className={`${styles.miniBtn} ${styles.cutBtn}`}
-                            onClick={() => handleRemove(c.id)}
-                            title={`Remove ${c.name}`}
-                          >
-                            <DeleteIcon size={11} /> Cut
-                          </button>
-                        </div>
-                        )
-                      })}
-                    </div>
-                  )}
-
-                  {cutAnalysis.extra.length > 0 && (
-                    <div className={styles.cutExtraNote}>
-                      Also consider: {cutAnalysis.extra.map(c => c.name).join(', ')}
-                    </div>
-                  )}
-
-                  {(() => {
-                    const locked = (deckCards || []).filter(dc => lockedCutIds.has(dc.id))
-                    if (!locked.length) return null
-                    return (
-                      <div className={styles.cutLockedStrip}>
-                        <span className={styles.cutLockedLabel}>Kept:</span>
-                        {locked.map(dc => (
-                          <button
-                            key={dc.id}
-                            className={styles.cutLockedChip}
-                            onClick={() => toggleCutLock(dc.id)}
-                            title="Kept — tap to unlock (allow as a cut suggestion)"
-                          >
-                            <CheckIcon size={10} /> {dc.name}
-                          </button>
-                        ))}
-                      </div>
-                    )
-                  })()}
-                </>
               )}
             </>
           )}
