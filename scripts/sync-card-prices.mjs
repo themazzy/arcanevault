@@ -135,14 +135,17 @@ async function downloadBulkFile(url, destination) {
 async function loadCardPrintState() {
   const existingIds = new Set()
   const needsMetadataIds = new Set()
-  let from = 0
+  let lastScryfallId = null
   while (true) {
-    const { data, error } = await sb
+    let query = sb
       .from('card_prints')
       .select('scryfall_id,released_at')
       .not('scryfall_id', 'is', null)
       .order('scryfall_id', { ascending: true })
-      .range(from, from + FETCH_BATCH_SIZE - 1)
+      .limit(FETCH_BATCH_SIZE)
+    if (lastScryfallId) query = query.gt('scryfall_id', lastScryfallId)
+
+    const { data, error } = await query
     if (error) throw error
     if (!data?.length) break
     for (const row of data) {
@@ -150,7 +153,7 @@ async function loadCardPrintState() {
       if (row.released_at == null) needsMetadataIds.add(row.scryfall_id)
     }
     if (data.length < FETCH_BATCH_SIZE) break
-    from += FETCH_BATCH_SIZE
+    lastScryfallId = data[data.length - 1].scryfall_id
   }
   return { existingIds, needsMetadataIds }
 }
