@@ -644,7 +644,7 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onRename,
     onEnterSelectMode?.()
     onToggleSelect?.()
   }, { delay: 500 })
-  const { fired: lpFired, ...longPressHandlers } = longPress
+  const { consumeFired, ...longPressHandlers } = longPress
 
   useEffect(() => { if (renaming) renameRef.current?.focus() }, [renaming])
 
@@ -660,10 +660,7 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onRename,
   }
   const handleCardClick = () => {
     if (renaming) return
-    if (lpFired.current) {
-      lpFired.current = false
-      return
-    }
+    if (consumeFired()) return
     if (selectMode) { onToggleSelect(); return }
     onClick()
   }

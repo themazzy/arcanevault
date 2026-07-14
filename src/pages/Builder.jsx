@@ -121,7 +121,7 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
     onEnterSelectMode?.()
     onToggleSelect?.(deck.id)
   }, { delay: 500 })
-  const { fired: lpFired, ...lpRest } = longPress
+  const { consumeFired, ...lpRest } = longPress
   const effectiveId = (deck.type === 'deck' && meta.linked_builder_id) ? meta.linked_builder_id : deck.id
   const syncState = getSyncState(meta)
   const hasValidLink = !!(meta.linked_deck_id || meta.linked_builder_id)
@@ -135,7 +135,7 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
     <div
       className={`${styles.card}${isSelected ? ' ' + styles.cardSelected : ''}`}
       onClick={() => {
-        if (lpFired.current) { lpFired.current = false; return }
+        if (consumeFired()) return
         if (selectMode) { onToggleSelect(deck.id); return }
         // Unsynced pairs open straight into the sync prompt (was the Edit link's job)
         navigate(`/builder/${effectiveId}`, isUnsynced ? { state: { openSync: true, source: 'builder' } } : undefined)

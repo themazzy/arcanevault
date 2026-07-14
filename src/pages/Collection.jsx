@@ -403,6 +403,31 @@ export default function CollectionPage() {
     }
   }, [sfMapQuery.data, sfMapQuery.error, sfMapQuery.isError, sfMapQuery.isFetching, sfMapQuery.isSuccess])
 
+  // ── Scryfall enrichment ──────────────────────────────────────────────────────
+  const startEnrichment = useCallback(async (rawCards) => {
+    if (enrichingRef.current) return
+
+    enrichingRef.current = true
+    setEnriching(true); setProgress(0)
+    try {
+      const map = await loadCardMapWithSharedPrices(rawCards, {
+        onProgress: (pct, lbl) => { setProgress(pct); setProgLabel(lbl) },
+        cacheTtlMs: ttlMsRef.current,
+        priceLookup: 'set',
+      })
+      setSfMap(map)
+    } catch (err) {
+      console.warn('[Collection] enrichment failed; cards will retry on next load', err?.message || err)
+      try {
+        const partial = await getInstantCache(ttlMsRef.current)
+        if (partial) setSfMap(partial)
+      } catch {}
+    } finally {
+      setEnriching(false); setProgLabel('')
+      enrichingRef.current = false
+    }
+  }, [])
+
   // ── Load cards — IDB first, Supabase sync in background ──────────────────────
   const _loadCardsLegacy = useCallback(async () => {
     const loadSeq = ++cardsLoadSeq.current
@@ -628,31 +653,6 @@ export default function CollectionPage() {
 
     return () => { cancelled = true }
   }, [loading, folderMembershipLoading, folderMembershipSynced, cards, cardFolderMap, isOnline])
-
-  // ── Scryfall enrichment ──────────────────────────────────────────────────────
-  const startEnrichment = useCallback(async (rawCards) => {
-    if (enrichingRef.current) return
-
-    enrichingRef.current = true
-    setEnriching(true); setProgress(0)
-    try {
-      const map = await loadCardMapWithSharedPrices(rawCards, {
-        onProgress: (pct, lbl) => { setProgress(pct); setProgLabel(lbl) },
-        cacheTtlMs: ttlMsRef.current,
-        priceLookup: 'set',
-      })
-      setSfMap(map)
-    } catch (err) {
-      console.warn('[Collection] enrichment failed; cards will retry on next load', err?.message || err)
-      try {
-        const partial = await getInstantCache(ttlMsRef.current)
-        if (partial) setSfMap(partial)
-      } catch {}
-    } finally {
-      setEnriching(false); setProgLabel('')
-      enrichingRef.current = false
-    }
-  }, [])
 
   // ── Import ───────────────────────────────────────────────────────────────────
   const handleImport = useCallback(async (file) => {

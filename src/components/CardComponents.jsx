@@ -57,13 +57,10 @@ function CardItem({ card, sfCard, selectMode, isSelected, totalQty, onSelect, on
     onToggleSelect?.(displayKey, totalQty)
   }, { delay: 500 })
 
-  const { onMouseLeave: lpLeave, fired: lpFired, ...lpRest } = longPress
+  const { onMouseLeave: lpLeave, consumeFired, ...lpRest } = longPress
 
   const handleClick = () => {
-    if (lpFired.current) {
-      lpFired.current = false
-      return
-    }
+    if (consumeFired()) return
     if (selectMode) {
       onToggleSelect?.(displayKey, totalQty)
     } else {

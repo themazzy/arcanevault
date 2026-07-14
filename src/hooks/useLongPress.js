@@ -43,6 +43,12 @@ export function useLongPress(callback, { delay = 500, moveThreshold = 10 } = {})
     }
   }, [cancel, moveThreshold])
 
+  const consumeFired = useCallback(() => {
+    if (!firedRef.current) return false
+    firedRef.current = false
+    return true
+  }, [])
+
   return {
     onMouseDown:  start,
     onTouchStart: start,
@@ -53,6 +59,6 @@ export function useLongPress(callback, { delay = 500, moveThreshold = 10 } = {})
     onTouchMove,
     onContextMenu: e => e.preventDefault(),
     onDragStart: e => e.preventDefault(),
-    fired: firedRef, // ref — truthy when long-press just fired; consumer must reset after reading
+    consumeFired,
   }
 }

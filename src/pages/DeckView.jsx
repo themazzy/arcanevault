@@ -19,6 +19,7 @@ import Markdown, { extractHeadings } from '../lib/miniMarkdown.jsx'
 import { DeckLikeButton, DeckComments } from '../components/community/DeckSocial'
 import { deckBracketBadge } from '../lib/commanderBracket'
 import { scryfallCardDetailUrls } from '../lib/cardDetailUrls'
+import { useComboCardImage } from '../hooks/useComboCardImage'
 
 const RARITY_ORDER = ['mythic', 'rare', 'uncommon', 'common']
 const RARITY_GROUP_ORDER = ['Mythic', 'Rare', 'Uncommon', 'Common', 'Unknown']
@@ -203,34 +204,6 @@ function CardDetailModal({ card, onClose }) {
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
-function useComboCardImage(name, existingUri) {
-  const cache = useMemo(() => useComboCardImage.cache || (useComboCardImage.cache = {}), [])
-  const [img, setImg] = useState(existingUri || cache[name] || null)
-
-  useEffect(() => {
-    if (existingUri) {
-      setImg(existingUri)
-      return
-    }
-    if (!name || cache[name] !== undefined) return
-    cache[name] = null
-    fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=json`)
-      .then(r => r.ok ? r.json() : null)
-      .then(d => {
-        const url = d?.image_uris?.normal
-          || d?.card_faces?.[0]?.image_uris?.normal
-          || d?.image_uris?.large
-          || d?.card_faces?.[0]?.image_uris?.large
-          || null
-        cache[name] = url
-        if (url) setImg(url)
-      })
-      .catch(() => { cache[name] = null })
-  }, [cache, existingUri, name])
-
-  return existingUri || img
-}
-
 function ComboThumb({ name, inDeck, imageUri, onOpenDetail }) {
   const img = useComboCardImage(name, imageUri)
   return (

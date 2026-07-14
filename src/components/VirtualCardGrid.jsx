@@ -85,16 +85,13 @@ function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, tota
     onToggleSelect?.(displayKey, totalQty)
   }, { delay: 500 })
 
-  const { onMouseLeave: lpLeave, fired: lpFired, ...lpRest } = longPress
+  const { onMouseLeave: lpLeave, consumeFired, ...lpRest } = longPress
 
   return (
     <div
       className={`${styles.cardWrap}${isSelected ? ' ' + styles.cardSelected : ''}`}
       onClick={() => {
-        if (lpFired.current) {
-          lpFired.current = false
-          return
-        }
+        if (consumeFired()) return
         handleClick()
       }}
       onMouseLeave={lpLeave}

@@ -386,7 +386,7 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
     onEnterSelectMode?.()
     onToggleSelect?.()
   }, { delay: 500 })
-  const { fired: lpFired, ...longPressHandlers } = longPress
+  const { consumeFired, ...longPressHandlers } = longPress
 
   useEffect(() => { if (renaming) renameRef.current?.focus() }, [renaming])
 
@@ -405,10 +405,7 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
 
   const handleCardClick = () => {
     if (renaming) return
-    if (lpFired.current) {
-      lpFired.current = false
-      return
-    }
+    if (consumeFired()) return
     if (selectMode) { onToggleSelect(); return }
     onClick()
   }
@@ -1291,6 +1288,7 @@ function BulkDeleteModal({ nonEmpty, empty, userId, onDone, onCancel }) {
     setBusy(true)
     try {
       const linkedBuilderIds = new Set()
+      const deleteCardIds = []
       for (const folder of nonEmpty) {
         const folderMeta = parseDeckMeta(folder.description || '{}')
         if (folder.type === 'deck' && folderMeta.linked_builder_id) linkedBuilderIds.add(folderMeta.linked_builder_id)
@@ -1302,7 +1300,7 @@ function BulkDeleteModal({ nonEmpty, empty, userId, onDone, onCancel }) {
           else await putFolderCards(savedRows)
         } else if (mode === 'delete') {
           const rows = await fetchFolderPlacementRows(folder)
-          folder._deleteCardIds = rows.map(r => r.card_id)
+          deleteCardIds.push(...rows.map(row => row.card_id))
         }
       }
       for (const linkedBuilderId of linkedBuilderIds) {
@@ -1315,8 +1313,7 @@ function BulkDeleteModal({ nonEmpty, empty, userId, onDone, onCancel }) {
         else await replaceLocalFolderCards([folder.id], []).catch(() => {})
       }
       if (mode === 'delete') {
-        const ids = nonEmpty.flatMap(folder => folder._deleteCardIds || [])
-        if (ids.length) await pruneUnplacedCards(ids)
+        if (deleteCardIds.length) await pruneUnplacedCards(deleteCardIds)
       }
       onDone([...allSelectedIds])
     } catch (err) {

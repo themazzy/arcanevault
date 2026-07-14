@@ -144,13 +144,10 @@ function TextRow({ card, sfCard, selectMode, isSelected, onToggleSelect, onEnter
     onEnterSelectMode?.()
     onToggleSelect?.(key, totalQty)
   }, { delay: 500 })
-  const { onMouseLeave: lpLeave, fired: lpFired, ...lpRest } = longPress
+  const { onMouseLeave: lpLeave, consumeFired, ...lpRest } = longPress
 
   const handleClick = () => {
-    if (lpFired.current) {
-      lpFired.current = false
-      return
-    }
+    if (consumeFired()) return
     if (selectMode) onToggleSelect?.(key, totalQty)
   }
 
@@ -223,7 +220,7 @@ function TableRow({ card, sf, priceSource, isSelected, selectMode, onClick, onEn
     onEnterSelectMode?.()
     onToggleSelect?.(key, totalQty)
   }, { delay: 500 })
-  const { onMouseLeave: lpLeave, fired: lpFired, ...lpRest } = longPress
+  const { onMouseLeave: lpLeave, consumeFired, ...lpRest } = longPress
   const scryfallPrice = getPrice(sf, card.foil, { price_source: priceSource })
   const unitPrice = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
   const price = unitPrice != null ? unitPrice * totalQty : null
@@ -251,10 +248,7 @@ function TableRow({ card, sf, priceSource, isSelected, selectMode, onClick, onEn
     <tr
       className={`${styles.tr}${isSelected ? ` ${styles.trSelected}` : ''}`}
       onClick={() => {
-        if (lpFired.current) {
-          lpFired.current = false
-          return
-        }
+        if (consumeFired()) return
         onClick?.()
       }}
       onMouseLeave={e => { lpLeave?.(e) }}
@@ -553,7 +547,7 @@ function StackCard({ card, sf, idx, isPushedDown, priceSource, selectMode, isSel
     onEnterSelectMode?.()
     onToggleSelect?.(key, totalQty)
   }, { delay: 500 })
-  const { onMouseLeave: lpLeave, fired: lpFired, ...lpRest } = longPress
+  const { onMouseLeave: lpLeave, consumeFired, ...lpRest } = longPress
 
   const getPreviewPos = () => {
     if (!img || !cardRef.current) return null
@@ -605,7 +599,7 @@ function StackCard({ card, sf, idx, isPushedDown, priceSource, selectMode, isSel
       className={`${styles.stackCard}${isSelected ? ` ${styles.stackCardSelected}` : ''}${isPushedDown ? ` ${styles.stackCardPushedDown}` : ''}`}
       style={{ zIndex: idx }}
       onClick={() => {
-        if (lpFired.current) { lpFired.current = false; return }
+        if (consumeFired()) return
         if (!selectMode) return onSelect?.(card)
         onToggleSelect?.(key, totalQty)
       }}
@@ -739,13 +733,10 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onT
     onEnterSelectMode?.()
     onToggleSelect?.(key, totalQty)
   }, { delay: 500 })
-  const { onMouseLeave: lpLeave, fired: lpFired, ...lpRest } = longPress
+  const { onMouseLeave: lpLeave, consumeFired, ...lpRest } = longPress
 
   const handleClick = () => {
-    if (lpFired.current) {
-      lpFired.current = false
-      return
-    }
+    if (consumeFired()) return
     if (!selectMode) return onSelect?.(card)
     onToggleSelect?.(key, totalQty)
   }
