@@ -501,10 +501,10 @@ function cutReason(c, mode) {
  * Rank cut candidates most-cuttable first.
  * @param {Array} candidates each { id, name, role, cmc, inclusion, hasData, roleOver }
  *   - inclusion: EDHREC inclusion % (0 when unknown)
- *   - hasData:   whether EDHREC actually lists the card. Distinguishes a card
- *     that's genuinely *unpopular* (cuttable) from one that's simply off-meta /
- *     not on the commander's page — the latter gets a neutral score in Balanced
- *     so the player's own pet cards aren't auto-dumped.
+ *   - hasData:   whether EDHREC lists the card for this commander at all. A card
+ *     that's off-meta / not on the commander's page is genuinely run by ≈0% of
+ *     tracked decks, so Balanced and Least-played both treat it as most-cuttable.
+ *     Only Trim-excess keeps it neutral (there the overfilled-role signal rules).
  *   - roleOver:  how many copies the card's role is above its target (0 if within)
  * @param {string} mode  'balanced' | 'popularity' | 'redundancy'
  * @returns {Array} new array sorted desc by cuttability, each with `reason`.
@@ -512,9 +512,11 @@ function cutReason(c, mode) {
 export function rankCutCandidates(candidates, mode = 'balanced') {
   const scored = (candidates || []).map(c => {
     const inclusion = Math.max(0, Math.min(100, c.inclusion || 0))
-    // Popularity → cuttability. Unknown cards are neutral (50) except in
-    // popularity mode, where the player explicitly wants raw inclusion to rule.
-    const pop = c.hasData ? inclusion : (mode === 'popularity' ? 0 : 50)
+    // Popularity → cuttability. An off-meta card (not on the commander's EDHREC
+    // page) is genuinely run by ≈0% of tracked decks, so Balanced and Least-played
+    // both treat it as most-cuttable (0). Only Trim-excess keeps it neutral (50):
+    // there the overfilled-role signal should decide, not raw play rate.
+    const pop = c.hasData ? inclusion : (mode === 'redundancy' ? 50 : 0)
     const popCut = 100 - pop                 // 0..100, higher = more cuttable
     const cmcCut = Math.min(10, c.cmc || 0) * 4 // 0..40
     const redun = Math.max(0, c.roleOver || 0) * 12

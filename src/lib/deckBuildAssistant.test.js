@@ -1380,10 +1380,19 @@ describe('rankCutCandidates', () => {
     expect(CUT_MODES.map(m => m.id)).toEqual(['balanced', 'popularity', 'redundancy'])
   })
 
-  it('balanced cuts an unpopular known card before an off-meta unknown one', () => {
-    const ranked = rankCutCandidates([offMeta, unpopular], 'balanced')
-    expect(ranked[0].name).toBe('Unpopular')
-    expect(ranked[1].name).toBe('Off-meta')
+  it('balanced cuts an off-meta unknown card before a tracked low-inclusion one', () => {
+    // Off-meta = not on the commander's EDHREC page = ≈0% of tracked decks, so
+    // Balanced treats it as most-cuttable — a tracked staple is protected above it.
+    const ranked = rankCutCandidates([unpopular, offMeta], 'balanced')
+    expect(ranked[0].name).toBe('Off-meta')
+    expect(ranked[1].name).toBe('Unpopular')
+  })
+
+  it('balanced still keeps off-meta neutral only in redundancy mode', () => {
+    // Trim-excess should NOT dump an off-meta card ahead of an over-quota staple
+    // purely for being untracked — the overfilled-role signal rules there.
+    const ranked = rankCutCandidates([offMeta, overbuilt], 'redundancy')
+    expect(ranked[0].name).toBe('Overbuilt')
   })
 
   it('popularity mode treats unknown cards as most cuttable', () => {
