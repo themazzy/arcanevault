@@ -383,7 +383,7 @@ function ManaSymbols({ cost, size = 18 }) {
     <span style={{ display: 'inline-flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
       {sides.map((side, si) => (
         <span key={si} style={{ display: 'inline-flex', gap: 2, alignItems: 'center' }}>
-          {si > 0 && <span style={{ color: 'var(--text-faint)', margin: '0 4px' }}>//</span>}
+          {si > 0 && <span style={{ color: 'var(--text-faint)', margin: '0 4px' }}>{'//'}</span>}
           {(side.match(/\{[^}]+\}/g) || []).map((sym, i) => (
             <Sym key={i} sym={sym} size={size} />
           ))}
@@ -467,9 +467,12 @@ async function fetchRulings(scryfallId, setCode, collectorNumber) {
   } catch { return [] }
 }
 
-export function CardDetail({ card, sfCard, onClose, onEdit, onDelete, deleteQty = null, folders, priceSource = 'cardmarket_trend', onSave, currentFolderId = null, currentFolderType = null, readOnly = false }) {
-  if (!card) return null
+export function CardDetail(props) {
+  if (!props.card) return null
+  return <CardDetailContent {...props} />
+}
 
+function CardDetailContent({ card, sfCard, onClose, onEdit, onDelete, deleteQty = null, folders, priceSource = 'cardmarket_trend', onSave, currentFolderId = null, currentFolderType = null, readOnly = false }) {
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('card')
   const [face, setFace] = useState(0)

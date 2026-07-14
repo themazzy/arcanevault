@@ -43,3 +43,47 @@ export function groupDeckWarnings(warnings) {
     .map(group => ({ ...group, warnings: grouped.get(group.id) }))
     .filter(group => group.warnings.length > 0)
 }
+
+export function getDeckWarningRevealPlan({
+  targetId,
+  deckCards,
+  visibleDeckCards,
+  groupBy,
+  deckView,
+  getCardGroup,
+  normalizeBoard,
+}) {
+  const normalizedTargetId = String(targetId || '')
+  const card = (deckCards || []).find(row => String(row.id) === normalizedTargetId)
+  if (!card) return null
+
+  let collapsedKey = null
+  if (groupBy !== 'none') {
+    const board = normalizeBoard(card.board)
+    const group = getCardGroup(card)
+    collapsedKey = deckView === 'stacks' ? `${board}:stack:${group}` : `${board}:${group}`
+  }
+
+  return {
+    card,
+    targetId: normalizedTargetId,
+    clearFilters: !(visibleDeckCards || []).some(row => String(row.id) === normalizedTargetId),
+    collapsedKey,
+  }
+}
+
+export function scrollAndFocusDeckWarningTarget(container, targetId, { reduceMotion = false } = {}) {
+  const normalizedTargetId = String(targetId)
+  const target = [...(container?.querySelectorAll('[data-deck-card-id]') || [])]
+    .find(element => element.dataset.deckCardId === normalizedTargetId)
+
+  if (!target) return null
+
+  target.scrollIntoView({
+    behavior: reduceMotion ? 'auto' : 'smooth',
+    block: 'center',
+    inline: 'nearest',
+  })
+  try { target.focus({ preventScroll: true }) } catch { target.focus() }
+  return target
+}

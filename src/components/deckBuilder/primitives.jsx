@@ -25,7 +25,7 @@ export function ManaCostInline({ cost, size = 14 }) {
     <span className={styles.manaCostInline}>
       {sides.map((side, sideIndex) => (
         <span key={`${side}:${sideIndex}`} className={styles.manaCostInline}>
-          {sideIndex > 0 && <span className={styles.manaCostDivider}>//</span>}
+          {sideIndex > 0 && <span className={styles.manaCostDivider}>{'//'}</span>}
           {(side.match(/\{[^}]+\}/g) || []).map((sym, symIndex) => (
             <img
               key={`${sym}:${symIndex}`}

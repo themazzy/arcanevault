@@ -25,6 +25,7 @@ import { ResponsiveMenu, Select, Modal } from '../components/UI'
 import { useToast } from '../components/ToastContext'
 import PromptDialog from '../components/PromptDialog'
 import { CardDetail } from '../components/CardComponents'
+import DeckWarningPanel from '../components/deckBuilder/DeckWarningPanel'
 import DeckStats, { normalizeDeckBuilderCards, CAT_COLORS, CAT_ORDER } from '../components/DeckStats'
 import BracketBadge from '../components/BracketBadge'
 import { analyzeBracket, fetchGameChangerNames, computeBracketMetaPatch } from '../lib/commanderBracket'
@@ -116,7 +117,7 @@ import {
 } from '../lib/deckCardFilters'
 import { COLOR_MODE_LABELS, COLOR_MATCH_MODES } from '../lib/deckIndexFilters'
 import { boardForCard, getAttractionDeckWarnings } from '../lib/attractions'
-import { getWarningTargetIds, groupDeckWarnings } from '../lib/deckWarningNavigation'
+import { getDeckWarningRevealPlan, scrollAndFocusDeckWarningTarget } from '../lib/deckWarningNavigation'
 
 import {
   CAN_HOVER,
@@ -1406,7 +1407,6 @@ export default function DeckBuilderPage() {
     () => deckWarnings.filter(w => w.level === 'error'),
     [deckWarnings]
   )
-  const warningGroups = useMemo(() => groupDeckWarnings(visibleDeckWarnings), [visibleDeckWarnings])
 
   const deckCardLegalityWarnings = useDeckCardLegalityWarnings({
     deckCards,
@@ -1847,14 +1847,21 @@ export default function DeckBuilderPage() {
   }, [groupBy, getCategoryOrder, getDeckCardGroup])
 
   const revealWarningCard = useCallback((cardId) => {
-    const targetId = String(cardId || '')
-    const card = deckCardsRef.current.find(row => String(row.id) === targetId)
-    if (!card) return
+    const plan = getDeckWarningRevealPlan({
+      targetId: cardId,
+      deckCards: deckCardsRef.current,
+      visibleDeckCards,
+      groupBy,
+      deckView,
+      getCardGroup: getDeckCardGroup,
+      normalizeBoard,
+    })
+    if (!plan) return
 
     setWarningTooltip(null)
     setRightTab('deck')
 
-    if (!visibleDeckCards.some(row => String(row.id) === targetId)) {
+    if (plan.clearFilters) {
       setDeckSearch('')
       setBoardFilter('all')
       setDeckFilters({
@@ -1865,14 +1872,11 @@ export default function DeckBuilderPage() {
       })
     }
 
-    if (groupBy !== 'none') {
-      const board = normalizeBoard(card.board)
-      const group = getDeckCardGroup(card)
-      const collapsedKey = deckView === 'stacks' ? `${board}:stack:${group}` : `${board}:${group}`
+    if (plan.collapsedKey) {
       setCollapsedGroups(prev => {
-        if (!prev.has(collapsedKey)) return prev
+        if (!prev.has(plan.collapsedKey)) return prev
         const next = new Set(prev)
-        next.delete(collapsedKey)
+        next.delete(plan.collapsedKey)
         return next
       })
     }
@@ -1882,25 +1886,20 @@ export default function DeckBuilderPage() {
 
     const locateAndFocus = (attempt = 0) => {
       requestAnimationFrame(() => {
-        const target = [...(deckListScrollEl.current?.querySelectorAll('[data-deck-card-id]') || [])]
-          .find(element => element.dataset.deckCardId === targetId)
+        const target = scrollAndFocusDeckWarningTarget(deckListScrollEl.current, plan.targetId, {
+          reduceMotion: reduce_motion,
+        })
         if (!target && attempt < 5) {
           locateAndFocus(attempt + 1)
           return
         }
         if (!target) return
-        target.scrollIntoView({
-          behavior: reduce_motion ? 'auto' : 'smooth',
-          block: 'center',
-          inline: 'nearest',
-        })
-        try { target.focus({ preventScroll: true }) } catch { target.focus() }
         warningTargetTimer.current = setTimeout(() => setWarningTarget(null), 2400)
       })
     }
 
     requestAnimationFrame(() => {
-      setWarningTarget({ id: targetId, at: Date.now() })
+      setWarningTarget({ id: plan.targetId, at: Date.now() })
       locateAndFocus()
     })
   }, [deckView, getDeckCardGroup, groupBy, reduce_motion, visibleDeckCards])
@@ -5128,95 +5127,17 @@ export default function DeckBuilderPage() {
           </div>
         </div>
 
-        {visibleDeckWarnings.length > 0 && (() => {
-          const errorCount = visibleDeckWarnings.filter(w => w.level === 'error').length
-          const summary = `${visibleDeckWarnings.length} ${visibleDeckWarnings.length === 1 ? 'warning' : 'warnings'}`
-          const details = visibleDeckWarnings.map(w => w.summary || w.text)
-          const deckCardIdSet = new Set(deckCards.map(card => String(card.id)))
-          const showTooltip = (x, y) => setWarningTooltip({ summary, details, x, y })
-          const hideTooltip = () => setWarningTooltip(null)
-          return (
-            <div className={styles.warningPanel}>
-              <div className={styles.warningPanelBar}>
-                <button
-                  type="button"
-                  className={`${styles.warningSummaryBtn}${errorCount > 0 ? ' ' + styles.warningSummaryBtnError : ''}`}
-                  title={warningsOpen ? 'Hide deck warnings' : 'Review deck warnings'}
-                  aria-label={`${summary}. ${warningsOpen ? 'Hide' : 'Show'} warning details`}
-                  onMouseEnter={CAN_HOVER ? e => showTooltip(e.clientX, e.clientY) : undefined}
-                  onMouseMove={CAN_HOVER ? e => setWarningTooltip(prev => prev ? { ...prev, x: e.clientX, y: e.clientY } : prev) : undefined}
-                  onMouseLeave={CAN_HOVER ? hideTooltip : undefined}
-                  onFocus={CAN_HOVER ? e => {
-                    const rect = e.currentTarget.getBoundingClientRect()
-                    showTooltip(rect.left, rect.bottom)
-                  } : undefined}
-                  onBlur={CAN_HOVER ? hideTooltip : undefined}
-                  onClick={() => {
-                    hideTooltip()
-                    setWarningsOpen(open => !open)
-                  }}
-                >
-                  <span className={styles.warningSummaryIcon} aria-hidden="true">!</span>
-                  <span className={styles.warningSummaryLabel}>{summary}</span>
-                </button>
-                <button
-                  type="button"
-                  className={styles.warningDetailsBtn}
-                  aria-expanded={warningsOpen}
-                  aria-controls="deck-warning-details"
-                  onClick={() => {
-                    hideTooltip()
-                    setWarningsOpen(open => !open)
-                  }}
-                >
-                  <span>{warningsOpen ? 'Hide issues' : 'Review issues'}</span>
-                  <ChevronDownIcon size={12} className={warningsOpen ? styles.warningDetailsChevronOpen : undefined} />
-                </button>
-              </div>
-              {warningsOpen && (
-                <div id="deck-warning-details" className={styles.warningDetails} role="region" aria-label="Deck warning details">
-                  {warningGroups.map(group => (
-                    <section key={group.id} className={styles.warningGroup}>
-                      <div className={styles.warningGroupTitle}>
-                        <span>{group.label}</span>
-                        <span className={styles.warningGroupCount}>{group.warnings.length}</span>
-                      </div>
-                      <div className={styles.warningList}>
-                        {group.warnings.map(warning => {
-                          const targetId = getWarningTargetIds(warning).find(id => deckCardIdSet.has(id))
-                          const content = (
-                            <>
-                              <span className={styles.warningItemText}>
-                                <span className={styles.warningItemSummary}>{warning.summary || warning.text}</span>
-                                {warning.detail && <span className={styles.warningItemDetail}>{warning.detail}</span>}
-                              </span>
-                              {targetId && <ChevronRightIcon size={13} className={styles.warningItemArrow} aria-hidden="true" />}
-                            </>
-                          )
-                          return targetId ? (
-                            <button
-                              key={warning.key}
-                              type="button"
-                              className={`${styles.warningItem} ${styles.warningItemError} ${styles.warningItemAction}`}
-                              onClick={() => revealWarningCard(targetId)}
-                              title={`Go to ${deckCards.find(card => String(card.id) === targetId)?.name || 'affected card'}`}
-                            >
-                              {content}
-                            </button>
-                          ) : (
-                            <div key={warning.key} className={`${styles.warningItem} ${styles.warningItemError}`}>
-                              {content}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </section>
-                  ))}
-                </div>
-              )}
-            </div>
-          )
-        })()}
+        <DeckWarningPanel
+          warnings={visibleDeckWarnings}
+          deckCards={deckCards}
+          open={warningsOpen}
+          onToggle={() => setWarningsOpen(open => !open)}
+          onRevealTarget={revealWarningCard}
+          canHover={CAN_HOVER}
+          onShowTooltip={setWarningTooltip}
+          onMoveTooltip={({ x, y }) => setWarningTooltip(prev => prev ? { ...prev, x, y } : prev)}
+          onHideTooltip={() => setWarningTooltip(null)}
+        />
 
         {/* Deck list tab */}
         <div
