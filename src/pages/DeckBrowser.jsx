@@ -649,6 +649,13 @@ export default function DeckBrowser({ folder, onBack }) {
   const [syncCheck, setSyncCheck] = useState({ loading: false, dirty: false, count: 0, unavailable: false })
   const linkedBuilderIdRef = useRef(parseDeckMeta(folder?.description || '{}').linked_builder_id || null)
   const isUnsyncedRef = useRef(false)
+  const deckMeta = useMemo(() => parseDeckMeta(folderDescription || '{}'), [folderDescription])
+  const syncState = getSyncState(deckMeta)
+  const isCheckingLinkedSync = !!deckMeta.linked_builder_id && syncCheck.loading
+  const isUnsynced = linkedDirty || syncCheck.dirty || !!(syncState.unsynced_builder || syncState.unsynced_collection)
+  useEffect(() => {
+    isUnsyncedRef.current = isUnsynced
+  }, [isUnsynced])
   const [viewMode, setViewMode]     = useState('grid')
   const [groupBy, setGroupBy]       = useState('none')
   const [bracketOverride, setBracketOverride] = useState(null)
@@ -1169,11 +1176,6 @@ export default function DeckBrowser({ folder, onBack }) {
 
   if (loading) return <EmptyState>Loading deck…</EmptyState>
 
-  const deckMeta = parseDeckMeta(folderDescription || '{}')
-  const syncState = getSyncState(deckMeta)
-  const isCheckingLinkedSync = !!deckMeta.linked_builder_id && syncCheck.loading
-  const isUnsynced = linkedDirty || syncCheck.dirty || !!(syncState.unsynced_builder || syncState.unsynced_collection)
-  isUnsyncedRef.current = isUnsynced
   const editInBuilderLabel = creatingBuilderLink
     ? 'Opening...'
     : isCheckingLinkedSync

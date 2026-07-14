@@ -24,6 +24,7 @@ import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { hydrateCollectionQueriesFromIdb } from '../lib/idbQueryBridge'
 import { fetchCollectionCards, fetchFolders, fetchFolderPlacements, fetchSfMap } from '../lib/collectionFetchers'
 import { isNetworkLikeError } from '../lib/networkUtils'
+import { getCacheTtlMs, getSelectedDisplayQuantity } from '../lib/collectionDisplay'
 
 const DEBOUNCE_MS = 300
 const FOLDER_CARDS_STALE_MS = 10 * 60 * 1000
@@ -191,8 +192,9 @@ export default function CollectionPage() {
   const { price_source, default_sort, grid_density, show_price, cache_ttl_h, loaded: settingsLoaded } = useSettings()
   const queryClient = useQueryClient()
 
-  const ttlMsRef = useRef(cache_ttl_h * 3600000)
-  useEffect(() => { ttlMsRef.current = cache_ttl_h * 3600000 }, [cache_ttl_h])
+  const ttlMs = getCacheTtlMs(cache_ttl_h)
+  const ttlMsRef = useRef(ttlMs)
+  useEffect(() => { ttlMsRef.current = ttlMs }, [ttlMs])
 
   const [sfMap, setSfMap]   = useState({})
   const [cards, setCards]   = useState([])
@@ -261,11 +263,11 @@ export default function CollectionPage() {
 
   const sfMapQuery = useQuery({
     queryKey: ['sfMap', user?.id],
-    queryFn: () => fetchSfMap(cards, ttlMsRef.current, (pct, lbl) => {
+    queryFn: () => fetchSfMap(cards, ttlMs, (pct, lbl) => {
       setProgress(pct)
       setProgLabel(lbl)
     }),
-    staleTime: ttlMsRef.current,
+    staleTime: ttlMs,
     enabled: !!user?.id && cards.length > 0,
     placeholderData: {},
   })
@@ -1219,8 +1221,6 @@ export default function CollectionPage() {
     queryClient.invalidateQueries({ queryKey: ['sfMap', user.id] })
   }, [queryClient, user.id])
 
-  const displayCardsRef = useRef([])
-
   const SORT_OPTIONS = [
     ['name', 'Name A→Z'], ['name_desc', 'Name Z→A'],
     ['price_desc', 'Price ↓'], ['price_asc', 'Price ↑'],
@@ -1266,14 +1266,6 @@ export default function CollectionPage() {
       return new Map(prev).set(id, next)
     })
   }, [])
-
-  const selectedQty = useMemo(() =>
-    [...selected].reduce((sum, key) => {
-      const card = displayCardsRef.current.find(c => (c._displayKey || c.id) === key)
-      if (!card) return sum
-      return sum + (splitState.get(key) ?? 1)
-    }, 0)
-  , [selected, splitState])
 
   const totalValue = useMemo(() => cards.reduce((s, c) => {
     const p = getPrice(sfMap[getScryfallKey(c)], c.foil, { price_source })
@@ -1355,7 +1347,10 @@ export default function CollectionPage() {
     return result
   }, [filtered, cardFolderMap, filters])
 
-  useEffect(() => { displayCardsRef.current = displayCards }, [displayCards])
+  const selectedQty = useMemo(
+    () => getSelectedDisplayQuantity(displayCards, selected, splitState),
+    [displayCards, selected, splitState],
+  )
 
   const selectableDisplayQty = useMemo(() =>
     displayCards.reduce((sum, card) => sum + (card._folder_qty ?? card.qty ?? 1), 0)

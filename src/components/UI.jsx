@@ -271,9 +271,11 @@ export function Modal({
   // Refs so the keyboard effect can run once (on mount) yet always see the
   // latest onClose/closeOnEscape — onClose is usually a fresh inline arrow.
   const onCloseRef = useRef(onClose)
-  onCloseRef.current = onClose
   const closeOnEscapeRef = useRef(closeOnEscape)
-  closeOnEscapeRef.current = closeOnEscape
+  useLayoutEffect(() => {
+    onCloseRef.current = onClose
+    closeOnEscapeRef.current = closeOnEscape
+  }, [onClose, closeOnEscape])
   const handleOverlayClick = (e) => {
     if (e.target !== e.currentTarget) return
     if (!closeOnOverlay) return
@@ -483,32 +485,25 @@ export function ResponsiveMenu({
   const ref = useRef(null)
   const panelRef = useRef(null)
   const backdropRef = useRef(null)
-  const closeTimeoutRef = useRef(null)
-  const closeMenuRef = useRef(null)
 
-  const clearCloseTimeout = () => {
-    if (closeTimeoutRef.current) {
-      clearTimeout(closeTimeoutRef.current)
-      closeTimeoutRef.current = null
-    }
-  }
-
-  const openMenu = () => {
-    clearCloseTimeout()
+  const openMenu = useCallback(() => {
     setClosing(false)
     setRendered(true)
-  }
+  }, [])
 
-  const closeMenu = () => {
+  const closeMenu = useCallback(() => {
     if (!rendered || closing) return
-    clearCloseTimeout()
     setClosing(true)
-    closeTimeoutRef.current = setTimeout(() => {
+  }, [rendered, closing])
+
+  useEffect(() => {
+    if (!closing) return
+    const closeTimeout = setTimeout(() => {
       setRendered(false)
       setClosing(false)
-      closeTimeoutRef.current = null
     }, 220)
-  }
+    return () => clearTimeout(closeTimeout)
+  }, [closing])
 
   const setOpen = (next) => {
     const current = rendered && !closing
@@ -530,7 +525,7 @@ export function ResponsiveMenu({
     return () => {
       document.removeEventListener('mousedown', close)
     }
-  }, [rendered, portal])
+  }, [rendered, portal, closeMenu])
 
   useLayoutEffect(() => {
     if (!rendered) return
@@ -627,11 +622,6 @@ export function ResponsiveMenu({
     }
   }, [rendered, align, direction, portal])
 
-  useEffect(() => () => clearCloseTimeout(), [])
-
-  // Keep a stable ref so the native touchstart handler never goes stale
-  closeMenuRef.current = closeMenu
-
   // Attach touchstart as non-passive so preventDefault actually works,
   // preventing the synthetic click that would otherwise activate elements beneath
   useEffect(() => {
@@ -640,11 +630,11 @@ export function ResponsiveMenu({
     const handler = (e) => {
       e.preventDefault()
       e.stopPropagation()
-      closeMenuRef.current?.()
+      closeMenu()
     }
     el.addEventListener('touchstart', handler, { passive: false })
     return () => el.removeEventListener('touchstart', handler, { passive: false })
-  }, [rendered])
+  }, [rendered, closeMenu])
 
   const toggleMenu = () => {
     if (rendered && !closing) closeMenu()

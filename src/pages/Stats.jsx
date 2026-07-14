@@ -25,6 +25,7 @@ import {
 } from 'recharts'
 import setIconManifest from '../data/setIconManifest.json'
 import styles from './Stats.module.css'
+import { getCacheTtlMs } from '../lib/collectionDisplay'
 
 // ── Colour palettes ───────────────────────────────────────────────────────────
 const RARITY_COLORS = {
@@ -1195,8 +1196,7 @@ export default function StatsPage() {
   const [historyLoading,   setHistoryLoading]   = useState(false)
   const [deckMap,          setDeckMap]          = useState({})
 
-  const ttlMsRef = useRef(cache_ttl_h * 3600000)
-  useEffect(() => { ttlMsRef.current = cache_ttl_h * 3600000 }, [cache_ttl_h])
+  const ttlMs = getCacheTtlMs(cache_ttl_h)
 
   // Hydrate React Query cache from IDB once on mount so first paint is instant
   // when arriving from another page that already loaded the collection.
@@ -1219,11 +1219,11 @@ export default function StatsPage() {
 
   const sfMapQuery = useQuery({
     queryKey: ['sfMap', user.id],
-    queryFn: () => fetchSfMap(cards, ttlMsRef.current, (pct, lbl) => {
+    queryFn: () => fetchSfMap(cards, ttlMs, (pct, lbl) => {
       setProgress(pct)
       if (lbl) setProgLabel(lbl)
     }),
-    staleTime: ttlMsRef.current,
+    staleTime: ttlMs,
     enabled: !!user?.id && cards.length > 0,
   })
   const sfMap = sfMapQuery.data ?? {}

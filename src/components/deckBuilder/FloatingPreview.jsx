@@ -19,16 +19,23 @@ export function computeFloatingPreviewPos(x, y, imageCount) {
 
 export const FloatingPreview = forwardRef(function FloatingPreview(_props, ref) {
   const [imageUris, setImageUris] = useState([])
+  const [initialPointer, setInitialPointer] = useState({ x: 0, y: 0 })
   const elRef = useRef(null)
-  const posRef = useRef({ x: 0, y: 0 })
+  const latestPointerRef = useRef({ x: 0, y: 0 })
 
   useImperativeHandle(ref, () => ({
-    setImages: (uris) => setImageUris(Array.isArray(uris) ? uris : (uris ? [uris] : [])),
+    setImages: (uris) => {
+      setInitialPointer(latestPointerRef.current)
+      setImageUris(Array.isArray(uris) ? uris : (uris ? [uris] : []))
+    },
     clearImages: () => setImageUris([]),
     setPos: (x, y) => {
-      posRef.current = { x, y }
+      latestPointerRef.current = { x, y }
       const el = elRef.current
-      if (!el) return
+      if (!el) {
+        setInitialPointer({ x, y })
+        return
+      }
       const count = el.querySelectorAll('img').length || 1
       const { left, top } = computeFloatingPreviewPos(x, y, count)
       el.style.left = `${left}px`
@@ -37,7 +44,7 @@ export const FloatingPreview = forwardRef(function FloatingPreview(_props, ref) 
   }), [])
 
   if (!imageUris.length) return null
-  const { x, y } = posRef.current
+  const { x, y } = initialPointer
   const { left, top } = computeFloatingPreviewPos(x, y, imageUris.length)
   return (
     <div ref={elRef} className={styles.floatingPreview} style={{ left, top }}>

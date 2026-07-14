@@ -1,24 +1,40 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { cardNameMatchKeys } from '../../lib/deckBuilderHelpers'
 
-// Lazy-fetches a card image from Scryfall for combo-card thumbnails. Caches
-// per-name in a ref so multiple thumbs of the same card don't refetch.
+// Lazy-fetches a card image from Scryfall for combo-card thumbnails. Requests
+// are shared by name so multiple thumbs of the same card don't refetch.
+const comboImageRequests = new Map()
+
 function useComboCardImage(name, existingUri) {
-  const cache = useRef({})
-  const [img, setImg] = useState(existingUri || (cache.current[name] ?? null))
+  const [images, setImages] = useState(() => existingUri ? { [name]: existingUri } : {})
   useEffect(() => {
-    if (existingUri || !name || cache.current[name] !== undefined) return
-    cache.current[name] = null
-    fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=json`)
-      .then(r => r.ok ? r.json() : null)
-      .then(d => {
-        const url = d?.image_uris?.large || d?.card_faces?.[0]?.image_uris?.large || d?.image_uris?.normal || d?.card_faces?.[0]?.image_uris?.normal || null
-        cache.current[name] = url
-        if (url) setImg(url)
-      })
-      .catch(() => { cache.current[name] = null })
+    if (existingUri || !name) return
+    let cancelled = false
+    let request = comboImageRequests.get(name)
+    if (!request) {
+      request = fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=json`)
+        .then(r => r.ok ? r.json() : null)
+        .then(d => (
+          d?.image_uris?.large ||
+          d?.card_faces?.[0]?.image_uris?.large ||
+          d?.image_uris?.normal ||
+          d?.card_faces?.[0]?.image_uris?.normal ||
+          null
+        ))
+        .catch(() => null)
+      comboImageRequests.set(name, request)
+    }
+    request.then(url => {
+      if (!url) {
+        if (comboImageRequests.get(name) === request) comboImageRequests.delete(name)
+        return
+      }
+      if (cancelled || !url) return
+      setImages(current => current[name] === url ? current : { ...current, [name]: url })
+    })
+    return () => { cancelled = true }
   }, [name, existingUri])
-  return existingUri || img
+  return existingUri || images[name] || null
 }
 
 // Thumbnail tile for a single card inside a combo result. Shows an "+ Add"
