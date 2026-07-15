@@ -1041,15 +1041,14 @@ function CollectionSnapshot({ data, loading, priceSource }) {
 
   const tiles = stats ? [
     {
-      label: 'Total Copies',
+      label: 'Total Cards',
       val: stats.totalQty.toLocaleString(),
-      meta: `${stats.uniqueEntries.toLocaleString()} entries`,
+      meta: `across ${stats.uniqueSetCount.toLocaleString()} sets`,
       color: 'var(--text)',
     },
     {
-      label: 'Unique Prints',
+      label: 'Unique Cards',
       val: stats.uniquePrintCount.toLocaleString(),
-      meta: `${stats.uniqueSetCount.toLocaleString()} sets`,
       color: 'var(--text)',
     },
     {
@@ -1059,15 +1058,13 @@ function CollectionSnapshot({ data, loading, priceSource }) {
       color: 'var(--green)',
     },
     {
-      label: 'Binders',
+      label: 'Collection Binders',
       val: stats.binderCount.toString(),
-      meta: 'Collection folders',
       color: 'var(--text)',
     },
     {
-      label: 'Decks',
+      label: 'Collection Decks',
       val: stats.deckCount.toString(),
-      meta: 'Built decks',
       color: 'var(--text)',
     },
   ] : []
