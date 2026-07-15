@@ -1004,12 +1004,10 @@ function CollectionSnapshot({ data, loading, priceSource }) {
     const sets = new Set()
     let totalQty = 0
     let totalValue = 0
-    let foilQty = 0
 
     for (const card of cards || []) {
       const qty = card.qty || 1
       totalQty += qty
-      if (card.foil) foilQty += qty
       const sc = card.set_code, cn = card.collector_number
       if (sc) {
         sets.add(sc)
@@ -1032,9 +1030,6 @@ function CollectionSnapshot({ data, loading, priceSource }) {
       totalValue,
       uniquePrintCount: uniquePrints.size,
       uniqueSetCount: sets.size,
-      foilQty,
-      foilPct: totalQty ? Math.round((foilQty / totalQty) * 100) : 0,
-      avgCopiesPerEntry: cards?.length ? totalQty / cards.length : 0,
     }
   }, [data, priceSource])
 
