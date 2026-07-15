@@ -4,6 +4,7 @@ import { EditMenu } from './DeckCardRow'
 import { bindTouchContextMenu, consumeLongPressClick } from '../../lib/touchContextMenu'
 import styles from '../../pages/DeckBuilder.module.css'
 import { normalizeBoard } from '../../lib/deckBuilderHelpers'
+import { scryfallImageAtSize } from '../../lib/scryfall'
 
 function attractionQtyLocked(dc) {
   return normalizeBoard(dc?.board) === 'attraction' && dc?.qty >= 1
@@ -35,7 +36,7 @@ function DeckCardGrid({
     >
       <div className={styles.visualImgWrap}>
         {dc.image_uri
-          ? <img src={dc.image_uri.replace(/\/(normal|large|png|border_crop|art_crop)\//, '/small/')} alt={dc.name} className={styles.visualCardImg} loading="lazy" />
+          ? <img src={scryfallImageAtSize(dc.image_uri, 'small')} alt={dc.name} className={styles.visualCardImg} loading="lazy" />
           : <div className={styles.visualCardPlaceholder}>{dc.name}</div>}
         {dc.qty > 1 && <span className={styles.visualCardQty}>x{dc.qty}</span>}
         {dc.foil && <span className={styles.visualCardFoil} title="Foil">*</span>}

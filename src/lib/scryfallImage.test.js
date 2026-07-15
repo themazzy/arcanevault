@@ -26,6 +26,18 @@ describe('scryfallImageAtSize', () => {
     expect(scryfallImageAtSize('https://example.com/x.png', 'normal')).toBe('https://example.com/x.png')
   })
 
+  // Deck-builder tiles thumbnail whatever tier a row stored. They used to do it
+  // with a hand-rolled segment swap that left the extension alone, so a png row
+  // resolved to small/....png and 404'd — every tier must reach a real .jpg.
+  it('thumbnails every tier a row might store to a loadable small URL', () => {
+    const SMALL = 'https://cards.scryfall.io/small/front/0/2/02e512b7.jpg?1698805228'
+    for (const tier of ['normal', 'large', 'border_crop', 'art_crop']) {
+      const url = `https://cards.scryfall.io/${tier}/front/0/2/02e512b7.jpg?1698805228`
+      expect(scryfallImageAtSize(url, 'small')).toBe(SMALL)
+    }
+    expect(scryfallImageAtSize(PNG, 'small')).toBe(SMALL)
+  })
+
   it('is null-safe', () => {
     expect(scryfallImageAtSize(null, 'small')).toBeNull()
     expect(scryfallImageAtSize(NORMAL, null)).toBe(NORMAL)
