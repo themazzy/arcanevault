@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Badge, ResponsiveMenu } from './UI'
-import { getPrice, formatPrice, getScryfallKey, getImageUri, scryfallImageAtSize, toScryfallGridWebp } from '../lib/scryfall'
+import { getPrice, formatPrice, getScryfallKey, getImageUri, scryfallImageAtSize, resolveTileImage } from '../lib/scryfall'
 import { useLongPress } from '../hooks/useLongPress'
+import { useDevicePixelRatio } from '../hooks/useDevicePixelRatio'
 import { lastInputWasTouch } from '../lib/inputType'
 import { countActive } from './CardComponents'
 import uiStyles from './UI.module.css'
@@ -724,16 +725,11 @@ function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, selectMo
 }
 
 function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, density }) {
-  // `normal` always resolves, so it is the safety net: the density's preferred
-  // tier is either undocumented (`grid` WebP) or may be missing for odd rows like
-  // tokens (`large`), and a 404 must degrade rather than show a broken tile.
-  const fallbackImg = getBrowserCardImage(card, sf)
+  const dpr = useDevicePixelRatio()
   const spec = DENSITY_IMAGE[density] || DENSITY_IMAGE.comfortable
-  const [preferredFailed, setPreferredFailed] = useState(false)
-  const sized = getBrowserCardImage(card, sf, spec.size)
-  const preferred = spec.webp ? toScryfallGridWebp(sized) : sized
-  const usePreferred = !preferredFailed && preferred && preferred !== fallbackImg
-  const img = usePreferred ? preferred : fallbackImg
+  const [webpFailed, setWebpFailed] = useState(false)
+  const { src, fallback } = resolveTileImage(getBrowserCardImage(card, sf, 'normal'), spec.px, dpr)
+  const img = webpFailed && fallback ? fallback : src
   const totalQty = card._folder_qty ?? card.qty ?? 1
   const scryfallPrice = getPrice(sf, card.foil, { price_source: priceSource })
   const unitPrice = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
@@ -767,7 +763,7 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onT
         </div>
       )}
       <div className={styles.gridImgWrap}>
-        {img ? <img src={img} alt={card.name} className={styles.gridImg} loading="lazy" onError={usePreferred ? () => setPreferredFailed(true) : undefined} {...NON_DRAGGABLE_IMG_PROPS} /> : <div className={styles.gridImgPlaceholder}>{card.name}</div>}
+        {img ? <img src={img} alt={card.name} className={styles.gridImg} loading="lazy" onError={fallback && !webpFailed ? () => setWebpFailed(true) : undefined} {...NON_DRAGGABLE_IMG_PROPS} /> : <div className={styles.gridImgPlaceholder}>{card.name}</div>}
         {totalQty > 1 && !isSelected && <div className={styles.gridQty}>×{totalQty}</div>}
         {card.foil && <div className={styles.gridFoil}><Badge variant="foil">Foil</Badge></div>}
         {selectMode && isSelected && totalQty > 1 && (
@@ -804,22 +800,25 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onT
 // Tiles shimmer when the browser has to squeeze an image by an awkward ratio: it
 // picks a pre-filtered mipmap level (488 -> 244 -> 122) and bilinearly resamples
 // from there, which undersamples at anything much below that level. So each
-// density renders its source at (or just under) one of its mip levels, and the
-// width is *capped* there rather than letting `1fr` stretch it past.
+// density renders at a width that is a mip level of the tier it will be served
+// at, and the width is *capped* there rather than letting `1fr` stretch it past.
+//
+// The tier itself is not fixed per density — it depends on devicePixelRatio (see
+// pickImageTier), because the browser scales to device pixels. At DPR 1 these
+// widths land on 488/4, 146/1 and 488/2; at DPR 2 they all resolve to `normal`
+// and cozy becomes a perfect 1:1.
 //
 // Only the 488 tier has a WebP (`grid`); 672/146 are JPEG-only, and JPEG's extra
 // high-frequency detail shimmers even at a near-exact 4:1 — 672 at ~168 was tried
-// and is visibly worse than 488-WebP off-level, so the source tier matters more
-// than hitting the level dead-on. That leaves 488's two usable levels for the big
-// sizes, and `small` rendered 1:1 for the middle one, where nothing is resampled
-// at all and it therefore cannot shimmer.
+// and is visibly worse than 488-WebP off-level, so the tier matters more than
+// hitting the level dead-on.
 //
 // `px` is the width of the *image*, which is what the browser scales. The grid
 // column has to carry the wrap's border on top — see GRID_IMG_BORDER_PX.
 export const DENSITY_IMAGE = {
-  cozy:        { size: 'normal', webp: true,  px: 244, min: 210 }, // 488 -> 244 (mip 1)
-  comfortable: { size: 'small',  webp: false, px: 146, min: 130 }, // 146 -> 146 (1:1, no resampling)
-  compact:     { size: 'normal', webp: true,  px: 122, min: 112 }, // 488 -> 122 (mip 2)
+  cozy:        { px: 244, min: 210 },
+  comfortable: { px: 146, min: 130 },
+  compact:     { px: 122, min: 112 },
 }
 
 // `.gridImgWrap` is border-box with a 1px border, so the <img> inside renders 2px

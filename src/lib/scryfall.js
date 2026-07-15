@@ -741,6 +741,39 @@ export function scryfallImageAtSize(url, size) {
     : retiered.replace(/\.png(\?|$)/, '.jpg$1')
 }
 
+// Intrinsic widths of the Scryfall tiers we render cards at.
+export const SCRYFALL_TIER_WIDTH = { small: 146, normal: 488, large: 672 }
+
+const TIERS_SMALLEST_FIRST = ['small', 'normal', 'large']
+
+// True when the browser can draw `tierWidth` at `deviceWidth` off a pre-filtered
+// mipmap level (each level halves), i.e. the ratio is 1, 2, 4... Anything else
+// makes it squeeze a level by an awkward factor, which undersamples and shimmers.
+function isMipAlignedRatio(tierWidth, deviceWidth) {
+  if (deviceWidth <= 0 || tierWidth < deviceWidth) return false
+  const exponent = Math.log2(tierWidth / deviceWidth)
+  return Math.abs(exponent - Math.round(exponent)) < 0.01
+}
+
+// Pick the tier to render a tile at. The browser scales images to *device*
+// pixels, not CSS pixels, so the tier has to follow devicePixelRatio: a 146px
+// tile is a 1:1 match for `small` on a plain monitor, but wants 292px on a retina
+// laptop and ~440px on a phone — and DeckLoom ships as an Android app, so those
+// are normal, not edge cases. Serving `small` there would upscale it into mush.
+//
+// Prefer the smallest tier the tile divides into by a power of two, so the browser
+// draws a mip level ~1:1. Note this is not the same as "smallest tier that fits":
+// a 122px tile is covered by `small` (146), but 146->122 is an off-level squeeze,
+// whereas 488->122 is an exact 4:1 off a much richer source and looks better. Fall
+// back to the smallest covering tier only when nothing aligns, which is where odd
+// ratios like DPR 2 land.
+export function pickImageTier(cssWidth, dpr = 1) {
+  const deviceWidth = cssWidth * (dpr > 0 ? dpr : 1)
+  const aligned = TIERS_SMALLEST_FIRST.find(t => isMipAlignedRatio(SCRYFALL_TIER_WIDTH[t], deviceWidth))
+  if (aligned) return aligned
+  return TIERS_SMALLEST_FIRST.find(t => SCRYFALL_TIER_WIDTH[t] >= deviceWidth) || 'large'
+}
+
 // scryfall.com's own grid serves a `grid` tier that the API doesn't list in
 // `image_uris`: the same 488x680 picture as `normal`, but WebP instead of JPEG
 // and ~40% smaller. WebP has no 8x8 DCT blocking, and those blocks are what beat
@@ -757,6 +790,22 @@ export function toScryfallGridWebp(url) {
     '$1grid$2.webp',
   )
   return webp === url ? null : webp
+}
+
+// Resolve the image for a card tile of a given CSS width: the right tier for the
+// display's pixel ratio, preferring the WebP where one exists. Returns both URLs
+// so the caller can fall back — `grid` is undocumented, so a 404 has to degrade
+// to the JPEG rather than leave a broken tile.
+//
+//   { src, fallback } — render `src`; on error, render `fallback` (null if none).
+export function resolveTileImage(url, cssWidth, dpr = 1) {
+  const tier = pickImageTier(cssWidth, dpr)
+  const tiered = scryfallImageAtSize(url, tier)
+  if (!tiered) return { src: null, fallback: null }
+  // `grid` is 488px, so it's only an alternative to `normal`. Rewriting a `small`
+  // URL to it would quietly serve 4x the pixels the tile asked for.
+  const webp = tier === 'normal' ? toScryfallGridWebp(tiered) : null
+  return webp ? { src: webp, fallback: tiered } : { src: tiered, fallback: null }
 }
 
 function anyStoredImageUrl(imgs) {

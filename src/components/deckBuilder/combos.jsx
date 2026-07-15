@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { cardNameMatchKeys } from '../../lib/deckBuilderHelpers'
-import { scryfallImageAtSize, toScryfallGridWebp } from '../../lib/scryfall'
+import { resolveTileImage } from '../../lib/scryfall'
 import { useComboCardImage } from '../../hooks/useComboCardImage'
+import { useDevicePixelRatio } from '../../hooks/useDevicePixelRatio'
 
-// The thumb renders at a quarter of the 488px `normal` image, which is one of
-// its mipmap levels — the browser draws that pre-filtered level ~1:1 instead of
-// undersampling, so the art stays readable instead of shimmering. The box is
-// border-box with a 1px border, so it carries 2px more than the image itself.
+// At DPR 1 the thumb renders at a quarter of the 488px `normal` image, which is
+// one of its mipmap levels — the browser draws that pre-filtered level ~1:1
+// instead of undersampling, so the art stays readable instead of shimmering.
+// resolveTileImage picks a bigger tier on denser displays. The box is border-box
+// with a 1px border, so it carries 2px more than the image itself.
 const THUMB_IMG_W = 122 // 488 / 4
 const THUMB_IMG_H = 170 // 680 / 4
 const THUMB_BORDER = 1
@@ -15,13 +17,10 @@ const THUMB_BORDER = 1
 // button when the card isn't in the deck and an onAdd callback is provided.
 export function ComboCardThumb({ name, inDeck, existingUri, onAdd, onOpenDetail }) {
   const resolved = useComboCardImage(name, existingUri)
-  // Whatever tier the card happens to carry, pull it onto the 488px one the
-  // thumb is sized for, then prefer its WebP. `grid` is undocumented, so fall
-  // back to the JPEG if it ever stops resolving.
-  const normalImg = scryfallImageAtSize(resolved, 'normal')
+  const dpr = useDevicePixelRatio()
   const [webpFailed, setWebpFailed] = useState(false)
-  const webpImg = webpFailed ? null : toScryfallGridWebp(normalImg)
-  const img = webpImg || normalImg
+  const { src, fallback } = resolveTileImage(resolved, THUMB_IMG_W, dpr)
+  const img = webpFailed && fallback ? fallback : src
   const [adding, setAdding] = useState(false)
   const handleAdd = async e => {
     e.stopPropagation()
@@ -36,7 +35,7 @@ export function ComboCardThumb({ name, inDeck, existingUri, onAdd, onOpenDetail 
         background: 'var(--s2)',
       }}>
         {img
-          ? <img src={img} alt={name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} loading="lazy" onError={webpImg ? () => setWebpFailed(true) : undefined} />
+          ? <img src={img} alt={name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} loading="lazy" onError={fallback && !webpFailed ? () => setWebpFailed(true) : undefined} />
           : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.73rem', color: 'var(--text-faint)', padding: 8, textAlign: 'center', lineHeight: 1.3 }}>{name}</div>}
         {!inDeck && onAdd && (
           <button

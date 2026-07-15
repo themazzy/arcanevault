@@ -5,7 +5,7 @@ import {
   GRID_IMG_BORDER_PX,
   gridColumnsForDensity,
 } from './CardBrowserViews.jsx'
-import { toScryfallGridWebp } from '../lib/scryfall'
+import { toScryfallGridWebp, pickImageTier, SCRYFALL_TIER_WIDTH } from '../lib/scryfall'
 
 const sf = {
   image_uris: { small: 'S', normal: 'N', large: 'L' },
@@ -109,23 +109,28 @@ describe('toScryfallGridWebp', () => {
 // that source's mipmap levels. These are the numbers the comments claim — pin
 // them so a future density tweak can't silently drift off a level.
 describe('grid density mip alignment', () => {
-  const SOURCE_WIDTH = { small: 146, normal: 488, large: 672 }
-
   const mipLevels = (width) => {
     const levels = []
     for (let w = width; w >= 1; w = Math.floor(w / 2)) levels.push(w)
     return levels
   }
 
-  it('renders every density at an exact mip level of its own source tier', () => {
+  // At 1x these widths must be mip levels of whichever tier they resolve to, or
+  // the browser squeezes a level by an awkward ratio and the tile shimmers.
+  it('renders every density at an exact mip level of its 1x tier', () => {
     for (const spec of Object.values(DENSITY_IMAGE)) {
-      expect(mipLevels(SOURCE_WIDTH[spec.size])).toContain(spec.px)
+      const tierWidth = SCRYFALL_TIER_WIDTH[pickImageTier(spec.px, 1)]
+      expect(mipLevels(tierWidth)).toContain(spec.px)
     }
   })
 
-  it('never asks the browser to upscale, which would just look soft', () => {
-    for (const spec of Object.values(DENSITY_IMAGE)) {
-      expect(spec.px).toBeLessThanOrEqual(SOURCE_WIDTH[spec.size])
+  it('never asks the browser to upscale, at any realistic ratio', () => {
+    for (const dpr of [1, 1.5, 2, 3]) {
+      for (const spec of Object.values(DENSITY_IMAGE)) {
+        const tierWidth = SCRYFALL_TIER_WIDTH[pickImageTier(spec.px, dpr)]
+        const needed = spec.px * dpr
+        if (needed <= SCRYFALL_TIER_WIDTH.large) expect(tierWidth).toBeGreaterThanOrEqual(needed)
+      }
     }
   })
 
