@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Badge, ResponsiveMenu } from './UI'
-import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
+import { getPrice, formatPrice, getScryfallKey, getImageUri, scryfallImageAtSize, toScryfallGridWebp } from '../lib/scryfall'
 import { useLongPress } from '../hooks/useLongPress'
 import { lastInputWasTouch } from '../lib/inputType'
 import { countActive } from './CardComponents'
@@ -63,12 +63,16 @@ function getDisplayKey(card) {
   return card?._displayKey || card?.id
 }
 
-function getBrowserCardImage(card, sfCard, size = 'normal') {
-  return sfCard?.image_uris?.[size]
-    || sfCard?.card_faces?.[0]?.image_uris?.[size]
-    || sfCard?.image_uris?.normal
-    || sfCard?.card_faces?.[0]?.image_uris?.normal
-    || card?.image_uri
+// Stored `image_uri` values are not consistent about which tier they hold —
+// tokens often carry `small`, other rows carry `large`, and some carry an
+// art_crop — so a grid that trusts them renders a patchwork of resolutions, and
+// any row that isn't the tier we sized the tile for gets resampled by an
+// arbitrary ratio and shimmers. `getImageUri`/`scryfallImageAtSize` already
+// derive a requested tier from whatever a row happens to store, so lean on them
+// to force every tile onto the same tier.
+export function getBrowserCardImage(card, sfCard, size = 'normal') {
+  return getImageUri(sfCard, size)
+    || scryfallImageAtSize(card?.image_uri || null, size)
     || null
 }
 
@@ -719,8 +723,17 @@ function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, selectMo
   )
 }
 
-function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode }) {
-  const img = getBrowserCardImage(card, sf)
+function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, density }) {
+  // `normal` always resolves, so it is the safety net: the density's preferred
+  // tier is either undocumented (`grid` WebP) or may be missing for odd rows like
+  // tokens (`large`), and a 404 must degrade rather than show a broken tile.
+  const fallbackImg = getBrowserCardImage(card, sf)
+  const spec = DENSITY_IMAGE[density] || DENSITY_IMAGE.comfortable
+  const [preferredFailed, setPreferredFailed] = useState(false)
+  const sized = getBrowserCardImage(card, sf, spec.size)
+  const preferred = spec.webp ? toScryfallGridWebp(sized) : sized
+  const usePreferred = !preferredFailed && preferred && preferred !== fallbackImg
+  const img = usePreferred ? preferred : fallbackImg
   const totalQty = card._folder_qty ?? card.qty ?? 1
   const scryfallPrice = getPrice(sf, card.foil, { price_source: priceSource })
   const unitPrice = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
@@ -754,7 +767,7 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onT
         </div>
       )}
       <div className={styles.gridImgWrap}>
-        {img ? <img src={img} alt={card.name} className={styles.gridImg} loading="lazy" {...NON_DRAGGABLE_IMG_PROPS} /> : <div className={styles.gridImgPlaceholder}>{card.name}</div>}
+        {img ? <img src={img} alt={card.name} className={styles.gridImg} loading="lazy" onError={usePreferred ? () => setPreferredFailed(true) : undefined} {...NON_DRAGGABLE_IMG_PROPS} /> : <div className={styles.gridImgPlaceholder}>{card.name}</div>}
         {totalQty > 1 && !isSelected && <div className={styles.gridQty}>×{totalQty}</div>}
         {card.foil && <div className={styles.gridFoil}><Badge variant="foil">Foil</Badge></div>}
         {selectMode && isSelected && totalQty > 1 && (
@@ -788,18 +801,46 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onT
   )
 }
 
-const DENSITY_MIN_WIDTH = { cozy: 210, comfortable: 160, compact: 128 }
+// Tiles shimmer when the browser has to squeeze an image by an awkward ratio: it
+// picks a pre-filtered mipmap level (488 -> 244 -> 122) and bilinearly resamples
+// from there, which undersamples at anything much below that level. So each
+// density renders its source at (or just under) one of its mip levels, and the
+// width is *capped* there rather than letting `1fr` stretch it past.
+//
+// Only the 488 tier has a WebP (`grid`); 672/146 are JPEG-only, and JPEG's extra
+// high-frequency detail shimmers even at a near-exact 4:1 — 672 at ~168 was tried
+// and is visibly worse than 488-WebP off-level, so the source tier matters more
+// than hitting the level dead-on. That leaves 488's two usable levels for the big
+// sizes, and `small` rendered 1:1 for the middle one, where nothing is resampled
+// at all and it therefore cannot shimmer.
+//
+// `px` is the width of the *image*, which is what the browser scales. The grid
+// column has to carry the wrap's border on top — see GRID_IMG_BORDER_PX.
+export const DENSITY_IMAGE = {
+  cozy:        { size: 'normal', webp: true,  px: 244, min: 210 }, // 488 -> 244 (mip 1)
+  comfortable: { size: 'small',  webp: false, px: 146, min: 130 }, // 146 -> 146 (1:1, no resampling)
+  compact:     { size: 'normal', webp: true,  px: 122, min: 112 }, // 488 -> 122 (mip 2)
+}
+
+// `.gridImgWrap` is border-box with a 1px border, so the <img> inside renders 2px
+// narrower than its grid column. Without this the caps miss by 2px and every
+// density lands off its level — which is exactly what happened the first time.
+export const GRID_IMG_BORDER_PX = 2
+
+export const gridColumnsForDensity = (density) => {
+  const spec = DENSITY_IMAGE[density] || DENSITY_IMAGE.comfortable
+  return `repeat(auto-fill, minmax(${spec.min}px, ${spec.px + GRID_IMG_BORDER_PX}px))`
+}
 const STACK_WIDTH_BY_DENSITY = { cozy: 240, comfortable: 200, compact: 170 }
 const MOBILE_GRID_BREAKPOINT = 430
 const MOBILE_DENSITY_COLS = { cozy: 1, comfortable: 2, compact: 3 }
 
 function GridView({ cards, sfMap, priceSource, onSelect, selectMode, selectedCards, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, density, groups, groupOrder, groupBy, collapsedGroups, onToggleGroup }) {
-  const minW = DENSITY_MIN_WIDTH[density] || 160
   const isSmallScreen = typeof window !== 'undefined' && window.innerWidth <= MOBILE_GRID_BREAKPOINT
   const mobileCols = MOBILE_DENSITY_COLS[density] || 2
   const gridStyle = isSmallScreen
     ? { gridTemplateColumns: `repeat(${mobileCols}, minmax(0, 1fr))` }
-    : { gridTemplateColumns: `repeat(auto-fill, minmax(${minW}px, 1fr))` }
+    : { gridTemplateColumns: gridColumnsForDensity(density) }
 
   const renderCards = (cardList) => cardList.map(card => {
     const key = getDisplayKey(card)
@@ -816,6 +857,7 @@ function GridView({ cards, sfMap, priceSource, onSelect, selectMode, selectedCar
         onAdjustQty={onAdjustQty}
         splitState={splitState}
         onEnterSelectMode={onEnterSelectMode}
+        density={density}
       />
     )
   })

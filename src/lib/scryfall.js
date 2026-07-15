@@ -726,12 +726,37 @@ export function formatPriceMeta(meta) {
 // an entry doesn't store explicitly — e.g. card_prints rows hold only the
 // 'normal' URL, so grid thumbnails ('small') are derived from it. No-op for
 // non-Scryfall URLs (returns them unchanged).
+//
+// `png` is the one tier with its own extension; every other tier is .jpg, so the
+// extension has to move with the size segment or the derived URL 404s.
 export function scryfallImageAtSize(url, size) {
   if (!url || !size) return url || null
-  return url.replace(
+  const retiered = url.replace(
     /(\/\/cards\.scryfall\.io\/)(?:small|normal|large|png|art_crop|border_crop)(\/)/,
     `$1${size}$2`,
   )
+  if (retiered === url) return url
+  return size === 'png'
+    ? retiered.replace(/\.jpg(\?|$)/, '.png$1')
+    : retiered.replace(/\.png(\?|$)/, '.jpg$1')
+}
+
+// scryfall.com's own grid serves a `grid` tier that the API doesn't list in
+// `image_uris`: the same 488x680 picture as `normal`, but WebP instead of JPEG
+// and ~40% smaller. WebP has no 8x8 DCT blocking, and those blocks are what beat
+// against the sampling grid and make downscaled tiles shimmer — so this is
+// visibly cleaner than `normal` at thumbnail sizes, not just lighter.
+//
+// The tier is undocumented, so callers must fall back to the original URL if it
+// 404s. It is WebP-only (`grid/....jpg` 404s), just as `normal` is JPEG-only.
+// Returns null when the URL isn't a rewritable Scryfall card image.
+export function toScryfallGridWebp(url) {
+  if (typeof url !== 'string') return null
+  const webp = url.replace(
+    /(\/\/cards\.scryfall\.io\/)(?:small|normal|large)(\/.+?)\.jpg/,
+    '$1grid$2.webp',
+  )
+  return webp === url ? null : webp
 }
 
 function anyStoredImageUrl(imgs) {

@@ -1,46 +1,27 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { cardNameMatchKeys } from '../../lib/deckBuilderHelpers'
+import { scryfallImageAtSize, toScryfallGridWebp } from '../../lib/scryfall'
+import { useComboCardImage } from '../../hooks/useComboCardImage'
 
-// Lazy-fetches a card image from Scryfall for combo-card thumbnails. Requests
-// are shared by name so multiple thumbs of the same card don't refetch.
-const comboImageRequests = new Map()
-
-function useComboCardImage(name, existingUri) {
-  const [images, setImages] = useState(() => existingUri ? { [name]: existingUri } : {})
-  useEffect(() => {
-    if (existingUri || !name) return
-    let cancelled = false
-    let request = comboImageRequests.get(name)
-    if (!request) {
-      request = fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=json`)
-        .then(r => r.ok ? r.json() : null)
-        .then(d => (
-          d?.image_uris?.large ||
-          d?.card_faces?.[0]?.image_uris?.large ||
-          d?.image_uris?.normal ||
-          d?.card_faces?.[0]?.image_uris?.normal ||
-          null
-        ))
-        .catch(() => null)
-      comboImageRequests.set(name, request)
-    }
-    request.then(url => {
-      if (!url) {
-        if (comboImageRequests.get(name) === request) comboImageRequests.delete(name)
-        return
-      }
-      if (cancelled || !url) return
-      setImages(current => current[name] === url ? current : { ...current, [name]: url })
-    })
-    return () => { cancelled = true }
-  }, [name, existingUri])
-  return existingUri || images[name] || null
-}
+// The thumb renders at a quarter of the 488px `normal` image, which is one of
+// its mipmap levels — the browser draws that pre-filtered level ~1:1 instead of
+// undersampling, so the art stays readable instead of shimmering. The box is
+// border-box with a 1px border, so it carries 2px more than the image itself.
+const THUMB_IMG_W = 122 // 488 / 4
+const THUMB_IMG_H = 170 // 680 / 4
+const THUMB_BORDER = 1
 
 // Thumbnail tile for a single card inside a combo result. Shows an "+ Add"
 // button when the card isn't in the deck and an onAdd callback is provided.
 export function ComboCardThumb({ name, inDeck, existingUri, onAdd, onOpenDetail }) {
-  const img = useComboCardImage(name, existingUri)
+  const resolved = useComboCardImage(name, existingUri)
+  // Whatever tier the card happens to carry, pull it onto the 488px one the
+  // thumb is sized for, then prefer its WebP. `grid` is undocumented, so fall
+  // back to the JPEG if it ever stops resolving.
+  const normalImg = scryfallImageAtSize(resolved, 'normal')
+  const [webpFailed, setWebpFailed] = useState(false)
+  const webpImg = webpFailed ? null : toScryfallGridWebp(normalImg)
+  const img = webpImg || normalImg
   const [adding, setAdding] = useState(false)
   const handleAdd = async e => {
     e.stopPropagation()
@@ -50,12 +31,12 @@ export function ComboCardThumb({ name, inDeck, existingUri, onAdd, onOpenDetail 
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, opacity: inDeck ? 1 : 0.6, cursor: 'pointer' }} onClick={() => onOpenDetail?.(name)}>
-      <div style={{ position: 'relative', width: 120, height: 168, borderRadius: 7, overflow: 'hidden', flexShrink: 0,
-        border: `1px solid ${inDeck ? 'rgba(201,168,76,0.5)' : 'var(--s-border2)'}`,
+      <div style={{ position: 'relative', width: THUMB_IMG_W + THUMB_BORDER * 2, height: THUMB_IMG_H + THUMB_BORDER * 2, borderRadius: 7, overflow: 'hidden', flexShrink: 0,
+        border: `${THUMB_BORDER}px solid ${inDeck ? 'rgba(201,168,76,0.5)' : 'var(--s-border2)'}`,
         background: 'var(--s2)',
       }}>
         {img
-          ? <img src={img} alt={name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} loading="lazy" />
+          ? <img src={img} alt={name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} loading="lazy" onError={webpImg ? () => setWebpFailed(true) : undefined} />
           : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.73rem', color: 'var(--text-faint)', padding: 8, textAlign: 'center', lineHeight: 1.3 }}>{name}</div>}
         {!inDeck && onAdd && (
           <button

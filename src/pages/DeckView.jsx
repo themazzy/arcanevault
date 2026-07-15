@@ -297,7 +297,11 @@ export default function DeckViewPage() {
   const [search,    setSearch]    = useState('')
   const [sortBy,    setSortBy]    = useState('price_desc')
   const [groupBy,   setGroupBy]   = useState('type')
-  const [cardSize,  setCardSize]  = useState('comfortable')
+  // Default to the largest tile size: this view isn't tied to the user's global
+  // grid density, and cozy renders the 488px card image at 244 — an exact 2:1,
+  // which is the sharpest of the three densities. Viewers can still pick a
+  // smaller size from the card-size control.
+  const [cardSize,  setCardSize]  = useState('cozy')
   const [showDecklist, setShowDecklist] = useState(false)
   const [decklistCopied, setDecklistCopied] = useState(false)
   const [sfMap,     setSfMap]     = useState({})

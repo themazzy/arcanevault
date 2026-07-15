@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { scryfallImageAtSize, getImageUri } from './scryfall'
+import { scryfallImageAtSize, getImageUri, toScryfallGridWebp } from './scryfall'
 
 const NORMAL = 'https://cards.scryfall.io/normal/front/0/2/02e512b7.jpg?1698805228'
+const PNG = 'https://cards.scryfall.io/png/front/0/2/02e512b7.png?1698805228'
 
 describe('scryfallImageAtSize', () => {
   it('rewrites the size segment of a Scryfall CDN URL', () => {
@@ -11,13 +12,40 @@ describe('scryfallImageAtSize', () => {
       .toBe('https://cards.scryfall.io/large/front/0/2/02e512b7.jpg?1698805228')
   })
 
+  // `png` is the only tier with its own extension, so the extension has to move
+  // with the size segment — otherwise the derived URL (e.g. normal/....png) 404s.
+  it('moves the extension when converting to or from the png tier', () => {
+    expect(scryfallImageAtSize(PNG, 'normal')).toBe(NORMAL)
+    expect(scryfallImageAtSize(PNG, 'small'))
+      .toBe('https://cards.scryfall.io/small/front/0/2/02e512b7.jpg?1698805228')
+    expect(scryfallImageAtSize(NORMAL, 'png')).toBe(PNG)
+  })
+
   it('leaves non-Scryfall URLs unchanged', () => {
     expect(scryfallImageAtSize('https://example.com/x.jpg', 'small')).toBe('https://example.com/x.jpg')
+    expect(scryfallImageAtSize('https://example.com/x.png', 'normal')).toBe('https://example.com/x.png')
   })
 
   it('is null-safe', () => {
     expect(scryfallImageAtSize(null, 'small')).toBeNull()
     expect(scryfallImageAtSize(NORMAL, null)).toBe(NORMAL)
+  })
+})
+
+describe('toScryfallGridWebp', () => {
+  it('rewrites any jpg tier to the grid WebP tier, keeping the query', () => {
+    expect(toScryfallGridWebp(NORMAL))
+      .toBe('https://cards.scryfall.io/grid/front/0/2/02e512b7.webp?1698805228')
+    expect(toScryfallGridWebp('https://cards.scryfall.io/large/front/0/2/02e512b7.jpg'))
+      .toBe('https://cards.scryfall.io/grid/front/0/2/02e512b7.webp')
+  })
+
+  it('returns null when it cannot rewrite, so callers keep the original', () => {
+    // art_crop is a different crop and has no grid tier; png is not a jpg tier.
+    expect(toScryfallGridWebp('https://cards.scryfall.io/art_crop/front/0/2/02e512b7.jpg')).toBe(null)
+    expect(toScryfallGridWebp(PNG)).toBe(null)
+    expect(toScryfallGridWebp('https://example.com/x.jpg')).toBe(null)
+    expect(toScryfallGridWebp(null)).toBe(null)
   })
 })
 
