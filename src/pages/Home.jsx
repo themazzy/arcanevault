@@ -1030,7 +1030,6 @@ function CollectionSnapshot({ data, loading, priceSource }) {
       deckCount,
       totalQty,
       totalValue,
-      uniqueEntries: cards?.length || 0,
       uniquePrintCount: uniquePrints.size,
       uniqueSetCount: sets.size,
       foilQty,
