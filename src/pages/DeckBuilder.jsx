@@ -226,6 +226,8 @@ function areSearchResultRowPropsEqual(prev, next) {
 // the host UI when it already has an input (showSearch=false).
 const GROUPBY_STORE_KEY = 'deckloom_deckbuilder_groupby_v1'
 const DECK_GROUP_MODES = ['none', 'type', 'category', 'cmc', 'color', 'rarity', 'set']
+const VIEW_STORE_KEY = 'deckloom_deckbuilder_view_v1'
+const DECK_VIEW_MODES = ['list', 'compact', 'stacks', 'grid']
 
 function cycleColorMode(mode) {
   const i = COLOR_MATCH_MODES.indexOf(mode)
@@ -580,7 +582,18 @@ export default function DeckBuilderPage() {
   const [deckGameResults,        setDeckGameResults]        = useState([])
   const [deckGameResultsLoading, setDeckGameResultsLoading] = useState(false)
   const [deckGameResultsLoaded,  setDeckGameResultsLoaded]  = useState(false)
-  const [deckView,    setDeckView]    = useState('list')   // 'list' | 'compact' | 'stacks' | 'grid'
+  // Last-used view wins; defaults to grid on devices that never changed it.
+  const [deckView, setDeckViewState] = useState(() => {
+    try {
+      const saved = localStorage.getItem(VIEW_STORE_KEY)
+      if (saved && DECK_VIEW_MODES.includes(saved)) return saved
+    } catch { /* private mode */ }
+    return 'grid'   // 'list' | 'compact' | 'stacks' | 'grid'
+  })
+  const setDeckView = useCallback((v) => {
+    setDeckViewState(v)
+    try { localStorage.setItem(VIEW_STORE_KEY, v) } catch { /* private mode */ }
+  }, [])
   const [showOptimize, setShowOptimize] = useState(false)
   const [optimizeBusy, setOptimizeBusy] = useState(null)   // mode id while running
   const [showHistory, setShowHistory] = useState(false)

@@ -14,9 +14,11 @@ function attractionQtyLocked(dc) {
 // badges and a controls row (edit menu, qty +/-, remove).
 function DeckCardGrid({
   dc, legalityWarnings, warningTitle, isWarningTarget,
+  canHover, lastInputWasTouch,
   priceLabel, ownership,
   isEDH, formatId, builderSfMap,
   onChangeQty, onRemove, onOpenDetail, onContextMenu, onDragStart,
+  onHoverEnter, onHoverLeave, onHoverMove,
   onPickVersion, onToggleFoil, onSetCommander, onMoveBoard, onOpenCategoryPicker,
 }) {
   return (
@@ -34,7 +36,12 @@ function DeckCardGrid({
       onContextMenu={e => onContextMenu(dc, e)}
       {...bindTouchContextMenu(e => onContextMenu(dc, e))}
     >
-      <div className={styles.visualImgWrap}>
+      <div
+        className={styles.visualImgWrap}
+        onMouseEnter={canHover && !lastInputWasTouch ? e => onHoverEnter(dc, e) : undefined}
+        onMouseLeave={canHover ? () => onHoverLeave() : undefined}
+        onMouseMove={canHover ? e => onHoverMove(e.clientX, e.clientY) : undefined}
+      >
         {dc.image_uri
           ? <img src={scryfallImageAtSize(dc.image_uri, 'small')} alt={dc.name} className={styles.visualCardImg} loading="lazy" />
           : <div className={styles.visualCardPlaceholder}>{dc.name}</div>}
@@ -86,7 +93,7 @@ function DeckCardStack({
       role="group"
       aria-label={`Deck card ${dc.name}`}
       style={{ zIndex: isTouchActive ? 200 : (stackContext?.idx ?? 0) }}
-      title={warningTitle || dc.name}
+      title={warningTitle || undefined}
       draggable
       onDragStart={e => onDragStart(dc, e)}
       onClick={(e) => {
