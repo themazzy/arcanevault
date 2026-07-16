@@ -1151,6 +1151,36 @@
   overflow: hidden;
 }
 
+/* ── Board section (Mainboard / Sideboard / Maybeboard / Attraction Deck) ──── */
+.boardSection {
+  margin-bottom: 26px;
+}
+.boardSection:last-child {
+  margin-bottom: 0;
+}
+.boardHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+.boardHeader::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--s2);
+}
+.boardCount {
+  color: var(--text-dim);
+  font-size: 0.72rem;
+  letter-spacing: normal;
+}
+
 .searchBox {
   width: 100%;
   min-width: 0;

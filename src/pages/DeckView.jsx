@@ -24,6 +24,7 @@ import { useComboCardImage } from '../hooks/useComboCardImage'
 const RARITY_ORDER = ['mythic', 'rare', 'uncommon', 'common']
 const RARITY_GROUP_ORDER = ['Mythic', 'Rare', 'Uncommon', 'Common', 'Unknown']
 const BOARD_LABELS = { main: 'Mainboard', attraction: 'Attraction Deck', side: 'Sideboard', maybe: 'Maybeboard' }
+const BOARD_ORDER = ['main', 'attraction', 'side', 'maybe']
 const COLOR_GROUP_ORDER = ['W', 'U', 'B', 'R', 'G', 'Multicolor', 'Colorless']
 // Deck-context order: Type/Color lead because grouping by them is the most
 // useful deck-building view. Name pair next, then numeric sorts paired
@@ -297,11 +298,9 @@ export default function DeckViewPage() {
   const [search,    setSearch]    = useState('')
   const [sortBy,    setSortBy]    = useState('price_desc')
   const [groupBy,   setGroupBy]   = useState('type')
-  // Default to the largest tile size: this view isn't tied to the user's global
-  // grid density, and cozy renders the 488px card image at 244 — an exact 2:1,
-  // which is the sharpest of the three densities. Viewers can still pick a
-  // smaller size from the card-size control.
-  const [cardSize,  setCardSize]  = useState('cozy')
+  // Default to the medium tile size. Viewers can still pick a smaller or larger
+  // size from the card-size control.
+  const [cardSize,  setCardSize]  = useState('comfortable')
   const [showDecklist, setShowDecklist] = useState(false)
   const [decklistCopied, setDecklistCopied] = useState(false)
   const [sfMap,     setSfMap]     = useState({})
@@ -584,6 +583,26 @@ export default function DeckViewPage() {
 
   const groupedCards  = useMemo(() => groupDeckCards(cards), [cards])
   const sortedFlat    = useMemo(() => sortCards(visibleCards), [sortCards, visibleCards])
+  // Split the deck into board sections (Mainboard / Attraction Deck / Sideboard /
+  // Maybeboard) so supplementary boards never blend into the maindeck under the
+  // chosen grouping. Headers only appear when a deck actually has more than one
+  // board — the common single-board deck renders exactly as before.
+  const boardSections = useMemo(() => {
+    const buckets = new Map()
+    for (const card of sortedFlat) {
+      const board = normalizeBoard(card.board)
+      if (!buckets.has(board)) buckets.set(board, [])
+      buckets.get(board).push(card)
+    }
+    return BOARD_ORDER
+      .filter(board => buckets.get(board)?.length)
+      .map(board => ({
+        board,
+        label: BOARD_LABELS[board],
+        cards: buckets.get(board),
+        count: buckets.get(board).reduce((sum, card) => sum + (card.qty || 0), 0),
+      }))
+  }, [sortedFlat])
   const effectiveViewMode = viewMode === 'list' ? 'table' : viewMode
 
   // Total deck value
@@ -608,6 +627,7 @@ export default function DeckViewPage() {
     const main      = cards.filter(c => !c.is_commander && normalizeBoard(c.board) === 'main')
     const attractions = cards.filter(c => normalizeBoard(c.board) === 'attraction')
     const side      = cards.filter(c => c.board === 'side')
+    const maybe     = cards.filter(c => c.board === 'maybe')
     const lines = []
     if (commander.length) {
       lines.push('// Commander')
@@ -637,6 +657,11 @@ export default function DeckViewPage() {
     if (side.length) {
       lines.push('// Sideboard')
       sortCards(side).forEach(c => lines.push(cardLine(c)))
+      lines.push('')
+    }
+    if (maybe.length) {
+      lines.push('// Maybeboard')
+      sortCards(maybe).forEach(c => lines.push(cardLine(c)))
     }
     return lines.join('\n').trim()
   }, [cards, groupBy, groupedCards, sortCards])
@@ -961,21 +986,31 @@ export default function DeckViewPage() {
             </div>
           </div>
 
-          {/* ── Card browser content ── */}
+          {/* ── Card browser content (one section per board) ── */}
           <div className={styles.browserContent}>
-            <CardBrowserContent
-              cards={sortedFlat}
-              sfMap={sfMap}
-              priceSource={price_source}
-              viewMode={effectiveViewMode}
-              groupBy={groupBy}
-              groupResolver={groupResolver}
-              groupOrder={groupOrder}
-              density={cardSize}
-              onSelect={card => setDetailCard(card)}
-              onHover={effectiveViewMode !== 'grid' ? img => setHoverImg(img) : undefined}
-              onHoverEnd={effectiveViewMode !== 'grid' ? () => setHoverImg(null) : undefined}
-            />
+            {boardSections.map(section => (
+              <div key={section.board} className={styles.boardSection}>
+                {boardSections.length > 1 && (
+                  <div className={styles.boardHeader}>
+                    <span>{section.label}</span>
+                    <span className={styles.boardCount}>{section.count}</span>
+                  </div>
+                )}
+                <CardBrowserContent
+                  cards={section.cards}
+                  sfMap={sfMap}
+                  priceSource={price_source}
+                  viewMode={effectiveViewMode}
+                  groupBy={groupBy}
+                  groupResolver={groupResolver}
+                  groupOrder={groupOrder}
+                  density={cardSize}
+                  onSelect={card => setDetailCard(card)}
+                  onHover={effectiveViewMode !== 'grid' ? img => setHoverImg(img) : undefined}
+                  onHoverEnd={effectiveViewMode !== 'grid' ? () => setHoverImg(null) : undefined}
+                />
+              </div>
+            ))}
           </div>
 
           {cards.length === 0 && (
