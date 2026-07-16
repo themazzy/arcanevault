@@ -11,6 +11,7 @@ import { Select } from '../components/UI'
 import { MILESTONES } from '../lib/milestones'
 import { checkAndNotifyMilestones } from '../lib/milestoneTracker'
 import FollowButton from '../components/community/FollowButton'
+import { getUserFollowStats } from '../lib/community'
 import { hasDeckArtSource, mergeDeckCommanderArt, useDeckArt } from '../lib/deckArt'
 import { deckBracketBadge } from '../lib/commanderBracket'
 import { useToast } from '../components/ToastContext'
@@ -929,8 +930,20 @@ export default function ProfilePage() {
   )
 
   const decodedUsername = decodeURIComponent(username)
+  // Optimistic ownership from the local nickname — cheap, drives instant own-
+  // profile rendering and viewer-only own-data fetches (all scoped to user.id,
+  // so a wrong value here can only mis-decorate, never leak or write elsewhere).
   const isOwn = !!(user && settings.nickname &&
     decodedUsername.toLowerCase() === settings.nickname.toLowerCase())
+
+  // Authoritative ownership for anything that grants write/edit power. The
+  // server (get_user_follow_stats.is_self) compares auth.uid() to the profile's
+  // resolved user_id, so a stale/leaked local nickname can never unlock editing
+  // of someone else's profile. Null until resolved; edit UI stays hidden until
+  // then. get_public_profile deliberately omits user_id (SEC-002), so this is
+  // the identity signal we compare against.
+  const [serverIsOwner, setServerIsOwner] = useState(null)
+  const canEdit = serverIsOwner === true
 
   const ownProfileFallback = useMemo(() => ({
     user_id:           user?.id,
@@ -969,6 +982,18 @@ export default function ProfilePage() {
   }, [decodedUsername, isOwn])
 
   useEffect(() => { loadProfile() }, [loadProfile])
+
+  // Resolve authoritative ownership from the server. Re-runs when the viewed
+  // profile or the signed-in user changes.
+  useEffect(() => {
+    let alive = true
+    setServerIsOwner(null)
+    if (!user) { setServerIsOwner(false); return }
+    getUserFollowStats(decodedUsername)
+      .then(stats => { if (alive) setServerIsOwner(!!stats?.is_self) })
+      .catch(() => { if (alive) setServerIsOwner(false) })
+    return () => { alive = false }
+  }, [decodedUsername, user?.id])
 
   // Sync own profile fields when settings change
   useEffect(() => {
@@ -1040,6 +1065,7 @@ export default function ProfilePage() {
 
   // ── Edit mode ──────────────────────────────────────────────────────────────
   function enterEdit() {
+    if (!canEdit) return
     const cfg = profile?.bento_config || {}
     setDraftBio(profile?.bio || '')
     setDraftAccent(profile?.accent || '')
@@ -1058,6 +1084,7 @@ export default function ProfilePage() {
   }
 
   async function saveEdit() {
+    if (!canEdit) return
     setSaving(true)
     const newConfig = {
       blocks:                       draftBlocks,
@@ -1210,10 +1237,10 @@ export default function ProfilePage() {
           </div>
 
           <div className={styles.headerActions}>
-            {isOwn && !editMode && (
+            {canEdit && !editMode && (
               <button className={styles.editBtn} onClick={enterEdit}>Edit Profile</button>
             )}
-            {isOwn && editMode && (
+            {canEdit && editMode && (
               <>
                 <div className={styles.accentPalette}>
                   {ACCENT_PALETTE.map(color => (

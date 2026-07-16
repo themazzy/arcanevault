@@ -610,6 +610,32 @@ export async function replaceLocalListItems(folderIds, rows) {
   await tx.done
 }
 
+// ── Account switch cleanup ───────────────────────────────────────────────────
+// Wipe the stores that hold one specific user's data so a different account
+// signing in on the same browser never inherits the previous user's cards,
+// folders, decks, or wishlists. Device-level caches (scryfall metadata,
+// card_prints/card_prices, scanner_pack) are user-agnostic and deliberately
+// kept. Per-user sync cursors + folder-meta caches are dropped so the next user
+// re-syncs from scratch instead of taking the incremental path against an empty
+// store (which would look like a half-missing collection).
+export async function clearUserScopedStores() {
+  const db = await getDb()
+  const stores = ['cards', 'folders', 'folder_cards', 'deck_cards', 'deck_allocations', 'list_items']
+  await Promise.all(stores.map(store => db.clear(store)))
+
+  const metaKeys = await db.getAllKeys('meta')
+  const staleKeys = metaKeys.filter(key =>
+    typeof key === 'string' && (
+      key.startsWith('cards_synced') ||   // cards_synced_at:<id> + legacy cards_synced_<id>
+      key.startsWith('folder_meta_')      // folderMetaKey(userId, type)
+    )
+  )
+  if (staleKeys.length) {
+    const tx = db.transaction('meta', 'readwrite')
+    await Promise.all([...staleKeys.map(key => tx.store.delete(key)), tx.done])
+  }
+}
+
 // ── Folder meta cache (counts + values per folder, persisted) ────────────────
 // Lets the index page paint last-known counts/values immediately on revisit
 // instead of showing "—" while prices reload. Keyed by (userId, type) with the

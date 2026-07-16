@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { getPublicBaseUrl, getProdAppUrl } from '../lib/publicUrl'
 import { isNativeApp, openNativeOAuth, NATIVE_AUTH_ERROR_EVENT } from '../lib/nativeAuth'
+import { reconcileActiveUser } from '../lib/accountReset'
 import {
   parseEmailOtpParams,
   isRecoveryRedirect,
@@ -58,9 +59,18 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     let active = true
     const { data: { subscription } } = sb.auth.onAuthStateChange((event, s) => {
-      setSession(s)
-      if (event === 'PASSWORD_RECOVERY') markPendingRecovery()
-      setAuthEvent(event === 'PASSWORD_RECOVERY' || hasPendingRecovery(s) ? 'PASSWORD_RECOVERY' : event)
+      // Clear the previous user's local state before revealing this session, so
+      // a different account never inherits the last user's nickname/decks. The
+      // localStorage wipe is synchronous; the IDB wipe returns a promise we wait
+      // on so the new user's pages don't read/sync into a store mid-wipe.
+      const wipe = reconcileActiveUser(s?.user?.id || null)
+      const apply = () => {
+        setSession(s)
+        if (event === 'PASSWORD_RECOVERY') markPendingRecovery()
+        setAuthEvent(event === 'PASSWORD_RECOVERY' || hasPendingRecovery(s) ? 'PASSWORD_RECOVERY' : event)
+      }
+      if (wipe) wipe.then(() => { if (active) apply() })
+      else apply()
     })
 
     ;(async () => {
@@ -82,6 +92,9 @@ export function AuthProvider({ children }) {
       }
 
       const { data: { session } } = await sb.auth.getSession()
+      if (!active) return
+      const wipe = reconcileActiveUser(session?.user?.id || null)
+      if (wipe) await wipe
       if (!active) return
       setSession(session)
       if (hasPendingRecovery(session)) setAuthEvent('PASSWORD_RECOVERY')
