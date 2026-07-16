@@ -204,7 +204,7 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
               {deck.card_count != null && (
                 <span className={styles.cardCount}>{deck.card_count} cards</span>
               )}
-              <div className={styles.editedDate}>{fmtRelDate(deck.updated_at)}</div>
+              <div className={styles.editedDate}>{fmtRelDate(deck.deck_modified_at || deck.updated_at)}</div>
               <button
                 className={styles.deleteBtn}
                 onClick={e => { e.stopPropagation(); onDelete(deck.id) }}
@@ -276,7 +276,7 @@ function CommunityDeckTile({ deck, meta, fmt, isOwn, creatorNick, navigate }) {
             {(deck.like_count > 0 || deck.comment_count > 0) && (
               <span className={styles.communityStats}>♥ {deck.like_count || 0} · 💬 {deck.comment_count || 0}</span>
             )}
-            <div className={styles.editedDate}>{fmtRelDate(deck.updated_at)}</div>
+            <div className={styles.editedDate}>{fmtRelDate(deck.deck_modified_at || deck.updated_at)}</div>
           </div>
         </div>
       </div>
@@ -635,7 +635,7 @@ export default function BuilderPage() {
       const { data } = await sb.rpc('get_community_decks', { p_sort: 'trending', p_limit: 3 })
       const rows = (Array.isArray(data?.decks) ? data.decks : []).filter(d =>
         (d.like_count || 0) > 0 &&
-        (Date.now() - (Date.parse(d.updated_at || d.created_at || 0) || 0)) < TRENDING_WINDOW_MS)
+        (Date.now() - (Date.parse(d.deck_modified_at || d.updated_at || d.created_at || 0) || 0)) < TRENDING_WINDOW_MS)
       setTrendingDecks(attachDeckMeta(await enrichDecksWithCommanderArt(rows)))
       fetchNicknames(rows)
     } catch {

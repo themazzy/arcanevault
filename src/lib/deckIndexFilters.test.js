@@ -118,6 +118,22 @@ describe('sortDeckIndex', () => {
     sortDeckIndex(input, 'name')
     expect(input[0].name).toBe('Beta')
   })
+
+  it('uses meaningful deck changes instead of maintenance updates for recent order', () => {
+    const contentRecent = deck({
+      name: 'Content recent',
+      updated_at: '2026-06-01T00:00:00Z',
+      deck_modified_at: '2026-05-30T00:00:00Z',
+    })
+    const maintenanceRecent = deck({
+      name: 'Maintenance recent',
+      updated_at: '2026-06-02T00:00:00Z',
+      deck_modified_at: '2026-05-01T00:00:00Z',
+    })
+
+    expect(sortDeckIndex([maintenanceRecent, contentRecent], 'updated').map(d => d.name))
+      .toEqual(['Content recent', 'Maintenance recent'])
+  })
 })
 
 describe('filter chips', () => {

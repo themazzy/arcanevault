@@ -31,9 +31,27 @@ describe('deckAllocationKeys / allocationSetHas', () => {
     expect(allocationSetHas(set, dc)).toBe(true)
   })
 
-  it('falls back to name + foil when print and scryfall ids differ (different printing)', () => {
+  it('does not treat a different printing of the same card as allocated', () => {
     const dc = { card_print_id: 'print-A', scryfall_id: 'sf-A', name: 'Forest', foil: false }
     const set = new Set(deckAllocationKeys({ card_print_id: 'print-B', scryfall_id: 'sf-B', name: 'Forest', foil: false }))
+    expect(allocationSetHas(set, dc)).toBe(false)
+  })
+
+  it('does not treat the opposite foil finish of the same printing as allocated', () => {
+    const dc = { card_print_id: 'print-A', scryfall_id: 'sf-A', name: 'Forest', foil: true }
+    const set = new Set(deckAllocationKeys({ card_print_id: 'print-A', scryfall_id: 'sf-A', name: 'Forest', foil: false }))
+    expect(allocationSetHas(set, dc)).toBe(false)
+  })
+
+  it('falls back to scryfall id when an allocation has no card_print_id', () => {
+    const dc = { card_print_id: 'print-A', scryfall_id: 'sf-A', name: 'Forest', foil: false }
+    const set = new Set(deckAllocationKeys({ card_print_id: null, scryfall_id: 'sf-A', name: 'Forest', foil: false }))
+    expect(allocationSetHas(set, dc)).toBe(true)
+  })
+
+  it('falls back to name when a legacy allocation has no print identifiers', () => {
+    const dc = { card_print_id: 'print-A', scryfall_id: 'sf-A', name: 'Forest', foil: false }
+    const set = new Set(deckAllocationKeys({ card_print_id: null, scryfall_id: null, name: 'Forest', foil: false }))
     expect(allocationSetHas(set, dc)).toBe(true)
   })
 
@@ -51,7 +69,7 @@ describe('mergeOtherDeckAllocationKeys', () => {
   // fetch their own allocations and merge them into the existing set.
   it('marks a late-added card as committed when its allocation lives in another deck', () => {
     const prev = new Set(['name:sol ring|0'])
-    const addedCard = { scryfall_id: 'sf-bolt', name: 'Lightning Bolt', foil: false }
+    const addedCard = { card_print_id: 'print-bolt', scryfall_id: 'sf-bolt', name: 'Lightning Bolt', foil: false }
     const allocations = [
       { scryfall_id: 'sf-bolt', card_print_id: 'print-bolt', name: 'Lightning Bolt', foil: false, deck_id: 'other-deck' },
     ]
@@ -83,7 +101,7 @@ describe('mergeOtherDeckAllocationKeys', () => {
     // getAllocationDeckId() returns null for an unlinked builder deck — a null
     // exclusion must not filter out real allocation rows.
     const next = mergeOtherDeckAllocationKeys(new Set(), allocations, ['this-deck', null])
-    expect(allocationSetHas(next, { name: 'Lightning Bolt', foil: false })).toBe(true)
+    expect(next.has('sf:sf-bolt|0')).toBe(true)
   })
 })
 

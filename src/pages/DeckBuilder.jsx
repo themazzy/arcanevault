@@ -1168,7 +1168,10 @@ export default function DeckBuilderPage() {
   // (Builder.jsx tiles, DeckBrowser) can show a pill without re-fetching every
   // deck's cards and re-running analyzeBracket just to render a list.
   useEffect(() => {
-    if (!deckId || !isEDH || !bracketAnalysis) return
+    // Do not persist the default empty-deck analysis during the initial load.
+    // Besides being view-only work, that race could overwrite a stored manual
+    // bracket before the folder metadata and cards had arrived.
+    if (!deckId || loading || !deck || !isEDH || !bracketAnalysis) return
     const nextMeta = computeBracketMetaPatch(deckMetaRef.current, effectiveBracket, statsBracketOverride != null)
     if (!nextMeta) return
     const baseMeta = deckMetaRef.current || {}
@@ -1176,7 +1179,7 @@ export default function DeckBuilderPage() {
     patchDeckMeta(deckId, baseMeta, nextMeta)
       .then(applyLocalDeckMeta)
       .catch(err => console.warn('[DeckBuilder] bracket metadata save failed:', err))
-  }, [deckId, isEDH, bracketAnalysis, effectiveBracket, statsBracketOverride])
+  }, [deckId, loading, deck, isEDH, bracketAnalysis, effectiveBracket, statsBracketOverride])
 
   // Auto-collapse format/commander section on mobile once commander is set
   useEffect(() => {

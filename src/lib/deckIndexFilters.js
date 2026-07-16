@@ -92,7 +92,7 @@ export const DECK_INDEX_SORTS = {
   updated:   'Recently Updated',
 }
 
-const updatedTs = d => Date.parse(d.updated_at || d.created_at || 0) || 0
+const updatedTs = d => Date.parse(d.deck_modified_at || d.updated_at || d.created_at || 0) || 0
 const createdTs = d => Date.parse(d.created_at || d.updated_at || 0) || 0
 const byName = (a, b) => (a.name || '').localeCompare(b.name || '')
 

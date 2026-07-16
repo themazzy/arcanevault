@@ -74,9 +74,9 @@ async function fetchAllAllocationPages(buildQuery) {
 // large the rest of the collection grows.
 //
 // Runs the print/scryfall/name tiers as separate queries and merges the
-// results, since deckAllocationKeys' name+foil fallback tier is how a
-// different printing of the same card (no print/scryfall id overlap) still
-// gets found.
+// results. The name query preloads allocations for alternate printings so a
+// DeckBuilder version change can recalculate its badge immediately; the badge
+// matcher still requires the exact print + foil when identifiers are present.
 export async function fetchDeckAllocationsForCardIdentities(userId, { cardPrintIds = [], scryfallIds = [], names = [] } = {}) {
   const uniqueCardPrintIds = [...new Set(cardPrintIds.filter(Boolean))]
   const uniqueScryfallIds = [...new Set(scryfallIds.filter(Boolean))]

@@ -74,17 +74,26 @@ export function manaSymbolUrl(sym) {
 
 export function deckAllocationKeys(cardLike) {
   if (!cardLike) return []
-  const keys = []
   const foilKey = cardLike.foil ? '1' : '0'
-  if (cardLike.card_print_id) keys.push(`print:${cardLike.card_print_id}`)
-  if (cardLike.scryfall_id) keys.push(`sf:${cardLike.scryfall_id}|${foilKey}`)
+  // Allocation rows contribute only their strongest available identity. If a
+  // fully identified row also contributed its name, every printing with the
+  // same name would look allocated and changing a version could never update
+  // the ownership badge. Foil is part of the exact owned-card identity too.
+  if (cardLike.card_print_id) return [`print:${cardLike.card_print_id}|${foilKey}`]
+  if (cardLike.scryfall_id) return [`sf:${cardLike.scryfall_id}|${foilKey}`]
   const nameKey = (cardLike.name || '').trim().toLowerCase()
-  if (nameKey) keys.push(`name:${nameKey}|${foilKey}`)
-  return [...new Set(keys)]
+  return nameKey ? [`name:${nameKey}|${foilKey}`] : []
 }
 
 export function allocationSetHas(set, cardLike) {
-  return deckAllocationKeys(cardLike).some(key => set.has(key))
+  if (!cardLike || !set) return false
+  const foilKey = cardLike.foil ? '1' : '0'
+  const candidateKeys = []
+  if (cardLike.card_print_id) candidateKeys.push(`print:${cardLike.card_print_id}|${foilKey}`)
+  if (cardLike.scryfall_id) candidateKeys.push(`sf:${cardLike.scryfall_id}|${foilKey}`)
+  const nameKey = (cardLike.name || '').trim().toLowerCase()
+  if (nameKey) candidateKeys.push(`name:${nameKey}|${foilKey}`)
+  return candidateKeys.some(key => set.has(key))
 }
 
 // Merge allocation rows fetched for cards added after the initial deck load
@@ -106,9 +115,9 @@ export function mergeOtherDeckAllocationKeys(prevSet, allocationRows, excludedDe
 
 // Collects the identifying fields (print id, scryfall id, name) present across
 // a list of cards, for scoping an allocation lookup to just "could this match
-// one of these cards" instead of fetching a user's entire collection. Mirrors
-// the three tiers deckAllocationKeys checks, since a different printing of the
-// same card is only findable by name once print/scryfall ids diverge.
+// one of these cards" instead of fetching a user's entire collection. The name
+// tier also preloads alternate print allocations so a later version change can
+// recalculate immediately without another full allocation fetch.
 export function collectCardIdentities(cards) {
   const cardPrintIds = []
   const scryfallIds = []
