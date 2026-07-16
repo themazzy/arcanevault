@@ -6358,6 +6358,7 @@ export default function DeckBuilderPage() {
           sfCard={detailCard.sfCard}
           priceSource={price_source}
           readOnly
+          readOnlyDefaultTab="legality"
           onClose={() => setDetailCard(null)}
         />
       )}

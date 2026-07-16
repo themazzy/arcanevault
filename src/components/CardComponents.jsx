@@ -458,9 +458,12 @@ export function CardDetail(props) {
   return <CardDetailContent {...props} />
 }
 
-function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, folders, priceSource = 'cardmarket_trend', onSave, currentFolderId = null, currentFolderType = null, readOnly = false }) {
+function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, folders, priceSource = 'cardmarket_trend', onSave, currentFolderId = null, currentFolderType = null, readOnly = false, readOnlyDefaultTab = 'prices' }) {
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState('card')
+  // Editable surfaces open on Edit; read-only surfaces open on a caller-chosen
+  // tab (Legality in the deck builder, Prices elsewhere). The Card tab is gone —
+  // its oracle text / stats now live beside the image, visible on every tab.
+  const [activeTab, setActiveTab] = useState(readOnly ? readOnlyDefaultTab : 'collection')
   const [face, setFace] = useState(0)
 
   useEffect(() => {
@@ -536,6 +539,23 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
   const manaCost = displayFace.mana_cost || (hasFaces ? faces.map(f => f.mana_cost).filter(Boolean).join(' // ') : fc.mana_cost)
   const oracleText = displayFace.oracle_text || fc.oracle_text
   const flavorText = displayFace.flavor_text || fc.flavor_text
+
+  // Merged stat chips shown under the card text (keywords intentionally dropped).
+  const ptVal = faces
+    ? faces.map(f => f.power != null ? `${f.power}/${f.toughness}` : null).filter(Boolean).join(' // ')
+    : (fc.power != null ? `${fc.power}/${fc.toughness}` : '')
+  const statItems = [
+    fc.cmc != null && { label: 'Mana Value', val: fc.cmc },
+    ptVal && { label: 'Power / Toughness', val: ptVal },
+    fc.loyalty != null && { label: 'Loyalty', val: fc.loyalty },
+    fc.defense != null && { label: 'Defense', val: fc.defense },
+    fc.color_identity?.length > 0 && { label: 'Identity', val: <ManaSymbols cost={fc.color_identity.map(c => `{${c}}`).join('')} size={14} /> },
+    attractionLights && { label: 'Lights', val: attractionLights },
+    { label: 'Language', val: LANG_NAMES_FULL[card.language || 'en'] || (card.language || 'en').toUpperCase() },
+    card.foil && { label: 'Finish', val: 'Foil' },
+    card.misprint && { label: 'Misprint', val: 'Yes' },
+    card.altered && { label: 'Altered', val: 'Yes' },
+  ].filter(Boolean)
   const currentFolders = folders?.filter(Boolean) || []
   const scopedFolderType = currentFolderType || currentFolders[0]?.type || null
   const displayQty = currentFolderId && card._folder_qty != null ? card._folder_qty : (card.qty || 1)
@@ -686,12 +706,7 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
     }
   }
 
-  useEffect(() => {
-    if (readOnly && activeTab === 'collection') setActiveTab('card')
-  }, [activeTab, readOnly])
-
   const tabs = [
-    { id: 'card', label: 'Card' },
     ...(!readOnly ? [{ id: 'collection', label: 'Edit' }] : []),
     { id: 'prices', label: 'Prices' },
     { id: 'rulings', label: 'Rulings' },
@@ -699,7 +714,7 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
   ]
 
   return (
-    <Modal onClose={onClose} allowOverflow={false}>
+    <Modal onClose={onClose} allowOverflow={false} className={styles.detailModal}>
       <div className={styles.detailShell}>
         <div className={styles.detailHero}>
           <div className={styles.detailArtCol}>
@@ -712,7 +727,6 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
                     style={{ opacity: imgLoaded || img === cachedImg ? 1 : 0.7 }}
                   />
                 : <div className={styles.imgPlaceholder}>{card.name}</div>}
-              {card.foil && <div className={styles.detailFoilBadge}><Badge variant="foil">Foil</Badge></div>}
             </div>
             {hasFaces && (
               <button
@@ -737,15 +751,11 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
               <span>{fc.set_name || sfCard?.set_name || (card.set_code || '').toUpperCase()}</span>
               <span> #{card.collector_number}</span>
               {fc.artist && <span> {fc.artist}</span>}
+              {card.added_at && <span>· Added {new Date(card.added_at).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' })}</span>}
             </div>
 
-            {fc.rarity && (
-              <div className={styles.detailStatRow}>
-                <span className={styles.detailStatBadge} style={{ textTransform: 'capitalize' }}>{fc.rarity}</span>
-              </div>
-            )}
-
             <div className={styles.detailPriceRow}>
+              {fc.rarity && <span className={styles.detailStatBadge} style={{ textTransform: 'capitalize' }}>{fc.rarity}</span>}
               <div className={styles.detailPriceMain}>
                 {price != null ? fmtOwned(price) : '-'}
                 {displayQty > 1 && price != null && (
@@ -760,6 +770,46 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
                     ? <span className={styles.detailLoadingNote}>Fetching live price...</span>
                     : null}
             </div>
+
+            {/* Card text + stats — relocated from the former "Card" tab so they
+                stay visible beside the image on every tab. Type / rarity / artist
+                are omitted here; the header above already shows them. */}
+            {faces ? (
+              faces.map((singleFace, i) => (
+                <div key={i} className={styles.faceBlock}>
+                  {faces.length > 1 && <div className={styles.faceTitle}>{singleFace.name}</div>}
+                  {singleFace.type_line && <div className={styles.faceType}>{singleFace.type_line}</div>}
+                  {singleFace.oracle_text && <div className={styles.oracleBox}><OracleText text={singleFace.oracle_text} /></div>}
+                  {singleFace.flavor_text && <p className={styles.flavorText}>{singleFace.flavor_text}</p>}
+                </div>
+              ))
+            ) : (
+              <>
+                {oracleText && <div className={styles.oracleBox}><OracleText text={oracleText} /></div>}
+                {flavorText && <p className={styles.flavorText}>{flavorText}</p>}
+              </>
+            )}
+            {!oracleText && !faces && loadingFull && <div className={styles.oracleEmpty}>Loading card text…</div>}
+
+            {statItems.length > 0 && (
+              <div className={styles.statLine}>
+                {statItems.map((s, i) => (
+                  <span key={i} className={styles.statChip}>
+                    <span className={styles.statChipLabel}>{s.label}</span>
+                    <span className={styles.statChipVal}>{s.val}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {(fc.scryfall_uri || fc.related_uris || fc.purchase_uris) && (
+              <div className={styles.detailLinks}>
+                {fc.scryfall_uri && <a href={fc.scryfall_uri} target="_blank" rel="noreferrer" className={styles.detailLink}>Scryfall →</a>}
+                {fc.related_uris?.gatherer && <a href={fc.related_uris.gatherer} target="_blank" rel="noreferrer" className={styles.detailLinkMuted}>Gatherer →</a>}
+                {fc.purchase_uris?.tcgplayer && <a href={fc.purchase_uris.tcgplayer} target="_blank" rel="noreferrer" className={styles.detailLinkTcg}>TCGPlayer →</a>}
+                {fc.purchase_uris?.cardmarket && <a href={fc.purchase_uris.cardmarket} target="_blank" rel="noreferrer" className={styles.detailLinkMarket}>Cardmarket →</a>}
+              </div>
+            )}
           </div>
         </div>
 
@@ -777,56 +827,6 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
           </div>
 
           <div className={styles.detailLoadingNote} style={{ visibility: loadingFull && activeTab !== 'collection' ? 'visible' : 'hidden' }}>Loading card data...</div>
-
-          {activeTab === 'card' && (
-            <div className={`${styles.detailSection} ${styles.tabContentBox}`}>
-              {/* Oracle text / face blocks */}
-              {faces ? (
-                faces.map((singleFace, i) => (
-                  <div key={i} className={styles.faceBlock}>
-                    {faces.length > 1 && <div className={styles.faceTitle}>{singleFace.name}</div>}
-                    {singleFace.type_line && <div className={styles.faceType}>{singleFace.type_line}</div>}
-                    {singleFace.oracle_text && <div className={styles.oracleBox}><OracleText text={singleFace.oracle_text} /></div>}
-                    {singleFace.flavor_text && <p className={styles.flavorText}>{singleFace.flavor_text}</p>}
-                  </div>
-                ))
-              ) : (
-                <>
-                  {oracleText && <div className={styles.oracleBox}><OracleText text={oracleText} /></div>}
-                  {flavorText && <p className={styles.flavorText}>{flavorText}</p>}
-                </>
-              )}
-              {/* Info grid — 2-column layout for compact display */}
-              <div className={styles.infoGrid}>
-                {typeLine && <div className={styles.infoCell}><span className={styles.infoLabel}>Type</span><span className={styles.infoVal}>{typeLine}</span></div>}
-                {fc.rarity && <div className={styles.infoCell}><span className={styles.infoLabel}>Rarity</span><span className={styles.infoVal} style={{ textTransform: 'capitalize' }}>{fc.rarity}</span></div>}
-                {attractionLights && <div className={styles.infoCell}><span className={styles.infoLabel}>Lit Numbers</span><span className={styles.infoVal}>{attractionLights}</span></div>}
-                {fc.cmc != null && <div className={styles.infoCell}><span className={styles.infoLabel}>Mana Value</span><span className={styles.infoVal}>{fc.cmc}</span></div>}
-                {(fc.power != null || faces?.[0]?.power != null) && (
-                  <div className={styles.infoCell}>
-                    <span className={styles.infoLabel}>P / T</span>
-                    <span className={styles.infoVal}>
-                      {faces ? faces.map(f => f.power != null ? `${f.power}/${f.toughness}` : null).filter(Boolean).join(' // ') : `${fc.power}/${fc.toughness}`}
-                    </span>
-                  </div>
-                )}
-                {fc.loyalty != null && <div className={styles.infoCell}><span className={styles.infoLabel}>Loyalty</span><span className={styles.infoVal}>{fc.loyalty}</span></div>}
-                {fc.defense != null && <div className={styles.infoCell}><span className={styles.infoLabel}>Defense</span><span className={styles.infoVal}>{fc.defense}</span></div>}
-                {fc.color_identity?.length > 0 && <div className={styles.infoCell}><span className={styles.infoLabel}>Colors</span><span className={styles.infoVal}>{fc.color_identity.join(', ')}</span></div>}
-                {fc.keywords?.length > 0 && <div className={styles.infoCell}><span className={styles.infoLabel}>Keywords</span><span className={styles.infoVal}>{fc.keywords.join(', ')}</span></div>}
-                {fc.artist && <div className={styles.infoCell}><span className={styles.infoLabel}>Artist</span><span className={styles.infoVal}>{fc.artist}</span></div>}
-              </div>
-              {/* External links */}
-              {(fc.scryfall_uri || fc.related_uris || fc.purchase_uris) && (
-                <div className={styles.detailLinks}>
-                  {fc.scryfall_uri && <a href={fc.scryfall_uri} target="_blank" rel="noreferrer" className={styles.detailLink}>Scryfall →</a>}
-                  {fc.related_uris?.gatherer && <a href={fc.related_uris.gatherer} target="_blank" rel="noreferrer" className={styles.detailLinkMuted}>Gatherer →</a>}
-                  {fc.purchase_uris?.tcgplayer && <a href={fc.purchase_uris.tcgplayer} target="_blank" rel="noreferrer" className={styles.detailLinkTcg}>TCGPlayer →</a>}
-                  {fc.purchase_uris?.cardmarket && <a href={fc.purchase_uris.cardmarket} target="_blank" rel="noreferrer" className={styles.detailLinkMarket}>Cardmarket →</a>}
-                </div>
-              )}
-            </div>
-          )}
 
           {activeTab === 'legality' && (
             <div className={`${styles.detailSection} ${styles.tabContentBox}`}>
@@ -951,7 +951,7 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
             <div className={`${styles.detailSection} ${styles.tabContentBox}`}>
               <div className={styles.editControlsGrid}>
                 <div className={styles.editGroupCard}>
-                  <div className={styles.editRow}>
+                  <div className={styles.editControlRow}>
                     <div className={styles.editField}>
                       <span className={styles.editLabel}>Quantity</span>
                       <div className={styles.qtyEditor}>
@@ -966,9 +966,6 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
                         {Object.entries(CONDITION_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                       </Select>
                     </div>
-                  </div>
-
-                  <div className={styles.editRow}>
                     {hasFoilVersion && (
                       <div className={styles.editField}>
                         <span className={styles.editLabel}>Foil</span>
@@ -983,28 +980,27 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
                         {Object.entries(LANG_NAMES_FULL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                       </Select>
                     </div>
-                  </div>
 
-                  <div className={styles.editField}>
-                    <span className={styles.editLabel}>Buy Price (EUR)</span>
-                    {!buyPriceEdit ? (
-                      <div className={styles.buyPriceRow}>
-                        <span className={styles.buyPriceValue}>{editBuyPrice > 0 ? `€${editBuyPrice.toFixed(2)}` : '—'}</span>
-                        <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.ghost}`} onClick={() => { setBuyPriceEdit(true); setBuyPriceInput(editBuyPrice > 0 ? String(editBuyPrice) : '') }}>
-                          {editBuyPrice > 0 ? 'Change' : '+ Set'}
-                        </button>
-                      </div>
-                    ) : (
-                      <div className={styles.inlineEditor}>
-                        <input autoFocus type="number" min="0" step="0.01" name="card-detail-buy-price" value={buyPriceInput} className={styles.buyPriceInput}
-                          onChange={e => setBuyPriceInput(e.target.value)}
-                          onKeyDown={e => { if (e.key === 'Enter') saveBuyPrice(); if (e.key === 'Escape') setBuyPriceEdit(false) }}
-                          placeholder="0.00" />
-                        <button className={`${uiStyles.btn} ${uiStyles.sm}`} onClick={saveBuyPrice}>Save</button>
-                        <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.ghost}`} onClick={() => setBuyPriceEdit(false)}>Cancel</button>
-                      </div>
-                    )}
-                  </div>
+                    <div className={styles.editField}>
+                      <span className={styles.editLabel}>Buy Price (EUR)</span>
+                      {!buyPriceEdit ? (
+                        <div className={styles.buyPriceRow}>
+                          <span className={styles.buyPriceValue}>{editBuyPrice > 0 ? `€${editBuyPrice.toFixed(2)}` : '—'}</span>
+                          <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.ghost}`} onClick={() => { setBuyPriceEdit(true); setBuyPriceInput(editBuyPrice > 0 ? String(editBuyPrice) : '') }}>
+                            {editBuyPrice > 0 ? 'Change' : '+ Set'}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className={styles.inlineEditor}>
+                          <input autoFocus type="number" min="0" step="0.01" name="card-detail-buy-price" value={buyPriceInput} className={styles.buyPriceInput}
+                            onChange={e => setBuyPriceInput(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') saveBuyPrice(); if (e.key === 'Escape') setBuyPriceEdit(false) }}
+                            placeholder="0.00" />
+                          <button className={`${uiStyles.btn} ${uiStyles.sm}`} onClick={saveBuyPrice}>Save</button>
+                          <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.ghost}`} onClick={() => setBuyPriceEdit(false)}>Cancel</button>
+                        </div>
+                      )}
+                    </div>
 
                   {fc.prints_search_uri && (
                     <div className={styles.editField}>
@@ -1049,6 +1045,7 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
                       </ResponsiveMenu>
                     </div>
                   )}
+                  </div>
                 </div>
               </div>
 
@@ -1079,24 +1076,6 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
                   </div>
                 </div>
               )}
-
-              {/* Card metadata */}
-              <div className={styles.detailSubsection}>
-                <div className={styles.infoGrid}>
-                  <div className={styles.infoCell}><span className={styles.infoLabel}>Set</span><span className={styles.infoVal}>{(card.set_code || '').toUpperCase()} #{card.collector_number}</span></div>
-                  <div className={styles.infoCell}><span className={styles.infoLabel}>Added</span><span className={styles.infoVal}>{card.added_at ? new Date(card.added_at).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' }) : '—'}</span></div>
-                  {editBuyPrice > 0 && pl != null && (
-                    <div className={styles.infoCell}>
-                      <span className={styles.infoLabel}>P&amp;L</span>
-                      <span className={styles.infoVal} style={{ color: pl >= 0 ? 'var(--green)' : '#e05252', fontWeight: 600 }}>
-                        {pl >= 0 ? '+' : ''}€{pl.toFixed(2)}{plPct != null && <span className={styles.inlineMuted}> ({plPct >= 0 ? '+' : ''}{plPct.toFixed(1)}%)</span>}
-                      </span>
-                    </div>
-                  )}
-                  {card.misprint && <div className={styles.infoCell}><span className={styles.infoLabel}>Misprint</span><span className={styles.infoVal}>Yes</span></div>}
-                  {card.altered && <div className={styles.infoCell}><span className={styles.infoLabel}>Altered</span><span className={styles.infoVal}>Yes</span></div>}
-                </div>
-              </div>
 
               {onDelete && (
                 <div className={styles.detailSubsection}>

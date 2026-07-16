@@ -1251,10 +1251,15 @@
   isolation: isolate;
 }
 
+.detailModal {
+  width: min(100%, 1080px);
+  max-width: 1080px;
+}
+
 .detailHero {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
-  gap: 26px;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 30px;
   align-items: start;
 }
 
@@ -1309,11 +1314,6 @@
   to   { transform: rotateY(0deg); }
 }
 
-.detailFoilBadge {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-}
 
 /* detailFlipBtn replaced by uiStyles.btn sm ghost with alignSelf:flex-start inline */
 .detailFlipBtn {
@@ -1387,9 +1387,39 @@
 
 .detailPriceRow {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.statLine {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  align-items: center;
+}
+
+.statChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--s1);
+  border: 1px solid var(--s-border);
+  border-radius: 5px;
+  padding: 3px 9px;
+}
+
+.statChipLabel {
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.statChipVal {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
 }
 
 .detailPriceMain {
@@ -1838,6 +1868,13 @@ a.priceDetailBlock:focus {
 .editRow {
   display: flex;
   gap: 10px;
+}
+
+.editControlRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px 14px;
+  align-items: start;
 }
 
 .editField {

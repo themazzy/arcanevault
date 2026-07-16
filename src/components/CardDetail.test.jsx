@@ -25,10 +25,10 @@ const SF_CARD = {
   prices: {},
 }
 
-function Detail({ card }) {
+function Detail({ card, ...rest }) {
   return (
     <MemoryRouter>
-      <CardDetail card={card} sfCard={SF_CARD} readOnly onClose={vi.fn()} />
+      <CardDetail card={card} sfCard={SF_CARD} readOnly onClose={vi.fn()} {...rest} />
     </MemoryRouter>
   )
 }
@@ -58,5 +58,34 @@ describe('CardDetail', () => {
 
     rerender(<Detail card={null} />)
     expect(screen.queryByText('Artifact Creature — Test')).toBe(null)
+  })
+
+  it('has no Card tab — its text lives beside the image, always visible', () => {
+    render(<Detail card={CARD} />)
+    // The former "Card" tab button is gone; read-only surfaces have no "Edit" tab.
+    expect(screen.queryByRole('button', { name: 'Card' })).toBe(null)
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBe(null)
+    // Oracle text is rendered regardless of which tab is active.
+    expect(screen.getByText('A card used to verify conditional detail rendering.')).toBeTruthy()
+  })
+
+  it('defaults a read-only surface to the Prices tab', () => {
+    render(<Detail card={CARD} />)
+    expect(screen.getByText('All prices')).toBeTruthy()
+  })
+
+  it('honors readOnlyDefaultTab (deck builder opens on Legality, not Prices)', () => {
+    render(<Detail card={CARD} readOnlyDefaultTab="legality" />)
+    expect(screen.queryByText('All prices')).toBe(null)
+  })
+
+  it('defaults an editable surface to the Edit tab', () => {
+    render(
+      <MemoryRouter>
+        <CardDetail card={CARD} sfCard={SF_CARD} onClose={vi.fn()} onSave={vi.fn()} />
+      </MemoryRouter>
+    )
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Save Changes' })).toBeTruthy()
   })
 })
