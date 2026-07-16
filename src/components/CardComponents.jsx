@@ -735,8 +735,8 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
 
             <div className={styles.detailMetaLine}>
               <span>{fc.set_name || sfCard?.set_name || (card.set_code || '').toUpperCase()}</span>
-              <span>. #{card.collector_number}</span>
-              {fc.artist && <span>. {fc.artist}</span>}
+              <span> #{card.collector_number}</span>
+              {fc.artist && <span> {fc.artist}</span>}
             </div>
 
             {fc.rarity && (
