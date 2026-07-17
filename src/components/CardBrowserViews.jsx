@@ -166,7 +166,7 @@ function TextRow({ card, sfCard, selectMode, isSelected, onToggleSelect, onEnter
     >
       {selectMode && (
         <div className={`${styles.textCheckbox}${isSelected ? ` ${styles.textCheckboxChecked}` : ''}`}>
-          {isSelected && '✓'}
+          {isSelected && <CheckIcon size={12} />}
         </div>
       )}
       <span className={styles.textQty}>{totalQty}x</span>
@@ -262,7 +262,7 @@ function TableRow({ card, sf, priceSource, isSelected, selectMode, onClick, onEn
       {selectMode && (
         <td className={styles.td} style={{ textAlign: 'center', paddingRight: 0 }}>
           <div className={`${styles.tableCheckbox}${isSelected ? ` ${styles.tableCheckboxChecked}` : ''}`}>
-            {isSelected && '✓'}
+            {isSelected && <CheckIcon size={12} />}
           </div>
         </td>
       )}
@@ -615,7 +615,7 @@ function StackCard({ card, sf, idx, isPushedDown, priceSource, selectMode, isSel
     >
       {selectMode && (
         <div className={`${styles.rowCheckbox} ${isSelected ? styles.rowCheckboxChecked : ''}`} style={{ position: 'absolute', top: 4, left: 4, zIndex: 10 }}>
-          {isSelected && '✓'}
+          {isSelected && <CheckIcon size={12} />}
         </div>
       )}
       <div className={styles.stackImgWrap}>
@@ -759,7 +759,7 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onT
     >
       {selectMode && (
         <div className={`${styles.rowCheckbox} ${isSelected ? styles.rowCheckboxChecked : ''}`} style={{ position: 'absolute', top: 6, left: 6, zIndex: 10 }}>
-          {isSelected && '✓'}
+          {isSelected && <CheckIcon size={12} />}
         </div>
       )}
       <div className={styles.gridImgWrap}>

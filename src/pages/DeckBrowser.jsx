@@ -330,7 +330,7 @@ function TableRow({ card, sf, mc, price, scryfallPrice, priceSource, isSelected,
       {selectMode && (
         <td className={styles.td} style={{ textAlign: 'center', paddingRight: 0 }}>
           <div className={`${styles.tableCheckbox}${isSelected ? ' '+styles.tableCheckboxChecked : ''}`}>
-            {isSelected && '✓'}
+            {isSelected && <CheckIcon size={12} />}
           </div>
         </td>
       )}
@@ -380,7 +380,7 @@ function StackCard({ card, sf, idx, priceSource, selectMode, isSelected, totalQt
       {selectMode && (
         <div className={`${styles.rowCheckbox} ${isSelected ? styles.rowCheckboxChecked : ''}`}
           style={{ position: 'absolute', top: 4, left: 4, zIndex: 10 }}>
-          {isSelected && '✓'}
+          {isSelected && <CheckIcon size={12} />}
         </div>
       )}
       <div className={styles.stackImgWrap}>
@@ -485,7 +485,7 @@ function DeckListRow({ card, sfCard, priceSource, onClick, onHover, onHoverEnd, 
           </span>
         )
         : selectMode
-          ? <span className={`${styles.rowCheckbox} ${isSelected ? styles.rowCheckboxChecked : ''}`}>{isSelected && '✓'}</span>
+          ? <span className={`${styles.rowCheckbox} ${isSelected ? styles.rowCheckboxChecked : ''}`}>{isSelected && <CheckIcon size={12} />}</span>
           : <span className={styles.deckRowQty}>×{qty}</span>
       }
       <span className={styles.deckRowName}>{card.name}</span>
@@ -568,7 +568,7 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, totalQty, onS
       {selectMode && (
         <div className={`${styles.rowCheckbox} ${isSelected ? styles.rowCheckboxChecked : ''}`}
           style={{ position: 'absolute', top: 6, left: 6, zIndex: 10 }}>
-          {isSelected && '✓'}
+          {isSelected && <CheckIcon size={12} />}
         </div>
       )}
       <div className={styles.gridImgWrap}>

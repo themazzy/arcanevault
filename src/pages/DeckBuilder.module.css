@@ -1280,7 +1280,7 @@
   flex-direction: column;
   gap: 4px;
   justify-content: center;
-  border-left: 1px solid rgba(255,255,255,0.08);
+  border-left: 1px solid var(--s-border);
   padding: 0 10px;
 }
 

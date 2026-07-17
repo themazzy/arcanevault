@@ -6,6 +6,7 @@ import { PRICE_SOURCES, sfGet } from '../lib/scryfall'
 import { generateAvailableNickname } from '../lib/nicknameGenerator'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './SetupWizard.module.css'
+import { CheckIcon } from '../icons'
 
 const SetupWizardContext = createContext({ open: () => {} })
 export const useSetupWizard = () => useContext(SetupWizardContext)
@@ -288,7 +289,7 @@ function ThemeStep({ settings }) {
               </div>
               <div className={styles.swatchName}>{theme.name}</div>
               <div className={styles.swatchLore}>{theme.lore}</div>
-              {active && <div className={styles.swatchCheck}>✓</div>}
+              {active && <div className={styles.swatchCheck}><CheckIcon size={12} /></div>}
               {locked && <div className={styles.swatchCheck}>Lock</div>}
             </button>
           )
@@ -498,7 +499,7 @@ function PriceStep({ settings }) {
             >
               <div className={styles.priceOptionLabel}>{src.label}</div>
               <div className={styles.priceOptionDesc}>{src.description}</div>
-              {active && <div className={styles.priceCheck}>✓</div>}
+              {active && <div className={styles.priceCheck}><CheckIcon size={14} /></div>}
             </button>
           )
         })}

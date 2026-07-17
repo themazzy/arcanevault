@@ -4,23 +4,9 @@
 
 /* â”€â”€ Section label â€” matches DeckView extending-rule style â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .sectionLabel {
-  font-family: var(--font-display, 'Cinzel', serif);
-  font-size: 0.62rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--text-faint, #6a6058);
+  composes: sectionLabel from '../styles/typography.module.css';
   margin-bottom: 14px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
 }
-.sectionLabel::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--s-border);
-}
-
 .sectionHead {
   display: flex;
   align-items: center;
@@ -327,7 +313,7 @@
   min-height: 360px;
   background: var(--s1);
   border: 1px solid var(--s-border);
-  border-top: 2px solid rgba(201,168,76,0.38);
+  border-top: 2px solid rgba(201,168,76,0.35);
   border-radius: 12px;
 }
 

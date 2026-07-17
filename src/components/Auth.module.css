@@ -160,7 +160,7 @@
   align-items: center;
   gap: 24px;
   padding: 20px 0 0;
-  border-top: 1px solid rgba(255,255,255,0.06);
+  border-top: 1px solid var(--s-border);
 }
 
 .heroStat {
@@ -203,7 +203,7 @@
 .formCard {
   background: var(--glass-strong);
   border: 1px solid rgba(201,168,76,0.25);
-  border-top: 2px solid rgba(201,168,76,0.45);
+  border-top: 2px solid rgba(201,168,76,0.35);
   border-radius: 12px;
   padding: 38px 36px;
   display: flex;
@@ -715,7 +715,7 @@
 .demoRoles {
   padding: 15px 14px;
   border-right: 1px solid var(--s-border);
-  background: rgba(255,255,255,0.015);
+  background: var(--s1);
 }
 
 .demoSectionLabel {
@@ -846,8 +846,8 @@
 
 .featureCard {
   background: var(--s1);
-  border: 1px solid rgba(255,255,255,0.06);
-  border-top: 2px solid rgba(201,168,76,0.3);
+  border: 1px solid var(--s-border);
+  border-top: 2px solid rgba(201,168,76,0.35);
   border-radius: 10px;
   padding: 28px 24px;
   display: flex;
@@ -856,8 +856,8 @@
   transition: border-color 0.22s, background 0.22s, transform 0.22s, box-shadow 0.22s;
 }
 .featureCard:hover {
-  border-color: rgba(255,255,255,0.1);
-  border-top-color: rgba(201,168,76,0.6);
+  border-color: var(--s-border2);
+  border-top-color: rgba(201,168,76,0.65);
   background: rgba(201,168,76,0.03);
   transform: translateY(-3px);
   box-shadow: 0 12px 36px rgba(0,0,0,0.4);
@@ -969,7 +969,7 @@
   overflow: hidden;
   background: var(--s1);
   border: 1px solid var(--s-border);
-  border-top: 2px solid rgba(201,168,76,0.25);
+  border-top: 2px solid rgba(201,168,76,0.35);
   animation: stepCardIn 0.5s ease calc(var(--si, 0) * 0.08s) both;
   display: flex;
   flex-direction: column;
@@ -1016,8 +1016,8 @@
 .panel {
   position: relative;
   background: var(--glass-medium);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-top: 2px solid rgba(201,168,76,0.28);
+  border: 1px solid var(--s-border);
+  border-top: 2px solid rgba(201,168,76,0.35);
   border-radius: 18px;
   overflow: hidden;
   box-shadow: 0 28px 70px rgba(0,0,0,0.55);
@@ -1059,7 +1059,7 @@
   gap: 8px;
   padding: 18px 20px 14px;
   background: var(--s1);
-  border-bottom: 1px solid rgba(255,255,255,0.08);
+  border-bottom: 1px solid var(--s-border);
 }
 
 .panelHeaderMain {
@@ -1102,7 +1102,7 @@
   padding: 5px 10px;
   border-radius: 999px;
   background: var(--s3);
-  border: 1px solid rgba(255,255,255,0.08);
+  border: 1px solid var(--s-border);
   font-size: 0.62rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1123,7 +1123,7 @@
   gap: 4px;
   padding: 12px 14px;
   background: rgba(0,0,0,0.2);
-  border: 1px solid rgba(255,255,255,0.06);
+  border: 1px solid var(--s-border);
   border-radius: 12px;
 }
 
@@ -1176,7 +1176,7 @@
   border-radius: 12px;
   overflow: hidden;
   background: rgba(10,10,15,0.66);
-  border: 1px solid rgba(255,255,255,0.08);
+  border: 1px solid var(--s-border);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
 }
 

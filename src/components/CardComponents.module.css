@@ -120,7 +120,7 @@
 .searchInput {
   flex: 1; min-width: 200px;
   height: 30px;
-  background: rgba(255,255,255,0.05);
+  background: var(--s3);
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 7px 10px;
@@ -545,7 +545,7 @@
 }
 .moveDialogTypeRow {
   display: flex; background: var(--s2);
-  border: 1px solid rgba(255,255,255,0.08);
+  border: 1px solid var(--s-border);
   border-radius: 6px; overflow: hidden; margin-bottom: 14px;
 }
 .moveDialogTypeBtn {
@@ -610,7 +610,7 @@
 .moveDialogCreateSave:hover:not(:disabled) { background: rgba(201,168,76,0.25); }
 .moveDialogCreateSave:disabled { opacity: 0.4; cursor: not-allowed; }
 .moveDialogCreateCancel {
-  background: none; border: 1px solid rgba(255,255,255,0.1);
+  background: none; border: 1px solid var(--s-border2);
   color: var(--text-faint); border-radius: 4px; padding: 7px 9px;
   cursor: pointer; font-size: 0.82rem; transition: all 0.18s;
 }
@@ -732,7 +732,7 @@
 
 .chip {
   background: var(--s2);
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid var(--s-border2);
   color: var(--text-dim);
   border-radius: 4px;
   padding: 4px 9px;
@@ -777,7 +777,7 @@
     justify-content: space-between;
     gap: 10px;
     padding: 16px 0 12px;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
+    border-bottom: 1px solid var(--s-border);
     margin-bottom: 14px;
     flex-shrink: 0;
     position: sticky;
@@ -1620,8 +1620,8 @@ a.priceDetailBlock:focus {
 .purchaseLink {
   font-size: 0.78rem;
   padding: 4px 10px;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.1);
+  background: var(--s3);
+  border: 1px solid var(--s-border2);
   border-radius: 3px;
   color: var(--text-dim);
   text-decoration: none;
@@ -1641,7 +1641,7 @@ a.priceDetailBlock:focus {
   grid-template-columns: 96px 1fr;
   gap: 12px;
   background: var(--s1);
-  border: 1px solid rgba(255,255,255,0.06);
+  border: 1px solid var(--s-border);
   border-radius: 4px;
   padding: 10px 12px;
   font-size: 0.82rem;
@@ -1824,7 +1824,7 @@ a.priceDetailBlock:focus {
 
 .editGroupCard {
   background: var(--s1);
-  border: 1px solid rgba(255,255,255,0.06);
+  border: 1px solid var(--s-border);
   border-radius: 6px;
   padding: 12px;
   display: flex;

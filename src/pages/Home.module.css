@@ -171,7 +171,7 @@
 .changelog {
   margin: 0 0 24px;
   border: 1px solid rgba(201,168,76,0.2);
-  border-top: 2px solid rgba(201,168,76,0.4);
+  border-top: 2px solid rgba(201,168,76,0.35);
   border-radius: 8px;
   background: var(--s1);
   overflow: hidden;

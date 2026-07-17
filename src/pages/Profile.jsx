@@ -6,7 +6,7 @@ import { useAuth } from '../components/Auth'
 import { useSettings, DEFAULT_BENTO_CONFIG } from '../components/SettingsContext'
 import { sfGet } from '../lib/scryfall'
 import { Modal } from '../components/UI'
-import { CloseIcon, ImageIcon } from '../icons'
+import { CheckIcon, CloseIcon, ImageIcon } from '../icons'
 import { Select } from '../components/UI'
 import { MILESTONES } from '../lib/milestones'
 import { checkAndNotifyMilestones } from '../lib/milestoneTracker'
@@ -282,7 +282,7 @@ function StandoutCardPicker({ deck, selected, onAdd, onRemove, onClose }) {
                 title={card.name}>
                 <img src={card.art_crop} alt={card.name} className={styles.standoutPickerImg} />
                 {card.price > 0 && <div className={styles.standoutPickerPrice}>€{card.price.toFixed(2)}</div>}
-                {sel && <div className={styles.standoutPickerCheck}>✓</div>}
+                {sel && <div className={styles.standoutPickerCheck}><CheckIcon size={18} /></div>}
                 <div className={styles.standoutPickerName}>{card.name}</div>
               </button>
             )

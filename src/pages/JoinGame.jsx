@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { CloseIcon, SyncIcon } from '../icons'
+import { CheckIcon, CloseIcon, SyncIcon } from '../icons'
 import { useParams, Link } from 'react-router-dom'
 import { useAuth } from '../components/Auth'
 import { ResponsiveMenu } from '../components/UI'
@@ -395,7 +395,7 @@ export default function JoinGamePage() {
                   </div>
                 </div>
                 {canClaim && <span className={styles.lobbySlotArrow}>→</span>}
-                {(isMine || isTaken) && <span className={styles.lobbySlotCheck}>✓</span>}
+                {(isMine || isTaken) && <span className={styles.lobbySlotCheck}><CheckIcon size={14} /></span>}
               </button>
             )
           })}

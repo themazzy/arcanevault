@@ -10,7 +10,7 @@
   place-items: center;
   padding: 24px;
   background: var(--bg);
-  background-image: radial-gradient(circle, rgba(201, 168, 76, 0.05) 1px, transparent 1px);
+  background-image: radial-gradient(circle, rgba(201, 168, 76, 0.04) 1px, transparent 1px);
   background-size: 28px 28px;
 }
 

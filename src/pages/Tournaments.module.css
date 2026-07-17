@@ -83,29 +83,15 @@
 }
 
 .sectionLabel {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-family: var(--font-display);
-  font-size: 0.65rem;
-  letter-spacing: 0.12em;
-  color: var(--text-faint);
-  text-transform: uppercase;
-}
-
-.sectionLabel::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: rgba(255,255,255,0.05);
+  composes: sectionLabel from '../styles/typography.module.css';
 }
 
 .eventCard {
   text-align: left;
   width: 100%;
-  border: 1px solid rgba(255,255,255,0.06);
+  border: 1px solid var(--s-border);
   border-radius: 8px;
-  background: rgba(255,255,255,0.03);
+  background: var(--s-card);
   padding: 12px;
   color: inherit;
   cursor: pointer;
@@ -201,7 +187,7 @@
 
 .choiceCard {
   text-align: left;
-  border: 1px solid rgba(255,255,255,0.08);
+  border: 1px solid var(--s-border);
   border-radius: 8px;
   padding: 14px;
   background: var(--s-card);
@@ -241,7 +227,7 @@
 
 .infoCard,
 .summaryCard {
-  border: 1px solid rgba(255,255,255,0.06);
+  border: 1px solid var(--s-border);
   border-radius: 8px;
   background: var(--s-card);
   padding: 14px;
@@ -342,7 +328,7 @@
 .editorWrap {
   margin-bottom: 16px;
   padding: 14px;
-  border: 1px solid rgba(255,255,255,0.06);
+  border: 1px solid var(--s-border);
   border-radius: 10px;
   background: var(--s1);
 }
@@ -412,7 +398,7 @@
 }
 
 .podPlayer {
-  border: 1px solid rgba(255,255,255,0.06);
+  border: 1px solid var(--s-border);
   border-radius: 8px;
   padding: 10px;
   background: var(--s1);
@@ -449,7 +435,7 @@
 }
 
 .historyRound {
-  border: 1px solid rgba(255,255,255,0.06);
+  border: 1px solid var(--s-border);
   border-radius: 8px;
   background: var(--s1);
   padding: 12px;

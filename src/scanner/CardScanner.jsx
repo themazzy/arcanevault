@@ -28,7 +28,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { CloseIcon } from '../icons'
+import { CheckIcon, CloseIcon } from '../icons'
 import { Capacitor } from '@capacitor/core'
 import { CameraPreview } from '@capacitor-community/camera-preview'
 import { Haptics, ImpactStyle } from '@capacitor/haptics'
@@ -2511,7 +2511,7 @@ export default function CardScanner({ onMatch, onClose }) {
                     onClick={() => setAddFlowSelectedFolder(f.id)}
                   >
                     <span className={styles.folderItemName}>{f.name}</span>
-                    {addFlowSelectedFolder === f.id && <span className={styles.folderItemCheck}>✓</span>}
+                    {addFlowSelectedFolder === f.id && <span className={styles.folderItemCheck}><CheckIcon size={12} /></span>}
                   </div>
                 ))}
                 {filteredFolders.length === 0 && (
@@ -2714,7 +2714,7 @@ export default function CardScanner({ onMatch, onClose }) {
                     {icon && <img src={icon} alt="" className={styles.setPickerRowIcon} />}
                     <span className={styles.setPickerRowName}>{s.name}</span>
                     <span className={styles.setPickerRowCode}>{s.code.toUpperCase()}</span>
-                    {isLocked && <span className={styles.setPickerRowCheck}>✓</span>}
+                    {isLocked && <span className={styles.setPickerRowCheck}><CheckIcon size={12} /></span>}
                   </button>
                 )
               })

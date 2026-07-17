@@ -61,6 +61,8 @@
   --label-size-md: 0.68rem;
   --label-size-lg: 0.72rem;
   --label-tracking: 0.07em;
+  /* Section eyebrows track wider than field labels. */
+  --label-tracking-wide: 0.12em;
   /* Mobile floating action bar (browser controls / bulk action) — gutter cards must reserve so they're not covered */
   --mobile-floating-bar-height: 76px;
   --card-name-size: 0.68rem;

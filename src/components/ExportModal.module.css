@@ -75,7 +75,7 @@
   min-height: 30px;
   display: inline-flex; align-items: center; gap: 5px;
   background: transparent;
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid var(--s-border2);
   border-radius: 4px;
   padding: 6px 13px;
   font-family: var(--font-display);
@@ -182,7 +182,7 @@
 .altBtn {
   min-height: 30px;
   background: none;
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid var(--s-border2);
   border-radius: 4px; padding: 6px 13px;
   font-family: var(--font-display); font-size: 0.72rem;
   letter-spacing: 0.04em; color: var(--text-dim);

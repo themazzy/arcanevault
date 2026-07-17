@@ -24,3 +24,33 @@
 .labelSm { composes: label; font-size: var(--label-size-sm); }
 .labelMd { composes: label; font-size: var(--label-size-md); }
 .labelLg { composes: label; font-size: var(--label-size-lg); }
+
+/* Section eyebrow with an extending rule — "BINDERS", "WISHLISTS", stat heads.
+ *
+ *   .sectionLabel { composes: sectionLabel from '../styles/typography.module.css'; }
+ *
+ * Five modules each hand-rolled this, between them using 5 font-sizes, 3
+ * letter-spacings and 3 different rule colours for what is one component.
+ * Colour IS set here (unlike the label* classes) because this is a complete
+ * component rather than a type step. Add your own margins at the use site.
+ *
+ * Auth's variant is deliberately NOT this: it rules BOTH sides (::before +
+ * ::after) for a centred label.
+ */
+.sectionLabel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-display);
+  font-size: var(--label-size-sm);
+  letter-spacing: var(--label-tracking-wide);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.sectionLabel::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--s-border);
+}

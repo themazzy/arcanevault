@@ -11,7 +11,7 @@ import { deleteLocalFoldersAndPlacements, getDbStats } from '../lib/db'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { downloadCollectionBackup, restoreCollectionBackup, validateBackupFile, summarizeBackup } from '../lib/backup'
 import { Button, SectionHeader, Select as UISelect } from '../components/UI'
-import { SearchIcon, CloseIcon } from '../icons'
+import { SearchIcon, CloseIcon, CheckIcon } from '../icons'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './Settings.module.css'
 import { useNow } from '../hooks/useNow'
@@ -504,7 +504,7 @@ function ThemePicker({ value, onChange, premium }) {
                   </div>
                 ))}
               </div>
-              {active && <div className={styles.swatchActiveCheck} style={{ color: accent }}>✓</div>}
+              {active && <div className={styles.swatchActiveCheck} style={{ color: accent }}><CheckIcon size={12} /></div>}
               {isLocked && (
                 <div className={styles.swatchLockOverlay}>
                   <span className={styles.swatchLockIcon}>🔒</span>

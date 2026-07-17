@@ -9,7 +9,7 @@
   color: var(--text, #e8e0d0);
   font-family: var(--font-serif, Georgia, serif);
   /* Subtle dot grid for depth */
-  background-image: radial-gradient(circle, rgba(201,168,76,0.045) 1px, transparent 1px);
+  background-image: radial-gradient(circle, rgba(201,168,76,0.04) 1px, transparent 1px);
   background-size: 28px 28px;
 }
 
@@ -375,23 +375,9 @@
 
 /* ── Section label ─────────────────────────────────────────────────────────── */
 .sectionLabel {
-  font-family: var(--font-display, 'Cinzel', serif);
-  font-size: 0.6rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--text-faint, #6a6058);
+  composes: sectionLabel from '../styles/typography.module.css';
   margin-bottom: 12px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
 }
-.sectionLabel::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--s2);
-}
-
 /* ── List header row ───────────────────────────────────────────────────────── */
 .listHeader {
   display: grid;

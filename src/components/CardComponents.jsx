@@ -77,7 +77,7 @@ function CardItem({ card, sfCard, selectMode, isSelected, totalQty, onSelect, on
     >
       {selectMode && (
         <div className={`${styles.checkbox}${isSelected ? ' ' + styles.checkboxChecked : ''}`}>
-          {isSelected && '✓'}
+          {isSelected && <CheckIcon size={12} />}
         </div>
       )}
       <div className={`${styles.imgContainer}${isSelected ? ' ' + styles.imgSelected : ''}`}>
@@ -1439,7 +1439,7 @@ export function TypeLineFilter({ selected, onChange, name = 'type-line-filter' }
               >
                 <span className={styles.setDropName}>{t.name}</span>
                 <span className={styles.setDropCode} style={{ marginLeft: 'auto', fontSize: '0.7rem' }}>{t.category}</span>
-                {active && <span className={styles.setDropCheck}>✓</span>}
+                {active && <span className={styles.setDropCheck}><CheckIcon size={12} /></span>}
               </div>
             )
           })}
@@ -1506,7 +1506,7 @@ function SetDropdown({ sets, selected, onChange }) {
                   >
                     <span className={styles.setDropCode}>{s.code.toUpperCase()}</span>
                     <span className={styles.setDropName}>{s.name}</span>
-                    {active && <span className={styles.setDropCheck}>✓</span>}
+                    {active && <span className={styles.setDropCheck}><CheckIcon size={12} /></span>}
                   </div>
                 )
               })

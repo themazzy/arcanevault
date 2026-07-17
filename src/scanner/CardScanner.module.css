@@ -137,7 +137,7 @@
   gap: 10px;
   padding: 16px 18px;
   border-radius: 18px;
-  background: rgba(255,255,255,0.035);
+  background: var(--s2);
   border: 1px solid var(--s-border, rgba(255,255,255,0.1));
 }
 
@@ -556,7 +556,7 @@
 }
 
 .historyList {
-  border-top: 1px solid rgba(255,255,255,0.08);
+  border-top: 1px solid var(--s-border);
   max-height: none;
   overflow-y: auto;
   animation: scannerPanelIn 180ms ease-out;
@@ -567,7 +567,7 @@
   align-items: flex-start;
   gap: 10px;
   padding: 10px 14px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  border-bottom: 1px solid var(--s-border);
   animation: scannerItemIn 180ms ease-out both;
 }
 
@@ -577,7 +577,7 @@
 
 .historyFooter {
   padding: 12px 14px 14px;
-  border-top: 1px solid rgba(255,255,255,0.08);
+  border-top: 1px solid var(--s-border);
 }
 
 .historyAddBtn {
@@ -683,14 +683,14 @@
   padding: 0;
   border-radius: 999px;
   border: 1px solid rgba(255,255,255,0.16);
-  background: rgba(255,255,255,0.05);
+  background: var(--s3);
   color: rgba(255,255,255,0.88);
   font-family: var(--font-display);
   font-size: 0.82rem;
   cursor: pointer;
   transition: transform 0.14s ease, background 0.15s ease, border-color 0.15s ease;
 }
-.historyQtyBtn:hover { background: rgba(255,255,255,0.09); border-color: rgba(255,255,255,0.22); }
+.historyQtyBtn:hover { background: var(--s4); border-color: rgba(255,255,255,0.22); }
 .historyQtyBtn:active { transform: scale(0.94); }
 
 .historyQtyValue {
@@ -707,7 +707,7 @@
   padding: 0;
   border-radius: 10px;
   border: 1px solid rgba(255,255,255,0.16);
-  background: rgba(255,255,255,0.05);
+  background: var(--s3);
   color: rgba(255,255,255,0.88);
   cursor: pointer;
   display: flex;
@@ -755,7 +755,7 @@
   padding: 0 8px;
   border-radius: 10px;
   border: 1px solid rgba(255,255,255,0.16);
-  background: rgba(255,255,255,0.05);
+  background: var(--s3);
   color: rgba(255,255,255,0.92);
   font-family: var(--font-display);
   font-size: 0.7rem;
@@ -873,14 +873,14 @@
   padding: 0;
   border-radius: 999px;
   border: 1px solid rgba(255,255,255,0.16);
-  background: rgba(255,255,255,0.05);
+  background: var(--s3);
   color: rgba(255,255,255,0.88);
   font-family: var(--font-display);
   font-size: 0.88rem;
   cursor: pointer;
   transition: transform 0.14s ease, background 0.15s ease, border-color 0.15s ease;
 }
-.latestQtyBtn:hover { background: rgba(255,255,255,0.09); border-color: rgba(255,255,255,0.22); }
+.latestQtyBtn:hover { background: var(--s4); border-color: rgba(255,255,255,0.22); }
 .latestQtyBtn:active { transform: scale(0.94); }
 
 .latestQtyValue {
@@ -897,7 +897,7 @@
   padding: 0;
   border-radius: 12px;
   border: 1px solid rgba(255,255,255,0.16);
-  background: rgba(255,255,255,0.05);
+  background: var(--s3);
   color: rgba(255,255,255,0.88);
   cursor: pointer;
   transition: transform 0.14s ease, background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
@@ -966,7 +966,7 @@
   padding: 0 10px;
   border-radius: 12px;
   border: 1px solid rgba(255,255,255,0.16);
-  background: rgba(255,255,255,0.05);
+  background: var(--s3);
   color: rgba(255,255,255,0.92);
   font-family: var(--font-display);
   font-size: 0.78rem;
@@ -1409,7 +1409,7 @@
   gap: 10px;
   min-height: 36px;
   padding-bottom: 6px;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
+  border-bottom: 1px solid var(--s-border);
   animation: scannerTopIn 180ms ease-out;
 }
 
@@ -1438,8 +1438,8 @@
   min-height: 40px;
   padding: 10px 12px;
   border-radius: 12px;
-  border: 1px solid rgba(255,255,255,0.09);
-  background: rgba(255,255,255,0.035);
+  border: 1px solid var(--s-border);
+  background: var(--s2);
   color: rgba(255,255,255,0.64);
   font-size: 0.74rem;
   display: flex;
@@ -1467,7 +1467,7 @@
   cursor: pointer;
   padding: 10px 9px 9px;
   border-radius: 14px;
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid var(--s-border2);
   background: linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.03));
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
   transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease, box-shadow 0.12s ease;
@@ -1550,7 +1550,7 @@
 }
 .searchInput:focus {
   border-color: rgba(201,168,76,0.5);
-  background: rgba(255,255,255,0.075);
+  background: var(--s-medium);
   box-shadow: 0 0 0 3px rgba(201,168,76,0.12);
   transform: translateY(-1px);
 }
@@ -1601,7 +1601,7 @@
   min-height: 50px;
   padding: 8px 12px;
   border-radius: 12px;
-  border: 1px solid rgba(255,255,255,0.09);
+  border: 1px solid var(--s-border);
   background: var(--s2);
   cursor: pointer;
   transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease;
@@ -1650,7 +1650,7 @@
   letter-spacing: 0.08em;
   border-radius: 12px;
   border: 1px solid var(--s-border2);
-  background: rgba(255,255,255,0.03);
+  background: var(--s-card);
   color: rgba(255,255,255,0.58);
   cursor: pointer;
   transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
@@ -1680,7 +1680,7 @@
   min-height: 48px;
   padding: 0 13px;
   border-radius: 12px;
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid var(--s-border2);
   background: var(--s2);
   cursor: pointer;
   transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease;
@@ -1740,7 +1740,7 @@
   padding: 8px 12px;
   border-radius: 12px;
   background: var(--s2);
-  border: 1px solid rgba(255,255,255,0.09);
+  border: 1px solid var(--s-border);
   animation: scannerItemIn 180ms ease-out both;
 }
 
@@ -1873,7 +1873,7 @@
   color: rgba(255,255,255,0.75);
   background: rgba(0,0,0,0.55);
   backdrop-filter: blur(8px);
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid var(--s-border2);
   border-radius: 20px;
   padding: 5px 12px;
   white-space: nowrap;
@@ -2139,7 +2139,7 @@
 /* ── Set picker overlay ── */
 .setPickerSearch {
   padding: 10px 12px 6px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  border-bottom: 1px solid var(--s-border);
 }
 .setPickerInput {
   width: 100%;
@@ -2158,7 +2158,7 @@
   flex-wrap: wrap;
   gap: 4px;
   padding: 8px 12px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  border-bottom: 1px solid var(--s-border);
   align-items: center;
 }
 .setPickerList {
@@ -2243,7 +2243,7 @@
 /* ── Session statistics ── */
 .sessionStats {
   padding: 10px 16px 12px;
-  border-top: 1px solid rgba(255,255,255,0.06);
+  border-top: 1px solid var(--s-border);
   margin-top: 4px;
 }
 .sessionStatsSectionLabel {

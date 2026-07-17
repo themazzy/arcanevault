@@ -4,6 +4,7 @@ import { sb } from '../lib/supabase'
 import { useAuth } from './Auth'
 import { Modal } from './UI'
 import styles from './FeedbackModal.module.css'
+import { CheckIcon } from '../icons'
 
 const MAX_SCREENSHOT_SIZE = 8 * 1024 * 1024
 const APP_VERSION = '0.1.0'
@@ -170,7 +171,7 @@ export default function FeedbackModal({ onClose, initialType = 'bug' }) {
     return (
       <Modal onClose={onClose}>
         <div className={styles.doneWrap}>
-          <div className={styles.doneIcon}>✓</div>
+          <div className={styles.doneIcon}><CheckIcon size={32} /></div>
           <h2 className={styles.doneTitle}>Thanks!</h2>
           <p className={styles.doneSub}>{doneMessage}</p>
           <button className={styles.doneBtn} onClick={onClose}>Close</button>
