@@ -13,7 +13,8 @@ import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
 import { Modal, ResponsiveMenu } from '../components/UI'
 import { CardBrowserContent } from '../components/CardBrowserViews'
-import { CloseIcon, CheckIcon, ChevronDownIcon, GridViewIcon, SearchIcon, SortIcon, StacksViewIcon, TextViewIcon, TableViewIcon } from '../icons'
+import { CardDetail } from '../components/CardComponents'
+import { CheckIcon, ChevronDownIcon, GridViewIcon, SearchIcon, SortIcon, StacksViewIcon, TextViewIcon, TableViewIcon } from '../icons'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import Markdown, { extractHeadings } from '../lib/miniMarkdown.jsx'
 import { DeckLikeButton, DeckComments } from '../components/community/DeckSocial'
@@ -78,129 +79,68 @@ function getSfCard(sfMap, card) {
   return sfMap[getScryfallKey(card)] || null
 }
 
-// ── Mana / symbol renderer ────────────────────────────────────────────────────
-// Converts Scryfall notation like {W}, {T}, {2/U}, {X} → inline SVG images.
-// Newlines in oracle text are preserved via the parent's white-space: pre-line.
-function ManaText({ text, imgStyle }) {
-  if (!text) return null
-  const parts = text.split(/(\{[^}]+\})/g)
-  const symStyle = { width: '1em', height: '1em', verticalAlign: '-0.15em', display: 'inline-block', margin: '0 1.5px', ...imgStyle }
-  return (
-    <>
-      {parts.map((part, i) => {
-        if (/^\{[^}]+\}$/.test(part)) {
-          // Strip braces, upper-case, replace / with - for hybrid (e.g. W/U → W-U)
-          const sym = part.slice(1, -1).toUpperCase().replace(/\//g, '-')
-          return (
-            <img
-              key={i}
-              src={`https://svgs.scryfall.io/card-symbols/${sym}.svg`}
-              alt={part}
-              title={part}
-              style={symStyle}
-            />
-          )
-        }
-        return <span key={i}>{part}</span>
-      })}
-    </>
-  )
-}
-
-// ── Lightweight card detail modal (fetches from Scryfall) ────────────────────
-// `card` is either a deck-card row (shows the deck's exact printing) or a bare
-// card name string (combo suggestions — Scryfall's default printing is fine).
-function CardDetailModal({ card, onClose }) {
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(true)
+// ── Card detail modal ────────────────────────────────────────────────────────
+// Delegates to the shared CardDetail (Prices / Rulings / Legality tabs), in
+// read-only mode. `card` arrives two ways:
+//   • a deck-card row  — has set_code/collector_number, sfCard comes from sfMap
+//   • a bare card name — combo suggestions; we resolve it to a printing first so
+//     it gets the same tabbed detail as deck cards.
+function CardDetailModal({ card, sfMap, priceSource, onClose }) {
+  const isName = typeof card === 'string'
+  const [combo, setCombo] = useState(null)   // { card, sf } once a name resolves
+  const [failed, setFailed] = useState(false)
 
   useEffect(() => {
-    if (!card) return
+    if (!isName) return
     let cancelled = false
-    setLoading(true)
-    setData(null)
+    setCombo(null)
+    setFailed(false)
     ;(async () => {
       for (const url of scryfallCardDetailUrls(card)) {
         try {
           const r = await fetch(url)
-          if (!r.ok) continue // e.g. stale scryfall_id — try the next lookup
+          if (!r.ok) continue // stale id — try the next lookup
           const d = await r.json()
-          if (!cancelled) { setData(d); setLoading(false) }
+          if (!cancelled) {
+            setCombo({
+              card: {
+                name: d.name,
+                scryfall_id: d.id,
+                set_code: d.set,
+                collector_number: d.collector_number,
+                qty: 1,
+                foil: false,
+                language: 'en',
+              },
+              sf: d, // Scryfall payload doubles as the sfCard (carries prices)
+            })
+          }
           return
         } catch { /* network hiccup — try the next lookup */ }
       }
-      if (!cancelled) setLoading(false)
+      if (!cancelled) setFailed(true)
     })()
     return () => { cancelled = true }
-  }, [card])
+  }, [card, isName])
 
-  const face  = data?.card_faces?.[0] || data
-  const face2 = data?.card_faces?.[1] || null
-  const imgUrl  = face?.image_uris?.normal  || data?.image_uris?.normal
-  const imgUrl2 = face2?.image_uris?.normal || null
+  const detail = (c, sf) => (
+    <CardDetail
+      card={c}
+      sfCard={sf}
+      priceSource={priceSource}
+      readOnly
+      readOnlyDefaultTab="prices"
+      onClose={onClose}
+    />
+  )
 
+  if (!isName) return detail(card, getSfCard(sfMap, card))
+  if (combo) return detail(combo.card, combo.sf)
   return (
-    // showClose={false}: this modal keeps its own close button inside the
-    // header row, so Modal's absolute one would double up.
-    <Modal onClose={onClose} showClose={false} className={styles.modalBox}>
-      <>
-        {loading && <div className={styles.modalLoading}>Loading…</div>}
-
-        {!loading && data && (
-          <>
-            <div className={styles.modalHeader}>
-              <div>
-                <div className={styles.modalCardName}>{data.name}</div>
-                <div className={styles.modalTypeLine}>{face?.type_line || data.type_line}</div>
-              </div>
-              <div className={styles.modalHeaderRight}>
-                {(face?.mana_cost || data.mana_cost) && (
-                  <span className={styles.modalManaCost}>
-                    <ManaText
-                      text={face?.mana_cost || data.mana_cost}
-                      imgStyle={{ width: '1.1em', height: '1.1em' }}
-                    />
-                  </span>
-                )}
-                <button className={styles.modalClose} onClick={onClose}><CloseIcon size={13} /></button>
-              </div>
-            </div>
-
-            <div className={styles.modalBody}>
-              <div className={styles.modalImages}>
-                {imgUrl  && <img src={imgUrl}  alt={data.name} />}
-                {imgUrl2 && <img src={imgUrl2} alt={data.name} />}
-              </div>
-              <div className={styles.modalDetails}>
-                {(face?.oracle_text || data.oracle_text) && (
-                  <div className={styles.modalOracleText}>
-                    <ManaText text={face?.oracle_text || data.oracle_text} />
-                  </div>
-                )}
-                {face2?.oracle_text && (
-                  <div className={styles.modalOracleText2}>
-                    <ManaText text={face2.oracle_text} />
-                  </div>
-                )}
-                <div className={styles.modalTags}>
-                  {data.set_name     && <span className={styles.modalTag}>{data.set_name}</span>}
-                  {data.rarity       && <span className={styles.modalTag}>{data.rarity}</span>}
-                  {data.attraction_lights?.length > 0 && <span className={styles.modalTag}>Lights {data.attraction_lights.join(', ')}</span>}
-                  {face?.power != null && <span className={styles.modalTag}>{face.power}/{face.toughness}</span>}
-                  {data.loyalty      && <span className={styles.modalTag}>Loyalty {data.loyalty}</span>}
-                </div>
-                {data.flavor_text && (
-                  <div className={styles.modalFlavor}>{data.flavor_text}</div>
-                )}
-              </div>
-            </div>
-          </>
-        )}
-
-        {!loading && !data && (
-          <div className={styles.modalError}>Could not load card data.</div>
-        )}
-      </>
+    <Modal onClose={onClose} className={styles.modalBox}>
+      {failed
+        ? <div className={styles.modalError}>Could not load card data.</div>
+        : <div className={styles.modalLoading}>Loading…</div>}
     </Modal>
   )
 }
@@ -690,7 +630,7 @@ export default function DeckViewPage() {
     <div className={styles.page}>
 
       {/* Card detail modal */}
-      {detailCard && <CardDetailModal card={detailCard} onClose={() => setDetailCard(null)} />}
+      {detailCard && <CardDetailModal card={detailCard} sfMap={sfMap} priceSource={price_source} onClose={() => setDetailCard(null)} />}
 
       {/* ── Top bar ── */}
       <div className={styles.topBar}>

@@ -852,16 +852,11 @@
 }
 
 .modalBox {
-  /* Shell (bg/border/radius/shadow/padding) comes from the Modal primitive.
-     This keeps only what's specific: a wider max-width than the 860px default,
-     and its own scroll cap. */
-  max-width: 1040px;
-  width: 100%;
-  max-height: 92vh;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
+  /* Now only the compact loading/error placeholder shown while a combo card's
+     name resolves — the real detail is the shared CardDetail, which brings its
+     own modal. Kept small so it doesn't flash as a huge empty box. */
+  width: min(100%, 380px);
+  max-width: 380px;
 }
 .modalLoading {
   text-align: center;
@@ -869,115 +864,10 @@
   color: var(--text-faint, #6a6058);
   font-style: italic;
 }
-.modalHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-}
-.modalCardName {
-  font-family: var(--font-display, 'Cinzel', serif);
-  font-size: 1.25rem;
-  color: var(--gold, #c9a84c);
-  letter-spacing: 0.04em;
-  margin-bottom: 4px;
-}
-.modalTypeLine {
-  font-size: 0.88rem;
-  color: var(--text-dim, #9a8870);
-}
-.modalHeaderRight {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-shrink: 0;
-}
-.modalManaCost {
-  display: flex;
-  align-items: center;
-  gap: 1px;
-  line-height: 1;
-}
-.modalClose {
-  background: none;
-  border: none;
-  color: var(--text-faint, #6a6058);
-  cursor: pointer;
-  font-size: 1.25rem;
-  padding: 0 4px;
-  line-height: 1;
-  transition: color 0.12s;
-}
-.modalClose:hover { color: var(--text, #e8e0d0); }
-.modalBody {
-  display: flex;
-  gap: 26px;
-  align-items: flex-start;
-  flex-wrap: wrap;
-}
-.modalImages {
-  display: flex;
-  gap: 14px;
-  flex-shrink: 0;
-}
-.modalImages img {
-  width: 340px;
-  max-width: 100%;
-  height: auto;
-  border-radius: 10px;
-  box-shadow: 0 10px 32px rgba(0,0,0,0.6);
-}
-.modalDetails {
-  flex: 1;
-  min-width: 240px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.modalOracleText {
-  font-size: 0.92rem;
-  color: var(--text, #e8e0d0);
-  line-height: 1.7;
-  white-space: pre-line;
-}
-.modalOracleText img {
-  /* keep symbol baseline aligned with surrounding text */
-  vertical-align: -0.15em;
-}
-.modalOracleText2 {
-  font-size: 0.92rem;
-  color: var(--text, #e8e0d0);
-  line-height: 1.7;
-  white-space: pre-line;
-  border-top: 1px solid var(--s-border);
-  padding-top: 10px;
-}
-.modalOracleText2 img {
-  vertical-align: -0.15em;
-}
-.modalTags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 4px;
-}
-.modalTag {
-  font-size: 0.71rem;
-  color: var(--text-faint, #6a6058);
-  background: var(--s2);
-  border: 1px solid var(--s-medium);
-  border-radius: 3px;
-  padding: 2px 8px;
-  text-transform: capitalize;
-}
-.modalFlavor {
-  font-size: 0.76rem;
-  color: var(--text-faint, #6a6058);
-  font-style: italic;
-  line-height: 1.55;
-  border-top: 1px solid var(--s3);
-  padding-top: 8px;
-}
+/* The bespoke card-detail modal here was replaced by the shared CardDetail
+   (Prices/Rulings/Legality tabs). Only .modalBox (its width) and the
+   loading/error placeholders survive; the header/body/image/tag/flavor rules
+   went with it. */
 .modalError {
   text-align: center;
   padding: 40px 0;
@@ -985,42 +875,8 @@
   font-style: italic;
 }
 
-@media (max-width: 720px) {
-  .modalBox {
-    padding: 16px 16px 20px;
-    gap: 14px;
-    max-height: 96vh;
-    border-radius: 10px;
-    margin-top: 8px;
-  }
-  .modalHeader { gap: 8px; }
-  .modalCardName { font-size: 1.1rem; }
-  .modalTypeLine { font-size: 0.82rem; }
-  .modalBody {
-    gap: 16px;
-    flex-direction: column;
-    align-items: center;
-  }
-  .modalImages {
-    width: 100%;
-    justify-content: center;
-    flex-wrap: wrap;
-  }
-  .modalImages img {
-    width: 100%;
-    max-width: 320px;
-  }
-  .modalDetails {
-    width: 100%;
-    min-width: 0;
-  }
-  .modalOracleText,
-  .modalOracleText2 { font-size: 0.88rem; line-height: 1.6; }
-}
-
-@media (max-width: 400px) {
-  .modalImages img { max-width: 100%; }
-}
+/* (The responsive overrides for the old bespoke card-detail modal were removed
+   with it — the shared CardDetail carries its own responsive rules.) */
 
 /* ── Guest banner ──────────────────────────────────────────────────────────── */
 .guestBanner {
