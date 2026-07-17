@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { sb } from '../lib/supabase'
-import { getPrice, formatPrice, getScryfallKey, getPriceSource, getManualPrice } from '../lib/scryfall'
+import { getPrice, formatPrice, getScryfallKey, getPriceSource, getManualPrice, SCRYFALL_CACHE_TTL_MS } from '../lib/scryfall'
 import { fetchCollectionCards, fetchSfMap, fetchFolders, isGroupFolder } from '../lib/collectionFetchers'
 import { recordCollectionValueSnapshot, fetchValueHistory, computeValueDelta } from '../lib/valueSnapshots'
 import { fetchSetCards, computeMissingCards, missingCostTotal, addMissingToWishlist } from '../lib/setCompletion'
@@ -25,7 +25,6 @@ import {
 } from 'recharts'
 import setIconManifest from '../data/setIconManifest.json'
 import styles from './Stats.module.css'
-import { getCacheTtlMs } from '../lib/collectionDisplay'
 
 // ── Colour palettes ───────────────────────────────────────────────────────────
 const RARITY_COLORS = {
@@ -1183,7 +1182,7 @@ async function fetchPublicDeckCount(userId) {
 
 export default function StatsPage() {
   const { user }         = useAuth()
-  const { price_source, cache_ttl_h } = useSettings()
+  const { price_source } = useSettings()
   const { showToast }    = useToast()
   const queryClient = useQueryClient()
   const location = useLocation()
@@ -1201,8 +1200,6 @@ export default function StatsPage() {
   const [historyRows,      setHistoryRows]      = useState([])
   const [historyLoading,   setHistoryLoading]   = useState(false)
   const [deckMap,          setDeckMap]          = useState({})
-
-  const ttlMs = getCacheTtlMs(cache_ttl_h)
 
   // Hydrate React Query cache from IDB once on mount so first paint is instant
   // when arriving from another page that already loaded the collection.
@@ -1225,11 +1222,11 @@ export default function StatsPage() {
 
   const sfMapQuery = useQuery({
     queryKey: ['sfMap', user.id],
-    queryFn: () => fetchSfMap(cards, ttlMs, (pct, lbl) => {
+    queryFn: () => fetchSfMap(cards, (pct, lbl) => {
       setProgress(pct)
       if (lbl) setProgLabel(lbl)
     }),
-    staleTime: ttlMs,
+    staleTime: SCRYFALL_CACHE_TTL_MS,
     enabled: !!user?.id && cards.length > 0,
   })
   const sfMap = sfMapQuery.data ?? {}

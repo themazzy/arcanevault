@@ -620,7 +620,6 @@ const SETTINGS_FIELDS = [
   { key: 'default_sort',     label: 'Default Sort (collection)', type: 'text' },
   { key: 'deckbuilder_sort', label: 'Deckbuilder Sort',  type: 'text' },
   { key: 'default_grouping', label: 'Deckbuilder Grouping', type: 'select', options: ['category','type','none'] },
-  { key: 'cache_ttl_h',      label: 'Cache TTL (hours)', type: 'number' },
   { key: 'binder_sort',      label: 'Binder Sort',       type: 'text' },
   { key: 'deck_sort',        label: 'Deck Sort',         type: 'text' },
   { key: 'list_sort',        label: 'List Sort',         type: 'text' },

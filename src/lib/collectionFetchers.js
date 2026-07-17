@@ -226,6 +226,6 @@ export async function fetchFolderPlacements({ queryKey }) {
   return { folderCards, deckAllocations }
 }
 
-export async function fetchSfMap(cards, cacheTtlMs, onProgress) {
-  return loadCardMapWithSharedPrices(cards, { onProgress, cacheTtlMs, priceLookup: 'set' })
+export async function fetchSfMap(cards, onProgress) {
+  return loadCardMapWithSharedPrices(cards, { onProgress, priceLookup: 'set' })
 }

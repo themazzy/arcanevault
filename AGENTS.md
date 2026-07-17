@@ -164,7 +164,9 @@ Categories: Navigation · Actions · Folder types · View modes · Status · Gam
 
 `useSettings()` returns all user preferences plus `save(patch)`, `syncNow()`, sync status, and the last sync error. Settings write to `localStorage` immediately and debounce a Supabase upsert (800 ms).
 
-Important settings: `theme`, `oled_mode`, `higher_contrast`, `reduce_motion`, `font_size`, `font_weight`, `card_name_size`, `price_source`, `grid_density`, `show_price`, `cache_ttl_h`, `default_grouping`, `nickname`, `anonymize_email`, `keep_screen_awake`, `show_sync_errors`, `premium`, `profile_config`.
+Important settings: `theme`, `oled_mode`, `higher_contrast`, `reduce_motion`, `font_size`, `font_weight`, `card_name_size`, `price_source`, `grid_density`, `show_price`, `default_grouping`, `nickname`, `anonymize_email`, `keep_screen_awake`, `show_sync_errors`, `premium`, `profile_config`.
+
+The Scryfall metadata cache TTL is **not** a user setting — it's the static `SCRYFALL_CACHE_TTL_MS` (24 h) exported from `src/lib/scryfall.js`. The old `cache_ttl_h` setting and its `user_settings` column were removed 2026-07-17.
 
 Always read these values from `useSettings()` instead of hardcoding defaults.
 

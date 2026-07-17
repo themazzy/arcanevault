@@ -498,7 +498,7 @@ function TradeLogSection({ rows, loading, onRefresh, fmt }) {
 
 export default function TradingPage() {
   const { user } = useAuth()
-  const { price_source, cache_ttl_h } = useSettings()
+  const { price_source } = useSettings()
   const location = useLocation()
 
   const [cards, setCards] = useState([])
@@ -667,18 +667,15 @@ export default function TradingPage() {
     return () => clearTimeout(timeoutId)
   }, [collectionQuery])
 
-  // Load Scryfall metadata cache. Reruns when the cache TTL preference changes
-  // (cheap — just reads the in-memory cache with a different freshness window).
+  // Load Scryfall metadata cache (read-only — never triggers a refetch).
   useEffect(() => {
     let cancelled = false
-    getInstantCache(cache_ttl_h * 3600000).then(map => {
+    getInstantCache().then(map => {
       if (!cancelled && map) setSfMap(map)
     })
     return () => { cancelled = true }
-  }, [cache_ttl_h])
+  }, [])
 
-  // Hydrate + sync the collection. Decoupled from cache_ttl_h so changing the
-  // Scryfall TTL in settings doesn't trigger a full Supabase re-sync.
   useEffect(() => {
     let cancelled = false
     hydrateLocalCollection().then(() => {

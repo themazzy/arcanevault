@@ -64,6 +64,7 @@ import {
   withLinkedPair,
 } from '../lib/deckSync'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
+import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
 import { getPublicAppUrl } from '../lib/publicUrl'
 import { loadLocalPlacementSnapshot, refreshRemotePlacementSnapshot } from '../lib/deckPlacementData'
 import {
@@ -731,16 +732,8 @@ export default function DeckBuilderPage() {
   const ownershipRefreshRowsRef = useRef([])
   const ownershipRefreshTimerRef = useRef(null)
 
-  const invalidateCollectionPlacementQueries = useCallback(async ({ includeFolders = false, includeCards = false } = {}) => {
-    const invalidations = [
-      queryClient.invalidateQueries({ queryKey: ['folderPlacements', user.id] }),
-    ]
-    if (includeFolders) invalidations.push(queryClient.invalidateQueries({ queryKey: ['folders', user.id] }))
-    if (includeCards) {
-      invalidations.push(queryClient.invalidateQueries({ queryKey: ['cards', user.id] }))
-      invalidations.push(queryClient.invalidateQueries({ queryKey: ['sfMap', user.id] }))
-    }
-    await Promise.all(invalidations)
+  const invalidateCollectionPlacementQueries = useCallback(async (options = {}) => {
+    await invalidateOwnedCollectionQueries(queryClient, user.id, options)
   }, [queryClient, user.id])
 
   useEffect(() => {

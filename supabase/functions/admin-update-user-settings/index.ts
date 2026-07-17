@@ -25,7 +25,6 @@ const ALLOWED_SETTINGS_KEYS = new Set([
   'show_price',
   'default_sort',
   'default_grouping',
-  'cache_ttl_h',
   'binder_sort',
   'deck_sort',
   'list_sort',

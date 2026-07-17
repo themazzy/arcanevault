@@ -3,7 +3,7 @@
  *
  * Two expiry strategies:
  *   - Images (image_uris): never expire — card art never changes
- *   - Prices + metadata: expire per cache_ttl_h user setting
+ *   - Prices + metadata: expire after SCRYFALL_CACHE_TTL_MS
  *
  * In-memory map is rebuilt from IDB on first access per session.
  */
@@ -23,7 +23,9 @@ import { perfSpan } from './perf'
 const BATCH_SIZE = 75
 const DELAY_MS   = 80
 const SF_CONCURRENCY = 2
-const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000
+// Metadata/price freshness window. Shared prices refresh on their own 10-minute
+// cycle in sharedCardPrices.js, so this only paces Scryfall metadata refetches.
+export const SCRYFALL_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 const SF_API_ORIGIN = 'https://api.scryfall.com'
 const SCRYFALL_METADATA_UPDATED_AT_KEY = 'scryfall_metadata_updated_at'
 const LEGACY_SCRYFALL_PRICES_UPDATED_AT_KEY = 'scryfall_prices_updated_at'
@@ -233,14 +235,14 @@ function hydrateViaWorker() {
   })
 }
 
-export async function loadCacheFromIDB(cacheTtlMs = DEFAULT_TTL_MS) {
+export async function loadCacheFromIDB() {
   if (_sfMap) return _sfMap
 
   const endHydrate = perfSpan('idb-hydrate')
   const viaWorker = await hydrateViaWorker()
   if (viaWorker) {
     const updatedAt = await getMetadataUpdatedAt()
-    const expired = !updatedAt || (Date.now() - updatedAt > cacheTtlMs)
+    const expired = !updatedAt || (Date.now() - updatedAt > SCRYFALL_CACHE_TTL_MS)
     console.log(`[SF IDB] loaded ${viaWorker.count} cards (worker) — metadata ${expired ? 'EXPIRED' : 'fresh'}`)
     _sfMap = viaWorker.map
     // The worker also pre-read today's+yesterday's price rows off-thread; stash
@@ -263,7 +265,7 @@ export async function loadCacheFromIDB(cacheTtlMs = DEFAULT_TTL_MS) {
 
   // Check metadata freshness
   const updatedAt = await getMetadataUpdatedAt()
-  const expired = !updatedAt || (Date.now() - updatedAt > cacheTtlMs)
+  const expired = !updatedAt || (Date.now() - updatedAt > SCRYFALL_CACHE_TTL_MS)
 
   console.log(`[SF IDB] loaded ${entries.length} cards — metadata ${expired ? 'EXPIRED' : 'fresh'}`)
 
@@ -273,12 +275,12 @@ export async function loadCacheFromIDB(cacheTtlMs = DEFAULT_TTL_MS) {
   return { map: _sfMap, pricesExpired: expired }
 }
 
-export async function getInstantCache(cacheTtlMs = DEFAULT_TTL_MS) {
+export async function getInstantCache() {
   // If already in memory, return directly — loadCacheFromIDB returns the raw map
   // (not wrapped) in the `if (_sfMap) return _sfMap` fast-path, which breaks
   // the result.map accessor. Bypass it entirely when in memory.
   if (_sfMap) return _sfMap
-  const result = await loadCacheFromIDB(cacheTtlMs)
+  const result = await loadCacheFromIDB()
   if (!result) return null
   return result.map
 }
@@ -407,10 +409,10 @@ function cardsNeedingScryfall(cards) {
   return cards.filter(c => entryNeedsScryfall(_sfMap[`${c.set_code}-${c.collector_number}`]))
 }
 
-export async function enrichCards(cards, onProgress, cacheTtlMs = DEFAULT_TTL_MS) {
+export async function enrichCards(cards, onProgress) {
   // Load from IDB if not in memory yet
   if (!_sfMap) {
-    const result = await loadCacheFromIDB(cacheTtlMs)
+    const result = await loadCacheFromIDB()
     if (result) {
       _sfMap = result.map
       // If metadata expired, we fall through to fetch fresh metadata below.

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { sb } from '../lib/supabase'
-import { getScryfallKey, getPrice, formatPrice, getInstantCache } from '../lib/scryfall'
+import { getScryfallKey, getPrice, formatPrice, getInstantCache, SCRYFALL_CACHE_TTL_MS } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getLocalCards, putCards, deleteCard, deleteAllCards, putFolderCards, getLocalFolders, putFolders, setMeta, getMeta, deleteFolder as deleteLocalFolder, replaceLocalFolderCards, putDeckAllocations, replaceDeckAllocations, deleteDeckAllocationsByCardIds, deleteFolderCardsByCardIds } from '../lib/db'
 import { parseManaboxCSV } from '../lib/csvParser'
@@ -24,7 +24,8 @@ import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { hydrateCollectionQueriesFromIdb } from '../lib/idbQueryBridge'
 import { fetchCollectionCards, fetchFolders, fetchFolderPlacements, fetchSfMap } from '../lib/collectionFetchers'
 import { isNetworkLikeError } from '../lib/networkUtils'
-import { getCacheTtlMs, getSelectedDisplayQuantity } from '../lib/collectionDisplay'
+import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
+import { getSelectedDisplayQuantity } from '../lib/collectionDisplay'
 
 const DEBOUNCE_MS = 300
 const FOLDER_CARDS_STALE_MS = 10 * 60 * 1000
@@ -185,12 +186,8 @@ function OrphanModal({ cards, folders, userId, onAssigned, onDeleted }) {
 export default function CollectionPage() {
   const { user } = useAuth()
   const toast = useToast()
-  const { price_source, default_sort, grid_density, show_price, cache_ttl_h, loaded: settingsLoaded } = useSettings()
+  const { price_source, default_sort, grid_density, show_price, loaded: settingsLoaded } = useSettings()
   const queryClient = useQueryClient()
-
-  const ttlMs = getCacheTtlMs(cache_ttl_h)
-  const ttlMsRef = useRef(ttlMs)
-  useEffect(() => { ttlMsRef.current = ttlMs }, [ttlMs])
 
   const [sfMap, setSfMap]   = useState({})
   const [cards, setCards]   = useState([])
@@ -258,20 +255,20 @@ export default function CollectionPage() {
 
   const sfMapQuery = useQuery({
     queryKey: ['sfMap', user?.id],
-    queryFn: () => fetchSfMap(cards, ttlMs, (pct, lbl) => {
+    queryFn: () => fetchSfMap(cards, (pct, lbl) => {
       setProgress(pct)
       setProgLabel(lbl)
     }),
-    staleTime: ttlMs,
+    staleTime: SCRYFALL_CACHE_TTL_MS,
     enabled: !!user?.id && cards.length > 0,
     placeholderData: {},
   })
 
   const invalidateCollectionQueries = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ['cards', user.id] })
-    queryClient.invalidateQueries({ queryKey: ['folders', user.id] })
-    queryClient.invalidateQueries({ queryKey: ['folderPlacements', user.id] })
-    queryClient.invalidateQueries({ queryKey: ['sfMap', user.id] })
+    invalidateOwnedCollectionQueries(queryClient, user.id, {
+      includeFolders: true,
+      includeCards: true,
+    })
   }, [queryClient, user.id])
 
   const _loadCards = useCallback(async () => {
@@ -412,14 +409,13 @@ export default function CollectionPage() {
     try {
       const map = await loadCardMapWithSharedPrices(rawCards, {
         onProgress: (pct, lbl) => { setProgress(pct); setProgLabel(lbl) },
-        cacheTtlMs: ttlMsRef.current,
         priceLookup: 'set',
       })
       setSfMap(map)
     } catch (err) {
       console.warn('[Collection] enrichment failed; cards will retry on next load', err?.message || err)
       try {
-        const partial = await getInstantCache(ttlMsRef.current)
+        const partial = await getInstantCache()
         if (partial) setSfMap(partial)
       } catch {}
     } finally {
@@ -516,7 +512,7 @@ export default function CollectionPage() {
         const newCards = allCards.filter(c => !localIds.has(c.id))
         if (newCards.length) {
           console.log(`[Collection] ${newCards.length} new cards synced from Supabase`)
-          loadCardMapWithSharedPrices(allCards, { cacheTtlMs: ttlMsRef.current, priceLookup: 'set' }).then(map => {
+          loadCardMapWithSharedPrices(allCards, { priceLookup: 'set' }).then(map => {
             if (isCurrentLoad()) setSfMap(map)
           })
         }
@@ -1124,8 +1120,7 @@ export default function CollectionPage() {
       return next
     })
 
-    queryClient.invalidateQueries({ queryKey: ['folderPlacements', user.id] })
-    queryClient.invalidateQueries({ queryKey: ['sfMap', user.id] })
+    invalidateOwnedCollectionQueries(queryClient, user.id)
     setSelected(new Set()); setSplitState(new Map()); setSelectMode(false)
     const movedQty = selectedRows.reduce((sum, row) => (
       row.sourceFolder?.id === folder.id ? sum : sum + row.qty
@@ -1209,11 +1204,13 @@ export default function CollectionPage() {
         }
         return next
       })
-      queryClient.invalidateQueries({ queryKey: ['folderPlacements', user.id] })
+      invalidateOwnedCollectionQueries(queryClient, user.id)
     }
     await putCards([updatedCard])
-    queryClient.invalidateQueries({ queryKey: ['cards', user.id] })
-    queryClient.invalidateQueries({ queryKey: ['sfMap', user.id] })
+    invalidateOwnedCollectionQueries(queryClient, user.id, {
+      includeCards: true,
+      includePlacements: false,
+    })
   }, [queryClient, user.id])
 
   const SORT_OPTIONS = [
@@ -1645,14 +1642,16 @@ export default function CollectionPage() {
               return next
             })
             setOrphanCards([])
-            queryClient.invalidateQueries({ queryKey: ['folderPlacements', user.id] })
+            invalidateOwnedCollectionQueries(queryClient, user.id)
           }}
           onDeleted={(deleted) => {
             const deletedSet = new Set(deleted.map(c => c.id))
             setCards(prev => prev.filter(c => !deletedSet.has(c.id)))
             setOrphanCards([])
-            queryClient.invalidateQueries({ queryKey: ['cards', user.id] })
-            queryClient.invalidateQueries({ queryKey: ['sfMap', user.id] })
+            invalidateOwnedCollectionQueries(queryClient, user.id, {
+              includeCards: true,
+              includePlacements: false,
+            })
           }}
         />
       )}

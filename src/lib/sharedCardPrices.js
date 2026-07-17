@@ -346,12 +346,13 @@ async function overlaySharedCardPricesInner(cards, baseMap = {}, { priceLookup: 
   return merged
 }
 
-export async function loadCardMapWithSharedPrices(cards, { onProgress = null, cacheTtlMs, priceLookup = 'exact', requireOracle = false } = {}) {
+export async function loadCardMapWithSharedPrices(cards, { onProgress = null, priceLookup = 'exact', requireOracle = false } = {}) {
   if (!cards?.length) return {}
 
   // Shared-price pages should not trigger Scryfall price TTL refreshes.
-  // We only need the cached metadata/art, plus fetches for cards missing locally.
-  let map = await getInstantCache(Number.MAX_SAFE_INTEGER) || {}
+  // getInstantCache only reads the cache, so this never refetches — we just need
+  // the cached metadata/art, plus fetches for cards missing locally.
+  let map = await getInstantCache() || {}
   // A card needs enrichment if its entry is absent or stripped of filter-
   // critical metadata (clearScryfallCache nulls type_line/rarity/etc). The
   // deck builder additionally needs oracle_text for category inference and
@@ -366,14 +367,14 @@ export async function loadCardMapWithSharedPrices(cards, { onProgress = null, ca
   }))
   if (missing.length) {
     try {
-      const enriched = await enrichCards(missing, onProgress, cacheTtlMs)
+      const enriched = await enrichCards(missing, onProgress)
       if (enriched) map = enriched
     } catch (err) {
       // Partial enrichment is still useful — pick up whatever made it into
       // the in-memory cache and continue with price overlay so the page
       // renders. Cards still missing will retry on next load.
       console.warn('[loadCardMap] enrichment partial', err?.message || err)
-      const partial = await getInstantCache(Number.MAX_SAFE_INTEGER)
+      const partial = await getInstantCache()
       if (partial) map = partial
     }
   } else {

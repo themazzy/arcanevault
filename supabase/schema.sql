@@ -209,7 +209,6 @@ create table if not exists user_settings (
   default_sort       text default 'name',
   grid_density       text default 'comfortable',
   show_price         boolean default true,
-  cache_ttl_h        integer default 24,
   binder_sort        text default 'name',
   deck_sort          text default 'name',
   list_sort          text default 'name',

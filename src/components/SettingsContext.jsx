@@ -407,7 +407,6 @@ const DEFAULTS = {
   default_sort: 'name',
   grid_density: 'comfortable',
   show_price: true,
-  cache_ttl_h: 24,
   binder_sort: 'name',
   deck_sort: 'name',
   list_sort: 'name',
@@ -1113,7 +1112,7 @@ export function SettingsProvider({ children }) {
     setSyncError('')
     try {
       const {
-        price_source, default_sort, grid_density, show_price, cache_ttl_h,
+        price_source, default_sort, grid_density, show_price,
         binder_sort, deck_sort, list_sort, font_weight, font_size, body_font, theme, oled_mode, nickname,
         anonymize_email, reduce_motion, higher_contrast, card_name_size, default_grouping, deckbuilder_sort,
         keep_screen_awake, show_sync_errors, page_tips_seen,
@@ -1121,7 +1120,7 @@ export function SettingsProvider({ children }) {
       } = next
       const payload = {
         user_id: user.id,
-        price_source, default_sort, grid_density, show_price, cache_ttl_h,
+        price_source, default_sort, grid_density, show_price,
         binder_sort, deck_sort, list_sort, font_weight, font_size, body_font, theme, oled_mode, nickname,
         anonymize_email, reduce_motion, higher_contrast, card_name_size, default_grouping, deckbuilder_sort,
         keep_screen_awake, show_sync_errors, page_tips_seen,
