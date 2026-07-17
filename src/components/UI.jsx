@@ -375,8 +375,11 @@ export function ConfirmModal({
 }) {
   return (
     <Modal onClose={onClose} allowOverflow={false} className={styles.confirmModal}>
-      <h3 className={styles.confirmTitle}>{title}</h3>
-      {message && <p className={styles.confirmMessage}>{message}</p>}
+      {/* title={null} for callers that only need a message */}
+      {title && <h3 className={styles.confirmTitle}>{title}</h3>}
+      {/* div, not p: `message` may be a node (e.g. split paragraphs), and a <p>
+          inside a <p> is invalid and gets re-parented by the browser. */}
+      {message && <div className={styles.confirmMessage}>{message}</div>}
       <div className={styles.confirmActions}>
         <Button variant="secondary" size="sm" onClick={onClose} disabled={busy}>{cancelLabel}</Button>
         <Button variant={variant} size="sm" onClick={onConfirm} disabled={busy}>

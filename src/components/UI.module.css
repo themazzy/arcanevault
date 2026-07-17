@@ -1365,8 +1365,15 @@
 .confirmMessage {
   font-size: 0.86rem;
   color: var(--text-dim);
-  line-height: 1.5;
+  line-height: 1.55;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
+
+/* Callers may pass split paragraphs rather than a plain string. */
+.confirmMessage p { margin: 0; }
+.confirmMessage p:first-child { color: var(--text); font-weight: 500; }
 
 .confirmActions {
   display: flex;

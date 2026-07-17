@@ -21,7 +21,7 @@ import {
 } from '../lib/db'
 import styles from './DeckBuilder.module.css'
 import uiStyles from '../components/UI.module.css'
-import { ResponsiveMenu, Select, Modal } from '../components/UI'
+import { ConfirmModal, ResponsiveMenu, Select, Modal } from '../components/UI'
 import { useToast } from '../components/ToastContext'
 import PromptDialog from '../components/PromptDialog'
 import { CardDetail } from '../components/CardComponents'
@@ -5986,17 +5986,13 @@ export default function DeckBuilderPage() {
       )}
 
       {confirmState && (
-        <div className={styles.confirmOverlay} onClick={() => handleConfirm(false)}>
-          <div className={styles.confirmDialog} onClick={e => e.stopPropagation()}>
-            <div className={styles.confirmMsg}>
-              {confirmState.message.split('\n\n').map((p, i) => <p key={i}>{p}</p>)}
-            </div>
-            <div className={styles.confirmActions}>
-              <button className={styles.confirmCancel} onClick={() => handleConfirm(false)}>Cancel</button>
-              <button className={styles.confirmOk} onClick={() => handleConfirm(true)}>Confirm</button>
-            </div>
-          </div>
-        </div>
+        <ConfirmModal
+          title={null}
+          message={confirmState.message.split('\n\n').map((p, i) => <p key={i}>{p}</p>)}
+          variant="default"
+          onConfirm={() => handleConfirm(true)}
+          onClose={() => handleConfirm(false)}
+        />
       )}
 
       {promptState && (

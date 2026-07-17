@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, Link, useLocation } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
-import { Button, Modal, EmptyState, SectionHeader, ResponsiveMenu } from '../components/UI'
+import { Button, ConfirmModal, Modal, EmptyState, SectionHeader, ResponsiveMenu } from '../components/UI'
 import { parseDeckMeta, serializeDeckMeta, FORMATS } from '../lib/deckBuilderApi'
 import { unlinkPairedDeck, getSyncState, patchDeckMeta } from '../lib/deckSync'
 import { useDeckArts, enrichDecksWithCommanderArt } from '../lib/deckArt'
@@ -1215,17 +1215,13 @@ export default function BuilderPage() {
       </>}
 
       {confirmState && (
-        <div className={styles.confirmOverlay} onClick={() => handleConfirm(false)}>
-          <div className={styles.confirmDialog} onClick={e => e.stopPropagation()}>
-            <div className={styles.confirmMsg}>
-              {confirmState.message.split('\n\n').map((p, i) => <p key={i}>{p}</p>)}
-            </div>
-            <div className={styles.confirmActions}>
-              <button className={styles.confirmCancel} onClick={() => handleConfirm(false)}>Cancel</button>
-              <button className={styles.confirmOk} onClick={() => handleConfirm(true)}>Confirm</button>
-            </div>
-          </div>
-        </div>
+        <ConfirmModal
+          title={null}
+          message={confirmState.message.split('\n\n').map((p, i) => <p key={i}>{p}</p>)}
+          variant="default"
+          onConfirm={() => handleConfirm(true)}
+          onClose={() => handleConfirm(false)}
+        />
       )}
 
       {showNew && (
