@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CloseIcon } from '../icons'
-import { Button, Input, Modal, SectionHeader, Select as UISelect } from '../components/UI'
+import { Button, ConfirmModal, Input, Modal, SectionHeader, Select as UISelect } from '../components/UI'
 import { useAuth } from '../components/Auth'
 import { sb } from '../lib/supabase'
 import { isCurrentUserAdmin } from '../lib/admin'
@@ -39,6 +39,7 @@ function FeedbackSection() {
   const [typeFilter, setTypeFilter] = useState('all')
   const [showResolved, setShowResolved] = useState(false)
   const [busy, setBusy] = useState(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null)
   const [previewAttachment, setPreviewAttachment] = useState(null)
 
   const load = async () => {
@@ -105,12 +106,12 @@ function FeedbackSection() {
   }
 
   const deleteFeedback = async (id) => {
-    if (!confirm('Delete this feedback entry? This cannot be undone.')) return
     setBusy(id)
     await sb.from('feedback').delete().eq('id', id)
     setItems(prev => prev.filter(item => item.id !== id))
     setResolvedIds(prev => prev.filter(r => r !== id))
     setBusy(null)
+    setConfirmDeleteId(null)
   }
 
   const filtered = items.filter(item => {
@@ -194,7 +195,7 @@ function FeedbackSection() {
                       {busy === item.id ? '...' : 'Mark Done'}
                     </Button>
                   )}
-                  <Button size="sm" variant="danger" onClick={() => deleteFeedback(item.id)} disabled={busy === item.id}>
+                  <Button size="sm" variant="danger" onClick={() => setConfirmDeleteId(item.id)} disabled={busy === item.id}>
                     Delete
                   </Button>
                 </div>
@@ -227,6 +228,17 @@ function FeedbackSection() {
           />
         </div>
       ) : null}
+
+      {confirmDeleteId != null && (
+        <ConfirmModal
+          title="Delete feedback?"
+          message="This permanently deletes the feedback entry and cannot be undone."
+          confirmLabel="Delete"
+          busy={busy === confirmDeleteId}
+          onConfirm={() => deleteFeedback(confirmDeleteId)}
+          onClose={() => setConfirmDeleteId(null)}
+        />
+      )}
     </div>
   )
 }

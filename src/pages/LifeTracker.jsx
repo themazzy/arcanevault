@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ResponsiveMenu } from '../components/UI'
+import { ConfirmModal, ResponsiveMenu } from '../components/UI'
 import uiStyles from '../components/UI.module.css'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
+import { useToast } from '../components/ToastContext'
 import { sb } from '../lib/supabase'
 import { getPublicAppUrl } from '../lib/publicUrl'
 import { buildLifeChange } from '../lib/lifeChange'
@@ -1381,10 +1382,18 @@ const _GameHistoryPanel = function GameHistoryPanel({ rows, loading, decks, onRe
     }
   }
 
-  const handleDelete = async (row) => {
-    const label = row.deck_name || deckNameById[row.deck_id] || 'this game'
-    if (!window.confirm(`Delete your history entry for ${label}? This only removes it for your account.`)) return
-    await onDelete(row.id)
+  const [confirmDeleteRow, setConfirmDeleteRow] = useState(null)
+  const [deleting, setDeleting] = useState(false)
+
+  const handleDelete = async () => {
+    if (!confirmDeleteRow) return
+    setDeleting(true)
+    try {
+      await onDelete(confirmDeleteRow.id)
+      setConfirmDeleteRow(null)
+    } finally {
+      setDeleting(false)
+    }
   }
 
   return (
@@ -1490,7 +1499,7 @@ const _GameHistoryPanel = function GameHistoryPanel({ rows, loading, decks, onRe
                     {row.notes && <p className={styles.histNotes}>{row.notes}</p>}
                     <div className={styles.historyEntryActions}>
                       <button className={styles.historySecondaryBtn} onClick={() => beginEdit(row)}>Edit</button>
-                      <button className={styles.historyDangerBtn} onClick={() => handleDelete(row)}>Delete</button>
+                      <button className={styles.historyDangerBtn} onClick={() => setConfirmDeleteRow(row)}>Delete</button>
                     </div>
                   </>
                 )}
@@ -1498,6 +1507,17 @@ const _GameHistoryPanel = function GameHistoryPanel({ rows, loading, decks, onRe
             )
           })}
         </div>
+      )}
+
+      {confirmDeleteRow && (
+        <ConfirmModal
+          title="Delete history entry?"
+          message={`Delete your history entry for ${confirmDeleteRow.deck_name || deckNameById[confirmDeleteRow.deck_id] || 'this game'}? This only removes it for your account.`}
+          confirmLabel="Delete"
+          busy={deleting}
+          onConfirm={handleDelete}
+          onClose={() => setConfirmDeleteRow(null)}
+        />
       )}
     </div>
   )
@@ -1981,6 +2001,7 @@ function PlayerPanel({
 export default function LifeTrackerPage() {
   const { user }     = useAuth()
   const { nickname } = useSettings()
+  const { showToast } = useToast()
 
   const [screen,       setScreen]       = useState('setup')
   const [gameConfig,   setGameConfig]   = useState(null)
@@ -2288,10 +2309,13 @@ export default function LifeTrackerPage() {
       } catch (e) {
         console.error('game history save:', e)
         const detail = [e?.message, e?.details, e?.hint].filter(Boolean).join(' ')
-        window.alert(
+        // Longer than the 3.2s default: the game stays open and the user has to
+        // act on this, so it must not vanish before it's read.
+        showToast(
           detail
             ? `Could not save game history. ${detail}`
-            : 'Could not save game history. Game still open. Please try again.'
+            : 'Could not save game history. Game still open. Please try again.',
+          { tone: 'error', duration: 6000 },
         )
         return
       }

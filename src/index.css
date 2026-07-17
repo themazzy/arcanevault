@@ -55,14 +55,39 @@
   --control-padding-x: 13px;
   --control-font-size: 0.72rem;
   --control-letter-spacing: 0.04em;
+  /* Small uppercase labels — chip labels, section eyebrows, tab labels.
+     Compose from src/styles/typography.module.css; don't hand-pick new values. */
+  --label-size-sm: 0.62rem;
+  --label-size-md: 0.68rem;
+  --label-size-lg: 0.72rem;
+  --label-tracking: 0.07em;
   /* Mobile floating action bar (browser controls / bulk action) — gutter cards must reserve so they're not covered */
   --mobile-floating-bar-height: 76px;
   --card-name-size: 0.68rem;
   --card-name-size-tight: 0.6rem;
   --card-name-size-list: 0.88rem;
 
-  /* Responsive breakpoints (reference only, use in @media) */
-  /* --bp-sm: 480px  --bp-md: 768px  --bp-lg: 1024px  --bp-xl: 1280px */
+  /* Responsive breakpoints — canonical set. These CANNOT be custom properties:
+     var() is not allowed in @media queries, so they stay a comment and you type
+     the px. Prefer intrinsic layout (auto-fit/minmax) over a breakpoint at all.
+       380px  smallest phones
+       480px  phone
+       640px  MENU -> BOTTOM SHEET. Load-bearing: ResponsiveMenu hardcodes
+              `innerWidth <= 640` in UI.jsx — CSS that assumes another width
+              disagrees with the JS for a band of screens.
+       900px  deck-builder mobile layout (pairs with min-width: 901px)
+      1100px  wide desktop
+     29 other max-widths are in use (see DESIGN.md §11); don't add a 30th. */
+
+  /* Z-index ladder — these are the de-facto anchors already in use, so moving a
+     rule onto a token is a no-op. Never invent a new ceiling; pick a layer.
+     NOTE: --z-preview sits ABOVE --z-toast, which is how it ships today. */
+  --z-chrome:   100;   /* sticky headers, page chrome, floating toolbars */
+  --z-dropdown: 140;   /* inline (non-portaled) menu panels */
+  --z-modal:    200;   /* modal overlay */
+  --z-popover:  750;   /* portaled ResponsiveMenu — must clear the modal */
+  --z-toast:   5000;   /* toast stack */
+  --z-preview: 9999;   /* floating card hover preview */
 
   /* Surface overlays — inverted per theme for light/dark mode */
   --s-card:    rgba(255,255,255,0.025);
@@ -105,6 +130,9 @@
   --font-2xl:  1.38rem;
   --font-3xl:  1.84rem;
   --control-font-size: 0.66rem;
+  --label-size-sm: 0.57rem;
+  --label-size-md: 0.63rem;
+  --label-size-lg: 0.66rem;
   --card-name-size: 0.63rem;
   --card-name-size-tight: 0.55rem;
   --card-name-size-list: 0.81rem;
@@ -407,6 +435,21 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+/* Baseline keyboard affordance for every interactive element.
+ *
+ * Wrapped in :where() so it has ZERO specificity — any component that defines
+ * its own :focus-visible (UI.jsx's .btn, BuildAssistant, Stats, …) still wins,
+ * and this only fills the gap. Before this rule the app had 635 :hover rules
+ * against 28 :focus-visible, i.e. keyboard users could not see where they were
+ * on most of the app. See DESIGN.md §7.
+ *
+ * :focus-visible (not :focus) so it never fires on mouse clicks.
+ */
+:where(a[href], button, select, textarea, input, summary, [tabindex]:not([tabindex="-1"]), [role="button"], [role="tab"], [role="menuitem"], [role="option"]):focus-visible {
+  outline: 1px solid var(--border-hi);
+  outline-offset: 2px;
+}
 
 html, body, #root {
   height: 100%;

@@ -183,76 +183,29 @@
 }
 .clearBtn:hover { background: rgba(196,96,96,0.1); }
 
-/* Detail */
-.detail { display: flex; gap: 24px; align-items: flex-start; }
-.detailImg {
-  width: 210px; flex-shrink: 0;
-  border-radius: 10px; overflow: hidden;
-  box-shadow: 0 8px 28px rgba(0,0,0,0.65), 0 0 0 1px rgba(180,140,60,0.1);
-  background: var(--s2);
-  aspect-ratio: 63/88;
-  position: relative;
-}
-.detailImg img { width: 100%; height: 100%; display: block; object-fit: cover; border-radius: 0; }
-.detailBody { flex: 1; }
-.detailName { font-family: var(--font-display); font-size: 1.2rem; color: var(--gold); margin-bottom: 3px; line-height: 1.2; }
-.detailSet { color: var(--text-dim); font-size: 0.88rem; margin-bottom: 14px; font-style: italic; }
-
-.priceGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
-.priceBlock { background: var(--s1); border: 1px solid rgba(255,255,255,0.07); border-radius: 4px; padding: 9px 12px; }
-.priceLabel { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 3px; }
-.priceVal { font-family: var(--font-display); font-size: 1.05rem; color: var(--green); }
-
-.detailRows { display: flex; flex-direction: column; gap: 5px; }
-.detailRow { display: flex; gap: 8px; font-size: 0.86rem; }
-.detailLabel { color: var(--text-dim); min-width: 95px; }
-.detailVal { color: var(--text); }
-
-.detailActions { display: flex; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.06); }
-.editBtn {
-  display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box;
-  height: var(--control-height);
-  font-family: var(--font-display); font-size: var(--control-font-size); letter-spacing: var(--control-letter-spacing);
-  padding: 6px var(--control-padding-x); border-radius: 4px; cursor: pointer;
-  background: rgba(201,168,76,0.1); border: 1px solid rgba(201,168,76,0.3);
-  color: var(--gold); transition: all 0.2s;
-}
-.editBtn:hover { background: rgba(201,168,76,0.2); }
-.deleteBtn {
-  display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box;
-  height: var(--control-height);
-  font-family: var(--font-display); font-size: var(--control-font-size); letter-spacing: var(--control-letter-spacing);
-  padding: 6px var(--control-padding-x); border-radius: 4px; cursor: pointer;
-  background: rgba(196,96,96,0.06); border: 1px solid rgba(196,96,96,0.25);
-  color: var(--red); transition: all 0.2s;
-}
-.deleteBtn:hover { background: rgba(196,96,96,0.14); }
+/* The pre-v2 detail layout (.detail/.detailImg/.detailRows/.detailActions/
+   .editBtn/.deleteBtn/.priceGrid/...) lived here and is gone — it had no JSX
+   references left. .detailBody and .detailName survive under "Shared Card
+   Detail v2" below. */
 
 /* ── Edit controls ───────────────────────────────────────────────────────────── */
-.editGroup {
-  display: flex; align-items: center; gap: 10px;
-  padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,0.04);
-  flex-wrap: wrap;
-}
-.editLabel {
-  font-size: 0.74rem; color: var(--text-dim);
-  text-transform: uppercase; letter-spacing: 0.06em;
-  min-width: 90px; flex-shrink: 0;
-}
 .qtyEditor { display: flex; align-items: center; gap: 0; }
 .qtyBtn {
-  width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
-  background: var(--s3); border: 1px solid rgba(255,255,255,0.12);
-  color: var(--text); font-size: 1rem; cursor: pointer; transition: background 0.15s;
-  border-radius: 3px 0 0 3px;
+  width: var(--control-height); height: var(--control-height);
+  display: flex; align-items: center; justify-content: center;
+  background: var(--s3); border: 1px solid var(--s-border2);
+  color: var(--text); font-size: 0.95rem; cursor: pointer; transition: background 0.15s;
+  border-radius: 4px 0 0 4px;
+  box-sizing: border-box; flex-shrink: 0;
 }
-.qtyBtn + .qtyBtn { border-radius: 0 3px 3px 0; }
-.qtyBtn:hover { background: rgba(255,255,255,0.12); }
+.qtyBtn + .qtyBtn { border-radius: 0 4px 4px 0; }
+.qtyBtn:hover { background: var(--s-medium); }
 .qtyInput {
-  width: 46px; height: 28px; text-align: center;
-  background: var(--s2); border: 1px solid rgba(255,255,255,0.1);
+  width: 46px; height: var(--control-height); text-align: center;
+  background: var(--s2); border: 1px solid var(--s-border2);
   border-left: none; border-right: none;
-  color: var(--text); font-size: 0.9rem; outline: none;
+  color: var(--text); font-size: var(--control-font-size); outline: none;
+  box-sizing: border-box; min-width: 0;
 }
 .qtyInput::-webkit-inner-spin-button,
 .qtyInput::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
@@ -260,14 +213,15 @@
 /* Foil switch */
 .foilSwitch {
   position: relative;
-  width: 44px; height: 26px;
-  background: rgba(255,255,255,0.1);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 13px;
+  width: 44px; height: var(--control-height);
+  background: var(--s-medium);
+  border: 1px solid var(--s-border2);
+  border-radius: calc(var(--control-height) / 2);
   cursor: pointer;
   transition: all 0.25s;
   padding: 0;
   flex-shrink: 0;
+  box-sizing: border-box;
 }
 .foilSwitchOn {
   background: rgba(138,111,196,0.4);
@@ -276,40 +230,25 @@
 }
 .foilSwitchKnob {
   position: absolute;
-  top: 2px; left: 2px;
+  top: 50%; left: 3px;
   width: 18px; height: 18px;
   background: var(--text-dim);
   border-radius: 50%;
+  transform: translateY(-50%);
   transition: transform 0.25s, background 0.25s;
   display: block;
 }
 .foilSwitchOn .foilSwitchKnob {
-  transform: translateX(20px);
+  transform: translate(19px, -50%);
   background: var(--purple);
 }
 
-.editSelect {
-  background: var(--s2); border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 3px; padding: 5px 8px; color: var(--text); font-size: 0.85rem;
-  outline: none; cursor: pointer;
-}
-.editSelect option { background: var(--bg3); }
-
-.buyPriceRow {
-  display: flex; align-items: center; gap: 8px;
-}
-.buyPriceValue {
-  font-size: 0.85rem; color: var(--text); font-variant-numeric: tabular-nums;
-}
-
 .editSaveRow {
-  display: flex; align-items: center; gap: 10px; margin-top: 14px;
+  display: flex; align-items: center; gap: 10px;
 }
 /* saveBtn / addToFolderBtn replaced by uiStyles.btn green/purple */
 
 @media (max-width: 600px) {
-  .detail { flex-direction: column; }
-  .detailImg { width: 100%; max-width: 220px; margin: 0 auto; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
 
   /* Compact filter bar so more cards are visible */
@@ -1141,36 +1080,14 @@
 .miniSelect option { background: var(--bg3, #14111f); }
 
 /* ── Detail tabs ─────────────────────────────────────────────────────────── */
-.detailTabs {
-  display: flex;
-  gap: 2px;
-  margin: 12px 0 0;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-  flex-wrap: wrap;
-}
-.detailTab {
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--text-faint);
-  font-family: var(--font-serif);
-  font-size: 0.82rem;
-  padding: 7px 12px;
-  cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
-  white-space: nowrap;
-  margin-bottom: -1px;
-}
-.detailTab:hover { color: var(--text-dim); }
-.detailTabActive { color: var(--gold) !important; border-bottom-color: var(--gold) !important; }
+/* Tab styles live with "Shared Card Detail v2" below — the underline-tab
+   versions that used to sit here were dead except for a stray border-bottom
+   and margin-bottom that leaked onto the v2 pills. */
 
-.detailSection {
-  padding-top: 14px;
-  overflow-y: auto;
-  max-height: 380px;
-}
-.detailSection::-webkit-scrollbar { width: 4px; }
-.detailSection::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+/* .detailSection lives with "Shared Card Detail v2" below — the capped-height,
+   scrolling version that used to sit here was fully overridden (v2 sets
+   `overflow: visible`, which also killed this one's overflow-y and made the
+   scrollbar rules inert). */
 
 /* Info rows used in overview and collection tabs */
 .detailInfoRow {
@@ -1205,29 +1122,8 @@
 .legalityFormat { color: var(--text-dim); }
 .legalityStatus { font-size: 0.78rem; font-weight: 600; }
 
-/* Prices grid */
-.pricesGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 10px;
-}
-.priceDetailBlock {
-  background: var(--s1);
-  border: 1px solid rgba(255,255,255,0.07);
-  border-radius: 4px;
-  padding: 10px 12px;
-}
-.priceDetailLabel { font-size: 0.7rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 4px; }
-.priceDetailVal { font-size: 1.05rem; font-family: var(--font-display); }
-
-/* Rulings */
-.ruling {
-  background: var(--s1);
-  border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 4px;
-  padding: 10px 14px;
-}
-.rulingDate { font-size: 0.72rem; color: var(--text-faint); margin-bottom: 6px; }
+/* The prices grid and rulings rules live with "Shared Card Detail v2" below —
+   the versions that used to sit here were fully overridden by it. */
 
 /* Mobile bottom sheet — modal handles mobile natively via UI.module.css */
 @media (max-width: 640px) {
@@ -1239,7 +1135,6 @@
     z-index: 500;
   }
 }
-.rulingText { font-size: 0.86rem; color: var(--text); line-height: 1.5; }
 
 /* Shared Card Detail v2 */
 .detailShell {
@@ -1352,6 +1247,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  flex: 1;              /* carried over from the removed pre-v2 rule */
 }
 
 .detailName {
@@ -1360,28 +1256,46 @@
   font-weight: 600;
   color: var(--text);
   letter-spacing: 0.02em;
+  line-height: 1.2;     /* carried over from the removed pre-v2 rule */
   margin: 0;
 }
 
+/* Not italic — italics are reserved for flavour text (.flavorText). */
 .detailType {
   font-size: 0.82rem;
   color: var(--text-dim);
-  font-style: italic;
 }
 
-.detailStatRow {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+/* Chip geometry, shared by the rarity / live-price pills and the stat chips. */
+/* Chips are static, non-interactive labels. Buttons in this app are 30px tall,
+   4px-radius, bordered and hover; chips are deliberately the opposite — pill
+   shape, no border, flat fill — so shape alone tells you what's clickable. */
+.chipBase {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 11px;
+  border-radius: 999px;
+  box-sizing: border-box;
+  /* Without this the chip inherits body's line-height:1.6, so the text centres
+     as a ~17px line box whose lower half is empty descender space these all-caps
+     labels never use — the glyphs end up riding high. line-height:1 collapses
+     the box onto the text so align-items:center has the right thing to centre. */
+  line-height: 1;
+}
+
+/* The rarity and live-price chips flank the price. Identical geometry and type;
+   colour is the only thing that distinguishes them. */
+.detailChip {
+  composes: chipBase;
+  composes: labelMd from '../styles/typography.module.css';
+  font-family: var(--font-display);
+  white-space: nowrap;
 }
 
 .detailStatBadge {
+  composes: detailChip;
   background: var(--s3);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 4px;
-  padding: 3px 10px;
-  font-family: var(--font-display);
-  font-size: 0.85rem;
   color: var(--text);
 }
 
@@ -1400,24 +1314,20 @@
 }
 
 .statChip {
-  display: inline-flex;
-  align-items: center;
+  composes: chipBase;
   gap: 5px;
-  background: var(--s1);
-  border: 1px solid var(--s-border);
-  border-radius: 5px;
-  padding: 3px 9px;
+  background: var(--s2);
 }
 
+/* Label and value share one size (--label-size-md) so a chip reads as a single
+   object, and so stat chips match the rarity / live-price pills above them. */
 .statChipLabel {
-  font-size: 0.62rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  composes: labelMd from '../styles/typography.module.css';
   color: var(--text-faint);
 }
 
 .statChipVal {
-  font-size: 0.82rem;
+  font-size: var(--label-size-md);
   font-weight: 600;
   color: var(--text);
 }
@@ -1435,26 +1345,31 @@
 }
 
 .detailStatusPill {
-  font-size: 0.68rem;
+  composes: detailChip;
   color: var(--gold);
-  background: rgba(201,168,76,0.12);
-  border: 1px solid rgba(201,168,76,0.25);
-  border-radius: 3px;
-  padding: 1px 6px;
+  background: rgba(201,168,76,0.14);
 }
 
 .detailStatusLive {
-  color: #4a9a5a;
-  background: rgba(74,154,90,0.12);
-  border-color: rgba(74,154,90,0.25);
+  color: var(--green);
+  background: rgba(93,186,112,0.14);
 }
 
 .detailMetaLine {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
   color: var(--text-faint);
   font-size: 0.76rem;
+}
+
+/* Bullet between fields, drawn on every span but the first. Spacing lives in
+   the ::before margins rather than a flex gap so the dot sits evenly between
+   its neighbours instead of hugging the field to its left. */
+.detailMetaLine > span + span::before {
+  content: '\2022';
+  margin: 0 7px;
+  font-weight: 700;
+  color: var(--text-dim);
 }
 
 .detailLoadingNote {
@@ -1463,39 +1378,104 @@
   padding: 8px 0;
 }
 
+/* Each tab's panel is a separate conditional child, so switching tabs mounts a
+   fresh node and replays this. Killed globally by [data-reduce-motion]. */
 .tabContentBox {
   display: flex;
   flex-direction: column;
   gap: 10px;
   padding-top: 6px;
+  animation: tabContentIn 0.22s ease-out;
 }
 
+@keyframes tabContentIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Underline tabs, matching DeckBuilder's Deck/Stats/Combos bar (.tabBar +
+   .rightTabBar there). The gold underline is a single sliding pseudo-element
+   rather than a per-tab border, so switching tabs animates it across instead of
+   cross-fading two static borders. Tabs are `flex: 1` (equal width), which is
+   what lets the indicator be positioned with plain percentages.
+   `--tab-count` / `--tab-index` are set inline by CardDetailContent. */
 .detailTabs {
   display: flex;
-  gap: 3px;
-  background: var(--s1);
-  border: 1px solid var(--s-border);
-  border-radius: 8px;
-  padding: 4px;
-  flex-wrap: wrap;
+  flex-shrink: 0;
+  position: relative;
+  min-height: 32px;
+  background: color-mix(in srgb, var(--bg2) 28%, transparent);
+  /* No frame — the dividers carry the segmented read on their own. Radius and
+     overflow stay: they soften the background tint and clip the sliding
+     indicator at the ends. */
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.detailTabs::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  width: calc(100% / var(--tab-count, 1));
+  transform: translateX(calc(var(--tab-index, 0) * 100%));
+  background: var(--gold);
+  box-shadow: 0 0 10px rgba(201,168,76,0.5);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .detailTab {
+  position: relative;
+  flex: 1;
+  min-height: 30px;
+  padding: 6px 13px;
   background: none;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  color: var(--text-faint);
+  border: none;
+  color: var(--text-dim);
   font-family: var(--font-display);
-  font-size: 0.72rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  padding: 5px 14px;
+  font-size: var(--control-font-size);
+  letter-spacing: var(--control-letter-spacing);
+  white-space: nowrap;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: color 0.18s, background 0.18s, box-shadow 0.18s;
 }
 
-.detailTab:hover { background: var(--s3); color: var(--text); border-color: var(--s-border2); }
-.detailTabActive { color: var(--gold) !important; background: rgba(201,168,76,0.12) !important; border-color: rgba(201,168,76,0.25) !important; }
+/* Divider between tabs. Drawn as a pseudo-element, not a border: a real border
+   would widen every tab but the first, and the indicator above positions itself
+   in percentages that assume all tabs are exactly equal. */
+.detailTab + .detailTab::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 1px;
+  background: var(--s-border);
+}
+
+/* Hover: gold glow blooms inward and a dim underline previews where the
+   indicator is about to land. Transitioned, so it fades rather than snaps —
+   and [data-reduce-motion] flattens it globally. */
+/* :not() rather than !important on the active rule — a bare .detailTab:hover
+   outranks .detailTabActive and would grey out the active tab on hover. */
+.detailTab:hover:not(.detailTabActive) {
+  color: var(--text);
+  background: var(--s-subtle);
+  box-shadow: inset 0 -2px 0 rgba(201,168,76,0.3), inset 0 0 16px rgba(201,168,76,0.12);
+}
+
+.detailTab:active:not(.detailTabActive) { background: var(--s-medium); }
+
+.detailTab:focus-visible {
+  outline: 1px solid var(--border-hi);
+  outline-offset: -2px;
+}
+
+.detailTabActive {
+  color: var(--gold);
+  background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--gold) 10%, transparent));
+}
 
 .detailSection {
   padding-top: 8px;
@@ -1545,10 +1525,10 @@
   font-size: 0.9rem;
 }
 
+/* Per-face type line — not italic, same as .detailType. */
 .faceType {
   color: var(--text-dim);
   font-size: 0.82rem;
-  font-style: italic;
 }
 
 .detailLinks {
@@ -1579,10 +1559,8 @@
 }
 
 .priceSectionLabel {
-  font-size: 0.72rem;
+  composes: labelLg from '../styles/typography.module.css';
   color: var(--text-faint);
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
 }
 
 .pricesGrid {
@@ -1612,11 +1590,8 @@ a.priceDetailBlock:focus {
 }
 
 .priceDetailLabel {
-  font-size: 0.68rem;
+  composes: labelMd from '../styles/typography.module.css';
   color: var(--text-faint);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-bottom: 0;
 }
 
 .priceDetailVal {
@@ -1691,40 +1666,37 @@ a.priceDetailBlock:focus {
   gap: 10px 12px;
 }
 
-.editGroup {
-  background: var(--s1);
-  border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 5px;
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
 .editLabel {
-  font-size: 0.68rem;
+  composes: labelMd from '../styles/typography.module.css';
   color: var(--text-faint);
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
 }
 
-.inlineEditor {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  flex-wrap: wrap;
+/* Every control in the edit row is pinned to the app's control tokens so the
+   row reads as one strip rather than five differently-sized widgets. Scoped via
+   the parent so it outranks UI.module.css `.select` on specificity rather than
+   on stylesheet order. */
+.editField .editControl {
+  height: var(--control-height);
+  min-height: var(--control-height);
+  padding: 0 var(--control-padding-x);
+  font-size: var(--control-font-size);
+  box-sizing: border-box;
 }
 
 .buyPriceInput {
-  width: 96px;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid var(--border-hi);
-  border-radius: 3px;
-  padding: 6px 8px;
+  width: 100%;
+  background: var(--s-subtle);
+  border: 1px solid var(--border);
+  border-radius: 4px;
   color: var(--text);
-  font-size: 0.88rem;
+  font-family: var(--font-serif);
   outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  min-width: 0;
 }
+.buyPriceInput:focus { border-color: var(--border-hi); box-shadow: var(--input-focus); }
+.buyPriceInput::-webkit-inner-spin-button,
+.buyPriceInput::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 
 /* inlineActionBtn / inlineTextBtn replaced by uiStyles.btn sm / ghost */
 
@@ -1791,10 +1763,8 @@ a.priceDetailBlock:focus {
 }
 
 .locationSubLabel {
-  font-size: 0.68rem;
+  composes: labelMd from '../styles/typography.module.css';
   color: var(--text-faint);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
   margin-top: 6px;
   margin-bottom: 4px;
 }
@@ -1830,46 +1800,7 @@ a.priceDetailBlock:focus {
   opacity: 0.85;
 }
 
-/* Card tab — info grid (2-column) */
-.infoGrid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0;
-  border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 5px;
-  overflow: hidden;
-}
-
-.infoCell {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 8px 12px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  border-right: 1px solid rgba(255,255,255,0.06);
-}
-.infoCell:nth-child(even) { border-right: none; }
-.infoCell:last-child, .infoCell:nth-last-child(2):nth-child(odd) { border-bottom: none; }
-
-.infoLabel {
-  font-size: 0.66rem;
-  color: var(--text-faint);
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-}
-
-.infoVal {
-  font-size: 0.84rem;
-  color: var(--text);
-  line-height: 1.3;
-}
-
 /* Edit tab — row layout */
-.editRow {
-  display: flex;
-  gap: 10px;
-}
-
 .editControlRow {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -1907,16 +1838,7 @@ a.priceDetailBlock:focus {
   justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
-}
-
-/* Change printing — base styles from uiStyles.btn ghost, adds dashed border */
-.changePrintingBtn {
-  border-style: dashed;
-}
-.changePrintingBtnOpen {
-  --btn-border: rgba(201,168,76,0.45);
-  --btn-color: var(--gold);
-  --btn-bg: rgba(255,255,255,0.04);
+  margin-top: 14px;
 }
 
 /* Printing image grid inside ResponsiveMenu */

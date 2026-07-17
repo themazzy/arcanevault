@@ -951,8 +951,7 @@
 .groupByBtn:hover { color: var(--text); border-color: var(--s-border2); }
 .groupByActive { color: var(--gold) !important; border-color: rgba(201,168,76,0.35) !important; background: rgba(201,168,76,0.07) !important; }
 
-.mobileControlsMenu { display: none; }
-.mobileControlsMenu { gap: 8px; align-items: center; }
+.mobileControlsMenu { display: none; gap: 8px; align-items: center; }
 .mobileTopControls { display: none; }
 .mobileControlsMenuHidden { display: none !important; }
 .mobileControlsBtn {

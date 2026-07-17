@@ -148,7 +148,7 @@ Folders whose description JSON contains `"isGroup": true` are organisational gro
 
 All SVG icons live in **`src/icons/index.jsx`** — this is the single source of truth for iconography.
 
-- 56 icons, all `viewBox="0 0 16 16"` (except `SettingsIcon` which uses `0 0 24 24` to match its detailed gear path), `currentColor`, props: `size` (default 16), `color`, `className`.
+- 61 icons, all `viewBox="0 0 16 16"` (except `SettingsIcon` which uses `0 0 24 24` to match its detailed gear path), `currentColor`, props: `size` (default 16), `color`, `className`. See [DESIGN.md](DESIGN.md) §9 for the icon rules.
 - **`SettingsIcon`** uses the same detailed Material-style gear as the CardScanner menu button. Do not replace it with a simpler cog.
 - `src/components/Icons.jsx` is a compatibility shim — it re-exports folder-type icons from `src/icons`. Import new icons directly from `../icons` (or `../../icons` from scanner/).
 - When adding new icons, add them to `src/icons/index.jsx` following the existing pattern. Never use `⚙`, `☰`, `✕`, `⊞`, `≡`, `⊟` Unicode characters as icon substitutes — use the SVG components instead.
@@ -380,72 +380,19 @@ A linked collection deck navigates to `/builder/<linked_builder_id>` rather than
 
 ## Patterns & Conventions
 
-### CSS Modules
+### CSS Modules & visual design → **[DESIGN.md](DESIGN.md)**
 
-Every page and major component has a paired `.module.css`. Use CSS variables for theming:
+Every page and major component has a paired `.module.css`.
 
-```css
-var(--gold)          /* #c9a84c — primary accent */
-var(--bg)            /* page background */
-var(--bg2)           /* card/panel background */
-var(--bg3)           /* nested elements */
-var(--border)        /* subtle border */
-var(--border-hi)     /* highlighted border */
-var(--text)          /* primary text */
-var(--text-dim)      /* secondary text */
-var(--text-faint)    /* placeholder / disabled text */
-var(--green)         /* #5dba70 — positive/price colour */
-var(--font-display)  /* Cinzel — headings, titles, fantasy flavour */
+**All UI/UX conventions live in [DESIGN.md](DESIGN.md)** — design tokens (colour, surfaces, type, controls, labels, motion), the `UI.jsx` primitives, buttons, chips vs buttons, control rows, menus/modals/tabs, icons, toasts, the CSS rules that prevent real bugs, and a measured list of where the app currently violates its own conventions.
 
-/* Surface overlay vars — auto-adapt dark ↔ light (prefer these over hardcoded rgba(255,255,255,...)) */
-var(--s1)            /* lightest surface tint */
-var(--s2)            /* card/panel background fill */
-var(--s3)            /* interactive element fill (buttons) */
-var(--s4)            /* hover/pressed fill */
-var(--s-card)        /* card surface */
-var(--s-subtle)      /* very subtle tint */
-var(--s-medium)      /* medium tint — use for button hover backgrounds */
-var(--s-border)      /* subtle border — use instead of rgba(255,255,255,0.07) */
-var(--s-border2)     /* stronger border — use for interactive button outlines */
-```
+Read it before writing any CSS. A few rules that bite hardest:
 
-**Light theme critical rule:** Never use hardcoded `rgba(255,255,255,0.X)` for borders or backgrounds on interactive elements — they are invisible on light themes. Use `var(--s-border)` / `var(--s-border2)` / `var(--s-medium)` etc. instead.
-
-#### Recurring visual patterns
-
-**Dot-grid page background** — applied via `.page` on the root wrapper of index/browser pages:
-```css
-.page {
-  background-image: radial-gradient(circle, rgba(201,168,76,0.04) 1px, transparent 1px);
-  background-size: 28px 28px;
-}
-```
-
-**Gold top-border card** — used on folder cards, stat cards, and list items:
-```css
-border-top: 2px solid rgba(201,168,76,0.35);
-/* hover: */
-border-top-color: rgba(201,168,76,0.65);
-```
-
-**View toggle pill** — grid/list switcher used in `FolderBrowser`, `ListBrowser`, and `DeckView`:
-```jsx
-<div className={styles.viewToggle}>
-  <button className={`${styles.viewBtn} ${view==='grid' ? styles.viewActive : ''}`} onClick={() => setView('grid')}>⊞ Grid</button>
-  <button className={`${styles.viewBtn} ${view==='list' ? styles.viewActive : ''}`} onClick={() => setView('list')}>≡ List</button>
-</div>
-```
-```css
-.viewToggle { display:flex; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:6px; overflow:hidden; }
-.viewBtn    { padding:5px 14px; background:none; border:none; color:var(--text-dim); cursor:pointer; font-size:.8rem; }
-.viewActive { background:rgba(201,168,76,0.15); color:var(--gold); }
-```
-
-**Section label with extending rule** — used for "BINDERS", "WISHLISTS", stat section headers:
-```css
-.sectionLabel { display:flex; align-items:center; gap:10px; font-family:var(--font-display); font-size:.65rem; letter-spacing:.12em; color:var(--text-faint); text-transform:uppercase; }
-.sectionLabel::after { content:''; flex:1; height:1px; background:rgba(255,255,255,0.05); }
-```
+- **Never** hardcode `rgba(255,255,255,0.X)` for borders/backgrounds — invisible on light themes. Use `var(--s-border)` / `var(--s-border2)` / `var(--s-medium)`.
+- **Never** hardcode a size a token covers — `--control-*` for controls, `--label-*` (via `src/styles/typography.module.css`) for uppercase labels.
+- Any `Select`/`ResponsiveMenu` inside a `Modal` **must** pass `portal`, or it gets clipped.
+- One selector, one definition — duplicates merge per-property and leak silently.
+- Override primitives via **specificity** (parent-scoped), never stylesheet order — modules build into separate chunks.
 
 ### Component Conventions
 
@@ -461,7 +408,7 @@ border-top-color: rgba(201,168,76,0.65);
 
 ### Shared UI Primitives (`UI.jsx`)
 
-`src/components/UI.jsx` exports reusable primitives: `Button`, `Input`, `Modal`, `SectionHeader`, `Select`, `Badge`, `EmptyState`, `ErrorBox`, `ProgressBar`. Prefer these over one-off implementations in page files for consistent styling.
+`src/components/UI.jsx` exports reusable primitives: `Button`, `Input`, `Modal`, `SectionHeader`, `Select`, `Badge`, `EmptyState`, `ErrorBox`, `ProgressBar`, `ResponsiveMenu`, `DropZone`. Prefer these over one-off implementations — see [DESIGN.md](DESIGN.md) for variants, sizes, and the portal rule.
 
 ### Setup Wizard
 

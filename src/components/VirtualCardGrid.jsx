@@ -1,7 +1,7 @@
 import { useRef, useCallback, useEffect, useMemo, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { getImageUri, getPriceWithMeta, formatPriceMeta, getScryfallKey, resolveTileImage } from '../lib/scryfall'
-import { FolderTypeIcon } from './Icons'
+import { FolderTypeIcon } from '../icons'
 import { Badge } from './UI'
 import styles from './VirtualCardGrid.module.css'
 import { useLongPress } from '../hooks/useLongPress'

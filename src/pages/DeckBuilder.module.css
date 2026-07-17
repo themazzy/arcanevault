@@ -239,7 +239,10 @@
   left: 16px;
 }
 
+/* Visible inline on desktop; the 900px rule hides it inside the mobile pill. */
 .toggleLabel {
+  display: inline;
+  margin-left: 4px;
   font-size: 0.8rem;
   color: var(--text-faint);
   transition: color 0.2s;
@@ -2467,8 +2470,9 @@
     min-height: 0;
   }
 
-  /* Right (deck) is always visible; left slides up as a modal sheet over it */
-  .right { display: flex; flex: 1; }
+  /* Right (deck) is always visible; left slides up as a modal sheet over it.
+     min-width:0 is containment — stops flex children forcing horizontal overflow. */
+  .right { display: flex; flex: 1; min-width: 0; }
   .left { display: none; }
   .page:not(.showRight) .left {
     display: flex;
@@ -2545,13 +2549,9 @@
     order: 1;
   }
 
-  .headerActions {
-    order: 2;
-    flex: 1 1 100%;
-    width: 100%;
-    justify-content: flex-start;
-    gap: 6px;
-  }
+  /* .headerActions is set to display:none by section E further down (same
+     900px breakpoint), so the flex/order layout that used to be here never
+     applied. Removed. */
 
   .btnIcon  {
     display: inline-flex;
@@ -2613,7 +2613,10 @@
   }
 
   .deckList {
+    min-width: 0;   /* containment — stop flex children forcing h-overflow */
     padding: 8px 8px 14px;
+    /* Clear the floating action bar pinned to the bottom on mobile. */
+    padding-bottom: calc(var(--mobile-floating-bar-height) + env(safe-area-inset-bottom, 0px));
   }
 
   .deckListHeader {
@@ -2622,10 +2625,8 @@
     font-size: 0.58rem;
   }
 
-  .deckToolbar {
-    gap: 6px;
-    padding: 4px 0 8px;
-  }
+  /* .deckToolbar's gap/padding here were fully overridden by section E's
+     floating-pill toolbar rules further down (same 900px breakpoint). Removed. */
 
   .deckCardRow,
   .compactRow {
@@ -4008,9 +4009,8 @@
    - Bottom-sheet menus open via portaled ResponsiveMenu (escape pill stack)
    ────────────────────────────────────────────────────────────────────── */
 @media (max-width: 900px) {
-  /* Containment — stop flex children from forcing horizontal overflow */
-  .right { min-width: 0; }
-  .deckList { min-width: 0; padding-bottom: calc(var(--mobile-floating-bar-height) + env(safe-area-inset-bottom, 0px)); }
+  /* Containment + floating-bar clearance for .right/.deckList are merged into
+     their primary rules in the 900px block above (one selector, one definition). */
 
   /* Inline description+tags panel — phone uses Deck Actions menu instead */
   .deckMetaPanel { display: none; }
@@ -4247,11 +4247,7 @@
 /* "Done" bar: hidden everywhere by default — only the mobile rule reveals it */
 .mobileLeftDone { display: none; }
 
-/* Toggle label — visible inline on desktop, hidden in the mobile pill */
-.toggleLabel {
-  display: inline;
-  margin-left: 4px;
-}
+/* Toggle label — base rule lives with the other .toggleLabel styles above. */
 @media (max-width: 900px) {
   .toggleLabel { display: none; }
 }

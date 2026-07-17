@@ -383,6 +383,36 @@ export function Modal({
   )
 }
 
+/**
+ * Destructive-action confirm. Use instead of window.confirm() — the native
+ * dialog can't be themed, blocks the event loop, and looks like a browser
+ * warning rather than part of the app. Built on Modal, so it gets the focus
+ * trap, Escape handling and scroll lock for free.
+ */
+export function ConfirmModal({
+  title = 'Are you sure?',
+  message,
+  confirmLabel = 'Confirm',
+  cancelLabel = 'Cancel',
+  variant = 'danger',
+  busy = false,
+  onConfirm,
+  onClose,
+}) {
+  return (
+    <Modal onClose={onClose} allowOverflow={false} className={styles.confirmModal}>
+      <h3 className={styles.confirmTitle}>{title}</h3>
+      {message && <p className={styles.confirmMessage}>{message}</p>}
+      <div className={styles.confirmActions}>
+        <Button variant="secondary" size="sm" onClick={onClose} disabled={busy}>{cancelLabel}</Button>
+        <Button variant={variant} size="sm" onClick={onConfirm} disabled={busy}>
+          {busy ? 'Working…' : confirmLabel}
+        </Button>
+      </div>
+    </Modal>
+  )
+}
+
 export function SectionHeader({ title, action }) {
   return (
     <div className={styles.sectionHeader}>

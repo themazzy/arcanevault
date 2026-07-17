@@ -5,8 +5,7 @@ import { getImageUri, getPrice, formatPrice, getScryfallKey } from '../lib/scryf
 import { Modal, Badge, ResponsiveMenu, Select } from './UI'
 import styles from './CardComponents.module.css'
 import uiStyles from './UI.module.css'
-import { FolderTypeIcon } from './Icons'
-import { CloseIcon, CheckIcon } from '../icons'
+import { CloseIcon, CheckIcon, FolderTypeIcon } from '../icons'
 import { sb } from '../lib/supabase'
 import { putCards } from '../lib/db'
 import { useLongPress } from '../hooks/useLongPress'
@@ -422,6 +421,25 @@ const LANG_NAMES_FULL = {
   he:'Hebrew', la:'Latin', grc:'Ancient Greek', ar:'Arabic', sa:'Sanskrit', ph:'Phyrexian',
 }
 
+// A Scryfall card object doesn't list the other languages its printing exists
+// in — only a multilingual prints search does. One call per printing, cached.
+const _printLangCache = {}
+async function fetchPrintingLanguages(setCode, collectorNumber) {
+  if (!setCode || !collectorNumber) return null
+  const key = `${setCode}-${collectorNumber}`
+  if (_printLangCache[key]) return _printLangCache[key]
+  try {
+    const q = encodeURIComponent(`set:${setCode} cn:${collectorNumber}`)
+    const res = await fetch(`https://api.scryfall.com/cards/search?q=${q}&unique=prints&include_multilingual=true`)
+    if (!res.ok) return null
+    const data = await res.json()
+    const langs = [...new Set((data.data || []).map(c => c.lang).filter(Boolean))]
+    if (!langs.length) return null
+    _printLangCache[key] = langs
+    return langs
+  } catch { return null }
+}
+
 // Fetch full card data from Scryfall — by scryfall_id if available, else by set+collector_number
 const _fullCardCache = {}
 async function fetchFullCard(scryfallId, setCode, collectorNumber) {
@@ -483,8 +501,10 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
   const [editCondition, setEditCondition] = useState(card.condition || 'near_mint')
   const [editLanguage, setEditLanguage] = useState(card.language || 'en')
   const [editBuyPrice, setEditBuyPrice] = useState(parseFloat(card.purchase_price) || 0)
-  const [buyPriceEdit, setBuyPriceEdit] = useState(false)
-  const [buyPriceInput, setBuyPriceInput] = useState('')
+  const [buyPriceInput, setBuyPriceInput] = useState(
+    parseFloat(card.purchase_price) > 0 ? String(parseFloat(card.purchase_price)) : ''
+  )
+  const [printLanguages, setPrintLanguages] = useState(null)
   const [printings, setPrintings] = useState(null)
   const [loadingPrintings, setLoadingPrintings] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -529,7 +549,37 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
     fetchRulings(card.scryfall_id, card.set_code, card.collector_number).then(setRulings)
   }, [activeTab, card.scryfall_id, card.set_code, card.collector_number, rulings])
 
+  // Tagged with the printing it describes, so a result for the previous card is
+  // never read as this one's (and no reset-setState in the effect body).
+  const langKey = `${card.set_code}-${card.collector_number}`
+  useEffect(() => {
+    if (readOnly || activeTab !== 'collection') return
+    let cancelled = false
+    fetchPrintingLanguages(card.set_code, card.collector_number)
+      .then(langs => { if (!cancelled) setPrintLanguages({ key: `${card.set_code}-${card.collector_number}`, langs }) })
+    return () => { cancelled = true }
+  }, [readOnly, activeTab, card.set_code, card.collector_number])
+
+  // Offer only the languages this printing was actually released in. The stored
+  // language is always kept in the list so an existing value can never silently
+  // disappear; a failed/empty lookup falls back to the full list.
+  const languageOptions = useMemo(() => {
+    const langs = printLanguages?.key === langKey ? printLanguages.langs : null
+    const codes = langs
+      ? [...new Set([...langs, editLanguage])]
+      : Object.keys(LANG_NAMES_FULL)
+    const order = Object.keys(LANG_NAMES_FULL)
+    return codes
+      .sort((a, b) => {
+        const ia = order.indexOf(a), ib = order.indexOf(b)
+        return (ia === -1 ? order.length : ia) - (ib === -1 ? order.length : ib)
+      })
+      .map(code => [code, LANG_NAMES_FULL[code] || code.toUpperCase()])
+  }, [printLanguages, langKey, editLanguage])
+
   const fc = fullCard || sfCard || {}
+  const setName = fc.set_name || sfCard?.set_name || ''
+  const setCode = (card.set_code || fc.set || '').toUpperCase()
   const attractionLights = formatAttractionLights(card, fc)
   const faces = fc.card_faces || null
   const hasFaces = Array.isArray(faces) && faces.length > 1
@@ -591,9 +641,12 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
     flipTimers.current.push(t1)
   }
 
+  // Commits on blur/Enter. The field is always live now, so blur fires on every
+  // tab-through — bail out when the value didn't actually change.
   const saveBuyPrice = async () => {
     const parsed = parseFloat(buyPriceInput)
     const val = !isNaN(parsed) && parsed >= 0 ? parsed : 0
+    if (val === editBuyPrice) return
     setEditBuyPrice(val)
     const { error } = await sb.from('cards').update({ purchase_price: val }).eq('id', card.id)
     if (!error) {
@@ -601,7 +654,6 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
       await putCards([updatedCard])
       onSave?.(updatedCard)
     }
-    setBuyPriceEdit(false)
   }
 
   const handleSave = async () => {
@@ -747,15 +799,18 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
             </div>
             <div className={styles.detailType}>{typeLine}</div>
 
+            {/* Separators are drawn by CSS on every span after the first, so a
+                missing field can't leave a dangling bullet. */}
             <div className={styles.detailMetaLine}>
-              <span>{fc.set_name || sfCard?.set_name || (card.set_code || '').toUpperCase()}</span>
-              <span> #{card.collector_number}</span>
-              {fc.artist && <span> {fc.artist}</span>}
-              {card.added_at && <span>· Added {new Date(card.added_at).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' })}</span>}
+              <span>{setName || setCode}</span>
+              {setName && setCode && <span>{setCode}</span>}
+              {card.collector_number && <span>#{card.collector_number}</span>}
+              {fc.artist && <span>{fc.artist}</span>}
+              {card.added_at && <span>Added {new Date(card.added_at).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' })}</span>}
             </div>
 
             <div className={styles.detailPriceRow}>
-              {fc.rarity && <span className={styles.detailStatBadge} style={{ textTransform: 'capitalize' }}>{fc.rarity}</span>}
+              {fc.rarity && <span className={styles.detailStatBadge}>{fc.rarity}</span>}
               <div className={styles.detailPriceMain}>
                 {price != null ? fmtOwned(price) : '-'}
                 {displayQty > 1 && price != null && (
@@ -814,7 +869,12 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
         </div>
 
         <div className={styles.detailBody}>
-          <div className={styles.detailTabs}>
+          {/* The sliding underline is a ::after on the bar; it needs to know how
+              many tabs there are and which one is live. */}
+          <div
+            className={styles.detailTabs}
+            style={{ '--tab-count': tabs.length, '--tab-index': Math.max(0, tabs.findIndex(t => t.id === activeTab)) }}
+          >
             {tabs.map(t => (
               <button
                 key={t.id}
@@ -962,7 +1022,8 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
                     </div>
                     <div className={styles.editField}>
                       <span className={styles.editLabel}>Condition</span>
-                      <Select value={editCondition} onChange={e => setEditCondition(e.target.value)}>
+                      {/* portal: the modal clips overflow, so an inline panel gets cut off */}
+                      <Select className={styles.editControl} portal value={editCondition} onChange={e => setEditCondition(e.target.value)}>
                         {Object.entries(CONDITION_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                       </Select>
                     </div>
@@ -976,30 +1037,19 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
                     )}
                     <div className={styles.editField}>
                       <span className={styles.editLabel}>Language</span>
-                      <Select value={editLanguage} onChange={e => setEditLanguage(e.target.value)}>
-                        {Object.entries(LANG_NAMES_FULL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                      <Select className={styles.editControl} portal value={editLanguage} onChange={e => setEditLanguage(e.target.value)}>
+                        {languageOptions.map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                       </Select>
                     </div>
 
                     <div className={styles.editField}>
                       <span className={styles.editLabel}>Buy Price (EUR)</span>
-                      {!buyPriceEdit ? (
-                        <div className={styles.buyPriceRow}>
-                          <span className={styles.buyPriceValue}>{editBuyPrice > 0 ? `€${editBuyPrice.toFixed(2)}` : '—'}</span>
-                          <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.ghost}`} onClick={() => { setBuyPriceEdit(true); setBuyPriceInput(editBuyPrice > 0 ? String(editBuyPrice) : '') }}>
-                            {editBuyPrice > 0 ? 'Change' : '+ Set'}
-                          </button>
-                        </div>
-                      ) : (
-                        <div className={styles.inlineEditor}>
-                          <input autoFocus type="number" min="0" step="0.01" name="card-detail-buy-price" value={buyPriceInput} className={styles.buyPriceInput}
-                            onChange={e => setBuyPriceInput(e.target.value)}
-                            onKeyDown={e => { if (e.key === 'Enter') saveBuyPrice(); if (e.key === 'Escape') setBuyPriceEdit(false) }}
-                            placeholder="0.00" />
-                          <button className={`${uiStyles.btn} ${uiStyles.sm}`} onClick={saveBuyPrice}>Save</button>
-                          <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.ghost}`} onClick={() => setBuyPriceEdit(false)}>Cancel</button>
-                        </div>
-                      )}
+                      <input type="number" min="0" step="0.01" name="card-detail-buy-price" value={buyPriceInput}
+                        className={`${styles.buyPriceInput} ${styles.editControl}`}
+                        onChange={e => setBuyPriceInput(e.target.value)}
+                        onBlur={saveBuyPrice}
+                        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                        placeholder="0.00" />
                     </div>
 
                   {fc.prints_search_uri && (
@@ -1012,8 +1062,16 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
                         onOpenChange={open => { if (open) loadPrintings() }}
                         portal
                         trigger={({ open, toggle }) => (
-                          <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.ghost} ${styles.changePrintingBtn}${open ? ' ' + styles.changePrintingBtnOpen : ''}`} onClick={toggle}>
-                            Change Printing
+                          // Borrows the Select shell: it opens a picker, so it should
+                          // read as the same kind of control as Condition/Language.
+                          <button
+                            className={`${uiStyles.select} ${open ? uiStyles.selectOpen : ''} ${styles.editControl}`}
+                            onClick={toggle}
+                            aria-haspopup="menu"
+                            aria-expanded={open}
+                          >
+                            <span className={uiStyles.selectLabel}>Change Printing</span>
+                            <span className={uiStyles.selectChevron}><FilterChevron open={open} /></span>
                           </button>
                         )}
                       >
@@ -1056,6 +1114,11 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
                   </button>
                   {saveError && <span className={styles.detailError}>{saveError}</span>}
                 </div>
+                {onDelete && (
+                  <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.danger}`} onClick={onDelete}>
+                    Delete {deleteCount} Card{deleteCount === 1 ? '' : 's'}
+                  </button>
+                )}
               </div>
 
               {currentFolders.length > 0 && (
@@ -1077,13 +1140,6 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
                 </div>
               )}
 
-              {onDelete && (
-                <div className={styles.detailSubsection}>
-                  <button className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.danger}`} onClick={onDelete}>
-                    Delete {deleteCount} Card{deleteCount === 1 ? '' : 's'}
-                  </button>
-                </div>
-              )}
             </div>
           )}
         </div>

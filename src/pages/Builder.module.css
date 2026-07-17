@@ -670,10 +670,7 @@
 }
 
 /* ── Selection ──────────────────────────────────────────────────── */
-.cardSelected {
-  outline: 2px solid var(--gold);
-  outline-offset: 2px;
-}
+/* .cardSelected is defined further down (identical rule, kept there). */
 
 .deckCheckbox {
   position: absolute;

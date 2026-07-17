@@ -91,10 +91,6 @@
   text-decoration: underline;
 }
 
-.tocLink {
-  text-decoration: none;
-}
-
 .tocCard {
   position: sticky;
   top: calc(var(--nav-h) + 18px);
@@ -124,6 +120,7 @@
   color: var(--text-dim);
   background: var(--s-subtle);
   border: 1px solid transparent;
+  text-decoration: none;
   transition: background 0.2s, border-color 0.2s, color 0.2s;
 }
 

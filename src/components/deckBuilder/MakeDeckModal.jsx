@@ -269,7 +269,11 @@ export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose })
                     ))}
                     {missingAction === 'wishlist' && (
                       <div className={styles.wishlistRow}>
+                        {/* portal: this sits inside .sidebar (overflow-y:auto)
+                            within .modal (overflow:hidden), so an inline panel
+                            gets clipped. See DESIGN.md §6. */}
                         <Select value={selectedWishlistId} onChange={e => setSelectedWishlistId(e.target.value)}
+                          portal
                           menuDirection="up"
                           className={styles.wishlistSelect}
                           title="Select wishlist">

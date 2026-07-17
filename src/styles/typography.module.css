@@ -1,0 +1,26 @@
+/* Shared small-uppercase label type.
+ *
+ * The app styles ~250 uppercase labels by hand across ~40 CSS modules, using 30
+ * distinct font-sizes and 16 letter-spacings between them. That drift is what
+ * puts visibly mismatched labels next to each other. Compose one of these
+ * instead of picking fresh values:
+ *
+ *   .myLabel { composes: labelMd from '../styles/typography.module.css'; }
+ *
+ * sm = dense/compact labels · md = the default (field labels, eyebrows, chips)
+ * lg = tabs, section heads
+ *
+ * Colour is deliberately absent. Labels legitimately appear in --text-faint,
+ * --text-dim, --gold and --gold-dim, and declaring a colour here would race the
+ * consuming module's own colour on stylesheet order — these build into separate
+ * chunks, so that race has no reliable winner. Set colour at the use site.
+ */
+
+.label {
+  text-transform: uppercase;
+  letter-spacing: var(--label-tracking);
+}
+
+.labelSm { composes: label; font-size: var(--label-size-sm); }
+.labelMd { composes: label; font-size: var(--label-size-md); }
+.labelLg { composes: label; font-size: var(--label-size-lg); }

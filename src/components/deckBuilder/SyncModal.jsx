@@ -500,11 +500,14 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
                         {row.summary}
                       </div>
                     </div>
+                    {/* portal: the modal panel is overflow:hidden with a
+                        scrolling body — an inline panel clips. DESIGN.md §6. */}
                     <Select
                       value={row.resolution}
                       onChange={e => setResolutions(prev => ({ ...prev, [row.key]: e.target.value }))}
                       style={{ ...s, width:'100%' }}
                       title="Action for this card"
+                      portal
                     >
                       <option value="builder">{optionLabels.builder}</option>
                       <option value="collection">{optionLabels.collection}</option>
@@ -643,7 +646,7 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
                 These cards are not owned, so they will not be placed into the Collection Deck.
               </div>
               <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-                <Select value={wishlistId} onChange={e => setWishlistId(e.target.value)} style={{ ...s, flex:1 }} title="Select wishlist">
+                <Select value={wishlistId} onChange={e => setWishlistId(e.target.value)} style={{ ...s, flex:1 }} title="Select wishlist" portal>
                   <option value="">Skip</option>
                   {wishlists.map(wl => <option key={wl.id} value={wl.id}>{wl.name}</option>)}
                   <option value="new">+ Create new wishlist...</option>
