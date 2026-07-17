@@ -95,6 +95,10 @@
 .price { font-size: 0.73rem; color: var(--green); }
 .priceFoil { color: var(--green); }
 .priceNa { color: var(--text-faint); }
+/* Shown when the value is the user's entered purchase price, not a live market
+   price — gold marks it as "estimated", distinct from live green / unknown faint.
+   Layers over .price, so it must stay after it to win on order. */
+.priceFallback { color: var(--gold-dim); }
 .folderName {
   margin-top: 4px;
   font-size: 0.66rem;

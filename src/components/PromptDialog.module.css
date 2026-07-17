@@ -1,0 +1,35 @@
+/* window.prompt replacement, built on the Modal primitive. Previously borrowed
+   DeckBuilder's confirm-dialog classes, which were removed when those dialogs
+   moved to ConfirmModal — leaving this rendering unstyled until it got its own. */
+
+.modal {
+  width: min(100%, 420px);
+  max-width: 420px;
+}
+
+.title {
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 12px;
+}
+
+.input {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--s2);
+  border: 1px solid var(--s-border2);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: var(--font-serif);
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.input:focus { border-color: var(--border-hi); box-shadow: var(--input-focus); }
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}

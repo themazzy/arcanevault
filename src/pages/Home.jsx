@@ -1623,7 +1623,8 @@ export default function HomePage() {
       <div className={styles.hero}>
         <div className={styles.heroTitle}>
           <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" />
-          <span className={styles.logoText}>Deck<span className={styles.heroAccent}>Loom</span></span>
+          {/* "Loom" is coloured by the `.logoText span` rule — the span, not a class, is what matters. */}
+          <span className={styles.logoText}>Deck<span>Loom</span></span>
         </div>
         <div className={styles.heroSub}>Your Magic: The Gathering collection manager</div>
       </div>

@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-// Reuses the DeckBuilder confirm-dialog styles intentionally so prompt + confirm
-// render identically. If this is ever needed outside of DeckBuilder, move the
-// CSS classes into a shared module.
-import styles from '../pages/DeckBuilder.module.css'
+import { Button, Modal } from './UI'
+import styles from './PromptDialog.module.css'
 
 /**
  * Async string prompt rendered as a modal — replaces window.prompt.
@@ -36,36 +34,26 @@ export default function PromptDialog({ state, onCancel, onSubmit }) {
     onSubmit(trimmed)
   }
   return (
-    <div className={styles.confirmOverlay} onClick={onCancel}>
-      <div className={styles.confirmDialog} onClick={e => e.stopPropagation()}>
-        <div className={styles.confirmMsg}>
-          <p style={{ fontWeight: 600, marginBottom: 12 }}>{state.title}</p>
-          <input
-            ref={inputRef}
-            type="text"
-            value={value}
-            placeholder={state.placeholder || ''}
-            onChange={e => setValue(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter') { e.preventDefault(); submit() }
-              if (e.key === 'Escape') { e.preventDefault(); onCancel() }
-            }}
-            style={{
-              width: '100%',
-              padding: '8px 10px',
-              background: 'var(--s2)',
-              border: '1px solid var(--s-border2)',
-              borderRadius: 4,
-              color: 'var(--text)',
-              fontSize: '0.9rem',
-            }}
-          />
-        </div>
-        <div className={styles.confirmActions}>
-          <button className={styles.confirmCancel} onClick={onCancel}>Cancel</button>
-          <button className={styles.confirmOk} onClick={submit}>{state.submitLabel || 'OK'}</button>
-        </div>
+    <Modal onClose={onCancel} allowOverflow={false} className={styles.modal}>
+      <p className={styles.title}>{state.title}</p>
+      <input
+        ref={inputRef}
+        type="text"
+        className={styles.input}
+        value={value}
+        placeholder={state.placeholder || ''}
+        onChange={e => setValue(e.target.value)}
+        onKeyDown={e => {
+          // Enter submits. Escape is also handled globally by Modal, but keeping
+          // it here means it fires the instant the field is focused.
+          if (e.key === 'Enter') { e.preventDefault(); submit() }
+          if (e.key === 'Escape') { e.preventDefault(); onCancel() }
+        }}
+      />
+      <div className={styles.actions}>
+        <Button variant="secondary" size="sm" onClick={onCancel}>Cancel</Button>
+        <Button size="sm" onClick={submit}>{state.submitLabel || 'OK'}</Button>
       </div>
-    </div>
+    </Modal>
   )
 }

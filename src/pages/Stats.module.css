@@ -359,6 +359,21 @@
   flex-wrap: wrap;
 }
 
+/* Mode · date · duration meta line. These three were referenced in the JSX but
+   never had rules, so the line rendered as undifferentiated body text. */
+.histMode {
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  color: var(--gold);
+}
+
+.histDate,
+.histDur {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+}
+
 .historyDeckBlock {
   background: var(--s2);
   border: 1px solid var(--s-border);

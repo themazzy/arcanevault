@@ -1,3 +1,36 @@
+/* Modal header + edit-form headings. These were dropped by mistake in a
+   scan-flow removal (ea49060) — the JSX kept referencing them, so the title,
+   card name, and set line rendered unstyled until this was restored. */
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.title {
+  font-family: var(--font-display);
+  color: var(--gold);
+  font-size: 1rem;
+  letter-spacing: 0.08em;
+  margin: 0;
+}
+
+.editName {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.editMeta {
+  font-size: 0.78rem;
+  color: var(--text-faint);
+  font-family: var(--font-serif);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 /* Search (manual) */
 .searchWrap {
   margin-bottom: 8px;
