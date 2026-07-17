@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
-import { CheckIcon, CloseIcon, CopyIcon, TableViewIcon, TextViewIcon } from '../icons'
+import { CheckIcon, CopyIcon, TableViewIcon, TextViewIcon } from '../icons'
 import { cardsToCSV, cardsToText, cardsToArena, cardsToMtgoDek, downloadFile, copyToClipboard, canNativeShare, shareOrCopy } from '../lib/exportUtils'
+import { Modal } from './UI'
 import styles from './ExportModal.module.css'
 
 // ── ExportModal ───────────────────────────────────────────────────────────────
@@ -73,10 +74,8 @@ export default function ExportModal({
   }
 
   return (
-    <div className={styles.overlay} onMouseDown={e => e.target === e.currentTarget && onClose()}>
-      <div className={styles.modal}>
-        <button className={styles.closeBtn} onClick={onClose} aria-label="Close"><CloseIcon size={13} /></button>
-
+    <Modal onClose={onClose} className={styles.modal}>
+      <>
         {/* ── Header ── */}
         <div className={styles.head}>
           <div className={styles.headIcon}>↓</div>
@@ -164,7 +163,7 @@ export default function ExportModal({
             )}
           </>
         )}
-      </div>
-    </div>
+      </>
+    </Modal>
   )
 }

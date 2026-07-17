@@ -851,25 +851,10 @@
   transform: rotate(-90deg);
 }
 
-/* ── Card detail modal ─────────────────────────────────────────────────────── */
-.modalBackdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  background: rgba(0,0,0,0.78);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-}
 .modalBox {
-  background: rgba(11,9,22,0.98);
-  border: 1px solid rgba(201,168,76,0.22);
-  border-radius: 12px;
-  box-shadow: 0 32px 80px rgba(0,0,0,0.78), 0 0 0 1px var(--s-card);
-  padding: 26px 30px;
+  /* Shell (bg/border/radius/shadow/padding) comes from the Modal primitive.
+     This keeps only what's specific: a wider max-width than the 860px default,
+     and its own scroll cap. */
   max-width: 1040px;
   width: 100%;
   max-height: 92vh;
@@ -1001,10 +986,6 @@
 }
 
 @media (max-width: 720px) {
-  .modalBackdrop {
-    padding: 8px;
-    align-items: flex-start;
-  }
   .modalBox {
     padding: 16px 16px 20px;
     gap: 14px;
@@ -1463,19 +1444,6 @@
   justify-content: space-between;
   padding: 12px 0;
   border-bottom: 1px solid var(--s-border);
-}
-
-/* ── Decklist modal (legacy, kept for reference) ───────────────────────────── */
-.decklistBackdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.6);
-  backdrop-filter: blur(4px);
-  z-index: 200;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
 }
 
 .decklistModal {

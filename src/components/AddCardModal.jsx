@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { CheckIcon, CloseIcon } from '../icons'
 import { sb } from '../lib/supabase'
 import { putCards } from '../lib/db'
-import { Modal, Button, ErrorBox, ResponsiveMenu } from './UI'
+import { Modal, Button, ConfirmModal, ErrorBox, ResponsiveMenu } from './UI'
 import { useSettings } from './SettingsContext'
 import { getPrice, formatPrice, getPriceSource } from '../lib/scryfall'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
@@ -205,23 +205,18 @@ export default function AddCardModal({
               onProgressChange={handleProgressChange} />
         }
       </Modal>
+      {/* Sits on top of this component's own <Modal>. Modal keeps a stack so
+          Escape only reaches the topmost one — see UI.jsx. */}
       {discardDialog && (
-        <div className={styles.discardOverlay} onClick={() => setDiscardSnapshot(null)}>
-          <div className={styles.discardDialog} onClick={e => e.stopPropagation()}>
-            <p className={styles.discardMsg}>{discardDialog.message}</p>
-            <div className={styles.discardActions}>
-              <Button variant="ghost" onClick={() => setDiscardSnapshot(null)}>
-                {discardDialog.keepLabel}
-              </Button>
-              <Button
-                variant={discardDialog.discardVariant}
-                onClick={() => { setDiscardSnapshot(null); onClose() }}
-              >
-                {discardDialog.discardLabel}
-              </Button>
-            </div>
-          </div>
-        </div>
+        <ConfirmModal
+          title={null}
+          message={discardDialog.message}
+          cancelLabel={discardDialog.keepLabel}
+          confirmLabel={discardDialog.discardLabel}
+          variant={discardDialog.discardVariant}
+          onConfirm={() => { setDiscardSnapshot(null); onClose() }}
+          onClose={() => setDiscardSnapshot(null)}
+        />
       )}
     </>
   )

@@ -11,7 +11,7 @@ import styles from './DeckView.module.css'
 import uiStyles from '../components/UI.module.css'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
-import { ResponsiveMenu } from '../components/UI'
+import { Modal, ResponsiveMenu } from '../components/UI'
 import { CardBrowserContent } from '../components/CardBrowserViews'
 import { CloseIcon, CheckIcon, ChevronDownIcon, GridViewIcon, SearchIcon, SortIcon, StacksViewIcon, TextViewIcon, TableViewIcon } from '../icons'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
@@ -140,9 +140,10 @@ function CardDetailModal({ card, onClose }) {
   const imgUrl2 = face2?.image_uris?.normal || null
 
   return (
-    <div className={styles.modalBackdrop} onClick={onClose}>
-      <div className={styles.modalBox} onClick={e => e.stopPropagation()}>
-
+    // showClose={false}: this modal keeps its own close button inside the
+    // header row, so Modal's absolute one would double up.
+    <Modal onClose={onClose} showClose={false} className={styles.modalBox}>
+      <>
         {loading && <div className={styles.modalLoading}>Loading…</div>}
 
         {!loading && data && (
@@ -199,8 +200,8 @@ function CardDetailModal({ card, onClose }) {
         {!loading && !data && (
           <div className={styles.modalError}>Could not load card data.</div>
         )}
-      </div>
-    </div>
+      </>
+    </Modal>
   )
 }
 

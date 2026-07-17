@@ -15,6 +15,7 @@ import { lastInputWasTouch } from '../lib/inputType'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { FloatingPreview } from '../components/deckBuilder/FloatingPreview'
+import { Modal } from '../components/UI'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './Home.module.css'
 import { EMPTY_FILTERS, FilterBar } from '../components/CardComponents'
@@ -1642,15 +1643,17 @@ export default function HomePage() {
 
       {/* ── Shared card detail modal ───────────────────────────────────── */}
       {(modalLoading || modalCard) && (
-        <div className={styles.modalOverlay}
-          onClick={e => { if (e.target === e.currentTarget) { setModalCard(null); setModalLoading(false) } }}>
-          <div className={styles.modalInner}>
-            {modalLoading
-              ? <div className={styles.modalSpinner}>Loading…</div>
-              : <CardView card={modalCard} onClose={() => setModalCard(null)} />
-            }
-          </div>
-        </div>
+        // showClose={false}: CardView renders its own close button (.cvClose).
+        <Modal
+          onClose={() => { setModalCard(null); setModalLoading(false) }}
+          showClose={false}
+          className={styles.modalInner}
+        >
+          {modalLoading
+            ? <div className={styles.modalSpinner}>Loading…</div>
+            : <CardView card={modalCard} onClose={() => setModalCard(null)} />
+          }
+        </Modal>
       )}
     </div>
   )

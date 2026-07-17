@@ -229,6 +229,16 @@ export function DropZone({ onFile, title, subtitle, onActivate, accept = '.csv' 
   )
 }
 
+/**
+ * Open-modal stack. Modals nest (a confirm dialog on top of a form modal), and
+ * each puts a capture-phase keydown listener on `document`. Listeners on the
+ * SAME node fire in registration order, so the OUTER modal — registered first —
+ * would see Escape first and close, taking the inner one with it.
+ * `e.stopPropagation()` cannot prevent this; it doesn't stop other listeners on
+ * the same node. So the stack decides: only the topmost modal reacts to keys.
+ */
+const modalStack = []
+
 export function Modal({
   children,
   onClose,
@@ -268,11 +278,19 @@ export function Modal({
       ),
     ).filter(el => el.offsetParent !== null || el === document.activeElement)
 
+    // Claim the top of the stack for as long as this modal is mounted.
+    const token = {}
+    modalStack.push(token)
+    const isTopmost = () => modalStack[modalStack.length - 1] === token
+
     // Move focus into the dialog without auto-selecting a control (least
     // surprising — lands on the container, Tab then enters the content).
     modalEl.focus({ preventScroll: true })
 
     const onKeyDown = (e) => {
+      // A modal underneath an open one must ignore keys entirely — otherwise
+      // Escape closes the whole stack and Tab is trapped by the wrong dialog.
+      if (!isTopmost()) return
       if (e.key === 'Escape' && closeOnEscapeRef.current) {
         e.stopPropagation()
         onCloseRef.current?.()
@@ -294,6 +312,8 @@ export function Modal({
     document.addEventListener('keydown', onKeyDown, true)
     return () => {
       document.removeEventListener('keydown', onKeyDown, true)
+      const i = modalStack.indexOf(token)
+      if (i !== -1) modalStack.splice(i, 1)
       if (prevActive && typeof prevActive.focus === 'function') {
         prevActive.focus({ preventScroll: true })
       }

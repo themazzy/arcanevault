@@ -119,3 +119,50 @@ describe('ConfirmModal', () => {
     expect(screen.getByRole('button', { name: 'Working…' }).disabled).toBe(true)
   })
 })
+
+// Modals nest: AddCardModal renders a discard confirm on top of its own Modal.
+// Both put a capture-phase keydown listener on `document`; listeners on the same
+// node fire in registration order, so without a stack the OUTER modal sees
+// Escape first and closes the wrong dialog.
+describe('nested Modals', () => {
+  beforeEach(() => {
+    vi.stubGlobal('ResizeObserver', class ResizeObserver {
+      observe() {}
+      disconnect() {}
+    })
+  })
+  afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+
+  it('routes Escape to the topmost modal only', () => {
+    const outer = vi.fn()
+    const inner = vi.fn()
+    render(
+      <>
+        <Modal onClose={outer}><p>outer</p></Modal>
+        <Modal onClose={inner}><p>inner</p></Modal>
+      </>
+    )
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(inner).toHaveBeenCalledTimes(1)
+    expect(outer).not.toHaveBeenCalled()
+  })
+
+  it('hands Escape back to the outer modal once the inner one unmounts', () => {
+    const outer = vi.fn()
+    const { rerender } = render(
+      <>
+        <Modal onClose={outer}><p>outer</p></Modal>
+        <Modal onClose={vi.fn()}><p>inner</p></Modal>
+      </>
+    )
+    rerender(
+      <>
+        <Modal onClose={outer}><p>outer</p></Modal>
+      </>
+    )
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(outer).toHaveBeenCalledTimes(1)
+  })
+})
