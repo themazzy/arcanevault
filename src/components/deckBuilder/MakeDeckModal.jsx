@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { CheckIcon, CloseIcon, InfoIcon, WarningIcon, AddIcon } from '../../icons'
-import { Select } from '../UI'
+import { Modal, Select } from '../UI'
 import { BASIC_LANDS, CAN_HOVER } from '../../lib/deckBuilderConstants'
 import { lastInputWasTouch } from '../../lib/inputType'
 import { isGroupFolder, normalizeCardName } from '../../lib/deckBuilderHelpers'
@@ -199,13 +199,10 @@ export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose })
   const canConfirm    = remoteReady && (addItems.length > 0 || missingAction === 'add' || missingAction === 'new') && wishlistReady
 
   return (
-    <div className={styles.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className={styles.modal}>
+    <>
+      <Modal onClose={onClose} className={styles.modal} contentClassName={styles.modalContent}>
         <div className={styles.header}>
           <span className={styles.title}>Make Collection Deck</span>
-          <button type="button" className={styles.closeBtn} onClick={onClose} aria-label="Close">
-            <CloseIcon size={13} />
-          </button>
         </div>
         {loading ? (
           <div className={styles.loading}>Checking your collection...</div>
@@ -341,7 +338,7 @@ export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose })
             </div>
           </>
         )}
-      </div>
+      </Modal>
       {pickerItem && (
         <PrintingPickerModal
           cardName={pickerItem.dc.name}
@@ -355,6 +352,6 @@ export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose })
         />
       )}
       <FloatingPreview ref={floatingPreviewRef} />
-    </div>
+    </>
   )
 }

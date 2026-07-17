@@ -1,25 +1,20 @@
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.65);
-  z-index: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
+/* Shell comes from the Modal primitive. This modal is a fixed-height flex
+   column with an internally scrolling body, so it opts out of Modal's default
+   fit-to-content height: .modal caps the height, .modalContent carries the
+   flex column the body's `flex:1; min-height:0` chain needs. */
+.modal {
+  width: min(900px, 95vw);
+  max-width: 900px;
+  height: 88vh;
+  padding: 0;
+  overflow: hidden;
 }
 
-.modal {
-  background: var(--bg2);
-  border: 1px solid var(--border-hi);
-  border-top: 2px solid rgba(201, 168, 76, 0.35);
-  border-radius: 10px;
-  width: min(900px, 95vw);
-  max-height: 88vh;
+.modalContent {
   display: flex;
   flex-direction: column;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
-  overflow: hidden;
+  height: 100%;
+  min-height: 0;
 }
 
 /* ── Body: settings sidebar + card list, side by side on wide screens ──── */

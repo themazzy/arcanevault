@@ -7,7 +7,8 @@ import { normalizeBoard } from '../../lib/deckBuilderHelpers'
 import { boardForCard } from '../../lib/attractions'
 import { toDeckCardRow, requireCardPrintIds } from '../../lib/deckBuilderWrites'
 import { putDeckCards } from '../../lib/db'
-import { CheckIcon, CloseIcon, WarningIcon } from '../../icons'
+import { CheckIcon, WarningIcon } from '../../icons'
+import { Modal } from '../UI'
 import styles from './DeckImportModal.module.css'
 
 const TABS = [
@@ -243,13 +244,10 @@ export default function DeckImportModal({
   if (!open) return null
 
   return (
-    <div className={styles.overlay} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className={styles.modal} role="dialog" aria-label="Import deck">
+    <Modal onClose={onClose} className={styles.modal}>
+      <>
         <div className={styles.header}>
           <span className={styles.title}>Import Deck</span>
-          <button type="button" className={styles.closeBtn} onClick={onClose} aria-label="Close">
-            <CloseIcon size={16} />
-          </button>
         </div>
 
         {importStep === 'input' && <>
@@ -409,7 +407,7 @@ export default function DeckImportModal({
             </button>
           )}
         </div>
-      </div>
-    </div>
+      </>
+    </Modal>
   )
 }

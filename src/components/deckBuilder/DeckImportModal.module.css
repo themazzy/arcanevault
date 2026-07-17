@@ -1,28 +1,14 @@
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.65);
-  z-index: 600;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-}
-
+/* .overlay/shell come from the Modal primitive now. This keeps only sizing +
+   its own content scroll (the primitive animates height to fit; this modal
+   prefers a fixed cap with an internal scroll). */
 .modal {
-  background: var(--bg2);
-  border: 1px solid var(--border-hi);
-  border-top: 2px solid rgba(201, 168, 76, 0.35);
-  border-radius: 10px;
-  padding: 22px 24px;
-  width: 520px;
-  max-width: 95vw;
+  width: min(520px, 95vw);
+  max-width: 520px;
   max-height: 90vh;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 14px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
 }
 
 .header {
@@ -36,21 +22,6 @@
   color: var(--gold);
   font-size: 1rem;
   letter-spacing: 0.04em;
-}
-
-.closeBtn {
-  background: none;
-  border: none;
-  color: var(--text-faint);
-  cursor: pointer;
-  padding: 4px;
-  display: inline-flex;
-  border-radius: 4px;
-}
-
-.closeBtn:hover {
-  color: var(--text);
-  background: var(--s-medium);
 }
 
 /* ── Tabs ──────────────────────────────────────────────────────────────── */
