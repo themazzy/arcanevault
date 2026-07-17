@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
-import { CheckIcon, CloseIcon, InfoIcon, WarningIcon, AddIcon } from '../../icons'
+import { CheckIcon, InfoIcon, WarningIcon, AddIcon } from '../../icons'
 import { Modal, Select } from '../UI'
 import { BASIC_LANDS, CAN_HOVER } from '../../lib/deckBuilderConstants'
 import { lastInputWasTouch } from '../../lib/inputType'
