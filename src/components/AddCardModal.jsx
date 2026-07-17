@@ -85,7 +85,7 @@ function MenuField({ label, title, value, options, onChange }) {
                 onClick={() => { onChange(optionValue); close() }}
               >
                 <span>{optionLabel}</span>
-                <span className={uiStyles.responsiveMenuCheck}>{value === optionValue ? '✓' : ''}</span>
+                <span className={uiStyles.responsiveMenuCheck}>{value === optionValue ? <CheckIcon size={12} /> : null}</span>
               </button>
             ))}
           </div>

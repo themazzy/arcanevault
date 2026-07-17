@@ -398,7 +398,7 @@
 .marketBtn {
   background: var(--s2);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: 4px;
   color: var(--text-dim);
   font-size: 0.9rem;
   padding: 0 9px;
@@ -428,7 +428,7 @@
   gap: 12px;
   min-width: 112px;
   padding: 5px 6px 5px 12px;
-  border: 1px solid rgba(255,255,255,0.12);
+  border: 1px solid var(--s-border2);
   border-radius: 999px;
   background: var(--s1);
   color: var(--text);
@@ -490,7 +490,7 @@
 /* ── Queue ── */
 .queueSection {
   margin-top: 4px;
-  border-top: 1px solid rgba(255,255,255,0.07);
+  border-top: 1px solid var(--s-border);
   padding-top: 12px;
 }
 .queueHeader {
@@ -568,7 +568,7 @@
   display: flex; align-items: center; gap: 4px; flex-shrink: 0; margin-right: 4px;
 }
 .queueQtyBtn {
-  background: var(--s3); border: 1px solid var(--border); border-radius: 5px;
+  background: var(--s3); border: 1px solid var(--border); border-radius: 4px;
   color: var(--text-dim); font-size: 1rem; width: 36px; height: 36px;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; transition: all 0.15s; padding: 0;

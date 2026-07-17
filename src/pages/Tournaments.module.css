@@ -204,7 +204,7 @@
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 8px;
   padding: 14px;
-  background: rgba(255,255,255,0.025);
+  background: var(--s-card);
   color: inherit;
   cursor: pointer;
   transition: all 0.18s;
@@ -243,7 +243,7 @@
 .summaryCard {
   border: 1px solid rgba(255,255,255,0.06);
   border-radius: 8px;
-  background: rgba(255,255,255,0.025);
+  background: var(--s-card);
   padding: 14px;
 }
 
@@ -344,7 +344,7 @@
   padding: 14px;
   border: 1px solid rgba(255,255,255,0.06);
   border-radius: 10px;
-  background: rgba(255,255,255,0.02);
+  background: var(--s1);
 }
 
 .editorWarning {
@@ -361,9 +361,9 @@
 }
 
 .matchCard {
-  border: 1px solid rgba(255,255,255,0.07);
+  border: 1px solid var(--s-border);
   border-radius: 10px;
-  background: rgba(255,255,255,0.025);
+  background: var(--s-card);
   padding: 14px;
   display: flex;
   flex-direction: column;
@@ -415,7 +415,7 @@
   border: 1px solid rgba(255,255,255,0.06);
   border-radius: 8px;
   padding: 10px;
-  background: rgba(255,255,255,0.02);
+  background: var(--s1);
 }
 
 .tableWrap {
@@ -451,7 +451,7 @@
 .historyRound {
   border: 1px solid rgba(255,255,255,0.06);
   border-radius: 8px;
-  background: rgba(255,255,255,0.02);
+  background: var(--s1);
   padding: 12px;
 }
 

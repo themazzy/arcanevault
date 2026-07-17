@@ -216,8 +216,8 @@
   align-items: center;
   gap: 5px;
   padding: 6px 12px;
-  border-radius: 5px;
-  font-size: 0.75rem;
+  border-radius: 4px;
+  font-size: 0.72rem;
   cursor: pointer;
   font-family: var(--font-display);
   letter-spacing: 0.04em;
@@ -230,8 +230,8 @@
 
 .artRemoveBtn {
   padding: 6px 12px;
-  border-radius: 5px;
-  font-size: 0.75rem;
+  border-radius: 4px;
+  font-size: 0.72rem;
   cursor: pointer;
   font-family: var(--font-display);
   letter-spacing: 0.04em;

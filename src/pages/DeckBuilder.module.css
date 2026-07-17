@@ -701,7 +701,7 @@
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text-dim);
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   cursor: pointer;
   text-align: center;
   transition: background 0.12s;
@@ -726,7 +726,7 @@
 
 .recsToggleBtn {
   padding: 3px 10px;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   background: var(--s3);
   border: 1px solid var(--s-border2);
   border-radius: 4px;
@@ -3560,7 +3560,7 @@
   color: var(--text-dim);
   cursor: pointer;
   font-family: var(--font-display);
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   letter-spacing: 0.04em;
   padding: 0 14px;
   transition: color 0.15s, border-color 0.15s, background 0.15s;
@@ -3791,7 +3791,7 @@
     background:
       linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0)) ,
       color-mix(in srgb, var(--bg3, #16161b) 90%, black);
-    border-top: 1px solid rgba(255,255,255,0.12);
+    border-top: 1px solid var(--s-border2);
     box-shadow: 0 -20px 56px rgba(0,0,0,0.56);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
@@ -4272,7 +4272,7 @@
   gap: 3px;
   height: 28px;
   padding: 0 8px;
-  border-radius: 5px;
+  border-radius: 4px;
   border: 1px solid var(--s-border2);
   background: var(--s2);
   color: var(--text-dim);
@@ -4407,7 +4407,7 @@
   align-self: flex-start;
   background: none;
   border: 1px solid var(--s-border2);
-  border-radius: 8px;
+  border-radius: 4px;
   color: var(--text-dim);
   cursor: pointer;
   font-size: 0.72rem;
@@ -4537,7 +4537,7 @@
   min-height: 30px;
   background: transparent;
   border: 1px solid var(--s-border2);
-  border-radius: 8px;
+  border-radius: 4px;
   color: var(--text-dim);
   cursor: pointer;
   font-family: var(--font-display);
@@ -4552,7 +4552,7 @@
   min-height: 30px;
   background: rgba(201,168,76,0.12);
   border: 1px solid rgba(201,168,76,0.3);
-  border-radius: 8px;
+  border-radius: 4px;
   color: var(--gold);
   cursor: pointer;
   font-family: var(--font-display);
@@ -4694,9 +4694,9 @@
   padding: 12px 14px;
   background: var(--s3);
   border: 1px solid var(--s-border2);
-  border-radius: 8px;
+  border-radius: 4px;
   color: var(--text);
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   cursor: pointer;
   transition: background 0.14s, border-color 0.14s, color 0.14s;
 }
@@ -4959,7 +4959,7 @@
   color: #a89878;
   cursor: pointer;
   font-family: var(--font-display);
-  font-size: 0.7rem;
+  font-size: 0.72rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -5025,7 +5025,7 @@
   .cmdArtMeta { font-size: 1rem; gap: 8px; }
   /* Push down to line up with the colors row, not the (taller) deck name row */
   .cmdArtNotes { flex: 1 1 380px; max-width: 440px; margin-top: 44px; }
-  .cmdArtNotes .deckMetaDesc { min-height: 0; flex: 1; resize: none; background: rgba(0,0,0,0.28); border-color: rgba(255,255,255,0.12); color: #f0e6d2; }
+  .cmdArtNotes .deckMetaDesc { min-height: 0; flex: 1; resize: none; background: rgba(0,0,0,0.28); border-color: var(--s-border2); color: #f0e6d2; }
   .cmdArtNotes .deckMetaDesc::placeholder { color: rgba(240,230,210,0.5); }
 
   /* Toolbar / filter bar — flush with the list, no divider chrome */

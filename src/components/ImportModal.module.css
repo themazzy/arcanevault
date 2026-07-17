@@ -64,7 +64,7 @@
 .folderComboBtn {
   width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px;
   background: var(--s2); border: 1px solid var(--border); border-radius: 4px;
-  padding: 7px 10px; color: var(--text); font-size: 0.85rem;
+  padding: 7px 10px; color: var(--text); font-size: 0.82rem;
   cursor: pointer; text-align: left; transition: border-color 0.15s, background 0.15s;
 }
 .folderComboBtn:hover { border-color: var(--border-hi); background: var(--s3); }

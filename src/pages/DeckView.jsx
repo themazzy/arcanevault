@@ -903,7 +903,7 @@ export default function DeckViewPage() {
                         onClick={() => { setSortBy(opt.id); close() }}
                       >
                         {opt.label}
-                        <span className={uiStyles.responsiveMenuCheck}>{sortBy === opt.id ? <CheckIcon size={11} /> : ''}</span>
+                        <span className={uiStyles.responsiveMenuCheck}>{sortBy === opt.id ? <CheckIcon size={12} /> : ''}</span>
                       </button>
                     ))}
                   </div>
@@ -932,7 +932,7 @@ export default function DeckViewPage() {
                         onClick={() => { setGroupBy(opt.id); close() }}
                       >
                         {opt.label}
-                        <span className={uiStyles.responsiveMenuCheck}>{groupBy === opt.id ? <CheckIcon size={11} /> : ''}</span>
+                        <span className={uiStyles.responsiveMenuCheck}>{groupBy === opt.id ? <CheckIcon size={12} /> : ''}</span>
                       </button>
                     ))}
                   </div>
@@ -961,7 +961,7 @@ export default function DeckViewPage() {
                         onClick={() => { setCardSize(opt.id); close() }}
                       >
                         {opt.label}
-                        <span className={uiStyles.responsiveMenuCheck}>{cardSize === opt.id ? <CheckIcon size={11} /> : ''}</span>
+                        <span className={uiStyles.responsiveMenuCheck}>{cardSize === opt.id ? <CheckIcon size={12} /> : ''}</span>
                       </button>
                     ))}
                   </div>

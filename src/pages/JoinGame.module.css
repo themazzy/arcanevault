@@ -14,7 +14,7 @@
   text-align: center; max-width: 380px; width: 100%;
   padding: 36px 28px;
   background: var(--s1);
-  border: 1px solid rgba(255,255,255,0.07);
+  border: 1px solid var(--s-border);
   border-radius: 12px;
   margin-top: 40px;
 }
@@ -65,7 +65,7 @@
   max-width: 400px; width: 100%; margin-top: 40px;
   padding: 28px 22px;
   background: var(--s1);
-  border: 1px solid rgba(255,255,255,0.07);
+  border: 1px solid var(--s-border);
   border-radius: 12px; text-align: center;
 }
 .waitIcon { font-size: 2.4rem; }
@@ -146,14 +146,14 @@
 .claimDeckBtn {
   width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 6px;
   background: var(--s2); border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 5px; padding: 8px 12px; cursor: pointer;
+  border-radius: 4px; padding: 8px 12px; cursor: pointer;
   color: var(--text-dim); font-size: 0.82rem; transition: all 0.15s; text-align: left;
 }
 .claimDeckBtn:hover, .claimDeckBtnOpen { border-color: rgba(255,255,255,0.2); color: var(--text); }
 .claimDeckVal { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .claimDeckMenu {
   position: absolute; top: calc(100% + 4px); left: 0; right: 0;
-  background: var(--bg3); border: 1px solid rgba(255,255,255,0.12);
+  background: var(--bg3); border: 1px solid var(--s-border2);
   border-radius: 6px; padding: 4px; max-height: 200px; overflow-y: auto;
   z-index: 100; box-shadow: 0 12px 32px rgba(0,0,0,0.5);
   animation: dropIn 0.1s ease;
@@ -191,7 +191,7 @@
 
 .artSearchToggle {
   background: var(--s2); border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 5px; color: var(--text-dim); font-size: 0.78rem;
+  border-radius: 4px; color: var(--text-dim); font-size: 0.78rem;
   padding: 7px 12px; cursor: pointer; text-align: left;
   transition: all 0.15s;
 }
@@ -233,15 +233,15 @@
 .claimActions { display: flex; gap: 8px; margin-top: 6px; }
 .claimCancelBtn {
   flex: 1; padding: 10px; background: var(--s2);
-  border: 1px solid rgba(255,255,255,0.09); border-radius: 6px;
-  color: var(--text-dim); font-family: var(--font-display); font-size: 0.74rem;
+  border: 1px solid rgba(255,255,255,0.09); border-radius: 4px;
+  color: var(--text-dim); font-family: var(--font-display); font-size: 0.72rem;
   letter-spacing: 0.04em; cursor: pointer; transition: all 0.15s;
 }
 .claimCancelBtn:hover { color: var(--text); border-color: rgba(255,255,255,0.18); }
 .claimConfirmBtn {
   flex: 2; padding: 10px; background: rgba(201,168,76,0.12);
-  border: 1px solid rgba(201,168,76,0.4); border-radius: 6px;
-  color: var(--gold); font-family: var(--font-display); font-size: 0.74rem;
+  border: 1px solid rgba(201,168,76,0.4); border-radius: 4px;
+  color: var(--gold); font-family: var(--font-display); font-size: 0.72rem;
   letter-spacing: 0.05em; cursor: pointer; transition: all 0.15s;
 }
 .claimConfirmBtn:hover:not(:disabled) { background: rgba(201,168,76,0.22); border-color: rgba(201,168,76,0.6); }
@@ -289,7 +289,7 @@
   width: 100%; display: flex; align-items: center; gap: 11px;
   padding: 12px 14px;
   background: var(--s1);
-  border: 1px solid rgba(255,255,255,0.07);
+  border: 1px solid var(--s-border);
   border-left: 3px solid var(--pc, rgba(255,255,255,0.15));
   border-radius: 8px;
   transition: all 0.15s; text-align: left; cursor: default;

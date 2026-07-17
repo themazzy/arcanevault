@@ -88,7 +88,7 @@
 .partnerRemove {
   align-self: flex-start;
   padding: 5px 12px;
-  border-radius: 7px;
+  border-radius: 4px;
   border: 1px solid var(--s-border2);
   background: var(--s3);
   color: var(--text-dim);

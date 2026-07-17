@@ -110,9 +110,9 @@
   border: 1px solid var(--s-border2);
   color: var(--text-dim);
   padding: 8px 16px;
-  border-radius: 6px;
+  border-radius: 4px;
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-family: inherit;
   transition: background 0.15s, color 0.15s;
 }

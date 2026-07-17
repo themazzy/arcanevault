@@ -6,7 +6,7 @@
   color: var(--text-faint);
   font-size: 0.78rem;
   padding: 6px 12px;
-  border-radius: 3px;
+  border-radius: 4px;
   cursor: pointer;
   font-family: var(--font-serif);
   width: 100%;
@@ -39,7 +39,7 @@
   color: var(--gold-dim);
   font-size: 0.72rem;
   padding: 3px 8px;
-  border-radius: 3px;
+  border-radius: 4px;
   cursor: pointer;
 }
 .refreshBtn:hover { border-color: var(--gold-dim); }

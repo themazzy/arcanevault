@@ -168,7 +168,7 @@
   align-items: center;
   gap: 6px;
   padding: 5px 9px;
-  border-radius: 8px;
+  border-radius: 4px;
   border: 1px solid var(--s-border2);
   background: var(--s2);
   color: var(--text);
@@ -1147,7 +1147,7 @@
   width: 26px;
   height: 26px;
   padding: 0;
-  border-radius: 6px;
+  border-radius: 4px;
   background: none;
   border: 1px solid transparent;
   color: var(--text-faint);
@@ -1463,8 +1463,8 @@
   align-items: center;
   gap: 3px;
   padding: 5px 10px;
-  font-size: 0.74rem;
-  border-radius: 5px;
+  font-size: 0.72rem;
+  border-radius: 4px;
   border: 1px solid var(--s-border2);
   background: var(--s3);
   color: var(--text);
@@ -1503,11 +1503,11 @@
 .cutApplyBtn {
   margin-left: auto;
   padding: 6px 14px;
-  border-radius: 7px;
+  border-radius: 4px;
   border: 1px solid rgba(204, 85, 85, 0.45);
   background: rgba(204, 85, 85, 0.12);
   color: #e08a8a;
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   cursor: pointer;
 }
 
@@ -1622,11 +1622,11 @@
 .cutKeep {
   flex-shrink: 0;
   padding: 3px 9px;
-  border-radius: 6px;
+  border-radius: 4px;
   border: 1px solid var(--s-border2);
   background: var(--s3);
   color: var(--text-dim);
-  font-size: 0.74rem;
+  font-size: 0.72rem;
   cursor: pointer;
 }
 

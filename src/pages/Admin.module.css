@@ -659,10 +659,10 @@
   padding: 5px 12px;
   background: none;
   border: 1px dashed var(--border);
-  border-radius: 6px;
+  border-radius: 4px;
   color: var(--text-faint);
   cursor: pointer;
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   transition: color 0.15s, border-color 0.15s;
 }
 
@@ -696,7 +696,7 @@
   padding: 0 7px;
   background: var(--s3);
   border: 1px solid var(--s-border2);
-  border-radius: 5px;
+  border-radius: 4px;
   color: var(--text);
   cursor: pointer;
   font-size: 0.82rem;
@@ -854,7 +854,7 @@
 .settingsEditorGrid {
   display: grid;
   gap: 2px;
-  border: 1px solid rgba(255,255,255,0.07);
+  border: 1px solid var(--s-border);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -901,7 +901,7 @@
 .seToggle {
   width: 36px; height: 20px;
   background: rgba(255,255,255,0.1);
-  border: 1px solid rgba(255,255,255,0.12);
+  border: 1px solid var(--s-border2);
   border-radius: 10px;
   cursor: pointer;
   position: relative;
@@ -961,7 +961,7 @@
 
 .feedbackItem {
   background: var(--overlay);
-  border: 1px solid rgba(255,255,255,0.07);
+  border: 1px solid var(--s-border);
   border-radius: 8px;
   padding: 14px 16px;
   display: grid;
@@ -969,7 +969,7 @@
   transition: border-color 0.18s;
 }
 .feedbackItem:hover {
-  border-color: rgba(255,255,255,0.12);
+  border-color: var(--s-border2);
 }
 .feedbackItemResolved {
   opacity: 0.55;
@@ -1060,7 +1060,7 @@
   top: 14px;
   right: 14px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 4px;
   background: var(--s-card);
   color: var(--text);
   cursor: pointer;

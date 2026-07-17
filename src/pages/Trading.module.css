@@ -94,7 +94,7 @@
   background: rgba(201,168,76,0.12);
   border: 1px solid rgba(201,168,76,0.35);
   color: var(--gold);
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 10px 12px;
   font-family: var(--font-display);
   font-size: 0.78rem;
@@ -381,7 +381,7 @@
   color: var(--text-dim);
   border-radius: 4px;
   padding: 6px 10px;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   cursor: pointer;
 }
 

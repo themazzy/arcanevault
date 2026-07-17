@@ -1,42 +1,16 @@
 import { Children, isValidElement, useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import styles from './UI.module.css'
+import { CheckIcon, ChevronDownIcon, CloseIcon } from '../icons'
 
-function ChevronIcon({ open = false }) {
+// Chevron with the open-state rotation the menus need. The glyph itself comes
+// from the icon system — this only adds the rotate class.
+function Chevron({ open = false }) {
   return (
-    <svg
+    <ChevronDownIcon
+      size={10}
       className={`${styles.chevronIcon}${open ? ` ${styles.chevronIconOpen}` : ''}`}
-      width="10"
-      height="10"
-      viewBox="0 0 10 10"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <polyline points="2,3 5,6.5 8,3" />
-    </svg>
-  )
-}
-
-function CloseIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 14 14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <line x1="3" y1="3" x2="11" y2="11" />
-      <line x1="11" y1="3" x2="3" y2="11" />
-    </svg>
+    />
   )
 }
 
@@ -128,7 +102,7 @@ function SelectBody({ options, value, handleSelect, close, searchable }) {
           >
             <span>{option.label}</span>
             <span className={styles.responsiveMenuCheck} aria-hidden="true">
-              {String(option.value) === String(value) ? '✓' : ''}
+              {String(option.value) === String(value) ? <CheckIcon size={12} /> : null}
             </span>
           </button>
         ))}
@@ -200,7 +174,7 @@ export function Select({ value, onChange, children, className = '', panelClassNa
           disabled={disabled}
         >
           <span className={styles.selectLabel}>{selected?.label || ''}</span>
-          <span className={styles.selectChevron}><ChevronIcon open={open} /></span>
+          <span className={styles.selectChevron}><Chevron open={open} /></span>
         </button>
       )}
     >
@@ -701,7 +675,7 @@ export function ResponsiveMenu({
           <div className={styles.responsiveMenuHeaderTop}>
             <span className={styles.responsiveMenuTitle}>{title}</span>
             <button type="button" className={styles.responsiveMenuClose} onClick={closeMenu} aria-label={closeLabel}>
-              <CloseIcon />
+              <CloseIcon size={14} />
             </button>
           </div>
         </div>

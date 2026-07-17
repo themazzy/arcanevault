@@ -15,7 +15,7 @@
 .webGatePanel {
   width: min(100%, 720px);
   padding: 32px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--s-border2);
   border-radius: 28px;
   background:
     radial-gradient(circle at top right, rgba(204, 175, 62, 0.14), transparent 36%),
@@ -80,7 +80,7 @@
   padding: 0 18px;
   border: 1px dashed rgba(255, 255, 255, 0.2);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--s2);
   color: rgba(255, 245, 214, 0.88);
   font-weight: 600;
 }

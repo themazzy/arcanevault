@@ -981,7 +981,7 @@ export function CardBrowserViewControls({
                     onClick={() => { setSort(value); close() }}
                   >
                     <span>{label}</span>
-                    <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{sort === value ? <CheckIcon size={11} /> : ''}</span>
+                    <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{sort === value ? <CheckIcon size={12} /> : ''}</span>
                   </button>
                 ))}
               </div>
@@ -1056,7 +1056,7 @@ export function CardBrowserViewControls({
                   onClick={() => { setGroupBy(option.id); close() }}
                 >
                   <span>{option.label}</span>
-                  <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{groupBy === option.id ? '✓' : ''}</span>
+                  <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{groupBy === option.id ? <CheckIcon size={12} /> : null}</span>
                 </button>
               ))}
             </div>
@@ -1084,7 +1084,7 @@ export function CardBrowserViewControls({
                   onClick={() => { setViewMode(mode.id); close() }}
                 >
                   <span>{mode.label}</span>
-                  <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{viewMode === mode.id ? '✓' : ''}</span>
+                  <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{viewMode === mode.id ? <CheckIcon size={12} /> : null}</span>
                 </button>
               ))}
             </div>

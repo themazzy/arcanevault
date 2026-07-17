@@ -139,7 +139,7 @@
   padding: 2px;
   border-radius: 5px;
   border: 1px solid rgba(255,255,255,0.14);
-  background: rgba(255,255,255,0.04);
+  background: var(--s2);
 }
 
 [data-theme-mode="light"] .btn {

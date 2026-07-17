@@ -298,21 +298,21 @@ Measured 2026-07-17. **These are debt, not precedent.**
 | 2 | Local CSS classes re-implementing a button (cursor+border+padding) | **263** rules |
 | 3 | Hand-rolled modal overlays outside `UI.module.css` | **17** (incl. `SyncModal`, `MakeDeckModal`, `MoveOwnedCardsModal` — named `*Modal` but not using `Modal`) |
 | 4 | ~~`Select`/`ResponsiveMenu` not passing `portal`~~ | **FIXED / mostly a false alarm.** Corrected count was 44 of 72, not 49 (the first scan's regex broke on `>` inside arrow-function props). Of those, almost none clipped: `Modal`'s `allowOverflow` defaults to `true`. 3 real bugs existed in **hand-rolled** modals (`SyncModal` ×2, `MakeDeckModal` ×1) — all fixed |
-| 5 | Hardcoded `rgba(255,255,255,…)` | **460** across 28 files (worst: `CardScanner` 139, `LifeTracker` 54) |
+| 5 | Hardcoded `rgba(255,255,255,…)` | **459 → 386.** 74 swapped (exact token match = no-op in dark, fix in light). **The rest are not mechanical:** ~108 are out of scope (gradient stops, white text on always-dark art, custom props with their own light overrides), and **253 have no exact token** — the surface scale has border steps at only `0.07`/`0.12` while real borders use `0.06/0.08/0.1/0.14/0.16/0.2`. Snapping those shifts the dark theme in 253 places; needs a design call, not a script |
 | 6 | Hand-rolled uppercase labels not composing the scale | ~245 rules, **30** font-sizes, **16** letter-spacings |
 | 7 | Control heights hardcoded instead of `--control-height` | 32px×37, 34px×29, 36px×26, 28px×20, 26px×12 |
 | 8 | `.sectionLabel` — **documented** as .65rem/.12em | 6 copies, **1** matches (Auth .62/.16, DeckView .6/.18, Stats .62/.18, BuildAssistant .64/.12, GuidedCommanderPicker .62/.12) |
 | 9 | Dot-grid background — **documented** as `rgba(201,168,76,0.04)` / 28px | **5** variants (DeckGoldfish uses 0.16 & 0.34 at 22px) |
 | 10 | Gold top-border card — **documented** as `2px solid rgba(201,168,76,0.35)` | **26** variants; documented one used 16× |
 | 11 | Z-index | **49** distinct values, max `99999`, no ladder |
-| 12 | Unicode glyphs as icons | ~20 sites (`×` `✓` in DeckStats, SetupWizard, DeckBrowser, Settings, CardScanner…) |
-| 13 | `alert()` / `confirm()` | 3 (`Admin.jsx`, `LifeTracker.jsx` ×2) |
-| 14 | Shadowed selectors remaining | 4 (`DeckBuilder.right/.deckList/.toggleLabel` additive; `Folders.folderCardSelected` = **two selection styles applied at once**, needs a design call) |
-| 15 | **`:focus-visible` coverage** | **28** rules against **635** `:hover` and **487** `cursor:pointer` classes. Only **7 of 53** module files define any focus style — the keyboard experience is effectively unstyled |
+| 12 | Unicode glyphs as icons | **Largely a misread on my part.** `⚙ ☰ ✕ ⊞ ≡ ⊟` — the glyphs that actually render inconsistently across platforms — appear **zero** times in rendered UI (one `⚙` survives in a code comment). `×` is a **multiplication sign** in qty badges (`×3`) and correct. What's left is `✓`: the shared `responsiveMenuCheck` is migrated to `CheckIcon size={12}`; ~11 bespoke `*Check` spans remain, each sized by `font-size`. **Not mechanical:** a `✓` at `font-size: N` renders ~0.7N tall (cap height), so `<CheckIcon size={N}>` is visibly bigger — each needs an eyeball |
+| 13 | ~~`alert()` / `confirm()`~~ | **FIXED** — new `ConfirmModal` primitive replaces both `confirm()`s; the `alert()` is an error toast |
+| 14 | ~~Shadowed selectors~~ | **FIXED — 24 → 0** |
+| 15 | ~~**`:focus-visible` coverage**~~ | **FIXED.** Was 28 rules against 635 `:hover`. A zero-specificity `:where(…):focus-visible` rule in `index.css` now covers every interactive element app-wide; per-component focus styles still win |
 | 16 | `cursor: pointer` classes with no `:hover` at all | **66** (DeckBuilder 11, Settings 7, CardScanner 6, Admin 5) |
-| 17 | Inline `<svg>` outside `src/icons` | **40** across 11 files (DeckStats 10, DeckBrowser 10, CardScanner 7), in **5** viewBox systems (`24`×28, `10`×6, `14`×2, `16`×2, `48`×1) |
-| 18 | Icon `size` props | **14** distinct values (9→38); no scale. `12/14/16` cover most |
-| 19 | `components/Icons.jsx` shim still imported | 2 files (51 import `src/icons` directly) |
+| 17 | Inline `<svg>` outside `src/icons` | **40 → 38** (UI.jsx's duplicate Chevron/Close now come from the icon system). Remaining: DeckStats 10, DeckBrowser 10, CardScanner 7, in 5 viewBox systems |
+| 18 | Icon `size` props | **14** distinct values (9→38); no scale. `12/14/16` cover most. Menu checks standardised on 12 |
+| 19 | ~~`components/Icons.jsx` shim~~ | **FIXED** — both importers moved to `src/icons`; shim deleted |
 | 20 | Breakpoints | **29** distinct max-widths (480×16, 640×15, 600×15, 900×12, 768×7, 700×7, 980×6, 620×5, 520×5, 380×5…). The documented `--bp-*` scale is barely used: `--bp-lg` once, **`--bp-xl` never** |
 | 21 | `--mobile-floating-bar-height` | 4 uses vs **49** `env(safe-area-inset-*)` — bottom-bar clearance is mostly hand-rolled |
 

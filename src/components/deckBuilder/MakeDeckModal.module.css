@@ -395,10 +395,10 @@
 .btn {
   background: transparent;
   border: 1px solid var(--s-border2);
-  border-radius: 5px;
+  border-radius: 4px;
   color: var(--text-dim);
   padding: 7px 16px;
-  font-size: 0.83rem;
+  font-size: 0.82rem;
   cursor: pointer;
 }
 
@@ -410,10 +410,10 @@
 .btnPrimary {
   background: rgba(74, 154, 90, 0.15);
   border: 1px solid rgba(74, 154, 90, 0.4);
-  border-radius: 5px;
+  border-radius: 4px;
   color: var(--green, #4a9a5a);
   padding: 7px 16px;
-  font-size: 0.83rem;
+  font-size: 0.82rem;
   cursor: pointer;
 }
 

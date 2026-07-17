@@ -14,7 +14,7 @@ import { useToast } from '../components/ToastContext'
 import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
 import VirtualCardGrid from '../components/VirtualCardGrid'
 import { DropZone, ProgressBar, ErrorBox, EmptyState, SectionHeader, Button, ResponsiveMenu, Select } from '../components/UI'
-import { AddIcon, ScannerIcon } from '../icons'
+import { AddIcon, CheckIcon, ScannerIcon } from '../icons'
 import AddCardModal from '../components/AddCardModal'
 import ExportModal from '../components/ExportModal'
 import ImportModal from '../components/ImportModal'
@@ -1538,7 +1538,7 @@ export default function CollectionPage() {
                     onClick={() => { setSort(value); close() }}
                   >
                     <span>{label}</span>
-                    <span className={uiStyles.responsiveMenuCheck}>{sort === value ? '✓' : ''}</span>
+                    <span className={uiStyles.responsiveMenuCheck}>{sort === value ? <CheckIcon size={12} /> : null}</span>
                   </button>
                 ))}
               </div>

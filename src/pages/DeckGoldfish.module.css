@@ -897,11 +897,11 @@
 .libraryModalHeader button,
 .libraryDoneBtn {
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 4px;
   background: var(--s2);
   color: var(--text);
   padding: 7px 11px;
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   cursor: pointer;
 }
 

@@ -92,7 +92,7 @@ function SortDropdown({ value, onChange, options, compact = false }) {
               className={`${uiStyles.responsiveMenuAction} ${v === value ? uiStyles.responsiveMenuActionActive : ''}`}
               onClick={() => { onChange(v); close() }}>
               <span>{l}</span>
-              <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{v === value ? '✓' : ''}</span>
+              <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{v === value ? <CheckIcon size={12} /> : null}</span>
             </button>
           ))}
         </div>

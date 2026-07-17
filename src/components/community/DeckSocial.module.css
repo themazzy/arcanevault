@@ -6,9 +6,9 @@
   padding: 7px 13px;
   background: var(--s2);
   border: 1px solid var(--s-border2);
-  border-radius: 6px;
+  border-radius: 4px;
   color: var(--text-dim);
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
   transition: color 0.15s, border-color 0.15s, background 0.15s;
@@ -76,7 +76,7 @@
   padding: 6px 16px;
   background: rgba(201,168,76,0.14);
   border: 1px solid rgba(201,168,76,0.4);
-  border-radius: 6px;
+  border-radius: 4px;
   color: var(--gold);
   font-family: var(--font-display);
   font-size: 0.78rem;

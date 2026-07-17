@@ -275,7 +275,7 @@ function DeckDropdownMenu({ value, options, onChange, close }) {
           className={`${uiStyles.responsiveMenuAction} ${!value ? uiStyles.responsiveMenuActionActive : ''}`}
           onClick={() => { onChange(null, null); close() }}>
           <span>No deck selected</span>
-          <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{!value ? '✓' : ''}</span>
+          <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{!value ? <CheckIcon size={12} /> : null}</span>
         </button>
         {filteredOptions.map(d => (
           <button key={d.id}

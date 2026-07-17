@@ -132,9 +132,9 @@
   box-sizing: border-box;
   transition: border-color 0.15s, background 0.15s;
 }
-.searchInput:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.24); }
+.searchInput:hover { background: var(--s4); border-color: rgba(255,255,255,0.24); }
 .searchInput:focus {
-  background: rgba(255,255,255,0.08);
+  background: var(--s4);
   border-color: rgba(255,255,255,0.3);
 }
 .searchInput::placeholder { color: var(--text-faint); font-style: italic; }
@@ -145,7 +145,7 @@
 }
 .filterSortBtn {
   height: var(--control-height);
-  background: rgba(255,255,255,0.04);
+  background: var(--s2);
   border: 1px solid rgba(255,255,255,0.16);
   border-radius: 4px;
   padding: 6px var(--control-padding-x);
@@ -162,7 +162,7 @@
   line-height: 1;
   box-sizing: border-box;
 }
-.filterSortBtn:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.28); color: var(--text); }
+.filterSortBtn:hover { background: var(--s4); border-color: rgba(255,255,255,0.28); color: var(--text); }
 .filterChevron {
   flex-shrink: 0;
   opacity: 0.72;
@@ -408,12 +408,12 @@
   justify-content: center;
   line-height: 1;
   font-family: var(--font-display);
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   letter-spacing: 0.03em;
   padding: 6px 13px;
   border-radius: 4px;
   cursor: pointer;
-  background: rgba(255,255,255,0.04);
+  background: var(--s2);
   border: 1px solid rgba(255,255,255,0.16);
   color: var(--text-dim);
   transition: background 0.15s, border-color 0.15s, color 0.15s;
@@ -421,7 +421,7 @@
   box-sizing: border-box;
 }
 .selectModeBtn:hover {
-  background: rgba(255,255,255,0.08);
+  background: var(--s4);
   color: var(--text);
   border-color: rgba(255,255,255,0.28);
 }
@@ -478,7 +478,7 @@
 .bulkActions { display: flex; gap: 8px; align-items: center; }
 .bulkBtn {
   font-family: var(--font-display); font-size: 0.72rem; letter-spacing: 0.06em;
-  padding: 7px 14px; border-radius: 3px; cursor: pointer;
+  padding: 7px 14px; border-radius: 4px; cursor: pointer;
   background: rgba(201,168,76,0.1); border: 1px solid rgba(201,168,76,0.3);
   color: var(--gold); transition: all 0.2s;
 }
@@ -589,7 +589,7 @@
 .moveDialogCreateBtn {
   background: none; border: 1px dashed rgba(201,168,76,0.3);
   border-radius: 4px; width: 100%; padding: 9px 14px;
-  cursor: pointer; color: var(--text-dim); font-size: 0.85rem;
+  cursor: pointer; color: var(--text-dim); font-size: 0.82rem;
   transition: all 0.18s; text-align: center;
 }
 .moveDialogCreateBtn:hover { border-color: rgba(201,168,76,0.6); color: var(--gold); }
@@ -603,7 +603,7 @@
 .moveDialogCreateInput::placeholder { color: var(--text-faint); }
 .moveDialogCreateSave {
   font-family: var(--font-display); font-size: 0.72rem; letter-spacing: 0.04em;
-  padding: 7px 12px; border-radius: 3px; cursor: pointer; white-space: nowrap;
+  padding: 7px 12px; border-radius: 4px; cursor: pointer; white-space: nowrap;
   background: rgba(201,168,76,0.15); border: 1px solid rgba(201,168,76,0.4);
   color: var(--gold); transition: all 0.18s;
 }
@@ -611,7 +611,7 @@
 .moveDialogCreateSave:disabled { opacity: 0.4; cursor: not-allowed; }
 .moveDialogCreateCancel {
   background: none; border: 1px solid rgba(255,255,255,0.1);
-  color: var(--text-faint); border-radius: 3px; padding: 7px 9px;
+  color: var(--text-faint); border-radius: 4px; padding: 7px 9px;
   cursor: pointer; font-size: 0.82rem; transition: all 0.18s;
 }
 .moveDialogCreateCancel:hover { border-color: rgba(196,96,96,0.4); color: var(--red); }
@@ -643,7 +643,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  background: rgba(255,255,255,0.04);
+  background: var(--s2);
   border: 1px solid rgba(255,255,255,0.16);
   color: var(--text-dim);
   border-radius: 4px;
@@ -656,7 +656,7 @@
   box-sizing: border-box;
   transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
-.filterToggle:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.28); color: var(--text); }
+.filterToggle:hover { background: var(--s4); border-color: rgba(255,255,255,0.28); color: var(--text); }
 .filterToggleOpen   { border-color: rgba(255,255,255,0.28); color: var(--text); }
 .filterToggleActive { border-color: rgba(201,168,76,0.34); color: var(--gold); background: rgba(201,168,76,0.18); }
 
@@ -803,9 +803,9 @@
   .filterSheetClear {
     background: none;
     border: 1px solid rgba(196,96,96,0.28);
-    border-radius: 6px;
+    border-radius: 4px;
     color: var(--red, #d08a8a);
-    font-size: 0.74rem;
+    font-size: 0.72rem;
     font-family: var(--font-display);
     letter-spacing: 0.05em;
     padding: 4px 10px;
@@ -1485,7 +1485,7 @@
 
 .oracleBox {
   background: var(--s1);
-  border: 1px solid rgba(255,255,255,0.07);
+  border: 1px solid var(--s-border);
   border-radius: 5px;
   padding: 14px 16px;
   font-size: 0.875rem;
@@ -1608,7 +1608,7 @@ a.priceDetailBlock:focus {
 .detailSubsection {
   margin-top: 14px;
   padding-top: 12px;
-  border-top: 1px solid rgba(255,255,255,0.07);
+  border-top: 1px solid var(--s-border);
 }
 
 .purchaseLinks {
@@ -1890,7 +1890,7 @@ a.priceDetailBlock:focus {
   aspect-ratio: 0.716;
   border-radius: 3px;
   overflow: hidden;
-  background: rgba(255,255,255,0.04);
+  background: var(--s2);
 }
 .printingCardImg { width: 100%; height: 100%; object-fit: cover; display: block; }
 .printingCardImgPlaceholder {

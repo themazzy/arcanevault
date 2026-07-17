@@ -127,7 +127,7 @@
 .toggle {
   width: 44px; height: 26px;
   background: rgba(255,255,255,0.1);
-  border: 1px solid rgba(255,255,255,0.12);
+  border: 1px solid var(--s-border2);
   border-radius: 13px;
   cursor: pointer;
   position: relative;
@@ -333,7 +333,7 @@
   padding: 10px 12px;
   border: 1px solid rgba(255,255,255,0.06);
   border-radius: 8px;
-  background: rgba(255,255,255,0.02);
+  background: var(--s1);
   transition: border-color 0.18s, background 0.18s, transform 0.18s;
 }
 .priceSourceOption:hover {
@@ -936,10 +936,10 @@
   min-height: 30px;
   padding: 5px 12px;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: 4px;
   background: transparent;
   color: var(--text-dim);
-  font-size: 0.74rem;
+  font-size: 0.72rem;
   cursor: pointer;
 }
 
@@ -958,10 +958,10 @@
   min-height: 32px;
   padding: 6px 14px;
   border: 1px solid var(--s-border2);
-  border-radius: 6px;
+  border-radius: 4px;
   background: var(--s2);
   color: var(--text);
-  font-size: 0.76rem;
+  font-size: 0.78rem;
   cursor: pointer;
 }
 
