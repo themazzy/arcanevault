@@ -3,18 +3,21 @@
  *
  * Sources, in order:
  *   1. IndexedDB blob cache (scanner_pack store) — warm start, offline
- *   2. Same-origin static fetch of public/scanner/hashpack/* — on web this is
- *      GitHub Pages (edge-cached via Cloudflare); on native Capacitor serves
- *      the same files from the APK bundle, so first run works fully offline
- *   3. Native only: https://deckloom.app/... — picks up chunks published after
- *      the APK was built
+ *   2. Same-origin static fetch of scanner/hashpack/* — GitHub Pages, edge-
+ *      cached via Cloudflare
+ *
+ * Native is same-origin too: capacitor.config.json sets `server.url` to
+ * https://deckloom.app, so the WebView runs on the live origin and never reads
+ * the APK's bundled assets. There is therefore no separate "prod fallback" to
+ * make — it would resolve to the identical URL — and no offline first run:
+ * native needs network once, after which the service worker (app shell) and the
+ * IDB chunk cache (pack) cover offline use. Restoring offline first run means
+ * dropping `server.url`, which would also mean an APK rebuild per web change.
  *
  * The manifest is the small mutable pointer (always revalidated); chunk files
  * are content-named and immutable.
  */
 
-import { Capacitor } from '@capacitor/core'
-import { getProdAppUrl } from '../lib/publicUrl'
 import {
   getMeta,
   setMeta,
@@ -34,8 +37,7 @@ export const MANIFEST_META_KEY = 'scanner_pack_manifest'
 const PACK_PATH = 'scanner/hashpack/'
 const CHUNK_FETCH_TIMEOUT_MS = 120000
 
-const localUrl = file => `${import.meta.env.BASE_URL}${PACK_PATH}${file}`
-const remoteUrl = file => getProdAppUrl(`/${PACK_PATH}${file}`)
+const packUrl = file => `${import.meta.env.BASE_URL}${PACK_PATH}${file}`
 
 export function isValidManifest(m) {
   return !!m &&
@@ -66,22 +68,10 @@ async function fetchJson(url, timeoutMs) {
  * Returns { manifest, source } or null.
  */
 export async function loadManifest({ timeoutMs = 8000 } = {}) {
-  const candidates = [
-    fetchJson(localUrl('manifest.json'), timeoutMs).then(m => ({ m, source: 'local' })),
-  ]
-  if (Capacitor.isNativePlatform()) {
-    // The bundled manifest is only as fresh as the APK; also check prod.
-    candidates.push(fetchJson(remoteUrl('manifest.json'), timeoutMs).then(m => ({ m, source: 'remote' })))
-  }
-
-  const results = (await Promise.all(candidates)).filter(r => isValidManifest(r.m))
-  let picked = null
-  for (const r of results) {
-    if (!picked || String(r.m.generatedAt || '') > String(picked.m.generatedAt || '')) picked = r
-  }
-  if (picked) {
-    await setMeta(MANIFEST_META_KEY, picked.m).catch(() => {})
-    return { manifest: picked.m, source: picked.source }
+  const fetched = await fetchJson(packUrl('manifest.json'), timeoutMs)
+  if (isValidManifest(fetched)) {
+    await setMeta(MANIFEST_META_KEY, fetched).catch(() => {})
+    return { manifest: fetched, source: 'network' }
   }
 
   const cached = await getMeta(MANIFEST_META_KEY).catch(() => null)
@@ -124,7 +114,7 @@ async function fetchBuffer(url, expectedBytes, onBytes) {
 }
 
 /**
- * Load one chunk: IDB → same-origin fetch → (native) prod fetch.
+ * Load one chunk: IDB → same-origin fetch.
  * Fetched chunks are written back to IDB. `hashVersion` is the manifest's —
  * a cached chunk from a different pack generation is refetched.
  * Returns { buf, fromCache }.
@@ -136,26 +126,15 @@ export async function loadChunkBuffer(chunkMeta, { onBytes, hashVersion } = {}) 
     return { buf: cached.buf, fromCache: true }
   }
 
-  const urls = [localUrl(chunkMeta.file)]
-  if (Capacitor.isNativePlatform()) urls.push(remoteUrl(chunkMeta.file))
-
-  let lastError = null
-  for (const url of urls) {
-    try {
-      const buf = await fetchBuffer(url, chunkMeta.bytes, onBytes)
-      await putPackChunk({
-        file: chunkMeta.file,
-        buf,
-        bytes: buf.byteLength,
-        hashVersion,
-        storedAt: Date.now(),
-      }).catch(() => {})
-      return { buf, fromCache: false }
-    } catch (e) {
-      lastError = e
-    }
-  }
-  throw lastError ?? new Error(`Failed to load hash pack chunk ${chunkMeta.file}`)
+  const buf = await fetchBuffer(packUrl(chunkMeta.file), chunkMeta.bytes, onBytes)
+  await putPackChunk({
+    file: chunkMeta.file,
+    buf,
+    bytes: buf.byteLength,
+    hashVersion,
+    storedAt: Date.now(),
+  }).catch(() => {})
+  return { buf, fromCache: false }
 }
 
 /** Drop IDB chunks that the current manifest no longer references. */

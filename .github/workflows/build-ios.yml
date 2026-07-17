@@ -33,6 +33,11 @@ jobs:
             npx cap add ios
           fi
 
+      # See build-android.yml: server.url means the WebView loads deckloom.app,
+      # so bundled assets are never read and the hash pack is dead weight.
+      - name: Strip scanner hash pack from native bundle
+        run: rm -rf dist/scanner
+
       - name: Sync Capacitor (copy web assets into iOS project)
         run: npx cap sync ios
 

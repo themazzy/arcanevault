@@ -313,7 +313,7 @@ A linked collection deck navigates to `/builder/<linked_builder_id>` rather than
 | `src/scanner/matchCore.js` | LSH band index + ranking over packed hash arrays (incl. dormant best-k-of-G² tile blend) — shared by worker and main-thread fallback |
 | `src/scanner/tileHash.js` | Per-tile art hashes (`computeTileHashes`) — v8 experiment, dormant (`TILE_GRID = 0`; harness showed margin regression); shared by client, seed script, and grid harness |
 | `src/scanner/hashFusion.js` | Multi-frame per-bit majority hash fusion — CardScanner's fused-match rescue |
-| `src/scanner/packLoader.js` | Manifest/chunk fetch + IDB blob caching (`scanner_pack` store); native falls back to deckloom.app for post-APK chunks |
+| `src/scanner/packLoader.js` | Manifest/chunk fetch + IDB blob caching (`scanner_pack` store); same-origin on web and native alike (`server.url` → deckloom.app) |
 | `src/scanner/prefetch.js` | Idle-time warmup (app shell): pack chunks → IDB; gated on prior scanner use |
 | `src/scanner/visionCore.js` | Pure-JS vision primitives (replaced OpenCV.js): Canny, contours, approxPolyDP, minAreaRect, perspective warp, INTER_AREA-equivalent resize |
 | `src/scanner/ScannerEngine.js` | Card pipeline over visionCore: 3-pass quad detection + scoring, warp, art/reticle crops, 180° rotation, pHash variants — pure, canvas-free |
@@ -574,7 +574,7 @@ When a scan's hash result is rejected (glare, foils, low light) but a card was w
 
 #### Hash database delivery — static hash pack
 
-The hash pack (`public/scanner/hashpack/pack-v*-*.bin` + `manifest.json`, newest sets in chunk 0) deploys with the web app and ships inside the Android APK (Capacitor serves `public/` locally — native first run is offline). The client (`packLoader.js` → `DatabaseService.js`) caches chunks as single ArrayBuffer blobs in the IDB `scanner_pack` store and posts them to `hashMatchWorker.js`, which owns the band indexes. Scanning unlocks after the first chunk; the rest streams in the background. The client accepts hash versions 6, 7, and 8 (`SUPPORTED_HASH_VERSIONS`) — newer-pipeline features degrade gracefully on an older pack.
+The hash pack (`public/scanner/hashpack/pack-v*-*.bin` + `manifest.json`, newest sets in chunk 0) deploys with the web app and is fetched over the network on native too — `capacitor.config.json` sets `server.url` to `https://deckloom.app`, so the WebView runs on the live origin and never reads bundled assets. The native builds strip `dist/scanner` before `cap sync` so the ~15 MB pack isn't dead weight in the APK. **Native has no offline first run**: it needs network once, after which the service worker (app shell) and the IDB chunk cache (pack) cover offline use. The client (`packLoader.js` → `DatabaseService.js`) caches chunks as single ArrayBuffer blobs in the IDB `scanner_pack` store and posts them to `hashMatchWorker.js`, which owns the band indexes. Scanning unlocks after the first chunk; the rest streams in the background. The client accepts hash versions 6, 7, and 8 (`SUPPORTED_HASH_VERSIONS`) — newer-pipeline features degrade gracefully on an older pack.
 
 - **Seeding workflow:** `node scripts/generate-card-hashes.js` → commit `public/scanner/hashpack/`. The pack is the script's own incremental state (Supabase is not involved); new cards produce delta chunks, checkpointed every 8k rows (an interrupted run resumes), and fragmented packs auto-consolidate. `--reseed` rebuilds everything (hash algorithm changes).
 - Chunk filenames are content-hashed; `manifest.json` is the only mutable file.

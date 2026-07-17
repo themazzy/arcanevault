@@ -42,6 +42,13 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_CAPACITOR: 'true'
 
+      # capacitor.config.json sets server.url to https://deckloom.app, so the
+      # WebView loads the live site and never reads bundled assets. The hash
+      # pack (~15 MB) would be dead weight in the APK; the app fetches it from
+      # deckloom.app and caches it in IDB. Drop it before cap sync copies dist/.
+      - name: Strip scanner hash pack from native bundle
+        run: rm -rf dist/scanner
+
       - name: Sync Capacitor (copy web assets into android project)
         run: npx cap sync android
 
