@@ -2969,6 +2969,27 @@ export default function DeckBuilderPage() {
       }
     }
 
+    // Drop picks that would collide with the deck's unique
+    // (deck_id, card_print_id, foil, board) index — either a copy already in the
+    // deck or a duplicate elsewhere in this same batch. A plain .insert() of one
+    // duplicate 409s and rolls back the WHOLE batch (deck_cards_unique_print_board_idx),
+    // failing the entire auto-fill. Stacking a second copy would also be wrong
+    // for a singleton Commander deck; basics are topped up separately via
+    // onAddBasics. Mirrors the single-add merge guard (isSameDeckPrinting).
+    const seenKeys = new Set()
+    const dedupedRows = []
+    for (const row of rows) {
+      const key = `${row.card_print_id}|${row.foil ? 1 : 0}|${normalizeBoard(row.board)}`
+      if (seenKeys.has(key) || deckCardsRef.current.some(dc => isSameDeckPrinting(dc, row))) {
+        skipped++
+        continue
+      }
+      seenKeys.add(key)
+      dedupedRows.push(row)
+    }
+    rows = dedupedRows
+    if (!rows.length) return { added: 0, skipped, rows: [] }
+
     deckCardsRef.current = [...deckCardsRef.current, ...rows]
     setDeckCards(deckCardsRef.current)
     try {
@@ -5308,14 +5329,6 @@ export default function DeckBuilderPage() {
                           </span>
                         </button>
                       ))}
-                      <div className={styles.menuDivider} />
-                      <button
-                        className={styles.columnMenuItem}
-                        onClick={() => { addCustomCategory(); close?.() }}
-                      >
-                        <span className={styles.columnMenuLabel}>Add Category</span>
-                        <AddIcon size={12} />
-                      </button>
                     </div>
                   )}
                 </ResponsiveMenu>
@@ -5382,6 +5395,17 @@ export default function DeckBuilderPage() {
                           </span>
                         </button>
                       ))}
+                      {/* Add Category belongs with grouping (it creates a custom
+                          category group and switches to By Category), not in the
+                          View Style menu where it was buried. */}
+                      <div className={styles.menuDivider} />
+                      <button
+                        className={styles.columnMenuItem}
+                        onClick={() => { addCustomCategory(); close?.() }}
+                      >
+                        <span className={styles.columnMenuLabel}>New Category…</span>
+                        <AddIcon size={12} />
+                      </button>
                     </div>
                   )}
                 </ResponsiveMenu>

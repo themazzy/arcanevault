@@ -1438,21 +1438,24 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       try {
         const printMap = await fetchPaperPrintingsByNamesFromDb(missing)
         // Cheapest few DB printings per name → the language-check candidate set.
+        // card_prints rows already carry lang + art, so byId/langById come
+        // straight from them — no per-candidate Scryfall lookup (api.scryfall.com
+        // /cards/collection has no CORS headers on our origin and 400s the batch).
         const candsByName = new Map()
-        const allIds = new Set()
+        const byId = new Map()
+        const langById = new Map()
         for (const n of missing) {
           const cands = (printMap.get(n) || [])
-            .map(p => ({ id: p.id, price: getPrice(p, false, { price_source }) }))
+            .map(p => ({ id: p.id, price: getPrice(p, false, { price_source }), sf: p }))
             .filter(p => p.id && p.price != null)
             .sort((a, b) => a.price - b.price)
             .slice(0, CHEAPEST_CANDIDATES)
           candsByName.set(n, cands)
-          for (const c of cands) allIds.add(c.id)
+          for (const c of cands) {
+            byId.set(c.id, c.sf)
+            langById.set(c.id, c.sf.lang)
+          }
         }
-        // One batched Scryfall lookup tells us each candidate's language + art.
-        const sfCards = await fetchCardsByScryfallIds([...allIds]).catch(() => [])
-        const byId = new Map(sfCards.map(c => [c.id, c]))
-        const langById = new Map(sfCards.map(c => [c.id, c.lang]))
         const next = new Map(cheapestByName)
         for (const n of missing) {
           const cands = candsByName.get(n) || []
