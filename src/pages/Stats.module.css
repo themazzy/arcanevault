@@ -20,9 +20,9 @@
 }
 
 .sectionCount {
-  font-size: 0.7rem;
+  font-size: var(--label-size-md);
   color: var(--text-faint);
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -63,7 +63,7 @@
   font-size: 0.6rem;
   color: var(--text-dim, #9a8870);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--label-tracking-wide);
 }
 
 .statSub {
@@ -234,7 +234,7 @@
   border-radius: 6px;
   font-family: var(--font-display, 'Cinzel', serif);
   font-size: 0.64rem;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   padding: 8px 12px;
   cursor: pointer;
@@ -592,7 +592,7 @@
   color: var(--text-dim, #9a8870);
   font-family: var(--font-display, 'Cinzel', serif);
   font-size: 0.6rem;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--label-tracking-wide);
   text-transform: uppercase;
   font-weight: 400;
 }
@@ -682,7 +682,7 @@
   color: var(--text-dim, #9a8870);
   font-family: var(--font-display, 'Cinzel', serif);
   font-size: 0.6rem;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--label-tracking-wide);
   text-transform: uppercase;
   font-weight: 400;
   white-space: nowrap;
@@ -1184,7 +1184,7 @@
 .winrateFormatPill {
   font-family: var(--font-display, 'Cinzel', serif);
   font-size: 0.58rem;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   color: var(--text-faint);
   background: var(--s2);

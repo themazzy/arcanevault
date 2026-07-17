@@ -179,7 +179,7 @@
   line-height: 1;
   transition: background 0.15s;
 }
-.qtyBtn:hover { background: rgba(255,255,255,0.12); }
+.qtyBtn:hover { background: var(--s5); }
 .qtyDisplay {
   padding: 3px 0;
   text-align: center;

@@ -127,7 +127,7 @@
   display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px;
 }
 .chartTitle {
-  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em;
+  font-size: 0.68rem; text-transform: uppercase; letter-spacing: var(--label-tracking-wide);
   color: var(--text-faint); font-family: var(--font-display);
 }
 .chartSub {
@@ -243,7 +243,7 @@
   box-shadow: 0 8px 24px rgba(0,0,0,0.5);
 }
 .bracketDesc { font-size: 0.82rem; color: var(--text-dim); margin: 0 0 10px; line-height: 1.5; }
-.bracketGcTitle { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-faint); margin-bottom: 6px; }
+.bracketGcTitle { font-size: 0.68rem; text-transform: uppercase; letter-spacing: var(--label-tracking); color: var(--text-faint); margin-bottom: 6px; }
 .bracketGcList {
   list-style: none; padding: 0; margin: 0;
   display: flex; flex-direction: column; gap: 3px;
@@ -275,7 +275,7 @@
   gap: 8px; margin-bottom: 2px;
 }
 .colorMatrixHdr {
-  font-size: 0.63rem; text-transform: uppercase; letter-spacing: 0.08em;
+  font-size: var(--label-size-sm); text-transform: uppercase; letter-spacing: var(--label-tracking);
   color: var(--text-faint); font-family: var(--font-display);
 }
 .colorMatrixRow {
@@ -297,7 +297,7 @@
 /* ── Legacy color prod (kept for compat) ──────────────────────────────────── */
 .colorProdSection { display: flex; flex-direction: column; }
 .colorProdTitle {
-  font-size: 0.67rem; text-transform: uppercase; letter-spacing: 0.09em;
+  font-size: var(--label-size-md); text-transform: uppercase; letter-spacing: var(--label-tracking);
   color: var(--text-faint); margin-bottom: 8px; font-family: var(--font-display);
 }
 .colorProdGroup { margin-bottom: 5px; }
@@ -551,7 +551,7 @@
 
 /* ── Color Stack Bar (Archidekt-style) ───────────────────────────────────── */
 .stackBarWrap { display: flex; flex-direction: column; gap: 4px; }
-.stackBarLabel { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-faint); }
+.stackBarLabel { font-size: 0.68rem; text-transform: uppercase; letter-spacing: var(--label-tracking); color: var(--text-faint); }
 .stackBar {
   display: flex; height: 28px; border-radius: 4px; overflow: hidden;
   border: 1px solid var(--s-border);
@@ -658,7 +658,7 @@
 .th {
   padding: 8px 12px; text-align: left;
   font-family: var(--font-display); font-size: 0.68rem; text-transform: uppercase;
-  letter-spacing: 0.08em; color: var(--text-faint);
+  letter-spacing: var(--label-tracking); color: var(--text-faint);
   background: var(--s-card); border-bottom: 1px solid var(--border);
   cursor: pointer; user-select: none; white-space: nowrap;
   transition: color 0.15s;
@@ -685,7 +685,7 @@
 
 /* Table column picker */
 .tableColPicker { display: flex; align-items: center; gap: 6px; padding: 4px 0 8px; }
-.tableColLabel { font-size: 0.68rem; color: var(--text-faint); font-family: var(--font-display); letter-spacing: 0.06em; text-transform: uppercase; margin-right: 2px; }
+.tableColLabel { font-size: 0.68rem; color: var(--text-faint); font-family: var(--font-display); letter-spacing: var(--label-tracking); text-transform: uppercase; margin-right: 2px; }
 
 /* Column visibility menu (matches DeckBuilder's ResponsiveMenu pattern) */
 .columnMenuWrap { position: relative; }
@@ -764,7 +764,7 @@
 .tableGroupRow { background: var(--s2); cursor: pointer; user-select: none; }
 .tableGroupRow:hover { background: var(--s3); }
 .tableGroupCell { padding: 6px 12px; border-bottom: 1px solid var(--border); }
-.tableGroupName { font-family: var(--font-display); font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; }
+.tableGroupName { font-family: var(--font-display); font-size: 0.72rem; letter-spacing: var(--label-tracking); text-transform: uppercase; }
 .tableGroupCount { margin-left: 8px; font-size: 0.72rem; color: var(--text-faint); background: var(--s-border); border-radius: 8px; padding: 1px 6px; }
 
 /* Table view inline qty adjuster (shown in select mode for multi-copy cards) */
@@ -909,7 +909,7 @@
 }
 .stackQty {
   position: absolute; top: 4px; right: 4px;
-  background: rgba(20,20,20,0.88); border: 1px solid rgba(255,255,255,0.15);
+  background: rgba(20,20,20,0.88); border: 1px solid var(--s-border3);
   color: #e0e0e0; font-family: var(--font-display); font-size: 0.6rem; font-weight: 700;
   min-width: 20px; height: 20px; border-radius: 999px;
   display: flex; align-items: center; justify-content: center;

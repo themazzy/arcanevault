@@ -194,7 +194,7 @@
 
 .fileRemoveBtn:hover {
   color: var(--text);
-  border-color: rgba(255,255,255,0.2);
+  border-color: var(--s-border4);
   background: var(--s2);
 }
 
@@ -266,7 +266,7 @@
 
 .cancelBtn:hover {
   color: var(--text);
-  border-color: rgba(255,255,255,0.2);
+  border-color: var(--s-border4);
 }
 
 .submitBtn {

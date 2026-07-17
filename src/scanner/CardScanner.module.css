@@ -226,7 +226,7 @@
   font-family: var(--font-display);
   font-size: 0.86rem;
   color: rgba(255,255,255,0.75);
-  border: 1px solid rgba(255,255,255,0.16);
+  border: 1px solid var(--s-border3);
   background: var(--s2);
 }
 
@@ -258,7 +258,7 @@
 .startupContinueBtn:disabled {
   cursor: default;
   color: rgba(255,255,255,0.6);
-  background: rgba(255,255,255,0.1);
+  background: var(--s5);
   box-shadow: none;
 }
 
@@ -320,7 +320,7 @@
 .statusPill {
   font-family: var(--font-display);
   font-size: 0.72rem;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   color: rgba(255,255,255,0.92);
   background: rgba(0,0,0,0.55);
@@ -331,7 +331,7 @@
 
 .closeBtn {
   background: rgba(0,0,0,0.55);
-  border: 1px solid rgba(255,255,255,0.18);
+  border: 1px solid var(--s-border3);
   border-radius: 50%;
   color: #fff;
   font-size: 0.84rem;
@@ -510,7 +510,7 @@
 
 .scannedValueBadgeLabel {
   font-size: 0.6rem;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   color: rgba(255,255,255,0.5);
 }
@@ -536,7 +536,7 @@
   box-shadow: 0 16px 28px rgba(0,0,0,0.28);
   font-family: var(--font-display);
   font-size: 0.74rem;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   text-align: center;
   color: #cfe9d4;
@@ -682,7 +682,7 @@
   height: 28px;
   padding: 0;
   border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.16);
+  border: 1px solid var(--s-border3);
   background: var(--s3);
   color: rgba(255,255,255,0.88);
   font-family: var(--font-display);
@@ -690,7 +690,7 @@
   cursor: pointer;
   transition: transform 0.14s ease, background 0.15s ease, border-color 0.15s ease;
 }
-.historyQtyBtn:hover { background: var(--s4); border-color: rgba(255,255,255,0.22); }
+.historyQtyBtn:hover { background: var(--s4); border-color: var(--s-border4); }
 .historyQtyBtn:active { transform: scale(0.94); }
 
 .historyQtyValue {
@@ -706,7 +706,7 @@
   height: 34px;
   padding: 0;
   border-radius: 10px;
-  border: 1px solid rgba(255,255,255,0.16);
+  border: 1px solid var(--s-border3);
   background: var(--s3);
   color: rgba(255,255,255,0.88);
   cursor: pointer;
@@ -717,7 +717,7 @@
   transition: transform 0.14s ease, background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 }
 .historyActionIconBtn:hover {
-  background: rgba(255,255,255,0.1);
+  background: var(--s5);
   transform: translateY(-1px);
 }
 .historyActionIconBtn:active { transform: scale(0.96); }
@@ -754,12 +754,12 @@
   height: 34px;
   padding: 0 8px;
   border-radius: 10px;
-  border: 1px solid rgba(255,255,255,0.16);
+  border: 1px solid var(--s-border3);
   background: var(--s3);
   color: rgba(255,255,255,0.92);
   font-family: var(--font-display);
-  font-size: 0.7rem;
-  letter-spacing: 0.08em;
+  font-size: var(--label-size-md);
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   appearance: none;
   -webkit-appearance: none;
@@ -769,7 +769,7 @@
   flex-shrink: 0;
   transition: transform 0.14s ease, background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
-.historyLanguageSelect:hover { background: var(--s4); border-color: rgba(255,255,255,0.22); }
+.historyLanguageSelect:hover { background: var(--s4); border-color: var(--s-border4); }
 .historyLanguageSelect:focus { box-shadow: 0 0 0 3px rgba(201,168,76,0.12); }
 
 .historyLanguageSelect option {
@@ -839,7 +839,7 @@
 .latestCardMeta {
   margin-top: 4px;
   font-size: 0.68rem;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   color: rgba(255,255,255,0.56);
 }
@@ -872,7 +872,7 @@
   height: 32px;
   padding: 0;
   border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.16);
+  border: 1px solid var(--s-border3);
   background: var(--s3);
   color: rgba(255,255,255,0.88);
   font-family: var(--font-display);
@@ -880,7 +880,7 @@
   cursor: pointer;
   transition: transform 0.14s ease, background 0.15s ease, border-color 0.15s ease;
 }
-.latestQtyBtn:hover { background: var(--s4); border-color: rgba(255,255,255,0.22); }
+.latestQtyBtn:hover { background: var(--s4); border-color: var(--s-border4); }
 .latestQtyBtn:active { transform: scale(0.94); }
 
 .latestQtyValue {
@@ -896,7 +896,7 @@
   height: 48px;
   padding: 0;
   border-radius: 12px;
-  border: 1px solid rgba(255,255,255,0.16);
+  border: 1px solid var(--s-border3);
   background: var(--s3);
   color: rgba(255,255,255,0.88);
   cursor: pointer;
@@ -907,7 +907,7 @@
 }
 
 .latestActionIconBtn:hover {
-  background: rgba(255,255,255,0.1);
+  background: var(--s5);
   transform: translateY(-1px);
 }
 .latestActionIconBtn:active { transform: scale(0.96); }
@@ -965,12 +965,12 @@
   height: 48px;
   padding: 0 10px;
   border-radius: 12px;
-  border: 1px solid rgba(255,255,255,0.16);
+  border: 1px solid var(--s-border3);
   background: var(--s3);
   color: rgba(255,255,255,0.92);
   font-family: var(--font-display);
   font-size: 0.78rem;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   flex-shrink: 0;
   appearance: none;
@@ -983,7 +983,7 @@
   justify-content: center;
   transition: transform 0.14s ease, background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
-.latestLanguageSelect:hover { background: var(--s4); border-color: rgba(255,255,255,0.22); }
+.latestLanguageSelect:hover { background: var(--s4); border-color: var(--s-border4); }
 .latestLanguageSelect:focus { box-shadow: 0 0 0 3px rgba(201,168,76,0.12); }
 
 .latestLanguageSelect option {
@@ -1004,7 +1004,7 @@
 .controlSelect,
 .menuIconBtn {
   background: rgba(0,0,0,0.58);
-  border: 1px solid rgba(255,255,255,0.16);
+  border: 1px solid var(--s-border3);
   border-radius: 8px;
   color: rgba(255,255,255,0.86);
   font-family: var(--font-display);
@@ -1021,8 +1021,8 @@
 }
 
 .controlBtn:hover {
-  background: rgba(255,255,255,0.12);
-  border-color: rgba(255,255,255,0.24);
+  background: var(--s5);
+  border-color: var(--s-border4);
 }
 
 .controlBtnActive {
@@ -1045,8 +1045,8 @@
 }
 
 .menuIconBtn:hover:not(:disabled) {
-  background: rgba(255,255,255,0.12);
-  border-color: rgba(255,255,255,0.24);
+  background: var(--s5);
+  border-color: var(--s-border4);
   transform: translateY(-1px);
 }
 .menuIconBtn:active:not(:disabled) { transform: scale(0.95); }
@@ -1132,7 +1132,7 @@
 
 .secondaryBtn {
   background: var(--s4);
-  border: 1px solid rgba(255,255,255,0.14);
+  border: 1px solid var(--s-border3);
   border-radius: 8px;
   color: rgba(255,255,255,0.7);
   font-family: var(--font-display);
@@ -1199,7 +1199,7 @@
 .basketTitle {
   font-family: var(--font-display);
   font-size: 0.72rem;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   color: rgba(255,255,255,0.85);
   flex: 1;
@@ -1235,7 +1235,7 @@
   align-items: center;
   gap: 8px;
   padding: 7px 10px;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+  border-bottom: 1px solid var(--s-border0);
 }
 .basketItem:last-child { border-bottom: none; }
 
@@ -1294,7 +1294,7 @@
   letter-spacing: 0.05em;
   padding: 3px 7px;
   border-radius: 4px;
-  border: 1px solid rgba(255,255,255,0.14);
+  border: 1px solid var(--s-border3);
   background: none;
   color: rgba(255,255,255,0.5);
   cursor: pointer;
@@ -1382,7 +1382,7 @@
   top: calc(16px + env(safe-area-inset-top, 0px));
   right: 16px;
   background: rgba(0,0,0,0.55);
-  border: 1px solid rgba(255,255,255,0.18);
+  border: 1px solid var(--s-border3);
   border-radius: 50%;
   color: #fff;
   width: 38px;
@@ -1540,7 +1540,7 @@
   width: 100%;
   min-height: 42px;
   background: var(--s3);
-  border: 1px solid rgba(255,255,255,0.14);
+  border: 1px solid var(--s-border3);
   border-radius: 12px;
   color: #fff;
   font-size: 0.8rem;
@@ -1570,7 +1570,7 @@
   color: var(--gold, #c9a84c);
   font-family: var(--font-display);
   font-size: 0.72rem;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   cursor: pointer;
   transition: transform 0.14s ease, background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
@@ -1883,7 +1883,7 @@
   width: 60px;
   height: 3px;
   border-radius: 2px;
-  background: rgba(255,255,255,0.1);
+  background: var(--s5);
   overflow: hidden;
 }
 
@@ -1947,8 +1947,8 @@
   width: 40px;
   height: 24px;
   border-radius: 12px;
-  background: rgba(255,255,255,0.12);
-  border: 1px solid rgba(255,255,255,0.14);
+  background: var(--s5);
+  border: 1px solid var(--s-border3);
   padding: 0;
   cursor: pointer;
   position: relative;
@@ -2027,7 +2027,7 @@
   justify-content: center;
   padding: 10px 16px;
   border-radius: 12px;
-  border: 1px solid rgba(255,255,255,0.16);
+  border: 1px solid var(--s-border3);
   background: var(--s3);
   color: rgba(255,255,255,0.75);
   font-family: var(--font-display);
@@ -2037,7 +2037,7 @@
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
 }
-.nextCardBtn:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.28); }
+.nextCardBtn:hover { background: var(--s5); border-color: rgba(255,255,255,0.28); }
 .nextCardBtn:active { transform: scale(0.97); }
 
 /* ── Locked set badge (inside reticle) ── */
@@ -2174,7 +2174,7 @@
   padding: 8px 12px;
   background: none;
   border: none;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  border-bottom: 1px solid var(--s-border0);
   color: var(--text);
   cursor: pointer;
   text-align: left;
@@ -2249,7 +2249,7 @@
 .sessionStatsSectionLabel {
   display: block;
   font-size: 0.6rem;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--label-tracking-wide);
   text-transform: uppercase;
   color: var(--text-faint);
   margin-bottom: 6px;

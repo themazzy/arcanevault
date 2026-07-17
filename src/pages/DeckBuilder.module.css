@@ -116,7 +116,7 @@
   transform: rotate(180deg);
   font-family: var(--font-display);
   font-size: 0.72rem;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
 }
 
@@ -488,7 +488,7 @@
 .rightTab {
   min-height: 32px;
   font-size: 0.74rem;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
 }
 
@@ -768,7 +768,7 @@
 .recsCatName {
   flex: 1;
   font-family: var(--font-display);
-  font-size: 0.7rem;
+  font-size: var(--label-size-md);
   letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--text-dim);
@@ -859,7 +859,7 @@
 
 .inclusionBar {
   height: 3px;
-  background: rgba(255,255,255,0.1);
+  background: var(--s5);
   border-radius: 2px;
   flex: 1;
   overflow: hidden;
@@ -939,7 +939,7 @@
   color: var(--text-faint);
   font-size: 0.68rem;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--label-tracking);
 }
 
 .headerActions {
@@ -1013,7 +1013,7 @@
   border-radius: 4px;
   font-family: var(--font-display);
   font-size: 0.68rem;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   line-height: 1.2;
   white-space: nowrap;
@@ -1515,7 +1515,7 @@
   cursor: pointer;
   font-family: var(--font-display);
   font-size: 0.68rem;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   transition: color 140ms ease, background 140ms ease, border-color 140ms ease;
 }
@@ -1610,7 +1610,7 @@
   color: var(--text-dim);
   font-family: var(--font-display);
   font-size: 0.64rem;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
 }
 
@@ -1653,8 +1653,8 @@
   color: var(--gold);
   cursor: pointer;
   font-family: var(--font-display);
-  font-size: 0.7rem;
-  letter-spacing: 0.08em;
+  font-size: var(--label-size-md);
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   text-align: left;
 }
@@ -1746,8 +1746,8 @@
 .warningTooltipTitle {
   color: var(--gold);
   font-family: var(--font-display);
-  font-size: 0.7rem;
-  letter-spacing: 0.06em;
+  font-size: var(--label-size-md);
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   margin-bottom: 6px;
 }
@@ -1807,7 +1807,7 @@
   padding: 4px 9px;
   font-family: var(--font-display);
   font-size: 0.64rem;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
 }
 
@@ -1833,7 +1833,7 @@
   border-bottom: 1px solid var(--s-border);
   color: var(--text-faint);
   font-size: 0.64rem;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
 }
 
@@ -1902,7 +1902,7 @@
   font-size: 0.78rem;
   color: var(--text-dim);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--label-tracking);
   flex: 1;
 }
 
@@ -1955,7 +1955,7 @@
   padding: 3px 10px 2px;
   color: var(--text-faint);
   font-size: 0.66rem;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
 }
 
@@ -2365,7 +2365,7 @@
 
 .ownBar {
   height: 4px;
-  background: rgba(255,255,255,0.1);
+  background: var(--s5);
   border-radius: 2px;
   overflow: hidden;
   margin-bottom: 4px;
@@ -2906,7 +2906,7 @@
   color: var(--text-faint);
   font-family: var(--font-display);
   font-size: 0.58rem;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--label-tracking-wide);
   text-transform: uppercase;
 }
 
@@ -3398,7 +3398,7 @@
   align-items: center;
   justify-content: center;
   background: rgba(40,40,42,0.9);
-  border: 1px solid rgba(255,255,255,0.14);
+  border: 1px solid var(--s-border3);
   color: #ddd;
   font-family: var(--font-display);
   font-size: 0.58rem;
@@ -3589,7 +3589,7 @@
   cursor: pointer;
   font-family: var(--font-display);
   font-size: 0.68rem;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
 }
 
@@ -3829,9 +3829,9 @@
     min-width: 42px;
     min-height: 38px;
     padding: 7px 13px;
-    font-size: 0.7rem;
+    font-size: var(--label-size-md);
     font-family: var(--font-display);
-    letter-spacing: 0.06em;
+    letter-spacing: var(--label-tracking);
     text-transform: uppercase;
     cursor: pointer;
     transition: border-color 0.15s, background 0.15s, color 0.15s;
@@ -4280,7 +4280,7 @@
   flex-shrink: 0;
   font-family: var(--font-display);
   font-size: 0.62rem;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   white-space: nowrap;
   transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
@@ -4640,7 +4640,7 @@
   cursor: pointer;
   font-family: var(--font-display);
   font-size: 0.72rem;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   padding: 8px 14px;
 }
@@ -4960,7 +4960,7 @@
   cursor: pointer;
   font-family: var(--font-display);
   font-size: 0.72rem;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   white-space: nowrap;
   transition: color 0.15s, border-color 0.15s;

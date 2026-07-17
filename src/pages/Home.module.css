@@ -185,7 +185,7 @@
 .changelogHeader:hover { background: rgba(201,168,76,0.04); }
 .changelogTitle {
   font-family: var(--font-display); font-size: 0.72rem;
-  letter-spacing: 0.09em; text-transform: uppercase;
+  letter-spacing: var(--label-tracking); text-transform: uppercase;
   color: var(--gold);
 }
 .changelogChevron { font-size: 0.6rem; color: var(--text-faint); }
@@ -198,7 +198,7 @@
 .changelogSectionHead { display: flex; align-items: center; gap: 8px; }
 .changelogBadge {
   font-family: var(--font-display); font-size: 0.58rem;
-  letter-spacing: 0.08em; text-transform: uppercase;
+  letter-spacing: var(--label-tracking); text-transform: uppercase;
   padding: 2px 8px; border-radius: 3px;
 }
 .changelogBadgeLatest {
@@ -322,7 +322,7 @@
   line-height: 1.1;
 }
 .snapshotLabel {
-  font-size: 0.67rem;
+  font-size: var(--label-size-md);
   color: var(--text-faint);
   text-transform: uppercase;
   letter-spacing: 0.07em;
@@ -541,7 +541,7 @@
 /* ── MTG News ────────────────────────────────────────────────────────────── */
 .newsSources { display: flex; gap: 6px; }
 .newsSourceBadge {
-  font-size: 0.67rem; font-family: var(--font-display); letter-spacing: 0.06em;
+  font-size: var(--label-size-md); font-family: var(--font-display); letter-spacing: var(--label-tracking);
   padding: 2px 8px; border-radius: 3px; border: 1px solid; text-transform: uppercase;
 }
 
@@ -584,7 +584,7 @@
 }
 .newsCardBadge {
   position: absolute; top: 8px; left: 8px;
-  font-size: 0.6rem; font-family: var(--font-display); letter-spacing: 0.08em;
+  font-size: 0.6rem; font-family: var(--font-display); letter-spacing: var(--label-tracking);
   text-transform: uppercase; padding: 2px 7px; border-radius: 3px; border: 1px solid;
   background: rgba(10,9,8,0.82);
   backdrop-filter: blur(3px);
@@ -668,7 +668,7 @@
   opacity: 0.8;
 }
 .setType {
-  font-size: 0.61rem;
+  font-size: var(--label-size-sm);
   color: var(--text-faint);
   text-transform: uppercase;
   letter-spacing: 0.07em;
@@ -739,7 +739,7 @@
 .cvFlipBtn:hover { color: var(--gold); border-color: rgba(201,168,76,0.35); }
 .cvArtCaption { display: flex; flex-direction: column; gap: 3px; font-size: 0.72rem; color: var(--text-dim); }
 
-.printingsLabel { font-size: 0.68rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em; }
+.printingsLabel { font-size: 0.68rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: var(--label-tracking); }
 .printingsStrip {
   display: flex; gap: 5px; overflow-x: auto; padding-bottom: 4px;
   max-width: 100%; min-width: 0;
@@ -828,7 +828,7 @@
   border-radius: 4px; padding: 8px 14px; min-width: 100px;
   display: flex; flex-direction: column; gap: 3px;
 }
-.priceLabel { font-size: 0.68rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em; }
+.priceLabel { font-size: 0.68rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: var(--label-tracking); }
 .priceVal { font-family: var(--font-display); font-size: 1rem; font-weight: 600; }
 
 /* Legality tab */
@@ -978,7 +978,7 @@
 }
 .advLabel {
   font-family: var(--font-display);
-  font-size: 0.7rem;
+  font-size: var(--label-size-md);
   text-transform: uppercase;
   letter-spacing: 0.07em;
   color: var(--text-faint);

@@ -74,7 +74,7 @@
 
 .stepLabel {
   font-size: 0.68rem;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   color: var(--text-faint);
   font-family: var(--font-display);
@@ -411,7 +411,7 @@
 
 .textGroupLabel {
   font-size: 0.72rem;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   color: var(--text-faint);
   font-family: var(--font-display);

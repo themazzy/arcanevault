@@ -114,7 +114,7 @@
 .composerHead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .composerHint { font-size: 0.82rem; color: var(--text-dim); margin-bottom: 12px; }
 .composerRow { display: flex; gap: 10px; align-items: baseline; margin-bottom: 10px; }
-.composerLabel { flex: 0 0 110px; font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); }
+.composerLabel { flex: 0 0 110px; font-size: 0.74rem; text-transform: uppercase; letter-spacing: var(--label-tracking); color: var(--text-faint); }
 .composerChips { flex: 1; display: flex; flex-wrap: wrap; gap: 6px; }
 .composerEmpty { font-size: 0.8rem; color: var(--text-faint); font-style: italic; }
 .chip {

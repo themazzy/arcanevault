@@ -722,7 +722,7 @@
   display: block;
   color: var(--text-faint, #857868);
   font-size: 0.56rem;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
 }
 
@@ -753,7 +753,7 @@
 
 .demoMana strong { color: var(--text-dim, #a89878); font-weight: 500; }
 .demoPips { display: flex; gap: 4px; }
-.demoPips i { width: 10px; height: 10px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.2); }
+.demoPips i { width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--s-border4); }
 .pipWhite { background: #eee3c7; }
 .pipBlue { background: #4c9bd2; }
 .pipBlack { background: #4d4756; }
@@ -835,7 +835,7 @@
   max-width: 1240px;
   margin: 0 auto;
   padding: 80px 52px;
-  border-top: 1px solid rgba(255,255,255,0.05);
+  border-top: 1px solid var(--s-border0);
 }
 
 .featureGrid {
@@ -883,7 +883,7 @@
 .featureTitle {
   font-family: var(--font-display);
   font-size: 0.78rem;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   color: var(--text, #ddd0b8);
 }
@@ -901,7 +901,7 @@
   opacity: 0.75;
   font-style: italic;
   padding-top: 4px;
-  border-top: 1px solid rgba(255,255,255,0.05);
+  border-top: 1px solid var(--s-border0);
 }
 
 /* ── How it works ────────────────────────────────────────────────────────── */
@@ -911,7 +911,7 @@
   max-width: 1240px;
   margin: 0 auto;
   padding: 80px 52px;
-  border-top: 1px solid rgba(255,255,255,0.05);
+  border-top: 1px solid var(--s-border0);
 }
 
 .steps {
@@ -927,7 +927,7 @@
   gap: 40px;
   align-items: center;
   padding: 40px 0;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+  border-bottom: 1px solid var(--s-border0);
 }
 .step:last-child { border-bottom: none; }
 
@@ -1003,7 +1003,7 @@
   max-width: 1240px;
   margin: 0 auto;
   padding: 80px 52px;
-  border-top: 1px solid rgba(255,255,255,0.05);
+  border-top: 1px solid var(--s-border0);
 }
 
 .panelRow {
@@ -1104,7 +1104,7 @@
   background: var(--s3);
   border: 1px solid var(--s-border);
   font-size: 0.62rem;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   color: var(--text-faint, #857868);
 }
@@ -1157,7 +1157,7 @@
   border: 1px solid rgba(201,168,76,0.14);
   color: var(--gold, #c9a84c);
   font-size: 0.66rem;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
 }
 
@@ -1216,8 +1216,8 @@
   justify-content: center;
   gap: 40px;
   padding: 36px 52px;
-  border-top: 1px solid rgba(255,255,255,0.05);
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+  border-top: 1px solid var(--s-border0);
+  border-bottom: 1px solid var(--s-border0);
   background: rgba(201,168,76,0.02);
 }
 

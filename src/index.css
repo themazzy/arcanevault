@@ -91,12 +91,20 @@
   --z-toast:   5000;   /* toast stack */
   --z-preview: 9999;   /* floating card hover preview */
 
-  /* Surface overlays — inverted per theme for light/dark mode */
+  /* Surface overlays — inverted per theme for light/dark mode.
+     Border ramp, faint -> strongest: border0 < border < border2 < border3 < border4.
+     Steps were derived from real usage; every step needs a value in FIVE places:
+     :root, [data-theme-mode="light"], [data-high-contrast="true"],
+     [data-theme-mode="light"][data-high-contrast="true"], and (backgrounds only)
+     [data-oled="true"]. Miss one and the token silently breaks in that mode. */
   --s-card:    rgba(255,255,255,0.025);
   --s-subtle:  rgba(255,255,255,0.04);
   --s-medium:  rgba(255,255,255,0.07);
+  --s-border0: rgba(255,255,255,0.04);
   --s-border:  rgba(255,255,255,0.07);
   --s-border2: rgba(255,255,255,0.12);
+  --s-border3: rgba(255,255,255,0.16);
+  --s-border4: rgba(255,255,255,0.22);
   --overlay:   rgba(0,0,0,0.20);
 
   /* Skeleton shimmer — overridden per premium theme */
@@ -347,13 +355,17 @@
   --s-card:    rgba(255,252,246,0.78);
   --s-subtle:  rgba(255,255,255,0.88);
   --s-medium:  rgba(188,152,83,0.18);
+  --s-border0: rgba(102,74,26,0.08);
   --s-border:  rgba(102,74,26,0.14);
   --s-border2: rgba(102,74,26,0.26);
+  --s-border3: rgba(102,74,26,0.34);
+  --s-border4: rgba(102,74,26,0.46);
   --overlay:   rgba(244,238,228,0.34);
   --s1:        rgba(255,253,248,0.62);
   --s2:        rgba(255,255,255,0.82);
   --s3:        rgba(215,191,143,0.24);
   --s4:        rgba(188,152,83,0.32);
+  --s5:        rgba(188,152,83,0.44);
   --nav-bg:    rgba(255,251,245,0.94);
   --popup-bg:  rgba(255,251,245,0.98);
   --ambient-1: rgba(232,183,79,0.19);
@@ -411,8 +423,11 @@
   --text-faint: #c4b18e;
   --border: rgba(201,168,76,0.38);
   --border-hi: rgba(201,168,76,0.72);
+  --s-border0: rgba(255,255,255,0.09);
   --s-border: rgba(255,255,255,0.16);
   --s-border2: rgba(255,255,255,0.26);
+  --s-border3: rgba(255,255,255,0.34);
+  --s-border4: rgba(255,255,255,0.46);
   --overlay: rgba(0,0,0,0.28);
 }
 
@@ -422,8 +437,11 @@
   --text-faint: #43311f;
   --border: rgba(116,82,24,0.34);
   --border-hi: rgba(141,93,0,0.62);
+  --s-border0: rgba(102,74,26,0.14);
   --s-border: rgba(102,74,26,0.22);
   --s-border2: rgba(102,74,26,0.32);
+  --s-border3: rgba(102,74,26,0.40);
+  --s-border4: rgba(102,74,26,0.52);
   --overlay: rgba(250,242,230,0.72);
 }
 
@@ -534,6 +552,7 @@ summary:focus-visible {
   --s2: rgba(255,255,255,0.04);
   --s3: rgba(255,255,255,0.06);
   --s4: rgba(255,255,255,0.08);
+  --s5: rgba(255,255,255,0.12);
 }
 
 /* ── Global shimmer keyframes (referenced by CSS module skeleton classes) */
@@ -549,6 +568,7 @@ summary:focus-visible {
   --s2:  #000000;
   --s3:  #000000;
   --s4:  #000000;
+  --s5:  #000000;
   --ambient-1: transparent;
   --ambient-2: transparent;
   --glass-strong: #000000;

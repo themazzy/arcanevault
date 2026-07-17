@@ -128,7 +128,7 @@
   align-items: baseline;
   font-size: 0.66rem;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   color: var(--text-faint);
   margin-bottom: 5px;
 }
@@ -294,7 +294,7 @@
   flex-shrink: 0;
   font-size: 0.62rem;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--label-tracking);
   color: #e08a3c;
   border: 1px solid rgba(224, 138, 60, 0.45);
   border-radius: 999px;

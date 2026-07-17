@@ -13,7 +13,7 @@
   text-align: left;
   transition: border-color 0.2s, color 0.2s;
 }
-.toggle:hover { border-color: rgba(255,255,255,0.2); color: var(--text); }
+.toggle:hover { border-color: var(--s-border4); color: var(--text); }
 
 .panel {
   margin-top: 6px;
@@ -49,7 +49,7 @@
 .groupTitle {
   font-size: 0.68rem;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   color: var(--gold-dim);
   margin-bottom: 4px;
   margin-top: 4px;
@@ -67,5 +67,5 @@
   padding: 8px 12px;
   font-size: 0.82rem;
   color: #6db96d;
-  border-top: 1px solid rgba(255,255,255,0.04);
+  border-top: 1px solid var(--s-border0);
 }

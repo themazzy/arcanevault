@@ -84,7 +84,7 @@
   color: var(--text-dim);
   cursor: pointer; transition: all 0.15s;
 }
-.tab:hover { background: var(--s2); color: var(--text); border-color: rgba(255,255,255,0.2); }
+.tab:hover { background: var(--s2); color: var(--text); border-color: var(--s-border4); }
 .tabActive {
   background: rgba(201,168,76,0.12) !important;
   border-color: rgba(201,168,76,0.25) !important;
@@ -145,7 +145,7 @@
   background: var(--s-subtle);
   border-color: var(--s-border2);
 }
-.btnCopy:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
+.btnCopy:hover { color: var(--text); border-color: var(--s-border4); }
 .btnCopied {
   color: var(--green) !important;
   background: rgba(93,186,112,0.1) !important;
@@ -188,7 +188,7 @@
   letter-spacing: 0.04em; color: var(--text-dim);
   cursor: pointer; transition: all 0.15s;
 }
-.altBtn:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
+.altBtn:hover { color: var(--text); border-color: var(--s-border4); }
 
 /* ── Share status ── */
 .shareMsg {

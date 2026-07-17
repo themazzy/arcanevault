@@ -17,7 +17,7 @@
   box-shadow: 0 10px 30px rgba(0,0,0,0.28);
   font-family: var(--font-display);
   font-size: 0.72rem;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   pointer-events: none;
   opacity: 1;

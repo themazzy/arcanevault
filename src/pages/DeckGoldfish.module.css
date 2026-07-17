@@ -444,7 +444,7 @@
   opacity: 0.8;
   font-size: 0.58rem;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
 }
 
 .customTokenFace b {
@@ -909,7 +909,7 @@
   color: var(--text-dim);
   font-size: 0.72rem;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--label-tracking);
   margin: 12px 0 8px;
 }
 

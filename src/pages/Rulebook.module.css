@@ -24,7 +24,7 @@
 .eyebrow {
   font-family: var(--font-display);
   font-size: 0.68rem;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--label-tracking-wide);
   text-transform: uppercase;
   color: var(--gold);
   margin-bottom: 7px;
@@ -124,7 +124,7 @@
   border-radius: 4px;
   font-family: var(--font-display);
   font-size: 0.64rem;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   padding: 5px 8px;
   cursor: pointer;

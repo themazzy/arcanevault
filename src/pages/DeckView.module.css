@@ -460,7 +460,7 @@
   align-items: center;
   font-family: var(--font-display, 'Cinzel', serif);
   font-size: 0.58rem;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--label-tracking-wide);
   text-transform: uppercase;
   color: var(--text-faint, #6a6058);
   margin-bottom: 3px;
@@ -1502,7 +1502,7 @@
 .decklistTitle {
   font-family: var(--font-display, 'Cinzel', serif);
   font-size: 0.78rem;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--label-tracking-wide);
   text-transform: uppercase;
   color: var(--text-dim);
 }

@@ -78,7 +78,7 @@
   justify-content: center;
   min-height: 48px;
   padding: 0 18px;
-  border: 1px dashed rgba(255, 255, 255, 0.2);
+  border: 1px dashed var(--s-border4);
   border-radius: 14px;
   background: var(--s2);
   color: rgba(255, 245, 214, 0.88);

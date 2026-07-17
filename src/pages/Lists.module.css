@@ -311,7 +311,7 @@
   line-height: 1;
   transition: background 0.15s;
 }
-.qtyOverlayBtn:hover { background: rgba(255,255,255,0.12); }
+.qtyOverlayBtn:hover { background: var(--s5); }
 .qtyOverlayDisplay {
   padding: 3px 0;
   text-align: center;

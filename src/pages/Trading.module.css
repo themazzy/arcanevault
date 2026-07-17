@@ -26,7 +26,7 @@
   color: var(--text-dim);
   font-family: var(--font-display);
   font-size: 0.78rem;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   cursor: pointer;
   white-space: nowrap;
@@ -71,7 +71,7 @@
   color: var(--text-faint);
   font-size: 0.66rem;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   margin-bottom: 6px;
 }
 
@@ -156,7 +156,7 @@
 .logCount {
   font-size: 0.74rem;
   color: var(--text-faint);
-  letter-spacing: 0.06em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
 }
 
@@ -166,7 +166,7 @@
   color: var(--text-dim);
   font-family: var(--font-display);
   font-size: 0.64rem;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   cursor: pointer;
   padding: 4px 8px;
@@ -406,7 +406,7 @@
   align-items: center;
   gap: 8px;
   font-size: 0.62rem;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--label-tracking-wide);
   text-transform: uppercase;
   color: var(--text-faint);
   padding: 2px 0;
@@ -594,7 +594,7 @@
   font-size: 0.68rem;
   margin-top: 6px;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
 }
 
 .tradeRow {
@@ -854,9 +854,9 @@
 
 .optionFieldLabel {
   color: var(--text-faint);
-  font-size: 0.63rem;
+  font-size: var(--label-size-sm);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   margin-bottom: 4px;
 }
 

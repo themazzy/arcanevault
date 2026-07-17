@@ -245,7 +245,7 @@
   color: var(--text-faint);
   font-family: var(--font-display);
   font-size: 0.74rem;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--label-tracking-wide);
   text-transform: uppercase;
   background: color-mix(in srgb, var(--bg3) 82%, transparent);
 }

@@ -183,7 +183,7 @@
 .ctrlLabel {
   font-family: var(--font-display);
   font-size: 0.58rem;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--label-tracking-wide);
   text-transform: uppercase;
   color: var(--text-faint);
 }
@@ -492,7 +492,7 @@
 .sourceThinTag {
   margin-left: 3px;
   font-size: 0.6rem;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   color: var(--gold);
   opacity: 0.85;
@@ -797,7 +797,7 @@
   align-items: center;
   justify-content: space-between;
   font-size: 0.72rem;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   color: var(--text-faint);
 }
@@ -866,7 +866,7 @@
 
 .afTuneLabel {
   font-size: 0.66rem;
-  letter-spacing: 0.09em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   color: var(--text-faint);
 }

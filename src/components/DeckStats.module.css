@@ -13,7 +13,7 @@
 .panelTitle {
   font-size: 0.68rem;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--label-tracking-wide);
   color: var(--text-faint);
   font-family: var(--font-display);
 }
@@ -148,7 +148,7 @@
 .probOpeningLabel {
   font-size: 0.62rem;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   color: var(--text-faint);
 }
 .probOpeningVal { color: var(--text-dim); }

@@ -552,7 +552,7 @@
   max-height: 340px; overflow-y: auto;
 }
 .histEvtList::-webkit-scrollbar { width: 3px; }
-.histEvtList::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+.histEvtList::-webkit-scrollbar-thumb { background: var(--s5); border-radius: 2px; }
 .histEvtRow {
   display: flex; align-items: center; gap: 8px;
   background: var(--s1); border: 1px solid var(--s-border);
@@ -730,7 +730,7 @@
 .settingsLabel {
   font-family: var(--font-display);
   font-size: 0.62rem;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   color: var(--text-faint);
 }
@@ -776,7 +776,7 @@
 
 @media (hover: hover) and (pointer: fine) { .settingsActionBtn:hover {
   color: var(--text);
-  border-color: rgba(255,255,255,0.16);
+  border-color: var(--s-border3);
 } }
 
 .settingsActionBtnActive {
@@ -1024,7 +1024,7 @@
   font-family: var(--font-display); font-size: 0.72rem; letter-spacing: 0.04em;
   padding: 7px 4px; cursor: pointer; transition: all 0.15s; text-align: center;
 }
-@media (hover: hover) and (pointer: fine) { .diceTypeBtn:hover { color: var(--text); border-color: rgba(255,255,255,0.15); } }
+@media (hover: hover) and (pointer: fine) { .diceTypeBtn:hover { color: var(--text); border-color: var(--s-border3); } }
 .diceTypeBtnActive {
   background: rgba(201,168,76,0.14) !important;
   border-color: rgba(201,168,76,0.45) !important;
@@ -1131,7 +1131,7 @@
 .coinCountLabel {
   font-size: 0.72rem;
   color: var(--text-dim);
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
 }
 
@@ -1157,7 +1157,7 @@
   justify-content: center;
 }
 
-@media (hover: hover) and (pointer: fine) { .coinCountBtn:hover { color: var(--text); border-color: rgba(255,255,255,0.15); } }
+@media (hover: hover) and (pointer: fine) { .coinCountBtn:hover { color: var(--text); border-color: var(--s-border3); } }
 .coinCountBtn:disabled {
   opacity: 0.55;
   cursor: default;
@@ -1251,7 +1251,7 @@
   color: var(--text-dim);
   font-family: var(--font-display);
   font-size: 0.72rem;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   padding: 8px;
   cursor: pointer;
@@ -1260,7 +1260,7 @@
 
 @media (hover: hover) and (pointer: fine) { .coinModeBtn:hover {
   color: var(--text);
-  border-color: rgba(255,255,255,0.15);
+  border-color: var(--s-border3);
 } }
 
 .diceRollBtn {
@@ -1386,7 +1386,7 @@
   color: var(--text-dim);
   font-family: var(--font-display);
   font-size: 0.72rem;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   padding: 10px 14px;
   cursor: pointer;
@@ -1426,7 +1426,7 @@
 }
 .setupLabel {
   font-family: var(--font-display); font-size: 0.6rem; color: var(--text-dim);
-  text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 11px;
+  text-transform: uppercase; letter-spacing: var(--label-tracking-wide); margin-bottom: 11px;
 }
 
 /* Mode grid */
@@ -1510,7 +1510,7 @@
 }
 .layoutSeat {
   height: 14px; border-radius: 2px;
-  background: rgba(255,255,255,0.1);
+  background: var(--s5);
   border-top: 2px solid rgba(201,168,76,0.5);
 }
 .layoutSeatFlip {
@@ -1666,7 +1666,7 @@
 .histEntryHead { display: flex; align-items: center; gap: 10px; }
 .histMode {
   font-family: var(--font-display); font-size: 0.64rem;
-  text-transform: uppercase; letter-spacing: 0.06em; color: var(--gold);
+  text-transform: uppercase; letter-spacing: var(--label-tracking); color: var(--gold);
 }
 .histDate { font-size: 0.72rem; color: var(--text-faint); margin-left: auto; }
 .histDur  { font-size: 0.72rem; color: var(--text-faint); font-style: italic; }
@@ -1712,7 +1712,7 @@
   border-radius: 6px;
   font-family: var(--font-display);
   font-size: 0.68rem;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
   padding: 8px 12px;
   cursor: pointer;
@@ -1873,7 +1873,7 @@
 .endPlaceFirst.endPlaceBtnActive { background: rgba(201,168,76,0.22) !important; box-shadow: 0 0 10px rgba(201,168,76,0.15); }
 
 .endNotesWrap  { display: flex; flex-direction: column; gap: 5px; }
-.endNotesLabel { font-family: var(--font-display); font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); }
+.endNotesLabel { font-family: var(--font-display); font-size: 0.6rem; text-transform: uppercase; letter-spacing: var(--label-tracking); color: var(--text-dim); }
 .endNotesArea  {
   background: var(--s2); border: 1px solid var(--s-border);
   border-radius: 5px; color: var(--text); font-family: var(--font-serif); font-size: 0.85rem;
@@ -1888,7 +1888,7 @@
   border-radius: 4px; color: var(--text-dim); font-family: var(--font-display); font-size: 0.72rem;
   letter-spacing: 0.05em; cursor: pointer; transition: all 0.15s;
 }
-@media (hover: hover) and (pointer: fine) { .endContinueBtn:hover { color: var(--text); border-color: rgba(255,255,255,0.18); } }
+@media (hover: hover) and (pointer: fine) { .endContinueBtn:hover { color: var(--text); border-color: var(--s-border3); } }
 .endSaveBtn {
   flex: 1; padding: 10px; background: rgba(201,168,76,0.12); border: 1px solid rgba(201,168,76,0.4);
   border-radius: 4px; color: var(--gold); font-family: var(--font-display); font-size: 0.72rem;

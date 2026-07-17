@@ -208,7 +208,7 @@
 }
 .previewRow {
   display: flex; align-items: center; gap: 8px; padding: 6px 10px;
-  border-bottom: 1px solid rgba(255,255,255,0.03); font-size: 0.82rem;
+  border-bottom: 1px solid var(--s-border0); font-size: 0.82rem;
 }
 .previewRow:last-child { border-bottom: none; }
 .previewRowMissing { background: rgba(196,96,96,0.05); }
@@ -310,7 +310,7 @@
   flex-direction: column;
   gap: 10px;
   padding: 9px 10px;
-  border-bottom: 1px solid rgba(255,255,255,0.03);
+  border-bottom: 1px solid var(--s-border0);
   background: color-mix(in srgb, var(--s2) 72%, transparent);
 }
 .editHeader,
@@ -481,7 +481,7 @@
 .doneMsg { font-size: 0.88rem; }
 .success { color: #6acc8a; font-weight: 600; }
 .missedList { max-height: 120px; overflow-y: auto; background: var(--s1); border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; }
-.missedItem { font-size: 0.8rem; color: var(--text-dim); padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.03); }
+.missedItem { font-size: 0.8rem; color: var(--text-dim); padding: 2px 0; border-bottom: 1px solid var(--s-border0); }
 .missedItem:last-child { border-bottom: none; }
 
 @media (max-width: 520px) {

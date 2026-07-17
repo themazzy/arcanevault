@@ -138,7 +138,7 @@
   gap: 2px;
   padding: 2px;
   border-radius: 5px;
-  border: 1px solid rgba(255,255,255,0.14);
+  border: 1px solid var(--s-border3);
   background: var(--s2);
 }
 
@@ -1343,7 +1343,7 @@
   padding: 8px 12px 3px;
   font-size: 0.64rem;
   text-transform: uppercase;
-  letter-spacing: 0.09em;
+  letter-spacing: var(--label-tracking);
   color: var(--text-faint);
   font-family: var(--font-display);
   pointer-events: none;

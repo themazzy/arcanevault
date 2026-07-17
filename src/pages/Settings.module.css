@@ -69,11 +69,11 @@
 .sectionTitle {
   font-family: var(--font-display);
   font-size: 0.72rem;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--label-tracking-wide);
   text-transform: uppercase;
   color: var(--gold-dim);
   padding: 12px 20px;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+  border-bottom: 1px solid var(--s-border0);
   background: var(--s1);
 }
 
@@ -83,7 +83,7 @@
   justify-content: space-between;
   gap: 20px;
   padding: 16px 20px;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  border-bottom: 1px solid var(--s-border0);
 }
 .row:last-child { border-bottom: none; }
 
@@ -126,7 +126,7 @@
 /* Toggle — the whole .row acts as tap target on mobile */
 .toggle {
   width: 44px; height: 26px;
-  background: rgba(255,255,255,0.1);
+  background: var(--s5);
   border: 1px solid var(--s-border2);
   border-radius: 13px;
   cursor: pointer;
@@ -221,7 +221,7 @@
 .accountEyebrow {
   font-family: var(--font-display);
   font-size: 0.64rem;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--label-tracking-wide);
   text-transform: uppercase;
   color: var(--gold-dim);
 }
@@ -420,7 +420,7 @@
 }
 
 .cacheStatLabel {
-  font-size: 0.7rem;
+  font-size: var(--label-size-md);
   color: var(--text-faint);
   text-transform: uppercase;
   letter-spacing: 0.07em;
@@ -982,7 +982,7 @@
   font-size: 0.74rem;
   color: var(--text-dim);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--label-tracking);
 }
 
 .archiveSourceSelect {
@@ -1264,7 +1264,7 @@
 .supportEyebrow {
   font-family: var(--font-display);
   font-size: 0.64rem;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--label-tracking-wide);
   text-transform: uppercase;
   color: var(--gold-dim);
 }
@@ -1378,7 +1378,7 @@
   font-size: 0.72rem;
   color: var(--text-faint);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--label-tracking);
 }
 
 @media (max-width: 700px) {

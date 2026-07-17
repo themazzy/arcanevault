@@ -53,7 +53,7 @@
   text-align: left;
   background: none;
   border: none;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  border-bottom: 1px solid var(--s-border0);
   padding: 7px 12px;
   color: var(--text);
   cursor: pointer;
@@ -460,7 +460,7 @@
   width: 40px;
   height: 22px;
   border-radius: 999px;
-  background: rgba(255,255,255,0.12);
+  background: var(--s5);
   border: 1px solid var(--s-border);
   position: relative;
   flex-shrink: 0;
@@ -495,7 +495,7 @@
 }
 .queueHeader {
   font-family: var(--font-display);
-  font-size: 0.7rem;
+  font-size: var(--label-size-md);
   color: var(--gold-dim);
   text-transform: uppercase;
   letter-spacing: 0.07em;
@@ -526,7 +526,7 @@
   align-items: center;
   gap: 10px;
   background: var(--s1);
-  border: 1px solid rgba(255,255,255,0.05);
+  border: 1px solid var(--s-border0);
   border-radius: 4px;
   padding: 5px 10px 5px 5px;
 }
@@ -574,7 +574,7 @@
   cursor: pointer; transition: all 0.15s; padding: 0;
   touch-action: manipulation;
 }
-.queueQtyBtn:hover { background: rgba(255,255,255,0.12); color: var(--text); border-color: var(--border-hi); }
+.queueQtyBtn:hover { background: var(--s5); color: var(--text); border-color: var(--border-hi); }
 .queueQty { font-family: var(--font-display); font-size: 0.82rem; color: var(--text); min-width: 20px; text-align: center; }
 
 /* ── Destination ── */
@@ -588,7 +588,7 @@
   font-size: 0.68rem;
   color: var(--text-dim);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--label-tracking);
   margin-bottom: 7px;
 }
 .destTabs { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 8px; }
@@ -705,7 +705,7 @@
   text-align: left;
   background: none;
   border: none;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  border-bottom: 1px solid var(--s-border0);
   color: var(--text-dim);
   font-size: 0.84rem;
   padding: 8px 12px;

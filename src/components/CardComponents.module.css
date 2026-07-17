@@ -91,7 +91,7 @@
   display: none;
 }
 .cardMeta { display: flex; justify-content: space-between; align-items: center; margin-top: 3px; }
-.setCode { font-size: 0.7rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em; }
+.setCode { font-size: var(--label-size-md); color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em; }
 .price { font-size: 0.73rem; color: var(--green); }
 .priceFoil { color: var(--green); }
 .priceNa { color: var(--text-faint); }
@@ -132,7 +132,7 @@
   box-sizing: border-box;
   transition: border-color 0.15s, background 0.15s;
 }
-.searchInput:hover { background: var(--s4); border-color: rgba(255,255,255,0.24); }
+.searchInput:hover { background: var(--s4); border-color: var(--s-border4); }
 .searchInput:focus {
   background: var(--s4);
   border-color: rgba(255,255,255,0.3);
@@ -146,7 +146,7 @@
 .filterSortBtn {
   height: var(--control-height);
   background: var(--s2);
-  border: 1px solid rgba(255,255,255,0.16);
+  border: 1px solid var(--s-border3);
   border-radius: 4px;
   padding: 6px var(--control-padding-x);
   color: var(--text-dim);
@@ -388,7 +388,7 @@
   line-height: 1;
   transition: background 0.15s;
 }
-.qtyOverlayBtn:hover { background: rgba(255,255,255,0.12); }
+.qtyOverlayBtn:hover { background: var(--s5); }
 .qtyOverlayDisplay {
   padding: 3px 0;
   text-align: center;
@@ -414,7 +414,7 @@
   border-radius: 4px;
   cursor: pointer;
   background: var(--s2);
-  border: 1px solid rgba(255,255,255,0.16);
+  border: 1px solid var(--s-border3);
   color: var(--text-dim);
   transition: background 0.15s, border-color 0.15s, color 0.15s;
   white-space: nowrap;
@@ -575,7 +575,7 @@
 .moveDialogItem {
   display: block; width: 100%; text-align: left;
   background: none; border: none;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  border-bottom: 1px solid var(--s-border0);
   cursor: pointer; padding: 11px 16px;
   font-size: 0.88rem; color: var(--text); transition: background 0.15s, color 0.15s;
 }
@@ -644,7 +644,7 @@
   justify-content: space-between;
   gap: 8px;
   background: var(--s2);
-  border: 1px solid rgba(255,255,255,0.16);
+  border: 1px solid var(--s-border3);
   color: var(--text-dim);
   border-radius: 4px;
   padding: 6px 13px;
@@ -722,7 +722,7 @@
 .filterLabel {
   font-size: 0.72rem;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--label-tracking);
   color: var(--text-faint);
   width: 68px;
   flex-shrink: 0;
@@ -742,7 +742,7 @@
   transition: all 0.15s;
   white-space: nowrap;
 }
-.chip:hover { border-color: rgba(255,255,255,0.22); color: var(--text); background: var(--s3); }
+.chip:hover { border-color: var(--s-border4); color: var(--text); background: var(--s3); }
 .chipActive {
   background: rgba(201,168,76,0.14);
   border-color: rgba(201,168,76,0.45);
@@ -859,7 +859,7 @@
 .fsectionLabel {
   font-size: 0.68rem;
   text-transform: uppercase;
-  letter-spacing: 0.09em;
+  letter-spacing: var(--label-tracking);
   color: var(--gold-dim);
   margin-bottom: 5px;
   font-family: var(--font-display);
@@ -907,7 +907,7 @@
   padding-right: 4px;
 }
 .setChips::-webkit-scrollbar { width: 4px; }
-.setChips::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+.setChips::-webkit-scrollbar-thumb { background: var(--s5); border-radius: 2px; }
 
 .setCode2 {
   font-size: 0.68rem;
@@ -982,7 +982,7 @@
   box-shadow: 0 8px 24px rgba(0,0,0,0.5);
 }
 .setDropList::-webkit-scrollbar { width: 4px; }
-.setDropList::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+.setDropList::-webkit-scrollbar-thumb { background: var(--s5); border-radius: 2px; }
 
 @media (max-width: 430px) {
   .setDropList {
@@ -997,7 +997,7 @@
   padding: 7px 12px;
   cursor: pointer;
   transition: background 0.12s;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  border-bottom: 1px solid var(--s-border0);
 }
 .setDropItem:last-child { border-bottom: none; }
 .setDropItem:hover { background: var(--s2); }
@@ -1095,7 +1095,7 @@
   gap: 10px;
   font-size: 0.86rem;
   padding: 5px 0;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  border-bottom: 1px solid var(--s-border0);
   align-items: flex-start;
 }
 .detailInfoRow:last-child { border-bottom: none; }
@@ -1628,7 +1628,7 @@ a.priceDetailBlock:focus {
   text-transform: capitalize;
   transition: border-color 0.15s, color 0.15s;
 }
-.purchaseLink:hover { text-decoration: none; border-color: rgba(255,255,255,0.22); color: var(--text); }
+.purchaseLink:hover { text-decoration: none; border-color: var(--s-border4); color: var(--text); }
 
 .rulingsList {
   display: flex;
@@ -1727,7 +1727,7 @@ a.priceDetailBlock:focus {
   overflow-y: auto;
 }
 .moveFolderList::-webkit-scrollbar { width: 4px; }
-.moveFolderList::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+.moveFolderList::-webkit-scrollbar-thumb { background: var(--s5); border-radius: 2px; }
 .moveFolderEmpty {
   padding: 12px;
   text-align: center;
@@ -1854,7 +1854,7 @@ a.priceDetailBlock:focus {
   box-sizing: border-box;
 }
 .printingImgGrid::-webkit-scrollbar { width: 4px; }
-.printingImgGrid::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+.printingImgGrid::-webkit-scrollbar-thumb { background: var(--s5); border-radius: 2px; }
 
 @media (min-width: 641px) {
   .printingsMenuPanel {

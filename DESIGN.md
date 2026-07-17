@@ -33,11 +33,19 @@ var(--font-serif)    /* body */
 **Surface overlays** — these invert per theme. Prefer them over raw `rgba(255,255,255,…)`:
 
 ```css
-var(--s1) var(--s2) var(--s3) var(--s4)   /* ascending tint */
+/* background tint, ascending */
+var(--s1) var(--s2) var(--s3) var(--s4) var(--s5)
 var(--s-card) var(--s-subtle) var(--s-medium)
-var(--s-border)   /* subtle border  — instead of rgba(255,255,255,0.07) */
-var(--s-border2)  /* stronger border — interactive outlines */
+
+/* border ramp, faint -> strongest */
+var(--s-border0)   /* .04 — dividers, faint hairlines */
+var(--s-border)    /* .07 — subtle */
+var(--s-border2)   /* .12 — default interactive outline */
+var(--s-border3)   /* .16 — strong */
+var(--s-border4)   /* .22 — strongest */
 ```
+
+> **Adding a step is not a one-liner.** Every surface token needs a value in up to **five** places: `:root`, `[data-theme-mode="light"]`, `[data-high-contrast="true"]`, `[data-theme-mode="light"][data-high-contrast="true"]`, and — backgrounds only — `[data-oled="true"]` (which blanks every surface to `#000000` so no pixel emits). Miss one and the token silently breaks in that mode. Light values are hand-picked warm tones, **not** inverted alphas.
 
 > **Light-theme rule.** A hardcoded `rgba(255,255,255,0.X)` border or background is invisible on light themes. Use the `--s-*` tokens. (The `.btn` block in `UI.module.css` is a deliberate exception: it sets raw rgba defaults, then overrides every one under `[data-theme-mode="light"]`. If you copy that pattern, you owe the override too.)
 
@@ -298,8 +306,8 @@ Measured 2026-07-17. **These are debt, not precedent.**
 | 2 | Local CSS classes re-implementing a button (cursor+border+padding) | **263** rules |
 | 3 | Hand-rolled modal overlays outside `UI.module.css` | **17** (incl. `SyncModal`, `MakeDeckModal`, `MoveOwnedCardsModal` — named `*Modal` but not using `Modal`) |
 | 4 | ~~`Select`/`ResponsiveMenu` not passing `portal`~~ | **FIXED / mostly a false alarm.** Corrected count was 44 of 72, not 49 (the first scan's regex broke on `>` inside arrow-function props). Of those, almost none clipped: `Modal`'s `allowOverflow` defaults to `true`. 3 real bugs existed in **hand-rolled** modals (`SyncModal` ×2, `MakeDeckModal` ×1) — all fixed |
-| 5 | Hardcoded `rgba(255,255,255,…)` | **459 → 271.** Two passes: 74 exact-token swaps, then 115 near-misses snapped with a **≤0.02 alpha tolerance** (imperceptible in dark, correct in light). The ~271 left are either out of scope (gradient stops, white text over always-dark card art, custom props with their own light overrides) or >0.02 off — `0.16`/`0.2` borders **are** visibly different from `--s-border2` (0.12), so snapping them is a design call, not cleanup |
-| 6 | Hand-rolled uppercase labels not composing the scale | ~245 rules, **30** font-sizes, **16** letter-spacings |
+| 5 | Hardcoded `rgba(255,255,255,…)` | **459 → 171.** Three passes: 74 exact swaps, 115 near-misses (≤0.02 alpha tolerance), then the scale was **extended** (`--s5`, `--s-border0/3/4`) which absorbed 100 more. The root cause was an asymmetric scale — no background step above 0.08, borders only at 0.07/0.12. The 171 left are **correct as literals**: 46 white text over always-dark card art, 31 custom props with their own light overrides, 15 gradient stops, 16 box-shadows, and ~40 genuine outliers (0.55/0.65/0.78 scrims) |
+| 6 | Hand-rolled uppercase labels | **152 rules snapped** onto the scale (≤0.02 tolerance). letter-spacing: 18 → 13 distinct, **148 rules now on a token**. font-size: 30 → 27 distinct. Remaining are >0.02 from any step. **Note:** the pass initially over-reached onto 16 *titles/buttons* (0.82–1rem) that merely happen to be uppercase — those were restored to literals. A heading must not reference `--label-tracking`, or tuning the label scale would move headings |
 | 7 | Control heights hardcoded instead of `--control-height` | 32px×37, 34px×29, 36px×26, 28px×20, 26px×12 |
 | 8 | ~~`.sectionLabel`~~ | **FIXED.** Was 6 hand-rolled copies (5 font-sizes, 3 letter-spacings, 3 rule colours). Now one shared `sectionLabel` in `typography.module.css`; 5 modules `composes` it. Auth keeps its own — it rules **both** sides (`::before`+`::after`) for a centred label, a real variant, not drift |
 | 9 | ~~Dot-grid background~~ | **FIXED.** Only 2 were real drift (DeckView `.page` 0.045, GuidedBuildOverlay 0.05) — both now 0.04. DeckGoldfish's 0.16/0.34 at 22px is `.zoneGrid`, a playtest zone grid, not the page background |
