@@ -1,4 +1,4 @@
-import { Children, isValidElement, useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
+import { Children, isValidElement, forwardRef, useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import styles from './UI.module.css'
 import { CheckIcon, ChevronDownIcon, CloseIcon } from '../icons'
@@ -50,17 +50,88 @@ export function Button({
   )
 }
 
-export function Input({ value, onChange, placeholder, type = 'text', className = '' }) {
+export function Input({ value, onChange, placeholder, type = 'text', className = '', clearable = false, onClear, ...props }) {
+  const hasValue = value != null && String(value).length > 0
+  const clear = () => { if (onClear) onClear(); else onChange?.({ target: { value: '' } }) }
+  if (!clearable) {
+    return (
+      <input
+        type={type}
+        className={`${styles.input} ${className}`}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        {...props}
+      />
+    )
+  }
   return (
-    <input
-      type={type}
-      className={`${styles.input} ${className}`}
-      value={value}
-      onChange={onChange}
-      placeholder={placeholder}
-    />
+    <span className={styles.searchWrap}>
+      <input
+        type={type}
+        className={`${styles.input} ${className}`}
+        style={{ paddingRight: 32 }}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        {...props}
+      />
+      {hasValue && (
+        <button
+          type="button"
+          className={styles.searchClear}
+          onMouseDown={e => e.preventDefault()}
+          onClick={clear}
+          aria-label="Clear"
+        >
+          <CloseIcon size={12} />
+        </button>
+      )}
+    </span>
   )
 }
+
+/**
+ * Search/filter input with a built-in clear (✕) button. A drop-in for a raw
+ * `<input>`: the passed `className` styles the inner input exactly as before, a
+ * flex wrapper positions the clear button on the right, and every extra prop
+ * (name, onKeyDown, onFocus, autoFocus, …) forwards through. Clearing calls
+ * `onClear` when given, else fires `onChange` with an empty value. The clear
+ * button prevents default on mousedown so it never blurs the input (keeps
+ * focus-driven autocomplete dropdowns open).
+ */
+export const SearchInput = forwardRef(function SearchInput(
+  { value, onChange, onClear, className = '', style, wrapClassName = '', wrapStyle, ...props },
+  ref,
+) {
+  const hasValue = value != null && String(value).length > 0
+  const clear = () => { if (onClear) onClear(); else onChange?.({ target: { value: '' } }) }
+  return (
+    <span className={`${styles.searchWrap} ${wrapClassName}`} style={wrapStyle}>
+      <input
+        ref={ref}
+        className={className}
+        // paddingRight last so it wins over a caller `padding` shorthand and
+        // always leaves room for the clear button.
+        style={{ width: '100%', ...style, paddingRight: 32 }}
+        value={value}
+        onChange={onChange}
+        {...props}
+      />
+      {hasValue && (
+        <button
+          type="button"
+          className={styles.searchClear}
+          onMouseDown={e => e.preventDefault()}
+          onClick={clear}
+          aria-label="Clear search"
+        >
+          <CloseIcon size={12} />
+        </button>
+      )}
+    </span>
+  )
+})
 
 function SelectBody({ options, value, handleSelect, close, searchable }) {
   const [filter, setFilter] = useState('')

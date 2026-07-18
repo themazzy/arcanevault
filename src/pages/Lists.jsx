@@ -10,7 +10,7 @@ import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { useToast } from '../components/ToastContext'
-import { EmptyState, SectionHeader, Modal, ResponsiveHeaderActions, ResponsiveMenu, Button } from '../components/UI'
+import { EmptyState, SectionHeader, Modal, ResponsiveHeaderActions, ResponsiveMenu, Button, SearchInput } from '../components/UI'
 import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
 import { useLongPress } from '../hooks/useLongPress'
 import { useFilterWorker } from '../hooks/useFilterWorker'
@@ -136,10 +136,11 @@ function CardArtPicker({ onSelect, onClose }) {
         Choose Card Art Background
       </h2>
       <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        <input ref={inputRef} value={query} onChange={e => handleQueryChange(e.target.value)}
+        <SearchInput ref={inputRef} value={query} onChange={e => handleQueryChange(e.target.value)}
+          onClear={() => handleQueryChange('')}
           onKeyDown={e => { if (e.key === 'Enter') { clearTimeout(timerRef.current); search() } }}
           placeholder="Search card name…"
-          style={{ flex: 1, background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border)',
+          style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border)',
             borderRadius: 4, padding: '8px 12px', color: 'var(--text)', fontSize: '0.9rem', outline: 'none' }} />
         {loading && <span style={{ alignSelf: 'center', color: 'var(--text-faint)', fontSize: '0.85rem' }}>…</span>}
       </div>
@@ -1219,10 +1220,12 @@ export default function ListsPage() {
             mobileToolbar
             mobileExtra={!selectMode ? (
               <div className={styles.mobileHeaderControls}>
-                <input
+                <SearchInput
                   className={styles.folderSearch}
+                  wrapStyle={{ flex: '0 1 auto', minWidth: 200, maxWidth: 280 }}
                   value={folderSearch}
                   onChange={e => setFolderSearch(e.target.value)}
+                  onClear={() => setFolderSearch('')}
                   placeholder="Search wishlists…"
                 />
               </div>
@@ -1268,10 +1271,13 @@ export default function ListsPage() {
                   <ImportIcon size={14} />
                   <span>Export</span>
                 </Button>
-                <input
-                  className={`${styles.folderSearch} ${styles.desktopOnlySearch}`}
+                <SearchInput
+                  className={styles.folderSearch}
+                  wrapClassName={styles.desktopOnlySearch}
+                  wrapStyle={{ flex: '0 1 auto', minWidth: 200, maxWidth: 280 }}
                   value={folderSearch}
                   onChange={e => setFolderSearch(e.target.value)}
+                  onClear={() => setFolderSearch('')}
                   placeholder="Search wishlists…"
                 />
                 <div className={styles.desktopOnlyAction}>
@@ -1285,10 +1291,12 @@ export default function ListsPage() {
       />
       {!selectMode && (
         <div className={styles.overviewStickySearch}>
-          <input
+          <SearchInput
             className={styles.folderSearch}
+            wrapStyle={{ flex: '0 1 auto', minWidth: 200, maxWidth: 280 }}
             value={folderSearch}
             onChange={e => setFolderSearch(e.target.value)}
+            onClear={() => setFolderSearch('')}
             placeholder="Search wishlists..."
           />
         </div>

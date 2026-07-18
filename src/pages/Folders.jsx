@@ -7,7 +7,7 @@ import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { useToast } from '../components/ToastContext'
 import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
-import { EmptyState, SectionHeader, Button, Modal, ResponsiveHeaderActions, ResponsiveMenu, Select } from '../components/UI'
+import { EmptyState, SectionHeader, Button, Modal, ResponsiveHeaderActions, ResponsiveMenu, Select, SearchInput } from '../components/UI'
 import ShareModal from '../components/ShareModal'
 import { isTradeBinder } from '../lib/tradeBinder'
 import AddCardModal from '../components/AddCardModal'
@@ -104,11 +104,12 @@ function CardArtPicker({ onSelect, onClose }) {
         Choose Card Art Background
       </h2>
       <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        <input ref={inputRef}
+        <SearchInput ref={inputRef}
           value={query} onChange={e => handleQueryChange(e.target.value)}
+          onClear={() => handleQueryChange('')}
           onKeyDown={e => { if (e.key === 'Enter') { clearTimeout(timerRef.current); search() } }}
           placeholder="Search card name…"
-          style={{ flex: 1, background: 'var(--s-subtle)', border: '1px solid var(--border)', borderRadius: 3, padding: '8px 12px', color: 'var(--text)', fontSize: '0.88rem', outline: 'none' }}
+          style={{ background: 'var(--s-subtle)', border: '1px solid var(--border)', borderRadius: 3, padding: '8px 12px', color: 'var(--text)', fontSize: '0.88rem', outline: 'none' }}
         />
         {loading && <span style={{ alignSelf: 'center', color: 'var(--text-faint)', fontSize: '0.85rem' }}>…</span>}
       </div>

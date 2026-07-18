@@ -21,7 +21,7 @@ import {
 } from '../lib/db'
 import styles from './DeckBuilder.module.css'
 import uiStyles from '../components/UI.module.css'
-import { ConfirmModal, ResponsiveMenu, Select, Modal } from '../components/UI'
+import { ConfirmModal, ResponsiveMenu, Select, Modal, SearchInput } from '../components/UI'
 import { useToast } from '../components/ToastContext'
 import PromptDialog from '../components/PromptDialog'
 import { CardDetail } from '../components/CardComponents'
@@ -131,6 +131,7 @@ import {
 } from '../lib/deckBuilderConstants'
 import {
   normalizeBoard,
+  dedupeDeckRowsForInsert,
   mainBoardCards,
   chunkIds,
   normalizeCardName,
@@ -245,10 +246,11 @@ function DeckFilterPanel({ filters, setFilters, boardFilter, setBoardFilter, sho
   return (
     <div className={styles.deckFilterMenuBody}>
       {showSearch && (
-        <input
+        <SearchInput
           className={styles.deckSearchInput}
           value={deckSearch}
           onChange={e => setDeckSearch(e.target.value)}
+          onClear={() => setDeckSearch('')}
           placeholder="Search deck..."
           autoFocus
         />
@@ -2975,19 +2977,10 @@ export default function DeckBuilderPage() {
     // duplicate 409s and rolls back the WHOLE batch (deck_cards_unique_print_board_idx),
     // failing the entire auto-fill. Stacking a second copy would also be wrong
     // for a singleton Commander deck; basics are topped up separately via
-    // onAddBasics. Mirrors the single-add merge guard (isSameDeckPrinting).
-    const seenKeys = new Set()
-    const dedupedRows = []
-    for (const row of rows) {
-      const key = `${row.card_print_id}|${row.foil ? 1 : 0}|${normalizeBoard(row.board)}`
-      if (seenKeys.has(key) || deckCardsRef.current.some(dc => isSameDeckPrinting(dc, row))) {
-        skipped++
-        continue
-      }
-      seenKeys.add(key)
-      dedupedRows.push(row)
-    }
-    rows = dedupedRows
+    // onAddBasics.
+    const deduped = dedupeDeckRowsForInsert(rows, deckCardsRef.current)
+    rows = deduped.rows
+    skipped += deduped.skipped
     if (!rows.length) return { added: 0, skipped, rows: [] }
 
     deckCardsRef.current = [...deckCardsRef.current, ...rows]
@@ -4819,11 +4812,12 @@ export default function DeckBuilderPage() {
                   </div>
                 ) : (
                   <div>
-                    <input
+                    <SearchInput
                       autoFocus={showCmdPicker}
                       className={styles.cmdInput}
                       value={cmdQuery}
                       onChange={e => handleCmdQuery(e.target.value)}
+                      onClear={() => handleCmdQuery('')}
                       onBlur={() => setTimeout(() => setShowCmdPicker(false), 200)}
                       placeholder="Search for a commander..."
                     />
@@ -4872,11 +4866,12 @@ export default function DeckBuilderPage() {
                 </>
               ) : (
                 <div>
-                  <input
+                  <SearchInput
                     autoFocus={showCompPicker}
                     className={styles.cmdInput}
                     value={compQuery}
                     onChange={e => handleCompQuery(e.target.value)}
+                    onClear={() => handleCompQuery('')}
                     onBlur={() => setTimeout(() => setShowCompPicker(false), 200)}
                     placeholder="Search for a companion..."
                   />
@@ -4948,10 +4943,11 @@ export default function DeckBuilderPage() {
         {leftTab === 'search' && (
           <div className={styles.searchPanel}>
             <div className={styles.searchInputRow}>
-              <input
+              <SearchInput
                 className={styles.searchInput}
                 value={searchQuery}
                 onChange={e => handleSearchInput(e.target.value)}
+                onClear={() => handleSearchInput('')}
                 placeholder="Search cards..."
               />
             </div>
@@ -5558,10 +5554,11 @@ export default function DeckBuilderPage() {
 
             {deckCards.length > 0 && (
               <div className={styles.deckFilterBar}>
-                <input
+                <SearchInput
                   className={styles.deckSearchInput}
                   value={deckSearch}
                   onChange={e => setDeckSearch(e.target.value)}
+                  onClear={() => setDeckSearch('')}
                   placeholder="Search deck..."
                 />
                 {/* Funnel button: full filter panel (board + colors/type/rarity/CMC) */}

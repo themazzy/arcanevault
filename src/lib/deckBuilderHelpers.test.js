@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { deckAllocationKeys, allocationSetHas, mergeOtherDeckAllocationKeys, collectCardIdentities, mainBoardCards, chunkIds, cardNameMatchKeys } from './deckBuilderHelpers'
+import { deckAllocationKeys, allocationSetHas, mergeOtherDeckAllocationKeys, collectCardIdentities, mainBoardCards, chunkIds, cardNameMatchKeys, dedupeDeckRowsForInsert, deckRowPrintKey } from './deckBuilderHelpers'
 
 describe('deckAllocationKeys / allocationSetHas', () => {
   it('matches a deck card against an allocation in another deck via the shared card_print_id', () => {
@@ -193,5 +193,69 @@ describe('cardNameMatchKeys', () => {
     expect(cardNameMatchKeys('')).toEqual([])
     expect(cardNameMatchKeys(null)).toEqual([])
     expect(cardNameMatchKeys(undefined)).toEqual([])
+  })
+})
+
+describe('deckRowPrintKey', () => {
+  it('keys on card_print_id + foil + normalized board', () => {
+    expect(deckRowPrintKey({ card_print_id: 'p1', foil: false, board: 'main' })).toBe('p1|0|main')
+    expect(deckRowPrintKey({ card_print_id: 'p1', foil: true, board: 'main' })).toBe('p1|1|main')
+  })
+
+  it('treats an unknown board as main (matching normalizeBoard)', () => {
+    expect(deckRowPrintKey({ card_print_id: 'p1', board: 'bogus' })).toBe('p1|0|main')
+  })
+
+  it('falls back to scryfall_id then print key when card_print_id is absent', () => {
+    expect(deckRowPrintKey({ scryfall_id: 's1', board: 'main' })).toBe('s1|0|main')
+    expect(deckRowPrintKey({ set_code: 'neo', collector_number: '42', board: 'side' })).toBe('neo-42|0|side')
+  })
+})
+
+describe('dedupeDeckRowsForInsert', () => {
+  // Regression: the Build Assistant's bulk auto-fill inserted every resolved row
+  // blindly. A pick already in the deck (or two picks resolving to the same
+  // print) violated deck_cards_unique_print_board_idx (deck_id, card_print_id,
+  // foil, board), 409'd, and rolled back the ENTIRE batch — "Auto-fill failed".
+  it('drops a row that already exists in the deck', () => {
+    const existing = [{ card_print_id: 'p1', foil: false, board: 'main' }]
+    const incoming = [
+      { id: 'a', card_print_id: 'p1', foil: false, board: 'main' }, // collides
+      { id: 'b', card_print_id: 'p2', foil: false, board: 'main' },
+    ]
+    const { rows, skipped } = dedupeDeckRowsForInsert(incoming, existing)
+    expect(rows.map(r => r.id)).toEqual(['b'])
+    expect(skipped).toBe(1)
+  })
+
+  it('drops a later duplicate within the same batch', () => {
+    const incoming = [
+      { id: 'a', card_print_id: 'p1', foil: false, board: 'main' },
+      { id: 'b', card_print_id: 'p1', foil: false, board: 'main' }, // dup of a
+    ]
+    const { rows, skipped } = dedupeDeckRowsForInsert(incoming, [])
+    expect(rows.map(r => r.id)).toEqual(['a'])
+    expect(skipped).toBe(1)
+  })
+
+  it('keeps the same print when foil or board differ (distinct index keys)', () => {
+    const incoming = [
+      { id: 'a', card_print_id: 'p1', foil: false, board: 'main' },
+      { id: 'b', card_print_id: 'p1', foil: true, board: 'main' },  // different foil
+      { id: 'c', card_print_id: 'p1', foil: false, board: 'side' }, // different board
+    ]
+    const { rows, skipped } = dedupeDeckRowsForInsert(incoming, [])
+    expect(rows.map(r => r.id)).toEqual(['a', 'b', 'c'])
+    expect(skipped).toBe(0)
+  })
+
+  it('returns everything untouched when there are no collisions', () => {
+    const incoming = [
+      { id: 'a', card_print_id: 'p1', foil: false, board: 'main' },
+      { id: 'b', card_print_id: 'p2', foil: false, board: 'main' },
+    ]
+    const { rows, skipped } = dedupeDeckRowsForInsert(incoming, [])
+    expect(rows).toHaveLength(2)
+    expect(skipped).toBe(0)
   })
 })

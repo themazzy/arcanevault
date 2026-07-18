@@ -10,7 +10,7 @@ import { clearScryfallCache, PRICE_SOURCES, sfGet } from '../lib/scryfall'
 import { deleteLocalFoldersAndPlacements, getDbStats } from '../lib/db'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { downloadCollectionBackup, restoreCollectionBackup, validateBackupFile, summarizeBackup } from '../lib/backup'
-import { Button, SectionHeader, Select as UISelect } from '../components/UI'
+import { Button, SectionHeader, Select as UISelect, SearchInput } from '../components/UI'
 import { SearchIcon, CloseIcon, CheckIcon } from '../icons'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './Settings.module.css'
@@ -373,10 +373,11 @@ function ArchiveThemeControls({ settings, set }) {
       {settings.archive_background_mode === 'selected' && (
         <div className={styles.archivePicker}>
           <div className={styles.archiveSearchWrap}>
-            <input
+            <SearchInput
               className={styles.input}
               value={query}
               onChange={e => setQuery(e.target.value)}
+              onClear={() => setQuery('')}
               placeholder="Search Scryfall for background cards"
             />
             {searching && <div className={styles.archiveSearchState}>Searching...</div>}

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ConfirmModal, ResponsiveMenu } from '../components/UI'
+import { ConfirmModal, ResponsiveMenu, SearchInput } from '../components/UI'
 import uiStyles from '../components/UI.module.css'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
@@ -262,10 +262,11 @@ function DeckDropdownMenu({ value, options, onChange, close }) {
   return (
     <div className={styles.deckDropMenuWrap}>
       <div className={styles.deckDropSearchWrap}>
-        <input
+        <SearchInput
           ref={inputRef}
           value={query}
           onChange={e => setQuery(e.target.value)}
+          onClear={() => setQuery('')}
           placeholder="Search decks..."
           className={styles.deckDropSearch}
         />
@@ -361,11 +362,12 @@ function ArtPicker({ onSelect, onClear, onClose, rotation = 0 }) {
           <button className={styles.artPickerClose} onClick={onClose}><CloseIcon size={13} /></button>
         </div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-          <input ref={inputRef}
+          <SearchInput ref={inputRef}
             value={query} onChange={e => handleQueryChange(e.target.value)}
+            onClear={() => handleQueryChange('')}
             onKeyDown={e => { if (e.key === 'Enter') { clearTimeout(timerRef.current); search() } }}
             placeholder="Search card name…"
-            style={{ flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', borderRadius: 3, padding: '8px 12px', color: 'var(--text)', fontSize: '0.88rem', outline: 'none' }}
+            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', borderRadius: 3, padding: '8px 12px', color: 'var(--text)', fontSize: '0.88rem', outline: 'none' }}
           />
           {loading && <span style={{ alignSelf: 'center', color: 'var(--text-faint)', fontSize: '0.88rem' }}>…</span>}
         </div>

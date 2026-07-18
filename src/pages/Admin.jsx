@@ -1335,7 +1335,9 @@ export default function AdminPage() {
                   className={styles.searchInput}
                   value={search}
                   onChange={e => setSearch(e.target.value)}
+                  onClear={() => setSearch('')}
                   placeholder="Search email or reason"
+                  clearable
                 />
               </div>
             </div>
@@ -1538,7 +1540,9 @@ export default function AdminPage() {
                   className={styles.searchInput}
                   value={userSearch}
                   onChange={e => setUserSearch(e.target.value)}
+                  onClear={() => setUserSearch('')}
                   placeholder="Search email or user id"
+                  clearable
                 />
               </div>
             </div>

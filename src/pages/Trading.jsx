@@ -25,7 +25,7 @@ import {
 } from '../lib/db'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
-import { EmptyState, Modal, ProgressBar, SectionHeader } from '../components/UI'
+import { EmptyState, Modal, ProgressBar, SectionHeader, SearchInput } from '../components/UI'
 import { TradePostManager, ProposalsInbox } from '../components/trade/TradePostPanel'
 import styles from './Trading.module.css'
 
@@ -1247,10 +1247,11 @@ export default function TradingPage() {
             )}
           </div>
 
-          <input
+          <SearchInput
             className={styles.searchInput}
             value={collectionQuery}
             onChange={e => setCollectionQuery(e.target.value)}
+            onClear={() => setCollectionQuery('')}
             placeholder="Search your collection by name, set, or collector number..."
           />
 
@@ -1351,10 +1352,11 @@ export default function TradingPage() {
             )}
           </div>
 
-          <input
+          <SearchInput
             className={styles.searchInput}
             value={wantedQuery}
             onChange={e => setWantedQuery(e.target.value)}
+            onClear={() => setWantedQuery('')}
             placeholder="Search any card or printing you want..."
           />
 

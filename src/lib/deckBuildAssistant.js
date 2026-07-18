@@ -818,6 +818,18 @@ export function comboFitsBracket(pieceCount, targetBracket) {
   return false
 }
 
+// A Commander Spellbook combo fits the deck only when its color identity is a
+// subset of the commander's. Spellbook merges `almostIncluded` with
+// `almostIncludedByAddingColors` (combos reachable only by adding off-color
+// cards); a combo's `identity` is the union of its pieces' colors, so this both
+// drops the add-colors group and guards any stray off-color combo. `identity` is
+// a lowercase color string (e.g. "wu"); colorless ('c'/'') always fits.
+export function comboInColorIdentity(combo, colorIdentity = []) {
+  const allowed = new Set((colorIdentity || []).map(c => String(c).toLowerCase()))
+  const id = String(combo?.identity || '').toLowerCase().replace(/[^wubrg]/g, '')
+  return [...id].every(ch => allowed.has(ch))
+}
+
 // ── Post-fill combo completion ────────────────────────────────────────────────
 // After auto-fill populates the deck we re-query Commander Spellbook on the FULL
 // list and try to actually land some combos — adding the missing pieces and
@@ -880,6 +892,11 @@ export function effectiveComboBracket(targetBracket) {
 // { pieces: [{ name, owned }], combosCompleted, protectedNames } — protectedNames
 // (lowercased) are every card the chosen combos use, so the caller can keep the
 // combos' already-in-deck pieces out of the cut pool.
+// `maxPieces` caps how many missing pieces may be added in total — the caller
+// passes the deck's remaining room (open slots + cuttable filler) so completing
+// combos never pushes the deck past its size. A combo whose new pieces wouldn't
+// fit is skipped (a smaller combo later may still fit); combos needing no new
+// pieces always count as completed.
 export function planComboCompletion({
   almostCombos = [],
   targetBracket = null,
@@ -887,6 +904,7 @@ export function planComboCompletion({
   addedNames = new Set(),
   deckNameKeys = new Set(),
   passesBudget = () => true,
+  maxPieces = Infinity,
 } = {}) {
   const target = comboTargetForBracket(targetBracket)
   if (target <= 0) return { pieces: [], combosCompleted: 0, protectedNames: new Set() }
@@ -903,10 +921,14 @@ export function planComboCompletion({
   let combosCompleted = 0
   for (const combo of finishable) {
     if (combosCompleted >= target) break
-    for (const m of combo.missing) {
+    // Pieces this combo would newly add (not already queued / added / in deck).
+    const newPieces = combo.missing.filter(m => {
       const key = m.name.toLowerCase()
-      if (seen.has(key) || addedNames.has(key) || deckNameKeys.has(key)) continue
-      seen.add(key)
+      return !seen.has(key) && !addedNames.has(key) && !deckNameKeys.has(key)
+    })
+    if (pieces.length + newPieces.length > maxPieces) continue // wouldn't fit the deck
+    for (const m of newPieces) {
+      seen.add(m.name.toLowerCase())
       pieces.push({ name: m.name, owned: m.owned })
     }
     for (const u of combo.uses) protectedNames.add(String(u).toLowerCase())

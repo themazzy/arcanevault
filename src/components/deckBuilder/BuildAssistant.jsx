@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Modal, Button, ProgressBar, ResponsiveMenu } from '../UI'
+import { Modal, ConfirmModal, Button, Input, ProgressBar, ResponsiveMenu } from '../UI'
 import uiStyles from '../UI.module.css'
-import { CheckIcon, DeleteIcon, WarningIcon, ChevronDownIcon, LightningIcon, ExternalLinkIcon } from '../../icons'
+import { CheckIcon, DeleteIcon, WarningIcon, ChevronDownIcon, LightningIcon, ExternalLinkIcon, CloseIcon } from '../../icons'
+import { useCardSearch } from '../../hooks/useCardSearch'
+import { getCardLegalityWarnings } from '../../lib/deckLegality'
 import { getLocalCards, getLocalCardPrints, getLocalFolders, getAllLocalFolderCards } from '../../lib/db'
-import { getInstantCache, getScryfallKey, getPrice, formatPrice } from '../../lib/scryfall'
+import { getInstantCache, getScryfallKey, getPrice, formatPrice, scryfallImageAtSize } from '../../lib/scryfall'
 import { useCombosFetch } from '../../hooks/useCombosFetch'
 import { useSettings } from '../SettingsContext'
 import { fetchEdhrecCommander, fetchRecommendationMetadataByNames, fetchCardsByScryfallIds, fetchRecommenderRecs, fetchPaperPrintingsByNamesFromDb, getCardImageUri } from '../../lib/deckBuilderApi'
@@ -28,6 +30,7 @@ import {
   applyTemplateAdjustments,
   bracketFlagFor,
   comboFitsBracket,
+  comboInColorIdentity,
   mapAlmostCombos,
   comboTargetForBracket,
   planComboCompletion,
@@ -37,6 +40,7 @@ import {
   countManaSources,
   karstenColorRequirements,
   roleOfDeckCard,
+  coarseRole,
   countByRole,
   pickCheapestEnglish,
   recommendedBasicCount,
@@ -73,14 +77,14 @@ import styles from './BuildAssistant.module.css'
 
 // What each role does + why the target count, shown at the top of each step.
 const ROLE_INFO = {
-  [ROLE_RAMP]: 'Mana acceleration — rocks, dorks, and land fetch. Helps you deploy your commander and spells ahead of curve.',
-  [ROLE_DRAW]: 'Draw — card advantage engines and tutors that refill your hand and find your key pieces.',
-  [ROLE_REMOVAL]: 'Spot interaction — destroy, exile, bounce, counter, or burn a single problematic permanent or spell.',
-  [ROLE_WIPE]: 'Board wipes — mass removal to reset the board when you fall behind.',
-  [ROLE_PROTECTION]: 'Protection — keep your commander and key permanents safe (hexproof, indestructible, redirects).',
-  [ROLE_WINCON]: 'Game plan — how the deck actually closes: combos, extra turns, and big finishers.',
-  [ROLE_SYNERGY]: 'Synergy — cards that support your commander’s theme and strategy. The bulk of the deck.',
-  [ROLE_LANDS]: 'Mana base — lands, including utility lands. Aim for roughly this many to hit your colors consistently.',
+  [ROLE_RAMP]: 'Mana acceleration — Mana rocks, dorks, and land fetching. Helps you deploy your commander and spells ahead of curve, before your opponents do.',
+  [ROLE_DRAW]: 'Draw — Card advantage engines and tutors that refill your hand and find your key pieces to stay ahead of your opponents.',
+  [ROLE_REMOVAL]: 'Spot interaction — Destroy, exile, bounce, counter, or burn a single problematic permanent or spell that threatens your position.',
+  [ROLE_WIPE]: 'Board wipes — Mass removal to reset the board when you fall behind.',
+  [ROLE_PROTECTION]: 'Protection — Keep your commander and key cards safe with hexproof, indestructibility and redirects.',
+  [ROLE_WINCON]: 'Game plan — How the deck actually closes the game: combos, extra turns, and big finishers.',
+  [ROLE_SYNERGY]: 'Synergy — cards that support your commander’s theme and strategy. This will take majority of your deck.',
+  [ROLE_LANDS]: 'Mana base — Lands, including utility lands. Aim for roughly the recommended ammount to hit your colors consistently.',
 }
 
 // Compact labels for the node stepper (full role names are too wide to sit
@@ -270,14 +274,17 @@ function curveLabel(b) { return b === 6 ? '6+' : String(b) }
 const CURVE_BAR_MAX_PX = 96
 
 // One card tile: image + name + sub-meta + add action(s).
-function CardTile({ name, sfCard, fallbackImg, pips, inclusion, tag, price, flag, overTarget, added, wished, showWishlist, ownedElsewhere, onAdd, onUndo, onWishlist }) {
+function CardTile({ name, sfCard, fallbackImg, pips, inclusion, tag, price, flag, overTarget, added, wished, showWishlist, ownedElsewhere, previewProps, onAdd, onUndo, onWishlist }) {
   const canUndo = added && typeof onUndo === 'function'
   // Cached collection art first; Scryfall-fetched fallback for unowned upgrades
   // and any owned card whose cache entry has no image.
   const img = cardImageUrl(sfCard) || fallbackImg || null
+  // previewProps carries the hover/tap handlers for the large-image preview;
+  // it's empty ({}) when the card has no art to enlarge. No special cursor — the
+  // enlarge is a hover affordance, and a zoom-in cursor would wrongly imply a click.
   return (
     <div className={`${styles.tile}${added ? ' ' + styles.tileAdded : ''}`}>
-      <div className={styles.tileArt}>
+      <div className={styles.tileArt} {...(previewProps || {})}>
         {img
           ? <img src={img} alt={name} loading="lazy" className={styles.tileImg} />
           : <div className={styles.tileNoImg}>{name}</div>}
@@ -334,6 +341,100 @@ function CardTile({ name, sfCard, fallbackImg, pips, inclusion, tag, price, flag
           </button>
         )}
       </div>
+    </div>
+  )
+}
+
+// Persistent "add a specific card" search — the manual escape hatch for cards
+// the recommendation feed didn't surface. Sits above the per-step content so
+// it's reachable on every step. Each result shows the deck category it will be
+// filed under (→ Ramp / Removal / …) so the user knows where to find it after
+// adding; off-color / illegal cards are flagged but still addable (the user
+// confirms). Adds go through the same handler as tiles, so owned-vs-buy
+// accounting and category persistence stay identical.
+function SpecificCardSearch({ search, onAdd, isAdded, categoryOf, commanderColorIdentity, makePreview }) {
+  const { query, results, loading, handleInput } = search
+  const trimmed = (query || '').trim()
+  // The results float over the panel (don't push it down) and behave like an
+  // autocomplete popover: a click outside closes them, and focusing the search
+  // bar reopens them.
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef(null)
+  useEffect(() => {
+    if (!open) return
+    const onDocDown = e => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', onDocDown)
+    document.addEventListener('touchstart', onDocDown)
+    return () => {
+      document.removeEventListener('mousedown', onDocDown)
+      document.removeEventListener('touchstart', onDocDown)
+    }
+  }, [open])
+  const showResults = open && trimmed.length > 0
+  return (
+    <div className={styles.specSearch} ref={wrapRef}>
+      <div className={styles.specSearchLabel}>Add a specific card</div>
+      <Input
+        value={query}
+        onChange={e => { handleInput(e.target.value); setOpen(true) }}
+        onClear={() => { handleInput(''); setOpen(false) }}
+        onFocus={() => setOpen(true)}
+        placeholder="Search a card by name…"
+        clearable
+      />
+      {showResults && (
+        <div className={styles.specResults}>
+          {loading && results.length === 0
+            ? <div className={styles.emptySmall}>Searching…</div>
+            : results.length === 0
+              ? <div className={styles.emptySmall}>No cards found.</div>
+              : results.slice(0, 8).map(card => {
+                  const cat = categoryOf(card)
+                  const warnings = getCardLegalityWarnings({
+                    card,
+                    formatId: 'commander',
+                    formatLabel: 'Commander',
+                    isEDH: true,
+                    commanderColorIdentity,
+                  })
+                  const added = isAdded(card.name)
+                  const thumb = getCardImageUri(card, 'small')
+                  return (
+                    <div key={card.id} className={styles.specRow}>
+                      {/* Thumbnail + name are the hover target (hugs the content,
+                          not the whole row) — hovering either enlarges to a floating
+                          preview (desktop) or a tap-lightbox (touch). No name
+                          tooltip; the preview is the only affordance. */}
+                      <div
+                        className={styles.specHover}
+                        {...makePreview({ name: card.name, scryfall_id: card.id, img: getCardImageUri(card, 'large') })}
+                      >
+                        {thumb && (
+                          <img src={thumb} alt="" className={styles.specThumb} loading="lazy" />
+                        )}
+                        <span className={styles.specName}>{card.name}</span>
+                      </div>
+                      <div className={styles.specMeta}>
+                        {warnings.length > 0 && (
+                          <span className={styles.specWarn} title={warnings.map(w => w.text).join('\n')}>
+                            <WarningIcon size={12} />
+                          </span>
+                        )}
+                        {!added && <span className={styles.specCat} title="Build role this card will be filed under">{cat}</span>}
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => onAdd(card)}
+                          disabled={added}
+                        >
+                          {added ? `Added to ${cat}` : 'Add'}
+                        </Button>
+                      </div>
+                    </div>
+                  )
+                })}
+        </div>
+      )}
     </div>
   )
 }
@@ -447,6 +548,13 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const targetBracketRef = useRef(null) // latest target bracket, read by the async re-plans (same stale-closure guard)
 
   const { price_source, reduce_motion } = useSettings()
+  // Persistent "add a specific card" search (Commander-scoped ordering). Reuses
+  // the builder's search hook so results carry full card data for classification
+  // and legality checks.
+  const cardSearch = useCardSearch({ format: 'commander' })
+  // Guard against accidentally dismissing the assistant (backdrop click / Escape
+  // / the X). A close attempt opens a confirm step instead of leaving outright.
+  const [confirmClose, setConfirmClose] = useState(false)
   // Names added/wishlisted this session — instant feedback before the deckCards
   // prop round-trips back from the parent.
   const [addedNames, setAddedNames] = useState(() => new Set())
@@ -682,7 +790,6 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           currentDeckCards: deckCards,
         })
         const enriched = await enrichPlanWithEdhrec(base, async () => edhrec, fetchUpgradeMeta)
-        const withRecs = await mergeRecommender(enriched, deckCards)
         if (cancelled) return
         dataRef.current = { ownedNorm, sfById }
         setSfMap(sfById)
@@ -691,7 +798,16 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         setGameChangers(gcNames || null)
         setOwnedNameSet(new Set((ownedNorm || []).flatMap(c => cardNameMatchKeys(c?.name))))
         setInOtherDeckNames(elsewhereKeys)
-        setPlan(withRecs)
+        // Show the EDHREC plan immediately — it's the reliable base. The deck-aware
+        // Recommander picks layer on asynchronously, so a slow/down recommender
+        // never blocks the initial render; if it returns nothing, EDHREC stands.
+        // Guarded on the theme (still Balanced) so a theme switch mid-fetch wins.
+        setPlan(enriched)
+        mergeRecommender(enriched, deckCards)
+          .then(withRecs => {
+            if (!cancelled && selectedThemeRef.current === '' && withRecs !== enriched) setPlan(withRecs)
+          })
+          .catch(() => {})
       } catch (err) {
         if (!cancelled) setError(err?.message || 'Failed to analyze your collection.')
       } finally {
@@ -1140,7 +1256,6 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
 
   const [autoFillOpen, setAutoFillOpen] = useState(false)
   const [autoFillSource, setAutoFillSource] = useState('owned') // 'owned' | 'recommended'
-  const [autoFillCombos, setAutoFillCombos] = useState(false)   // opt-in: complete combos too
   const [autoFilling, setAutoFilling] = useState(null) // { total, bulk } | { done, total }
   const [autoFillResult, setAutoFillResult] = useState(null) // { added, skipped, basics }
 
@@ -1185,23 +1300,44 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       const deckKeys = new Set(
         populated.filter(d => !d?.is_commander).flatMap(d => cardNameMatchKeys(d?.name)),
       )
+      // Only complete combos that live within the commander's color identity —
+      // Spellbook's results include off-color "by adding colors" combos we must
+      // not add. See comboInColorIdentity.
+      const inIdentityAlmost = (res.almost || []).filter(c => comboInColorIdentity(c, commander?.color_identity))
       const almost = mapAlmostCombos({
-        almost: res.almost,
+        almost: inIdentityAlmost,
         deckNameKeys: deckKeys,
         ownedNameKeys: ownedNameSet,
       })
-      const { pieces, combosCompleted, protectedNames } = planComboCompletion({
+
+      // Room the combo pass can absorb without cutting the user's existing cards:
+      // the open slots the fill left, plus this run's cuttable (nonland) filler.
+      // Capping combo pieces to this keeps the deck at ≤ deckSize — otherwise a
+      // near-full deck could end above 100, since we only cut cards THIS run added.
+      const fillSet = new Set(fillIds || [])
+      const isLandRow = d => (sfMap?.[d?.scryfall_id]?.type_line || d?.type_line || '').toLowerCase().includes('land')
+      const openSlots = Math.max(0, (plan?.deckSize || 100) - populated.length)
+      const cuttableFillCount = protNames => populated.filter(d =>
+        !d?.is_commander && fillSet.has(d.id) && !isLandRow(d)
+        && !cardNameMatchKeys(d?.name).some(k => protNames.has(k))).length
+      const planCombos = maxPieces => planComboCompletion({
         almostCombos: almost,
         targetBracket,
         source: autoFillSource,
         deckNameKeys: deckKeys,
         passesBudget: name => passesBudget(name, null),
+        maxPieces,
       })
+      // Plan uncapped, then re-plan capped to the room if it wouldn't fit. Fewer
+      // combos only free more cuttable filler, so a single re-plan is safe.
+      let { pieces, combosCompleted, protectedNames } = planCombos(Infinity)
+      if (pieces.length > openSlots + cuttableFillCount(protectedNames)) {
+        ({ pieces, combosCompleted, protectedNames } = planCombos(openSlots + cuttableFillCount(protectedNames)))
+      }
       if (!pieces.length) return { ...empty, combosCompleted }
 
       // Cuttable = this run's filler, minus any card that's a piece of a combo
       // we're completing. Lock everything else so analyzeCut only pulls from it.
-      const fillSet = new Set(fillIds || [])
       const cuttableIds = new Set(
         populated
           .filter(d => !d?.is_commander && fillSet.has(d.id)
@@ -1241,6 +1377,71 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     }
   }
 
+  // Post-fill Game Changer top-up (Bracket 4 only). The estimator floors a deck
+  // at Bracket 4 once it runs 4+ Game Changers, so a "target 4" build that landed
+  // fewer would still read Bracket 3. This adds the shortfall from the commander's
+  // OWN recommended pool (owned candidates first, then EDHREC upgrades) — so the
+  // picks stay on-theme and in color — capped to `maxAdd` open slots, so they take
+  // basic-land slots rather than cutting spells (no overshoot). Source-aware:
+  // 'owned' only pulls owned Game Changers. Returns { gcRows }.
+  async function runGameChangerPass(populated, maxAdd) {
+    const empty = { gcRows: [] }
+    if (targetBracket !== 4 || !gameChangers || maxAdd <= 0 || typeof onAddCards !== 'function') return empty
+    const isGC = name => {
+      const l = String(name || '').toLowerCase()
+      return gameChangers.has(l) || gameChangers.has(l.split('//')[0].trim())
+    }
+    const gcInDeck = new Set()
+    for (const d of populated) {
+      if (!d?.is_commander && isGC(d?.name)) gcInDeck.add(String(d.name).toLowerCase())
+    }
+    const need = 4 - gcInDeck.size
+    if (need <= 0) return empty
+
+    const deckKeys = new Set(populated.filter(d => !d?.is_commander).flatMap(d => cardNameMatchKeys(d?.name)))
+    const seen = new Set()
+    const owned = []
+    const rec = []
+    for (const role of plan?.roles || []) {
+      for (const c of role.ownedCandidates || []) {
+        const name = c?.name
+        if (!name || !isGC(name)) continue
+        const key = name.toLowerCase()
+        if (seen.has(key) || deckKeys.has(key)) continue // owned copies aren't gated by budget
+        seen.add(key)
+        owned.push({ name, inclusion: c.edhrecInclusion || 0 })
+      }
+    }
+    if (autoFillSource === 'recommended') {
+      for (const role of plan?.roles || []) {
+        for (const u of upgradesFor(role) || []) {
+          const name = u?.name
+          if (!name || !isGC(name)) continue
+          const key = name.toLowerCase()
+          if (seen.has(key) || deckKeys.has(key) || !passesBudget(name, null)) continue
+          seen.add(key)
+          rec.push({ name, inclusion: u.edhrecInclusion || 0 })
+        }
+      }
+    }
+    owned.sort((a, b) => b.inclusion - a.inclusion)
+    rec.sort((a, b) => b.inclusion - a.inclusion)
+    const toAdd = [...owned, ...rec].slice(0, Math.min(need, maxAdd))
+    if (!toAdd.length) return empty
+    try {
+      const addRes = await onAddCards(toAdd.map(g => ({ name: g.name })))
+      const gcRows = addRes?.rows || []
+      setAddedNames(prev => {
+        const next = new Set(prev)
+        for (const r of gcRows) if (r?.name) next.add(r.name.toLowerCase())
+        return next
+      })
+      return { gcRows }
+    } catch {
+      return empty
+    }
+  }
+
   // Auto-fill completes the whole build in one go: role picks, nonbasic lands,
   // an optional post-fill combo pass, then the pip/Karsten-weighted basics — and
   // lands on the summary step so the result (composition, buy list, trim) is
@@ -1257,8 +1458,10 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
 
     // Combo pass runs before basics so completed-combo pieces take real slots and
     // basics top up whatever's left. Bulk path only (needs the fill row ids to
-    // know what's cuttable); the sequential fallback skips it.
-    if (autoFillCombos && typeof onAddCards === 'function' && (addedCardIds?.length)) {
+    // know what's cuttable); the sequential fallback skips it. Whether it runs at
+    // all is decided by the target bracket (comboPassTarget: ≤2 → none), not a
+    // user toggle — runComboPass no-ops when the bracket allows no combos.
+    if (typeof onAddCards === 'function' && (addedCardIds?.length)) {
       const populated = [...deckCards, ...rows]
       const pass = await runComboPass(populated, addedCardIds)
       combosCompleted = pass.combosCompleted
@@ -1272,6 +1475,18 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           ...(addedCardIds || []).filter(id => !cutSet.has(id)),
           ...pass.comboRows.map(r => r.id).filter(Boolean),
         ]
+      }
+    }
+
+    // Game Changer top-up (Bracket 4 target): fill the shortfall to the 4-GC
+    // floor from the commander's recommended pool, into the basic-land slots.
+    if (targetBracket === 4 && gameChangers && typeof onAddCards === 'function' && (addedCardIds?.length)) {
+      const openForGC = Math.max(0, (plan?.deckSize || 100) - (totalCards + effectiveAdded))
+      const gcPass = await runGameChangerPass([...deckCards, ...effectiveRows], openForGC)
+      if (gcPass.gcRows.length) {
+        effectiveRows = [...effectiveRows, ...gcPass.gcRows]
+        effectiveAdded += gcPass.gcRows.length
+        effectiveAddedIds = [...effectiveAddedIds, ...gcPass.gcRows.map(r => r.id).filter(Boolean)]
       }
     }
 
@@ -1299,6 +1514,11 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     // totalCards is the pre-add count: this closure was created before the
     // deckCards prop round-tripped.
     const left = Math.max(0, (plan?.deckSize || 100) - (totalCards + effectiveAdded + basics))
+    // Refresh the combo analysis on the FINAL deck: runComboPass fetched combos
+    // on the pre-completion deck (to find pieces to add), so without this the
+    // summary's combo panel shows the completed combos as still-incomplete until
+    // the assistant is reopened. Basics don't form combos, so they're omitted.
+    combos.fetchCombos([...deckCards, ...effectiveRows]).catch(() => {})
     setAutoFillResult({
       added: effectiveAdded, skipped, basics, left,
       addedCardIds: effectiveAddedIds, basicCounts,
@@ -1475,13 +1695,24 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
 
   async function handleAdd(cardOrRec, name) {
     const key = name.toLowerCase()
-    if (isAdded(name)) return
+    if (isAdded(name)) return false
     setAddedNames(prev => new Set(prev).add(key))
     try {
       await onAddCard(cardOrRec)
+      return true
     } catch {
       setAddedNames(prev => { const next = new Set(prev); next.delete(key); return next })
+      return false
     }
+  }
+
+  // Manual add from the "Add a specific card" search. Routes through the same
+  // handleAdd as tiles (owned-vs-buy accounting + category persistence live in
+  // the parent). The row's Add button flips to "Added to <role>" once it lands,
+  // so no toast is needed. A searched card is a full Scryfall card.
+  async function addSpecificCard(card) {
+    if (!card?.name || isAdded(card.name)) return
+    await handleAdd(card, card.name)
   }
 
   async function handleWishlist(name) {
@@ -1518,9 +1749,11 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
 
   // Event handlers that drive the large-image preview for one card. On pointer
   // devices the image follows the cursor (mouseenter/move/leave); on touch a tap
-  // toggles a centered lightbox. `card` = { name, scryfall_id }.
+  // toggles a centered lightbox. `card` = { name, scryfall_id, img? } — a card
+  // with a scryfall_id resolves its large art from sfMap; unowned upgrades carry
+  // an explicit `img` URL instead. Cards with neither get no preview affordance.
   const previewHandlers = card => {
-    if (!card?.scryfall_id) return {} // no art to show → no preview affordance
+    if (!card?.scryfall_id && !card?.img) return {}
     if (hoverCapable) {
       return {
         onMouseEnter: e => setPreview({ ...card, x: e.clientX, y: e.clientY }),
@@ -1530,7 +1763,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     }
     return {
       onClick: () => setPreview(p =>
-        p && p.scryfall_id === card.scryfall_id ? null : { ...card }),
+        p && p.name === card.name ? null : { ...card }),
     }
   }
 
@@ -1696,7 +1929,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const gap = Math.max(0, target - current)
 
   return (
-    <Modal onClose={onClose} className={styles.modal} contentClassName={styles.modalContent}>
+    <Modal onClose={() => setConfirmClose(true)} className={styles.modal} contentClassName={styles.modalContent}>
       <div className={styles.body}>
         <div className={styles.header}>
           <span className={styles.title}>Build Assistant</span>
@@ -1830,8 +2063,34 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           </div>
         )}
 
+        {/* Persistent manual-add search — above the per-step content, so it's
+            reachable on every step (role steps + summary). */}
+        {!loading && !error && (
+          <SpecificCardSearch
+            search={cardSearch}
+            onAdd={addSpecificCard}
+            isAdded={isAdded}
+            categoryOf={card => coarseRole(card, card)}
+            commanderColorIdentity={commander?.color_identity || []}
+            makePreview={previewHandlers}
+          />
+        )}
+
         <div className={styles.main}>
-          {loading && <div className={styles.empty}>Analyzing your collection…</div>}
+          {loading && (
+            <div className={styles.analyzing}>
+              <div className={`${styles.afMana}${reduce_motion ? ' ' + styles.afManaStill : ''}`}>
+                {AUTOFILL_MANA.map((c, i) => (
+                  <span
+                    key={c}
+                    className={styles.afManaPip}
+                    style={{ background: MANA_HEX[c], animationDelay: `${i * 0.13}s` }}
+                  />
+                ))}
+              </div>
+              <div className={styles.analyzingLabel}>Analyzing your collection…</div>
+            </div>
+          )}
           {error && <div className={styles.error}>{error}</div>}
 
           {!loading && !error && roleData && (
@@ -1953,6 +2212,11 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                             flag={flag}
                             overTarget={targetBracket != null && flag && flag.level > targetBracket}
                             added={isAdded(cand.name)}
+                            previewProps={previewHandlers({
+                              name: cand.name,
+                              scryfall_id: cand.sfCard?.id || cand.card?.scryfall_id || null,
+                              img: cardImageUrl(cand.sfCard),
+                            })}
                             onAdd={() => handleAdd(ownedCardForAdd(cand), cand.name)}
                             onUndo={() => handleUndoAdd(cand.name)}
                           />
@@ -2020,6 +2284,15 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                               added={isAdded(up.name)}
                               wished={isWishlisted(up.name)}
                               showWishlist={typeof onAddToWishlist === 'function'}
+                              previewProps={previewHandlers({
+                                name: up.name,
+                                scryfall_id: null,
+                                // Tile art is a 146px thumbnail; re-tier the Scryfall
+                                // URL up to 'large' (672px) for the enlarged preview
+                                // so it isn't an upscaled thumbnail. EDHREC fallback
+                                // URLs aren't cards.scryfall.io, so they pass through.
+                                img: scryfallImageAtSize(imageEnFor(up.name), 'large') || up.image || null,
+                              })}
                               onAdd={() => handleAdd(up, up.name)}
                               onUndo={() => handleUndoAdd(up.name)}
                               onWishlist={() => handleWishlist(up.name)}
@@ -2229,7 +2502,14 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                           <span
                             className={styles.gapName}
                             title={m.name}
-                            {...previewHandlers({ name: m.name, scryfall_id: sid })}
+                            {...previewHandlers({
+                              name: m.name,
+                              scryfall_id: sid,
+                              // Buy-the-gap cards aren't in the deck, so `sid` is
+                              // usually null — fall back to the enriched art so the
+                              // hover preview still works.
+                              img: scryfallImageAtSize(imageEnFor(m.name), 'large'),
+                            })}
                           >
                             {m.name}
                           </span>
@@ -2362,7 +2642,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         <div className={styles.footer}>
           <Button
             variant="ghost"
-            disabled={stepIndex === 0}
+            disabled={stepIndex === 0 || loading}
             onClick={() => setStepIndex(i => Math.max(0, i - 1))}
           >
             Back
@@ -2383,17 +2663,17 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           )}
           <div className={styles.footerSpacer} />
           {stepIndex < steps.length - 1 ? (
-            <Button variant="primary" onClick={() => setStepIndex(i => Math.min(steps.length - 1, i + 1))}>
+            <Button variant="primary" disabled={loading} onClick={() => setStepIndex(i => Math.min(steps.length - 1, i + 1))}>
               Next: {steps[stepIndex + 1] === SUMMARY_STEP ? 'Summary' : steps[stepIndex + 1]}
             </Button>
           ) : (
             <>
               {typeof onPlaytest === 'function' && totalCards > 1 && (
-                <Button variant="ghost" onClick={onPlaytest} disabled={finishing}>
+                <Button variant="ghost" onClick={onPlaytest} disabled={finishing || loading}>
                   Playtest
                 </Button>
               )}
-              <Button variant="primary" onClick={handleFinish} disabled={finishing}>
+              <Button variant="primary" onClick={handleFinish} disabled={finishing || loading}>
                 {willAddBasics
                   ? (finishing ? 'Adding basics…' : `Add ${plannedBasics.total} basics & finish`)
                   : 'Finish'}
@@ -2428,10 +2708,10 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
               <div className={styles.afHead}>
                 <span className={styles.afHeadIcon}><LightningIcon size={16} /></span>
                 <div>
-                  <div className={styles.afTitle}>{autoFillResult ? 'Deck built' : 'Finish this deck'}</div>
+                  <div className={styles.afTitle}>{autoFillResult ? 'Deck built' : 'Finishing deck'}</div>
                   {!autoFillResult && (
                     <div className={styles.afSubtitle}>
-                      Fills every empty role and fills your deck to {afTarget} cards.
+                      Fills every empty slot and fills your deck to {afTarget} cards.
                     </div>
                   )}
                 </div>
@@ -2511,24 +2791,10 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                     </span>
                   </label>
                   {comboPassTarget > 0 && (
-                    <label className={`${styles.afOption} ${styles.afOptionCheck}${autoFillCombos ? ' ' + styles.afOptionActive : ''}`}>
-                      <input
-                        type="checkbox"
-                        className={styles.afRadio}
-                        checked={autoFillCombos}
-                        onChange={() => setAutoFillCombos(v => !v)}
-                      />
-                      <span className={styles.afOptionBody}>
-                        <span className={styles.afOptionLabel}>
-                          Also land some combos
-                          <span className={styles.afComboCount}>~{comboPassTarget}</span>
-                        </span>
-                        <span className={styles.afOptionDesc}>
-                          After filling, re-checks combos on the full deck and completes up to {comboPassTarget} bracket-appropriate combo{comboPassTarget === 1 ? '' : 's'}
-                          {targetBracket != null ? ` (Bracket ${targetBracket})` : ' (aiming low — Bracket 2/3)'}, adding the missing {autoFillSource === 'owned' ? 'owned ' : ''}piece{comboPassTarget === 1 ? '' : 's'} and cutting the weakest just-filled cards to make room.
-                        </span>
-                      </span>
-                    </label>
+                    <div className={styles.afNote}>
+                      <LightningIcon size={12} /> After filling, up to {comboPassTarget} bracket-appropriate combo{comboPassTarget === 1 ? '' : 's'}
+                      {targetBracket != null ? ` (Bracket ${targetBracket})` : ' (aiming low — Bracket 2/3)'} in {commander?.name ? `${commander.name}’s` : 'your commander’s'} colors will be completed automatically, adding the missing {autoFillSource === 'owned' ? 'owned ' : ''}piece{comboPassTarget === 1 ? '' : 's'} and cutting the weakest just-filled cards to make room.
+                    </div>
                   )}
                   <div className={styles.afNote}>
                     Your budget and bracket filters apply. Basic lands will top up the rest of the deck, then you will be able to review your new deck.
@@ -2551,14 +2817,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                 <>
                   <div className={styles.afResult}>
                     Added {autoFillResult.added} card{autoFillResult.added === 1 ? '' : 's'}
-                    {autoFillResult.basics ? ` and ${autoFillResult.basics} basic land${autoFillResult.basics === 1 ? '' : 's'}` : ''}
-                    {autoFillResult.skipped ? ` · ${autoFillResult.skipped} skipped (no card data)` : ''}.
-                    {autoFillResult.combosCompleted > 0 && (
-                      <> Landed {autoFillResult.combosCompleted} combo{autoFillResult.combosCompleted === 1 ? '' : 's'}
-                        {autoFillResult.comboAdded ? ` (+${autoFillResult.comboAdded} piece${autoFillResult.comboAdded === 1 ? '' : 's'}` : ''}
-                        {autoFillResult.comboAdded && autoFillResult.cutCount ? `, −${autoFillResult.cutCount} cut)` : autoFillResult.comboAdded ? ')' : ''}.
-                      </>
-                    )}
+                    {autoFillResult.basics ? ` and ${autoFillResult.basics} basic land${autoFillResult.basics === 1 ? '' : 's'}` : ''}.
                   </div>
                   {autoFillResult.left > 0 && (
                     <div className={styles.afShortfall}>
@@ -2600,19 +2859,42 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           devices; a centered tap-to-dismiss lightbox on touch. */}
       {preview && (() => {
         const sf = sfMap?.[preview.scryfall_id] || null
-        const img = getCardImageUri(sf, 'normal') || cardImageUrl(sf) || null
+        const img = getCardImageUri(sf, 'normal') || cardImageUrl(sf) || preview.img || null
         if (!img) return null
         const node = hoverCapable ? (
           <div className={styles.hoverPreview} style={cardPreviewStyle(preview.x, preview.y)}>
             <img src={img} alt={preview.name} className={styles.hoverPreviewImg} />
           </div>
         ) : (
-          <div className={styles.previewLightbox} onClick={() => setPreview(null)} role="presentation">
-            <img src={img} alt={preview.name} className={styles.previewLightboxImg} />
+          <div className={styles.previewLightbox} onClick={() => setPreview(null)} role="dialog" aria-modal="true" aria-label={`${preview.name} enlarged`}>
+            {/* Stop taps on the card itself from closing — only the backdrop and
+                the Close button dismiss it. The Close button sits above the card
+                (never over the art); the image is capped to the viewport so a tall
+                card never overflows the screen. */}
+            <div className={styles.previewLightboxInner} onClick={e => e.stopPropagation()}>
+              <div className={styles.previewLightboxBar}>
+                <Button variant="secondary" size="sm" onClick={() => setPreview(null)} aria-label="Close preview">
+                  <CloseIcon size={14} /> Close
+                </Button>
+              </div>
+              <img src={img} alt={preview.name} className={styles.previewLightboxImg} />
+            </div>
           </div>
         )
         return createPortal(node, document.body)
       })()}
+
+      {confirmClose && (
+        <ConfirmModal
+          title="Leave the Build Assistant?"
+          message="Cards you've added are already saved to the deck. You can reopen the assistant anytime to keep building."
+          confirmLabel="Leave"
+          cancelLabel="Keep building"
+          variant="primary"
+          onConfirm={() => { setConfirmClose(false); onClose?.() }}
+          onClose={() => setConfirmClose(false)}
+        />
+      )}
     </Modal>
   )
 }
@@ -2620,7 +2902,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
 // Fixed-position style for the hover preview: sits beside the cursor, flips to
 // the other side / clamps so a 240×336 card image never spills off-screen.
 function cardPreviewStyle(x, y) {
-  const W = 240, H = 336, pad = 12, off = 22
+  const W = 340, H = 476, pad = 12, off = 22
   const vw = typeof window !== 'undefined' ? window.innerWidth : 1200
   const vh = typeof window !== 'undefined' ? window.innerHeight : 800
   let left = x + off

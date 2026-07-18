@@ -5,7 +5,7 @@ import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
 import { useSettings, DEFAULT_BENTO_CONFIG } from '../components/SettingsContext'
 import { sfGet } from '../lib/scryfall'
-import { Modal } from '../components/UI'
+import { Modal, SearchInput } from '../components/UI'
 import { CheckIcon, CloseIcon, ImageIcon } from '../icons'
 import { Select } from '../components/UI'
 import { MILESTONES } from '../lib/milestones'
@@ -168,8 +168,9 @@ function CardArtPicker({ onSelect, onClose }) {
     <Modal onClose={onClose}>
       <h2 className={styles.artPickerTitle}>Choose Header Background Art</h2>
       <div className={styles.artPickerSearch}>
-        <input ref={inputRef} className={styles.artPickerInput} value={query}
+        <SearchInput ref={inputRef} className={styles.artPickerInput} value={query}
           onChange={e => handleChange(e.target.value)}
+          onClear={() => handleChange('')}
           onKeyDown={e => { if (e.key === 'Enter') { clearTimeout(timerRef.current); search() } }}
           placeholder="Search card name…" />
         {loading && <span className={styles.artPickerLoading}>…</span>}

@@ -136,6 +136,34 @@ export function normalizePrintKey(cardLike) {
   return setCode && collectorNumber ? `${setCode}-${collectorNumber}` : null
 }
 
+// Identity of a deck row for the DB's unique (deck_id, card_print_id, foil,
+// board) index. card_print_id is NOT NULL on deck_cards, so it drives the key;
+// the scryfall_id / print-key fallbacks only matter for optimistic rows that
+// haven't been hydrated yet.
+export function deckRowPrintKey(row) {
+  const foil = row?.foil ? 1 : 0
+  const board = normalizeBoard(row?.board)
+  const ident = row?.card_print_id || row?.scryfall_id || normalizePrintKey(row) || ''
+  return `${ident}|${foil}|${board}`
+}
+
+// Drop rows that would collide with the deck's unique index — either an existing
+// deck card or an earlier row in the same batch. A plain bulk .insert() of one
+// duplicate 409s and rolls back the WHOLE batch, so callers (auto-fill) must
+// pre-dedupe. Returns the rows safe to insert plus how many were dropped.
+export function dedupeDeckRowsForInsert(newRows, existingRows = []) {
+  const seen = new Set((existingRows || []).map(deckRowPrintKey))
+  const rows = []
+  let skipped = 0
+  for (const row of newRows || []) {
+    const key = deckRowPrintKey(row)
+    if (seen.has(key)) { skipped++; continue }
+    seen.add(key)
+    rows.push(row)
+  }
+  return { rows, skipped }
+}
+
 // ── Foil / printing helpers ─────────────────────────────────────────────────
 
 export function printingSupportsFoil(sfCard) {

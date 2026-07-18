@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, Link, useLocation } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
-import { Button, ConfirmModal, Modal, EmptyState, SectionHeader, ResponsiveMenu } from '../components/UI'
+import { Button, ConfirmModal, Modal, EmptyState, SectionHeader, ResponsiveMenu, SearchInput } from '../components/UI'
 import { parseDeckMeta, serializeDeckMeta, FORMATS } from '../lib/deckBuilderApi'
 import { unlinkPairedDeck, getSyncState, patchDeckMeta } from '../lib/deckSync'
 import { useDeckArts, enrichDecksWithCommanderArt } from '../lib/deckArt'
@@ -875,10 +875,12 @@ export default function BuilderPage() {
       {/* ── My Decks tab ── */}
       {pageTab === 'my' && <>
         <div className={styles.filterBar}>
-          <input
+          <SearchInput
             className={styles.filterInput}
+            wrapStyle={{ flex: '0 0 auto', width: 200 }}
             value={filters.search}
             onChange={e => setFilters(f => ({ ...f, search: e.target.value }))}
+            onClear={() => setFilters(f => ({ ...f, search: '' }))}
             placeholder="Search decks, commanders, tags…"
           />
           <div className={styles.inlineFilters}>
@@ -1057,10 +1059,12 @@ export default function BuilderPage() {
       {/* ── Community / Deck Browser ── */}
       {pageTab === 'community' && <>
         <div className={styles.filterBar}>
-          <input
+          <SearchInput
             className={styles.filterInput}
+            wrapStyle={{ flex: '0 0 auto', width: 200 }}
             value={communitySearch}
             onChange={e => setCommunitySearch(e.target.value)}
+            onClear={() => setCommunitySearch('')}
             placeholder="Search decks, commanders, tags…"
           />
           <div className={styles.inlineFilters}>

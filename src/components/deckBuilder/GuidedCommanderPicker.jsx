@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { CheckIcon } from '../../icons'
+import { SearchInput } from '../UI'
 import { getLocalCards, getLocalCardPrints } from '../../lib/db'
 import { getInstantCache, getScryfallKey, getImageUri } from '../../lib/scryfall'
 import { searchCommanders, fetchCardsByScryfallIds, searchLegalPartners } from '../../lib/deckBuilderApi'
@@ -323,18 +324,20 @@ function GuidedCommanderPickerBase({ userId, value, onSelect, partnerValue = nul
   return (
     <div className={styles.picker}>
       <div className={styles.searchRow}>
-        <input
+        <SearchInput
           className={styles.search}
           value={query}
           onChange={e => setQuery(e.target.value)}
+          onClear={() => setQuery('')}
           placeholder="Search commanders…"
           aria-label="Search commanders"
         />
         {partnerActive && (
-          <input
+          <SearchInput
             className={`${styles.search} ${styles.partnerSearch}`}
             value={pQuery}
             onChange={e => setPQuery(e.target.value)}
+            onClear={() => setPQuery('')}
             placeholder={`Search ${partnerDesc.type === 'choose-background' ? 'backgrounds' : 'legal partners'}…`}
             aria-label="Search legal partners"
           />

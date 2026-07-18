@@ -17,6 +17,7 @@ import {
   combineTemplateDeltas,
   applyTemplateAdjustments,
   comboFitsBracket,
+  comboInColorIdentity,
   mapAlmostCombos,
   comboTargetForBracket,
   effectiveComboBracket,
@@ -990,6 +991,28 @@ describe('comboFitsBracket', () => {
   })
 })
 
+describe('comboInColorIdentity', () => {
+  // Regression: the auto-fill combo pass was landing combos outside the
+  // commander's colors (Spellbook's "by adding colors" group leaks in), adding
+  // uncastable pieces. Only combos whose identity ⊆ commander's are addable.
+  it('accepts a combo within the commander colors', () => {
+    expect(comboInColorIdentity({ identity: 'wu' }, ['W', 'U', 'B'])).toBe(true)
+    expect(comboInColorIdentity({ identity: 'W' }, ['W'])).toBe(true)
+  })
+  it('rejects a combo needing a color outside the commander', () => {
+    expect(comboInColorIdentity({ identity: 'wu' }, ['W'])).toBe(false)
+    expect(comboInColorIdentity({ identity: 'r' }, ['W', 'U'])).toBe(false)
+  })
+  it('always accepts colorless combos', () => {
+    expect(comboInColorIdentity({ identity: 'c' }, [])).toBe(true)
+    expect(comboInColorIdentity({ identity: '' }, ['G'])).toBe(true)
+    expect(comboInColorIdentity({}, ['W'])).toBe(true)
+  })
+  it('is case-insensitive on both sides', () => {
+    expect(comboInColorIdentity({ identity: 'WU' }, ['w', 'u'])).toBe(true)
+  })
+})
+
 // ── Mana curve targeting ──────────────────────────────────────────────────────
 describe('mana curve targeting', () => {
   it('archetypeTargetAvgCmc: aggro is low, ramp is high, default middling', () => {
@@ -1780,6 +1803,31 @@ describe('planComboCompletion', () => {
       almostCombos: [owned1], targetBracket: 3, source: 'owned',
       passesBudget: name => name !== 'B',
     })
+    expect(r.pieces).toEqual([])
+    expect(r.combosCompleted).toBe(0)
+  })
+
+  it('caps total pieces to maxPieces (deck room), skipping combos that overflow', () => {
+    // Two 1-missing combos want 2 pieces total; room for only 1 → one combo.
+    const r = planComboCompletion({
+      almostCombos: [owned1, owned2], targetBracket: 3, source: 'owned', maxPieces: 1,
+    })
+    expect(r.combosCompleted).toBe(1)
+    expect(r.pieces).toEqual([{ name: 'B', owned: true }])
+  })
+
+  it('maxPieces: skips an oversized combo but still fits a smaller later one', () => {
+    const twoMissing = { id: 'm2', uses: ['A', 'B', 'C'], missing: [{ name: 'B', owned: true }, { name: 'C', owned: true }] }
+    const r = planComboCompletion({
+      almostCombos: [twoMissing, owned2], targetBracket: 3, source: 'owned', maxPieces: 1,
+    })
+    // twoMissing needs 2 (skipped); owned2 needs 1 (fits).
+    expect(r.pieces).toEqual([{ name: 'D', owned: true }])
+    expect(r.combosCompleted).toBe(1)
+  })
+
+  it('maxPieces 0 adds nothing', () => {
+    const r = planComboCompletion({ almostCombos: [owned1], targetBracket: 3, source: 'owned', maxPieces: 0 })
     expect(r.pieces).toEqual([])
     expect(r.combosCompleted).toBe(0)
   })

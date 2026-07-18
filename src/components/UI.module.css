@@ -196,6 +196,36 @@
 .input:focus { border-color: var(--border-hi); box-shadow: var(--input-focus); }
 .input::placeholder { color: var(--text-faint); }
 
+/* Search/filter input wrapper + clear (✕) button (Input clearable, SearchInput).
+   The wrapper grows to fill flex bars and spans full width in block contexts. */
+.searchWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.searchClear {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--s-medium);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.searchClear:hover { background: var(--s-border2); color: var(--text); }
+.searchClear:focus-visible { outline: 2px solid var(--border-hi); outline-offset: 1px; }
+
 /* Select */
 .select {
   background: var(--s-subtle);

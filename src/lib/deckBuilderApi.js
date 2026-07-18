@@ -27,13 +27,19 @@ export function importProxyUrl(source, id) {
 // through our Cloudflare worker (the upstream sends no CORS headers). Returns
 // [{ oracle_id, name, score }] on success, [] on any failure / cold start — the
 // caller falls back to EDHREC. Best-effort and never throws.
-export async function fetchRecommenderRecs(commanderName, deckNames = [], partnerName = null) {
+export async function fetchRecommenderRecs(commanderName, deckNames = [], partnerName = null, { timeoutMs = 6000 } = {}) {
   if (!commanderName) return []
+  // Bound the wait: the recommender can cold-start or 502 behind a slow gateway,
+  // and this call blocks the Build Assistant's initial analysis. On timeout we
+  // abort and fall back to EDHREC rather than hanging the load for minutes.
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
     const res = await fetch(getProdAppUrl('/api/recommend'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify({ card_format: 'name', commander: commanderName, partner: partnerName || null, deck: deckNames || [] }),
+      signal: ctrl.signal,
     })
     if (!res.ok) return []
     const json = await res.json()
@@ -41,6 +47,8 @@ export async function fetchRecommenderRecs(commanderName, deckNames = [], partne
     return (json.data?.recommendations || []).filter(r => r?.oracle_id && r?.name)
   } catch {
     return []
+  } finally {
+    clearTimeout(timer)
   }
 }
 

@@ -2,7 +2,7 @@
 import { useNavigate } from 'react-router-dom'
 import { formatAttractionLights } from '../lib/attractions'
 import { getImageUri, getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
-import { Modal, Badge, ResponsiveMenu, Select } from './UI'
+import { Modal, Badge, ResponsiveMenu, Select, SearchInput } from './UI'
 import styles from './CardComponents.module.css'
 import uiStyles from './UI.module.css'
 import { CloseIcon, CheckIcon, FolderTypeIcon } from '../icons'
@@ -1580,9 +1580,10 @@ export function FilterBar({
   return (
     <div className={styles.filterWrap}>
       <div className={`${styles.filterBar}${mode === 'lookup' ? ' ' + styles.filterBarLookup : ''}`}>
-        <input className={styles.searchInput} placeholder="Search cards, sets…"
+        <SearchInput className={styles.searchInput} placeholder="Search cards, sets…"
           name="card-search"
           value={search} onChange={e => setSearch(e.target.value)}
+          onClear={() => setSearch('')}
           onKeyDown={e => {
             onSearchKeyDown?.(e)
             if (e.defaultPrevented) return

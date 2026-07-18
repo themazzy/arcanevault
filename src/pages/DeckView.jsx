@@ -11,7 +11,7 @@ import styles from './DeckView.module.css'
 import uiStyles from '../components/UI.module.css'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
-import { Modal, ResponsiveMenu } from '../components/UI'
+import { Modal, ResponsiveMenu, SearchInput } from '../components/UI'
 import { CardBrowserContent } from '../components/CardBrowserViews'
 import { CardDetail } from '../components/CardComponents'
 import { CheckIcon, ChevronDownIcon, GridViewIcon, SearchIcon, SortIcon, StacksViewIcon, TextViewIcon, TableViewIcon } from '../icons'
@@ -813,9 +813,10 @@ export default function DeckViewPage() {
             <div className={styles.listToolbar}>
               <label className={styles.searchBox}>
                 <SearchIcon size={14} />
-                <input
+                <SearchInput
                   value={search}
                   onChange={e => setSearch(e.target.value)}
+                  onClear={() => setSearch('')}
                   placeholder="Search deck..."
                   aria-label="Search deck"
                 />

@@ -69,8 +69,10 @@
 .list { display: flex; flex-direction: column; gap: 6px; }
 
 @media (max-width: 980px) {
+  /* !important so it beats the SearchInput wrapper's base display:flex (the two
+     classes share the wrapper span and have equal specificity across modules). */
   .desktopOnlySearch {
-    display: none;
+    display: none !important;
   }
   .desktopOnlyAction {
     display: none;

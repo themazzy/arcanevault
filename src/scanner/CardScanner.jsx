@@ -36,6 +36,7 @@ import { databaseService } from './DatabaseService'
 import { visionClient } from './visionClient'
 import { fuseFrameHashes } from './hashFusion'
 import { useAuth } from '../components/Auth'
+import { SearchInput } from '../components/UI'
 import { queryClient } from '../lib/queryClient'
 import { invalidateOwnedCollectionQueries, invalidateWishlistQueries } from '../lib/queryInvalidation'
 import { formatPriceMeta, getPriceWithMeta, sfGet } from '../lib/scryfall'
@@ -2350,11 +2351,12 @@ export default function CardScanner({ onMatch, onClose }) {
             <button className={styles.closeBtn} onClick={closePrintingPicker}><CloseIcon size={13} /></button>
           </div>
           <div className={styles.searchInputRow}>
-            <input
+            <SearchInput
               className={styles.searchInput}
               placeholder="Filter by set name, code, or year…"
               value={printingPickerSearch}
               onChange={e => setPrintingPickerSearch(e.target.value)}
+              onClear={() => setPrintingPickerSearch('')}
               autoFocus
             />
           </div>
@@ -2407,11 +2409,12 @@ export default function CardScanner({ onMatch, onClose }) {
             <button className={styles.closeBtn} onClick={() => { manualSearchRequestRef.current += 1; manualTgl.hide(); setManualSearchQuery(''); setManualSearchResults([]); setManualSearchLoading(false) }}><CloseIcon size={13} /></button>
           </div>
           <div className={styles.searchInputRow}>
-            <input
+            <SearchInput
               className={styles.searchInput}
               placeholder="Search card name…"
               value={manualSearchQuery}
               onChange={e => setManualSearchQuery(e.target.value)}
+              onClear={() => setManualSearchQuery('')}
               autoFocus
             />
           </div>
@@ -2668,12 +2671,13 @@ export default function CardScanner({ onMatch, onClose }) {
             <button className={styles.closeBtn} onClick={() => setPickerTgl.hide()}><CloseIcon size={13} /></button>
           </div>
           <div className={styles.setPickerSearch}>
-            <input
+            <SearchInput
               className={styles.setPickerInput}
               type="text"
               placeholder="Search by name or set code…"
               value={setPickerSearch}
               onChange={e => setSetPickerSearch(e.target.value)}
+              onClear={() => setSetPickerSearch('')}
               autoFocus
             />
           </div>
