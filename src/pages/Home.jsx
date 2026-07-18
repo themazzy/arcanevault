@@ -943,6 +943,21 @@ const TOOL_TILES = [
   { to: '/rules', icon: SearchIcon, label: 'Rulebook', desc: 'Search the comprehensive rules' },
 ]
 
+// Compact support card for the dashboard rail — the tool grid only shows for
+// new users, so this keeps the premium path visible for everyone else.
+function RailSupportCard() {
+  const navigate = useNavigate()
+  return (
+    <button type="button" className={styles.railSupport} onClick={() => navigate('/settings#support')}>
+      <span className={styles.toolIcon}><StarIcon size={16} /></span>
+      <span className={styles.railSupportCopy}>
+        <span className={styles.railSupportLabel}>Support DeckLoom</span>
+        <span className={styles.railSupportDesc}>Unlock premium themes</span>
+      </span>
+    </button>
+  )
+}
+
 function ToolGrid({ premium }) {
   const navigate = useNavigate()
   return (
@@ -1688,11 +1703,11 @@ export default function HomePage() {
               {user && <CollectionSnapshot data={collData} loading={collLoading} priceSource={price_source} />}
               {user && <TopValuedCards    data={collData} loading={collLoading} priceSource={price_source} onCardClick={openCard} />}
               {user && <TopValuedDecks    data={collData} loading={collLoading} priceSource={price_source} />}
-              <ToolGrid premium={premium} />
               {showBelowFold && <MTGNewsSection />}
             </div>
             <aside className={styles.dashRail}>
               <ChangelogPanel entries={changelog} />
+              {user && !premium && <RailSupportCard />}
               {showBelowFold && <UpcomingSetsSection />}
             </aside>
           </div>

@@ -132,13 +132,12 @@
   border: 1px solid var(--s-border2);
   border-radius: 8px;
   cursor: pointer;
-  transition: border-color 0.18s, background 0.18s, transform 0.18s, box-shadow 0.18s;
+  transition: border-color 0.18s, background 0.18s;
 }
+/* Large content cards: border/tint change only — no lift, no shadow. */
 .featureCard:hover {
-  border-color: rgba(201,168,76,0.4);
-  background: rgba(201,168,76,0.04);
-  transform: translateY(-2px);
-  box-shadow: 0 6px 22px rgba(0,0,0,0.35);
+  border-color: rgba(201,168,76,0.45);
+  background: rgba(201,168,76,0.05);
 }
 .featureCardFeatured {
   grid-column: 1 / -1;
@@ -147,8 +146,13 @@
 }
 .featureCardFeatured:hover {
   border-color: rgba(201,168,76,0.65);
-  background: linear-gradient(135deg, rgba(201,168,76,0.18) 0%, rgba(138,111,196,0.13) 100%);
-  box-shadow: 0 8px 28px rgba(201,168,76,0.14);
+  background: linear-gradient(135deg, rgba(201,168,76,0.16) 0%, rgba(138,111,196,0.11) 100%);
+}
+/* The showcase's own cards carry the hover — silence the generic section
+   glow underneath so the two don't animate on top of each other. */
+.section.showcase:hover {
+  border-color: var(--border);
+  box-shadow: none;
 }
 .featureHead {
   display: flex;
@@ -205,7 +209,8 @@
   text-transform: uppercase;
   color: var(--gold);
 }
-.featureCard:hover .featureCta { text-decoration: underline; text-underline-offset: 3px; }
+.featureCta svg { transition: transform 0.18s; }
+.featureCard:hover .featureCta svg { transform: translateX(3px); }
 
 /* ── Tool Grid — all-in-one companion ────────────────────────────────────── */
 .toolGrid {
@@ -254,6 +259,43 @@
   background: linear-gradient(135deg, rgba(201,168,76,0.2) 0%, rgba(138,111,196,0.14) 100%);
 }
 .toolTileSupport .toolLabel { color: var(--gold); }
+
+/* ── Rail support card (dashboard sidebar) ───────────────────────────────── */
+.railSupport {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 0 0 24px;
+  padding: 12px 14px;
+  text-align: left;
+  border: 1px solid rgba(201,168,76,0.45);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(201,168,76,0.14) 0%, rgba(138,111,196,0.1) 100%);
+  cursor: pointer;
+  transition: border-color 0.18s, background 0.18s;
+}
+.railSupport:hover {
+  border-color: rgba(201,168,76,0.65);
+  background: linear-gradient(135deg, rgba(201,168,76,0.2) 0%, rgba(138,111,196,0.14) 100%);
+}
+.railSupportCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.railSupportLabel {
+  font-family: var(--font-display);
+  font-size: 0.74rem;
+  letter-spacing: 0.05em;
+  color: var(--gold);
+  line-height: 1.2;
+}
+.railSupportDesc {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
 
 /* ── Slim card lookup bar ────────────────────────────────────────────────── */
 .lookupWrap {
