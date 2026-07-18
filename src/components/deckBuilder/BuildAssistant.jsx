@@ -995,22 +995,26 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const overTarget = targetBracket != null && deckBracket && deckBracket.bracket > targetBracket
 
   // Combos you're close to completing (1-2 missing pieces), owned-missing first.
+  // Spellbook's `almost` merges the "by adding colors" group — combos whose
+  // pieces sit outside the commander's identity — so filter by identity BEFORE
+  // mapping (mapAlmostCombos drops `identity`); otherwise the summary offers
+  // one-click adds of identity-illegal cards. Mirrors runComboPass.
   const almostCombos = useMemo(() => {
     if (!combos.fetched) return []
     return mapAlmostCombos({
-      almost: combos.almost,
+      almost: (combos.almost || []).filter(c => comboInColorIdentity(c, commander?.color_identity)),
       deckNameKeys: deckNames,
       ownedNameKeys: ownedNameSet,
-      limit: 12,
     })
-  }, [combos.fetched, combos.almost, deckNames, ownedNameSet])
+  }, [combos.fetched, combos.almost, deckNames, ownedNameSet, commander])
 
   // Combos that suit the target bracket (B3 → 3+ card, B4/cEDH → incl. fast
-  // 2-card, B≤2 → none). Drives the summary suggestion list. When some combos
-  // were hidden purely by the bracket filter we say so, rather than reading as
-  // "no combos".
+  // 2-card, B≤2 → none). Drives the summary suggestion list. Bracket filter
+  // first, display cap second — capping first could read as "no combos" while
+  // bracket-fitting ones sat beyond the cut. When combos were hidden purely by
+  // the bracket filter we say so.
   const suggestedCombos = useMemo(
-    () => almostCombos.filter(c => comboFitsBracket(c.uses.length, targetBracket)),
+    () => almostCombos.filter(c => comboFitsBracket(c.uses.length, targetBracket)).slice(0, 12),
     [almostCombos, targetBracket],
   )
   const combosHiddenByBracket = almostCombos.length > 0 && suggestedCombos.length === 0 && targetBracket != null

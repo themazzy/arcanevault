@@ -1750,6 +1750,25 @@ describe('mapAlmostCombos', () => {
     expect(mapAlmostCombos({})).toEqual([])
     expect(mapAlmostCombos({ almost: null })).toEqual([])
   })
+
+  // The summary pipeline as BuildAssistant composes it: identity filter BEFORE
+  // mapping (mapAlmostCombos drops `identity`), bracket filter BEFORE the
+  // display cap. An off-identity combo must never surface (its pieces are
+  // illegal one-click adds), and a bracket-fitting combo must not be pushed
+  // out by bracket-unfitting ones that a pre-filter cap would have kept.
+  it('summary pipeline: drops off-identity combos and caps after the bracket filter', () => {
+    const offColor = { ...rawCombo('off', ['Have A', 'Need Blue', 'Need More']), identity: 'wu' }
+    const fast2 = { ...rawCombo('fast', ['Have A', 'Need R1']), identity: 'r' }
+    const fits = { ...rawCombo('ok', ['Have A', 'Have B', 'Need R2']), identity: 'r' }
+    const deckNameKeys = new Set(['have a', 'have b'])
+
+    const inIdentity = [offColor, fast2, fits].filter(c => comboInColorIdentity(c, ['R']))
+    expect(inIdentity.map(c => c.id)).toEqual(['fast', 'ok'])
+
+    const mapped = mapAlmostCombos({ almost: inIdentity, deckNameKeys, ownedNameKeys: new Set() })
+    const suggested = mapped.filter(c => comboFitsBracket(c.uses.length, 3)).slice(0, 12)
+    expect(suggested.map(c => c.id)).toEqual(['ok']) // fast 2-card hidden at B3
+  })
 })
 
 describe('comboTargetForBracket / effectiveComboBracket', () => {

@@ -49,6 +49,7 @@ import {
   updateDeckCategoryOrder,
 } from '../lib/deckCategories'
 import { getCardLegalityWarnings } from '../lib/deckLegality'
+import { comboInColorIdentity } from '../lib/deckBuildAssistant'
 import { useDeckCardLegalityWarnings } from '../lib/useDeckWarnings'
 import {
   buildSyncDiff,
@@ -1262,6 +1263,17 @@ export default function DeckBuilderPage() {
     for (const c of commanderCards) for (const col of (c.color_identity || [])) cols.add(col)
     return [...cols]
   }, [commanderCards])
+
+  // Spellbook's `almost` list merges the "by adding colors" group — combos with
+  // pieces outside the commander's identity. The Combos tab offers one-click
+  // adds, so for EDH decks with a commander those must be dropped; other
+  // formats have no identity restriction and keep the full list.
+  const combosAlmostInIdentity = useMemo(
+    () => (isEDH && commanderCards.length
+      ? combosAlmost.filter(c => comboInColorIdentity(c, colorIdentity))
+      : combosAlmost),
+    [combosAlmost, isEDH, commanderCards, colorIdentity],
+  )
   const deckSize       = (format?.deckSize ?? 60) + (deckMeta.companion ? companionDeckSizeBonus(deckMeta.companion) : 0)
 
   // Companion validation — checks the designated companion against the starting
@@ -5984,7 +5996,7 @@ export default function DeckBuilderPage() {
             combosFetched={combosFetched}
             combosLoading={combosLoading}
             combosIncluded={combosIncluded}
-            combosAlmost={combosAlmost}
+            combosAlmost={combosAlmostInIdentity}
             comboSectionsOpen={comboSectionsOpen}
             onToggleSection={toggleComboSection}
             onFetchCombos={fetchCombos}
