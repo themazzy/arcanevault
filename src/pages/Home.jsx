@@ -19,7 +19,13 @@ import { Modal } from '../components/UI'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './Home.module.css'
 import { EMPTY_FILTERS, FilterBar } from '../components/CardComponents'
-import { CloseIcon, CheckIcon, WarningIcon, BannedIcon, ChevronDownIcon, ChevronUpIcon, ChevronRightIcon, DiceIcon, ImageIcon, SearchIcon } from '../icons'
+import { getHomeMode } from '../lib/homeLayout'
+import {
+  CloseIcon, CheckIcon, WarningIcon, BannedIcon, ChevronDownIcon, ChevronUpIcon,
+  ChevronRightIcon, DiceIcon, ImageIcon, SearchIcon, FilterIcon,
+  BuilderIcon, CollectionIcon, ScannerIcon, LifeIcon, StatsIcon, TradingIcon,
+  TrophyIcon, StarIcon,
+} from '../icons'
 
 // ── Recently Viewed (localStorage + custom event for live update) ─────────────
 const VIEWED_KEY = 'arcanevault_recently_viewed'
@@ -743,6 +749,68 @@ function CardLookupSection() {
     floatingPreviewRef.current?.setImages([])
   }, [])
 
+  const suggList = showSuggs && (
+    <ul className={styles.suggList} role="listbox">
+      {suggestions.map((c, i) => {
+        const img = getCardImage(c, 'small')
+        const hoverableProps = CAN_HOVER && !lastInputWasTouch && img
+          ? {
+              onMouseEnter: e => handleSuggHoverEnter(img, e),
+              onMouseMove: handleSuggHoverMove,
+              onMouseLeave: handleSuggHoverLeave,
+            }
+          : {}
+        return (
+          <li
+            key={c.id}
+            role="option"
+            aria-selected={i === activeSuggIndex}
+            className={`${styles.suggItem}${i === activeSuggIndex ? ' ' + styles.suggItemActive : ''}`}
+            onMouseDown={() => pickSuggestion(c)}
+            onMouseEnter={() => setActiveSuggIndex(i)}
+          >
+            <img src={img} alt="" className={styles.suggThumb} {...hoverableProps} />
+            <span className={styles.suggName}>{c.name}</span>
+            <span className={styles.suggSet}>{c.set_name}</span>
+          </li>
+        )
+      })}
+    </ul>
+  )
+
+  // Collapsed by default: a slim search bar. Expands into the full section
+  // (FilterBar + results) the moment a search runs or filters are requested.
+  if (mode === 'idle' && !loading) {
+    return (
+      <>
+        <div className={styles.lookupWrap} ref={wrapRef}>
+          <div className={styles.lookupSlim}>
+            <SearchIcon size={15} className={styles.lookupSlimIcon} />
+            <input
+              className={styles.lookupSlimInput}
+              type="text"
+              placeholder="Look up any Magic card — art, prices, rulings…"
+              value={query}
+              onChange={handleInput}
+              onKeyDown={e => {
+                handleSearchKeyDown(e)
+                if (!e.defaultPrevented && e.key === 'Enter') handleSearch(e)
+              }}
+            />
+            <button type="button" className={styles.lookupSlimBtn}
+              title="Advanced search"
+              aria-label="Advanced search"
+              onClick={() => setMode('search')}>
+              <FilterIcon size={14} />
+            </button>
+          </div>
+          {suggList}
+        </div>
+        <FloatingPreview ref={floatingPreviewRef} />
+      </>
+    )
+  }
+
   return (
     <section className={styles.section}>
       <div className={styles.sectionHeader}>
@@ -775,34 +843,7 @@ function CardLookupSection() {
             </button>
           )}
         />
-        {showSuggs && (
-          <ul className={styles.suggList} role="listbox">
-            {suggestions.map((c, i) => {
-              const img = getCardImage(c, 'small')
-              const hoverableProps = CAN_HOVER && !lastInputWasTouch && img
-                ? {
-                    onMouseEnter: e => handleSuggHoverEnter(img, e),
-                    onMouseMove: handleSuggHoverMove,
-                    onMouseLeave: handleSuggHoverLeave,
-                  }
-                : {}
-              return (
-                <li
-                  key={c.id}
-                  role="option"
-                  aria-selected={i === activeSuggIndex}
-                  className={`${styles.suggItem}${i === activeSuggIndex ? ' ' + styles.suggItemActive : ''}`}
-                  onMouseDown={() => pickSuggestion(c)}
-                  onMouseEnter={() => setActiveSuggIndex(i)}
-                >
-                  <img src={img} alt="" className={styles.suggThumb} {...hoverableProps} />
-                  <span className={styles.suggName}>{c.name}</span>
-                  <span className={styles.suggSet}>{c.set_name}</span>
-                </li>
-              )
-            })}
-          </ul>
-        )}
+        {suggList}
       </div>
       {loading && <div className={styles.loadingMsg}>Searching Scryfall…</div>}
       {!loading && mode === 'card' && card && (
@@ -831,57 +872,119 @@ function CardLookupSection() {
   )
 }
 
-// ── Random Card Section ───────────────────────────────────────────────────────
-function RulebookSection() {
+// ── Quick Actions (returning users) ───────────────────────────────────────────
+// The three standout features, one tap away, right under the hero.
+const QUICK_ACTIONS = [
+  { to: '/builder', icon: BuilderIcon, label: 'Build Assist', desc: 'Auto-build a deck from your binders', featured: true },
+  { to: '/scanner', icon: ScannerIcon, label: 'Scan Cards', desc: 'Add cards with your camera' },
+  { to: '/collection', icon: CollectionIcon, label: 'Collection', desc: 'Browse, organise & track value' },
+]
+
+function QuickActions() {
   const navigate = useNavigate()
   return (
-    <section className={`${styles.section} ${styles.rulebookSection}`}>
-      <div className={styles.rulebookBody}>
-        <div className={styles.rulebookIcon}><SearchIcon size={18} /></div>
-        <div className={styles.rulebookCopy}>
-          <div className={styles.sectionHeader}>
-            <h2 className={styles.sectionTitle}>Rulebook</h2>
-          </div>
-          <p className={styles.sectionDesc}>Comprehensive Magic the Gathering rules, last updated on April 17, 2026.</p>
-        </div>
-        <button type="button" className={styles.rulebookButton} onClick={() => navigate('/rules')}>
-          Open <ChevronRightIcon size={13} />
+    <div className={styles.quickGrid}>
+      {QUICK_ACTIONS.map(({ to, icon: Icon, label, desc, featured }) => (
+        <button key={to} type="button"
+          className={`${styles.quickTile}${featured ? ' ' + styles.quickTileFeatured : ''}`}
+          onClick={() => navigate(to)}>
+          <span className={styles.quickIcon}><Icon size={18} /></span>
+          <span className={styles.quickCopy}>
+            <span className={styles.quickLabel}>{label}</span>
+            <span className={styles.quickDesc}>{desc}</span>
+          </span>
+          <span className={styles.quickArrow}><ChevronRightIcon size={13} /></span>
         </button>
+      ))}
+    </div>
+  )
+}
+
+// ── Feature Showcase (new users) ──────────────────────────────────────────────
+// First-session onboarding: the three standout features as guided doors.
+const SHOWCASE_FEATURES = [
+  {
+    to: '/builder', icon: BuilderIcon, step: 1, featured: true,
+    title: 'Build Assist',
+    desc: 'Pick a commander and hit Auto Build — DeckLoom fills your deck to a full 100 with the best cards for it. Shape it with a theme, a power bracket and a per-card budget, or build only from cards you already own.',
+    cta: 'Open the Deck Builder',
+  },
+  {
+    to: '/collection', icon: CollectionIcon, step: 2,
+    title: 'Track Your Collection',
+    desc: 'Import a CSV, search by name, or add cards by hand. Binders, decks and wishlists with daily prices, collection value and set completion — online or offline.',
+    cta: 'Start your collection',
+  },
+  {
+    to: '/scanner', icon: ScannerIcon, step: 3,
+    title: 'Scan Cards In',
+    desc: 'Point your camera at any card — the scanner recognises the exact printing in seconds and files it straight into a binder or deck.',
+    cta: 'Try the Scanner',
+  },
+]
+
+function FeatureShowcase() {
+  const navigate = useNavigate()
+  return (
+    <section className={`${styles.section} ${styles.showcase}`}>
+      <div className={styles.showcaseEyebrow}>Get Started</div>
+      <h2 className={styles.showcaseTitle}>Everything a Magic player needs, in one app</h2>
+      <p className={styles.sectionDesc}>Three things to try first — every feature is free, no paywalls.</p>
+      <div className={styles.showcaseGrid}>
+        {SHOWCASE_FEATURES.map(({ to, icon: Icon, step, featured, title, desc, cta }) => (
+          <button key={to} type="button"
+            className={`${styles.featureCard}${featured ? ' ' + styles.featureCardFeatured : ''}`}
+            onClick={() => navigate(to)}>
+            <span className={styles.featureHead}>
+              <span className={styles.featureIcon}><Icon size={20} /></span>
+              <span className={styles.featureStep}>{step}</span>
+            </span>
+            <span className={styles.featureTitle}>{title}</span>
+            <span className={styles.featureDesc}>{desc}</span>
+            <span className={styles.featureCta}>{cta} <ChevronRightIcon size={12} /></span>
+          </button>
+        ))}
       </div>
     </section>
   )
 }
 
-function RandomCardSection() {
-  const [card, setCard]       = useState(null)
-  const [loading, setLoading] = useState(true)
-
-  const roll = useCallback(async () => {
-    setLoading(true); setCard(null)
-    const c = await fetchRandom()
-    setCard(c); setLoading(false)
-  }, [])
-
-  useEffect(() => { roll() }, [roll])
-
+// ── Tool Grid — the all-in-one companion pitch ────────────────────────────────
+// Secondary features as compact tiles; also absorbs the old Rulebook banner,
+// the Random Card section and the premium-support banner.
+function ToolGrid({ premium, onRandomCard }) {
+  const navigate = useNavigate()
+  const tools = [
+    { key: 'life', icon: LifeIcon, label: 'Life Tracker', desc: 'Multiplayer counter with join-by-code lobbies', onClick: () => navigate('/life') },
+    { key: 'stats', icon: StatsIcon, label: 'Stats', desc: 'Collection analytics & value over time', onClick: () => navigate('/stats') },
+    { key: 'trading', icon: TradingIcon, label: 'Trading', desc: 'Compare trade value on the spot', onClick: () => navigate('/trading') },
+    { key: 'tournaments', icon: TrophyIcon, label: 'Tournaments', desc: 'Run events with pairings & standings', onClick: () => navigate('/tournaments') },
+    { key: 'rules', icon: SearchIcon, label: 'Rulebook', desc: 'The comprehensive rules, searchable', onClick: () => navigate('/rules') },
+    { key: 'random', icon: DiceIcon, label: 'Random Card', desc: 'Roll the dice on all of Magic', onClick: onRandomCard },
+  ]
   return (
     <section className={styles.section}>
       <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}><DiceIcon size={14} style={{ marginRight: 5, verticalAlign: 'middle' }} /> Random Card</h2>
-        <button className={styles.rerollBtn} onClick={roll} disabled={loading}>
-          {loading ? 'Rolling…' : 'Reroll'}
-        </button>
+        <h2 className={styles.sectionTitle}>The Whole Toolkit</h2>
       </div>
-      {loading ? (
-        <div className={styles.skeletonLayout}>
-          <div className={styles.skeletonImg} />
-          <div className={styles.skeletonBody} />
-        </div>
-      ) : card ? (
-        <CardView card={card} />
-      ) : (
-        <div className={styles.emptyMsg}>Failed to load card.</div>
-      )}
+      <p className={styles.sectionDesc}>One companion app for game night — nothing else to download, nothing to pay.</p>
+      <div className={styles.toolGrid}>
+        {tools.map(({ key, icon: Icon, label, desc, onClick }) => (
+          <button key={key} type="button" className={styles.toolTile} onClick={onClick}>
+            <span className={styles.toolIcon}><Icon size={16} /></span>
+            <span className={styles.toolLabel}>{label}</span>
+            <span className={styles.toolDesc}>{desc}</span>
+          </button>
+        ))}
+        {!premium && (
+          <button type="button" className={`${styles.toolTile} ${styles.toolTileSupport}`}
+            onClick={() => navigate('/settings#support')}>
+            <span className={styles.toolIcon}><StarIcon size={16} /></span>
+            <span className={styles.toolLabel}>Support DeckLoom</span>
+            <span className={styles.toolDesc}>Unlock premium themes & keep the app growing</span>
+          </button>
+        )}
+      </div>
     </section>
   )
 }
@@ -1491,25 +1594,6 @@ function ChangelogPanel({ entries }) {
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
-function HomeSupportSection() {
-  const navigate = useNavigate()
-
-  return (
-    <section className={`${styles.section} ${styles.homeSupportSection}`}>
-      <div className={styles.homeSupportCopy}>
-        <div className={styles.homeSupportEyebrow}>Support DeckLoom</div>
-        <h2 className={styles.homeSupportTitle}>Unlock premium themes and keep the app growing</h2>
-        <p className={styles.homeSupportText}>
-          One-time support unlocks Obsidian Night, Crimson Court, and Verdant Realm across your account.
-        </p>
-      </div>
-      <button type="button" className={styles.homeSupportButton} onClick={() => navigate('/settings#support')}>
-        Support <ChevronRightIcon size={13} />
-      </button>
-    </section>
-  )
-}
-
 export default function HomePage() {
   const { user }               = useAuth()
   const { price_source, premium } = useSettings()
@@ -1618,6 +1702,26 @@ export default function HomePage() {
     }
   }, [])
 
+  // Random card lives in the ToolGrid now — rolls straight into the modal.
+  const openRandomCard = useCallback(async () => {
+    setModalLoading(true)
+    setModalCard(null)
+    try {
+      const card = await fetchRandom()
+      if (card) { setModalCard(card); addRecentlyViewed(card) }
+    } catch (e) {
+      console.warn('[Home] openRandomCard error:', e)
+    } finally {
+      setModalLoading(false)
+    }
+  }, [])
+
+  const isOnboarding = getHomeMode({
+    loading: collLoading || !collData,
+    cardCount: collData?.cards?.length ?? 0,
+    folderCount: collData?.folders?.length ?? 0,
+  }) === 'onboarding'
+
   return (
     <div className={styles.home}>
       <div className={styles.hero}>
@@ -1626,19 +1730,30 @@ export default function HomePage() {
           {/* "Loom" is coloured by the `.logoText span` rule — the span, not a class, is what matters. */}
           <span className={styles.logoText}>Deck<span>Loom</span></span>
         </div>
-        <div className={styles.heroSub}>Your Magic: The Gathering collection manager</div>
+        <div className={styles.heroSub}>Your all-in-one Magic: The Gathering companion</div>
       </div>
 
-      <ChangelogPanel entries={changelog} />
-      <CardLookupSection />
-      <RulebookSection />
-      {user && !premium && <HomeSupportSection />}
-      {user && <CollectionSnapshot data={collData} loading={collLoading} priceSource={price_source} />}
-      <RecentlyViewedSection onCardClick={openCard} />
-      <RandomCardSection />
-      {user && <TopValuedCards    data={collData} loading={collLoading} priceSource={price_source} onCardClick={openCard} />}
-      {user && <RecentlyAdded     data={collData} loading={collLoading} onCardClick={openCard} />}
-      {user && <TopValuedDecks    data={collData} loading={collLoading} priceSource={price_source} />}
+      {isOnboarding ? (
+        <>
+          <FeatureShowcase />
+          <ToolGrid premium={premium} onRandomCard={openRandomCard} />
+          <CardLookupSection />
+          <RecentlyViewedSection onCardClick={openCard} />
+          <ChangelogPanel entries={changelog} />
+        </>
+      ) : (
+        <>
+          <QuickActions />
+          <CardLookupSection />
+          <ChangelogPanel entries={changelog} />
+          {user && <CollectionSnapshot data={collData} loading={collLoading} priceSource={price_source} />}
+          <RecentlyViewedSection onCardClick={openCard} />
+          {user && <TopValuedCards    data={collData} loading={collLoading} priceSource={price_source} onCardClick={openCard} />}
+          {user && <RecentlyAdded     data={collData} loading={collLoading} onCardClick={openCard} />}
+          {user && <TopValuedDecks    data={collData} loading={collLoading} priceSource={price_source} />}
+          <ToolGrid premium={premium} onRandomCard={openRandomCard} />
+        </>
+      )}
       {showBelowFold && <MTGNewsSection />}
       {showBelowFold && <UpcomingSetsSection />}
 
