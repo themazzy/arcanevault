@@ -33,7 +33,6 @@ import {
   comboInColorIdentity,
   mapAlmostCombos,
   comboTargetForBracket,
-  planComboCompletion,
   producedColors,
   faceOracleText,
   faceTypeLine,
@@ -68,6 +67,7 @@ import {
   ROLE_LANDS,
 } from '../../lib/deckBuildAssistant'
 import { cardNameMatchKeys, countDeckCards } from '../../lib/deckBuilderHelpers'
+import { runComboPass as comboPassCore, runGameChangerPass as gcPassCore } from '../../lib/buildAssistantPasses'
 import { SpecificCardSearch } from './SpecificCardSearch'
 import styles from './BuildAssistant.module.css'
 
@@ -1211,166 +1211,61 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // — which also keeps undo coherent (undo returns to the pre-fill deck).
   // `populated` = [...deckCards, ...fillRows]; `fillIds` = this run's added ids.
   // Returns { comboRows, cutIds, combosCompleted }; best-effort, zeros on failure.
+  // Thin binding over the extracted pass runner (buildAssistantPasses.js):
+  // injects the component's live filters/handlers and folds the returned rows
+  // into the session "added" set. All decision logic lives in the lib, where
+  // it's unit-tested.
   async function runComboPass(populated, fillIds) {
-    const empty = { comboRows: [], cutIds: [], combosCompleted: 0 }
-    if (comboPassTarget <= 0) return empty
-    try {
-      const res = await combos.fetchCombos(populated)
-      if (!res) return empty
-      const deckKeys = new Set(
-        populated.filter(d => !d?.is_commander).flatMap(d => cardNameMatchKeys(d?.name)),
-      )
-      // Only complete combos that live within the commander's color identity —
-      // Spellbook's results include off-color "by adding colors" combos we must
-      // not add. See comboInColorIdentity.
-      const inIdentityAlmost = (res.almost || []).filter(c => comboInColorIdentity(c, commander?.color_identity))
-      const almost = mapAlmostCombos({
-        almost: inIdentityAlmost,
-        deckNameKeys: deckKeys,
-        ownedNameKeys: ownedNameSet,
-      })
-
-      // Room the combo pass can absorb without cutting the user's existing cards:
-      // the open slots the fill left, plus this run's cuttable (nonland) filler.
-      // Capping combo pieces to this keeps the deck at ≤ deckSize — otherwise a
-      // near-full deck could end above 100, since we only cut cards THIS run added.
-      const fillSet = new Set(fillIds || [])
-      // COPIES, not rows — a multi-qty basics row would otherwise make the deck
-      // look emptier than it is and let combo pieces overfill it past deckSize.
-      const populatedCount = countDeckCards(populated)
-      const openSlots = Math.max(0, (plan?.deckSize || 100) - populatedCount)
-      const cuttableFillCount = protNames => populated.filter(d =>
-        !d?.is_commander && fillSet.has(d.id) && !isLandRow(d)
-        && !cardNameMatchKeys(d?.name).some(k => protNames.has(k))).length
-      const planCombos = maxPieces => planComboCompletion({
-        almostCombos: almost,
-        targetBracket,
-        source: autoFillSource,
-        deckNameKeys: deckKeys,
-        passesBudget: name => passesBudget(name, null),
-        maxPieces,
-      })
-      // Plan uncapped, then re-plan capped to the room if it wouldn't fit. Fewer
-      // combos only free more cuttable filler, so a single re-plan is safe.
-      let { pieces, combosCompleted, protectedNames } = planCombos(Infinity)
-      if (pieces.length > openSlots + cuttableFillCount(protectedNames)) {
-        ({ pieces, combosCompleted, protectedNames } = planCombos(openSlots + cuttableFillCount(protectedNames)))
-      }
-      if (!pieces.length) return { ...empty, combosCompleted }
-
-      // Cuttable = this run's filler, minus any card that's a piece of a combo
-      // we're completing. Lock everything else so analyzeCut only pulls from it.
-      const cuttableIds = new Set(
-        populated
-          .filter(d => !d?.is_commander && fillSet.has(d.id)
-            && !cardNameMatchKeys(d?.name).some(k => protectedNames.has(k)))
-          .map(d => d.id),
-      )
-      const lockedIds = new Set(
-        populated.filter(d => !d?.is_commander && !cuttableIds.has(d.id)).map(d => d.id),
-      )
-      // over = (populated − deckSize) + pieces added → exactly the cuts needed to
-      // hold the size, absorbing any open slots the fill left.
-      const cut = analyzeCut({
-        plan, deckCards: populated, sfMap,
-        totalCards: populatedCount + pieces.length,
-        cutMode: 'balanced', lockedIds,
+    const pass = await comboPassCore({
+      populated,
+      fillIds,
+      targetBracket,
+      source: autoFillSource,
+      commanderColorIdentity: commander?.color_identity,
+      ownedNameKeys: ownedNameSet,
+      deckSize: plan?.deckSize || 100,
+      isLandRow,
+      fetchCombos: combos.fetchCombos,
+      passesBudget: name => passesBudget(name, null),
+      analyzeCutFn: args => analyzeCut({
+        plan, sfMap, cutMode: 'balanced',
         roleOf: dc => roleOfDeckCard(dc, sfMap, roleByName),
         inclusionOf: name => cardNameMatchKeys(name).map(k => inclusionByName.get(k)).find(v => v != null),
-      })
-      let cutIds = (cut?.recommended || []).map(r => r.id).filter(Boolean)
-      if (cutIds.length && typeof onRemoveCards === 'function') {
-        try {
-          // A parent that returns the ids it actually deleted (partial batch
-          // failures) narrows our accounting to the real cuts; a void return
-          // keeps the optimistic assumption.
-          const removed = await onRemoveCards(cutIds)
-          if (Array.isArray(removed)) cutIds = removed
-        } catch {
-          cutIds = [] // nothing verifiably removed — don't report phantom cuts
-        }
-      } else {
-        cutIds = [] // no removal path → no cuts happened
-      }
-      let comboRows = []
-      try {
-        const addRes = await onAddCards(pieces.map(p => ({ name: p.name })))
-        comboRows = addRes?.rows || []
-        setAddedNames(prev => {
-          const next = new Set(prev)
-          for (const r of comboRows) if (r?.name) next.add(r.name.toLowerCase())
-          return next
-        })
-      } catch { /* parent surfaces errors */ }
-      return { comboRows, cutIds, combosCompleted }
-    } catch {
-      return empty
-    }
+        ...args,
+      }),
+      addCards: onAddCards,
+      removeCards: onRemoveCards,
+    })
+    markAdded(pass.comboRows)
+    return pass
   }
 
-  // Post-fill Game Changer top-up (Bracket 4 only). The estimator floors a deck
-  // at Bracket 4 once it runs 4+ Game Changers, so a "target 4" build that landed
-  // fewer would still read Bracket 3. This adds the shortfall from the commander's
-  // OWN recommended pool (owned candidates first, then EDHREC upgrades) — so the
-  // picks stay on-theme and in color — capped to `maxAdd` open slots, so they take
-  // basic-land slots rather than cutting spells (no overshoot). Source-aware:
-  // 'owned' only pulls owned Game Changers. Returns { gcRows }.
-  async function runGameChangerPass(populated, maxAdd) {
-    const empty = { gcRows: [] }
-    if (targetBracket !== 4 || !gameChangers || maxAdd <= 0 || typeof onAddCards !== 'function') return empty
-    const isGC = name => {
-      const l = String(name || '').toLowerCase()
-      return gameChangers.has(l) || gameChangers.has(l.split('//')[0].trim())
-    }
-    const gcInDeck = new Set()
-    for (const d of populated) {
-      if (!d?.is_commander && isGC(d?.name)) gcInDeck.add(String(d.name).toLowerCase())
-    }
-    const need = 4 - gcInDeck.size
-    if (need <= 0) return empty
+  // Fold rows a pass added into the session "added" set so their tiles flip.
+  function markAdded(rows) {
+    if (!rows?.length) return
+    setAddedNames(prev => {
+      const next = new Set(prev)
+      for (const r of rows) if (r?.name) next.add(r.name.toLowerCase())
+      return next
+    })
+  }
 
-    const deckKeys = new Set(populated.filter(d => !d?.is_commander).flatMap(d => cardNameMatchKeys(d?.name)))
-    const seen = new Set()
-    const owned = []
-    const rec = []
-    for (const role of plan?.roles || []) {
-      for (const c of role.ownedCandidates || []) {
-        const name = c?.name
-        if (!name || !isGC(name)) continue
-        const key = name.toLowerCase()
-        if (seen.has(key) || deckKeys.has(key)) continue // owned copies aren't gated by budget
-        seen.add(key)
-        owned.push({ name, inclusion: c.edhrecInclusion || 0 })
-      }
-    }
-    if (autoFillSource === 'recommended') {
-      for (const role of plan?.roles || []) {
-        for (const u of upgradesFor(role) || []) {
-          const name = u?.name
-          if (!name || !isGC(name)) continue
-          const key = name.toLowerCase()
-          if (seen.has(key) || deckKeys.has(key) || !passesBudget(name, null)) continue
-          seen.add(key)
-          rec.push({ name, inclusion: u.edhrecInclusion || 0 })
-        }
-      }
-    }
-    owned.sort((a, b) => b.inclusion - a.inclusion)
-    rec.sort((a, b) => b.inclusion - a.inclusion)
-    const toAdd = [...owned, ...rec].slice(0, Math.min(need, maxAdd))
-    if (!toAdd.length) return empty
-    try {
-      const addRes = await onAddCards(toAdd.map(g => ({ name: g.name })))
-      const gcRows = addRes?.rows || []
-      setAddedNames(prev => {
-        const next = new Set(prev)
-        for (const r of gcRows) if (r?.name) next.add(r.name.toLowerCase())
-        return next
-      })
-      return { gcRows }
-    } catch {
-      return empty
-    }
+  // Post-fill Game Changer top-up (Bracket 4 only) — see runGameChangerPass in
+  // buildAssistantPasses.js. Same thin-binding pattern as runComboPass above.
+  async function runGameChangerPass(populated, maxAdd) {
+    const pass = await gcPassCore({
+      populated,
+      maxAdd,
+      targetBracket,
+      source: autoFillSource,
+      gameChangerNames: gameChangers,
+      roles: plan?.roles || [],
+      upgradesFor,
+      passesBudget: name => passesBudget(name, null),
+      addCards: onAddCards,
+    })
+    markAdded(pass.gcRows)
+    return pass
   }
 
   // Auto-fill completes the whole build in one go: role picks, nonbasic lands,
@@ -2460,9 +2355,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                             {...previewHandlers({
                               name: m.name,
                               scryfall_id: sid,
-                              // Buy-the-gap cards aren't in the deck, so `sid` is
-                              // usually null — fall back to the enriched art so the
-                              // hover preview still works.
+                              // These cards ARE in the deck (just not in the
+                              // binders), but their cache entry may lack art —
+                              // the enriched cheapest-English art is the fallback.
                               img: scryfallImageAtSize(imageEnFor(m.name), 'large'),
                             })}
                           >

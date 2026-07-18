@@ -917,19 +917,6 @@
 
 .afRadio { margin-top: 2px; accent-color: var(--gold); }
 
-/* Combo opt-in reads as a lighter secondary choice below the two source radios. */
-.afOptionCheck { padding: 10px 12px; }
-
-.afComboCount {
-  margin-left: 7px;
-  padding: 0 7px;
-  border-radius: 999px;
-  font-size: 0.66rem;
-  font-weight: 700;
-  color: var(--gold);
-  background: rgba(201, 168, 76, 0.16);
-}
-
 .afOptionBody {
   display: flex;
   flex-direction: column;
