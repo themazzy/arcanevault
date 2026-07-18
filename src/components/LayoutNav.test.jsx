@@ -34,8 +34,9 @@ describe('Layout navbar without a Home menu', () => {
     renderLayout('/collection')
     const nav = document.querySelector('nav')
     expect(nav.textContent).not.toMatch(/Home/)
-    const logo = screen.getByRole('link', { name: /deckloom home/i })
-    expect(logo.getAttribute('href')).toBe('/')
+    const logos = screen.getAllByRole('link', { name: /deckloom home/i })
+    expect(logos.length).toBeGreaterThan(0)
+    logos.forEach(l => expect(l.getAttribute('href')).toBe('/'))
   })
 
   it('renders Trading as a plain tab with no dropdown menu', () => {
@@ -48,15 +49,55 @@ describe('Layout navbar without a Home menu', () => {
     expect(screen.queryByRole('menuitem', { name: /trade log/i })).toBeNull()
   })
 
-  it('renders Stats as a plain tab with no dropdown menu', () => {
+  it('offers Stats in the account dropdown instead of the top tab row', () => {
     renderLayout('/')
     const nav = document.querySelector('nav')
-    const stats = screen.getAllByRole('link', { name: /^stats$/i }).find(l => nav.contains(l))
-    expect(stats).toBeTruthy()
+    const topTab = screen.queryAllByRole('link', { name: /^stats$/i }).find(l => nav.contains(l))
+    expect(topTab).toBeUndefined()
+    const stats = screen.getByRole('menuitem', { name: /^stats$/i })
     expect(stats.getAttribute('href')).toBe('/stats')
-    expect(stats.parentElement.tagName).toBe('NAV')
-    expect(screen.queryByRole('menuitem', { name: /deck win rates/i })).toBeNull()
-    expect(screen.queryByRole('menuitem', { name: /game history/i })).toBeNull()
+    const menu = stats.closest('[role="menu"]')
+    expect(menu.textContent).toMatch(/Profile/)
+    expect(menu.textContent).toMatch(/Settings/)
+  })
+
+  it('offers Wishlists inside the My Collection dropdown, not as a top-level tab', () => {
+    renderLayout('/')
+    const nav = document.querySelector('nav')
+    const wishlists = screen.getByRole('menuitem', { name: /wishlists/i })
+    expect(wishlists.getAttribute('href')).toBe('/lists')
+    const menu = wishlists.closest('[role="menu"]')
+    expect(menu.textContent).toMatch(/My Binders/)
+    const topTab = screen.queryAllByRole('link', { name: /^wishlists$/i })
+      .find(l => nav.contains(l) && !l.closest('[role="menu"]'))
+    expect(topTab).toBeUndefined()
+  })
+
+  it('renders Deck Builder and Deck Browser as separate top-level tabs, no Decks dropdown', () => {
+    renderLayout('/builder?tab=browser')
+    const nav = document.querySelector('nav')
+    const builder = screen.getAllByRole('link', { name: /^deck builder$/i }).find(l => nav.contains(l))
+    const browser = screen.getAllByRole('link', { name: /^deck browser$/i }).find(l => nav.contains(l))
+    expect(builder.getAttribute('href')).toBe('/builder')
+    expect(browser.getAttribute('href')).toBe('/builder?tab=browser')
+    expect(builder.parentElement.tagName).toBe('NAV')
+    expect(browser.parentElement.tagName).toBe('NAV')
+    expect(screen.queryByRole('link', { name: /^decks$/i })).toBeNull()
+    expect(browser.className).toMatch(/active/)
+    expect(builder.className).not.toMatch(/active/)
+  })
+
+  it('mobile menu mirrors the desktop nav: logo is the home link, no Home group, account items in the footer', () => {
+    renderLayout('/')
+    const homeLinks = screen.getAllByRole('link', { name: /deckloom home/i })
+    expect(homeLinks).toHaveLength(2)
+    homeLinks.forEach(l => expect(l.getAttribute('href')).toBe('/'))
+    expect(screen.queryByRole('button', { name: /^home$/i })).toBeNull()
+    for (const name of [/^profile$/i, /^stats$/i, /^rulebook$/i, /^settings$/i]) {
+      const mobileLink = screen.getAllByRole('link', { name })
+        .filter(l => !l.closest('[role="menu"]'))
+      expect(mobileLink).toHaveLength(1)
+    }
   })
 
   it('offers Rulebook as a menu item in the account dropdown', () => {

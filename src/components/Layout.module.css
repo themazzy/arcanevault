@@ -427,6 +427,7 @@ button.navSubmenuItem {
   display: flex;
   align-items: center;
   gap: 9px;
+  text-decoration: none;
   font-family: 'Cinzel', Georgia, serif;
   font-size: 1.1rem; font-weight: 700;
   letter-spacing: 0.08em; color: var(--gold);

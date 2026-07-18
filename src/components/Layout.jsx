@@ -32,12 +32,8 @@ const TABS = [
   { to: '/scanner', label: 'Scanner',    Icon: ScannerIcon },
 ]
 
-const COLLECTION_NAV = TABS.filter(t => ['/collection', '/decks', '/binders'].includes(t.to))
-const DESKTOP_TABS = TABS.filter(t => !['/', '/collection', '/decks', '/binders', '/builder', '/scanner', '/trading', '/stats'].includes(t.to))
-const BUILDER_NAV = [
-  { to: '/builder', label: 'Deck Builder', Icon: BuilderIcon, end: true },
-  { to: '/builder?tab=browser', label: 'Deck Browser', Icon: ListViewIcon },
-]
+const COLLECTION_NAV = TABS.filter(t => ['/collection', '/decks', '/binders', '/lists'].includes(t.to))
+const DESKTOP_TABS = TABS.filter(t => !['/', '/collection', '/decks', '/binders', '/builder', '/scanner', '/trading', '/stats', '/lists'].includes(t.to))
 
 export default function Layout({ children }) {
   const { user } = useAuth()
@@ -186,9 +182,7 @@ export default function Layout({ children }) {
 
   const currentMobileGroup = (() => {
     const p = location.pathname
-    if (p === '/' || p === '/rules' || p.startsWith('/profile/')) return 'home'
-    if (p === '/collection' || p === '/decks' || p === '/binders') return 'collection'
-    if (isDeckBuilderSection) return 'builder'
+    if (p === '/collection' || p === '/decks' || p === '/binders' || p === '/lists') return 'collection'
     return null
   })()
   const [openMobileGroup, setOpenMobileGroup] = useState(currentMobileGroup)
@@ -196,22 +190,12 @@ export default function Layout({ children }) {
   const toggleMobileGroup = key => setOpenMobileGroup(prev => prev === key ? null : key)
   const closeMobile = () => setMenuOpen(false)
 
-  const mobileHomeItems = [
-    { to: '/', label: 'Home', Icon: HomeIcon, end: true },
-    { to: '/rules', label: 'Rulebook', Icon: InfoIcon },
-    { to: profilePath, label: 'Profile', Icon: PlayerIcon },
-  ]
   const mobileCollectionItems = [
     { to: '/collection', label: 'My Collection', Icon: CollectionIcon, end: true },
     { to: '/decks', label: 'My Decks', Icon: DecksIcon },
     { to: '/binders', label: 'My Binders', Icon: BindersIcon },
+    { to: '/lists', label: 'Wishlists', Icon: WishlistsIcon },
   ]
-  const mobileBuilderItems = [
-    { to: '/builder', label: 'Deck Builder', Icon: BuilderIcon, end: true },
-    { to: '/builder?tab=browser', label: 'Deck Browser', Icon: ListViewIcon },
-  ]
-  const isHomeGroupActive = currentMobileGroup === 'home'
-  const isBuilderGroupActive = currentMobileGroup === 'builder'
 
   const renderMobileGroup = (key, label, Icon, items, isGroupActive) => {
     const isOpen = openMobileGroup === key
@@ -237,17 +221,7 @@ export default function Layout({ children }) {
                 key={it.to}
                 to={it.to}
                 end={it.end}
-                className={({ isActive }) => {
-                  let active
-                  if (key === 'builder') {
-                    active = it.to === '/builder'
-                      ? isDeckBuilderSection && !isDeckBrowserRoute
-                      : isDeckBrowserRoute
-                  } else {
-                    active = isActive
-                  }
-                  return `${styles.mobileNavLink} ${styles.mobileNavSubLink}${active ? ' ' + styles.mobileNavLinkActive : ''}`
-                }}
+                className={({ isActive }) => `${styles.mobileNavLink} ${styles.mobileNavSubLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}
                 onClick={closeMobile}
               >
                 <it.Icon size={15} />
@@ -301,52 +275,27 @@ export default function Layout({ children }) {
                     ))}
                   </div>
                 </div>
-                <div className={styles.navMenuWrap}>
-                  <NavLink
-                    to="/builder"
-                    end
-                    className={`${styles.tab} ${styles.navMenuButton}${isDeckBuilderSection ? ` ${styles.active}` : ''}`}
-                    onClick={releaseMenuFocus}
-                  >
-                    <BuilderIcon size={12} />
-                    Decks
-                    <ChevronDownIcon size={10} className={styles.navMenuCaret} />
-                  </NavLink>
-                  <div className={styles.navSubmenu} role="menu">
-                    {BUILDER_NAV.map(t => {
-                      const isBuilderHome = t.to === '/builder'
-                      const isActive = isBuilderHome
-                        ? isDeckBuilderSection && !isDeckBrowserRoute
-                        : isDeckBrowserRoute
-                      return (
-                        <NavLink
-                          key={t.to}
-                          to={t.to}
-                          end={t.end}
-                          role="menuitem"
-                          className={`${styles.navSubmenuItem}${isActive ? ' ' + styles.navSubmenuItemActive : ''}`}
-                          onClick={releaseMenuFocus}
-                        >
-                          <t.Icon size={14} />
-                          {t.label}
-                        </NavLink>
-                      )
-                    })}
-                  </div>
-                </div>
+                <NavLink
+                  to="/builder"
+                  end
+                  className={() => `${styles.tab}${isDeckBuilderSection && !isDeckBrowserRoute ? ' ' + styles.active : ''}`}
+                >
+                  <BuilderIcon size={12} />
+                  Deck Builder
+                </NavLink>
+                <NavLink
+                  to="/builder?tab=browser"
+                  className={() => `${styles.tab}${isDeckBrowserRoute ? ' ' + styles.active : ''}`}
+                >
+                  <ListViewIcon size={12} />
+                  Deck Browser
+                </NavLink>
                 <NavLink
                   to="/trading"
                   className={({ isActive }) => `${styles.tab}${isActive ? ' ' + styles.active : ''}`}
                 >
                   <TradingIcon size={12} />
                   Trading
-                </NavLink>
-                <NavLink
-                  to="/stats"
-                  className={({ isActive }) => `${styles.tab}${isActive ? ' ' + styles.active : ''}`}
-                >
-                  <StatsIcon size={12} />
-                  Stats
                 </NavLink>
                 {DESKTOP_TABS.filter(t => t.to !== '/').map(t => (
                   <NavLink
@@ -399,6 +348,15 @@ export default function Layout({ children }) {
                   >
                     <PlayerIcon size={14} />
                     Profile
+                  </NavLink>
+                  <NavLink
+                    to="/stats"
+                    role="menuitem"
+                    className={({ isActive }) => `${styles.navSubmenuItem}${isActive ? ' ' + styles.navSubmenuItemActive : ''}`}
+                    onClick={releaseMenuFocus}
+                  >
+                    <StatsIcon size={14} />
+                    Stats
                   </NavLink>
                   <button
                     type="button"
@@ -472,20 +430,27 @@ export default function Layout({ children }) {
           <div className={`${styles.mobileOverlay}${menuOpen ? ` ${styles.mobileOverlayOpen}` : ''}`} onClick={() => setMenuOpen(false)} />
 
           <div className={`${styles.mobileNav} ${menuOpen ? styles.mobileNavOpen : ''}`}>
-            <div className={styles.mobileNavLogo}>
+            <NavLink to="/" end className={styles.mobileNavLogo} onClick={closeMobile} aria-label="DeckLoom home">
               <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" />
               <span className={styles.logoText}>Deck<span>Loom</span></span>
-            </div>
-            {renderMobileGroup('home', 'Home', HomeIcon, mobileHomeItems, isHomeGroupActive)}
+            </NavLink>
             {renderMobileGroup('collection', 'My Collection', CollectionIcon, mobileCollectionItems, currentMobileGroup === 'collection')}
-            {renderMobileGroup('builder', 'Decks', BuilderIcon, mobileBuilderItems, isBuilderGroupActive)}
             <NavLink
-              to="/lists"
-              className={({ isActive }) => `${styles.mobileNavLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}
+              to="/builder"
+              end
+              className={() => `${styles.mobileNavLink}${isDeckBuilderSection && !isDeckBrowserRoute ? ' ' + styles.mobileNavLinkActive : ''}`}
               onClick={closeMobile}
             >
-              <WishlistsIcon size={17} />
-              Wishlists
+              <BuilderIcon size={17} />
+              Deck Builder
+            </NavLink>
+            <NavLink
+              to="/builder?tab=browser"
+              className={() => `${styles.mobileNavLink}${isDeckBrowserRoute ? ' ' + styles.mobileNavLinkActive : ''}`}
+              onClick={closeMobile}
+            >
+              <ListViewIcon size={17} />
+              Deck Browser
             </NavLink>
             <NavLink
               to="/trading"
@@ -504,14 +469,6 @@ export default function Layout({ children }) {
               Life Tracker
             </NavLink>
             <NavLink
-              to="/stats"
-              className={({ isActive }) => `${styles.mobileNavLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}
-              onClick={closeMobile}
-            >
-              <StatsIcon size={17} />
-              Stats
-            </NavLink>
-            <NavLink
               to="/scanner"
               className={({ isActive }) => `${styles.mobileNavLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}
               onClick={closeMobile}
@@ -521,31 +478,21 @@ export default function Layout({ children }) {
             </NavLink>
             <div className={styles.mobileNavFooter}>
               <NavLink
-                to="/help"
+                to={profilePath}
                 className={({ isActive }) => `${styles.mobileNavLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}
-                onClick={() => setMenuOpen(false)}
+                onClick={closeMobile}
               >
-                <InfoIcon size={17} />
-                Help
+                <PlayerIcon size={17} />
+                Profile
               </NavLink>
               <NavLink
-                to="/settings"
+                to="/stats"
                 className={({ isActive }) => `${styles.mobileNavLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}
-                onClick={() => setMenuOpen(false)}
+                onClick={closeMobile}
               >
-                <SettingsIcon size={17} />
-                Settings
+                <StatsIcon size={17} />
+                Stats
               </NavLink>
-              {!premium && (
-                <NavLink
-                  to="/settings#support"
-                  className={({ isActive }) => `${styles.mobileNavLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}
-                  onClick={() => setMenuOpen(false)}
-                >
-                  <StatsIcon size={17} />
-                  Support DeckLoom
-                </NavLink>
-              )}
               <button
                 className={styles.mobileNavLink}
                 onClick={() => { setMenuOpen(false); openFeedback('bug') }}
@@ -554,6 +501,40 @@ export default function Layout({ children }) {
                 <span className={styles.mobileNavIcon}><BugIcon size={17} /></span>
                 <span>Bug / Feature Request</span>
               </button>
+              <NavLink
+                to="/rules"
+                className={({ isActive }) => `${styles.mobileNavLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}
+                onClick={closeMobile}
+              >
+                <TextViewIcon size={17} />
+                Rulebook
+              </NavLink>
+              <NavLink
+                to="/help"
+                className={({ isActive }) => `${styles.mobileNavLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}
+                onClick={closeMobile}
+              >
+                <InfoIcon size={17} />
+                Help
+              </NavLink>
+              {!premium && (
+                <NavLink
+                  to="/settings#support"
+                  className={({ isActive }) => `${styles.mobileNavLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}
+                  onClick={closeMobile}
+                >
+                  <StatsIcon size={17} />
+                  Support DeckLoom
+                </NavLink>
+              )}
+              <NavLink
+                to="/settings"
+                className={({ isActive }) => `${styles.mobileNavLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}
+                onClick={closeMobile}
+              >
+                <SettingsIcon size={17} />
+                Settings
+              </NavLink>
               <button className={styles.mobileSignOut} onClick={signOut}>Sign out</button>
             </div>
           </div>

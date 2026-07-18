@@ -48,6 +48,23 @@
   box-shadow: 0 18px 48px rgba(0,0,0,0.55);
   z-index: 400;
 }
+/* On phones the bell sits ~60px from the right edge, so a 320px panel
+   anchored right:0 runs off the left side of the screen. Pin it full-width
+   under the header pill instead. The pill's backdrop-filter makes it the
+   containing block for fixed descendants, so these offsets resolve against
+   the pill (54px tall): top 64px = 10px gap below it. */
+@media (max-width: 640px) {
+  .dropdown {
+    position: fixed;
+    top: calc(var(--nav-h) - 10px);
+    left: 10px;
+    right: 10px;
+    width: auto;
+    max-width: none;
+    max-height: calc(100dvh - var(--nav-h) - 24px);
+  }
+}
+
 .head {
   padding: 11px 14px;
   font-family: var(--font-display);
