@@ -1,5 +1,24 @@
 import { describe, it, expect } from 'vitest'
-import { deckAllocationKeys, allocationSetHas, mergeOtherDeckAllocationKeys, collectCardIdentities, mainBoardCards, chunkIds, cardNameMatchKeys, dedupeDeckRowsForInsert, deckRowPrintKey } from './deckBuilderHelpers'
+import { deckAllocationKeys, allocationSetHas, mergeOtherDeckAllocationKeys, collectCardIdentities, mainBoardCards, chunkIds, cardNameMatchKeys, countDeckCards, dedupeDeckRowsForInsert, deckRowPrintKey } from './deckBuilderHelpers'
+
+describe('countDeckCards', () => {
+  it('sums copies, not rows — a qty row counts all its copies', () => {
+    expect(countDeckCards([
+      { name: 'Sol Ring', qty: 1 },
+      { name: 'Forest', qty: 8 },
+      { name: 'Island', qty: 10 },
+    ])).toBe(19)
+  })
+
+  it('treats a missing qty as one copy', () => {
+    expect(countDeckCards([{ name: 'Cmd' }, { name: 'Rock', qty: 2 }])).toBe(3)
+  })
+
+  it('returns 0 for empty / null input', () => {
+    expect(countDeckCards([])).toBe(0)
+    expect(countDeckCards(null)).toBe(0)
+  })
+})
 
 describe('deckAllocationKeys / allocationSetHas', () => {
   it('matches a deck card against an allocation in another deck via the shared card_print_id', () => {

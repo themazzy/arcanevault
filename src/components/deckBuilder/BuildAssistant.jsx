@@ -66,7 +66,7 @@ import {
   ROLE_SYNERGY,
   ROLE_LANDS,
 } from '../../lib/deckBuildAssistant'
-import { cardNameMatchKeys } from '../../lib/deckBuilderHelpers'
+import { cardNameMatchKeys, countDeckCards } from '../../lib/deckBuilderHelpers'
 import styles from './BuildAssistant.module.css'
 
 // Guided "build from collection" wizard. Walks the user role-by-role (Ramp →
@@ -892,10 +892,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const avgCmc = useMemo(() => deckAvgCmc(deckCards, sfMap), [deckCards, sfMap])
   const curveStatus = useMemo(() => curveVerdict(avgCmc, curveTarget), [avgCmc, curveTarget])
 
-  const totalCards = useMemo(
-    () => (deckCards || []).reduce((sum, dc) => sum + (dc.qty || 1), 0),
-    [deckCards],
-  )
+  const totalCards = useMemo(() => countDeckCards(deckCards), [deckCards])
   // Target deck size (100 for Commander) — drives the auto-fill "→ 100" framing.
   const afTarget = plan?.deckSize || 100
 
@@ -1316,7 +1313,10 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       // near-full deck could end above 100, since we only cut cards THIS run added.
       const fillSet = new Set(fillIds || [])
       const isLandRow = d => (sfMap?.[d?.scryfall_id]?.type_line || d?.type_line || '').toLowerCase().includes('land')
-      const openSlots = Math.max(0, (plan?.deckSize || 100) - populated.length)
+      // COPIES, not rows — a multi-qty basics row would otherwise make the deck
+      // look emptier than it is and let combo pieces overfill it past deckSize.
+      const populatedCount = countDeckCards(populated)
+      const openSlots = Math.max(0, (plan?.deckSize || 100) - populatedCount)
       const cuttableFillCount = protNames => populated.filter(d =>
         !d?.is_commander && fillSet.has(d.id) && !isLandRow(d)
         && !cardNameMatchKeys(d?.name).some(k => protNames.has(k))).length
@@ -1351,7 +1351,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       // hold the size, absorbing any open slots the fill left.
       const cut = analyzeCut({
         plan, deckCards: populated, sfMap,
-        totalCards: populated.length + pieces.length,
+        totalCards: populatedCount + pieces.length,
         cutMode: 'balanced', lockedIds,
         roleOf: dc => roleOfDeckCard(dc, sfMap, roleByName),
         inclusionOf: name => cardNameMatchKeys(name).map(k => inclusionByName.get(k)).find(v => v != null),

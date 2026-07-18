@@ -1392,6 +1392,21 @@ describe('analyzeCut', () => {
   it('returns null without a plan', () => {
     expect(analyzeCut({ ...base, plan: null, totalCards: 103 })).toBeNull()
   })
+
+  it('covers the overage by copies, not rows, when a candidate holds qty > 1', () => {
+    // Rock 0 is the most-cuttable candidate (lowest inclusion) and now holds
+    // 2 copies: 1 cmd + 67 rock copies + 36 lands = 104 → over 4. Cutting a row
+    // removes all its copies, so r0 (2) + r1 + r2 covers 4 with only 3 rows —
+    // the old row-count slice would have cut a 4th row (5 copies, deck at 99).
+    const deckCards = deckWithSf.map(dc => (dc.id === 'r0' ? { ...dc, qty: 2 } : dc))
+    const out = analyzeCut({ ...base, deckCards, totalCards: 104 })
+    expect(out.over).toBe(4)
+    expect(out.recommended.map(c => c.id)).toEqual(['r0', 'r1', 'r2'])
+    const copies = out.recommended.reduce((s, c) => s + (c.qty || 1), 0)
+    expect(copies).toBe(4)
+    // "Also consider" continues after the recommended rows, not after row #4.
+    expect(out.extra[0]?.id).toBe('r3')
+  })
 })
 
 describe('rankCutCandidates', () => {

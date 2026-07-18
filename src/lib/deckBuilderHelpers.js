@@ -34,6 +34,15 @@ export function normalizeCardName(name) {
   return String(name || '').trim().toLowerCase()
 }
 
+// Total COPIES across deck rows — a row holds `qty` copies (basics especially:
+// one row, qty 8+). Any slot math against the deck size must use this, never
+// rows.length, or multi-copy rows undercount the deck and overfill it.
+export function countDeckCards(rows) {
+  let n = 0
+  for (const dc of rows || []) n += dc?.qty || 1
+  return n
+}
+
 // Recommendation feeds (EDHREC, Recommander, Commander Spellbook) identify
 // double-faced cards by their front-face name, while deck/collection rows
 // store the full Scryfall "Front // Back" name. Whenever names from the two

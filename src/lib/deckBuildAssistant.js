@@ -773,6 +773,7 @@ export function analyzeCut({
     const inclusion = inclusionOf(name) ?? 0
     rows.push({
       id: dc.id, name, role, isLand,
+      qty: dc.qty || 1,
       scryfall_id: dc.scryfall_id,
       cmc: sf?.cmc ?? dc?.cmc ?? 0,
       inclusion, hasData: inclusion > 0,
@@ -791,16 +792,31 @@ export function analyzeCut({
   let landPool = []
   if (landOver > 0) {
     const lands = rows.filter(r => r.isLand && !isBasicLandName(r.name) && !lockedIds.has(r.id)).map(withRoleOver)
-    landPool = rankCutCandidates(lands, cutMode).slice(0, landOver)
+    landPool = takeRowsByQty(rankCutCandidates(lands, cutMode), landOver)
   }
   const ranked = rankCutCandidates([...nonland, ...landPool], cutMode)
+  const recommended = takeRowsByQty(ranked, over)
   return {
     over,
     cutTarget: over,
-    recommended: ranked.slice(0, over),
-    extra: ranked.slice(over, over + 6), // a few more "also consider"
+    recommended,
+    extra: ranked.slice(recommended.length, recommended.length + 6), // a few more "also consider"
     landOver,
   }
+}
+
+// Take ranked rows until their COPIES cover `target`. Cutting removes a whole
+// row (all its copies), so a qty-2 row counts as 2 toward the overage —
+// slicing by row count instead would cut more copies than the deck is over.
+function takeRowsByQty(ranked, target) {
+  const out = []
+  let covered = 0
+  for (const r of ranked) {
+    if (covered >= target) break
+    out.push(r)
+    covered += r.qty || 1
+  }
+  return out
 }
 
 // ── Combo inclusion by bracket ────────────────────────────────────────────────
