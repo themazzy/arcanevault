@@ -1397,13 +1397,19 @@ export default function DeckBuilderPage() {
     }
 
     let unknownLegalityCount = 0
+    const hasLegalities = leg => leg && Object.keys(leg).length > 0
     for (const dc of playableCards) {
       const sf = dc.set_code && dc.collector_number ? builderSfMap[getScryfallKey(dc)] : null
-      const legality = sf?.legalities?.[formatId]
-      if (!sf?.legalities) {
+      // Same fallback chain as useDeckCardLegalityWarnings: card_prints-resolved
+      // entries carry no legalities, so fall back to the name-keyed map.
+      const legalities = hasLegalities(sf?.legalities) ? sf.legalities
+        : hasLegalities(dc.legalities) ? dc.legalities
+        : deckLegalitiesByName[normalizeCardName(dc.name)] || null
+      if (!legalities) {
         unknownLegalityCount += 1
         continue
       }
+      const legality = legalities[formatId]
       if (legality === 'not_legal' || legality === 'banned') {
         pushWarning({ key: `legality:${dc.id}`, level: 'error', targetCardId: dc.id, summary: `${dc.name}: ${legality.replace('_', ' ')}`, detail: `${dc.name} is ${legality.replace('_', ' ')} in ${formatLabel}.` })
       } else if (legality === 'restricted' && (dc.qty || 0) > 1) {
@@ -1432,7 +1438,7 @@ export default function DeckBuilderPage() {
     }
 
     return warnings
-  }, [builderSfMap, colorIdentity, commanderCards, deckCards, deckSize, format, isEDH, mainDeckCards, deckMeta.companion, companionValidation])
+  }, [builderSfMap, deckLegalitiesByName, colorIdentity, commanderCards, deckCards, deckSize, format, isEDH, mainDeckCards, deckMeta.companion, companionValidation])
 
   const visibleDeckWarnings = useMemo(
     () => deckWarnings.filter(w => w.level === 'error'),
