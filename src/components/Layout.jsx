@@ -16,7 +16,7 @@ import {
   HomeIcon, CollectionIcon, DecksIcon, BuilderIcon, BindersIcon,
   WishlistsIcon, TradingIcon, StatsIcon, LifeIcon, ScannerIcon,
   SettingsIcon, MenuIcon, CloseIcon, BugIcon, InfoIcon, PlayerIcon,
-  ChevronDownIcon, ListViewIcon,
+  ChevronDownIcon, ListViewIcon, TextViewIcon,
 } from '../icons'
 
 const TABS = [
@@ -185,12 +185,6 @@ export default function Layout({ children }) {
   const displayEmail = maskEmailAddress(user?.email, true)
   const accountLabel = nickname || displayEmail || 'Account'
   const profilePath = nickname ? `/profile/${encodeURIComponent(nickname)}` : '/settings'
-  const homeNav = [
-    { to: '/', label: 'Home', Icon: HomeIcon, end: true },
-    { to: '/rules', label: 'Rulebook', Icon: InfoIcon },
-    { to: profilePath, label: 'Profile', Icon: PlayerIcon },
-  ]
-  const homeNavActive = location.pathname === '/' || location.pathname === '/rules' || location.pathname.startsWith('/profile/')
   const collectionNavActive = COLLECTION_NAV.some(t => (
     t.to === '/collection'
       ? location.pathname === t.to
@@ -309,35 +303,6 @@ export default function Layout({ children }) {
               </NavLink>
 
               <nav className={styles.tabs}>
-                <div
-                  className={styles.navMenuWrap}
-                >
-                  <NavLink
-                    to="/"
-                    end
-                    className={`${styles.tab} ${styles.navMenuButton}${homeNavActive ? ` ${styles.active}` : ''}`}
-                    onClick={releaseMenuFocus}
-                  >
-                    <HomeIcon size={12} />
-                    Home
-                    <ChevronDownIcon size={10} className={styles.navMenuCaret} />
-                  </NavLink>
-                  <div className={styles.navSubmenu} role="menu">
-                    {homeNav.map(t => (
-                      <NavLink
-                        key={`${t.label}-${t.to}`}
-                        to={t.to}
-                        end={t.end}
-                        role="menuitem"
-                        className={({ isActive }) => `${styles.navSubmenuItem}${isActive ? ' ' + styles.navSubmenuItemActive : ''}`}
-                        onClick={releaseMenuFocus}
-                      >
-                        <t.Icon size={14} />
-                        {t.label}
-                      </NavLink>
-                    ))}
-                  </div>
-                </div>
                 <div
                   className={styles.navMenuWrap}
                 >
@@ -523,6 +488,15 @@ export default function Layout({ children }) {
                     <BugIcon size={14} />
                     Bug / Feature Request
                   </button>
+                  <NavLink
+                    to="/rules"
+                    role="menuitem"
+                    className={({ isActive }) => `${styles.navSubmenuItem}${isActive ? ' ' + styles.navSubmenuItemActive : ''}`}
+                    onClick={releaseMenuFocus}
+                  >
+                    <TextViewIcon size={14} />
+                    Rulebook
+                  </NavLink>
                   <NavLink
                     to="/help"
                     role="menuitem"
