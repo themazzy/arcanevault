@@ -43,7 +43,7 @@ export default function PrivacyPage() {
             Until a dedicated privacy mailbox is published, those request paths are the official contact
             mechanisms for deletion, data-handling questions, and follow-up on personal-data requests.
           </p>
-          <p><em>Last updated: 2026-06-11.</em></p>
+          <p><em>Last updated: 2026-07-18.</em></p>
         </section>
 
         <section className={styles.section}>
@@ -141,6 +141,15 @@ export default function PrivacyPage() {
             <li>Frankfurter is used for exchange-rate conversion in supported price displays.</li>
             <li>GitHub Pages hosts the static front-end build at the public site URL.</li>
             <li>Cloudflare provides DNS and acts as a network proxy in front of deckloom.app, which means site traffic (including IP addresses and request metadata) passes through Cloudflare&apos;s infrastructure. A Cloudflare worker also serves social link previews for publicly shared decks.</li>
+            <li>
+              Deck-building features query third-party MTG data services to generate suggestions:
+              EDHREC receives the commander&apos;s name (queried directly from your browser, so EDHREC
+              sees standard request metadata such as your IP address), while Commander Spellbook
+              (combo detection) and Recommander.cards (deck-aware recommendations) receive the list
+              of card names in the deck being built — including decks you keep private. Only card
+              names are sent, never your account identity, and the Spellbook and Recommander
+              requests are relayed server-side so those services do not see your IP address.
+            </li>
             <li>Other external MTG services may be linked or queried for feature-specific integrations.</li>
           </ul>
           <p>
