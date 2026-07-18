@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Modal, ConfirmModal, Button, Input, ProgressBar, ResponsiveMenu } from '../UI'
+import { Modal, ConfirmModal, Button, Input, ProgressBar, ResponsiveMenu, useModalKeys } from '../UI'
 import uiStyles from '../UI.module.css'
 import { CheckIcon, DeleteIcon, WarningIcon, ChevronDownIcon, LightningIcon, ExternalLinkIcon, CloseIcon } from '../../icons'
 import { useCardSearch } from '../../hooks/useCardSearch'
@@ -1573,13 +1573,20 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     }
   }
 
-  // Move focus into the auto-fill dialog when it opens, so keyboard users land
-  // inside it and Escape/Tab behave (the overlay handles Escape).
-  useEffect(() => {
-    if (autoFillOpen) afCardRef.current?.focus()
-  }, [autoFillOpen])
-
   const [undoing, setUndoing] = useState(false)
+
+  // The auto-fill dialog is an in-panel overlay, not a nested Modal — but for
+  // keyboard routing it must behave like one. The assistant Modal's Escape
+  // listener is capture-phase on document, so any handler on the overlay itself
+  // can never run; instead the dialog claims the modal stack while open (the
+  // assistant's own Escape/Tab handling stands down), traps Tab inside the
+  // card, and swallows Escape entirely mid-run — a partial add is worse than
+  // waiting, and mid-undo the same.
+  useModalKeys(afCardRef, {
+    active: autoFillOpen,
+    closeOnEscape: !autoFilling && !undoing,
+    onClose: () => { setAutoFillResult(null); setAutoFillOpen(false) },
+  })
   async function handleAutoFillUndo() {
     const r = autoFillResult
     if (!r || undoing || typeof onUndoAutoFill !== 'function') return
@@ -2686,23 +2693,15 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           )}
         </div>
 
-        {/* Auto-fill dialog — in-panel overlay (the assistant is already a
-            modal; stacking a second Modal would double the body scroll lock). */}
+        {/* Auto-fill dialog — an in-panel overlay scoped to the assistant's
+            panel (a nested Modal would dim the whole viewport). Keyboard-wise
+            it still acts as a stacked dialog via useModalKeys above. */}
         {autoFillOpen && (
           <div
             className={styles.afOverlay}
             role="dialog"
             aria-modal="true"
             aria-label="Auto-fill deck"
-            onKeyDown={e => {
-              // Escape cancels — but never mid-run (a partial add is worse than
-              // waiting) and never while an undo is in flight.
-              if (e.key === 'Escape' && !autoFilling && !undoing) {
-                e.stopPropagation()
-                setAutoFillResult(null)
-                setAutoFillOpen(false)
-              }
-            }}
           >
             <div
               className={styles.afCard}

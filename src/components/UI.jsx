@@ -310,37 +310,26 @@ export function DropZone({ onFile, title, subtitle, onActivate, accept = '.csv' 
  */
 const modalStack = []
 
-export function Modal({
-  children,
-  onClose,
-  allowOverflow = true,
-  showClose = true,
-  closeOnOverlay = true,
-  closeOnEscape = true,
-  className = '',
-  contentClassName = '',
-}) {
-  const modalRef = useRef(null)
-  const modalContentRef = useRef(null)
-  const [modalHeight, setModalHeight] = useState(null)
-  // Refs so the keyboard effect can run once (on mount) yet always see the
-  // latest onClose/closeOnEscape — onClose is usually a fresh inline arrow.
+/**
+ * Modal-stack keyboard + focus management, shared by Modal and any in-panel
+ * overlay that must behave like a stacked dialog (e.g. the Build Assistant's
+ * auto-fill dialog). While `active`, it claims the top of the modal stack —
+ * modals underneath ignore keys entirely — moves focus into `elRef`, traps Tab
+ * inside it, closes on Escape when `closeOnEscape` allows, and restores focus
+ * on release. `onClose`/`closeOnEscape` are read through refs so the effect
+ * runs once per activation yet always sees the latest values.
+ */
+export function useModalKeys(elRef, { active = true, onClose, closeOnEscape = true } = {}) {
   const onCloseRef = useRef(onClose)
   const closeOnEscapeRef = useRef(closeOnEscape)
   useLayoutEffect(() => {
     onCloseRef.current = onClose
     closeOnEscapeRef.current = closeOnEscape
   }, [onClose, closeOnEscape])
-  const handleOverlayClick = (e) => {
-    if (e.target !== e.currentTarget) return
-    if (!closeOnOverlay) return
-    onClose?.()
-  }
 
-  // Keyboard + focus management: Escape closes, Tab is trapped within the
-  // dialog, and focus is restored to the previously-focused element on close.
   useEffect(() => {
-    const modalEl = modalRef.current
+    if (!active) return
+    const modalEl = elRef.current
     if (!modalEl) return
     const prevActive = document.activeElement
     const focusables = () => Array.from(
@@ -349,7 +338,7 @@ export function Modal({
       ),
     ).filter(el => el.offsetParent !== null || el === document.activeElement)
 
-    // Claim the top of the stack for as long as this modal is mounted.
+    // Claim the top of the stack for as long as this dialog is active.
     const token = {}
     modalStack.push(token)
     const isTopmost = () => modalStack[modalStack.length - 1] === token
@@ -362,9 +351,11 @@ export function Modal({
       // A modal underneath an open one must ignore keys entirely — otherwise
       // Escape closes the whole stack and Tab is trapped by the wrong dialog.
       if (!isTopmost()) return
-      if (e.key === 'Escape' && closeOnEscapeRef.current) {
+      if (e.key === 'Escape') {
+        // Topmost owns Escape either way: close when allowed, otherwise swallow
+        // it so a lower modal can't close out from under this dialog.
         e.stopPropagation()
-        onCloseRef.current?.()
+        if (closeOnEscapeRef.current) onCloseRef.current?.()
         return
       }
       if (e.key !== 'Tab') return
@@ -372,10 +363,10 @@ export function Modal({
       if (!items.length) { e.preventDefault(); modalEl.focus({ preventScroll: true }); return }
       const first = items[0]
       const last = items[items.length - 1]
-      const active = document.activeElement
-      if (e.shiftKey && (active === first || active === modalEl)) {
+      const focused = document.activeElement
+      if (e.shiftKey && (focused === first || focused === modalEl)) {
         e.preventDefault(); last.focus()
-      } else if (!e.shiftKey && active === last) {
+      } else if (!e.shiftKey && focused === last) {
         e.preventDefault(); first.focus()
       }
     }
@@ -389,7 +380,32 @@ export function Modal({
         prevActive.focus({ preventScroll: true })
       }
     }
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active])
+}
+
+export function Modal({
+  children,
+  onClose,
+  allowOverflow = true,
+  showClose = true,
+  closeOnOverlay = true,
+  closeOnEscape = true,
+  className = '',
+  contentClassName = '',
+}) {
+  const modalRef = useRef(null)
+  const modalContentRef = useRef(null)
+  const [modalHeight, setModalHeight] = useState(null)
+  const handleOverlayClick = (e) => {
+    if (e.target !== e.currentTarget) return
+    if (!closeOnOverlay) return
+    onClose?.()
+  }
+
+  // Keyboard + focus management: Escape closes, Tab is trapped within the
+  // dialog, and focus is restored to the previously-focused element on close.
+  useModalKeys(modalRef, { onClose, closeOnEscape })
 
   useEffect(() => {
     const modalEl = modalRef.current

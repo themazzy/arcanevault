@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 
+import { useRef } from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ConfirmModal, Modal, ResponsiveMenu } from './UI'
+import { ConfirmModal, Modal, ResponsiveMenu, useModalKeys } from './UI'
 
 describe('shared UI ref-sensitive behavior', () => {
   beforeEach(() => {
@@ -164,5 +165,73 @@ describe('nested Modals', () => {
 
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(outer).toHaveBeenCalledTimes(1)
+  })
+})
+
+// In-panel overlays (Build Assistant's auto-fill dialog) aren't Modals but
+// claim the same stack via useModalKeys, so the outer Modal's capture-phase
+// document listener stands down while they're active. Regression for the bug
+// where Escape mid-auto-fill reached the assistant Modal and opened its
+// leave-confirm on top of the running dialog.
+describe('useModalKeys overlay stacking', () => {
+  beforeEach(() => {
+    vi.stubGlobal('ResizeObserver', class ResizeObserver {
+      observe() {}
+      disconnect() {}
+    })
+  })
+  afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+
+  function Overlay({ active, closeOnEscape, onClose }) {
+    const ref = useRef(null)
+    useModalKeys(ref, { active, closeOnEscape, onClose })
+    if (!active) return null
+    return <div ref={ref} tabIndex={-1} role="dialog"><button type="button">In overlay</button></div>
+  }
+
+  it('routes Escape to the active overlay, not the Modal underneath', () => {
+    const modalClose = vi.fn()
+    const overlayClose = vi.fn()
+    render(
+      <>
+        <Modal onClose={modalClose}><p>assistant</p></Modal>
+        <Overlay active closeOnEscape onClose={overlayClose} />
+      </>
+    )
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(overlayClose).toHaveBeenCalledTimes(1)
+    expect(modalClose).not.toHaveBeenCalled()
+  })
+
+  it('swallows Escape entirely while the overlay disallows closing (mid-run)', () => {
+    const modalClose = vi.fn()
+    const overlayClose = vi.fn()
+    render(
+      <>
+        <Modal onClose={modalClose}><p>assistant</p></Modal>
+        <Overlay active closeOnEscape={false} onClose={overlayClose} />
+      </>
+    )
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(overlayClose).not.toHaveBeenCalled()
+    expect(modalClose).not.toHaveBeenCalled()
+  })
+
+  it('hands Escape back to the Modal once the overlay deactivates', () => {
+    const modalClose = vi.fn()
+    const { rerender } = render(
+      <>
+        <Modal onClose={modalClose}><p>assistant</p></Modal>
+        <Overlay active closeOnEscape onClose={vi.fn()} />
+      </>
+    )
+    rerender(
+      <>
+        <Modal onClose={modalClose}><p>assistant</p></Modal>
+        <Overlay active={false} closeOnEscape onClose={vi.fn()} />
+      </>
+    )
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(modalClose).toHaveBeenCalledTimes(1)
   })
 })
