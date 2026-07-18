@@ -22,9 +22,9 @@ import { EMPTY_FILTERS, FilterBar } from '../components/CardComponents'
 import { getHomeMode } from '../lib/homeLayout'
 import {
   CloseIcon, CheckIcon, WarningIcon, BannedIcon, ChevronDownIcon, ChevronUpIcon,
-  ChevronRightIcon, DiceIcon, ImageIcon, SearchIcon, FilterIcon,
+  ChevronRightIcon, ImageIcon, SearchIcon, FilterIcon,
   BuilderIcon, CollectionIcon, ScannerIcon, LifeIcon, StatsIcon, TradingIcon,
-  TrophyIcon, StarIcon,
+  StarIcon,
 } from '../icons'
 
 // ── Recently Viewed (localStorage + custom event for live update) ─────────────
@@ -50,32 +50,6 @@ function addRecentlyViewed(card) {
   const prev = getRecentlyViewed().filter(c => c.id !== card.id)
   localStorage.setItem(VIEWED_KEY, JSON.stringify([entry, ...prev].slice(0, 24)))
   window.dispatchEvent(new CustomEvent('av:viewed'))
-}
-
-// O(N) partial top-K: pick the `n` newest unique cards by `created_at` without a full sort.
-function pickRecentCards(cards, n = 14) {
-  if (!cards?.length) return []
-  const seen = new Set()
-  const top = []
-  for (const c of cards) {
-    if (!c?.id || seen.has(c.id)) continue
-    const ts = c.created_at || ''
-    if (top.length < n) {
-      seen.add(c.id)
-      top.push(c)
-      if (top.length === n) top.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
-    } else if (ts.localeCompare(top[n - 1].created_at || '') > 0) {
-      seen.add(c.id)
-      let i = n - 1
-      top[i] = c
-      while (i > 0 && (top[i].created_at || '').localeCompare(top[i - 1].created_at || '') > 0) {
-        const t = top[i]; top[i] = top[i - 1]; top[i - 1] = t
-        i--
-      }
-    }
-  }
-  if (top.length < n) top.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
-  return top
 }
 
 // ── Collection data loader ────────────────────────────────────────────────────
@@ -147,13 +121,11 @@ async function loadCollectionData(userId) {
   const cardRows  = allFc.map(r => ({ ...r, cards: cardById[r.card_id] || null }))
   const deckRows = allDa.map(r => ({ ...r, cards: cardById[r.card_id] || null }))
 
-  const recentCards = pickRecentCards(allCards, 14)
-
   if (allCards.length) {
     safeSfMap = await loadCardMapWithSharedPrices(allCards, { priceLookup: 'set' })
   }
 
-  return { folders: allFolders, cards: allCards, cardRows, deckRows, sfMap: safeSfMap, recentCards }
+  return { folders: allFolders, cards: allCards, cardRows, deckRows, sfMap: safeSfMap }
 }
 
 // Syncs cards from Supabase into IDB and returns updated cards array if anything changed.
@@ -192,9 +164,6 @@ async function fetchScryfallSetsMap() {
 }
 
 // ── Scryfall API helpers ──────────────────────────────────────────────────────
-async function fetchRandom() {
-  return sfGet('https://api.scryfall.com/cards/random')
-}
 async function fetchByName(name) {
   return sfGet(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}`)
 }
@@ -670,21 +639,36 @@ function CardLookupSection() {
     return () => document.removeEventListener('mousedown', onDocMouseDown)
   }, [showSuggs])
 
+  // Bumped whenever suggestions become stale (search ran, suggestion picked,
+  // cleared). An in-flight fetchAutocomplete from before the bump must not
+  // re-open the dropdown when it resolves — without this, pressing Enter
+  // quickly after typing left the suggestion list floating over the results.
+  const suggEpoch = useRef(0)
+
+  const closeSuggestions = () => {
+    suggEpoch.current++
+    clearTimeout(debounce.current)
+    setSuggs([]); setShowSuggs(false); setActiveSuggIndex(-1)
+  }
+
   const handleInput = e => {
     const v = e.target.value
     setQuery(v)
     setActiveSuggIndex(-1)
     clearTimeout(debounce.current)
     if (v.length < 2) { setSuggs([]); setShowSuggs(false); return }
+    const epoch = ++suggEpoch.current
     debounce.current = setTimeout(async () => {
       const r = await fetchAutocomplete(v)
+      if (suggEpoch.current !== epoch) return
       setSuggs(r); setShowSuggs(r.length > 0); setActiveSuggIndex(-1)
     }, 250)
   }
 
   // suggestions are now card objects — pick directly, no extra fetch needed
   const pickSuggestion = cardObj => {
-    setQuery(cardObj.name); setShowSuggs(false); setSuggs([]); setActiveSuggIndex(-1)
+    setQuery(cardObj.name)
+    closeSuggestions()
     setCardOrigin('idle')
     setCard(cardObj); setResults([]); setMode('card')
     addRecentlyViewed(cardObj)
@@ -714,7 +698,7 @@ function CardLookupSection() {
     e?.preventDefault?.()
     const hasFilters = hasLookupFilters(filters)
     if (!query.trim() && !hasFilters) return
-    setShowSuggs(false); setCard(null); setLoading(true); setMode('idle')
+    closeSuggestions(); setCard(null); setLoading(true); setMode('idle')
     const exact = !hasFilters ? await fetchByName(query.trim()) : null
     if (exact) { setCardOrigin('idle'); setCard(exact); setMode('card'); addRecentlyViewed(exact); setLoading(false); return }
     const scryfallQuery = buildLookupQuery(query, filters)
@@ -733,6 +717,7 @@ function CardLookupSection() {
   }
 
   const handleClear = () => {
+    closeSuggestions()
     setCard(null); setResults([]); setNextPage(null); setTotalCards(0)
     setMode('idle'); setQuery(''); setCurrentQuery('')
     setFilters({ ...EMPTY_FILTERS })
@@ -949,28 +934,25 @@ function FeatureShowcase() {
   )
 }
 
-// ── Tool Grid — the all-in-one companion pitch ────────────────────────────────
-// Secondary features as compact tiles; also absorbs the old Rulebook banner,
-// the Random Card section and the premium-support banner.
-function ToolGrid({ premium, onRandomCard }) {
+// ── More Tools — secondary features as compact tiles ──────────────────────────
+// Also absorbs the old Rulebook banner and the premium-support banner.
+const TOOL_TILES = [
+  { to: '/life', icon: LifeIcon, label: 'Life Tracker', desc: 'Multiplayer life counter' },
+  { to: '/stats', icon: StatsIcon, label: 'Stats', desc: 'Collection value over time' },
+  { to: '/trading', icon: TradingIcon, label: 'Trading', desc: 'Compare trade values' },
+  { to: '/rules', icon: SearchIcon, label: 'Rulebook', desc: 'Search the comprehensive rules' },
+]
+
+function ToolGrid({ premium }) {
   const navigate = useNavigate()
-  const tools = [
-    { key: 'life', icon: LifeIcon, label: 'Life Tracker', desc: 'Multiplayer counter with join-by-code lobbies', onClick: () => navigate('/life') },
-    { key: 'stats', icon: StatsIcon, label: 'Stats', desc: 'Collection analytics & value over time', onClick: () => navigate('/stats') },
-    { key: 'trading', icon: TradingIcon, label: 'Trading', desc: 'Compare trade value on the spot', onClick: () => navigate('/trading') },
-    { key: 'tournaments', icon: TrophyIcon, label: 'Tournaments', desc: 'Run events with pairings & standings', onClick: () => navigate('/tournaments') },
-    { key: 'rules', icon: SearchIcon, label: 'Rulebook', desc: 'The comprehensive rules, searchable', onClick: () => navigate('/rules') },
-    { key: 'random', icon: DiceIcon, label: 'Random Card', desc: 'Roll the dice on all of Magic', onClick: onRandomCard },
-  ]
   return (
     <section className={styles.section}>
       <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>The Whole Toolkit</h2>
+        <h2 className={styles.sectionTitle}>More Tools</h2>
       </div>
-      <p className={styles.sectionDesc}>One companion app for game night — nothing else to download, nothing to pay.</p>
       <div className={styles.toolGrid}>
-        {tools.map(({ key, icon: Icon, label, desc, onClick }) => (
-          <button key={key} type="button" className={styles.toolTile} onClick={onClick}>
+        {TOOL_TILES.map(({ to, icon: Icon, label, desc }) => (
+          <button key={to} type="button" className={styles.toolTile} onClick={() => navigate(to)}>
             <span className={styles.toolIcon}><Icon size={16} /></span>
             <span className={styles.toolLabel}>{label}</span>
             <span className={styles.toolDesc}>{desc}</span>
@@ -981,7 +963,7 @@ function ToolGrid({ premium, onRandomCard }) {
             onClick={() => navigate('/settings#support')}>
             <span className={styles.toolIcon}><StarIcon size={16} /></span>
             <span className={styles.toolLabel}>Support DeckLoom</span>
-            <span className={styles.toolDesc}>Unlock premium themes & keep the app growing</span>
+            <span className={styles.toolDesc}>Unlock premium themes</span>
           </button>
         )}
       </div>
@@ -1247,37 +1229,6 @@ function TopValuedCards({ data, loading, priceSource, onCardClick }) {
                   : <div className={styles.hScrollImgPlaceholder}>{card.name}</div>}
                 <div className={styles.hScrollName}>{card.name}</div>
                 <div className={styles.hScrollPrice}>{formatPrice(price, priceSource)}</div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </section>
-  )
-}
-
-// ── Recently Added ────────────────────────────────────────────────────────────
-function RecentlyAdded({ data, loading, onCardClick }) {
-  if (!loading && !data?.recentCards?.length) return null
-
-  return (
-    <section className={styles.section}>
-      <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>Recently Added</h2>
-      </div>
-      {loading ? <LoadingStrip /> : (
-        <div className={styles.hScroll}>
-          {data.recentCards.map(card => {
-            const sf  = data.sfMap[`${card.set_code}-${card.collector_number}`]
-            const img = getImageUri(sf, 'small') || toSmallScryfallImage(card.image_uri) || null
-            return (
-              <div key={card.id} className={styles.hScrollCard}
-                style={{ cursor: 'pointer' }}
-                onClick={() => onCardClick(card.scryfall_id, card.name)}>
-                {img
-                  ? <img src={img} alt={card.name} className={styles.hScrollImg} loading="lazy" />
-                  : <div className={styles.hScrollImgPlaceholder}>{card.name}</div>}
-                <div className={styles.hScrollName}>{card.name}</div>
               </div>
             )
           })}
@@ -1672,12 +1623,11 @@ export default function HomePage() {
       const sfMap = keysChanged
         ? await loadCardMapWithSharedPrices(freshCards, { priceLookup: 'set' })
         : collData.sfMap
-      const recentCards = pickRecentCards(freshCards, 14)
 
       // Background sync is non-urgent — let React interrupt it for user input.
       startTransition(() => {
         queryClient.setQueryData(['home-snapshot', user.id], prev =>
-          prev ? { ...prev, cards: freshCards, sfMap, recentCards } : prev
+          prev ? { ...prev, cards: freshCards, sfMap } : prev
         )
       })
     })()
@@ -1697,20 +1647,6 @@ export default function HomePage() {
       if (card) { setModalCard(card); addRecentlyViewed(card) }
     } catch (e) {
       console.warn('[Home] openCard error:', e)
-    } finally {
-      setModalLoading(false)
-    }
-  }, [])
-
-  // Random card lives in the ToolGrid now — rolls straight into the modal.
-  const openRandomCard = useCallback(async () => {
-    setModalLoading(true)
-    setModalCard(null)
-    try {
-      const card = await fetchRandom()
-      if (card) { setModalCard(card); addRecentlyViewed(card) }
-    } catch (e) {
-      console.warn('[Home] openRandomCard error:', e)
     } finally {
       setModalLoading(false)
     }
@@ -1736,26 +1672,32 @@ export default function HomePage() {
       {isOnboarding ? (
         <>
           <FeatureShowcase />
-          <ToolGrid premium={premium} onRandomCard={openRandomCard} />
+          <ToolGrid premium={premium} />
           <CardLookupSection />
           <RecentlyViewedSection onCardClick={openCard} />
           <ChangelogPanel entries={changelog} />
+          {showBelowFold && <MTGNewsSection />}
+          {showBelowFold && <UpcomingSetsSection />}
         </>
       ) : (
         <>
           <QuickActions />
-          <CardLookupSection />
-          <ChangelogPanel entries={changelog} />
-          {user && <CollectionSnapshot data={collData} loading={collLoading} priceSource={price_source} />}
-          <RecentlyViewedSection onCardClick={openCard} />
-          {user && <TopValuedCards    data={collData} loading={collLoading} priceSource={price_source} onCardClick={openCard} />}
-          {user && <RecentlyAdded     data={collData} loading={collLoading} onCardClick={openCard} />}
-          {user && <TopValuedDecks    data={collData} loading={collLoading} priceSource={price_source} />}
-          <ToolGrid premium={premium} onRandomCard={openRandomCard} />
+          <div className={styles.dashGrid}>
+            <div className={styles.dashMain}>
+              <CardLookupSection />
+              {user && <CollectionSnapshot data={collData} loading={collLoading} priceSource={price_source} />}
+              {user && <TopValuedCards    data={collData} loading={collLoading} priceSource={price_source} onCardClick={openCard} />}
+              {user && <TopValuedDecks    data={collData} loading={collLoading} priceSource={price_source} />}
+              <ToolGrid premium={premium} />
+              {showBelowFold && <MTGNewsSection />}
+            </div>
+            <aside className={styles.dashRail}>
+              <ChangelogPanel entries={changelog} />
+              {showBelowFold && <UpcomingSetsSection />}
+            </aside>
+          </div>
         </>
       )}
-      {showBelowFold && <MTGNewsSection />}
-      {showBelowFold && <UpcomingSetsSection />}
 
       {/* ── Shared card detail modal ───────────────────────────────────── */}
       {(modalLoading || modalCard) && (
