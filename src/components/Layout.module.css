@@ -81,6 +81,7 @@
   text-shadow: 0 0 28px rgba(201,168,76,0.3), 0 1px 3px rgba(0,0,0,0.5);
   flex-shrink: 0;
   margin-right: 8px;
+  text-decoration: none;
 }
 .brandMark {
   width: 24px;

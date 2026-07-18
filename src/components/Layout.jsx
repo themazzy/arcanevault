@@ -21,10 +21,10 @@ import {
 
 const TABS = [
   { to: '/', label: 'Home',         Icon: HomeIcon },
-  { to: '/collection', label: 'Collection', Icon: CollectionIcon },
-  { to: '/decks', label: 'Deck Lists',    Icon: DecksIcon },
+  { to: '/collection', label: 'My Collection', Icon: CollectionIcon },
+  { to: '/decks', label: 'My Decks',    Icon: DecksIcon },
   { to: '/builder', label: 'Deck Builder', Icon: BuilderIcon },
-  { to: '/binders', label: 'Binders',     Icon: BindersIcon },
+  { to: '/binders', label: 'My Binders',     Icon: BindersIcon },
   { to: '/lists', label: 'Wishlists',   Icon: WishlistsIcon },
   { to: '/trading', label: 'Trading',     Icon: TradingIcon },
   { to: '/life', label: 'Life Tracker',        Icon: LifeIcon },
@@ -221,9 +221,9 @@ export default function Layout({ children }) {
     { to: profilePath, label: 'Profile', Icon: PlayerIcon },
   ]
   const mobileCollectionItems = [
-    { to: '/collection', label: 'Collection', Icon: CollectionIcon, end: true },
-    { to: '/decks', label: 'Deck Lists', Icon: DecksIcon },
-    { to: '/binders', label: 'Binders', Icon: BindersIcon },
+    { to: '/collection', label: 'My Collection', Icon: CollectionIcon, end: true },
+    { to: '/decks', label: 'My Decks', Icon: DecksIcon },
+    { to: '/binders', label: 'My Binders', Icon: BindersIcon },
   ]
   const mobileBuilderItems = [
     { to: '/builder', label: 'Deck Builder', Icon: BuilderIcon, end: true },
@@ -303,10 +303,10 @@ export default function Layout({ children }) {
         <>
           <div className={`${styles.headerWrap}${scrolled ? ' ' + styles.scrolled : ''}`}>
             <header className={styles.header}>
-              <div className={styles.logo}>
+              <NavLink to="/" end className={styles.logo} aria-label="DeckLoom home">
                 <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" />
                 <span className={styles.logoText}>Deck<span>Loom</span></span>
-              </div>
+              </NavLink>
 
               <nav className={styles.tabs}>
                 <div
@@ -348,7 +348,7 @@ export default function Layout({ children }) {
                     onClick={releaseMenuFocus}
                   >
                     <CollectionIcon size={12} />
-                    Collection
+                    My Collection
                     <ChevronDownIcon size={10} className={styles.navMenuCaret} />
                   </NavLink>
                   <div className={styles.navSubmenu} role="menu">
@@ -582,7 +582,7 @@ export default function Layout({ children }) {
               <span className={styles.logoText}>Deck<span>Loom</span></span>
             </div>
             {renderMobileGroup('home', 'Home', HomeIcon, mobileHomeItems, isHomeGroupActive)}
-            {renderMobileGroup('collection', 'Collection', CollectionIcon, mobileCollectionItems, currentMobileGroup === 'collection')}
+            {renderMobileGroup('collection', 'My Collection', CollectionIcon, mobileCollectionItems, currentMobileGroup === 'collection')}
             {renderMobileGroup('builder', 'Decks', BuilderIcon, mobileBuilderItems, isBuilderGroupActive)}
             <NavLink
               to="/lists"
