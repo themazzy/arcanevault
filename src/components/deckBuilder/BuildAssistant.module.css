@@ -966,6 +966,13 @@
   padding: 4px 0;
 }
 
+/* Secondary result lines: what the combo pass / GC top-up did to the fill. */
+.afResultDetail {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  padding: 0 0 2px;
+}
+
 /* ── Animated auto-fill loader ───────────────────────────────────────────── */
 .afLoader {
   display: flex;

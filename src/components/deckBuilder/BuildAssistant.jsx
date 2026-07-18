@@ -47,6 +47,7 @@ import {
   basicsForAutoFill,
   isBasicLandName,
   analyzeCut,
+  gameChangerSlotRoom,
   CUT_MODES,
   attachRecommenderUpgrades,
   selectUpgrades,
@@ -1283,6 +1284,11 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     qty: 1,
   }))
 
+  // A deck row that plays as a land (sfMap metadata first, row's own type_line
+  // as fallback) — shared by the combo pass's cuttable filter and the GC
+  // top-up's land accounting.
+  const isLandRow = d => (sfMap?.[d?.scryfall_id]?.type_line || d?.type_line || '').toLowerCase().includes('land')
+
   // Post-fill combo pass (opt-in). Re-queries Commander Spellbook on the just-
   // populated deck, completes as many bracket-appropriate combos as the target
   // allows (source-aware: 'owned' uses owned pieces only, 'recommended' may reach
@@ -1316,7 +1322,6 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       // Capping combo pieces to this keeps the deck at ≤ deckSize — otherwise a
       // near-full deck could end above 100, since we only cut cards THIS run added.
       const fillSet = new Set(fillIds || [])
-      const isLandRow = d => (sfMap?.[d?.scryfall_id]?.type_line || d?.type_line || '').toLowerCase().includes('land')
       // COPIES, not rows — a multi-qty basics row would otherwise make the deck
       // look emptier than it is and let combo pieces overfill it past deckSize.
       const populatedCount = countDeckCards(populated)
@@ -1360,10 +1365,19 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         roleOf: dc => roleOfDeckCard(dc, sfMap, roleByName),
         inclusionOf: name => cardNameMatchKeys(name).map(k => inclusionByName.get(k)).find(v => v != null),
       })
-      const cutIds = (cut?.recommended || []).map(r => r.id).filter(Boolean)
-
+      let cutIds = (cut?.recommended || []).map(r => r.id).filter(Boolean)
       if (cutIds.length && typeof onRemoveCards === 'function') {
-        try { await onRemoveCards(cutIds) } catch { /* parent surfaces errors */ }
+        try {
+          // A parent that returns the ids it actually deleted (partial batch
+          // failures) narrows our accounting to the real cuts; a void return
+          // keeps the optimistic assumption.
+          const removed = await onRemoveCards(cutIds)
+          if (Array.isArray(removed)) cutIds = removed
+        } catch {
+          cutIds = [] // nothing verifiably removed — don't report phantom cuts
+        }
+      } else {
+        cutIds = [] // no removal path → no cuts happened
       }
       let comboRows = []
       try {
@@ -1452,13 +1466,14 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // immediately visible. `rows` are what actually landed (bulk path) or the
   // pseudo-rows (sequential path); `addedCardIds` are the deck-card ids to
   // remove on undo.
-  async function finishAutoFill(rows, added, skipped, addedCardIds) {
+  async function finishAutoFill(rows, added, addedCardIds) {
     let effectiveRows = rows
     let effectiveAdded = added
     let effectiveAddedIds = addedCardIds || []
     let combosCompleted = 0
     let comboAdded = 0
     let cutCount = 0
+    let gcAdded = 0
 
     // Combo pass runs before basics so completed-combo pieces take real slots and
     // basics top up whatever's left. Bulk path only (needs the fill row ids to
@@ -1483,11 +1498,19 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     }
 
     // Game Changer top-up (Bracket 4 target): fill the shortfall to the 4-GC
-    // floor from the commander's recommended pool, into the basic-land slots.
+    // floor from the commander's recommended pool — but only into slots the
+    // basics top-up doesn't need, so it never shrinks the manabase below its
+    // (already B4-floored) land target.
     if (targetBracket === 4 && gameChangers && typeof onAddCards === 'function' && (addedCardIds?.length)) {
-      const openForGC = Math.max(0, (plan?.deckSize || 100) - (totalCards + effectiveAdded))
-      const gcPass = await runGameChangerPass([...deckCards, ...effectiveRows], openForGC)
+      const postFill = [...deckCards, ...effectiveRows]
+      const openForGC = gameChangerSlotRoom({
+        openSlots: Math.max(0, (plan?.deckSize || 100) - (totalCards + effectiveAdded)),
+        currentLands: countDeckCards(postFill.filter(d => !d?.is_commander && isLandRow(d))),
+        landTarget: landsTarget,
+      })
+      const gcPass = await runGameChangerPass(postFill, openForGC)
       if (gcPass.gcRows.length) {
+        gcAdded = gcPass.gcRows.length
         effectiveRows = [...effectiveRows, ...gcPass.gcRows]
         effectiveAdded += gcPass.gcRows.length
         effectiveAddedIds = [...effectiveAddedIds, ...gcPass.gcRows.map(r => r.id).filter(Boolean)]
@@ -1524,9 +1547,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     // the assistant is reopened. Basics don't form combos, so they're omitted.
     combos.fetchCombos([...deckCards, ...effectiveRows]).catch(() => {})
     setAutoFillResult({
-      added: effectiveAdded, skipped, basics, left,
+      added: effectiveAdded, basics, left,
       addedCardIds: effectiveAddedIds, basicCounts,
-      combosCompleted, comboAdded, cutCount,
+      combosCompleted, comboAdded, cutCount, gcAdded,
     })
     setStepIndex(steps.length - 1)
   }
@@ -1550,9 +1573,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           for (const r of rows) if (r?.name) next.add(r.name.toLowerCase())
           return next
         })
-        await finishAutoFill(rows, res?.added ?? rows.length, res?.skipped ?? 0, rows.map(r => r.id))
+        await finishAutoFill(rows, res?.added ?? rows.length, rows.map(r => r.id))
       } catch {
-        setAutoFillResult({ added: 0, skipped: picks.length, basics: 0, left: 0, addedCardIds: [], basicCounts: null })
+        setAutoFillResult({ added: 0, basics: 0, left: 0, addedCardIds: [], basicCounts: null })
       } finally {
         setAutoFilling(null)
       }
@@ -1567,7 +1590,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       }
       // Sequential path has no returned rows/ids — undo falls back to name-based
       // removal via the normal per-tile Remove, so no addedCardIds here.
-      await finishAutoFill(picksToPseudoRows(picks), picks.length, 0, [])
+      await finishAutoFill(picksToPseudoRows(picks), picks.length, [])
     } finally {
       setAutoFilling(null)
     }
@@ -2822,6 +2845,20 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                     Added {autoFillResult.added} card{autoFillResult.added === 1 ? '' : 's'}
                     {autoFillResult.basics ? ` and ${autoFillResult.basics} basic land${autoFillResult.basics === 1 ? '' : 's'}` : ''}.
                   </div>
+                  {/* The combo pass cuts just-filled cards to make room — say so,
+                      or the run silently deletes cards it just added. */}
+                  {(autoFillResult.combosCompleted > 0 || autoFillResult.cutCount > 0) && (
+                    <div className={styles.afResultDetail}>
+                      Completed {autoFillResult.combosCompleted} combo{autoFillResult.combosCompleted === 1 ? '' : 's'}
+                      {autoFillResult.comboAdded > 0 && ` — added ${autoFillResult.comboAdded} missing piece${autoFillResult.comboAdded === 1 ? '' : 's'}`}
+                      {autoFillResult.cutCount > 0 && `, cut ${autoFillResult.cutCount} just-filled card${autoFillResult.cutCount === 1 ? '' : 's'} to make room`}.
+                    </div>
+                  )}
+                  {autoFillResult.gcAdded > 0 && (
+                    <div className={styles.afResultDetail}>
+                      Added {autoFillResult.gcAdded} Game Changer{autoFillResult.gcAdded === 1 ? '' : 's'} to reach the Bracket 4 floor.
+                    </div>
+                  )}
                   {autoFillResult.left > 0 && (
                     <div className={styles.afShortfall}>
                       <WarningIcon size={12} /> The deck is still {autoFillResult.left} card{autoFillResult.left === 1 ? '' : 's'} short —

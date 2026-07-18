@@ -3072,25 +3072,30 @@ export default function DeckBuilderPage() {
 
   // Bulk removal (Build Assistant "Cut all"): one state update + one Supabase
   // delete for the whole batch. Removing per card re-renders the assistant and
-  // reruns its plan/enrichment work once per cut.
+  // reruns its plan/enrichment work once per cut. Returns the ids actually
+  // deleted, so callers (the assistant's combo pass) report only real cuts
+  // when a batch fails partway.
   async function removeCardsFromDeck(deckCardIds) {
     const idSet = new Set(deckCardIds || [])
     const removed = deckCardsRef.current.filter(dc => idSet.has(dc.id))
-    if (!removed.length) return
+    if (!removed.length) return []
     setDeckCards(prev => prev.filter(dc => !idSet.has(dc.id)))
     const batches = chunkIds(removed.map(dc => dc.id))
+    const deleted = []
     for (let i = 0; i < batches.length; i += 1) {
       try {
         await sbExec(sb.from('deck_cards').delete().in('id', batches[i]), { label: 'Remove cards failed' })
         deleteDeckCardsLocal(batches[i]).catch(() => {})
+        deleted.push(...batches[i])
       } catch {
         // Earlier batches are already deleted server-side — restore only the
         // rows that never reached the DB.
         const notDeleted = new Set(batches.slice(i).flat())
         setDeckCards(prev => [...prev, ...removed.filter(dc => notDeleted.has(dc.id))])
-        return
+        return deleted
       }
     }
+    return deleted
   }
 
   // Add Basic Lands helper — set the exact count of one basic land on the main
