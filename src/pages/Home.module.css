@@ -1,31 +1,31 @@
 /* ── Layout ──────────────────────────────────────────────────────────────── */
 .home { max-width: 1100px; margin: 0 auto; }
 
-/* Dashboard: main column + What's New rail on desktop. On smaller screens the
-   rail stacks below the main column (changelog & upcoming sets move to the
-   bottom of the page). */
+/* Dashboard: the rail (What's New, support, upcoming sets) must not eat width
+   from the main content. On wide viewports the page container itself widens
+   (.homeWide) so the main column keeps the full 1100px and the rail sits in
+   the extra space beside it; anything narrower stacks the rail below. */
 .dashGrid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  gap: 0 24px;
+  grid-template-columns: 1fr;
   align-items: start;
 }
 .dashMain { min-width: 0; }
-.dashRail {
-  min-width: 0;
-  position: sticky;
-  top: calc(var(--nav-h, 60px) + 16px);
-  max-height: calc(100vh - var(--nav-h, 60px) - 32px);
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
-}
-@media (max-width: 1023px) {
-  .dashGrid { grid-template-columns: 1fr; }
+.dashRail { min-width: 0; }
+@media (min-width: 1440px) {
+  .homeWide { max-width: 1464px; }
+  .dashGrid {
+    grid-template-columns: minmax(0, 1100px) 320px;
+    justify-content: center;
+    gap: 0 24px;
+  }
   .dashRail {
-    position: static;
-    max-height: none;
-    overflow-y: visible;
+    position: sticky;
+    top: calc(var(--nav-h, 60px) + 16px);
+    max-height: calc(100vh - var(--nav-h, 60px) - 32px);
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
   }
 }
 

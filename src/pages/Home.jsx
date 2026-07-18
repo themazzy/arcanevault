@@ -1674,7 +1674,7 @@ export default function HomePage() {
   }) === 'onboarding'
 
   return (
-    <div className={styles.home}>
+    <div className={`${styles.home}${isOnboarding ? '' : ' ' + styles.homeWide}`}>
       <div className={styles.hero}>
         <div className={styles.heroTitle}>
           <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" />
@@ -1696,9 +1696,9 @@ export default function HomePage() {
         </>
       ) : (
         <>
-          <QuickActions />
           <div className={styles.dashGrid}>
             <div className={styles.dashMain}>
+              <QuickActions />
               <CardLookupSection />
               {user && <CollectionSnapshot data={collData} loading={collLoading} priceSource={price_source} />}
               {user && <TopValuedCards    data={collData} loading={collLoading} priceSource={price_source} onCardClick={openCard} />}
