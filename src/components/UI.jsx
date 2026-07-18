@@ -318,8 +318,12 @@ const modalStack = []
  * inside it, closes on Escape when `closeOnEscape` allows, and restores focus
  * on release. `onClose`/`closeOnEscape` are read through refs so the effect
  * runs once per activation yet always sees the latest values.
+ *
+ * Popovers (autocomplete results) claim Escape the same way but are not
+ * dialogs: pass `trapTab: false` (focus moves on naturally) and
+ * `manageFocus: false` (typing focus must stay where it is).
  */
-export function useModalKeys(elRef, { active = true, onClose, closeOnEscape = true } = {}) {
+export function useModalKeys(elRef, { active = true, onClose, closeOnEscape = true, trapTab = true, manageFocus = true } = {}) {
   const onCloseRef = useRef(onClose)
   const closeOnEscapeRef = useRef(closeOnEscape)
   useLayoutEffect(() => {
@@ -345,7 +349,7 @@ export function useModalKeys(elRef, { active = true, onClose, closeOnEscape = tr
 
     // Move focus into the dialog without auto-selecting a control (least
     // surprising — lands on the container, Tab then enters the content).
-    modalEl.focus({ preventScroll: true })
+    if (manageFocus) modalEl.focus({ preventScroll: true })
 
     const onKeyDown = (e) => {
       // A modal underneath an open one must ignore keys entirely — otherwise
@@ -358,7 +362,7 @@ export function useModalKeys(elRef, { active = true, onClose, closeOnEscape = tr
         if (closeOnEscapeRef.current) onCloseRef.current?.()
         return
       }
-      if (e.key !== 'Tab') return
+      if (e.key !== 'Tab' || !trapTab) return
       const items = focusables()
       if (!items.length) { e.preventDefault(); modalEl.focus({ preventScroll: true }); return }
       const first = items[0]
@@ -376,12 +380,12 @@ export function useModalKeys(elRef, { active = true, onClose, closeOnEscape = tr
       document.removeEventListener('keydown', onKeyDown, true)
       const i = modalStack.indexOf(token)
       if (i !== -1) modalStack.splice(i, 1)
-      if (prevActive && typeof prevActive.focus === 'function') {
+      if (manageFocus && prevActive && typeof prevActive.focus === 'function') {
         prevActive.focus({ preventScroll: true })
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active])
+  }, [active, trapTab, manageFocus])
 }
 
 export function Modal({

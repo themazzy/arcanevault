@@ -1863,6 +1863,9 @@
 }
 
 .specRow:hover { background: var(--s-medium); }
+/* Keyboard highlight (ArrowUp/Down) — same surface as hover so the two
+   affordances read identically. */
+.specRowActive { background: var(--s-medium); }
 
 /* Thumbnail + name grouped as one hover/tap target for the enlarged preview.
    Hugs its content (flex: 0 1 auto) so only the image and text trigger the

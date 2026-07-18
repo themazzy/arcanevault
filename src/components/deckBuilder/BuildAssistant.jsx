@@ -68,6 +68,7 @@ import {
   ROLE_LANDS,
 } from '../../lib/deckBuildAssistant'
 import { cardNameMatchKeys, countDeckCards } from '../../lib/deckBuilderHelpers'
+import { SpecificCardSearch } from './SpecificCardSearch'
 import styles from './BuildAssistant.module.css'
 
 // Guided "build from collection" wizard. Walks the user role-by-role (Ramp →
@@ -346,99 +347,9 @@ function CardTile({ name, sfCard, fallbackImg, pips, inclusion, tag, price, flag
   )
 }
 
-// Persistent "add a specific card" search — the manual escape hatch for cards
-// the recommendation feed didn't surface. Sits above the per-step content so
-// it's reachable on every step. Each result shows the deck category it will be
-// filed under (→ Ramp / Removal / …) so the user knows where to find it after
-// adding; off-color / illegal cards are flagged but still addable (the user
-// confirms). Adds go through the same handler as tiles, so owned-vs-buy
-// accounting and category persistence stay identical.
-function SpecificCardSearch({ search, onAdd, isAdded, categoryOf, commanderColorIdentity, makePreview }) {
-  const { query, results, loading, handleInput } = search
-  const trimmed = (query || '').trim()
-  // The results float over the panel (don't push it down) and behave like an
-  // autocomplete popover: a click outside closes them, and focusing the search
-  // bar reopens them.
-  const [open, setOpen] = useState(false)
-  const wrapRef = useRef(null)
-  useEffect(() => {
-    if (!open) return
-    const onDocDown = e => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false) }
-    document.addEventListener('mousedown', onDocDown)
-    document.addEventListener('touchstart', onDocDown)
-    return () => {
-      document.removeEventListener('mousedown', onDocDown)
-      document.removeEventListener('touchstart', onDocDown)
-    }
-  }, [open])
-  const showResults = open && trimmed.length > 0
-  return (
-    <div className={styles.specSearch} ref={wrapRef}>
-      <div className={styles.specSearchLabel}>Add a specific card</div>
-      <Input
-        value={query}
-        onChange={e => { handleInput(e.target.value); setOpen(true) }}
-        onClear={() => { handleInput(''); setOpen(false) }}
-        onFocus={() => setOpen(true)}
-        placeholder="Search a card by name…"
-        clearable
-      />
-      {showResults && (
-        <div className={styles.specResults}>
-          {loading && results.length === 0
-            ? <div className={styles.emptySmall}>Searching…</div>
-            : results.length === 0
-              ? <div className={styles.emptySmall}>No cards found.</div>
-              : results.slice(0, 8).map(card => {
-                  const cat = categoryOf(card)
-                  const warnings = getCardLegalityWarnings({
-                    card,
-                    formatId: 'commander',
-                    formatLabel: 'Commander',
-                    isEDH: true,
-                    commanderColorIdentity,
-                  })
-                  const added = isAdded(card.name)
-                  const thumb = getCardImageUri(card, 'small')
-                  return (
-                    <div key={card.id} className={styles.specRow}>
-                      {/* Thumbnail + name are the hover target (hugs the content,
-                          not the whole row) — hovering either enlarges to a floating
-                          preview (desktop) or a tap-lightbox (touch). No name
-                          tooltip; the preview is the only affordance. */}
-                      <div
-                        className={styles.specHover}
-                        {...makePreview({ name: card.name, scryfall_id: card.id, img: getCardImageUri(card, 'large') })}
-                      >
-                        {thumb && (
-                          <img src={thumb} alt="" className={styles.specThumb} loading="lazy" />
-                        )}
-                        <span className={styles.specName}>{card.name}</span>
-                      </div>
-                      <div className={styles.specMeta}>
-                        {warnings.length > 0 && (
-                          <span className={styles.specWarn} title={warnings.map(w => w.text).join('\n')}>
-                            <WarningIcon size={12} />
-                          </span>
-                        )}
-                        {!added && <span className={styles.specCat} title="Build role this card will be filed under">{cat}</span>}
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => onAdd(card)}
-                          disabled={added}
-                        >
-                          {added ? `Added to ${cat}` : 'Add'}
-                        </Button>
-                      </div>
-                    </div>
-                  )
-                })}
-        </div>
-      )}
-    </div>
-  )
-}
+// (SpecificCardSearch — the persistent "add a specific card" search — lives in
+// ./SpecificCardSearch.jsx so it can be tested without this module's heavy
+// data-layer imports.)
 
 // Labeled dropdown control (Theme / Bracket / Budget). Wraps ResponsiveMenu so
 // it renders as a positioned panel on desktop and a bottom sheet on touch. The
@@ -553,8 +464,10 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // the builder's search hook so results carry full card data for classification
   // and legality checks.
   const cardSearch = useCardSearch({ format: 'commander' })
-  // Guard against accidentally dismissing the assistant (backdrop click / Escape
-  // / the X). A close attempt opens a confirm step instead of leaving outright.
+  // Confirm before dismissing the assistant only while an operation is in
+  // flight (auto-fill, undo, cuts, finish) — leaving mid-run can strand the
+  // deck half-updated. An idle close loses nothing (every add is already
+  // saved), so it just closes; a confirm on every X was pure friction.
   const [confirmClose, setConfirmClose] = useState(false)
   // Names added/wishlisted this session — instant feedback before the deckCards
   // prop round-trips back from the parent.
@@ -1961,9 +1874,14 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const target = roleData?.target || 0
   const pct = target > 0 ? Math.min(100, Math.round((current / target) * 100)) : 0
   const gap = Math.max(0, target - current)
+  const assistantBusy = !!autoFilling || undoing || finishing || applyingCuts
 
   return (
-    <Modal onClose={() => setConfirmClose(true)} className={styles.modal} contentClassName={styles.modalContent}>
+    <Modal
+      onClose={() => (assistantBusy ? setConfirmClose(true) : onClose?.())}
+      className={styles.modal}
+      contentClassName={styles.modalContent}
+    >
       <div className={styles.body}>
         <div className={styles.header}>
           <span className={styles.title}>Build Assistant</span>
@@ -2013,8 +1931,10 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           </div>
         )}
 
-        {/* Connected node stepper — click through categories */}
-        <div className={styles.stepper} ref={stepperRef} role="tablist" aria-label="Build steps">
+        {/* Connected node stepper — click through categories. A nav, not a
+            tablist: the nodes are step links (aria-current="step"), and a
+            tablist with no role="tab" children reads as empty to AT. */}
+        <nav className={styles.stepper} ref={stepperRef} aria-label="Build steps">
           {steps.map((role, i) => {
             const isSummary = role === SUMMARY_STEP
             const c = liveCounts.get(role) || 0
@@ -2051,7 +1971,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
               </button>
             )
           })}
-        </div>
+        </nav>
 
         {/* Controls: Theme / Bracket / Budget-per-card dropdowns + live readouts */}
         {!loading && !error && (
@@ -2107,6 +2027,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
             categoryOf={card => coarseRole(card, card)}
             commanderColorIdentity={commander?.color_identity || []}
             makePreview={previewHandlers}
+            imageOf={getCardImageUri}
           />
         )}
 
@@ -2926,9 +2847,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
 
       {confirmClose && (
         <ConfirmModal
-          title="Leave the Build Assistant?"
-          message="Cards you've added are already saved to the deck. You can reopen the assistant anytime to keep building."
-          confirmLabel="Leave"
+          title="Leave while the assistant is working?"
+          message="An operation is still running — leaving now can leave the deck partially updated. It's safer to let it finish first."
+          confirmLabel="Leave anyway"
           cancelLabel="Keep building"
           variant="primary"
           onConfirm={() => { setConfirmClose(false); onClose?.() }}
