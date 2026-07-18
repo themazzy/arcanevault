@@ -105,6 +105,18 @@
   white-space: nowrap;
 }
 .tab:hover { color: var(--text); text-decoration: none; background: rgba(201,168,76,0.04); }
+
+/* Optical alignment: the labels are uppercase (no descenders), so an icon
+   flex-centered against the full line box sits visibly low. Nudge it up.
+   Carets are excluded — they manage their own transform (rotation/nudge). */
+.tab > svg:not(.navMenuCaret),
+.navSubmenuItem > svg,
+.scanBtn > svg,
+.accountButton > svg,
+.mobileNavLink > svg:not(.mobileNavGroupCaret) {
+  flex-shrink: 0;
+  transform: translateY(-1px);
+}
 .active {
   color: var(--gold) !important;
   border-bottom-color: var(--gold) !important;
@@ -550,4 +562,5 @@ button.navSubmenuItem {
   justify-content: center;
   line-height: 1;
   flex-shrink: 0;
+  transform: translateY(-1px);
 }
