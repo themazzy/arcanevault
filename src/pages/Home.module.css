@@ -31,23 +31,23 @@
   gap: 10px;
   margin-bottom: 24px;
 }
+/* Non-featured tiles sit quiet (faint border, no fill) so Build Assist is the
+   single focal point of the row; they light up on hover. */
 .quickTile {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 14px 16px;
   text-align: left;
-  background: var(--s1);
-  border: 1px solid var(--border);
+  background: none;
+  border: 1px solid var(--s-border);
   border-radius: 8px;
   cursor: pointer;
-  transition: border-color 0.18s, background 0.18s, transform 0.18s, box-shadow 0.18s;
+  transition: border-color 0.18s, background 0.18s;
 }
 .quickTile:hover {
   border-color: rgba(201,168,76,0.35);
   background: rgba(201,168,76,0.04);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 18px rgba(0,0,0,0.3);
 }
 .quickTileFeatured {
   border-color: rgba(201,168,76,0.4);
@@ -486,6 +486,9 @@
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 14px 16px;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
   transition: border-color 0.18s, background 0.18s;
 }
 .snapshotTile:hover {
@@ -820,7 +823,6 @@
 .setTile:hover {
   border-color: rgba(201,168,76,0.35);
   background: rgba(201,168,76,0.04);
-  transform: translateY(-2px);
   /* the global `a:hover { text-decoration: underline }` would re-underline
      the tile text on hover — tiles are cards, not inline links */
   text-decoration: none;

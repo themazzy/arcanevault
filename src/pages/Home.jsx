@@ -1090,6 +1090,7 @@ const _SetCompletionSection = function SetCompletionSection({ data, loading }) {
 
 // ── Collection Snapshot ───────────────────────────────────────────────────────
 function CollectionSnapshot({ data, loading, priceSource }) {
+  const navigate = useNavigate()
   const stats = useMemo(() => {
     if (!data) return null
     const { folders, cards, sfMap } = data
@@ -1140,27 +1141,32 @@ function CollectionSnapshot({ data, loading, priceSource }) {
       val: stats.totalQty.toLocaleString(),
       meta: `across ${stats.uniqueSetCount.toLocaleString()} sets`,
       color: 'var(--text)',
+      to: '/collection',
     },
     {
       label: 'Unique Cards',
       val: stats.uniquePrintCount.toLocaleString(),
       color: 'var(--text)',
+      to: '/collection',
     },
     {
       label: 'Collection Value',
       val: formatPrice(stats.totalValue, priceSource),
       meta: '',
       color: 'var(--green)',
+      to: '/stats',
     },
     {
       label: 'Collection Binders',
       val: stats.binderCount.toString(),
       color: 'var(--text)',
+      to: '/binders',
     },
     {
       label: 'Collection Decks',
       val: stats.deckCount.toString(),
       color: 'var(--text)',
+      to: '/decks',
     },
   ] : []
 
@@ -1173,11 +1179,12 @@ function CollectionSnapshot({ data, loading, priceSource }) {
         {loading
           ? Array.from({ length: 5 }).map((_, i) => <div key={i} className={styles.snapshotSkeleton} />)
           : tiles.map(t => (
-              <div key={t.label} className={styles.snapshotTile}>
+              <button key={t.label} type="button" className={styles.snapshotTile}
+                onClick={() => navigate(t.to)}>
                 <div className={styles.snapshotVal} style={{ color: t.color }}>{t.val}</div>
                 <div className={styles.snapshotLabel}>{t.label}</div>
                 {t.meta ? <div className={styles.snapshotMeta}>{t.meta}</div> : null}
-              </div>
+              </button>
             ))
         }
       </div>
