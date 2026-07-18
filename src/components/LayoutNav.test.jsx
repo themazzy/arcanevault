@@ -38,6 +38,16 @@ describe('Layout navbar without a Home menu', () => {
     expect(logo.getAttribute('href')).toBe('/')
   })
 
+  it('renders Trading as a plain tab with no dropdown menu', () => {
+    renderLayout('/')
+    const nav = document.querySelector('nav')
+    const trading = screen.getAllByRole('link', { name: /^trading$/i }).find(l => nav.contains(l))
+    expect(trading).toBeTruthy()
+    expect(trading.getAttribute('href')).toBe('/trading')
+    expect(trading.parentElement.tagName).toBe('NAV')
+    expect(screen.queryByRole('menuitem', { name: /trade log/i })).toBeNull()
+  })
+
   it('offers Rulebook as a menu item in the account dropdown', () => {
     renderLayout('/')
     const rulebook = screen.getByRole('menuitem', { name: /rulebook/i })

@@ -38,10 +38,6 @@ const BUILDER_NAV = [
   { to: '/builder', label: 'Deck Builder', Icon: BuilderIcon, end: true },
   { to: '/builder?tab=browser', label: 'Deck Browser', Icon: ListViewIcon },
 ]
-const TRADING_NAV = [
-  { to: '/trading', label: 'Trading', Icon: TradingIcon, end: true },
-  { to: '/trading?tab=log', label: 'Trade Log', Icon: ListViewIcon },
-]
 const STATS_NAV = [
   { to: '/stats', label: 'Stats', Icon: StatsIcon, end: true },
   { to: '/stats?tab=winrates', label: 'Deck Win Rates', Icon: DecksIcon },
@@ -190,7 +186,6 @@ export default function Layout({ children }) {
       ? location.pathname === t.to
       : location.pathname === t.to || location.pathname.startsWith(`${t.to}/`)
   ))
-  const isTradeLogRoute = location.pathname === '/trading' && new URLSearchParams(location.search).get('tab') === 'log'
   const statsTab = location.pathname === '/stats' ? new URLSearchParams(location.search).get('tab') : null
   const isDeckBrowserRoute = location.pathname === '/builder' && new URLSearchParams(location.search).get('tab') === 'browser'
   const isDeckBuilderSection = location.pathname === '/builder' || /^\/builder\/[^/]+/.test(location.pathname)
@@ -200,7 +195,6 @@ export default function Layout({ children }) {
     if (p === '/' || p === '/rules' || p.startsWith('/profile/')) return 'home'
     if (p === '/collection' || p === '/decks' || p === '/binders') return 'collection'
     if (isDeckBuilderSection) return 'builder'
-    if (p.startsWith('/trading')) return 'trading'
     if (p.startsWith('/stats')) return 'stats'
     return null
   })()
@@ -223,10 +217,6 @@ export default function Layout({ children }) {
     { to: '/builder', label: 'Deck Builder', Icon: BuilderIcon, end: true },
     { to: '/builder?tab=browser', label: 'Deck Browser', Icon: ListViewIcon },
   ]
-  const mobileTradingItems = [
-    { to: '/trading', label: 'Trading', Icon: TradingIcon, end: true },
-    { to: '/trading?tab=log', label: 'Trade Log', Icon: ListViewIcon },
-  ]
   const mobileStatsItems = [
     { to: '/stats', label: 'Stats', Icon: StatsIcon, end: true },
     { to: '/stats?tab=winrates', label: 'Deck Win Rates', Icon: DecksIcon },
@@ -234,7 +224,6 @@ export default function Layout({ children }) {
   ]
   const isHomeGroupActive = currentMobileGroup === 'home'
   const isBuilderGroupActive = currentMobileGroup === 'builder'
-  const isTradingGroupActive = currentMobileGroup === 'trading'
   const isStatsGroupActive = currentMobileGroup === 'stats'
 
   const renderMobileGroup = (key, label, Icon, items, isGroupActive) => {
@@ -269,8 +258,6 @@ export default function Layout({ children }) {
                       active = it.to === '/builder'
                         ? isDeckBuilderSection && !isDeckBrowserRoute
                         : isDeckBrowserRoute
-                    } else if (key === 'trading') {
-                      active = location.pathname === '/trading' && (itTabParam ? itTabParam === 'log' && isTradeLogRoute : !isTradeLogRoute)
                     } else if (key === 'stats') {
                       active = location.pathname === '/stats' && (itTabParam ? statsTab === itTabParam : !statsTab)
                     } else {
@@ -365,37 +352,13 @@ export default function Layout({ children }) {
                     })}
                   </div>
                 </div>
-                <div className={styles.navMenuWrap}>
-                  <NavLink
-                    to="/trading"
-                    end
-                    className={`${styles.tab} ${styles.navMenuButton}${location.pathname.startsWith('/trading') ? ` ${styles.active}` : ''}`}
-                    onClick={releaseMenuFocus}
-                  >
-                    <TradingIcon size={12} />
-                    Trading
-                    <ChevronDownIcon size={10} className={styles.navMenuCaret} />
-                  </NavLink>
-                  <div className={styles.navSubmenu} role="menu">
-                    {TRADING_NAV.map(t => {
-                      const isTradingHome = t.to === '/trading'
-                      const isActive = location.pathname === '/trading' && (isTradingHome ? !isTradeLogRoute : isTradeLogRoute)
-                      return (
-                      <NavLink
-                        key={t.to}
-                        to={t.to}
-                        end={t.end}
-                        role="menuitem"
-                        className={`${styles.navSubmenuItem}${isActive ? ' ' + styles.navSubmenuItemActive : ''}`}
-                        onClick={releaseMenuFocus}
-                      >
-                        <t.Icon size={14} />
-                        {t.label}
-                      </NavLink>
-                      )
-                    })}
-                  </div>
-                </div>
+                <NavLink
+                  to="/trading"
+                  className={({ isActive }) => `${styles.tab}${isActive ? ' ' + styles.active : ''}`}
+                >
+                  <TradingIcon size={12} />
+                  Trading
+                </NavLink>
                 <div className={styles.navMenuWrap}>
                   <NavLink
                     to="/stats"
@@ -566,7 +529,14 @@ export default function Layout({ children }) {
               <WishlistsIcon size={17} />
               Wishlists
             </NavLink>
-            {renderMobileGroup('trading', 'Trading', TradingIcon, mobileTradingItems, isTradingGroupActive)}
+            <NavLink
+              to="/trading"
+              className={({ isActive }) => `${styles.mobileNavLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}
+              onClick={closeMobile}
+            >
+              <TradingIcon size={17} />
+              Trading
+            </NavLink>
             <NavLink
               to="/life"
               className={({ isActive }) => `${styles.mobileNavLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}
