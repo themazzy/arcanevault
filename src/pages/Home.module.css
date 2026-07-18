@@ -19,14 +19,9 @@
     justify-content: center;
     gap: 0 24px;
   }
-  .dashRail {
-    position: sticky;
-    top: calc(var(--nav-h, 60px) + 16px);
-    max-height: calc(100vh - var(--nav-h, 60px) - 32px);
-    overflow-y: auto;
-    scrollbar-width: thin;
-    scrollbar-color: var(--border) transparent;
-  }
+  /* The rail is glance-once content (news, sets) — it scrolls away with the
+     page. Deliberately NOT sticky: pinning it kept low-priority content on
+     screen permanently and forced a nested scrollbar (scroll trap). */
 }
 
 /* ── Quick Actions (returning users) ─────────────────────────────────────── */
