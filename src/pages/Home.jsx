@@ -20,6 +20,8 @@ import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './Home.module.css'
 import { EMPTY_FILTERS, FilterBar } from '../components/CardComponents'
 import { getHomeMode } from '../lib/homeLayout'
+import { parseDeckMeta, FORMATS } from '../lib/deckBuilderApi'
+import { enrichDecksWithCommanderArt, useDeckArt } from '../lib/deckArt'
 import {
   CloseIcon, CheckIcon, WarningIcon, BannedIcon, ChevronDownIcon, ChevronUpIcon,
   ChevronRightIcon, ImageIcon, SearchIcon, FilterIcon,
@@ -1328,6 +1330,100 @@ function TopValuedDecks({ data, loading, priceSource }) {
   )
 }
 
+// ── Featured Decks — deck browser sneak peek ──────────────────────────────────
+// Top trending community decks (same RPC + commander-art enrichment as the
+// Deck Browser tab), linking into /d/<id> and the full browser.
+const FEATURED_CACHE_KEY = 'av_featured_decks'
+const FEATURED_CACHE_TTL_MS = 15 * 60 * 1000
+
+async function fetchFeaturedDecks() {
+  try {
+    const cached = JSON.parse(sessionStorage.getItem(FEATURED_CACHE_KEY) || 'null')
+    if (cached?.decks?.length && Date.now() - cached.at < FEATURED_CACHE_TTL_MS) {
+      return cached
+    }
+  } catch { /* corrupt cache — refetch */ }
+
+  const { data, error } = await sb.rpc('get_community_decks', { p_sort: 'trending', p_limit: 3 })
+  if (error) throw error
+  const rows = Array.isArray(data?.decks) ? data.decks : []
+  const decks = (await enrichDecksWithCommanderArt(rows))
+    .map(d => ({ ...d, __meta: d.__meta || parseDeckMeta(d.description) }))
+
+  let nicks = {}
+  const userIds = [...new Set(rows.map(d => d.user_id).filter(Boolean))]
+  if (userIds.length) {
+    const { data: nickRows } = await sb.rpc('get_user_nicknames', { p_user_ids: userIds })
+    nicks = Object.fromEntries((nickRows || []).map(r => [r.user_id, r.nickname]))
+  }
+
+  const result = { at: Date.now(), decks, nicks }
+  if (decks.length) {
+    try { sessionStorage.setItem(FEATURED_CACHE_KEY, JSON.stringify(result)) } catch { /* storage full */ }
+  }
+  return result
+}
+
+function FeaturedDeckTile({ deck, nick }) {
+  const navigate = useNavigate()
+  const meta = deck.__meta || parseDeckMeta(deck.description)
+  const art = useDeckArt(meta)
+  const fmt = FORMATS.find(f => f.id === (meta.format || 'commander'))
+  const commanderNames = meta.commanders?.length
+    ? meta.commanders.map(c => c.name).join(' + ')
+    : (meta.commanderName || null)
+
+  return (
+    <button type="button" className={styles.featuredTile} onClick={() => navigate(`/d/${deck.id}`)}>
+      {art && <div className={styles.featuredArt} style={{ backgroundImage: `url(${art})` }} />}
+      <div className={styles.featuredScrim} />
+      <div className={styles.featuredBody}>
+        <div className={styles.featuredName}>{deck.name}</div>
+        {commanderNames && <div className={styles.featuredCommander}>{commanderNames}</div>}
+        <div className={styles.featuredMetaRow}>
+          {fmt && <span>{fmt.label}</span>}
+          {deck.like_count > 0 && <span>♥ {deck.like_count}</span>}
+          {nick && <span>by {nick}</span>}
+        </div>
+      </div>
+    </button>
+  )
+}
+
+function FeaturedDecksSection() {
+  const navigate = useNavigate()
+  const [data, setData] = useState(null) // null = loading
+
+  useEffect(() => {
+    let alive = true
+    fetchFeaturedDecks()
+      .then(d => { if (alive) setData(d) })
+      .catch(() => { if (alive) setData({ decks: [], nicks: {} }) })
+    return () => { alive = false }
+  }, [])
+
+  if (data && data.decks.length === 0) return null
+
+  return (
+    <section className={styles.section}>
+      <div className={styles.sectionHeader}>
+        <h2 className={styles.sectionTitle}>Featured Decks</h2>
+        <button className={styles.clearBtn} onClick={() => navigate('/builder?tab=browser')}>
+          Browse all <ChevronRightIcon size={11} />
+        </button>
+      </div>
+      <div className={styles.featuredGrid}>
+        {data === null
+          ? Array.from({ length: 3 }).map((_, i) => <div key={i} className={styles.featuredSkeleton} />)
+          : data.decks.map(deck => (
+              <FeaturedDeckTile key={deck.id} deck={deck} nick={data.nicks[deck.user_id] || null} />
+            ))
+        }
+      </div>
+    </section>
+  )
+}
+
 // ── MTG News ──────────────────────────────────────────────────────────────────
 function MTGNewsSection() {
   const [articles, setArticles] = useState([])
@@ -1694,6 +1790,7 @@ export default function HomePage() {
       {isOnboarding ? (
         <>
           <FeatureShowcase />
+          <FeaturedDecksSection />
           <ToolGrid premium={premium} />
           <CardLookupSection />
           <RecentlyViewedSection onCardClick={openCard} />
@@ -1710,6 +1807,7 @@ export default function HomePage() {
               {user && <CollectionSnapshot data={collData} loading={collLoading} priceSource={price_source} />}
               {user && <TopValuedCards    data={collData} loading={collLoading} priceSource={price_source} onCardClick={openCard} />}
               {user && <TopValuedDecks    data={collData} loading={collLoading} priceSource={price_source} />}
+              <FeaturedDecksSection />
               {showBelowFold && <MTGNewsSection />}
             </div>
             <aside className={styles.dashRail}>

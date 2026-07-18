@@ -719,6 +719,89 @@
   animation: shimmer 1.5s infinite;
 }
 
+/* ── Featured Decks ──────────────────────────────────────────────────────── */
+.featuredGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.featuredTile {
+  position: relative;
+  height: 150px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--s2);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.18s;
+}
+.featuredTile:hover { border-color: rgba(201,168,76,0.45); }
+.featuredArt {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center 25%;
+  transition: transform 0.3s;
+}
+.featuredTile:hover .featuredArt { transform: scale(1.03); }
+/* White-over-art literals below are intentional — the art keeps this tile
+   dark on every theme (same exception as news-card badges). */
+.featuredScrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(8,7,6,0.05) 25%, rgba(8,7,6,0.88) 88%);
+}
+.featuredBody {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.featuredName {
+  font-family: var(--font-display);
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: rgba(255,255,255,0.95);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.7);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.featuredCommander {
+  font-size: 0.72rem;
+  color: rgba(255,255,255,0.75);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.featuredMetaRow {
+  display: flex;
+  align-items: center;
+  font-size: 0.67rem;
+  color: rgba(255,255,255,0.65);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+}
+.featuredMetaRow span + span::before {
+  content: '•';
+  margin: 0 6px;
+}
+.featuredSkeleton {
+  height: 150px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, var(--s2) 25%, var(--s3) 50%, var(--s2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
 /* ── MTG News ────────────────────────────────────────────────────────────── */
 .newsSources { display: flex; gap: 6px; }
 .newsSourceBadge {
