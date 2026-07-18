@@ -841,13 +841,16 @@ export default function DeckBuilderPage() {
 
   // Signature of the distinct card names in the deck. Legalities are per-oracle
   // (name), not per-printing, so only a name change should refetch them.
+  // Deduped by normalized name but keeps the original casing — the
+  // recommendation-metadata RPC matches names case-sensitively, so sending
+  // lowercased names returns nothing.
   const deckNameSignature = useMemo(() => {
-    const seen = new Set()
+    const byKey = new Map()
     for (const dc of deckCards) {
-      const name = normalizeCardName(dc.name)
-      if (name) seen.add(name)
+      const key = normalizeCardName(dc.name)
+      if (key && !byKey.has(key)) byKey.set(key, String(dc.name).trim())
     }
-    return [...seen].sort().join('|')
+    return [...byKey.values()].sort().join('|')
   }, [deckCards])
 
   // Load format legalities by name for every deck card. builderSfMap only
