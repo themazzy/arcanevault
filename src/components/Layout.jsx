@@ -32,7 +32,8 @@ const TABS = [
   { to: '/scanner', label: 'Scanner',    Icon: ScannerIcon },
 ]
 
-const COLLECTION_NAV = TABS.filter(t => ['/collection', '/decks', '/binders', '/lists'].includes(t.to))
+const COLLECTION_NAV = TABS.filter(t => ['/collection', '/decks', '/binders'].includes(t.to))
+const DESKTOP_TABS = TABS.filter(t => !['/', '/collection', '/decks', '/binders', '/builder', '/scanner', '/trading', '/stats'].includes(t.to))
 const BUILDER_NAV = [
   { to: '/builder', label: 'Deck Builder', Icon: BuilderIcon, end: true },
   { to: '/builder?tab=browser', label: 'Deck Browser', Icon: ListViewIcon },
@@ -45,7 +46,6 @@ const STATS_NAV = [
   { to: '/stats', label: 'Stats', Icon: StatsIcon, end: true },
   { to: '/stats?tab=winrates', label: 'Deck Win Rates', Icon: DecksIcon },
   { to: '/stats?tab=history', label: 'Game History', Icon: ListViewIcon },
-  { to: '/life', label: 'Life Tracker', Icon: LifeIcon },
 ]
 
 export default function Layout({ children }) {
@@ -204,10 +204,10 @@ export default function Layout({ children }) {
   const currentMobileGroup = (() => {
     const p = location.pathname
     if (p === '/' || p === '/rules' || p.startsWith('/profile/')) return 'home'
-    if (p === '/collection' || p === '/decks' || p === '/binders' || p === '/lists') return 'collection'
+    if (p === '/collection' || p === '/decks' || p === '/binders') return 'collection'
     if (isDeckBuilderSection) return 'builder'
     if (p.startsWith('/trading')) return 'trading'
-    if (p.startsWith('/stats') || p === '/life') return 'stats'
+    if (p.startsWith('/stats')) return 'stats'
     return null
   })()
   const [openMobileGroup, setOpenMobileGroup] = useState(currentMobileGroup)
@@ -224,7 +224,6 @@ export default function Layout({ children }) {
     { to: '/collection', label: 'My Collection', Icon: CollectionIcon, end: true },
     { to: '/decks', label: 'My Decks', Icon: DecksIcon },
     { to: '/binders', label: 'My Binders', Icon: BindersIcon },
-    { to: '/lists', label: 'Wishlists', Icon: WishlistsIcon },
   ]
   const mobileBuilderItems = [
     { to: '/builder', label: 'Deck Builder', Icon: BuilderIcon, end: true },
@@ -238,7 +237,6 @@ export default function Layout({ children }) {
     { to: '/stats', label: 'Stats', Icon: StatsIcon, end: true },
     { to: '/stats?tab=winrates', label: 'Deck Win Rates', Icon: DecksIcon },
     { to: '/stats?tab=history', label: 'Game History', Icon: ListViewIcon },
-    { to: '/life', label: 'Life Tracker', Icon: LifeIcon },
   ]
   const isHomeGroupActive = currentMobileGroup === 'home'
   const isBuilderGroupActive = currentMobileGroup === 'builder'
@@ -280,9 +278,7 @@ export default function Layout({ children }) {
                     } else if (key === 'trading') {
                       active = location.pathname === '/trading' && (itTabParam ? itTabParam === 'log' && isTradeLogRoute : !isTradeLogRoute)
                     } else if (key === 'stats') {
-                      active = it.to === '/life'
-                        ? location.pathname === '/life'
-                        : location.pathname === '/stats' && (itTabParam ? statsTab === itTabParam : !statsTab)
+                      active = location.pathname === '/stats' && (itTabParam ? statsTab === itTabParam : !statsTab)
                     } else {
                       active = isActive
                     }
@@ -439,7 +435,7 @@ export default function Layout({ children }) {
                   <NavLink
                     to="/stats"
                     end
-                    className={`${styles.tab} ${styles.navMenuButton}${location.pathname.startsWith('/stats') || location.pathname === '/life' ? ` ${styles.active}` : ''}`}
+                    className={`${styles.tab} ${styles.navMenuButton}${location.pathname.startsWith('/stats') ? ` ${styles.active}` : ''}`}
                     onClick={releaseMenuFocus}
                   >
                     <StatsIcon size={12} />
@@ -449,9 +445,7 @@ export default function Layout({ children }) {
                   <div className={styles.navSubmenu} role="menu">
                     {STATS_NAV.map(t => {
                       const tabParam = t.to.includes('?') ? new URLSearchParams(t.to.split('?')[1]).get('tab') : null
-                      const isActive = t.to === '/life'
-                        ? location.pathname === '/life'
-                        : location.pathname === '/stats' && (tabParam ? statsTab === tabParam : !statsTab)
+                      const isActive = location.pathname === '/stats' && (tabParam ? statsTab === tabParam : !statsTab)
                       return (
                         <NavLink
                           key={t.to}
@@ -468,6 +462,19 @@ export default function Layout({ children }) {
                     })}
                   </div>
                 </div>
+                {DESKTOP_TABS.filter(t => t.to !== '/').map(t => (
+                  <NavLink
+                    key={t.to}
+                    to={t.to}
+                    end={t.to === '/'}
+                    className={({ isActive }) => {
+                      return `${styles.tab}${isActive ? ' ' + styles.active : ''}`
+                    }}
+                  >
+                    <t.Icon size={12} />
+                    {t.label}
+                  </NavLink>
+                ))}
               </nav>
 
               <div className={styles.spacer} />
@@ -577,7 +584,23 @@ export default function Layout({ children }) {
             {renderMobileGroup('home', 'Home', HomeIcon, mobileHomeItems, isHomeGroupActive)}
             {renderMobileGroup('collection', 'My Collection', CollectionIcon, mobileCollectionItems, currentMobileGroup === 'collection')}
             {renderMobileGroup('builder', 'Decks', BuilderIcon, mobileBuilderItems, isBuilderGroupActive)}
+            <NavLink
+              to="/lists"
+              className={({ isActive }) => `${styles.mobileNavLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}
+              onClick={closeMobile}
+            >
+              <WishlistsIcon size={17} />
+              Wishlists
+            </NavLink>
             {renderMobileGroup('trading', 'Trading', TradingIcon, mobileTradingItems, isTradingGroupActive)}
+            <NavLink
+              to="/life"
+              className={({ isActive }) => `${styles.mobileNavLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}
+              onClick={closeMobile}
+            >
+              <LifeIcon size={17} />
+              Life Tracker
+            </NavLink>
             {renderMobileGroup('stats', 'Stats', StatsIcon, mobileStatsItems, isStatsGroupActive)}
             <NavLink
               to="/scanner"
