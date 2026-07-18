@@ -34,6 +34,13 @@ export function normalizeCardName(name) {
   return String(name || '').trim().toLowerCase()
 }
 
+// Name filters for deckPlacementData's snapshot loaders. The remote fetch
+// matches `name` case-sensitively in SQL, so these must keep the cards'
+// original casing — normalizeCardName output silently matches nothing there.
+export function placementFilterNames(cards) {
+  return [...new Set((cards || []).map(c => String(c?.name || '').trim()).filter(Boolean))]
+}
+
 // Total COPIES across deck rows — a row holds `qty` copies (basics especially:
 // one row, qty 8+). Any slot math against the deck size must use this, never
 // rows.length, or multi-copy rows undercount the deck and overfill it.

@@ -1,5 +1,32 @@
 import { describe, it, expect } from 'vitest'
-import { deckAllocationKeys, allocationSetHas, mergeOtherDeckAllocationKeys, collectCardIdentities, mainBoardCards, chunkIds, cardNameMatchKeys, countDeckCards, dedupeDeckRowsForInsert, deckRowPrintKey } from './deckBuilderHelpers'
+import { deckAllocationKeys, allocationSetHas, mergeOtherDeckAllocationKeys, collectCardIdentities, mainBoardCards, chunkIds, cardNameMatchKeys, countDeckCards, dedupeDeckRowsForInsert, deckRowPrintKey, placementFilterNames } from './deckBuilderHelpers'
+
+describe('placementFilterNames', () => {
+  it('preserves original casing — the remote placement fetch matches names case-sensitively', () => {
+    // Regression: MakeDeckModal passed normalizeCardName output ("fellwar
+    // stone") to refreshRemotePlacementSnapshot, whose SQL name filter is
+    // case-sensitive — every card owned only in a different printing than the
+    // decklist's came back "not owned".
+    expect(placementFilterNames([
+      { name: 'Fellwar Stone' },
+      { name: 'Azorius Chancery' },
+    ])).toEqual(['Fellwar Stone', 'Azorius Chancery'])
+  })
+
+  it('trims, dedupes, and drops empty names', () => {
+    expect(placementFilterNames([
+      { name: '  Sol Ring ' },
+      { name: 'Sol Ring' },
+      { name: '' },
+      { name: null },
+      null,
+    ])).toEqual(['Sol Ring'])
+  })
+
+  it('returns an empty list for null input', () => {
+    expect(placementFilterNames(null)).toEqual([])
+  })
+})
 
 describe('countDeckCards', () => {
   it('sums copies, not rows — a qty row counts all its copies', () => {

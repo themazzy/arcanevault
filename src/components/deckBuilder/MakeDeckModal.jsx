@@ -3,7 +3,7 @@ import { CheckIcon, InfoIcon, WarningIcon, AddIcon } from '../../icons'
 import { Modal, Select } from '../UI'
 import { BASIC_LANDS, CAN_HOVER } from '../../lib/deckBuilderConstants'
 import { lastInputWasTouch } from '../../lib/inputType'
-import { isGroupFolder, normalizeCardName } from '../../lib/deckBuilderHelpers'
+import { isGroupFolder, normalizeCardName, placementFilterNames } from '../../lib/deckBuilderHelpers'
 import { buildChosenAllocations, buildChosenPrintingSelections } from '../../lib/deckSyncDecisions'
 import { planDeckAllocations } from '../../lib/deckAllocationPlanner'
 import { loadLocalPlacementSnapshot, refreshRemotePlacementSnapshot } from '../../lib/deckPlacementData'
@@ -109,6 +109,10 @@ export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose })
     let cancelled = false
     const deckNameSet = new Set((deckCards || []).map(card => normalizeCardName(card.name)).filter(Boolean))
     const deckScryfallIds = new Set((deckCards || []).map(card => card.scryfall_id).filter(Boolean))
+    // Loader filters need raw casing — the remote fetch matches names
+    // case-sensitively, so lowercased names would mark every card whose exact
+    // printing isn't in the deck as "not owned".
+    const filterNames = placementFilterNames(deckCards)
     const applySnapshot = (snapshot) => {
       const planningCards = (snapshot.cards || []).filter(card =>
         deckNameSet.has(normalizeCardName(card.name)) ||
@@ -123,7 +127,7 @@ export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose })
     async function load() {
       try {
         const localSnapshot = await loadLocalPlacementSnapshot(userId, {
-          names: [...deckNameSet],
+          names: filterNames,
           scryfallIds: [...deckScryfallIds],
         })
         if (cancelled) return
@@ -132,7 +136,7 @@ export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose })
 
         try {
           const remoteSnapshot = await refreshRemotePlacementSnapshot(userId, {
-            names: [...deckNameSet],
+            names: filterNames,
             scryfallIds: [...deckScryfallIds],
           })
           if (cancelled) return
