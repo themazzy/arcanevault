@@ -13,6 +13,7 @@ import { isBasicLandName } from './basicLands'
 export function useDeckCardLegalityWarnings({
   deckCards,
   builderSfMap,
+  legalitiesByName = {},
   format,
   isEDH,
   colorIdentity,
@@ -21,6 +22,15 @@ export function useDeckCardLegalityWarnings({
     const warningsById = new Map()
     const playableCards = deckCards.filter(dc => normalizeBoard(dc.board) !== 'maybe')
     const formatId = format?.id || 'commander'
+    const hasLegalities = leg => leg && Object.keys(leg).length > 0
+    // builderSfMap only carries legalities for cards fetched via Scryfall;
+    // card_prints-resolved cards (most of the deck after an import) have none,
+    // so fall back to the name-keyed legalities loaded from oracle_cards.
+    const legalitiesFor = (dc, sf) => {
+      if (hasLegalities(sf?.legalities)) return sf.legalities
+      if (hasLegalities(dc.legalities)) return dc.legalities
+      return legalitiesByName[normalizeCardName(dc.name)] || null
+    }
     const addWarnings = (id, warnings) => {
       if (!id || !warnings?.length) return
       warningsById.set(id, [...(warningsById.get(id) || []), ...warnings])
@@ -28,9 +38,10 @@ export function useDeckCardLegalityWarnings({
 
     for (const dc of playableCards) {
       const sf = dc.set_code && dc.collector_number ? builderSfMap[getScryfallKey(dc)] : null
+      const legalities = legalitiesFor(dc, sf)
       if (!dc.is_commander) {
         addWarnings(dc.id, getCardLegalityWarnings({
-          card: { ...dc, legalities: sf?.legalities || dc.legalities },
+          card: { ...dc, legalities },
           formatId,
           formatLabel: format?.label,
           isEDH,
@@ -38,7 +49,7 @@ export function useDeckCardLegalityWarnings({
         }))
       }
 
-      const legality = sf?.legalities?.[formatId]
+      const legality = legalities?.[formatId]
       if (legality === 'restricted' && (dc.qty || 0) > 1) {
         addWarnings(dc.id, [{
           reason: 'restricted',
@@ -68,5 +79,5 @@ export function useDeckCardLegalityWarnings({
     }
 
     return warningsById
-  }, [builderSfMap, colorIdentity, deckCards, format, isEDH])
+  }, [builderSfMap, legalitiesByName, colorIdentity, deckCards, format, isEDH])
 }

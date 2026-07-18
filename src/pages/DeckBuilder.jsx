@@ -630,6 +630,11 @@ export default function DeckBuilderPage() {
   const [visibleColumns, setVisibleColumns] = useState(DEFAULT_LIST_COLUMNS)
   const [compactVisibleColumns, setCompactVisibleColumns] = useState(DEFAULT_COMPACT_COLUMNS)
   const [builderSfMap, setBuilderSfMap] = useState({})
+  // Format legalities keyed by normalized card name. Sourced from oracle_cards
+  // (via the recommendation-metadata RPC) because card_prints — which supplies
+  // builderSfMap for most deck cards — intentionally omits legalities, so
+  // freshly-imported/added cards would otherwise carry none and never warn.
+  const [deckLegalitiesByName, setDeckLegalitiesByName] = useState({})
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
   const [draggedCategoryId, setDraggedCategoryId] = useState(null)
   const [stackHoverState, setStackHoverState] = useState(null) // { group, stackIdx }
@@ -833,6 +838,38 @@ export default function DeckBuilderPage() {
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [builderPrintSignature])
+
+  // Signature of the distinct card names in the deck. Legalities are per-oracle
+  // (name), not per-printing, so only a name change should refetch them.
+  const deckNameSignature = useMemo(() => {
+    const seen = new Set()
+    for (const dc of deckCards) {
+      const name = normalizeCardName(dc.name)
+      if (name) seen.add(name)
+    }
+    return [...seen].sort().join('|')
+  }, [deckCards])
+
+  // Load format legalities by name for every deck card. builderSfMap only
+  // carries legalities for the minority of cards that fell through to Scryfall;
+  // this covers the rest (card_prints-resolved) so bans/not-legal cards warn.
+  useEffect(() => {
+    if (!deckNameSignature) { setDeckLegalitiesByName({}); return }
+    let cancelled = false
+    const names = deckNameSignature.split('|').filter(Boolean)
+    fetchRecommendationMetadataByNames(names)
+      .then(cards => {
+        if (cancelled) return
+        const legMap = {}
+        for (const c of cards) {
+          const key = normalizeCardName(c.requested_name || c.name)
+          if (key && c.legalities && Object.keys(c.legalities).length) legMap[key] = c.legalities
+        }
+        setDeckLegalitiesByName(legMap)
+      })
+      .catch(() => { if (!cancelled) setDeckLegalitiesByName({}) })
+    return () => { cancelled = true }
+  }, [deckNameSignature])
 
   useEffect(() => { deckCardsRef.current = deckCards }, [deckCards])
   useEffect(() => { deckCategoriesRef.current = deckCategories }, [deckCategories])
@@ -1402,6 +1439,7 @@ export default function DeckBuilderPage() {
   const deckCardLegalityWarnings = useDeckCardLegalityWarnings({
     deckCards,
     builderSfMap,
+    legalitiesByName: deckLegalitiesByName,
     format,
     isEDH,
     colorIdentity,
