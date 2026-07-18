@@ -38,11 +38,6 @@ const BUILDER_NAV = [
   { to: '/builder', label: 'Deck Builder', Icon: BuilderIcon, end: true },
   { to: '/builder?tab=browser', label: 'Deck Browser', Icon: ListViewIcon },
 ]
-const STATS_NAV = [
-  { to: '/stats', label: 'Stats', Icon: StatsIcon, end: true },
-  { to: '/stats?tab=winrates', label: 'Deck Win Rates', Icon: DecksIcon },
-  { to: '/stats?tab=history', label: 'Game History', Icon: ListViewIcon },
-]
 
 export default function Layout({ children }) {
   const { user } = useAuth()
@@ -186,7 +181,6 @@ export default function Layout({ children }) {
       ? location.pathname === t.to
       : location.pathname === t.to || location.pathname.startsWith(`${t.to}/`)
   ))
-  const statsTab = location.pathname === '/stats' ? new URLSearchParams(location.search).get('tab') : null
   const isDeckBrowserRoute = location.pathname === '/builder' && new URLSearchParams(location.search).get('tab') === 'browser'
   const isDeckBuilderSection = location.pathname === '/builder' || /^\/builder\/[^/]+/.test(location.pathname)
 
@@ -195,7 +189,6 @@ export default function Layout({ children }) {
     if (p === '/' || p === '/rules' || p.startsWith('/profile/')) return 'home'
     if (p === '/collection' || p === '/decks' || p === '/binders') return 'collection'
     if (isDeckBuilderSection) return 'builder'
-    if (p.startsWith('/stats')) return 'stats'
     return null
   })()
   const [openMobileGroup, setOpenMobileGroup] = useState(currentMobileGroup)
@@ -217,14 +210,8 @@ export default function Layout({ children }) {
     { to: '/builder', label: 'Deck Builder', Icon: BuilderIcon, end: true },
     { to: '/builder?tab=browser', label: 'Deck Browser', Icon: ListViewIcon },
   ]
-  const mobileStatsItems = [
-    { to: '/stats', label: 'Stats', Icon: StatsIcon, end: true },
-    { to: '/stats?tab=winrates', label: 'Deck Win Rates', Icon: DecksIcon },
-    { to: '/stats?tab=history', label: 'Game History', Icon: ListViewIcon },
-  ]
   const isHomeGroupActive = currentMobileGroup === 'home'
   const isBuilderGroupActive = currentMobileGroup === 'builder'
-  const isStatsGroupActive = currentMobileGroup === 'stats'
 
   const renderMobileGroup = (key, label, Icon, items, isGroupActive) => {
     const isOpen = openMobileGroup === key
@@ -245,33 +232,28 @@ export default function Layout({ children }) {
         </button>
         {isOpen && (
           <div className={styles.mobileNavGroupItems}>
-            {items.map(it => {
-              const itTabParam = it.to.includes('?') ? new URLSearchParams(it.to.split('?')[1]).get('tab') : null
-              return (
-                <NavLink
-                  key={it.to}
-                  to={it.to}
-                  end={it.end}
-                  className={({ isActive }) => {
-                    let active
-                    if (key === 'builder') {
-                      active = it.to === '/builder'
-                        ? isDeckBuilderSection && !isDeckBrowserRoute
-                        : isDeckBrowserRoute
-                    } else if (key === 'stats') {
-                      active = location.pathname === '/stats' && (itTabParam ? statsTab === itTabParam : !statsTab)
-                    } else {
-                      active = isActive
-                    }
-                    return `${styles.mobileNavLink} ${styles.mobileNavSubLink}${active ? ' ' + styles.mobileNavLinkActive : ''}`
-                  }}
-                  onClick={closeMobile}
-                >
-                  <it.Icon size={15} />
-                  {it.label}
-                </NavLink>
-              )
-            })}
+            {items.map(it => (
+              <NavLink
+                key={it.to}
+                to={it.to}
+                end={it.end}
+                className={({ isActive }) => {
+                  let active
+                  if (key === 'builder') {
+                    active = it.to === '/builder'
+                      ? isDeckBuilderSection && !isDeckBrowserRoute
+                      : isDeckBrowserRoute
+                  } else {
+                    active = isActive
+                  }
+                  return `${styles.mobileNavLink} ${styles.mobileNavSubLink}${active ? ' ' + styles.mobileNavLinkActive : ''}`
+                }}
+                onClick={closeMobile}
+              >
+                <it.Icon size={15} />
+                {it.label}
+              </NavLink>
+            ))}
           </div>
         )}
       </div>
@@ -359,37 +341,13 @@ export default function Layout({ children }) {
                   <TradingIcon size={12} />
                   Trading
                 </NavLink>
-                <div className={styles.navMenuWrap}>
-                  <NavLink
-                    to="/stats"
-                    end
-                    className={`${styles.tab} ${styles.navMenuButton}${location.pathname.startsWith('/stats') ? ` ${styles.active}` : ''}`}
-                    onClick={releaseMenuFocus}
-                  >
-                    <StatsIcon size={12} />
-                    Stats
-                    <ChevronDownIcon size={10} className={styles.navMenuCaret} />
-                  </NavLink>
-                  <div className={styles.navSubmenu} role="menu">
-                    {STATS_NAV.map(t => {
-                      const tabParam = t.to.includes('?') ? new URLSearchParams(t.to.split('?')[1]).get('tab') : null
-                      const isActive = location.pathname === '/stats' && (tabParam ? statsTab === tabParam : !statsTab)
-                      return (
-                        <NavLink
-                          key={t.to}
-                          to={t.to}
-                          end={t.end}
-                          role="menuitem"
-                          className={`${styles.navSubmenuItem}${isActive ? ' ' + styles.navSubmenuItemActive : ''}`}
-                          onClick={releaseMenuFocus}
-                        >
-                          <t.Icon size={14} />
-                          {t.label}
-                        </NavLink>
-                      )
-                    })}
-                  </div>
-                </div>
+                <NavLink
+                  to="/stats"
+                  className={({ isActive }) => `${styles.tab}${isActive ? ' ' + styles.active : ''}`}
+                >
+                  <StatsIcon size={12} />
+                  Stats
+                </NavLink>
                 {DESKTOP_TABS.filter(t => t.to !== '/').map(t => (
                   <NavLink
                     key={t.to}
@@ -545,7 +503,14 @@ export default function Layout({ children }) {
               <LifeIcon size={17} />
               Life Tracker
             </NavLink>
-            {renderMobileGroup('stats', 'Stats', StatsIcon, mobileStatsItems, isStatsGroupActive)}
+            <NavLink
+              to="/stats"
+              className={({ isActive }) => `${styles.mobileNavLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}
+              onClick={closeMobile}
+            >
+              <StatsIcon size={17} />
+              Stats
+            </NavLink>
             <NavLink
               to="/scanner"
               className={({ isActive }) => `${styles.mobileNavLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}

@@ -1580,6 +1580,23 @@ export default function StatsPage() {
     <div className={styles.page}>
       <SectionHeader title={tab === 'history' ? 'Game History' : tab === 'winrates' ? 'Deck Win Rates' : `Stats · ${cards.length.toLocaleString()} card entries`} />
 
+      <div className={styles.tabBar}>
+        {[
+          ['overview', 'Overview'],
+          ['winrates', 'Deck Win Rates'],
+          ['history', 'Game History'],
+        ].map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            className={`${styles.tabBtn}${tab === id ? ' ' + styles.tabBtnActive : ''}`}
+            onClick={() => { setTab(id); window.history.replaceState(null, '', id === 'overview' ? '/stats' : `/stats?tab=${id}`) }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       {tab === 'history' ? (
         <GameHistorySection
           rows={historyRows}

@@ -48,6 +48,17 @@ describe('Layout navbar without a Home menu', () => {
     expect(screen.queryByRole('menuitem', { name: /trade log/i })).toBeNull()
   })
 
+  it('renders Stats as a plain tab with no dropdown menu', () => {
+    renderLayout('/')
+    const nav = document.querySelector('nav')
+    const stats = screen.getAllByRole('link', { name: /^stats$/i }).find(l => nav.contains(l))
+    expect(stats).toBeTruthy()
+    expect(stats.getAttribute('href')).toBe('/stats')
+    expect(stats.parentElement.tagName).toBe('NAV')
+    expect(screen.queryByRole('menuitem', { name: /deck win rates/i })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: /game history/i })).toBeNull()
+  })
+
   it('offers Rulebook as a menu item in the account dropdown', () => {
     renderLayout('/')
     const rulebook = screen.getByRole('menuitem', { name: /rulebook/i })
