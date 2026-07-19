@@ -69,6 +69,11 @@ const AUTOSCAN_ESCALATE_EVERY     = 3
 // name+foil signature guard already suppresses re-adding the card left in
 // frame, so this only needs to cover the beep/haptic moment, not the swap.
 const AUTOSCAN_AFTER_SCAN_MS      = 250
+// When a scan re-matches the card already accepted (same name+foil, still
+// sitting in frame), pace the pointless re-checks down to this interval. A
+// swapped card re-arms instantly via the signature comparison itself, so this
+// only throttles true no-ops.
+const AUTOSCAN_DUPLICATE_COOLDOWN_MS = 1500
 const AUTOSCAN_RESCUE_COOLDOWN_MS = 2500  // min gap between title-OCR rescues in auto-scan
 const PRIMARY_CROP_VARIANTS = [
   { xOffset: 0, yOffset: 0 },
@@ -491,6 +496,11 @@ export default function CardScanner({ onMatch, onClose }) {
   const scanningRef = useRef(false)
   const lastAutoScanSignatureRef = useRef(null)
   const lastTitleRescueAtRef = useRef(0)
+  // While an unmoved card keeps re-matching as a duplicate, probing (and the
+  // tracking frame) continue but scans are held off until this timestamp.
+  // Quad movement, detection loss, and "Next Card" all clear the hold, so a
+  // swapped card or a deliberate rescan scans immediately.
+  const duplicateHoldUntilRef = useRef(0)
   const lastSoundCardUidRef = useRef(null)
   const sessionStatsRef = useRef({ attempts: 0, hits: 0, totalMs: 0, hitMs: 0, missMs: 0 })
   const [sessionStatsDisplay, setSessionStatsDisplay] = useState({ attempts: 0, hits: 0, totalMs: 0, hitMs: 0, missMs: 0 })
@@ -1659,6 +1669,14 @@ export default function CardScanner({ onMatch, onClose }) {
 
       const elapsed = Date.now() - scanStart
 
+      // Same name+foil as the last accepted scan means the card is still
+      // sitting in frame — a silent no-op, not a new match. Deliberately loose
+      // (name-only): sets with near-identical prints, like basics, would
+      // otherwise get re-added on every printing wobble. The "Next Card"
+      // button resets this for a deliberate same-name rescan.
+      const autoScanSignature = match ? getAutoScanCardSignature(match, preferFoil) : null
+      const isDuplicate = isAutoScan && !!match && autoScanSignature === lastAutoScanSignatureRef.current
+
       // One compact line per scan attempt, always on: per-stage wall-clock
       // breakdown. This is what "scans got slow" reports are diagnosed from —
       // stage sums < elapsed means worker queueing / inter-frame delays.
@@ -1669,7 +1687,7 @@ export default function CardScanner({ onMatch, onClose }) {
         )
         const r = Math.round
         console.info(
-          `[scan] ${elapsed}ms ${match ? `hit "${match.name}"` : `miss (${acceptance.reason})`}` +
+          `[scan] ${elapsed}ms ${match ? `hit "${match.name}"${isDuplicate ? ' (dup)' : ''}` : `miss (${acceptance.reason})`}` +
           ` | frames ${frameSummaries.join(' ')}` +
           ` | cap ${r(stage.capture)} det ${r(stage.detect)} warp ${r(stage.warp)} hash ${r(stage.hash)} match ${r(stage.match)}` +
           (fusionMs ? ` | fusion ${r(fusionMs)}` : '') +
@@ -1684,31 +1702,26 @@ export default function CardScanner({ onMatch, onClose }) {
         sessionStatsRef.current.totalMs += elapsed
         sessionStatsRef.current.missMs += elapsed
         setSessionStatsDisplay({ ...sessionStatsRef.current })
-        return
+        return 'miss'
       }
+
+      // Unmoved card re-matched: no stats, no haptic, no callback — the probe
+      // loop just slows its re-checks until the card changes.
+      if (isDuplicate) return 'duplicate'
 
       sessionStatsRef.current.attempts++
       sessionStatsRef.current.hits++
       sessionStatsRef.current.totalMs += elapsed
       sessionStatsRef.current.hitMs += elapsed
       setSessionStatsDisplay({ ...sessionStatsRef.current })
-      // In auto-scan mode, skip adding if this is the same name+foil as the last
-      // scan, even if the matcher flips between different printings of that card
-      // while it's still sitting in frame (name-only is deliberately loose — sets
-      // with near-identical prints, like basics, would otherwise get re-added on
-      // every wobble). The "Next Card" button below resets this for a deliberate
-      // same-name rescan.
-      const autoScanSignature = getAutoScanCardSignature(match, preferFoil)
-      const isDuplicate = isAutoScan && autoScanSignature === lastAutoScanSignatureRef.current
-      if (!isDuplicate) {
-        if (isAutoScan) lastAutoScanSignatureRef.current = autoScanSignature
-        addToPending(match, { foil: preferFoil })
-        if (scanOcr) refineScanWithOcr(match)
-      }
+      if (isAutoScan) lastAutoScanSignatureRef.current = autoScanSignature
+      addToPending(match, { foil: preferFoil })
+      if (scanOcr) refineScanWithOcr(match)
       // In manual mode, close any open overlay — result shows in the bottom bar only
       if (!isAutoScan && basketTgl.on) basketTgl.hide()
       try { await Haptics.impact({ style: ImpactStyle.Medium }) } catch {}
       onMatch?.(match)
+      return 'added'
     } catch (e) {
       if (DEBUG && mountedRef.current) setDebugInfo(d => ({ ...(d||{}), decision: `error: ${e.message}` }))
     } finally {
@@ -1723,6 +1736,7 @@ export default function CardScanner({ onMatch, onClose }) {
   // basic land instead of rescanning the one still in frame).
   const resetAutoScanGuard = useCallback(() => {
     lastAutoScanSignatureRef.current = null
+    duplicateHoldUntilRef.current = 0
     Haptics.impact({ style: ImpactStyle.Light }).catch(() => {})
   }, [])
 
@@ -1805,24 +1819,34 @@ export default function CardScanner({ onMatch, onClose }) {
             const sig = quadSig(corners)
             const stable = quadSigRoughlyEqual(sig, lastSig, AUTOSCAN_PROBE_EPS_PX, AUTOSCAN_PROBE_AREA_TOL)
             stableCount = stable ? stableCount + 1 : 1
+            if (!stable) duplicateHoldUntilRef.current = 0
             lastSig = sig
             if (stableCount >= AUTOSCAN_PROBE_STABLE) {
-              stableCount = 0
-              lastSig = null
-              // Reuse this probe's frame + corners for the scan's first sample.
-              await handleScan({
-                prefetched: {
-                  getFullImageData: frame.getFullImageData,
-                  w: frame.w, h: frame.h, sw: frame.sw, sh: frame.sh,
-                  corners,
-                },
-              })
-              delay = AUTOSCAN_AFTER_SCAN_MS
+              if (Date.now() < duplicateHoldUntilRef.current) {
+                // Same card still sitting there — keep tracking, don't re-scan.
+                stableCount = AUTOSCAN_PROBE_STABLE
+              } else {
+                stableCount = 0
+                lastSig = null
+                // Reuse this probe's frame + corners for the scan's first sample.
+                const outcome = await handleScan({
+                  prefetched: {
+                    getFullImageData: frame.getFullImageData,
+                    w: frame.w, h: frame.h, sw: frame.sw, sh: frame.sh,
+                    corners,
+                  },
+                })
+                if (outcome === 'duplicate') {
+                  duplicateHoldUntilRef.current = Date.now() + AUTOSCAN_DUPLICATE_COOLDOWN_MS
+                }
+                delay = AUTOSCAN_AFTER_SCAN_MS
+              }
             }
           } else {
             missStreak++
             stableCount = 0
             lastSig = null
+            duplicateHoldUntilRef.current = 0
             showQuad(null)
           }
         } catch { /* keep probing */ }
