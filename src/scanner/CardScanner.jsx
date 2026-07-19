@@ -489,8 +489,8 @@ export default function CardScanner({ onMatch, onClose }) {
   const lastAutoScanSignatureRef = useRef(null)
   const lastTitleRescueAtRef = useRef(0)
   const lastSoundCardUidRef = useRef(null)
-  const sessionStatsRef = useRef({ attempts: 0, hits: 0, totalMs: 0 })
-  const [sessionStatsDisplay, setSessionStatsDisplay] = useState({ attempts: 0, hits: 0, totalMs: 0 })
+  const sessionStatsRef = useRef({ attempts: 0, hits: 0, totalMs: 0, hitMs: 0, missMs: 0 })
+  const [sessionStatsDisplay, setSessionStatsDisplay] = useState({ attempts: 0, hits: 0, totalMs: 0, hitMs: 0, missMs: 0 })
   const manualSearchRequestRef = useRef(0)
   const setIconFetchesRef = useRef(new Set())
 
@@ -1360,17 +1360,24 @@ export default function CardScanner({ onMatch, onClose }) {
     // The auto-scan probe hands over its frame + detected corners so the
     // first sample skips a capture (native captureSample costs ~250 ms) and
     // a detection pass.
+    // Per-stage wall-clock times (ms) — surfaced in the per-scan console
+    // line so slow sessions can be attributed to a stage, not guessed at.
+    const timing = { capture: 0, detect: 0, warp: 0, hash: 0, match: 0 }
     let getFullImageData, w, h, sw, sh, cornersSmall
     if (prefetched) {
       ({ getFullImageData, w, h, sw, sh } = prefetched)
       cornersSmall = prefetched.corners
     } else {
+      let t0 = performance.now()
       const frame = await captureFrame()
-      if (!frame) return { status: 'error', stage: 'no frame', best: null, second: null, candidateCount: 0, totalCount: 0 }
+      timing.capture = performance.now() - t0
+      if (!frame) return { status: 'error', stage: 'no frame', best: null, second: null, candidateCount: 0, totalCount: 0, timing }
       ;({ getFullImageData, w, h, sw, sh } = frame)
       // Corner detection runs in the vision worker on the pre-downscaled
       // (sw×sh) frame. Scale corners back to full-res coords for the warp.
+      t0 = performance.now()
       cornersSmall = await visionClient.detect(frame.smallImageData)
+      timing.detect = performance.now() - t0
     }
     const scaleX = w / sw, scaleY = h / sh
     const corners = cornersSmall?.map(p => ({ x: p.x * scaleX, y: p.y * scaleY })) ?? null
@@ -1413,7 +1420,9 @@ export default function CardScanner({ onMatch, onClose }) {
     // as extra signals — matchCore ignores whichever the loaded pack lacks.
     const packTileGrid = databaseService.tileGrid
     const tryMatch = async (rot180, sourceLabel, variants) => {
+      let t0 = performance.now()
       const { results: hashSets, fullHash } = await visionClient.hashVariants(variants, { rot180, tileGrid: packTileGrid })
+      timing.hash += performance.now() - t0
       for (let i = 0; i < variants.length && i < hashSets.length; i++) {
         const hs = hashSets[i]
         if (!hs?.hash) continue
@@ -1432,8 +1441,10 @@ export default function CardScanner({ onMatch, onClose }) {
           ...(hs.darkHash ? [{ hash: hs.darkHash, label: 'dark' }] : []),
         ]
         const opts = hs.tileHashes ? { ...matchOpts, tileQuery: hs.tileHashes } : matchOpts
+        t0 = performance.now()
         const { best: c, second: r, diffGap, candidateCount, totalCount, fallback, bestLabel } =
           await databaseService.findBestTwoWithStatsAsyncAll(queries, hs.colorHash ?? null, fullHash, opts)
+        timing.match += performance.now() - t0
         const label = bestLabel && bestLabel !== 'standard' ? `${sourceLabel}+${bestLabel}` : sourceLabel
         if (updateBest(c, r, diffGap, candidateCount, totalCount, variants[i], label, fallback)) return
       }
@@ -1459,18 +1470,22 @@ export default function CardScanner({ onMatch, onClose }) {
     // over from a previous scan of a different card.
     let cardLoaded = false
     if (corners) {
+      const tw = performance.now()
       const loaded = await visionClient.loadWarped(getFullImageData(), corners)
+      timing.warp += performance.now() - tw
       if (loaded) { cardLoaded = true; await runLadder('corners') }
     }
     // Reticle fallback: blind-crop the center of the frame. Useful for manual scan
     // when edge detection misses the card, but disabled in auto-scan (cornersOnly) to
     // prevent false positives from incidental objects in the reticle zone.
     if (!cornersOnly && shouldExpand()) {
+      const tw = performance.now()
       const loaded = await visionClient.loadReticle(getFullImageData(), window.innerWidth, window.innerHeight)
+      timing.warp += performance.now() - tw
       if (loaded) { cardLoaded = true; await runLadder('reticle') }
     }
 
-    if (!best) return { status: 'notfound', stage: 'no candidate', best: null, second: null, candidateCount: bestStats.candidateCount, totalCount: bestStats.totalCount, source: bestSource, cardLoaded, primaryHashes }
+    if (!best) return { status: 'notfound', stage: 'no candidate', best: null, second: null, candidateCount: bestStats.candidateCount, totalCount: bestStats.totalCount, source: bestSource, cardLoaded, primaryHashes, timing }
 
     const gap = bestGap   // different-name gap, maintained by updateBest
     const sameNameCluster = !!(best?.name && second?.name && normalizeName(best.name) === normalizeName(second.name))
@@ -1479,7 +1494,7 @@ export default function CardScanner({ onMatch, onClose }) {
       stage: `dist ${best.distance}, gap ${gap}`,
       best, second, gap, sameNameCluster,
       candidateCount: bestStats.candidateCount, totalCount: bestStats.totalCount,
-      variant: bestVariant, source: bestSource, cardLoaded, primaryHashes,
+      variant: bestVariant, source: bestSource, cardLoaded, primaryHashes, timing,
     }
   }, [captureFrame, isNative])
 
@@ -1524,6 +1539,8 @@ export default function CardScanner({ onMatch, onClose }) {
       let anyCardLoaded = false
       const fusionFrames = []
       const frameSummaries = []
+      const frameTimings = []
+      let fusionMs = 0, rescueMs = 0
       const isAutoScan = autoScanRef.current
       const allowedSets = lockSet && lockedSets.size > 0
         ? new Set([...lockedSets].map(code => String(code).toLowerCase()))
@@ -1536,6 +1553,7 @@ export default function CardScanner({ onMatch, onClose }) {
           prefetched: i === 0 ? prefetched : null,
         })
         anyCardLoaded ||= !!result.cardLoaded
+        if (result.timing) frameTimings.push(result.timing)
         if (result.primaryHashes) fusionFrames.push(result.primaryHashes)
         frameSummaries.push(result.best ? `${i+1}:${result.best.distance}/${result.gap??'?'}` : `${i+1}:${result.stage}`)
         if (result.best && (!bestObserved || result.best.distance < bestObserved.distance)) {
@@ -1573,6 +1591,7 @@ export default function CardScanner({ onMatch, onClose }) {
       // clean hash out of glare-corrupted captures. One extra match, judged
       // by the same distance/gap/cluster gates as a normal frame.
       if (!match && fusionFrames.length >= 2) {
+        const fusionStart = performance.now()
         const fused = fuseFrameHashes(fusionFrames)
         if (fused) {
           const fusedOpts = {
@@ -1600,6 +1619,7 @@ export default function CardScanner({ onMatch, onClose }) {
             }
           }
         }
+        fusionMs = performance.now() - fusionStart
       }
 
       // Hash came up empty but a card was in the worker this scan → try to
@@ -1611,7 +1631,9 @@ export default function CardScanner({ onMatch, onClose }) {
           Date.now() - (lastTitleRescueAtRef.current || 0) >= AUTOSCAN_RESCUE_COOLDOWN_MS
         if (rescueDue) {
           lastTitleRescueAtRef.current = Date.now()
+          const rescueStart = performance.now()
           match = await rescueByTitle(bestObserved, allowedSets).catch(() => null)
+          rescueMs = performance.now() - rescueStart
         }
       }
 
@@ -1630,10 +1652,31 @@ export default function CardScanner({ onMatch, onClose }) {
       }
 
       const elapsed = Date.now() - scanStart
+
+      // One compact line per scan attempt, always on: per-stage wall-clock
+      // breakdown. This is what "scans got slow" reports are diagnosed from —
+      // stage sums < elapsed means worker queueing / inter-frame delays.
+      {
+        const stage = frameTimings.reduce(
+          (acc, t) => { for (const k in acc) acc[k] += t[k] || 0; return acc },
+          { capture: 0, detect: 0, warp: 0, hash: 0, match: 0 },
+        )
+        const r = Math.round
+        console.info(
+          `[scan] ${elapsed}ms ${match ? `hit "${match.name}"` : `miss (${acceptance.reason})`}` +
+          ` | frames ${frameSummaries.join(' ')}` +
+          ` | cap ${r(stage.capture)} det ${r(stage.detect)} warp ${r(stage.warp)} hash ${r(stage.hash)} match ${r(stage.match)}` +
+          (fusionMs ? ` | fusion ${r(fusionMs)}` : '') +
+          (rescueMs ? ` | rescue ${r(rescueMs)}` : '') +
+          ` | src ${bestObservedSource ?? '-'}`,
+        )
+      }
+
       if (!match) {
         if (isAutoScan) lastAutoScanSignatureRef.current = null
         sessionStatsRef.current.attempts++
         sessionStatsRef.current.totalMs += elapsed
+        sessionStatsRef.current.missMs += elapsed
         setSessionStatsDisplay({ ...sessionStatsRef.current })
         return
       }
@@ -1641,6 +1684,7 @@ export default function CardScanner({ onMatch, onClose }) {
       sessionStatsRef.current.attempts++
       sessionStatsRef.current.hits++
       sessionStatsRef.current.totalMs += elapsed
+      sessionStatsRef.current.hitMs += elapsed
       setSessionStatsDisplay({ ...sessionStatsRef.current })
       // In auto-scan mode, skip adding if this is the same name+foil as the last
       // scan, even if the matcher flips between different printings of that card
@@ -2647,13 +2691,21 @@ export default function CardScanner({ onMatch, onClose }) {
                 <span>{sessionStatsDisplay.hits} / {sessionStatsDisplay.attempts} matched</span>
                 <span>{Math.round(sessionStatsDisplay.hits / sessionStatsDisplay.attempts * 100)}%</span>
               </div>
-              <div className={styles.sessionStatsRow}>
-                <span>Avg scan time</span>
-                <span>{Math.round(sessionStatsDisplay.totalMs / sessionStatsDisplay.attempts)}ms</span>
-              </div>
+              {sessionStatsDisplay.hits > 0 && (
+                <div className={styles.sessionStatsRow}>
+                  <span>Avg match time</span>
+                  <span>{Math.round(sessionStatsDisplay.hitMs / sessionStatsDisplay.hits)}ms</span>
+                </div>
+              )}
+              {sessionStatsDisplay.attempts > sessionStatsDisplay.hits && (
+                <div className={styles.sessionStatsRow}>
+                  <span>Avg miss time</span>
+                  <span>{Math.round(sessionStatsDisplay.missMs / (sessionStatsDisplay.attempts - sessionStatsDisplay.hits))}ms</span>
+                </div>
+              )}
               <button
                 className={styles.settingsInlineBtn}
-                onClick={() => { sessionStatsRef.current = { attempts: 0, hits: 0, totalMs: 0 }; setSessionStatsDisplay({ attempts: 0, hits: 0, totalMs: 0 }) }}
+                onClick={() => { sessionStatsRef.current = { attempts: 0, hits: 0, totalMs: 0, hitMs: 0, missMs: 0 }; setSessionStatsDisplay({ attempts: 0, hits: 0, totalMs: 0, hitMs: 0, missMs: 0 }) }}
                 style={{ marginTop: 4 }}
               >
                 Reset stats
