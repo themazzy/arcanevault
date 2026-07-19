@@ -65,7 +65,10 @@ const AUTOSCAN_PROBE_AREA_TOL     = 0.2   // max relative bbox-area change betwe
 // manual scanning (all passes + reticle) still finds.
 const AUTOSCAN_ESCALATE_AFTER     = 3
 const AUTOSCAN_ESCALATE_EVERY     = 3
-const AUTOSCAN_AFTER_SCAN_MS      = 450   // pause after a full scan attempt
+// Pause after a full scan attempt before probing resumes. Kept short — the
+// name+foil signature guard already suppresses re-adding the card left in
+// frame, so this only needs to cover the beep/haptic moment, not the swap.
+const AUTOSCAN_AFTER_SCAN_MS      = 250
 const AUTOSCAN_RESCUE_COOLDOWN_MS = 2500  // min gap between title-OCR rescues in auto-scan
 const PRIMARY_CROP_VARIANTS = [
   { xOffset: 0, yOffset: 0 },
