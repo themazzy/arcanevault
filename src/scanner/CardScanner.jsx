@@ -56,7 +56,7 @@ const MATCH_MIN_GAP          = 8
 const MATCH_STRONG_THRESHOLD = 134
 const MATCH_STRONG_SINGLE    = 108
 // Continuous auto-scan: cheap corner probes at this cadence gate full scans.
-const AUTOSCAN_PROBE_INTERVAL_MS  = 90
+const AUTOSCAN_PROBE_INTERVAL_MS  = 60
 const AUTOSCAN_PROBE_STABLE       = 2     // consecutive stable probes before scanning
 const AUTOSCAN_PROBE_EPS_PX       = 10    // max centroid drift between probes (small-frame px)
 const AUTOSCAN_PROBE_AREA_TOL     = 0.2   // max relative bbox-area change between probes
@@ -169,14 +169,6 @@ function mapQuadToViewport(corners, frameW, frameH) {
   return corners.map(p => ({ x: p.x * scale - ox, y: p.y * scale - oy }))
 }
 
-function quadRoughlyEqual(a, b, eps = 3) {
-  if (!a || !b) return a === b
-  for (let i = 0; i < 4; i++) {
-    if (Math.abs(a[i].x - b[i].x) > eps || Math.abs(a[i].y - b[i].y) > eps) return false
-  }
-  return true
-}
-
 // Cheap position/size fingerprint for a detected quad — used by the probe
 // loop's frame-to-frame stability check (has the card held still long
 // enough to fire a scan?).
@@ -195,6 +187,14 @@ function quadSigRoughlyEqual(a, b, epsPx, areaTol) {
 }
 
 const DETECT_FRAME_RADIUS = 18 // px — rounding applied to the live tracking-frame quad
+// Tracking-frame display smoothing: the drawn quad eases toward the latest
+// probe detection every animation frame (exponential smoothing, time constant
+// below), so the overlay moves at display refresh rate even though detections
+// only arrive at probe cadence.
+const TRACK_SMOOTH_TAU_MS = 70
+// Keep the frame on screen through brief detection dropouts — a single missed
+// probe must not blank the overlay (detection flickers frame to frame).
+const TRACK_GRACE_MS = 450
 
 // Builds an SVG path for a quadrilateral with rounded corners: each vertex is
 // replaced with a short quadratic curve toward its neighbors (radius clamped
@@ -510,10 +510,13 @@ export default function CardScanner({ onMatch, onClose }) {
   const [flashMode, setFlashMode]   = useState('off')
   const [cameraStarted, setCameraStarted] = useState(false)
   const [setIcons, setSetIcons] = useState(() => loadSetIconCache())
-  // Live lock-on overlay: the quad the auto-scan probe currently sees,
-  // in viewport CSS coordinates.
-  const [probeQuad, setProbeQuad] = useState(null)
-  const probeQuadRef = useRef(null)
+  // Live lock-on overlay. Detections land in probeTargetRef (viewport CSS
+  // coords); a rAF loop eases displayQuadRef toward the target and writes the
+  // SVG path imperatively — React state only tracks the locked/idle mode.
+  const [trackLocked, setTrackLocked] = useState(false)
+  const probeTargetRef = useRef(null)   // { quad|null, lastSeenTs }
+  const displayQuadRef = useRef(null)   // interpolated quad currently drawn
+  const trackPathRef   = useRef(null)   // <path> element of the tracking frame
   const [latestPrintingData, setLatestPrintingData] = useState(null)
   const [latestLanguageOptions, setLatestLanguageOptions] = useState([['en', 'EN']])
   const [printingDataById, setPrintingDataById] = useState({})
@@ -1740,12 +1743,48 @@ export default function CardScanner({ onMatch, onClose }) {
     let stableCount = 0
     let missStreak = 0
 
-    // Update the lock-on overlay, skipping no-op renders (probe ticks at ~10 Hz).
+    // Publish the probe's latest sighting; the rAF loop below does the drawing.
     const showQuad = (quad) => {
-      if (quadRoughlyEqual(quad, probeQuadRef.current)) return
-      probeQuadRef.current = quad
-      setProbeQuad(quad)
+      probeTargetRef.current = quad
+        ? { quad, lastSeenTs: performance.now() }
+        : { quad: null, lastSeenTs: probeTargetRef.current?.lastSeenTs ?? 0 }
     }
+
+    // Tracking-frame animator: every display frame, ease the drawn quad toward
+    // the latest detection (exponential smoothing) and write the SVG path
+    // directly — no React re-render. The frame survives detection dropouts for
+    // TRACK_GRACE_MS and holds steady while a scan is in flight (probing is
+    // paused then, so the target can't refresh).
+    let raf = 0
+    let lastRafTs = 0
+    const stepTrack = (ts) => {
+      if (cancelled) return
+      const dt = lastRafTs ? Math.min(ts - lastRafTs, 100) : 16
+      lastRafTs = ts
+      const target = probeTargetRef.current
+      const disp = displayQuadRef.current
+      if (target?.quad) {
+        let next
+        if (!disp) {
+          next = target.quad.map(p => ({ ...p }))
+          setTrackLocked(true)
+        } else {
+          const k = 1 - Math.exp(-dt / TRACK_SMOOTH_TAU_MS)
+          next = disp.map((p, i) => ({
+            x: p.x + (target.quad[i].x - p.x) * k,
+            y: p.y + (target.quad[i].y - p.y) * k,
+          }))
+        }
+        displayQuadRef.current = next
+        trackPathRef.current?.setAttribute('d', roundedQuadPath(next, DETECT_FRAME_RADIUS))
+      } else if (disp && !scanningRef.current &&
+                 performance.now() - (target?.lastSeenTs ?? 0) > TRACK_GRACE_MS) {
+        displayQuadRef.current = null
+        setTrackLocked(false)
+      }
+      raf = requestAnimationFrame(stepTrack)
+    }
+    raf = requestAnimationFrame(stepTrack)
 
     const loop = async () => {
       if (cancelled) return
@@ -1796,8 +1835,10 @@ export default function CardScanner({ onMatch, onClose }) {
     return () => {
       cancelled = true
       clearTimeout(timer)
-      probeQuadRef.current = null
-      setProbeQuad(null)
+      cancelAnimationFrame(raf)
+      probeTargetRef.current = null
+      displayQuadRef.current = null
+      setTrackLocked(false)
     }
   }, [autoScan, autoScanPaused, isReady, addFlowOpen, basketExpanded, manualSearchOpen, settingsOpen, setPickerOpen, printingPickerFor, handleScan, captureFrame])
 
@@ -2042,12 +2083,14 @@ export default function CardScanner({ onMatch, onClose }) {
 
         {/* Tracking frame: follows the detected card quad in green with rounded
             corners; falls back to a centered red placeholder while no card
-            is being tracked. */}
-        {probeQuad ? (
+            is being tracked. The path's `d` is animated imperatively by the
+            probe effect's rAF loop — only the locked/idle switch re-renders. */}
+        {trackLocked ? (
           <svg className={styles.detectOverlay} aria-hidden="true">
             <path
+              ref={trackPathRef}
               className={`${styles.detectPoly} ${styles.detectPolyFound}`}
-              d={roundedQuadPath(probeQuad, DETECT_FRAME_RADIUS)}
+              d={displayQuadRef.current ? roundedQuadPath(displayQuadRef.current, DETECT_FRAME_RADIUS) : undefined}
             />
           </svg>
         ) : (
