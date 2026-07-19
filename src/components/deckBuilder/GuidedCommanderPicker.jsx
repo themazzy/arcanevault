@@ -9,9 +9,10 @@ import { detectPartnerType, partnerHint } from '../../lib/commanderPartners'
 import styles from './GuidedCommanderPicker.module.css'
 
 // Commander picker for guided deck creation: lists the user's OWNED commanders
-// first (legendary creatures from their collection) and offers a Scryfall search
-// to pick any legal commander. Selecting one calls onSelect(sfCard) — a full
-// Scryfall card object, the same shape pickCommander() expects.
+// first (legendary creatures/Vehicles/Spacecraft from their collection) and
+// offers a Scryfall search to pick any legal commander. Selecting one calls
+// onSelect(sfCard) — a full Scryfall card object, the same shape pickCommander()
+// expects.
 
 // Cap the owned-commander DOM: a large collection can hold hundreds of
 // legendaries, and rendering them all is the slow first paint. The search box
@@ -20,7 +21,7 @@ const OWNED_CAP = 60
 
 function isCommanderType(typeLine = '') {
   const t = typeLine.toLowerCase()
-  return t.includes('legendary') && t.includes('creature')
+  return t.includes('legendary') && (t.includes('creature') || t.includes('vehicle') || t.includes('spacecraft'))
 }
 
 // Pull a usable type line from a Scryfall card, including the front face of a

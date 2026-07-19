@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { deckAllocationKeys, allocationSetHas, mergeOtherDeckAllocationKeys, collectCardIdentities, mainBoardCards, chunkIds, cardNameMatchKeys, countDeckCards, dedupeDeckRowsForInsert, deckRowPrintKey, placementFilterNames } from './deckBuilderHelpers'
+import { deckAllocationKeys, allocationSetHas, mergeOtherDeckAllocationKeys, collectCardIdentities, mainBoardCards, chunkIds, cardNameMatchKeys, countDeckCards, dedupeDeckRowsForInsert, deckRowPrintKey, placementFilterNames, canBeCommander, getCommanderProfile } from './deckBuilderHelpers'
 
 describe('placementFilterNames', () => {
   it('preserves original casing — the remote placement fetch matches names case-sensitively', () => {
@@ -303,5 +303,32 @@ describe('dedupeDeckRowsForInsert', () => {
     const { rows, skipped } = dedupeDeckRowsForInsert(incoming, [])
     expect(rows).toHaveLength(2)
     expect(skipped).toBe(0)
+  })
+})
+
+describe('canBeCommander — legendary Vehicles and Spacecraft (CR 903.3a, 2025)', () => {
+  it('accepts a legendary Vehicle (RMS Titanic)', () => {
+    expect(canBeCommander({ type_line: 'Legendary Artifact — Vehicle' })).toBe(true)
+  })
+
+  it('accepts a legendary Spacecraft', () => {
+    expect(canBeCommander({ type_line: 'Legendary Artifact — Spacecraft' })).toBe(true)
+  })
+
+  it('still accepts a legendary creature', () => {
+    expect(canBeCommander({ type_line: 'Legendary Creature — Human Wizard' })).toBe(true)
+  })
+
+  it('rejects a non-legendary Vehicle', () => {
+    expect(canBeCommander({ type_line: 'Artifact — Vehicle' })).toBe(false)
+  })
+
+  it('rejects a legendary non-creature, non-Vehicle artifact', () => {
+    expect(canBeCommander({ type_line: 'Legendary Artifact' })).toBe(false)
+  })
+
+  it('exposes isLegendaryVehicle on the commander profile', () => {
+    expect(getCommanderProfile({ type_line: 'Legendary Artifact — Vehicle' }).isLegendaryVehicle).toBe(true)
+    expect(getCommanderProfile({ type_line: 'Legendary Creature — Dwarf Pilot' }).isLegendaryVehicle).toBe(false)
   })
 })

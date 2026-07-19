@@ -222,6 +222,8 @@ export function getCommanderProfile(dc, sf = null) {
   const profile = {
     canLead: false,
     isLegendaryCreature: typeLine.includes('legendary') && typeLine.includes('creature'),
+    // CR 903.3a (2025): legendary Vehicles and Spacecraft can be commanders.
+    isLegendaryVehicle: typeLine.includes('legendary') && (typeLine.includes('vehicle') || typeLine.includes('spacecraft')),
     hasCanBeCommanderText: /\bcan be your commander\b/i.test(oracle),
     hasPartner: keywords.has('partner') || /(^|\n)\s*partner(\s*\(|\.|\n|$)/i.test(oracle),
     partnerWith: partnerWithMatch ? normalizePartnerName(partnerWithMatch[1]) : '',
@@ -233,6 +235,7 @@ export function getCommanderProfile(dc, sf = null) {
   }
 
   profile.canLead = profile.isLegendaryCreature
+    || profile.isLegendaryVehicle
     || profile.hasCanBeCommanderText
     || profile.hasPartner
     || !!profile.partnerWith
