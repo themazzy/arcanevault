@@ -1,4 +1,6 @@
+import { useMemo } from 'react'
 import { ChevronDownIcon } from '../../icons'
+import { normalizeBoard } from '../../lib/deckBuilderHelpers'
 import { ComboResultCard } from './combos'
 import styles from '../../pages/DeckBuilder.module.css'
 
@@ -19,6 +21,14 @@ export default function CombosTab({
   onOpenDetail,
   deckImagesMap,
 }) {
+  // Only commander + main-board cards are sent to Spellbook, so only those may
+  // count as "in deck" on the combo thumbs — a combo piece parked on the side/
+  // maybeboard must render as missing, otherwise an incomplete combo looks
+  // complete with no hint of which card to add.
+  const comboDeckNames = useMemo(
+    () => deckCards.filter(dc => dc.is_commander || normalizeBoard(dc.board) === 'main').map(dc => dc.name),
+    [deckCards],
+  )
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
       {deckCards.length === 0 && (
@@ -52,7 +62,7 @@ export default function CombosTab({
               </button>
               {comboSectionsOpen.complete && <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {combosIncluded.map((c, i) => (
-                  <ComboResultCard key={i} combo={c} highlight deckCardNames={deckCards.map(dc => dc.name)} deckImages={deckImagesMap} onAddCard={name => onAddCard({ name })} onOpenDetail={onOpenDetail} />
+                  <ComboResultCard key={i} combo={c} highlight deckCardNames={comboDeckNames} deckImages={deckImagesMap} onAddCard={name => onAddCard({ name })} onOpenDetail={onOpenDetail} />
                 ))}
               </div>}
             </div>
@@ -70,7 +80,7 @@ export default function CombosTab({
               </button>
               {comboSectionsOpen.incomplete && <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {combosAlmost.slice(0, 20).map((c, i) => (
-                  <ComboResultCard key={i} combo={c} highlight={false} deckCardNames={deckCards.map(dc => dc.name)} deckImages={deckImagesMap} onAddCard={name => onAddCard({ name })} onOpenDetail={onOpenDetail} />
+                  <ComboResultCard key={i} combo={c} highlight={false} deckCardNames={comboDeckNames} deckImages={deckImagesMap} onAddCard={name => onAddCard({ name })} onOpenDetail={onOpenDetail} />
                 ))}
               </div>}
               {comboSectionsOpen.incomplete && combosAlmost.length > 20 && (
