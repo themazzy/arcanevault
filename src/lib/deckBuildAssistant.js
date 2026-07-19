@@ -14,6 +14,7 @@ import { getCardCategoryFromCard } from './cardCategory'
 import { getCardLegalityWarnings } from './deckLegality'
 import { isMassLandDenial, isExtraTurn } from './commanderBracket'
 import { cardNameMatchKeys, isGroupFolder } from './deckBuilderHelpers'
+import { isBasicLandName } from './basicLands'
 
 // ── Coarse role taxonomy ──────────────────────────────────────────────────────
 // Collapses the ~30 granular categories from getCardCategory into the 8 build
@@ -337,7 +338,6 @@ export function karstenColorRequirements(cards, sfMapOrGetter) {
 // commander's colors by the deck's actual colored-pip demand.
 
 export const BASIC_LAND_BY_COLOR = { W: 'Plains', U: 'Island', B: 'Swamp', R: 'Mountain', G: 'Forest' }
-const BASIC_LAND_NAME_SET = new Set(Object.values(BASIC_LAND_BY_COLOR).map(n => n.toLowerCase()))
 
 // Rough basic-land count by number of colors in the identity — the rest of the
 // manabase is nonbasic fixing. Grounded in common Commander manabase guidance:
@@ -461,9 +461,10 @@ export function basicsForAutoFill({ deckCards = [], sfMap = {}, colors = [], lan
 }
 
 // True for a basic land by name (used to keep basics out of the nonbasic step).
-export function isBasicLandName(name) {
-  return BASIC_LAND_NAME_SET.has(String(name || '').toLowerCase())
-}
+// Re-exported from basicLands.js so the assistant shares the canonical set —
+// including Wastes and Snow-Covered variants, which a local 5-color set once
+// missed (auto-fill would add Wastes as a "nonbasic" fixer in any identity).
+export { isBasicLandName }
 
 // ── Cut helper ────────────────────────────────────────────────────────────────
 // Rank deck cards by how cuttable they are (most-cuttable first) to help trim an
@@ -552,10 +553,17 @@ export function rankCutCandidates(candidates, mode = 'balanced') {
 //
 // Returns [{ role, cand, owned }] in add order.
 // Recommendation strength of an upgrade/candidate: EDHREC inclusion % or the
-// recommander score scaled to the same 0-100 range, whichever is higher.
-// Shared by auto-fill ranking and selectUpgrades' blended sort.
+// scaled recommander score, whichever is higher. Shared by auto-fill ranking
+// and selectUpgrades' blended sort.
+//
+// The recommander score (0-1 model output) is NOT an inclusion rate — at a
+// full ×100 scale its co-occurrence picks (routinely 0.7+) buried genuine
+// EDHREC staples sitting at 20-50% inclusion and auto-fill skewed heavily
+// off-meta. ×RECOMMANDER_RANK_SCALE caps its reach: a perfect score ties a
+// solidly-played card, but consensus staples above that always win.
+export const RECOMMANDER_RANK_SCALE = 60
 export function recRank(c) {
-  return Math.max(c?.edhrecInclusion || 0, Math.round((c?.score || 0) * 100))
+  return Math.max(c?.edhrecInclusion || 0, Math.round((c?.score || 0) * RECOMMANDER_RANK_SCALE))
 }
 
 // ── Upgrade pool sizing ───────────────────────────────────────────────────────

@@ -41,6 +41,8 @@ import {
   attachRecommenderUpgrades,
   backfillWinconUpgrades,
   selectUpgrades,
+  recRank,
+  RECOMMANDER_RANK_SCALE,
   upgradeDisplayLimit,
   upgradePoolDepth,
   curveFitKey,
@@ -233,6 +235,18 @@ describe('planAutoFill', () => {
     })
     expect(picks.map(p => p.cand.name)).toEqual(['Command Tower', 'Exotic Orchard'])
     expect(picks.every(p => p.role === ROLE_LANDS)).toBe(true)
+  })
+
+  it('never spends a nonbasic land slot on Wastes or Snow-Covered basics', () => {
+    const picks = planAutoFill({
+      roles: [{ role: ROLE_LANDS, target: 37, ownedCandidates: [] }],
+      liveCounts: counts([]),
+      totalCards: 1, deckSize: 100,
+      landsTarget: 37, currentLands: 0,
+      nonbasicTarget: 3, currentNonbasicLands: 0,
+      landCandidates: [cand('Wastes'), cand('Snow-Covered Forest'), cand('Command Tower'), cand('Exotic Orchard')],
+    })
+    expect(picks.map(p => p.cand.name)).toEqual(['Command Tower', 'Exotic Orchard'])
   })
 
   it('returns nothing when the deck is already full', () => {
@@ -1219,9 +1233,11 @@ describe('basicsForAutoFill', () => {
 })
 
 describe('isBasicLandName', () => {
-  it('recognizes the five basics only', () => {
+  it('recognizes every basic, including Wastes and Snow-Covered variants', () => {
     expect(isBasicLandName('Forest')).toBe(true)
     expect(isBasicLandName('island')).toBe(true)
+    expect(isBasicLandName('Wastes')).toBe(true)
+    expect(isBasicLandName('Snow-Covered Swamp')).toBe(true)
     expect(isBasicLandName('Reliquary Tower')).toBe(false)
     expect(isBasicLandName('')).toBe(false)
   })
@@ -1298,6 +1314,21 @@ describe('attachRecommenderUpgrades', () => {
     const out = attachRecommenderUpgrades(plan, recRows)
     const allRecs = (out.roles || []).flatMap(r => r.recommenderUpgrades || [])
     expect(allRecs.map(u => u.name)).not.toContain('Jugan Defends the Temple')
+  })
+})
+
+describe('recRank', () => {
+  it('caps recommander scores at RECOMMANDER_RANK_SCALE so consensus staples outrank co-occurrence picks', () => {
+    expect(recRank({ score: 1 })).toBe(RECOMMANDER_RANK_SCALE)
+    expect(recRank({ score: 0.9 })).toBe(Math.round(0.9 * RECOMMANDER_RANK_SCALE))
+    // a 65%-inclusion EDHREC staple beats even a perfect recommander score
+    expect(recRank({ edhrecInclusion: 65 })).toBeGreaterThan(recRank({ score: 1 }))
+  })
+  it('still takes the stronger of the two signals per card', () => {
+    expect(recRank({ edhrecInclusion: 70, score: 0.5 })).toBe(70)
+    expect(recRank({ edhrecInclusion: 10, score: 0.5 })).toBe(Math.round(0.5 * RECOMMANDER_RANK_SCALE))
+    expect(recRank({})).toBe(0)
+    expect(recRank(null)).toBe(0)
   })
 })
 
