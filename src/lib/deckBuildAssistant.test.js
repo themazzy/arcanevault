@@ -41,6 +41,7 @@ import {
   attachRecommenderUpgrades,
   backfillWinconUpgrades,
   selectUpgrades,
+  rankOverallRecommendations,
   recRank,
   RECOMMANDER_RANK_SCALE,
   upgradeDisplayLimit,
@@ -1353,6 +1354,35 @@ describe('selectUpgrades', () => {
     expect(selectUpgrades(deep, 'edhrec')).toHaveLength(upgradeDisplayLimit(0)) // 24 display cap
     expect(selectUpgrades(deep, 'edhrec', Infinity)).toHaveLength(100)          // full pool for auto-fill
     expect(selectUpgrades(deep, 'edhrec', 5)).toHaveLength(5)
+  })
+})
+
+describe('rankOverallRecommendations', () => {
+  it('includes owned and unowned cards and ranks them without an ownership preference', () => {
+    const ranked = rankOverallRecommendations({
+      ownedCandidates: [{ name: 'Owned Role Player', cmc: 2, edhrecInclusion: 20 }],
+      upgrades: [
+        { name: 'Best Staple', cmc: 4, edhrecInclusion: 80 },
+        { name: 'Small Upgrade', cmc: 3, edhrecInclusion: 10 },
+      ],
+    })
+
+    expect(ranked.map(({ cand, owned }) => [cand.name, owned])).toEqual([
+      ['Best Staple', false],
+      ['Owned Role Player', true],
+      ['Small Upgrade', false],
+    ])
+  })
+
+  it('uses the same curve-aware near-tie ordering as top-recommendations auto-fill', () => {
+    const ranked = rankOverallRecommendations({
+      ownedCandidates: [{ name: 'Owned Six Drop', cmc: 6, edhrecInclusion: 42 }],
+      upgrades: [{ name: 'Unowned Two Drop', cmc: 2, edhrecInclusion: 41 }],
+      targetCmc: 3,
+      curveStatus: 'high',
+    })
+
+    expect(ranked.map(({ cand }) => cand.name)).toEqual(['Unowned Two Drop', 'Owned Six Drop'])
   })
 })
 

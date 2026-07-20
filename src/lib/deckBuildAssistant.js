@@ -617,6 +617,22 @@ function rankComparator(targetCmc, curveStatus) {
     String(a.cand.name || '').localeCompare(b.cand.name || '')
 }
 
+// Ownership-blind recommendation pool used by both "Top recommendations"
+// auto-fill and the Build Assistant's best-overall card section. Keeping this
+// merge + sort in one helper prevents the visible ranking from drifting away
+// from the cards auto-fill would choose.
+export function rankOverallRecommendations({
+  ownedCandidates = [],
+  upgrades = [],
+  targetCmc = null,
+  curveStatus = 'on',
+} = {}) {
+  return [
+    ...ownedCandidates.map(cand => ({ cand, owned: true })),
+    ...upgrades.map(cand => ({ cand, owned: false })),
+  ].sort(rankComparator(targetCmc, curveStatus))
+}
+
 export function planAutoFill({
   roles = [],              // plan.roles: [{ role, target, ownedCandidates, upgrades? }]
   liveCounts,              // Map role → current count (countByRole)
@@ -651,10 +667,12 @@ export function planAutoFill({
       const pool = (owned || []).map(cand => ({ cand, owned: true }))
       return targetCmc == null ? pool : pool.sort(cmp)
     }
-    return [
-      ...(owned || []).map(cand => ({ cand, owned: true })),
-      ...(upgrades || []).map(cand => ({ cand, owned: false })),
-    ].sort(cmp)
+    return rankOverallRecommendations({
+      ownedCandidates: owned,
+      upgrades,
+      targetCmc,
+      curveStatus,
+    })
   }
 
   // Take up to `need` picks from `pool`, honoring the shared name/exclude

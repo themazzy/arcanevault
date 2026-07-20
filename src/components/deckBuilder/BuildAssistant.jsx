@@ -51,6 +51,7 @@ import {
   CUT_MODES,
   attachRecommenderUpgrades,
   selectUpgrades,
+  rankOverallRecommendations,
   upgradeDisplayLimit,
   upgradePoolDepth,
   deckAvgCmc,
@@ -266,7 +267,7 @@ function curveLabel(b) { return b === 6 ? '6+' : String(b) }
 const CURVE_BAR_MAX_PX = 96
 
 // One card tile: image + name + sub-meta + add action(s).
-function CardTile({ name, sfCard, fallbackImg, pips, inclusion, tag, price, flag, overTarget, added, wished, showWishlist, ownedElsewhere, previewProps, onAdd, onUndo, onWishlist }) {
+function CardTile({ name, sfCard, fallbackImg, pips, inclusion, tag, price, flag, overTarget, added, wished, showWishlist, ownershipNote, previewProps, onAdd, onUndo, onWishlist }) {
   const canUndo = added && typeof onUndo === 'function'
   // Cached collection art first; Scryfall-fetched fallback for unowned upgrades
   // and any owned card whose cache entry has no image.
@@ -296,12 +297,14 @@ function CardTile({ name, sfCard, fallbackImg, pips, inclusion, tag, price, flag
         {added && <span className={styles.tileCheck}><CheckIcon size={18} /></span>}
       </div>
       <div className={styles.tileName} title={name}>{name}</div>
-      {ownedElsewhere && (
+      {ownershipNote && (
         <div
           className={styles.tileOwnedNote}
-          title="You own this card, but every copy is allocated to another deck"
+          title={ownershipNote === 'In another deck'
+            ? 'You own this card, but every copy is allocated to another deck'
+            : 'An available copy is in one of your binders'}
         >
-          In another deck
+          {ownershipNote}
         </div>
       )}
       {pips?.length ? <div className={styles.tileSub}><ColorPips colors={pips} /></div> : null}
@@ -2077,23 +2080,32 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                 )
               })()}
 
-              {/* Suggestions you don't own (source per the Suggestions toggle) */}
+              {/* Best overall cards (source per the Suggestions toggle). This
+                  deliberately repeats strong binder cards from the first list. */}
               {(() => {
-                // Budget per card applies to suggestions too — these are the
-                // cards you'd buy, so an over-budget pick shouldn't be offered.
+                // Budget per card applies to both owned and unowned choices.
                 // Filter the DEEP pool first, then take the display cap, so a
                 // tight budget doesn't blank the section when cheaper picks
-                // exist further down the list.
+                // exist further down the ranking.
                 const gap = roleData.gap || 0
                 const upgrades = selectUpgrades(roleData, hasRecommender ? suggestionSource : 'edhrec', upgradePoolDepth(gap))
-                  .filter(u => passesBudget(u.name, null))
+                const ownedCandidates = onLands
+                  ? landCandidates.map(({ cand }) => cand)
+                  : roleData.ownedCandidates
+                const overall = rankOverallRecommendations({
+                  ownedCandidates,
+                  upgrades,
+                  targetCmc: curveTarget,
+                  curveStatus: curveStatus.status,
+                })
+                  .filter(({ cand }) => (!onLands || !isBasicLandName(cand.name)) && passesBudget(cand.name, cand.sfCard))
                   .slice(0, upgradeDisplayLimit(gap))
-                if (!upgrades.length) return null
+                if (!overall.length) return null
                 const label = !hasRecommender || suggestionSource === 'edhrec'
-                  ? 'Popular picks you don’t own'
+                  ? 'Popular picks overall'
                   : suggestionSource === 'recommander'
-                    ? 'Deck-aware picks you don’t own'
-                    : 'Suggested picks you don’t own'
+                    ? 'Deck-aware picks overall'
+                    : 'Best overall picks'
                 return (
                   <>
                     <button
@@ -2106,43 +2118,53 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                         size={12}
                         className={`${styles.sectionCaret}${collapsed.upgrades ? ' ' + styles.sectionCaretClosed : ''}`}
                       />
-                      <span className={styles.sectionHeadLabel}>{label} · {upgrades.length}</span>
+                      <span className={styles.sectionHeadLabel}>{label} · {overall.length}</span>
                     </button>
                     {!collapsed.upgrades && (
                       <div className={styles.grid}>
-                        {upgrades.map(up => {
+                        {overall.map(({ cand, owned }) => {
                           // Feed the resolved oracle text (from the upgrade meta
                           // cache) so mass-land-denial / extra-turn bracket flags
                           // fire on unowned suggestions too, not just Game Changers.
-                          const meta = UPGRADE_META_CACHE.get(up.name.toLowerCase())
-                          const flag = bracketFlagFor(up.name, meta?.oracle_text ? { oracle_text: meta.oracle_text } : null, gameChangers)
+                          const meta = UPGRADE_META_CACHE.get(cand.name.toLowerCase())
+                          const flagCard = owned
+                            ? cand.sfCard
+                            : (meta?.oracle_text ? { oracle_text: meta.oracle_text } : null)
+                          const flag = bracketFlagFor(cand.name, flagCard, gameChangers)
+                          const landInfo = onLands && owned
+                            ? landCandidates.find(item => item.cand === cand)
+                            : null
+                          const inAnotherDeck = !owned && cardNameMatchKeys(cand.name).some(k => inOtherDeckNames.has(k))
                           return (
                             <CardTile
-                              key={up.slug || up.name}
-                              name={up.name}
-                              sfCard={null}
-                              fallbackImg={imageEnFor(up.name) || up.image}
-                              inclusion={up.edhrecInclusion}
-                              price={priceLabelFor(up.name)}
-                              tag={up.source === 'recommander' ? 'rec' : undefined}
+                              key={`${owned ? 'owned' : 'suggested'}:${cand.slug || cand.name}`}
+                              name={cand.name}
+                              sfCard={owned ? cand.sfCard : null}
+                              fallbackImg={imageEnFor(cand.name) || cand.image}
+                              pips={landInfo?.colors}
+                              inclusion={cand.edhrecInclusion}
+                              price={priceLabelFor(cand.name)}
+                              tag={!owned && cand.source === 'recommander' ? 'rec' : undefined}
                               flag={flag}
                               overTarget={targetBracket != null && flag && flag.level > targetBracket}
-                              ownedElsewhere={cardNameMatchKeys(up.name).some(k => inOtherDeckNames.has(k))}
-                              added={isAdded(up.name)}
-                              wished={isWishlisted(up.name)}
-                              showWishlist={typeof onAddToWishlist === 'function'}
+                              ownershipNote={owned ? 'In your binders' : (inAnotherDeck ? 'In another deck' : null)}
+                              added={isAdded(cand.name)}
+                              wished={isWishlisted(cand.name)}
+                              showWishlist={!owned && typeof onAddToWishlist === 'function'}
                               previewProps={previewHandlers({
-                                name: up.name,
-                                scryfall_id: null,
+                                name: cand.name,
+                                scryfall_id: owned ? (cand.sfCard?.id || cand.card?.scryfall_id || null) : null,
                                 // Tile art is a 146px thumbnail; re-tier the Scryfall
                                 // URL up to 'large' (672px) for the enlarged preview
                                 // so it isn't an upscaled thumbnail. EDHREC fallback
                                 // URLs aren't cards.scryfall.io, so they pass through.
-                                img: scryfallImageAtSize(imageEnFor(up.name), 'large') || up.image || null,
+                                img: owned
+                                  ? cardImageUrl(cand.sfCard)
+                                  : (scryfallImageAtSize(imageEnFor(cand.name), 'large') || cand.image || null),
                               })}
-                              onAdd={() => handleAdd(up, up.name)}
-                              onUndo={() => handleUndoAdd(up.name)}
-                              onWishlist={() => handleWishlist(up.name)}
+                              onAdd={() => handleAdd(cand, cand.name)}
+                              onUndo={() => handleUndoAdd(cand.name)}
+                              onWishlist={() => handleWishlist(cand.name)}
                             />
                           )
                         })}
