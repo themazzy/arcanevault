@@ -10,6 +10,12 @@ Only spawn subagents when necessary for this project. Prefer doing research, sea
 
 ---
 
+## Git Publishing
+
+When asked to commit and push changes, use the established direct Git workflow: stage explicit intended paths with `git add`, commit with `git commit`, and push with `git push origin main`. Do not require GitHub CLI (`gh`) authentication unless the task specifically needs GitHub PR, issue, or API functionality. Preserve unrelated worktree changes.
+
+---
+
 ## Handling Ambiguous Instructions
 
 **This is the highest-priority rule in this file.**

@@ -45,12 +45,25 @@ describe('renderDecklistText', () => {
     )
   })
 
-  it('merges duplicate names across printings and sums quantities', () => {
+  it('includes exact printing and foil metadata without merging distinct variants', () => {
     const text = renderDecklistText([
-      row('Lightning Bolt', { qty: 2 }),
-      row('Lightning Bolt', { qty: 1, foil: true }),
+      row('Lightning Bolt', { qty: 2, set_code: 'm11', collector_number: '149' }),
+      row('Lightning Bolt', { qty: 3, set_code: 'm11', collector_number: '149' }),
+      row('Lightning Bolt', { set_code: 'm11', collector_number: '149', foil: true }),
+      row('Lightning Bolt', { set_code: 'lea', collector_number: '161' }),
     ])
-    expect(text).toBe('3 Lightning Bolt\n')
+    expect(text).toBe(
+      '1 Lightning Bolt (lea) 161\n' +
+      '5 Lightning Bolt (m11) 149\n' +
+      '1 Lightning Bolt (m11) 149 *F*\n'
+    )
+  })
+
+  it('keeps the old name-only format as a fallback when printing metadata is absent', () => {
+    expect(renderDecklistText([
+      row('Sol Ring', { foil: true }),
+      row('Arcane Signet', { set_code: 'cmm' }),
+    ])).toBe('1 Arcane Signet (cmm)\n1 Sol Ring *F*\n')
   })
 
   it('puts sideboard cards under // Sideboard and omits the maybeboard', () => {

@@ -20,19 +20,45 @@ export function extractDecklistDeckId(url) {
   return id && UUID_RE.test(id) ? id : null
 }
 
-// Merge rows by card name (the plain-text format carries no printing info, so
-// two printings of the same card collapse into one line) and emit sorted
-// `<qty> <name>` lines.
+// Merge only identical printings/finishes and emit sorted MTG Arena-style
+// lines. The Tabletop Simulator importer accepts `(SET) collector-number` for
+// exact print selection, while Archidekt's `*F*` suffix carries foil status.
+// Rows without printing metadata retain the old `<qty> <name>` fallback.
 function mergedLines(rows) {
-  const byName = new Map()
+  const cards = new Map()
   for (const r of rows) {
     const name = typeof r?.name === 'string' ? r.name.trim() : ''
     if (!name) continue
-    byName.set(name, (byName.get(name) || 0) + Math.max(1, Number(r.qty) || 1))
+    const setCode = typeof r?.set_code === 'string' ? r.set_code.trim() : ''
+    const collectorNumber = typeof r?.collector_number === 'string' ? r.collector_number.trim() : ''
+    const foil = r?.foil === true
+    const key = JSON.stringify([name, setCode, collectorNumber, foil])
+    const existing = cards.get(key)
+    if (existing) {
+      existing.qty += Math.max(1, Number(r.qty) || 1)
+    } else {
+      cards.set(key, {
+        name,
+        setCode,
+        collectorNumber,
+        foil,
+        qty: Math.max(1, Number(r.qty) || 1),
+      })
+    }
   }
-  return [...byName.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([name, qty]) => `${qty} ${name}`)
+  return [...cards.values()]
+    .sort((a, b) =>
+      a.name.localeCompare(b.name) ||
+      a.setCode.localeCompare(b.setCode) ||
+      a.collectorNumber.localeCompare(b.collectorNumber, undefined, { numeric: true }) ||
+      Number(a.foil) - Number(b.foil)
+    )
+    .map(({ name, setCode, collectorNumber, foil, qty }) => {
+      const printing = setCode
+        ? ` (${setCode})${collectorNumber ? ` ${collectorNumber}` : ''}`
+        : ''
+      return `${qty} ${name}${printing}${foil ? ' *F*' : ''}`
+    })
 }
 
 // Render RPC rows (get_deck_cards_for_view payload) as a plain-text decklist.
