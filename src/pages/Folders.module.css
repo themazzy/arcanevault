@@ -827,12 +827,6 @@
 }
 .moveGroupRemove:hover { background: rgba(200,60,60,0.08); }
 
-/* ── Page wrapper — dot grid ─────────────────────────────────────────────── */
-.page {
-  background-image: radial-gradient(circle, rgba(201,168,76,0.04) 1px, transparent 1px);
-  background-size: 28px 28px;
-}
-
 /* ── Binder / List browser header ───────────────────────────────────────── */
 .binderHeader {
   margin-bottom: 18px;

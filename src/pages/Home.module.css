@@ -1453,13 +1453,22 @@
 
 /* Returning dashboard ------------------------------------------------------ */
 .returningHome {
+  --home-section-gap: 24px;
+  display: flex;
   width: 100%;
   margin: 0 auto;
   padding: 0 0 72px;
+  flex-direction: column;
+  gap: var(--home-section-gap);
 }
 
 .returningLead {
-  margin-bottom: 18px;
+  margin-bottom: 0;
+}
+
+.returningHome > .lookupWrap,
+.returningHome > .section {
+  margin-bottom: 0;
 }
 
 .returningLeadHeader {
@@ -1625,7 +1634,7 @@
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
 }
 
 .recentDecks {
@@ -1751,7 +1760,7 @@
   display: grid;
   min-width: 0;
   grid-template-rows: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 10px;
 }
 
 .pulseMiniTile {
@@ -1853,15 +1862,18 @@
 }
 
 .discoverSection {
-  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--home-section-gap, 24px);
+  margin-top: 0;
 }
 
 .discoverGrid {
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
   align-items: start;
-  gap: 16px;
-  margin-bottom: 12px;
+  gap: var(--home-section-gap, 24px);
+  margin-bottom: 0;
 }
 
 .discoverPanel {
@@ -2001,7 +2013,7 @@
 }
 
 .trendingPanel {
-  margin-bottom: 12px;
+  margin-bottom: 0;
 }
 
 .continueDeck:focus-visible,
