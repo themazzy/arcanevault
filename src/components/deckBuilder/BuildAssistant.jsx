@@ -9,7 +9,8 @@ import { getLocalCards, getLocalCardPrints, getLocalFolders, getAllLocalFolderCa
 import { getInstantCache, getScryfallKey, getPrice, formatPrice, scryfallImageAtSize } from '../../lib/scryfall'
 import { useCombosFetch } from '../../hooks/useCombosFetch'
 import { useSettings } from '../SettingsContext'
-import { fetchEdhrecCommander, fetchRecommendationMetadataByNames, fetchCardsByScryfallIds, fetchRecommenderRecs, fetchPaperPrintingsByNamesFromDb, getCardImageUri } from '../../lib/deckBuilderApi'
+import { fetchEdhrecCommander, fetchRecommendationMetadataByNames, fetchCardsByScryfallIds, fetchRecommenderRecs, getCardImageUri } from '../../lib/deckBuilderApi'
+import { fetchPrintingsForNames } from '../../lib/cardSearch'
 import { fetchCardPrintsByScryfallIds, fetchCardPrintsByOracleIds, fetchOracleTextByNames, cardPrintRowToSfEntry } from '../../lib/cardPrints'
 import {
   analyzeBracket,
@@ -67,6 +68,7 @@ import {
   ROLE_LANDS,
 } from '../../lib/deckBuildAssistant'
 import { cardNameMatchKeys, countDeckCards } from '../../lib/deckBuilderHelpers'
+import { toAutomaticDeckPrintingRequest, toAutomaticDeckPrintingRequests } from '../../lib/deckPrintingResolution'
 import { runComboPass as comboPassCore, runGameChangerPass as gcPassCore } from '../../lib/buildAssistantPasses'
 import { SpecificCardSearch } from './SpecificCardSearch'
 import styles from './BuildAssistant.module.css'
@@ -74,8 +76,8 @@ import styles from './BuildAssistant.module.css'
 // Guided "build from collection" wizard. Walks the user role-by-role (Ramp →
 // Draw → Removal → …), surfacing their owned color-legal cards first
 // and EDHREC suggestions for what they don't own yet. Adding a card delegates
-// to the parent's addCardToDeck (owned → full Scryfall object, upgrades → EDHREC
-// rec object; deck_cards is intended contents, so unowned cards are addable).
+// to the parent's addCardToDeck as a name-only automatic-printing request;
+// deck_cards is intended contents, so unowned cards are addable.
 
 // What each role does + why the target count, shown at the top of each step.
 const ROLE_INFO = {
@@ -115,18 +117,6 @@ function roleNameSet(deckCards) {
 function cardImageUrl(sfCard) {
   if (!sfCard) return null
   return getCardImageUri(sfCard, 'small') || getCardImageUri(sfCard, 'normal')
-}
-
-// Shape an owned candidate into a Scryfall-card-like object the parent's
-// addCardToDeck recognizes: it detects a "full card" via `.set` and reads
-// `.id`/`.set` (getDeckBuilderCardMeta). The instant-cache entry only has
-// `set_code`/`collector_number` and no `id`, so we remap and attach the owned
-// row's resolved scryfall_id — otherwise the card falls into the EDHREC-rec
-// branch and gets re-fetched by name, discarding the exact owned printing.
-function ownedCardForAdd(cand) {
-  const sf = cand?.sfCard
-  if (!sf) return cand?.card // no cache entry → let the parent resolve by name
-  return { ...sf, id: cand.card?.scryfall_id || sf.id || null, set: sf.set || sf.set_code || null }
 }
 
 // Overlay new fields onto an existing sfMap entry, skipping null/empty values
@@ -1370,9 +1360,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     if (typeof onAddCards === 'function') {
       setAutoFilling({ total: picks.length, bulk: true })
       try {
-        const items = picks.map(p => p.owned
-          ? { ...ownedCardForAdd(p.cand), foil: !!p.cand.card?.foil, card_print_id: p.cand.card?.card_print_id || null }
-          : p.cand)
+        const items = toAutomaticDeckPrintingRequests(picks.map(p => p.cand))
         const res = await onAddCards(items)
         const rows = res?.rows || []
         // Mark exactly what landed (skipped names must not read as Added).
@@ -1382,7 +1370,8 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           return next
         })
         await finishAutoFill(rows, res?.added ?? rows.length, rows.map(r => r.id))
-      } catch {
+      } catch (err) {
+        setError(`Could not verify card printings: ${err?.message || 'network error'}`)
         setAutoFillResult({ added: 0, basics: 0, left: 0, addedCardIds: [], basicCounts: null })
       } finally {
         setAutoFilling(null)
@@ -1393,7 +1382,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     try {
       for (let i = 0; i < picks.length; i++) {
         const p = picks[i]
-        await handleAdd(p.owned ? ownedCardForAdd(p.cand) : p.cand, p.cand.name)
+        await handleAdd(p.cand, p.cand.name)
         setAutoFilling({ done: i + 1, total: picks.length })
       }
       // Sequential path has no returned rows/ids — undo falls back to name-based
@@ -1498,7 +1487,11 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     let cancelled = false
     ;(async () => {
       try {
-        const printMap = await fetchPaperPrintingsByNamesFromDb(missing)
+        const printings = await fetchPrintingsForNames(missing, { language: 'english' })
+        const printMap = new Map(missing.map(name => [name, []]))
+        for (const printing of printings) {
+          if (printMap.has(printing.name)) printMap.get(printing.name).push(printing)
+        }
         // Cheapest few DB printings per name → the language-check candidate set.
         // card_prints rows already carry lang + art, so byId/langById come
         // straight from them — no per-candidate Scryfall lookup (api.scryfall.com
@@ -1540,7 +1533,10 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     if (isAdded(name)) return false
     setAddedNames(prev => new Set(prev).add(key))
     try {
-      await onAddCard(cardOrRec)
+      const request = toAutomaticDeckPrintingRequest(cardOrRec || name)
+      if (!request) throw new Error('Card name is unavailable.')
+      const added = await onAddCard(request)
+      if (!added) throw new Error('Card printing could not be verified.')
       return true
     } catch {
       setAddedNames(prev => { const next = new Set(prev); next.delete(key); return next })
@@ -1551,7 +1547,8 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // Manual add from the "Add a specific card" search. Routes through the same
   // handleAdd as tiles (owned-vs-buy accounting + category persistence live in
   // the parent). The row's Add button flips to "Added to <role>" once it lands,
-  // so no toast is needed. A searched card is a full Scryfall card.
+  // so no toast is needed. Full search results are reduced to a name-only
+  // request before the parent resolves the preferred printing.
   async function addSpecificCard(card) {
     if (!card?.name || isAdded(card.name)) return
     await handleAdd(card, card.name)
@@ -2067,7 +2064,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                               scryfall_id: cand.sfCard?.id || cand.card?.scryfall_id || null,
                               img: cardImageUrl(cand.sfCard),
                             })}
-                            onAdd={() => handleAdd(ownedCardForAdd(cand), cand.name)}
+                            onAdd={() => handleAdd(cand, cand.name)}
                             onUndo={() => handleUndoAdd(cand.name)}
                           />
                         )

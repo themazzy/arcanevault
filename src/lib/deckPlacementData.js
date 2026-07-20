@@ -235,6 +235,24 @@ export async function refreshRemotePlacementSnapshot(userId, opts = {}) {
   })
 }
 
+export async function fetchRemoteOwnedPrintingCandidates(userId, names) {
+  const requestedNames = unique((names || []).map(name => String(name || '').trim()).filter(Boolean))
+  const result = new Map(requestedNames.map(name => [normalizeName(name), []]))
+  if (!userId || !requestedNames.length) return result
+
+  const snapshot = await refreshRemotePlacementSnapshot(userId, { names: requestedNames })
+  for (const card of snapshot.cards || []) {
+    const key = normalizeName(card.name)
+    if (!result.has(key)) continue
+    result.get(key).push({
+      ...card,
+      binderQty: snapshot.binderQtyByCardId.get(card.id) || 0,
+      deckQty: snapshot.deckQtyByCardId.get(card.id) || 0,
+    })
+  }
+  return result
+}
+
 export function buildDeckAllocationViewRows(snapshot, deckId) {
   if (!snapshot || !deckId) return []
   const cardById = new Map((snapshot.cards || []).map(card => [card.id, card]))

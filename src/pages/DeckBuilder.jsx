@@ -10,10 +10,9 @@ import {
   parseDeckMeta, serializeDeckMeta, getCardImageUri,
   fetchCardsByNames, fetchCardsByScryfallIds, getDeckBuilderCardMeta,
   fetchRecommendationMetadataByNames,
-  fetchEdhrecCommander, fetchPaperPrintings,
-  fetchPaperPrintingsFromDb, fetchPaperPrintingsByNamesFromDb,
-  pickAutomaticDeckPrinting,
+  fetchEdhrecCommander,
 } from '../lib/deckBuilderApi'
+import { fetchPrintingsByName, fetchPrintingsForNames } from '../lib/cardSearch'
 import {
   getLocalCards, putDeckCards, deleteDeckCardLocal, deleteDeckCardsLocal, getMeta, setMeta,
   deleteDeckAllocationsByIds, replaceDeckAllocations, putDeckAllocations, putCards,
@@ -68,7 +67,13 @@ import {
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { invalidateOwnedCollectionQueries, removeDecksFromHomeSnapshot } from '../lib/queryInvalidation'
 import { getPublicAppUrl } from '../lib/publicUrl'
-import { loadLocalPlacementSnapshot, refreshRemotePlacementSnapshot } from '../lib/deckPlacementData'
+import { fetchRemoteOwnedPrintingCandidates } from '../lib/deckPlacementData'
+import {
+  rankOwnedPrintingCandidates,
+  resolveCanonicalDeckCardName,
+  selectPreferredDeckPrinting,
+  toAutomaticDeckPrintingRequests,
+} from '../lib/deckPrintingResolution'
 import {
   toDeckCardRow,
   requireCardPrintIds,
@@ -146,7 +151,8 @@ import {
   allocationSetHas,
   mergeOtherDeckAllocationKeys,
   normalizePrintKey,
-  defaultFoilForPrinting,
+  printingSupportsFoil,
+  printingSupportsNonfoil,
   getCommanderOracle,
   canBeCommander,
   getNonCommanderDeckCoverArt,
@@ -735,9 +741,7 @@ export default function DeckBuilderPage() {
   const dragAutoScrollFrame = useRef(null)
   const dragAutoScrollPoint = useRef({ x: 0, y: 0 })
   const warningTargetTimer = useRef(null)
-  const printingLookupCache = useRef(new Map())
-  const ownedPrintingCandidatesCache = useRef(new Map())
-  const ownedPrintingRefreshPromises = useRef(new Map())
+  const printingResolutionRequests = useRef(new Map())
   const ownershipRefreshRowsRef = useRef([])
   const ownershipRefreshTimerRef = useRef(null)
 
@@ -2397,14 +2401,16 @@ export default function DeckBuilderPage() {
     // canonical (unique=cards), which can be an art-series/special printing.
     // Resolve the actual print the same way the normal card search does:
     // owned binder copy first, then owned deck copy, then newest paper print.
-    let resolved = null
+    let resolved
     try {
       resolved = await resolvePreferredDeckPrinting(sfCard.name, sfCard)
     } catch (err) {
-      console.warn('[DeckBuilder] commander printing resolution failed:', err)
+      console.error('[DeckBuilder] commander printing resolution failed:', err)
+      showToast(`Could not verify the commander printing: ${err?.message || 'network error'}`, { tone: 'error' })
+      return
     }
-    const cmdCard = resolved?.sfCard || sfCard
-    const cmdFoil = !!resolved?.foil
+    const cmdCard = resolved.sfCard
+    const cmdFoil = !!resolved.foil
 
     const newMeta = {
       ...deckMeta,
@@ -2435,7 +2441,7 @@ export default function DeckBuilderPage() {
       foil:         cmdFoil,
       is_commander: true,
       board:        'main',
-      card_print_id: resolved?.card_print_id || undefined,
+      card_print_id: resolved?.cardPrintId || undefined,
       created_at:   new Date().toISOString(),
       updated_at:   new Date().toISOString(),
     }
@@ -2476,13 +2482,15 @@ export default function DeckBuilderPage() {
   async function addSecondCommander(sfCard) {
     if (!sfCard?.name) return
     const baseMeta = deckMetaRef.current || deckMeta
-    let resolved = null
+    let resolved
     try {
       resolved = await resolvePreferredDeckPrinting(sfCard.name, sfCard)
     } catch (err) {
-      console.warn('[DeckBuilder] partner printing resolution failed:', err)
+      console.error('[DeckBuilder] partner printing resolution failed:', err)
+      showToast(`Could not verify the partner printing: ${err?.message || 'network error'}`, { tone: 'error' })
+      return
     }
-    const cmdCard = resolved?.sfCard || sfCard
+    const cmdCard = resolved.sfCard
     const cmdRow = {
       id:            crypto.randomUUID(),
       deck_id:       deckId,
@@ -2493,7 +2501,7 @@ export default function DeckBuilderPage() {
       foil:          !!resolved?.foil,
       is_commander:  true,
       board:         'main',
-      card_print_id: resolved?.card_print_id || undefined,
+      card_print_id: resolved?.cardPrintId || undefined,
       created_at:    new Date().toISOString(),
       updated_at:    new Date().toISOString(),
     }
@@ -2555,110 +2563,45 @@ export default function DeckBuilderPage() {
   // ── Card search ───────────────────────────────────────────────────────────
   // Search state + debounced fetch live in useCardSearch(); page only renders.
 
-  async function fetchPrintingsForDeckCardName(name) {
-    if (!name) return []
-    const key = normalizeCardName(name)
-    if (printingLookupCache.current.has(key)) return printingLookupCache.current.get(key)
-    // Source from our own card_prints/card_prices catalog first (no Scryfall
-    // rate limit); only fall back to a live Scryfall search if we have no rows.
-    let printings
-    try { printings = await fetchPaperPrintingsFromDb(name) } catch { printings = [] }
-    if (!printings.length) {
-      try { printings = await fetchPaperPrintings(name) } catch { printings = [] }
-    }
-    printingLookupCache.current.set(key, printings)
-    return printings
-  }
-
-  function candidatesFromPlacementSnapshot(snapshot, cardName) {
-    const target = normalizeCardName(cardName)
-    return (snapshot?.cards || [])
-      .filter(row => normalizeCardName(row.name) === target)
-      .map(row => ({
-        ...row,
-        binderQty: snapshot.binderQtyByCardId.get(row.id) || 0,
-        deckQty: snapshot.deckQtyByCardId.get(row.id) || 0,
-      }))
-  }
-
-  async function fetchOwnedPrintingCandidates(cardName) {
-    if (!cardName || !user?.id) return []
-
-    const key = normalizeCardName(cardName)
-    if (ownedPrintingCandidatesCache.current.has(key)) {
-      return ownedPrintingCandidatesCache.current.get(key)
-    }
-
-    const localSnapshot = await loadLocalPlacementSnapshot(user.id, { names: [cardName] })
-    const localCandidates = candidatesFromPlacementSnapshot(localSnapshot, cardName)
-    ownedPrintingCandidatesCache.current.set(key, localCandidates)
-
-    if (!ownedPrintingRefreshPromises.current.has(key)) {
-      const promise = refreshRemotePlacementSnapshot(user.id, { names: [cardName] })
-        .then(snapshot => {
-          const remoteCandidates = candidatesFromPlacementSnapshot(snapshot, cardName)
-          ownedPrintingCandidatesCache.current.set(key, remoteCandidates)
-          return remoteCandidates
-        })
-        .catch(err => {
-          console.warn('[DeckBuilder] owned printing refresh failed:', err)
-          return localCandidates
-        })
-        .finally(() => ownedPrintingRefreshPromises.current.delete(key))
-      ownedPrintingRefreshPromises.current.set(key, promise)
-    }
-
-    return localCandidates
-  }
-
-  function pickOwnedPrintingCandidate(candidates, printRank, placement) {
-    return [...candidates]
-      .filter(row => (placement === 'binder' ? row.binderQty : row.deckQty) > 0)
-      .sort((a, b) => {
-        const rankA = printRank.get(a.scryfall_id) ?? printRank.get(normalizePrintKey(a)) ?? Number.MAX_SAFE_INTEGER
-        const rankB = printRank.get(b.scryfall_id) ?? printRank.get(normalizePrintKey(b)) ?? Number.MAX_SAFE_INTEGER
-        if (rankA !== rankB) return rankA - rankB
-        const qtyA = placement === 'binder' ? a.binderQty : a.deckQty
-        const qtyB = placement === 'binder' ? b.binderQty : b.deckQty
-        if (qtyA !== qtyB) return qtyB - qtyA
-        return Number(!!a.foil) - Number(!!b.foil)
-      })[0] || null
-  }
-
   async function resolvePreferredDeckPrinting(cardName, fallbackSfCard) {
-    const printings = await fetchPrintingsForDeckCardName(cardName)
-    const printById = new Map(printings.map(print => [print.id, print]))
-    const printByKey = new Map(printings.map(print => [normalizePrintKey(print), print]).filter(([key]) => key))
-    const printRank = new Map()
-    printings.forEach((print, index) => {
-      printRank.set(print.id, index)
-      const key = normalizePrintKey(print)
-      if (key && !printRank.has(key)) printRank.set(key, index)
-    })
+    if (!cardName || !user?.id) throw new Error('Card printing resolution requires a signed-in user.')
+    const requestKey = normalizeCardName(cardName)
+    if (printingResolutionRequests.current.has(requestKey)) return printingResolutionRequests.current.get(requestKey)
 
-    let ownedCandidates = []
-    try {
-      ownedCandidates = await fetchOwnedPrintingCandidates(cardName)
-    } catch (err) {
-      console.warn('[DeckBuilder] preferred owned printing lookup failed:', err)
-    }
+    const request = (async () => {
+      const printings = await fetchPrintingsByName(cardName, { language: 'all' })
+      const canonicalName = resolveCanonicalDeckCardName(cardName, {
+        metadata: fallbackSfCard,
+        printings,
+      })
+      const canonicalKey = normalizeCardName(canonicalName)
+      const ownedByName = await fetchRemoteOwnedPrintingCandidates(user.id, [canonicalName])
+      const ownedCandidates = ownedByName.get(canonicalKey) || []
+      const ranked = rankOwnedPrintingCandidates(ownedCandidates, printings)
+      const missingIds = [...new Set(ranked
+        .filter(entry => !entry.printing)
+        .map(entry => entry.candidate.scryfall_id)
+        .filter(Boolean))]
+      const hydrated = missingIds.length ? await fetchCardsByScryfallIds(missingIds) : []
+      const completePrintings = [...printings, ...hydrated.filter(card =>
+        !printings.some(printing => printing.id === card.id))]
 
-    const binderPick = pickOwnedPrintingCandidate(ownedCandidates, printRank, 'binder')
-    const deckPick = !binderPick ? pickOwnedPrintingCandidate(ownedCandidates, printRank, 'deck') : null
-    const ownedPick = binderPick || deckPick
-    if (ownedPick) {
-      const sfCard = printById.get(ownedPick.scryfall_id) || printByKey.get(normalizePrintKey(ownedPick))
-      if (sfCard) return { sfCard, foil: !!ownedPick.foil, card_print_id: ownedPick.card_print_id || null }
-      if (ownedPick.scryfall_id) {
-        const [fetched] = await fetchCardsByScryfallIds([ownedPick.scryfall_id])
-        if (fetched) return { sfCard: fetched, foil: !!ownedPick.foil, card_print_id: ownedPick.card_print_id || null }
+      if (ranked.some(entry => !entry.printing)
+        && rankOwnedPrintingCandidates(ownedCandidates, completePrintings).some(entry => !entry.printing)) {
+        throw new Error(`Owned printing metadata is unavailable for ${canonicalName}.`)
       }
-    }
 
-    // Automatic choices prefer English artwork. An exact owned printing is
-    // resolved above and remains untouched, including foreign-language copies.
-    const newest = pickAutomaticDeckPrinting(printings, fallbackSfCard)
-    return newest ? { sfCard: newest, foil: defaultFoilForPrinting(newest), card_print_id: null } : null
+      const resolved = selectPreferredDeckPrinting({
+        printings: completePrintings,
+        ownedCandidates,
+        fallbackCard: fallbackSfCard,
+      })
+      if (!resolved) throw new Error(`No paper printing is available for ${canonicalName}.`)
+      return resolved
+    })().finally(() => printingResolutionRequests.current.delete(requestKey))
+
+    printingResolutionRequests.current.set(requestKey, request)
+    return request
   }
 
   function isSameDeckPrinting(a, b) {
@@ -2679,7 +2622,7 @@ export default function DeckBuilderPage() {
     const meta = getDeckBuilderCardMeta(resolved.sfCard)
     const now = new Date().toISOString()
     const [printing] = await requireCardPrintIds([{
-      card_print_id:    resolved.card_print_id || null,
+      card_print_id:    resolved.cardPrintId || null,
       scryfall_id:      meta.scryfall_id,
       name:             resolved.sfCard.name || placeholderRow.name,
       set_code:         meta.set_code,
@@ -2744,29 +2687,36 @@ export default function DeckBuilderPage() {
       const cards = deckCardsRef.current.slice()
       const now = new Date().toISOString()
       const applied = [] // changed rows (full deck-card shape)
+      const names = [...new Set(cards.map(dc => dc.name).filter(Boolean))]
 
       if (mode === 'foil' || mode === 'nonfoil') {
         const targetFoil = mode === 'foil'
+        const catalog = await fetchPrintingsForNames(names, { withPrices: false, language: 'all' })
+        const printById = new Map(catalog.map(printing => [printing.id, printing]))
+        const printByKey = new Map(catalog.map(printing => [normalizePrintKey(printing), printing]).filter(([key]) => key))
+        let unsupported = 0
         for (const dc of cards) {
+          const printing = printById.get(dc.scryfall_id)
+            || printByKey.get(normalizePrintKey(dc))
+            || builderSfMap[getScryfallKey(dc)]
+          const supportsTarget = targetFoil
+            ? printingSupportsFoil(printing)
+            : printingSupportsNonfoil(printing)
+          if (!supportsTarget) { unsupported++; continue }
           if (!!dc.foil !== targetFoil) applied.push({ ...dc, foil: targetFoil, updated_at: now })
         }
+        if (unsupported > 0 && !applied.length) {
+          showToast(`No changes â€” ${unsupported} printing${unsupported === 1 ? '' : 's'} do not support ${targetFoil ? 'foil' : 'non-foil'}.`, { tone: 'info' })
+          return
+        }
       } else {
-        const names = [...new Set(cards.map(dc => dc.name).filter(Boolean))]
         // One batched DB read for the whole deck (card_prints + card_prices) —
         // no per-card Scryfall search. Names missing from the catalog fall back
         // to a single live Scryfall lookup each (rare).
-        const printsByName = {}
-        let dbMap = new Map()
-        try { dbMap = await fetchPaperPrintingsByNamesFromDb(names) } catch { dbMap = new Map() }
-        const missing = []
-        for (const name of names) {
-          const rows = dbMap.get(name) || []
-          if (rows.length) { printsByName[name] = rows; printingLookupCache.current.set(normalizeCardName(name), rows) }
-          else missing.push(name)
-        }
-        for (const name of missing) {
-          try { printsByName[name] = await fetchPrintingsForDeckCardName(name) }
-          catch { printsByName[name] = [] }
+        const catalog = await fetchPrintingsForNames(names, { language: 'english' })
+        const printsByName = Object.fromEntries(names.map(name => [name, []]))
+        for (const printing of catalog) {
+          if (printsByName[printing.name]) printsByName[printing.name].push(printing)
         }
         const pending = []
         for (const dc of cards) {
@@ -2947,43 +2897,110 @@ export default function DeckBuilderPage() {
       const resolved = await resolvePreferredDeckPrinting(name, fallbackSfCard)
       const finalRow = await applyResolvedPrintingToDeckRow(placeholderRow, resolved)
       queueOwnershipRefreshForRows([finalRow])
+      return finalRow
     } catch (err) {
       console.error('[DeckBuilder] failed to resolve preferred printing:', err)
       deckCardsRef.current = deckCardsRef.current.filter(dc => dc.id !== placeholderRow.id)
       setDeckCards(deckCardsRef.current)
       deleteDeckCardLocal(placeholderRow.id).catch(() => {})
+      showToast(`Could not verify the card printing: ${err?.message || 'network error'}`, { tone: 'error' })
+      return null
     }
   }
 
-  // Batched add for the Build Assistant's auto-fill: one metadata batch, one
+  // Batched add for Build Assistant flows: one metadata batch, one
   // card_print_id batch, one deck_cards insert, one state update. The per-card
   // path above costs several network round-trips per card, which made a full
-  // auto-build take minutes. Owned picks arrive with their exact printing
-  // (set/collector/foil/card_print_id) already chosen by the assistant;
-  // name-only recs resolve through the same bounded recommendation RPC as
-  // single adds. Returns { added, skipped, rows } — rows are the resolved
+  // auto-build take minutes. Every input is deliberately reduced to its name,
+  // then resolved against fresh ownership and the canonical print catalog.
+  // Returns { added, skipped, rows } — rows are the resolved
   // deck-card rows (with id/name/mana_cost/type_line), so the caller can mark
   // exactly what landed, predict basics from real pip costs, and offer undo.
   async function addCardsToDeckBulk(items) {
-    const list = (items || []).filter(it => it?.name)
+    const list = toAutomaticDeckPrintingRequests(items)
     if (!list.length) return { added: 0, skipped: 0, rows: [] }
 
-    const nameOnly = list.filter(it => !it.set && !it.set_code)
-    const metaByName = new Map()
-    if (nameOnly.length) {
-      try {
-        const metas = await fetchRecommendationMetadataByNames(nameOnly.map(it => it.name))
-        for (const m of metas || []) {
-          const key = (m.requested_name || m.name || '').toLowerCase()
-          if (key) metaByName.set(key, m)
+    const requestedNames = [...new Set(list.map(item => item.name).filter(Boolean))]
+    const [metas, catalog] = await Promise.all([
+      fetchRecommendationMetadataByNames(requestedNames).catch(() => []),
+      fetchPrintingsForNames(requestedNames, { language: 'all' }),
+    ])
+    const metaByRequestedName = new Map()
+    for (const metadata of metas || []) {
+      const key = normalizeCardName(metadata.requested_name || metadata.name)
+      if (key) metaByRequestedName.set(key, metadata)
+    }
+    const catalogByAlias = new Map()
+    for (const printing of catalog) {
+      const aliases = new Set([
+        ...cardNameMatchKeys(printing.name),
+        ...(printing.card_faces || []).map(face => normalizeCardName(face?.name)).filter(Boolean),
+      ])
+      for (const alias of aliases) {
+        const rows = catalogByAlias.get(alias) || []
+        rows.push(printing)
+        catalogByAlias.set(alias, rows)
+      }
+    }
+    const canonicalList = list.map(item => {
+      const requestedKey = normalizeCardName(item.name)
+      const metadata = metaByRequestedName.get(requestedKey) || null
+      const matchingPrintings = catalogByAlias.get(requestedKey) || []
+      return {
+        requestedName: item.name,
+        name: resolveCanonicalDeckCardName(item.name, { metadata, printings: matchingPrintings }),
+        metadata,
+      }
+    })
+
+    const resolvedByName = new Map()
+    if (canonicalList.length) {
+      const names = [...new Set(canonicalList.map(item => item.name).filter(Boolean))]
+      const ownedByName = await fetchRemoteOwnedPrintingCandidates(user.id, names)
+      const printingsByName = new Map(names.map(name => [normalizeCardName(name), []]))
+      for (const printing of catalog) {
+        const key = normalizeCardName(printing.name)
+        if (printingsByName.has(key)) printingsByName.get(key).push(printing)
+      }
+
+      const missingOwnedIds = new Set()
+      for (const name of names) {
+        const key = normalizeCardName(name)
+        const printings = printingsByName.get(key) || []
+        for (const entry of rankOwnedPrintingCandidates(ownedByName.get(key) || [], printings)) {
+          if (!entry.printing && entry.candidate.scryfall_id) missingOwnedIds.add(entry.candidate.scryfall_id)
         }
-      } catch { /* unresolved names are skipped below */ }
+      }
+      const hydratedOwned = missingOwnedIds.size
+        ? await fetchCardsByScryfallIds([...missingOwnedIds])
+        : []
+
+      for (const name of names) {
+        const key = normalizeCardName(name)
+        const ownedCandidates = ownedByName.get(key) || []
+        const candidateIds = new Set(ownedCandidates.map(candidate => candidate.scryfall_id).filter(Boolean))
+        const printings = [
+          ...(printingsByName.get(key) || []),
+          ...hydratedOwned.filter(card => candidateIds.has(card.id)),
+        ]
+        const ranked = rankOwnedPrintingCandidates(ownedCandidates, printings)
+        if (ranked.some(entry => !entry.printing)) {
+          throw new Error(`Owned printing metadata is unavailable for ${name}.`)
+        }
+        const resolved = selectPreferredDeckPrinting({
+          printings,
+          ownedCandidates,
+          fallbackCard: canonicalList.find(item => normalizeCardName(item.name) === key)?.metadata || null,
+        })
+        if (resolved) resolvedByName.set(key, resolved)
+      }
     }
 
     const now = new Date().toISOString()
     const prepared = []
-    for (const it of list) {
-      const src = (it.set || it.set_code) ? it : metaByName.get(it.name.toLowerCase())
+    for (const it of canonicalList) {
+      const resolved = resolvedByName.get(normalizeCardName(it.name))
+      const src = resolved?.sfCard
       if (!src) continue
       const meta = getDeckBuilderCardMeta(src)
       prepared.push({
@@ -2992,7 +3009,7 @@ export default function DeckBuilderPage() {
           id:               crypto.randomUUID(),
           deck_id:          deckId,
           user_id:          user.id,
-          card_print_id:    it.card_print_id || null,
+          card_print_id:    resolved?.cardPrintId || null,
           scryfall_id:      meta.scryfall_id,
           name:             src.name || it.name,
           set_code:         meta.set_code,
@@ -3003,7 +3020,7 @@ export default function DeckBuilderPage() {
           color_identity:   meta.color_identity,
           image_uri:        meta.image_uri,
           qty:              1,
-          foil:             !!it.foil,
+          foil:             !!resolved?.foil,
           is_commander:     false,
           board:            boardForCard({ type_line: meta.type_line }, src, 'main'),
           created_at:       now,

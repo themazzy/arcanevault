@@ -22,10 +22,10 @@ import { sfGet, scryfallImageAtSize } from './scryfall'
 import { sortByNameRelevance } from './scryfallSearch'
 
 const SF = 'https://api.scryfall.com'
-// PostgREST responses are hard-capped at 1000 rows; only the five basic lands
-// have more printings than that, and their newest 1000 still cover every set
-// a user can realistically pick.
-const PRINTINGS_ROW_CAP = 1000
+// Page explicitly because PostgREST responses are capped at 1000 rows and the
+// heavily reprinted basics exceed that limit.
+const PRINTINGS_PAGE_SIZE = 1000
+const PRINTINGS_NAME_CHUNK = 40
 const PRICE_ID_CHUNK = 200
 const SCRYFALL_PAGE_CAP = 20
 
@@ -179,19 +179,28 @@ async function searchCardNamesScryfall(q, limit) {
 
 // ── Printings ────────────────────────────────────────────────────────────────
 
-async function queryPrintRows(builderFn) {
-  const query = builderFn(
-    sb.from('card_prints')
-      .select(PRINT_COLUMNS)
-      .not('scryfall_id', 'is', null)
-      .or('lang.eq.en,lang.is.null')
-      .order('released_at', { ascending: false, nullsFirst: false })
-      .order('created_at', { ascending: false })
-      .limit(PRINTINGS_ROW_CAP)
-  )
-  const { data, error } = await query
-  if (error) throw error
-  return data || []
+function printRowsQuery(language) {
+  let query = sb.from('card_prints')
+    .select(PRINT_COLUMNS)
+    .not('scryfall_id', 'is', null)
+  if (language !== 'all') query = query.or('lang.eq.en,lang.is.null')
+  return query
+    .order('released_at', { ascending: false, nullsFirst: false })
+    .order('created_at', { ascending: false })
+    .order('scryfall_id', { ascending: true })
+}
+
+async function queryPrintRows(builderFn, { language = 'english' } = {}) {
+  const rows = []
+  for (let from = 0; ; from += PRINTINGS_PAGE_SIZE) {
+    const query = builderFn(printRowsQuery(language))
+      .range(from, from + PRINTINGS_PAGE_SIZE - 1)
+    const { data, error } = await query
+    if (error) throw error
+    rows.push(...(data || []))
+    if (!data || data.length < PRINTINGS_PAGE_SIZE) break
+  }
+  return rows
 }
 
 function escapeLike(value) {
@@ -204,16 +213,16 @@ function escapeLike(value) {
  * `onPartial(cards)` streams incremental results on the paginated Scryfall
  * fallback path.
  */
-export async function fetchPrintingsByName(name, { withPrices = true, onPartial = null } = {}) {
+export async function fetchPrintingsByName(name, { withPrices = true, onPartial = null, language = 'english' } = {}) {
   const cardName = (name || '').trim()
   if (!cardName) return []
   try {
-    let rows = await queryPrintRows(query => query.eq('name', cardName))
+    let rows = await queryPrintRows(query => query.eq('name', cardName), { language })
     if (!rows.length && !cardName.includes('//')) {
       // card_prints stores DFC names as the full "Front // Back"; a bare
       // front-face name (e.g. from the scanner) matches as a prefix, and this
       // catches every back-face variant of that front face at once.
-      rows = await queryPrintRows(query => query.like('name', `${escapeLike(cardName)} // %`))
+      rows = await queryPrintRows(query => query.like('name', `${escapeLike(cardName)} // %`), { language })
     }
     if (rows.length) {
       let cards = rows.map(rowToCard).filter(Boolean)
@@ -222,25 +231,53 @@ export async function fetchPrintingsByName(name, { withPrices = true, onPartial 
       return cards
     }
   } catch { /* fall back to Scryfall */ }
-  return fetchPrintingsScryfall(cardName, onPartial)
+  return fetchPrintingsScryfall(cardName, onPartial, language)
 }
 
 /**
  * Printings for several exact names in one query (Trading want-list search).
  * Results are newest-first within each name; group client-side.
  */
-export async function fetchPrintingsForNames(names, { withPrices = true } = {}) {
+export async function fetchPrintingsForNames(names, { withPrices = true, language = 'english' } = {}) {
   const wanted = [...new Set((names || []).map(n => (n || '').trim()).filter(Boolean))]
   if (!wanted.length) return []
-  const rows = await queryPrintRows(query => query.in('name', wanted))
+  const rows = []
+  try {
+    for (let i = 0; i < wanted.length; i += PRINTINGS_NAME_CHUNK) {
+      rows.push(...await queryPrintRows(
+        query => query.in('name', wanted.slice(i, i + PRINTINGS_NAME_CHUNK)),
+        { language },
+      ))
+    }
+  } catch {
+    rows.length = 0
+  }
+
   let cards = rows.map(rowToCard).filter(Boolean)
   if (withPrices && cards.length) cards = await attachSharedPrices(cards)
-  return cards
+
+  for (const name of wanted) {
+    if (filterScryfallPrintingsByRequestedName(cards, name).length) continue
+    cards.push(...await fetchPrintingsByName(name, { withPrices, language }))
+  }
+  const unique = new Map()
+  for (const card of cards) {
+    const key = card?.id || `${card?.name || ''}|${card?.set || ''}|${card?.collector_number || ''}|${card?.lang || ''}`
+    if (!unique.has(key)) unique.set(key, card)
+  }
+  return [...unique.values()]
 }
 
-async function fetchPrintingsScryfall(name, onPartial) {
+function filterScryfallPrintingsByRequestedName(cards, name) {
+  const exact = (cards || []).filter(card => card?.name === name)
+  if (exact.length || String(name).includes('//')) return exact
+  return (cards || []).filter(card => card?.name?.startsWith(`${name} //`))
+}
+
+async function fetchPrintingsScryfall(name, onPartial, language = 'english') {
   try {
-    const q = encodeURIComponent(`!"${name}" not:digital`)
+    const languageFilter = language === 'all' ? '' : ' lang:en'
+    const q = encodeURIComponent(`!"${name}" game:paper${languageFilter}`)
     let url = `${SF}/cards/search?q=${q}&unique=prints&order=released&dir=desc`
     const all = []
     // Scryfall paginates at 175/page; heavily-reprinted cards (basic lands)
@@ -249,10 +286,10 @@ async function fetchPrintingsScryfall(name, onPartial) {
       const data = await sfGet(url)
       if (!data?.data) break
       all.push(...data.data)
-      onPartial?.([...all])
+      onPartial?.(filterScryfallPrintingsByRequestedName(all, name))
       url = data.has_more ? data.next_page : null
     }
-    return all
+    return filterScryfallPrintingsByRequestedName(all, name)
   } catch {
     return []
   }
