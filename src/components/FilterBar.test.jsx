@@ -29,4 +29,28 @@ describe('FilterBar', () => {
     await user.click(toggle)
     expect(screen.queryByText('Colors')).toBe(null)
   })
+
+  it('shows Wishlist-relevant filters and omits owned-card fields', async () => {
+    const user = userEvent.setup()
+    render(
+      <FilterBar
+        search=""
+        setSearch={vi.fn()}
+        sort="name"
+        setSort={vi.fn()}
+        filters={{ ...EMPTY_FILTERS }}
+        setFilters={vi.fn()}
+        mode="wishlist"
+        sets={['lea', 'neo']}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Filters' }))
+
+    expect(screen.getAllByText('Set').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Condition')).toBe(null)
+    expect(screen.queryByText('Language')).toBe(null)
+    expect(screen.queryByText('Location')).toBe(null)
+    expect(screen.queryByRole('option', { name: /Profit/ })).toBe(null)
+  })
 })

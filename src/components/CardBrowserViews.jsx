@@ -10,6 +10,16 @@ import uiStyles from './UI.module.css'
 import styles from '../pages/DeckBrowser.module.css'
 import { AddIcon, CheckIcon, ExportIcon, FilterIcon, GridViewIcon, ImportIcon, ShareIcon, SortIcon, StacksViewIcon, TextViewIcon, TableViewIcon } from '../icons'
 import { CAT_ORDER, CAT_COLORS, getCardCategoryFromCard } from '../lib/cardCategory'
+import {
+  CARD_GRID_DENSITY,
+  MOBILE_CARD_GRID_BREAKPOINT,
+  MOBILE_CARD_GRID_GAP,
+  getCardGridDensity,
+  getDesktopCardGridMetrics,
+  gridColumnsForDensity,
+} from '../lib/cardGridDensity'
+
+export { GRID_IMG_BORDER_PX, gridColumnsForDensity } from '../lib/cardGridDensity'
 
 const NON_DRAGGABLE_IMG_PROPS = {
   draggable: false,
@@ -726,7 +736,7 @@ function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, selectMo
 
 function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, density }) {
   const dpr = useDevicePixelRatio()
-  const spec = DENSITY_IMAGE[density] || DENSITY_IMAGE.comfortable
+  const spec = getCardGridDensity(density)
   const [webpFailed, setWebpFailed] = useState(false)
   const { src, fallback } = resolveTileImage(getBrowserCardImage(card, sf, 'normal'), spec.px, dpr)
   const img = webpFailed && fallback ? fallback : src
@@ -797,11 +807,9 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onT
   )
 }
 
-// Tiles shimmer when the browser has to squeeze an image by an awkward ratio: it
-// picks a pre-filtered mipmap level (488 -> 244 -> 122) and bilinearly resamples
-// from there, which undersamples at anything much below that level. So each
-// density renders at a width that is a mip level of the tier it will be served
-// at, and the width is *capped* there rather than letting `1fr` stretch it past.
+// These are the ideal image widths for each density. Responsive grids stay
+// anchored to them, then scale every column slightly so intermediate viewport
+// widths do not leave a card-sized hole at the end of each row.
 //
 // The tier itself is not fixed per density — it depends on devicePixelRatio (see
 // pickImageTier), because the browser scales to device pixels. At DPR 1 these
@@ -815,32 +823,57 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onT
 //
 // `px` is the width of the *image*, which is what the browser scales. The grid
 // column has to carry the wrap's border on top — see GRID_IMG_BORDER_PX.
-export const DENSITY_IMAGE = {
-  cozy:        { px: 244, min: 210 },
-  comfortable: { px: 146, min: 130 },
-  compact:     { px: 122, min: 112 },
-}
+export const DENSITY_IMAGE = CARD_GRID_DENSITY
 
 // `.gridImgWrap` is border-box with a 1px border, so the <img> inside renders 2px
 // narrower than its grid column. Without this the caps miss by 2px and every
 // density lands off its level — which is exactly what happened the first time.
-export const GRID_IMG_BORDER_PX = 2
-
-export const gridColumnsForDensity = (density) => {
-  const spec = DENSITY_IMAGE[density] || DENSITY_IMAGE.comfortable
-  return `repeat(auto-fill, minmax(${spec.min}px, ${spec.px + GRID_IMG_BORDER_PX}px))`
-}
 const STACK_WIDTH_BY_DENSITY = { cozy: 240, comfortable: 200, compact: 170 }
-const MOBILE_GRID_BREAKPOINT = 430
-const MOBILE_DENSITY_COLS = { cozy: 1, comfortable: 2, compact: 3 }
+
+function ResponsiveCardGrid({ density, children }) {
+  const gridRef = useRef(null)
+  const densitySpec = getCardGridDensity(density)
+  const [layout, setLayout] = useState(null)
+
+  useEffect(() => {
+    const grid = gridRef.current
+    if (!grid) return undefined
+
+    const measure = () => {
+      const width = grid.clientWidth
+      const next = width <= MOBILE_CARD_GRID_BREAKPOINT
+        ? { mobile: true, columns: densitySpec.mobileCols, columnGap: MOBILE_CARD_GRID_GAP }
+        : { mobile: false, ...getDesktopCardGridMetrics(width, density) }
+
+      setLayout(previous => (
+        previous?.mobile === next.mobile
+        && previous?.columns === next.columns
+        && previous?.columnWidth === next.columnWidth
+        && previous?.columnGap === next.columnGap
+      ) ? previous : next)
+    }
+
+    const observer = new ResizeObserver(measure)
+    observer.observe(grid)
+    return () => observer.disconnect()
+  }, [density, densitySpec])
+
+  const gridStyle = !layout
+    ? { gridTemplateColumns: gridColumnsForDensity(density) }
+    : layout.mobile
+      ? {
+          gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))`,
+          columnGap: `${layout.columnGap}px`,
+        }
+      : {
+          gridTemplateColumns: `repeat(${layout.columns}, minmax(0, ${layout.columnWidth}px))`,
+          columnGap: `${layout.columnGap}px`,
+        }
+
+  return <div ref={gridRef} className={styles.cardGrid} style={gridStyle}>{children}</div>
+}
 
 function GridView({ cards, sfMap, priceSource, onSelect, selectMode, selectedCards, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, density, groups, groupOrder, groupBy, collapsedGroups, onToggleGroup }) {
-  const isSmallScreen = typeof window !== 'undefined' && window.innerWidth <= MOBILE_GRID_BREAKPOINT
-  const mobileCols = MOBILE_DENSITY_COLS[density] || 2
-  const gridStyle = isSmallScreen
-    ? { gridTemplateColumns: `repeat(${mobileCols}, minmax(0, 1fr))` }
-    : { gridTemplateColumns: gridColumnsForDensity(density) }
-
   const renderCards = (cardList) => cardList.map(card => {
     const key = getDisplayKey(card)
     return (
@@ -876,9 +909,9 @@ function GridView({ cards, sfMap, priceSource, onSelect, selectMode, selectedCar
                 <span className={styles.textGroupCount}>{total}</span>
               </button>
               {!isCollapsed && (
-                <div className={styles.cardGrid} style={gridStyle}>
+                <ResponsiveCardGrid density={density}>
                   {renderCards(groupCards)}
-                </div>
+                </ResponsiveCardGrid>
               )}
             </div>
           )
@@ -888,9 +921,9 @@ function GridView({ cards, sfMap, priceSource, onSelect, selectMode, selectedCar
   }
 
   return (
-    <div className={styles.cardGrid} style={gridStyle}>
+    <ResponsiveCardGrid density={density}>
       {renderCards(cards)}
-    </div>
+    </ResponsiveCardGrid>
   )
 }
 
@@ -906,6 +939,7 @@ export function CardBrowserViewControls({
   filterOpen = false,
   onToggleFilters,
   onAddCards,
+  onToggleSelectMode,
   onImport,
   onExport,
   onShare,
@@ -920,9 +954,11 @@ export function CardBrowserViewControls({
           <div className={styles.groupByToggle}>
             {CARD_BROWSER_GROUP_OPTIONS.map(option => (
               <button
+                type="button"
                 key={option.id}
                 className={`${styles.groupByBtn} ${groupBy === option.id ? styles.groupByActive : ''}`}
                 onClick={() => setGroupBy(option.id)}
+                aria-pressed={groupBy === option.id}
               >
                 {option.label}
               </button>
@@ -931,10 +967,13 @@ export function CardBrowserViewControls({
           <div className={styles.viewToggle}>
             {getOrderedBrowserViewModes().map(mode => (
               <button
+                type="button"
                 key={mode.id}
                 className={`${styles.viewBtn} ${viewMode === mode.id ? styles.viewActive : ''}`}
                 onClick={() => setViewMode(mode.id)}
                 title={mode.label}
+                aria-label={`${mode.label} view`}
+                aria-pressed={viewMode === mode.id}
               >
                 <mode.Icon size={13} />
                 <span>{mode.label}</span>
@@ -953,6 +992,17 @@ export function CardBrowserViewControls({
           >
             <AddIcon size={15} />
             <span>Add</span>
+          </button>
+        )}
+        {onToggleSelectMode && (
+          <button
+            className={styles.mobileControlsBtn}
+            onClick={onToggleSelectMode}
+            title="Select cards"
+            aria-label="Select cards"
+          >
+            <CheckIcon size={15} />
+            <span>Select</span>
           </button>
         )}
         {setSort && (

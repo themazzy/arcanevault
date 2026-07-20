@@ -1,7 +1,7 @@
 import { Children, isValidElement, forwardRef, useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import styles from './UI.module.css'
-import { CheckIcon, ChevronDownIcon, CloseIcon } from '../icons'
+import { CheckIcon, ChevronDownIcon, CloseIcon, ImportIcon } from '../icons'
 
 // Chevron with the open-state rotation the menus need. The glyph itself comes
 // from the icon system — this only adds the rotate class.
@@ -278,6 +278,95 @@ export function ErrorBox({ children }) {
 
 export function EmptyState({ children }) {
   return <div className={styles.empty}>{children}</div>
+}
+
+export function LibraryEmptyState({
+  icon,
+  title,
+  description,
+  importAction,
+  manualAction,
+  importFirst = true,
+  footer,
+  compact = false,
+}) {
+  const [dragover, setDragover] = useState(false)
+  const [fileError, setFileError] = useState('')
+
+  const handleDrop = async (event) => {
+    event.preventDefault()
+    setDragover(false)
+    if (importAction?.disabled) return
+
+    const file = event.dataTransfer.files?.[0]
+    if (!file) return
+    if (!/\.(csv|txt)$/i.test(file.name || '')) {
+      setFileError('Use a .csv or .txt file.')
+      return
+    }
+
+    setFileError('')
+    try {
+      await importAction?.onFile?.(file)
+    } catch {
+      setFileError('Could not read that file. Try again or open the import flow.')
+    }
+  }
+
+  const importControl = importAction ? (
+    <button
+      type="button"
+      className={`${styles.libraryImport}${dragover ? ` ${styles.libraryImportDragover}` : ''}${importFirst ? '' : ` ${styles.libraryImportSecondary}`}`}
+      onClick={importAction.onClick}
+      onDragOver={event => {
+        event.preventDefault()
+        if (!importAction.disabled) setDragover(true)
+      }}
+      onDragLeave={() => setDragover(false)}
+      onDrop={handleDrop}
+      disabled={importAction.disabled}
+      title={importAction.disabledTitle}
+    >
+      <span className={styles.libraryImportIcon}><ImportIcon size={22} /></span>
+      <span className={styles.libraryImportCopy}>
+        <strong>{importAction.label}</strong>
+        <span>{importAction.description}</span>
+      </span>
+      <span className={styles.libraryImportArrow} aria-hidden="true">›</span>
+    </button>
+  ) : null
+
+  const manualControl = manualAction ? (
+    <Button
+      variant={importFirst ? 'secondary' : 'default'}
+      onClick={manualAction.onClick}
+      disabled={manualAction.disabled}
+      title={manualAction.disabledTitle}
+      className={styles.libraryManualAction}
+    >
+      {manualAction.icon}
+      <span>{manualAction.label}</span>
+    </Button>
+  ) : null
+
+  return (
+    <section className={`${styles.libraryEmpty}${compact ? ` ${styles.libraryEmptyCompact}` : ''}`} aria-label={title}>
+      <div className={styles.libraryEmptyIcon} aria-hidden="true">{icon}</div>
+      <h2 className={styles.libraryEmptyTitle}>{title}</h2>
+      <p className={styles.libraryEmptyDescription}>{description}</p>
+
+      <div className={styles.libraryEmptyActions}>
+        {importFirst ? importControl : manualControl}
+        {importControl && manualControl && (
+          <div className={styles.libraryEmptyDivider}><span>or</span></div>
+        )}
+        {importFirst ? manualControl : importControl}
+        {fileError && <p className={styles.libraryFileError} role="alert">{fileError}</p>}
+      </div>
+
+      {footer && <div className={styles.libraryEmptyFooter}>{footer}</div>}
+    </section>
+  )
 }
 
 export function DropZone({ onFile, title, subtitle, onActivate, accept = '.csv' }) {

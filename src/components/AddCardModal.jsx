@@ -172,6 +172,7 @@ export default function AddCardModal({
   userId, onClose, onSaved, prefillCard = null,
   folderMode = false, defaultFolderType = 'binder', defaultFolderId = null,
   initialCardName = null,
+  initialCard = null,
 }) {
   // Guards the overlay click / Escape / X-button paths (all three funnel
   // through Modal's single onClose prop) with an always-on confirm — every
@@ -201,7 +202,8 @@ export default function AddCardModal({
           ? <EditForm card={prefillCard} onClose={onClose} onSaved={onSaved} />
           : <AddFlow userId={userId} onClose={requestClose} onSaved={onSaved}
               folderMode={folderMode} defaultFolderType={defaultFolderType} defaultFolderId={defaultFolderId}
-              initialCardName={initialCardName}
+              initialCardName={initialCard?.name || initialCardName}
+              initialCard={initialCard}
               onProgressChange={handleProgressChange} />
         }
       </Modal>
@@ -223,7 +225,7 @@ export default function AddCardModal({
 }
 
 // ── Add flow ──────────────────────────────────────────────────────────────────
-function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderType = 'binder', defaultFolderId = null, initialCardName = null, onProgressChange }) {
+function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderType = 'binder', defaultFolderId = null, initialCardName = null, initialCard = null, onProgressChange }) {
   const { price_source } = useSettings()
 
   // Format a printing's non-foil price using the user's price source
@@ -252,8 +254,8 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
   const [selectedPrinting, setSelectedPrinting] = useState(null)
 
   // Form
-  const [qty, setQty]                   = useState(1)
-  const [foil, setFoil]                 = useState(false)
+  const [qty, setQty]                   = useState(initialCard?.qty || 1)
+  const [foil, setFoil]                 = useState(!!initialCard?.foil)
   const [condition, setCondition]       = useState('near_mint')
   const [language, setLanguage]         = useState('en')
   const [purchasePrice, setPurchasePrice] = useState('')
@@ -340,9 +342,17 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
       setPrintings(prints)     // manual: show all (no art filtering)
       setAllPrintings(prints)
       if (prints.length > 0) {
-        setSelectedPrinting(prints[0])
-        setFoil(false)
-        setPurchasePrice(getMarketPrice(prints[0], false, price_source))
+        const preferred = initialCard
+          ? prints.find(printing =>
+              printing.id === initialCard.scryfall_id ||
+              (printing.set === initialCard.set_code && String(printing.collector_number) === String(initialCard.collector_number)))
+          : null
+        const chosen = preferred || prints[0]
+        const initialFoil = !!initialCard?.foil
+        setSelectedPrinting(chosen)
+        setFoil(initialFoil)
+        setQty(initialCard?.qty || 1)
+        setPurchasePrice(getMarketPrice(chosen, initialFoil, price_source))
       }
     } catch {}
     setLoadingPrintings(false)
@@ -947,4 +957,3 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
     </>
   )
 }
-

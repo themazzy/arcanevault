@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { getScryfallKey, getPrice, formatPrice, sfGet } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
@@ -7,7 +7,7 @@ import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { useToast } from '../components/ToastContext'
 import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
-import { EmptyState, SectionHeader, Button, Modal, ResponsiveHeaderActions, ResponsiveMenu, Select, SearchInput } from '../components/UI'
+import { EmptyState, LibraryEmptyState, SectionHeader, Button, Modal, ResponsiveHeaderActions, ResponsiveMenu, Select, SearchInput } from '../components/UI'
 import ShareModal from '../components/ShareModal'
 import { isTradeBinder } from '../lib/tradeBinder'
 import AddCardModal from '../components/AddCardModal'
@@ -16,7 +16,7 @@ import ExportModal from '../components/ExportModal'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import DeckBrowser from './DeckBrowser'
 import styles from './Folders.module.css'
-import { CloseIcon, CheckIcon, AddIcon, SettingsIcon, DeleteIcon, EditIcon, BinderIcon, ImageIcon, ImportIcon, ExportIcon, RemoveIcon, ShareIcon, SortIcon, StacksViewIcon } from '../icons'
+import { CloseIcon, CheckIcon, AddIcon, ChevronLeftIcon, SettingsIcon, DeleteIcon, EditIcon, BinderIcon, DeckIcon, ImageIcon, ImportIcon, ExportIcon, RemoveIcon, ShareIcon, SortIcon, StacksViewIcon } from '../icons'
 import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 import { useFilterWorker } from '../hooks/useFilterWorker'
@@ -25,8 +25,9 @@ import { getLocalFolderCards, getAllLocalFolderCards, getAllDeckAllocationsForFo
 import { queryClient } from '../lib/queryClient'
 import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
-import { unlinkPairedDeck } from '../lib/deckSync'
+import { getSyncState, unlinkPairedDeck } from '../lib/deckSync'
 import { trackActivity } from '../lib/activity'
+import { useLibraryBrowserPreferences } from '../hooks/useLibraryBrowserPreferences'
 
 
 // ── Sort dropdown (custom, dark-themed — native <option> can't be styled) ─────
@@ -297,7 +298,7 @@ function GroupSection({ group, folders, folderMeta, priceSource, selectMode, sel
   return (
     <div className={styles.groupSection}>
       <div className={styles.groupHeader}>
-        <button className={styles.groupCollapseBtn} onClick={() => setCollapsed(v => !v)}>
+        <button className={styles.groupCollapseBtn} onClick={() => setCollapsed(v => !v)} aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${group.name}`} aria-expanded={!collapsed}>
           {collapsed ? '▸' : '▾'}
         </button>
         {renaming ? (
@@ -320,7 +321,7 @@ function GroupSection({ group, folders, folderMeta, priceSource, selectMode, sel
         <ResponsiveMenu
           title="Group Actions"
           wrapClassName={styles.groupCogWrap}
-          trigger={({ toggle }) => <button className={styles.groupCogBtn} onClick={e => { e.stopPropagation(); toggle() }}><SettingsIcon size={13} /></button>}
+          trigger={({ toggle }) => <button className={styles.groupCogBtn} onClick={e => { e.stopPropagation(); toggle() }} aria-label={`Options for ${group.name}`}><SettingsIcon size={13} /></button>}
         >
           {({ close }) => (
             <div className={uiStyles.responsiveMenuList}>
@@ -377,6 +378,8 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
   const qty    = meta?.totalQty ?? meta?.count ?? 0
   const bgUrl  = useMemo(() => parseBgUrl(folder.description), [folder.description])
   const tradeBinder = isTradeBinder(folder)
+  const syncState = folder.type === 'deck' ? getSyncState(folder) : null
+  const unsynced = !!(syncState?.unsynced_builder || syncState?.unsynced_collection)
   const [menuOpen, setMenuOpen] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [renameVal, setRenameVal] = useState('')
@@ -423,6 +426,17 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
         } : {}),
       }}
       onClick={handleCardClick}
+      onKeyDown={event => {
+        if (event.target !== event.currentTarget) return
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          handleCardClick()
+        }
+      }}
+      role="button"
+      tabIndex={0}
+      aria-label={`${folder.name}, ${qty} ${qty === 1 ? 'card' : 'cards'}`}
+      aria-pressed={selectMode ? selected : undefined}
       {...longPressProps}>
 
       {selectMode ? null : (
@@ -431,7 +445,7 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
           wrapClassName={styles.cogMenuWrap}
           onOpenChange={setMenuOpen}
           trigger={({ toggle }) => (
-            <button className={styles.cogBtn} onClick={e => { e.stopPropagation(); toggle() }} title="Options">
+            <button className={styles.cogBtn} onClick={e => { e.stopPropagation(); toggle() }} title="Options" aria-label={`Options for ${folder.name}`}>
             <SettingsIcon size={14} />
           </button>
           )}
@@ -490,6 +504,7 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
         <div className={styles.folderName}>
           {folder.name}
           {tradeBinder && <span className={styles.tradeTag}><ShareIcon size={10} /> Trade</span>}
+          {unsynced && <span className={styles.unsyncedTag}>Unsynced</span>}
         </div>
       )}
       <div className={styles.folderMeta}>
@@ -566,15 +581,17 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
   const [splitState, setSplitState]   = useState(new Map())
   const [showAddCard, setShowAddCard] = useState(false)
   const [showImport, setShowImport]   = useState(false)
+  const [importText, setImportText]   = useState('')
   const [showExport, setShowExport]   = useState(false)
-  const [viewMode, setViewMode]       = useState('grid')
-  const [groupBy, setGroupBy]         = useState('none')
+  const [showShare, setShowShare]     = useState(false)
+  const { viewMode, setViewMode, groupBy, setGroupBy } = useLibraryBrowserPreferences('binder')
   const [filterOpen, setFilterOpen]   = useState(false)
   const [hoverImg, setHoverImg]       = useState(null)
   const [hoverPos, setHoverPos]       = useState({ x: 0, y: 0 })
   const [reloadKey, setReloadKey]     = useState(0)
   const isAllView = !folder
   const browserTitle = title || folder?.name || `All ${noun} Cards`
+  const openImport = () => { setImportText(''); setShowImport(true) }
   const folderIds = useMemo(() => folders.map(f => f.id), [folders])
   const moveFolders = useMemo(() => allFolders.filter(f => !isGroupFolder(f) && f.id !== folder?.id), [allFolders, folder?.id])
   const getCardKey = useCallback((card) => card?._displayKey || card?.id, [])
@@ -914,22 +931,27 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
     <div onMouseMove={handleMouseMove} onMouseLeave={handleHoverEnd}>
       {/* ── Binder header ── */}
       <div className={styles.binderHeader}>
-        <Button variant="ghost" size="sm" className={styles.backBtn} onClick={onBack}>← Back to {noun}s</Button>
         <div className={styles.binderTitleRow}>
           <h2 className={styles.binderTitle}>{browserTitle}</h2>
           <div className={styles.binderMeta}>
             <span>{totalQty} cards</span>
             <span className={styles.binderValue}>{formatPrice(totalValue, price_source)}</span>
             <div className={styles.browserHeaderActionsDesktop}>
-              <Button variant="secondary" size="sm" onClick={() => setShowExport(true)}>↓ Export</Button>
-              {!isAllView && <Button variant="secondary" size="sm" onClick={() => setShowImport(true)}>↑ Import</Button>}
-              <Button size="sm" onClick={() => setShowAddCard(true)}>+ Add Cards</Button>
+              {!isAllView && <Button variant="secondary" size="sm" onClick={() => setShowShare(true)}><ShareIcon size={12} /> Share</Button>}
+              <Button variant="secondary" size="sm" onClick={() => setShowExport(true)}><ExportIcon size={12} /> Export</Button>
+              {!isAllView && <Button variant="secondary" size="sm" onClick={openImport}><ImportIcon size={12} /> Import</Button>}
+              <Button size="sm" onClick={() => setShowAddCard(true)}><AddIcon size={12} /> Add Cards</Button>
             </div>
           </div>
         </div>
+        <div className={styles.browserBackRow}>
+          <Button variant="secondary" size="sm" className={styles.browserBackBtn} onClick={onBack}>
+            <ChevronLeftIcon size={13} /> Back to {noun}s
+          </Button>
+        </div>
       </div>
 
-      <FilterBar
+      {cards.length > 0 && <FilterBar
         search={search} setSearch={setSearch}
         sort={sort} setSort={setSort}
         filters={filters} setFilters={setFilters}
@@ -941,10 +963,10 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
         onFilterOpenChange={setFilterOpen}
         hideActionsMobile
         hideSortFilterMobile
-      />
+      />}
 
       {/* ── Control bar ── */}
-      <div className={styles.binderControlBar}>
+      {cards.length > 0 && <div className={styles.binderControlBar}>
         <span className={styles.binderCount}>
           Showing {filtered.length} of {cards.length} unique · {totalQty} total cards
         </span>
@@ -960,10 +982,12 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
           filterOpen={filterOpen}
           onToggleFilters={() => setFilterOpen(v => !v)}
           onAddCards={() => setShowAddCard(true)}
-          onImport={!isAllView ? () => setShowImport(true) : undefined}
+          onToggleSelectMode={toggleSelectMode}
+          onImport={!isAllView ? openImport : undefined}
           onExport={() => setShowExport(true)}
+          onShare={!isAllView ? () => setShowShare(true) : undefined}
         />
-      </div>
+      </div>}
 
       {selectMode && selectedCards.size > 0 && (
         <BulkActionBar
@@ -991,7 +1015,27 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
         />
       )}
 
-      {filtered.length === 0 && <EmptyState>No cards match your search.</EmptyState>}
+      {cards.length === 0 && !isAllView && (
+        <LibraryEmptyState
+          compact
+          icon={<BinderIcon size={32} />}
+          title={`Add cards to ${folder.name}`}
+          description="Import a collection file or add cards manually. Filters and views will appear once this binder contains cards."
+          importAction={{
+            label: 'Import cards',
+            description: 'Drop a .csv or .txt file here, or click to paste or upload.',
+            onClick: openImport,
+            onFile: async file => { setImportText(await file.text()); setShowImport(true) },
+          }}
+          manualAction={{
+            label: 'Add cards manually',
+            icon: <AddIcon size={14} />,
+            onClick: () => setShowAddCard(true),
+          }}
+        />
+      )}
+      {cards.length === 0 && isAllView && <EmptyState>No cards have been added to these {noun.toLowerCase()}s yet.</EmptyState>}
+      {cards.length > 0 && filtered.length === 0 && <EmptyState>No cards match your search or filters.</EmptyState>}
 
       {filtered.length > 0 && (
         <CardBrowserContent
@@ -1059,6 +1103,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
           folderType={folder.type}
           folders={[folder]}
           defaultFolderId={folder.id}
+          initialText={importText || undefined}
           onClose={() => setShowImport(false)}
           onSaved={() => {
             setShowImport(false)
@@ -1077,6 +1122,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
           onClose={() => setShowExport(false)}
         />
       )}
+      {showShare && folder && <ShareModal folder={folder} onClose={() => setShowShare(false)} />}
     </div>
   )
 }
@@ -1422,7 +1468,6 @@ export default function FoldersPage({ type }) {
   const [activeFolder, setActiveFolder] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [bulkDeleteData, setBulkDeleteData] = useState(null) // { nonEmpty, empty }
-  const [shareFolder, setShareFolder]   = useState(null)
   const [bgTarget, setBgTarget]         = useState(null)
   const [selectMode, setSelectMode]     = useState(false)
   const [selectedIds, setSelectedIds]   = useState(new Set())
@@ -1433,12 +1478,23 @@ export default function FoldersPage({ type }) {
   const [showNewFolder, setShowNewFolder] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
   const [showImport, setShowImport] = useState(false)
+  const [importModalText, setImportModalText] = useState('')
   const [showExportAll, setShowExportAll]     = useState(false)
   const [exportAllCards, setExportAllCards]   = useState([])
   const [exportAllSfMap, setExportAllSfMap]   = useState({})
   const [exportAllLoading, setExportAllLoading] = useState(false)
 
   const noun = type === 'deck' ? 'Deck' : type === 'list' ? 'List' : 'Binder'
+
+  const openImport = () => {
+    setImportModalText('')
+    setShowImport(true)
+  }
+
+  const handleEmptyImportFile = async (file) => {
+    setImportModalText(await file.text())
+    setShowImport(true)
+  }
 
   const handleSortChange = (val) => {
     setSort(val)
@@ -1869,7 +1925,7 @@ export default function FoldersPage({ type }) {
     <div className={styles.page}>
       <SectionHeader
         title={`${noun}s`}
-        action={
+        action={folders.length > 0 ? (
           <ResponsiveHeaderActions
             primary={!selectMode ? (
               <Button size="sm" onClick={() => setShowNewFolder(true)} title={`New ${noun}`} aria-label={`New ${noun}`}>
@@ -1881,10 +1937,11 @@ export default function FoldersPage({ type }) {
             mobileToolbar
             mobileExtra={!selectMode ? (
               <div className={styles.mobileHeaderControls}>
-                <input
+                <SearchInput
                   className={styles.folderSearch}
                   value={folderSearch}
                   onChange={e => setFolderSearch(e.target.value)}
+                  onClear={() => setFolderSearch('')}
                   placeholder={`Search ${noun.toLowerCase()}s…`}
                 />
               </div>
@@ -1906,7 +1963,7 @@ export default function FoldersPage({ type }) {
                     title="Move to group"
                     aria-label="Move to group">
                     <BinderIcon size={14} />
-                    📁 Group ({selectedIds.size})
+                    <span>Group ({selectedIds.size})</span>
                   </Button>
                 )}
                 <Button
@@ -1920,46 +1977,85 @@ export default function FoldersPage({ type }) {
                 </>
               ) : (
                 <>
-                <Button variant="secondary" size="sm" onClick={() => setShowNewGroup(true)} title="New group" aria-label="New group">
-                  <StacksViewIcon size={14} />
-                  <span>New Group</span>
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => setShowImport(true)} title="Import" aria-label="Import">
-                  <ExportIcon size={14} />
-                  <span>Import</span>
-                </Button>
-                <Button variant="ghost" size="sm" onClick={handleExportAll} title="Export" aria-label="Export">
-                  <ImportIcon size={14} />
-                  <span>Export</span>
-                </Button>
-                <input
-                  className={`${styles.folderSearch} ${styles.desktopOnlySearch}`}
+                <SearchInput
+                  className={styles.folderSearch}
+                  wrapClassName={styles.desktopOnlySearch}
+                  wrapStyle={{ flex: '0 1 auto', minWidth: 200, maxWidth: 280 }}
                   value={folderSearch}
                   onChange={e => setFolderSearch(e.target.value)}
+                  onClear={() => setFolderSearch('')}
                   placeholder={`Search ${noun.toLowerCase()}s…`}
                 />
                 <div className={styles.desktopOnlyAction}>
                   <SortDropdown value={sort} onChange={handleSortChange} options={SORT_OPTIONS} compact />
                 </div>
+                <ResponsiveMenu
+                  title={`${noun} Actions`}
+                  trigger={({ toggle }) => (
+                    <Button variant="ghost" size="sm" onClick={toggle} title="More actions" aria-label={`More ${noun.toLowerCase()} actions`}>
+                      <SettingsIcon size={14} /> <span>More</span>
+                    </Button>
+                  )}
+                >
+                  {({ close }) => (
+                    <div className={uiStyles.responsiveMenuList}>
+                      <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowNewGroup(true); close() }}>
+                        <span><StacksViewIcon size={14} /> New Group</span>
+                      </button>
+                      <button className={uiStyles.responsiveMenuAction} onClick={() => { openImport(); close() }}>
+                        <span><ImportIcon size={14} /> Import</span>
+                      </button>
+                      <button className={uiStyles.responsiveMenuAction} onClick={() => { handleExportAll(); close() }}>
+                        <span><ExportIcon size={14} /> Export</span>
+                      </button>
+                      <button className={uiStyles.responsiveMenuAction} onClick={() => { setSelectMode(true); close() }}>
+                        <span><CheckIcon size={14} /> Select</span>
+                      </button>
+                    </div>
+                  )}
+                </ResponsiveMenu>
                 </>
               )}
             </div>
           </ResponsiveHeaderActions>
-        }
+        ) : null}
       />
-      {!selectMode && (
+      {!selectMode && folders.length > 0 && (
         <div className={styles.overviewStickySearch}>
-          <input
+          <SearchInput
             className={styles.folderSearch}
             value={folderSearch}
             onChange={e => setFolderSearch(e.target.value)}
+            onClear={() => setFolderSearch('')}
             placeholder={`Search ${noun.toLowerCase()}s...`}
           />
         </div>
       )}
 
       {folders.length === 0 && (
-        <EmptyState>No {noun.toLowerCase()}s yet. Import your collection CSV from the Collection tab to populate them.</EmptyState>
+        <LibraryEmptyState
+          icon={type === 'deck' ? <DeckIcon size={34} /> : <BinderIcon size={34} />}
+          title={type === 'deck' ? 'Create your first collection deck' : 'Create your first binder'}
+          description={type === 'deck'
+            ? 'Collection decks allocate the physical cards you own. Import a decklist or start with an empty deck.'
+            : 'Binders organise the physical cards you own. Import a collection file or start with an empty binder.'}
+          importAction={{
+            label: type === 'deck' ? 'Import a collection deck' : 'Import into a binder',
+            description: 'Drop a .csv or .txt decklist here, or click to paste or upload.',
+            onClick: openImport,
+            onFile: handleEmptyImportFile,
+          }}
+          manualAction={{
+            label: type === 'deck' ? 'Create empty collection deck' : 'Create empty binder',
+            icon: <AddIcon size={14} />,
+            onClick: () => setShowNewFolder(true),
+          }}
+          footer={type === 'deck' ? (
+            <span>
+              Planning without allocating owned cards? <Link to="/builder">Open Deck Builder</Link>.
+            </span>
+          ) : null}
+        />
       )}
 
       {/* Groups with their binders */}
@@ -2122,7 +2218,6 @@ export default function FoldersPage({ type }) {
           onCancel={() => setBulkDeleteData(null)}
         />
       )}
-      {shareFolder && <ShareModal folder={shareFolder} onClose={() => setShareFolder(null)} />}
       {bgTarget && (
         <CardArtPicker
           onSelect={(url) => {
@@ -2162,6 +2257,7 @@ export default function FoldersPage({ type }) {
           userId={user.id}
           folderType={type}
           folders={regularFolders}
+          initialText={importModalText || undefined}
           onClose={() => setShowImport(false)}
           onSaved={() => {
             setShowImport(false)

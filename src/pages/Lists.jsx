@@ -5,22 +5,26 @@ import { toListItemRow } from '../lib/deckBuilderWrites'
 import { queryClient } from '../lib/queryClient'
 import { invalidateWishlistQueries } from '../lib/queryInvalidation'
 import { trackActivity } from '../lib/activity'
-import { getPrice, formatPrice } from '../lib/scryfall'
+import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { useToast } from '../components/ToastContext'
-import { EmptyState, SectionHeader, Modal, ResponsiveHeaderActions, ResponsiveMenu, Button, SearchInput } from '../components/UI'
+import { EmptyState, LibraryEmptyState, SectionHeader, Modal, ResponsiveHeaderActions, ResponsiveMenu, Button, SearchInput, Select } from '../components/UI'
 import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
 import { useLongPress } from '../hooks/useLongPress'
 import { useFilterWorker } from '../hooks/useFilterWorker'
 import AddCardModal from '../components/AddCardModal'
+import ShareModal from '../components/ShareModal'
 import ImportModal from '../components/ImportModal'
 import ExportModal from '../components/ExportModal'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import styles from './Folders.module.css'
-import { CloseIcon, CheckIcon, AddIcon, BinderIcon, CollectionIcon, DeleteIcon, EditIcon, ExportIcon, ImageIcon, ImportIcon, RemoveIcon, SettingsIcon, SortIcon, StacksViewIcon } from '../icons'
+import { CloseIcon, CheckIcon, AddIcon, BinderIcon, ChevronLeftIcon, CollectionIcon, DeleteIcon, EditIcon, ExportIcon, ImageIcon, ImportIcon, RemoveIcon, SettingsIcon, ShareIcon, SortIcon, StacksViewIcon, WishlistsIcon } from '../icons'
 import uiStyles from '../components/UI.module.css'
+import { useLibraryBrowserPreferences } from '../hooks/useLibraryBrowserPreferences'
+import { fetchPrintingsByName } from '../lib/cardSearch'
+import { ensureCardPrints, getCardPrint } from '../lib/cardPrints'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function parseFolderDesc(description) {
@@ -159,6 +163,105 @@ function CardArtPicker({ onSelect, onClose }) {
 }
 
 // ── ListBrowser ───────────────────────────────────────────────────────────────
+function WishlistItemEditModal({ item, onClose, onSaved }) {
+  const [qty, setQty] = useState(item.qty || 1)
+  const [foil, setFoil] = useState(!!item.foil)
+  const [printings, setPrintings] = useState([])
+  const [printingId, setPrintingId] = useState(item.scryfall_id || '')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    fetchPrintingsByName(item.name, { language: 'all' })
+      .then(rows => {
+        if (cancelled) return
+        setPrintings(rows || [])
+        if (!printingId && rows?.[0]?.id) setPrintingId(rows[0].id)
+      })
+      .catch(() => { if (!cancelled) setError('Could not load available printings.') })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [item.name]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const save = async () => {
+    if (saving) return
+    setSaving(true)
+    setError('')
+    try {
+      const selectedPrinting = printings.find(printing => printing.id === printingId)
+      let cardPrintId = item.card_print_id
+      if (selectedPrinting && selectedPrinting.id !== item.scryfall_id) {
+        const printMap = await ensureCardPrints([selectedPrinting])
+        cardPrintId = getCardPrint(printMap, selectedPrinting)?.id
+      }
+      if (!cardPrintId) throw new Error('Could not resolve that printing.')
+
+      const { data: existing, error: existingError } = await sb.from('list_items')
+        .select('id,qty')
+        .eq('folder_id', item.folder_id)
+        .eq('card_print_id', cardPrintId)
+        .eq('foil', foil)
+        .neq('id', item.id)
+        .maybeSingle()
+      if (existingError) throw existingError
+
+      if (existing) {
+        const { error: mergeError } = await sb.from('list_items').update({ qty: (existing.qty || 0) + qty }).eq('id', existing.id)
+        if (mergeError) throw mergeError
+        const { error: deleteError } = await sb.from('list_items').delete().eq('id', item.id)
+        if (deleteError) throw deleteError
+      } else {
+        const { error: updateError } = await sb.from('list_items')
+          .update({ qty, foil, card_print_id: cardPrintId })
+          .eq('id', item.id)
+        if (updateError) throw updateError
+      }
+
+      await onSaved()
+      onClose()
+    } catch (err) {
+      setError(err.message || 'Could not update this wishlist item.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal onClose={onClose}>
+      <h2 className={styles.wishlistEditTitle}>Edit wanted card</h2>
+      <p className={styles.wishlistEditName}>{item.name}</p>
+      <div className={styles.wishlistEditGrid}>
+        <label>
+          <span>Quantity wanted</span>
+          <input type="number" min="1" value={qty} onChange={event => setQty(Math.max(1, parseInt(event.target.value) || 1))} />
+        </label>
+        <label>
+          <span>Printing</span>
+          <Select value={printingId} onChange={event => setPrintingId(event.target.value)} disabled={loading}>
+            {!printings.length && <option value={printingId}>{loading ? 'Loading printings…' : `${(item.set_code || '').toUpperCase()} #${item.collector_number || ''}`}</option>}
+            {printings.map(printing => (
+              <option key={printing.id} value={printing.id}>
+                {printing.set_name || printing.set?.toUpperCase()} · {(printing.set || '').toUpperCase()} #{printing.collector_number}
+              </option>
+            ))}
+          </Select>
+        </label>
+        <label className={styles.wishlistFoilRow}>
+          <input type="checkbox" checked={foil} onChange={event => setFoil(event.target.checked)} />
+          <span>Foil</span>
+        </label>
+      </div>
+      {error && <p className={styles.wishlistEditError} role="alert">{error}</p>}
+      <div className={styles.wishlistEditActions}>
+        <Button variant="secondary" size="sm" onClick={onClose} disabled={saving}>Cancel</Button>
+        <Button size="sm" onClick={save} disabled={saving || loading}>{saving ? 'Saving…' : 'Save changes'}</Button>
+      </div>
+    </Modal>
+  )
+}
+
 function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
   const { price_source, default_sort, grid_density } = useSettings()
   const { user } = useAuth()
@@ -168,22 +271,28 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
   const [allFolders, setAllFolders] = useState([])
   const [loading, setLoading]   = useState(true)
   const [search, setSearch]     = useState('')
-  const [sort, setSort]         = useState(default_sort || 'name')
+  const [sort, setSort]         = useState(
+    ['pl_desc', 'pl_asc'].includes(default_sort) ? 'name' : (default_sort || 'name'),
+  )
   const [filters, setFilters]   = useState({ ...EMPTY_FILTERS })
   const [selectMode, setSelectMode]       = useState(false)
   const [selectedItems, setSelectedItems] = useState(new Set())
   const [splitState, setSplitState]       = useState(new Map())
   const [showAddCard, setShowAddCard]     = useState(false)
   const [showImport, setShowImport]       = useState(false)
+  const [importText, setImportText]       = useState('')
   const [showExport, setShowExport]       = useState(false)
-  const [viewMode, setViewMode]           = useState('grid')
-  const [groupBy, setGroupBy]             = useState('none')
+  const [showShare, setShowShare]         = useState(false)
+  const [editItem, setEditItem]           = useState(null)
+  const [acquireItem, setAcquireItem]     = useState(null)
+  const { viewMode, setViewMode, groupBy, setGroupBy } = useLibraryBrowserPreferences('wishlist')
   const [filterOpen, setFilterOpen]       = useState(false)
   const [selectedItemId, setSelectedItemId] = useState(null)
   const [hoverImg, setHoverImg]           = useState(null)
   const [hoverPos, setHoverPos]           = useState({ x: 0, y: 0 })
   const isAllView = !folder
   const browserTitle = title || folder?.name || 'All Wishlist Cards'
+  const openImport = () => { setImportText(''); setShowImport(true) }
   const folderIds = useMemo(() => folders.map(f => f.id), [folders])
   const folderNameById = useMemo(
     () => Object.fromEntries((folders || []).map(f => [f.id, f.name])),
@@ -289,6 +398,17 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
   }, [items])
 
   const filtered = useFilterWorker({ cards: items, sfMap, search, sort, filters, priceSource: price_source })
+  const availableSets = useMemo(() => {
+    const seen = {}
+    for (const item of items) {
+      if (!item.set_code) continue
+      const sf = sfMap[getScryfallKey(item)]
+      if (!seen[item.set_code]) seen[item.set_code] = sf?.set_name || item.set_code.toUpperCase()
+    }
+    return Object.entries(seen)
+      .map(([code, name]) => ({ code, name }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [items, sfMap])
   const selectedItem = selectedItemId ? (itemById.get(selectedItemId) ?? null) : null
   const selectedSf = selectedItem ? sfMap[`${selectedItem.set_code}-${selectedItem.collector_number}`] : null
   const selectableItemQty = useMemo(() =>
@@ -468,35 +588,42 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
     <div onMouseMove={handleMouseMove} onMouseLeave={handleHoverEnd}>
       {/* ── Wishlist header ── */}
       <div className={styles.binderHeader}>
-        <Button variant="ghost" size="sm" className={styles.backBtn} onClick={onBack}>← Back to Wishlists</Button>
         <div className={styles.binderTitleRow}>
           <h2 className={styles.binderTitle}>{browserTitle}</h2>
           <div className={styles.binderMeta}>
-            <span>{totalQty} wants</span>
-            <span className={styles.binderValue}>{formatPrice(totalValue, price_source)}</span>
+            <span>{totalQty} wanted</span>
+            <span className={styles.wishlistCost}>Est. cost {formatPrice(totalValue, price_source)}</span>
             <div className={styles.browserHeaderActionsDesktop}>
+              {!isAllView && <Button variant="secondary" size="sm" onClick={() => setShowShare(true)}><ShareIcon size={12} /> Share</Button>}
               <Button variant="secondary" size="sm" onClick={() => setShowExport(true)}>↓ Export</Button>
-              {!isAllView && <Button variant="secondary" size="sm" onClick={() => setShowImport(true)}>↑ Import</Button>}
+              {!isAllView && <Button variant="secondary" size="sm" onClick={openImport}>↑ Import</Button>}
               <Button size="sm" onClick={() => setShowAddCard(true)}>+ Add Cards</Button>
             </div>
           </div>
         </div>
+        <div className={styles.browserBackRow}>
+          <Button variant="secondary" size="sm" className={styles.browserBackBtn} onClick={onBack}>
+            <ChevronLeftIcon size={13} /> Back to Wishlists
+          </Button>
+        </div>
       </div>
 
-      <FilterBar
+      {items.length > 0 && <FilterBar
         search={search} setSearch={setSearch}
         sort={sort} setSort={setSort}
         filters={filters} setFilters={setFilters}
+        mode="wishlist"
+        sets={availableSets}
         selectMode={selectMode}
         onToggleSelectMode={toggleSelectMode}
         filterOpen={filterOpen}
         onFilterOpenChange={setFilterOpen}
         hideActionsMobile
         hideSortFilterMobile
-      />
+      />}
 
       {/* ── Control bar ── */}
-      <div className={styles.binderControlBar}>
+      {items.length > 0 && <div className={styles.binderControlBar}>
         <span className={styles.binderCount}>
           Showing {filtered.length} of {items.length} unique · {totalQty} total cards
         </span>
@@ -512,10 +639,12 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
           filterOpen={filterOpen}
           onToggleFilters={() => setFilterOpen(v => !v)}
           onAddCards={() => setShowAddCard(true)}
-          onImport={!isAllView ? () => setShowImport(true) : undefined}
+          onToggleSelectMode={toggleSelectMode}
+          onImport={!isAllView ? openImport : undefined}
           onExport={() => setShowExport(true)}
+          onShare={!isAllView ? () => setShowShare(true) : undefined}
         />
-      </div>
+      </div>}
 
       {selectMode && selectedItems.size > 0 && (
         <BulkActionBar
@@ -550,7 +679,28 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
         />
       )}
 
-      {filtered.length === 0 && <EmptyState>No cards match.</EmptyState>}
+      {items.length === 0 && !isAllView && (
+        <LibraryEmptyState
+          compact
+          icon={<WishlistsIcon size={32} />}
+          title={`Add cards to ${folder.name}`}
+          description="Add cards you want or import an existing list. Wishlist-specific filters and views will appear once it contains cards."
+          importFirst={false}
+          manualAction={{
+            label: 'Add wanted cards',
+            icon: <AddIcon size={14} />,
+            onClick: () => setShowAddCard(true),
+          }}
+          importAction={{
+            label: 'Import a wishlist',
+            description: 'Drop a .csv or .txt list here, or click to paste or upload.',
+            onClick: openImport,
+            onFile: async file => { setImportText(await file.text()); setShowImport(true) },
+          }}
+        />
+      )}
+      {items.length === 0 && isAllView && <EmptyState>Your wishlists do not contain any cards yet.</EmptyState>}
+      {items.length > 0 && filtered.length === 0 && <EmptyState>No wishlist cards match your search or filters.</EmptyState>}
 
       {filtered.length > 0 && (
         <CardBrowserContent
@@ -581,6 +731,16 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
           sfCard={selectedSf}
           priceSource={price_source}
           readOnly
+          actions={(
+            <>
+              <Button variant="secondary" size="sm" onClick={() => { setEditItem(selectedItem); setSelectedItemId(null) }}>
+                <EditIcon size={13} /> Edit wanted card
+              </Button>
+              <Button size="sm" onClick={() => { setAcquireItem(selectedItem); setSelectedItemId(null) }}>
+                <CollectionIcon size={13} /> Add to collection
+              </Button>
+            </>
+          )}
           onClose={() => setSelectedItemId(null)}
         />
       )}
@@ -591,12 +751,30 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
         </div>
       )}
 
+      {acquireItem && user && (
+        <AddCardModal
+          userId={user.id}
+          initialCard={acquireItem}
+          onClose={() => setAcquireItem(null)}
+          onSaved={async () => { setAcquireItem(null); await invalidateListCaches(); await reload() }}
+        />
+      )}
+      {editItem && (
+        <WishlistItemEditModal
+          item={editItem}
+          onClose={() => setEditItem(null)}
+          onSaved={async () => { await invalidateListCaches(); await reload() }}
+        />
+      )}
+      {showShare && folder && <ShareModal folder={folder} onClose={() => setShowShare(false)} />}
+
       {showImport && user && !isAllView && (
         <ImportModal
           userId={user.id}
           folderType="list"
           folders={[folder]}
           defaultFolderId={folder.id}
+          initialText={importText || undefined}
           onClose={() => setShowImport(false)}
           onSaved={() => { setShowImport(false); invalidateListCaches(); reload() }}
         />
@@ -677,6 +855,17 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onRename,
         } : {}),
       }}
       onClick={handleCardClick}
+      onKeyDown={event => {
+        if (event.target !== event.currentTarget) return
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          handleCardClick()
+        }
+      }}
+      role="button"
+      tabIndex={0}
+      aria-label={`${folder.name}, ${qty} ${qty === 1 ? 'wanted card' : 'wanted cards'}`}
+      aria-pressed={selectMode ? selected : undefined}
       {...longPressProps}>
 
       {selectMode ? null : (
@@ -685,7 +874,7 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onRename,
           wrapClassName={styles.cogMenuWrap}
           onOpenChange={setMenuOpen}
           trigger={({ toggle }) => (
-            <button className={styles.cogBtn} onClick={e => { e.stopPropagation(); toggle() }} title="Options">
+            <button className={styles.cogBtn} onClick={e => { e.stopPropagation(); toggle() }} title="Options" aria-label={`Options for ${folder.name}`}>
               <SettingsIcon size={14} />
             </button>
           )}
@@ -743,8 +932,8 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onRename,
       )}
       <div className={styles.folderMeta}>
         <span>{qty} want{qty !== 1 ? 's' : ''}</span>
-        <span style={{ color: value != null ? 'var(--green)' : 'var(--text-faint)' }}>
-          {value != null ? formatPrice(value, priceSource) : '—'}
+        <span className={styles.wishlistEstimate}>
+          {value != null ? `Est. ${formatPrice(value, priceSource)}` : '—'}
         </span>
       </div>
     </div>
@@ -765,7 +954,7 @@ function GroupSection({ group, folders, folderMeta, priceSource, selectMode, sel
   return (
     <div className={styles.groupSection}>
       <div className={styles.groupHeader}>
-        <button className={styles.groupCollapseBtn} onClick={() => setCollapsed(v => !v)}>
+        <button className={styles.groupCollapseBtn} onClick={() => setCollapsed(v => !v)} aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${group.name}`} aria-expanded={!collapsed}>
           {collapsed ? '▸' : '▾'}
         </button>
         {renaming ? (
@@ -784,7 +973,7 @@ function GroupSection({ group, folders, folderMeta, priceSource, selectMode, sel
           title="Group Actions"
           wrapClassName={styles.groupCogWrap}
           trigger={({ toggle }) => (
-            <button className={styles.groupCogBtn} onClick={e => { e.stopPropagation(); toggle() }}>...</button>
+            <button className={styles.groupCogBtn} onClick={e => { e.stopPropagation(); toggle() }} aria-label={`Options for ${group.name}`}><SettingsIcon size={13} /></button>
           )}
         >
           {({ close }) => (
@@ -856,10 +1045,21 @@ export default function ListsPage() {
   const [showNewFolder, setShowNewFolder] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
   const [showImport, setShowImport] = useState(false)
+  const [importModalText, setImportModalText] = useState('')
   const [showExportAll, setShowExportAll]     = useState(false)
   const [exportAllCards, setExportAllCards]   = useState([])
   const [exportAllSfMap, setExportAllSfMap]   = useState({})
   const [exportAllLoading, setExportAllLoading] = useState(false)
+
+  const openImport = () => {
+    setImportModalText('')
+    setShowImport(true)
+  }
+
+  const handleEmptyImportFile = async (file) => {
+    setImportModalText(await file.text())
+    setShowImport(true)
+  }
 
   const handleSortChange = (val) => {
     setSort(val)
@@ -1208,7 +1408,7 @@ export default function ListsPage() {
     <div className={styles.page}>
       <SectionHeader
         title="Wishlists"
-        action={
+        action={folders.length > 0 ? (
           <ResponsiveHeaderActions
             primary={!selectMode ? (
               <Button size="sm" onClick={() => setShowNewFolder(true)} title="New wishlist" aria-label="New wishlist">
@@ -1255,21 +1455,9 @@ export default function ListsPage() {
                 </>
               ) : (
                 <>
-                <Button variant="secondary" size="sm" onClick={() => setShowNewGroup(true)} title="New group" aria-label="New group">
-                  <StacksViewIcon size={14} />
-                  <span>New Group</span>
-                </Button>
                 <Button size="sm" className={styles.viewAllBtn} onClick={() => setShowAllCards(true)} title="View all cards" aria-label="View all cards">
                   <CollectionIcon size={14} />
                   <span>View All Cards</span>
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => setShowImport(true)} title="Import" aria-label="Import">
-                  <ExportIcon size={14} />
-                  <span>Import</span>
-                </Button>
-                <Button variant="ghost" size="sm" onClick={handleExportAll} title="Export" aria-label="Export">
-                  <ImportIcon size={14} />
-                  <span>Export</span>
                 </Button>
                 <SearchInput
                   className={styles.folderSearch}
@@ -1283,13 +1471,38 @@ export default function ListsPage() {
                 <div className={styles.desktopOnlyAction}>
                   <SortDropdown value={sort} onChange={handleSortChange} options={SORT_OPTIONS} compact />
                 </div>
+                <ResponsiveMenu
+                  title="Wishlist Actions"
+                  trigger={({ toggle }) => (
+                    <Button variant="ghost" size="sm" onClick={toggle} title="More actions" aria-label="More wishlist actions">
+                      <SettingsIcon size={14} /> <span>More</span>
+                    </Button>
+                  )}
+                >
+                  {({ close }) => (
+                    <div className={uiStyles.responsiveMenuList}>
+                      <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowNewGroup(true); close() }}>
+                        <span><StacksViewIcon size={14} /> New Group</span>
+                      </button>
+                      <button className={uiStyles.responsiveMenuAction} onClick={() => { openImport(); close() }}>
+                        <span><ImportIcon size={14} /> Import</span>
+                      </button>
+                      <button className={uiStyles.responsiveMenuAction} onClick={() => { handleExportAll(); close() }}>
+                        <span><ExportIcon size={14} /> Export</span>
+                      </button>
+                      <button className={uiStyles.responsiveMenuAction} onClick={() => { setSelectMode(true); close() }}>
+                        <span><CheckIcon size={14} /> Select</span>
+                      </button>
+                    </div>
+                  )}
+                </ResponsiveMenu>
                 </>
               )}
             </div>
           </ResponsiveHeaderActions>
-        }
+        ) : null}
       />
-      {!selectMode && (
+      {!selectMode && folders.length > 0 && (
         <div className={styles.overviewStickySearch}>
           <SearchInput
             className={styles.folderSearch}
@@ -1303,9 +1516,25 @@ export default function ListsPage() {
       )}
 
       {folders.length === 0 && (
-        <EmptyState>No wishlists yet. Lists from your Manabox CSV will appear here after import.</EmptyState>
+        <LibraryEmptyState
+          icon={<WishlistsIcon size={34} />}
+          title="Save cards for later"
+          description="Wishlists track cards you want without adding them to your owned collection. Create one manually or import an existing list."
+          importFirst={false}
+          manualAction={{
+            label: 'Create your first wishlist',
+            icon: <AddIcon size={14} />,
+            onClick: () => setShowNewFolder(true),
+          }}
+          importAction={{
+            label: 'Import a wishlist',
+            description: 'Drop a .csv or .txt list here, or click to paste or upload.',
+            onClick: openImport,
+            onFile: handleEmptyImportFile,
+          }}
+          footer="Wishlist cards do not count toward collection totals or values."
+        />
       )}
-
       {filteredGroups.map((group, idx) => (
         <GroupSection
           key={group.id}
@@ -1460,6 +1689,7 @@ export default function ListsPage() {
           userId={user.id}
           folderType="list"
           folders={regularFolders}
+          initialText={importModalText || undefined}
           onClose={() => setShowImport(false)}
           onSaved={() => { setShowImport(false); loadFolders() }}
         />

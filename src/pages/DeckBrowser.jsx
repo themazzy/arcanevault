@@ -7,13 +7,15 @@ import { useSettings } from '../components/SettingsContext'
 import { useAuth } from '../components/Auth'
 import { useToast } from '../components/ToastContext'
 import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
-import { EmptyState, Badge } from '../components/UI'
-import { CheckIcon, StarIcon, ChevronUpIcon, ChevronDownIcon, ChevronLeftIcon, ImportIcon, ExportIcon, AddIcon } from '../icons'
+import { EmptyState, LibraryEmptyState, Badge, Button, ResponsiveMenu } from '../components/UI'
+import { CheckIcon, StarIcon, ChevronUpIcon, ChevronDownIcon, ChevronLeftIcon, ImportIcon, ExportIcon, AddIcon, BuilderIcon, DeckIcon, MenuIcon, ShareIcon } from '../icons'
 import AddCardModal from '../components/AddCardModal'
 import ExportModal from '../components/ExportModal'
 import ImportModal from '../components/ImportModal'
+import ShareModal from '../components/ShareModal'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import styles from './DeckBrowser.module.css'
+import uiStyles from '../components/UI.module.css'
 import { parseDeckMeta, serializeDeckMeta } from '../lib/deckBuilderApi'
 import { deckBracketBadge } from '../lib/commanderBracket'
 import { buildSyncDiff, getSyncState, markLinkedPairUnsynced, summarizeSyncDiff, withLinkedPair, writeSyncState } from '../lib/deckSync'
@@ -28,6 +30,7 @@ import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
 import { toDeckCardRow } from '../lib/deckBuilderWrites'
 import { CAT_ORDER, CAT_COLORS, getCardCategoryFromCard } from '../lib/cardCategory'
 import { boardForCard } from '../lib/attractions'
+import { useLibraryBrowserPreferences } from '../hooks/useLibraryBrowserPreferences'
 
 const CAN_HOVER = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover) and (pointer: fine)').matches
 
@@ -656,8 +659,7 @@ export default function DeckBrowser({ folder, onBack }) {
   useEffect(() => {
     isUnsyncedRef.current = isUnsynced
   }, [isUnsynced])
-  const [viewMode, setViewMode]     = useState('grid')
-  const [groupBy, setGroupBy]       = useState('none')
+  const { viewMode, setViewMode, groupBy, setGroupBy } = useLibraryBrowserPreferences('collection-deck')
   const [search, setSearch]     = useState('')
   const [sort, setSort]         = useState('cmc_asc')
   const [filters, setFilters]   = useState({ ...EMPTY_FILTERS })
@@ -670,6 +672,9 @@ export default function DeckBrowser({ folder, onBack }) {
   const [showAddCard, setShowAddCard] = useState(false)
   const [showExport, setShowExport]   = useState(false)
   const [showImport, setShowImport]   = useState(false)
+  const [showShare, setShowShare]     = useState(false)
+  const [importText, setImportText]   = useState('')
+  const openImport = () => { setImportText(''); setShowImport(true) }
   const [hoverImg, setHoverImg] = useState(null)
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 })
   const handleHover    = useCallback((img) => setHoverImg(img), [])
@@ -1200,7 +1205,6 @@ export default function DeckBrowser({ folder, onBack }) {
         {folderBgUrl && (
           <div className={styles.headerBg} style={{ backgroundImage: `url(${folderBgUrl})` }} />
         )}
-        <button className={styles.backBtn} onClick={onBack}><ChevronLeftIcon size={12} /> Back to Decks</button>
         <div className={styles.titleRow}>
           <h1 className={styles.deckName}>{folder.name}</h1>
           <div className={styles.headerMeta}>
@@ -1216,18 +1220,29 @@ export default function DeckBrowser({ folder, onBack }) {
               </span>
             )}
             <div className={styles.headerActionsDesktop}>
-              <button className={styles.addCardsBtn} onClick={() => setShowImport(true)}>
-                <ImportIcon size={12} /> Import
-              </button>
-              <button className={styles.addCardsBtn} onClick={() => setShowExport(true)}>
-                <ExportIcon size={12} /> Export
-              </button>
-              <button className={styles.addCardsBtn} onClick={() => setShowAddCard(true)}>
+              <Button variant="secondary" size="sm" onClick={() => setShowAddCard(true)}>
                 <AddIcon size={12} /> Add Cards
-              </button>
+              </Button>
               <button className={styles.editInBuilderBtn} onClick={openInBuilder} disabled={creatingBuilderLink || isCheckingLinkedSync} aria-busy={isCheckingLinkedSync}>
-                {editInBuilderLabel}
+                <BuilderIcon size={12} /> {editInBuilderLabel}
               </button>
+              <ResponsiveMenu
+                title="Deck Actions"
+                portal
+                trigger={({ toggle }) => (
+                  <Button variant="secondary" size="sm" onClick={toggle} aria-label="More deck actions">
+                    <MenuIcon size={12} /> More
+                  </Button>
+                )}
+              >
+                {({ close }) => (
+                  <div className={uiStyles.responsiveMenuList}>
+                    <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowShare(true); close() }}><span><ShareIcon size={13} /> Share</span></button>
+                    <button className={uiStyles.responsiveMenuAction} onClick={() => { openImport(); close() }}><span><ImportIcon size={13} /> Import</span></button>
+                    <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowExport(true); close() }}><span><ExportIcon size={13} /> Export</span></button>
+                  </div>
+                )}
+              </ResponsiveMenu>
             </div>
             <div className={styles.headerActionsMobile}>
               <button
@@ -1236,23 +1251,28 @@ export default function DeckBrowser({ folder, onBack }) {
                 disabled={creatingBuilderLink || isCheckingLinkedSync}
                 aria-busy={isCheckingLinkedSync}
               >
-                {editInBuilderLabel}
+                <BuilderIcon size={12} /> {editInBuilderLabel}
               </button>
             </div>
           </div>
         </div>
+        <div className={styles.headerBackRow}>
+          <Button variant="secondary" size="sm" className={styles.headerBackBtn} onClick={onBack}>
+            <ChevronLeftIcon size={13} /> Back to Decks
+          </Button>
+        </div>
       </div>
 
       {/* Controls */}
-      <FilterBar search={search} setSearch={setSearch} sort={sort} setSort={setSort}
+      {cards.length > 0 && <FilterBar search={search} setSearch={setSearch} sort={sort} setSort={setSort}
         filters={filters} setFilters={setFilters}
         mode="folder" sets={availableSets}
         selectMode={selectMode} onToggleSelectMode={toggleSelectMode}
         filterOpen={filterOpen} onFilterOpenChange={setFilterOpen}
         hideActionsMobile
-        hideSortFilterMobile />
+        hideSortFilterMobile />}
 
-      <div className={styles.controlBar}>
+      {cards.length > 0 && <div className={styles.controlBar}>
         <span className={styles.countInfo}>
           Showing {filtered.length} of {cards.length} unique · {totalQty} total cards
         </span>
@@ -1268,10 +1288,12 @@ export default function DeckBrowser({ folder, onBack }) {
           filterOpen={filterOpen}
           onToggleFilters={() => setFilterOpen(v => !v)}
           onAddCards={() => setShowAddCard(true)}
-          onImport={() => setShowImport(true)}
+          onToggleSelectMode={toggleSelectMode}
+          onImport={openImport}
           onExport={() => setShowExport(true)}
+          onShare={() => setShowShare(true)}
         />
-      </div>
+      </div>}
 
       {selectMode && selectedCards.size > 0 && (
         <BulkActionBar
@@ -1306,7 +1328,26 @@ export default function DeckBrowser({ folder, onBack }) {
         />
       )}
 
-      {filtered.length === 0 && <EmptyState>No cards match.</EmptyState>}
+      {cards.length === 0 && (
+        <LibraryEmptyState
+          compact
+          icon={<DeckIcon size={32} />}
+          title={`Add cards to ${folder.name}`}
+          description="Import a decklist or add owned cards manually. Deck controls will appear once this collection deck contains cards."
+          importAction={{
+            label: 'Import a collection deck',
+            description: 'Drop a .csv or .txt decklist here, or click to paste or upload.',
+            onClick: openImport,
+            onFile: async file => { setImportText(await file.text()); setShowImport(true) },
+          }}
+          manualAction={{
+            label: 'Add owned cards',
+            icon: <AddIcon size={14} />,
+            onClick: () => setShowAddCard(true),
+          }}
+        />
+      )}
+      {cards.length > 0 && filtered.length === 0 && <EmptyState>No cards match your search or filters.</EmptyState>}
 
       {/* ── Views ── */}
       {filtered.length > 0 && (
@@ -1372,6 +1413,7 @@ export default function DeckBrowser({ folder, onBack }) {
           folderType="deck"
           folders={[folder]}
           defaultFolderId={folder.id}
+          initialText={importText || undefined}
           onClose={() => setShowImport(false)}
           onSaved={async () => { await markCurrentLinkedDeckUnsynced(); await invalidatePlacementCaches({ includeCards: true }); setShowImport(false); await loadCards() }}
         />
@@ -1385,6 +1427,7 @@ export default function DeckBrowser({ folder, onBack }) {
           onClose={() => setShowExport(false)}
         />
       )}
+      {showShare && <ShareModal folder={folder} onClose={() => setShowShare(false)} />}
     </div>
   )
 }

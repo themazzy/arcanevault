@@ -1,9 +1,89 @@
 // @vitest-environment jsdom
 
 import { useRef } from 'react'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ConfirmModal, Modal, ResponsiveMenu, useModalKeys } from './UI'
+import { ConfirmModal, LibraryEmptyState, Modal, ResponsiveMenu, useModalKeys } from './UI'
+
+describe('LibraryEmptyState', () => {
+  afterEach(cleanup)
+
+  const importAction = (overrides = {}) => ({
+    label: 'Import cards',
+    description: 'Drop a .csv or .txt file here.',
+    onClick: vi.fn(),
+    onFile: vi.fn(),
+    ...overrides,
+  })
+
+  const manualAction = (overrides = {}) => ({
+    label: 'Add one card',
+    onClick: vi.fn(),
+    ...overrides,
+  })
+
+  it('puts import first for owned-card empty states', () => {
+    render(
+      <LibraryEmptyState
+        title="Add your first cards"
+        description="Start your collection."
+        importAction={importAction()}
+        manualAction={manualAction()}
+      />,
+    )
+
+    const buttons = screen.getAllByRole('button')
+    expect(buttons[0].textContent).toContain('Import cards')
+    expect(buttons[1].textContent).toContain('Add one card')
+  })
+
+  it('puts creation first when importFirst is false', () => {
+    render(
+      <LibraryEmptyState
+        title="Save cards for later"
+        description="Create a wishlist."
+        importFirst={false}
+        importAction={importAction({ label: 'Import a wishlist' })}
+        manualAction={manualAction({ label: 'Create your first wishlist' })}
+      />,
+    )
+
+    const buttons = screen.getAllByRole('button')
+    expect(buttons[0].textContent).toContain('Create your first wishlist')
+    expect(buttons[1].textContent).toContain('Import a wishlist')
+  })
+
+  it('passes supported dropped files to the import action', async () => {
+    const onFile = vi.fn()
+    const file = new File(['1 Island'], 'cards.txt', { type: 'text/plain' })
+    render(
+      <LibraryEmptyState
+        title="Add cards"
+        description="Import cards."
+        importAction={importAction({ onFile })}
+      />,
+    )
+
+    fireEvent.drop(screen.getByRole('button'), { dataTransfer: { files: [file] } })
+    await waitFor(() => expect(onFile).toHaveBeenCalledWith(file))
+  })
+
+  it('rejects unsupported dropped files without invoking import', () => {
+    const onFile = vi.fn()
+    const file = new File(['bad'], 'cards.pdf', { type: 'application/pdf' })
+    render(
+      <LibraryEmptyState
+        title="Add cards"
+        description="Import cards."
+        importAction={importAction({ onFile })}
+      />,
+    )
+
+    fireEvent.drop(screen.getByRole('button'), { dataTransfer: { files: [file] } })
+    expect(screen.getByRole('alert').textContent).toContain('Use a .csv or .txt file.')
+    expect(onFile).not.toHaveBeenCalled()
+  })
+})
 
 describe('shared UI ref-sensitive behavior', () => {
   beforeEach(() => {

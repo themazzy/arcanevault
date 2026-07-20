@@ -9,7 +9,7 @@
   background: var(--s-card);
   border: 1px solid var(--s-border);
   border-top: 2px solid rgba(201,168,76,0.35);
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   padding: 20px;
   cursor: pointer;
   transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
@@ -29,6 +29,10 @@
   border-top-color: rgba(201,168,76,0.35);
   background: var(--s-card);
   box-shadow: none;
+}
+.folderCard:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 3px;
 }
 .folderCardHasBg {
   --text-dim: rgba(255,255,255,0.75);
@@ -120,6 +124,7 @@
 .cogBtn {
   background: none; border: none;
   color: var(--text-dim); cursor: pointer;
+  min-width: 24px; min-height: 24px;
   padding: 3px; opacity: 0.75; line-height: 1;
   font-size: 1rem;
   transition: opacity 0.2s, color 0.2s;
@@ -576,6 +581,8 @@
   color: var(--gold-dim, #a8893a);
   font-size: 0.75rem;
   cursor: pointer;
+  min-width: 24px;
+  min-height: 24px;
   padding: 0 2px;
   flex-shrink: 0;
 }
@@ -615,6 +622,8 @@
   color: var(--text-faint);
   font-size: 0.75rem;
   cursor: pointer;
+  min-width: 24px;
+  min-height: 24px;
   padding: 2px 4px;
   opacity: 0;
   transition: opacity 0.15s;
@@ -865,6 +874,20 @@
   gap: 12px;
   flex-wrap: wrap;
 }
+.browserBackRow {
+  display: flex;
+  margin-top: 12px;
+}
+.browserBackBtn {
+  min-height: 36px;
+  padding-inline: 12px;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+}
+.browserBackBtn:hover {
+  color: var(--gold);
+  border-color: var(--border-hi);
+}
 /* "Trade" tag on the protected For Trade binder card */
 .tradeTag {
   display: inline-flex;
@@ -880,6 +903,69 @@
   color: var(--gold);
   background: rgba(201, 168, 76, 0.14);
   border: 1px solid rgba(201, 168, 76, 0.4);
+  vertical-align: middle;
+}
+.wishlistCost,
+.wishlistEstimate {
+  color: var(--gold-dim, var(--gold));
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-weight: 600;
+}
+
+.wishlistEditTitle {
+  margin: 0 0 5px;
+  color: var(--gold);
+  font-family: var(--font-display);
+  font-size: 1rem;
+}
+.wishlistEditName {
+  margin: 0 0 18px;
+  color: var(--text-dim);
+}
+.wishlistEditGrid {
+  display: grid;
+  gap: 14px;
+}
+.wishlistEditGrid label:not(.wishlistFoilRow) {
+  display: grid;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+.wishlistEditGrid input[type='number'] {
+  min-height: var(--control-height);
+  padding: 7px 10px;
+  color: var(--text);
+  background: var(--s-subtle);
+  border: 1px solid var(--s-border2);
+  border-radius: var(--radius-sm);
+}
+.wishlistFoilRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-dim);
+}
+.wishlistEditError { color: var(--red); font-size: 0.8rem; }
+.wishlistEditActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+.unsyncedTag {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: var(--label-tracking);
+  text-transform: uppercase;
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--red) 38%, transparent);
   vertical-align: middle;
 }
 .addCardsBtn {
@@ -1220,6 +1306,9 @@
   }
   .backBtn {
     font-size: 0.7rem;
+  }
+  .browserBackBtn {
+    min-height: 40px;
   }
   .binderTitleRow {
     gap: 8px;

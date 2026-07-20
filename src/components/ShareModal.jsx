@@ -40,7 +40,9 @@ export default function ShareModal({ folder, onClose }) {
       {loading ? <p style={{ color: 'var(--text-dim)' }}>Generating link…</p> : (
         <>
           <p style={{ color: 'var(--text-dim)', fontSize: '0.88rem', marginBottom: 12 }}>
-            {`Anyone with this link can view this ${folder.type} (read-only):`}
+            {folder.type === 'list'
+              ? 'Signed-in viewers can see this wishlist and privately mark cards they plan to get for you:'
+              : `Anyone with this link can view this ${folder.type} (read-only):`}
           </p>
           <div style={{ display: 'flex', gap: 8 }}>
             <input readOnly value={url} style={{

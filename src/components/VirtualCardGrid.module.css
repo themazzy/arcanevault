@@ -21,6 +21,8 @@
 .row { padding: 0 2px; }
 
 .cardWrap { cursor: pointer; position: relative; }
+.cardWrap:first-child .imgContainer { transform-origin: left center; }
+.cardWrap:last-child .imgContainer { transform-origin: right center; }
 
 .imgContainer {
   position: relative;
@@ -40,7 +42,7 @@
 }
 .imgSelected {
   outline: 2px solid var(--gold);
-  outline-offset: 2px;
+  outline-offset: -2px;
 }
 
 .img { width: 100%; height: 100%; object-fit: cover; display: block; -webkit-user-drag: none; -webkit-touch-callout: none; user-select: none; }
@@ -152,7 +154,7 @@
 }
 
 /* Selection */
-.cardSelected .imgContainer { outline: 2px solid var(--gold); outline-offset: 2px; }
+.cardSelected .imgContainer { outline: 2px solid var(--gold); outline-offset: -2px; }
 
 /* Qty adjuster overlay — shown when card is selected and qty > 1 */
 .qtyOverlay {

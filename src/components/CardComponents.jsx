@@ -5,7 +5,7 @@ import { getImageUri, getPrice, formatPrice, getScryfallKey } from '../lib/scryf
 import { Modal, Badge, ResponsiveMenu, Select, SearchInput } from './UI'
 import styles from './CardComponents.module.css'
 import uiStyles from './UI.module.css'
-import { CloseIcon, CheckIcon, FolderTypeIcon } from '../icons'
+import { CloseIcon, CheckIcon, FilterIcon, FolderTypeIcon, SortIcon } from '../icons'
 import { sb } from '../lib/supabase'
 import { putCards } from '../lib/db'
 import { useLongPress } from '../hooks/useLongPress'
@@ -476,7 +476,7 @@ export function CardDetail(props) {
   return <CardDetailContent {...props} />
 }
 
-function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, folders, priceSource = 'cardmarket_trend', onSave, currentFolderId = null, currentFolderType = null, readOnly = false, readOnlyDefaultTab = 'prices' }) {
+function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, folders, priceSource = 'cardmarket_trend', onSave, currentFolderId = null, currentFolderType = null, readOnly = false, readOnlyDefaultTab = 'prices', actions = null }) {
   const navigate = useNavigate()
   // Editable surfaces open on Edit; read-only surfaces open on a caller-chosen
   // tab (Legality in the deck builder, Prices elsewhere). The Card tab is gone —
@@ -869,6 +869,7 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
         </div>
 
         <div className={styles.detailBody}>
+          {actions && <div className={styles.detailContextActions}>{actions}</div>}
           {/* The sliding underline is a ::after on the bar; it needs to know how
               many tabs there are and which one is live. */}
           <div
@@ -1229,7 +1230,8 @@ const LOOKUP_HIDDEN_FILTERS = new Set(['conditions', 'languages', 'quantity', 'l
 // Binder/deck browsers are already scoped to a single folder, so the Location
 // filter (and its folder-name text input) is meaningless there — hide it.
 const FOLDER_HIDDEN_FILTERS = new Set(['location', 'folderName'])
-const MODE_HIDDEN_FILTERS = { lookup: LOOKUP_HIDDEN_FILTERS, folder: FOLDER_HIDDEN_FILTERS }
+const WISHLIST_HIDDEN_FILTERS = new Set(['conditions', 'languages', 'location', 'folderName', 'specials'])
+const MODE_HIDDEN_FILTERS = { lookup: LOOKUP_HIDDEN_FILTERS, folder: FOLDER_HIDDEN_FILTERS, wishlist: WISHLIST_HIDDEN_FILTERS }
 
 export function countActive(f, hiddenFilters = new Set()) {
   return [
@@ -1575,8 +1577,12 @@ export function FilterBar({
     ['qty', 'Quantity'],
     ['added', 'Recently Added'],
   ]
-  const lookupSortOptions = sortOptions.filter(([v]) => !['pl_desc', 'pl_asc', 'qty', 'added'].includes(v))
-  const visibleSortOptions = mode === 'lookup' ? lookupSortOptions : sortOptions
+  const hiddenSorts = mode === 'lookup'
+    ? new Set(['pl_desc', 'pl_asc', 'qty', 'added'])
+    : mode === 'wishlist'
+      ? new Set(['pl_desc', 'pl_asc'])
+      : new Set()
+  const visibleSortOptions = sortOptions.filter(([value]) => !hiddenSorts.has(value))
   return (
     <div className={styles.filterWrap}>
       <div className={`${styles.filterBar}${mode === 'lookup' ? ' ' + styles.filterBarLookup : ''}`}>
@@ -1594,24 +1600,15 @@ export function FilterBar({
           }} />
         <div className={`${styles.filterSortGroup}${hideSortFilterMobile ? ' ' + styles.filterSortGroupHideMobile : ''}`}>
           <select className={styles.filterSelect} name="card-sort" value={sort} onChange={e => setSort(e.target.value)}>
-            <option value="name">Name A→Z</option>
-            <option value="price_desc">Price ↓</option>
-            <option value="price_asc">Price ↑</option>
-            {mode !== 'lookup' && <option value="pl_desc">P&L ↓</option>}
-            {mode !== 'lookup' && <option value="pl_asc">P&L ↑</option>}
-            <option value="cmc_asc">Mana Value ↑</option>
-            <option value="cmc_desc">Mana Value ↓</option>
-            {mode !== 'lookup' && <option value="qty">Quantity</option>}
-            <option value="set">Set</option>
-            <option value="rarity">Rarity</option>
-            {mode !== 'lookup' && <option value="added">Recently Added</option>}
+            {visibleSortOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
           <ResponsiveMenu
             title="Sort Cards"
             align="left"
             wrapClassName={styles.filterSortMobile}
             trigger={({ open, toggle }) => (
-              <button className={styles.filterSortBtn} onClick={toggle}>
+              <button type="button" className={styles.filterSortBtn} onClick={toggle} aria-label="Sort cards" aria-expanded={open}>
+                <SortIcon size={13} />
                 <span>Sort</span>
                 <FilterChevron open={open} />
               </button>
@@ -1633,9 +1630,12 @@ export function FilterBar({
             )}
           </ResponsiveMenu>
           <button
+            type="button"
             className={`${styles.filterToggle}${open ? ' ' + styles.filterToggleOpen : ''}${activeCount ? ' ' + styles.filterToggleActive : ''}`}
             onClick={() => setOpen(!open)}
+            aria-expanded={open}
           >
+            <FilterIcon size={13} />
             <span>{activeCount > 0 ? `Filters (${activeCount})` : 'Filters'}</span>
             <FilterChevron open={open} />
           </button>
@@ -1643,8 +1643,8 @@ export function FilterBar({
         <div className={`${styles.filterBarActions}${hideActionsMobile ? ' ' + styles.filterBarActionsHideMobile : ''}`}>
           {extra}
           {onToggleSelectMode && (
-            <button className={`${styles.selectModeBtn}${selectMode ? ' ' + styles.selectModeActive : ''}`}
-              onClick={onToggleSelectMode}>{selectMode ? <><CheckIcon size={12} /> Selecting</> : 'Select'}</button>
+            <button type="button" className={`${styles.selectModeBtn}${selectMode ? ' ' + styles.selectModeActive : ''}`}
+              onClick={onToggleSelectMode} aria-pressed={selectMode}><CheckIcon size={12} /> {selectMode ? 'Selecting' : 'Select'}</button>
           )}
         </div>
       </div>

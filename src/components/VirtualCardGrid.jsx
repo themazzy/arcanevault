@@ -6,6 +6,13 @@ import { Badge } from './UI'
 import styles from './VirtualCardGrid.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 import { useDevicePixelRatio } from '../hooks/useDevicePixelRatio'
+import {
+  GRID_IMG_BORDER_PX,
+  MOBILE_CARD_GRID_BREAKPOINT,
+  MOBILE_CARD_GRID_GAP,
+  getCardGridDensity,
+  getDesktopCardGridMetrics,
+} from '../lib/cardGridDensity'
 
 const NON_DRAGGABLE_IMG_PROPS = {
   draggable: false,
@@ -18,23 +25,16 @@ const NON_DRAGGABLE_IMG_PROPS = {
   },
 }
 
-// Tiles are capped at these widths rather than stretching to fill the row. The
-// browser resamples an image from a pre-filtered mipmap level, so a tile at an
-// arbitrary width undersamples and shimmers; these widths are mip levels of the
-// tier they get served at (see DENSITY_IMAGE in CardBrowserViews, which these
-// mirror). Leftover row width becomes margin instead of stretch.
-const DENSITY_MAX_WIDTH = { cozy: 244, comfortable: 146, compact: 122 }
-const DENSITY_MIN_WIDTH = { cozy: 210, comfortable: 130, compact: 112 }
+// Collection keeps taller rows for its price and folder metadata, but card
+// widths and horizontal gaps come from the shared full-card grid contract.
 const DENSITY_BASE_ROW_HEIGHT = { cozy: 375, comfortable: 325, compact: 260 }
 const OVERSCAN = 3
-// Must leave room for the selection outline (2px + 2px offset) and the hover
-// zoom (scale 1.025) on edge columns — the scroll container clips overflow-x.
-const ROW_SIDE_INSET = 10
-const ROW_GAP = 14
+// Edge interactions are contained by CSS, so the virtual grid does not need a
+// second horizontal inset on top of the page gutter.
+const ROW_SIDE_INSET = 0
+const ROW_VERTICAL_GAP = 14
 const CARD_ASPECT_RATIO = 88 / 63
 const CARD_INFO_HEIGHT = 92
-const MOBILE_GRID_BREAKPOINT = 430
-const MOBILE_DENSITY_COLS = { cozy: 1, comfortable: 2, compact: 3 }
 
 const TYPE_COLOR  = { binder: 'rgba(201,168,76,0.18)', deck: 'rgba(138,111,196,0.18)', list: 'rgba(100,180,100,0.15)' }
 const TYPE_BORDER = { binder: 'rgba(201,168,76,0.35)', deck: 'rgba(138,111,196,0.35)', list: 'rgba(100,180,100,0.3)' }
@@ -58,9 +58,9 @@ function FolderTags({ folders }) {
   )
 }
 
-function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, totalQty, onToggleSelect, onEnterSelectMode, onAdjustQty, splitState, priceSource, showPrice, cardFolders, cardWidth, dpr }) {
+function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, totalQty, onToggleSelect, onEnterSelectMode, onAdjustQty, splitState, priceSource, showPrice, cardFolders, imageWidth, dpr }) {
   const [webpFailed, setWebpFailed] = useState(false)
-  const { src, fallback } = resolveTileImage(getImageUri(sfCard, 'normal'), cardWidth, dpr)
+  const { src, fallback } = resolveTileImage(getImageUri(sfCard, 'normal'), imageWidth, dpr)
   const img = webpFailed && fallback ? fallback : src
   const displayQty = card._folder_qty ?? card.qty ?? 1
   const priceMeta = getPriceWithMeta(sfCard, card.foil, { price_source: priceSource })
@@ -159,29 +159,33 @@ export default function VirtualCardGrid({
 }) {
   const parentRef = useRef(null)
   const dpr = useDevicePixelRatio()
+  const densitySpec = getCardGridDensity(density)
   const [cols, setCols] = useState(4)
-  const [cardWidth, setCardWidth] = useState(DENSITY_MAX_WIDTH[density] || 146)
+  const [cardWidth, setCardWidth] = useState(densitySpec.px + GRID_IMG_BORDER_PX)
+  const [columnGap, setColumnGap] = useState(densitySpec.desktopGap)
   const [rowHeight, setRowHeight] = useState(DENSITY_BASE_ROW_HEIGHT[density] || 310)
 
-  const minW  = DENSITY_MIN_WIDTH[density]   || 130
-  const maxW  = DENSITY_MAX_WIDTH[density]   || 146
   const baseRowHeight = DENSITY_BASE_ROW_HEIGHT[density] || 310
 
   const measureCols = useCallback(() => {
     if (!parentRef.current) return
-    const w = parentRef.current.offsetWidth
-    const isMobile = w <= MOBILE_GRID_BREAKPOINT
-    const nextCols = isMobile
-      ? (MOBILE_DENSITY_COLS[density] || 2)
-      : Math.max(1, Math.floor(w / minW))
+    const w = parentRef.current.clientWidth
+    const isMobile = w <= MOBILE_CARD_GRID_BREAKPOINT
+    let nextCols
+    let nextCardWidth
+    let nextColumnGap
 
-    const availableWidth = Math.max(0, w - (ROW_SIDE_INSET * 2) - (ROW_GAP * (nextCols - 1)))
-    const stretched = availableWidth > 0 ? availableWidth / nextCols : minW
-    // Cap on desktop so tiles land on a mip level instead of stretching to an
-    // arbitrary width. Mobile keeps stretching: its column count is fixed, so a
-    // cap would just strand a wide gutter, and at DPR 2-3 the served tier is
-    // large enough that the ratio stays shallow anyway.
-    const nextCardWidth = isMobile ? stretched : Math.min(stretched, maxW)
+    if (isMobile) {
+      nextCols = densitySpec.mobileCols
+      nextColumnGap = MOBILE_CARD_GRID_GAP
+      const availableWidth = Math.max(0, w - (ROW_SIDE_INSET * 2) - (nextColumnGap * (nextCols - 1)))
+      nextCardWidth = availableWidth > 0 ? availableWidth / nextCols : densitySpec.px + GRID_IMG_BORDER_PX
+    } else {
+      const metrics = getDesktopCardGridMetrics(w, density, { sideInset: ROW_SIDE_INSET })
+      nextCols = metrics.columns
+      nextCardWidth = metrics.columnWidth
+      nextColumnGap = metrics.columnGap
+    }
     const nextRowHeight = Math.max(
       baseRowHeight,
       Math.ceil(nextCardWidth * CARD_ASPECT_RATIO + CARD_INFO_HEIGHT),
@@ -189,8 +193,9 @@ export default function VirtualCardGrid({
 
     setCols(nextCols)
     setCardWidth(nextCardWidth)
+    setColumnGap(nextColumnGap)
     setRowHeight(nextRowHeight)
-  }, [baseRowHeight, density, minW, maxW])
+  }, [baseRowHeight, density, densitySpec])
 
   useEffect(() => {
     measureCols()
@@ -209,7 +214,7 @@ export default function VirtualCardGrid({
   const virtualizer = useVirtualizer({
     count: rowCount,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => rowHeight + ROW_GAP,
+    estimateSize: () => rowHeight + ROW_VERTICAL_GAP,
     overscan: OVERSCAN,
   })
 
@@ -230,8 +235,8 @@ export default function VirtualCardGrid({
                 height: rowHeight,
                 display: 'grid',
                 gridTemplateColumns: `repeat(${cols}, minmax(0, ${cardWidth}px))`,
-                justifyContent: 'center',
-                gap: ROW_GAP,
+                justifyContent: 'start',
+                columnGap,
               }}
             >
               {rowCards.map(card => {
@@ -253,7 +258,7 @@ export default function VirtualCardGrid({
                     priceSource={priceSource}
                     showPrice={showPrice}
                     cardFolders={cardFolders}
-                    cardWidth={cardWidth}
+                    imageWidth={Math.max(1, cardWidth - GRID_IMG_BORDER_PX)}
                     dpr={dpr}
                   />
                 )

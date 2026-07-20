@@ -10,7 +10,7 @@
   font-family: var(--font-display);
   letter-spacing: 0.04em;
   text-transform: none;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: border-color 0.18s, background 0.18s, color 0.18s, box-shadow 0.18s, transform 0.18s;
   border: 1px solid var(--btn-border);
@@ -359,6 +359,181 @@
   margin-bottom: 12px;
   opacity: 0.3;
   font-style: normal;
+}
+
+/* Empty library onboarding ------------------------------------------------ */
+.libraryEmpty {
+  width: min(100%, 720px);
+  margin: clamp(26px, 7vh, 72px) auto 32px;
+  padding: 0 20px;
+  text-align: center;
+}
+
+.libraryEmptyCompact {
+  margin-top: 28px;
+  margin-bottom: 22px;
+}
+
+.libraryEmptyIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  margin-bottom: 14px;
+  color: var(--gold);
+  opacity: 0.88;
+}
+
+.libraryEmptyTitle {
+  margin: 0;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: clamp(1.15rem, 2vw, 1.38rem);
+  font-weight: 600;
+  letter-spacing: 0.035em;
+}
+
+.libraryEmptyDescription {
+  max-width: 560px;
+  margin: 9px auto 24px;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  line-height: 1.65;
+}
+
+.libraryEmptyActions {
+  width: min(100%, 620px);
+  margin: 0 auto;
+}
+
+.libraryImport {
+  width: 100%;
+  min-height: 84px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 16px 18px;
+  border: 1px dashed color-mix(in srgb, var(--gold) 42%, var(--s-border) 58%);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--gold) 5%, var(--s-subtle) 95%);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.16s, background 0.16s, color 0.16s;
+}
+
+.libraryImport:hover,
+.libraryImportDragover {
+  border-color: color-mix(in srgb, var(--gold) 72%, var(--s-border) 28%);
+  background: color-mix(in srgb, var(--gold) 9%, var(--s-subtle) 91%);
+}
+
+.libraryImport:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 3px;
+}
+
+.libraryImport:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.libraryImportIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 38px;
+  height: 38px;
+  color: var(--gold);
+}
+
+.libraryImportCopy {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.libraryImportCopy strong {
+  color: var(--gold);
+  font-family: var(--font-display);
+  font-size: 0.9rem;
+  letter-spacing: 0.04em;
+}
+
+.libraryImportCopy span {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.libraryImportArrow {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.libraryImportSecondary {
+  min-height: 70px;
+  border-style: solid;
+  background: var(--s-subtle);
+}
+
+.libraryEmptyDivider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 13px 0;
+  color: var(--text-faint);
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.libraryEmptyDivider::before,
+.libraryEmptyDivider::after {
+  content: '';
+  height: 1px;
+  flex: 1;
+  background: var(--s-border);
+}
+
+.libraryManualAction {
+  min-width: 180px;
+  justify-content: center;
+}
+
+.libraryFileError {
+  margin: 10px 0 0;
+  color: var(--red);
+  font-size: 0.8rem;
+}
+
+.libraryEmptyFooter {
+  max-width: 580px;
+  margin: 18px auto 0;
+  color: var(--text-faint);
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+.libraryEmptyFooter a {
+  color: var(--gold-dim, var(--gold));
+}
+
+@media (max-width: 600px) {
+  .libraryEmpty {
+    margin-top: 22px;
+    padding: 0 4px;
+  }
+  .libraryImport {
+    min-height: 78px;
+    padding: 14px;
+  }
+  .libraryImportArrow { display: none; }
 }
 
 /* Drop zone */
@@ -1044,6 +1219,12 @@
   text-align: left;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.responsiveMenuAction > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .responsiveMenuAction:hover {

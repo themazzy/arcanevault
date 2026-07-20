@@ -1,74 +1,42 @@
-.emptyCollectionActions {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: stretch;
-  justify-content: center;
-  gap: 16px;
-  width: 100%;
-}
-
-.emptyCollectionActions > * {
-  flex: 1 1 260px;
-  max-width: 320px;
-}
-
-.actionBox {
-  display: flex;
-  flex-direction: column;
+.emptyScannerLink {
+  display: inline-flex;
   align-items: center;
-  border: 2px dashed rgba(180,140,60,0.25);
-  border-radius: 4px;
-  padding: 48px 40px;
-  text-align: center;
-  cursor: pointer;
-  transition: all 0.25s;
-  background: rgba(180,140,60,0.02);
-  color: var(--text);
-  font-family: var(--font-serif);
-  font-size: inherit;
-  font-weight: var(--user-font-weight, 420);
+  gap: 6px;
+  color: var(--gold-dim, var(--gold));
   text-decoration: none;
 }
 
-.actionBox:hover {
-  border-color: rgba(201,168,76,0.5);
-  background: rgba(180,140,60,0.05);
-  text-decoration: none;
-}
-
-.actionBox:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.actionBox:disabled:hover {
-  border-color: rgba(180,140,60,0.25);
-  background: rgba(180,140,60,0.02);
-}
-
-.actionIcon {
-  margin-bottom: 12px;
-  opacity: 0.5;
-}
-
-.actionTitle {
-  font-family: var(--font-display);
-  font-size: 1.05rem;
+.emptyScannerLink:hover {
   color: var(--gold);
-  margin-bottom: 8px;
-}
-
-.actionSub {
-  color: var(--text-dim);
-  font-size: 0.9rem;
-  line-height: 1.7;
+  text-decoration: underline;
 }
 
 .gridHeader {
   display: flex; justify-content: space-between; align-items: center;
   margin-bottom: 14px; color: var(--text-dim); font-size: 0.82rem;
 }
+.collectionViewToggle {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--s-border);
+  border-radius: var(--radius-sm);
+  background: var(--s-subtle);
+}
+.collectionViewToggle button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.collectionViewToggle button:hover { color: var(--text); background: var(--s-medium); }
+.collectionViewActive { color: var(--gold) !important; background: color-mix(in srgb, var(--gold) 12%, transparent) !important; }
 
 /* ── Mobile top action row (+ Add, Import, Export) ── */
 .mobileTopActions {
@@ -83,7 +51,6 @@
 @media (max-width: 768px) {
   /* Hide desktop header row */
   .collectionHeader { display: none; }
-  .actionBox { padding: 32px 20px; }
   .gridHeader {
     flex-wrap: wrap;
     gap: 4px 12px;
@@ -105,7 +72,7 @@
   /* Action row above the filter bar — slides away on scroll */
   .mobileTopActions {
     display: grid;
-    grid-template-columns: minmax(120px, 1.4fr) minmax(86px, 1fr) minmax(86px, 1fr);
+    grid-template-columns: minmax(0, 1.25fr) repeat(3, minmax(0, 1fr));
     align-items: center;
     gap: 8px;
     margin-bottom: 8px;
@@ -197,11 +164,6 @@
   flex: 1;
   overflow: hidden;
   min-height: 0;
-  padding: 0 12px;
-}
-
-@media (max-width: 640px) {
-  .gridViewport { padding: 0 2px; }
 }
 
 .importBtn {
@@ -214,7 +176,7 @@
   font-size: var(--control-font-size);
   letter-spacing: var(--control-letter-spacing);
   padding: 6px var(--control-padding-x);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   background: var(--s-subtle);
   border: 1px solid var(--s-border);

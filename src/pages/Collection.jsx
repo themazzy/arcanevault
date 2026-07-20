@@ -13,8 +13,9 @@ import { useSettings } from '../components/SettingsContext'
 import { useToast } from '../components/ToastContext'
 import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
 import VirtualCardGrid from '../components/VirtualCardGrid'
-import { DropZone, ProgressBar, ErrorBox, EmptyState, SectionHeader, Button, ResponsiveMenu, Select } from '../components/UI'
-import { AddIcon, CheckIcon, ScannerIcon } from '../icons'
+import VirtualCardTable from '../components/VirtualCardTable'
+import { ProgressBar, ErrorBox, EmptyState, LibraryEmptyState, SectionHeader, Button, ResponsiveMenu, Select } from '../components/UI'
+import { AddIcon, CheckIcon, CollectionIcon, GridViewIcon, ScannerIcon, TableViewIcon } from '../icons'
 import AddCardModal from '../components/AddCardModal'
 import ExportModal from '../components/ExportModal'
 import ImportModal from '../components/ImportModal'
@@ -26,9 +27,12 @@ import { fetchCollectionCards, fetchFolders, fetchFolderPlacements, fetchSfMap }
 import { isNetworkLikeError } from '../lib/networkUtils'
 import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
 import { getSelectedDisplayQuantity } from '../lib/collectionDisplay'
+import { shouldOfferCardScanner } from '../lib/scannerAvailability'
+import { useLibraryBrowserPreferences } from '../hooks/useLibraryBrowserPreferences'
 
 const DEBOUNCE_MS = 300
 const FOLDER_CARDS_STALE_MS = 10 * 60 * 1000
+const COLLECTION_VIEW_MODES = new Set(['grid', 'table'])
 const LOCAL_COLLECTION_FRESH_MS = 5 * 60 * 1000
 
 const worker = new Worker(new URL('../lib/filterWorker.js', import.meta.url), { type: 'module' })
@@ -210,6 +214,7 @@ export default function CollectionPage() {
   const [importModalText, setImportModalText] = useState('')
   const [importing, setImporting] = useState(false)
   const [selectMode, setSelectMode] = useState(false)
+  const { viewMode, setViewMode } = useLibraryBrowserPreferences('collection', { allowedViews: COLLECTION_VIEW_MODES })
   const [selected, setSelected] = useState(new Set())
   const [splitState, setSplitState] = useState(new Map())
   const [folders, setFolders] = useState([])
@@ -1358,6 +1363,7 @@ export default function CollectionPage() {
     cardsQuery.isFetching ||
     queryHasCardsPendingState
   )
+  const showScanner = shouldOfferCardScanner()
 
   if (collectionInitialLoading) {
     return (
@@ -1390,34 +1396,35 @@ export default function CollectionPage() {
       </div>
 
       {!collectionInitialLoading && cards.length === 0 ? (
-        <div className={styles.emptyCollectionActions}>
-          <DropZone
-            onFile={handleImport}
-            onActivate={() => {
+        <LibraryEmptyState
+          icon={<CollectionIcon size={34} />}
+          title="Add your first cards"
+          description="Import a collection file or start with one card. Every owned card stays organised in a binder or collection deck."
+          importAction={{
+            label: 'Import cards',
+            description: 'Drop a .csv or .txt decklist here, or click to paste or upload.',
+            onClick: () => {
               if (blockOfflineChange()) return
               setImportModalText('')
               setShowImportModal(true)
-            }}
-            accept=".csv,.txt"
-            title="Import Your Collection"
-            subtitle="Open the import flow, or drop a CSV or decklist file here." />
-          <button
-            type="button"
-            className={styles.actionBox}
-            onClick={() => { if (!blockOfflineChange()) setShowAdd(true) }}
-            disabled={!isOnline}
-            title={!isOnline ? 'Reconnect to add cards' : undefined}
-          >
-            <div className={styles.actionIcon}><AddIcon size={38} /></div>
-            <div className={styles.actionTitle}>Add a Card</div>
-            <div className={styles.actionSub}>Search and add a single card to your collection.</div>
-          </button>
-          <Link to="/scanner" className={styles.actionBox}>
-            <div className={styles.actionIcon}><ScannerIcon size={38} /></div>
-            <div className={styles.actionTitle}>Scan Your Cards</div>
-            <div className={styles.actionSub}>Use your camera to scan and add cards instantly.</div>
-          </Link>
-        </div>
+            },
+            onFile: handleImport,
+            disabled: !isOnline,
+            disabledTitle: !isOnline ? 'Reconnect to import cards' : undefined,
+          }}
+          manualAction={{
+            label: 'Add one card',
+            icon: <AddIcon size={14} />,
+            onClick: () => { if (!blockOfflineChange()) setShowAdd(true) },
+            disabled: !isOnline,
+            disabledTitle: !isOnline ? 'Reconnect to add cards' : undefined,
+          }}
+          footer={showScanner ? (
+            <Link to="/scanner" className={styles.emptyScannerLink}>
+              <ScannerIcon size={14} /> Scan physical cards with your camera
+            </Link>
+          ) : null}
+        />
       ) : (
         <>
         <div className={`${styles.mobileTopActions}${gridScrolled ? ' ' + styles.mobileTopActionsHidden : ''}`}>
@@ -1434,6 +1441,7 @@ export default function CollectionPage() {
             title={!isOnline ? 'Reconnect to import cards' : undefined}
           >↑ Import</button>
           <button className={styles.refreshBtn} onClick={() => setShowExport(true)}>↓ Export</button>
+          <button className={styles.refreshBtn} onClick={toggleSelectMode}>{selectMode ? 'Done' : 'Select'}</button>
         </div>
 
         <FilterBar
@@ -1468,6 +1476,14 @@ export default function CollectionPage() {
           <span>Showing {filtered.length} of {cards.length} unique · {totalQty} total cards</span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {!enriching && <span>Value: <strong style={{ color: 'var(--green)' }}>{formatPrice(totalValue, price_source)}</strong></span>}
+            <span className={styles.collectionViewToggle} aria-label="Collection view">
+              <button className={viewMode === 'grid' ? styles.collectionViewActive : ''} onClick={() => setViewMode('grid')} title="Grid view" aria-label="Grid view" aria-pressed={viewMode === 'grid'}>
+                <GridViewIcon size={14} />
+              </button>
+              <button className={viewMode === 'table' ? styles.collectionViewActive : ''} onClick={() => setViewMode('table')} title="Table view" aria-label="Table view" aria-pressed={viewMode === 'table'}>
+                <TableViewIcon size={14} />
+              </button>
+            </span>
           </span>
         </div>
 
@@ -1499,17 +1515,29 @@ export default function CollectionPage() {
         )}
 
         <div className={styles.gridViewport}>
-          <VirtualCardGrid
-            cards={displayCards} sfMap={sfMap} loading={enriching}
-            onSelect={c => setDetailCardKey(c._displayKey || c.id)}
-            selectMode={selectMode} selected={selected} onToggleSelect={toggleSelect}
-            onEnterSelectMode={() => { setSelectMode(true) }}
-            splitState={splitState} onAdjustQty={onAdjustQty}
-            priceSource={price_source}
-            showPrice={show_price} density={grid_density}
-            cardFolders={cardFolderMap}
-            onScroll={e => setGridScrolled(e.currentTarget.scrollTop > 50)}
-          />
+          {viewMode === 'table' ? (
+            <VirtualCardTable
+              cards={displayCards} sfMap={sfMap}
+              onSelect={c => setDetailCardKey(c._displayKey || c.id)}
+              selectMode={selectMode} selected={selected} onToggleSelect={toggleSelect}
+              splitState={splitState} onAdjustQty={onAdjustQty}
+              priceSource={price_source} showPrice={show_price}
+              cardFolders={cardFolderMap}
+              onScroll={e => setGridScrolled(e.currentTarget.scrollTop > 50)}
+            />
+          ) : (
+            <VirtualCardGrid
+              cards={displayCards} sfMap={sfMap} loading={enriching}
+              onSelect={c => setDetailCardKey(c._displayKey || c.id)}
+              selectMode={selectMode} selected={selected} onToggleSelect={toggleSelect}
+              onEnterSelectMode={() => { setSelectMode(true) }}
+              splitState={splitState} onAdjustQty={onAdjustQty}
+              priceSource={price_source}
+              showPrice={show_price} density={grid_density}
+              cardFolders={cardFolderMap}
+              onScroll={e => setGridScrolled(e.currentTarget.scrollTop > 50)}
+            />
+          )}
         </div>
 
         {filtered.length === 0 && !enriching && <EmptyState>No cards match your filters.</EmptyState>}
