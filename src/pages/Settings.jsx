@@ -58,7 +58,7 @@ function chunk(items, size = CLEAR_BATCH_SIZE) {
 // ── Section search keyword blobs ─────────────────────────────────────────────
 // One constant per section, referenced both by its <SettingsSection keywords>
 // prop and by SECTION_DEFS below (used only to detect a fully-empty search).
-const KW_GUIDED_HELP = 'setup wizard rerun tutorial onboarding theme price market nickname page tips reset explanatory modals'
+const KW_PERSONALIZATION = 'personalize deckloom preferences theme display price market appearance readability'
 const KW_ADMIN = 'admin console deletion request review queue allowlisted'
 const KW_APPEARANCE = 'colour theme color palette premium themes obsidian crimson court verdant realm archive dark light oled black mode pixels power contrast higher borders separation'
 const KW_ACCESSIBILITY = 'body font serif sans-serif font weight thin regular medium bold font size small large text preview card name size compact default large reduced motion hover lifts transitions animation'
@@ -72,10 +72,10 @@ const KW_APP = 'version installed app build keep screen awake wake lock dim slee
 const KW_SYNC = 'sync status settings synced pending idle error sync now manual show settings sync errors failure message'
 const KW_ACCOUNT = 'account signed in email change password reset sign out everywhere devices session delete request deletion form'
 const KW_LEGAL = 'legal hub privacy policy cookies local storage indexeddb cache credits fan content notice wizards disclaimer third-party'
-const KW_SUPPORT = 'support development unlock premium themes obsidian night crimson court verdant realm arcane archive stripe payment one-time'
+const KW_SUPPORT = 'support development donate donation cosmetic supporter themes obsidian night crimson court verdant realm arcane archive stripe payment one-time'
 
 const SECTION_DEFS = [
-  ['Guided Help', KW_GUIDED_HELP],
+  ['Personalization', KW_PERSONALIZATION],
   ['Admin', KW_ADMIN],
   ['Appearance', KW_APPEARANCE],
   ['Accessibility', KW_ACCESSIBILITY],
@@ -441,7 +441,7 @@ function ThemePicker({ value, onChange, premium }) {
           <div className={styles.themeGroupHeader}>
             <div className={styles.themeGroupLabel}>
               {group.label}
-              {group.id !== 'free' && <span className={styles.themeGroupBadge}>✦ Premium</span>}
+              {group.id !== 'free' && <span className={styles.themeGroupBadge}>✦ Supporter</span>}
             </div>
             <div className={styles.themeGroupDescription}>{group.description}</div>
           </div>
@@ -467,7 +467,7 @@ function ThemePicker({ value, onChange, premium }) {
               '--swatch-name-color': active ? accent : text,
             }}
             onClick={() => !isLocked && onChange(id)}
-            title={isLocked ? `${theme.name} — Unlock Premium to use` : theme.name}
+            title={isLocked ? `${theme.name} — cosmetic supporter theme available after donating` : theme.name}
           >
             <div className={styles.swatchPreview} style={{ background: bg }}>
               <div className={styles.swatchNav} style={{ borderColor: `${accent}30` }}>
@@ -936,7 +936,6 @@ export default function SettingsPage() {
   const [checkoutBusy, setCheckoutBusy] = useState(false)
   const [checkoutError, setCheckoutError] = useState('')
   const [isAdmin, setIsAdmin] = useState(false)
-  const [tipsResetMsg, setTipsResetMsg] = useState('')
   const [search, setSearch] = useState('')
   const noResults = !!search.trim() && !SECTION_DEFS.some(([title, kw]) => matchesSearch(search, title, kw))
 
@@ -993,17 +992,10 @@ export default function SettingsPage() {
 
   const isSyncing = settings.syncState === 'pending' || settings.syncState === 'syncing'
 
-  const handleResetPageTips = async () => {
-    setTipsResetMsg('')
-    await set('page_tips_seen', {})
-    setTipsResetMsg('Page tips will show again as you visit pages.')
-    window.setTimeout(() => setTipsResetMsg(''), 3000)
-  }
-
   const handleUnlockPremium = async () => {
     setCheckoutError('')
     if (!user) {
-      setCheckoutError('Sign in before unlocking premium themes.')
+      setCheckoutError('Sign in before donating for supporter themes.')
       return
     }
     setCheckoutBusy(true)
@@ -1085,15 +1077,9 @@ export default function SettingsPage() {
       </div>
       {noResults && <div className={styles.noResults}>No settings match &quot;{search.trim()}&quot;.</div>}
 
-      <SettingsSection title="Guided Help" keywords={KW_GUIDED_HELP} query={search}>
-        <SettingRow label="Setup Wizard" description="Rerun the first-time setup to pick your theme, price market, and nickname.">
-          <Button size="sm" onClick={openWizard}>Rerun Setup</Button>
-        </SettingRow>
-        <SettingRow label="Page Tips" description="Reset the one-time explanatory modals shown on each main page.">
-          <div className={styles.inlineActionStack}>
-            <Button size="sm" onClick={handleResetPageTips}>Reset Page Tips</Button>
-            {tipsResetMsg && <span className={styles.inlineSuccess}>{tipsResetMsg}</span>}
-          </div>
+      <SettingsSection title="Personalization" keywords={KW_PERSONALIZATION} query={search}>
+        <SettingRow label="Personalize DeckLoom" description="Review your theme, display, and price-market preferences in one short flow.">
+          <Button size="sm" onClick={openWizard}>Open Personalization</Button>
         </SettingRow>
       </SettingsSection>
 
@@ -1116,9 +1102,9 @@ export default function SettingsPage() {
             <div className={styles.rowDesc}>Choose the colour palette for the entire app. Saved to your account and synced across devices.</div>
             {!settings.premium && (
               <div className={styles.themeSupportPrompt}>
-                Premium themes are locked.
+                Supporter themes are cosmetic rewards for donors.
                 <button type="button" onClick={handleUnlockPremium} disabled={checkoutBusy}>
-                  {checkoutBusy ? 'Opening Stripe...' : 'Support to unlock'}
+                  {checkoutBusy ? 'Opening Stripe...' : 'Donate for themes'}
                 </button>
               </div>
             )}
@@ -1522,16 +1508,16 @@ export default function SettingsPage() {
       <SettingsSection id="support" title="Support" keywords={KW_SUPPORT} query={search}>
         <div className={styles.supportCard}>
           <div className={styles.supportEyebrow}>Keep DeckLoom growing</div>
-          <div className={styles.supportTitle}>Unlock Premium Themes</div>
+          <div className={styles.supportTitle}>Support DeckLoom</div>
           <div className={styles.supportText}>
-            Support development and unlock premium themes, including Obsidian Night, Crimson Court, Verdant Realm, and Arcane Archive. Each features atmospheric backgrounds, unique scrollbar and selection colours, and a distinct visual identity. One-time payment, yours forever.
+            Every product feature is free. If you choose to donate, you will receive cosmetic supporter themes—including Obsidian Night, Crimson Court, Verdant Realm, and Arcane Archive—as a thank-you. One donation, yours forever.
           </div>
 
           {settings.premium ? (
             <div className={styles.premiumUnlocked}>
               <span className={styles.premiumUnlockedStar}>✦</span>
               <div>
-                <div className={styles.premiumUnlockedTitle}>Premium Unlocked</div>
+                <div className={styles.premiumUnlockedTitle}>Supporter Themes Unlocked</div>
                 <div className={styles.premiumUnlockedSub}>Obsidian Night · Crimson Court · Verdant Realm · Arcane Archive are available in the theme picker above.</div>
               </div>
             </div>
@@ -1544,7 +1530,7 @@ export default function SettingsPage() {
                 disabled={checkoutBusy}
               >
                 <span className={styles.stripeBtnStar}>✦</span>
-                {checkoutBusy ? 'Opening Stripe...' : 'Unlock Premium Themes — €3 or your choice'}
+                {checkoutBusy ? 'Opening Stripe...' : 'Donate & receive themes — €3 or your choice'}
               </button>
               <div className={styles.stripeNote}>One-time · Secured by Stripe · No subscription</div>
               <div className={styles.stripeNote}>

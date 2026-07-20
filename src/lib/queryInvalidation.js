@@ -26,3 +26,23 @@ export function invalidateWishlistQueries(queryClient, userId, options = {}) {
   if (includeFolders) invalidations.push(queryClient.invalidateQueries({ queryKey: ['folders', userId] }))
   return Promise.all(invalidations)
 }
+
+export function invalidateHomeSnapshot(queryClient, userId) {
+  if (!queryClient || !userId) return Promise.resolve()
+  return queryClient.invalidateQueries({ queryKey: ['home-snapshot', userId] })
+}
+
+export function removeDecksFromHomeSnapshot(queryClient, userId, deckIds) {
+  if (!queryClient || !userId) return Promise.resolve()
+  const removedIds = new Set(deckIds || [])
+  if (removedIds.size) {
+    queryClient.setQueryData(['home-snapshot', userId], snapshot => {
+      if (!snapshot?.builderDecks) return snapshot
+      return {
+        ...snapshot,
+        builderDecks: snapshot.builderDecks.filter(deck => !removedIds.has(deck.id)),
+      }
+    })
+  }
+  return invalidateHomeSnapshot(queryClient, userId)
+}

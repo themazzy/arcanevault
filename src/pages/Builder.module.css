@@ -1,6 +1,6 @@
 /* ── Page ────────────────────────────────────────────────────────── */
 .page {
-  padding: 24px;
+  padding: 0 0 24px;
   background-image: radial-gradient(circle, rgba(201,168,76,0.04) 1px, transparent 1px);
   background-size: 28px 28px;
   min-height: 100%;
@@ -830,7 +830,7 @@
 
 /* ── Responsive ─────────────────────────────────────────────────── */
 @media (max-width: 768px) {
-  .page { padding: 16px; }
+  .page { padding-bottom: 16px; }
   .filterInput { width: 100%; }
   .grid {
     grid-template-columns: 1fr;
@@ -841,7 +841,7 @@
 }
 
 @media (max-width: 480px) {
-  .page { padding: 12px; }
+  .page { padding-bottom: 12px; }
   /* Search takes its own full-width row; the Filters/Sort/Select pills share
      the next row (the heavy filter groups live in the sheet at this width). */
   .filterBar { gap: 6px; }

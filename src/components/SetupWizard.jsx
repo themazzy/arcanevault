@@ -1,9 +1,6 @@
-import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
-import { sb } from '../lib/supabase'
-import { useAuth } from './Auth'
+import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import { useSettings, THEMES, PREMIUM_THEMES } from './SettingsContext'
 import { PRICE_SOURCES, sfGet } from '../lib/scryfall'
-import { generateAvailableNickname } from '../lib/nicknameGenerator'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './SetupWizard.module.css'
 import { CheckIcon } from '../icons'
@@ -11,26 +8,10 @@ import { CheckIcon } from '../icons'
 const SetupWizardContext = createContext({ open: () => {} })
 export const useSetupWizard = () => useContext(SetupWizardContext)
 
-const SETUP_LOCAL_KEY = 'arcanevault_setup_done'
-
 export function SetupWizardProvider({ children }) {
-  const { user } = useAuth()
   const [isOpen, setIsOpen] = useState(false)
-  const [isManual, setIsManual] = useState(false)
-  const [checked, setChecked] = useState(false)
-
-  useEffect(() => {
-    if (!user || checked) return
-    setChecked(true)
-    if (localStorage.getItem(SETUP_LOCAL_KEY)) return
-    if (!user.user_metadata?.setup_completed) {
-      setIsOpen(true)
-      setIsManual(false)
-    }
-  }, [user, checked])
 
   const open = useCallback(() => {
-    setIsManual(true)
     setIsOpen(true)
   }, [])
 
@@ -39,118 +20,32 @@ export function SetupWizardProvider({ children }) {
   return (
     <SetupWizardContext.Provider value={{ open }}>
       {children}
-      {isOpen && <SetupWizardModal onClose={close} isManual={isManual} />}
+      {isOpen && <SetupWizardModal onClose={close} />}
     </SetupWizardContext.Provider>
   )
 }
 
 const STEPS = [
-  { id: 'welcome', label: 'Welcome' },
+  { id: 'overview', label: 'Overview' },
   { id: 'theme', label: 'Theme' },
   { id: 'text', label: 'Display' },
   { id: 'prices', label: 'Prices' },
-  { id: 'profile', label: 'Profile' },
   { id: 'done', label: 'Done' },
 ]
 
-function SetupWizardModal({ onClose, isManual }) {
+function SetupWizardModal({ onClose }) {
   const settings = useSettings()
   const [step, setStep] = useState(0)
-  const [nickname, setNickname] = useState(settings.nickname || '')
-  const [nicknameStatus, setNicknameStatus] = useState('')
-  const nicknameTimer = useRef(null)
-  const userTypedRef = useRef(false)
-  const standinStartedRef = useRef(false)
-  const [finishing, setFinishing] = useState(false)
 
   const isLast = step === STEPS.length - 1
-  const PROFILE_STEP = 4
-
-  const trimmedNick = nickname.trim()
-  const matchesExisting =
-    trimmedNick.length > 0 &&
-    trimmedNick.toLowerCase() === (settings.nickname || '').toLowerCase()
-  const nicknameValid =
-    trimmedNick.length > 0 && (nicknameStatus === 'available' || matchesExisting)
-  // A name the user typed that we can't accept yet (still checking, or taken).
-  // An empty field is fine now — finishing/skipping falls back to a generated standin.
-  const typedInvalid = trimmedNick.length > 0 && !nicknameValid
-
-  const checkAvailable = useCallback(async (name) => {
-    const { data } = await sb.rpc('is_username_available', { p_username: name })
-    return !!data
-  }, [])
-
-  // Pre-fill an editable standin nickname when the user has none yet, so the field
-  // is never blank. Bails if they already have a nickname or have started typing.
-  useEffect(() => {
-    if (standinStartedRef.current) return
-    if (settings.nickname || trimmedNick) return
-    standinStartedRef.current = true
-    let cancelled = false
-    generateAvailableNickname(checkAvailable).then(name => {
-      if (cancelled || !name || userTypedRef.current) return
-      setNickname(name)
-      setNicknameStatus('available')
-    }).catch(() => {})
-    return () => { cancelled = true }
-  }, [settings.nickname, trimmedNick, checkAvailable])
-
-  const handleNicknameChange = (val) => {
-    userTypedRef.current = true
-    setNickname(val)
-    clearTimeout(nicknameTimer.current)
-    if (!val.trim()) { setNicknameStatus(''); return }
-    if (val.trim().toLowerCase() === (settings.nickname || '').toLowerCase()) {
-      setNicknameStatus(''); return
-    }
-    setNicknameStatus('checking')
-    nicknameTimer.current = setTimeout(async () => {
-      try {
-        const { data } = await sb.rpc('is_username_available', { p_username: val.trim() })
-        setNicknameStatus(data ? 'available' : 'taken')
-      } catch { setNicknameStatus('') }
-    }, 600)
-  }
-
-  // Resolve the nickname to persist: the valid typed name, otherwise a generated
-  // standin. Returns null only when the user typed a name we can't accept yet and
-  // a standin override isn't permitted (i.e. they're finishing, not skipping).
-  const resolveNickname = async ({ allowStandinOverTyped }) => {
-    if (nicknameValid) return trimmedNick
-    if (trimmedNick && !allowStandinOverTyped) return null
-    return await generateAvailableNickname(checkAvailable)
-  }
-
-  const finishWith = async (nick) => {
-    setFinishing(true)
-    if (nick && nick !== (settings.nickname || '')) settings.save({ nickname: nick })
-    await sb.auth.updateUser({ data: { setup_completed: true } })
-    localStorage.setItem(SETUP_LOCAL_KEY, '1')
-    onClose()
-  }
-
-  const complete = async () => {
-    // A half-typed or taken name blocks finishing — bounce back to the profile step.
-    if (typedInvalid) { setStep(PROFILE_STEP); return }
-    const nick = await resolveNickname({ allowStandinOverTyped: false })
-    await finishWith(nick)
-  }
-
-  // Skip = "just give me defaults": ignore any half-typed name and assign a standin.
-  const skip = async () => {
-    const nick = await resolveNickname({ allowStandinOverTyped: true })
-    await finishWith(nick)
-  }
 
   const handleNext = () => {
-    if (isLast) { complete(); return }
-    if (step === PROFILE_STEP && typedInvalid) return
+    if (isLast) { onClose(); return }
     setStep(s => s + 1)
   }
 
   return (
-    <div className={styles.overlay} role="dialog" aria-modal="true" aria-label="Setup wizard">
+    <div className={styles.overlay} role="dialog" aria-modal="true" aria-label="Personalize DeckLoom">
       <div className={styles.modal}>
         <div className={styles.header}>
           <div className={styles.headerLogo}>
@@ -179,8 +74,7 @@ function SetupWizardModal({ onClose, isManual }) {
           {step === 1 && <ThemeStep settings={settings} />}
           {step === 2 && <TextStep settings={settings} />}
           {step === 3 && <PriceStep settings={settings} />}
-          {step === 4 && <ProfileStep nickname={nickname} onChange={handleNicknameChange} status={nicknameStatus} />}
-          {step === 5 && <DoneStep />}
+          {step === 4 && <DoneStep />}
         </div>
 
         <div className={styles.footer}>
@@ -192,28 +86,16 @@ function SetupWizardModal({ onClose, isManual }) {
             )}
           </div>
           <div className={styles.footerRight}>
-            {!isLast && !isManual && (
-              <button
-                className={styles.btnSkip}
-                onClick={skip}
-                disabled={finishing}
-                title="Skip setup — we'll fill in your preferences and a nickname"
-              >
-                Skip setup
-              </button>
-            )}
-            {!isLast && isManual && (
-              <button className={styles.btnSkip} onClick={onClose} disabled={finishing}>
+            {!isLast && (
+              <button className={styles.btnSkip} onClick={onClose}>
                 Close
               </button>
             )}
             <button
               className={styles.btnNext}
               onClick={handleNext}
-              disabled={finishing || (step === PROFILE_STEP && typedInvalid)}
-              title={step === PROFILE_STEP && typedInvalid ? 'That nickname is taken — try another or clear it for a random one' : undefined}
             >
-              {isLast ? 'Start exploring →' : 'Next →'}
+              {isLast ? 'Done' : 'Next →'}
             </button>
           </div>
         </div>
@@ -226,18 +108,15 @@ function WelcomeStep() {
   return (
     <div className={styles.stepContent}>
       <div className={styles.welcomeGlyph}>⬡</div>
-      <h2 className={styles.stepTitle}>Welcome to DeckLoom</h2>
+      <h2 className={styles.stepTitle}>Personalize DeckLoom</h2>
       <p className={styles.stepDesc}>
-        Your all-in-one Magic: The Gathering companion. Let&apos;s spend a moment personalising the experience — you can change everything later in Settings.
+        Review the preferences that shape how DeckLoom looks and displays collection values. Every change remains available in Settings.
       </p>
       <div className={styles.featureList}>
         {[
-          ['Scan cards', 'Add cards instantly with your phone camera'],
-          ['Organise your collection', 'Binders, decks, wishlists, bulk imports'],
-          ['Build & playtest decks', 'Auto build from your binders or choose cards role by role, then test the result in-app'],
-          ['Life tracker & tournaments', 'Shared join codes, commander damage, and full tournament brackets'],
-          ['Prices & analytics', 'Daily market values, P&L, set completion, and collection charts'],
-          ['Trade & share', 'Compare trade values and share decks, wishlists, or your public profile'],
+          ['Theme', 'Choose a colour palette and optional contrast settings'],
+          ['Display', 'Adjust typography, card-name size, motion, and grid density'],
+          ['Price market', 'Choose the marketplace used for collection values'],
         ].map(([title, desc]) => (
           <div key={title} className={styles.featureItem}>
             <div className={styles.featureItemTitle}>{title}</div>
@@ -280,7 +159,7 @@ function ThemeStep({ settings }) {
               className={`${styles.themeSwatch}${active ? ' ' + styles.themeSwatchActive : ''}${locked ? ' ' + styles.themeSwatchLocked : ''}`}
               onClick={() => !locked && settings.save({ theme: id })}
               style={{ '--sw-bg': bg, '--sw-accent': accent, '--sw-hi': hi, '--sw-text': text }}
-              title={locked ? `${theme.name} - unlock premium themes from Settings` : theme.name}
+              title={locked ? `${theme.name} — cosmetic supporter theme available after donating` : theme.name}
             >
               <div className={styles.swatchBar}>
                 <div style={{ flex: 2, background: accent, borderRadius: '2px 0 0 2px' }} />
@@ -508,44 +387,16 @@ function PriceStep({ settings }) {
   )
 }
 
-function ProfileStep({ nickname, onChange, status }) {
-  return (
-    <div className={styles.stepContent}>
-      <h2 className={styles.stepTitle}>Pick your nickname</h2>
-      <p className={styles.stepDesc}>
-        Your nickname is your identity across DeckLoom — it powers your public profile URL,
-        shared decks, multiplayer life-tracker games, and trade history. We&apos;ve filled in
-        a random one to get you started; keep it or type your own.
-      </p>
-      <input
-        className={styles.nicknameInput}
-        type="text"
-        placeholder="Your in-game name"
-        value={nickname}
-        onChange={e => onChange(e.target.value)}
-        maxLength={24}
-        autoFocus
-      />
-      <div className={styles.nicknameMeta}>
-        <span>{nickname.length} / 24 characters</span>
-        {status === 'checking'  && <span className={styles.nicknameChecking}>Checking…</span>}
-        {status === 'available' && <span className={styles.nicknameAvailable}>✓ Available</span>}
-        {status === 'taken'     && <span className={styles.nicknameTaken}>Already taken — try another</span>}
-      </div>
-    </div>
-  )
-}
-
 function DoneStep() {
   return (
     <div className={styles.stepContent}>
       <div className={styles.doneGlyph}>✦</div>
-      <h2 className={styles.stepTitle}>You&apos;re all set</h2>
+      <h2 className={styles.stepTitle}>Preferences updated</h2>
       <p className={styles.stepDesc}>
-        Your preferences have been saved and will sync across devices. Add cards to your Collection, or choose a commander and let Build Assist shape your first deck.
+        Your choices have been saved and will sync across devices.
       </p>
       <div className={styles.doneNote}>
-        You can revisit these settings any time — go to <strong>Settings → Rerun Setup Wizard</strong>.
+        You can revisit them any time from <strong>Settings → Personalization</strong>.
       </div>
     </div>
   )

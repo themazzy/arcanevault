@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, startTransition } fr
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { sb } from '../lib/supabase'
-import { getInstantCache, getPriceSource, formatPrice, getImageUri, sfGet } from '../lib/scryfall'
+import { getInstantCache, getPriceSource, formatPrice, sfGet } from '../lib/scryfall'
 import { sortByNameRelevance } from '../lib/scryfallSearch'
 import { fetchAutocomplete, buildLookupQuery, hasLookupFilters } from '../lib/cardLookup'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
@@ -15,18 +15,17 @@ import { lastInputWasTouch } from '../lib/inputType'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { FloatingPreview } from '../components/deckBuilder/FloatingPreview'
-import { Modal } from '../components/UI'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './Home.module.css'
 import { EMPTY_FILTERS, FilterBar } from '../components/CardComponents'
-import { getHomeMode } from '../lib/homeLayout'
+import { getHomeMode, selectUpcomingSets } from '../lib/homeLayout'
+import { shouldOfferCardScanner } from '../lib/scannerAvailability'
 import { parseDeckMeta, FORMATS } from '../lib/deckBuilderApi'
 import { enrichDecksWithCommanderArt, useDeckArt } from '../lib/deckArt'
 import {
   CloseIcon, CheckIcon, WarningIcon, BannedIcon, ChevronDownIcon, ChevronUpIcon,
-  ChevronRightIcon, ImageIcon, SearchIcon, FilterIcon,
-  BuilderIcon, CollectionIcon, ScannerIcon, LifeIcon, StatsIcon, TradingIcon,
-  StarIcon,
+  ChevronRightIcon, SearchIcon, FilterIcon,
+  BinderIcon, BuilderIcon, CollectionIcon, DeckIcon, ScannerIcon, StarIcon,
 } from '../icons'
 
 // ── Recently Viewed (localStorage + custom event for live update) ─────────────
@@ -59,10 +58,11 @@ function addRecentlyViewed(card) {
 // Falls back to a fresh Supabase pull if IDB is empty (first visit on device).
 async function loadCollectionData(userId) {
   // IDB reads + price cache in parallel — fast
-  const [idbCards, idbFolders, sfMap] = await Promise.all([
+  const [idbCards, idbFolders, sfMap, myDecksResult] = await Promise.all([
     getLocalCards(userId),
     getLocalFolders(userId),
     getInstantCache(),
+    sb.rpc('get_my_decks'),
   ])
 
   let safeSfMap = sfMap || {}
@@ -127,7 +127,22 @@ async function loadCollectionData(userId) {
     safeSfMap = await loadCardMapWithSharedPrices(allCards, { priceLookup: 'set' })
   }
 
-  return { folders: allFolders, cards: allCards, cardRows, deckRows, sfMap: safeSfMap }
+  const deckSource = !myDecksResult.error && Array.isArray(myDecksResult.data)
+    ? myDecksResult.data
+    : allFolders
+  const builderDecks = deckSource
+    .filter(deck => {
+      if (deck.type !== 'builder_deck') return false
+      const meta = parseDeckMeta(deck.description)
+      return !meta.isGroup && !meta.hideFromBuilder && !meta.linked_deck_id
+    })
+    .sort((a, b) => {
+      const aTime = Date.parse(a.deck_modified_at || a.updated_at || a.created_at || 0) || 0
+      const bTime = Date.parse(b.deck_modified_at || b.updated_at || b.created_at || 0) || 0
+      return bTime - aTime
+    })
+
+  return { folders: allFolders, cards: allCards, cardRows, deckRows, sfMap: safeSfMap, builderDecks }
 }
 
 // Syncs cards from Supabase into IDB and returns updated cards array if anything changed.
@@ -280,25 +295,6 @@ function parseRssFeed(xmlText, label, color) {
 const NEWS_CACHE_KEY = 'av_mtg_news_v2'
 const NEWS_CACHE_TTL_MS = 15 * 60 * 1000
 
-// MTGGoldfish and MTG Arena Zone's feeds carry no image data at all — backfill
-// their thumbnails by asking the worker to scrape og:image off the article
-// page itself (edge-cached 24h there, so repeat articles are near-instant).
-async function backfillThumbnails(articles) {
-  const missing = articles.filter(a => !a.thumbnail && a.link)
-  if (!missing.length) return articles
-  await Promise.allSettled(missing.map(async a => {
-    try {
-      const res = await fetch(`${getProdAppUrl('/api/og-image')}?url=${encodeURIComponent(a.link)}`, {
-        signal: AbortSignal.timeout?.(6000),
-      })
-      if (!res.ok) return
-      const { image } = await res.json()
-      if (image?.startsWith('http')) a.thumbnail = image
-    } catch { /* leave thumbnail null — placeholder icon shown */ }
-  }))
-  return articles
-}
-
 async function fetchMTGNews() {
   // Session cache: repeat Home visits within 15 min skip the network entirely
   // (the worker edge-caches feeds for the same window).
@@ -323,8 +319,6 @@ async function fetchMTGNews() {
     .sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate))
     .slice(0, 12)
 
-  await backfillThumbnails(articles)
-
   if (articles.length) {
     try { sessionStorage.setItem(NEWS_CACHE_KEY, JSON.stringify({ at: Date.now(), articles })) } catch { /* storage full */ }
   }
@@ -335,11 +329,7 @@ async function fetchUpcomingSets() {
   const json = await sfGet('https://api.scryfall.com/sets')
   if (!json) return []
   const today = new Date().toISOString().slice(0, 10)
-  const interesting = new Set(['expansion', 'core', 'masters', 'draft_innovation', 'commander', 'starter_deck'])
-  return (json.data || [])
-    .filter(s => s.released_at > today && interesting.has(s.set_type))
-    .sort((a, b) => a.released_at.localeCompare(b.released_at))
-    .slice(0, 8)
+  return selectUpcomingSets(json.data, today)
 }
 
 // ── Mana symbol renderer ──────────────────────────────────────────────────────
@@ -859,141 +849,162 @@ function CardLookupSection() {
   )
 }
 
-// ── Quick Actions (returning users) ───────────────────────────────────────────
-// The three standout features, one tap away, right under the hero.
-const QUICK_ACTIONS = [
-  { to: '/builder', icon: BuilderIcon, label: 'Build Assist', desc: 'Auto-build a deck from your binders', featured: true },
-  { to: '/scanner', icon: ScannerIcon, label: 'Scan Cards', desc: 'Add cards with your camera' },
-  { to: '/collection', icon: CollectionIcon, label: 'Collection', desc: 'Browse, organise & track value' },
-]
+// ── Returning-user focus ──────────────────────────────────────────────────────
+function formatDeckRecency(value) {
+  const timestamp = Date.parse(value || '')
+  if (!Number.isFinite(timestamp)) return null
+  const days = Math.max(0, Math.floor((Date.now() - timestamp) / 86400000))
+  if (days === 0) return 'Edited today'
+  if (days === 1) return 'Edited yesterday'
+  if (days < 14) return `Edited ${days} days ago`
+  return `Edited ${new Date(timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+}
 
-function QuickActions() {
+function ContinueBuilding({ decks = [] }) {
   const navigate = useNavigate()
+  const primary = decks[0] || null
+  const recent = decks.slice(1, 3)
+  const meta = useMemo(() => parseDeckMeta(primary?.description), [primary?.description])
+  const art = useDeckArt(meta)
+  const format = FORMATS.find(item => item.id === (meta.format || 'commander'))
+  const edited = formatDeckRecency(primary?.deck_modified_at || primary?.updated_at || primary?.created_at)
+  const showScanner = shouldOfferCardScanner()
+
+  const primaryMeta = [
+    format?.label,
+    primary?.card_count != null ? `${primary.card_count} cards` : null,
+    edited,
+  ].filter(Boolean).join(' · ')
+
   return (
-    <div className={styles.quickGrid}>
-      {QUICK_ACTIONS.map(({ to, icon: Icon, label, desc, featured }) => (
-        <button key={to} type="button"
-          className={`${styles.quickTile}${featured ? ' ' + styles.quickTileFeatured : ''}`}
-          onClick={() => navigate(to)}>
-          <span className={styles.quickIcon}><Icon size={18} /></span>
-          <span className={styles.quickCopy}>
-            <span className={styles.quickLabel}>{label}</span>
-            <span className={styles.quickDesc}>{desc}</span>
+    <section className={styles.returningLead} aria-labelledby="returning-home-title">
+      <div className={styles.returningLeadHeader}>
+        <div>
+          <div className={styles.returningEyebrow}>Your next move</div>
+          <h1 id="returning-home-title">{primary ? 'Continue where you left off' : 'Build your next deck'}</h1>
+          <p>{primary
+            ? 'Jump back into your most recently edited deck.'
+            : 'Start with a commander, then use Auto Build or choose every card with guidance.'}</p>
+        </div>
+      </div>
+
+      <div className={styles.returningLeadGrid}>
+        <button type="button" className={styles.continueDeck}
+          onClick={() => navigate(primary ? `/builder/${primary.id}` : '/builder?new=1')}>
+          {art && <span className={styles.continueDeckArt} style={{ backgroundImage: `url(${art})` }} />}
+          <span className={styles.continueDeckScrim} />
+          <span className={styles.continueDeckBody}>
+            <span className={styles.continueDeckLabel}>{primary ? 'Most recently edited' : 'Build Assist'}</span>
+            <span className={styles.continueDeckName}>{primary?.name || 'Build a Commander deck'}</span>
+            <span className={styles.continueDeckMeta}>{primaryMeta || 'Auto Build or guided deck creation'}</span>
+            <span className={styles.continueDeckCta}>
+              {primary ? 'Continue deck' : 'Open Build Assist'} <ChevronRightIcon size={14} />
+            </span>
           </span>
-          <span className={styles.quickArrow}><ChevronRightIcon size={13} /></span>
         </button>
-      ))}
-    </div>
+
+        <div className={styles.returningSecondary}>
+          {recent.length > 0 && (
+            <div className={styles.recentDecks}>
+              <div className={styles.recentDecksLabel}>Recent decks</div>
+              {recent.map(deck => (
+                <button key={deck.id} type="button" className={styles.recentDeck}
+                  onClick={() => navigate(`/builder/${deck.id}`)}>
+                  <span>{deck.name}</span>
+                  <ChevronRightIcon size={12} />
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className={styles.returningActions}>
+            <button type="button" onClick={() => navigate('/builder?new=1')}>
+              <BuilderIcon size={17} />
+              <span>New deck</span>
+            </button>
+            <button type="button" onClick={() => navigate('/collection')}>
+              <CollectionIcon size={17} />
+              <span>Collection</span>
+            </button>
+            {showScanner && (
+              <button type="button" onClick={() => navigate('/scanner')}>
+                <ScannerIcon size={17} />
+                <span>Scan cards</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
   )
 }
 
 // ── Feature Showcase (new users) ──────────────────────────────────────────────
 // First-session onboarding: the three standout features as guided doors.
-const SHOWCASE_FEATURES = [
+const EMPTY_ACCOUNT_ACTIONS = [
   {
-    to: '/builder', icon: BuilderIcon, step: 1, featured: true,
-    title: 'Build Assist',
-    desc: 'Pick a commander and hit Auto Build — DeckLoom fills your deck to a full 100 with the best cards for it. Shape it with a theme, a power bracket and a per-card budget, or build only from cards you already own.',
-    cta: 'Open the Deck Builder',
+    to: '/builder', icon: BuilderIcon, featured: true,
+    eyebrow: 'Recommended first',
+    title: 'Build a Commander deck',
+    desc: 'Choose a commander, then let Build Assist create the complete list or guide every pick. You do not need a collection to begin.',
+    cta: 'Open Build Assist',
   },
   {
-    to: '/collection', icon: CollectionIcon, step: 2,
-    title: 'Track Your Collection',
-    desc: 'Import a CSV, search by name, or add cards by hand. Binders, decks and wishlists with daily prices, collection value and set completion — online or offline.',
-    cta: 'Start your collection',
+    to: '/scanner', icon: ScannerIcon,
+    title: 'Scan physical cards',
+    desc: 'Use your phone camera to recognise exact printings and add them directly to your collection.',
+    cta: 'Open Card Scanner',
   },
   {
-    to: '/scanner', icon: ScannerIcon, step: 3,
-    title: 'Scan Cards In',
-    desc: 'Point your camera at any card — the scanner recognises the exact printing in seconds and files it straight into a binder or deck.',
-    cta: 'Try the Scanner',
+    to: '/collection', icon: CollectionIcon,
+    title: 'Import or add your collection',
+    desc: 'Import a Manabox CSV or find cards by name, set, and printing. Organise them into binders and decks when you are ready.',
+    cta: 'Start Your Collection',
   },
 ]
 
-function FeatureShowcase() {
+export function EmptyAccountStart({ premium }) {
   const navigate = useNavigate()
+  const showScanner = shouldOfferCardScanner()
+  const availableActions = showScanner
+    ? EMPTY_ACCOUNT_ACTIONS
+    : EMPTY_ACCOUNT_ACTIONS.filter(action => action.to !== '/scanner')
+
   return (
-    <section className={`${styles.section} ${styles.showcase}`}>
-      <div className={styles.showcaseEyebrow}>Get Started</div>
-      <h2 className={styles.showcaseTitle}>Everything a Magic player needs, in one app</h2>
-      <p className={styles.sectionDesc}>Three things to try first — every feature is free, no paywalls.</p>
-      <div className={styles.showcaseGrid}>
-        {SHOWCASE_FEATURES.map(({ to, icon: Icon, step, featured, title, desc, cta }) => (
+    <section className={styles.emptyStart} aria-labelledby="empty-account-title">
+      <div className={styles.emptyIntro}>
+        <div className={styles.emptyEyebrow}>Your cards, decks, and play tools in one place</div>
+        <h1 id="empty-account-title">What would you like to do first?</h1>
+        <p>Start anywhere. DeckLoom keeps each path connected as your collection and decks grow.</p>
+      </div>
+
+      <div className={`${styles.emptyActionGrid}${showScanner ? '' : ` ${styles.emptyActionGridDesktop}`}`}>
+        {availableActions.map(({ to, icon: Icon, eyebrow, featured, title, desc, cta }) => (
           <button key={to} type="button"
-            className={`${styles.featureCard}${featured ? ' ' + styles.featureCardFeatured : ''}`}
+            className={`${styles.emptyAction}${featured ? ' ' + styles.emptyActionFeatured : ''}`}
             onClick={() => navigate(to)}>
-            <span className={styles.featureHead}>
-              <span className={styles.featureIcon}><Icon size={20} /></span>
-              <span className={styles.featureStep}>{step}</span>
+            <span className={styles.emptyActionHead}>
+              <span className={styles.emptyActionIcon}><Icon size={featured ? 24 : 20} /></span>
+              {eyebrow && <span className={styles.emptyActionEyebrow}>{eyebrow}</span>}
             </span>
-            <span className={styles.featureTitle}>{title}</span>
-            <span className={styles.featureDesc}>{desc}</span>
-            <span className={styles.featureCta}>{cta} <ChevronRightIcon size={12} /></span>
+            <span className={styles.emptyActionTitle}>{title}</span>
+            <span className={styles.emptyActionDesc}>{desc}</span>
+            <span className={styles.emptyActionCta}>{cta} <ChevronRightIcon size={13} /></span>
           </button>
         ))}
       </div>
+
+      <button type="button" className={styles.emptySupport} onClick={() => navigate('/settings#support')}>
+        <StarIcon size={16} />
+        <span>
+          <strong>Every product feature is free.</strong>{' '}
+          {premium
+            ? 'Thanks for supporting DeckLoom—your cosmetic supporter themes are available in Settings.'
+            : 'Optional donations support development and unlock cosmetic themes as a thank-you.'}
+        </span>
+        <ChevronRightIcon size={13} />
+      </button>
     </section>
-  )
-}
-
-// ── More Tools — secondary features as compact tiles ──────────────────────────
-// Also absorbs the old Rulebook banner and the premium-support banner.
-const TOOL_TILES = [
-  { to: '/life', icon: LifeIcon, label: 'Life Tracker', desc: 'Multiplayer life counter' },
-  { to: '/stats', icon: StatsIcon, label: 'Stats', desc: 'Collection value over time' },
-  { to: '/trading', icon: TradingIcon, label: 'Trading', desc: 'Compare trade values' },
-  { to: '/rules', icon: SearchIcon, label: 'Rulebook', desc: 'Search the comprehensive rules' },
-]
-
-// Compact support card for the dashboard rail — the tool grid only shows for
-// new users, so this keeps the premium path visible for everyone else.
-function RailSupportCard() {
-  const navigate = useNavigate()
-  return (
-    <button type="button" className={styles.railSupport} onClick={() => navigate('/settings#support')}>
-      <span className={styles.toolIcon}><StarIcon size={16} /></span>
-      <span className={styles.railSupportCopy}>
-        <span className={styles.railSupportLabel}>Support DeckLoom</span>
-        <span className={styles.railSupportDesc}>Unlock premium themes</span>
-      </span>
-    </button>
-  )
-}
-
-function ToolGrid({ premium }) {
-  const navigate = useNavigate()
-  return (
-    <section className={styles.section}>
-      <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>More Tools</h2>
-      </div>
-      <div className={styles.toolGrid}>
-        {TOOL_TILES.map(({ to, icon: Icon, label, desc }) => (
-          <button key={to} type="button" className={styles.toolTile} onClick={() => navigate(to)}>
-            <span className={styles.toolIcon}><Icon size={16} /></span>
-            <span className={styles.toolLabel}>{label}</span>
-            <span className={styles.toolDesc}>{desc}</span>
-          </button>
-        ))}
-        {!premium && (
-          <button type="button" className={`${styles.toolTile} ${styles.toolTileSupport}`}
-            onClick={() => navigate('/settings#support')}>
-            <span className={styles.toolIcon}><StarIcon size={16} /></span>
-            <span className={styles.toolLabel}>Support DeckLoom</span>
-            <span className={styles.toolDesc}>Unlock premium themes</span>
-          </button>
-        )}
-      </div>
-    </section>
-  )
-}
-
-// ── Horizontal scroll strip skeleton ─────────────────────────────────────────
-function LoadingStrip({ count = 9 }) {
-  return (
-    <div className={styles.hScroll}>
-      {Array.from({ length: count }).map((_, i) => <div key={i} className={styles.hScrollSkeleton} />)}
-    </div>
   )
 }
 
@@ -1090,8 +1101,8 @@ const _SetCompletionSection = function SetCompletionSection({ data, loading }) {
   )
 }
 
-// ── Collection Snapshot ───────────────────────────────────────────────────────
-function CollectionSnapshot({ data, loading, priceSource }) {
+// ── Collection pulse ──────────────────────────────────────────────────────────
+function CollectionPulse({ data, loading, priceSource }) {
   const navigate = useNavigate()
   const stats = useMemo(() => {
     if (!data) return null
@@ -1139,285 +1150,73 @@ function CollectionSnapshot({ data, loading, priceSource }) {
 
   const tiles = stats ? [
     {
-      label: 'Total Cards',
+      label: 'Cards owned',
       val: stats.totalQty.toLocaleString(),
-      meta: `across ${stats.uniqueSetCount.toLocaleString()} sets`,
-      color: 'var(--text)',
-      to: '/collection',
-    },
-    {
-      label: 'Unique Cards',
-      val: stats.uniquePrintCount.toLocaleString(),
+      meta: `${stats.uniquePrintCount.toLocaleString()} unique · ${stats.uniqueSetCount.toLocaleString()} sets`,
       color: 'var(--text)',
       to: '/collection',
     },
     {
       label: 'Collection Value',
       val: formatPrice(stats.totalValue, priceSource),
-      meta: '',
+      meta: 'Open detailed analytics',
       color: 'var(--green)',
       to: '/stats',
     },
-    {
-      label: 'Collection Binders',
-      val: stats.binderCount.toString(),
-      color: 'var(--text)',
-      to: '/binders',
-    },
-    {
-      label: 'Collection Decks',
-      val: stats.deckCount.toString(),
-      color: 'var(--text)',
-      to: '/decks',
-    },
   ] : []
+
+  if (!loading && stats?.totalQty === 0) {
+    return (
+      <section className={`${styles.section} ${styles.collectionEmpty}`}>
+        <span className={styles.collectionEmptyIcon}><CollectionIcon size={21} /></span>
+        <span className={styles.collectionEmptyCopy}>
+          <span className={styles.collectionEmptyTitle}>Your decks do not require a collection</span>
+          <span className={styles.collectionEmptyText}>Add cards when you want collection-aware suggestions, binders, and value tracking.</span>
+        </span>
+        <button type="button" className={styles.collectionEmptyCta} onClick={() => navigate('/collection')}>
+          Add cards <ChevronRightIcon size={13} />
+        </button>
+      </section>
+    )
+  }
 
   return (
     <section className={styles.section}>
       <div className={styles.sectionHeader}>
         <h2 className={styles.sectionTitle}>Collection</h2>
       </div>
-      <div className={styles.snapshotGrid}>
+      <div className={styles.pulseGrid}>
         {loading
-          ? Array.from({ length: 5 }).map((_, i) => <div key={i} className={styles.snapshotSkeleton} />)
-          : tiles.map(t => (
-              <button key={t.label} type="button" className={styles.snapshotTile}
-                onClick={() => navigate(t.to)}>
-                <div className={styles.snapshotVal} style={{ color: t.color }}>{t.val}</div>
-                <div className={styles.snapshotLabel}>{t.label}</div>
-                {t.meta ? <div className={styles.snapshotMeta}>{t.meta}</div> : null}
-              </button>
-            ))
-        }
-      </div>
-    </section>
-  )
-}
-
-// ── Top Valued Cards ──────────────────────────────────────────────────────────
-function TopValuedCards({ data, loading, priceSource, onCardClick }) {
-  const topCards = useMemo(() => {
-    if (!data) return []
-    const { cardRows, sfMap } = data
-    const source = getPriceSource(priceSource)
-    const field = source.field
-    const foilField = source.foilField
-    const K = 14
-    const seen = new Set()
-    const top = [] // sorted desc, length <= K
-
-    for (const row of cardRows) {
-      const card = row.cards
-      if (!card || seen.has(card.id)) continue
-      const sf = sfMap[`${card.set_code}-${card.collector_number}`]
-      const raw = sf?.prices?.[card.foil ? foilField : field]
-      if (!raw) continue
-      const price = +raw
-      if (!price) continue
-
-      if (top.length < K) {
-        seen.add(card.id)
-        top.push({ card, sf, price })
-        if (top.length === K) top.sort((a, b) => b.price - a.price)
-      } else if (price > top[K - 1].price) {
-        seen.add(card.id)
-        let i = K - 1
-        top[i] = { card, sf, price }
-        while (i > 0 && top[i].price > top[i - 1].price) {
-          const t = top[i]; top[i] = top[i - 1]; top[i - 1] = t
-          i--
-        }
-      }
-    }
-    if (top.length < K) top.sort((a, b) => b.price - a.price)
-    return top
-  }, [data, priceSource])
-
-  if (!loading && topCards.length === 0) return null
-
-  return (
-    <section className={styles.section}>
-      <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>Most Valuable Cards</h2>
-      </div>
-      {loading ? <LoadingStrip /> : (
-        <div className={styles.hScroll}>
-          {topCards.map(({ card, sf, price }) => {
-            const img = getImageUri(sf, 'small') || toSmallScryfallImage(card.image_uri) || null
-            return (
-              <div key={card.id} className={styles.hScrollCard}
-                style={{ cursor: 'pointer' }}
-                onClick={() => onCardClick(card.scryfall_id, card.name)}>
-                {img
-                  ? <img src={img} alt={card.name} className={styles.hScrollImg} loading="lazy" />
-                  : <div className={styles.hScrollImgPlaceholder}>{card.name}</div>}
-                <div className={styles.hScrollName}>{card.name}</div>
-                <div className={styles.hScrollPrice}>{formatPrice(price, priceSource)}</div>
+          ? Array.from({ length: 3 }).map((_, i) => <div key={i} className={styles.snapshotSkeleton} />)
+          : <>
+              {tiles.map(t => (
+                <button key={t.label} type="button" className={styles.pulseTile}
+                  onClick={() => navigate(t.to)}>
+                  <div className={styles.snapshotVal} style={{ color: t.color }}>{t.val}</div>
+                  <div className={styles.snapshotLabel}>{t.label}</div>
+                  {t.meta ? <div className={styles.snapshotMeta}>{t.meta}</div> : null}
+                  <span className={styles.pulseTileArrow}><ChevronRightIcon size={11} /></span>
+                </button>
+              ))}
+              <div className={styles.pulseSplit}>
+                <button type="button" className={styles.pulseMiniTile} onClick={() => navigate('/binders')}>
+                  <span className={styles.pulseMiniIcon}><BinderIcon size={16} /></span>
+                  <span className={styles.pulseMiniCopy}>
+                    <span className={styles.pulseMiniValue}>{stats.binderCount}</span>
+                    <span className={styles.pulseMiniLabel}>Binders</span>
+                  </span>
+                  <ChevronRightIcon size={11} />
+                </button>
+                <button type="button" className={styles.pulseMiniTile} onClick={() => navigate('/decks')}>
+                  <span className={styles.pulseMiniIcon}><DeckIcon size={16} /></span>
+                  <span className={styles.pulseMiniCopy}>
+                    <span className={styles.pulseMiniValue}>{stats.deckCount}</span>
+                    <span className={styles.pulseMiniLabel}>Collection decks</span>
+                  </span>
+                  <ChevronRightIcon size={11} />
+                </button>
               </div>
-            )
-          })}
-        </div>
-      )}
-    </section>
-  )
-}
-
-// ── Most Valuable Decks ───────────────────────────────────────────────────────
-function TopValuedDecks({ data, loading, priceSource }) {
-  const navigate = useNavigate()
-
-  const topDecks = useMemo(() => {
-    if (!data) return []
-    const { folders, deckRows = [], sfMap } = data
-    const source = getPriceSource(priceSource)
-    const field = source.field
-    const foilField = source.foilField
-    const deckVal = new Map()
-    for (const f of folders) {
-      if (f.type === 'deck') deckVal.set(f.id, { folder: f, value: 0, qty: 0 })
-    }
-    for (const row of deckRows) {
-      const entry = deckVal.get(row.deck_id)
-      if (!entry) continue
-      const card = row.cards
-      if (!card) continue
-      const qty = row.qty || 1
-      entry.qty += qty
-      const sf = sfMap[`${card.set_code}-${card.collector_number}`]
-      const raw = sf?.prices?.[card.foil ? foilField : field]
-      if (raw) {
-        const p = +raw
-        if (p) entry.value += p * qty
-      }
-    }
-    const arr = Array.from(deckVal.values())
-    arr.sort((a, b) => b.value - a.value)
-    return arr.slice(0, 6)
-  }, [data, priceSource])
-
-  if (!loading && topDecks.length === 0) return null
-
-  const maxVal = topDecks[0]?.value || 1
-
-  return (
-    <section className={styles.section}>
-      <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>Most Valuable Decks</h2>
-      </div>
-      {loading ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {Array.from({ length: 4 }).map((_, i) => <div key={i} className={styles.deckRowSkeleton} />)}
-        </div>
-      ) : (
-        <div className={styles.deckList}>
-          {topDecks.map(({ folder, value, qty }, i) => (
-            <div key={folder.id} className={styles.deckRow}
-              onClick={() => navigate(`/decks?folder=${folder.id}`)}>
-              <span className={styles.deckRank}>#{i + 1}</span>
-              <div className={styles.deckInfo}>
-                <div className={styles.deckName}>{folder.name}</div>
-                <div className={styles.deckBarWrap}>
-                  <div className={styles.deckBarFill} style={{ width: `${(value / maxVal) * 100}%` }} />
-                </div>
-                <div className={styles.deckQty}>{qty} cards</div>
-              </div>
-              <div className={styles.deckValue}>{formatPrice(value, priceSource)}</div>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  )
-}
-
-// ── Featured Decks — deck browser sneak peek ──────────────────────────────────
-// Top trending community decks (same RPC + commander-art enrichment as the
-// Deck Browser tab), linking into /d/<id> and the full browser.
-const FEATURED_CACHE_KEY = 'av_featured_decks'
-const FEATURED_CACHE_TTL_MS = 15 * 60 * 1000
-
-async function fetchFeaturedDecks() {
-  try {
-    const cached = JSON.parse(sessionStorage.getItem(FEATURED_CACHE_KEY) || 'null')
-    if (cached?.decks?.length && Date.now() - cached.at < FEATURED_CACHE_TTL_MS) {
-      return cached
-    }
-  } catch { /* corrupt cache — refetch */ }
-
-  const { data, error } = await sb.rpc('get_community_decks', { p_sort: 'trending', p_limit: 3 })
-  if (error) throw error
-  const rows = Array.isArray(data?.decks) ? data.decks : []
-  const decks = (await enrichDecksWithCommanderArt(rows))
-    .map(d => ({ ...d, __meta: d.__meta || parseDeckMeta(d.description) }))
-
-  let nicks = {}
-  const userIds = [...new Set(rows.map(d => d.user_id).filter(Boolean))]
-  if (userIds.length) {
-    const { data: nickRows } = await sb.rpc('get_user_nicknames', { p_user_ids: userIds })
-    nicks = Object.fromEntries((nickRows || []).map(r => [r.user_id, r.nickname]))
-  }
-
-  const result = { at: Date.now(), decks, nicks }
-  if (decks.length) {
-    try { sessionStorage.setItem(FEATURED_CACHE_KEY, JSON.stringify(result)) } catch { /* storage full */ }
-  }
-  return result
-}
-
-function FeaturedDeckTile({ deck, nick }) {
-  const navigate = useNavigate()
-  const meta = deck.__meta || parseDeckMeta(deck.description)
-  const art = useDeckArt(meta)
-  const fmt = FORMATS.find(f => f.id === (meta.format || 'commander'))
-  const commanderNames = meta.commanders?.length
-    ? meta.commanders.map(c => c.name).join(' + ')
-    : (meta.commanderName || null)
-
-  return (
-    <button type="button" className={styles.featuredTile} onClick={() => navigate(`/d/${deck.id}`)}>
-      {art && <div className={styles.featuredArt} style={{ backgroundImage: `url(${art})` }} />}
-      <div className={styles.featuredScrim} />
-      <div className={styles.featuredBody}>
-        <div className={styles.featuredName}>{deck.name}</div>
-        {commanderNames && <div className={styles.featuredCommander}>{commanderNames}</div>}
-        <div className={styles.featuredMetaRow}>
-          {fmt && <span>{fmt.label}</span>}
-          {deck.like_count > 0 && <span>♥ {deck.like_count}</span>}
-          {nick && <span>by {nick}</span>}
-        </div>
-      </div>
-    </button>
-  )
-}
-
-function FeaturedDecksSection() {
-  const navigate = useNavigate()
-  const [data, setData] = useState(null) // null = loading
-
-  useEffect(() => {
-    let alive = true
-    fetchFeaturedDecks()
-      .then(d => { if (alive) setData(d) })
-      .catch(() => { if (alive) setData({ decks: [], nicks: {} }) })
-    return () => { alive = false }
-  }, [])
-
-  if (data && data.decks.length === 0) return null
-
-  return (
-    <section className={styles.section}>
-      <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>Featured Decks</h2>
-        <button className={styles.clearBtn} onClick={() => navigate('/builder?tab=browser')}>
-          Browse all <ChevronRightIcon size={11} />
-        </button>
-      </div>
-      <div className={styles.featuredGrid}>
-        {data === null
-          ? Array.from({ length: 3 }).map((_, i) => <div key={i} className={styles.featuredSkeleton} />)
-          : data.decks.map(deck => (
-              <FeaturedDeckTile key={deck.id} deck={deck} nick={data.nicks[deck.user_id] || null} />
-            ))
+            </>
         }
       </div>
     </section>
@@ -1425,7 +1224,112 @@ function FeaturedDecksSection() {
 }
 
 // ── MTG News ──────────────────────────────────────────────────────────────────
-function MTGNewsSection() {
+const TRENDING_CACHE_KEY = 'av_home_trending_decks_v2'
+const TRENDING_CACHE_TTL_MS = 15 * 60 * 1000
+const TRENDING_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
+
+export async function fetchTrendingDecks({
+  client = sb,
+  storage = typeof sessionStorage === 'undefined' ? null : sessionStorage,
+  now = Date.now(),
+} = {}) {
+  try {
+    const cached = JSON.parse(storage?.getItem(TRENDING_CACHE_KEY) || 'null')
+    if (cached?.decks?.length && now - cached.at < TRENDING_CACHE_TTL_MS) return cached
+  } catch { /* corrupt or unavailable session storage — refetch */ }
+
+  const { data, error } = await client.rpc('get_community_decks', {
+    p_sort: 'trending',
+    p_limit: 3,
+  })
+  if (error) throw error
+
+  const rows = (Array.isArray(data?.decks) ? data.decks : []).filter(deck => {
+    const updatedAt = Date.parse(deck.deck_modified_at || deck.updated_at || deck.created_at || 0) || 0
+    return (deck.like_count || 0) > 0 && now - updatedAt < TRENDING_WINDOW_MS
+  })
+  const decks = (await enrichDecksWithCommanderArt(rows, { client }))
+    .map(deck => ({ ...deck, __meta: deck.__meta || parseDeckMeta(deck.description) }))
+
+  let nicks = {}
+  const userIds = [...new Set(rows.map(deck => deck.user_id).filter(Boolean))]
+  if (userIds.length) {
+    const { data: nickRows } = await client.rpc('get_user_nicknames', { p_user_ids: userIds })
+    nicks = Object.fromEntries((nickRows || []).map(row => [row.user_id, row.nickname]))
+  }
+
+  const result = { at: now, decks, nicks }
+  if (decks.length) {
+    try { storage?.setItem(TRENDING_CACHE_KEY, JSON.stringify(result)) } catch { /* storage full */ }
+  }
+  return result
+}
+
+function TrendingDeckTile({ deck, nick }) {
+  const navigate = useNavigate()
+  const meta = deck.__meta || parseDeckMeta(deck.description)
+  const art = useDeckArt(meta)
+  const format = FORMATS.find(item => item.id === (meta.format || 'commander'))
+  const commanderNames = meta.commanders?.length
+    ? meta.commanders.map(commander => commander.name).filter(Boolean).join(' + ')
+    : (meta.commanderName || null)
+
+  return (
+    <button type="button" className={styles.featuredTile}
+      onClick={() => navigate(`/d/${deck.id}`)} aria-label={`Open ${deck.name}`}>
+      {art && <span className={styles.featuredArt} style={{ backgroundImage: `url(${art})` }} />}
+      <span className={styles.featuredScrim} />
+      <span className={styles.featuredBody}>
+        <span className={styles.featuredName}>{deck.name}</span>
+        {commanderNames && <span className={styles.featuredCommander}>{commanderNames}</span>}
+        <span className={styles.featuredMetaRow}>
+          {format && <span>{format.label}</span>}
+          {deck.like_count > 0 && <span>♥ {deck.like_count}</span>}
+          {nick && <span>by {nick}</span>}
+        </span>
+      </span>
+    </button>
+  )
+}
+
+function TrendingDecksPanel() {
+  const navigate = useNavigate()
+  const [data, setData] = useState(null)
+
+  useEffect(() => {
+    let alive = true
+    fetchTrendingDecks()
+      .then(result => { if (alive) setData(result) })
+      .catch(() => { if (alive) setData({ decks: [], nicks: {} }) })
+    return () => { alive = false }
+  }, [])
+
+  if (data && data.decks.length === 0) return null
+
+  return (
+    <div className={`${styles.discoverPanel} ${styles.trendingPanel}`}>
+      <div className={styles.discoverPanelHeader}>
+        <div>
+          <div className={styles.discoverEyebrow}>Community decks</div>
+          <h2>Trending Decks</h2>
+        </div>
+        <button type="button" className={styles.clearBtn}
+          onClick={() => navigate('/builder?tab=browser')}>
+          Browse all <ChevronRightIcon size={11} />
+        </button>
+      </div>
+      <div className={styles.featuredGrid}>
+        {data === null
+          ? Array.from({ length: 3 }).map((_, index) => <div key={index} className={styles.featuredSkeleton} />)
+          : data.decks.map(deck => (
+              <TrendingDeckTile key={deck.id} deck={deck} nick={data.nicks[deck.user_id] || null} />
+            ))}
+      </div>
+    </div>
+  )
+}
+
+function MTGNewsPanel() {
   const [articles, setArticles] = useState([])
   const [loading,  setLoading]  = useState(true)
 
@@ -1439,68 +1343,43 @@ function MTGNewsSection() {
     return date.toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' })
   }
 
-  // Strip HTML tags from RSS description to get plain-text excerpt
-  const stripHtml = html => {
-    if (!html) return ''
-    return html.replace(/<[^>]*>/g, '').replace(/&#?\w+;/g, ' ').trim().slice(0, 140)
-  }
-
   if (!loading && articles.length === 0) return null
 
   return (
-    <section className={styles.section}>
-      <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>MTG News</h2>
-        <div className={styles.newsSources}>
-          {NEWS_FEEDS.map(f => (
-            <span key={f.label} className={styles.newsSourceBadge}
-              style={{ color: f.color, borderColor: f.color + '44' }}>
-              {f.label}
-            </span>
-          ))}
+    <div className={styles.discoverPanel}>
+      <div className={styles.discoverPanelHeader}>
+        <div>
+          <div className={styles.discoverEyebrow}>Latest stories</div>
+          <h2>MTG News</h2>
         </div>
       </div>
 
       {loading ? (
-        <div className={styles.newsGrid}>
-          {Array.from({ length: 6 }).map((_, i) => <div key={i} className={styles.newsCardSkeleton} />)}
+        <div className={styles.compactNewsList}>
+          {Array.from({ length: 3 }).map((_, i) => <div key={i} className={styles.compactRowSkeleton} />)}
         </div>
       ) : (
-        <div className={styles.newsGrid}>
-          {articles.map((article, i) => (
+        <div className={styles.compactNewsList}>
+          {articles.slice(0, 3).map((article, i) => (
             <a key={article.guid || article.link || i}
               href={article.link} target="_blank" rel="noopener noreferrer"
-              className={styles.newsCard}>
-              <div className={styles.newsCardImg}>
-                {article.thumbnail && article.thumbnail.startsWith('http')
-                  ? <img src={article.thumbnail} alt="" loading="lazy" />
-                  : <div className={styles.newsCardImgPlaceholder}><ImageIcon size={24} /></div>
-                }
-                <span className={styles.newsCardBadge}
-                  style={{ color: article._sourceColor, borderColor: article._sourceColor }}>
-                  {article._source}
-                </span>
-              </div>
-              <div className={styles.newsCardBody}>
-                <div className={styles.newsCardTitle}>{article.title}</div>
-                {article.description && (
-                  <div className={styles.newsCardExcerpt}>{stripHtml(article.description)}</div>
-                )}
-                <div className={styles.newsCardMeta}>
-                  {article.author && <span>{article.author}</span>}
-                  <span>{fmtDate(article.pubDate)}</span>
-                </div>
-              </div>
+              className={styles.compactNewsRow}>
+              <span className={styles.compactNewsSource} style={{ color: article._sourceColor }}>
+                {article._source}
+              </span>
+              <span className={styles.compactNewsTitle}>{article.title}</span>
+              <span className={styles.compactNewsDate}>{fmtDate(article.pubDate)}</span>
+              <ChevronRightIcon size={12} />
             </a>
           ))}
         </div>
       )}
-    </section>
+    </div>
   )
 }
 
-// ── Upcoming Sets ─────────────────────────────────────────────────────────────
-function UpcomingSetsSection() {
+// ── Upcoming sets ─────────────────────────────────────────────────────────────
+function UpcomingSetsPanel() {
   const [sets, setSets]       = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -1520,68 +1399,47 @@ function UpcomingSetsSection() {
   }[t] || t)
 
   return (
-    <section className={styles.section}>
-      <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>Upcoming Sets</h2>
+    <div className={styles.discoverPanel}>
+      <div className={styles.discoverPanelHeader}>
+        <div>
+          <div className={styles.discoverEyebrow}>Release calendar</div>
+          <h2>Upcoming Sets</h2>
+        </div>
+        {!loading && <span className={styles.discoverCount}>{sets.length} announced</span>}
       </div>
       {loading ? (
-        <div className={styles.setsGrid}>
-          {Array.from({ length: 4 }).map((_, i) => <div key={i} className={styles.setTileSkeleton} />)}
+        <div className={styles.compactSetList}>
+          {Array.from({ length: 5 }).map((_, i) => <div key={i} className={styles.compactRowSkeleton} />)}
         </div>
       ) : (
-        <div className={styles.setsGrid}>
+        <div className={styles.compactSetList}>
           {sets.map(s => (
             <a key={s.code} href={`https://scryfall.com/sets/${s.code}`}
-              target="_blank" rel="noopener noreferrer" className={styles.setTile}>
-              <img src={s.icon_svg_uri} alt={s.name} className={styles.setIcon} />
-              <div className={styles.setName}>{s.name}</div>
-              <div className={styles.setDate}>{fmtDate(s.released_at)}</div>
-              <div className={styles.setType}>{setTypeLabel(s.set_type)}</div>
+              target="_blank" rel="noopener noreferrer" className={styles.compactSetRow}>
+              <img src={s.icon_svg_uri} alt="" className={styles.compactSetIcon} />
+              <span className={styles.compactSetCopy}>
+                <span className={styles.compactSetName}>{s.name}</span>
+                <span className={styles.compactSetType}>{setTypeLabel(s.set_type)}</span>
+              </span>
+              <span className={styles.compactSetDate}>{fmtDate(s.released_at)}</span>
+              <ChevronRightIcon size={12} />
             </a>
           ))}
         </div>
       )}
-    </section>
+    </div>
   )
 }
 
-// ── Recently Viewed ───────────────────────────────────────────────────────────
-function RecentlyViewedSection({ onCardClick }) {
-  const [viewed, setViewed] = useState(() => getRecentlyViewed())
-
-  useEffect(() => {
-    const refresh = () => setViewed(getRecentlyViewed())
-    window.addEventListener('av:viewed', refresh)
-    return () => window.removeEventListener('av:viewed', refresh)
-  }, [])
-
-  if (viewed.length === 0) return null
-
+function DiscoverSection({ changelog }) {
   return (
-    <section className={styles.section}>
-      <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>Recently Viewed</h2>
-        <button className={styles.clearBtn} onClick={() => { localStorage.removeItem(VIEWED_KEY); setViewed([]) }}>
-          Clear
-        </button>
+    <section className={styles.discoverSection} aria-label="Deck discovery, upcoming Magic releases, and news">
+      <div className={styles.discoverGrid}>
+        <UpcomingSetsPanel />
+        <MTGNewsPanel />
       </div>
-      <div className={styles.hScroll}>
-        {viewed.map(card => (
-          <div key={card.id} className={styles.hScrollCard}
-            style={{ cursor: 'pointer' }}
-            onClick={() => onCardClick(card.id, card.name)}>
-            {card.image
-              ? <img src={toSmallScryfallImage(card.image)} alt={card.name} className={styles.hScrollImg} loading="lazy" />
-              : <div className={styles.hScrollImgPlaceholder}>{card.name}</div>}
-            <div className={styles.hScrollName}>{card.name}</div>
-            {(card.eur || card.usd) && (
-              <div className={styles.hScrollPrice}>
-                {card.eur ? `€${parseFloat(card.eur).toFixed(2)}` : `$${parseFloat(card.usd).toFixed(2)}`}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
+      <TrendingDecksPanel />
+      <ChangelogPanel entries={changelog} />
     </section>
   )
 }
@@ -1619,9 +1477,9 @@ async function fetchChangelog() {
   }
 }
 
-function ChangelogPanel({ entries }) {
+export function ChangelogPanel({ entries }) {
   const [open, setOpen] = useState(() => {
-    try { return localStorage.getItem('av_changelog_open') !== 'false' } catch { return true }
+    try { return localStorage.getItem('av_changelog_open') === 'true' } catch { return false }
   })
 
   const toggle = () => {
@@ -1635,12 +1493,13 @@ function ChangelogPanel({ entries }) {
 
   return (
     <div className={styles.changelog}>
-      <button className={styles.changelogHeader} onClick={toggle}>
+      <button className={styles.changelogHeader} onClick={toggle}
+        aria-expanded={open} aria-controls="home-changelog-content">
         <span className={styles.changelogTitle}>What's New</span>
         <span className={styles.changelogChevron}>{open ? <ChevronUpIcon size={10} /> : <ChevronDownIcon size={10} />}</span>
       </button>
       {open && (
-        <div className={styles.changelogBody}>
+        <div id="home-changelog-content" className={styles.changelogBody}>
           {list.map((section, idx) => (
             <div key={`${section.version}-${idx}`} className={styles.changelogSection}>
               <div className={styles.changelogSectionHead}>
@@ -1662,15 +1521,35 @@ function ChangelogPanel({ entries }) {
   )
 }
 
+export function HomeModeLoading() {
+  const [visible, setVisible] = useState(false)
+
+  useEffect(() => {
+    const timer = setTimeout(() => setVisible(true), 180)
+    return () => clearTimeout(timer)
+  }, [])
+
+  return (
+    <div className={styles.homeModeLoading} aria-busy="true">
+      {visible && (
+        <div className={styles.homeModeLoadingInner} role="status" aria-live="polite">
+          <div className={styles.homeModeLoadingBrand} aria-hidden="true">
+            <img src={BRAND_MARK} alt="" />
+            <span>Deck<span>Loom</span></span>
+          </div>
+          <span className={styles.homeModeLoadingText}>Preparing your home</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function HomePage() {
   const { user }               = useAuth()
   const { price_source, premium } = useSettings()
   const queryClient = useQueryClient()
   const [changelog, setChangelog] = useState(CHANGELOG_DEFAULT)
-  // Shared card-detail modal for hScroll sections
-  const [modalCard, setModalCard] = useState(null)
-  const [modalLoading, setModalLoading] = useState(false)
   // Defer below-the-fold sections so they don't block the first paint.
   const [showBelowFold, setShowBelowFold] = useState(false)
 
@@ -1692,6 +1571,7 @@ export default function HomePage() {
     queryKey: ['home-snapshot', user?.id],
     queryFn: () => loadCollectionData(user.id),
     enabled: !!user?.id,
+    refetchOnMount: 'always',
   })
   const collLoading = isLoading && !collData
 
@@ -1752,87 +1632,32 @@ export default function HomePage() {
     return () => { cancelled = true }
   }, [user?.id, collData, queryClient, cardsCacheTick])
 
-  // Open a Scryfall card in the shared CardView modal
-  const openCard = useCallback(async (scryfallId, fallbackName) => {
-    setModalLoading(true)
-    setModalCard(null)
-    try {
-      let card = null
-      if (scryfallId) {
-        card = await sfGet(`https://api.scryfall.com/cards/${scryfallId}`)
-      }
-      if (!card && fallbackName) card = await fetchByName(fallbackName)
-      if (card) { setModalCard(card); addRecentlyViewed(card) }
-    } catch (e) {
-      console.warn('[Home] openCard error:', e)
-    } finally {
-      setModalLoading(false)
-    }
-  }, [])
-
-  const isOnboarding = getHomeMode({
+  const homeMode = getHomeMode({
     loading: collLoading || !collData,
     cardCount: collData?.cards?.length ?? 0,
-    folderCount: collData?.folders?.length ?? 0,
-  }) === 'onboarding'
+    builderDeckCount: collData?.builderDecks?.length ?? 0,
+  })
+
+  if (homeMode === 'loading') {
+    return <HomeModeLoading />
+  }
+
+  const isOnboarding = homeMode === 'onboarding'
 
   return (
-    <div className={`${styles.home}${isOnboarding ? '' : ' ' + styles.homeWide}`}>
-      <div className={styles.hero}>
-        <div className={styles.heroTitle}>
-          <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" />
-          {/* "Loom" is coloured by the `.logoText span` rule — the span, not a class, is what matters. */}
-          <span className={styles.logoText}>Deck<span>Loom</span></span>
-        </div>
-        <div className={styles.heroSub}>Your all-in-one Magic: The Gathering companion</div>
-      </div>
-
+    <div className={`${styles.home}${isOnboarding ? '' : ` ${styles.returningHome}`}`}>
       {isOnboarding ? (
-        <>
-          <FeatureShowcase />
-          <FeaturedDecksSection />
-          <ToolGrid premium={premium} />
-          <CardLookupSection />
-          <RecentlyViewedSection onCardClick={openCard} />
-          <ChangelogPanel entries={changelog} />
-          {showBelowFold && <MTGNewsSection />}
-          {showBelowFold && <UpcomingSetsSection />}
-        </>
+        <EmptyAccountStart premium={premium} />
       ) : (
         <>
-          <div className={styles.dashGrid}>
-            <div className={styles.dashMain}>
-              <QuickActions />
-              <CardLookupSection />
-              {user && <CollectionSnapshot data={collData} loading={collLoading} priceSource={price_source} />}
-              {user && <TopValuedCards    data={collData} loading={collLoading} priceSource={price_source} onCardClick={openCard} />}
-              {user && <TopValuedDecks    data={collData} loading={collLoading} priceSource={price_source} />}
-              <FeaturedDecksSection />
-              {showBelowFold && <MTGNewsSection />}
-            </div>
-            <aside className={styles.dashRail}>
-              <ChangelogPanel entries={changelog} />
-              {user && !premium && <RailSupportCard />}
-              {showBelowFold && <UpcomingSetsSection />}
-            </aside>
-          </div>
+          <ContinueBuilding decks={collData?.builderDecks} />
+          <CardLookupSection />
+          <CollectionPulse data={collData} loading={collLoading} priceSource={price_source} />
+          {showBelowFold && <DiscoverSection changelog={changelog} />}
         </>
       )}
 
       {/* ── Shared card detail modal ───────────────────────────────────── */}
-      {(modalLoading || modalCard) && (
-        // showClose={false}: CardView renders its own close button (.cvClose).
-        <Modal
-          onClose={() => { setModalCard(null); setModalLoading(false) }}
-          showClose={false}
-          className={styles.modalInner}
-        >
-          {modalLoading
-            ? <div className={styles.modalSpinner}>Loading…</div>
-            : <CardView card={modalCard} onClose={() => setModalCard(null)} />
-          }
-        </Modal>
-      )}
     </div>
   )
 }

@@ -59,13 +59,14 @@ import {
   linkDeckPair,
   patchDeckMeta,
   persistLinkedSyncSnapshot,
+  setLinkedDeckBracket,
   setLinkedDeckVisibility,
   summarizeSyncDiff,
   unlinkPairedDeck,
   withLinkedPair,
 } from '../lib/deckSync'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
-import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
+import { invalidateOwnedCollectionQueries, removeDecksFromHomeSnapshot } from '../lib/queryInvalidation'
 import { getPublicAppUrl } from '../lib/publicUrl'
 import { loadLocalPlacementSnapshot, refreshRemotePlacementSnapshot } from '../lib/deckPlacementData'
 import {
@@ -1223,10 +1224,9 @@ export default function DeckBuilderPage() {
     if (!deckId || loading || !deck || !isEDH || !bracketAnalysis) return
     const nextMeta = computeBracketMetaPatch(deckMetaRef.current, effectiveBracket, statsBracketOverride != null)
     if (!nextMeta) return
-    const baseMeta = deckMetaRef.current || {}
     applyLocalDeckMeta(nextMeta)
-    patchDeckMeta(deckId, baseMeta, nextMeta)
-      .then(applyLocalDeckMeta)
+    setLinkedDeckBracket(deckId, effectiveBracket, statsBracketOverride != null)
+      .then(result => applyLocalDeckMeta(result?.deck_meta || nextMeta))
       .catch(err => console.warn('[DeckBuilder] bracket metadata save failed:', err))
   }, [deckId, loading, deck, isEDH, bracketAnalysis, effectiveBracket, statsBracketOverride])
 
@@ -1596,8 +1596,11 @@ export default function DeckBuilderPage() {
         const { data: counterpart } = await sb.from('folders').select('*').eq('id', meta.linked_deck_id).maybeSingle()
         if (counterpart) await unlinkPairedDeck({ counterpart })
       }
-      await sb.from('deck_cards').delete().eq('deck_id', deckId)
-      await sb.from('folders').delete().eq('id', deckId).eq('user_id', user.id)
+      const { error: cardsError } = await sb.from('deck_cards').delete().eq('deck_id', deckId)
+      if (cardsError) throw cardsError
+      const { error: folderError } = await sb.from('folders').delete().eq('id', deckId).eq('user_id', user.id)
+      if (folderError) throw folderError
+      await removeDecksFromHomeSnapshot(queryClient, user.id, [deckId])
       navigate('/builder')
     } catch (error) {
       console.error('[DeckBuilder] delete deck failed:', error)
@@ -2245,6 +2248,12 @@ export default function DeckBuilderPage() {
       setStatsBracketOverride(null)
     }
     applyLocalDeckMeta(newMeta)
+    if (!FORMATS.find(f => f.id === fmtId)?.isEDH) {
+      const persisted = await persistMetaNow(newMeta, baseMeta)
+      const result = await setLinkedDeckBracket(deckId, null, false)
+      applyLocalDeckMeta(result?.deck_meta || persisted)
+      return
+    }
     await saveMeta(newMeta, baseMeta)
   }
 
@@ -4161,7 +4170,12 @@ export default function DeckBuilderPage() {
           user_id: user.id,
           type: 'deck',
           name: deck.name,
-          description: serializeDeckMeta({ format: builderMeta.format || 'commander' }),
+          description: serializeDeckMeta({
+            format: builderMeta.format || 'commander',
+            ...(builderMeta.bracket != null
+              ? { bracket: builderMeta.bracket, bracketManual: !!builderMeta.bracketManual }
+              : {}),
+          }),
         })
         .select()
         .single()
@@ -6441,4 +6455,3 @@ export default function DeckBuilderPage() {
     </div>
   )
 }
-

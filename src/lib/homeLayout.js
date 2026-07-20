@@ -1,15 +1,30 @@
 // Decides which Home layout a user sees.
 //
 // 'onboarding'  — feature showcase first (Build Assist / Collection / Scanner):
-//                 the user has no cards AND no folders, so the dashboard would
-//                 be a wall of empty sections.
+//                 the user has no owned cards AND no Builder decks, so the
+//                 dashboard would be a wall of empty sections.
 // 'dashboard'   — quick-actions strip + collection dashboard.
+// 'loading'     — neutral holding state while the account signal is unresolved.
 //
-// While collection data is still loading we show the dashboard (its sections
-// already render skeletons); flipping to onboarding only after data resolves
-// empty avoids flashing marketing at established users on every visit.
-export function getHomeMode({ loading, cardCount, folderCount }) {
-  if (loading) return 'dashboard'
-  if (cardCount > 0 || folderCount > 0) return 'dashboard'
+// Do not guess a layout while data is loading: either guess can flash the wrong
+// experience before the account state resolves.
+export function getHomeMode({ loading, cardCount, builderDeckCount }) {
+  if (loading) return 'loading'
+  if (cardCount > 0 || builderDeckCount > 0) return 'dashboard'
   return 'onboarding'
+}
+
+const UPCOMING_SET_TYPES = new Set([
+  'expansion',
+  'core',
+  'masters',
+  'draft_innovation',
+  'commander',
+  'starter_deck',
+])
+
+export function selectUpcomingSets(sets, today) {
+  return (sets || [])
+    .filter(set => set.released_at > today && UPCOMING_SET_TYPES.has(set.set_type))
+    .sort((a, b) => a.released_at.localeCompare(b.released_at))
 }

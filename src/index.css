@@ -24,10 +24,13 @@
   --input-focus: 0 0 0 3px rgba(201,168,76,0.12);
 
   /* Design tokens — radius scale */
-  --radius-sm: 3px;
-  --radius-md: 6px;
-  --radius-lg: 10px;
-  --radius-xl: 16px;
+  --radius-xs:   4px;   /* badges and compact controls */
+  --radius-sm:   6px;   /* buttons, inputs and nested tiles */
+  --radius-md:   8px;   /* cards and panels */
+  --radius-lg:   10px;  /* feature cards and navigation shell */
+  --radius-xl:   12px;  /* modals and major overlays */
+  --radius-2xl:  16px;  /* exceptional showcase surfaces */
+  --radius-pill: 999px; /* chips, status pills and capsules */
 
   /* Design tokens — spacing scale (8px grid) */
   --space-1: 4px;

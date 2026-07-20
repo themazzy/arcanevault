@@ -15,7 +15,6 @@ vi.mock('./FeedbackModal', () => ({ default: () => null }))
 vi.mock('./FeedbackNudge', () => ({ default: () => null }))
 vi.mock('./community/NotificationBell', () => ({ default: () => null }))
 vi.mock('./ActivityStatusBadge', () => ({ default: () => null }))
-vi.mock('./PageTips', () => ({ default: () => null }))
 vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: () => false } }))
 vi.mock('@capacitor/app', () => ({ App: { addListener: vi.fn().mockResolvedValue({ remove: vi.fn() }) } }))
 
@@ -107,5 +106,15 @@ describe('Layout navbar without a Home menu', () => {
     const menu = rulebook.closest('[role="menu"]')
     expect(menu.textContent).toMatch(/Profile/)
     expect(menu.textContent).toMatch(/Settings/)
+  })
+
+  it('keeps Scanner in the mobile menu without promoting it in the desktop navbar', () => {
+    renderLayout('/')
+    const nav = document.querySelector('nav')
+    expect([...nav.querySelectorAll('a')].some(link => link.getAttribute('href') === '/scanner')).toBe(false)
+
+    const scannerLinks = screen.getAllByRole('link', { name: /^scanner$/i })
+    expect(scannerLinks).toHaveLength(1)
+    expect(scannerLinks[0].getAttribute('href')).toBe('/scanner')
   })
 })

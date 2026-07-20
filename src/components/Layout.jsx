@@ -9,7 +9,6 @@ import FeedbackModal from './FeedbackModal'
 import FeedbackNudge from './FeedbackNudge'
 import NotificationBell from './community/NotificationBell'
 import ActivityStatusBadge from './ActivityStatusBadge'
-import PageTips from './PageTips'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './Layout.module.css'
 import {
@@ -314,32 +313,27 @@ export default function Layout({ children }) {
 
               <div className={styles.spacer} />
 
-              <NavLink
-                to="/scanner"
-                className={({ isActive }) => `${styles.scanBtn}${isActive ? ' ' + styles.scanBtnActive : ''}`}
-              >
-                <ScannerIcon size={13} />Scan
-              </NavLink>
+              <div className={styles.navUtilities}>
+                <span className={styles.utilityDivider} aria-hidden="true" />
+                {user && <span className={styles.bellSlot}><NotificationBell /></span>}
 
-              {user && <span className={styles.bellSlot}><NotificationBell /></span>}
-
-              <div
-                className={`${styles.userBar} ${styles.accountMenuWrap}`}
-              >
-                <NavLink
-                  to={profilePath}
-                  className={styles.accountButton}
-                  onClick={releaseMenuFocus}
-                  title={accountLabel}
+                <div
+                  className={`${styles.userBar} ${styles.accountMenuWrap}`}
                 >
-                  <PlayerIcon size={13} />
-                  <span className={styles.userNameInner}>
-                    <span className={styles.userNick}>{accountLabel}</span>
-                    {premium && <span className={styles.supporterLabel}>supporter</span>}
-                  </span>
-                  <ChevronDownIcon size={10} className={styles.navMenuCaret} />
-                </NavLink>
-                <div className={`${styles.navSubmenu} ${styles.accountSubmenu}`} role="menu">
+                  <NavLink
+                    to={profilePath}
+                    className={styles.accountButton}
+                    onClick={releaseMenuFocus}
+                    title={accountLabel}
+                  >
+                    <PlayerIcon size={13} />
+                    <span className={styles.userNameInner}>
+                      <span className={styles.userNick}>{accountLabel}</span>
+                      {premium && <span className={styles.supporterLabel}>supporter</span>}
+                    </span>
+                    <ChevronDownIcon size={10} className={styles.navMenuCaret} />
+                  </NavLink>
+                  <div className={`${styles.navSubmenu} ${styles.accountSubmenu}`} role="menu">
                   <NavLink
                     to={profilePath}
                     role="menuitem"
@@ -414,6 +408,7 @@ export default function Layout({ children }) {
                     <CloseIcon size={14} />
                     Sign out
                   </button>
+                  </div>
                 </div>
               </div>
 
@@ -545,7 +540,6 @@ export default function Layout({ children }) {
         {children}
       </main>
 
-      {!isNativeScannerRoute && <PageTips />}
       {user && <ActivityStatusBadge />}
       {user && !showFeedback && !isNativeScannerRoute && (
         <FeedbackNudge onOpenFeedback={() => openFeedback('feature')} />

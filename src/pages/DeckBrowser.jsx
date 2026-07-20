@@ -15,7 +15,7 @@ import ImportModal from '../components/ImportModal'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import styles from './DeckBrowser.module.css'
 import { parseDeckMeta, serializeDeckMeta } from '../lib/deckBuilderApi'
-import { resolveBracketBadge } from '../lib/commanderBracket'
+import { deckBracketBadge } from '../lib/commanderBracket'
 import { buildSyncDiff, getSyncState, markLinkedPairUnsynced, summarizeSyncDiff, withLinkedPair, writeSyncState } from '../lib/deckSync'
 import { useLongPress } from '../hooks/useLongPress'
 import { useFilterWorker } from '../hooks/useFilterWorker'
@@ -726,7 +726,12 @@ export default function DeckBrowser({ folder, onBack }) {
       const hasExistingCards = (existingCards?.length ?? 0) > 0
 
       // Create the paired builder_deck folder
-      const builderInitMeta = withLinkedPair({ format: meta.format || null }, { linkedDeckId: folder.id })
+      const builderInitMeta = withLinkedPair({
+        format: meta.format || null,
+        ...(meta.bracket != null
+          ? { bracket: meta.bracket, bracketManual: !!meta.bracketManual }
+          : {}),
+      }, { linkedDeckId: folder.id })
       const { data: builderFolder, error: builderErr } = await sb
         .from('folders')
         .insert({ user_id: user.id, name: folder.name, type: 'builder_deck', description: serializeDeckMeta(builderInitMeta) })
@@ -1186,6 +1191,7 @@ export default function DeckBrowser({ folder, onBack }) {
   // coverArtUri is the builder-deck commander art — it is not a user-chosen
   // background for the collection deck view and should not bleed through here.
   const folderBgUrl = (() => { try { return JSON.parse(folder.description || '{}').bg_url || null } catch { return null } })()
+  const bracketBadge = deckBracketBadge(deckMeta.format, deckMeta.bracket)
 
   return (
     <div className={styles.deckBrowser} onMouseMove={handleMouseMove} onMouseLeave={handleHoverEnd}>
@@ -1200,13 +1206,13 @@ export default function DeckBrowser({ folder, onBack }) {
           <div className={styles.headerMeta}>
             <span>{totalQty} cards</span>
             <span className={styles.deckValue}>{formatPrice(totalValue, price_source)}</span>
-            {resolveBracketBadge(deckMeta.bracket) && (
+            {bracketBadge && (
               <span
                 className={styles.bracketBadge}
-                style={{ borderColor: `${resolveBracketBadge(deckMeta.bracket).color}55`, color: resolveBracketBadge(deckMeta.bracket).color }}
-                title={resolveBracketBadge(deckMeta.bracket).desc}
+                style={{ borderColor: `${bracketBadge.color}55`, color: bracketBadge.color }}
+                title={bracketBadge.desc}
               >
-                B{deckMeta.bracket} · {resolveBracketBadge(deckMeta.bracket).label}
+                B{deckMeta.bracket} · {bracketBadge.label}
               </span>
             )}
             <div className={styles.headerActionsDesktop}>

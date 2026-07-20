@@ -53,6 +53,16 @@ export async function setLinkedDeckVisibility(deckId, isPublic) {
   return data
 }
 
+export async function setLinkedDeckBracket(deckId, bracket, manual = false) {
+  const { data, error } = await sb.rpc('set_linked_deck_bracket', {
+    p_deck_id: deckId,
+    p_bracket: bracket ?? null,
+    p_manual: !!manual,
+  })
+  if (error) throw error
+  return data
+}
+
 export function getLinkedDeckIds(folderOrMeta) {
   const meta = folderOrMeta?.description != null ? parseDeckMeta(folderOrMeta.description) : (folderOrMeta || {})
   return {

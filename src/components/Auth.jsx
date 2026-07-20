@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { getPublicBaseUrl, getProdAppUrl } from '../lib/publicUrl'
@@ -13,12 +13,19 @@ import {
 import { applyTheme } from './SettingsContext'
 import { fetchCardsByNames } from '../lib/deckBuilderApi'
 import {
-  BuilderIcon,
   CheckIcon,
   ChevronRightIcon,
   CollectionIcon,
+  DiceIcon,
+  LifeIcon,
   LightningIcon,
+  ScannerIcon,
+  ShareIcon,
+  StatsIcon,
   TargetIcon,
+  TradingIcon,
+  TrophyIcon,
+  WishlistsIcon,
 } from '../icons'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './Auth.module.css'
@@ -58,27 +65,22 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     let active = true
-    const { data: { subscription } } = sb.auth.onAuthStateChange((event, s) => {
-      // Clear the previous user's local state before revealing this session, so
-      // a different account never inherits the last user's nickname/decks. The
-      // localStorage wipe is synchronous; the IDB wipe returns a promise we wait
-      // on so the new user's pages don't read/sync into a store mid-wipe.
-      const wipe = reconcileActiveUser(s?.user?.id || null)
+    const { data: { subscription } } = sb.auth.onAuthStateChange((event, nextSession) => {
+      const wipe = reconcileActiveUser(nextSession?.user?.id || null)
       const apply = () => {
-        setSession(s)
+        setSession(nextSession)
         if (event === 'PASSWORD_RECOVERY') markPendingRecovery()
-        setAuthEvent(event === 'PASSWORD_RECOVERY' || hasPendingRecovery(s) ? 'PASSWORD_RECOVERY' : event)
+        setAuthEvent(
+          event === 'PASSWORD_RECOVERY' || hasPendingRecovery(nextSession)
+            ? 'PASSWORD_RECOVERY'
+            : event,
+        )
       }
       if (wipe) wipe.then(() => { if (active) apply() })
       else apply()
     })
 
     ;(async () => {
-      // Recovery / confirmation links arrive as ?token_hash=…&type=…. Redeem
-      // them via verifyOtp (no code_verifier needed) so the link works on any
-      // device — unlike the PKCE ?code= exchange, which only works in the
-      // browser that requested it. Must run before getSession so a session
-      // exists by the time the recovery form calls updateUser().
       const otp = typeof window !== 'undefined' ? parseEmailOtpParams(window.location) : null
       if (otp?.tokenHash) {
         if (otp.type === 'recovery') markPendingRecovery()
@@ -91,21 +93,21 @@ export function AuthProvider({ children }) {
         markPendingRecovery()
       }
 
-      const { data: { session } } = await sb.auth.getSession()
+      const { data: { session: currentSession } } = await sb.auth.getSession()
       if (!active) return
-      const wipe = reconcileActiveUser(session?.user?.id || null)
+      const wipe = reconcileActiveUser(currentSession?.user?.id || null)
       if (wipe) await wipe
       if (!active) return
-      setSession(session)
-      if (hasPendingRecovery(session)) setAuthEvent('PASSWORD_RECOVERY')
+      setSession(currentSession)
+      if (hasPendingRecovery(currentSession)) setAuthEvent('PASSWORD_RECOVERY')
     })()
 
     return () => { active = false; subscription.unsubscribe() }
   }, [])
 
-  if (session === undefined) return (
-    <div className={styles.loading}>Loading…</div>
-  )
+  if (session === undefined) {
+    return <div className={styles.loading}>Loading DeckLoom…</div>
+  }
 
   return (
     <AuthContext.Provider value={{
@@ -124,323 +126,124 @@ export function AuthProvider({ children }) {
   )
 }
 
-// Defer non-critical fetches until the browser is idle so they don't fight
-// the LCP paint. Falls back to setTimeout in browsers without rIC.
-function runWhenIdle(cb) {
-  if (typeof window === 'undefined') return () => {}
-  const ric = window.requestIdleCallback
-  if (ric) {
-    const handle = ric(cb, { timeout: 1500 })
-    return () => window.cancelIdleCallback?.(handle)
-  }
-  const t = setTimeout(cb, 200)
-  return () => clearTimeout(t)
-}
-
-// Single batched Scryfall fetch for every name needed by the login page.
-// Returns a Map<name, scryfallCard> once resolved (empty before then).
-function useCardLookup(allNames) {
-  const [byName, setByName] = useState(() => new Map())
-  useEffect(() => {
-    let cancelled = false
-    const unique = Array.from(new Set(allNames))
-    const cancelIdle = runWhenIdle(() => {
-      if (cancelled) return
-      fetchCardsByNames(unique)
-        .then(results => {
-          if (cancelled) return
-          setByName(new Map(results.map(c => [c.name, c])))
-        })
-        .catch(() => {})
-    })
-    return () => { cancelled = true; cancelIdle() }
-  }, [allNames])
-  return byName
-}
-
-function pickArts(byName, names) {
-  return names
-    .map(n => {
-      const d = byName.get(n)
-      return d?.image_uris?.art_crop || d?.card_faces?.[0]?.image_uris?.art_crop || null
-    })
-    .filter(Boolean)
-}
-
-function pickImages(byName, names) {
-  return names
-    .map(n => {
-      const d = byName.get(n)
-      const src = d?.image_uris?.small || d?.card_faces?.[0]?.image_uris?.small || null
-      return src ? { name: d.name, src } : null
-    })
-    .filter(Boolean)
-}
-
-// ── Constants ─────────────────────────────────────────────────────────────
-const BG_CARD_POOL = [
-  'Urborg, Tomb of Yawgmoth',
-  'Emrakul, the Promised End',
-  'Jace, the Mind Sculptor',
-  'Liliana of the Veil',
-  'Snapcaster Mage',
-  'Force of Will',
-]
-
-const GALLERY_CARD_POOL = [
-  'Yawgmoth, Thran Physician',
-  'Elesh Norn, Grand Cenobite',
-  'Ugin, the Spirit Dragon',
-  'Kozilek, Butcher of Truth',
-  'Griselbrand',
-  'Avacyn, Angel of Hope',
+const CARD_ART_NAMES = [
+  "Atraxa, Praetors' Voice",
+  'Doubling Season',
   'The One Ring',
-  'Ragavan, Nimble Pilferer',
-  'Wrenn and Six',
-  'Mox Diamond',
-  'Bitterblossom',
-  'Nicol Bolas, Planeswalker',
-]
-
-const COLLECTION_CARD_POOL = [
-  'Lightning Bolt',
-  'Sol Ring',
-  'Mana Crypt',
-  'Force of Will',
-  'Cyclonic Rift',
   'Rhystic Study',
   'Smothering Tithe',
   'Ancient Copper Dragon',
-  'Mana Vault',
-  'Dockside Extortionist',
-  'Sensei\'s Divining Top',
-  'Swords to Plowshares',
-]
-
-const BUILDER_CARD_POOL = [
-  "Atraxa, Praetors' Voice",
-  'Doubling Season',
-  'Demonic Tutor',
-  'The One Ring',
-  'Sylvan Library',
-  'Vampiric Tutor',
-  'Mana Drain',
-  'Jeska\'s Will',
-  'Cyclonic Rift',
-  'Deflecting Swat',
-  'Teferi\'s Protection',
-  'Birds of Paradise',
-]
-
-const BUILD_ASSIST_ROLES = [
-  { name: 'Ramp', count: 10, target: 10 },
-  { name: 'Draw', count: 8, target: 10 },
-  { name: 'Removal', count: 9, target: 10 },
-  { name: 'Protection', count: 5, target: 7 },
+  "Teferi's Protection",
+  'Sol Ring',
 ]
 
 const BUILD_ASSIST_PROOFS = [
-  'Starts with available cards from your binders',
-  'Tunes suggestions to theme, budget, and target bracket',
-  'Balances roles, colored mana sources, and basic lands',
-  'Builds a buy list, helps cut to 100, then opens playtest',
+  'Start with cards already available in your collection',
+  'Tune suggestions by theme, budget, and target bracket',
+  'Balance ramp, draw, interaction, protection, and mana',
+  'Fill gaps, build a buy list, cut to 100, then playtest',
 ]
 
-function shuffleAndTake(cards, count) {
-  const copy = [...cards]
-  for (let i = copy.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[copy[i], copy[j]] = [copy[j], copy[i]]
+const SECONDARY_FEATURES = [
+  { icon: DiceIcon, title: 'Deck playtester', body: 'Goldfish opening hands, mulligans, draws, and complete turns.' },
+  { icon: LifeIcon, title: 'Multiplayer life tracker', body: 'Run Commander games on one device or connect players with join codes.' },
+  { icon: StatsIcon, title: 'Stats and P&L', body: 'Follow collection value, price movement, and acquisition performance.' },
+  { icon: TradingIcon, title: 'Trade tools', body: 'Compare both sides of a trade against cards you already own.' },
+  { icon: WishlistsIcon, title: 'Wishlists', body: 'Track wanted printings and keep them separate from owned inventory.' },
+  { icon: ShareIcon, title: 'Profiles and sharing', body: 'Share decks, collaborative lists, and your public collection profile.' },
+  { icon: TrophyIcon, title: 'Play tools', body: 'Manage tournaments and keep the comprehensive MTG rules close.' },
+]
+
+function runWhenIdle(callback) {
+  if (typeof window === 'undefined') return () => {}
+  if (window.requestIdleCallback) {
+    const handle = window.requestIdleCallback(callback, { timeout: 1200 })
+    return () => window.cancelIdleCallback?.(handle)
   }
-  return copy.slice(0, count)
+  const timeout = window.setTimeout(callback, 180)
+  return () => window.clearTimeout(timeout)
 }
 
-const FEATURES = [
-  {
-    icon: '◈',
-    title: 'Collection Tracking',
-    desc: 'Catalog every card you own. Search and filter by name, set, colour, type, rarity or price so your full collection stays easy to navigate.',
-    stat: 'Search by name, set, and print',
-  },
-  {
-    icon: '◎',
-    title: 'Card Scanner',
-    desc: 'Add cards in seconds with your phone camera. Perceptual hashing matches the exact printing — no typing collector numbers by hand.',
-    stat: 'Fast camera card entry',
-  },
-  {
-    icon: '⚔',
-    title: 'Build Assist',
-    desc: 'Auto build from your binders or choose every card role by role, with deck-aware picks, bracket and budget controls, mana balancing, and cut-to-100 help.',
-    stat: 'Automatic or fully guided builds',
-  },
-  {
-    icon: '◐',
-    title: 'Deck Playtester',
-    desc: 'Goldfish any deck right in the browser — opening hands, mulligans, draws and shuffles — to stress-test new builds before sleeving up.',
-    stat: 'In-app deck goldfish',
-  },
-  {
-    icon: '◉',
-    title: 'Pricing & P&L',
-    desc: 'Live market values, daily snapshots, manual overrides, and per-deck totals so you can follow how your collection changes over time.',
-    stat: 'Daily price tracking',
-  },
-  {
-    icon: '⬡',
-    title: 'Binder Organisation',
-    desc: 'Group cards into named binders, decks, and wishlists. Bulk-import from Manabox CSV. View everything in grid or table view with full filtering.',
-    stat: 'Binders, decks, and wishlists',
-  },
-  {
-    icon: '✦',
-    title: 'Wishlist Tracking',
-    desc: 'Track exact printings and foil finishes you are hunting. See live market prices for every item on your list so you can buy at the right moment.',
-    stat: 'Track any printing or foil',
-  },
-  {
-    icon: '⇄',
-    title: 'Trade Valuation',
-    desc: 'Drop a want list against your collection to weigh trades, see two-way totals, and find the printings that match what someone is asking for.',
-    stat: 'Match wants to what you own',
-  },
-  {
-    icon: '◢',
-    title: 'Collection Analytics',
-    desc: 'Breakdowns by colour, type, mana value, rarity and set — plus value-over-time charts so you can see what your collection actually looks like.',
-    stat: 'Charts and breakdowns',
-  },
-  {
-    icon: '♥',
-    title: 'Multiplayer Life Tracker',
-    desc: 'Spin up a game on one device or share a join code across phones. Commander damage, poison, monarch, and a unified game log per match.',
-    stat: 'Up to 6 players, any device',
-  },
-  {
-    icon: '✧',
-    title: 'Public Profiles & Shared Decks',
-    desc: 'A bento-grid profile showcases your favourite decks, stats and bio. Share any deck via shortlink so friends can review the list.',
-    stat: 'Personal profile URL',
-  },
-  {
-    icon: '§',
-    title: 'MTG Rulebook',
-    desc: 'The comprehensive rules built in — searchable by category, section, or rule number so the answer is one tap away mid-game.',
-    stat: 'Full searchable rules',
-  },
-]
+function useCardArt(names) {
+  const [cards, setCards] = useState([])
 
-// App panel
-function AppPanel({ title, subtitle, icon, eyebrow, accent, metrics = [], highlights = [], cards, arts }) {
+  useEffect(() => {
+    let cancelled = false
+    const cancelIdle = runWhenIdle(() => {
+      fetchCardsByNames(names)
+        .then((results) => {
+          if (cancelled) return
+          setCards(results.map((card) => ({
+            name: card.name,
+            artSrc: card.image_uris?.art_crop || card.card_faces?.[0]?.image_uris?.art_crop || null,
+            cardSrc: card.image_uris?.normal
+              || card.card_faces?.[0]?.image_uris?.normal
+              || card.image_uris?.large
+              || card.card_faces?.[0]?.image_uris?.large
+              || card.image_uris?.small
+              || card.card_faces?.[0]?.image_uris?.small
+              || null,
+          })).filter((card) => card.cardSrc || card.artSrc))
+        })
+        .catch(() => {})
+    })
+
+    return () => {
+      cancelled = true
+      cancelIdle()
+    }
+  }, [names])
+
+  return cards
+}
+
+function Brand({ compact = false }) {
   return (
-    <div className={`${styles.panel} ${accent === 'builder' ? styles.panelBuilder : styles.panelCollection}`}>
-      <div className={styles.panelGlow} />
-      <div className={styles.panelHeader}>
-        <div className={styles.panelHeaderMain}>
-          <div className={styles.panelTitleRow}>
-            <span className={styles.panelIcon}>{icon}</span>
-            <span className={styles.panelTitle}>{title}</span>
-          </div>
-          {eyebrow ? <span className={styles.panelEyebrow}>{eyebrow}</span> : null}
-        </div>
-        <span className={styles.panelSub}>{subtitle}</span>
+    <span className={`${styles.brand}${compact ? ` ${styles.brandCompact}` : ''}`}>
+      <img src={BRAND_MARK} alt="" aria-hidden="true" />
+      <span>Deck<span>Loom</span></span>
+    </span>
+  )
+}
+
+function CardArtFan({ cards }) {
+  if (cards.length === 0) {
+    return (
+      <div className={`${styles.artFan} ${styles.artFanEmpty}`} aria-hidden="true">
+        <img src={BRAND_MARK} alt="" />
+        <span>Your commander. Your collection. Your deck.</span>
       </div>
-      {metrics.length ? (
-        <div className={styles.panelMetrics}>
-          {metrics.map(metric => (
-            <div key={metric.label} className={styles.panelMetric}>
-              <span className={styles.panelMetricValue}>{metric.value}</span>
-              <span className={styles.panelMetricLabel}>{metric.label}</span>
-            </div>
-          ))}
-        </div>
-      ) : null}
-      {highlights.length ? (
-        <div className={styles.panelHighlights}>
-          {highlights.map(item => (
-            <span key={item} className={styles.panelHighlight}>
-              {item}
-            </span>
-          ))}
-        </div>
-      ) : null}
-      <div className={styles.panelGrid}>
-        {cards.map((name, i) => (
-          <div key={name} className={styles.panelCard}>
-            {arts[i]
-              ? <img src={arts[i]} alt="" className={styles.panelCardImg} loading="lazy" />
-              : <div className={styles.panelCardPh} />
-            }
-            <div className={styles.panelCardName}>{name}</div>
-          </div>
-        ))}
-      </div>
+    )
+  }
+
+  return (
+    <div className={styles.artFan} aria-label="Magic cards">
+      {cards.slice(0, 4).map((card, index) => (
+        <figure key={card.name} style={{ '--art-index': index }}>
+          <img src={card.cardSrc || card.artSrc} alt="" loading="lazy" />
+        </figure>
+      ))}
     </div>
   )
 }
 
-// ── Login page ─────────────────────────────────────────────────────────────
 export function LoginPage({ forcedMode = null }) {
   const { user, clearAuthEvent, recoveryError } = useAuth()
-  const [mode, setMode]         = useState(forcedMode || 'login')
-  const [email, setEmail]       = useState('')
+  const [mode, setMode] = useState(forcedMode || 'login')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [password2, setPassword2] = useState('')
-  const [error, setError]       = useState('')
-  const [success, setSuccess]   = useState('')
-  const [loading, setLoading]   = useState(false)
-
-  const bgCards = useMemo(() => shuffleAndTake(BG_CARD_POOL, 6), [])
-  const galleryCards = useMemo(() => shuffleAndTake(GALLERY_CARD_POOL, 12), [])
-  const collectionCards = useMemo(() => shuffleAndTake(COLLECTION_CARD_POOL, 6), [])
-  const builderCards = useMemo(() => shuffleAndTake(BUILDER_CARD_POOL, 6), [])
-  const steps = useMemo(() => ([
-    {
-      number: '01',
-      title: 'Scan or Import',
-      desc: 'Add cards in seconds with the phone camera, search by name and set, or bulk-import a whole collection from a Manabox CSV export.',
-      cards: collectionCards.slice(0, 3),
-      artsKey: 'collection0',
-    },
-    {
-      number: '02',
-      title: 'Organise & Build',
-      desc: 'Sort cards into binders, wishlists, and decks. Build Assist can draft from cards you own or guide each pick while keeping the gaps visible.',
-      cards: builderCards.slice(0, 3),
-      artsKey: 'builder0',
-    },
-    {
-      number: '03',
-      title: 'Test & Play',
-      desc: 'Goldfish new builds in the in-app playtester, then track real games with the multiplayer life tracker — share a join code and play across phones.',
-      cards: builderCards.slice(3, 6),
-      artsKey: 'builder3',
-    },
-    {
-      number: '04',
-      title: 'Value & Share',
-      desc: 'Watch daily market prices, gauge trades against your collection, and share decks or your public profile when you want to show what you have built.',
-      cards: collectionCards.slice(3, 6),
-      artsKey: 'collection3',
-    },
-  ]), [builderCards, collectionCards])
-
-  const allCardNames = useMemo(
-    () => [...bgCards, ...galleryCards, ...collectionCards, ...builderCards],
-    [bgCards, galleryCards, collectionCards, builderCards],
-  )
-  const cardByName     = useCardLookup(allCardNames)
-  const bgArts         = useMemo(() => pickArts(cardByName, bgCards), [cardByName, bgCards])
-  const galleryImages  = useMemo(() => pickImages(cardByName, galleryCards), [cardByName, galleryCards])
-  const collectionArts = useMemo(() => pickArts(cardByName, collectionCards), [cardByName, collectionCards])
-  const builderArts    = useMemo(() => pickArts(cardByName, builderCards), [cardByName, builderCards])
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+  const [loading, setLoading] = useState(false)
+  const formRef = useRef(null)
+  const artNames = useMemo(() => CARD_ART_NAMES, [])
+  const cardArt = useCardArt(artNames)
 
   useEffect(() => {
     if (forcedMode) setMode(forcedMode)
   }, [forcedMode])
 
-  // Login page is always rendered with the default shadow theme regardless of
-  // the signed-in user's theme preference (e.g. during password recovery).
   useEffect(() => {
     const root = document.documentElement
     const force = () => {
@@ -458,37 +261,25 @@ export function LoginPage({ forcedMode = null }) {
     const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : ''
     const hashParams = new URLSearchParams(hash)
     const queryParams = new URLSearchParams(window.location.search)
-    // PKCE-flow provider errors (e.g. user cancels the Google consent screen)
-    // come back as query params; the implicit-flow style ?/#error_description
-    // is kept as a fallback for older links.
     const description = queryParams.get('error_description') || hashParams.get('error_description')
     if (description) setError(decodeURIComponent(description.replace(/\+/g, ' ')))
   }, [])
 
-  // If the user starts a web OAuth redirect and then hits the browser Back
-  // button, Chrome/Safari can restore this page from bfcache instead of
-  // reloading it — which resurrects the in-flight `loading` state from before
-  // the redirect and leaves the Sign In button stuck spinning forever.
   useEffect(() => {
-    const onPageShow = (e) => {
-      if (e.persisted) setLoading(false)
+    const onPageShow = (event) => {
+      if (event.persisted) setLoading(false)
     }
     window.addEventListener('pageshow', onPageShow)
     return () => window.removeEventListener('pageshow', onPageShow)
   }, [])
 
-  // A failed recovery/confirmation link redemption (expired or already-used
-  // token) surfaces here so the user knows to request a fresh link instead of
-  // hitting "Auth session missing!" when they submit a new password.
   useEffect(() => {
     if (recoveryError) setError(recoveryError)
   }, [recoveryError])
 
-  // Native (APK) OAuth runs in an in-app browser and returns via deep link. If
-  // that round-trip fails, clear the spinner and show why instead of hanging.
   useEffect(() => {
-    const onNativeAuthError = (e) => {
-      setError(e?.detail || 'Sign-in could not be completed. Please try again.')
+    const onNativeAuthError = (event) => {
+      setError(event?.detail || 'Sign-in could not be completed. Please try again.')
       setLoading(false)
     }
     window.addEventListener(NATIVE_AUTH_ERROR_EVENT, onNativeAuthError)
@@ -496,28 +287,52 @@ export function LoginPage({ forcedMode = null }) {
   }, [])
 
   const submit = async () => {
-    setError(''); setSuccess(''); setLoading(true)
+    setError('')
+    setSuccess('')
+    setLoading(true)
+
     if (mode === 'register') {
-      if (password !== password2) { setError('Passwords do not match.'); setLoading(false); return }
-      if (password.length < 8)    { setError('Password must be at least 8 characters.'); setLoading(false); return }
-      const { error: err } = await sb.auth.signUp({
-        email, password,
+      if (password !== password2) {
+        setError('Passwords do not match.')
+        setLoading(false)
+        return
+      }
+      if (password.length < 8) {
+        setError('Password must be at least 8 characters.')
+        setLoading(false)
+        return
+      }
+      const { error: nextError } = await sb.auth.signUp({
+        email,
+        password,
         options: { emailRedirectTo: getProdAppUrl('/') },
       })
-      if (err) setError(err.message)
-      else setSuccess('Account created! Check your email to confirm, then sign in.')
+      if (nextError) setError(nextError.message)
+      else setSuccess('Account created. Check your email to confirm, then sign in.')
     } else if (mode === 'forgot') {
-      if (!email) { setError('Enter your email address first.'); setLoading(false); return }
-      const { error: err } = await sb.auth.resetPasswordForEmail(email, {
+      if (!email) {
+        setError('Enter your email address first.')
+        setLoading(false)
+        return
+      }
+      const { error: nextError } = await sb.auth.resetPasswordForEmail(email, {
         redirectTo: getProdAppUrl('/'),
       })
-      if (err) setError(err.message)
+      if (nextError) setError(nextError.message)
       else setSuccess('Password reset email sent. Check your inbox to continue.')
     } else if (mode === 'recovery') {
-      if (password !== password2) { setError('Passwords do not match.'); setLoading(false); return }
-      if (password.length < 8)    { setError('Password must be at least 8 characters.'); setLoading(false); return }
-      const { error: err } = await sb.auth.updateUser({ password })
-      if (err) setError(err.message)
+      if (password !== password2) {
+        setError('Passwords do not match.')
+        setLoading(false)
+        return
+      }
+      if (password.length < 8) {
+        setError('Password must be at least 8 characters.')
+        setLoading(false)
+        return
+      }
+      const { error: nextError } = await sb.auth.updateUser({ password })
+      if (nextError) setError(nextError.message)
       else {
         await sb.auth.signOut({ scope: 'local' })
         clearAuthEvent?.()
@@ -525,585 +340,396 @@ export function LoginPage({ forcedMode = null }) {
       }
     } else {
       clearPendingRecovery()
-      const { error: err } = await sb.auth.signInWithPassword({ email, password })
-      if (err) setError(err.message)
+      const { error: nextError } = await sb.auth.signInWithPassword({ email, password })
+      if (nextError) setError(nextError.message)
     }
     setLoading(false)
   }
 
   const signInWithProvider = async (provider) => {
-    setError(''); setSuccess(''); setLoading(true)
+    setError('')
+    setSuccess('')
+    setLoading(true)
     try {
       if (isNativeApp()) {
         await openNativeOAuth(provider)
-        // Session will arrive via the deep-link handler; keep loading state until auth state updates.
         return
       }
-      const { error: err } = await sb.auth.signInWithOAuth({
+      const { error: nextError } = await sb.auth.signInWithOAuth({
         provider,
-        options: { redirectTo: getPublicBaseUrl() + '/' },
+        options: { redirectTo: `${getPublicBaseUrl()}/` },
       })
-      if (err) { setError(err.message); setLoading(false) }
-    } catch (err) {
-      setError(err?.message || 'Sign-in failed')
+      if (nextError) {
+        setError(nextError.message)
+        setLoading(false)
+      }
+    } catch (nextError) {
+      setError(nextError?.message || 'Sign-in failed')
       setLoading(false)
     }
   }
 
-  const switchMode = (m) => {
+  const switchMode = (nextMode) => {
     if (forcedMode === 'recovery') return
-    setMode(m); setError(''); setSuccess('')
+    setMode(nextMode)
+    setError('')
+    setSuccess('')
+  }
+
+  const showForm = (nextMode) => {
+    switchMode(nextMode)
+    window.requestAnimationFrame(() => {
+      const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+      formRef.current?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' })
+    })
+  }
+
+  const focusedAuth = mode === 'recovery' || mode === 'forgot'
+  const formHeading = mode === 'recovery'
+    ? 'Choose a new password'
+    : mode === 'forgot'
+      ? 'Reset your password'
+      : mode === 'register'
+        ? 'Join DeckLoom'
+        : 'Welcome back'
+  const formSubheading = mode === 'recovery'
+    ? 'Use at least eight characters.'
+    : mode === 'forgot'
+      ? 'We will email you a secure recovery link.'
+      : mode === 'register'
+        ? 'Every feature is free. No paywalls—donations are optional.'
+        : 'Sign in to continue to your collection.'
+
+  const authForm = (
+    <form
+      className={styles.formCard}
+      ref={formRef}
+      onSubmit={(event) => {
+        event.preventDefault()
+        submit()
+      }}
+    >
+      <div className={styles.formHeading}>
+        <h2>{formHeading}</h2>
+        <p>{formSubheading}</p>
+      </div>
+
+      {(mode === 'login' || mode === 'register') && (
+        <>
+          <div className={styles.providerButtons}>
+            <button
+              type="button"
+              className={styles.googleButton}
+              onClick={() => signInWithProvider('google')}
+              disabled={loading}
+              aria-label="Sign in with Google"
+            >
+              <img src="/brand/google-signin.svg" alt="" />
+            </button>
+            <button
+              type="button"
+              className={styles.discordButton}
+              onClick={() => signInWithProvider('discord')}
+              disabled={loading}
+            >
+              <img src="/brand/discord-symbol.svg" alt="" />
+              Continue with Discord
+            </button>
+          </div>
+          <div className={styles.divider}><span>or use email</span></div>
+          <div className={styles.tabs} role="group" aria-label="Account action">
+            <button
+              className={mode === 'login' ? styles.active : ''}
+              type="button"
+              aria-pressed={mode === 'login'}
+              onClick={() => switchMode('login')}
+            >Sign in</button>
+            <button
+              className={mode === 'register' ? styles.active : ''}
+              type="button"
+              aria-pressed={mode === 'register'}
+              onClick={() => switchMode('register')}
+            >Create account</button>
+          </div>
+        </>
+      )}
+
+      {mode !== 'recovery' && (
+        <label className={styles.field} htmlFor="auth-email">
+          <span>Email address</span>
+          <input
+            id="auth-email"
+            name="email"
+            type="email"
+            autoComplete="username"
+            inputMode="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            autoFocus={focusedAuth}
+            required
+          />
+        </label>
+      )}
+
+      {mode === 'recovery' && (
+        <input
+          id="auth-recovery-email"
+          name="email"
+          type="email"
+          autoComplete="username"
+          value={user?.email || email}
+          readOnly
+          tabIndex={-1}
+          aria-hidden="true"
+          className={styles.visuallyHidden}
+        />
+      )}
+
+      {mode !== 'forgot' && (
+        <label className={styles.field} htmlFor="auth-password">
+          <span>{mode === 'recovery' ? 'New password' : 'Password'}</span>
+          <input
+            id="auth-password"
+            name={mode === 'recovery' ? 'new-password' : 'password'}
+            type="password"
+            autoComplete={mode === 'recovery' || mode === 'register' ? 'new-password' : 'current-password'}
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            autoFocus={mode === 'recovery'}
+            minLength={mode === 'register' || mode === 'recovery' ? 8 : undefined}
+            required
+          />
+        </label>
+      )}
+
+      {(mode === 'register' || mode === 'recovery') && (
+        <label className={styles.field} htmlFor="auth-confirm-password">
+          <span>Confirm password</span>
+          <input
+            id="auth-confirm-password"
+            name="confirm-password"
+            type="password"
+            autoComplete="new-password"
+            value={password2}
+            onChange={(event) => setPassword2(event.target.value)}
+            minLength={8}
+            required
+          />
+        </label>
+      )}
+
+      {(mode === 'register' || mode === 'recovery') && (
+        <p className={styles.fieldHint}>Use at least eight characters.</p>
+      )}
+
+      <button
+        className={styles.submit}
+        type="submit"
+        disabled={
+          loading
+          || (!email && mode === 'forgot')
+          || (!password && mode !== 'forgot')
+          || (mode !== 'recovery' && mode !== 'forgot' && !email)
+          || ((mode === 'register' || mode === 'recovery') && !password2)
+        }
+      >
+        {loading
+          ? 'Please wait…'
+          : mode === 'recovery'
+            ? 'Update password'
+            : mode === 'forgot'
+              ? 'Send reset email'
+              : mode === 'register'
+                ? 'Create account'
+                : 'Sign in'}
+      </button>
+
+      {error && <div className={styles.error} role="alert">{error}</div>}
+      {success && <div className={styles.success} role="status">{success}</div>}
+
+      {mode === 'login' && (
+        <button className={styles.resetLink} onClick={() => switchMode('forgot')} type="button">
+          Forgot your password?
+        </button>
+      )}
+      {mode === 'forgot' && (
+        <button className={styles.resetLink} onClick={() => switchMode('login')} type="button">
+          Back to sign in
+        </button>
+      )}
+
+      {mode === 'register' ? (
+        <p className={styles.formLegal}>
+          By creating an account, you agree to the <Link to="/terms">Terms</Link> and acknowledge the <Link to="/privacy">Privacy Policy</Link>.
+        </p>
+      ) : (
+        <div className={styles.formLinks}>
+          <Link to="/terms">Terms</Link>
+          <Link to="/privacy">Privacy</Link>
+          <Link to="/delete-account">Delete account</Link>
+        </div>
+      )}
+    </form>
+  )
+
+  if (focusedAuth) {
+    return (
+      <main className={`${styles.page} ${styles.focusedPage}`}>
+        <a className={styles.focusedBrand} href="/" aria-label="DeckLoom home"><Brand /></a>
+        <div className={styles.focusedForm}>{authForm}</div>
+      </main>
+    )
   }
 
   return (
-    <main className={styles.page}>
-
-      {/* ── Cinematic art background ── */}
-      <div className={styles.artBg}>
-        {bgCards.map((_, i) => (
-          <div
-            key={i}
-            className={styles.artTile}
-            style={bgArts[i] ? { backgroundImage: `url(${bgArts[i]})`, '--i': i } : { '--i': i }}
-          />
+    <div className={styles.page} id="top">
+      <div className={styles.artBackdrop} aria-hidden="true">
+        {cardArt.slice(0, 4).map((card, index) => (
+          <img key={card.name} src={card.artSrc || card.cardSrc} alt="" style={{ '--backdrop-index': index }} />
         ))}
-        <div className={styles.artOverlay} />
       </div>
-
-      {/* ── Hero ── */}
-      <section className={styles.hero}>
-        <div className={styles.heroLeft}>
-          <div className={styles.heroLogo}>
-            <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" fetchPriority="high" decoding="async" />
-            <span className={styles.logoText}>Deck<span>Loom</span></span>
-          </div>
-          <h1 className={styles.tagline}>
-            Build better Commander decks,<br />your way.
-          </h1>
-          <p className={styles.taglineSub}>
-            Let Build Assist shape a complete list from your binders in seconds, or work
-            role by role with collection-aware suggestions, budget controls, and a clear path to 100 cards.
-          </p>
-
-          <div className={styles.featurePills}>
-            {FEATURES.map(f => (
-              <span key={f.title} className={styles.pill}>
-                <span className={styles.pillIcon}>{f.icon}</span>
-                {f.title}
-              </span>
-            ))}
-          </div>
-
-          <div className={styles.heroStats}>
-            <div className={styles.heroStat}>
-              <span className={styles.heroStatNum}>Scanner</span>
-              <span className={styles.heroStatLabel}>Add cards with your camera</span>
-            </div>
-            <div className={styles.heroStatDivider} />
-            <div className={styles.heroStat}>
-              <span className={styles.heroStatNum}>Collection</span>
-              <span className={styles.heroStatLabel}>Binders, decks, wishlists, trades</span>
-            </div>
-            <div className={styles.heroStatDivider} />
-            <div className={styles.heroStat}>
-              <span className={styles.heroStatNum}>Build Assist</span>
-              <span className={styles.heroStatLabel}>Auto build or tune every pick</span>
-            </div>
-            <div className={styles.heroStatDivider} />
-            <div className={styles.heroStat}>
-              <span className={styles.heroStatNum}>Life Tracker</span>
-              <span className={styles.heroStatLabel}>Multiplayer with join codes</span>
-            </div>
-          </div>
+      <header className={styles.siteHeader}>
+        <div className={styles.headerInner}>
+          <a className={styles.brandLink} href="#top" aria-label="DeckLoom home"><Brand /></a>
+          <nav className={styles.nav} aria-label="Homepage">
+            <a href="#build-assist">Build Assist</a>
+            <a href="#core-tools">Scanner & collection</a>
+            <a href="#more">More tools</a>
+            <button type="button" onClick={() => showForm('login')}>Sign in</button>
+          </nav>
         </div>
+      </header>
 
-        {/* ── Auth form ── */}
-        <div className={styles.heroRight}>
-          <form
-            className={styles.formCard}
-            onSubmit={e => {
-              e.preventDefault()
-              submit()
-            }}
-          >
-            <div className={styles.formHeading}>
-              {mode === 'recovery'
-                ? 'Reset your password'
-                : mode === 'forgot'
-                  ? 'Forgot your password?'
-                  : mode === 'login'
-                    ? 'Welcome back'
-                    : 'Join DeckLoom'}
+      <main>
+        <section className={styles.hero} aria-labelledby="hero-title">
+          <div className={styles.heroCopy}>
+            <div className={styles.eyebrow}><LightningIcon size={15} /> Build Assist for Commander</div>
+            <h1 id="hero-title">Build your next Commander deck. <span>Instantly—or card by card.</span></h1>
+            <p className={styles.heroLead}>
+              Auto-build a complete deck in seconds, or take the guided path and choose every card yourself. Your scanner, collection, and deck builder finally live in one app.
+            </p>
+
+            <div className={styles.buildChoices}>
+              <div>
+                <LightningIcon size={18} />
+                <span><strong>Auto Build</strong><small>From commander to a balanced 100-card list.</small></span>
+              </div>
+              <div>
+                <TargetIcon size={18} />
+                <span><strong>Guided Build</strong><small>Pick every role with collection-aware suggestions.</small></span>
+              </div>
             </div>
-            <div className={styles.formSub}>
-              {mode === 'recovery'
-                ? 'Choose a new password to complete the recovery link'
-                : mode === 'forgot'
-                  ? 'Enter your email and we will send you a recovery link'
-                : mode === 'login'
-                  ? 'Sign in to DeckLoom'
-                  : 'Start cataloguing your collection today'}
+
+            <div className={styles.heroActions}>
+              <button className={styles.primaryCta} type="button" onClick={() => showForm('register')}>
+                Start building <ChevronRightIcon size={16} />
+              </button>
+              <a className={styles.secondaryCta} href="#build-assist">Explore Build Assist</a>
             </div>
-            {(mode === 'login' || mode === 'register') && (
-              <>
-                <button
-                  type="button"
-                  className={`${styles.oauthBtn} ${styles.oauthGoogle}`}
-                  onClick={() => signInWithProvider('google')}
-                  disabled={loading}
-                >
-                  <svg className={styles.oauthIcon} viewBox="0 0 48 48" aria-hidden="true">
-                    <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/>
-                    <path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"/>
-                    <path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238C29.211 35.091 26.715 36 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/>
-                    <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/>
-                  </svg>
-                  Continue with Google
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.oauthBtn} ${styles.oauthDiscord}`}
-                  onClick={() => signInWithProvider('discord')}
-                  disabled={loading}
-                >
-                  <svg className={styles.oauthIcon} viewBox="0 0 24 24" aria-hidden="true">
-                    <path fill="currentColor" d="M20.317 4.369A19.79 19.79 0 0 0 16.558 3.2a.075.075 0 0 0-.079.037c-.34.6-.717 1.385-.98 2.003a18.27 18.27 0 0 0-5.482 0 12.51 12.51 0 0 0-.995-2.003.078.078 0 0 0-.079-.037A19.74 19.74 0 0 0 5.184 4.37a.07.07 0 0 0-.032.027C1.578 9.736.59 14.94 1.075 20.077a.082.082 0 0 0 .031.056 19.9 19.9 0 0 0 5.993 3.027.078.078 0 0 0 .084-.027c.462-.63.873-1.295 1.226-1.994a.076.076 0 0 0-.041-.105 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.075.075 0 0 1 .078-.01c3.927 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .079.009c.12.099.246.198.373.292a.077.077 0 0 1-.006.128 12.299 12.299 0 0 1-1.873.891.077.077 0 0 0-.04.106c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.84 19.84 0 0 0 6.002-3.027.077.077 0 0 0 .032-.054c.5-5.94-.838-11.1-3.549-15.683a.06.06 0 0 0-.031-.028zM8.02 17.064c-1.183 0-2.157-1.085-2.157-2.418 0-1.334.956-2.42 2.157-2.42 1.21 0 2.176 1.095 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.974 0c-1.183 0-2.157-1.085-2.157-2.418 0-1.334.955-2.42 2.157-2.42 1.21 0 2.176 1.095 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>
-                  </svg>
-                  Continue with Discord
-                </button>
-                <div className={styles.oauthDivider}><span>or</span></div>
-              </>
-            )}
-            {mode !== 'recovery' && mode !== 'forgot' && <div className={styles.tabs}>
-              <button
-                className={`${styles.tab}${mode === 'login' ? ' ' + styles.active : ''}`}
-                type="button"
-                onClick={() => switchMode('login')}
-              >Sign In</button>
-              <button
-                className={`${styles.tab}${mode === 'register' ? ' ' + styles.active : ''}`}
-                type="button"
-                onClick={() => switchMode('register')}
-              >Create Account</button>
-            </div>}
-            {mode !== 'recovery' && <input
-              id="auth-email"
-              name="email"
-              className={styles.input}
-              type="email"
-              placeholder="Email address"
-              autoComplete="username"
-              inputMode="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && submit()}
-              autoFocus={mode === 'login' || mode === 'register' || mode === 'forgot'}
-            />}
-            {mode === 'recovery' && (
-              <input
-                id="auth-recovery-email"
-                name="email"
-                type="email"
-                autoComplete="username"
-                value={user?.email || email}
-                readOnly
-                tabIndex={-1}
-                aria-hidden="true"
-                style={{
-                  position: 'absolute',
-                  width: 1,
-                  height: 1,
-                  padding: 0,
-                  margin: -1,
-                  overflow: 'hidden',
-                  clip: 'rect(0, 0, 0, 0)',
-                  whiteSpace: 'nowrap',
-                  border: 0,
-                }}
-              />
-            )}
-            {mode !== 'forgot' && <input
-              id="auth-password"
-              name={mode === 'recovery' ? 'new-password' : 'password'}
-              className={styles.input}
-              type="password"
-              placeholder={mode === 'recovery' ? 'New password' : 'Password'}
-              autoComplete={mode === 'recovery' || mode === 'register' ? 'new-password' : 'current-password'}
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && submit()}
-              autoFocus={mode === 'recovery'}
-            />}
-            {(mode === 'register' || mode === 'recovery') && (
-              <input
-                id="auth-confirm-password"
-                name="confirm-password"
-                className={styles.input}
-                type="password"
-                placeholder={mode === 'recovery' ? 'Confirm new password' : 'Confirm password'}
-                autoComplete="new-password"
-                value={password2}
-                onChange={e => setPassword2(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && submit()}
-              />
-            )}
-            <button
-              className={styles.submit}
-              type="submit"
-              disabled={
-                loading ||
-                !email && mode === 'forgot' ||
-                (!password && mode !== 'forgot') ||
-                (mode !== 'recovery' && mode !== 'forgot' && !email) ||
-                ((mode === 'register' || mode === 'recovery') && !password2)
-              }
-            >
-              {loading
-                ? '...'
-                : mode === 'recovery'
-                  ? 'Update Password'
-                  : mode === 'forgot'
-                    ? 'Send Reset Email'
-                    : mode === 'login'
-                      ? 'Sign In'
-                      : 'Create Account'}
+            <p className={styles.heroNote}>Every feature is free · No paywalls · Donations are optional</p>
+          </div>
+          <aside className={styles.heroForm} aria-label="DeckLoom account">{authForm}</aside>
+        </section>
+
+        <section className={styles.buildAssist} id="build-assist" aria-labelledby="build-assist-title">
+          <div className={styles.buildAssistCopy}>
+            <div className={styles.sectionLabel}><LightningIcon size={14} /> DeckLoom's standout feature</div>
+            <h2 id="build-assist-title">One commander. Two ways to reach 100 cards.</h2>
+            <p className={styles.sectionLead}>
+              Build Assist connects the deck you want to make with the cards you already own. Take the fast route or stay in control of every decision.
+            </p>
+
+            <div className={styles.modePair}>
+              <article>
+                <span className={styles.modeIcon}><LightningIcon size={21} /></span>
+                <div><h3>Auto Build</h3><p>Set your commander, theme, bracket, and budget. DeckLoom assembles the complete list and balances the mana base.</p></div>
+              </article>
+              <article>
+                <span className={styles.modeIcon}><TargetIcon size={21} /></span>
+                <div><h3>Guided Build</h3><p>Work role by role, compare owned and recommended cards, and approve every addition yourself.</p></div>
+              </article>
+            </div>
+
+            <div className={styles.proofList}>
+              {BUILD_ASSIST_PROOFS.map((proof) => (
+                <span key={proof}><CheckIcon size={15} /> {proof}</span>
+              ))}
+            </div>
+
+            <button className={styles.textCta} type="button" onClick={() => showForm('register')}>
+              Build your first deck <ChevronRightIcon size={15} />
             </button>
-            {error   && <div className={styles.error}>{error}</div>}
-            {success && <div className={styles.success}>{success}</div>}
+          </div>
+          <CardArtFan cards={cardArt.slice(0, 4)} />
+        </section>
 
-            {mode === 'login' && (
-              <button
-                className={styles.resetLink}
-                onClick={() => switchMode('forgot')}
-                type="button"
-              >
-                Forgot password?
-              </button>
-            )}
-            {mode === 'forgot' && (
-              <button
-                className={styles.resetLink}
-                onClick={() => switchMode('login')}
-                type="button"
-              >
-                Back to sign in
-              </button>
-            )}
-            <div className={styles.formNote}>
-              {mode === 'recovery'
-                ? 'Set a new password to finish the recovery flow.'
-                : mode === 'forgot'
-                  ? 'We will send the reset link to the email address above.'
-                  : 'Use your account to keep your collection, decks, and settings in sync.'}
-            </div>
-            <div className={styles.legalLinks}>
-              <Link className={styles.legalLink} to="/terms">Terms</Link>
-              <Link className={styles.legalLink} to="/privacy">Privacy</Link>
-              <Link className={styles.legalLink} to="/storage">Storage</Link>
-              <Link className={styles.legalLink} to="/credits">Credits</Link>
-              <Link className={styles.legalLink} to="/delete-account">Delete Account</Link>
-            </div>
-          </form>
-        </div>
-      </section>
+        <section className={styles.coreTools} id="core-tools" aria-labelledby="core-tools-title">
+          <div className={styles.sectionHeader}>
+            <div className={styles.sectionLabel}>From cards on the table to cards in your deck</div>
+            <h2 id="core-tools-title">Scan it. Organise it. Build with it.</h2>
+          </div>
+          <div className={styles.coreGrid}>
+            <article className={styles.coreFeature}>
+              <span className={styles.coreIcon}><ScannerIcon size={26} /></span>
+              <h3>Card Scanner</h3>
+              <p>Point your phone at a card and add the exact printing without typing collector numbers by hand. Review matches, adjust quantity, and move straight into your collection.</p>
+              <ul>
+                <li><CheckIcon size={14} /> Camera-based exact-print matching</li>
+                <li><CheckIcon size={14} /> Batch scanning and manual search</li>
+                <li><CheckIcon size={14} /> Built into the same collection workflow</li>
+              </ul>
+            </article>
+            <article className={styles.coreFeature}>
+              <span className={styles.coreIcon}><CollectionIcon size={26} /></span>
+              <h3>Collection Management</h3>
+              <p>Track every owned copy across binders and decks, separate wishlists from inventory, and understand what your collection is worth without rebuilding it elsewhere.</p>
+              <ul>
+                <li><CheckIcon size={14} /> Binders, collection decks, and wishlists</li>
+                <li><CheckIcon size={14} /> Exact printings, finishes, quantities, and locations</li>
+                <li><CheckIcon size={14} /> Pricing, value history, and profit & loss</li>
+              </ul>
+            </article>
+          </div>
+        </section>
 
-      {/* ── Card gallery strip ── */}
-      {galleryImages.length > 0 && (
-        <div className={styles.galleryOuter}>
-          <div className={styles.galleryStrip}>
-            {/* Double the array for a seamless loop feel */}
-            {[...galleryImages, ...galleryImages].map((img, i) => (
-              <div
-                key={i}
-                className={styles.galleryCard}
-                style={{ '--rot': `${((i % 5) - 2) * 2.2}deg`, '--delay': `${(i % galleryImages.length) * 0.07}s` }}
-              >
-                <img src={img.src} alt={img.name} className={styles.galleryCardImg} loading="lazy" />
-              </div>
+        <section className={styles.moreTools} id="more" aria-labelledby="more-title">
+          <div className={styles.moreIntro}>
+            <div className={styles.sectionLabel}>More than a deck builder</div>
+            <h2 id="more-title">The rest of your Magic toolkit, in the same place.</h2>
+            <p>DeckLoom keeps the supporting tools close without making you maintain the same cards and decks across separate apps.</p>
+          </div>
+          <div className={styles.moreGrid}>
+            {SECONDARY_FEATURES.map(({ icon: Icon, title, body }) => (
+              <article key={title}>
+                <Icon size={19} />
+                <div><h3>{title}</h3><p>{body}</p></div>
+              </article>
             ))}
           </div>
-          <div className={styles.galleryFadeLeft} />
-          <div className={styles.galleryFadeRight} />
-        </div>
-      )}
+        </section>
 
-      {/* Build Assist spotlight */}
-      <section className={styles.buildAssist}>
-        <div className={styles.buildAssistCopy}>
-          <div className={styles.buildAssistLabel}>
-            <LightningIcon size={14} /> Standout deck-building feature
+        <section className={styles.finalCta} aria-labelledby="final-cta-title">
+          <img src={BRAND_MARK} alt="" aria-hidden="true" />
+          <div>
+            <div className={styles.sectionLabel}>All your cards. All your decks. One app.</div>
+            <h2 id="final-cta-title">Start with a commander. Let DeckLoom handle the rest.</h2>
           </div>
-          <h2 className={styles.buildAssistTitle}>From commander to complete deck</h2>
-          <p className={styles.buildAssistLead}>
-            Build Assist turns your commander, collection, and preferred power level into a
-            practical deck plan. Take the fast route or stay in control of every card.
-          </p>
-
-          <div className={styles.buildModes}>
-            <div className={styles.buildMode}>
-              <div className={styles.buildModeIcon}><LightningIcon size={18} /></div>
-              <div>
-                <h3>Auto Build</h3>
-                <p>Fill open roles from binder cards or top recommendations, then add a balanced mana base in one pass.</p>
-              </div>
-            </div>
-            <div className={styles.buildMode}>
-              <div className={styles.buildModeIcon}><TargetIcon size={18} /></div>
-              <div>
-                <h3>Build Your Way</h3>
-                <p>Choose cards role by role, compare owned and recommended picks, and adjust the plan as you go.</p>
-              </div>
-            </div>
-          </div>
-
-          <div className={styles.buildProofs}>
-            {BUILD_ASSIST_PROOFS.map(item => (
-              <div key={item} className={styles.buildProof}>
-                <CheckIcon size={14} />
-                <span>{item}</span>
-              </div>
-            ))}
-          </div>
-
-          <button
-            type="button"
-            className={styles.buildAssistCta}
-            onClick={() => { switchMode('register'); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
-          >
-            Start building free <ChevronRightIcon size={16} />
+          <button className={styles.primaryCta} type="button" onClick={() => showForm('register')}>
+            Create account <ChevronRightIcon size={16} />
           </button>
-        </div>
+        </section>
+      </main>
 
-        <div className={styles.buildAssistDemo} aria-label="Build Assist workflow preview">
-          <div className={styles.demoTopbar}>
-            <div className={styles.demoTitle}>
-              <BuilderIcon size={17} />
-              <span>Build Assist</span>
-            </div>
-            <div className={styles.demoCommander}>Atraxa, Praetors' Voice</div>
-            <div className={styles.demoBracket}>B3 · Upgraded</div>
-          </div>
-
-          <div className={styles.demoControls}>
-            <span>Theme <strong>+1/+1 Counters</strong></span>
-            <span>Budget <strong>≤ €10 / card</strong></span>
-            <span>Suggestions <strong>Deck-aware</strong></span>
-          </div>
-
-          <div className={styles.demoBody}>
-            <div className={styles.demoRoles}>
-              <div className={styles.demoSectionLabel}>Deck structure</div>
-              {BUILD_ASSIST_ROLES.map(role => {
-                const pct = `${Math.round((role.count / role.target) * 100)}%`
-                return (
-                  <div key={role.name} className={styles.demoRole}>
-                    <div className={styles.demoRoleLine}>
-                      <span>{role.name}</span>
-                      <strong>{role.count}/{role.target}</strong>
-                    </div>
-                    <div className={styles.demoProgress}>
-                      <span style={{ width: pct }} />
-                    </div>
-                  </div>
-                )
-              })}
-              <div className={styles.demoMana}>
-                <span>Mana sources</span>
-                <div className={styles.demoPips}>
-                  <i className={styles.pipWhite} />
-                  <i className={styles.pipBlue} />
-                  <i className={styles.pipBlack} />
-                  <i className={styles.pipGreen} />
-                </div>
-                <strong>36 lands</strong>
-              </div>
-            </div>
-
-            <div className={styles.demoPicks}>
-              <div className={styles.demoPicksHead}>
-                <div>
-                  <span className={styles.demoSectionLabel}>From your binders</span>
-                  <strong>Draw · 2 to go</strong>
-                </div>
-                <span className={styles.demoOwned}><CollectionIcon size={12} /> Owned first</span>
-              </div>
-              <div className={styles.demoCards}>
-                {builderCards.slice(0, 3).map((name, i) => (
-                  <div key={name} className={styles.demoCard}>
-                    {builderArts[i]
-                      ? <img src={builderArts[i]} alt="" loading="lazy" />
-                      : <div className={styles.demoCardPlaceholder} />}
-                    <span>{name}</span>
-                    <small>{i < 2 ? 'In your binder' : 'Recommended'}</small>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className={styles.demoFooter}>
-            <span><strong>92</strong> cards · <strong>€146.30</strong> estimated</span>
-            <div>
-              <span className={styles.demoSecondaryAction}>Review picks</span>
-              <span className={styles.demoPrimaryAction}>Auto fill deck</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className={styles.features}>
-        <div className={styles.sectionHeader}>
-          <div className={styles.sectionLabel}>Everything you need</div>
-          <h2 className={styles.sectionTitle}>Built for serious collectors</h2>
-          <p className={styles.sectionDesc}>
-            DeckLoom brings together every tool a Magic: The Gathering player needs
-            — from first scan to deck tournament-ready.
-          </p>
-        </div>
-        <div className={styles.featureGrid}>
-          {FEATURES.map(f => (
-            <div key={f.title} className={styles.featureCard}>
-              <div className={styles.featureIconWrap}>
-                <span className={styles.featureIcon}>{f.icon}</span>
-              </div>
-              <div className={styles.featureTitle}>{f.title}</div>
-              <div className={styles.featureDesc}>{f.desc}</div>
-              <div className={styles.featureStat}>{f.stat}</div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ── How it works ── */}
-      <section className={styles.howItWorks}>
-        <div className={styles.sectionLabel} style={{ justifyContent: 'center' }}>How it works</div>
-        <h2 className={styles.sectionTitle} style={{ textAlign: 'center' }}>From unboxed to organised in minutes</h2>
-        <div className={styles.steps}>
-          {steps.map(step => {
-            const artsForStep = (
-              step.artsKey === 'collection0' ? collectionArts.slice(0, 3)
-              : step.artsKey === 'builder0' ? builderArts.slice(0, 3)
-              : step.artsKey === 'builder3' ? builderArts.slice(3, 6)
-              : collectionArts.slice(3, 6)
-            )
-            return (
-              <div key={step.number} className={styles.step}>
-                <div className={styles.stepNumber}>{step.number}</div>
-                <div className={styles.stepContent}>
-                  <div className={styles.stepTitle}>{step.title}</div>
-                  <div className={styles.stepDesc}>{step.desc}</div>
-                </div>
-                <div className={styles.stepCards}>
-                  {step.cards.map((name, i) => (
-                    <div
-                      key={name}
-                      className={styles.stepCardPh}
-                      style={{ '--si': i }}
-                    >
-                      {artsForStep[i]
-                        ? <img
-                            src={artsForStep[i]}
-                            alt=""
-                            className={styles.stepCardImg}
-                            loading="lazy"
-                          />
-                        : null
-                      }
-                      <div className={styles.stepCardName}>{name}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </section>
-
-      {/* ── App panels ── */}
-      <section className={styles.screenshots}>
-        <div className={styles.sectionLabel} style={{ justifyContent: 'center' }}>See it in action</div>
-        <h2 className={styles.sectionTitle} style={{ textAlign: 'center' }}>Everything in one place</h2>
-        <p className={styles.sectionDesc} style={{ textAlign: 'center', maxWidth: 520, margin: '0 auto 48px' }}>
-          A clean, fast interface built for the way collectors actually work —
-          binders, decks, wishlists and price tracking all within arm's reach.
-        </p>
-        <div className={styles.panelRow}>
-          <AppPanel
-            icon="◈"
-            title="COLLECTION"
-            eyebrow="Your owned inventory"
-            subtitle="Collection view with pricing, locations, and print tracking"
-            accent="collection"
-            metrics={[
-              { value: 'Binders', label: 'Track where cards live' },
-              { value: 'Prices', label: 'Follow deck and card value' },
-            ]}
-            highlights={['Locations', 'Printings', 'Wishlists']}
-            cards={collectionCards}
-            arts={collectionArts}
-          />
-          <AppPanel
-            icon="⚔"
-            title="BUILD ASSIST"
-            eyebrow="Auto build or choose every card"
-            subtitle="Turn your commander and collection into a balanced deck plan"
-            accent="builder"
-            metrics={[
-              { value: 'Owned first', label: 'Build from available binder copies' },
-              { value: '100 cards', label: 'Fill gaps, balance mana, trim excess' },
-            ]}
-            highlights={['Auto Build', 'Custom Path', 'Playtest']}
-            cards={builderCards}
-            arts={builderArts}
-          />
-        </div>
-      </section>
-
-      {/* ── Stats bar ── */}
-      <div className={styles.statsBar}>
-        <div className={styles.statsBarItem}>
-          <span className={styles.statsBarNum}>Scan</span>
-          <span className={styles.statsBarLabel}>Camera matches the exact printing</span>
-        </div>
-        <div className={styles.statsBarDot} />
-        <div className={styles.statsBarItem}>
-          <span className={styles.statsBarNum}>Prices</span>
-          <span className={styles.statsBarLabel}>Market values, updated daily</span>
-        </div>
-        <div className={styles.statsBarDot} />
-        <div className={styles.statsBarItem}>
-          <span className={styles.statsBarNum}>Playtest</span>
-          <span className={styles.statsBarLabel}>Goldfish decks in the browser</span>
-        </div>
-        <div className={styles.statsBarDot} />
-        <div className={styles.statsBarItem}>
-          <span className={styles.statsBarNum}>Multiplayer</span>
-          <span className={styles.statsBarLabel}>Life tracker with shared join codes</span>
-        </div>
-      </div>
-
-      {/* ── Footer CTA ── */}
-      <footer className={styles.footerCta}>
-        <div className={styles.footerLogo}>
-          <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" fetchPriority="high" decoding="async" />
-          <span className={styles.logoText}>Deck<span>Loom</span></span>
-        </div>
-        <p className={styles.footerText}>Your Magic collection deserves a proper home.</p>
-        <button
-          className={styles.footerBtn}
-          onClick={() => { switchMode('register'); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
-        >
-          Create Account
-        </button>
-        <p className={styles.footerSmall}>Use one account to keep your collection, decks, and wishlists together.</p>
-        <div className={styles.footerLegal}>
-          <Link className={styles.footerLegalLink} to="/terms">Terms of Service</Link>
-          <Link className={styles.footerLegalLink} to="/privacy">Privacy Policy</Link>
-          <Link className={styles.footerLegalLink} to="/storage">Cookies and Local Storage</Link>
-          <Link className={styles.footerLegalLink} to="/credits">Credits</Link>
-        </div>
+      <footer className={styles.footer}>
+        <Brand compact />
+        <p>Deck building, scanning, collection management, and play tools for Magic: The Gathering.</p>
+        <nav aria-label="Legal">
+          <Link to="/terms">Terms</Link>
+          <Link to="/privacy">Privacy</Link>
+          <Link to="/storage">Storage</Link>
+          <Link to="/credits">Credits</Link>
+        </nav>
       </footer>
-
-    </main>
+    </div>
   )
 }

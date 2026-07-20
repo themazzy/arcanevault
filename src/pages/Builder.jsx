@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, Link, useLocation } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
 import { Button, ConfirmModal, Modal, EmptyState, SectionHeader, ResponsiveMenu, SearchInput } from '../components/UI'
@@ -22,6 +23,8 @@ import {
 import { fetchDeckCards, fetchDeckAllocations } from '../lib/deckData'
 import { normalizeDeckBuilderCards } from '../components/DeckStats'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
+import { clearNewDeckIntent, getBuilderIndexIntent } from '../lib/builderRoute'
+import { invalidateHomeSnapshot, removeDecksFromHomeSnapshot } from '../lib/queryInvalidation'
 
 const MANA_SYMBOL_URL = c => `https://svgs.scryfall.io/card-symbols/${c}.svg`
 
@@ -222,7 +225,7 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
 
 const COMMUNITY_COLOR_ORDER = ['W', 'U', 'B', 'R', 'G', 'C']
 
-function CommunityDeckTile({ deck, meta, fmt, isOwn, creatorNick, navigate }) {
+export function CommunityDeckTile({ deck, meta, fmt, isOwn, creatorNick, navigate }) {
   // Prefer colors aggregated from actual deck cards; fall back to stored commander identity
   const rawColors = deck.deck_color_identity
   const colors = rawColors && rawColors.length > 0
@@ -233,6 +236,7 @@ function CommunityDeckTile({ deck, meta, fmt, isOwn, creatorNick, navigate }) {
     : (meta.commanderName || null)
   const tags        = clampTags(meta.tags)
   const description = plainPreview(meta.deckDescription)
+  const bracketMeta = fmt?.isEDH ? resolveBracketBadge(meta.bracket) : null
 
   return (
     <div className={styles.card} onClick={() => navigate(`/d/${deck.id}`)}>
@@ -245,6 +249,15 @@ function CommunityDeckTile({ deck, meta, fmt, isOwn, creatorNick, navigate }) {
               : <span className={styles.formatBadge}>{fmt?.label || 'Builder'}</span>
             }
             {deck.type === 'deck' && fmt && <span className={styles.formatBadge}>{fmt.label}</span>}
+            {bracketMeta && (
+              <span
+                className={styles.bracketBadge}
+                style={{ borderColor: `${bracketMeta.color}55`, color: bracketMeta.color }}
+                title={bracketMeta.desc}
+              >
+                B{meta.bracket} · {bracketMeta.label}
+              </span>
+            )}
             {isOwn && <span className={styles.collectionBadge}>Yours</span>}
           </div>
           {creatorNick && !isOwn && <div className={styles.creatorNick}>by <Link to={`/profile/${encodeURIComponent(creatorNick)}`} className={styles.creatorNickLink} onClick={e => e.stopPropagation()}>{creatorNick}</Link></div>}
@@ -447,10 +460,11 @@ export default function BuilderPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+  const queryClient = useQueryClient()
   const { showToast } = useToast()
   const [decks, setDecks]         = useState([])
   const [loading, setLoading]     = useState(true)
-  const [showNew, setShowNew]     = useState(false)
+  const [showNew, setShowNew]     = useState(() => getBuilderIndexIntent(location.search).openNewDeck)
   const [newName, setNewName]     = useState('')
   const [newFormat, setNewFormat] = useState('commander')
   const [creating, setCreating]   = useState(false)
@@ -467,10 +481,7 @@ export default function BuilderPage() {
   const confirmAsync = (message) => new Promise(resolve => setConfirmState({ message, resolve }))
   const handleConfirm = (result) => { confirmState?.resolve(result); setConfirmState(null) }
 
-  const [pageTab, setPageTab]               = useState(() => {
-    const params = new URLSearchParams(window.location.search)
-    return params.get('tab') === 'browser' ? 'community' : 'my'
-  })
+  const [pageTab, setPageTab]               = useState(() => getBuilderIndexIntent(location.search).pageTab)
   const [communityDecks, setCommunityDecks] = useState([])
   const [communityNicks, setCommunityNicks] = useState({})
   const [communityLoading, setCommunityLoading] = useState(false)
@@ -527,8 +538,9 @@ export default function BuilderPage() {
   useEffect(() => { loadDecks() }, [])
 
   useEffect(() => {
-    const params = new URLSearchParams(location.search)
-    setPageTab(params.get('tab') === 'browser' ? 'community' : 'my')
+    const intent = getBuilderIndexIntent(location.search)
+    setPageTab(intent.pageTab)
+    if (intent.openNewDeck) setShowNew(true)
   }, [location.search])
 
   async function loadDecks() {
@@ -672,6 +684,10 @@ export default function BuilderPage() {
     setNewMode('blank')
     setGuidedCmd(null)
     setGuidedPartner(null)
+    const nextSearch = clearNewDeckIntent(location.search)
+    if (nextSearch !== location.search) {
+      navigate({ pathname: location.pathname, search: nextSearch }, { replace: true })
+    }
   }
 
   // Stable so typing the deck name doesn't hand GuidedCommanderPicker a fresh
@@ -721,6 +737,7 @@ export default function BuilderPage() {
       showToast(msg, { tone: 'error', duration: 4000 })
       return
     }
+    await invalidateHomeSnapshot(queryClient, user.id)
     const commander = guided ? guidedCmd : null
     const partner = guided ? guidedPartner : null
     // Raise the blocker immediately so the user gets instant feedback and never
@@ -768,6 +785,7 @@ export default function BuilderPage() {
         if (cardsErr) throw cardsErr
         const { error: folderErr } = await sb.from('folders').delete().eq('id', id).eq('user_id', user.id)
         if (folderErr) throw folderErr
+        await removeDecksFromHomeSnapshot(queryClient, user.id, [id])
       } catch (err) {
         console.error('[Builder] deleteDeck failed:', err)
         showToast(`Failed to delete deck: ${err?.message || 'unknown error'}`, { tone: 'error', duration: 4000 })
@@ -828,6 +846,7 @@ export default function BuilderPage() {
         if (cardsErr) throw cardsErr
         const { error: folderErr } = await sb.from('folders').delete().in('id', builderIds).eq('user_id', user.id)
         if (folderErr) throw folderErr
+        await removeDecksFromHomeSnapshot(queryClient, user.id, builderIds)
       }
     } catch (err) {
       console.error('[Builder] bulkDelete failed:', err)

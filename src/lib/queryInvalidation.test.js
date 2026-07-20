@@ -1,8 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
-import { invalidateOwnedCollectionQueries, invalidateWishlistQueries } from './queryInvalidation'
+import {
+  invalidateHomeSnapshot,
+  invalidateOwnedCollectionQueries,
+  invalidateWishlistQueries,
+  removeDecksFromHomeSnapshot,
+} from './queryInvalidation'
 
 function makeClient() {
-  return { invalidateQueries: vi.fn().mockResolvedValue(undefined) }
+  return {
+    invalidateQueries: vi.fn().mockResolvedValue(undefined),
+    setQueryData: vi.fn(),
+  }
 }
 
 const keysFrom = client =>
@@ -74,5 +82,29 @@ describe('invalidateWishlistQueries', () => {
     const client = makeClient()
     await invalidateWishlistQueries(client, 'user-1', { includeFolders: true })
     expect(keysFrom(client)).toContainEqual(['folders', 'user-1'])
+  })
+})
+
+describe('Home snapshot invalidation', () => {
+  it('invalidates the user-scoped Home snapshot', async () => {
+    const client = makeClient()
+    await invalidateHomeSnapshot(client, 'user-1')
+    expect(keysFrom(client)).toEqual([['home-snapshot', 'user-1']])
+  })
+
+  it('removes deleted decks from cached Home data before revalidation', async () => {
+    const client = makeClient()
+    await removeDecksFromHomeSnapshot(client, 'user-1', ['deck-1'])
+
+    const [key, updater] = client.setQueryData.mock.calls[0]
+    expect(key).toEqual(['home-snapshot', 'user-1'])
+    expect(updater({
+      cards: [{ id: 'card-1' }],
+      builderDecks: [{ id: 'deck-1' }, { id: 'deck-2' }],
+    })).toEqual({
+      cards: [{ id: 'card-1' }],
+      builderDecks: [{ id: 'deck-2' }],
+    })
+    expect(keysFrom(client)).toContainEqual(['home-snapshot', 'user-1'])
   })
 })
