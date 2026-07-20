@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import CombosTab from './CombosTab'
 
@@ -37,6 +37,30 @@ function renderTab({ deckCards, included = [], almost = [] }) {
 }
 
 describe('CombosTab combo-piece deck membership', () => {
+  it('requests a combo check without forwarding the click event as a deck override', () => {
+    const onFetchCombos = vi.fn()
+    render(
+      <CombosTab
+        deckCards={[{ name: 'Sol Ring', board: 'main' }]}
+        combosFetched={false}
+        combosLoading={false}
+        combosIncluded={[]}
+        combosAlmost={[]}
+        comboSectionsOpen={{ complete: true, incomplete: true }}
+        onToggleSection={() => {}}
+        onFetchCombos={onFetchCombos}
+        onAddCard={() => {}}
+        onOpenDetail={() => {}}
+        deckImagesMap={{}}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Find Combos' }))
+
+    expect(onFetchCombos).toHaveBeenCalledOnce()
+    expect(onFetchCombos).toHaveBeenCalledWith()
+  })
+
   it('marks a combo piece on the maybeboard as missing — only commander + main board are sent to Spellbook', () => {
     renderTab({
       deckCards: [

@@ -197,6 +197,19 @@
   cursor: default;
 }
 
+.comboCheckResult {
+  margin-top: -5px;
+  font-size: 0.72rem;
+}
+
+.comboCheckSuccess {
+  color: var(--green);
+}
+
+.comboCheckEmpty {
+  color: var(--red);
+}
+
 .overrideRow {
   display: flex;
   gap: 6px;

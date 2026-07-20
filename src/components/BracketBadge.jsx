@@ -176,15 +176,31 @@ export default function BracketBadge({ analysis, bracket, isOverridden, onOverri
             <div className={styles.popSoft}>Soft signals (no bracket impact): {softSignals.join(' · ')}</div>
           )}
 
-          {combos && !combos.fetched && (
-            <button
-              type="button"
-              className={styles.comboBtn}
-              onClick={combos.onCheck}
-              disabled={combos.loading}
-            >
-              {combos.loading ? 'Checking combos…' : 'Run combo check for a full estimate'}
-            </button>
+          {combos && (
+            <>
+              <button
+                type="button"
+                className={styles.comboBtn}
+                onClick={() => combos.onCheck()}
+                disabled={combos.loading}
+              >
+                {combos.loading
+                  ? 'Checking combos…'
+                  : combos.fetched
+                    ? 'Recheck combos'
+                    : 'Run combo check for a full estimate'}
+              </button>
+              {combos.fetched && !combos.loading && (
+                <div
+                  className={`${styles.comboCheckResult} ${(combos.nameLists?.length || 0) > 0 ? styles.comboCheckSuccess : styles.comboCheckEmpty}`}
+                  role="status"
+                >
+                  {(combos.nameLists?.length || 0) === 0
+                    ? 'No combos found.'
+                    : `Found ${combos.nameLists.length} combo${combos.nameLists.length === 1 ? '' : 's'}.`}
+                </div>
+              )}
+            </>
           )}
 
           {canOverride && (
@@ -205,14 +221,14 @@ export default function BracketBadge({ analysis, bracket, isOverridden, onOverri
                         background: active ? m.color : 'transparent',
                       }}
                       title={m.label}
-                      onClick={() => { onOverride(n); setOpen(false) }}
+                      onClick={() => onOverride(n)}
                     >
                       {n}
                     </button>
                   )
                 })}
                 {isOverridden && (
-                  <button type="button" className={styles.resetBtn} onClick={() => { onOverride(null); setOpen(false) }}>
+                  <button type="button" className={styles.resetBtn} onClick={() => onOverride(null)}>
                     Reset to auto
                   </button>
                 )}

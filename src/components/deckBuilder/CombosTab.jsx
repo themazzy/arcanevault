@@ -38,7 +38,7 @@ export default function CombosTab({
       )}
       {deckCards.length > 0 && !combosFetched && !combosLoading && (
         <div style={{ textAlign: 'center', paddingTop: 40 }}>
-          <button onClick={onFetchCombos} style={{ background: 'rgba(201,168,76,0.12)', border: '1px solid rgba(201,168,76,0.35)', borderRadius: 4, color: 'var(--gold)', padding: '9px 22px', fontSize: '0.85rem', cursor: 'pointer', fontFamily: 'var(--font-display)', letterSpacing: '0.05em' }}>
+          <button onClick={() => onFetchCombos()} style={{ background: 'rgba(201,168,76,0.12)', border: '1px solid rgba(201,168,76,0.35)', borderRadius: 4, color: 'var(--gold)', padding: '9px 22px', fontSize: '0.85rem', cursor: 'pointer', fontFamily: 'var(--font-display)', letterSpacing: '0.05em' }}>
             Find Combos
           </button>
           <div style={{ fontSize: '0.73rem', color: 'var(--text-faint)', marginTop: 8 }}>via Commander Spellbook</div>
@@ -88,7 +88,7 @@ export default function CombosTab({
               )}
             </div>
           )}
-          <button onClick={onFetchCombos} style={{ alignSelf: 'flex-start', background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: 4, padding: '5px 12px', color: 'var(--text-faint)', fontSize: '0.78rem', cursor: 'pointer' }}>
+          <button onClick={() => onFetchCombos()} style={{ alignSelf: 'flex-start', background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: 4, padding: '5px 12px', color: 'var(--text-faint)', fontSize: '0.78rem', cursor: 'pointer' }}>
             Refresh
           </button>
         </>
