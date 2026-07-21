@@ -1,0 +1,115 @@
+.tile {
+  min-width: 0;
+  overflow: hidden;
+  background: var(--s-subtle);
+  border: 1px solid var(--s-border2);
+  border-radius: 6px;
+}
+
+.summary {
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  cursor: pointer;
+  list-style: none;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.summary::-webkit-details-marker { display: none; }
+.summary::after {
+  content: '›';
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-size: 1.15rem;
+  transform: rotate(90deg);
+  transition: transform 0.15s, color 0.15s;
+}
+.tile[open] > .summary::after { transform: rotate(-90deg); color: var(--gold); }
+.summary:hover,
+.summary:focus-visible { background: var(--s2); outline: none; }
+
+.title {
+  font-family: var(--font-display);
+  font-size: 0.68rem;
+  letter-spacing: var(--label-tracking-wide);
+  color: var(--text-faint);
+  text-transform: uppercase;
+}
+
+.metric {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+}
+
+.body {
+  padding: 12px 14px 14px;
+  background: var(--s1);
+  border-top: 1px solid var(--s-border);
+}
+
+.loading { color: var(--text-faint); font-size: 0.8rem; }
+.emptyState { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.emptyTitle { color: var(--text); font-size: 0.84rem; margin-bottom: 3px; }
+.emptyCopy { color: var(--text-faint); font-size: 0.76rem; line-height: 1.45; }
+
+.lifeLink {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  background: var(--s2);
+  border: 1px solid var(--border-hi);
+  border-radius: 5px;
+  color: var(--gold);
+  font-family: var(--font-display);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+
+.lifeLink:hover,
+.lifeLink:focus-visible {
+  background: var(--s-medium) !important;
+  border-color: var(--gold) !important;
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.summaryGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+.summaryCard { min-width: 0; padding: 10px 12px; background: var(--s2); border: 1px solid var(--s-border); border-top: 2px solid var(--s-border2); border-radius: 6px; }
+.summaryCardAccent { border-top-color: var(--gold); }
+.rateValue, .gamesValue { font-size: 1.5rem; font-weight: 700; line-height: 1; }
+.rateValue { color: var(--gold); }
+.gamesValue { color: var(--text); }
+.recordValue { font-size: 1rem; font-weight: 700; line-height: 1; }
+.wins { color: var(--green); }
+.losses { color: #e07070; }
+.recordDot { margin: 0 3px; color: var(--text-faint); font-size: 0.8rem; }
+.cardLabel, .recentLabel { margin-top: 3px; color: var(--text-faint); font-size: 0.7rem; }
+.rateTrack { height: 6px; margin-bottom: 10px; overflow: hidden; background: var(--s3); border-radius: 3px; }
+.rateFill { height: 100%; background: var(--gold); border-radius: 3px; transition: width 0.4s; }
+.recentLabel { margin-bottom: 4px; }
+.recentGames { display: flex; gap: 4px; }
+.recentResult { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; background: var(--s2); border: 1px solid transparent; border-radius: 4px; color: var(--text-faint); font-size: 0.62rem; font-weight: 700; }
+.recentWin { background: color-mix(in srgb, var(--gold) 18%, transparent); border-color: color-mix(in srgb, var(--gold) 35%, transparent); color: var(--gold); }
+
+@media (max-width: 540px) {
+  .summary { min-height: 52px; padding: 8px 10px; }
+  .metric { color: var(--text-dim); font-size: 0.66rem; }
+  .lifeLink {
+    width: 100%;
+  }
+}

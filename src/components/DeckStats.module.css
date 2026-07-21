@@ -5,9 +5,20 @@
 
 .panel {
   background: var(--s-subtle);
-  border: 1px solid var(--s-border);
-  border-radius: 5px;
+  border: 1px solid var(--s-border2);
+  border-radius: 6px;
   min-width: 0;
+}
+
+.statsStack {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-sizing: border-box;
+  overflow-x: clip;
 }
 
 .panelTitle {
@@ -18,24 +29,186 @@
   font-family: var(--font-display);
 }
 
+.contentLabel {
+  margin-bottom: 8px;
+  color: var(--text-faint);
+  font-family: var(--font-display);
+  font-size: 0.65rem;
+  letter-spacing: var(--label-tracking);
+  text-transform: uppercase;
+}
+
+.manaBody {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+}
+
+.curveBody {
+  min-width: 0;
+  padding-top: 10px;
+}
+
+.panelToolbar {
+  min-width: 0;
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-bottom: 8px;
+}
+
+.breakdownBody { padding-top: 9px; }
+
+.breakdownRow {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 5px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s, border-color 0.12s;
+}
+.breakdownRow:hover,
+.breakdownRow:focus-visible {
+  background: var(--s3);
+  border-color: var(--s-border2);
+}
+.breakdownRowMuted { opacity: 0.72; }
+
+.roleGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(138px, 1fr));
+  gap: 7px;
+}
+.roleButton {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  background: var(--s2);
+  border: 1px solid var(--s-border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, transform 0.12s;
+}
+.roleButton:hover,
+.roleButton:focus-visible {
+  background: var(--s3);
+  border-color: var(--border-hi);
+  transform: translateY(-1px);
+}
+.roleName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.72rem; }
+.roleCount { color: var(--text); font-family: var(--font-display); font-size: 0.82rem; font-weight: 400; }
+
+.disclosure {
+  overflow: hidden;
+  transition: border-color 0.15s, background 0.15s;
+}
+.disclosure[open] { border-color: var(--s-border2); }
+.disclosureSummary {
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  cursor: pointer;
+  list-style: none;
+  background: transparent;
+  transition: background 0.15s;
+}
+.disclosureSummary::-webkit-details-marker { display: none; }
+.disclosureSummary::after {
+  content: '›';
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-size: 1.15rem;
+  transform: rotate(90deg);
+  transition: transform 0.15s, color 0.15s;
+}
+.disclosure[open] > .disclosureSummary::after { transform: rotate(-90deg); color: var(--gold); }
+.disclosureSummary:hover,
+.disclosureSummary:focus-visible { background: var(--s2); outline: none; }
+.disclosureMetric {
+  min-width: 0;
+  margin-left: auto;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.disclosureBody {
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--s-border);
+  background: var(--s1);
+}
+.traitGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.traitGroup { min-width: 0; padding: 0 !important; }
+.topCardRow {
+  width: 100%;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 7px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  cursor: pointer;
+  text-align: left;
+}
+.topCardRow:hover,
+.topCardRow:focus-visible { background: var(--s3); border-color: var(--s-border2); }
+.tokenGrid { display: flex; flex-wrap: wrap; gap: 8px; }
+
+@media (max-width: 700px) {
+  .manaBody { grid-template-columns: 1fr; }
+  .traitGrid { grid-template-columns: 1fr; }
+  .disclosureSummary { min-height: 52px; flex-wrap: nowrap; padding: 8px 10px; }
+  .disclosureMetric {
+    color: var(--text-dim);
+    font-size: 0.66rem;
+  }
+  .roleGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+  .roleButton { min-height: 44px; padding: 5px 6px; }
+  .roleName { font-size: 0.64rem; }
+  .roleCount { font-size: 0.74rem; }
+}
+
 /* ── Keyword / creature-type pills + click-to-open card preview ─────────── */
 .freqPill {
   display: flex;
   align-items: center;
   gap: 5px;
-  background: var(--s3);
+  background: var(--s2);
   border: 1px solid var(--s-border2);
   border-radius: 4px;
-  padding: 3px 9px;
+  min-height: 40px;
+  padding: 6px 10px;
   font-size: 0.72rem;
   color: var(--text-dim);
   cursor: pointer;
   transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
 .freqPill:hover {
-  background: var(--s-medium);
+  background: var(--s3);
   color: var(--gold);
-  border-color: rgba(201, 168, 76, 0.45);
+  border-color: var(--border-hi);
 }
 .freqPillCount {
   font-family: var(--font-display);
@@ -84,7 +257,11 @@
   border: none;
   color: var(--text-faint);
   cursor: pointer;
-  padding: 4px;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
   display: inline-flex;
   border-radius: 4px;
 }
@@ -141,7 +318,7 @@
   gap: 6px 10px;
   font-size: 0.82rem;
   padding: 8px 12px;
-  background: var(--s1);
+  background: var(--s2);
   border: 1px solid var(--s-border);
   border-radius: 7px;
 }
@@ -172,14 +349,14 @@
 .stepper {
   display: inline-flex;
   align-items: center;
-  background: var(--s3);
+  background: var(--s2);
   border: 1px solid var(--s-border2);
   border-radius: 7px;
   overflow: hidden;
 }
 .stepperBtn {
-  width: 30px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   background: none;
   border: none;
   color: var(--text-dim);
@@ -190,8 +367,8 @@
 }
 .stepperBtn:hover { background: var(--s-medium); color: var(--gold); }
 .stepperInput {
-  width: 36px;
-  height: 32px;
+  width: 44px;
+  height: 40px;
   background: none;
   border: none;
   border-left: 1px solid var(--s-border);
@@ -208,7 +385,7 @@
 .stepperInput:focus { outline: none; background: var(--s4); }
 
 .probResultCard {
-  background: var(--s1);
+  background: var(--s2);
   border: 1px solid var(--s-border);
   border-left: 2px solid rgba(201, 168, 76, 0.5);
   border-radius: 8px;

@@ -36,6 +36,11 @@ const LAND_SUBTYPE_COLOR = { forest: 'G', mountain: 'R', swamp: 'B', island: 'U'
 
 const BAR_MAX_PX = 72
 
+const PLAY_ROLE_ORDER = [
+  'Ramp', 'Card Draw', 'Tutor', 'Cost Reduction', 'Removal', 'Board Wipe',
+  'Counterspell', 'Protection', 'Combo', 'Copy', 'Cheat',
+]
+
 const COMMON_KEYWORDS = [
   'Flying', 'First Strike', 'Double Strike', 'Deathtouch', 'Lifelink', 'Vigilance',
   'Haste', 'Trample', 'Flash', 'Reach', 'Menace', 'Hexproof', 'Indestructible',
@@ -283,27 +288,31 @@ function ColorStackBar({ colorCounts, totalPips, title, cardCounts = null }) {
 
   return (
     <div>
-      <div style={{ fontSize: '0.67rem', textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text-faint)', marginBottom: 6, fontFamily: 'var(--font-display)' }}>
+      <div className={styles.contentLabel}>
         {title}
       </div>
-      <div style={{ display: 'flex', height: 28, borderRadius: 4, overflow: 'hidden', gap: 1 }}>
+      <div style={{ display: 'flex', height: 36, borderRadius: 5, overflow: 'hidden', gap: 1 }}>
         {entries.map(({ c, v }) => (
-          <div key={c}
+          <button key={c}
+            type="button"
+            aria-pressed={selected === c}
+            aria-label={`${title}: ${COLOR_LABEL[c] || c}, ${v}`}
             style={{
               flex: v,
               background: COLOR_BG[c] || '#505068',
-              minWidth: 20,
+              minWidth: 36,
               cursor: 'pointer',
               opacity: selected && selected !== c ? 0.35 : 1,
               filter: selected === c ? 'brightness(1.3)' : 'none',
               transition: 'opacity 0.15s, filter 0.15s',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
+              border: 0, padding: 0,
             }}
             onClick={() => setSelected(s => s === c ? null : c)}
           >
             <img src={`https://svgs.scryfall.io/card-symbols/${c}.svg`} alt={c}
               style={{ width: 18, height: 18, opacity: 0.9 }} />
-          </div>
+          </button>
         ))}
       </div>
       <div style={{ minHeight: '1.2em', fontSize: '0.75rem', color: 'var(--text-dim)', paddingLeft: 2, marginTop: 3, overflowWrap: 'anywhere' }}>
@@ -323,9 +332,29 @@ function ColorStackBar({ colorCounts, totalPips, title, cardCounts = null }) {
   )
 }
 
+function StatsDisclosure({ title, metric, className = '', bodyClassName = '', children }) {
+  const [isOpen, setIsOpen] = useState(true)
+
+  return (
+    <details
+      className={`${styles.panel} ${styles.disclosure} ${className}`.trim()}
+      open={isOpen}
+      onToggle={event => setIsOpen(event.currentTarget.open)}
+    >
+      <summary className={styles.disclosureSummary}>
+        <span className={styles.panelTitle}>{title}</span>
+        {metric != null && <span className={styles.disclosureMetric}>{metric}</span>}
+      </summary>
+      <div className={`${styles.disclosureBody} ${bodyClassName}`.trim()}>{children}</div>
+    </details>
+  )
+}
+
 function ManaCurveChart({ curve, avgCmc, curveMode, curveSegData, onModeChange }) {
   const maxVal = Math.max(1, ...Object.values(curve))
   const labels = ['0', '1', '2', '3', '4', '5', '6', '7+']
+  const curveCounts = labels.map((_, index) => Number(curve[index] || 0))
+  const highEndCount = curveCounts.slice(5).reduce((sum, count) => sum + count, 0)
   const segOrder = CURVE_SEG_ORDER[curveMode] || []
   const [tooltip, setTooltip] = useState(null)
 
@@ -351,25 +380,21 @@ function ManaCurveChart({ curve, avgCmc, curveMode, curveSegData, onModeChange }
   }
 
   return (
-    <div className={styles.panel} style={{ padding: '14px 14px 10px', minWidth: 0 }}>
-      {/* Title row */}
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-        <span className={styles.panelTitle}>
-          Mana Curve
-        </span>
-        {avgCmc && (
-          <span style={{ fontSize: '0.7rem', color: 'var(--gold-dim)', fontFamily: 'var(--font-display)' }}>
-            avg {avgCmc}
-          </span>
-        )}
-        {/* Mode toggle */}
-        <div style={{ display: 'flex', gap: 3, marginLeft: 'auto', flexWrap: 'wrap', justifyContent: 'flex-end', minWidth: 0 }}>
+    <StatsDisclosure
+      title="Mana Curve"
+      metric={`avg ${avgCmc} · ${highEndCount} at MV 5+`}
+      bodyClassName={styles.curveBody}
+    >
+      <div className={styles.panelToolbar}>
           {[['flat', '—'], ['color', 'Color'], ['type', 'Type']].map(([m, l]) => (
             <button key={m}
+              type="button"
+              aria-pressed={curveMode === m}
+              aria-label={`Show mana curve ${m === 'flat' ? 'totals' : `by ${m}`}`}
               style={{
                 background: curveMode === m ? 'rgba(201,168,76,0.12)' : 'none',
                 border: `1px solid ${curveMode === m ? 'rgba(201,168,76,0.35)' : 'var(--s-border2)'}`,
-                borderRadius: 3, padding: '2px 7px', fontSize: '0.6rem',
+                borderRadius: 4, padding: '0 10px', minHeight: 36, fontSize: '0.64rem',
                 color: curveMode === m ? 'var(--gold)' : 'var(--text-faint)',
                 cursor: 'pointer', fontFamily: 'var(--font-display)', letterSpacing: '0.04em',
                 transition: 'all 0.15s',
@@ -379,7 +404,6 @@ function ManaCurveChart({ curve, avgCmc, curveMode, curveSegData, onModeChange }
               {l}
             </button>
           ))}
-        </div>
       </div>
 
       {/* Bars */}
@@ -399,19 +423,28 @@ function ManaCurveChart({ curve, avgCmc, curveMode, curveSegData, onModeChange }
               </span>
               <div style={{ width: '100%', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', height: BAR_MAX_PX }}>
                 {barPx > 0 && (
-                  segs
-                    ? <div
-                        style={{ width: '100%', maxWidth: 24, height: barPx, background: 'none', display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRadius: '2px 2px 0 0', cursor: 'pointer' }}
-                        onMouseEnter={e => showTooltip(e, label, count, segs)}
-                      >
-                        {segOrder.filter(k => (segs[k] || 0) > 0).map(k => (
-                          <div key={k} style={{ flex: segs[k], background: CURVE_SEG_COLOR[k] }} />
-                        ))}
-                      </div>
-                    : <div
-                        style={{ width: '100%', maxWidth: 24, height: barPx, background: 'linear-gradient(180deg, var(--gold) 0%, rgba(201,168,76,0.45) 100%)', borderRadius: '2px 2px 0 0', transition: 'height 0.35s ease', cursor: 'pointer' }}
-                        onMouseEnter={e => showTooltip(e, label, count, null)}
-                      />
+                  <button
+                    type="button"
+                    aria-label={`Mana value ${label}: ${count} ${count === 1 ? 'card' : 'cards'}`}
+                    style={{
+                      width: '100%', maxWidth: 44, height: BAR_MAX_PX,
+                      display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+                      padding: 0, border: 0, background: 'none', cursor: 'pointer',
+                    }}
+                    onMouseEnter={event => showTooltip(event, label, count, segs)}
+                    onFocus={event => showTooltip(event, label, count, segs)}
+                    onClick={event => showTooltip(event, label, count, segs)}
+                    onBlur={() => setTooltip(null)}
+                  >
+                    {segs
+                      ? <span style={{ width: 24, height: barPx, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRadius: '2px 2px 0 0' }}>
+                          {segOrder.filter(k => (segs[k] || 0) > 0).map(k => (
+                            <span key={k} style={{ flex: segs[k], background: CURVE_SEG_COLOR[k] }} />
+                          ))}
+                        </span>
+                      : <span style={{ width: 24, height: barPx, background: 'linear-gradient(180deg, var(--gold) 0%, rgba(201,168,76,0.45) 100%)', borderRadius: '2px 2px 0 0', transition: 'height 0.35s ease' }} />
+                    }
+                  </button>
                 )}
               </div>
               <span style={{ fontSize: '0.6rem', color: 'var(--text-faint)', textAlign: 'center' }}>{label}</span>
@@ -457,27 +490,89 @@ function ManaCurveChart({ curve, avgCmc, curveMode, curveSegData, onModeChange }
           ))}
         </div>
       )}
+    </StatsDisclosure>
+  )
+}
+
+function CardPreviewDialog({ label, cards, onClose }) {
+  const closeRef = useRef(null)
+
+  useEffect(() => {
+    if (!label) return undefined
+    closeRef.current?.focus()
+    const onKey = event => { if (event.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [label, onClose])
+
+  if (!label || !cards.length) return null
+  const totalCopies = cards.reduce((sum, card) => sum + (card.qty || 1), 0)
+
+  return (
+    <div className={styles.previewOverlay} onClick={onClose}>
+      <div
+        className={styles.previewPanel}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${totalCopies} cards in ${label}`}
+        onClick={event => event.stopPropagation()}
+      >
+        <div className={styles.previewHead}>
+          <span className={styles.previewTitle}>
+            {totalCopies} card{totalCopies !== 1 ? 's' : ''} · {label}
+          </span>
+          <button ref={closeRef} type="button" className={styles.previewClose} onClick={onClose} aria-label="Close card preview">
+            <CloseIcon size={15} />
+          </button>
+        </div>
+        <div className={styles.previewGrid}>
+          {cards.map((card, index) => (
+            <div key={`${card.name}-${index}`} className={styles.previewCard}>
+              {card.image_uri
+                ? <img className={styles.previewImg} src={card.image_uri} alt={card.name} title={card.name} loading="lazy" />
+                : <div className={styles.previewImgFallback}>{card.name}</div>
+              }
+              {card.qty > 1 && <span className={styles.previewQty}>×{card.qty}</span>}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
 
-function TypeBreakdown({ typeCounts }) {
+function cardsWithType(cards, type) {
+  return cards.filter(card => getCardType(card.type_line || '') === type)
+}
+
+function cardsWithCategory(cards, category) {
+  return cards.filter(card => getCardCategory(
+    (card.oracle_text || '').toLowerCase(),
+    (card.type_line || '').toLowerCase(),
+    card.keywords || [],
+  ) === category)
+}
+
+function TypeBreakdown({ typeCounts, cards }) {
+  const [selectedType, setSelectedType] = useState(null)
   const entries = Object.entries(typeCounts)
     .filter(([k]) => k !== 'Lands' && k !== 'Commander')
     .sort((a, b) => TYPE_ORDER.indexOf(a[0]) - TYPE_ORDER.indexOf(b[0]))
   const landCount = typeCounts['Lands'] || 0
+  const totalCards = Object.values(typeCounts).reduce((sum, count) => sum + count, 0)
   const maxVal = Math.max(1, ...entries.map(([, v]) => v))
 
   return (
-    <div className={styles.panel} style={{ padding: '14px 14px 10px' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 12 }}>
-        <span className={styles.panelTitle}>
-          Card Types
-        </span>
-      </div>
+    <StatsDisclosure title="Card Types" metric={`${totalCards} cards`} bodyClassName={styles.breakdownBody}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
         {entries.filter(([, v]) => v > 0).map(([type, count]) => (
-          <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <button
+            key={type}
+            type="button"
+            className={styles.breakdownRow}
+            aria-label={`View ${count} card${count === 1 ? '' : 's'} of type ${type}`}
+            onClick={() => setSelectedType(type)}
+          >
             <div style={{ flex: '0 1 clamp(68px, 28vw, 90px)', fontSize: '0.72rem', color: 'var(--text-dim)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 }}>
               <TypeIcon type={type} size={13} style={{ verticalAlign: 'middle' }} />
               {' '}{type}
@@ -486,10 +581,15 @@ function TypeBreakdown({ typeCounts }) {
               <div style={{ height: '100%', width: `${(count / maxVal) * 100}%`, background: 'rgba(201,168,76,0.5)', borderRadius: 3, transition: 'width 0.4s ease', minWidth: 2 }} />
             </div>
             <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', width: 22, textAlign: 'right', flexShrink: 0 }}>{count}</div>
-          </div>
+          </button>
         ))}
         {landCount > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: 0.7, minWidth: 0 }}>
+          <button
+            type="button"
+            className={`${styles.breakdownRow} ${styles.breakdownRowMuted}`}
+            aria-label={`View ${landCount} land cards`}
+            onClick={() => setSelectedType('Lands')}
+          >
             <div style={{ flex: '0 1 clamp(68px, 28vw, 90px)', fontSize: '0.72rem', color: 'var(--text-dim)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 }}>
               <TypeIcon type="Lands" size={13} style={{ verticalAlign: 'middle' }} />
               {' '}Lands
@@ -498,39 +598,47 @@ function TypeBreakdown({ typeCounts }) {
               <div style={{ height: '100%', width: `${(landCount / Math.max(maxVal, landCount)) * 100}%`, background: 'var(--text-faint)', borderRadius: 3, transition: 'width 0.4s ease', minWidth: 2 }} />
             </div>
             <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', width: 22, textAlign: 'right', flexShrink: 0 }}>{landCount}</div>
-          </div>
+          </button>
         )}
       </div>
-    </div>
+      <CardPreviewDialog
+        label={selectedType}
+        cards={selectedType ? cardsWithType(cards, selectedType) : []}
+        onClose={() => setSelectedType(null)}
+      />
+    </StatsDisclosure>
   )
 }
 
-function CategoryBreakdown({ catCounts }) {
-  const entries = CAT_ORDER
+function CategoryBreakdown({ catCounts, cards }) {
+  const [selectedCategory, setSelectedCategory] = useState(null)
+  const entries = PLAY_ROLE_ORDER
     .map(cat => ({ cat, count: catCounts[cat] || 0 }))
     .filter(e => e.count > 0)
   if (!entries.length) return null
-  const maxVal = Math.max(1, ...entries.map(e => e.count))
 
   return (
-    <div className={styles.panel} style={{ padding: '14px 14px 10px' }}>
-      <div className={styles.panelTitle} style={{ marginBottom: 12 }}>
-        Role Breakdown
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+    <StatsDisclosure title="Playability Roles" metric={`${entries.length} roles`}>
+      <div className={styles.roleGrid}>
         {entries.map(({ cat, count }) => (
-          <div key={cat} style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-            <div style={{ flex: '0 1 clamp(72px, 30vw, 100px)', fontSize: '0.72rem', color: CAT_COLORS[cat] || 'var(--text-dim)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {cat}
-            </div>
-            <div style={{ flex: 1, height: 7, background: 'var(--s-medium)', borderRadius: 3, overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${(count / maxVal) * 100}%`, background: CAT_COLORS[cat] || 'rgba(201,168,76,0.5)', opacity: 0.7, borderRadius: 3, transition: 'width 0.4s ease', minWidth: 2 }} />
-            </div>
-            <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', width: 22, textAlign: 'right', flexShrink: 0 }}>{count}</div>
-          </div>
+          <button
+            key={cat}
+            type="button"
+            className={styles.roleButton}
+            onClick={() => setSelectedCategory(cat)}
+            aria-label={`View ${count} card${count === 1 ? '' : 's'} categorized as ${cat}`}
+          >
+            <span className={styles.roleName} style={{ color: CAT_COLORS[cat] || 'var(--text-dim)' }}>{cat}</span>
+            <strong className={styles.roleCount}>{count}</strong>
+          </button>
         ))}
       </div>
-    </div>
+      <CardPreviewDialog
+        label={selectedCategory}
+        cards={selectedCategory ? cardsWithCategory(cards, selectedCategory) : []}
+        onClose={() => setSelectedCategory(null)}
+      />
+    </StatsDisclosure>
   )
 }
 
@@ -550,7 +658,7 @@ function cardsWithCreatureType(cards, type) {
 
 // Generic pill cloud with an on-hover/tap card-image popover. Used for both
 // the keyword and creature-type breakdowns.
-function PillFrequency({ label, counts, cards, getMatchingCards }) {
+function PillFrequency({ label, counts, cards, getMatchingCards, embedded = false }) {
   // Click a pill to open a centered preview of the matching cards (replaces
   // the old hover popover — works the same on touch and desktop).
   const [openValue, setOpenValue] = useState(null)
@@ -573,16 +681,19 @@ function PillFrequency({ label, counts, cards, getMatchingCards }) {
   const totalCopies = previewCards.reduce((s, c) => s + (c.qty || 1), 0)
 
   return (
-    <div className={styles.panel} style={{ padding: '14px 14px 12px' }}>
-      <div className={styles.panelTitle} style={{ marginBottom: 10 }}>
+    <div className={embedded ? styles.traitGroup : styles.panel} style={{ padding: '14px 14px 12px' }}>
+      <div className={styles.contentLabel}>
         {label}
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px 6px' }}>
         {counts.map(([value, count]) => (
           <button
             key={value}
+            type="button"
             className={styles.freqPill}
             onClick={() => setOpenValue(v => v === value ? null : value)}
+            aria-expanded={openValue === value}
+            aria-label={`View ${count} cards with ${value}`}
           >
             {value}
             <span className={styles.freqPillCount}>×{count}</span>
@@ -592,12 +703,12 @@ function PillFrequency({ label, counts, cards, getMatchingCards }) {
 
       {openValue && previewCards.length > 0 && (
         <div className={styles.previewOverlay} onClick={() => setOpenValue(null)}>
-          <div className={styles.previewPanel} onClick={e => e.stopPropagation()}>
+          <div className={styles.previewPanel} role="dialog" aria-modal="true" aria-label={`${totalCopies} cards with ${openValue}`} onClick={e => e.stopPropagation()}>
             <div className={styles.previewHead}>
               <span className={styles.previewTitle}>
                 {totalCopies} card{totalCopies !== 1 ? 's' : ''} with {openValue}
               </span>
-              <button className={styles.previewClose} onClick={() => setOpenValue(null)} aria-label="Close">
+              <button type="button" className={styles.previewClose} onClick={() => setOpenValue(null)} aria-label="Close card preview">
                 <CloseIcon size={15} />
               </button>
             </div>
@@ -625,18 +736,18 @@ function pct(p) {
   return `${Math.round(p * 100)}%`
 }
 
-function Stepper({ value, min, max, onChange }) {
+function Stepper({ value, min, max, onChange, label }) {
   const num = Number(value)
   const set = (v) => onChange(String(Math.max(min, Math.min(max, v))))
   return (
     <div className={styles.stepper}>
-      <button type="button" className={styles.stepperBtn} onClick={() => set((Number.isFinite(num) ? num : min) - 1)} aria-label="decrease">−</button>
+      <button type="button" className={styles.stepperBtn} onClick={() => set((Number.isFinite(num) ? num : min) - 1)} aria-label={`Decrease ${label}`}>−</button>
       <input
         className={styles.stepperInput}
-        type="number" min={min} max={max} value={value}
+        type="number" min={min} max={max} value={value} aria-label={label}
         onChange={e => onChange(e.target.value)}
       />
-      <button type="button" className={styles.stepperBtn} onClick={() => set((Number.isFinite(num) ? num : min) + 1)} aria-label="increase">+</button>
+      <button type="button" className={styles.stepperBtn} onClick={() => set((Number.isFinite(num) ? num : min) + 1)} aria-label={`Increase ${label}`}>+</button>
     </div>
   )
 }
@@ -679,9 +790,11 @@ function ProbabilitySection({ deckSize, landCount, catCounts, typeCounts, creatu
   const oh = openingHandLands(deckSize, landCount)
 
   return (
-    <div className={styles.panel} style={{ padding: '14px 14px 12px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div className={styles.panelTitle}>Probabilities</div>
-
+    <StatsDisclosure
+      title="Advanced Probabilities"
+      metric={`${pct(oh.idealPct)} keepable`}
+      bodyClassName={styles.probCalc}
+    >
       {landCount > 0 && (
         <div className={styles.probOpening}>
           <span className={styles.probOpeningLabel}>Opening hand</span>
@@ -691,41 +804,40 @@ function ProbabilitySection({ deckSize, landCount, catCounts, typeCounts, creatu
         </div>
       )}
 
-      <div className={styles.probCalc}>
-        <div className={styles.probCalcRow}>
-          <span className={styles.probCalcText}>Draw at least</span>
-          <Stepper value={wantK} min={1} max={kMax} onChange={setWantK} />
-          <Select className={styles.probSelect} title="Target" value={targetValue} onChange={e => setTargetValue(e.target.value)}>
-            {groups.map((g) => (
-              g.label
-                ? <optgroup key={g.label} label={g.label}>
-                    {g.items.map(it => <option key={it.value} value={it.value}>{it.label} ({it.K})</option>)}
-                  </optgroup>
-                : g.items.map(it => <option key={it.value} value={it.value}>{it.label} ({it.K})</option>)
-            ))}
-          </Select>
-          <span className={styles.probCalcText}>in</span>
-          <Stepper value={drawn} min={1} max={deckSize} onChange={setDrawn} />
-          <span className={styles.probCalcText}>cards</span>
-        </div>
+      <div className={styles.probCalcRow}>
+        <span className={styles.probCalcText}>Draw at least</span>
+        <Stepper value={wantK} min={1} max={kMax} onChange={setWantK} label="copies to draw" />
+        <Select className={styles.probSelect} title="Target" value={targetValue} onChange={e => setTargetValue(e.target.value)}>
+          {groups.map((g) => (
+            g.label
+              ? <optgroup key={g.label} label={g.label}>
+                  {g.items.map(it => <option key={it.value} value={it.value}>{it.label} ({it.K})</option>)}
+                </optgroup>
+              : g.items.map(it => <option key={it.value} value={it.value}>{it.label} ({it.K})</option>)
+          ))}
+        </Select>
+        <span className={styles.probCalcText}>in</span>
+        <Stepper value={drawn} min={1} max={deckSize} onChange={setDrawn} label="cards seen" />
+        <span className={styles.probCalcText}>cards</span>
+      </div>
 
-        <div className={styles.probResultCard}>
-          <div className={styles.probResultTop}>
-            <span className={styles.probResultPct}>{pct(atLeastK)}</span>
-            <span className={styles.probResultDesc}>
-              to draw {k === 1 ? 'at least one' : `${k}+`} · ~{exp.toFixed(2)} expected in {n}
-            </span>
-          </div>
-          <div className={styles.probBarTrack}>
-            <div className={styles.probBarFill} style={{ width: `${Math.round(atLeastK * 100)}%` }} />
-          </div>
+      <div className={styles.probResultCard}>
+        <div className={styles.probResultTop}>
+          <span className={styles.probResultPct}>{pct(atLeastK)}</span>
+          <span className={styles.probResultDesc}>
+            to draw {k === 1 ? 'at least one' : `${k}+`} · ~{exp.toFixed(2)} expected in {n}
+          </span>
+        </div>
+        <div className={styles.probBarTrack}>
+          <div className={styles.probBarFill} style={{ width: `${Math.round(atLeastK * 100)}%` }} />
         </div>
       </div>
-    </div>
+    </StatsDisclosure>
   )
 }
 
-function PriceBreakdown({ totalPrice, avgPrice, priceByCategory, topCards, price_source }) {
+function PriceBreakdown({ totalPrice, avgPrice: _avgPrice, priceByCategory, topCards, price_source }) {
+  const [selectedCard, setSelectedCard] = useState(null)
   if (totalPrice <= 0) return null
 
   const catEntries = CAT_ORDER
@@ -736,22 +848,7 @@ function PriceBreakdown({ totalPrice, avgPrice, priceByCategory, topCards, price
   const maxCatPrice = Math.max(1, ...catEntries.map(e => e.total))
 
   return (
-    <div className={styles.panel} style={{ padding: '14px 14px 12px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div className={styles.panelTitle}>
-        Price
-      </div>
-
-      {/* Summary pills */}
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        <div style={{ background: 'var(--s-medium)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 14px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <span style={{ fontSize: '0.64rem', color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Total</span>
-          <span style={{ fontFamily: 'var(--font-display)', fontSize: '0.95rem', color: 'var(--green)' }}>{formatPrice(totalPrice, price_source)}</span>
-        </div>
-        <div style={{ background: 'var(--s-medium)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 14px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <span style={{ fontSize: '0.64rem', color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Avg / card</span>
-          <span style={{ fontFamily: 'var(--font-display)', fontSize: '0.95rem', color: 'var(--text)' }}>{formatPrice(avgPrice, price_source)}</span>
-        </div>
-      </div>
+    <StatsDisclosure title="Price" metric={`${formatPrice(totalPrice, price_source)} total`}>
 
       {/* Price by category bars */}
       {catEntries.length > 0 && (
@@ -773,9 +870,9 @@ function PriceBreakdown({ totalPrice, avgPrice, priceByCategory, topCards, price
       {/* Top expensive cards */}
       {topCards.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-faint)', fontFamily: 'var(--font-display)' }}>Most Expensive</div>
+          <div className={styles.contentLabel}>Most Expensive</div>
           {topCards.map((c, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+            <button key={i} type="button" className={styles.topCardRow} onClick={() => setSelectedCard(c.card)} aria-label={`Preview ${c.name}`}>
               <div style={{ width: 28, height: 20, borderRadius: 3, overflow: 'hidden', flexShrink: 0, background: 'var(--s2)' }}>
                 {c.image_uri && <img src={c.image_uri} alt={c.name} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 15%' }} />}
               </div>
@@ -783,22 +880,23 @@ function PriceBreakdown({ totalPrice, avgPrice, priceByCategory, topCards, price
                 {c.name}{c.qty > 1 && <span style={{ color: 'var(--text-faint)', marginLeft: 4 }}>×{c.qty}</span>}
               </div>
               <div style={{ fontSize: '0.75rem', color: 'var(--green)', fontFamily: 'var(--font-display)', flexShrink: 0 }}>{formatPrice(c.total, price_source)}</div>
-            </div>
+            </button>
           ))}
         </div>
       )}
-    </div>
+      <CardPreviewDialog
+        label={selectedCard?.name || null}
+        cards={selectedCard ? [selectedCard] : []}
+        onClose={() => setSelectedCard(null)}
+      />
+    </StatsDisclosure>
   )
 }
 
 function TokensExtras({ allItems, tokenImages }) {
   if (!allItems.length) return null
   return (
-    <div className={styles.panel} style={{ padding: '14px 14px 12px' }}>
-      <div className={styles.panelTitle} style={{ marginBottom: 10 }}>
-        Tokens &amp; Extras
-      </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+    <StatsDisclosure title="Tokens & Extras" metric={allItems.length} bodyClassName={styles.tokenGrid}>
         {allItems.map(name => {
           const imgUri = tokenImages[name]
           return (
@@ -821,8 +919,7 @@ function TokensExtras({ allItems, tokenImages }) {
             </div>
           )
         })}
-      </div>
-    </div>
+    </StatsDisclosure>
   )
 }
 
@@ -895,7 +992,7 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride, p
       // Production from all cards
       for (const color of getProducedColors(c)) {
         const k = COLOR_ORDER.includes(color) ? color : 'C'
-        prodMana[k] += 1
+        prodMana[k] += qty
       }
 
       if (type !== 'Lands') {
@@ -957,7 +1054,7 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride, p
           c.keywords || [],
         )
         priceByCategory[cat] = (priceByCategory[cat] || 0) + cardTotal
-        priceByCard.push({ name: c.name, price: p, qty, total: cardTotal, image_uri: c.image_uri })
+        priceByCard.push({ name: c.name, price: p, qty, total: cardTotal, image_uri: c.image_uri, card: c })
       }
     }
     priceByCard.sort((a, b) => b.total - a.total)
@@ -998,29 +1095,18 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride, p
     return () => { active = false }
   }, [stats.tokenNames, stats.extras])
 
-  const { curve, curveByColor, curveByType, costColors, costCards, prodMana, typeCounts, catCounts, totalCostPips, totalProdMana, nonLandCount, avgCmc, kwCounts, creatureTypeCounts, tokenNames, extras, totalPrice, avgPrice, priceByCategory, topCards } = stats
+  const { curve, curveByColor, curveByType, costColors, costCards, prodMana, typeCounts, catCounts, totalCostPips, totalProdMana, avgCmc, kwCounts, creatureTypeCounts, tokenNames, extras, totalPrice, avgPrice, priceByCategory, topCards } = stats
   const curveSegData = curveMode === 'color' ? curveByColor : curveByType
   const effectiveBracket = bracketOverride ?? bracketAnalysis?.bracket ?? 1
+  const deckSize = Object.values(typeCounts).reduce((sum, count) => sum + count, 0)
+  const landCount = typeCounts['Lands'] || 0
 
   const hasOracleData = cards.some(c => c.oracle_text)
 
   return (
-    <div style={{
-      background: 'var(--s-subtle)',
-      border: '1px solid var(--border)',
-      borderRadius: 6,
-      padding: '18px 20px',
-      marginBottom: 18,
-      display: 'flex', flexDirection: 'column', gap: 16,
-      width: '100%',
-      maxWidth: '100%',
-      minWidth: 0,
-      boxSizing: 'border-box',
-      overflowX: 'clip',
-    }}>
-      {/* Pills row */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        {showBracket && bracketAnalysis && (
+    <div className={styles.statsStack}>
+      {showBracket && bracketAnalysis && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <BracketBadge
             analysis={bracketAnalysis}
             bracket={effectiveBracket}
@@ -1028,31 +1114,23 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride, p
             onOverride={onBracketOverride}
             combos={combos}
           />
-        )}
-        <div style={{ background: 'var(--s-medium)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 14px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <span style={{ fontSize: '0.64rem', color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Avg CMC</span>
-          <span style={{ fontFamily: 'var(--font-display)', fontSize: '0.95rem', color: 'var(--text)' }}>{avgCmc}</span>
         </div>
-        <div style={{ background: 'var(--s-medium)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 14px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <span style={{ fontSize: '0.64rem', color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Non-Land</span>
-          <span style={{ fontFamily: 'var(--font-display)', fontSize: '0.95rem', color: 'var(--text)' }}>{nonLandCount}</span>
-        </div>
-        <div style={{ background: 'var(--s-medium)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 14px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <span style={{ fontSize: '0.64rem', color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Lands</span>
-          <span style={{ fontFamily: 'var(--font-display)', fontSize: '0.95rem', color: 'var(--text)' }}>{typeCounts['Lands'] || 0}</span>
-        </div>
-      </div>
+      )}
 
-      {/* Stacked color bars */}
+      {/* Mana demand and production are directly comparable in one panel. */}
       {(totalCostPips > 0 || totalProdMana > 0) && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <StatsDisclosure
+          title="Mana"
+          metric={`${totalProdMana} sources · ${totalCostPips} pips`}
+          bodyClassName={styles.manaBody}
+        >
           {totalCostPips > 0 && (
             <ColorStackBar colorCounts={costColors} totalPips={totalCostPips} title="Mana Cost" cardCounts={costCards} />
           )}
           {totalProdMana > 0 && (
             <ColorStackBar colorCounts={prodMana} totalPips={totalProdMana} title="Mana Production" />
           )}
-        </div>
+        </StatsDisclosure>
       )}
 
       {/* Charts */}
@@ -1064,13 +1142,13 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride, p
           curveSegData={curveSegData}
           onModeChange={setCurveMode}
         />
-        <TypeBreakdown typeCounts={typeCounts} />
+        <TypeBreakdown typeCounts={typeCounts} cards={cards} />
       </div>
 
       {/* Draw probabilities (hypergeometric) */}
       <ProbabilitySection
-        deckSize={Object.values(typeCounts).reduce((a, b) => a + b, 0)}
-        landCount={typeCounts['Lands'] || 0}
+        deckSize={deckSize}
+        landCount={landCount}
         catCounts={catCounts}
         typeCounts={typeCounts}
         creatureTypeCounts={creatureTypeCounts}
@@ -1078,15 +1156,23 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride, p
 
       {/* Category breakdown + Keywords (only when oracle text is available) */}
       {hasOracleData && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: 14, minWidth: 0 }}>
-          <CategoryBreakdown catCounts={catCounts} />
-          <PillFrequency label="Keywords" counts={kwCounts} cards={cards} getMatchingCards={cardsWithKeyword} />
-        </div>
+        <CategoryBreakdown catCounts={catCounts} cards={cards} />
       )}
 
       {/* Creature types (from type lines — no oracle text needed) */}
-      {creatureTypeCounts.length > 0 && (
-        <PillFrequency label="Creature Types" counts={creatureTypeCounts} cards={cards} getMatchingCards={cardsWithCreatureType} />
+      {(kwCounts.length > 0 || creatureTypeCounts.length > 0) && (
+        <StatsDisclosure
+          title="Card Traits"
+          metric={`${kwCounts.length} keywords · ${creatureTypeCounts.length} creature types`}
+          bodyClassName={styles.traitGrid}
+        >
+          {kwCounts.length > 0 && (
+            <PillFrequency embedded label="Keywords" counts={kwCounts} cards={cards} getMatchingCards={cardsWithKeyword} />
+          )}
+          {creatureTypeCounts.length > 0 && (
+            <PillFrequency embedded label="Creature Types" counts={creatureTypeCounts} cards={cards} getMatchingCards={cardsWithCreatureType} />
+          )}
+        </StatsDisclosure>
       )}
 
       {/* Price breakdown */}
