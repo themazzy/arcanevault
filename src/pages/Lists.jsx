@@ -1455,9 +1455,11 @@ export default function ListsPage() {
                 </>
               ) : (
                 <>
-                <Button size="sm" className={styles.viewAllBtn} onClick={() => setShowAllCards(true)} title="View all cards" aria-label="View all cards">
+                {/* Browse action, not the page CTA — secondary so the gold
+                    stays reserved for New Wishlist (incl. the mobile pill bar) */}
+                <Button variant="secondary" size="sm" className={styles.viewAllBtn} onClick={() => setShowAllCards(true)} title="View all cards" aria-label="View all cards">
                   <CollectionIcon size={14} />
-                  <span>View All Cards</span>
+                  <span>All Cards</span>
                 </Button>
                 <SearchInput
                   className={styles.folderSearch}

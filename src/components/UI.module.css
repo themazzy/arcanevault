@@ -764,95 +764,127 @@
     z-index: 130;
   }
 
+  /* Floating action pills — matches the DeckBuilder mobile toolbar: no
+     background slab; each action is its own glass pill with the icon
+     stacked over a tiny uppercase label. */
   .headerFloatingToolbar {
     position: fixed;
-    left: 50%;
-    right: auto;
+    left: 8px;
+    right: 8px;
     bottom: calc(10px + env(safe-area-inset-bottom, 0px));
-    width: min(360px, calc(100vw - 28px));
-    max-width: calc(100% - 28px);
     box-sizing: border-box;
-    transform: translateX(-50%);
     z-index: 100;
     display: flex;
+    align-items: stretch;
+    justify-content: stretch;
+    gap: 7px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    overflow: visible;
+  }
+
+  .headerFloatingToolbar > * {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .headerFloatingToolbar button {
+    flex: 1 1 0;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    height: 48px;
+    min-height: 48px;
+    display: inline-flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 3px;
-    padding: 5px 6px;
-    overflow-x: auto;
-    overflow-y: visible;
-    overscroll-behavior-x: contain;
-    scrollbar-width: none;
-    border: 1px solid color-mix(in srgb, var(--gold) 32%, transparent);
-    border-radius: 12px;
-    background:
-      linear-gradient(180deg,
-        color-mix(in srgb, var(--bg2) 80%, transparent),
-        color-mix(in srgb, var(--bg) 84%, transparent));
-    backdrop-filter: blur(20px) saturate(140%);
-    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    padding: 5px 6px 4px;
+    border: 1px solid var(--s-border2);
+    border-radius: var(--radius-lg);
+    background: linear-gradient(180deg,
+      color-mix(in srgb, var(--bg3) 92%, transparent),
+      color-mix(in srgb, var(--bg2) 88%, transparent));
+    backdrop-filter: blur(18px) saturate(135%);
+    -webkit-backdrop-filter: blur(18px) saturate(135%);
     box-shadow:
-      0 14px 38px rgba(0,0,0,0.55),
-      0 0 0 1px color-mix(in srgb, var(--gold) 8%, transparent),
-      inset 0 1px 0 rgba(255,255,255,0.06);
-  }
-
-  .headerFloatingToolbar::-webkit-scrollbar {
-    display: none;
-  }
-
-  .headerFloatingToolbar > *,
-  .headerFloatingToolbar button {
-    flex: 1 1 0;
-    min-width: 0;
-    width: auto;
-    height: 34px;
-    min-height: 34px;
-    border-radius: 7px;
-    white-space: nowrap;
-  }
-
-  .headerFloatingToolbar button {
-    max-width: none;
-    padding: 0;
+      0 9px 24px color-mix(in srgb, var(--bg) 48%, transparent),
+      inset 0 1px 0 var(--s-border);
+    color: var(--text-dim);
     overflow: hidden;
-    text-overflow: ellipsis;
-    background: color-mix(in srgb, var(--bg3) 70%, transparent);
-    border-color: var(--s-border2);
-    box-shadow: none;
-    font-size: 0;
-    letter-spacing: 0;
+    line-height: 1;
   }
 
   .headerFloatingToolbar button > span {
-    display: none;
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: currentColor;
+    font-family: var(--font-display);
+    font-size: 0.58rem;
+    letter-spacing: 0.04em;
+    line-height: 1;
+    text-transform: uppercase;
   }
 
   .headerFloatingToolbar button svg {
     display: block;
     flex-shrink: 0;
-    margin: auto;
+    margin: 0;
   }
 
-  .headerFloatingToolbar button:hover:not(:disabled) {
-    color: var(--gold);
-    border-color: color-mix(in srgb, var(--gold) 35%, var(--s-border2));
-    background: color-mix(in srgb, var(--bg3) 82%, transparent);
+  /* Trailing glyphs (dropdown chevrons — bare or span-wrapped) don't fit
+     the stacked icon-over-label layout */
+  .headerFloatingToolbar button svg ~ svg,
+  .headerFloatingToolbar button > span:has(svg) {
+    display: none;
+  }
+
+  /* Variant-aware emphasis: the primary create CTA keeps its gold weight,
+     destructive bulk actions keep their red identity. */
+  .headerFloatingToolbar button.default,
+  .headerFloatingToolbar button.primary {
+    background: linear-gradient(180deg,
+      color-mix(in srgb, var(--gold) 36%, var(--bg3)),
+      color-mix(in srgb, var(--gold) 22%, var(--bg2)));
+    border-color: color-mix(in srgb, var(--gold) 70%, var(--s-border2));
+    color: color-mix(in srgb, var(--gold) 84%, var(--text));
+    box-shadow:
+      0 10px 28px color-mix(in srgb, var(--gold) 20%, transparent),
+      inset 0 1px 0 color-mix(in srgb, var(--gold) 28%, transparent);
+  }
+
+  .headerFloatingToolbar button.danger {
+    background: linear-gradient(180deg,
+      color-mix(in srgb, var(--red) 24%, var(--bg3)),
+      color-mix(in srgb, var(--red) 14%, var(--bg2)));
+    border-color: color-mix(in srgb, var(--red) 55%, var(--s-border2));
+    color: color-mix(in srgb, var(--red) 72%, var(--text));
+  }
+
+  .headerFloatingToolbar button:disabled {
+    opacity: 0.5;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .headerFloatingToolbar button:hover:not(:disabled) {
+      color: var(--gold);
+      border-color: color-mix(in srgb, var(--gold) 35%, var(--s-border2));
+    }
   }
 }
 
 @media (max-width: 380px) {
   .headerFloatingToolbar {
-    width: calc(100vw - 24px);
-    max-width: calc(100% - 24px);
-    gap: 2px;
-    padding: 4px 5px;
-  }
-
-  .headerFloatingToolbar > *,
-  .headerFloatingToolbar button {
-    height: 32px;
-    min-height: 32px;
+    gap: 5px;
   }
 }
 
@@ -926,7 +958,10 @@
     flex-direction: column;
   }
 
-  .headerActionMobile > :not(.headerActionMobileExtra):not(.headerMenuBtn):not(.headerMenuPanel) {
+  /* In-flow header children stack full-width — the floating toolbar is
+     position:fixed and must keep its left/right viewport constraints
+     (width:100% would override them and overflow the right edge). */
+  .headerActionMobile > :not(.headerActionMobileExtra):not(.headerMenuBtn):not(.headerMenuPanel):not(.headerFloatingToolbar) {
     order: 1;
     min-width: 0;
     width: 100%;

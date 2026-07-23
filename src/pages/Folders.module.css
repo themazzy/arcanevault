@@ -1244,23 +1244,21 @@
     gap: 8px;
     white-space: nowrap;
   }
+  /* Inside the floating pill bar the shared pill styling governs the box;
+     these only make the wrapper fill its slot and drop the label inset. */
   :global([class*="headerFloatingToolbar"]) .sortDropdown {
     flex: 1 1 0;
     min-width: 0;
+    display: flex;
+    align-items: stretch;
   }
   :global([class*="headerFloatingToolbar"]) .sortDropdownBtn {
     width: 100%;
     min-width: 0;
     max-width: none;
-    justify-content: center;
-    align-items: center;
-    padding: 0;
   }
-  :global([class*="headerFloatingToolbar"]) .sortDropdownBtn > span {
-    display: none;
-  }
-  :global([class*="headerFloatingToolbar"]) .sortDropdownBtn > svg {
-    margin: auto;
+  :global([class*="headerFloatingToolbar"]) .sortDropdownBtn > span:first-of-type {
+    padding-right: 0;
   }
   .sortDropdownMenu,
   .groupCogMenu {
