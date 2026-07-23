@@ -852,11 +852,19 @@
 .moveGroupRemove:hover { background: rgba(200,60,60,0.08); }
 
 /* ── Binder / List browser header ───────────────────────────────────────── */
+/* Framed header card — same treatment as the deck browser's header */
 .binderHeader {
-  margin-bottom: 18px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--s-border);
+  position: relative;
+  margin-bottom: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
 }
+/* Header + search wrapper; a plain block on desktop, framed dock on mobile */
+.browserDock { display: block; }
+/* Card views wrapper; plain on desktop, the internal scroller on mobile */
+.browserViewport { display: block; min-height: 0; }
+.browserPage { display: block; }
 .binderTitleRow {
   display: flex;
   align-items: baseline;
@@ -881,9 +889,9 @@
 .binderTitleInput {
   box-sizing: border-box;
   min-width: 0;
-  width: min(100%, 320px);
+  width: min(100%, 360px);
   font-family: var(--font-display);
-  font-size: 1.15rem;
+  font-size: 1.4rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   color: var(--gold);
@@ -896,24 +904,25 @@
 }
 .binderTitle {
   font-family: var(--font-display, 'Cinzel', serif);
-  font-size: 1.15rem;
+  font-size: 1.4rem;
   font-weight: 600;
   color: var(--gold, #c9a84c);
   letter-spacing: 0.04em;
-  margin: 4px 0 0;
+  margin: 0;
 }
 .binderMeta {
   display: flex;
   align-items: center;
   gap: 12px;
   color: var(--text-dim, #9a8870);
-  font-size: 0.82rem;
+  font-size: 0.85rem;
   flex-shrink: 0;
   flex-wrap: wrap;
 }
 .binderValue {
   color: var(--green, #5dba70);
   font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 1rem;
   font-weight: 600;
 }
 .browserHeaderActionsDesktop {
@@ -927,7 +936,7 @@
   margin-top: 12px;
 }
 .browserBackBtn {
-  min-height: 36px;
+  min-height: var(--control-height);
   padding-inline: 12px;
   border-radius: var(--radius-sm);
   color: var(--text-dim);
@@ -1436,4 +1445,70 @@
 .folderCardSelected {
   outline: 2px solid var(--gold);
   outline-offset: 2px;
+}
+
+/* ── In-browser mobile dock + internal scroll (deck-browser parity) ─────────
+   Appended last so these override the older narrow-width header rules. */
+@media (max-width: 768px) {
+  .browserPage {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+  .browserViewport {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    /* Left/top: bleed slack for hover lift/shadow; right: full bleed to the
+       screen edge with the scrollbar parked in the page gutter (--sbw is the
+       measured scrollbar width; 0 on overlay-scrollbar phones). */
+    margin: -6px calc(-1 * var(--page-gutter)) 0 -6px;
+    padding: 6px max(0px, calc(var(--page-gutter) - var(--sbw, 0px))) 0 6px;
+  }
+  .browserDock {
+    margin-bottom: 8px;
+    padding: 8px 10px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: linear-gradient(var(--s1), var(--s1)) var(--bg);
+  }
+  .binderHeader {
+    margin-bottom: 0;
+    padding: 0;
+    border: 0;
+  }
+  .binderTitleRow {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 6px;
+  }
+  .binderTitle { font-size: 0.98rem; }
+  .binderTitleInput { font-size: 0.98rem; }
+  .binderMeta {
+    width: auto;
+    gap: 4px 8px;
+    font-size: var(--control-font-size);
+  }
+  .binderValue,
+  .wishlistCost { font-size: var(--control-font-size); }
+  .browserBackRow { margin-top: 6px; }
+  .browserBackBtn {
+    height: 34px;
+    min-height: 34px;
+  }
+  /* Search is the dock card's last row, 34px like the buttons above it */
+  .browserPage [class*="filterWrap"] {
+    padding: 6px 0 0;
+    background: none;
+  }
+  .browserPage [class*="filterWrap"] [class*="filterBar"] {
+    margin: 0;
+  }
+  .browserPage [class*="filterWrap"] input {
+    height: 34px;
+  }
+  /* Header meta already covers totals; the count row is not worth the space */
+  .binderControlBar { margin: 0; }
+  .binderCount { display: none; }
 }

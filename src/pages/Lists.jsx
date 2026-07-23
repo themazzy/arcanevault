@@ -312,6 +312,19 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
     if (error) { setFolderName(prev); toast.error('Rename failed.') }
     else { folder.name = trimmed; toast.success('Wishlist renamed.') }
   }
+
+  // Viewport scrollbar width exposed as --sbw so CSS can park the scrollbar
+  // in the page gutter (0 on overlay-scrollbar platforms) — deck-browser parity.
+  const viewportRef = useRef(null)
+  const [viewportSbw, setViewportSbw] = useState(0)
+  const viewportRefCb = useCallback(el => {
+    viewportRef.current = el
+    if (!el) return
+    const measure = () => setViewportSbw(el.offsetWidth - el.clientWidth)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+  }, [])
   const folderIds = useMemo(() => folders.map(f => f.id), [folders])
   const folderNameById = useMemo(
     () => Object.fromEntries((folders || []).map(f => [f.id, f.name])),
@@ -604,8 +617,9 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
   if (loading) return <EmptyState>Loading…</EmptyState>
 
   return (
-    <div onMouseMove={handleMouseMove} onMouseLeave={handleHoverEnd}>
-      {/* ── Wishlist header ── */}
+    <div className={styles.browserPage} onMouseMove={handleMouseMove} onMouseLeave={handleHoverEnd}>
+      {/* ── Header + search: one dock (deck-browser parity) ── */}
+      <div className={styles.browserDock}>
       <div className={styles.binderHeader}>
         <div className={styles.binderTitleRow}>
           {renamingFolder ? (
@@ -662,6 +676,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
         hideActionsMobile
         hideSortFilterMobile
       />}
+      </div>
 
       {/* ── Control bar ── */}
       {items.length > 0 && <div className={styles.binderControlBar}>
@@ -745,26 +760,28 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
       {items.length > 0 && filtered.length === 0 && <EmptyState>No wishlist cards match your search or filters.</EmptyState>}
 
       {filtered.length > 0 && (
-        <CardBrowserContent
-          cards={filtered.map(item => ({
-            ...item,
-            _folderName: isAllView ? folderNameById[item.folder_id] || '' : '',
-          }))}
-          sfMap={sfMap}
-          priceSource={price_source}
-          viewMode={viewMode}
-          groupBy={groupBy}
-          density={grid_density}
-          onSelect={item => setSelectedItemId(item.id)}
-          selectMode={selectMode}
-          selectedCards={selectedItems}
-          onToggleSelect={onToggleSelect}
-          onAdjustQty={onAdjustQty}
-          splitState={splitState}
-          onEnterSelectMode={enterSelectMode}
-          onHover={handleHover}
-          onHoverEnd={handleHoverEnd}
-        />
+        <div className={styles.browserViewport} ref={viewportRefCb} style={{ '--sbw': `${viewportSbw}px` }}>
+          <CardBrowserContent
+            cards={filtered.map(item => ({
+              ...item,
+              _folderName: isAllView ? folderNameById[item.folder_id] || '' : '',
+            }))}
+            sfMap={sfMap}
+            priceSource={price_source}
+            viewMode={viewMode}
+            groupBy={groupBy}
+            density={grid_density}
+            onSelect={item => setSelectedItemId(item.id)}
+            selectMode={selectMode}
+            selectedCards={selectedItems}
+            onToggleSelect={onToggleSelect}
+            onAdjustQty={onAdjustQty}
+            splitState={splitState}
+            onEnterSelectMode={enterSelectMode}
+            onHover={handleHover}
+            onHoverEnd={handleHoverEnd}
+          />
+        </div>
       )}
 
       {selectedItem && (

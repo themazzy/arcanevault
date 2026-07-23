@@ -543,7 +543,8 @@ button.navSubmenuItem {
      from scrolling and from reserving scrollbar gutters that would inset
      content 6px past the viewport-anchored pill toolbar. State-based (the
      deck opens without a route change), hence :has instead of a route class. */
-  .main:has([class*="deckBrowser"]) {
+  .main:has([class*="deckBrowser"]),
+  .main:has([class*="browserPage"]) {
     overflow: hidden;
     scrollbar-gutter: auto;
   }

@@ -610,6 +610,19 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
     if (error) { setFolderName(prev); toast.error('Rename failed.') }
     else { folder.name = trimmed; toast.success(`${noun} renamed.`) }
   }
+
+  // Viewport scrollbar width exposed as --sbw so CSS can park the scrollbar
+  // in the page gutter (0 on overlay-scrollbar platforms) — deck-browser parity.
+  const viewportRef = useRef(null)
+  const [viewportSbw, setViewportSbw] = useState(0)
+  const viewportRefCb = useCallback(el => {
+    viewportRef.current = el
+    if (!el) return
+    const measure = () => setViewportSbw(el.offsetWidth - el.clientWidth)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+  }, [])
   const folderIds = useMemo(() => folders.map(f => f.id), [folders])
   const moveFolders = useMemo(() => allFolders.filter(f => !isGroupFolder(f) && f.id !== folder?.id), [allFolders, folder?.id])
   const getCardKey = useCallback((card) => card?._displayKey || card?.id, [])
@@ -946,8 +959,9 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
   if (loading) return <EmptyState>Loading…</EmptyState>
 
   return (
-    <div onMouseMove={handleMouseMove} onMouseLeave={handleHoverEnd}>
-      {/* ── Binder header ── */}
+    <div className={styles.browserPage} onMouseMove={handleMouseMove} onMouseLeave={handleHoverEnd}>
+      {/* ── Header + search: one dock (deck-browser parity) ── */}
+      <div className={styles.browserDock}>
       <div className={styles.binderHeader}>
         <div className={styles.binderTitleRow}>
           {renamingFolder ? (
@@ -1004,6 +1018,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
         hideActionsMobile
         hideSortFilterMobile
       />}
+      </div>
 
       {/* ── Control bar ── */}
       {cards.length > 0 && <div className={styles.binderControlBar}>
@@ -1078,23 +1093,25 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
       {cards.length > 0 && filtered.length === 0 && <EmptyState>No cards match your search or filters.</EmptyState>}
 
       {filtered.length > 0 && (
-        <CardBrowserContent
-          cards={filtered}
-          sfMap={sfMap}
-          priceSource={price_source}
-          viewMode={viewMode}
-          groupBy={groupBy}
-          density={grid_density}
-          onSelect={isAllView ? () => {} : c => setSelected(c.id)}
-          selectMode={selectMode}
-          selectedCards={selectedCards}
-          onToggleSelect={onToggleSelect}
-          onAdjustQty={onAdjustQty}
-          splitState={splitState}
-          onEnterSelectMode={() => setSelectMode(true)}
-          onHover={handleHover}
-          onHoverEnd={handleHoverEnd}
-        />
+        <div className={styles.browserViewport} ref={viewportRefCb} style={{ '--sbw': `${viewportSbw}px` }}>
+          <CardBrowserContent
+            cards={filtered}
+            sfMap={sfMap}
+            priceSource={price_source}
+            viewMode={viewMode}
+            groupBy={groupBy}
+            density={grid_density}
+            onSelect={isAllView ? () => {} : c => setSelected(c.id)}
+            selectMode={selectMode}
+            selectedCards={selectedCards}
+            onToggleSelect={onToggleSelect}
+            onAdjustQty={onAdjustQty}
+            splitState={splitState}
+            onEnterSelectMode={() => setSelectMode(true)}
+            onHover={handleHover}
+            onHoverEnd={handleHoverEnd}
+          />
+        </div>
       )}
       {selectedCard && (
         <CardDetail
