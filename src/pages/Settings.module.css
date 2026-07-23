@@ -19,7 +19,7 @@
   width: 100%;
   box-sizing: border-box;
   background: var(--s-card);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 7px;
   padding: 10px 36px;
   color: var(--text);
@@ -109,7 +109,7 @@
 
 .select {
   background: var(--s-subtle);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 4px;
   padding: 8px 12px;
   color: var(--text);
@@ -158,7 +158,7 @@
 .pwForm { display: flex; gap: 8px; align-items: center; }
 .input {
   background: var(--s-subtle);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 4px;
   padding: 8px 12px;
   color: var(--text);
@@ -256,7 +256,7 @@
   min-height: 32px;
   padding: 0 10px;
   border-radius: 999px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   background: var(--s-subtle);
   color: var(--text-dim);
   font-family: var(--font-display);
@@ -313,7 +313,7 @@
 .priceSourceSelect {
   display: none;
   background: var(--s-subtle);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 4px;
   padding: 10px 12px;
   color: var(--text);
@@ -1190,7 +1190,7 @@
 
 .fontOption {
   background: var(--s-subtle);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 5px;
   color: var(--text-dim);
   cursor: pointer;

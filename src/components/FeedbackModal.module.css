@@ -88,7 +88,7 @@
 .textarea {
   width: 100%;
   background: var(--s2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 5px;
   padding: 10px 12px;
   color: var(--text);
@@ -230,7 +230,7 @@
 .input {
   width: 100%;
   background: var(--s2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 5px;
   padding: 9px 12px;
   color: var(--text);

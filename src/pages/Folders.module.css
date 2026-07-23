@@ -5,38 +5,61 @@
   margin-top: 10px;
 }
 
+/* Art-forward tile: bottom-anchored nameplate over an art canvas. Sits directly
+   on the page background, so it rests on the gold outer border per DESIGN.md. */
 .folderCard {
-  background: var(--s-card);
-  border: 1px solid var(--s-border);
-  border-top: 2px solid rgba(201,168,76,0.35);
-  border-radius: var(--radius-md);
-  padding: 20px;
-  cursor: pointer;
-  transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
   position: relative;
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  background: var(--s-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 16px 18px 14px;
+  cursor: pointer;
+  overflow: hidden;
+  isolation: isolate;
+  transition: border-color 0.18s, box-shadow 0.18s, transform 0.18s;
 }
 .folderCard:hover {
-  border-color: rgba(201,168,76,0.28);
-  border-top-color: rgba(201,168,76,0.65);
-  background: rgba(201,168,76,0.04);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.4), 0 0 12px rgba(201,168,76,0.06);
+  border-color: var(--border-hi);
+  box-shadow: 0 10px 28px rgba(0,0,0,0.35);
+  transform: translateY(-2px);
 }
 .folderCard:focus-within,
 .folderCard:focus-within:hover,
 .folderCardMenuOpen,
 .folderCardMenuOpen:hover {
-  border-color: var(--s-border);
-  border-top-color: rgba(201,168,76,0.35);
-  background: var(--s-card);
+  border-color: var(--border);
   box-shadow: none;
+  transform: none;
 }
 .folderCard:focus-visible {
   outline: 2px solid var(--gold);
   outline-offset: 3px;
 }
+/* User-set background art fills the tile behind a bottom-heavy scrim.
+   Dark-over-art literals are intentional — the art keeps this tile dark on
+   every theme (same exception as Home's featured tiles). */
+.folderCardArt {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-size: cover;
+  background-position: center 30%;
+  transition: transform 0.3s;
+}
+.folderCardArt::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(8,7,6,0.12) 0%, rgba(8,7,6,0.58) 58%, rgba(8,7,6,0.9) 100%);
+}
+.folderCard:hover .folderCardArt { transform: scale(1.05); }
 .folderCardHasBg {
   --text-dim: rgba(255,255,255,0.75);
-  --text-faint: rgba(255,255,255,0.45);
+  --text-faint: rgba(255,255,255,0.55);
 }
 .folderCardHasBg .cogBtn {
   color: rgba(255,255,255,0.7);
@@ -89,19 +112,31 @@
 
 .folderName {
   font-family: var(--font-display);
-  font-size: 0.9rem;
+  font-size: 1.02rem;
   color: var(--gold);
-  letter-spacing: 0.04em;
-  margin-bottom: 10px;
-  line-height: 1.3;
-  padding-right: 50px;
+  letter-spacing: 0.03em;
+  margin-bottom: 7px;
+  line-height: 1.28;
 }
 
 .folderMeta {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
   font-size: 0.82rem;
   color: var(--text-dim);
+}
+.folderMeta > span:first-child {
+  font-size: var(--label-size-md);
+  text-transform: uppercase;
+  letter-spacing: var(--label-tracking);
+  color: var(--text-faint);
+}
+.folderMeta > span:last-child {
+  font-family: var(--font-display);
+  font-size: 0.84rem;
+  white-space: nowrap;
 }
 
 /* ── Delete (trash) button ─────────────────────────────────────────────────── */
@@ -163,7 +198,7 @@
   color: var(--text);
 }
 .cogMenuItem + .cogMenuItem {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--s-border);
 }
 .cogMenuItemIcon {
   display: flex; align-items: center; gap: 7px;
@@ -193,7 +228,7 @@
   display: flex; gap: 5px;
 }
 .renameConfirm, .renameCancel {
-  background: none; border: 1px solid var(--border);
+  background: none; border: 1px solid var(--s-border2);
   border-radius: 4px; padding: 3px 8px;
   font-size: 0.78rem; cursor: pointer;
   transition: all 0.13s;
@@ -215,7 +250,7 @@
   max-width: 280px;
   height: var(--control-height);
   background: var(--s-subtle);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 4px;
   padding: 6px 11px;
   color: var(--text);
@@ -241,17 +276,6 @@
 .desktopOnlyAction {
   display: flex;
   align-items: center;
-}
-
-.mobileHeaderControls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.mobileHeaderControls .folderSearch {
-  flex: 1;
-  min-width: 0;
 }
 
 .overviewStickySearch {
@@ -472,7 +496,7 @@
 
 .addNew {
   border: 2px dashed rgba(180,140,60,0.15);
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   padding: 20px;
   display: flex;
   flex-direction: column;
@@ -502,7 +526,7 @@
 .nameInput {
   flex: 1;
   background: var(--s-subtle);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 3px;
   padding: 9px 14px;
   color: var(--text);
@@ -532,7 +556,7 @@
 .deleteModeOpts { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
 .deleteModeBtn {
   display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px;
-  background: var(--s-card); border: 1px solid var(--border);
+  background: var(--s-card); border: 1px solid var(--s-border2);
   border-radius: 4px; cursor: pointer; text-align: left; color: var(--text-dim);
   font-size: 0.82rem; transition: all 0.15s; width: 100%;
 }
@@ -547,7 +571,7 @@
   display: flex; align-items: center;
 }
 .deleteTargetSelect {
-  width: 100%; background: var(--s-subtle); border: 1px solid var(--border);
+  width: 100%; background: var(--s-subtle); border: 1px solid var(--s-border2);
   border-radius: 3px; padding: 8px 12px; color: var(--text); font-size: 0.85rem;
   outline: none; cursor: pointer; margin-bottom: 4px;
 }
@@ -571,7 +595,7 @@
   align-items: center;
   gap: 8px;
   padding: 6px 4px 10px;
-  border-bottom: 1px solid rgba(201,168,76,0.18);
+  border-bottom: 1px solid var(--s-border);
   margin-bottom: 12px;
 }
 
@@ -598,7 +622,7 @@
 .groupRenameInput {
   flex: 1;
   background: var(--s3);
-  border: 1px solid rgba(201,168,76,0.4);
+  border: 1px solid var(--s-border3);
   border-radius: 3px;
   color: var(--text);
   font-size: 0.88rem;
@@ -671,7 +695,7 @@
   text-transform: uppercase;
   margin: 20px 0 10px;
   padding-bottom: 6px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--s-border);
 }
 
 /* ── New Group / Move to Group UI ────────────────────────────────────────── */
@@ -761,7 +785,7 @@
   flex: 1;
   min-width: 0;
   background: var(--s3);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 4px;
   color: var(--text);
   font-size: 0.88rem;
@@ -801,7 +825,7 @@
 .moveGroupItem {
   display: block; width: 100%;
   background: var(--s1);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 4px;
   color: var(--text-dim);
   font-size: 0.85rem;
@@ -831,7 +855,7 @@
 .binderHeader {
   margin-bottom: 18px;
   padding-bottom: 14px;
-  border-bottom: 1px solid rgba(201,168,76,0.1);
+  border-bottom: 1px solid var(--s-border);
 }
 .binderTitleRow {
   display: flex;
@@ -1196,23 +1220,28 @@
 }
 
 @media (max-width: 980px) {
-  .mobileHeaderControls {
-    display: none;
-  }
+  /* No strip chrome at all — the input is the only visible surface (styled
+     like Home's .lookupSlim) and simply floats over content while stuck. */
   .overviewStickySearch {
     position: sticky;
-    top: -28px;
+    top: 6px;
     z-index: 35;
     display: block;
-    margin: -12px 0 16px;
-    padding: 6px 8px 8px;
-    box-sizing: border-box;
-    background: color-mix(in srgb, var(--glass-strong) 92%, var(--bg) 8%);
-    border: 1px solid var(--s-border);
-    border-radius: 0 0 10px 10px;
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    box-shadow: 0 1px 0 var(--s-border);
+    margin: 0 0 16px;
+  }
+  .overviewStickySearch .folderSearch {
+    height: 46px;
+    padding: 0 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    /* --s1 is a translucent overlay; layer it on solid --bg so scrolling
+       tiles can't ghost through while the bar is stuck. */
+    background: linear-gradient(var(--s1), var(--s1)) var(--bg);
+    transition: border-color 0.18s, background 0.18s;
+  }
+  .overviewStickySearch .folderSearch:focus {
+    border-color: rgba(201,168,76,0.4);
+    background: linear-gradient(var(--s2), var(--s2)) var(--bg);
   }
   .desktopOnlySearch {
     display: none;
@@ -1355,9 +1384,6 @@
   .newGroupSaveBtn {
     width: 100%;
   }
-  /* .mobileHeaderControls is already display:none from the 980px block above,
-     and this block used to re-declare that after a full sticky-grid restyle —
-     so none of the restyle ever applied. Removed. */
   .page {
     padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px));
   }

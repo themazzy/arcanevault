@@ -46,7 +46,7 @@
 .readOnly {
   font-size: 0.75rem; color: var(--text-faint);
   background: var(--s2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   padding: 4px 10px; border-radius: 10px;
 }
 
@@ -104,8 +104,8 @@
   gap: 10px;
   padding: 10px;
   background: var(--s2);
-  border: 1px solid var(--border);
-  border-top: 2px solid rgba(201, 168, 76, 0.35);
+  border: 1px solid var(--s-border2);
+  border-top: 2px solid var(--s-border3);
   border-radius: 8px;
 }
 .wishlistItemClaimed { opacity: 0.7; }

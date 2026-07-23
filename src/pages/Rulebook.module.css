@@ -230,7 +230,7 @@
 }
 
 .ruleSection {
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 6px;
   background: var(--s2);
   overflow: hidden;
@@ -250,7 +250,7 @@
 .rulesList {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--s-border);
 }
 
 .ruleRow {
@@ -258,7 +258,7 @@
   grid-template-columns: 76px 1fr;
   gap: 12px;
   padding: 11px 12px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--s-border);
   scroll-margin-top: calc(var(--nav-h) + 14px);
 }
 

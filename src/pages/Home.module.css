@@ -400,7 +400,7 @@
 /* ── Changelog / WIP panel ───────────────────────────────────────────────── */
 .changelog {
   margin: 0 0 24px;
-  border: 1px solid rgba(201,168,76,0.2);
+  border: 1px solid var(--border);
   border-top: 2px solid rgba(201,168,76,0.35);
   border-radius: 8px;
   background: var(--s1);
@@ -502,11 +502,6 @@
   border-radius: 8px;
   padding: 26px 30px;
   margin-bottom: 24px;
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
-.section:hover {
-  border-color: rgba(180,140,60,0.28);
-  box-shadow: 0 4px 24px rgba(0,0,0,0.3);
 }
 .sectionHeader {
   display: flex; align-items: center; justify-content: space-between;
@@ -521,7 +516,7 @@
 }
 .sectionCount {
   font-size: 0.7rem; color: var(--text-faint);
-  background: var(--s2); border: 1px solid var(--border);
+  background: var(--s2); border: 1px solid var(--s-border2);
   border-radius: 10px; padding: 2px 8px;
 }
 .sectionDesc { color: var(--text-dim); font-size: 0.83rem; margin: 0 0 18px; }
@@ -535,7 +530,7 @@
 }
 .snapshotTile {
   background: var(--s1);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border);
   border-radius: 6px;
   padding: 14px 16px;
   text-align: left;
@@ -617,7 +612,7 @@
   padding-right: 4px;
 }
 .setDropdownList::-webkit-scrollbar { width: 4px; }
-.setDropdownList::-webkit-scrollbar-thumb { background: rgba(201,168,76,0.2); border-radius: 2px; }
+.setDropdownList::-webkit-scrollbar-thumb { background: var(--s-border2); border-radius: 2px; }
 
 .snapshotTopCard {
   display: flex;
@@ -626,7 +621,7 @@
   margin-top: 14px;
   padding: 10px 14px;
   background: rgba(201,168,76,0.05);
-  border: 1px solid rgba(201,168,76,0.15);
+  border: 1px solid var(--s-border);
   border-radius: 4px;
   font-size: 0.82rem;
 }
@@ -643,11 +638,11 @@
   padding-bottom: 6px;
   margin-top: 10px;
   scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
+  scrollbar-color: var(--s-border2) transparent;
 }
 .hScroll::-webkit-scrollbar { height: 4px; }
 .hScroll::-webkit-scrollbar-track { background: transparent; }
-.hScroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.hScroll::-webkit-scrollbar-thumb { background: var(--s-border2); border-radius: 2px; }
 
 .hScrollCard {
   flex-shrink: 0;
@@ -661,7 +656,7 @@
   object-fit: cover;
   border-radius: 5px;
   display: block;
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   transition: border-color 0.18s, transform 0.18s, box-shadow 0.18s;
 }
 .hScrollCard:hover .hScrollImg {
@@ -673,7 +668,7 @@
   width: 90px;
   aspect-ratio: 5/7;
   border-radius: 5px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -718,7 +713,7 @@
   gap: 12px;
   padding: 10px 14px;
   background: var(--s1);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border);
   border-radius: 5px;
   cursor: pointer;
   transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
@@ -782,7 +777,7 @@
   position: relative;
   height: 132px;
   padding: 0;
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: var(--radius-sm);
   overflow: hidden;
   background: var(--s2);
@@ -870,7 +865,7 @@
 
 .newsCard {
   display: flex; flex-direction: column;
-  background: var(--s1); border: 1px solid var(--border);
+  background: var(--s1); border: 1px solid var(--s-border2);
   border-radius: 5px; overflow: hidden; text-decoration: none;
   transition: border-color 0.18s, background 0.18s, transform 0.18s;
 }
@@ -928,7 +923,7 @@
 .newsCardMeta {
   display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap;
   font-size: 0.67rem; color: var(--text-faint); margin-top: auto; padding-top: 4px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--s-border);
 }
 .newsCardSkeleton {
   height: 180px; border-radius: 5px;
@@ -950,7 +945,7 @@
   gap: 7px;
   padding: 16px 10px 14px;
   background: var(--s1);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 5px;
   text-decoration: none;
   transition: border-color 0.18s, background 0.18s, transform 0.18s;
@@ -1007,7 +1002,7 @@
 .cvClose {
   position: absolute; top: 0; right: 0;
   background: var(--s2);
-  border: 1px solid var(--border); border-radius: 50%;
+  border: 1px solid var(--s-border2); border-radius: 50%;
   width: 28px; height: 28px; font-size: 0.72rem;
   color: var(--text-faint); cursor: pointer;
   display: flex; align-items: center; justify-content: center;
@@ -1046,7 +1041,7 @@
   text-align: center; padding: 12px;
 }
 .cvFlipBtn {
-  background: var(--s2); border: 1px solid var(--border);
+  background: var(--s2); border: 1px solid var(--s-border2);
   border-radius: 4px; color: var(--text-dim); font-size: 0.78rem;
   padding: 5px 12px; cursor: pointer; transition: all 0.15s;
   align-self: flex-start;
@@ -1058,7 +1053,7 @@
 .printingsStrip {
   display: flex; gap: 5px; overflow-x: auto; padding-bottom: 4px;
   max-width: 100%; min-width: 0;
-  scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+  scrollbar-width: thin; scrollbar-color: var(--s-border2) transparent;
 }
 .printingThumb {
   flex-shrink: 0; width: 46px; padding: 0; border: 2px solid transparent;
@@ -1079,7 +1074,7 @@
 .cvType { font-size: 0.82rem; color: var(--text-dim); font-style: italic; }
 .cvStats { display: flex; gap: 8px; }
 .cvStatBadge {
-  background: var(--s3); border: 1px solid var(--border);
+  background: var(--s3); border: 1px solid var(--s-border2);
   border-radius: 4px; padding: 3px 10px;
   font-family: var(--font-display); font-size: 0.85rem; color: var(--text);
 }
@@ -1090,7 +1085,7 @@
 /* ── Tabs ────────────────────────────────────────────────────────────────── */
 .tabBar {
   display: flex; gap: 2px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--s-border2);
   margin-bottom: 2px; flex-wrap: wrap;
 }
 .tabBtn {
@@ -1121,7 +1116,7 @@
 /* Oracle text */
 .oracleBox {
   background: var(--s1);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border);
   border-radius: 5px;
   padding: 14px 16px;
   font-size: 0.875rem; color: var(--text); line-height: 1.65;
@@ -1139,7 +1134,7 @@
 /* Prices tab */
 .pricesGrid { display: flex; flex-wrap: wrap; gap: 8px; }
 .priceBlock {
-  background: var(--s2); border: 1px solid var(--border);
+  background: var(--s2); border: 1px solid var(--s-border);
   border-radius: 4px; padding: 8px 14px; min-width: 100px;
   display: flex; flex-direction: column; gap: 3px;
 }
@@ -1158,7 +1153,7 @@
 .rulingsList { display: flex; flex-direction: column; gap: 8px; }
 .rulingItem {
   display: grid; grid-template-columns: 96px 1fr; gap: 12px;
-  background: var(--s1); border: 1px solid var(--border);
+  background: var(--s1); border: 1px solid var(--s-border);
   border-radius: 4px; padding: 10px 12px; font-size: 0.82rem;
 }
 .rulingDate { color: var(--text-faint); font-size: 0.72rem; padding-top: 1px; }
@@ -1180,7 +1175,7 @@
 .searchInput {
   width: 100%;
   min-height: 30px;
-  background: var(--s3); border: 1px solid var(--border);
+  background: var(--s3); border: 1px solid var(--s-border2);
   border-radius: 4px; padding: 7px 10px;
   color: var(--text); font-size: 0.88rem; font-family: var(--font-serif);
   outline: none; box-sizing: border-box; transition: border-color 0.15s, background 0.15s;
@@ -1193,7 +1188,7 @@
 
 .suggList {
   position: absolute; top: calc(100% + 4px); left: 0; right: 0;
-  background: var(--bg2); border: 1px solid var(--border);
+  background: var(--bg2); border: 1px solid var(--s-border2);
   border-radius: 3px; list-style: none; margin: 0; padding: 4px 0;
   z-index: 50; box-shadow: 0 8px 24px rgba(0,0,0,0.55);
   max-height: 280px; overflow-y: auto;
@@ -1207,7 +1202,7 @@
 .suggItemActive { background: rgba(201,168,76,0.1); color: var(--text); }
 .suggThumb {
   width: 36px; height: 50px; border-radius: 3px; object-fit: cover;
-  flex-shrink: 0; border: 1px solid var(--border);
+  flex-shrink: 0; border: 1px solid var(--s-border);
 }
 .suggName { flex: 1; font-size: 0.87rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .suggSet { font-size: 0.72rem; color: var(--text-faint); white-space: nowrap; flex-shrink: 0; }
@@ -1262,7 +1257,7 @@
 .advToggleBtn {
   display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box;
   height: var(--control-height);
-  background: var(--s2); border: 1px solid var(--border);
+  background: var(--s2); border: 1px solid var(--s-border2);
   border-radius: 4px; padding: 6px var(--control-padding-x); color: var(--text-dim);
   font-size: var(--control-font-size); font-family: var(--font-display); letter-spacing: var(--control-letter-spacing);
   cursor: pointer; transition: all 0.15s; white-space: nowrap;
@@ -1277,7 +1272,7 @@
 /* ── Advanced search panel ───────────────────────────────────────────────────── */
 .advPanel {
   background: var(--s1);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border);
   border-radius: 6px;
   padding: 14px 16px;
   margin-bottom: 14px;
@@ -1302,7 +1297,7 @@
 }
 .advInput {
   background: var(--s2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 3px;
   padding: 6px 10px;
   color: var(--text);
@@ -1315,7 +1310,7 @@
 .advInput::placeholder { color: var(--text-faint); }
 .advSelect {
   background: var(--s2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 3px;
   padding: 6px 8px;
   color: var(--text-dim);
@@ -1344,7 +1339,7 @@
 .advChips { display: flex; gap: 4px; flex-wrap: wrap; }
 .advChip {
   background: var(--s2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 3px;
   padding: 4px 10px;
   color: var(--text-dim);
@@ -1371,7 +1366,7 @@
   gap: 10px;
 }
 .resultCard {
-  cursor: pointer; background: var(--s1); border: 1px solid var(--border);
+  cursor: pointer; background: var(--s1); border: 1px solid var(--s-border2);
   border-radius: 6px; overflow: hidden; transition: all 0.2s;
 }
 .resultCard:hover {
@@ -1640,7 +1635,7 @@
 .recentDecks {
   flex: 1;
   min-height: 0;
-  border: 1px solid var(--s-border2);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--s1);
   padding: 16px;
@@ -1697,7 +1692,7 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  border: 1px solid var(--s-border2);
+  border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--s1);
   padding: 9px 10px;

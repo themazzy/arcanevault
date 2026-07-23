@@ -397,7 +397,7 @@ function FormatsBlock({ decks }) {
       <div className={styles.formatPills}>
         {formats.map(f => (
           <span key={f} className={styles.formatPill}
-            style={{ borderColor: FORMAT_COLORS[f] || 'var(--border)', color: FORMAT_COLORS[f] || 'var(--text-dim)' }}>
+            style={{ borderColor: FORMAT_COLORS[f] || 'var(--s-border2)', color: FORMAT_COLORS[f] || 'var(--text-dim)' }}>
             {FORMAT_LABEL[f] || f}
           </span>
         ))}

@@ -323,7 +323,7 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
   }, [])
 
   const overlay = { position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:700, display:'flex', alignItems:'center', justifyContent:'center' }
-  const s = { background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:4, padding:'5px 8px', color:'var(--text)', fontSize:'0.83rem' }
+  const s = { background:'var(--bg3)', border:'1px solid var(--s-border2)', borderRadius:4, padding:'5px 8px', color:'var(--text)', fontSize:'0.83rem' }
   const secLabel = { fontSize:'0.74rem', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em', color:'var(--text-faint)', marginBottom:6 }
 
   if (loading) return (
@@ -420,7 +420,7 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
         <span style={{ fontFamily:'var(--font-display)', color:'var(--gold)' }}>Update Collection Deck</span>
         <p style={{ color:'var(--text-dim)', fontSize:'0.85rem', margin:0 }}>No sync differences found.</p>
         <div style={{ display:'flex', justifyContent:'flex-end' }}>
-          <button onClick={onClose} style={{ background:'none', border:'1px solid var(--border)', borderRadius:4, padding:'7px 16px', color:'var(--text-dim)', fontSize:'0.83rem', cursor:'pointer' }}>Close</button>
+          <button onClick={onClose} style={{ background:'none', border:'1px solid var(--s-border2)', borderRadius:4, padding:'7px 16px', color:'var(--text-dim)', fontSize:'0.83rem', cursor:'pointer' }}>Close</button>
         </div>
       </div>
     </div>
@@ -429,12 +429,12 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
   return (
     <div style={overlay} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, width:760, maxWidth:'96vw', maxHeight:'90vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
-        <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+        <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--s-border)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <span style={{ fontFamily:'var(--font-display)', color:'var(--gold)', fontSize:'1rem' }}>Update Collection Deck</span>
           <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.2rem', cursor:'pointer' }}><CloseIcon size={13} /></button>
         </div>
         <div style={{ flex:1, overflowY:'auto', minHeight:0, padding:'16px 20px', display:'flex', flexDirection:'column', gap:16 }}>
-          <div style={{ padding:'12px 14px', border:'1px solid var(--border)', borderRadius:8, background:'var(--s1)', display:'flex', flexDirection:'column', gap:6 }}>
+          <div style={{ padding:'12px 14px', border:'1px solid var(--s-border2)', borderRadius:8, background:'var(--s1)', display:'flex', flexDirection:'column', gap:6 }}>
             <div style={{ color:'var(--text)', fontSize:'0.86rem' }}>
               Sync compares Deck Builder with {collectionDeckLabel}.
             </div>
@@ -465,7 +465,7 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
                 not owned, optional wishlist
               </div>
             </div>
-            <div style={{ padding:'12px', border:'1px solid var(--border)', borderRadius:8, background:'var(--bg3)' }}>
+            <div style={{ padding:'12px', border:'1px solid var(--s-border2)', borderRadius:8, background:'var(--bg3)' }}>
               <div style={{ color:'var(--text-faint)', fontSize:'0.72rem', textTransform:'uppercase', letterSpacing:'0.06em' }}>Deck List Only</div>
               <div style={{ color:'var(--text)', fontSize:'1.1rem', marginTop:4 }}>{builderImpactCount}</div>
               <div style={{ color:'var(--text-faint)', fontSize:'0.74rem', marginTop:4 }}>collection cards stay put</div>
@@ -484,14 +484,14 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
                     : 'Different quantities'
                 const optionLabels = getDecisionOptionLabels(row, { addedByKey })
                 return (
-                  <div key={row.key} style={{ display:'grid', gridTemplateColumns:'minmax(0,1fr) 220px', gap:12, alignItems:'center', padding:'10px 12px', border:'1px solid var(--border)', borderRadius:8, background:'var(--bg3)' }}>
+                  <div key={row.key} style={{ display:'grid', gridTemplateColumns:'minmax(0,1fr) 220px', gap:12, alignItems:'center', padding:'10px 12px', border:'1px solid var(--s-border2)', borderRadius:8, background:'var(--bg3)' }}>
                     <div style={{ minWidth:0, display:'flex', flexDirection:'column', gap:4 }}>
                       <div style={{ display:'flex', alignItems:'center', gap:8, minWidth:0 }}>
                         <span style={{ color:'var(--text)', fontSize:'0.85rem', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{name}</span>
                         {row.builder?.is_commander && (
                           <span style={{ color:'var(--gold)', fontSize:'0.7rem', border:'1px solid rgba(201,168,76,0.35)', borderRadius:999, padding:'2px 8px', flexShrink:0 }}>Commander</span>
                         )}
-                        <span style={{ color:'var(--text-faint)', fontSize:'0.72rem', border:'1px solid var(--border)', borderRadius:999, padding:'2px 8px', flexShrink:0 }}>{label}</span>
+                        <span style={{ color:'var(--text-faint)', fontSize:'0.72rem', border:'1px solid var(--s-border2)', borderRadius:999, padding:'2px 8px', flexShrink:0 }}>{label}</span>
                       </div>
                       <div style={{ color:'var(--text-faint)', fontSize:'0.74rem' }}>
                         {row.printing} · Deck Builder {row.builderQty ?? 0} · Collection Deck {row.collectionQty ?? 0}
@@ -550,7 +550,7 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
               </div>
               <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
                 {ownedAdded.map(i => (
-                  <div key={i.dc.id} style={{ padding:'10px 12px', border:'1px solid var(--border)', borderRadius:8, background:'var(--bg3)', display:'flex', flexDirection:'column', gap:5 }}>
+                  <div key={i.dc.id} style={{ padding:'10px 12px', border:'1px solid var(--s-border2)', borderRadius:8, background:'var(--bg3)', display:'flex', flexDirection:'column', gap:5 }}>
                     <div style={{ display:'flex', justifyContent:'space-between', gap:8, fontSize:'0.84rem', color:'var(--text)' }}>
                       <span>{i.dc.name}</span>
                       <span style={{ color:'var(--green, #4a9a5a)' }}>{formatQtyLabel(i.totalAdd)}</span>
@@ -569,7 +569,7 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
                       <div>
                         <button
                           onClick={() => setPickerItem(i)}
-                          style={{ background:'none', border:'1px solid var(--border)', borderRadius:4, padding:'5px 10px', color:'var(--text-dim)', fontSize:'0.76rem', cursor:'pointer' }}>
+                          style={{ background:'none', border:'1px solid var(--s-border2)', borderRadius:4, padding:'5px 10px', color:'var(--text-dim)', fontSize:'0.76rem', cursor:'pointer' }}>
                           Choose owned printing
                         </button>
                       </div>
@@ -577,7 +577,7 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
                   </div>
                 ))}
                 {increaseRows.map(i => (
-                  <div key={`inc-${i.cardId}:${i.dc.id}`} style={{ display:'flex', flexDirection:'column', gap:4, padding:'8px 10px', border:'1px solid var(--border)', borderRadius:8, background:'var(--bg3)', fontSize:'0.84rem', color:'var(--text)' }}>
+                  <div key={`inc-${i.cardId}:${i.dc.id}`} style={{ display:'flex', flexDirection:'column', gap:4, padding:'8px 10px', border:'1px solid var(--s-border2)', borderRadius:8, background:'var(--bg3)', fontSize:'0.84rem', color:'var(--text)' }}>
                     <div style={{ display:'flex', justifyContent:'space-between', gap:8 }}>
                       <span>{i.dc.name}</span>
                       <span style={{ color:'var(--green, #4a9a5a)', fontSize:'0.78rem' }}>{`add ${i.newQty - i.oldQty}`}</span>
@@ -612,7 +612,7 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
               )}
               <div style={{ display:'flex', flexDirection:'column', gap:6, marginTop:10 }}>
                 {movedOwnedRows.map(row => (
-                  <div key={row.key} style={{ display:'flex', flexDirection:'column', gap:3, padding:'8px 10px', border:'1px solid var(--border)', borderRadius:8, background:'var(--bg3)' }}>
+                  <div key={row.key} style={{ display:'flex', flexDirection:'column', gap:3, padding:'8px 10px', border:'1px solid var(--s-border2)', borderRadius:8, background:'var(--bg3)' }}>
                     <div style={{ display:'flex', justifyContent:'space-between', fontSize:'0.82rem', color:'var(--text)' }}>
                       <span>{row.name}</span>
                       <span style={{ color:'var(--text-faint)' }}>{row.qty}x</span>
@@ -658,7 +658,7 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
                     onChange={e => setNewWishlistName(e.target.value)}
                     placeholder="Wishlist name..."
                     maxLength={100}
-                    style={{ background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:4, padding:'5px 8px', color:'var(--text)', fontSize:'0.83rem', flex:1 }}
+                    style={{ background:'var(--bg3)', border:'1px solid var(--s-border2)', borderRadius:4, padding:'5px 8px', color:'var(--text)', fontSize:'0.83rem', flex:1 }}
                   />
                 )}
               </div>
@@ -673,7 +673,7 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
               </div>
               <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
                 {builderUpdateRows.map(row => (
-                  <div key={`builder-${row.key}`} style={{ display:'flex', justifyContent:'space-between', gap:8, padding:'8px 10px', border:'1px solid var(--border)', borderRadius:8, background:'var(--bg3)', fontSize:'0.84rem', color:'var(--text)' }}>
+                  <div key={`builder-${row.key}`} style={{ display:'flex', justifyContent:'space-between', gap:8, padding:'8px 10px', border:'1px solid var(--s-border2)', borderRadius:8, background:'var(--bg3)', fontSize:'0.84rem', color:'var(--text)' }}>
                     <span>{row.collection?.name || row.builder?.name || 'Card'}</span>
                     <span style={{ color:'var(--text-dim)', fontSize:'0.78rem' }}>{`Deck Builder ${row.builderQty ?? 0} to ${row.collectionQty ?? 0}`}</span>
                   </div>
@@ -708,7 +708,7 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
             onClose={() => setPickerItem(null)}
           />
         )}
-        <div style={{ padding:'12px 20px', borderTop:'1px solid var(--border)', display:'flex', gap:8, justifyContent:'space-between', alignItems:'center' }}>
+        <div style={{ padding:'12px 20px', borderTop:'1px solid var(--s-border)', display:'flex', gap:8, justifyContent:'space-between', alignItems:'center' }}>
           <span style={{ fontSize:'0.79rem', color:'var(--text-faint)' }}>
             {!remoteReady
               ? 'Refreshing collection placements before decisions can be applied.'
@@ -717,7 +717,7 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
               : ''}
           </span>
           <div style={{ display:'flex', gap:8 }}>
-            <button onClick={onClose} style={{ background:'none', border:'1px solid var(--border)', borderRadius:4, padding:'7px 16px', color:'var(--text-dim)', fontSize:'0.83rem', cursor:'pointer' }}>Cancel</button>
+            <button onClick={onClose} style={{ background:'none', border:'1px solid var(--s-border2)', borderRadius:4, padding:'7px 16px', color:'var(--text-dim)', fontSize:'0.83rem', cursor:'pointer' }}>Cancel</button>
             <button
               disabled={!canConfirm}
               onClick={() => canConfirm && onConfirm({

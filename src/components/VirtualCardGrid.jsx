@@ -164,12 +164,21 @@ export default function VirtualCardGrid({
   const [cardWidth, setCardWidth] = useState(densitySpec.px + GRID_IMG_BORDER_PX)
   const [columnGap, setColumnGap] = useState(densitySpec.desktopGap)
   const [rowHeight, setRowHeight] = useState(DENSITY_BASE_ROW_HEIGHT[density] || 310)
+  // Actual scrollbar width (0 on overlay-scrollbar platforms), exposed as
+  // --sbw so page CSS can compute "gutter minus scrollbar" insets.
+  const [scrollbarWidth, setScrollbarWidth] = useState(0)
 
   const baseRowHeight = DENSITY_BASE_ROW_HEIGHT[density] || 310
 
   const measureCols = useCallback(() => {
     if (!parentRef.current) return
+    // clientWidth includes padding; rows render inside the content box, so
+    // measure that (Collection pads the scroller to park the scrollbar in
+    // the page gutter).
+    const cs = getComputedStyle(parentRef.current)
     const w = parentRef.current.clientWidth
+      - (parseFloat(cs.paddingLeft) || 0)
+      - (parseFloat(cs.paddingRight) || 0)
     const isMobile = w <= MOBILE_CARD_GRID_BREAKPOINT
     let nextCols
     let nextCardWidth
@@ -195,6 +204,7 @@ export default function VirtualCardGrid({
     setCardWidth(nextCardWidth)
     setColumnGap(nextColumnGap)
     setRowHeight(nextRowHeight)
+    setScrollbarWidth(parentRef.current.offsetWidth - parentRef.current.clientWidth)
   }, [baseRowHeight, density, densitySpec])
 
   useEffect(() => {
@@ -219,7 +229,7 @@ export default function VirtualCardGrid({
   })
 
   return (
-    <div ref={parentRef} className={styles.scroll} onScroll={onScroll}>
+    <div ref={parentRef} className={styles.scroll} style={{ '--sbw': `${scrollbarWidth}px` }} onScroll={onScroll}>
       <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
         {virtualizer.getVirtualItems().map(vRow => {
           const startIdx = vRow.index * cols

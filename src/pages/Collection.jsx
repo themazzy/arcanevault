@@ -15,7 +15,7 @@ import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../componen
 import VirtualCardGrid from '../components/VirtualCardGrid'
 import VirtualCardTable from '../components/VirtualCardTable'
 import { ProgressBar, ErrorBox, EmptyState, LibraryEmptyState, SectionHeader, Button, ResponsiveMenu, Select } from '../components/UI'
-import { AddIcon, CheckIcon, CollectionIcon, GridViewIcon, ScannerIcon, TableViewIcon } from '../icons'
+import { AddIcon, CheckIcon, CollectionIcon, ExportIcon, FilterIcon, GridViewIcon, ImportIcon, ScannerIcon, SettingsIcon, SortIcon, TableViewIcon } from '../icons'
 import AddCardModal from '../components/AddCardModal'
 import ExportModal from '../components/ExportModal'
 import ImportModal from '../components/ImportModal'
@@ -127,7 +127,7 @@ function OrphanModal({ cards, folders, userId, onAssigned, onDeleted }) {
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div style={{ background: 'var(--bg2)', border: '1px solid var(--border-hi)', borderRadius: 10, maxWidth: 480, width: '100%', maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid var(--border)' }}>
+        <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid var(--s-border)' }}>
           <div style={{ fontFamily: 'var(--font-display)', fontSize: '0.72rem', letterSpacing: '0.12em', color: 'var(--text-faint)', textTransform: 'uppercase', marginBottom: 6 }}>Unassigned Cards</div>
           <div style={{ fontSize: '0.88rem', color: 'var(--text-dim)' }}>
             {cards.length} card{cards.length !== 1 ? 's' : ''} found without a binder, deck, or wishlist. Assign them or delete.
@@ -136,14 +136,14 @@ function OrphanModal({ cards, folders, userId, onAssigned, onDeleted }) {
 
         <div style={{ overflowY: 'auto', flex: 1, padding: '12px 20px' }}>
           {cards.map(c => (
-            <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--border)', fontSize: '0.84rem' }}>
+            <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--s-border)', fontSize: '0.84rem' }}>
               <span style={{ color: 'var(--text)' }}>{c.name}</span>
               <span style={{ color: 'var(--text-faint)', fontFamily: 'var(--font-serif)', fontSize: '0.76rem' }}>{(c.set_code || '').toUpperCase()}</span>
             </div>
           ))}
         </div>
 
-        <div style={{ padding: '14px 20px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ padding: '14px 20px', borderTop: '1px solid var(--s-border)', display: 'flex', flexDirection: 'column', gap: 10 }}>
           <Select
             title="Destination"
             value={selectedFolderId}
@@ -1374,7 +1374,7 @@ export default function CollectionPage() {
   }
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div className={styles.collectionPage}>
       <div className={styles.collectionHeader}>
         <SectionHeader
           title={`Collection${cards.length ? ` · ${cards.length} cards` : ''}`}
@@ -1427,23 +1427,6 @@ export default function CollectionPage() {
         />
       ) : (
         <>
-        <div className={`${styles.mobileTopActions}${gridScrolled ? ' ' + styles.mobileTopActionsHidden : ''}`}>
-          <Button
-            variant="purple"
-            onClick={() => { if (!blockOfflineChange()) setShowAdd(true) }}
-            disabled={!isOnline}
-            title={!isOnline ? 'Reconnect to add cards' : undefined}
-          >+ Add Card</Button>
-          <button
-            className={styles.refreshBtn}
-            onClick={() => { if (blockOfflineChange()) return; setImportModalText(''); setShowImportModal(true) }}
-            disabled={!isOnline}
-            title={!isOnline ? 'Reconnect to import cards' : undefined}
-          >↑ Import</button>
-          <button className={styles.refreshBtn} onClick={() => setShowExport(true)}>↓ Export</button>
-          <button className={styles.refreshBtn} onClick={toggleSelectMode}>{selectMode ? 'Done' : 'Select'}</button>
-        </div>
-
         <FilterBar
           search={searchInput} setSearch={setSearchInput}
           sort={sort} setSort={setSort}
@@ -1452,7 +1435,7 @@ export default function CollectionPage() {
           sets={availableSets} languages={availableLanguages}
           filterOpen={filterOpen} onFilterOpenChange={setFilterOpen}
           hideActionsMobile
-          hideSortFilterMobile={gridScrolled}
+          hideSortFilterMobile
           extra={
             <div style={{ display: 'flex', gap: 6 }}>
               <button
@@ -1542,43 +1525,104 @@ export default function CollectionPage() {
 
         {filtered.length === 0 && !enriching && <EmptyState>No cards match your filters.</EmptyState>}
 
-        <div className={`${styles.mobileBar}${gridScrolled ? ' ' + styles.mobileBarVisible : ''}`}>
-          <ResponsiveMenu
-            title="Sort Cards"
-            forceSheet
-            portal
-            trigger={({ open, toggle }) => (
-              <button
-                className={`${styles.mobileBarSort}${open ? ' ' + styles.mobileBarSortOpen : ''}`}
-                onClick={toggle}
-                title={currentSortLabel}
+        {!(selectMode && selected.size > 0) && (
+          <div className={`${uiStyles.headerFloatingToolbar} ${styles.collectionToolbar}`} aria-label="Collection actions">
+            {selectMode ? (
+              <Button variant="default" size="sm" onClick={toggleSelectMode} title="Exit select mode" aria-label="Exit select mode">
+                <CheckIcon size={14} /> <span>Done</span>
+              </Button>
+            ) : (
+              <Button
+                variant="purple"
+                size="sm"
+                onClick={() => { if (!blockOfflineChange()) setShowAdd(true) }}
+                disabled={!isOnline}
+                title={!isOnline ? 'Reconnect to add cards' : 'Add card'}
               >
-                Sort ▾
-              </button>
+                <AddIcon size={14} /> <span>Add Card</span>
+              </Button>
             )}
-          >
-            {({ close }) => (
-              <div className={uiStyles.responsiveMenuList}>
-                {SORT_OPTIONS.map(([value, label]) => (
+            <ResponsiveMenu
+              title="Sort Cards"
+              portal
+              trigger={({ toggle }) => (
+                <Button variant="ghost" size="sm" onClick={toggle} title={currentSortLabel} aria-label="Sort cards">
+                  <SortIcon size={14} /> <span>Sort</span>
+                </Button>
+              )}
+            >
+              {({ close }) => (
+                <div className={uiStyles.responsiveMenuList}>
+                  {SORT_OPTIONS.map(([value, label]) => (
+                    <button
+                      key={value}
+                      className={`${uiStyles.responsiveMenuAction}${sort === value ? ' ' + uiStyles.responsiveMenuActionActive : ''}`}
+                      onClick={() => { setSort(value); close() }}
+                    >
+                      <span>{label}</span>
+                      <span className={uiStyles.responsiveMenuCheck}>{sort === value ? <CheckIcon size={12} /> : null}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </ResponsiveMenu>
+            <Button
+              variant={hasActiveCollectionFilters(filters) ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setFilterOpen(v => !v)}
+              aria-pressed={filterOpen}
+              title="Filters"
+            >
+              <FilterIcon size={14} /> <span>Filters</span>
+            </Button>
+            <ResponsiveMenu
+              title="Collection Actions"
+              portal
+              trigger={({ toggle }) => (
+                <Button variant="ghost" size="sm" onClick={toggle} title="More actions" aria-label="More collection actions">
+                  <SettingsIcon size={14} /> <span>More</span>
+                </Button>
+              )}
+            >
+              {({ close }) => (
+                <div className={uiStyles.responsiveMenuList}>
                   <button
-                    key={value}
-                    className={`${uiStyles.responsiveMenuAction}${sort === value ? ' ' + uiStyles.responsiveMenuActionActive : ''}`}
-                    onClick={() => { setSort(value); close() }}
+                    className={uiStyles.responsiveMenuAction}
+                    disabled={!isOnline}
+                    onClick={() => { if (blockOfflineChange()) return; setImportModalText(''); setShowImportModal(true); close() }}
                   >
-                    <span>{label}</span>
-                    <span className={uiStyles.responsiveMenuCheck}>{sort === value ? <CheckIcon size={12} /> : null}</span>
+                    <span><ImportIcon size={14} /> Import</span>
                   </button>
-                ))}
-              </div>
-            )}
-          </ResponsiveMenu>
-          <button
-            className={`${styles.mobileBarFilters}${filterOpen ? ' ' + styles.mobileBarFiltersOpen : ''}${hasActiveCollectionFilters(filters) ? ' ' + styles.mobileBarFiltersActive : ''}`}
-            onClick={() => setFilterOpen(v => !v)}
-          >
-            {hasActiveCollectionFilters(filters) ? 'Filters •' : 'Filters'}
-          </button>
-        </div>
+                  <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowExport(true); close() }}>
+                    <span><ExportIcon size={14} /> Export</span>
+                  </button>
+                  <button className={uiStyles.responsiveMenuAction} onClick={() => { toggleSelectMode(); close() }}>
+                    <span><CheckIcon size={14} /> {selectMode ? 'Exit select mode' : 'Select cards'}</span>
+                  </button>
+                  <button
+                    className={`${uiStyles.responsiveMenuAction}${viewMode === 'grid' ? ' ' + uiStyles.responsiveMenuActionActive : ''}`}
+                    onClick={() => { setViewMode('grid'); close() }}
+                  >
+                    <span><GridViewIcon size={14} /> Grid view</span>
+                    <span className={uiStyles.responsiveMenuCheck}>{viewMode === 'grid' ? <CheckIcon size={12} /> : null}</span>
+                  </button>
+                  <button
+                    className={`${uiStyles.responsiveMenuAction}${viewMode === 'table' ? ' ' + uiStyles.responsiveMenuActionActive : ''}`}
+                    onClick={() => { setViewMode('table'); close() }}
+                  >
+                    <span><TableViewIcon size={14} /> Table view</span>
+                    <span className={uiStyles.responsiveMenuCheck}>{viewMode === 'table' ? <CheckIcon size={12} /> : null}</span>
+                  </button>
+                  {showScanner && (
+                    <Link to="/scanner" className={uiStyles.responsiveMenuAction} style={{ textDecoration: 'none' }} onClick={() => close()}>
+                      <span><ScannerIcon size={14} /> Scan cards</span>
+                    </Link>
+                  )}
+                </div>
+              )}
+            </ResponsiveMenu>
+          </div>
+        )}
       </>}
 
       {selectedCard && (

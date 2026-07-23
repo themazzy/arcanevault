@@ -94,7 +94,7 @@
 
 .statPill {
   background: var(--s-subtle);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: var(--radius-sm); padding: 6px 14px;
   display: flex; flex-direction: column; gap: 2px;
 }
@@ -353,7 +353,7 @@
 
 .listGroup {
   background: var(--s-card);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 5px; overflow: hidden;
 }
 .groupHeader {
@@ -492,7 +492,7 @@
 .gridImgWrap {
   position: relative; border-radius: 8px; overflow: hidden;
   aspect-ratio: 63/88; background: var(--s-subtle);
-  border: 1px solid rgba(180,140,60,0.1);
+  border: 1px solid var(--s-border);
   transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
 }
 @media (hover: hover) and (pointer: fine) {
@@ -649,7 +649,7 @@
   padding: 8px 12px; text-align: left;
   font-family: var(--font-display); font-size: 0.68rem; text-transform: uppercase;
   letter-spacing: var(--label-tracking); color: var(--text-faint);
-  background: var(--s-card); border-bottom: 1px solid var(--border);
+  background: var(--s-card); border-bottom: 1px solid var(--s-border2);
   cursor: pointer; user-select: none; white-space: nowrap;
   transition: color 0.15s;
 }
@@ -698,7 +698,7 @@
 /* Grouped table section headers */
 .tableGroupRow { background: var(--s2); cursor: pointer; user-select: none; }
 .tableGroupRow:hover { background: var(--s3); }
-.tableGroupCell { padding: 6px 12px; border-bottom: 1px solid var(--border); }
+.tableGroupCell { padding: 6px 12px; border-bottom: 1px solid var(--s-border); }
 .tableGroupName { font-family: var(--font-display); font-size: 0.72rem; letter-spacing: var(--label-tracking); text-transform: uppercase; }
 .tableGroupCount { margin-left: 8px; font-size: 0.72rem; color: var(--text-faint); background: var(--s-border); border-radius: 8px; padding: 1px 6px; }
 
@@ -723,13 +723,13 @@
   padding: 6px 8px 40px;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
-  scrollbar-color: rgba(201,168,76,0.22) transparent;
+  scrollbar-color: var(--s-border4) transparent;
   --stack-col-w: 200px;
   --stack-overlap: 0.84;
 }
 .stacksWrap::-webkit-scrollbar { height: 4px; }
 .stacksWrap::-webkit-scrollbar-track { background: transparent; }
-.stacksWrap::-webkit-scrollbar-thumb { background: rgba(201,168,76,0.22); border-radius: 2px; }
+.stacksWrap::-webkit-scrollbar-thumb { background: var(--s-border4); border-radius: 2px; }
 
 .stackGroup {
   flex: 0 0 var(--stack-col-w, 130px);
@@ -747,7 +747,7 @@
   min-height: 22px;
   line-height: 1.1;
   width: 100%;
-  border: 1px solid rgba(201,168,76,0.28);
+  border: 1px solid var(--s-border2);
   border-radius: 7px;
   background: linear-gradient(180deg, rgba(201,168,76,0.08), rgba(201,168,76,0.03));
   box-shadow: inset 0 1px 0 var(--s1);
@@ -878,7 +878,7 @@
 .groupByBtn {
   display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box;
   height: var(--control-height);
-  background: var(--s-card); border: 1px solid var(--border);
+  background: var(--s-card); border: 1px solid var(--s-border2);
   border-radius: var(--radius-sm); padding: 6px var(--control-padding-x); color: var(--text-faint);
   font-size: var(--control-font-size); font-family: var(--font-display); letter-spacing: var(--control-letter-spacing);
   cursor: pointer; transition: all 0.15s;

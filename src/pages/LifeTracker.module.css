@@ -1285,7 +1285,7 @@
 }
 .pickerPanel {
   background: var(--bg3);
-  border: 1px solid var(--s-border2);
+  border: 1px solid var(--border);
   border-radius: 12px; padding: 24px;
   width: 100%; max-width: 340px;
   max-height: calc(100vh - 32px);
@@ -1629,7 +1629,7 @@
 .deckDropMenu {
   position: absolute; top: calc(100% + 3px); left: 0; right: 0;
   background: var(--bg3);
-  border: 1px solid var(--s-border2);
+  border: 1px solid var(--border);
   border-radius: 6px; padding: 4px;
   box-shadow: 0 12px 36px rgba(0,0,0,0.55);
   z-index: 100; max-height: 220px; overflow-y: auto;
@@ -1754,7 +1754,7 @@
 .historyEntryCard {
   background: var(--s1);
   border: 1px solid var(--s-border);
-  border-top: 2px solid rgba(201,168,76,0.35);
+  border-top: 2px solid var(--s-border3);
   border-radius: 8px;
   padding: 12px;
   display: flex;
@@ -2138,7 +2138,7 @@
 
 .fsMenuOverlayPanel {
   background: var(--bg3);
-  border: 1px solid var(--s-border2);
+  border: 1px solid var(--border);
   border-radius: 12px;
   width: min(440px, calc(100vw - 24px));
   max-height: calc(100vh - 32px);
@@ -2423,7 +2423,7 @@
 @media (hover: hover) and (pointer: fine) { .hostColorDot:hover { transform: scale(1.2); } }
 .hostColorDotActive { border-color: rgba(255,255,255,0.75) !important; transform: scale(1.15); }
 .hostArtPreviewRow { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.hostArtThumb { width: 80px; height: 60px; object-fit: cover; border-radius: 5px; border: 1px solid var(--border); }
+.hostArtThumb { width: 80px; height: 60px; object-fit: cover; border-radius: 5px; border: 1px solid var(--s-border2); }
 .hostArtClear {
   background: none; border: 1px solid rgba(200,70,60,0.3); border-radius: 4px;
   color: #e08878; font-size: 0.78rem; padding: 3px 9px; cursor: pointer;

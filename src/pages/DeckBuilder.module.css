@@ -123,7 +123,7 @@
 .leftTop {
   flex-shrink: 0;
   padding: 12px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--s-border);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -155,7 +155,7 @@
   box-sizing: border-box;
   flex: 1;
   background: var(--s-subtle);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: var(--radius-xs);
   color: var(--text);
   font-family: var(--font-serif);
@@ -298,7 +298,7 @@
 .cmdInput {
   width: 100%;
   background: var(--s3);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: var(--radius-xs);
   color: var(--text);
   font-size: 0.88rem;
@@ -509,7 +509,7 @@
 .searchInput {
   flex: 1;
   background: var(--s2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: var(--radius-xs);
   color: var(--text);
   font-size: 0.88rem;
@@ -697,7 +697,7 @@
   margin-top: 8px;
   padding: 7px;
   background: var(--s2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: var(--radius-sm);
   color: var(--text-dim);
   font-family: var(--font-display);
@@ -1112,7 +1112,7 @@
   position: relative;
   display: flex;
   align-items: center;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--s-border);
   overflow: hidden;
   gap: 10px;
   padding: 0 14px 0 8px;
@@ -2662,7 +2662,7 @@
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--s-border);
   margin-bottom: 8px;
   flex-wrap: wrap;
   background: transparent;
@@ -3609,7 +3609,7 @@
     row-gap: 6px;
     padding: 8px;
     margin-bottom: 6px;
-    border: 1px solid var(--border);
+    border: 1px solid var(--s-border2);
     border-radius: var(--radius-xs);
     transition: max-height 180ms ease, padding 180ms ease, margin 180ms ease, opacity 140ms ease, border-color 140ms ease;
   }

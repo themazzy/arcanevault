@@ -536,7 +536,7 @@ export default function Layout({ children }) {
         </>
       )}
 
-      <main ref={mainRef} className={`${styles.main} ${isNativeScannerRoute ? styles.mainScanner : ''} ${isDeckBuilderRoute ? styles.mainDeckBuilder : ''}`}>
+      <main ref={mainRef} className={`${styles.main} ${isNativeScannerRoute ? styles.mainScanner : ''} ${isDeckBuilderRoute ? styles.mainDeckBuilder : ''} ${location.pathname === '/collection' ? styles.mainEdgeScroll : ''}`}>
         {children}
       </main>
 

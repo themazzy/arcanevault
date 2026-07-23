@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { formatPrice, getPrice, getScryfallKey } from '../lib/scryfall'
 import styles from './VirtualCardTable.module.css'
@@ -20,6 +20,18 @@ export default function VirtualCardTable({
   onScroll,
 }) {
   const parentRef = useRef(null)
+  // Actual scrollbar width (0 on overlay-scrollbar platforms), exposed as
+  // --sbw so page CSS can compute "gutter minus scrollbar" insets.
+  const [scrollbarWidth, setScrollbarWidth] = useState(0)
+  useEffect(() => {
+    const el = parentRef.current
+    if (!el) return
+    const measure = () => setScrollbarWidth(el.offsetWidth - el.clientWidth)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
   const virtualizer = useVirtualizer({
     count: cards.length,
     getScrollElement: () => parentRef.current,
@@ -32,7 +44,7 @@ export default function VirtualCardTable({
       <div className={styles.header} aria-hidden="true">
         <span>Qty</span><span>Card</span><span>Set</span><span>Value</span><span>Location</span>
       </div>
-      <div ref={parentRef} className={styles.scroll} onScroll={onScroll}>
+      <div ref={parentRef} className={styles.scroll} style={{ '--sbw': `${scrollbarWidth}px` }} onScroll={onScroll}>
         <div className={styles.virtualBody} style={{ height: virtualizer.getTotalSize() }}>
           {virtualizer.getVirtualItems().map(virtualRow => {
             const card = cards[virtualRow.index]

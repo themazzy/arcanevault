@@ -20,7 +20,7 @@ import ImportModal from '../components/ImportModal'
 import ExportModal from '../components/ExportModal'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import styles from './Folders.module.css'
-import { CloseIcon, CheckIcon, AddIcon, BinderIcon, ChevronLeftIcon, CollectionIcon, DeleteIcon, EditIcon, ExportIcon, ImageIcon, ImportIcon, RemoveIcon, SettingsIcon, ShareIcon, SortIcon, StacksViewIcon, WishlistsIcon } from '../icons'
+import { CloseIcon, CheckIcon, AddIcon, BinderIcon, ChevronLeftIcon, CollectionIcon, DeleteIcon, EditIcon, ExportIcon, ImageIcon, ImportIcon, RemoveIcon, SearchIcon, SettingsIcon, ShareIcon, SortIcon, StacksViewIcon, WishlistsIcon } from '../icons'
 import uiStyles from '../components/UI.module.css'
 import { useLibraryBrowserPreferences } from '../hooks/useLibraryBrowserPreferences'
 import { fetchPrintingsByName } from '../lib/cardSearch'
@@ -144,7 +144,7 @@ function CardArtPicker({ onSelect, onClose }) {
           onClear={() => handleQueryChange('')}
           onKeyDown={e => { if (e.key === 'Enter') { clearTimeout(timerRef.current); search() } }}
           placeholder="Search card name…"
-          style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border)',
+          style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--s-border2)',
             borderRadius: 4, padding: '8px 12px', color: 'var(--text)', fontSize: '0.9rem', outline: 'none' }} />
         {loading && <span style={{ alignSelf: 'center', color: 'var(--text-faint)', fontSize: '0.85rem' }}>…</span>}
       </div>
@@ -847,13 +847,7 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onRename,
 
   return (
     <div
-      className={`${styles.folderCard}${menuOpen ? ` ${styles.folderCardMenuOpen}` : ''}${selectMode ? ` ${styles.folderCardSelectMode}` : ''}${selectMode && selected ? ` ${styles.folderCardSelected}` : ''}`}
-      style={{
-        ...(bgUrl ? {
-          backgroundImage: `linear-gradient(rgba(10,10,18,0.55) 0%, rgba(10,10,18,0.80) 100%), url(${bgUrl})`,
-          backgroundSize: 'cover', backgroundPosition: 'center top',
-        } : {}),
-      }}
+      className={`${styles.folderCard}${bgUrl ? ` ${styles.folderCardHasBg}` : ''}${menuOpen ? ` ${styles.folderCardMenuOpen}` : ''}${selectMode ? ` ${styles.folderCardSelectMode}` : ''}${selectMode && selected ? ` ${styles.folderCardSelected}` : ''}`}
       onClick={handleCardClick}
       onKeyDown={event => {
         if (event.target !== event.currentTarget) return
@@ -868,11 +862,16 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onRename,
       aria-pressed={selectMode ? selected : undefined}
       {...longPressProps}>
 
+      {bgUrl && (
+        <div className={styles.folderCardArt} style={{ backgroundImage: `url(${bgUrl})` }} aria-hidden="true" />
+      )}
+
       {selectMode ? null : (
         <ResponsiveMenu
           title="Options"
           wrapClassName={styles.cogMenuWrap}
           onOpenChange={setMenuOpen}
+          portal
           trigger={({ toggle }) => (
             <button className={styles.cogBtn} onClick={e => { e.stopPropagation(); toggle() }} title="Options" aria-label={`Options for ${folder.name}`}>
               <SettingsIcon size={14} />
@@ -1418,18 +1417,6 @@ export default function ListsPage() {
             ) : null}
             menuLabel="Wishlist actions"
             mobileToolbar
-            mobileExtra={!selectMode ? (
-              <div className={styles.mobileHeaderControls}>
-                <SearchInput
-                  className={styles.folderSearch}
-                  wrapStyle={{ flex: '0 1 auto', minWidth: 200, maxWidth: 280 }}
-                  value={folderSearch}
-                  onChange={e => setFolderSearch(e.target.value)}
-                  onClear={() => setFolderSearch('')}
-                  placeholder="Search wishlists…"
-                />
-              </div>
-            ) : null}
           >
             <div className={styles.headerActions}>
               {selectMode ? (
@@ -1475,6 +1462,7 @@ export default function ListsPage() {
                 </div>
                 <ResponsiveMenu
                   title="Wishlist Actions"
+                  portal
                   trigger={({ toggle }) => (
                     <Button variant="ghost" size="sm" onClick={toggle} title="More actions" aria-label="More wishlist actions">
                       <SettingsIcon size={14} /> <span>More</span>
@@ -1508,7 +1496,7 @@ export default function ListsPage() {
         <div className={styles.overviewStickySearch}>
           <SearchInput
             className={styles.folderSearch}
-            wrapStyle={{ flex: '0 1 auto', minWidth: 200, maxWidth: 280 }}
+            leadingIcon={<SearchIcon size={14} />}
             value={folderSearch}
             onChange={e => setFolderSearch(e.target.value)}
             onClear={() => setFolderSearch('')}

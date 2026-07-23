@@ -16,7 +16,7 @@ import ExportModal from '../components/ExportModal'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import DeckBrowser from './DeckBrowser'
 import styles from './Folders.module.css'
-import { CloseIcon, CheckIcon, AddIcon, ChevronLeftIcon, SettingsIcon, DeleteIcon, EditIcon, BinderIcon, DeckIcon, ImageIcon, ImportIcon, ExportIcon, RemoveIcon, ShareIcon, SortIcon, StacksViewIcon } from '../icons'
+import { CloseIcon, CheckIcon, AddIcon, ChevronLeftIcon, SettingsIcon, DeleteIcon, EditIcon, BinderIcon, DeckIcon, ImageIcon, ImportIcon, ExportIcon, RemoveIcon, SearchIcon, ShareIcon, SortIcon, StacksViewIcon } from '../icons'
 import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 import { useFilterWorker } from '../hooks/useFilterWorker'
@@ -110,7 +110,7 @@ function CardArtPicker({ onSelect, onClose }) {
           onClear={() => handleQueryChange('')}
           onKeyDown={e => { if (e.key === 'Enter') { clearTimeout(timerRef.current); search() } }}
           placeholder="Search card name…"
-          style={{ background: 'var(--s-subtle)', border: '1px solid var(--border)', borderRadius: 3, padding: '8px 12px', color: 'var(--text)', fontSize: '0.88rem', outline: 'none' }}
+          style={{ background: 'var(--s-subtle)', border: '1px solid var(--s-border2)', borderRadius: 3, padding: '8px 12px', color: 'var(--text)', fontSize: '0.88rem', outline: 'none' }}
         />
         {loading && <span style={{ alignSelf: 'center', color: 'var(--text-faint)', fontSize: '0.85rem' }}>…</span>}
       </div>
@@ -119,7 +119,7 @@ function CardArtPicker({ onSelect, onClose }) {
           {results.map(card => (
             <button key={card.id}
               onClick={() => onSelect(card.image_uris.art_crop)}
-              style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 4, padding: 0, cursor: 'pointer', overflow: 'hidden', transition: 'border-color 0.15s' }}
+              style={{ background: 'none', border: '1px solid var(--s-border2)', borderRadius: 4, padding: 0, cursor: 'pointer', overflow: 'hidden', transition: 'border-color 0.15s' }}
               title={card.name}>
               <img src={card.image_uris.art_crop} alt={card.name}
                 style={{ width: '100%', display: 'block', aspectRatio: '4/3', objectFit: 'cover' }} />
@@ -419,12 +419,6 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
   return (
     <div
       className={`${styles.folderCard}${bgUrl ? ` ${styles.folderCardHasBg}` : ''}${menuOpen ? ` ${styles.folderCardMenuOpen}` : ''}${selectMode ? ` ${styles.folderCardSelectMode}` : ''}${selectMode && selected ? ` ${styles.folderCardSelected}` : ''}`}
-      style={{
-        ...(bgUrl ? {
-          backgroundImage: `linear-gradient(rgba(10,10,18,0.55) 0%, rgba(10,10,18,0.80) 100%), url(${bgUrl})`,
-          backgroundSize: 'cover', backgroundPosition: 'center top',
-        } : {}),
-      }}
       onClick={handleCardClick}
       onKeyDown={event => {
         if (event.target !== event.currentTarget) return
@@ -439,11 +433,16 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
       aria-pressed={selectMode ? selected : undefined}
       {...longPressProps}>
 
+      {bgUrl && (
+        <div className={styles.folderCardArt} style={{ backgroundImage: `url(${bgUrl})` }} aria-hidden="true" />
+      )}
+
       {selectMode ? null : (
         <ResponsiveMenu
           title="Options"
           wrapClassName={styles.cogMenuWrap}
           onOpenChange={setMenuOpen}
+          portal
           trigger={({ toggle }) => (
             <button className={styles.cogBtn} onClick={e => { e.stopPropagation(); toggle() }} title="Options" aria-label={`Options for ${folder.name}`}>
             <SettingsIcon size={14} />
@@ -1935,17 +1934,6 @@ export default function FoldersPage({ type }) {
             ) : null}
             menuLabel={`${noun}s actions`}
             mobileToolbar
-            mobileExtra={!selectMode ? (
-              <div className={styles.mobileHeaderControls}>
-                <SearchInput
-                  className={styles.folderSearch}
-                  value={folderSearch}
-                  onChange={e => setFolderSearch(e.target.value)}
-                  onClear={() => setFolderSearch('')}
-                  placeholder={`Search ${noun.toLowerCase()}s…`}
-                />
-              </div>
-            ) : null}
           >
             <div className={styles.headerActions}>
               {selectMode ? (
@@ -1991,6 +1979,7 @@ export default function FoldersPage({ type }) {
                 </div>
                 <ResponsiveMenu
                   title={`${noun} Actions`}
+                  portal
                   trigger={({ toggle }) => (
                     <Button variant="ghost" size="sm" onClick={toggle} title="More actions" aria-label={`More ${noun.toLowerCase()} actions`}>
                       <SettingsIcon size={14} /> <span>More</span>
@@ -2024,6 +2013,7 @@ export default function FoldersPage({ type }) {
         <div className={styles.overviewStickySearch}>
           <SearchInput
             className={styles.folderSearch}
+            leadingIcon={<SearchIcon size={14} />}
             value={folderSearch}
             onChange={e => setFolderSearch(e.target.value)}
             onClear={() => setFolderSearch('')}

@@ -64,7 +64,7 @@
 
 .statCard {
   background: var(--s-card);
-  border: 1px solid var(--s-border);
+  border: 1px solid var(--border);
   border-top: 2px solid rgba(201,168,76,0.35);
   border-radius: 7px;
   padding: 18px 20px 16px;
@@ -229,14 +229,14 @@
 }
 
 .setDropdownList::-webkit-scrollbar-thumb {
-  background: rgba(201,168,76,0.2);
+  background: var(--s-border3);
   border-radius: 2px;
 }
 
 /* â”€â”€ Chart boxes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .chartBox {
   background: var(--s1);
-  border: 1px solid var(--s-border);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 20px 22px;
   margin-bottom: 16px;
@@ -340,7 +340,7 @@
   min-height: 360px;
   background: var(--s1);
   border: 1px solid var(--s-border);
-  border-top: 2px solid rgba(201,168,76,0.35);
+  border-top: 2px solid var(--s-border3);
   border-radius: 12px;
 }
 
@@ -501,7 +501,7 @@
   margin: 0;
   padding: 10px 12px;
   background: var(--s1);
-  border-left: 2px solid rgba(201,168,76,0.28);
+  border-left: 2px solid var(--s-border3);
   border-radius: 8px;
   color: var(--text-dim);
   font-style: italic;
@@ -712,7 +712,7 @@
 .tableWrap {
   overflow-x: auto;
   scrollbar-width: thin;
-  scrollbar-color: rgba(201,168,76,0.15) transparent;
+  scrollbar-color: var(--s-border3) transparent;
 }
 .table {
   width: 100%;
@@ -1009,7 +1009,7 @@
   overflow: auto;
   padding-right: 4px;
   scrollbar-width: thin;
-  scrollbar-color: rgba(201,168,76,0.18) transparent;
+  scrollbar-color: var(--s-border3) transparent;
 }
 .showcaseChip {
   display: flex;
@@ -1497,7 +1497,7 @@
   margin: 4px 0 10px;
   padding: 10px 12px;
   border: 1px solid var(--s-border);
-  border-left: 2px solid rgba(201, 168, 76, 0.45);
+  border-left: 2px solid var(--s-border3);
   border-radius: 8px;
   background: var(--s2);
   display: flex;

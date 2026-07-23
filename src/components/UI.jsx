@@ -101,19 +101,20 @@ export function Input({ value, onChange, placeholder, type = 'text', className =
  * focus-driven autocomplete dropdowns open).
  */
 export const SearchInput = forwardRef(function SearchInput(
-  { value, onChange, onClear, className = '', style, wrapClassName = '', wrapStyle, ...props },
+  { value, onChange, onClear, className = '', style, wrapClassName = '', wrapStyle, leadingIcon = null, ...props },
   ref,
 ) {
   const hasValue = value != null && String(value).length > 0
   const clear = () => { if (onClear) onClear(); else onChange?.({ target: { value: '' } }) }
   return (
     <span className={`${styles.searchWrap} ${wrapClassName}`} style={wrapStyle}>
+      {leadingIcon && <span className={styles.searchLeadingIcon} aria-hidden="true">{leadingIcon}</span>}
       <input
         ref={ref}
         className={className}
         // paddingRight last so it wins over a caller `padding` shorthand and
         // always leaves room for the clear button.
-        style={{ width: '100%', ...style, paddingRight: 32 }}
+        style={{ width: '100%', ...(leadingIcon ? { paddingLeft: 34 } : {}), ...style, paddingRight: 32 }}
         value={value}
         onChange={onChange}
         {...props}

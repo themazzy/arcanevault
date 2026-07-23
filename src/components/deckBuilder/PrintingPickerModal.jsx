@@ -29,7 +29,7 @@ export default function PrintingPickerModal({ cardName, options, selectedCardId,
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:730, display:'flex', alignItems:'center', justifyContent:'center' }}
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, width:760, maxWidth:'95vw', maxHeight:'88vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
-        <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+        <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--s-border)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <span style={{ fontFamily:'var(--font-display)', color:'var(--gold)', fontSize:'1rem' }}>Choose owned printing</span>
           <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.2rem', cursor:'pointer' }}><CloseIcon size={13} /></button>
         </div>
@@ -43,7 +43,7 @@ export default function PrintingPickerModal({ cardName, options, selectedCardId,
               onClick={() => onSelect(option.card_id)}
               style={{
                 background: selectedCardId === option.card_id ? 'rgba(201,168,76,0.12)' : 'var(--s1)',
-                border: selectedCardId === option.card_id ? '1px solid rgba(201,168,76,0.45)' : '1px solid var(--border)',
+                border: selectedCardId === option.card_id ? '1px solid rgba(201,168,76,0.45)' : '1px solid var(--s-border2)',
                 borderRadius:8,
                 padding:10,
                 display:'flex',

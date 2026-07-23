@@ -1,5 +1,8 @@
 .app {
   --page-gutter: max(40px, calc((100vw - 1600px) / 2 + 40px));
+  /* .main's bottom padding, tokenized so full-height pages (Collection) can
+     stretch under it on mobile and reach the screen edge. */
+  --main-pad-b: 28px;
   height: 100vh;
   overflow: hidden;
   display: flex;
@@ -149,7 +152,7 @@
   min-width: 190px;
   padding: 6px;
   background: var(--nav-bg);
-  border: 1px solid var(--s-border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   box-shadow: 0 18px 42px rgba(0,0,0,0.42), 0 1px 0 rgba(201,168,76,0.08);
   backdrop-filter: blur(16px) saturate(130%);
@@ -353,6 +356,17 @@ button.navSubmenuItem {
 }
 .signOut:hover { color: var(--gold); border-color: rgba(201,168,76,0.25); }
 
+/* Pages that scroll internally (Collection): .main itself never scrolls, so
+   its scrollbar-gutter reservation and right padding are pure waste — drop
+   them so the page's own scroller (and its scrollbar) reaches the screen
+   edge. The page reintroduces the gutter inside its scroller. Compound
+   selector outranks every plain .main rule, including the media ones. */
+.main.mainEdgeScroll {
+  padding-right: 0;
+  scrollbar-gutter: auto;
+  overflow-y: hidden;
+}
+
 /* ── Main content area ── */
 .main {
   flex: 1;
@@ -362,7 +376,7 @@ button.navSubmenuItem {
   padding:
     calc(var(--nav-h) + 16px)
     var(--page-gutter)
-    28px;
+    var(--main-pad-b);
   max-width: none;
   width: 100%;
   margin: 0;
@@ -440,7 +454,7 @@ button.navSubmenuItem {
   font-size: 1.1rem; font-weight: 700;
   letter-spacing: 0.08em; color: var(--gold);
   padding: calc(22px + env(safe-area-inset-top, 0px)) 20px 16px;
-  border-bottom: 1px solid rgba(201,168,76,0.12);
+  border-bottom: 1px solid var(--s-border);
   flex-shrink: 0;
 }
 .mobileNavLogo .brandMark {
@@ -513,23 +527,23 @@ button.navSubmenuItem {
 }
 
 @media (max-width: 1180px) {
-  .app { --page-gutter: 22px; }
-  .main { padding-top: calc(var(--nav-h) + 12px); padding-bottom: 20px; }
+  .app { --page-gutter: 22px; --main-pad-b: 20px; }
+  .main { padding-top: calc(var(--nav-h) + 12px); }
 }
 
 @media (max-width: 980px) {
-  .app { --page-gutter: 12px; }
-  .main { padding-top: calc(var(--nav-h) + 10px); padding-bottom: 14px; }
+  .app { --page-gutter: 12px; --main-pad-b: 14px; }
+  .main { padding-top: calc(var(--nav-h) + 10px); }
 }
 
 @media (max-width: 768px) {
-  .app { --page-gutter: 10px; }
-  .main { padding-top: calc(var(--nav-h) + 8px); padding-bottom: 12px; }
+  .app { --page-gutter: 10px; --main-pad-b: 12px; }
+  .main { padding-top: calc(var(--nav-h) + 8px); }
 }
 
 @media (max-width: 480px) {
-  .app { --page-gutter: 8px; }
-  .main { padding-top: calc(var(--nav-h) + 6px); padding-bottom: 8px; }
+  .app { --page-gutter: 8px; --main-pad-b: 8px; }
+  .main { padding-top: calc(var(--nav-h) + 6px); }
 }
 
 /* ── Icon links in user bar ── */

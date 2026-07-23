@@ -26,7 +26,7 @@
 /* ── Header ── */
 .header {
   padding: 20px 24px 16px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--s-border);
   background: var(--s1);
   display: flex;
   flex-direction: column;
@@ -91,7 +91,7 @@
 /* ── Footer ── */
 .footer {
   padding: 14px 24px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--s-border);
   background: var(--s1);
   display: flex;
   align-items: center;
@@ -183,7 +183,7 @@
 
 .featureItem {
   background: var(--s2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-top: 2px solid rgba(201,168,76,0.35);
   border-radius: 6px;
   padding: 12px;
@@ -275,7 +275,7 @@
 
 .priceOption {
   background: var(--s2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 7px;
   padding: 13px 16px;
   cursor: pointer;
@@ -316,7 +316,7 @@
 /* ── Profile step ── */
 .nicknameInput {
   background: var(--s2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 6px;
   padding: 12px 16px;
   color: var(--text);
@@ -382,7 +382,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 7px;
   overflow: hidden;
 }
@@ -394,7 +394,7 @@
   gap: 16px;
   padding: 13px 16px;
   background: var(--s2);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--s-border);
 }
 .toggleRow:last-child { border-bottom: none; }
 
@@ -446,7 +446,7 @@
   gap: 8px;
   padding: 10px;
   background: var(--bg);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 6px;
   align-items: start;
 }
@@ -464,7 +464,7 @@
   border-radius: 6px;
   overflow: hidden;
   background: var(--s2);
-  border: 1px solid rgba(180,140,60,0.14);
+  border: 1px solid var(--s-border2);
   box-shadow: 0 2px 8px rgba(0,0,0,0.35);
 }
 .densityCardImg img {
@@ -526,7 +526,7 @@
 
 .textPreviewBox {
   background: var(--s2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 6px;
   padding: 14px 16px;
   display: flex;

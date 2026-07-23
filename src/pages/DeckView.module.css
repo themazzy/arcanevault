@@ -353,13 +353,13 @@
   overflow-x: hidden;
   min-width: 0;
   scrollbar-width: thin;
-  scrollbar-color: rgba(201,168,76,0.18) transparent;
+  scrollbar-color: var(--s-border3) transparent;
   padding-right: 4px;
 }
 .deckListPanel::-webkit-scrollbar { width: 3px; }
 .deckListPanel::-webkit-scrollbar-track { background: transparent; }
 .deckListPanel::-webkit-scrollbar-thumb {
-  background: rgba(201,168,76,0.2);
+  background: var(--s-border3);
   border-radius: 2px;
 }
 
@@ -586,12 +586,12 @@
   gap: 32px;
   min-width: 0;
   scrollbar-width: thin;
-  scrollbar-color: rgba(201,168,76,0.12) transparent;
+  scrollbar-color: var(--s-border2) transparent;
 }
 .sidebar::-webkit-scrollbar { width: 3px; }
 .sidebar::-webkit-scrollbar-track { background: transparent; }
 .sidebar::-webkit-scrollbar-thumb {
-  background: rgba(201,168,76,0.15);
+  background: var(--s-border2);
   border-radius: 2px;
 }
 
@@ -620,7 +620,7 @@
   gap: 12px;
   padding-bottom: 12px;
   margin-bottom: 10px;
-  border-bottom: 1px solid rgba(201,168,76,0.16);
+  border-bottom: 1px solid var(--s-border);
 }
 
 .combosActions {
@@ -657,7 +657,7 @@
 .combosSummary {
   color: var(--text-dim);
   background: rgba(201,168,76,0.055);
-  border: 1px solid rgba(201,168,76,0.16);
+  border: 1px solid var(--s-border2);
   border-radius: 5px;
   padding: 9px 10px;
   font-size: 0.82rem;
@@ -748,7 +748,7 @@
   width: 100%;
   aspect-ratio: 63 / 88;
   border-radius: 5px;
-  border: 1px solid rgba(201,168,76,0.28);
+  border: 1px solid var(--s-border2);
   background: var(--s2);
   object-fit: cover;
   box-shadow: 0 6px 18px rgba(0,0,0,0.35);

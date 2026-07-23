@@ -14,7 +14,7 @@
   border-radius: 8px; overflow: hidden;
   aspect-ratio: 63/88;
   background: var(--s-subtle);
-  border: 1px solid rgba(180,140,60,0.1);
+  border: 1px solid var(--s-border2);
   transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
 }
 @media (hover: hover) and (pointer: fine) {
@@ -121,11 +121,14 @@
   .filterBarActionsHideMobile { display: none !important; }
   .filterSortGroupHideMobile { display: none !important; }
 }
+.searchInputWrap {
+  min-width: 0;
+}
 .searchInput {
   flex: 1; min-width: 200px;
   height: 30px;
   background: var(--s3);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: var(--radius-sm);
   padding: 7px 10px;
   color: var(--text);
@@ -254,7 +257,11 @@
 
 @media (max-width: 600px) {
   .grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+}
 
+/* Mobile filter bar — breakpoint matches Collection's page breakpoint (768)
+   so the bottom toolbar and the compact filter bar switch together. */
+@media (max-width: 768px) {
   /* Compact filter bar so more cards are visible */
   .filterBar {
     display: grid;
@@ -275,13 +282,32 @@
   .filterBarActions {
     grid-column: span 1;
   }
-  .searchInput {
+  /* Mobile search matches Home's lookup bar (and the folder-index sticky
+     search): full-width, gold frame, opaque layered surface. The WRAP is the
+     grid child (the primitive wraps the input in a span), so the full-row
+     spans live on it, not on the input. */
+  .searchInputWrap {
     grid-column: 1 / -1;
     width: 100%;
-    height: var(--control-height);
-    padding: 6px 10px;
-    font-size: var(--control-font-size);
     min-width: 0;
+  }
+  .searchInput {
+    width: 100%;
+    height: 46px;
+    padding: 0 14px;
+    font-size: 0.88rem;
+    min-width: 0;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: linear-gradient(var(--s1), var(--s1)) var(--bg);
+  }
+  .searchInput:hover {
+    background: linear-gradient(var(--s1), var(--s1)) var(--bg);
+    border-color: var(--border-hi);
+  }
+  .searchInput:focus {
+    border-color: rgba(201,168,76,0.4);
+    background: linear-gradient(var(--s2), var(--s2)) var(--bg);
   }
   .filterSortMobile,
   .filterToggle,
@@ -302,7 +328,7 @@
     white-space: nowrap;
   }
 
-  .filterBarLookup .searchInput {
+  .filterBarLookup .searchInputWrap {
     order: 1;
     grid-column: 1 / -1;
     flex: 0 0 100%;
@@ -563,7 +589,7 @@
 .moveDialogTypeActive { background: rgba(201,168,76,0.15) !important; color: var(--gold) !important; }
 .moveDialogSearch {
   width: 100%; box-sizing: border-box;
-  background: var(--s2); border: 1px solid var(--border);
+  background: var(--s2); border: 1px solid var(--s-border2);
   border-radius: 4px; padding: 8px 12px;
   color: var(--text); font-size: 0.88rem; outline: none;
   margin-bottom: 10px; transition: border-color 0.18s;
@@ -572,11 +598,11 @@
 .moveDialogSearch::placeholder { color: var(--text-faint); font-style: italic; }
 .moveDialogList {
   max-height: 260px; overflow-y: auto; margin-bottom: 14px;
-  border: 1px solid var(--border); border-radius: 4px;
+  border: 1px solid var(--s-border2); border-radius: 4px;
 }
 .moveDialogList::-webkit-scrollbar { width: 5px; }
 .moveDialogList::-webkit-scrollbar-track { background: transparent; }
-.moveDialogList::-webkit-scrollbar-thumb { background: rgba(180,140,60,0.25); border-radius: 3px; }
+.moveDialogList::-webkit-scrollbar-thumb { background: var(--s-border3); border-radius: 3px; }
 .moveDialogItem {
   display: block; width: 100%; text-align: left;
   background: none; border: none;
@@ -590,9 +616,9 @@
   padding: 18px 16px; color: var(--text-faint);
   font-size: 0.85rem; font-style: italic; text-align: center;
 }
-.moveDialogCreate { border-top: 1px solid var(--border); padding-top: 14px; }
+.moveDialogCreate { border-top: 1px solid var(--s-border); padding-top: 14px; }
 .moveDialogCreateBtn {
-  background: none; border: 1px dashed rgba(201,168,76,0.3);
+  background: none; border: 1px dashed var(--s-border2);
   border-radius: 4px; width: 100%; padding: 9px 14px;
   cursor: pointer; color: var(--text-dim); font-size: 0.82rem;
   transition: all 0.18s; text-align: center;
@@ -600,7 +626,7 @@
 .moveDialogCreateBtn:hover { border-color: rgba(201,168,76,0.6); color: var(--gold); }
 .moveDialogCreateForm { display: flex; gap: 7px; align-items: center; }
 .moveDialogCreateInput {
-  flex: 1; background: var(--s2); border: 1px solid var(--border);
+  flex: 1; background: var(--s2); border: 1px solid var(--s-border2);
   border-radius: 4px; padding: 7px 10px; color: var(--text);
   font-size: 0.85rem; outline: none; transition: border-color 0.18s;
 }
@@ -668,7 +694,7 @@
 .filterPanel {
   margin-top: 8px;
   background: var(--s1);
-  border: 1px solid rgba(180,140,60,0.18);
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 14px 18px;
   display: flex;
@@ -878,7 +904,7 @@
 .rangeInput {
   width: 80px;
   background: var(--s2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 3px;
   padding: 5px 8px;
   color: var(--text);
@@ -891,7 +917,7 @@
 .setSearchInput {
   width: 100%;
   background: var(--s2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 3px;
   padding: 5px 10px;
   color: var(--text);
@@ -1037,7 +1063,7 @@
 .textFilter {
   width: 100%;
   background: var(--s2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 3px;
   padding: 7px 10px;
   color: var(--text);
@@ -1072,7 +1098,7 @@
 /* ── Mini select (number of colors) ─────────────────────────────────────── */
 .miniSelect {
   background: var(--s2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 3px;
   padding: 4px 8px;
   color: var(--text);
@@ -1218,7 +1244,7 @@
 /* detailFlipBtn replaced by uiStyles.btn sm ghost with alignSelf:flex-start inline */
 .detailFlipBtn {
   background: var(--s2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 3px;
   color: var(--text-dim);
   font-size: 0.76rem;
@@ -1584,7 +1610,7 @@
 
 .priceDetailBlock {
   background: var(--s2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 4px;
   padding: 8px 14px;
   min-width: 120px;
@@ -1699,7 +1725,7 @@ a.priceDetailBlock:focus {
 .buyPriceInput {
   width: 100%;
   background: var(--s-subtle);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 4px;
   color: var(--text);
   font-family: var(--font-serif);

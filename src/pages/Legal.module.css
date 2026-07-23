@@ -42,7 +42,7 @@
 .statusCard,
 .requestCard {
   background: var(--bg2);
-  border: 1px solid var(--s-border);
+  border: 1px solid var(--border);
   border-top: 2px solid rgba(201,168,76,0.35);
   border-radius: 12px;
   box-shadow: 0 10px 30px rgba(0,0,0,0.22);
@@ -180,6 +180,8 @@
 
 .infoCard {
   padding: 16px;
+  border: 1px solid var(--s-border);
+  border-top: 2px solid var(--s-border3);
   transition: background 0.2s, border-color 0.2s, transform 0.2s;
 }
 
@@ -294,7 +296,7 @@
 .textarea {
   width: 100%;
   background: var(--s2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 6px;
   padding: 10px 12px;
   color: var(--text);

@@ -367,7 +367,7 @@ function ArtPicker({ onSelect, onClear, onClose, rotation = 0 }) {
             onClear={() => handleQueryChange('')}
             onKeyDown={e => { if (e.key === 'Enter') { clearTimeout(timerRef.current); search() } }}
             placeholder="Search card name…"
-            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', borderRadius: 3, padding: '8px 12px', color: 'var(--text)', fontSize: '0.88rem', outline: 'none' }}
+            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--s-border2)', borderRadius: 3, padding: '8px 12px', color: 'var(--text)', fontSize: '0.88rem', outline: 'none' }}
           />
           {loading && <span style={{ alignSelf: 'center', color: 'var(--text-faint)', fontSize: '0.88rem' }}>…</span>}
         </div>
@@ -380,7 +380,7 @@ function ArtPicker({ onSelect, onClear, onClose, rotation = 0 }) {
             {results.map(card => (
               <button key={card.id}
                 onClick={() => onSelect(card.image_uris.art_crop)}
-                style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 4, padding: 0, cursor: 'pointer', overflow: 'hidden' }}
+                style={{ background: 'none', border: '1px solid var(--s-border2)', borderRadius: 4, padding: 0, cursor: 'pointer', overflow: 'hidden' }}
                 title={card.name}>
                 <img src={card.image_uris.art_crop} alt={card.name}
                   style={{ width: '100%', display: 'block', aspectRatio: '4/3', objectFit: 'cover' }} />

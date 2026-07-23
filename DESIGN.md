@@ -48,6 +48,8 @@ var(--s-border3)   /* .16 — strong */
 var(--s-border4)   /* .22 — strongest */
 ```
 
+> **Border hierarchy — gold outside, silver inside.** `--border` is gold-tinted; the `--s-border*` ramp is neutral. At rest, gold borders belong only to **outer, page-level surfaces**: section cards, standalone panels, and floating surfaces (modals, menus, popovers). Everything nested *inside* a panel — tiles, rows, media cards, inputs, chips, tab bars, scrollbar thumbs — uses the neutral ramp (`--s-border` for quiet rows/tiles, `--s-border2` for elements that need definition). Exceptions that keep gold at rest: featured/hero cards, primary gold CTA buttons, small accent chips/pills whose text or icon is already gold, and all hover / focus / active / selected states. A gold border on an ordinary nested tile is a bug; a silver border on a top-level section card is too.
+
 > **Adding a step is not a one-liner.** Every surface token needs a value in up to **five** places: `:root`, `[data-theme-mode="light"]`, `[data-high-contrast="true"]`, `[data-theme-mode="light"][data-high-contrast="true"]`, and — backgrounds only — `[data-oled="true"]` (which blanks every surface to `#000000` so no pixel emits). Miss one and the token silently breaks in that mode. Light values are hand-picked warm tones, **not** inverted alphas.
 
 > **Light-theme rule.** A hardcoded `rgba(255,255,255,0.X)` border or background is invisible on light themes. Use the `--s-*` tokens. (The `.btn` block in `UI.module.css` is a deliberate exception: it sets raw rgba defaults, then overrides every one under `[data-theme-mode="light"]`. If you copy that pattern, you owe the override too.)

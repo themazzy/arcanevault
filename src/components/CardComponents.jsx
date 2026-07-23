@@ -5,7 +5,7 @@ import { getImageUri, getPrice, formatPrice, getScryfallKey } from '../lib/scryf
 import { Modal, Badge, ResponsiveMenu, Select, SearchInput } from './UI'
 import styles from './CardComponents.module.css'
 import uiStyles from './UI.module.css'
-import { CloseIcon, CheckIcon, FilterIcon, FolderTypeIcon, SortIcon } from '../icons'
+import { CloseIcon, CheckIcon, FilterIcon, FolderTypeIcon, SearchIcon, SortIcon } from '../icons'
 import { sb } from '../lib/supabase'
 import { putCards } from '../lib/db'
 import { useLongPress } from '../hooks/useLongPress'
@@ -1586,7 +1586,9 @@ export function FilterBar({
   return (
     <div className={styles.filterWrap}>
       <div className={`${styles.filterBar}${mode === 'lookup' ? ' ' + styles.filterBarLookup : ''}`}>
-        <SearchInput className={styles.searchInput} placeholder="Search cards, sets…"
+        <SearchInput className={styles.searchInput} wrapClassName={styles.searchInputWrap}
+          placeholder="Search cards, sets…"
+          leadingIcon={<SearchIcon size={14} />}
           name="card-search"
           value={search} onChange={e => setSearch(e.target.value)}
           onClear={() => setSearch('')}

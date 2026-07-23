@@ -71,7 +71,7 @@
   width: 100%;
   margin-top: 6px;
   background: rgba(0,0,0,0.25);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 5px;
   color: var(--text);
   font-size: 0.85rem;
@@ -262,7 +262,7 @@
 .artPickerInput {
   flex: 1;
   background: var(--bg3);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 6px;
   color: var(--text);
   font-size: 0.88rem;
@@ -285,7 +285,7 @@
 
 .artPickerItem {
   background: none;
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 6px;
   overflow: hidden;
   cursor: pointer;
@@ -527,7 +527,7 @@
   gap: 8px;
   padding: 4px 8px 4px 14px;
   background: var(--bg3);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--s-border);
 }
 
 .blockDragArea {
@@ -633,7 +633,7 @@
 .bioTextarea {
   width: 100%;
   background: var(--bg3);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 5px;
   color: var(--text);
   font-size: 0.88rem;
@@ -907,7 +907,7 @@
   background-position: center 20%;
   flex-shrink: 0;
   box-shadow: 0 4px 14px rgba(0,0,0,0.45);
-  border: 1px solid rgba(201,168,76,0.25);
+  border: 1px solid var(--s-border2);
 }
 
 .featuredDeckInfo { flex: 1; min-width: 0; }
@@ -1009,7 +1009,7 @@
   border-radius: 9px;
   overflow: hidden;
   flex-shrink: 0;
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   box-shadow: 0 2px 6px rgba(0,0,0,0.35);
   transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
 }
@@ -1064,7 +1064,7 @@
   display: block;
   width: 100%;
   background: var(--bg3);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 5px;
   color: var(--text);
   font-size: 0.8rem;
@@ -1079,7 +1079,7 @@
   gap: 6px;
   margin-bottom: 16px;
   padding-bottom: 14px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--s-border);
 }
 .standoutSelectedItem {
   display: flex;
@@ -1092,7 +1092,7 @@
   object-fit: cover;
   border-radius: 4px;
   flex-shrink: 0;
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border);
 }
 .standoutSelectedName { flex: 1; font-size: 0.82rem; color: var(--text-dim); }
 .standoutSelectedRemove {
@@ -1135,7 +1135,7 @@
 .standoutPickerItem {
   position: relative;
   background: none;
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   border-radius: 6px;
   overflow: hidden;
   cursor: pointer;
@@ -1200,7 +1200,7 @@
   cursor: default;
 }
 .standoutPickerItemDisabled:hover {
-  border-color: var(--border) !important;
+  border-color: var(--s-border2) !important;
   box-shadow: none !important;
 }
 
@@ -1219,7 +1219,7 @@
   width: 80px;
   aspect-ratio: 488 / 680;
   background: var(--bg3);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border2);
   transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
 }
 .recentCardItem:hover {
@@ -1256,8 +1256,8 @@
 .deckTile {
   position: relative;
   background: var(--bg2);
-  border: 1px solid var(--border);
-  border-top: 2px solid rgba(201,168,76,0.35);
+  border: 1px solid var(--s-border2);
+  border-top: 2px solid var(--s-border3);
   border-radius: 12px;
   overflow: hidden;
   display: flex;
@@ -1473,7 +1473,7 @@
 
 .topCardsMetric {
   background: var(--bg2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border);
   border-radius: 6px;
   padding: 6px 12px;
   display: flex;
@@ -1533,7 +1533,7 @@
   border-radius: 3px;
   overflow: hidden;
   background: var(--bg3);
-  border: 1px solid var(--border);
+  border: 1px solid var(--s-border);
 }
 
 .topCardsChipImg {

@@ -46,7 +46,7 @@ export default function ShareModal({ folder, onClose }) {
           </p>
           <div style={{ display: 'flex', gap: 8 }}>
             <input readOnly value={url} style={{
-              flex: 1, background: 'var(--s2)', border: '1px solid var(--border)',
+              flex: 1, background: 'var(--s2)', border: '1px solid var(--s-border2)',
               borderRadius: 3, padding: '9px 12px', color: 'var(--text)', fontSize: '0.85rem', outline: 'none'
             }} />
             <Button onClick={copy}>{copied ? 'Copied' : 'Copy'}</Button>

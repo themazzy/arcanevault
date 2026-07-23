@@ -38,19 +38,47 @@
 .collectionViewToggle button:hover { color: var(--text); background: var(--s-medium); }
 .collectionViewActive { color: var(--gold) !important; background: color-mix(in srgb, var(--gold) 12%, transparent) !important; }
 
-/* ── Mobile top action row (+ Add, Import, Export) ── */
-.mobileTopActions {
-  display: none;
+/* Pairs with Layout's .mainEdgeScroll (applied on the /collection route):
+   .main drops its right padding, the page re-adds it for the top controls,
+   and only the grid viewport bleeds to the screen edge so the scrollbar
+   hugs the right side without taking width from the cards. */
+.collectionPage {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding-right: var(--page-gutter);
+}
+.gridViewport [class*="scroll"] {
+  /* Scrollbar-aware inset: the scroller reports its real scrollbar width as
+     --sbw (0 on overlay platforms), so padding + scrollbar always equals the
+     page gutter and content edges line up with the rest of the page. */
+  padding-right: max(0px, calc(var(--page-gutter) - var(--sbw, 0px)));
+}
+.gridViewport [class*="header"] {
+  /* table view's column-header row must stay aligned with the padded rows */
+  margin-right: var(--page-gutter);
 }
 
-/* ── Floating mobile sort+filter bar ── */
-.mobileBar {
-  display: none;
+/* ── Bottom pill toolbar (shared styling from UI.module.css) ──
+   Collection's mobile layout switches at 768 but the shared bar turns on at
+   980 — suppress it in the gap where the desktop header is still visible.
+   !important because the shared rule has equal specificity in another chunk. */
+@media (min-width: 769px) {
+  .collectionToolbar { display: none !important; }
 }
 
 @media (max-width: 768px) {
+  /* Stretch under .main's bottom padding so the grid runs to the screen edge
+     beneath the floating toolbar; the negative margin cancels the overflow so
+     .main doesn't gain a stray scroll. */
+  .collectionPage {
+    height: calc(100% + var(--main-pad-b, 12px));
+    margin-bottom: calc(-1 * var(--main-pad-b, 12px));
+  }
   /* Hide desktop header row */
   .collectionHeader { display: none; }
+  /* View switching lives in the bottom toolbar's More menu on mobile */
+  .collectionViewToggle { display: none; }
   .gridHeader {
     flex-wrap: wrap;
     gap: 4px 12px;
@@ -70,93 +98,16 @@
   }
 
   /* Action row above the filter bar — slides away on scroll */
-  .mobileTopActions {
-    display: grid;
-    grid-template-columns: minmax(0, 1.25fr) repeat(3, minmax(0, 1fr));
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 8px;
-    overflow: hidden;
-    max-height: 48px;
-    opacity: 1;
-    transition: max-height 0.3s cubic-bezier(.4,0,.2,1), opacity 0.25s ease, margin 0.3s cubic-bezier(.4,0,.2,1);
+  /* The bottom toolbar floats OVER the grid — clearance lives inside the
+     virtual scroller (grid and table both), so cards scroll under the pills
+     and the last row can still scroll up clear of them. */
+  .gridViewport :global([class*="scroll"]) {
+    padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px));
   }
-
-  .mobileTopActions > button {
-    width: 100%;
-    min-width: 0;
-    height: 36px;
-    padding: 0 10px;
-    border-radius: 6px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    line-height: 1;
-  }
-
-  .mobileTopActionsHidden {
-    max-height: 0;
-    opacity: 0;
-    margin-bottom: 0;
-    pointer-events: none;
-  }
-
-  /* Floating bottom-right pill — sort + filters */
-  .mobileBar {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    position: fixed;
-    bottom: max(16px, env(safe-area-inset-bottom));
-    right: max(14px, env(safe-area-inset-right));
-    transform: translateY(72px);
-    z-index: 80;
-    padding: 5px;
-    background: var(--nav-bg);
-    backdrop-filter: blur(14px) saturate(130%);
-    border: 1px solid var(--s-border);
-    border-radius: 10px;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.45), 0 1px 0 rgba(201,168,76,0.08);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.3s cubic-bezier(.4,0,.2,1), transform 0.3s cubic-bezier(.4,0,.2,1);
-    white-space: nowrap;
-  }
-
-  .mobileBarVisible {
-    opacity: 1;
-    pointer-events: auto;
-    transform: translateY(0);
-  }
-
-  .mobileBarSort,
-  .mobileBarFilters {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    height: 30px;
-    padding: 0 11px;
-    border-radius: 4px;
-    border: 1px solid transparent;
-    background: transparent;
-    color: var(--text-dim);
-    font-family: var(--font-display);
-    font-size: 0.72rem;
-    letter-spacing: 0.07em;
-    text-transform: uppercase;
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s, border-color 0.15s;
-  }
-  .mobileBarSort:hover, .mobileBarSortOpen,
-  .mobileBarFilters:hover, .mobileBarFiltersOpen {
-    background: var(--s3);
-    color: var(--text);
-    border-color: var(--s-border);
-  }
-  .mobileBarFiltersActive {
-    color: var(--gold) !important;
-    background: rgba(201,168,76,0.1) !important;
-    border-color: rgba(201,168,76,0.35) !important;
+  /* Classic scrollbars (narrow desktop windows) must fit inside the mobile
+     page gutter, so cap them below it. */
+  .gridViewport :global([class*="scroll"])::-webkit-scrollbar {
+    width: 8px;
   }
 }
 
@@ -164,6 +115,9 @@
   flex: 1;
   overflow: hidden;
   min-height: 0;
+  /* bleed to the screen edge past .collectionPage's right padding — the
+     scroller re-pads its content, so only the scrollbar sits in the gutter */
+  margin-right: calc(-1 * var(--page-gutter));
 }
 
 .importBtn {
