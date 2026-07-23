@@ -666,7 +666,7 @@
 }
 
 /* ── Rich filter panel ─────────────────────────────────────────────────────── */
-.filterWrap { margin-bottom: 14px; }
+.filterWrap { margin-bottom: 0; }
 
 .filterToggle {
   height: var(--control-height);
