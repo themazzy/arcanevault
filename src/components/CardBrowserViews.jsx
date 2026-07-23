@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Badge, ResponsiveMenu } from './UI'
+import { Badge, Button, ResponsiveMenu } from './UI'
 import { getPrice, formatPrice, getScryfallKey, getImageUri, scryfallImageAtSize, resolveTileImage } from '../lib/scryfall'
 import { useLongPress } from '../hooks/useLongPress'
 import { useDevicePixelRatio } from '../hooks/useDevicePixelRatio'
@@ -8,7 +8,7 @@ import { lastInputWasTouch } from '../lib/inputType'
 import { countActive } from './CardComponents'
 import uiStyles from './UI.module.css'
 import styles from '../pages/DeckBrowser.module.css'
-import { AddIcon, CheckIcon, ExportIcon, FilterIcon, GridViewIcon, ImportIcon, ShareIcon, SortIcon, StacksViewIcon, TextViewIcon, TableViewIcon } from '../icons'
+import { AddIcon, CheckIcon, ExportIcon, FilterIcon, GridViewIcon, ImportIcon, SettingsIcon, ShareIcon, SortIcon, StacksViewIcon, TextViewIcon, TableViewIcon } from '../icons'
 import { CAT_ORDER, CAT_COLORS, getCardCategoryFromCard } from '../lib/cardCategory'
 import {
   CARD_GRID_DENSITY,
@@ -943,6 +943,7 @@ export function CardBrowserViewControls({
   onImport,
   onExport,
   onShare,
+  bulkBarVisible = false,
 }) {
   const activeFilters = countActive(filters)
   const sortLabel = BROWSER_SORT_OPTIONS.find(([value]) => value === sort)?.[1] || 'Sort'
@@ -982,165 +983,116 @@ export function CardBrowserViewControls({
           </div>
         </div>
       </div>
-      <div className={`${styles.mobileControlsMenu}${selectMode ? ` ${styles.mobileControlsMenuHidden}` : ''}`}>
-        {onAddCards && (
-          <button
-            className={`${styles.mobileControlsBtn} ${styles.mobileControlsBtnPrimary}`}
-            onClick={onAddCards}
-            title="Add cards"
-            aria-label="Add cards"
-          >
-            <AddIcon size={15} />
-            <span>Add</span>
-          </button>
-        )}
-        {onToggleSelectMode && (
-          <button
-            className={styles.mobileControlsBtn}
-            onClick={onToggleSelectMode}
-            title="Select cards"
-            aria-label="Select cards"
-          >
-            <CheckIcon size={15} />
-            <span>Select</span>
-          </button>
-        )}
-        {setSort && (
+      {!bulkBarVisible && (
+        <div className={`${uiStyles.headerFloatingToolbar} ${styles.browserToolbar}`} aria-label="Card browser actions">
+          {selectMode ? (
+            onToggleSelectMode && (
+              <Button variant="default" size="sm" onClick={onToggleSelectMode} title="Exit select mode" aria-label="Exit select mode">
+                <CheckIcon size={14} /> <span>Done</span>
+              </Button>
+            )
+          ) : (
+            onAddCards && (
+              <Button variant="purple" size="sm" onClick={onAddCards} title="Add cards" aria-label="Add cards">
+                <AddIcon size={14} /> <span>Add Cards</span>
+              </Button>
+            )
+          )}
+          {setSort && (
+            <ResponsiveMenu
+              title="Sort Cards"
+              portal
+              trigger={({ toggle }) => (
+                <Button variant="ghost" size="sm" onClick={toggle} title={`Sort: ${sortLabel}`} aria-label="Sort cards">
+                  <SortIcon size={14} /> <span>Sort</span>
+                </Button>
+              )}
+            >
+              {({ close }) => (
+                <div className={uiStyles.responsiveMenuList}>
+                  {BROWSER_SORT_OPTIONS.map(([value, label]) => (
+                    <button
+                      key={value}
+                      className={`${uiStyles.responsiveMenuAction} ${sort === value ? uiStyles.responsiveMenuActionActive : ''}`}
+                      onClick={() => { setSort(value); close() }}
+                    >
+                      <span>{label}</span>
+                      <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{sort === value ? <CheckIcon size={12} /> : ''}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </ResponsiveMenu>
+          )}
+          {onToggleFilters && (
+            <Button
+              variant={filterOpen || activeFilters ? 'default' : 'ghost'}
+              size="sm"
+              onClick={onToggleFilters}
+              aria-pressed={filterOpen}
+              title={activeFilters ? `${activeFilters} active filters` : 'Filter cards'}
+            >
+              <FilterIcon size={14} /> <span>Filters</span>
+            </Button>
+          )}
           <ResponsiveMenu
-            title="Sort Cards"
-            forceSheet
+            title="View & Actions"
             portal
-            trigger={({ open, toggle }) => (
-              <button
-                className={`${styles.mobileControlsBtn}${open ? ` ${styles.mobileControlsBtnActive}` : ''}`}
-                onClick={toggle}
-                title={`Sort: ${sortLabel}`}
-                aria-label="Sort cards"
-              >
-                <SortIcon size={15} />
-                <span>Sort</span>
-              </button>
+            trigger={({ toggle }) => (
+              <Button variant="ghost" size="sm" onClick={toggle} title="More options" aria-label="More options">
+                <SettingsIcon size={14} /> <span>More</span>
+              </Button>
             )}
           >
             {({ close }) => (
               <div className={uiStyles.responsiveMenuList}>
-                {BROWSER_SORT_OPTIONS.map(([value, label]) => (
+                {onToggleSelectMode && !selectMode && (
+                  <button className={uiStyles.responsiveMenuAction} onClick={() => { onToggleSelectMode(); close() }}>
+                    <span><CheckIcon size={14} /> Select cards</span>
+                  </button>
+                )}
+                {onImport && (
+                  <button className={uiStyles.responsiveMenuAction} onClick={() => { onImport(); close() }}>
+                    <span><ImportIcon size={14} /> Import</span>
+                  </button>
+                )}
+                {onExport && (
+                  <button className={uiStyles.responsiveMenuAction} onClick={() => { onExport(); close() }}>
+                    <span><ExportIcon size={14} /> Export</span>
+                  </button>
+                )}
+                {onShare && (
+                  <button className={uiStyles.responsiveMenuAction} onClick={() => { onShare(); close() }}>
+                    <span><ShareIcon size={14} /> Share</span>
+                  </button>
+                )}
+                <div className={uiStyles.responsiveMenuSectionLabel}>View</div>
+                {getOrderedBrowserViewModes().map(mode => (
                   <button
-                    key={value}
-                    className={`${uiStyles.responsiveMenuAction} ${sort === value ? uiStyles.responsiveMenuActionActive : ''}`}
-                    onClick={() => { setSort(value); close() }}
+                    key={mode.id}
+                    className={`${uiStyles.responsiveMenuAction} ${viewMode === mode.id ? uiStyles.responsiveMenuActionActive : ''}`}
+                    onClick={() => { setViewMode(mode.id); close() }}
                   >
-                    <span>{label}</span>
-                    <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{sort === value ? <CheckIcon size={12} /> : ''}</span>
+                    <span><mode.Icon size={14} /> {mode.label}</span>
+                    <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{viewMode === mode.id ? <CheckIcon size={12} /> : null}</span>
+                  </button>
+                ))}
+                <div className={uiStyles.responsiveMenuSectionLabel}>Group by</div>
+                {CARD_BROWSER_GROUP_OPTIONS.map(option => (
+                  <button
+                    key={option.id}
+                    className={`${uiStyles.responsiveMenuAction} ${groupBy === option.id ? uiStyles.responsiveMenuActionActive : ''}`}
+                    onClick={() => { setGroupBy(option.id); close() }}
+                  >
+                    <span>{option.label}</span>
+                    <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{groupBy === option.id ? <CheckIcon size={12} /> : null}</span>
                   </button>
                 ))}
               </div>
             )}
           </ResponsiveMenu>
-        )}
-        {onToggleFilters && (
-          <button
-            className={`${styles.mobileControlsBtn}${filterOpen || activeFilters ? ` ${styles.mobileControlsBtnActive}` : ''}`}
-            onClick={onToggleFilters}
-            title={activeFilters ? `${activeFilters} active filters` : 'Filter cards'}
-            aria-label="Filter cards"
-          >
-            <FilterIcon size={15} />
-            <span>Filter{activeFilters ? ` ${activeFilters}` : ''}</span>
-          </button>
-        )}
-        {onImport && (
-          <button
-            className={styles.mobileControlsBtn}
-            onClick={onImport}
-            title="Import"
-            aria-label="Import"
-          >
-            <ImportIcon size={15} />
-            <span>Import</span>
-          </button>
-        )}
-        {onExport && (
-          <button
-            className={styles.mobileControlsBtn}
-            onClick={onExport}
-            title="Export"
-            aria-label="Export"
-          >
-            <ExportIcon size={15} />
-            <span>Export</span>
-          </button>
-        )}
-        {onShare && (
-          <button
-            className={styles.mobileControlsBtn}
-            onClick={onShare}
-            title="Share"
-            aria-label="Share"
-          >
-            <ShareIcon size={15} />
-            <span>Share</span>
-          </button>
-        )}
-      </div>
-      <div className={styles.mobileTopControls}>
-        <ResponsiveMenu
-          title="Group Cards"
-          forceSheet
-          portal
-          trigger={({ open, toggle }) => (
-            <button className={`${styles.mobileControlsBtn}${open || groupBy !== 'none' ? ` ${styles.mobileControlsBtnActive}` : ''}`} onClick={toggle}>
-              <span>Group</span>
-              <svg className={`${styles.mobileControlsChevron} ${open ? styles.mobileControlsChevronOpen : ''}`} width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <polyline points="2,3 5,6.5 8,3" />
-              </svg>
-            </button>
-          )}
-        >
-          {({ close }) => (
-            <div className={uiStyles.responsiveMenuList}>
-              {CARD_BROWSER_GROUP_OPTIONS.map(option => (
-                <button
-                  key={option.id}
-                  className={`${uiStyles.responsiveMenuAction} ${groupBy === option.id ? uiStyles.responsiveMenuActionActive : ''}`}
-                  onClick={() => { setGroupBy(option.id); close() }}
-                >
-                  <span>{option.label}</span>
-                  <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{groupBy === option.id ? <CheckIcon size={12} /> : null}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </ResponsiveMenu>
-        <ResponsiveMenu
-          title="View Mode"
-          forceSheet
-          portal
-          trigger={({ open, toggle }) => (
-            <button className={`${styles.mobileControlsBtn}${open ? ` ${styles.mobileControlsBtnActive}` : ''}`} onClick={toggle}>
-              <span>View</span>
-              <svg className={`${styles.mobileControlsChevron} ${open ? styles.mobileControlsChevronOpen : ''}`} width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <polyline points="2,3 5,6.5 8,3" />
-              </svg>
-            </button>
-          )}
-        >
-          {({ close }) => (
-            <div className={uiStyles.responsiveMenuList}>
-              {getOrderedBrowserViewModes().map(mode => (
-                <button
-                  key={mode.id}
-                  className={`${uiStyles.responsiveMenuAction} ${viewMode === mode.id ? uiStyles.responsiveMenuActionActive : ''}`}
-                  onClick={() => { setViewMode(mode.id); close() }}
-                >
-                  <span>{mode.label}</span>
-                  <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{viewMode === mode.id ? <CheckIcon size={12} /> : null}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </ResponsiveMenu>
-      </div>
+        </div>
+      )}
     </>
   )
 }

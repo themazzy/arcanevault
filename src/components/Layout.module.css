@@ -539,6 +539,14 @@ button.navSubmenuItem {
 @media (max-width: 768px) {
   .app { --page-gutter: 10px; --main-pad-b: 12px; }
   .main { padding-top: calc(var(--nav-h) + 8px); }
+  /* An open deck browser scrolls internally (Collection-style): stop .main
+     from scrolling and from reserving scrollbar gutters that would inset
+     content 6px past the viewport-anchored pill toolbar. State-based (the
+     deck opens without a route change), hence :has instead of a route class. */
+  .main:has([class*="deckBrowser"]) {
+    overflow: hidden;
+    scrollbar-gutter: auto;
+  }
 }
 
 @media (max-width: 480px) {

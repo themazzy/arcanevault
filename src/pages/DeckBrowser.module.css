@@ -2,6 +2,11 @@
 .deckBrowser { display: flex; flex-direction: column; gap: 0; }
 
 /* Header */
+/* Header + search wrapper; a plain block on desktop, framed dock on mobile */
+.topDock { display: block; }
+/* Card views wrapper; plain on desktop, the internal scroller on mobile */
+.browserViewport { display: block; min-height: 0; }
+.headerBackLabel { display: inline; }
 .header { position: relative; margin-bottom: 12px; overflow: hidden; border-radius: var(--radius-md); padding: 14px; border: 1px solid var(--border); }
 .headerBg {
   position: absolute;
@@ -19,19 +24,42 @@
   font-family: var(--font-display); font-size: 1.4rem; font-weight: 600;
   color: var(--gold); letter-spacing: 0.04em; margin: 0;
 }
+/* Click-to-rename: the name itself is the trigger */
+.deckNameBtn {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+  border-bottom: 1px dashed transparent;
+  transition: border-color 0.15s;
+}
+.deckNameBtn:hover { border-bottom-color: rgba(201,168,76,0.45); }
+.deckNameInput {
+  box-sizing: border-box;
+  min-width: 0;
+  width: min(100%, 360px);
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--gold);
+  background: var(--s2);
+  border: 1px solid var(--border-hi);
+  border-radius: var(--radius-xs);
+  padding: 0 8px;
+  outline: none;
+}
 .headerMeta { display: flex; align-items: center; gap: 12px; color: var(--text-dim); font-size: 0.85rem; flex-wrap: wrap; }
 .deckValue { color: var(--green); font-family: var(--font-display); font-size: 1rem; font-weight: 600; }
-.bracketBadge {
-  display: inline-block;
-  font-size: 0.72rem;
-  background: var(--s2);
-  border: 1px solid var(--s-border);
-  border-radius: var(--radius-xs);
-  padding: 2px 7px;
-  letter-spacing: 0.02em;
-}
 .headerActionsDesktop { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.headerActionsMobile { display: none; }
+/* Mobile-only Edit-in-Builder copy, inlined next to the back button.
+   Compound selector: it must outrank .editInBuilderBtn's display regardless
+   of source order. */
+.editInBuilderBtn.editInBuilderBtnMobile { display: none; }
 .editInBuilderBtn {
   display: inline-flex;
   align-items: center;
@@ -63,7 +91,7 @@
   margin-top: 12px;
 }
 .headerBackBtn {
-  min-height: 36px;
+  min-height: var(--control-height);
   color: var(--text-dim);
 }
 .headerBackBtn:hover {
@@ -313,14 +341,19 @@
 }
 .countInfo { font-size: 0.8rem; color: var(--text-dim); }
 .desktopControls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+/* Group + view toggles share one segmented-control pattern: framed container,
+   borderless inner buttons, gold active tint (same family as Collection's
+   view toggle). Total height = --control-height, matching sibling controls. */
+.groupByToggle,
 .viewToggle {
-  display: flex;
-  background: var(--s-card);
+  display: inline-flex;
+  background: var(--s-subtle);
   border: 1px solid var(--s-border);
   border-radius: var(--radius-sm);
   padding: 2px;
   gap: 1px;
 }
+.groupByBtn,
 .viewBtn {
   display: inline-flex;
   align-items: center;
@@ -328,10 +361,10 @@
   gap: 5px;
   box-sizing: border-box;
   background: transparent;
-  height: var(--control-height);
-  border: 1px solid var(--s-border2);
+  height: calc(var(--control-height) - 4px);
+  border: 0;
   border-radius: var(--radius-xs);
-  padding: 6px var(--control-padding-x);
+  padding: 0 10px;
   color: var(--text-dim);
   font-size: var(--control-font-size);
   font-family: var(--font-display);
@@ -340,11 +373,12 @@
   transition: all 0.15s;
   white-space: nowrap;
 }
-.viewBtn:hover { color: var(--text); background: var(--s2); border-color: var(--s-border2); }
+.groupByBtn:hover,
+.viewBtn:hover { color: var(--text); background: var(--s-medium); }
+.groupByActive,
 .viewActive {
   color: var(--gold) !important;
   background: rgba(201,168,76,0.12) !important;
-  border-color: rgba(201,168,76,0.25) !important;
   box-shadow: none;
 }
 
@@ -874,32 +908,16 @@
 
 /* ── Control Bar Extensions ──────────────────────────────────────────────── */
 .controlLeft { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.groupByToggle { display: flex; gap: 2px; }
-.groupByBtn {
-  display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box;
-  height: var(--control-height);
-  background: var(--s-card); border: 1px solid var(--s-border2);
-  border-radius: var(--radius-sm); padding: 6px var(--control-padding-x); color: var(--text-faint);
-  font-size: var(--control-font-size); font-family: var(--font-display); letter-spacing: var(--control-letter-spacing);
-  cursor: pointer; transition: all 0.15s;
-}
-.groupByBtn:hover { color: var(--text); border-color: var(--s-border2); }
-.groupByActive { color: var(--gold) !important; border-color: rgba(201,168,76,0.35) !important; background: rgba(201,168,76,0.07) !important; }
+/* .groupByToggle / .groupByBtn / .groupByActive share the segmented-control
+   definitions with the view toggle — see the "Group + view toggles" block. */
 
-.mobileControlsMenu { display: none; gap: 8px; align-items: center; }
-.mobileTopControls { display: none; }
-.mobileControlsMenuHidden { display: none !important; }
-.mobileControlsBtn {
-  display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box;
-  height: var(--control-height);
-  background: rgba(201,168,76,0.12); border: 1px solid rgba(201,168,76,0.3);
-  border-radius: var(--radius-sm); padding: 6px var(--control-padding-x); color: var(--gold);
-  font-size: var(--control-font-size); font-family: var(--font-display); letter-spacing: var(--control-letter-spacing);
-  cursor: pointer; transition: all 0.15s; white-space: nowrap; gap: 8px;
+/* ── Bottom pill toolbar (shared styling from UI.module.css) ──
+   The in-deck mobile layout switches at 768; the shared bar turns on at 980 —
+   suppress it in the gap where the desktop controls are still visible.
+   !important because the shared rule has equal specificity in another chunk. */
+@media (min-width: 769px) {
+  .browserToolbar { display: none !important; }
 }
-.mobileControlsBtn:hover { background: rgba(201,168,76,0.22); border-color: rgba(201,168,76,0.45); }
-.mobileControlsChevron { opacity: 0.72; transition: transform 0.16s ease, opacity 0.16s ease; }
-.mobileControlsChevronOpen { transform: rotate(180deg); opacity: 0.95; }
 /* ── Floating card preview ───────────────────────────────────────────────── */
 .floatingPreview {
   position: fixed;
@@ -917,7 +935,7 @@
 @media (max-width: 900px) {
   .chartsRow { grid-template-columns: 1fr 1fr; }
 }
-@media (max-width: 620px) {
+@media (max-width: 768px) {
   .chartsRow { grid-template-columns: 1fr; }
   .deckRow { grid-template-columns: 26px 1fr auto 60px; }
   .deckRowType { display: none; }
@@ -933,122 +951,104 @@
   }
   .bracketDetail { min-width: 220px; }
 
-  /* Header: stack name + meta vertically, shrink buttons */
-  .header { margin-bottom: 8px; padding: 8px 10px; }
-  .headerBackBtn { min-height: 40px; }
-  .titleRow { gap: 8px; }
-  .deckName { font-size: 1.05rem; }
-  .headerMeta { gap: 6px 8px; font-size: 0.8rem; }
-  .headerActionsDesktop { display: none; }
-  .headerActionsMobile {
-    display: flex;
-    min-width: 0;
+  /* Collection-style architecture: the page itself never scrolls on mobile —
+     the dock (header + search) is a normal in-flow card that is simply
+     always visible, and only .browserViewport scrolls beneath it. No sticky,
+     no paint-over strips, nothing can show through or get clipped. */
+  .deckBrowser { height: 100%; }
+  .browserViewport {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    /* Left/top: 6px bleed slack so hover lift/shadow on edge cards doesn't
+       clip against the scroller box (negative margin pushes the box out,
+       padding pulls content back to the same position).
+       Right: full bleed to the screen edge — the scrollbar parks in the page
+       gutter and content pads back by gutter − scrollbar (--sbw, measured by
+       the component; 0 on overlay-scrollbar phones), so the grid's right
+       edge always matches the toolbar's regardless of scrollbar type. */
+    margin: -6px calc(-1 * var(--page-gutter)) 0 -6px;
+    padding: 6px max(0px, calc(var(--page-gutter) - var(--sbw, 0px))) 0 6px;
   }
-  .editInBuilderBtn,
-  .viewBtn,
-  .mobileControlsBtn {
-    height: var(--control-height);
+  .topDock {
+    margin-bottom: 8px;
+    padding: 8px 10px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: linear-gradient(var(--s1), var(--s1)) var(--bg);
+  }
+  /* Header: compact two-row block — name + meta, then back / edit-in-builder.
+     Two font sizes only: the title, and control-size (0.72rem) for
+     everything else; both row buttons share one 34px geometry; the back
+     button collapses to its chevron. */
+  .header {
+    margin-bottom: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    overflow: visible;
+    background: none;
+  }
+  .headerBg { display: none; }
+  .titleRow { gap: 6px; }
+  .deckName { font-size: 0.98rem; }
+  .deckNameInput { font-size: 0.98rem; }
+  .headerMeta { gap: 4px 8px; font-size: var(--control-font-size); }
+  .deckValue { font-size: var(--control-font-size); }
+  .headerActionsDesktop { display: none; }
+  .headerBackRow {
+    margin-top: 6px;
+    gap: 6px;
+  }
+  .headerBackLabel { display: none; }
+  .headerBackBtn {
+    flex: 0 0 auto;
+  }
+  .editInBuilderBtnMobile {
+    display: inline-flex;
+    flex: 1;
+  }
+  .editInBuilderBtn {
     font-size: var(--control-font-size);
     padding: 6px var(--control-padding-x);
     min-width: 0;
     justify-content: center;
     white-space: nowrap;
   }
-  .desktopControls { display: none; }
-  .mobileControlsMenu {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    position: fixed;
-    left: 10px;
-    right: 10px;
-    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
-    z-index: 100;
-    min-width: 0;
-    margin: 0;
-    padding: 6px 8px;
-    border: 1px solid var(--s-border2);
-    border-radius: 12px;
-    background: color-mix(in srgb, var(--bg2) 90%, transparent);
-    box-shadow: 0 14px 36px rgba(0,0,0,0.38);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+  .headerBackRow .headerBackBtn,
+  .headerBackRow .editInBuilderBtn {
+    height: 34px;
+    min-height: 34px;
   }
-  .mobileControlsMenu > * {
-    flex: 1 1 0;
-    min-width: 0;
-  }
-  .mobileTopControls {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-    min-width: 0;
-  }
-  .mobileTopControls > * {
-    min-width: 0;
-  }
-  .mobileControlsBtn {
-    width: 100%;
-    height: 36px;
-    min-height: 36px;
+  .headerBackRow .headerBackBtn {
+    width: 34px;
     padding: 0;
-    border-radius: 7px;
-    background: var(--s2);
-    border-color: var(--s-border2);
-    color: var(--text-dim);
-    gap: 4px;
+    justify-content: center;
   }
-  .mobileControlsMenu .mobileControlsBtn span {
-    display: none;
+  .desktopControls { display: none; }
+  /* The header already shows total cards + value; the "Showing X of Y" line
+     is not worth a row on mobile. The bar's fixed toolbar child is
+     unaffected by the collapsed height. */
+  .controlBar { margin: 0; }
+  .countInfo { display: none; }
+  /* Search is the dock card's last row — no extra chrome of its own, and it
+     matches the 34px geometry of the back/edit buttons above it. */
+  .deckBrowser [class*="filterWrap"] {
+    padding: 6px 0 0;
+    background: none;
   }
-  .mobileControlsBtn svg {
-    display: block;
+  .deckBrowser [class*="filterWrap"] [class*="filterBar"] {
+    margin: 0;
   }
-  .mobileControlsBtn:hover {
-    color: var(--gold);
-    background: var(--s-medium);
-    border-color: color-mix(in srgb, var(--gold) 35%, var(--s-border2));
+  .deckBrowser [class*="filterWrap"] input {
+    height: 34px;
   }
-  .mobileControlsBtnActive {
-    color: var(--gold);
-    background: color-mix(in srgb, var(--gold) 14%, transparent);
-    border-color: color-mix(in srgb, var(--gold) 45%, transparent);
-  }
-  .mobileControlsBtnPrimary {
-    color: var(--gold);
-    background: rgba(201,168,76,0.14);
-    border-color: rgba(201,168,76,0.35);
-  }
-  .controlBar {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-  }
-  .countInfo { flex: 1; min-width: 0; }
 }
 
 @media (max-width: 480px) {
   .headerMeta {
     align-items: center;
     gap: 4px 8px;
-  }
-  .deckValue {
-    font-size: 0.92rem;
-  }
-  .controlBar {
-    margin: 8px 0 10px;
-    gap: 8px;
-  }
-  .mobileControlsMenu {
-    padding: 5px 6px;
-    gap: 4px;
-  }
-  .mobileControlsBtn {
-    height: 32px;
-    min-height: 32px;
-    padding: 0;
-  }
-  .mobileTopControls .mobileControlsBtn {
-    padding: 0 10px;
   }
 }

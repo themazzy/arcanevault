@@ -8,7 +8,7 @@ import { useAuth } from '../components/Auth'
 import { useToast } from '../components/ToastContext'
 import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
 import { EmptyState, LibraryEmptyState, Badge, Button, ResponsiveMenu } from '../components/UI'
-import { CheckIcon, StarIcon, ChevronUpIcon, ChevronDownIcon, ChevronLeftIcon, ImportIcon, ExportIcon, AddIcon, BuilderIcon, DeckIcon, MenuIcon, ShareIcon } from '../icons'
+import { CheckIcon, StarIcon, ChevronUpIcon, ChevronDownIcon, ChevronLeftIcon, EditIcon, ImportIcon, ExportIcon, AddIcon, BuilderIcon, DeckIcon, SettingsIcon, ShareIcon } from '../icons'
 import AddCardModal from '../components/AddCardModal'
 import ExportModal from '../components/ExportModal'
 import ImportModal from '../components/ImportModal'
@@ -17,7 +17,6 @@ import { CardBrowserViewControls, CardBrowserContent } from '../components/CardB
 import styles from './DeckBrowser.module.css'
 import uiStyles from '../components/UI.module.css'
 import { parseDeckMeta, serializeDeckMeta } from '../lib/deckBuilderApi'
-import { deckBracketBadge } from '../lib/commanderBracket'
 import { buildSyncDiff, getSyncState, markLinkedPairUnsynced, summarizeSyncDiff, withLinkedPair, writeSyncState } from '../lib/deckSync'
 import { useLongPress } from '../hooks/useLongPress'
 import { useFilterWorker } from '../hooks/useFilterWorker'
@@ -668,6 +667,42 @@ export default function DeckBrowser({ folder, onBack }) {
   const [selectMode, setSelectMode]       = useState(false)
   const [selectedCards, setSelectedCards] = useState(new Set())
   const [splitState, setSplitState]       = useState(new Map()) // Map<cardId, selectedQty>
+  // Inline deck rename (click the name, or More → Rename)
+  const [deckName, setDeckName] = useState(folder.name)
+  const [renamingDeck, setRenamingDeck] = useState(false)
+  const [renameVal, setRenameVal] = useState(folder.name)
+  const renameInputRef = useRef(null)
+  useEffect(() => { setDeckName(folder.name); setRenameVal(folder.name) }, [folder.name])
+  useEffect(() => { if (renamingDeck) renameInputRef.current?.select() }, [renamingDeck])
+  const startRenameDeck = () => { setRenameVal(deckName); setRenamingDeck(true) }
+  const commitRenameDeck = async () => {
+    setRenamingDeck(false)
+    const trimmed = renameVal.trim()
+    if (!trimmed || trimmed === deckName) return
+    const prev = deckName
+    setDeckName(trimmed)
+    const { error } = await sb.from('folders').update({ name: trimmed }).eq('id', folder.id)
+    if (error) {
+      setDeckName(prev)
+      toast.error('Rename failed.')
+    } else {
+      folder.name = trimmed
+      toast.success('Deck renamed.')
+    }
+  }
+
+  // Viewport scrollbar width exposed as --sbw so CSS can park the scrollbar
+  // in the page gutter (0 on overlay-scrollbar platforms) — Collection pattern.
+  const viewportRef = useRef(null)
+  const [viewportSbw, setViewportSbw] = useState(0)
+  const viewportRefCb = useCallback(el => {
+    viewportRef.current = el
+    if (!el) return
+    const measure = () => setViewportSbw(el.offsetWidth - el.clientWidth)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+  }, [])
   // Hover preview
   const [showAddCard, setShowAddCard] = useState(false)
   const [showExport, setShowExport]   = useState(false)
@@ -1196,29 +1231,40 @@ export default function DeckBrowser({ folder, onBack }) {
   // coverArtUri is the builder-deck commander art — it is not a user-chosen
   // background for the collection deck view and should not bleed through here.
   const folderBgUrl = (() => { try { return JSON.parse(folder.description || '{}').bg_url || null } catch { return null } })()
-  const bracketBadge = deckBracketBadge(deckMeta.format, deckMeta.bracket)
 
   return (
     <div className={styles.deckBrowser} onMouseMove={handleMouseMove} onMouseLeave={handleHoverEnd}>
-      {/* Header */}
+      {/* Header + search: one sticky dock on mobile */}
+      <div className={styles.topDock}>
       <div className={styles.header}>
         {folderBgUrl && (
           <div className={styles.headerBg} style={{ backgroundImage: `url(${folderBgUrl})` }} />
         )}
         <div className={styles.titleRow}>
-          <h1 className={styles.deckName}>{folder.name}</h1>
+          {renamingDeck ? (
+            <input
+              ref={renameInputRef}
+              className={styles.deckNameInput}
+              value={renameVal}
+              maxLength={100}
+              onChange={e => setRenameVal(e.target.value)}
+              onBlur={commitRenameDeck}
+              onKeyDown={e => {
+                if (e.key === 'Enter') commitRenameDeck()
+                if (e.key === 'Escape') { setRenameVal(deckName); setRenamingDeck(false) }
+              }}
+              aria-label="Deck name"
+            />
+          ) : (
+            <h1 className={styles.deckName}>
+              <button className={styles.deckNameBtn} onClick={startRenameDeck} title="Rename deck">
+                {deckName}
+              </button>
+            </h1>
+          )}
           <div className={styles.headerMeta}>
             <span>{totalQty} cards</span>
             <span className={styles.deckValue}>{formatPrice(totalValue, price_source)}</span>
-            {bracketBadge && (
-              <span
-                className={styles.bracketBadge}
-                style={{ borderColor: `${bracketBadge.color}55`, color: bracketBadge.color }}
-                title={bracketBadge.desc}
-              >
-                B{deckMeta.bracket} · {bracketBadge.label}
-              </span>
-            )}
             <div className={styles.headerActionsDesktop}>
               <Button variant="secondary" size="sm" onClick={() => setShowAddCard(true)}>
                 <AddIcon size={12} /> Add Cards
@@ -1231,12 +1277,13 @@ export default function DeckBrowser({ folder, onBack }) {
                 portal
                 trigger={({ toggle }) => (
                   <Button variant="secondary" size="sm" onClick={toggle} aria-label="More deck actions">
-                    <MenuIcon size={12} /> More
+                    <SettingsIcon size={12} /> More
                   </Button>
                 )}
               >
                 {({ close }) => (
                   <div className={uiStyles.responsiveMenuList}>
+                    <button className={uiStyles.responsiveMenuAction} onClick={() => { startRenameDeck(); close() }}><span><EditIcon size={13} /> Rename</span></button>
                     <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowShare(true); close() }}><span><ShareIcon size={13} /> Share</span></button>
                     <button className={uiStyles.responsiveMenuAction} onClick={() => { openImport(); close() }}><span><ImportIcon size={13} /> Import</span></button>
                     <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowExport(true); close() }}><span><ExportIcon size={13} /> Export</span></button>
@@ -1244,22 +1291,20 @@ export default function DeckBrowser({ folder, onBack }) {
                 )}
               </ResponsiveMenu>
             </div>
-            <div className={styles.headerActionsMobile}>
-              <button
-                className={styles.editInBuilderBtn}
-                onClick={openInBuilder}
-                disabled={creatingBuilderLink || isCheckingLinkedSync}
-                aria-busy={isCheckingLinkedSync}
-              >
-                <BuilderIcon size={12} /> {editInBuilderLabel}
-              </button>
-            </div>
           </div>
         </div>
         <div className={styles.headerBackRow}>
-          <Button variant="secondary" size="sm" className={styles.headerBackBtn} onClick={onBack}>
-            <ChevronLeftIcon size={13} /> Back to Decks
+          <Button variant="secondary" size="sm" className={styles.headerBackBtn} onClick={onBack} aria-label="Back to Decks">
+            <ChevronLeftIcon size={13} /> <span className={styles.headerBackLabel}>Back to Decks</span>
           </Button>
+          <button
+            className={`${styles.editInBuilderBtn} ${styles.editInBuilderBtnMobile}`}
+            onClick={openInBuilder}
+            disabled={creatingBuilderLink || isCheckingLinkedSync}
+            aria-busy={isCheckingLinkedSync}
+          >
+            <BuilderIcon size={12} /> {editInBuilderLabel}
+          </button>
         </div>
       </div>
 
@@ -1271,6 +1316,7 @@ export default function DeckBrowser({ folder, onBack }) {
         filterOpen={filterOpen} onFilterOpenChange={setFilterOpen}
         hideActionsMobile
         hideSortFilterMobile />}
+      </div>
 
       {cards.length > 0 && <div className={styles.controlBar}>
         <span className={styles.countInfo}>
@@ -1292,6 +1338,7 @@ export default function DeckBrowser({ folder, onBack }) {
           onImport={openImport}
           onExport={() => setShowExport(true)}
           onShare={() => setShowShare(true)}
+          bulkBarVisible={selectMode && selectedCards.size > 0}
         />
       </div>}
 
@@ -1351,23 +1398,25 @@ export default function DeckBrowser({ folder, onBack }) {
 
       {/* ── Views ── */}
       {filtered.length > 0 && (
-        <CardBrowserContent
-          cards={filtered}
-          sfMap={sfMap}
-          priceSource={price_source}
-          viewMode={viewMode}
-          groupBy={groupBy}
-          density={grid_density}
-          onSelect={c => { handleHoverEnd(); setDetailCardId(c.id) }}
-          selectMode={selectMode}
-          selectedCards={selectedCards}
-          onToggleSelect={onToggleSelect}
-          onAdjustQty={onAdjustQty}
-          splitState={splitState}
-          onEnterSelectMode={() => setSelectMode(true)}
-          onHover={handleHover}
-          onHoverEnd={handleHoverEnd}
-        />
+        <div className={styles.browserViewport} ref={viewportRefCb} style={{ '--sbw': `${viewportSbw}px` }}>
+          <CardBrowserContent
+            cards={filtered}
+            sfMap={sfMap}
+            priceSource={price_source}
+            viewMode={viewMode}
+            groupBy={groupBy}
+            density={grid_density}
+            onSelect={c => { handleHoverEnd(); setDetailCardId(c.id) }}
+            selectMode={selectMode}
+            selectedCards={selectedCards}
+            onToggleSelect={onToggleSelect}
+            onAdjustQty={onAdjustQty}
+            splitState={splitState}
+            onEnterSelectMode={() => setSelectMode(true)}
+            onHover={handleHover}
+            onHoverEnd={handleHoverEnd}
+          />
+        </div>
       )}
 
       {selectedCard && (

@@ -591,6 +591,25 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
   const isAllView = !folder
   const browserTitle = title || folder?.name || `All ${noun} Cards`
   const openImport = () => { setImportText(''); setShowImport(true) }
+
+  // Inline rename: click the title (same treatment as the deck browser)
+  const [folderName, setFolderName] = useState(folder?.name || '')
+  const [renamingFolder, setRenamingFolder] = useState(false)
+  const [renameVal, setRenameVal] = useState(folder?.name || '')
+  const renameInputRef = useRef(null)
+  useEffect(() => { setFolderName(folder?.name || ''); setRenameVal(folder?.name || '') }, [folder?.name])
+  useEffect(() => { if (renamingFolder) renameInputRef.current?.select() }, [renamingFolder])
+  const startRenameFolder = () => { if (!folder) return; setRenameVal(folderName); setRenamingFolder(true) }
+  const commitRenameFolder = async () => {
+    setRenamingFolder(false)
+    const trimmed = renameVal.trim()
+    if (!folder || !trimmed || trimmed === folderName) return
+    const prev = folderName
+    setFolderName(trimmed)
+    const { error } = await sb.from('folders').update({ name: trimmed }).eq('id', folder.id)
+    if (error) { setFolderName(prev); toast.error('Rename failed.') }
+    else { folder.name = trimmed; toast.success(`${noun} renamed.`) }
+  }
   const folderIds = useMemo(() => folders.map(f => f.id), [folders])
   const moveFolders = useMemo(() => allFolders.filter(f => !isGroupFolder(f) && f.id !== folder?.id), [allFolders, folder?.id])
   const getCardKey = useCallback((card) => card?._displayKey || card?.id, [])
@@ -931,7 +950,29 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
       {/* ── Binder header ── */}
       <div className={styles.binderHeader}>
         <div className={styles.binderTitleRow}>
-          <h2 className={styles.binderTitle}>{browserTitle}</h2>
+          {renamingFolder ? (
+            <input
+              ref={renameInputRef}
+              className={styles.binderTitleInput}
+              value={renameVal}
+              maxLength={100}
+              onChange={e => setRenameVal(e.target.value)}
+              onBlur={commitRenameFolder}
+              onKeyDown={e => {
+                if (e.key === 'Enter') commitRenameFolder()
+                if (e.key === 'Escape') { setRenameVal(folderName); setRenamingFolder(false) }
+              }}
+              aria-label={`${noun} name`}
+            />
+          ) : (
+            <h2 className={styles.binderTitle}>
+              {folder ? (
+                <button className={styles.binderTitleBtn} onClick={startRenameFolder} title={`Rename ${noun.toLowerCase()}`}>
+                  {folderName}
+                </button>
+              ) : browserTitle}
+            </h2>
+          )}
           <div className={styles.binderMeta}>
             <span>{totalQty} cards</span>
             <span className={styles.binderValue}>{formatPrice(totalValue, price_source)}</span>

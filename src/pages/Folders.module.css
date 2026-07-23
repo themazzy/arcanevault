@@ -864,6 +864,36 @@
   gap: 16px;
   flex-wrap: wrap;
 }
+/* Click-to-rename: the title itself is the trigger (matches DeckBrowser) */
+.binderTitleBtn {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+  border-bottom: 1px dashed transparent;
+  transition: border-color 0.15s;
+}
+.binderTitleBtn:hover { border-bottom-color: rgba(201,168,76,0.45); }
+.binderTitleInput {
+  box-sizing: border-box;
+  min-width: 0;
+  width: min(100%, 320px);
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--gold);
+  background: var(--s2);
+  border: 1px solid var(--border-hi);
+  border-radius: var(--radius-xs);
+  padding: 0 8px;
+  outline: none;
+  margin: 4px 0 0;
+}
 .binderTitle {
   font-family: var(--font-display, 'Cinzel', serif);
   font-size: 1.15rem;
@@ -1332,6 +1362,9 @@
     gap: 8px;
   }
   .binderTitle {
+    font-size: 1.05rem;
+  }
+  .binderTitleInput {
     font-size: 1.05rem;
   }
   .binderMeta {
