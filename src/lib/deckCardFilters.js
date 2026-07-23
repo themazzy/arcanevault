@@ -3,6 +3,7 @@
 
 import { classifyCardType } from './deckBuilderApi'
 import { matchColorIdentity } from './deckIndexFilters'
+import { normalizeBoard } from './deckBuilderHelpers'
 
 export const EMPTY_DECK_CARD_FILTERS = {
   colors: [],            // subset of W U B R G C
@@ -31,6 +32,38 @@ export function countActiveCardFilters(filters) {
   if (hasCmcBound(f.cmcMin)) n++
   if (hasCmcBound(f.cmcMax)) n++
   return n
+}
+
+const WUBRG = new Set(['W', 'U', 'B', 'R', 'G'])
+
+// What the deck actually contains, per filter dimension — the filter panel
+// only offers options that exist in the deck. Rarity comes from the cached
+// Scryfall entry (same source matchesDeckCardFilters uses), so `getRarity`
+// is a callback; an unresolved rarity contributes nothing.
+export function computeDeckFilterPresence(deckCards, getRarity) {
+  const boards = new Set()
+  const colors = new Set()
+  const types = new Set()
+  const rarities = new Set()
+  for (const dc of deckCards || []) {
+    boards.add(normalizeBoard(dc.board))
+    const ci = (dc.color_identity || []).filter(c => WUBRG.has(c))
+    if (ci.length === 0) colors.add('C')
+    for (const c of ci) colors.add(c)
+    types.add(classifyCardType(dc.type_line))
+    const rarity = getRarity ? getRarity(dc) : null
+    if (rarity) rarities.add(rarity)
+  }
+  return { boards, colors, types, rarities }
+}
+
+// Options to render: those present in the deck, plus any currently-selected
+// value even if stale (e.g. the last card of a type was removed while its
+// filter was active) so the user can still see and clear it. A null/undefined
+// presence set means "unknown" and leaves the full option list untouched.
+export function availableFilterOptions(options, present, selected = []) {
+  if (!present) return options
+  return options.filter(o => present.has(o) || selected.includes(o))
 }
 
 export function matchesDeckCardFilters(dc, sf, filters) {

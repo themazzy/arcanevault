@@ -36,6 +36,28 @@ const openPopover = () => {
 afterEach(cleanup)
 
 describe('SpecificCardSearch keyboard flow', () => {
+  it('shows the exact display price and winning finish from search', () => {
+    renderSearch({
+      priceSource: 'cardmarket_trend',
+      search: {
+        query: 'arcane',
+        results: [{
+          id: 'arcane-signet',
+          name: 'Arcane Signet',
+          color_identity: [],
+          legalities: { commander: 'legal' },
+          display_price: 0.28,
+          display_finish: 'Foil',
+        }],
+        loading: false,
+        handleInput: vi.fn(),
+      },
+    })
+
+    openPopover()
+    expect(screen.getByText(/€0\.28/).textContent).toContain('Foil')
+  })
+
   it('opens on focus and highlights rows with ArrowDown/ArrowUp', () => {
     renderSearch()
     const input = openPopover()

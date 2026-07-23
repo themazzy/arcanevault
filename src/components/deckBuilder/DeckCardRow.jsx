@@ -22,6 +22,8 @@ export function DeckCardActionsMenuBody({
   onPickVersion,
   onMoveBoard,
   onOpenCategoryPicker,
+  onChangeQty,
+  onRemove,
   close,
   builderSfMap = {},
 }) {
@@ -39,6 +41,38 @@ export function DeckCardActionsMenuBody({
   const unsetLabel = isOath ? 'Remove from Command Zone' : 'Unset as Commander'
   return (
     <div className={uiStyles.responsiveMenuList}>
+      {onChangeQty && onRemove && (
+        <div className={styles.cardActionQuantity}>
+          <span className={styles.cardActionQuantityLabel}>Quantity</span>
+          <div className={styles.cardActionQuantityControls}>
+            <button
+              type="button"
+              className={styles.cardActionQuantityBtn}
+              onClick={() => {
+                if (dc.qty <= 1) {
+                  close()
+                  onRemove(dc.id)
+                } else {
+                  onChangeQty(dc.id, -1)
+                }
+              }}
+              aria-label={dc.qty <= 1 ? `Remove final copy of ${dc.name}` : `Decrease ${dc.name} quantity`}
+            >
+              -
+            </button>
+            <output className={styles.cardActionQuantityValue} aria-label={`${dc.name} quantity`}>{dc.qty}</output>
+            <button
+              type="button"
+              className={styles.cardActionQuantityBtn}
+              disabled={attraction && dc.qty >= 1}
+              onClick={() => onChangeQty(dc.id, 1)}
+              aria-label={`Increase ${dc.name} quantity`}
+            >
+              +
+            </button>
+          </div>
+        </div>
+      )}
       {isEDH && dc.is_commander && (
         <button className={uiStyles.responsiveMenuAction} onClick={() => { onSetCommander(dc, false); close() }}>
           <span>{unsetLabel}</span>
@@ -69,6 +103,15 @@ export function DeckCardActionsMenuBody({
       <button className={uiStyles.responsiveMenuAction} onClick={() => { onOpenCategoryPicker?.(dc); close() }}>
         <span>Change Category</span>
       </button>
+      {onRemove && (
+        <button
+          className={`${uiStyles.responsiveMenuAction} ${uiStyles.responsiveMenuActionDanger}`}
+          onClick={() => { close(); onRemove(dc.id) }}
+          aria-label={`Remove ${dc.name} from deck`}
+        >
+          <span>Remove from Deck</span>
+        </button>
+      )}
     </div>
   )
 }
@@ -83,6 +126,8 @@ export function EditMenu({
   onPickVersion,
   onMoveBoard,
   onOpenCategoryPicker,
+  onChangeQty,
+  onRemove,
   builderSfMap = {},
 }) {
   return (
@@ -94,7 +139,8 @@ export function EditMenu({
         <button
           className={styles.editBtn}
           onClick={e => { e.stopPropagation(); toggle() }}
-          title="Edit"
+          title={`Edit ${dc.name}`}
+          aria-label={`Edit ${dc.name}`}
         ><SettingsIcon size={13} /></button>
       )}
     >
@@ -108,6 +154,8 @@ export function EditMenu({
           onPickVersion={onPickVersion}
           onMoveBoard={onMoveBoard}
           onOpenCategoryPicker={onOpenCategoryPicker}
+          onChangeQty={onChangeQty}
+          onRemove={onRemove}
           close={close}
           builderSfMap={builderSfMap}
         />
@@ -165,13 +213,13 @@ export function DeckCardRow({
       )}
       {visibleColumns.qty && (
         <div className={styles.qtyControls}>
-          <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, -1)}>-</button>
+          <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, -1)} aria-label={`Decrease ${dc.name} quantity`}>-</button>
           <span className={styles.qtyVal}>{dc.qty}</span>
-          <button className={styles.qtyBtn} disabled={attractionQtyLocked} title={attractionQtyLocked ? 'Constructed Attraction decks allow one card of each English name.' : undefined} onClick={() => onChangeQty(dc.id, +1)}>+</button>
+          <button className={styles.qtyBtn} disabled={attractionQtyLocked} title={attractionQtyLocked ? 'Constructed Attraction decks allow one card of each English name.' : undefined} onClick={() => onChangeQty(dc.id, +1)} aria-label={`Increase ${dc.name} quantity`}>+</button>
         </div>
       )}
-      {visibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} formatId={formatId} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} onOpenCategoryPicker={onOpenCategoryPicker} builderSfMap={builderSfMap} />}
-      {visibleColumns.remove && <button className={styles.removeBtn} onClick={() => onRemove(dc.id)}><CloseIcon size={13} /></button>}
+      {visibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} formatId={formatId} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} onOpenCategoryPicker={onOpenCategoryPicker} onChangeQty={onChangeQty} onRemove={onRemove} builderSfMap={builderSfMap} />}
+      {visibleColumns.remove && <button className={styles.removeBtn} onClick={() => onRemove(dc.id)} aria-label={`Remove ${dc.name} from deck`}><CloseIcon size={13} /></button>}
     </div>
   )
 }

@@ -6,13 +6,17 @@ vi.mock('./scryfall', () => ({
   sfGet: vi.fn(),
   sfUrl: (u) => u,
   getImageUri: () => null,
+  getPrice: () => null,
 }))
 vi.mock('./supabase', () => ({ sb: { from: vi.fn(), rpc: vi.fn() } }))
 
 import {
   EMPTY_DECK_CARD_FILTERS,
+  DECK_CARD_TYPE_OPTIONS,
   matchesDeckCardFilters,
   countActiveCardFilters,
+  computeDeckFilterPresence,
+  availableFilterOptions,
   manaValueGroupKey,
   colorGroupKey,
   MANA_VALUE_GROUP_ORDER,
@@ -67,6 +71,51 @@ describe('matchesDeckCardFilters', () => {
   it('counts active filters for the trigger badge', () => {
     expect(countActiveCardFilters(EMPTY_DECK_CARD_FILTERS)).toBe(0)
     expect(countActiveCardFilters({ ...EMPTY_DECK_CARD_FILTERS, colors: ['W'], cmcMin: '1', cmcMax: '3' })).toBe(3)
+  })
+})
+
+describe('computeDeckFilterPresence', () => {
+  it('collects only the boards, colors, types, and rarities in the deck', () => {
+    const rarities = { a: 'rare', b: 'common' }
+    const deck = [
+      card({ name: 'a', board: 'main', color_identity: ['R'], type_line: 'Creature — Goblin' }),
+      card({ name: 'b', board: 'side', color_identity: [], type_line: 'Artifact' }),
+    ]
+    const p = computeDeckFilterPresence(deck, dc => rarities[dc.name])
+    expect([...p.boards].sort()).toEqual(['main', 'side'])
+    expect([...p.colors].sort()).toEqual(['C', 'R'])
+    expect([...p.types].sort()).toEqual(['Artifacts', 'Creatures'])
+    expect([...p.rarities].sort()).toEqual(['common', 'rare'])
+  })
+
+  it('treats a missing/blank board as main and empty color identity as colorless', () => {
+    const p = computeDeckFilterPresence([card({ board: null, color_identity: null })])
+    expect([...p.boards]).toEqual(['main'])
+    expect([...p.colors]).toEqual(['C'])
+  })
+
+  it('ignores unresolved rarities and handles an empty deck', () => {
+    const noRarity = computeDeckFilterPresence([card()], () => null)
+    expect(noRarity.rarities.size).toBe(0)
+    const empty = computeDeckFilterPresence([])
+    expect(empty.boards.size).toBe(0)
+    expect(empty.colors.size).toBe(0)
+  })
+})
+
+describe('availableFilterOptions', () => {
+  it('keeps only options present in the deck, preserving option order', () => {
+    expect(availableFilterOptions(DECK_CARD_TYPE_OPTIONS, new Set(['Lands', 'Creatures'])))
+      .toEqual(['Creatures', 'Lands'])
+  })
+
+  it('keeps a selected option visible even when no longer present, so it can be cleared', () => {
+    expect(availableFilterOptions(['common', 'uncommon', 'rare'], new Set(['common']), ['rare']))
+      .toEqual(['common', 'rare'])
+  })
+
+  it('returns all options when presence is unknown', () => {
+    expect(availableFilterOptions(['W', 'U'], null)).toEqual(['W', 'U'])
   })
 })
 

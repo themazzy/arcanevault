@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { buildImageUris, rowToCard, priceRowToPrices, mergePriceRows } from './cardSearch'
+import {
+  buildImageUris,
+  displayPrintingRowToCard,
+  mergeDisplayPrinting,
+  mergePriceRows,
+  priceRowToPrices,
+  rowToCard,
+} from './cardSearch'
 
 const NORMAL_URL = 'https://cards.scryfall.io/normal/front/a/b/abc-123.jpg'
 
@@ -78,6 +85,82 @@ describe('rowToCard', () => {
   it('passes stored card_faces through untouched', () => {
     const faces = [{ name: 'Front', image_uris: { normal: 'n1' } }]
     expect(rowToCard({ ...row, card_faces: faces }).card_faces).toBe(faces)
+  })
+})
+
+describe('display printing mapping', () => {
+  it('keeps the selected price, finish, and exact printing image together', () => {
+    const display = displayPrintingRowToCard({
+      requested_name: 'Arcane Signet',
+      scryfall_id: 'foil-print',
+      oracle_id: 'oracle-sign',
+      name: 'Arcane Signet',
+      set_code: 'tmc',
+      collector_number: '57',
+      lang: 'en',
+      released_at: '2026-03-06',
+      image_uri: NORMAL_URL,
+      selected_price: '0.28',
+      selected_foil: true,
+    })
+
+    expect(display).toMatchObject({
+      id: 'foil-print',
+      set: 'tmc',
+      collector_number: '57',
+      lang: 'en',
+      display_price: 0.28,
+      display_foil: true,
+      display_finish: 'Foil',
+    })
+    expect(display.image_uris.normal).toBe(NORMAL_URL)
+  })
+
+  it('marks an unpriced newest-print fallback without inventing a finish', () => {
+    const display = displayPrintingRowToCard({
+      requested_name: 'Unpriced Card',
+      scryfall_id: 'newest-print',
+      name: 'Unpriced Card',
+      lang: 'en',
+      selected_price: null,
+      selected_foil: null,
+    })
+
+    expect(display.display_price).toBeNull()
+    expect(display.display_foil).toBeNull()
+    expect(display.display_finish).toBeNull()
+  })
+
+  it('overlays print identity while preserving oracle legality metadata', () => {
+    const base = {
+      id: 'oracle-representative',
+      name: 'Arcane Signet',
+      type_line: 'Artifact',
+      legalities: { commander: 'legal' },
+      image_uris: { normal: 'old-image' },
+      card_faces: [{ name: 'Front', image_uris: { normal: 'representative-face' } }],
+    }
+    const display = displayPrintingRowToCard({
+      requested_name: 'Arcane Signet',
+      scryfall_id: 'cheap-print',
+      name: 'Arcane Signet',
+      set_code: 'tmc',
+      collector_number: '57',
+      lang: 'en',
+      image_uri: NORMAL_URL,
+      selected_price: 0.28,
+      selected_foil: true,
+    })
+
+    expect(mergeDisplayPrinting(base, display)).toMatchObject({
+      id: 'cheap-print',
+      type_line: 'Artifact',
+      legalities: { commander: 'legal' },
+      display_price: 0.28,
+      display_finish: 'Foil',
+      image_uris: { normal: NORMAL_URL },
+      card_faces: null,
+    })
   })
 })
 

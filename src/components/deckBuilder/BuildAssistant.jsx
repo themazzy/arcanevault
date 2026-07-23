@@ -1,16 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Modal, ConfirmModal, Button, Input, ProgressBar, ResponsiveMenu, useModalKeys } from '../UI'
+import { Modal, ConfirmModal, Button, ProgressBar, ResponsiveMenu, useModalKeys } from '../UI'
 import uiStyles from '../UI.module.css'
 import { CheckIcon, DeleteIcon, WarningIcon, ChevronDownIcon, LightningIcon, ExternalLinkIcon, CloseIcon } from '../../icons'
 import { useCardSearch } from '../../hooks/useCardSearch'
-import { getCardLegalityWarnings } from '../../lib/deckLegality'
 import { getLocalCards, getLocalCardPrints, getLocalFolders, getAllLocalFolderCards } from '../../lib/db'
 import { getInstantCache, getScryfallKey, getPrice, formatPrice, scryfallImageAtSize } from '../../lib/scryfall'
 import { useCombosFetch } from '../../hooks/useCombosFetch'
 import { useSettings } from '../SettingsContext'
 import { fetchEdhrecCommander, fetchRecommendationMetadataByNames, fetchCardsByScryfallIds, fetchRecommenderRecs, getCardImageUri } from '../../lib/deckBuilderApi'
-import { fetchPrintingsForNames } from '../../lib/cardSearch'
+import { fetchDeckBuilderDisplayPrintings } from '../../lib/cardSearch'
 import { fetchCardPrintsByScryfallIds, fetchCardPrintsByOracleIds, fetchOracleTextByNames, cardPrintRowToSfEntry } from '../../lib/cardPrints'
 import {
   analyzeBracket,
@@ -42,7 +41,6 @@ import {
   roleOfDeckCard,
   coarseRole,
   countByRole,
-  pickCheapestEnglish,
   recommendedBasicCount,
   basicsForAutoFill,
   isBasicLandName,
@@ -267,11 +265,11 @@ function curveLabel(b) { return b === 6 ? '6+' : String(b) }
 const CURVE_BAR_MAX_PX = 96
 
 // One card tile: image + name + sub-meta + add action(s).
-function CardTile({ name, sfCard, fallbackImg, pips, inclusion, tag, price, flag, overTarget, added, wished, showWishlist, ownershipNote, previewProps, onAdd, onUndo, onWishlist }) {
+function CardTile({ name, sfCard, fallbackImg, displayImg, pips, inclusion, tag, price, finish, flag, overTarget, added, wished, showWishlist, ownershipNote, previewProps, onAdd, onUndo, onWishlist }) {
   const canUndo = added && typeof onUndo === 'function'
   // Cached collection art first; Scryfall-fetched fallback for unowned upgrades
   // and any owned card whose cache entry has no image.
-  const img = cardImageUrl(sfCard) || fallbackImg || null
+  const img = displayImg || cardImageUrl(sfCard) || fallbackImg || null
   // previewProps carries the hover/tap handlers for the large-image preview;
   // it's empty ({}) when the card has no art to enlarge. No special cursor — the
   // enlarge is a hover affordance, and a zoom-in cursor would wrongly imply a click.
@@ -312,9 +310,10 @@ function CardTile({ name, sfCard, fallbackImg, pips, inclusion, tag, price, flag
         <div className={styles.tileActionRow}>
           <span
             className={`${styles.tilePriceTag}${price ? '' : ' ' + styles.tilePriceTagEmpty}`}
-            title={price ? 'Cheapest printing' : 'No price data'}
+            title={price ? `Lowest English price · ${finish}` : 'No price data'}
           >
             {price || '—'}
+            {price && finish && <span className={styles.tilePriceFinish}>{finish}</span>}
           </span>
           <button
             className={`${styles.tileBtn}${added ? ' ' + styles.tileBtnDone : ''}${canUndo ? ' ' + styles.tileBtnUndo : ''}`}
@@ -453,10 +452,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const targetBracketRef = useRef(null) // latest target bracket, read by the async re-plans (same stale-closure guard)
 
   const { price_source, reduce_motion } = useSettings()
-  // Persistent "add a specific card" search (Commander-scoped ordering). Reuses
-  // the builder's search hook so results carry full card data for classification
-  // and legality checks.
-  const cardSearch = useCardSearch({ format: 'commander' })
+  // Persistent "add a specific card" search. Reuses the builder's Supabase
+  // search hook so results carry full card data for classification and legality.
+  const cardSearch = useCardSearch({ priceSource: price_source })
   // Confirm before dismissing the assistant only while an operation is in
   // flight (auto-fill, undo, cuts, finish) — leaving mid-run can strand the
   // deck half-updated. An idle close loses nothing (every add is already
@@ -813,16 +811,20 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // up; null = looked up, no price; number = the price. (Entry is { price, image }.)
   const cheapestOf = useCallback(
     name => {
-      const e = cheapestByName.get((name || '').toLowerCase())
+      const e = cheapestByName.get(`${price_source}:${(name || '').toLowerCase()}`)
       return e === undefined ? undefined : e.price
     },
-    [cheapestByName],
+    [cheapestByName, price_source],
   )
   // English image_uri for the cheapest English printing (used so suggestion tiles
   // never show a foreign printing's art). null when unknown.
   const imageEnFor = useCallback(
-    name => cheapestByName.get((name || '').toLowerCase())?.image || null,
-    [cheapestByName],
+    name => cheapestByName.get(`${price_source}:${(name || '').toLowerCase()}`)?.image || null,
+    [cheapestByName, price_source],
+  )
+  const finishFor = useCallback(
+    name => cheapestByName.get(`${price_source}:${(name || '').toLowerCase()}`)?.finish || null,
+    [cheapestByName, price_source],
   )
   // Formatted cheapest price for a tile (null when unknown → tile shows "—").
   const priceLabelFor = useCallback(
@@ -1456,17 +1458,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     } catch { /* clipboard unavailable — the list is still on screen */ }
   }
 
-  // Drop the cheapest-price cache when the price source changes — the values are
-  // stored in that source's currency, so they must be recomputed.
-  useEffect(() => { setCheapestByName(new Map()) }, [price_source])
-
-  // Resolve the cheapest *English* printing for the cards visible on this step
-  // (capped to what renders). card_prints stores the English name even on foreign
-  // printings (so names are fine), but a foreign printing's price/art can leak in.
-  // So: pull cheap candidate printings from the DB (fast), then batch-verify their
-  // language via Scryfall and pick the cheapest one that is `lang: 'en'`. Bounded
-  // to the shown cards and cached per name, so each card is resolved at most once.
-  const CHEAPEST_CANDIDATES = 6 // cheapest DB printings to language-check per card
+  // Resolve the lowest-priced English printing across foil and non-foil. The
+  // database returns one exact print so image, finish, and price always match;
+  // without a price, it returns the newest English printing.
   useEffect(() => {
     const names = new Set()
     if (onLands) {
@@ -1485,45 +1479,24 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     if (onSummary) {
       for (const m of [...buyGap.toBuy, ...buyGap.elsewhere]) names.add(m.name)
     }
-    const missing = [...names].filter(n => !cheapestByName.has(n.toLowerCase()))
+    const cacheKey = name => `${price_source}:${name.toLowerCase()}`
+    const missing = [...names].filter(n => !cheapestByName.has(cacheKey(n)))
     if (!missing.length) return
     let cancelled = false
     ;(async () => {
       try {
-        const printings = await fetchPrintingsForNames(missing, { language: 'english' })
-        const printMap = new Map(missing.map(name => [name, []]))
-        for (const printing of printings) {
-          if (printMap.has(printing.name)) printMap.get(printing.name).push(printing)
-        }
-        // Cheapest few DB printings per name → the language-check candidate set.
-        // card_prints rows already carry lang + art, so byId/langById come
-        // straight from them — no per-candidate Scryfall lookup (api.scryfall.com
-        // /cards/collection has no CORS headers on our origin and 400s the batch).
-        const candsByName = new Map()
-        const byId = new Map()
-        const langById = new Map()
-        for (const n of missing) {
-          const cands = (printMap.get(n) || [])
-            .map(p => ({ id: p.id, price: getPrice(p, false, { price_source }), sf: p }))
-            .filter(p => p.id && p.price != null)
-            .sort((a, b) => a.price - b.price)
-            .slice(0, CHEAPEST_CANDIDATES)
-          candsByName.set(n, cands)
-          for (const c of cands) {
-            byId.set(c.id, c.sf)
-            langById.set(c.id, c.sf.lang)
-          }
-        }
+        const displayPrints = await fetchDeckBuilderDisplayPrintings(missing, { priceSource: price_source })
+        const displayByName = new Map(displayPrints.map(card => [card.requested_name.toLowerCase(), card]))
         const next = new Map(cheapestByName)
         for (const n of missing) {
-          const cands = candsByName.get(n) || []
-          const en = pickCheapestEnglish(cands, langById)
-          // No English copy among the cheapest candidates → fall back to the
-          // overall cheapest price (no English art to show).
-          const chosen = en
-            ? { price: en.price, image: getCardImageUri(byId.get(en.id), 'small') }
-            : (cands[0] ? { price: cands[0].price, image: null } : { price: null, image: null })
-          next.set(n.toLowerCase(), chosen)
+          const display = displayByName.get(n.toLowerCase())
+          next.set(cacheKey(n), display
+            ? {
+                price: display.display_price,
+                image: getCardImageUri(display, 'small'),
+                finish: display.display_finish,
+              }
+            : { price: null, image: null, finish: null })
         }
         if (!cancelled) setCheapestByName(next)
       } catch { /* leave cache as-is; tiles show "—" */ }
@@ -1917,6 +1890,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         {!loading && !error && (
           <SpecificCardSearch
             search={cardSearch}
+            priceSource={price_source}
             onAdd={addSpecificCard}
             isAdded={isAdded}
             categoryOf={card => coarseRole(card, card)}
@@ -2056,16 +2030,18 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                             key={cand.card?.id || cand.name}
                             name={cand.name}
                             sfCard={cand.sfCard}
+                            displayImg={imageEnFor(cand.name)}
                             pips={onLands ? item.colors : undefined}
                             inclusion={onLands ? 0 : cand.edhrecInclusion}
                             price={priceLabelFor(cand.name)}
+                            finish={finishFor(cand.name)}
                             flag={flag}
                             overTarget={targetBracket != null && flag && flag.level > targetBracket}
                             added={isAdded(cand.name)}
                             previewProps={previewHandlers({
                               name: cand.name,
                               scryfall_id: cand.sfCard?.id || cand.card?.scryfall_id || null,
-                              img: cardImageUrl(cand.sfCard),
+                              img: scryfallImageAtSize(imageEnFor(cand.name), 'large') || cardImageUrl(cand.sfCard),
                             })}
                             onAdd={() => handleAdd(cand, cand.name)}
                             onUndo={() => handleUndoAdd(cand.name)}
@@ -2140,10 +2116,12 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                               key={`${owned ? 'owned' : 'suggested'}:${cand.slug || cand.name}`}
                               name={cand.name}
                               sfCard={owned ? cand.sfCard : null}
+                              displayImg={imageEnFor(cand.name)}
                               fallbackImg={imageEnFor(cand.name) || cand.image}
                               pips={landInfo?.colors}
                               inclusion={cand.edhrecInclusion}
                               price={priceLabelFor(cand.name)}
+                              finish={finishFor(cand.name)}
                               tag={!owned && cand.source === 'recommander' ? 'rec' : undefined}
                               flag={flag}
                               overTarget={targetBracket != null && flag && flag.level > targetBracket}
@@ -2159,7 +2137,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                                 // so it isn't an upscaled thumbnail. EDHREC fallback
                                 // URLs aren't cards.scryfall.io, so they pass through.
                                 img: owned
-                                  ? cardImageUrl(cand.sfCard)
+                                  ? (scryfallImageAtSize(imageEnFor(cand.name), 'large') || cardImageUrl(cand.sfCard))
                                   : (scryfallImageAtSize(imageEnFor(cand.name), 'large') || cand.image || null),
                               })}
                               onAdd={() => handleAdd(cand, cand.name)}

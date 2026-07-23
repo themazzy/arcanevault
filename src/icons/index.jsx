@@ -594,6 +594,17 @@ export function LockIcon(p) {
   )
 }
 
+export function GlobeIcon(p) {
+  const c = p.color ?? 'currentColor'
+  return (
+    <Icon {...p}>
+      <circle cx="8" cy="8" r="6" stroke={c} strokeWidth="1.2" />
+      <ellipse cx="8" cy="8" rx="2.6" ry="6" stroke={c} strokeWidth="1.1" />
+      <line x1="2" y1="8" x2="14" y2="8" stroke={c} strokeWidth="1.1" />
+    </Icon>
+  )
+}
+
 export function BugIcon(p) {
   const c = p.color ?? 'currentColor'
   return (

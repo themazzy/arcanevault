@@ -10,8 +10,8 @@ function attractionQtyLocked(dc) {
   return normalizeBoard(dc?.board) === 'attraction' && dc?.qty >= 1
 }
 
-// Grid-view tile for a deck card. Renders a portrait image with qty/foil
-// badges and a controls row (edit menu, qty +/-, remove).
+// Grid-view tile for a deck card. Quantity stays directly accessible because
+// it is a frequent deck-building action; less common actions live in the menu.
 function DeckCardGrid({
   dc, legalityWarnings, warningTitle, isWarningTarget,
   canHover, lastInputWasTouch,
@@ -53,12 +53,12 @@ function DeckCardGrid({
           <span className={styles.visualCardPrice}>{priceLabel}</span>
           <OwnershipBadge {...ownership} />
         </div>
-        <div className={styles.visualCardControls}>
-          <EditMenu dc={dc} isEDH={isEDH} formatId={formatId} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} onOpenCategoryPicker={onOpenCategoryPicker} builderSfMap={builderSfMap} />
-          <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); onChangeQty(dc.id, -1) }}>-</button>
-          <span className={styles.visualCardCount}>{dc.qty}</span>
-          <button className={styles.visualCardBtn} disabled={attractionQtyLocked(dc)} onClick={(ev) => { ev.stopPropagation(); onChangeQty(dc.id, +1) }}>+</button>
-          <button className={styles.visualCardBtn} onClick={(ev) => { ev.stopPropagation(); onRemove(dc.id) }}><CloseIcon size={13} /></button>
+        <div className={styles.visualCardControls} onClick={ev => ev.stopPropagation()}>
+          <EditMenu dc={dc} isEDH={isEDH} formatId={formatId} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} onOpenCategoryPicker={onOpenCategoryPicker} onChangeQty={onChangeQty} onRemove={onRemove} builderSfMap={builderSfMap} />
+          <button className={styles.imageCardQtyBtn} onClick={() => onChangeQty(dc.id, -1)} aria-label={`Decrease ${dc.name} quantity`}>−</button>
+          <span className={styles.imageCardQtyValue} aria-label={`${dc.name} quantity ${dc.qty}`}>{dc.qty}</span>
+          <button className={styles.imageCardQtyBtn} disabled={attractionQtyLocked(dc)} onClick={() => onChangeQty(dc.id, +1)} aria-label={`Increase ${dc.name} quantity`}>+</button>
+          <button className={styles.imageCardRemoveBtn} onClick={() => onRemove(dc.id)} aria-label={`Remove ${dc.name} from deck`} title={`Remove ${dc.name}`}><CloseIcon size={13} /></button>
         </div>
       </div>
     </div>
@@ -141,11 +141,11 @@ function DeckCardStack({
           <OwnershipBadge {...ownership} />
         </div>
         <div className={styles.stackControlsRow}>
-          <EditMenu dc={dc} isEDH={isEDH} formatId={formatId} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} onOpenCategoryPicker={onOpenCategoryPicker} builderSfMap={builderSfMap} />
-          <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); onChangeQty(dc.id, -1) }}>-</button>
-          <span className={styles.stackControlCount}>{dc.qty}</span>
-          <button className={styles.stackControlBtn} disabled={attractionQtyLocked(dc)} onClick={(ev) => { ev.stopPropagation(); onChangeQty(dc.id, +1) }}>+</button>
-          <button className={styles.stackControlBtn} onClick={(ev) => { ev.stopPropagation(); onRemove(dc.id) }}><CloseIcon size={13} /></button>
+          <EditMenu dc={dc} isEDH={isEDH} formatId={formatId} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} onOpenCategoryPicker={onOpenCategoryPicker} onChangeQty={onChangeQty} onRemove={onRemove} builderSfMap={builderSfMap} />
+          <button className={styles.imageCardQtyBtn} onClick={() => onChangeQty(dc.id, -1)} aria-label={`Decrease ${dc.name} quantity`}>−</button>
+          <span className={styles.imageCardQtyValue} aria-label={`${dc.name} quantity ${dc.qty}`}>{dc.qty}</span>
+          <button className={styles.imageCardQtyBtn} disabled={attractionQtyLocked(dc)} onClick={() => onChangeQty(dc.id, +1)} aria-label={`Increase ${dc.name} quantity`}>+</button>
+          <button className={styles.imageCardRemoveBtn} onClick={() => onRemove(dc.id)} aria-label={`Remove ${dc.name} from deck`} title={`Remove ${dc.name}`}><CloseIcon size={13} /></button>
         </div>
       </div>
     </div>
@@ -193,15 +193,15 @@ function DeckCardCompact({
       {compactVisibleColumns.cmc && <span className={styles.compactMeta}>{dc.cmc ?? '-'}</span>}
       {compactVisibleColumns.price && <span className={styles.compactMeta}>{priceLabel}</span>}
       {compactVisibleColumns.status && <OwnershipBadge {...ownership} />}
-      {compactVisibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} formatId={formatId} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} onOpenCategoryPicker={onOpenCategoryPicker} builderSfMap={builderSfMap} />}
+      {compactVisibleColumns.actions && <EditMenu dc={dc} isEDH={isEDH} formatId={formatId} onSetCommander={onSetCommander} onToggleFoil={onToggleFoil} onPickVersion={onPickVersion} onMoveBoard={onMoveBoard} onOpenCategoryPicker={onOpenCategoryPicker} onChangeQty={onChangeQty} onRemove={onRemove} builderSfMap={builderSfMap} />}
       {compactVisibleColumns.qty && (
         <div className={styles.qtyControls}>
-          <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, -1)}>-</button>
+          <button className={styles.qtyBtn} onClick={() => onChangeQty(dc.id, -1)} aria-label={`Decrease ${dc.name} quantity`}>-</button>
           <span className={styles.qtyVal}>{dc.qty}</span>
-          <button className={styles.qtyBtn} disabled={attractionQtyLocked(dc)} onClick={() => onChangeQty(dc.id, +1)}>+</button>
+          <button className={styles.qtyBtn} disabled={attractionQtyLocked(dc)} onClick={() => onChangeQty(dc.id, +1)} aria-label={`Increase ${dc.name} quantity`}>+</button>
         </div>
       )}
-      {compactVisibleColumns.remove && <button className={styles.removeBtn} onClick={() => onRemove(dc.id)}><CloseIcon size={13} /></button>}
+      {compactVisibleColumns.remove && <button className={styles.removeBtn} onClick={() => onRemove(dc.id)} aria-label={`Remove ${dc.name} from deck`}><CloseIcon size={13} /></button>}
     </div>
   )
 }

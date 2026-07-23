@@ -22,7 +22,10 @@ var(--gold)        /* #c9a84c — primary accent */
 var(--gold-dim)
 var(--green)       /* #5dba70 — positive / price */
 var(--red)         /* destructive */
-var(--purple)
+var(--red-bright)  /* readable alarm accent — warning text/tints (small text needs more lift than --red on dark) */
+var(--purple)      /* foil */
+var(--blue)        /* informational status (e.g. Owned badge) */
+var(--orange)      /* caution status (e.g. Committed badge, companion warning) */
 var(--bg) var(--bg2) var(--bg3)      /* page → panel → nested */
 var(--text) var(--text-dim) var(--text-faint)
 var(--border) var(--border-hi)
@@ -69,6 +72,22 @@ Every interactive control — button, select, input, toggle — sizes from these
 --control-font-size: 0.72rem   /* 0.66rem in sans mode */
 --control-letter-spacing: 0.04em
 ```
+
+### Radius scale
+
+Use the shared radius tokens from `src/index.css`. **Do not introduce an in-between hardcoded radius when a token already describes the surface.** Shape communicates hierarchy, so the same kind of component must use the same radius everywhere.
+
+| token | value | use |
+|---|---:|---|
+| `--radius-xs` | 4px | badges and exceptionally compact controls |
+| `--radius-sm` | 6px | default buttons, inputs and nested tiles |
+| `--radius-md` | 8px | cards and ordinary panels |
+| `--radius-lg` | 10px | feature cards and navigation shells/actions |
+| `--radius-xl` | 12px | modals and major overlays |
+| `--radius-2xl` | 16px | exceptional showcase surfaces only |
+| `--radius-pill` | 999px | chips, status pills and true capsules |
+
+Navigation actions that visually form a persistent navigation shell—including the floating mobile Deck Builder toolbar—use `--radius-lg`. Ordinary buttons remain `--radius-sm`; do not promote every button to navigation-shell rounding. Use `--radius-pill` only when the control is intentionally a capsule or circle, never as a generic way to make a button feel softer.
 
 ### Labels
 
@@ -136,7 +155,7 @@ Use `<Button>`, or `uiStyles.btn` on a raw `<button>` when you need markup contr
 
 **Sizes:** `sm` = the control tokens (30px) · `md` = 34px · `lg` = 38px. Modifiers: `block`, `iconOnly`, `segmented`.
 
-Buttons are: **4px radius, 1px border, `--font-display`, `line-height: 1`, `:hover` + `:focus-visible` + `:disabled` states.** To style a new button, remap the `--btn-*` properties — don't rewrite the box.
+Buttons are: **`--radius-sm` (6px), 1px border, `--font-display`, `line-height: 1`, `:hover` + `:focus-visible` + `:disabled` states.** To style a new button, remap the `--btn-*` properties — don't rewrite the box.
 
 **Every interactive element needs `:hover` and `:focus-visible`.** `.btn` gives you both; hand-rolled buttons routinely ship without focus states.
 
@@ -148,7 +167,7 @@ Buttons are: **4px radius, 1px border, `--font-display`, `line-height: 1`, `:hov
 
 | | chip (static) | button (clickable) |
 |---|---|---|
-| radius | `999px` (pill) | `4px` |
+| radius | `--radius-pill` (999px) | `--radius-sm` (6px) |
 | border | **none** | 1px |
 | height | 24px | 30px (`--control-height`) |
 | fill | flat tint | tint + hover change |
@@ -200,6 +219,23 @@ Use `repeat(auto-fit, minmax(150px, 1fr))` for flow rather than breakpoints.
 Of 72 `Select`/`ResponsiveMenu` sites, 44 don't pass `portal` — but most are page-level, where nothing clips. **Don't add `portal` reflexively**; it costs a fixed-position panel that can't scroll with its container. Add it when a clipping ancestor exists.
 
 `ResponsiveMenu` becomes a bottom sheet at ≤640px automatically, or with `forceSheet`.
+
+### Menu contents — use the `responsiveMenu*` classes, not local row styles
+
+The DeckBuilder "More" menu is the canonical look, and it is entirely built from `UI.module.css` primitives — new menus must use these instead of re-implementing rows locally (the `columnMenu*` copies in DeckBuilder/DeckBrowser were retired 2026-07):
+
+| class | role |
+|---|---|
+| `responsiveMenuList` | column of rows inside the panel/sheet |
+| `responsiveMenuAction` | one row: `<span>Label</span>` + optional trailing icon; works on `<button>`, `<label>`, `<Link>` |
+| `responsiveMenuActionActive` | gold selected state (gradient card on sheets) |
+| `responsiveMenuActionDanger` | destructive row |
+| `responsiveMenuCheck` | trailing check chip — put `<CheckIcon size={11}/>` inside when selected, never a `✓` character |
+| `responsiveMenuMeta` | dim trailing meta text |
+| `responsiveMenuSectionLabel` | uppercase section header between row groups |
+| local `menuDivider` | thin separator between groups |
+
+All of these carry the sheet (≤640px) and light-theme variants — a locally-styled row silently loses both.
 
 ### Modal
 
@@ -289,6 +325,8 @@ Underline tabs — reference: `.detailTabs` in `CardComponents.module.css`, mirr
 **Specificity, not stylesheet order.** CSS modules build into separate chunks, so two equal-specificity rules in different modules have **no reliable winner**. To override a primitive, scope via a parent (`.editField .editControl` beats `.select`) rather than trusting load order.
 
 **Never put `font-size`/`letter-spacing`/`text-transform` next to a `composes`.** The composed class is a *different class* on the same element, so a local declaration of the same property races it on chunk order. Compose or declare — not both.
+
+**No geometry in interaction media queries.** `(hover: none)` / `(pointer: coarse)` are unreliable inputs: Chromium re-evaluates them live on device hot-plug, touch digitizers, and DevTools emulation — sizes keyed to them visibly *jump* on desktop PCs (shipped 2026-07: toolbar buttons flapping 30↔44px whenever DevTools inspect toggled). Touch-target bumps and any other sizing belong in the width breakpoints (`max-width: 900px`) that drive the rest of the layout. Interaction queries may only gate **behavior**: `:hover` effects (`(hover: hover) and (pointer: fine)`), hover-preview suppression, and capability-driven display swaps.
 
 **Never `!important` an active state to beat its own hover.** `.tab:hover` (0,2,0) outranks `.tabActive` (0,1,0), so the active tab greys out on hover. The fix is `:not()`: `.tab:hover:not(.tabActive)`. Reaching for `!important` here hides the real problem. *(DeckBuilder's `.tab` still has this bug.)*
 

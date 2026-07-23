@@ -9,6 +9,9 @@
   --purple:    #8a6fc4;
   --green:     #8ab87a;
   --red:       #c46060;
+  --blue:      #a9bcff;
+  --orange:    #f0a267;
+  --red-bright: #e08078; /* readable alarm accent — warning text/tints on themed surfaces (--red is too dark for small text on dark themes) */
   --text:      #ddd0b8;
   --text-dim:  #a89878;
   --text-faint:#857868;
@@ -388,6 +391,9 @@
   --green:      #1f6a36;
   --red:        #9e2c26;
   --purple:     #4d38ad;
+  --blue:       #2d47a5;
+  --orange:     #8f4c07;
+  --red-bright: #b3382c;
   --border:     rgba(116,82,24,0.24);
   --border-hi:  rgba(141,93,0,0.46);
   color-scheme: light;

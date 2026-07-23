@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback, memo, startTransition } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useNavigate, Link, useLocation } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
@@ -12,7 +12,12 @@ import {
   fetchRecommendationMetadataByNames,
   fetchEdhrecCommander,
 } from '../lib/deckBuilderApi'
-import { fetchPrintingsByName, fetchPrintingsForNames } from '../lib/cardSearch'
+import {
+  fetchDeckBuilderDisplayPrintings,
+  fetchPrintingsByName,
+  fetchPrintingsForNames,
+  mergeDisplayPrinting,
+} from '../lib/cardSearch'
 import {
   getLocalCards, putDeckCards, deleteDeckCardLocal, deleteDeckCardsLocal, getMeta, setMeta,
   deleteDeckAllocationsByIds, replaceDeckAllocations, putDeckAllocations, putCards,
@@ -20,7 +25,7 @@ import {
 } from '../lib/db'
 import styles from './DeckBuilder.module.css'
 import uiStyles from '../components/UI.module.css'
-import { ConfirmModal, ResponsiveMenu, Select, Modal, SearchInput } from '../components/UI'
+import { Button, ConfirmModal, ResponsiveMenu, Select, Modal, SearchInput } from '../components/UI'
 import { useToast } from '../components/ToastContext'
 import PromptDialog from '../components/PromptDialog'
 import { CardDetail } from '../components/CardComponents'
@@ -107,6 +112,8 @@ import {
   SyncIcon,
   CloseIcon,
   WishlistsIcon,
+  LockIcon,
+  GlobeIcon,
 } from '../icons'
 import { lastInputWasTouch } from '../lib/inputType'
 import { bindTouchContextMenu } from '../lib/touchContextMenu'
@@ -116,6 +123,8 @@ import {
   DECK_CARD_RARITY_OPTIONS,
   countActiveCardFilters,
   matchesDeckCardFilters,
+  computeDeckFilterPresence,
+  availableFilterOptions,
   manaValueGroupKey,
   colorGroupKey,
   MANA_VALUE_GROUP_ORDER,
@@ -169,7 +178,27 @@ import { CategoryPickerModal } from '../components/deckBuilder/CategoryPickerMod
 import { FloatingPreview, WarningTooltip } from '../components/deckBuilder/FloatingPreview'
 
 // ── Single card row in search results ─────────────────────────────────────────
-const SearchResultRow = memo(function SearchResultRow({ card, ownedQty, onAdd, addFeedback, onOpenDetail, onHoverEnter, onHoverLeave, onHoverMove, legalityWarnings = [] }) {
+function DisplayPrintingMeta({ card, priceSource }) {
+  if (!card || !Object.hasOwn(card, 'display_price')) return null
+  const hasPrice = card.display_price != null
+  const printLabel = [card.set?.toUpperCase(), card.collector_number ? `#${card.collector_number}` : null]
+    .filter(Boolean)
+    .join(' ')
+  const title = hasPrice
+    ? `Lowest English price · ${card.display_finish}${printLabel ? ` · ${printLabel}` : ''}`
+    : `No price available · newest English printing${printLabel ? ` · ${printLabel}` : ''}`
+  return (
+    <div className={styles.displayPrintingMeta} title={title}>
+      <span className={`${styles.displayPrintingPrice}${hasPrice ? '' : ` ${styles.displayPrintingPriceEmpty}`}`}>
+        {hasPrice ? formatPrice(card.display_price, priceSource) : 'No price'}
+      </span>
+      {hasPrice && <span className={styles.displayPrintingFinish}>{card.display_finish}</span>}
+      {printLabel && <span className={styles.displayPrintingSet}>{printLabel}</span>}
+    </div>
+  )
+}
+
+const SearchResultRow = memo(function SearchResultRow({ card, priceSource, ownedQty, onAdd, addFeedback, onOpenDetail, onHoverEnter, onHoverLeave, onHoverMove, legalityWarnings = [] }) {
   const img = getCardImageUri(card, 'small')
   const largeUri = img ? img.replace('/small/', '/normal/') : null
   const warningTitle = legalityWarnings.map(w => w.text).join('\n')
@@ -191,12 +220,13 @@ const SearchResultRow = memo(function SearchResultRow({ card, ownedQty, onAdd, a
         <div className={styles.searchName}>
           <span style={{ cursor: 'pointer' }} onClick={() => onOpenDetail?.(card)} {...hoverableProps}>{card.name}</span>
           {addFeedback?.count > 0 && (
-            <span style={{ marginLeft:8, color:'var(--green)', fontSize:'0.74rem', fontWeight:600 }}>
+            <span className={styles.searchAddedFeedback}>
               {`+${addFeedback.count}`}
             </span>
           )}
         </div>
         <div className={styles.searchType}>{card.type_line}</div>
+        <DisplayPrintingMeta card={card} priceSource={priceSource} />
         {legalityWarnings.length > 0 && (
           <div className={styles.searchWarningDetail}>{warningText}</div>
         )}
@@ -205,9 +235,17 @@ const SearchResultRow = memo(function SearchResultRow({ card, ownedQty, onAdd, a
         {legalityWarnings.length > 0 && (
           <span className={styles.searchWarningBadge} title={warningTitle} aria-label={warningTitle}>Warning</span>
         )}
-        {ownedQty > 0 && <span className={styles.ownedBadge}>OK {ownedQty}x</span>}
+        {ownedQty > 0 && <span className={styles.ownedBadge}>Owned · {ownedQty}</span>}
       </div>
-      <button className={styles.addBtn} onClick={e => { e.stopPropagation(); onAdd(card) }} title="Add to deck">+</button>
+      <button
+        type="button"
+        className={styles.addBtn}
+        onClick={e => { e.stopPropagation(); onAdd(card) }}
+        title={`Add ${card.name} to deck`}
+        aria-label={`Add ${card.name} to deck`}
+      >
+        <AddIcon size={16} />
+      </button>
     </div>
   )
 }, areSearchResultRowPropsEqual)
@@ -215,6 +253,7 @@ const SearchResultRow = memo(function SearchResultRow({ card, ownedQty, onAdd, a
 function areSearchResultRowPropsEqual(prev, next) {
   if (
     prev.card !== next.card ||
+    prev.priceSource !== next.priceSource ||
     prev.ownedQty !== next.ownedQty ||
     prev.addFeedback !== next.addFeedback ||
     prev.onAdd !== next.onAdd ||
@@ -244,107 +283,245 @@ function cycleColorMode(mode) {
   return COLOR_MATCH_MODES[(i + 1) % COLOR_MATCH_MODES.length]
 }
 
-function DeckFilterPanel({ filters, setFilters, boardFilter, setBoardFilter, showSearch, deckSearch, setDeckSearch }) {
+const DECK_FILTER_COLOR_LABELS = {
+  W: 'White',
+  U: 'Blue',
+  B: 'Black',
+  R: 'Red',
+  G: 'Green',
+  C: 'Colorless',
+}
+
+const DECK_FILTER_SEARCH_DELAY_MS = 160
+
+/**
+ * Keep raw keystrokes out of DeckBuilder's state. Updating the page-level
+ * search on every input event synchronously re-rendered the entire builder,
+ * including every deck view. The local draft stays instant; the actual filter
+ * is committed once typing pauses and runs as an interruptible transition.
+ */
+function DeckFilterSearchInput({ value, onCommit }) {
+  const [draft, setDraft] = useState(value || '')
+  const timerRef = useRef(null)
+  const latestDraftRef = useRef(value || '')
+  const lastCommitRef = useRef(value || '')
+
+  useEffect(() => () => clearTimeout(timerRef.current), [])
+
+  // Reflect clears initiated elsewhere (for example, revealing a warning).
+  useEffect(() => {
+    const next = value || ''
+    if (next === lastCommitRef.current) return
+    lastCommitRef.current = next
+    latestDraftRef.current = next
+    setDraft(next)
+  }, [value])
+
+  const commit = useCallback((next) => {
+    clearTimeout(timerRef.current)
+    timerRef.current = null
+    lastCommitRef.current = next
+    startTransition(() => onCommit(next))
+  }, [onCommit])
+
+  const schedule = useCallback((next) => {
+    latestDraftRef.current = next
+    setDraft(next)
+    clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => commit(next), DECK_FILTER_SEARCH_DELAY_MS)
+  }, [commit])
+
+  const flush = useCallback(() => {
+    if (timerRef.current) commit(latestDraftRef.current)
+  }, [commit])
+
+  return (
+    <SearchInput
+      className={styles.deckSearchInput}
+      value={draft}
+      onChange={e => schedule(e.target.value)}
+      onClear={() => commit('')}
+      onBlur={flush}
+      placeholder="Search cards in this deck..."
+    />
+  )
+}
+
+function DeckFilterPanel({ filters, setFilters, boardFilter, setBoardFilter, showSearch, deckSearch, setDeckSearch, available }) {
   const set = patch => setFilters(f => ({ ...f, ...patch }))
   const toggleIn = (key, v) => setFilters(f => ({
     ...f,
     [key]: f[key].includes(v) ? f[key].filter(x => x !== v) : [...f[key], v],
   }))
-  const anythingActive = countActiveCardFilters(filters) > 0 || boardFilter !== 'all'
+  const typeFilterCount = filters.types.length
+  const manaValueActive = filters.cmcMin !== '' || filters.cmcMax !== ''
+  const advancedFilterCount = filters.rarities.length + (manaValueActive ? 1 : 0)
+  const anythingActive = countActiveCardFilters(filters) > 0
+    || boardFilter !== 'all'
+    || Boolean(showSearch && deckSearch?.trim())
+  // Only offer options the deck actually contains; a section whose options
+  // can't split the deck (one board, one type, …) disappears entirely.
+  const boardOptions = BOARD_FILTERS.filter(f =>
+    f.id === 'all' || !available || available.boards.has(f.id) || boardFilter === f.id)
+  const showBoards = boardOptions.length > 2 || boardFilter !== 'all'
+  const colorOptions = availableFilterOptions(['W', 'U', 'B', 'R', 'G', 'C'], available?.colors, filters.colors)
+  const showColors = colorOptions.length > 1 || filters.colors.length > 0
+  const typeOptions = availableFilterOptions(DECK_CARD_TYPE_OPTIONS, available?.types, filters.types)
+  const showTypes = typeOptions.length > 1 || typeFilterCount > 0
+  const rarityOptions = availableFilterOptions(DECK_CARD_RARITY_OPTIONS, available?.rarities, filters.rarities)
+  const showRarities = rarityOptions.length > 1 || filters.rarities.length > 0
   return (
     <div className={styles.deckFilterMenuBody}>
       {showSearch && (
-        <SearchInput
-          className={styles.deckSearchInput}
+        <DeckFilterSearchInput
           value={deckSearch}
-          onChange={e => setDeckSearch(e.target.value)}
-          onClear={() => setDeckSearch('')}
-          placeholder="Search deck..."
-          autoFocus
+          onCommit={setDeckSearch}
         />
       )}
-      <div className={styles.deckFilterMenuBoardLabel}>Board</div>
-      <div className={styles.boardFilterGroup}>
-        {BOARD_FILTERS.map(filter => (
-          <button
-            key={filter.id}
-            className={`${styles.boardFilterBtn}${boardFilter === filter.id ? ' ' + styles.boardFilterBtnActive : ''}`}
-            onClick={() => setBoardFilter(filter.id)}
-          >
-            {filter.label}
-          </button>
-        ))}
+      {showBoards && (
+      <div className={styles.deckFilterSection}>
+        <div className={styles.deckFilterMenuBoardLabel}>Board</div>
+        <div className={styles.deckFilterBoardGrid} role="group" aria-label="Filter deck by board">
+          {boardOptions.map(filter => (
+            <button
+              key={filter.id}
+              type="button"
+              className={`${styles.boardFilterBtn}${boardFilter === filter.id ? ' ' + styles.boardFilterBtnActive : ''}`}
+              aria-pressed={boardFilter === filter.id}
+              onClick={() => setBoardFilter(filter.id)}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
       </div>
-      <div className={styles.deckFilterMenuBoardLabel}>Colors</div>
-      <div className={styles.deckFilterPips}>
-        {['W', 'U', 'B', 'R', 'G', 'C'].map(c => (
-          <button
-            key={c}
-            className={`${styles.deckFilterPip}${filters.colors.includes(c) ? ' ' + styles.deckFilterPipActive : ''}`}
-            title={`Filter ${c}`}
-            onClick={() => toggleIn('colors', c)}
-          >
-            <img src={manaSymbolUrl(c)} alt={c} />
-          </button>
-        ))}
-        {filters.colors.length > 0 && (
-          <button
-            className={styles.deckFilterModeBtn}
-            onClick={() => set({ colorMode: cycleColorMode(filters.colorMode) })}
-            title="How selected colors match the card's color identity"
-          >
-            {COLOR_MODE_LABELS[filters.colorMode] || 'Includes'}
-          </button>
-        )}
+      )}
+
+      {showColors && (
+      <div className={styles.deckFilterSection}>
+        <div className={styles.deckFilterMenuBoardLabel}>Colors</div>
+        <div className={styles.deckFilterPips} role="group" aria-label="Filter by color identity">
+          {colorOptions.map(c => (
+            <button
+              key={c}
+              type="button"
+              className={`${styles.deckFilterPip}${filters.colors.includes(c) ? ' ' + styles.deckFilterPipActive : ''}`}
+              aria-label={DECK_FILTER_COLOR_LABELS[c]}
+              aria-pressed={filters.colors.includes(c)}
+              title={DECK_FILTER_COLOR_LABELS[c]}
+              onClick={() => toggleIn('colors', c)}
+            >
+              <img src={manaSymbolUrl(c)} alt="" aria-hidden="true" />
+            </button>
+          ))}
+          {filters.colors.length > 0 && (
+            <button
+              type="button"
+              className={styles.deckFilterModeBtn}
+              onClick={() => set({ colorMode: cycleColorMode(filters.colorMode) })}
+              aria-label={`Color matching mode: ${COLOR_MODE_LABELS[filters.colorMode] || 'Includes'}`}
+              title="Change how selected colors match a card's color identity"
+            >
+              Match: {COLOR_MODE_LABELS[filters.colorMode] || 'Includes'}
+            </button>
+          )}
+        </div>
       </div>
-      <div className={styles.deckFilterMenuBoardLabel}>Type</div>
-      <div className={`${styles.boardFilterGroup} ${styles.deckFilterWrapGroup}`}>
-        {DECK_CARD_TYPE_OPTIONS.map(t => (
-          <button
-            key={t}
-            className={`${styles.boardFilterBtn}${filters.types.includes(t) ? ' ' + styles.boardFilterBtnActive : ''}`}
-            onClick={() => toggleIn('types', t)}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
-      <div className={styles.deckFilterMenuBoardLabel}>Rarity</div>
-      <div className={`${styles.boardFilterGroup} ${styles.deckFilterWrapGroup}`}>
-        {DECK_CARD_RARITY_OPTIONS.map(r => (
-          <button
-            key={r}
-            className={`${styles.boardFilterBtn}${filters.rarities.includes(r) ? ' ' + styles.boardFilterBtnActive : ''}`}
-            onClick={() => toggleIn('rarities', r)}
-          >
-            {r[0].toUpperCase() + r.slice(1)}
-          </button>
-        ))}
-      </div>
-      <div className={styles.deckFilterMenuBoardLabel}>Mana Value</div>
-      <div className={styles.deckFilterCmcRow}>
-        <input
-          type="number" min="0" inputMode="numeric"
-          className={styles.deckFilterCmcInput}
-          value={filters.cmcMin}
-          onChange={e => set({ cmcMin: e.target.value })}
-          placeholder="Min"
-        />
-        <span className={styles.deckFilterCmcDash}>–</span>
-        <input
-          type="number" min="0" inputMode="numeric"
-          className={styles.deckFilterCmcInput}
-          value={filters.cmcMax}
-          onChange={e => set({ cmcMax: e.target.value })}
-          placeholder="Max"
-        />
-      </div>
+      )}
+      {showTypes && (
+      <details
+        className={`${styles.deckFilterDisclosure}${typeFilterCount > 0 ? ` ${styles.deckFilterDisclosureActive}` : ''}`}
+        open={typeFilterCount > 0}
+      >
+        <summary className={styles.deckFilterDisclosureSummary}>
+          <span className={styles.deckFilterDisclosureTitle}>Card type</span>
+          <span className={styles.deckFilterDisclosureMeta}>
+            {typeFilterCount > 0 ? `${typeFilterCount} selected` : 'All types'}
+          </span>
+          <ChevronDownIcon size={14} className={styles.deckFilterDisclosureChevron} aria-hidden="true" />
+        </summary>
+        <div className={styles.deckFilterDisclosureBody}>
+          <div className={styles.deckFilterOptionGrid} role="group" aria-label="Filter by card type">
+            {typeOptions.map(t => (
+              <button
+                key={t}
+                type="button"
+                className={`${styles.boardFilterBtn}${filters.types.includes(t) ? ' ' + styles.boardFilterBtnActive : ''}`}
+                aria-pressed={filters.types.includes(t)}
+                onClick={() => toggleIn('types', t)}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
+      </details>
+      )}
+      <details
+        className={`${styles.deckFilterDisclosure}${advancedFilterCount > 0 ? ` ${styles.deckFilterDisclosureActive}` : ''}`}
+        open={advancedFilterCount > 0}
+      >
+        <summary className={styles.deckFilterDisclosureSummary}>
+          <span className={styles.deckFilterDisclosureTitle}>Advanced</span>
+          <span className={styles.deckFilterDisclosureMeta}>
+            {advancedFilterCount > 0 ? `${advancedFilterCount} active` : 'Mana value & rarity'}
+          </span>
+          <ChevronDownIcon size={14} className={styles.deckFilterDisclosureChevron} aria-hidden="true" />
+        </summary>
+        <div className={styles.deckFilterDisclosureBody}>
+          <div className={styles.deckFilterFieldGroup}>
+            <div className={styles.deckFilterMenuBoardLabel}>Mana value</div>
+            <div className={styles.deckFilterCmcRow}>
+              <input
+                type="number" min="0" inputMode="numeric"
+                className={styles.deckFilterCmcInput}
+                value={filters.cmcMin}
+                onChange={e => set({ cmcMin: e.target.value })}
+                placeholder="Min"
+                aria-label="Minimum mana value"
+              />
+              <span className={styles.deckFilterCmcDash} aria-hidden="true">–</span>
+              <input
+                type="number" min="0" inputMode="numeric"
+                className={styles.deckFilterCmcInput}
+                value={filters.cmcMax}
+                onChange={e => set({ cmcMax: e.target.value })}
+                placeholder="Max"
+                aria-label="Maximum mana value"
+              />
+            </div>
+          </div>
+          {showRarities && (
+          <div className={styles.deckFilterFieldGroup}>
+            <div className={styles.deckFilterMenuBoardLabel}>Rarity</div>
+            <div className={styles.deckFilterOptionGrid} role="group" aria-label="Filter by rarity">
+              {rarityOptions.map(r => (
+                <button
+                  key={r}
+                  type="button"
+                  className={`${styles.boardFilterBtn}${filters.rarities.includes(r) ? ' ' + styles.boardFilterBtnActive : ''}`}
+                  aria-pressed={filters.rarities.includes(r)}
+                  onClick={() => toggleIn('rarities', r)}
+                >
+                  {r[0].toUpperCase() + r.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+          )}
+        </div>
+      </details>
       {anythingActive && (
         <button
+          type="button"
           className={styles.deckFilterClearBtn}
-          onClick={() => { setFilters({ ...EMPTY_DECK_CARD_FILTERS }); setBoardFilter('all') }}
+          onClick={() => {
+            setFilters({ ...EMPTY_DECK_CARD_FILTERS })
+            setBoardFilter('all')
+            if (showSearch) setDeckSearch('')
+          }}
         >
-          Clear filters
+          Clear all filters
         </button>
       )}
     </div>
@@ -352,7 +529,7 @@ function DeckFilterPanel({ filters, setFilters, boardFilter, setBoardFilter, sho
 }
 
 // ── Single card row in EDHRec recommendations ─────────────────────────────────
-function RecRow({ rec, imageUri, ownedQty, onAdd, onHoverEnter, onHoverLeave, onHoverMove, onOpenDetail }) {
+function RecRow({ rec, imageUri, displayPrinting, priceSource, ownedQty, onAdd, onHoverEnter, onHoverLeave, onHoverMove, onOpenDetail }) {
   const inclusionPct = rec.potentialDecks > 0
     ? Math.round((rec.inclusion / rec.potentialDecks) * 100)
     : (rec.inclusion ?? 0)
@@ -374,18 +551,19 @@ function RecRow({ rec, imageUri, ownedQty, onAdd, onHoverEnter, onHoverLeave, on
             src={imageUri}
             alt=""
             loading="lazy"
-            onClick={() => onOpenDetail?.(rec.name)}
+            onClick={() => onOpenDetail?.(rec.name, displayPrinting)}
             style={{ cursor: 'pointer' }}
             {...hoverableProps}
           />
         : <div className={styles.recThumbPlaceholder} />
       }
       <div className={styles.recInfo}>
-        <div className={styles.recName} onClick={() => onOpenDetail?.(rec.name)} style={{ cursor: 'pointer' }} {...hoverableProps}>{rec.name}</div>
+        <div className={styles.recName} onClick={() => onOpenDetail?.(rec.name, displayPrinting)} style={{ cursor: 'pointer' }} {...hoverableProps}>{rec.name}</div>
         <div className={styles.recMeta}>
           {rec.type && <span className={styles.recType}>{rec.type}</span>}
           {rec.cmc != null && rec.cmc > 0 && <span className={styles.recCmc}>{rec.cmc} CMC</span>}
         </div>
+        <DisplayPrintingMeta card={displayPrinting} priceSource={priceSource} />
         <div className={styles.recStats}>
           <div className={styles.inclusionBar}>
             <div className={styles.inclusionFill} style={{ width: `${inclusionPct}%` }} />
@@ -402,10 +580,18 @@ function RecRow({ rec, imageUri, ownedQty, onAdd, onHoverEnter, onHoverLeave, on
               {synergyPct > 0 ? '+' : ''}{synergyPct}
             </span>
           )}
-          {ownedQty > 0 && <span className={styles.ownedBadge}>OK</span>}
+          {ownedQty > 0 && <span className={styles.ownedBadge}>Owned · {ownedQty}</span>}
         </div>
       </div>
-      <button className={styles.addBtn} onClick={e => { e.stopPropagation(); onAdd(rec) }} title="Add to deck">+</button>
+      <button
+        type="button"
+        className={styles.addBtn}
+        onClick={e => { e.stopPropagation(); onAdd(rec) }}
+        title={`Add ${rec.name} to deck`}
+        aria-label={`Add ${rec.name} to deck`}
+      >
+        <AddIcon size={16} />
+      </button>
     </div>
   )
 }
@@ -531,12 +717,13 @@ export default function DeckBuilderPage() {
     error:       searchError,
     handleInput: handleSearchInput,
     loadMore:    loadMoreSearch,
-  } = useCardSearch({ format: deckMeta.format })
+  } = useCardSearch({ priceSource: price_source })
 
   // Recommendations
   const [recs,         setRecs]         = useState([])
   const [recImages,    setRecImages]    = useState({}) // name -> image_uri
   const [recCards,     setRecCards]     = useState({}) // name -> Supabase-resolved card
+  const [recDisplayPrints, setRecDisplayPrints] = useState({}) // name -> exact priced/newest English print
   const [recLegalities, setRecLegalities] = useState({}) // name -> legalities object
   const [recsLoading,   setRecsLoading]   = useState(false)
   const [recsError,     setRecsError]     = useState(null)
@@ -1262,9 +1449,9 @@ export default function DeckBuilderPage() {
     if (visibleColumns.cmc) addColumn(56)
     if (visibleColumns.price) addColumn(78)
     if (visibleColumns.status) addColumn(94)
-    if (visibleColumns.qty) addColumn(64)
-    if (visibleColumns.actions) addColumn(32)
-    if (visibleColumns.remove) addColumn(32)
+    if (visibleColumns.qty) addColumn(112)
+    if (visibleColumns.actions) addColumn(44)
+    if (visibleColumns.remove) addColumn(44)
     const gapWidth = Math.max(0, cols.length - 1) * 8
     return {
       template: cols.join(' '),
@@ -1466,7 +1653,15 @@ export default function DeckBuilderPage() {
   // Open card detail modal for a Scryfall search result (id = scryfall_id, set = set_code)
   const openSearchCardDetail = useCallback((c) => {
     setDetailCard({
-      card: { scryfall_id: c.id, set_code: c.set, collector_number: c.collector_number, name: c.name, qty: 1, foil: false },
+      card: {
+        scryfall_id: c.id,
+        set_code: c.set,
+        collector_number: c.collector_number,
+        name: c.name,
+        qty: 1,
+        foil: c.display_foil === true,
+        language: c.lang || 'en',
+      },
       sfCard: c,
     })
   }, [])
@@ -1613,12 +1808,67 @@ export default function DeckBuilderPage() {
     }
   }
 
-  const renderDeckActionsMenu = ({ close, includeQuickActions = true }) => (
+  const renderDeckActionsMenu = ({
+    close,
+    includeQuickActions = true,
+    includeBuildActions = false,
+    includeAssistant = includeBuildActions,
+    includeOrganize = false,
+    includeVisibility = false,
+  }) => (
     <div className={uiStyles.responsiveMenuList}>
+      {includeOrganize && (
+        <>
+          <details className={styles.mobileOrganizeDisclosure}>
+            <summary className={styles.mobileOrganizeSummary}>
+              <span className={styles.mobileOrganizeSummaryIcon}><GridViewIcon size={14} /></span>
+              <span className={styles.mobileOrganizeSummaryCopy}>
+                <strong>Organize</strong>
+                <small>{deckView} view · {groupBy === 'none' ? 'no grouping' : `grouped by ${groupBy}`}</small>
+              </span>
+              <ChevronDownIcon size={13} className={styles.mobileOrganizeSummaryChevron} />
+            </summary>
+            <div className={styles.mobileOrganizeDisclosureBody}>
+              {renderMobileOrganizeMenu({ close })}
+            </div>
+          </details>
+          <div className={styles.menuDivider} />
+        </>
+      )}
+      {includeAssistant && isEDH && (
+        <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowBuildAssistant(true); close() }}>
+          <span>Build Assistant</span>
+          <LightningIcon size={13} />
+        </button>
+      )}
+      {includeBuildActions && (isCollectionDeck || deckMeta.linked_deck_id) && (
+        <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowSync(true); close() }} disabled={syncRunning}>
+          <span>{syncRunning ? 'Syncing...' : 'Sync Collection'}</span>
+          <SyncIcon size={13} />
+        </button>
+      )}
+      {includeBuildActions && !isCollectionDeck && !deckMeta.linked_deck_id && (
+        <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowMakeDeck(true); close() }} disabled={makeDeckRunning}>
+          <span>{makeDeckRunning ? 'Creating...' : 'Make Collection Deck'}</span>
+          <DeckIcon size={13} />
+        </button>
+      )}
+      {includeBuildActions && <div className={styles.menuDivider} />}
       {includeQuickActions && (
         <button className={uiStyles.responsiveMenuAction} onClick={() => { handleShareDeck(); close() }} disabled={shareBusy}>
           <span>{shareBusy ? 'Sharing...' : 'Share'}</span>
           <ShareIcon size={13} />
+        </button>
+      )}
+      {/* Mobile-only visibility control — desktop uses the left panel's
+          Visibility select. Lives next to Share since visibility gates it. */}
+      {includeVisibility && (
+        <button
+          className={uiStyles.responsiveMenuAction}
+          onClick={() => { setVisibility(!deckMeta.is_public).catch(() => {}); close() }}
+        >
+          <span>{deckMeta.is_public ? 'Make Private' : 'Make Public'}</span>
+          {deckMeta.is_public ? <LockIcon size={13} /> : <GlobeIcon size={13} />}
         </button>
       )}
       <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowImport(true); close() }}>
@@ -1633,14 +1883,7 @@ export default function DeckBuilderPage() {
         </Link>
       )}
       <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowMetaModal(true); close() }}>
-        <span>Description &amp; Tags</span>
-      </button>
-      <button
-        className={`${uiStyles.responsiveMenuAction} ${deckMeta.is_public ? uiStyles.responsiveMenuActionActive : ''}`}
-        onClick={togglePublic}
-      >
-        <span>Visibility</span>
-        <span className={styles.visibilityMenuState}>{deckMeta.is_public ? 'Public' : 'Private'}</span>
+        <span>Deck Details</span>
       </button>
       <button className={uiStyles.responsiveMenuAction} onClick={() => { resetAllCategories(); close() }}>
         <span>Reset Categories</span>
@@ -1676,18 +1919,128 @@ export default function DeckBuilderPage() {
     </div>
   )
 
-  // Open recommendation/combo details from the shared Supabase dictionary.
-  const openCardDetailByName = useCallback(async (name) => {
-    try {
-      const data = recCards[name] || (await fetchRecommendationMetadataByNames([name]))[0]
-      if (!data) return
-      setDetailCard({
-        card: { scryfall_id: data.id, set_code: data.set, collector_number: data.collector_number, name: data.name, qty: 1, foil: false },
-        sfCard: data,
-      })
-    } catch {}
-  }, [recCards])
+  const renderMobileOrganizeMenu = ({ close }) => (
+    <div className={styles.mobileOrganizeMenu}>
+      <section className={styles.mobileOrganizeSection}>
+        <div className={styles.menuSectionLabel}>View</div>
+        <div className={styles.mobileOrganizeGrid}>
+          {[
+            ['list', 'List', ListViewIcon],
+            ['compact', 'Compact', TableViewIcon],
+            ['stacks', 'Stacks', StacksViewIcon],
+            ['grid', 'Grid', GridViewIcon],
+          ].map(([value, label, ViewIcon]) => (
+            <button
+              key={value}
+              type="button"
+              className={`${styles.mobileOrganizeOption}${deckView === value ? ' ' + styles.mobileOrganizeOptionActive : ''}`}
+              aria-pressed={deckView === value}
+              onClick={() => setDeckView(value)}
+            >
+              <ViewIcon size={14} />
+              <span>{label}</span>
+              {deckView === value && <CheckIcon size={11} />}
+            </button>
+          ))}
+        </div>
+      </section>
 
+      <section className={styles.mobileOrganizeSection}>
+        <div className={styles.menuSectionLabel}>Sort</div>
+        <div className={`${styles.mobileOrganizeGrid} ${styles.mobileOrganizeGridDense}`}>
+          {[
+            ['type', 'Type'], ['color', 'Color'], ['name', 'Name A→Z'], ['name_desc', 'Name Z→A'],
+            ['cmc_asc', 'Mana Value ↑'], ['cmc_desc', 'Mana Value ↓'],
+            ['rarity_desc', 'Rarity ↓'], ['rarity_asc', 'Rarity ↑'],
+            ['price_desc', 'Price ↓'], ['price_asc', 'Price ↑'], ['set', 'Set'],
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className={`${styles.mobileOrganizeOption}${deckSort === value ? ' ' + styles.mobileOrganizeOptionActive : ''}`}
+              aria-pressed={deckSort === value}
+              onClick={() => setDeckSort(value)}
+            >
+              <span>{label}</span>
+              {deckSort === value && <CheckIcon size={11} />}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className={styles.mobileOrganizeSection}>
+        <div className={styles.menuSectionLabel}>Group</div>
+        <div className={`${styles.mobileOrganizeGrid} ${styles.mobileOrganizeGridDense}`}>
+          {[
+            ['none', 'None'], ['type', 'Type'], ['category', 'Category'], ['cmc', 'Mana Value'],
+            ['color', 'Color'], ['rarity', 'Rarity'], ['set', 'Set'],
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className={`${styles.mobileOrganizeOption}${groupBy === value ? ' ' + styles.mobileOrganizeOptionActive : ''}`}
+              aria-pressed={groupBy === value}
+              onClick={() => setGroupBy(value)}
+            >
+              <span>{label}</span>
+              {groupBy === value && <CheckIcon size={11} />}
+            </button>
+          ))}
+          <button
+            type="button"
+            className={styles.mobileOrganizeOption}
+            onClick={() => { addCustomCategory(); close() }}
+          >
+            <AddIcon size={12} />
+            <span>New Category</span>
+          </button>
+        </div>
+      </section>
+
+      {(deckView === 'list' || deckView === 'compact') && (
+        <section className={styles.mobileOrganizeSection}>
+          <div className={styles.menuSectionLabel}>Visible Columns</div>
+          <div className={`${styles.mobileOrganizeGrid} ${styles.mobileOrganizeGridDense}`}>
+            {[
+              ['set', 'Set'], ['manaValue', 'Mana Value'], ['cmc', 'CMC'], ['price', 'Price'],
+              ['status', 'Status'], ['actions', 'Actions'], ['qty', 'Qty'], ['remove', 'Remove'],
+            ].map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                className={`${styles.mobileOrganizeOption}${activeColumns[key] ? ' ' + styles.mobileOrganizeOptionActive : ''}`}
+                aria-pressed={activeColumns[key]}
+                onClick={() => setActiveColumns(prev => ({ ...prev, [key]: !prev[key] }))}
+              >
+                <span>{label}</span>
+                {activeColumns[key] && <CheckIcon size={11} />}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  )
+
+  // Open recommendation/combo details from the shared Supabase dictionary.
+  const openCardDetailByName = useCallback(async (name, displayPrinting = null) => {
+    try {
+      const metadata = recCards[name] || (await fetchRecommendationMetadataByNames([name]))[0]
+      const exactPrinting = displayPrinting || recDisplayPrints[name] || null
+      const detail = mergeDisplayPrinting(metadata || exactPrinting, exactPrinting)
+      if (!detail) return
+      openSearchCardDetail(detail)
+    } catch {}
+  }, [openSearchCardDetail, recCards, recDisplayPrints])
+
+
+  // The filter panel only offers boards/colors/types/rarities that exist in
+  // this deck. Computed from the unfiltered list so options don't vanish as
+  // filters narrow the view.
+  const deckFilterPresence = useMemo(
+    () => computeDeckFilterPresence(deckCards, dc => builderSfMap[getScryfallKey(dc)]?.rarity),
+    [deckCards, builderSfMap]
+  )
 
   const visibleDeckCards = useMemo(() => {
     const q = deckSearch.trim().toLowerCase()
@@ -2367,10 +2720,6 @@ export default function DeckBuilderPage() {
     }
   }
 
-  async function togglePublic() {
-    await setVisibility(!deckMeta.is_public)
-  }
-
   async function loadDeckGameResults() {
     if (deckGameResultsLoaded || !deckId || !user?.id) return
     setDeckGameResultsLoading(true)
@@ -2424,7 +2773,7 @@ export default function DeckBuilderPage() {
     // Remove any existing commander — use ref to avoid stale closure
     const existingCmd = deckCardsRef.current.find(dc => dc.is_commander)
     if (existingCmd) {
-      await removeCardFromDeck(existingCmd.id)
+      await removeCardFromDeck(existingCmd.id, { offerUndo: false })
     }
 
     // Build commander deck card — getDeckBuilderCardMeta like every other add
@@ -3130,16 +3479,53 @@ export default function DeckBuilderPage() {
     qtyTimers.current.set(deckCardId, timer)
   }
 
-  async function removeCardFromDeck(deckCardId) {
+  async function restoreRemovedCard(card, originalIndex) {
+    if (!card || deckCardsRef.current.some(dc => dc.id === card.id)) return
+
+    const restored = [...deckCardsRef.current]
+    restored.splice(Math.min(Math.max(originalIndex, 0), restored.length), 0, card)
+    deckCardsRef.current = restored
+    setDeckCards(restored)
+
+    try {
+      await sbExec(sb.from('deck_cards').insert(toDeckCardRow(card)), { silent: true })
+      putDeckCards([card]).catch(() => {})
+      queueOwnershipRefreshForRows([card])
+    } catch {
+      deckCardsRef.current = deckCardsRef.current.filter(dc => dc.id !== card.id)
+      setDeckCards(deckCardsRef.current)
+      showToast(`Could not restore ${card.name}.`, { tone: 'error', duration: 4000 })
+    }
+  }
+
+  async function removeCardFromDeck(deckCardId, { offerUndo = true } = {}) {
     const current = deckCardsRef.current.find(dc => dc.id === deckCardId)
     if (!current) return
+    const originalIndex = deckCardsRef.current.findIndex(dc => dc.id === deckCardId)
 
-    setDeckCards(prev => prev.filter(dc => dc.id !== deckCardId))
+    const pendingQtyTimer = qtyTimers.current.get(deckCardId)
+    if (pendingQtyTimer) clearTimeout(pendingQtyTimer)
+    qtyTimers.current.delete(deckCardId)
+
+    deckCardsRef.current = deckCardsRef.current.filter(dc => dc.id !== deckCardId)
+    setDeckCards(deckCardsRef.current)
     try {
       await sbExec(sb.from('deck_cards').delete().eq('id', deckCardId), { label: 'Remove card failed' })
-      deleteDeckCardLocal(deckCardId).catch(() => {})
+      await deleteDeckCardLocal(deckCardId).catch(() => {})
+      if (offerUndo) {
+        showToast(`Removed ${current.name}.`, {
+          tone: 'info',
+          duration: 6500,
+          actionLabel: 'Undo',
+          onAction: () => restoreRemovedCard(current, originalIndex),
+          placement: 'above-mobile-toolbar',
+        })
+      }
     } catch {
-      setDeckCards(prev => [...prev, current])
+      const restored = [...deckCardsRef.current]
+      restored.splice(Math.min(Math.max(originalIndex, 0), restored.length), 0, current)
+      deckCardsRef.current = restored
+      setDeckCards(restored)
     }
   }
 
@@ -3483,6 +3869,7 @@ export default function DeckBuilderPage() {
     setRecs([])
     setRecImages({})
     setRecCards({})
+    setRecDisplayPrints({})
     setRecLegalities({})
     setCollapsedCats(new Set())
 
@@ -3500,9 +3887,13 @@ export default function DeckBuilderPage() {
 
     const allRecNames = data.categories.flatMap(c => c.cards.map(r => r.name))
 
-    const sfCards = await fetchRecommendationMetadataByNames(allRecNames).catch(() => [])
+    const [sfCards, displayPrints] = await Promise.all([
+      fetchRecommendationMetadataByNames(allRecNames).catch(() => []),
+      fetchDeckBuilderDisplayPrintings(allRecNames, { priceSource: price_source }).catch(() => []),
+    ])
     const imgMap = {}
     const cardMap = {}
+    const displayMap = {}
     const legMap = {}
     for (const c of sfCards) {
       const requestedName = c.requested_name || c.name
@@ -3511,8 +3902,15 @@ export default function DeckBuilderPage() {
       if (uri) imgMap[requestedName] = uri
       if (c.legalities) legMap[requestedName] = c.legalities
     }
+    for (const card of displayPrints) {
+      const requestedName = card.requested_name || card.name
+      displayMap[requestedName] = card
+      const uri = getCardImageUri(card, 'small')
+      if (uri) imgMap[requestedName] = uri
+    }
     setRecImages(imgMap)
     setRecCards(cardMap)
+    setRecDisplayPrints(displayMap)
     setRecLegalities(legMap)
     if (needsLegality) setRecsLoading(false)
   }
@@ -4664,24 +5062,32 @@ export default function DeckBuilderPage() {
   const renderDeckHeader = (variantClassName = '') => (
     <div className={`${styles.deckHeader}${variantClassName ? ' ' + variantClassName : ''}`}>
       <div className={styles.deckTitleBlock}>
-        <input
-          className={styles.deckNameInput}
-          value={deckName}
-          onChange={e => setDeckName(e.target.value)}
-          onBlur={saveNameBlur}
-          maxLength={100}
-        />
+        <div className={styles.mobileDeckTitleRow}>
+          <Link
+            className={styles.mobileBackToDecks}
+            to="/builder"
+            title="Back to decks"
+            aria-label="Back to decks"
+          >
+            <ChevronLeftIcon size={18} />
+          </Link>
+          <input
+            className={styles.deckNameInput}
+            value={deckName}
+            onChange={e => setDeckName(e.target.value)}
+            onBlur={saveNameBlur}
+            maxLength={100}
+          />
+        </div>
         <div className={styles.deckMeta}>
           <span>{format?.label ?? 'Deck'}</span>
-          <span>&middot;</span>
-          <button
-            type="button"
-            className={`${styles.visibilityChip} ${deckMeta.is_public ? styles.visibilityChipPublic : ''}`}
-            onClick={togglePublic}
-            title={`Deck is ${deckMeta.is_public ? 'public' : 'private'}. Click to switch.`}
-          >
-            {deckMeta.is_public ? 'Public' : 'Private'}
-          </button>
+          {/* Passive state only — the control lives in the More menu */}
+          {deckMeta.is_public && (
+            <>
+              <span>&middot;</span>
+              <span className={styles.deckMetaPublic}>Public</span>
+            </>
+          )}
           {saving && <span className={styles.savingDot} />}
         </div>
       </div>
@@ -4751,16 +5157,23 @@ export default function DeckBuilderPage() {
 
   return (
     <div className={`${styles.page}${showRight ? ' ' + styles.showRight : ''}${leftCollapsed ? ' ' + styles.leftCollapsed : ''}`}>
-      {/* Mobile-only: Done bar at top of the left panel — returns to deck view */}
-      <button
-        type="button"
-        className={styles.mobileLeftDone}
-        onClick={() => setShowRight(true)}
-        aria-label="Done — back to deck"
-      >
-        <ChevronLeftIcon size={14} />
-        <span>Done</span>
-      </button>
+      {/* Mobile-only workspace header for the full-screen Add Cards panel. */}
+      <header className={styles.mobileLeftHeader}>
+        <button
+          type="button"
+          className={styles.mobileLeftDone}
+          onClick={() => setShowRight(true)}
+          aria-label="Back to deck"
+        >
+          <ChevronLeftIcon size={18} />
+        </button>
+        <div className={styles.mobileLeftHeaderCopy}>
+          <div className={styles.mobileLeftHeaderTitle}>
+            {leftTab === 'search' ? 'Add Cards' : 'Recommendations'}
+          </div>
+          <div className={styles.mobileLeftHeaderDeck}>{deckName || 'Untitled deck'}</div>
+        </div>
+      </header>
 
       {/* ── LEFT PANEL ─────────────────────────────────────────── */}
       <div className={styles.left}>
@@ -4794,7 +5207,30 @@ export default function DeckBuilderPage() {
               <CloseIcon size={14} />
             </button>
           </div>
-          <div className={styles.formatVisibilityRow}>
+          {/* Primary CTAs directly under navigation — highest-frequency actions
+              outrank the set-once fields below. Self-describing, no label. */}
+          <div className={styles.leftActionsRow}>
+            {isEDH && (
+              <button
+                className={`${styles.headerBtnPrimary} ${styles.headerBtnAssist} ${styles.leftActionBtn}`}
+                onClick={() => setShowBuildAssistant(true)}
+                title="Open the guided deck builder — fill each role from your collection"
+              >
+                Build Assistant
+              </button>
+            )}
+            {(isCollectionDeck || deckMeta.linked_deck_id) ? (
+              <button className={`${styles.headerBtnPrimary} ${styles.leftActionBtn}`} onClick={() => setShowSync(true)} disabled={syncRunning} title="Sync collection">
+                {syncLabel}
+              </button>
+            ) : (
+              <button className={`${styles.headerBtnPrimary} ${styles.leftActionBtn}`} onClick={() => setShowMakeDeck(true)} disabled={makeDeckRunning} title="Make Collection Deck">
+                {makeDeckRunning ? 'Creating...' : 'Make Collection Deck'}
+              </button>
+            )}
+          </div>
+          {/* Set-once fields share one compact row */}
+          <div className={styles.leftHeaderFieldsRow}>
             <div className={styles.formatCol}>
               <span className={styles.formatLabel}>Format</span>
               <Select
@@ -4808,14 +5244,14 @@ export default function DeckBuilderPage() {
                 {FORMATS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
               </Select>
             </div>
-            <div className={styles.visibilityCol}>
+            <div className={styles.formatCol}>
               <span className={styles.formatLabel}>Visibility</span>
               <Select
                 className={styles.formatSelect}
                 panelClassName={styles.formatSelectPanel}
                 value={deckMeta.is_public ? 'public' : 'private'}
-                onChange={e => setVisibility(e.target.value === 'public')}
-                title="Select visibility"
+                onChange={e => { setVisibility(e.target.value === 'public').catch(() => {}) }}
+                title="Deck visibility — public decks are viewable via the share link"
                 portal
               >
                 <option value="private">Private</option>
@@ -4823,46 +5259,33 @@ export default function DeckBuilderPage() {
               </Select>
             </div>
           </div>
-          <div className={styles.leftActionsSection}>
-            <span className={styles.formatLabel}>Actions</span>
-            <div className={styles.leftActionsRow}>
-              {isEDH && (
-                <button
-                  className={`${styles.headerBtnPrimary} ${styles.headerBtnAssist} ${styles.leftActionBtn}`}
-                  onClick={() => setShowBuildAssistant(true)}
-                  title="Open the guided deck builder — fill each role from your collection"
-                >
-                  Build Assistant
-                </button>
-              )}
-              {(isCollectionDeck || deckMeta.linked_deck_id) ? (
-                <button className={`${styles.headerBtnPrimary} ${styles.leftActionBtn}`} onClick={() => setShowSync(true)} disabled={syncRunning} title="Sync collection">
-                  {syncLabel}
-                </button>
-              ) : (
-                <button className={`${styles.headerBtnPrimary} ${styles.leftActionBtn}`} onClick={() => setShowMakeDeck(true)} disabled={makeDeckRunning} title="Make Collection Deck">
-                  {makeDeckRunning ? 'Creating...' : 'Make Collection Deck'}
-                </button>
-              )}
-            </div>
-          </div>
         </div>
 
         {/* Mobile panel toggle — rendered outside the left panel so it stays visible */}
         <div className={styles.leftTop}>
           {/* Mobile toggle for format/commander — hidden on desktop via CSS */}
-          <div className={styles.leftTopToggle} onClick={() => setLeftTopOpen(v => !v)}>
-            <div className={styles.leftTopToggleSummary}>
+          <button
+            type="button"
+            className={styles.leftTopToggle}
+            onClick={() => setLeftTopOpen(v => !v)}
+            aria-expanded={leftTopOpen}
+            aria-controls="deck-builder-mobile-setup"
+          >
+            <span className={styles.leftTopToggleLabel}>Deck setup</span>
+            <span className={styles.leftTopToggleSummary}>
               <span>{format?.label ?? 'Format'}</span>
               {commanderCard && <span className={styles.leftTopToggleCmdr}>&middot; {commanderCard.name}</span>}
-            </div>
+            </span>
             <span className={styles.leftTopToggleChevron} aria-hidden="true">
               {leftTopOpen ? <ChevronUpIcon size={12} /> : <ChevronDownIcon size={12} />}
             </span>
-          </div>
+          </button>
 
           {/* Collapsible content — always visible on desktop, animated on mobile */}
-          <div className={`${styles.leftTopContent} ${!leftTopOpen ? styles.leftTopContentCollapsed : ''}`}>
+          <div
+            id="deck-builder-mobile-setup"
+            className={`${styles.leftTopContent} ${!leftTopOpen ? styles.leftTopContentCollapsed : ''}`}
+          >
             {/* Format selector */}
             <div className={styles.formatRow}>
               <span className={styles.formatLabel}>Format</span>
@@ -4893,6 +5316,8 @@ export default function DeckBuilderPage() {
               </div>
             )}
 
+            {/* Commander + Companion — one row on desktop, stacked on mobile */}
+            <div className={styles.cmdZoneRow}>
             {/* Commander picker */}
             {isEDH && format?.id !== 'oathbreaker' && (
               <div className={styles.cmdSection}>
@@ -4959,10 +5384,10 @@ export default function DeckBuilderPage() {
                     <div className={styles.cmdHint}>{companionValidation.note}</div>
                   )}
                 </>
-              ) : (
+              ) : showCompPicker ? (
                 <div>
                   <SearchInput
-                    autoFocus={showCompPicker}
+                    autoFocus
                     className={styles.cmdInput}
                     value={compQuery}
                     onChange={e => handleCompQuery(e.target.value)}
@@ -4970,7 +5395,7 @@ export default function DeckBuilderPage() {
                     onBlur={() => setTimeout(() => setShowCompPicker(false), 200)}
                     placeholder="Search for a companion..."
                   />
-                  {showCompPicker && compResults.length > 0 && (
+                  {compResults.length > 0 && (
                     <div className={styles.cmdDropdown}>
                       {compResults.map(c => (
                         <div key={c.id} className={styles.cmdResult} onMouseDown={() => setCompanion(c)}>
@@ -4986,34 +5411,41 @@ export default function DeckBuilderPage() {
                     </div>
                   )}
                 </div>
+              ) : (
+                /* Idle slot — the search input only appears on demand, so the
+                   panel never shows a second search bar above the card search. */
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  block
+                  className={styles.cmdAddRow}
+                  onClick={() => { handleCompQuery(''); setShowCompPicker(true) }}
+                >
+                  <AddIcon size={12} />
+                  Set a companion
+                </Button>
               )}
             </div>
-
-            {/* Public/private toggle — mobile only; desktop shows it in the left header */}
-            <div className={`${styles.formatRow} ${styles.visibilityControlRow} ${styles.mobileOnly}`}>
-              <span className={styles.formatLabel}>Visibility</span>
-              <div className={styles.visibilityToggleRow}>
-                <div
-                  className={`${styles.toggleTrack} ${deckMeta.is_public ? styles.toggleTrackOn : ''}`}
-                  onClick={togglePublic}
-                >
-                  <div className={styles.toggleThumb} />
-                </div>
-                <span className={`${styles.visibilityText} ${deckMeta.is_public ? styles.visibilityTextOn : ''}`}>
-                  {deckMeta.is_public ? 'Public' : 'Private'}
-                </span>
-              </div>
             </div>
 
           </div>
         </div>
 
         {/* Tabs */}
-        <div className={styles.tabBar}>
-          <button className={`${styles.tab}${leftTab === 'search' ? ' ' + styles.tabActive : ''}`} onClick={() => setLeftTab('search')}>
-            Search
+        <div className={`${styles.tabBar} ${styles.leftPanelTabs}`} role="tablist" aria-label="Add cards tools">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={leftTab === 'search'}
+            className={`${styles.tab}${leftTab === 'search' ? ' ' + styles.tabActive : ''}`}
+            onClick={() => setLeftTab('search')}
+          >
+            Add Cards
           </button>
           <button
+            type="button"
+            role="tab"
+            aria-selected={leftTab === 'recs'}
             className={`${styles.tab}${leftTab === 'recs' ? ' ' + styles.tabActive : ''}`}
             onClick={() => {
               setLeftTab('recs')
@@ -5043,24 +5475,25 @@ export default function DeckBuilderPage() {
                 value={searchQuery}
                 onChange={e => handleSearchInput(e.target.value)}
                 onClear={() => handleSearchInput('')}
-                placeholder="Search cards..."
+                placeholder="Search cards to add..."
               />
             </div>
             <div className={styles.searchResults}>
               {searchLoading && searchPage === 1 && <div className={styles.searchEmpty}>Searching...</div>}
               {!searchLoading && searchError && (
-                <div className={styles.searchEmpty}>Scryfall is unavailable. Try again in a moment.</div>
+                <div className={styles.searchEmpty}>Card search is unavailable. Try again in a moment.</div>
               )}
-              {!searchLoading && !searchError && searchResults.length === 0 && searchQuery && (
-                <div className={styles.searchEmpty}>No results. Try a different query.</div>
+              {!searchLoading && !searchError && searchResults.length === 0 && searchQuery.trim().length >= 2 && (
+                <div className={styles.searchEmpty}>No cards found.</div>
               )}
-              {!searchLoading && !searchError && searchResults.length === 0 && !searchQuery && (
-                <div className={styles.searchEmpty}>Type a card name or keyword to search.</div>
+              {!searchLoading && !searchError && searchResults.length === 0 && searchQuery.trim().length < 2 && (
+                <div className={styles.searchEmpty}>Search by card name.</div>
               )}
               {searchResults.map(c => (
                 <SearchResultRow
                   key={c.id}
                   card={c}
+                  priceSource={price_source}
                   ownedQty={ownedMap.get(c.id) ?? 0}
                   legalityWarnings={getCardLegalityWarnings({
                     card: c,
@@ -5078,7 +5511,7 @@ export default function DeckBuilderPage() {
                 />
               ))}
               {searchHasMore && (
-                <button className={styles.loadMore} onClick={loadMoreSearch}>
+                <button type="button" className={styles.loadMore} onClick={loadMoreSearch} disabled={searchLoading}>
                   {searchLoading ? 'Loading...' : 'Load more'}
                 </button>
               )}
@@ -5095,8 +5528,10 @@ export default function DeckBuilderPage() {
               <>
                 <div className={styles.recsToolbar}>
                   <button
+                    type="button"
                     className={`${styles.recsToggleBtn}${recsOwnedOnly ? ' ' + styles.recsToggleActive : ''}`}
                     onClick={() => setRecsOwnedOnly(v => !v)}
+                    aria-pressed={recsOwnedOnly}
                     title="Show only cards you own"
                   >
                     Owned only
@@ -5118,7 +5553,9 @@ export default function DeckBuilderPage() {
                       return (
                         <div key={cat.tag} className={styles.recsCatSection}>
                           <button
+                            type="button"
                             className={styles.recsCatHeader}
+                            aria-expanded={!collapsed}
                             onClick={() => setCollapsedCats(prev => {
                               const next = new Set(prev)
                               next.has(cat.tag) ? next.delete(cat.tag) : next.add(cat.tag)
@@ -5136,6 +5573,8 @@ export default function DeckBuilderPage() {
                               key={rec.name}
                               rec={rec}
                               imageUri={recImages[rec.name] || null}
+                              displayPrinting={recDisplayPrints[rec.name] || null}
+                              priceSource={price_source}
                               ownedQty={ownedNameMap.get(rec.name.toLowerCase()) ?? 0}
                               onAdd={addCardToDeck}
                               onHoverEnter={CAN_HOVER && !lastInputWasTouch ? (uri, e) => { updateHoverPos(e.clientX, e.clientY); setHoverImages(uri ? [uri] : []) } : undefined}
@@ -5218,15 +5657,14 @@ export default function DeckBuilderPage() {
           ref={deckListScrollRef}
           className={`${styles.deckList}${rightTab !== 'deck' ? ' ' + styles.tabPaneHidden : ''}`}
         >
-            {renderDeckHeader(styles.deckHeaderMobile)}
-
-            {/* Art banner — deck name always shown; commander art + names when set */}
+            {/* Unified deck banner — identity first, commander context second */}
             <div className={`${styles.cmdArt}${commanderCards.length === 0 ? ' ' + styles.cmdArtNoCmdr : ''}`}>
               {/* Blurred background layer — falls back to a plain gradient with no commander */}
               {commanderCards.length > 0 && (
                 <div className={styles.cmdArtBg}
                   style={{ backgroundImage: `url(${toArtCropImg(commanderCards[0].image_uri)})` }} />
               )}
+              {renderDeckHeader(styles.deckHeaderMobile)}
               {/* Art thumbnail — single pane; two commanders blend into one merged image
                   (same crossfade technique as the deck-tile art on the Builder index). */}
               {commanderCards.length > 0 && (
@@ -5263,7 +5701,7 @@ export default function DeckBuilderPage() {
               {/* Info panel */}
               <div className={styles.cmdArtOverlay}>
                 <div className={styles.cmdArtInfo}>
-                  <div className={styles.cmdArtNameRow}>
+                  <div className={`${styles.cmdArtNameRow} ${styles.deskOnly}`}>
                     <input
                       className={styles.cmdArtNameInput}
                       value={deckName}
@@ -5273,23 +5711,25 @@ export default function DeckBuilderPage() {
                     />
                     {saving && <span className={styles.savingDot} />}
                   </div>
-                  {colorIdentity.length > 0 && (
-                    <div className={styles.cmdColorPips}>
-                      {colorIdentity.map(c => (
-                        <img key={c} src={manaSymbolUrl(`{${c}}`)} alt={c} width={18} height={18}
-                          style={{ display: 'block', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.7))' }} />
-                      ))}
-                    </div>
-                  )}
-                  {(commanderCards.length > 0 || deckMeta.companion) && (
-                    <span className={styles.cmdArtCommander}>
-                      {commanderCards.map(c => c.name).join(' & ')}
-                      {commanderCards.length > 0 && deckMeta.companion && ' · '}
-                      {deckMeta.companion && `${deckMeta.companion.name} (Companion)`}
-                    </span>
-                  )}
+                  <div className={styles.cmdArtCommanderRow}>
+                    {(commanderCards.length > 0 || deckMeta.companion) && (
+                      <span className={styles.cmdArtCommander}>
+                        {commanderCards.map(c => c.name).join(' & ')}
+                        {commanderCards.length > 0 && deckMeta.companion && ' · '}
+                        {deckMeta.companion && `${deckMeta.companion.name} (Companion)`}
+                      </span>
+                    )}
+                    {colorIdentity.length > 0 && (
+                      <div className={styles.cmdColorPips}>
+                        {colorIdentity.map(c => (
+                          <img key={c} src={manaSymbolUrl(`{${c}}`)} alt={c} width={18} height={18}
+                            style={{ display: 'block', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.7))' }} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <div className={styles.cmdArtMeta}>
-                    {format && <span>{format.label}</span>}
+                    {format && <span className={styles.deskOnly}>{format.label}</span>}
                     {totalDeckPrice > 0 && <span style={{ color: 'var(--green)' }}>{formatPrice(totalDeckPrice, price_source)}</span>}
                   </div>
                   {isEDH && bracketAnalysis && (
@@ -5309,73 +5749,11 @@ export default function DeckBuilderPage() {
                   )}
                 </div>
 
-                {/* Description + Tags — free space to the right (desktop only) */}
-                <div className={`${styles.cmdArtNotes} ${styles.deskOnly}`}>
-                  <textarea
-                    className={styles.deckMetaDesc}
-                    value={cmdDescription}
-                    onChange={e => setCmdDescription(e.target.value)}
-                    onBlur={e => saveDescription(e.target.value)}
-                    placeholder="Add description..."
-                    rows={3}
-                    maxLength={1000}
-                  />
-                  <div className={styles.deckMetaTagRow}>
-                    {cmdTags.map(tag => (
-                      <span key={tag} className={styles.deckMetaTag}>
-                        {tag}
-                        <button className={styles.deckMetaTagRemove} onClick={() => removeTag(tag)}><CloseIcon size={13} /></button>
-                      </span>
-                    ))}
-                    <input
-                      className={styles.deckMetaTagInput}
-                      value={newTagInput}
-                      onChange={e => setNewTagInput(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(newTagInput) } }}
-                      onBlur={() => { if (newTagInput.trim()) addTag(newTagInput) }}
-                      placeholder={cmdTags.length === 0 ? 'Add tags...' : '+'}
-                      maxLength={30}
-                    />
-                  </div>
-                </div>
               </div>
             </div>
-
-            {/* Description + Tags — mobile only (no room for it in the compact banner) */}
-            {(cmdDescription.trim() || cmdTags.length > 0) && (
-            <div className={`${styles.deckMetaPanel} ${styles.mobileOnly}`}>
-              <textarea
-                className={styles.deckMetaDesc}
-                value={cmdDescription}
-                onChange={e => setCmdDescription(e.target.value)}
-                onBlur={e => saveDescription(e.target.value)}
-                placeholder="Add description..."
-                rows={3}
-                maxLength={1000}
-              />
-              <div className={styles.deckMetaTagRow}>
-                {cmdTags.map(tag => (
-                  <span key={tag} className={styles.deckMetaTag}>
-                    {tag}
-                    <button className={styles.deckMetaTagRemove} onClick={() => removeTag(tag)}><CloseIcon size={13} /></button>
-                  </span>
-                ))}
-                <input
-                  className={styles.deckMetaTagInput}
-                  value={newTagInput}
-                  onChange={e => setNewTagInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(newTagInput) } }}
-                  onBlur={() => { if (newTagInput.trim()) addTag(newTagInput) }}
-                  placeholder={cmdTags.length === 0 ? 'Add tags...' : '+'}
-                  maxLength={30}
-                />
-              </div>
-            </div>
-            )}
 
             {/* View / Sort / Group toolbar */}
-            {deckCards.length > 0 && (
-              <div className={styles.deckToolbar}>
+            <div className={`${styles.deckToolbar}${deckCards.length === 0 ? ` ${styles.deckToolbarEmpty}` : ''}`}>
                 <ResponsiveMenu
                   title="View Style"
                   wrapClassName={`${styles.columnMenuWrap} ${styles.deskOnly}`}
@@ -5410,12 +5788,11 @@ export default function DeckBuilderPage() {
                       ].map(([v, label, ViewIcon]) => (
                         <button
                           key={v}
-                          className={`${styles.columnMenuItem} ${deckView === v ? styles.columnMenuItemActive : ''}`}
+                          className={`${uiStyles.responsiveMenuAction}${deckView === v ? ' ' + uiStyles.responsiveMenuActionActive : ''}`}
                           onClick={() => { setDeckView(v); close?.() }}
                         >
-                          <ViewIcon size={13} />
-                          <span className={styles.columnMenuLabel}>{label}</span>
-                          <span className={styles.columnMenuCheck} aria-hidden="true">
+                          <span><ViewIcon size={13} />{label}</span>
+                          <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">
                             {deckView === v ? <CheckIcon size={11} /> : ''}
                           </span>
                         </button>
@@ -5425,7 +5802,7 @@ export default function DeckBuilderPage() {
                 </ResponsiveMenu>
                 <ResponsiveMenu
                   title="Sort By"
-                  wrapClassName={styles.columnMenuWrap}
+                  wrapClassName={`${styles.columnMenuWrap} ${styles.deskOnly}`}
                   portal
                   trigger={({ toggle }) => (
                     <button
@@ -5444,11 +5821,11 @@ export default function DeckBuilderPage() {
                       {[['type','Type'],['color','Color'],['name','Name A→Z'],['name_desc','Name Z→A'],['cmc_asc','Mana Value ↑'],['cmc_desc','Mana Value ↓'],['rarity_desc','Rarity ↓'],['rarity_asc','Rarity ↑'],['price_desc','Price ↓'],['price_asc','Price ↑'],['set','Set']].map(([s, label]) => (
                         <button
                           key={s}
-                          className={`${styles.columnMenuItem} ${deckSort === s ? styles.columnMenuItemActive : ''}`}
+                          className={`${uiStyles.responsiveMenuAction}${deckSort === s ? ' ' + uiStyles.responsiveMenuActionActive : ''}`}
                           onClick={() => { setDeckSort(s); close?.() }}
                         >
-                          <span className={styles.columnMenuLabel}>{label}</span>
-                          <span className={styles.columnMenuCheck} aria-hidden="true">
+                          <span>{label}</span>
+                          <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">
                             {deckSort === s ? <CheckIcon size={11} /> : ''}
                           </span>
                         </button>
@@ -5458,7 +5835,7 @@ export default function DeckBuilderPage() {
                 </ResponsiveMenu>
                 <ResponsiveMenu
                   title="Group By"
-                  wrapClassName={styles.columnMenuWrap}
+                  wrapClassName={`${styles.columnMenuWrap} ${styles.deskOnly}`}
                   portal
                   trigger={({ toggle }) => (
                     <button
@@ -5477,11 +5854,11 @@ export default function DeckBuilderPage() {
                       {[['none','None'],['type','By Type'],['category','By Category'],['cmc','By Mana Value'],['color','By Color'],['rarity','By Rarity'],['set','By Set']].map(([v, label]) => (
                         <button
                           key={v}
-                          className={`${styles.columnMenuItem} ${groupBy === v ? styles.columnMenuItemActive : ''}`}
+                          className={`${uiStyles.responsiveMenuAction}${groupBy === v ? ' ' + uiStyles.responsiveMenuActionActive : ''}`}
                           onClick={() => { setGroupBy(v); close?.() }}
                         >
-                          <span className={styles.columnMenuLabel}>{label}</span>
-                          <span className={styles.columnMenuCheck} aria-hidden="true">
+                          <span>{label}</span>
+                          <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">
                             {groupBy === v ? <CheckIcon size={11} /> : ''}
                           </span>
                         </button>
@@ -5491,10 +5868,10 @@ export default function DeckBuilderPage() {
                           View Style menu where it was buried. */}
                       <div className={styles.menuDivider} />
                       <button
-                        className={styles.columnMenuItem}
+                        className={uiStyles.responsiveMenuAction}
                         onClick={() => { addCustomCategory(); close?.() }}
                       >
-                        <span className={styles.columnMenuLabel}>New Category…</span>
+                        <span>New Category…</span>
                         <AddIcon size={12} />
                       </button>
                     </div>
@@ -5502,7 +5879,7 @@ export default function DeckBuilderPage() {
                 </ResponsiveMenu>
                 <ResponsiveMenu
                   title="Filter Deck"
-                  wrapClassName={`${styles.columnMenuWrap} ${styles.deckFilterMenuWrap} ${styles.deskOnly}`}
+                  wrapClassName={`${styles.columnMenuWrap} ${styles.deskOnly}`}
                   portal
                   trigger={({ toggle }) => {
                     const activeCount = countActiveCardFilters(deckFilters)
@@ -5530,6 +5907,7 @@ export default function DeckBuilderPage() {
                       showSearch
                       deckSearch={deckSearch}
                       setDeckSearch={setDeckSearch}
+                      available={deckFilterPresence}
                     />
                   )}
                 </ResponsiveMenu>
@@ -5562,15 +5940,15 @@ export default function DeckBuilderPage() {
                             ['qty', 'Qty'],
                             ['remove', 'Remove'],
                           ].map(([key, label]) => (
-                            <label key={key} className={`${styles.columnMenuItem} ${activeColumns[key] ? styles.columnMenuItemActive : ''}`}>
+                            <label key={key} className={`${uiStyles.responsiveMenuAction}${activeColumns[key] ? ' ' + uiStyles.responsiveMenuActionActive : ''}`}>
                               <input
                                 type="checkbox"
                                 className={styles.columnMenuCheckbox}
                                 checked={activeColumns[key]}
                                 onChange={() => setActiveColumns(prev => ({ ...prev, [key]: !prev[key] }))}
                               />
-                              <span className={styles.columnMenuLabel}>{label}</span>
-                              <span className={styles.columnMenuCheck} aria-hidden="true">
+                              <span>{label}</span>
+                              <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">
                                 {activeColumns[key] ? <CheckIcon size={11} /> : ''}
                               </span>
                             </label>
@@ -5579,99 +5957,45 @@ export default function DeckBuilderPage() {
                     )}
                   </ResponsiveMenu>
                 )}
-                {/* Mobile-only: guided deck builder (EDH decks) */}
+                {/* Mobile-only: four focused actions. The primary action leads the row. */}
                 {isEDH && (
                   <button
-                    className={`${styles.groupToggle} ${styles.groupToggleIcon} ${styles.pillOnly}`}
+                    className={`${styles.groupToggle} ${styles.groupToggleIcon} ${styles.pillOnly} ${styles.mobileToolbarAction} ${styles.mobileToolbarPrimary}`}
                     onClick={() => setShowBuildAssistant(true)}
-                    title="Build Assistant"
-                    aria-label="Build Assistant"
+                    title="Open Build Assistant"
+                    aria-label="Open Build Assistant"
                   >
-                    <LightningIcon size={15} />
-                    <span className={styles.toggleLabel}>Assist</span>
+                    <LightningIcon size={18} />
+                    <span className={styles.toggleLabel}>Build Assist</span>
                   </button>
                 )}
-                {/* Mobile-only: Add / Recs / Settings — gateways to left panel */}
+
                 <button
-                  className={`${styles.groupToggle} ${styles.groupToggleIcon} ${styles.pillOnly}`}
+                  className={`${styles.groupToggle} ${styles.groupToggleIcon} ${styles.pillOnly} ${styles.mobileToolbarAction}`}
                   onClick={() => { setLeftTab('search'); setShowRight(false) }}
                   title="Add cards"
                   aria-label="Add cards"
                 >
-                  <AddIcon size={15} />
+                  <AddIcon size={17} />
                   <span className={styles.toggleLabel}>Add</span>
                 </button>
-                {/* Mobile-only: Sync / Make Deck + Deck Actions copies */}
-                {(isCollectionDeck || deckMeta.linked_deck_id) && (
-                  <button
-                    className={`${styles.groupToggle} ${styles.groupToggleIcon} ${styles.pillOnly}`}
-                    onClick={() => setShowSync(true)}
-                    disabled={syncRunning}
-                    title="Sync collection"
-                    aria-label="Sync collection"
-                  >
-                    <SyncIcon size={15} />
-                    <span className={styles.toggleLabel}>Sync</span>
-                  </button>
-                )}
-                {!isCollectionDeck && !deckMeta.linked_deck_id && (
-                  <button
-                    className={`${styles.groupToggle} ${styles.groupToggleIcon} ${styles.pillOnly}`}
-                    onClick={() => setShowMakeDeck(true)}
-                    disabled={makeDeckRunning}
-                    title="Make Collection Deck"
-                    aria-label="Make Collection Deck"
-                  >
-                    <DeckIcon size={15} />
-                    <span className={styles.toggleLabel}>Make</span>
-                  </button>
-                )}
-                <ResponsiveMenu
-                  title="More"
-                  wrapClassName={`${styles.columnMenuWrap} ${styles.pillOnly}`}
-                  portal
-                  trigger={({ toggle }) => (
-                    <button
-                      className={`${styles.groupToggle} ${styles.groupToggleIcon}`}
-                      onClick={toggle}
-                      title="More"
-                      aria-label="More"
-                    >
-                      <MenuIcon size={15} />
-                      <span className={styles.toggleLabel}>More</span>
-                    </button>
-                  )}
-                >
-                  {renderDeckActionsMenu}
-                </ResponsiveMenu>
-              </div>
-            )}
 
-            {deckCards.length > 0 && (
-              <div className={styles.deckFilterBar}>
-                <SearchInput
-                  className={styles.deckSearchInput}
-                  value={deckSearch}
-                  onChange={e => setDeckSearch(e.target.value)}
-                  onClear={() => setDeckSearch('')}
-                  placeholder="Search deck..."
-                />
-                {/* Funnel button: full filter panel (board + colors/type/rarity/CMC) */}
                 <ResponsiveMenu
                   title="Filter Deck"
-                  wrapClassName={styles.filterFunnelWrap}
+                  wrapClassName={`${styles.columnMenuWrap} ${styles.pillOnly} ${styles.mobileToolbarItem}`}
                   portal
-                  align="right"
                   trigger={({ toggle }) => {
-                    const activeCount = countActiveCardFilters(deckFilters) + (boardFilter !== 'all' ? 1 : 0)
+                    const activeCount = countActiveCardFilters(deckFilters)
+                      + (deckSearch.trim() ? 1 : 0) + (boardFilter !== 'all' ? 1 : 0)
                     return (
                       <button
-                        className={`${styles.filterFunnelBtn}${activeCount ? ' ' + styles.filterFunnelActive : ''}`}
+                        className={`${styles.groupToggle} ${styles.groupToggleIcon} ${styles.mobileToolbarAction}${activeCount ? ' ' + styles.groupToggleActive : ''}`}
                         onClick={toggle}
                         title="Filter deck"
                         aria-label="Filter deck"
                       >
-                        <FilterIcon size={15} />
+                        <FilterIcon size={17} />
+                        <span className={styles.toggleLabel}>Filter</span>
                         {activeCount > 0 && <span className={styles.filterCountBadge}>{activeCount}</span>}
                       </button>
                     )
@@ -5683,119 +6007,48 @@ export default function DeckBuilderPage() {
                       setFilters={setDeckFilters}
                       boardFilter={boardFilter}
                       setBoardFilter={setBoardFilter}
+                      showSearch
+                      deckSearch={deckSearch}
+                      setDeckSearch={setDeckSearch}
+                      available={deckFilterPresence}
                     />
                   )}
                 </ResponsiveMenu>
-                <div className={`${styles.boardFilterGroup} ${styles.mobileOnly}`}>
-                  {BOARD_FILTERS.map(filter => (
-                    <button
-                      key={filter.id}
-                      className={`${styles.boardFilterBtn}${boardFilter === filter.id ? ' ' + styles.boardFilterBtnActive : ''}`}
-                      onClick={() => setBoardFilter(filter.id)}
-                    >
-                      {filter.label}
-                    </button>
-                  ))}
-                </div>
-                <div className={`${styles.filterBarRow} ${styles.mobileOnly}`}>
+
                 <ResponsiveMenu
-                  title="View Style"
-                  wrapClassName={styles.filterBarMenuWrap}
+                  title="More"
+                  wrapClassName={`${styles.columnMenuWrap} ${styles.pillOnly} ${styles.mobileToolbarItem}`}
                   portal
-                  trigger={({ toggle }) => {
-                    const viewLabel = (
-                      deckView === 'compact' ? 'Compact' :
-                      deckView === 'stacks'  ? 'Stacks' :
-                      deckView === 'grid'    ? 'Grid' :
-                      'List'
-                    )
-                    return (
-                      <button
-                        className={styles.filterBarTextBtn}
-                        onClick={toggle}
-                        title="View style"
-                      >
-                        {viewLabel}
-                        <ChevronDownIcon size={11} />
-                      </button>
-                    )
-                  }}
-                >
-                  {({ close }) => (
-                    <div className={uiStyles.responsiveMenuList}>
-                      {[
-                        ['list',    'List',    ListViewIcon],
-                        ['compact', 'Compact', TableViewIcon],
-                        ['stacks',  'Stacks',  StacksViewIcon],
-                        ['grid',    'Grid',    GridViewIcon],
-                      ].map(([v, label, ViewIcon]) => (
-                        <button
-                          key={v}
-                          className={`${styles.columnMenuItem} ${deckView === v ? styles.columnMenuItemActive : ''}`}
-                          onClick={() => { setDeckView(v); close?.() }}
-                        >
-                          <ViewIcon size={13} />
-                          <span className={styles.columnMenuLabel}>{label}</span>
-                          <span className={styles.columnMenuCheck} aria-hidden="true">
-                            {deckView === v ? <CheckIcon size={11} /> : ''}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
+                  trigger={({ toggle }) => (
+                    <button
+                      className={`${styles.groupToggle} ${styles.groupToggleIcon} ${styles.mobileToolbarAction}`}
+                      onClick={toggle}
+                      title="More"
+                      aria-label="More"
+                    >
+                      <MenuIcon size={17} />
+                      <span className={styles.toggleLabel}>More</span>
+                    </button>
                   )}
+                >
+                  {args => renderDeckActionsMenu({
+                    ...args,
+                    includeBuildActions: true,
+                    includeAssistant: false,
+                    includeOrganize: true,
+                    includeVisibility: true,
+                  })}
                 </ResponsiveMenu>
-                {(deckView === 'list' || deckView === 'compact') && (
-                  <ResponsiveMenu
-                    title="Visible Columns"
-                    wrapClassName={styles.filterBarMenuWrap}
-                    portal
-                    trigger={({ toggle }) => (
-                      <button
-                        className={styles.filterBarTextBtn}
-                        onClick={toggle}
-                        title="Visible columns"
-                      >
-                        Columns
-                        <ChevronDownIcon size={11} />
-                      </button>
-                    )}
-                  >
-                    {() => (
-                      <div className={uiStyles.responsiveMenuList}>
-                        {[
-                          ['set', 'Set'],
-                          ['manaValue', 'Mana Value'],
-                          ['cmc', 'CMC'],
-                          ['price', 'Price'],
-                          ['status', 'Status'],
-                          ['actions', 'Actions'],
-                          ['qty', 'Qty'],
-                          ['remove', 'Remove'],
-                        ].map(([key, label]) => (
-                          <label key={key} className={`${styles.columnMenuItem} ${activeColumns[key] ? styles.columnMenuItemActive : ''}`}>
-                            <input
-                              type="checkbox"
-                              className={styles.columnMenuCheckbox}
-                              checked={activeColumns[key]}
-                              onChange={() => setActiveColumns(prev => ({ ...prev, [key]: !prev[key] }))}
-                            />
-                            <span className={styles.columnMenuLabel}>{label}</span>
-                            <span className={styles.columnMenuCheck} aria-hidden="true">
-                              {activeColumns[key] ? <CheckIcon size={11} /> : ''}
-                            </span>
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                  </ResponsiveMenu>
-                )}
-                </div>
-              </div>
-            )}
+            </div>
 
             {deckCards.length === 0 && (
-              <div style={{ color: 'var(--text-faint)', fontSize: '0.85rem', padding: '24px 0', textAlign: 'center' }}>
-                Add cards using the search on the left.
+              <div className={styles.emptyDeckState}>
+                <span className={styles.emptyDeckStateDesktop}>Add cards using the search on the left.</span>
+                <span className={styles.emptyDeckStateMobile}>
+                  {isEDH
+                    ? 'Your deck is empty. Tap Add or Build Assist to start building.'
+                    : 'Your deck is empty. Tap Add to start building.'}
+                </span>
               </div>
             )}
 
@@ -6044,7 +6297,7 @@ export default function DeckBuilderPage() {
 
         {/* Stats tab */}
         {rightTab === 'stats' && (
-          <div style={{ flex: 1, overflowY: 'auto', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+          <div className={styles.analysisTabPane}>
 
             {/* ── Winrate section ── */}
             <DeckWinrateMini results={deckGameResults} loading={deckGameResultsLoading} deckName={deckName} />
@@ -6348,7 +6601,7 @@ export default function DeckBuilderPage() {
               </div>
               <div className={uiStyles.responsiveMenuBody}>
                 <DeckCardActionsMenuBody
-                  dc={contextMenu.dc}
+                  dc={deckCards.find(card => card.id === contextMenu.dc.id) || contextMenu.dc}
                   isEDH={isEDH}
                   formatId={format?.id}
                   onSetCommander={setCardAsCommander}
@@ -6356,6 +6609,8 @@ export default function DeckBuilderPage() {
                   onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })}
                   onMoveBoard={moveCardToBoard}
                   onOpenCategoryPicker={setCategoryPickCard}
+                  onChangeQty={changeQty}
+                  onRemove={removeCardFromDeck}
                   close={closeContextMenu}
                   builderSfMap={builderSfMap}
                 />
@@ -6371,7 +6626,7 @@ export default function DeckBuilderPage() {
             onContextMenu={e => e.preventDefault()}
           >
             <DeckCardActionsMenuBody
-              dc={contextMenu.dc}
+              dc={deckCards.find(card => card.id === contextMenu.dc.id) || contextMenu.dc}
               isEDH={isEDH}
               formatId={format?.id}
               onSetCommander={setCardAsCommander}
@@ -6379,6 +6634,8 @@ export default function DeckBuilderPage() {
               onPickVersion={(card, options = {}) => setVersionPickCard({ ...card, ...options })}
               onMoveBoard={moveCardToBoard}
               onOpenCategoryPicker={setCategoryPickCard}
+              onChangeQty={changeQty}
+              onRemove={removeCardFromDeck}
               close={closeContextMenu}
               builderSfMap={builderSfMap}
             />

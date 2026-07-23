@@ -41,7 +41,7 @@ export default function Layout({ children }) {
   const location = useLocation()
   const isNative = Capacitor.isNativePlatform()
   const isScannerRoute = location.pathname === '/scanner'
-  const isDeckBuilderRoute = /^\/builder\/[^/]+/.test(location.pathname)
+  const isDeckBuilderRoute = /^\/builder\/[^/]+\/?$/.test(location.pathname)
   const isNativeScannerRoute = isNative && isScannerRoute
   const [menuOpen, setMenuOpen] = useState(false)
   const [showFeedback, setShowFeedback] = useState(false)

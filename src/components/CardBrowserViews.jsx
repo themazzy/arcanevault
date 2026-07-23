@@ -488,10 +488,10 @@ function TableView({ cards, sfMap, priceSource, groups, groupOrder, groupBy, onS
           {() => (
             <div className={uiStyles.responsiveMenuList}>
               {TABLE_OPTIONAL_COLS.map(([col, label]) => (
-                <label key={col} className={`${styles.columnMenuItem} ${visibleCols[col] ? styles.columnMenuItemActive : ''}`}>
+                <label key={col} className={`${uiStyles.responsiveMenuAction}${visibleCols[col] ? ' ' + uiStyles.responsiveMenuActionActive : ''}`}>
                   <input type="checkbox" className={styles.columnMenuCheckbox} checked={!!visibleCols[col]} onChange={() => toggleCol(col)} />
-                  <span className={styles.columnMenuLabel}>{label}</span>
-                  <span className={styles.columnMenuCheck} aria-hidden="true">{visibleCols[col] ? '✓' : ''}</span>
+                  <span>{label}</span>
+                  <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{visibleCols[col] ? <CheckIcon size={11} /> : ''}</span>
                 </label>
               ))}
             </div>

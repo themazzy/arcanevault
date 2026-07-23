@@ -2,20 +2,17 @@ import { useCallback, useRef, useState } from 'react'
 import { searchCards, makeDebouncer } from '../lib/deckBuilderApi'
 
 /**
- * Debounced Scryfall card search for the deck-builder left panel.
+ * Debounced Supabase card search for the deck-builder Add Cards panel.
  *
  * State surface:
  *   query, results, loading, hasMore, page, error
  *   handleInput(q) — debounced; updates query and triggers page-1 fetch
  *   loadMore()    — fetches the next page and appends
  *
- * Format scoping is part of the search predicate, so the hook resubscribes
- * whenever the active deck format changes.
- *
  * Stale-request guard: a request id is bumped per fetch; older responses are
  * dropped so a slow page-1 can't overwrite the user's fresher page-2.
  */
-export function useCardSearch({ format, debounceMs = 350 } = {}) {
+export function useCardSearch({ debounceMs = 350, priceSource = 'cardmarket_trend' } = {}) {
   const [query,   setQuery]   = useState('')
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
@@ -30,18 +27,30 @@ export function useCardSearch({ format, debounceMs = 350 } = {}) {
     const id = ++requestId.current
     setLoading(true)
     setError(false)
-    const { cards, hasMore: more, error: err } = await searchCards({ query: q, format, page: p })
+    const { cards, hasMore: more, error: err } = await searchCards({ query: q, page: p, priceSource })
     if (id !== requestId.current) return
     setPage(p)
     setResults(prev => p === 1 ? cards : [...prev, ...cards])
     setHasMore(more)
     if (err) setError(true)
     setLoading(false)
-  }, [format])
+  }, [priceSource])
 
   const handleInput = useCallback((q) => {
+    const shouldSearch = q.trim().length >= 2
+    // A query owns its result list. Clear the previous query immediately and
+    // invalidate any in-flight response so stale cards cannot flash back while
+    // the new debounced request is waiting to start.
+    requestId.current += 1
     setQuery(q)
-    debounce.current(() => search(q, 1))
+    setResults([])
+    setHasMore(false)
+    setPage(1)
+    setError(false)
+    setLoading(shouldSearch)
+    debounce.current(() => {
+      if (shouldSearch) search(q, 1)
+    })
   }, [search])
 
   const loadMore = useCallback(() => {

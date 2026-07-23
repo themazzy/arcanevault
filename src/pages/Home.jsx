@@ -766,7 +766,7 @@ function CardLookupSection() {
             <input
               className={styles.lookupSlimInput}
               type="text"
-              placeholder="Look up any Magic card — art, prices, rulings…"
+              placeholder="Look up any Magic card"
               value={query}
               onChange={handleInput}
               onKeyDown={e => {
@@ -798,7 +798,6 @@ function CardLookupSection() {
           )}
         </div>
       </div>
-      <p className={styles.sectionDesc}>Search any Magic card — browse art, oracle text, prices and rulings.</p>
 
       <div className={styles.lookupFilterWrap} ref={wrapRef}>
         <FilterBar

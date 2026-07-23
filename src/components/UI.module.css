@@ -1146,8 +1146,6 @@
 }
 
 .responsiveMenuPanelForceSheet .responsiveMenuActionActive .responsiveMenuCheck {
-  border-color: color-mix(in srgb, var(--gold) 68%, transparent);
-  background: color-mix(in srgb, var(--gold) 24%, transparent);
   color: var(--gold);
 }
 
@@ -1208,8 +1206,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  background: color-mix(in srgb, var(--s2) 68%, transparent);
-  border: 1px solid transparent;
+  background: var(--s1);
+  border: 1px solid var(--s-border2);
   border-radius: 8px;
   padding: 9px 12px;
   color: var(--text-dim);
@@ -1260,12 +1258,22 @@
   flex-shrink: 0;
 }
 
+/* Uppercase section header between groups of menu rows (the "More" menu's
+   Organize/View/Sort headers) — the canonical menu section label. */
+.responsiveMenuSectionLabel {
+  padding: 3px 10px 2px;
+  color: var(--text-faint);
+  font-family: var(--font-display);
+  font-size: var(--label-size-sm);
+  letter-spacing: var(--label-tracking);
+  text-transform: uppercase;
+}
+
+/* Bare check glyph — no chip box (matches the Organize grid's selected
+   state). Fixed box is kept so rows don't resize when selection moves. */
 .responsiveMenuCheck {
   width: 22px;
   height: 22px;
-  border-radius: 7px;
-  border: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
-  background: color-mix(in srgb, var(--text) 6%, transparent);
   color: transparent;
   display: inline-flex;
   align-items: center;
@@ -1277,8 +1285,6 @@
 }
 
 .responsiveMenuActionActive .responsiveMenuCheck {
-  border-color: rgba(201,168,76,0.42);
-  background: rgba(201,168,76,0.18);
   color: var(--gold);
 }
 
@@ -1292,8 +1298,8 @@
 
 [data-theme-mode="light"] .responsiveMenuAction {
   background: rgba(255,250,243,0.84);
-  border-color: rgba(116,82,24,0.08);
   color: color-mix(in srgb, var(--text) 88%, #4a2d06 12%);
+  /* border stays on var(--s-border2), which is theme-aware */
 }
 
 [data-theme-mode="light"] .responsiveMenuAction:hover {
@@ -1314,10 +1320,6 @@
   color: #6f4900;
 }
 
-[data-theme-mode="light"] .responsiveMenuCheck {
-  border-color: rgba(116,82,24,0.16);
-  background: rgba(116,82,24,0.05);
-}
 
 @media (max-width: 640px) {
   .responsiveMenuBackdrop {
@@ -1476,8 +1478,6 @@
   }
 
   .responsiveMenuActionActive .responsiveMenuCheck {
-    border-color: color-mix(in srgb, var(--gold) 68%, transparent);
-    background: color-mix(in srgb, var(--gold) 24%, transparent);
     color: var(--gold);
   }
 

@@ -8,6 +8,7 @@ vi.mock('./scryfall', () => ({
   // getCardImageUri now delegates here; mirror the real lookup so meta tests pass.
   getImageUri: (c, size = 'normal') =>
     c?.image_uris?.[size] ?? c?.card_faces?.[0]?.image_uris?.[size] ?? null,
+  scryfallImageAtSize: (url) => url,
 }))
 
 vi.mock('./supabase', () => ({ sb: { from: vi.fn(), rpc: vi.fn() } }))
@@ -347,77 +348,98 @@ describe('parseImportUrl (MD-002)', () => {
   })
 })
 
-describe('searchCards — empty-query bail', () => {
-  beforeEach(() => { sfGet.mockReset() })
+describe('searchCards — Supabase catalogue search', () => {
+  beforeEach(() => {
+    sfGet.mockReset()
+    sb.rpc.mockReset()
+  })
   afterEach(() => { vi.restoreAllMocks() })
 
-  it('does NOT hit Scryfall when query and all filters are empty', async () => {
-    const result = await searchCards({})
+  it.each(['', ' ', 'a'])('does not query for fewer than two characters: %j', async query => {
+    const result = await searchCards({ query })
     expect(result).toEqual({ cards: [], hasMore: false })
+    expect(sb.rpc).not.toHaveBeenCalled()
     expect(sfGet).not.toHaveBeenCalled()
   })
 
-  it('does NOT hit Scryfall when query is only whitespace', async () => {
-    const result = await searchCards({ query: '   ' })
-    expect(result).toEqual({ cards: [], hasMore: false })
+  it('queries the paginated Supabase RPC and maps stored metadata', async () => {
+    sb.rpc
+      .mockResolvedValueOnce({
+        data: [{
+          scryfall_id: 'bolt-id',
+          oracle_id: 'bolt-oracle',
+          name: 'Lightning Bolt',
+          type_line: 'Instant',
+          image_uri: 'https://img.example/oracle-bolt.jpg',
+        }],
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: [{
+          requested_name: 'Lightning Bolt',
+          scryfall_id: 'cheap-bolt-id',
+          oracle_id: 'bolt-oracle',
+          name: 'Lightning Bolt',
+          set_code: 'clb',
+          collector_number: '187',
+          lang: 'en',
+          image_uri: 'https://img.example/cheap-bolt.jpg',
+          selected_price: '1.22',
+          selected_foil: false,
+        }],
+        error: null,
+      })
+
+    const result = await searchCards({ query: '  lightning bolt  ', page: 2, priceSource: 'cardmarket_trend' })
+
+    expect(sb.rpc).toHaveBeenCalledWith('search_deck_builder_cards', {
+      search_term: 'lightning bolt',
+      page_size: 41,
+      page_offset: 40,
+    })
+    expect(sb.rpc).toHaveBeenCalledWith('get_deck_builder_display_printings', {
+      card_names: ['Lightning Bolt'],
+      price_source: 'cardmarket_trend',
+    })
+    expect(result).toMatchObject({ hasMore: false })
+    expect(result.cards[0]).toMatchObject({
+      id: 'cheap-bolt-id',
+      oracle_id: 'bolt-oracle',
+      name: 'Lightning Bolt',
+      type_line: 'Instant',
+      set: 'clb',
+      display_price: 1.22,
+      display_finish: 'Non-foil',
+    })
+    expect(result.cards[0].image_uris.normal).toBe('https://img.example/cheap-bolt.jpg')
     expect(sfGet).not.toHaveBeenCalled()
   })
 
-  it('hits Scryfall when a colorIdentity filter is set even without a query', async () => {
-    sfGet.mockResolvedValueOnce({ data: [{ id: 'x', name: 'A' }], has_more: false })
-    const result = await searchCards({ colorIdentity: ['W', 'U'] })
-    expect(sfGet).toHaveBeenCalledOnce()
-    expect(result.cards).toHaveLength(1)
-  })
-
-  it('hits Scryfall when a cardType filter is set', async () => {
-    sfGet.mockResolvedValueOnce({ data: [], has_more: false })
-    await searchCards({ cardType: 'creature' })
-    expect(sfGet).toHaveBeenCalledOnce()
-    const url = sfGet.mock.calls[0][0]
-    expect(url).toContain('t%3Acreature')
-  })
-
-  it('hits Scryfall when only a query is provided', async () => {
-    sfGet.mockResolvedValueOnce({ data: [{ id: 'y', name: 'Lightning Bolt' }], has_more: false })
-    const result = await searchCards({ query: 'lightning bolt' })
-    expect(sfGet).toHaveBeenCalledOnce()
-    expect(result.cards[0].name).toBe('Lightning Bolt')
-  })
-
-  it('anchors the query to the name field so oracle-text mentions are excluded', async () => {
-    sfGet.mockResolvedValueOnce({ data: [], has_more: false })
-    await searchCards({ query: 'void' })
-    const url = sfGet.mock.calls[0][0]
-    expect(url).toContain(encodeURIComponent('name:"void"'))
-  })
-
-  it('floats an exact name match to the top even under edhrec popularity order', async () => {
-    // "Void" itself is a real but obscure card; EDHREC order would otherwise
-    // rank it beneath more popular cards whose name merely contains "void".
-    sfGet.mockResolvedValueOnce({
-      data: [
-        { id: 'popular-1', name: 'Void Winnower' },
-        { id: 'popular-2', name: 'Encroaching Void' },
-        { id: 'exact', name: 'Void' },
-      ],
-      has_more: false,
+  it('uses the extra row only to signal another page', async () => {
+    sb.rpc.mockResolvedValueOnce({
+      data: Array.from({ length: 41 }, (_, index) => ({
+        scryfall_id: `card-${index}`,
+        name: `Card ${index}`,
+      })),
+      error: null,
     })
-    const result = await searchCards({ query: 'void', format: 'commander' })
-    expect(result.cards[0].name).toBe('Void')
+
+    const result = await searchCards({ query: 'card' })
+
+    expect(result.cards).toHaveLength(40)
+    expect(result.hasMore).toBe(true)
+    expect(result.cards.at(-1).name).toBe('Card 39')
   })
 
-  it('ranks a name-prefix match above other partial matches, exact match first', async () => {
-    sfGet.mockResolvedValueOnce({
-      data: [
-        { id: 'a', name: 'Waking Nightmare' },
-        { id: 'b', name: 'Nightmare Shepherd' },
-        { id: 'c', name: 'Nightmare' },
-      ],
-      has_more: false,
+  it('returns a recoverable error state when the RPC fails', async () => {
+    sb.rpc.mockResolvedValueOnce({ data: null, error: { message: 'offline' } })
+
+    await expect(searchCards({ query: 'void' })).resolves.toEqual({
+      cards: [],
+      hasMore: false,
+      error: true,
     })
-    const result = await searchCards({ query: 'nightmare' })
-    expect(result.cards.map(c => c.name)).toEqual(['Nightmare', 'Nightmare Shepherd', 'Waking Nightmare'])
+    expect(sfGet).not.toHaveBeenCalled()
   })
 })
 

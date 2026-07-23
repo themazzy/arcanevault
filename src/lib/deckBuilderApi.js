@@ -1,7 +1,8 @@
 /**
  * Deck Builder API
  *
- * - Scryfall: card search, commander search, autocomplete, batch name fetch
+ * - Supabase: deck-builder card search and recommendation metadata
+ * - Scryfall: commander search, autocomplete, batch name fetch
  * - EDHRec: commander recommendations (json.edhrec.com — unofficial, no auth)
  * - Recommander.cards: experimental co-occurrence recommendations
  */
@@ -9,9 +10,13 @@
 import { sfGet, sfUrl, getImageUri } from './scryfall'
 import { getProdAppUrl } from './publicUrl'
 import { sb } from './supabase'
-import { sortByNameRelevance } from './scryfallSearch'
 import { legalPartnerQuery } from './commanderPartners'
-import { fetchPrintingsByName } from './cardSearch'
+import {
+  fetchDeckBuilderDisplayPrintings,
+  fetchPrintingsByName,
+  mergeDisplayPrinting,
+  rowToCard,
+} from './cardSearch'
 import { selectPreferredDeckPrinting } from './deckPrintingResolution'
 
 const SF = 'https://api.scryfall.com'
@@ -220,33 +225,39 @@ export function getEdhrecPartnerSlugCandidates(nameA, nameB) {
 // sfGet (rate-limited, with Accept header) is imported from scryfall.js
 const sfFetch = sfGet
 
-/** Search cards with optional color identity filter.
- *  Format is intentionally NOT applied as a Scryfall filter — illegal cards
- *  are still returned and surfaced to the user with a legality warning.
- *  The query is anchored to `name:` (rather than sent bare) so a common word
- *  doesn't pull in every card that merely mentions it in oracle text; results
- *  are then re-ranked by sortByNameRelevance() so an exact name match always
- *  outranks Scryfall's requested order (edhrec popularity can otherwise bury
- *  a literal match like "Void" under more popular "Void ___" cards). */
-export async function searchCards({ query = '', format, colorIdentity, cardType, cmcMin, cmcMax, page = 1 } = {}) {
-  const trimmedQuery = query.trim()
-  const parts = []
-  if (trimmedQuery) parts.push(`name:"${trimmedQuery.replace(/"/g, '')}"`)
-  if (colorIdentity?.length) parts.push(`id<=${colorIdentity.join('')}`)
-  if (cardType)      parts.push(`t:${cardType}`)
-  if (cmcMin !== '' && cmcMin != null) parts.push(`cmc>=${cmcMin}`)
-  if (cmcMax !== '' && cmcMax != null) parts.push(`cmc<=${cmcMax}`)
-  // No query AND no filters → bail without hitting Scryfall. The old behavior
-  // was to send `q=*`, which returned a generic top-of-set page that wasn't
-  // useful and cost a round trip on every cleared-input event.
-  if (!parts.length) return { cards: [], hasMore: false }
+/**
+ * Search our Supabase oracle catalogue by card name. Format is intentionally
+ * not a predicate: illegal cards remain visible with the existing warning UI.
+ */
+const DECK_SEARCH_PAGE_SIZE = 40
 
-  const q = encodeURIComponent(parts.join(' '))
-  const order = format === 'commander' ? 'edhrec' : 'name'
-  const data = await sfFetch(`${SF}/cards/search?q=${q}&order=${order}&unique=cards&page=${page}`)
-  if (!data) return { cards: [], hasMore: false, error: true }
-  const cards = trimmedQuery ? sortByNameRelevance(data.data || [], trimmedQuery) : (data.data || [])
-  return { cards, hasMore: data.has_more || false }
+export async function searchCards({ query = '', page = 1, priceSource = 'cardmarket_trend' } = {}) {
+  const trimmedQuery = query.trim()
+  if (trimmedQuery.length < 2) return { cards: [], hasMore: false }
+
+  const safePage = Math.max(1, Number.parseInt(page, 10) || 1)
+  const { data, error } = await sb.rpc('search_deck_builder_cards', {
+    search_term: trimmedQuery,
+    page_size: DECK_SEARCH_PAGE_SIZE + 1,
+    page_offset: (safePage - 1) * DECK_SEARCH_PAGE_SIZE,
+  })
+
+  if (error) return { cards: [], hasMore: false, error: true }
+
+  const matches = (data || []).map(rowToCard).filter(Boolean)
+  const pageCards = matches.slice(0, DECK_SEARCH_PAGE_SIZE)
+  let displayByName = new Map()
+  try {
+    const displayCards = await fetchDeckBuilderDisplayPrintings(
+      pageCards.map(card => card.name),
+      { priceSource },
+    )
+    displayByName = new Map(displayCards.map(card => [card.requested_name.toLowerCase(), card]))
+  } catch { /* Price/image enrichment is best-effort; core search still works. */ }
+  return {
+    cards: pageCards.map(card => mergeDisplayPrinting(card, displayByName.get(card.name.toLowerCase()))),
+    hasMore: matches.length > DECK_SEARCH_PAGE_SIZE,
+  }
 }
 
 /** Search for valid commanders */

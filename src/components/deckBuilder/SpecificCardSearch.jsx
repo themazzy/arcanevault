@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Input, Button, useModalKeys } from '../UI'
 import { WarningIcon } from '../../icons'
 import { getCardLegalityWarnings } from '../../lib/deckLegality'
+import { formatPrice } from '../../lib/scryfall'
 import styles from './BuildAssistant.module.css'
 
 // Persistent "add a specific card" search — the manual escape hatch for cards
@@ -20,7 +21,7 @@ import styles from './BuildAssistant.module.css'
 //
 // `imageOf(card, size)` resolves a result's art URL — injected so this file
 // stays free of the heavier API modules and easy to test.
-export function SpecificCardSearch({ search, onAdd, isAdded, categoryOf, commanderColorIdentity, makePreview, imageOf }) {
+export function SpecificCardSearch({ search, priceSource, onAdd, isAdded, categoryOf, commanderColorIdentity, makePreview, imageOf }) {
   const { query, results, loading, handleInput } = search
   const trimmed = (query || '').trim()
   // The results float over the panel (don't push it down) and behave like an
@@ -132,6 +133,12 @@ export function SpecificCardSearch({ search, onAdd, isAdded, categoryOf, command
                         {warnings.length > 0 && (
                           <span className={styles.specWarn} title={warnings.map(w => w.text).join('\n')}>
                             <WarningIcon size={12} />
+                          </span>
+                        )}
+                        {Object.hasOwn(card, 'display_price') && (
+                          <span className={`${styles.specPrice}${card.display_price == null ? ` ${styles.specPriceEmpty}` : ''}`}>
+                            {card.display_price == null ? 'No price' : formatPrice(card.display_price, priceSource)}
+                            {card.display_finish && <small> · {card.display_finish}</small>}
                           </span>
                         )}
                         {!added && <span className={styles.specCat} title="Build role this card will be filed under">{cat}</span>}

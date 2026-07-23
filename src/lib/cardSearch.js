@@ -26,6 +26,7 @@ const SF = 'https://api.scryfall.com'
 // heavily reprinted basics exceed that limit.
 const PRINTINGS_PAGE_SIZE = 1000
 const PRINTINGS_NAME_CHUNK = 40
+const DISPLAY_PRINTING_NAME_CHUNK = 100
 const PRICE_ID_CHUNK = 200
 const SCRYFALL_PAGE_CAP = 20
 
@@ -93,6 +94,68 @@ export function rowToCard(row) {
 }
 
 // ── Shared daily prices (card_prices) ────────────────────────────────────────
+
+/** Map the exact print selected by get_deck_builder_display_printings(). */
+export function displayPrintingRowToCard(row) {
+  const card = rowToCard(row)
+  if (!card) return null
+  const parsedPrice = row.selected_price == null ? null : Number(row.selected_price)
+  const displayPrice = Number.isFinite(parsedPrice) && parsedPrice > 0 ? parsedPrice : null
+  return {
+    ...card,
+    requested_name: row.requested_name || row.name,
+    display_price: displayPrice,
+    display_foil: displayPrice == null ? null : row.selected_foil === true,
+    display_finish: displayPrice == null ? null : (row.selected_foil === true ? 'Foil' : 'Non-foil'),
+  }
+}
+
+/**
+ * Overlay only print-specific display fields onto oracle metadata. This keeps
+ * legality/type data from the oracle row while guaranteeing that image, set,
+ * finish, and displayed price all describe one exact English printing.
+ */
+export function mergeDisplayPrinting(baseCard, displayCard) {
+  if (!displayCard) return baseCard
+  return {
+    ...(baseCard || {}),
+    id: displayCard.id || baseCard?.id || null,
+    oracle_id: displayCard.oracle_id || baseCard?.oracle_id || null,
+    name: baseCard?.name || displayCard.name,
+    set: displayCard.set,
+    collector_number: displayCard.collector_number,
+    lang: displayCard.lang,
+    released_at: displayCard.released_at,
+    image_uris: displayCard.image_uris || baseCard?.image_uris || null,
+    // oracle_cards.card_faces belongs to its representative printing. Keeping
+    // it here would make CardDetail prefer that artwork over the exact display
+    // printing's top-level image until the full print finishes loading.
+    card_faces: displayCard.card_faces || null,
+    display_price: displayCard.display_price,
+    display_foil: displayCard.display_foil,
+    display_finish: displayCard.display_finish,
+  }
+}
+
+/**
+ * Resolve exact English display printings entirely from Supabase. There is no
+ * Scryfall fallback: these rows drive price/image pairing and must come from
+ * the same stored catalogue snapshot.
+ */
+export async function fetchDeckBuilderDisplayPrintings(names, { priceSource = 'cardmarket_trend' } = {}) {
+  const wanted = [...new Set((names || []).map(name => (name || '').trim()).filter(Boolean))]
+  if (!wanted.length) return []
+  const cards = []
+  for (let i = 0; i < wanted.length; i += DISPLAY_PRINTING_NAME_CHUNK) {
+    const { data, error } = await sb.rpc('get_deck_builder_display_printings', {
+      card_names: wanted.slice(i, i + DISPLAY_PRINTING_NAME_CHUNK),
+      price_source: priceSource,
+    })
+    if (error) throw error
+    cards.push(...(data || []).map(displayPrintingRowToCard).filter(Boolean))
+  }
+  return cards
+}
 
 export function priceRowToPrices(row) {
   const prices = {}

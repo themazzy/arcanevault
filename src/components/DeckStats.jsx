@@ -6,7 +6,7 @@ import { analyzeBracket, fetchGameChangerNames } from '../lib/commanderBracket'
 import { CloseIcon } from '../icons'
 import { Select } from './UI'
 import { hypergeomAtLeast, expectedCount, openingHandLands } from '../lib/deckProbability'
-import { extractTokenExtras, extractTokenNames, fetchDeckTokenCard } from '../lib/deckTokens'
+import { extractTokenExtras, extractTokenNames, fetchDeckTokenCards } from '../lib/deckTokens'
 import styles from './DeckStats.module.css'
 
 // Re-export so existing consumers that import from DeckStats keep working.
@@ -935,7 +935,6 @@ function TokensExtras({ allItems, tokenImages }) {
 export default function DeckStats({ cards, bracketOverride, onBracketOverride, price_source, showBracket = true, combos = null, bracketAnalysis: bracketAnalysisProp = null, gameChangerNames: gameChangerNamesProp = null }) {
   const [curveMode, setCurveMode] = useState('flat')
   const [tokenImages, setTokenImages] = useState({}) // name → img uri | null
-  const fetchedRef = useRef(new Set())
 
   // Commander Bracket estimate — Game Changers list is live from Scryfall
   // (7-day localStorage cache inside fetchGameChangerNames). A caller that
@@ -1066,31 +1065,20 @@ export default function DeckStats({ cards, bracketOverride, onBracketOverride, p
 
   // Fetch token + extra images from Scryfall — newest paper printing
   useEffect(() => {
-    const allItems = [...stats.tokenNames, ...stats.extras]
-    const toFetch = allItems.filter(n => !fetchedRef.current.has(n))
-    if (!toFetch.length) return
-    toFetch.forEach(n => fetchedRef.current.add(n))
+    const items = [
+      ...stats.tokenNames.map(name => ({ name, kind: 'token' })),
+      ...stats.extras.map(name => ({ name, kind: 'extra' })),
+    ]
+    if (!items.length) return undefined
 
     let active = true
-    ;(async () => {
-      const results = {}
-      for (const name of toFetch) {
-        if (!active) break
-        // Many token/mechanic names (e.g. "The Ring") have no matching paper
-        // card and 404 — swallow per item so one miss neither spams the
-        // console nor aborts the remaining fetches.
-        try {
-          const result = await fetchDeckTokenCard({
-            name,
-            kind: stats.extras.includes(name) ? 'extra' : 'token',
-          }, 'small')
-          results[name] = result.imageUri
-        } catch {
-          results[name] = null
-        }
-      }
-      if (active) setTokenImages(prev => ({ ...prev, ...results }))
-    })()
+    fetchDeckTokenCards(items, 'small', {
+      concurrency: 2,
+      onResult: result => {
+        if (!active) return
+        setTokenImages(prev => ({ ...prev, [result.name]: result.imageUri }))
+      },
+    }).catch(() => {})
 
     return () => { active = false }
   }, [stats.tokenNames, stats.extras])

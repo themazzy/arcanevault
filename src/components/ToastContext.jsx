@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { CloseIcon } from '../icons'
 import styles from './ToastContext.module.css'
 
 const ToastContext = createContext(null)
@@ -21,6 +22,9 @@ export function ToastProvider({ children }) {
       id,
       message,
       tone: opts.tone || 'success',
+      actionLabel: opts.actionLabel || null,
+      onAction: typeof opts.onAction === 'function' ? opts.onAction : null,
+      placement: opts.placement || 'default',
     }])
     const timeout = window.setTimeout(() => dismissToast(id), opts.duration ?? 3200)
     timers.current.set(id, timeout)
@@ -39,20 +43,51 @@ export function ToastProvider({ children }) {
     dismissToast,
   }), [showToast, dismissToast])
 
+  const hasRaisedToast = toasts.some(toast => toast.placement === 'above-mobile-toolbar')
+
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div className={styles.toastStack} role="status" aria-live="polite" aria-atomic="true">
+      <div
+        className={`${styles.toastStack}${hasRaisedToast ? ` ${styles.toastStackRaised}` : ''}`}
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
         {toasts.map(toast => (
-          <button
+          <div
             key={toast.id}
-            type="button"
-            className={`${styles.toast} ${toast.tone === 'error' ? styles.toastError : styles.toastSuccess}`}
-            onClick={() => dismissToast(toast.id)}
+            className={`${styles.toast} ${
+              toast.tone === 'error'
+                ? styles.toastError
+                : toast.tone === 'info'
+                  ? styles.toastInfo
+                  : styles.toastSuccess
+            }${toast.actionLabel && toast.onAction ? ` ${styles.toastActionable}` : ''}`}
           >
             <span className={styles.toastDot} aria-hidden="true" />
             <span className={styles.toastMessage}>{toast.message}</span>
-          </button>
+            {toast.actionLabel && toast.onAction && (
+              <button
+                type="button"
+                className={styles.toastAction}
+                onClick={() => {
+                  dismissToast(toast.id)
+                  Promise.resolve(toast.onAction()).catch(() => {})
+                }}
+              >
+                {toast.actionLabel}
+              </button>
+            )}
+            <button
+              type="button"
+              className={styles.toastDismiss}
+              onClick={() => dismissToast(toast.id)}
+              aria-label="Dismiss notification"
+            >
+              <CloseIcon size={14} />
+            </button>
+          </div>
         ))}
       </div>
     </ToastContext.Provider>

@@ -1236,6 +1236,18 @@
 
 .tilePriceTagEmpty { color: var(--text-faint); }
 
+.tilePriceFinish {
+  margin-left: 3px;
+  color: var(--text-faint);
+  font-size: 0.58rem;
+  font-weight: 500;
+}
+
+.tilePriceFinish::before {
+  content: '·';
+  margin-right: 3px;
+}
+
 .tileBtn {
   flex: 1;
   padding: 4px 6px;
@@ -1690,7 +1702,7 @@
 .cutLockedChip:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
 
 /* Touch: enlarge the cut helper's tap targets to the 40px floor. */
-@media (hover: none) and (pointer: coarse) {
+@media (max-width: 900px) {
   .cutKeep, .cutApplyBtn, .cutLockedChip { min-height: 40px; }
 }
 
@@ -1780,7 +1792,7 @@
 }
 
 /* Touch devices: enlarge the primary tap targets to the project's 40px floor. */
-@media (hover: none) and (pointer: coarse) {
+@media (max-width: 900px) {
   .tileBtn,
   .themeChip,
   .ctrlBtn,
@@ -1900,6 +1912,25 @@
   font-size: 0.72rem;
   color: var(--text-dim);
   white-space: nowrap;
+}
+
+.specPrice {
+  flex-shrink: 0;
+  color: var(--green);
+  font-size: 0.7rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.specPrice small {
+  color: var(--text-faint);
+  font-size: 0.6rem;
+  font-weight: 500;
+}
+
+.specPriceEmpty {
+  color: var(--text-faint);
+  font-weight: 500;
 }
 
 .specWarn {

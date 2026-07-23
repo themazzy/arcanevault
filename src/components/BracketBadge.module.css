@@ -39,6 +39,29 @@
   background: rgba(20, 16, 12, 0.8);
 }
 
+/* The deck-builder art banner has a narrow metadata lane on phones. Keep the
+   full label, but remove desktop-only estimation chrome and tighten the pill
+   so price and bracket remain separate, readable actions. */
+@media (max-width: 900px) {
+  .pillOnArt {
+    min-height: 34px;
+    gap: 5px;
+    padding: 5px 8px;
+    font-size: 0.68rem;
+    letter-spacing: 0.025em;
+  }
+
+  .pillOnArt .pillNumber {
+    width: 20px;
+    height: 20px;
+    font-size: 0.76rem;
+  }
+
+  .pillOnArt .pillMark {
+    display: none;
+  }
+}
+
 .pillNumber {
   display: inline-flex;
   align-items: center;
@@ -161,12 +184,6 @@
 .flagCount {
   color: var(--text-dim);
   letter-spacing: 0;
-}
-
-.flagCards {
-  font-size: 0.76rem;
-  color: var(--text);
-  line-height: 1.45;
 }
 
 .popSoft {

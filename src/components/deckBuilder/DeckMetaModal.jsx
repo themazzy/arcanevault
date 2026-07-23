@@ -3,7 +3,7 @@ import { CloseIcon } from '../../icons'
 import styles from '../../pages/DeckBuilder.module.css'
 
 /**
- * Description + tags editor modal. Inputs are controlled by the parent so the
+ * Deck details editor. Inputs are controlled by the parent so the
  * page can keep description/tags in its deckMeta state.
  */
 export default function DeckMetaModal({
@@ -20,7 +20,7 @@ export default function DeckMetaModal({
   return (
     <Modal onClose={onClose} className={styles.metaModal}>
       <div className={styles.metaModalBody}>
-        <h3 className={styles.metaModalTitle}>Description &amp; Tags</h3>
+        <h3 className={styles.metaModalTitle}>Deck Details</h3>
         <label className={styles.metaModalLabel}>Description / Primer</label>
         <textarea
           className={styles.deckMetaDesc}
