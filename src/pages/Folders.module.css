@@ -1220,14 +1220,11 @@
 }
 
 @media (max-width: 980px) {
-  /* No strip chrome at all — the input is the only visible surface (styled
-     like Home's .lookupSlim) and simply floats over content while stuck. */
+  /* In-flow search bar, styled and spaced like Collection's mobile FilterBar
+     search (no sticky/floating behavior). */
   .overviewStickySearch {
-    position: sticky;
-    top: 6px;
-    z-index: 35;
     display: block;
-    margin: 0 0 16px;
+    margin: 10px 0 12px;
   }
   .overviewStickySearch .folderSearch {
     height: 46px;
