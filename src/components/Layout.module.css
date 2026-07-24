@@ -1,5 +1,10 @@
 .app {
   --page-gutter: max(40px, calc((100vw - 1600px) / 2 + 40px));
+  /* Horizontal inset of the floating navbar pill. Defaults to --page-gutter so
+     the pill lines up with a normal page's content column. Routes whose content
+     runs wider than that column (e.g. the deck builder) lower this so the navbar
+     is never inset more than — i.e. never slimmer than — the content below it. */
+  --nav-gutter: var(--page-gutter);
   /* .main's bottom padding, tokenized so full-height pages (Collection) can
      stretch under it on mobile and reach the screen edge. */
   --main-pad-b: 28px;
@@ -33,9 +38,17 @@
      (centered punch-hole sits over the pill's empty middle, between the
      left-aligned logo and right-aligned hamburger). 10px breathing room
      keeps the pill from sticking to the very top edge. */
-  padding: 10px var(--page-gutter);
+  padding: 10px var(--nav-gutter);
   pointer-events: none;
   transition: padding 0.4s cubic-bezier(.4,0,.2,1);
+}
+
+/* Deck builder content runs near-full-bleed (clamp inset, ≤28px), far narrower
+   an inset than --page-gutter. Match the navbar to it so the pill never ends up
+   slimmer than the content — most visible on wide desktop screens, where the
+   page-gutter grows to hundreds of px while the content stays at 28px. */
+.app:has(.mainDeckBuilder) {
+  --nav-gutter: clamp(12px, 1.4vw, 28px);
 }
 .headerWrap .header {
   pointer-events: auto;
