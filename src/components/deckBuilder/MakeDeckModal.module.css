@@ -64,9 +64,10 @@
 
 .header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 20px;
+  flex-direction: column;
+  gap: 3px;
+  /* right padding clears the Modal primitive's own close button */
+  padding: 15px 46px 14px 20px;
   border-bottom: 1px solid var(--s-border);
   flex-shrink: 0;
 }
@@ -78,19 +79,10 @@
   letter-spacing: 0.04em;
 }
 
-.closeBtn {
-  background: none;
-  border: none;
+.subtitle {
   color: var(--text-faint);
-  cursor: pointer;
-  padding: 4px;
-  display: inline-flex;
-  border-radius: 4px;
-}
-
-.closeBtn:hover {
-  color: var(--text);
-  background: var(--s-medium);
+  font-size: 0.76rem;
+  line-height: 1.45;
 }
 
 .loading {
@@ -154,7 +146,7 @@
 .statCard {
   background: var(--s2);
   border: 1px solid var(--s-border2);
-  border-top: 2px solid rgba(201, 168, 76, 0.35);
+  border-top: 2px solid color-mix(in srgb, var(--gold) 35%, transparent);
   border-radius: 6px;
   padding: 6px 10px;
 }
@@ -165,8 +157,8 @@
   font-size: 0.95rem;
 }
 
-.statValueOk { color: var(--green, #4a9a5a); }
-.statValueBad { color: #e07070; }
+.statValueOk { color: var(--green); }
+.statValueBad { color: var(--red-bright); }
 
 .statLabel {
   color: var(--text-faint);
@@ -211,19 +203,6 @@
   border-bottom: 1px solid var(--s-border);
 }
 
-.rowThumb {
-  width: 48px;
-  height: 67px;
-  object-fit: cover;
-  border-radius: 4px;
-  flex-shrink: 0;
-}
-
-.rowThumbPlaceholder {
-  composes: rowThumb;
-  background: var(--s3);
-}
-
 .rowInfo {
   flex: 1;
   min-width: 0;
@@ -257,9 +236,9 @@
 
 .rowStatus svg { flex-shrink: 0; }
 
-.statusOk   { color: var(--green, #4a9a5a); }
-.statusAlt  { color: #c9a84c; }
-.statusMiss { color: #e07070; }
+.statusOk   { color: var(--green); }
+.statusAlt  { color: var(--gold); }
+.statusMiss { color: var(--red-bright); }
 .statusNew  { color: var(--gold); }
 
 .rowActionWrap {
@@ -317,8 +296,8 @@
 }
 
 .choiceRowActive {
-  border-color: rgba(201, 168, 76, 0.4);
-  background: rgba(201, 168, 76, 0.06);
+  border-color: color-mix(in srgb, var(--gold) 40%, transparent);
+  background: color-mix(in srgb, var(--gold) 6%, transparent);
 }
 
 .choiceInput {
@@ -363,7 +342,7 @@
 
 .wishlistInput:focus {
   outline: none;
-  border-color: rgba(201, 168, 76, 0.45);
+  border-color: color-mix(in srgb, var(--gold) 45%, transparent);
 }
 
 /* ── Footer ────────────────────────────────────────────────────────────── */
@@ -384,40 +363,5 @@
 }
 
 .footerNoteError {
-  color: #e07070;
-}
-
-.btn {
-  background: transparent;
-  border: 1px solid var(--s-border2);
-  border-radius: 4px;
-  color: var(--text-dim);
-  padding: 7px 16px;
-  font-size: 0.82rem;
-  cursor: pointer;
-}
-
-.btn:hover:not(:disabled) {
-  color: var(--text);
-  background: var(--s-medium);
-}
-
-.btnPrimary {
-  background: rgba(74, 154, 90, 0.15);
-  border: 1px solid rgba(74, 154, 90, 0.4);
-  border-radius: 4px;
-  color: var(--green, #4a9a5a);
-  padding: 7px 16px;
-  font-size: 0.82rem;
-  cursor: pointer;
-}
-
-.btnPrimary:hover:not(:disabled) {
-  background: rgba(74, 154, 90, 0.25);
-}
-
-.btn:disabled,
-.btnPrimary:disabled {
-  opacity: 0.45;
-  cursor: default;
+  color: var(--red-bright);
 }

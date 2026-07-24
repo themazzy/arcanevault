@@ -743,6 +743,18 @@ export function scryfallImageAtSize(url, size) {
     : retiered.replace(/\.png(\?|$)/, '.jpg$1')
 }
 
+// Build a Scryfall CDN image URL straight from a card's scryfall id — no cached
+// image_uris needed. The CDN lays cards out by id:
+//   //cards.scryfall.io/<size>/front/<id[0]>/<id[1]>/<id>.jpg
+// `png` is the one tier with a .png extension; every other tier is .jpg. Always
+// the front face (the only face an id resolves to on this path). Returns null
+// for a missing/invalid id so callers can fall back to a placeholder.
+export function scryfallImageUrlFromId(scryfallId, size = 'normal') {
+  if (typeof scryfallId !== 'string' || scryfallId.length < 2) return null
+  const ext = size === 'png' ? 'png' : 'jpg'
+  return `https://cards.scryfall.io/${size}/front/${scryfallId[0]}/${scryfallId[1]}/${scryfallId}.${ext}`
+}
+
 // Intrinsic widths of the Scryfall tiers we render cards at.
 export const SCRYFALL_TIER_WIDTH = { small: 146, normal: 488, large: 672 }
 
@@ -800,8 +812,11 @@ export function toScryfallGridWebp(url) {
 // to the JPEG rather than leave a broken tile.
 //
 //   { src, fallback } — render `src`; on error, render `fallback` (null if none).
-export function resolveTileImage(url, cssWidth, dpr = 1) {
-  const tier = pickImageTier(cssWidth, dpr)
+export function resolveTileImage(url, cssWidth, dpr = 1, forceTier = null) {
+  // `forceTier` pins the tier (e.g. the card grids pass 'normal' so every tile
+  // renders the WebP `grid` variant at one consistent resolution). Otherwise the
+  // tier is chosen adaptively from the tile's device pixels.
+  const tier = forceTier || pickImageTier(cssWidth, dpr)
   const tiered = scryfallImageAtSize(url, tier)
   if (!tiered) return { src: null, fallback: null }
   // `grid` is 488px, so it's only an alternative to `normal`. Rewriting a `small`

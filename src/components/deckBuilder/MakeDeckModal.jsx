@@ -1,14 +1,13 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { CheckIcon, InfoIcon, WarningIcon, AddIcon } from '../../icons'
-import { Modal, Select } from '../UI'
-import { BASIC_LANDS, CAN_HOVER } from '../../lib/deckBuilderConstants'
-import { lastInputWasTouch } from '../../lib/inputType'
+import { Modal, Select, Button } from '../UI'
+import { BASIC_LANDS } from '../../lib/deckBuilderConstants'
 import { isGroupFolder, normalizeCardName, placementFilterNames } from '../../lib/deckBuilderHelpers'
 import { buildChosenAllocations, buildChosenPrintingSelections } from '../../lib/deckSyncDecisions'
 import { planDeckAllocations } from '../../lib/deckAllocationPlanner'
 import { loadLocalPlacementSnapshot, refreshRemotePlacementSnapshot } from '../../lib/deckPlacementData'
 import PrintingPickerModal from './PrintingPickerModal'
-import { FloatingPreview } from './FloatingPreview'
+import CardThumb from '../CardThumb'
 import styles from './MakeDeckModal.module.css'
 
 const MISSING_ACTIONS = [
@@ -19,16 +18,8 @@ const MISSING_ACTIONS = [
 ]
 
 // ── Make Deck row ─────────────────────────────────────────────────────────────
-function MakeDeckRow({ item, addAllAsNew, onHoverEnter, onHoverMove, onHoverLeave }) {
+function MakeDeckRow({ item, addAllAsNew }) {
   const { dc, neededQty, addExact, addOther, totalAdd, missingQty } = item
-  const img = dc.image_uri
-  const hoverableProps = CAN_HOVER && !lastInputWasTouch && img
-    ? {
-        onMouseEnter: e => onHoverEnter?.(img, e),
-        onMouseMove: e => onHoverMove?.(e),
-        onMouseLeave: () => onHoverLeave?.(),
-      }
-    : {}
   let statusClass, statusGlyph, statusDetail
   if (addAllAsNew) {
     statusClass = styles.statusNew; statusGlyph = <AddIcon size={13} />; statusDetail = `${neededQty}x new`
@@ -52,10 +43,7 @@ function MakeDeckRow({ item, addAllAsNew, onHoverEnter, onHoverMove, onHoverLeav
     .join(', ')
   return (
     <div className={styles.row}>
-      {img
-        ? <img src={img} alt="" className={styles.rowThumb} {...hoverableProps} />
-        : <div className={styles.rowThumbPlaceholder} />
-      }
+      <CardThumb scryfallId={dc.scryfall_id} name={dc.name} size={48} variant="card" />
       <div className={styles.rowInfo}>
         <span className={styles.rowName}>
           {neededQty > 1 ? `${neededQty}x ` : ''}{dc.name}
@@ -91,18 +79,6 @@ export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose })
   // 'new' bypasses ownership matching entirely (see planningOwnedCards below) —
   // it's one of the missing-card strategies, just one that makes every card missing.
   const addAllAsNew = missingAction === 'new'
-
-  const floatingPreviewRef = useRef(null)
-  const handleRowHoverEnter = useCallback((uri, e) => {
-    floatingPreviewRef.current?.setPos(e.clientX, e.clientY)
-    floatingPreviewRef.current?.setImages(uri ? [uri] : [])
-  }, [])
-  const handleRowHoverMove = useCallback((e) => {
-    floatingPreviewRef.current?.setPos(e.clientX, e.clientY)
-  }, [])
-  const handleRowHoverLeave = useCallback(() => {
-    floatingPreviewRef.current?.setImages([])
-  }, [])
 
   // Intentional: modal mounts fresh on each open - one-shot load from current props snapshot.
   useEffect(() => {
@@ -207,6 +183,7 @@ export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose })
       <Modal onClose={onClose} className={styles.modal} contentClassName={styles.modalContent}>
         <div className={styles.header}>
           <span className={styles.title}>Make Collection Deck</span>
+          <span className={styles.subtitle}>Assign owned copies from your collection into a new deck built from this list. Choose how to handle cards you don’t own.</span>
         </div>
         {loading ? (
           <div className={styles.loading}>Checking your collection...</div>
@@ -298,13 +275,7 @@ export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose })
                     ? <div className={styles.empty}>No cards to add.</div>
                     : filtered.map(item => (
                       <div key={item.dc.id}>
-                        <MakeDeckRow
-                          item={item}
-                          addAllAsNew={addAllAsNew}
-                          onHoverEnter={handleRowHoverEnter}
-                          onHoverMove={handleRowHoverMove}
-                          onHoverLeave={handleRowHoverLeave}
-                        />
+                        <MakeDeckRow item={item} addAllAsNew={addAllAsNew} />
                         {!exactVersionOnly && (item.otherCandidates?.length || 0) > 1 && item.totalAdd > 0 && (
                           <div className={styles.rowActionWrap}>
                             <button type="button" className={styles.rowActionBtn} onClick={() => setPickerItem(item)}>
@@ -323,10 +294,10 @@ export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose })
               <div className={`${styles.footerNote}${refreshError ? ' ' + styles.footerNoteError : ''}`}>
                 {!remoteReady ? (refreshError || 'Refreshing collection placements...') : ''}
               </div>
-              <button type="button" className={styles.btn} onClick={onClose}>Cancel</button>
-              <button
-                type="button"
-                className={styles.btnPrimary}
+              <Button variant="secondary" onClick={onClose}>Cancel</Button>
+              <Button
+                variant="primary"
+                disabled={!canConfirm}
                 onClick={() => onConfirm({
                   addItems,
                   missingItems,
@@ -335,10 +306,9 @@ export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose })
                   wishlistId: missingAction === 'wishlist' && selectedWishlistId !== 'new' ? (selectedWishlistId || null) : null,
                   wishlistName: missingAction === 'wishlist' && selectedWishlistId === 'new' ? newWishlistName.trim() : null,
                 })}
-                disabled={!canConfirm}
               >
                 Create Deck ({addItems.reduce((s, i) => s + i.totalAdd, 0) + ((missingAction === 'add' || missingAction === 'new') ? missingItems.reduce((s, i) => s + i.missingQty, 0) : 0)} cards)
-              </button>
+              </Button>
             </div>
           </>
         )}
@@ -355,7 +325,6 @@ export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose })
           onClose={() => setPickerItem(null)}
         />
       )}
-      <FloatingPreview ref={floatingPreviewRef} />
     </>
   )
 }

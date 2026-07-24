@@ -223,7 +223,11 @@ export async function fetchFolderPlacements({ queryKey }) {
     fetchDeckAllocationsPaged(deckIds, userId),
   ])
 
-  return { folderCards, deckAllocations }
+  // Return the folders fetched alongside the placements so consumers build their
+  // card→folder map from one consistent snapshot. Building it from a separately
+  // cached `folders` list that lags behind lets buildCardFolderMap silently drop
+  // placements whose folder isn't loaded yet (e.g. a just-created binder).
+  return { folders, folderCards, deckAllocations }
 }
 
 export async function fetchSfMap(cards, onProgress) {

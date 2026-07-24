@@ -8,11 +8,10 @@ import { useAuth } from '../components/Auth'
 import { useToast } from '../components/ToastContext'
 import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
 import { EmptyState, LibraryEmptyState, Badge, Button, ResponsiveMenu } from '../components/UI'
-import { CheckIcon, StarIcon, ChevronUpIcon, ChevronDownIcon, ChevronLeftIcon, EditIcon, ImportIcon, ExportIcon, AddIcon, BuilderIcon, DeckIcon, SettingsIcon, ShareIcon } from '../icons'
+import { CheckIcon, StarIcon, ChevronUpIcon, ChevronDownIcon, ChevronLeftIcon, EditIcon, ImportIcon, ExportIcon, AddIcon, BuilderIcon, DeckIcon, SettingsIcon, DeleteIcon } from '../icons'
 import AddCardModal from '../components/AddCardModal'
 import ExportModal from '../components/ExportModal'
 import ImportModal from '../components/ImportModal'
-import ShareModal from '../components/ShareModal'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import styles from './DeckBrowser.module.css'
 import uiStyles from '../components/UI.module.css'
@@ -635,7 +634,7 @@ function _DeckCardGrid({ cards, sfMap, priceSource, onSelect, onHover, onHoverEn
 
 // ── Main DeckBrowser ──────────────────────────────────────────────────────────
 
-export default function DeckBrowser({ folder, onBack }) {
+export default function DeckBrowser({ folder, onBack, onDelete }) {
   const navigate = useNavigate()
   const { price_source, grid_density } = useSettings()
   const { user } = useAuth()
@@ -707,7 +706,6 @@ export default function DeckBrowser({ folder, onBack }) {
   const [showAddCard, setShowAddCard] = useState(false)
   const [showExport, setShowExport]   = useState(false)
   const [showImport, setShowImport]   = useState(false)
-  const [showShare, setShowShare]     = useState(false)
   const [importText, setImportText]   = useState('')
   const openImport = () => { setImportText(''); setShowImport(true) }
   const [hoverImg, setHoverImg] = useState(null)
@@ -1241,31 +1239,35 @@ export default function DeckBrowser({ folder, onBack }) {
           <div className={styles.headerBg} style={{ backgroundImage: `url(${folderBgUrl})` }} />
         )}
         <div className={styles.titleRow}>
-          {renamingDeck ? (
-            <input
-              ref={renameInputRef}
-              className={styles.deckNameInput}
-              value={renameVal}
-              maxLength={100}
-              onChange={e => setRenameVal(e.target.value)}
-              onBlur={commitRenameDeck}
-              onKeyDown={e => {
-                if (e.key === 'Enter') commitRenameDeck()
-                if (e.key === 'Escape') { setRenameVal(deckName); setRenamingDeck(false) }
-              }}
-              aria-label="Deck name"
-            />
-          ) : (
-            <h1 className={styles.deckName}>
-              <button className={styles.deckNameBtn} onClick={startRenameDeck} title="Rename deck">
-                {deckName}
-              </button>
-            </h1>
-          )}
-          <div className={styles.headerMeta}>
-            <span>{totalQty} cards</span>
-            <span className={styles.deckValue}>{formatPrice(totalValue, price_source)}</span>
-            <div className={styles.headerActionsDesktop}>
+          <div className={styles.titleBlock}>
+            {renamingDeck ? (
+              <input
+                ref={renameInputRef}
+                className={styles.deckNameInput}
+                value={renameVal}
+                maxLength={100}
+                onChange={e => setRenameVal(e.target.value)}
+                onBlur={commitRenameDeck}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') commitRenameDeck()
+                  if (e.key === 'Escape') { setRenameVal(deckName); setRenamingDeck(false) }
+                }}
+                aria-label="Deck name"
+              />
+            ) : (
+              <h1 className={styles.deckName}>
+                <button className={styles.deckNameBtn} onClick={startRenameDeck} title="Rename deck">
+                  {deckName}
+                </button>
+              </h1>
+            )}
+            <div className={styles.headerMeta}>
+              <span>{totalQty} cards</span>
+              <span className={styles.metaSep} aria-hidden="true">·</span>
+              <span className={styles.deckValue}>{formatPrice(totalValue, price_source)}</span>
+            </div>
+          </div>
+          <div className={styles.headerActionsDesktop}>
               <Button variant="secondary" size="sm" onClick={() => setShowAddCard(true)}>
                 <AddIcon size={12} /> Add Cards
               </Button>
@@ -1284,15 +1286,16 @@ export default function DeckBrowser({ folder, onBack }) {
                 {({ close }) => (
                   <div className={uiStyles.responsiveMenuList}>
                     <button className={uiStyles.responsiveMenuAction} onClick={() => { startRenameDeck(); close() }}><span><EditIcon size={13} /> Rename</span></button>
-                    <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowShare(true); close() }}><span><ShareIcon size={13} /> Share</span></button>
                     <button className={uiStyles.responsiveMenuAction} onClick={() => { openImport(); close() }}><span><ImportIcon size={13} /> Import</span></button>
                     <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowExport(true); close() }}><span><ExportIcon size={13} /> Export</span></button>
+                    {onDelete && (
+                      <button className={`${uiStyles.responsiveMenuAction} ${uiStyles.responsiveMenuActionDanger}`} onClick={() => { onDelete(totalQty === 0); close() }}><span><DeleteIcon size={13} /> Delete deck</span></button>
+                    )}
                   </div>
                 )}
               </ResponsiveMenu>
             </div>
           </div>
-        </div>
         <div className={styles.headerBackRow}>
           <Button variant="secondary" size="sm" className={styles.headerBackBtn} onClick={onBack} aria-label="Back to Decks">
             <ChevronLeftIcon size={13} /> <span className={styles.headerBackLabel}>Back to Decks</span>
@@ -1320,7 +1323,7 @@ export default function DeckBrowser({ folder, onBack }) {
 
       {cards.length > 0 && <div className={styles.controlBar}>
         <span className={styles.countInfo}>
-          Showing {filtered.length} of {cards.length} unique · {totalQty} total cards
+          {filtered.length} of {cards.length} unique · {totalQty} total cards
         </span>
         <CardBrowserViewControls
           viewMode={viewMode}
@@ -1337,7 +1340,8 @@ export default function DeckBrowser({ folder, onBack }) {
           onToggleSelectMode={toggleSelectMode}
           onImport={openImport}
           onExport={() => setShowExport(true)}
-          onShare={() => setShowShare(true)}
+          onDelete={onDelete ? () => onDelete(totalQty === 0) : undefined}
+          deleteLabel="Delete deck"
           bulkBarVisible={selectMode && selectedCards.size > 0}
         />
       </div>}
@@ -1476,7 +1480,6 @@ export default function DeckBrowser({ folder, onBack }) {
           onClose={() => setShowExport(false)}
         />
       )}
-      {showShare && <ShareModal folder={folder} onClose={() => setShowShare(false)} />}
     </div>
   )
 }

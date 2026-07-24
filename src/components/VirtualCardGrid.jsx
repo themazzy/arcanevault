@@ -2,6 +2,7 @@ import { useRef, useCallback, useEffect, useMemo, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { getImageUri, getPriceWithMeta, formatPriceMeta, getScryfallKey, resolveTileImage } from '../lib/scryfall'
 import { FolderTypeIcon } from '../icons'
+import { FOLDER_TAG_COLOR, FOLDER_TAG_BORDER } from '../lib/folderTagColors'
 import { Badge } from './UI'
 import styles from './VirtualCardGrid.module.css'
 import { useLongPress } from '../hooks/useLongPress'
@@ -36,8 +37,8 @@ const ROW_VERTICAL_GAP = 14
 const CARD_ASPECT_RATIO = 88 / 63
 const CARD_INFO_HEIGHT = 92
 
-const TYPE_COLOR  = { binder: 'rgba(201,168,76,0.18)', deck: 'rgba(138,111,196,0.18)', list: 'rgba(100,180,100,0.15)' }
-const TYPE_BORDER = { binder: 'rgba(201,168,76,0.35)', deck: 'rgba(138,111,196,0.35)', list: 'rgba(100,180,100,0.3)' }
+const TYPE_COLOR  = FOLDER_TAG_COLOR
+const TYPE_BORDER = FOLDER_TAG_BORDER
 
 function FolderTags({ folders }) {
   if (!folders?.length) return null
@@ -60,7 +61,7 @@ function FolderTags({ folders }) {
 
 function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, totalQty, onToggleSelect, onEnterSelectMode, onAdjustQty, splitState, priceSource, showPrice, cardFolders, imageWidth, dpr }) {
   const [webpFailed, setWebpFailed] = useState(false)
-  const { src, fallback } = resolveTileImage(getImageUri(sfCard, 'normal'), imageWidth, dpr)
+  const { src, fallback } = resolveTileImage(getImageUri(sfCard, 'normal'), imageWidth, dpr, 'normal')
   const img = webpFailed && fallback ? fallback : src
   const displayQty = card._folder_qty ?? card.qty ?? 1
   const priceMeta = getPriceWithMeta(sfCard, card.foil, { price_source: priceSource })

@@ -10,17 +10,16 @@ import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { useToast } from '../components/ToastContext'
-import { EmptyState, LibraryEmptyState, SectionHeader, Modal, ResponsiveHeaderActions, ResponsiveMenu, Button, SearchInput, Select } from '../components/UI'
+import { EmptyState, LibraryEmptyState, SectionHeader, Modal, ConfirmModal, ResponsiveHeaderActions, ResponsiveMenu, Button, SearchInput, Select } from '../components/UI'
 import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
 import { useLongPress } from '../hooks/useLongPress'
 import { useFilterWorker } from '../hooks/useFilterWorker'
 import AddCardModal from '../components/AddCardModal'
-import ShareModal from '../components/ShareModal'
 import ImportModal from '../components/ImportModal'
 import ExportModal from '../components/ExportModal'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import styles from './Folders.module.css'
-import { CloseIcon, CheckIcon, AddIcon, BinderIcon, ChevronLeftIcon, CollectionIcon, DeleteIcon, EditIcon, ExportIcon, ImageIcon, ImportIcon, RemoveIcon, SearchIcon, SettingsIcon, ShareIcon, SortIcon, StacksViewIcon, WishlistsIcon } from '../icons'
+import { CloseIcon, CheckIcon, AddIcon, BinderIcon, ChevronLeftIcon, CollectionIcon, DeleteIcon, EditIcon, ExportIcon, ImageIcon, ImportIcon, RemoveIcon, SearchIcon, SettingsIcon, SortIcon, StacksViewIcon, WishlistsIcon } from '../icons'
 import uiStyles from '../components/UI.module.css'
 import { useLibraryBrowserPreferences } from '../hooks/useLibraryBrowserPreferences'
 import { fetchPrintingsByName } from '../lib/cardSearch'
@@ -262,7 +261,7 @@ function WishlistItemEditModal({ item, onClose, onSaved }) {
   )
 }
 
-function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
+function ListBrowser({ folder = null, folders = [], title = '', onBack, onDelete }) {
   const { price_source, default_sort, grid_density } = useSettings()
   const { user } = useAuth()
   const toast = useToast()
@@ -282,7 +281,6 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
   const [showImport, setShowImport]       = useState(false)
   const [importText, setImportText]       = useState('')
   const [showExport, setShowExport]       = useState(false)
-  const [showShare, setShowShare]         = useState(false)
   const [editItem, setEditItem]           = useState(null)
   const [acquireItem, setAcquireItem]     = useState(null)
   const { viewMode, setViewMode, groupBy, setGroupBy } = useLibraryBrowserPreferences('wishlist')
@@ -622,6 +620,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
       <div className={styles.browserDock}>
       <div className={styles.binderHeader}>
         <div className={styles.binderTitleRow}>
+          <div className={styles.binderTitleBlock}>
           {renamingFolder ? (
             <input
               ref={renameInputRef}
@@ -647,13 +646,36 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
           )}
           <div className={styles.binderMeta}>
             <span>{totalQty} wanted</span>
+            <span className={styles.metaSep} aria-hidden="true">·</span>
             <span className={styles.wishlistCost}>Est. cost {formatPrice(totalValue, price_source)}</span>
-            <div className={styles.browserHeaderActionsDesktop}>
-              {!isAllView && <Button variant="secondary" size="sm" onClick={() => setShowShare(true)}><ShareIcon size={12} /> Share</Button>}
-              <Button variant="secondary" size="sm" onClick={() => setShowExport(true)}>↓ Export</Button>
-              {!isAllView && <Button variant="secondary" size="sm" onClick={openImport}>↑ Import</Button>}
-              <Button size="sm" onClick={() => setShowAddCard(true)}>+ Add Cards</Button>
-            </div>
+          </div>
+          </div>
+          <div className={styles.browserHeaderActionsDesktop}>
+            <Button size="sm" onClick={() => setShowAddCard(true)}><AddIcon size={12} /> Add Cards</Button>
+            {isAllView ? (
+              <Button variant="secondary" size="sm" onClick={() => setShowExport(true)}><ExportIcon size={12} /> Export</Button>
+            ) : (
+              <ResponsiveMenu
+                title="Wishlist actions"
+                portal
+                trigger={({ toggle }) => (
+                  <Button variant="secondary" size="sm" onClick={toggle} aria-label="More wishlist actions">
+                    <SettingsIcon size={12} /> More
+                  </Button>
+                )}
+              >
+                {({ close }) => (
+                  <div className={uiStyles.responsiveMenuList}>
+                    <button className={uiStyles.responsiveMenuAction} onClick={() => { startRenameFolder(); close() }}><span><EditIcon size={13} /> Rename</span></button>
+                    <button className={uiStyles.responsiveMenuAction} onClick={() => { openImport(); close() }}><span><ImportIcon size={13} /> Import</span></button>
+                    <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowExport(true); close() }}><span><ExportIcon size={13} /> Export</span></button>
+                    {onDelete && (
+                      <button className={`${uiStyles.responsiveMenuAction} ${uiStyles.responsiveMenuActionDanger}`} onClick={() => { onDelete(totalQty === 0); close() }}><span><DeleteIcon size={13} /> Delete wishlist</span></button>
+                    )}
+                  </div>
+                )}
+              </ResponsiveMenu>
+            )}
           </div>
         </div>
         <div className={styles.browserBackRow}>
@@ -681,7 +703,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
       {/* ── Control bar ── */}
       {items.length > 0 && <div className={styles.binderControlBar}>
         <span className={styles.binderCount}>
-          Showing {filtered.length} of {items.length} unique · {totalQty} total cards
+          {filtered.length} of {items.length} unique · {totalQty} total cards
         </span>
         <CardBrowserViewControls
           viewMode={viewMode}
@@ -698,7 +720,8 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
           onToggleSelectMode={toggleSelectMode}
           onImport={!isAllView ? openImport : undefined}
           onExport={() => setShowExport(true)}
-          onShare={!isAllView ? () => setShowShare(true) : undefined}
+          onDelete={!isAllView && onDelete ? () => onDelete(totalQty === 0) : undefined}
+          deleteLabel="Delete wishlist"
           bulkBarVisible={selectMode && selectedItems.size > 0}
         />
       </div>}
@@ -825,7 +848,6 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack }) {
           onSaved={async () => { await invalidateListCaches(); await reload() }}
         />
       )}
-      {showShare && folder && <ShareModal folder={folder} onClose={() => setShowShare(false)} />}
 
       {showImport && user && !isAllView && (
         <ImportModal
@@ -1092,6 +1114,8 @@ export default function ListsPage() {
   const [folderSearch, setFolderSearch] = useState('')
   const [loading, setLoading]           = useState(true)
   const [activeFolder, setActiveFolder] = useState(null)
+  const [confirmDelete, setConfirmDelete] = useState(null)
+  const [deletingWishlist, setDeletingWishlist] = useState(false)
   const [showAllCards, setShowAllCards] = useState(false)
   const [bgTarget, setBgTarget]         = useState(null)
   const [selectMode, setSelectMode]     = useState(false)
@@ -1449,7 +1473,37 @@ export default function ListsPage() {
   )
 
   if (activeFolder) return (
-    <ListBrowser folder={activeFolder} folders={regularFolders} onBack={() => { setActiveFolder(null); loadFolders() }} />
+    <>
+      <ListBrowser
+        folder={activeFolder}
+        folders={regularFolders}
+        onBack={() => { setActiveFolder(null); loadFolders() }}
+        onDelete={(isEmpty) => {
+          if (isEmpty) {
+            deleteFolder(activeFolder).then(() => { setActiveFolder(null); loadFolders() })
+          } else {
+            setConfirmDelete(activeFolder)
+          }
+        }}
+      />
+      {confirmDelete && (
+        <ConfirmModal
+          title="Delete wishlist?"
+          message={`"${confirmDelete.name}" and everything in it will be permanently removed.`}
+          confirmLabel="Delete wishlist"
+          busy={deletingWishlist}
+          onConfirm={async () => {
+            setDeletingWishlist(true)
+            await deleteFolder(confirmDelete)
+            setDeletingWishlist(false)
+            setConfirmDelete(null)
+            setActiveFolder(null)
+            loadFolders()
+          }}
+          onClose={() => setConfirmDelete(null)}
+        />
+      )}
+    </>
   )
 
   if (showAllCards) return (

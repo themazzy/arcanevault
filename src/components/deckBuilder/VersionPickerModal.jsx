@@ -1,49 +1,34 @@
-import { useState, useEffect } from 'react'
-import { fetchPaperPrintings, getCardImageUri } from '../../lib/deckBuilderApi'
+import { useState, useEffect, useRef, useId } from 'react'
+import { fetchPaperPrintings } from '../../lib/deckBuilderApi'
 import { loadLocalPlacementSnapshot, refreshRemotePlacementSnapshot } from '../../lib/deckPlacementData'
 import { overlaySharedCardPrices } from '../../lib/sharedCardPrices'
 import { getPrice, formatPrice } from '../../lib/scryfall'
-import { CAN_HOVER, FOLDER_TAG_COLOR, FOLDER_TAG_BORDER } from '../../lib/deckBuilderConstants'
+import { FOLDER_TAG_COLOR, FOLDER_TAG_BORDER } from '../../lib/folderTagColors'
 import { normalizeCardName } from '../../lib/deckBuilderHelpers'
 import { CloseIcon, FolderTypeIcon } from '../../icons'
 import { formatAttractionLights } from '../../lib/attractions'
+import { Button, useModalKeys } from '../UI'
+import CardThumb from '../CardThumb'
+import styles from './VersionPickerModal.module.css'
 
-function PrintingLocationTags({ locations }) {
+function LocationBadges({ locations }) {
   if (!locations?.length) return null
   const visible = locations.slice(0, 2)
   const extra = locations.length - visible.length
   return (
-    <div style={{ display:'flex', flexWrap:'wrap', justifyContent:'center', gap:4, maxWidth:'100%' }}>
+    <div className={styles.sourceRow}>
       {visible.map((loc, i) => (
         <span
           key={`${loc.type}-${loc.id || loc.name}-${i}`}
+          className={styles.locBadge}
+          style={{ background: FOLDER_TAG_COLOR[loc.type], borderColor: FOLDER_TAG_BORDER[loc.type] }}
           title={`${loc.type}: ${loc.name}${loc.qty ? ` (${loc.qty}x)` : ''}`}
-          style={{
-            maxWidth:'100%',
-            display:'inline-flex',
-            alignItems:'center',
-            gap:4,
-            padding:'2px 6px',
-            borderRadius:3,
-            border:'1px solid',
-            borderColor:FOLDER_TAG_BORDER[loc.type] || FOLDER_TAG_BORDER.binder,
-            background:FOLDER_TAG_COLOR[loc.type] || FOLDER_TAG_COLOR.binder,
-            color:'var(--text-dim)',
-            fontSize:'0.64rem',
-            lineHeight:1.15,
-            fontFamily:'var(--font-serif)',
-            whiteSpace:'nowrap',
-            overflow:'hidden',
-            textOverflow:'ellipsis',
-          }}
         >
-          <span style={{ display:'inline-flex', flexShrink:0 }}>
-            <FolderTypeIcon type={loc.type} size={12} />
-          </span>
-          <span style={{ minWidth:0, overflow:'hidden', textOverflow:'ellipsis' }}>{loc.name}</span>
+          <FolderTypeIcon type={loc.type} size={11} />
+          {loc.name}{loc.qty > 1 ? ` ×${loc.qty}` : ''}
         </span>
       ))}
-      {extra > 0 && <span style={{ fontSize:'0.64rem', color:'var(--text-faint)', padding:'2px 4px' }}>+{extra}</span>}
+      {extra > 0 && <span className={styles.locMore}>+{extra}</span>}
     </div>
   )
 }
@@ -51,8 +36,11 @@ function PrintingLocationTags({ locations }) {
 export default function VersionPickerModal({ dc, ownedMap, userId, priceSource = 'cardmarket_trend', onSelect, onClose }) {
   const [printings, setPrintings] = useState([])
   const [loading, setLoading] = useState(true)
-  const [locationsByScryfallId, setLocationsByScryfallId] = useState(new Map())
-  const [priceByKey, setPriceByKey] = useState(new Map())
+  const [locationsByScryfallId, setLocationsByScryfallId] = useState(() => new Map())
+  const [priceByScryfallId, setPriceByScryfallId] = useState(() => new Map())
+  const modalRef = useRef(null)
+  const titleId = useId()
+  useModalKeys(modalRef, { onClose })
 
   useEffect(() => {
     let cancelled = false
@@ -107,11 +95,10 @@ export default function VersionPickerModal({ dc, ownedMap, userId, priceSource =
                 if (cancelled) return
                 const next = new Map()
                 for (const card of priceCards) {
-                  const key = `${String(card.set_code).toLowerCase()}-${card.collector_number}`
-                  const entry = map[key]
+                  const entry = map[`${String(card.set_code).toLowerCase()}-${card.collector_number}`]
                   if (entry) next.set(card.scryfall_id, entry)
                 }
-                setPriceByKey(next)
+                setPriceByScryfallId(next)
               })
               .catch(err => console.warn('[VersionPicker] shared price load failed:', err?.message || err))
           }
@@ -132,59 +119,61 @@ export default function VersionPickerModal({ dc, ownedMap, userId, priceSource =
     return () => { cancelled = true }
   }, [dc.name, userId, ownedMap])
 
-  const desktopPicker = CAN_HOVER
-  const modalWidth = desktopPicker ? 1120 : 560
-  const tileWidth = desktopPicker ? 156 : 88
-  const imageWidth = desktopPicker ? 140 : 76
-  const imageHeight = desktopPicker ? 196 : 106
-
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', zIndex:700, display:'flex', alignItems:'center', justifyContent:'center' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div style={{ background:'var(--bg-card,#1e1e1e)', border:'1px solid var(--border)', borderRadius:8, padding:20, width:modalWidth, maxWidth:'96vw', maxHeight:'86vh', display:'flex', flexDirection:'column', gap:14 }}>
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-          <span style={{ fontFamily:'var(--font-display)', color:'var(--gold)', fontSize:'0.95rem' }}>
-            Choose version - {dc.name}
-          </span>
-          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.1rem', cursor:'pointer' }}><CloseIcon size={13} /></button>
+    <div className={styles.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div ref={modalRef} className={styles.modal} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
+        <div className={styles.header}>
+          <div style={{ minWidth: 0 }}>
+            <div id={titleId} className={styles.title}>Choose version</div>
+            <div className={styles.subtitle}>Pick which printing of {dc.name} to use. Hover or tap a card to enlarge it.</div>
+          </div>
+          <button onClick={onClose} className={styles.closeBtn} aria-label="Close"><CloseIcon size={13} /></button>
         </div>
-        {loading
-          ? <div style={{ color:'var(--text-faint)', fontSize:'0.85rem', padding:'20px 0', textAlign:'center' }}>Loading printings...</div>
-          : (
-            <div style={{ overflowY:'auto', display:'flex', flexWrap:'wrap', gap:desktopPicker ? 14 : 10 }}>
+
+        <div className={styles.body}>
+          {loading ? (
+            <div className={styles.loading}>Loading printings…</div>
+          ) : (
+            <div className={styles.grid}>
               {printings.map(p => {
-                const img = getCardImageUri(p, 'normal')
+                const owned = ownedMap.get(p.id) ?? 0
                 const isActive = p.id === dc.scryfall_id
                 const locations = locationsByScryfallId.get(p.id) || []
-                const priceEntry = priceByKey.get(p.id)
-                const lights = formatAttractionLights(p)
+                const priceEntry = priceByScryfallId.get(p.id)
                 const priceValue = priceEntry ? getPrice(priceEntry, !!dc.foil, { price_source: priceSource }) : null
+                const lights = formatAttractionLights(p)
                 return (
-                  <button key={p.id} onClick={() => onSelect(p)}
-                    style={{
-                      background: isActive ? 'rgba(201,168,76,0.12)' : 'var(--s2)',
-                      border: `1px solid ${isActive ? 'rgba(201,168,76,0.5)' : 'var(--s-border2)'}`,
-                      borderRadius:6, padding:desktopPicker ? 10 : 6, cursor:'pointer', display:'flex', flexDirection:'column',
-                      alignItems:'center', gap:desktopPicker ? 8 : 6, width:tileWidth, flexShrink:0, transition:'all 0.13s',
-                    }}>
-                    {img
-                      ? <img src={img} alt={p.set_name} style={{ width:imageWidth, height:imageHeight, objectFit:'cover', borderRadius:4 }} loading="lazy" />
-                      : <div style={{ width:imageWidth, height:imageHeight, background:'var(--s3)', borderRadius:4 }} />
-                    }
-                    <div style={{ fontSize:desktopPicker ? '0.78rem' : '0.62rem', color: isActive ? 'var(--gold)' : 'var(--text-dim)', textAlign:'center', lineHeight:1.25, wordBreak:'break-word' }}>
-                      {p.set_name}{p.collector_number ? ` #${p.collector_number}` : ''}
-                      {lights ? <><br />Lights {lights}</> : null}
+                  <div key={p.id} className={`${styles.tile} ${isActive ? styles.tileSelected : ''}`}>
+                    <CardThumb scryfallId={p.id} name={p.set_name} variant="card" fill />
+                    <div className={styles.info}>
+                      <div className={styles.setName}>{p.set_name}{p.collector_number ? ` #${p.collector_number}` : ''}</div>
+                      <div className={styles.availRow}>
+                        <span className={styles.meta}>{owned > 0 ? `${owned}× owned` : 'Not owned'}</span>
+                        <span className={`${styles.price} ${priceValue == null ? styles.priceNa : ''}`}>
+                          {priceValue != null ? formatPrice(priceValue, priceSource) : '—'}
+                        </span>
+                      </div>
+                      {lights && <div className={styles.lights}>Lights {lights}</div>}
+                      <LocationBadges locations={locations} />
                     </div>
-                    <div style={{ fontSize:desktopPicker ? '0.78rem' : '0.66rem', color: priceValue != null ? 'var(--green)' : 'var(--text-faint)', fontVariantNumeric:'tabular-nums' }}>
-                      {priceValue != null ? formatPrice(priceValue, priceSource) : '—'}
-                    </div>
-                    <PrintingLocationTags locations={locations} />
-                  </button>
+                    <Button
+                      variant={isActive ? 'primary' : 'secondary'}
+                      size="sm"
+                      block
+                      onClick={() => onSelect(p)}
+                    >
+                      {isActive ? 'Current version' : 'Use this version'}
+                    </Button>
+                  </div>
                 )
               })}
             </div>
-          )
-        }
+          )}
+        </div>
+
+        <div className={styles.footer}>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+        </div>
       </div>
     </div>
   )

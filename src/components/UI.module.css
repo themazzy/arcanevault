@@ -625,13 +625,22 @@
   .modal { padding: 16px; border-radius: 4px; }
 }
 .closeBtn {
-  position: absolute; top: 14px; right: 14px;
+  position: absolute; top: 6px; right: 6px;
   background: none; border: none;
-  color: var(--text-dim); font-size: 1.3rem;
-  cursor: pointer; transition: color 0.2s; line-height: 1;
+  color: var(--text-dim);
+  cursor: pointer; transition: color 0.2s, background 0.2s;
   z-index: 10;
+  /* Icon stays 13px; the button carries a real (mostly invisible) tap target. */
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px;
+  border-radius: var(--radius-xs);
 }
-.closeBtn:hover { color: var(--gold); }
+.closeBtn:hover { color: var(--gold); background: var(--s-medium); }
+
+@media (max-width: 900px) {
+  /* 44px comfortable touch target on touch-sized screens. */
+  .closeBtn { width: 44px; height: 44px; }
+}
 
 /* Section header */
 .sectionHeader {

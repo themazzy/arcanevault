@@ -110,19 +110,19 @@ Deck share links are the direct `https://deckloom.app/d/<id>` URL (built via `ge
 
 ## Architecture
 
-### Data Flow — Offline-First
+### Data Flow — IDB-Cached, Network-Synced
 
-The most important architectural principle: **IDB is the primary data store; Supabase is the sync backend.**
+The core principle: **Supabase is the authoritative source; IDB is a read cache that seeds an instant first render.** The app is **not** offline-first — reads require connectivity. Fetchers call `assertOnline()` and throw `createOfflineError()` when `navigator.onLine` is false. (Offline-first reads were dropped deliberately: a warm local cache caused stale-data and multi-device coherency problems.)
 
 ```
 User action
   → write to Supabase (authoritative source)
-  → sync pulled into IDB on next load
-  → all reads come from IDB (instant, offline-capable)
+  → IDB seeds the next load's first paint from the last sync
+  → reads re-fetch from Supabase (network required) and write through to IDB
 ```
 
-- `src/lib/db.js` — All IndexedDB access. Use `getLocalCards(userId)`, `getLocalFolders(userId)`, `getAllLocalFolderCards(folderIds)` for reads. `replaceLocalFolderCards(folderIds, rows)` is the bulk-reconcile helper. Never bypass IDB for performance-critical pages.
-- `src/lib/supabase.js` — Exports the `sb` singleton. Used for auth + cloud sync fallback only.
+- `src/lib/db.js` — All IndexedDB access. Use `getLocalCards(userId)`, `getLocalFolders(userId)`, `getAllLocalFolderCards(folderIds)` for reads. `replaceLocalFolderCards(folderIds, rows)` is the bulk-reconcile helper. IDB is the first-paint cache, not an offline store — a real fetch still follows.
+- `src/lib/supabase.js` — Exports the `sb` singleton. Authoritative for all cloud reads/writes plus auth.
 - `src/lib/scryfall.js` — Scryfall metadata/art cache. `getInstantCache()` returns in-memory map (null if cold); always guard with `sfMap || {}`.
 
 **React Query layer:** Collection data loading is migrated to **TanStack React Query** (`@tanstack/react-query`). The `queryClient` is in `src/lib/queryClient.js` (staleTime 5 min, gcTime 30 min, networkMode `offlineFirst`). On startup, `hydrateCollectionQueriesFromIdb()` from `src/lib/idbQueryBridge.js` seeds the cache from IDB so the first render is instant. Query keys: `['cards', userId]`, `['folders', userId]`. Pages that previously read IDB directly may now use `useQuery` hooks backed by `src/lib/collectionFetchers.js`.
@@ -227,7 +227,7 @@ Format legality and commander color identity checks are in `src/lib/deckLegality
 
 Wishlists are not part of owned collection inventory.
 
-**Collaborative sharing:** wishlists share via the same `shared_folders` token as binders/decks (`components/ShareModal.jsx`, used by both Folders and Lists). On the public `/share/:token` page, a `list`-type folder renders the collaborative wishlist view: items + per-viewer claim flags come from the `get_shared_wishlist(token)` SECURITY DEFINER RPC, and viewers toggle "I'll get this" via `toggle_wishlist_claim(token, item_id, claimed)`. Both RPCs are authenticated-only (Share.jsx requires sign-in) and gated by the token resolving to the item's folder. `list_items.claimed_by`/`claimed_at` hold claims. The list **owner is shown no claim state** (preserves the gift surprise) and cannot claim their own list; claims never reveal the claimer's identity to other viewers.
+**Sharing is retired:** wishlists no longer have a Share action — it was removed from `ListBrowser` (Lists.jsx) along with the deck/binder Share buttons. Collaborative wishlist sharing via `/share/:token` was replaced by the per-user **Trade Post** (`/trade/:username`, in Trading). `Share.jsx` early-returns for a `list`-type folder and only shows a "Wishlist sharing has moved — ask the owner for their trade post link" notice; it no longer renders items or claim state. The old `get_shared_wishlist(token)` / `toggle_wishlist_claim(...)` RPCs and `list_items.claimed_by`/`claimed_at` are dead paths — don't re-wire a folder Share button to them. To let others see what someone wants, point them at the Trade Post.
 
 **Auto-sync with collection** (`src/lib/wishlistSync.js`): `removeAcquiredFromWishlists()` drops a wishlist item when its exact print+foil is acquired (wired into AddCardModal + ImportModal collection saves, dispatches `av:wishlist-updated`); wishlist imports skip cards already owned by name (`findOwnedCardNames()`).
 
@@ -296,7 +296,7 @@ A linked collection deck navigates to `/builder/<linked_builder_id>` rather than
 | `src/lib/scryfall.js` | Scryfall metadata/image cache + batch lookup helpers |
 | `src/lib/sharedCardPrices.js` | Overlays shared Supabase daily prices onto cached Scryfall card data |
 | `src/lib/filterWorker.js` | Web Worker: filter + sort logic |
-| `src/lib/queryClient.js` | TanStack React Query client (staleTime 5m, gcTime 30m, offline-first) |
+| `src/lib/queryClient.js` | TanStack React Query client (staleTime 5m, gcTime 30m, `networkMode: 'offlineFirst'` — serves cached data first, still fetches) |
 | `src/lib/collectionFetchers.js` | Supabase fetch helpers for cards/folders; `isGroupFolder()` |
 | `src/lib/idbQueryBridge.js` | `hydrateCollectionQueriesFromIdb()` — seeds React Query cache from IDB at startup |
 | `src/lib/deckData.js` | `fetchDeckCards()` from `deck_cards_view`; `mergeAllocationRows()` |

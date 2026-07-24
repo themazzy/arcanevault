@@ -5,9 +5,6 @@ import { sb } from '../lib/supabase'
 import { getScryfallKey, getPrice, formatPrice, getInstantCache, SCRYFALL_CACHE_TTL_MS } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getLocalCards, putCards, deleteCard, deleteAllCards, putFolderCards, getLocalFolders, putFolders, setMeta, getMeta, deleteFolder as deleteLocalFolder, replaceLocalFolderCards, putDeckAllocations, replaceDeckAllocations, deleteDeckAllocationsByCardIds, deleteFolderCardsByCardIds } from '../lib/db'
-import { parseManaboxCSV } from '../lib/csvParser'
-import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
-import { toOwnedCardRow, toListItemRow } from '../lib/deckBuilderWrites'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { useToast } from '../components/ToastContext'
@@ -21,7 +18,7 @@ import ExportModal from '../components/ExportModal'
 import ImportModal from '../components/ImportModal'
 import styles from './Collection.module.css'
 import uiStyles from '../components/UI.module.css'
-import { pruneUnplacedCards } from '../lib/collectionOwnership'
+import { pruneUnplacedCards, findUnplacedCardIds } from '../lib/collectionOwnership'
 import { hydrateCollectionQueriesFromIdb } from '../lib/idbQueryBridge'
 import { fetchCollectionCards, fetchFolders, fetchFolderPlacements, fetchSfMap } from '../lib/collectionFetchers'
 import { isNetworkLikeError } from '../lib/networkUtils'
@@ -212,7 +209,6 @@ export default function CollectionPage() {
   const [gridScrolled, setGridScrolled] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
   const [importModalText, setImportModalText] = useState('')
-  const [importing, setImporting] = useState(false)
   const [selectMode, setSelectMode] = useState(false)
   const { viewMode, setViewMode } = useLibraryBrowserPreferences('collection', { allowedViews: COLLECTION_VIEW_MODES })
   const [selected, setSelected] = useState(new Set())
@@ -384,7 +380,12 @@ export default function CollectionPage() {
 
   useEffect(() => {
     if (!placementsQuery.isSuccess) return
-    const placementFolders = folders.length ? folders : (foldersQuery.data || [])
+    // Prefer the folders fetched WITH the placements (same snapshot) so a
+    // just-created binder's rows aren't dropped by buildCardFolderMap while the
+    // component's `folders` state is still catching up.
+    const placementFolders = placementsQuery.data?.folders?.length
+      ? placementsQuery.data.folders
+      : (folders.length ? folders : (foldersQuery.data || []))
     const placementFolderIds = placementFolders.filter(f => f.type === 'binder').map(f => f.id)
     const deckIds = placementFolders.filter(f => f.type === 'deck').map(f => f.id)
     const folderCards = placementsQuery.data?.folderCards || []
@@ -629,14 +630,20 @@ export default function CollectionPage() {
   useEffect(() => {
     if (loading || folderMembershipLoading || !isOnline || !folderMembershipSynced || !cards.length || orphanCheckDone.current) return
     orphanCheckDone.current = true
-    const orphans = cards.filter(c => !cardFolderMap[c.id]?.length)
-    if (!orphans.length) return
+    // Judge "placed" from the raw placement rows, not the folder-resolved
+    // cardFolderMap: buildCardFolderMap drops placements for folders that aren't
+    // in `folders` yet (e.g. a just-created binder), which would otherwise flag
+    // freshly-added cards as orphans and prune them.
+    const orphanIds = findUnplacedCardIds(cards, placementsQuery.data, cardFolderMap)
+    if (!orphanIds.length) return
+    const orphanIdSet = new Set(orphanIds)
+    const orphans = cards.filter(c => orphanIdSet.has(c.id))
 
     let cancelled = false
     ;(async () => {
       try {
-        console.log(`[Collection] Pruning ${orphans.length} unplaced collection cards`)
-        const prunedIds = await pruneUnplacedCards(orphans.map(c => c.id))
+        console.log(`[Collection] Pruning ${orphanIds.length} unplaced collection cards`)
+        const prunedIds = await pruneUnplacedCards(orphanIds)
         if (!cancelled && prunedIds.length) {
           const pruned = new Set(prunedIds)
           setCards(prev => prev.filter(c => !pruned.has(c.id)))
@@ -653,191 +660,22 @@ export default function CollectionPage() {
     })()
 
     return () => { cancelled = true }
-  }, [loading, folderMembershipLoading, folderMembershipSynced, cards, cardFolderMap, isOnline])
+  }, [loading, folderMembershipLoading, folderMembershipSynced, cards, cardFolderMap, isOnline, placementsQuery.data])
 
   // ── Import ───────────────────────────────────────────────────────────────────
   const handleImport = useCallback(async (file) => {
     if (blockOfflineChange()) return
     setError('')
     if (file?.name.endsWith('.txt') || file?.name.endsWith('.csv')) {
-      // Text and CSV imports use ImportModal so imports are additive and never clear locations.
+      // Text and CSV imports go through ImportModal: additive, non-destructive,
+      // and it rebuilds the binder/deck/list structure encoded in the CSV.
       const text = await file.text()
       setImportModalText(text)
       setShowImportModal(true)
       return
     }
-    if (!file?.name.endsWith('.csv')) { setError('Please upload a .csv or .txt file.'); return }
-    const text = await file.text()
-    const { cards: parsed, folders } = parseManaboxCSV(text)
-    if (!parsed.length) { setError('No cards found.'); return }
-    setImporting(true)
-
-    const listFolderKeys   = new Set(Object.entries(folders).filter(([, f]) => f.type === 'list').map(([key]) => key))
-    const ownedCards       = parsed.filter(c => !listFolderKeys.has(c._binderKey))
-    const listCards        = parsed.filter(c =>  listFolderKeys.has(c._binderKey))
-    const folderList       = Object.values(folders)
-
-    setProgLabel(`Parsed ${ownedCards.length} owned + ${listCards.length} wishlist cards across ${folderList.length} folders`)
-    await new Promise(r => setTimeout(r, 300))
-
-    // ── Step 1: Upsert all owned cards to Supabase ──────────────────────────
-    // Deduplicate by natural key so each physical card is one DB row
-    const deduped = {}
-    for (const c of ownedCards) {
-      if (deduped[c._localId]) deduped[c._localId].qty += c.qty
-      else deduped[c._localId] = { ...c }
-    }
-    const dedupedCards = Object.values(deduped)
-    const printByScryfallId = await ensureCardPrints(dedupedCards)
-    const dedupedCardsWithPrints = dedupedCards.map(card =>
-      withCardPrint(card, getCardPrint(printByScryfallId, card))
-    )
-
-    const CARD_BATCH = 200
-    for (let i = 0; i < dedupedCardsWithPrints.length; i += CARD_BATCH) {
-      const batch = dedupedCardsWithPrints.slice(i, i + CARD_BATCH).map(c => {
-        const c2 = { ...c, user_id: user.id }
-        if (c2.id == null) delete c2.id
-        delete c2._localId; delete c2._binderName; delete c2._binderKey; return c2
-      })
-      const { error: err } = await sb.from('cards')
-        .upsert(batch.map(toOwnedCardRow), { onConflict: 'user_id,card_print_id,foil,language,condition', ignoreDuplicates: false })
-      if (err) { setError(`Import error: ${err.message}`); setImporting(false); return }
-      setProgLabel(`Saving cards… (${Math.min(i + CARD_BATCH, dedupedCardsWithPrints.length)} / ${dedupedCardsWithPrints.length})`)
-    }
-
-    // ── Step 2: Fetch all DB cards to build a lookup map (set-col-foil-lang-cond → id) ─
-    setProgLabel('Building card index…')
-    let allDbCards = [], dbFrom = 0
-    while (true) {
-      // Read via owned_cards_view so set_code/collector_number resolve via card_prints.
-      const { data: page } = await sb.from('owned_cards_view')
-        .select('id,set_code,collector_number,foil,language,condition,card_print_id')
-        .eq('user_id', user.id)
-        .order('id')
-        .range(dbFrom, dbFrom + 999)
-      if (page?.length) allDbCards = [...allDbCards, ...page]
-      if (!page || page.length < 1000) break
-      dbFrom += 1000
-    }
-    // Key: "set_code-collector_number-foil-language-condition" (foil is boolean → "true"/"false")
-    const cardKeyMap = {}
-    for (const c of allDbCards) {
-      cardKeyMap[`${c.card_print_id || `${c.set_code}-${c.collector_number}`}-${c.foil}-${c.language}-${c.condition}`] = c.id
-    }
-
-    // ── Step 3: Create folders and link their cards ──────────────────────────
-    let folderOk = 0, folderFail = 0, totalMissed = 0
-
-    for (let fi = 0; fi < folderList.length; fi++) {
-      const folder = folderList[fi]
-      setProgLabel(`Linking ${folder.type}s… (${fi + 1}/${folderList.length}) — ${folder.name}`)
-
-      // Upsert folder row (create if missing, return id either way)
-      const { data: folderData, error: fe } = await sb.from('folders')
-        .upsert({ user_id: user.id, name: folder.name, type: folder.type }, { onConflict: 'user_id,name,type' })
-        .select('id').single()
-      if (fe || !folderData) {
-        console.error(`[Import] Folder upsert failed for "${folder.name}":`, fe?.message)
-        folderFail++
-        continue
-      }
-
-      // ── Wishlist ────────────────────────────────────────────────────────────
-      if (folder.type === 'list') {
-        const items = folder.cards.map(c => ({
-          folder_id: folderData.id, user_id: user.id,
-          name: c.name, set_code: c.set_code,
-          collector_number: c.collector_number,
-          scryfall_id: c.scryfall_id || null,
-          card_print_id: getCardPrint(printByScryfallId, c)?.id || null,
-          foil: c.foil, qty: c.qty,
-        }))
-        if (items.length) {
-          const { error: lie } = await sb.from('list_items')
-            .upsert(items.map(toListItemRow), { onConflict: 'folder_id,card_print_id,foil', ignoreDuplicates: false })
-          if (lie) { console.error(`[Import] list_items failed for "${folder.name}":`, lie.message); folderFail++ }
-          else folderOk++
-        }
-        continue
-      }
-
-      // ── Binder / Deck ───────────────────────────────────────────────────────
-      // Map each CSV card to its DB id; deduplicate within this folder by card_id
-      const qtyByCardId = {}
-      let missed = 0
-      for (const c of folder.cards) {
-        const cardPrintId = getCardPrint(printByScryfallId, c)?.id || null
-        const key = `${cardPrintId || `${c.set_code}-${c.collector_number}`}-${c.foil}-${c.language}-${c.condition}`
-        const cid = cardKeyMap[key]
-        if (!cid) {
-          console.warn(`[Import] No DB row for "${c.name}" (${key}) in "${folder.name}"`)
-          missed++
-          continue
-        }
-        qtyByCardId[cid] = (qtyByCardId[cid] ?? 0) + c.qty
-      }
-      totalMissed += missed
-
-      const newLinks = Object.entries(qtyByCardId).map(([cid, qty]) => (
-        folder.type === 'deck'
-          ? {
-              id:      crypto.randomUUID(),
-              deck_id: folderData.id,
-              user_id: user.id,
-              card_id: cid,
-              qty,
-            }
-          : {
-              id:        crypto.randomUUID(),
-              folder_id: folderData.id,
-              card_id:   cid,
-              qty,
-            }
-      ))
-
-      if (!newLinks.length) {
-        console.warn(`[Import] 0 cards could be mapped for "${folder.name}" (${missed} missed)`)
-        folderFail++
-        continue
-      }
-
-      // Delete old links then re-insert fresh — avoids any constraint ambiguity
-      // and makes re-imports idempotent for this folder.
-      const placementTable = folder.type === 'deck' ? 'deck_allocations' : 'folder_cards'
-      const placementKey = folder.type === 'deck' ? 'deck_id' : 'folder_id'
-      const { data: oldLinks } = await sb.from(placementTable).select('card_id').eq(placementKey, folderData.id)
-      const { error: delErr } = await sb.from(placementTable).delete().eq(placementKey, folderData.id)
-      if (delErr) console.warn(`[Import] Could not clear old cards for "${folder.name}":`, delErr.message)
-
-      // Batch the inserts (Supabase/PostgREST limit ~1 MB per request)
-      const FC_BATCH = 500
-      let batchOk = true
-      for (let bi = 0; bi < newLinks.length; bi += FC_BATCH) {
-        const { error: fce } = await sb.from(placementTable).insert(newLinks.slice(bi, bi + FC_BATCH))
-        if (fce) {
-          console.error(`[Import] ${placementTable} insert failed for "${folder.name}" batch ${bi}:`, fce.message)
-          batchOk = false; break
-        }
-      }
-      try {
-        await pruneUnplacedCards((oldLinks || []).map(row => row.card_id))
-      } catch (err) {
-        console.warn(`[Import] Could not prune orphaned cards for "${folder.name}":`, err.message)
-      }
-      if (batchOk) folderOk++
-      else folderFail++
-    }
-
-    // ── Done ────────────────────────────────────────────────────────────────
-    let msg = `Done — ${dedupedCardsWithPrints.length} cards, ${folderOk}/${folderList.length} folders linked`
-    if (totalMissed > 0) msg += ` (${totalMissed} card rows not matched)`
-    if (folderFail > 0) setError(`${folderFail} folder(s) failed to link — check the browser console for details.`)
-    setProgLabel(msg)
-    setTimeout(() => setProgLabel(''), 8000)
-    setImporting(false)
-    invalidateCollectionQueries()
-  }, [user.id, invalidateCollectionQueries, blockOfflineChange])
+    setError('Please upload a .csv or .txt file.')
+  }, [blockOfflineChange])
 
   // ── Bulk delete ──────────────────────────────────────────────────────────────
   const handleBulkDelete = async () => {
@@ -1452,7 +1290,7 @@ export default function CollectionPage() {
       )}
 
       <ErrorBox>{error}</ErrorBox>
-      {importing && <ProgressBar value={progress} label={progLabel} />}
+      {enriching && progLabel && <ProgressBar value={progress} label={progLabel} />}
 
       {cards.length > 0 && <>
         <div className={`${styles.gridHeader}${gridScrolled ? ' ' + styles.gridHeaderHidden : ''}`}>

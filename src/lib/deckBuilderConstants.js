@@ -14,16 +14,10 @@ export const RARITY_COLORS = {
   common: 'var(--text-faint)',
 }
 
-export const FOLDER_TAG_COLOR = {
-  binder: 'rgba(201,168,76,0.18)',
-  deck: 'rgba(138,111,196,0.18)',
-  list: 'rgba(100,180,100,0.15)',
-}
-export const FOLDER_TAG_BORDER = {
-  binder: 'rgba(201,168,76,0.35)',
-  deck: 'rgba(138,111,196,0.35)',
-  list: 'rgba(100,180,100,0.3)',
-}
+// Canonical folder-tag tints live in folderTagColors.js (shared with the
+// collection card map). Re-exported here so existing deck-builder importers keep
+// working from one source of truth.
+export { FOLDER_TAG_COLOR, FOLDER_TAG_BORDER } from './folderTagColors'
 
 export const BOARD_ORDER = ['main', 'attraction', 'side', 'maybe']
 export const BOARD_LABELS = {

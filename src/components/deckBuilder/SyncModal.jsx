@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useId } from 'react'
 import { CloseIcon } from '../../icons'
 import { sb } from '../../lib/supabase'
 import { getLocalCards } from '../../lib/db'
 import { buildDeckAllocationViewRows, loadLocalPlacementSnapshot } from '../../lib/deckPlacementData'
-import { Select } from '../UI'
+import { Select, Button, Input, useModalKeys } from '../UI'
+import styles from './SyncModal.module.css'
 import { isGroupFolder, normalizeBoard } from '../../lib/deckBuilderHelpers'
 import { getSyncState, buildSyncDiff, getLogicalKey } from '../../lib/deckSync'
 import { planDeckAllocations } from '../../lib/deckAllocationPlanner'
@@ -11,7 +12,6 @@ import {
   buildChosenAllocations,
   buildChosenPrintingSelections,
   formatOwnedPrinting,
-  formatQtyLabel,
   formatPlacementLabel,
   summarizePlacementParts,
   getDecisionCategory,
@@ -19,6 +19,7 @@ import {
   getDecisionOptionLabels,
 } from '../../lib/deckSyncDecisions'
 import PrintingPickerModal from './PrintingPickerModal'
+import CardThumb from '../CardThumb'
 
 export default function SyncModal({ deckId, deckCards, deckMeta, userId, isCollectionDeck, onConfirm, onClose }) {
   const [loading, setLoading] = useState(true)
@@ -34,6 +35,11 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
   const [newWishlistName, setNewWishlistName] = useState('')
   const [chosenOtherCardIds, setChosenOtherCardIds] = useState({})
   const [pickerItem, setPickerItem] = useState(null)
+
+  const modalRef = useRef(null)
+  const titleId = useId()
+  // Escape to close, Tab trapped within the dialog, focus restored on close.
+  useModalKeys(modalRef, { onClose })
 
   // Intentional: modal mounts fresh on each open - one-shot load from current props snapshot.
   useEffect(() => {
@@ -322,14 +328,14 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
     return () => { cancelled = true }
   }, [])
 
-  const overlay = { position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', zIndex:700, display:'flex', alignItems:'center', justifyContent:'center' }
-  const s = { background:'var(--bg3)', border:'1px solid var(--s-border2)', borderRadius:4, padding:'5px 8px', color:'var(--text)', fontSize:'0.83rem' }
-  const secLabel = { fontSize:'0.74rem', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em', color:'var(--text-faint)', marginBottom:6 }
+  // Token-based override passed to the portal Select primitive (className can't
+  // reach its internals; DESIGN.md allows inline token values on primitives).
+  const selectStyle = { background:'var(--bg3)', border:'1px solid var(--s-border2)', borderRadius:'var(--radius-xs)', padding:'6px 9px', color:'var(--text)', fontSize:'0.82rem', width:'100%' }
 
   if (loading) return (
-    <div style={overlay}>
-      <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, padding:32, color:'var(--text-faint)', fontSize:'0.9rem' }}>
-        Comparing deck with collection...
+    <div className={styles.overlay}>
+      <div ref={modalRef} className={styles.panel} role="dialog" aria-modal="true" aria-label="Comparing deck with collection">
+        Comparing deck with collection…
       </div>
     </div>
   )
@@ -362,11 +368,13 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
       .map(i => ({
         key: `changed:${i.allocRow.id}`,
         name: i.dc.name,
+        scryfall_id: i.dc.scryfall_id || i.allocRow?.scryfall_id || null,
         qty: i.oldQty - i.newQty,
       })),
     ...removedSelected.map(r => ({
       key: `removed:${r.allocRow.id}`,
       name: r.name,
+      scryfall_id: r.allocRow?.scryfall_id || null,
       qty: r.allocRow.qty || 0,
     })),
   ]
@@ -400,226 +408,167 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
     printing: formatOwnedPrinting(row.builder || row.collection),
   }))
   const collectionDeckLabel = `Collection Deck${deckMeta?.name ? `: ${deckMeta.name}` : ''}`
-  const moveOutDestinationLabel = selectedMoveTarget ? formatPlacementLabel(selectedMoveTarget) : 'Select destination'
   const moveInCopyCount = ownedAdded.reduce((sum, item) => sum + (item.totalAdd || 0), 0)
     + increaseRows.reduce((sum, item) => sum + Math.max(0, (item.newQty || 0) - (item.oldQty || 0)), 0)
   const moveOutCopyCount = movedOwnedRows.reduce((sum, row) => sum + (row.qty || 0), 0)
   const missingCopyCount = unownedAdded.reduce((sum, item) => sum + (item.missingQty || 0), 0)
 
   if (!hasChanges && !remoteReady) return (
-    <div style={overlay}>
-      <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, padding:32, color:'var(--text-faint)', fontSize:'0.9rem' }}>
-        Refreshing collection placements...
+    <div className={styles.overlay}>
+      <div ref={modalRef} className={styles.panel} role="dialog" aria-modal="true" aria-label="Refreshing collection placements">
+        Refreshing collection placements…
       </div>
     </div>
   )
 
   if (!hasChanges) return (
-    <div style={overlay} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, padding:32, width:380, display:'flex', flexDirection:'column', gap:16 }}>
-        <span style={{ fontFamily:'var(--font-display)', color:'var(--gold)' }}>Update Collection Deck</span>
-        <p style={{ color:'var(--text-dim)', fontSize:'0.85rem', margin:0 }}>No sync differences found.</p>
-        <div style={{ display:'flex', justifyContent:'flex-end' }}>
-          <button onClick={onClose} style={{ background:'none', border:'1px solid var(--s-border2)', borderRadius:4, padding:'7px 16px', color:'var(--text-dim)', fontSize:'0.83rem', cursor:'pointer' }}>Close</button>
+    <div className={styles.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div ref={modalRef} className={styles.panel} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <span id={titleId} className={styles.panelTitle}>Sync collection deck</span>
+        <p className={styles.panelText}>Your builder list and the collection deck already match — nothing to sync.</p>
+        <div className={styles.panelActions}>
+          <Button variant="secondary" onClick={onClose}>Close</Button>
         </div>
       </div>
     </div>
   )
 
   return (
-    <div style={overlay} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:8, width:760, maxWidth:'96vw', maxHeight:'90vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
-        <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--s-border)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-          <span style={{ fontFamily:'var(--font-display)', color:'var(--gold)', fontSize:'1rem' }}>Update Collection Deck</span>
-          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-faint)', fontSize:'1.2rem', cursor:'pointer' }}><CloseIcon size={13} /></button>
+    <div className={styles.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div ref={modalRef} className={styles.modal} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
+        <div className={styles.header}>
+          <div style={{ minWidth: 0 }}>
+            <div id={titleId} className={styles.title}>Sync collection deck</div>
+            <div className={styles.subtitle}>Your Deck Builder list and {collectionDeckLabel} have drifted apart. For each card below, choose which side to update — move owned copies to match the builder, change the builder to match your collection, or leave it as-is.</div>
+          </div>
+          <button onClick={onClose} className={styles.closeBtn} aria-label="Close"><CloseIcon size={13} /></button>
         </div>
-        <div style={{ flex:1, overflowY:'auto', minHeight:0, padding:'16px 20px', display:'flex', flexDirection:'column', gap:16 }}>
-          <div style={{ padding:'12px 14px', border:'1px solid var(--s-border2)', borderRadius:8, background:'var(--s1)', display:'flex', flexDirection:'column', gap:6 }}>
-            <div style={{ color:'var(--text)', fontSize:'0.86rem' }}>
-              Sync compares Deck Builder with {collectionDeckLabel}.
-            </div>
-            <div style={{ color:'var(--text-faint)', fontSize:'0.76rem', lineHeight:1.5 }}>
-              Use Deck Builder to move owned cards into or out of the Collection Deck. Use Collection Deck only when the builder list should change and owned cards should stay where they are.
-            </div>
-          </div>
 
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))', gap:10 }}>
-            <div style={{ padding:'12px', border:'1px solid rgba(74,154,90,0.38)', borderRadius:8, background:'rgba(74,154,90,0.08)' }}>
-              <div style={{ color:'var(--text-faint)', fontSize:'0.72rem', textTransform:'uppercase', letterSpacing:'0.06em' }}>Move Into Deck</div>
-              <div style={{ color:'var(--text)', fontSize:'1.1rem', marginTop:4 }}>{moveInCopyCount}</div>
-              <div style={{ color:'var(--text-faint)', fontSize:'0.74rem', marginTop:4 }}>
-                from binders/decks to Collection Deck
-              </div>
+        <div className={styles.body}>
+          {(moveInCopyCount > 0 || moveOutCopyCount > 0 || missingCopyCount > 0 || builderImpactCount > 0) ? (
+            <div className={styles.summaryBar}>
+              {moveInCopyCount > 0 && (
+                <span className={`${styles.chip} ${styles.chipInto}`}><span className={styles.chipNum}>{moveInCopyCount}</span><span className={styles.chipLabel}>into deck</span></span>
+              )}
+              {moveOutCopyCount > 0 && (
+                <span className={`${styles.chip} ${styles.chipOut}`}><span className={styles.chipNum}>{moveOutCopyCount}</span><span className={styles.chipLabel}>out of deck</span></span>
+              )}
+              {missingCopyCount > 0 && (
+                <span className={`${styles.chip} ${styles.chipMissing}`}><span className={styles.chipNum}>{missingCopyCount}</span><span className={styles.chipLabel}>missing</span></span>
+              )}
+              {builderImpactCount > 0 && (
+                <span className={styles.chip}><span className={styles.chipNum}>{builderImpactCount}</span><span className={styles.chipLabel}>list only</span></span>
+              )}
             </div>
-            <div style={{ padding:'12px', border:'1px solid rgba(224,112,32,0.38)', borderRadius:8, background:'rgba(224,112,32,0.08)' }}>
-              <div style={{ color:'var(--text-faint)', fontSize:'0.72rem', textTransform:'uppercase', letterSpacing:'0.06em' }}>Too Many In Deck</div>
-              <div style={{ color:'var(--text)', fontSize:'1.1rem', marginTop:4 }}>{moveOutCopyCount}</div>
-              <div style={{ color:'var(--text-faint)', fontSize:'0.74rem', marginTop:4 }}>
-                from Collection Deck to chosen place
-              </div>
-            </div>
-            <div style={{ padding:'12px', border:'1px solid rgba(224,92,92,0.38)', borderRadius:8, background:'rgba(224,92,92,0.08)' }}>
-              <div style={{ color:'var(--text-faint)', fontSize:'0.72rem', textTransform:'uppercase', letterSpacing:'0.06em' }}>Missing Cards</div>
-              <div style={{ color:'var(--text)', fontSize:'1.1rem', marginTop:4 }}>{missingCopyCount}</div>
-              <div style={{ color:'var(--text-faint)', fontSize:'0.74rem', marginTop:4 }}>
-                not owned, optional wishlist
-              </div>
-            </div>
-            <div style={{ padding:'12px', border:'1px solid var(--s-border2)', borderRadius:8, background:'var(--bg3)' }}>
-              <div style={{ color:'var(--text-faint)', fontSize:'0.72rem', textTransform:'uppercase', letterSpacing:'0.06em' }}>Deck List Only</div>
-              <div style={{ color:'var(--text)', fontSize:'1.1rem', marginTop:4 }}>{builderImpactCount}</div>
-              <div style={{ color:'var(--text-faint)', fontSize:'0.74rem', marginTop:4 }}>collection cards stay put</div>
-            </div>
-          </div>
+          ) : (
+            <div className={styles.emptyNote}>No changes selected yet — pick an action for the cards below.</div>
+          )}
 
-          <div>
-            <div style={secLabel}>Card Decisions</div>
-            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+          {commanderRiskRows.length > 0 && (
+            <div className={styles.warn}>
+              {commanderRiskRows.map(row => (
+                <div key={`commander-${row.key}`} className={styles.warnItem}>
+                  <b>{row.builder?.name || row.collection?.name || 'Card'}</b> — this choice may remove or leave unresolved commander status in the builder.
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className={styles.section}>
+            <div className={styles.sectionHead}>
+              <div className={styles.sectionLabel}>Cards to resolve</div>
+              <label className={styles.toggle}>
+                <input type="checkbox" checked={exactVersionOnly} onChange={e => setExactVersionOnly(e.target.checked)} />
+                Exact printing only
+              </label>
+            </div>
+            {!exactVersionOnly && (
+              <div className={styles.sectionHint}>Any owned printing can be pulled in when the exact one isn’t available (ManaBox-style).</div>
+            )}
+            <div className={styles.decisionList}>
               {decisionRows.map(row => {
                 const name = row.builder?.name || row.collection?.name || 'Card'
-                const label = row.category === 'builderOnly'
-                  ? 'Needed by Deck Builder'
+                const tag = row.category === 'builderOnly'
+                  ? 'In builder only'
                   : row.category === 'collectionOnly'
-                    ? 'Only in Collection Deck'
-                    : 'Different quantities'
+                    ? 'In deck only'
+                    : 'Qty differs'
                 const optionLabels = getDecisionOptionLabels(row, { addedByKey })
+                const addItem = row.resolution === 'builder' ? addedByKey.get(row.key) : null
+                const showMoveIn = addItem && addItem.totalAdd > 0 && !!addItem.allocations?.length
+                const canPickPrinting = addItem && !exactVersionOnly && (addItem.otherCandidates?.length || 0) > 1
                 return (
-                  <div key={row.key} style={{ display:'grid', gridTemplateColumns:'minmax(0,1fr) 220px', gap:12, alignItems:'center', padding:'10px 12px', border:'1px solid var(--s-border2)', borderRadius:8, background:'var(--bg3)' }}>
-                    <div style={{ minWidth:0, display:'flex', flexDirection:'column', gap:4 }}>
-                      <div style={{ display:'flex', alignItems:'center', gap:8, minWidth:0 }}>
-                        <span style={{ color:'var(--text)', fontSize:'0.85rem', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{name}</span>
-                        {row.builder?.is_commander && (
-                          <span style={{ color:'var(--gold)', fontSize:'0.7rem', border:'1px solid rgba(201,168,76,0.35)', borderRadius:999, padding:'2px 8px', flexShrink:0 }}>Commander</span>
-                        )}
-                        <span style={{ color:'var(--text-faint)', fontSize:'0.72rem', border:'1px solid var(--s-border2)', borderRadius:999, padding:'2px 8px', flexShrink:0 }}>{label}</span>
+                  <div key={row.key} className={styles.decisionRow}>
+                    <CardThumb scryfallId={row.builder?.scryfall_id || row.collection?.scryfall_id} name={name} size={44} />
+                    <div className={styles.rowMain}>
+                      <div className={styles.rowTitleLine}>
+                        <span className={styles.rowName}>{name}</span>
+                        {row.builder?.is_commander && <span className={styles.cmdPill}>Commander</span>}
+                        <span className={styles.typeTag}>{tag}</span>
                       </div>
-                      <div style={{ color:'var(--text-faint)', fontSize:'0.74rem' }}>
-                        {row.printing} · Deck Builder {row.builderQty ?? 0} · Collection Deck {row.collectionQty ?? 0}
+                      <div className={styles.counts}>
+                        <span className={styles.countCell}><span className={styles.countLabel}>Builder</span><span className={styles.countVal}>{row.builderQty ?? 0}</span></span>
+                        <span className={styles.countArrow} aria-hidden="true">⇄</span>
+                        <span className={styles.countCell}><span className={styles.countLabel}>Deck</span><span className={styles.countVal}>{row.collectionQty ?? 0}</span></span>
+                        {row.printing && <span className={styles.countLabel}>· {row.printing}</span>}
                       </div>
-                      <div style={{ color: row.resolution === 'keep' ? 'var(--text-faint)' : 'var(--text-dim)', fontSize:'0.76rem', lineHeight:1.45 }}>
-                        {row.summary}
-                      </div>
+                      <div className={`${styles.consequence} ${row.resolution === 'keep' ? styles.consequenceKeep : ''}`}>{row.summary}</div>
+                      {showMoveIn && (
+                        <div className={styles.moveDetail}>
+                          From <b>{summarizePlacementParts(addItem.allocations.flatMap(r => r.sourceParts || []))}</b> · {addItem.allocations.map(r => `${r.qty}× ${formatOwnedPrinting(r)}`).join(', ')}
+                        </div>
+                      )}
                     </div>
-                    {/* portal: the modal panel is overflow:hidden with a
-                        scrolling body — an inline panel clips. DESIGN.md §6. */}
-                    <Select
-                      value={row.resolution}
-                      onChange={e => setResolutions(prev => ({ ...prev, [row.key]: e.target.value }))}
-                      style={{ ...s, width:'100%' }}
-                      title="Action for this card"
-                      portal
-                    >
-                      <option value="builder">{optionLabels.builder}</option>
-                      <option value="collection">{optionLabels.collection}</option>
-                      <option value="keep">{optionLabels.keep}</option>
-                    </Select>
+                    {/* Actions column (right). Wrapper controls the width — Select
+                        is a portal component and doesn't forward className to its
+                        box. portal: the modal body scrolls (overflow hidden), so
+                        an inline panel clips. DESIGN.md §6. */}
+                    <div className={styles.rowActions}>
+                      <Select
+                        value={row.resolution}
+                        onChange={e => setResolutions(prev => ({ ...prev, [row.key]: e.target.value }))}
+                        style={selectStyle}
+                        title="Action for this card"
+                        portal
+                      >
+                        <option value="builder">{optionLabels.builder}</option>
+                        <option value="collection">{optionLabels.collection}</option>
+                        <option value="keep">{optionLabels.keep}</option>
+                      </Select>
+                      {canPickPrinting && (
+                        <Button variant="secondary" size="sm" block onClick={() => setPickerItem(addItem)}>
+                          Choose printing
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 )
               })}
             </div>
           </div>
 
-          <div>
-            <label style={{ display:'flex', alignItems:'flex-start', gap:8, cursor:'pointer' }}>
-              <input type="checkbox" checked={exactVersionOnly} onChange={e => setExactVersionOnly(e.target.checked)} style={{ accentColor:'var(--gold)', marginTop:2, flexShrink:0 }} />
-              <span>
-                <div style={{ fontSize:'0.84rem', color:'var(--text-dim)' }}>Use specified version only</div>
-                <div style={{ fontSize:'0.75rem', color:'var(--text-faint)' }}>Exact version first. If off, another owned printing can be used, like ManaBox.</div>
-              </span>
-            </label>
-          </div>
-
-          {commanderRiskRows.length > 0 && (
-            <div>
-              <div style={secLabel}>Commander Attention</div>
-              <div style={{ padding:'10px 12px', border:'1px solid rgba(201,168,76,0.28)', borderRadius:8, background:'rgba(201,168,76,0.08)', display:'flex', flexDirection:'column', gap:6 }}>
-                {commanderRiskRows.map(row => (
-                  <div key={`commander-${row.key}`} style={{ color:'var(--text-dim)', fontSize:'0.8rem' }}>
-                    {(row.builder?.name || row.collection?.name || 'Card')}: collection choices may remove or leave unresolved commander status in Deck Builder.
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {(ownedAdded.length > 0 || increaseRows.length > 0) && (
-            <div style={{ border:'1px solid rgba(74,154,90,0.28)', borderRadius:8, background:'rgba(74,154,90,0.05)', padding:12 }}>
-              <div style={secLabel}>Move Into Collection Deck</div>
-              <div style={{ color:'var(--text-faint)', fontSize:'0.74rem', marginBottom:10 }}>
-                Source: owned cards in binders or other decks. Destination: {collectionDeckLabel}.
-              </div>
-              <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                {ownedAdded.map(i => (
-                  <div key={i.dc.id} style={{ padding:'10px 12px', border:'1px solid var(--s-border2)', borderRadius:8, background:'var(--bg3)', display:'flex', flexDirection:'column', gap:5 }}>
-                    <div style={{ display:'flex', justifyContent:'space-between', gap:8, fontSize:'0.84rem', color:'var(--text)' }}>
-                      <span>{i.dc.name}</span>
-                      <span style={{ color:'var(--green, #4a9a5a)' }}>{formatQtyLabel(i.totalAdd)}</span>
-                    </div>
-                    {!!i.allocations?.length && (
-                      <>
-                        <div style={{ color:'var(--text-faint)', fontSize:'0.74rem' }}>
-                          From: {summarizePlacementParts(i.allocations.flatMap(row => row.sourceParts || []))}
-                        </div>
-                        <div style={{ color:'var(--text-faint)', fontSize:'0.74rem' }}>
-                          Printing: {i.allocations.map(row => `${row.qty}x ${formatOwnedPrinting(row)}`).join(', ')}
-                        </div>
-                      </>
-                    )}
-                    {!exactVersionOnly && (i.otherCandidates?.length || 0) > 1 && (
-                      <div>
-                        <button
-                          onClick={() => setPickerItem(i)}
-                          style={{ background:'none', border:'1px solid var(--s-border2)', borderRadius:4, padding:'5px 10px', color:'var(--text-dim)', fontSize:'0.76rem', cursor:'pointer' }}>
-                          Choose owned printing
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-                {increaseRows.map(i => (
-                  <div key={`inc-${i.cardId}:${i.dc.id}`} style={{ display:'flex', flexDirection:'column', gap:4, padding:'8px 10px', border:'1px solid var(--s-border2)', borderRadius:8, background:'var(--bg3)', fontSize:'0.84rem', color:'var(--text)' }}>
-                    <div style={{ display:'flex', justifyContent:'space-between', gap:8 }}>
-                      <span>{i.dc.name}</span>
-                      <span style={{ color:'var(--green, #4a9a5a)', fontSize:'0.78rem' }}>{`add ${i.newQty - i.oldQty}`}</span>
-                    </div>
-                    <div style={{ color:'var(--text-faint)', fontSize:'0.74rem' }}>
-                      From: matching owned copies elsewhere in collection. To: {collectionDeckLabel}.
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
           {movedOwnedRows.length > 0 && (
-            <div style={{ border:'1px solid rgba(224,112,32,0.28)', borderRadius:8, background:'rgba(224,112,32,0.05)', padding:12 }}>
-              <div style={secLabel}>Too Many In Collection Deck</div>
-              <div style={{ color:'var(--text-faint)', fontSize:'0.74rem', marginBottom:8 }}>
-                Source: {collectionDeckLabel}. Destination: {moveOutDestinationLabel}.
+            <div className={`${styles.inputBlock} ${styles.inputBlockRequired}`}>
+              <div className={styles.inputHead}>
+                <div className={styles.sectionLabel}>Where do cards leaving the deck go? <span className={styles.reqStar}>*</span></div>
+                <div className={styles.sectionHint}>{moveOutCopyCount} {moveOutCopyCount === 1 ? 'copy moves' : 'copies move'} out of {collectionDeckLabel}. Pick a binder or deck to hold them.</div>
               </div>
-              <Select value={globalDest} onChange={e => setGlobalDest(e.target.value)} style={{ ...s, width:'100%' }} title="Select destination" portal searchable>
-                <option value="">Select binder or deck</option>
-                {folders.map(folder => (
-                  <option key={folder.id} value={folder.id}>
-                    {folder.type === 'binder' ? 'Binder' : 'Deck'}: {folder.name}
-                  </option>
-                ))}
-              </Select>
-              {selectedMoveTarget && (
-                <div style={{ color:'var(--text-dim)', fontSize:'0.76rem', marginTop:8 }}>
-                  These copies will move from {collectionDeckLabel} to {formatPlacementLabel(selectedMoveTarget)}.
-                </div>
-              )}
-              <div style={{ display:'flex', flexDirection:'column', gap:6, marginTop:10 }}>
+              <div className={styles.inputRow}>
+                <Select value={globalDest} onChange={e => setGlobalDest(e.target.value)} style={selectStyle} title="Select destination" portal searchable>
+                  <option value="">Select binder or deck…</option>
+                  {folders.map(folder => (
+                    <option key={folder.id} value={folder.id}>
+                      {folder.type === 'binder' ? 'Binder' : 'Deck'}: {folder.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div className={styles.movingList}>
                 {movedOwnedRows.map(row => (
-                  <div key={row.key} style={{ display:'flex', flexDirection:'column', gap:3, padding:'8px 10px', border:'1px solid var(--s-border2)', borderRadius:8, background:'var(--bg3)' }}>
-                    <div style={{ display:'flex', justifyContent:'space-between', fontSize:'0.82rem', color:'var(--text)' }}>
-                      <span>{row.name}</span>
-                      <span style={{ color:'var(--text-faint)' }}>{row.qty}x</span>
-                    </div>
-                    <div style={{ color:'var(--text-faint)', fontSize:'0.73rem' }}>
-                      {collectionDeckLabel} to {moveOutDestinationLabel}
-                    </div>
+                  <div key={row.key} className={styles.movingRow}>
+                    <CardThumb scryfallId={row.scryfall_id} name={row.name} size={28} />
+                    <span className={styles.movingName}>{row.name}</span>
+                    <span className={styles.movingQty}>{row.qty}×</span>
                   </div>
                 ))}
               </div>
@@ -627,75 +576,40 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
           )}
 
           {unownedAdded.length > 0 && (
-            <div style={{ border:'1px solid rgba(224,92,92,0.28)', borderRadius:8, background:'rgba(224,92,92,0.05)', padding:12 }}>
-              <div style={secLabel}>Missing Cards</div>
-              <div style={{ color:'var(--text-faint)', fontSize:'0.74rem', marginBottom:8 }}>
-                These are in Deck Builder but no owned copy is available to move into {collectionDeckLabel}.
+            <div className={styles.inputBlock}>
+              <div className={styles.inputHead}>
+                <div className={styles.sectionLabel}>Missing cards</div>
+                <div className={styles.sectionHint}>{missingCopyCount} {missingCopyCount === 1 ? 'copy isn’t' : 'copies aren’t'} owned, so they stay out of the deck. Add them to a wishlist?</div>
               </div>
-              <div style={{ display:'flex', flexDirection:'column', gap:4, marginBottom:10 }}>
+              <div className={styles.movingList}>
                 {unownedAdded.map(item => (
-                  <div key={item.dc.id} style={{ display:'flex', justifyContent:'space-between', fontSize:'0.84rem', color:'var(--text)' }}>
-                    <span>{item.dc.name}</span>
-                    <span style={{ color:'var(--text-faint)', fontSize:'0.78rem' }}>
-                      {item.missingQty || item.dc.qty || 1}x
-                    </span>
+                  <div key={item.dc.id} className={styles.movingRow}>
+                    <CardThumb scryfallId={item.dc.scryfall_id} name={item.dc.name} size={28} />
+                    <span className={styles.movingName}>{item.dc.name}</span>
+                    <span className={styles.movingQty}>{item.missingQty || item.dc.qty || 1}×</span>
                   </div>
                 ))}
               </div>
-              <div style={{ color:'var(--text-faint)', fontSize:'0.74rem', marginBottom:8 }}>
-                These cards are not owned, so they will not be placed into the Collection Deck.
-              </div>
-              <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-                <Select value={wishlistId} onChange={e => setWishlistId(e.target.value)} style={{ ...s, flex:1 }} title="Select wishlist" portal>
+              <div className={styles.inputRow}>
+                <Select value={wishlistId} onChange={e => setWishlistId(e.target.value)} style={selectStyle} title="Select wishlist" portal>
                   <option value="">Skip</option>
                   {wishlists.map(wl => <option key={wl.id} value={wl.id}>{wl.name}</option>)}
-                  <option value="new">+ Create new wishlist...</option>
+                  <option value="new">+ Create new wishlist…</option>
                 </Select>
                 {wishlistId === 'new' && (
-                  <input
+                  <Input
                     autoFocus
                     value={newWishlistName}
                     onChange={e => setNewWishlistName(e.target.value)}
-                    placeholder="Wishlist name..."
+                    placeholder="Wishlist name…"
                     maxLength={100}
-                    style={{ background:'var(--bg3)', border:'1px solid var(--s-border2)', borderRadius:4, padding:'5px 8px', color:'var(--text)', fontSize:'0.83rem', flex:1 }}
                   />
                 )}
               </div>
             </div>
           )}
-
-          {builderUpdateRows.length > 0 && (
-            <div>
-              <div style={secLabel}>Deck List Changes Only</div>
-              <div style={{ color:'var(--text-faint)', fontSize:'0.74rem', marginBottom:8 }}>
-                These decisions change the Deck Builder list to match the current Collection Deck. No collection cards will move.
-              </div>
-              <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-                {builderUpdateRows.map(row => (
-                  <div key={`builder-${row.key}`} style={{ display:'flex', justifyContent:'space-between', gap:8, padding:'8px 10px', border:'1px solid var(--s-border2)', borderRadius:8, background:'var(--bg3)', fontSize:'0.84rem', color:'var(--text)' }}>
-                    <span>{row.collection?.name || row.builder?.name || 'Card'}</span>
-                    <span style={{ color:'var(--text-dim)', fontSize:'0.78rem' }}>{`Deck Builder ${row.builderQty ?? 0} to ${row.collectionQty ?? 0}`}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {unresolvedRows.length > 0 && (
-            <div>
-              <div style={secLabel}>Keep Separate For Now</div>
-              <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
-                {unresolvedRows.map(row => (
-                  <div key={`keep-${row.key}`} style={{ display:'flex', justifyContent:'space-between', fontSize:'0.8rem', color:'var(--text-dim)' }}>
-                    <span>{row.builder?.name || row.collection?.name || 'Card'}</span>
-                    <span>no change</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
+
         {pickerItem && (
           <PrintingPickerModal
             cardName={pickerItem.dc.name}
@@ -708,17 +622,19 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
             onClose={() => setPickerItem(null)}
           />
         )}
-        <div style={{ padding:'12px 20px', borderTop:'1px solid var(--s-border)', display:'flex', gap:8, justifyContent:'space-between', alignItems:'center' }}>
-          <span style={{ fontSize:'0.79rem', color:'var(--text-faint)' }}>
+
+        <div className={styles.footer}>
+          <span className={`${styles.footerStatus} ${(remoteReady && movedOwnedRows.length > 0 && !selectedMoveTarget) ? styles.footerStatusWarn : ''}`}>
             {!remoteReady
               ? 'Refreshing collection placements before decisions can be applied.'
               : movedOwnedRows.length > 0
-              ? (selectedMoveTarget ? `Moving excess cards to ${formatPlacementLabel(selectedMoveTarget)}.` : 'Choose a destination for cards leaving the Collection Deck.')
+              ? (selectedMoveTarget ? `Excess copies move to ${formatPlacementLabel(selectedMoveTarget)}.` : 'Choose where cards leaving the deck should go.')
               : ''}
           </span>
-          <div style={{ display:'flex', gap:8 }}>
-            <button onClick={onClose} style={{ background:'none', border:'1px solid var(--s-border2)', borderRadius:4, padding:'7px 16px', color:'var(--text-dim)', fontSize:'0.83rem', cursor:'pointer' }}>Cancel</button>
-            <button
+          <div className={styles.footerActions}>
+            <Button variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button
+              variant="primary"
               disabled={!canConfirm}
               onClick={() => canConfirm && onConfirm({
                 diff: reviewDiff,
@@ -735,9 +651,9 @@ export default function SyncModal({ deckId, deckCards, deckMeta, userId, isColle
                 },
                 collectionSelections: selectedCollectionRows,
               })}
-              style={{ background:'rgba(74,154,90,0.15)', border:'1px solid rgba(74,154,90,0.4)', borderRadius:4, padding:'7px 16px', color:'var(--green, #4a9a5a)', fontSize:'0.83rem', cursor:canConfirm ? 'pointer' : 'not-allowed', opacity:canConfirm ? 1 : 0.45 }}>
-              {`Apply ${actionCount} Decision${actionCount === 1 ? '' : 's'}`}
-            </button>
+            >
+              {`Apply ${actionCount} decision${actionCount === 1 ? '' : 's'}`}
+            </Button>
           </div>
         </div>
       </div>

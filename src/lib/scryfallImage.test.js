@@ -139,6 +139,14 @@ describe('resolveTileImage', () => {
   it('is null-safe', () => {
     expect(resolveTileImage(null, 244, 1)).toEqual({ src: null, fallback: null })
   })
+
+  // forceTier pins the tier so the card grids always render the 488 WebP,
+  // regardless of the tile size / DPR that would otherwise pick a smaller tier.
+  it('forces the normal WebP when forceTier is "normal", even for a small tile', () => {
+    const { src, fallback } = resolveTileImage(NORMAL, 146, 1, 'normal')
+    expect(src).toBe('https://cards.scryfall.io/grid/front/0/2/02e512b7.webp?1698805228')
+    expect(fallback).toBe(NORMAL)
+  })
 })
 
 describe('getImageUri', () => {

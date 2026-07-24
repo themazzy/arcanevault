@@ -3,6 +3,24 @@ import { deleteCard } from './db'
 
 const PRUNE_BATCH_SIZE = 100
 
+// A card is "placed" if it appears in any folder_cards / deck_allocations row.
+// We check the RAW placement rows rather than a folder-resolved map, because
+// buildCardFolderMap drops placements whose folder metadata hasn't loaded yet
+// (e.g. a just-created binder whose row isn't in the folders cache). Keying
+// orphan detection off the resolved map therefore flags freshly-added cards as
+// unplaced and prunes them. The optional cardFolderMap is an extra "known
+// placed" source (e.g. optimistic post-save patches) — a card is unplaced only
+// when absent from both.
+export function findUnplacedCardIds(cards, placementData, cardFolderMap = {}) {
+  const placedIds = new Set([
+    ...(placementData?.folderCards || []).map(row => row.card_id),
+    ...(placementData?.deckAllocations || []).map(row => row.card_id),
+  ])
+  return (cards || [])
+    .filter(card => !placedIds.has(card.id) && !(cardFolderMap[card.id]?.length))
+    .map(card => card.id)
+}
+
 function chunk(items, size = PRUNE_BATCH_SIZE) {
   const chunks = []
   for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size))

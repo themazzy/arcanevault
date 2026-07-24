@@ -39,7 +39,9 @@ export async function hydrateCollectionQueriesFromIdb(queryClient, userId) {
 
   queryClient.setQueryData(
     ['folderPlacements', userId],
-    { folderCards, deckAllocations },
+    // Seed folders alongside placements so the first paint builds its
+    // card→folder map from one consistent snapshot (matches fetchFolderPlacements).
+    { folders: placementFolders, folderCards, deckAllocations },
     { updatedAt: 0 }
   )
 

@@ -1,0 +1,350 @@
+/* SyncModal — collection-deck sync review.
+   Custom shell (sticky header/body/footer + internal scroll) rather than the
+   auto-height UI.jsx Modal, but a11y (Escape, focus trap, focus restore) comes
+   from useModalKeys. All color via tokens — no hardcoded rgba (DESIGN.md). */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay, rgba(0, 0, 0, 0.75));
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+  z-index: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+/* ── Compact status panels (loading / no-changes) ── */
+.panel {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px 32px;
+  color: var(--text-faint);
+  font-size: 0.9rem;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.panelTitle {
+  font-family: var(--font-display);
+  color: var(--gold);
+  font-size: 1rem;
+}
+.panelText {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  margin: 0;
+  line-height: 1.5;
+}
+.panelActions { display: flex; justify-content: flex-end; }
+
+/* ── Modal shell ── */
+.modal {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  width: 720px;
+  max-width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.header {
+  padding: 15px 20px;
+  border-bottom: 1px solid var(--s-border);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.title {
+  font-family: var(--font-display);
+  color: var(--gold);
+  font-size: 1.05rem;
+  line-height: 1.2;
+}
+.subtitle {
+  color: var(--text-faint);
+  font-size: 0.76rem;
+  line-height: 1.45;
+  margin-top: 4px;
+}
+.closeBtn {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 4px;
+  margin: -4px -4px 0 0;
+  display: flex;
+  border-radius: var(--radius-xs);
+  flex-shrink: 0;
+}
+.closeBtn:hover { color: var(--text); background: var(--s-medium); }
+
+.body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 16px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* ── Net-effect summary chips ── */
+.summaryBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 11px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--s-border2);
+  background: var(--bg3);
+  white-space: nowrap;
+}
+.chipNum {
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1;
+}
+.chipLabel {
+  font-size: 0.74rem;
+  color: var(--text-dim);
+}
+.chipInto {
+  border-color: color-mix(in srgb, var(--green) 38%, transparent);
+  background: color-mix(in srgb, var(--green) 9%, transparent);
+}
+.chipInto .chipNum { color: var(--green); }
+.chipOut {
+  border-color: color-mix(in srgb, var(--orange) 38%, transparent);
+  background: color-mix(in srgb, var(--orange) 9%, transparent);
+}
+.chipOut .chipNum { color: var(--orange); }
+.chipMissing {
+  border-color: color-mix(in srgb, var(--red-bright) 38%, transparent);
+  background: color-mix(in srgb, var(--red-bright) 8%, transparent);
+}
+.chipMissing .chipNum { color: var(--red-bright); }
+
+.emptyNote {
+  color: var(--text-faint);
+  font-size: 0.8rem;
+}
+
+/* ── Section scaffolding ── */
+.section { display: flex; flex-direction: column; gap: 10px; }
+.sectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.sectionLabel {
+  font-size: var(--label-size-lg);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--label-tracking);
+  color: var(--text-faint);
+}
+.sectionHint {
+  color: var(--text-faint);
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
+/* Inline "use specified version only" toggle */
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+.toggle input { accent-color: var(--gold); flex-shrink: 0; }
+.toggleHint {
+  display: block;
+  color: var(--text-faint);
+  font-size: 0.72rem;
+  margin-top: 2px;
+  max-width: 340px;
+}
+
+/* ── Decision rows ── */
+.decisionList { display: flex; flex-direction: column; gap: 8px; }
+.decisionRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 11px 13px;
+  border: 1px solid var(--s-border2);
+  border-radius: var(--radius-sm);
+  background: var(--bg3);
+}
+.rowMain { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+/* Actions column (right): the action select + any secondary action, stacked. */
+.rowActions {
+  width: 210px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rowTitleLine {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  min-width: 0;
+}
+.rowName {
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+.cmdPill {
+  color: var(--gold);
+  font-size: 0.68rem;
+  border: 1px solid color-mix(in srgb, var(--gold) 40%, transparent);
+  background: color-mix(in srgb, var(--gold) 10%, transparent);
+  border-radius: 999px;
+  padding: 2px 8px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.typeTag {
+  color: var(--text-faint);
+  font-size: 0.7rem;
+  border: 1px solid var(--s-border2);
+  border-radius: 999px;
+  padding: 2px 8px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* Builder n ⇄ Deck m counter */
+.counts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  font-size: 0.72rem;
+  color: var(--text-faint);
+}
+.countCell {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.countLabel { color: var(--text-faint); }
+.countVal { color: var(--text-dim); font-weight: 600; font-variant-numeric: tabular-nums; }
+.countArrow { color: var(--text-faint); opacity: 0.7; }
+
+.consequence {
+  font-size: 0.77rem;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+.consequenceKeep { color: var(--text-faint); }
+
+.moveDetail {
+  font-size: 0.73rem;
+  color: var(--text-faint);
+  line-height: 1.45;
+}
+.moveDetail b { color: var(--text-dim); font-weight: 500; }
+
+/* ── Commander warning ── */
+.warn {
+  border: 1px solid color-mix(in srgb, var(--gold) 32%, transparent);
+  background: color-mix(in srgb, var(--gold) 8%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.warnItem { color: var(--text-dim); font-size: 0.78rem; line-height: 1.4; }
+.warnItem b { color: var(--text); font-weight: 600; }
+
+/* ── Input blocks (destination / wishlist) ── */
+.inputBlock {
+  border: 1px solid var(--s-border2);
+  border-radius: var(--radius-sm);
+  background: var(--s1);
+  padding: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.inputBlockRequired {
+  border-color: color-mix(in srgb, var(--orange) 34%, transparent);
+  background: color-mix(in srgb, var(--orange) 6%, transparent);
+}
+.inputHead { display: flex; flex-direction: column; gap: 3px; }
+.inputRow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.inputRow > * { flex: 1 1 180px; min-width: 0; }
+.reqStar { color: var(--orange); }
+
+.movingList { display: flex; flex-direction: column; gap: 5px; }
+.movingRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.79rem;
+  color: var(--text-dim);
+}
+.movingName { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.movingQty { color: var(--text-faint); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+
+/* ── Footer ── */
+.footer {
+  padding: 12px 20px;
+  border-top: 1px solid var(--s-border);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+.footerStatus {
+  font-size: 0.78rem;
+  color: var(--text-faint);
+  line-height: 1.4;
+  min-width: 0;
+}
+.footerStatusWarn { color: var(--orange); }
+.footerActions { display: flex; gap: 8px; flex-shrink: 0; }
+
+@media (max-width: 620px) {
+  /* Thumb + card info stay on the first line; the action select wraps to a
+     full-width line below (flex-wrap + 100% width forces the wrap). */
+  .decisionRow { flex-wrap: wrap; align-items: flex-start; }
+  .rowActions { width: 100%; }
+  .footer { flex-direction: column; align-items: stretch; }
+  .footerActions { justify-content: flex-end; }
+  /* Larger tap target for the close control on touch-sized screens. */
+  .closeBtn { padding: 9px; margin: -7px -7px 0 0; }
+}

@@ -8,7 +8,7 @@ import { lastInputWasTouch } from '../lib/inputType'
 import { countActive } from './CardComponents'
 import uiStyles from './UI.module.css'
 import styles from '../pages/DeckBrowser.module.css'
-import { AddIcon, CheckIcon, ExportIcon, FilterIcon, GridViewIcon, ImportIcon, SettingsIcon, ShareIcon, SortIcon, StacksViewIcon, TextViewIcon, TableViewIcon } from '../icons'
+import { AddIcon, CheckIcon, DeleteIcon, ExportIcon, FilterIcon, GridViewIcon, ImportIcon, SettingsIcon, SortIcon, StacksViewIcon, TextViewIcon, TableViewIcon } from '../icons'
 import { CAT_ORDER, CAT_COLORS, getCardCategoryFromCard } from '../lib/cardCategory'
 import {
   CARD_GRID_DENSITY,
@@ -738,7 +738,7 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onT
   const dpr = useDevicePixelRatio()
   const spec = getCardGridDensity(density)
   const [webpFailed, setWebpFailed] = useState(false)
-  const { src, fallback } = resolveTileImage(getBrowserCardImage(card, sf, 'normal'), spec.px, dpr)
+  const { src, fallback } = resolveTileImage(getBrowserCardImage(card, sf, 'normal'), spec.px, dpr, 'normal')
   const img = webpFailed && fallback ? fallback : src
   const totalQty = card._folder_qty ?? card.qty ?? 1
   const scryfallPrice = getPrice(sf, card.foil, { price_source: priceSource })
@@ -942,7 +942,8 @@ export function CardBrowserViewControls({
   onToggleSelectMode,
   onImport,
   onExport,
-  onShare,
+  onDelete,
+  deleteLabel = 'Delete',
   bulkBarVisible = false,
 }) {
   const activeFilters = countActive(filters)
@@ -1061,9 +1062,9 @@ export function CardBrowserViewControls({
                     <span><ExportIcon size={14} /> Export</span>
                   </button>
                 )}
-                {onShare && (
-                  <button className={uiStyles.responsiveMenuAction} onClick={() => { onShare(); close() }}>
-                    <span><ShareIcon size={14} /> Share</span>
+                {onDelete && (
+                  <button className={`${uiStyles.responsiveMenuAction} ${uiStyles.responsiveMenuActionDanger}`} onClick={() => { onDelete(); close() }}>
+                    <span><DeleteIcon size={14} /> {deleteLabel}</span>
                   </button>
                 )}
                 <div className={uiStyles.responsiveMenuSectionLabel}>View</div>

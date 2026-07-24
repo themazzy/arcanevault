@@ -3,6 +3,9 @@
   width: 100%; max-width: 100%;
   max-height: calc(100dvh - 80px);
   overflow-y: auto;
+  /* Breathing room so the last row's (buttons') border isn't shaved by the
+     overflow clip at fractional browser-zoom levels. */
+  padding-bottom: 4px;
 }
 .title { font-family: var(--font-display); color: var(--gold); font-size: 1rem; font-weight: 600; margin: 0; }
 .hint { font-size: 0.82rem; color: var(--text-dim); margin: 0; line-height: 1.5; }

@@ -9,7 +9,7 @@ vi.mock('./db', () => ({
 }))
 
 const { sb } = await import('./supabase')
-const { removeFolderCardPlacements } = await import('./collectionOwnership')
+const { removeFolderCardPlacements, findUnplacedCardIds } = await import('./collectionOwnership')
 
 // Records every folder_cards delete as { folderId, cardIds }.
 function mockDeleteChain(calls) {
@@ -69,5 +69,43 @@ describe('removeFolderCardPlacements', () => {
     await removeFolderCardPlacements(undefined)
 
     expect(calls).toEqual([])
+  })
+})
+
+describe('findUnplacedCardIds', () => {
+  const cards = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+
+  it('treats a card with a folder_cards row as placed even when the folder is not in the resolved map', () => {
+    // The regression: a just-created binder's placement exists in the raw rows,
+    // but buildCardFolderMap dropped it because the binder is not in `folders`
+    // yet, leaving cardFolderMap empty for that card. It must NOT be pruned.
+    const placementData = { folderCards: [{ card_id: 'a' }], deckAllocations: [] }
+    expect(findUnplacedCardIds(cards, placementData, {})).toEqual(['b', 'c'])
+  })
+
+  it('treats a card with a deck_allocations row as placed', () => {
+    const placementData = { folderCards: [], deckAllocations: [{ card_id: 'b' }] }
+    expect(findUnplacedCardIds(cards, placementData, {})).toEqual(['a', 'c'])
+  })
+
+  it('flags cards with no placement row in either table', () => {
+    const placementData = { folderCards: [{ card_id: 'a' }], deckAllocations: [{ card_id: 'b' }] }
+    expect(findUnplacedCardIds(cards, placementData, {})).toEqual(['c'])
+  })
+
+  it('honors the cardFolderMap as an extra placed source (optimistic patch)', () => {
+    const placementData = { folderCards: [], deckAllocations: [] }
+    const cardFolderMap = { a: [{ id: 'f1' }] }
+    expect(findUnplacedCardIds(cards, placementData, cardFolderMap)).toEqual(['b', 'c'])
+  })
+
+  it('returns everything unplaced when there are no placements at all', () => {
+    expect(findUnplacedCardIds(cards, { folderCards: [], deckAllocations: [] }, {})).toEqual(['a', 'b', 'c'])
+  })
+
+  it('does not crash on missing or empty inputs', () => {
+    expect(findUnplacedCardIds([], undefined)).toEqual([])
+    expect(findUnplacedCardIds(undefined, undefined)).toEqual([])
+    expect(findUnplacedCardIds(cards, null, undefined)).toEqual(['a', 'b', 'c'])
   })
 })

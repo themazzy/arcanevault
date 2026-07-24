@@ -1,0 +1,80 @@
+/* CardThumb — art thumbnail + device-aware full-card preview.
+   Shared across modals; all color via tokens. */
+
+.thumb {
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid var(--s-border2);
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+  background: var(--bg3);
+  cursor: pointer;
+  display: block;
+  line-height: 0;
+}
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.thumb:hover { border-color: color-mix(in srgb, var(--gold) 45%, transparent); }
+.thumb:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.placeholder {
+  flex-shrink: 0;
+  display: block;
+  border-radius: var(--radius-xs);
+  border: 1px dashed var(--s-border2);
+  background: var(--s-medium);
+}
+
+/* Floating hover preview — follows the cursor (mouse devices only). */
+.floating {
+  position: fixed;
+  z-index: 900;
+  pointer-events: none;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.6);
+  border: 1px solid var(--s-border2);
+}
+.floatingImg {
+  display: block;
+  width: 244px;
+  max-width: 40vw;
+  height: auto;
+}
+
+/* Tap / click overlay — centered, dismiss by tapping anywhere or Escape. */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  cursor: pointer;
+  animation: cardThumbFade 0.15s ease-out;
+}
+.overlayImg {
+  max-width: min(360px, 86vw);
+  max-height: 86vh;
+  width: auto;
+  height: auto;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.7);
+}
+
+@keyframes cardThumbFade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .overlay { animation: none; }
+}

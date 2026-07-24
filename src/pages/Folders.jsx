@@ -7,9 +7,9 @@ import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { useToast } from '../components/ToastContext'
 import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
-import { EmptyState, LibraryEmptyState, SectionHeader, Button, Modal, ResponsiveHeaderActions, ResponsiveMenu, Select, SearchInput } from '../components/UI'
-import ShareModal from '../components/ShareModal'
+import { EmptyState, LibraryEmptyState, SectionHeader, Button, Input, Modal, ResponsiveHeaderActions, ResponsiveMenu, Select, SearchInput } from '../components/UI'
 import { isTradeBinder } from '../lib/tradeBinder'
+import { getPublicAppUrl } from '../lib/publicUrl'
 import AddCardModal from '../components/AddCardModal'
 import ImportModal from '../components/ImportModal'
 import ExportModal from '../components/ExportModal'
@@ -563,10 +563,14 @@ function _BinderListView({ cards, sfMap, priceSource }) {
 }
 
 // ── FolderBrowser ─────────────────────────────────────────────────────────────
-function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder', onBack, onCardAdded }) {
-  const { price_source, default_sort, grid_density } = useSettings()
+function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder', onBack, onCardAdded, onDelete }) {
+  const { price_source, default_sort, grid_density, nickname, save: saveSettings } = useSettings()
   const { user } = useAuth()
   const toast = useToast()
+  const tradeBinder = isTradeBinder(folder)
+  const [nicknamePrompt, setNicknamePrompt] = useState(false)
+  const [nicknameDraft, setNicknameDraft]   = useState('')
+  const [savingNickname, setSavingNickname]  = useState(false)
   const [cards, setCards]             = useState([])
   const [sfMap, setSfMap]             = useState({})
   const [allFolders, setAllFolders]   = useState([])
@@ -582,7 +586,6 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
   const [showImport, setShowImport]   = useState(false)
   const [importText, setImportText]   = useState('')
   const [showExport, setShowExport]   = useState(false)
-  const [showShare, setShowShare]     = useState(false)
   const { viewMode, setViewMode, groupBy, setGroupBy } = useLibraryBrowserPreferences('binder')
   const [filterOpen, setFilterOpen]   = useState(false)
   const [hoverImg, setHoverImg]       = useState(null)
@@ -591,6 +594,37 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
   const isAllView = !folder
   const browserTitle = title || folder?.name || `All ${noun} Cards`
   const openImport = () => { setImportText(''); setShowImport(true) }
+
+  // Trade Post share link — the For Trade binder is the "haves" side of a user's
+  // public /trade/:username post. The slug is their nickname, so prompt for one
+  // when it's missing rather than dead-ending on "set a nickname in Settings".
+  const copyTradeLink = async (name) => {
+    try {
+      await navigator.clipboard.writeText(getPublicAppUrl(`/trade/${encodeURIComponent(name)}`))
+      toast.success('Trade link copied.')
+    } catch {
+      toast.error('Could not copy the trade link.')
+    }
+  }
+  const handleTradeLink = () => {
+    if (nickname) { copyTradeLink(nickname); return }
+    setNicknameDraft('')
+    setNicknamePrompt(true)
+  }
+  const confirmNickname = async () => {
+    const name = nicknameDraft.trim()
+    if (!name || savingNickname) return
+    setSavingNickname(true)
+    try {
+      await saveSettings({ nickname: name })
+      setNicknamePrompt(false)
+      await copyTradeLink(name)
+    } catch {
+      toast.error('Could not save your nickname.')
+    } finally {
+      setSavingNickname(false)
+    }
+  }
 
   // Inline rename: click the title (same treatment as the deck browser)
   const [folderName, setFolderName] = useState(folder?.name || '')
@@ -964,6 +998,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
       <div className={styles.browserDock}>
       <div className={styles.binderHeader}>
         <div className={styles.binderTitleRow}>
+          <div className={styles.binderTitleBlock}>
           {renamingFolder ? (
             <input
               ref={renameInputRef}
@@ -989,13 +1024,39 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
           )}
           <div className={styles.binderMeta}>
             <span>{totalQty} cards</span>
+            <span className={styles.metaSep} aria-hidden="true">·</span>
             <span className={styles.binderValue}>{formatPrice(totalValue, price_source)}</span>
-            <div className={styles.browserHeaderActionsDesktop}>
-              {!isAllView && <Button variant="secondary" size="sm" onClick={() => setShowShare(true)}><ShareIcon size={12} /> Share</Button>}
+          </div>
+          </div>
+          <div className={styles.browserHeaderActionsDesktop}>
+            <Button size="sm" onClick={() => setShowAddCard(true)}><AddIcon size={12} /> Add Cards</Button>
+            {isAllView ? (
               <Button variant="secondary" size="sm" onClick={() => setShowExport(true)}><ExportIcon size={12} /> Export</Button>
-              {!isAllView && <Button variant="secondary" size="sm" onClick={openImport}><ImportIcon size={12} /> Import</Button>}
-              <Button size="sm" onClick={() => setShowAddCard(true)}><AddIcon size={12} /> Add Cards</Button>
-            </div>
+            ) : (
+              <ResponsiveMenu
+                title={`${noun} actions`}
+                portal
+                trigger={({ toggle }) => (
+                  <Button variant="secondary" size="sm" onClick={toggle} aria-label={`More ${noun.toLowerCase()} actions`}>
+                    <SettingsIcon size={12} /> More
+                  </Button>
+                )}
+              >
+                {({ close }) => (
+                  <div className={uiStyles.responsiveMenuList}>
+                    {tradeBinder && (
+                      <button className={uiStyles.responsiveMenuAction} onClick={() => { handleTradeLink(); close() }}><span><ShareIcon size={13} /> Copy trade link</span></button>
+                    )}
+                    <button className={uiStyles.responsiveMenuAction} onClick={() => { startRenameFolder(); close() }}><span><EditIcon size={13} /> Rename</span></button>
+                    <button className={uiStyles.responsiveMenuAction} onClick={() => { openImport(); close() }}><span><ImportIcon size={13} /> Import</span></button>
+                    <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowExport(true); close() }}><span><ExportIcon size={13} /> Export</span></button>
+                    {onDelete && (
+                      <button className={`${uiStyles.responsiveMenuAction} ${uiStyles.responsiveMenuActionDanger}`} onClick={() => { onDelete(totalQty === 0); close() }}><span><DeleteIcon size={13} /> Delete {noun.toLowerCase()}</span></button>
+                    )}
+                  </div>
+                )}
+              </ResponsiveMenu>
+            )}
           </div>
         </div>
         <div className={styles.browserBackRow}>
@@ -1023,7 +1084,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
       {/* ── Control bar ── */}
       {cards.length > 0 && <div className={styles.binderControlBar}>
         <span className={styles.binderCount}>
-          Showing {filtered.length} of {cards.length} unique · {totalQty} total cards
+          {filtered.length} of {cards.length} unique · {totalQty} total cards
         </span>
         <CardBrowserViewControls
           viewMode={viewMode}
@@ -1040,7 +1101,8 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
           onToggleSelectMode={toggleSelectMode}
           onImport={!isAllView ? openImport : undefined}
           onExport={() => setShowExport(true)}
-          onShare={!isAllView ? () => setShowShare(true) : undefined}
+          onDelete={!isAllView && onDelete ? () => onDelete(totalQty === 0) : undefined}
+          deleteLabel={`Delete ${noun.toLowerCase()}`}
         />
       </div>}
 
@@ -1179,7 +1241,31 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
           onClose={() => setShowExport(false)}
         />
       )}
-      {showShare && folder && <ShareModal folder={folder} onClose={() => setShowShare(false)} />}
+      {nicknamePrompt && (
+        <Modal onClose={() => setNicknamePrompt(false)}>
+          <h2 style={{ fontFamily: 'var(--font-display)', color: 'var(--gold)', marginBottom: 10, fontSize: '1rem' }}>
+            Set a nickname to share
+          </h2>
+          <p className={styles.nicknameHint}>
+            Your trade link is <strong>deckloom.app/trade/&lt;nickname&gt;</strong>. Pick a nickname
+            and we'll copy your link.
+          </p>
+          <Input
+            value={nicknameDraft}
+            onChange={e => setNicknameDraft(e.target.value)}
+            placeholder="Your nickname"
+            maxLength={40}
+            onKeyDown={e => { if (e.key === 'Enter') confirmNickname(); if (e.key === 'Escape') setNicknamePrompt(false) }}
+            autoFocus
+          />
+          <div className={styles.nicknameActions}>
+            <Button variant="secondary" onClick={() => setNicknamePrompt(false)}>Cancel</Button>
+            <Button onClick={confirmNickname} disabled={!nicknameDraft.trim() || savingNickname}>
+              {savingNickname ? 'Saving…' : 'Save & copy link'}
+            </Button>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
@@ -1962,16 +2048,63 @@ export default function FoldersPage({ type }) {
 
   if (activeFolder) {
     if (type === 'deck') return (
-      <DeckBrowser folder={activeFolder} onBack={() => { setActiveFolder(null); loadFolders() }} />
+      <>
+        <DeckBrowser
+          folder={activeFolder}
+          onBack={() => { setActiveFolder(null); loadFolders() }}
+          onDelete={(isEmpty) => {
+            if (isEmpty) {
+              deleteFolder(activeFolder.id).then(() => { setActiveFolder(null); loadFolders() })
+            } else {
+              setDeleteTarget(activeFolder)
+            }
+          }}
+        />
+        {deleteTarget && (
+          <DeleteFolderModal
+            folder={deleteTarget}
+            userId={user.id}
+            onDone={async () => {
+              await invalidateFolderIndexCaches({ includeCards: true })
+              setDeleteTarget(null)
+              setActiveFolder(null)
+              loadFolders()
+            }}
+            onCancel={() => setDeleteTarget(null)}
+          />
+        )}
+      </>
     )
     return (
-      <FolderBrowser
-        folder={activeFolder}
-        folders={folders}
-        noun={noun}
-        onBack={() => { setActiveFolder(null); loadFolders() }}
-        onCardAdded={loadFolders}
-      />
+      <>
+        <FolderBrowser
+          folder={activeFolder}
+          folders={folders}
+          noun={noun}
+          onBack={() => { setActiveFolder(null); loadFolders() }}
+          onCardAdded={loadFolders}
+          onDelete={(isEmpty) => {
+            if (isEmpty) {
+              deleteFolder(activeFolder.id).then(() => { setActiveFolder(null); loadFolders() })
+            } else {
+              setDeleteTarget(activeFolder)
+            }
+          }}
+        />
+        {deleteTarget && (
+          <DeleteFolderModal
+            folder={deleteTarget}
+            userId={user.id}
+            onDone={async () => {
+              await invalidateFolderIndexCaches({ includeCards: true })
+              setDeleteTarget(null)
+              setActiveFolder(null)
+              loadFolders()
+            }}
+            onCancel={() => setDeleteTarget(null)}
+          />
+        )}
+      </>
     )
   }
 
