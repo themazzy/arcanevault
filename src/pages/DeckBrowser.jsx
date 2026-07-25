@@ -767,13 +767,16 @@ export default function DeckBrowser({ folder, onBack, onDelete }) {
       const { data: existingCards } = await sb.from('deck_cards').select('id').eq('deck_id', folder.id)
       const hasExistingCards = (existingCards?.length ?? 0) > 0
 
-      // Create the paired builder_deck folder
-      const builderInitMeta = withLinkedPair({
+      // Create the builder_deck folder WITHOUT the link. The pairing is established
+      // below through link_deck_pair, so this path gets the same guards as every
+      // other one — and, importantly, the same game_results repoint: this deck may
+      // have been played for months while it had no builder counterpart.
+      const builderInitMeta = {
         format: meta.format || null,
         ...(meta.bracket != null
           ? { bracket: meta.bracket, bracketManual: !!meta.bracketManual }
           : {}),
-      }, { linkedDeckId: folder.id })
+      }
       const { data: builderFolder, error: builderErr } = await sb
         .from('folders')
         .insert({ user_id: user.id, name: folder.name, type: 'builder_deck', description: serializeDeckMeta(builderInitMeta) })
@@ -838,9 +841,17 @@ export default function DeckBrowser({ folder, onBack, onDelete }) {
         }
       }
 
-      // Link collection deck → builder deck (mark unsynced if we migrated existing edits)
+      // Establish the pairing. link_deck_pair writes both sides' link fields, applies
+      // the relink/type guards, and repoints any game_results recorded against this
+      // collection deck onto the builder deck, which is the id win rates are read by.
+      const linkResult = await linkDeckPair(builderFolder.id, folder.id)
+
+      // Sync state on the collection side, layered onto the meta the RPC just wrote
+      // so the link it established is not clobbered.
+      const linkedCollectionMeta = linkResult?.collection_meta
+        || withLinkedPair(meta, { linkedBuilderId: builderFolder.id })
       const updatedCollectionMeta = writeSyncState(
-        withLinkedPair(meta, { linkedBuilderId: builderFolder.id }),
+        linkedCollectionMeta,
         { unsynced_builder: hasExistingCards, unsynced_collection: false },
       )
       const { error: linkErr } = await sb.from('folders')

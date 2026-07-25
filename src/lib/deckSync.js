@@ -124,6 +124,19 @@ export function getSyncState(folderOrMeta) {
   }
 }
 
+/**
+ * Set the link fields on one side's meta.
+ *
+ * ⚠ This does NOT establish a pairing — it only edits a meta object. To create a
+ * pair, call linkDeckPair(): the RPC applies the type and relink guards, locks both
+ * rows in a stable order, and repoints game_results.deck_id from the collection deck
+ * onto the builder deck. A collection deck may have been played for months with no
+ * builder counterpart, so skipping that step orphans its win rate.
+ *
+ * Legitimate uses are re-asserting a link that already exists (persistLinkedSyncSnapshot),
+ * remapping ids on restore (backup.js buildLinkedPairUpdates), and as a local fallback
+ * when the RPC's return value is unavailable.
+ */
 export function withLinkedPair(meta, { linkedDeckId = null, linkedBuilderId = null } = {}) {
   const next = { ...meta }
   if (linkedDeckId) next.linked_deck_id = linkedDeckId
