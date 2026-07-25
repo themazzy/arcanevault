@@ -2,6 +2,7 @@ import { sb } from './supabase'
 import { loadCardMapWithSharedPrices } from './sharedCardPrices'
 import { createOfflineError } from './networkUtils'
 import { getMeta, setMeta, getLocalCards, putCards, deleteCard, deleteAllCards } from './db'
+import { fetchAllByKeyset } from './keysetPager'
 
 const PAGE = 1000
 
@@ -18,45 +19,25 @@ export function isGroupFolder(folder) {
 // Order by `id` — sorting by `name` on the server forces a top-N heapsort
 // over the full join, which times out for large collections. The client
 // sorts in the filter worker anyway.
+//
+// Paged by keyset, not OFFSET: every scanned row costs a card_prints join, so
+// OFFSET paging re-paid that join for all skipped rows and blew the 8s
+// statement timeout partway through a 12k-card collection (see keysetPager.js).
 async function fetchAllOwnedCards(userId) {
   assertOnline()
 
-  const rows = []
-  let from = 0
-  while (true) {
-    const { data, error } = await sb.from('owned_cards_view')
-      .select('*')
-      .eq('user_id', userId)
-      .order('id')
-      .range(from, from + PAGE - 1)
-
-    if (error) throw error
-    if (data?.length) rows.push(...data)
-    if (!data || data.length < PAGE) break
-    from += PAGE
-  }
-  return rows
+  return fetchAllByKeyset(() => sb.from('owned_cards_view')
+    .select('*')
+    .eq('user_id', userId), { page: PAGE })
 }
 
 async function fetchCardsUpdatedSince(userId, sinceIso) {
   assertOnline()
 
-  const rows = []
-  let from = 0
-  while (true) {
-    const { data, error } = await sb.from('owned_cards_view')
-      .select('*')
-      .eq('user_id', userId)
-      .gt('updated_at', sinceIso)
-      .order('id')
-      .range(from, from + PAGE - 1)
-
-    if (error) throw error
-    if (data?.length) rows.push(...data)
-    if (!data || data.length < PAGE) break
-    from += PAGE
-  }
-  return rows
+  return fetchAllByKeyset(() => sb.from('owned_cards_view')
+    .select('*')
+    .eq('user_id', userId)
+    .gt('updated_at', sinceIso), { page: PAGE })
 }
 
 // Queries the raw `cards` table (not owned_cards_view) so this skips the
@@ -65,21 +46,10 @@ async function fetchCardsUpdatedSince(userId, sinceIso) {
 async function fetchOwnedCardIds(userId) {
   assertOnline()
 
-  const ids = []
-  let from = 0
-  while (true) {
-    const { data, error } = await sb.from('cards')
-      .select('id')
-      .eq('user_id', userId)
-      .order('id')
-      .range(from, from + PAGE - 1)
-
-    if (error) throw error
-    if (data?.length) ids.push(...data.map(row => row.id))
-    if (!data || data.length < PAGE) break
-    from += PAGE
-  }
-  return ids
+  const rows = await fetchAllByKeyset(() => sb.from('cards')
+    .select('id')
+    .eq('user_id', userId), { page: PAGE })
+  return rows.map(row => row.id)
 }
 
 export function computeIdsToDelete(localIds, freshIds) {

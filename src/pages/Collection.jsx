@@ -22,6 +22,7 @@ import { pruneUnplacedCards, findUnplacedCardIds } from '../lib/collectionOwners
 import { hydrateCollectionQueriesFromIdb } from '../lib/idbQueryBridge'
 import { fetchCollectionCards, fetchFolders, fetchFolderPlacements, fetchSfMap } from '../lib/collectionFetchers'
 import { isNetworkLikeError } from '../lib/networkUtils'
+import { fetchAllByKeyset } from '../lib/keysetPager'
 import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
 import { getSelectedDisplayQuantity } from '../lib/collectionDisplay'
 import { shouldOfferCardScanner } from '../lib/scannerAvailability'
@@ -458,29 +459,23 @@ export default function CollectionPage() {
       return
     }
 
-    const allCards = []
-    let pageFrom = 0, fetchComplete = false
-    const PAGE = 1000
-    while (true) {
-      const { data, error: err } = await sb.from('owned_cards_view')
+    let allCards = []
+    let fetchComplete = false
+    try {
+      // Keyset-paged and ordered by id: server-side ORDER BY name on the view
+      // forces a top-N heapsort over the full join, and OFFSET paging re-pays
+      // the card_prints join for every skipped row — both time out on big
+      // collections. The filter worker re-sorts client-side.
+      allCards = await fetchAllByKeyset(() => sb.from('owned_cards_view')
         .select('*')
-        .eq('user_id', user.id)
-        // Order by id — server-side ORDER BY name on the view forces a
-        // top-N heapsort over the full join, which times out for big
-        // collections. The filter worker re-sorts client-side.
-        .order('id')
-        .range(pageFrom, pageFrom + PAGE - 1)
-      if (err) {
-        if (isNetworkLikeError(err)) {
-          if (isCurrentLoad()) setIsOnline(false)
-        } else if (isCurrentLoad()) {
-          setError(err.message)
-        }
-        break
+        .eq('user_id', user.id))
+      fetchComplete = true
+    } catch (err) {
+      if (isNetworkLikeError(err)) {
+        if (isCurrentLoad()) setIsOnline(false)
+      } else if (isCurrentLoad()) {
+        setError(err.message)
       }
-      if (data?.length) allCards.push(...data)
-      if (!data || data.length < PAGE) { fetchComplete = true; break }
-      pageFrom += PAGE
     }
 
     if (!isCurrentLoad()) return

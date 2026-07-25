@@ -12,6 +12,7 @@ import { additiveSaveOwnedCards, additiveSaveWishlistItems, ownedCardKey } from 
 import { parseDeckMeta, serializeDeckMeta } from './deckBuilderApi'
 import { getLinkedDeckIds, withLinkedPair } from './deckSync'
 import { downloadFile } from './exportUtils'
+import { fetchAllByKeyset } from './keysetPager'
 
 export const BACKUP_APP = 'deckloom'
 export const BACKUP_KIND = 'collection-backup'
@@ -60,12 +61,13 @@ async function fetchAllFolders(userId) {
   return data || []
 }
 
+// Keyset-paged: this view joins card_prints per row, so OFFSET paging re-pays
+// that join for every skipped row and times out deep into a large collection
+// (see keysetPager.js).
 function fetchOwnedCards(userId) {
-  return pagedSelect((from, to) => sb.from('owned_cards_view')
+  return fetchAllByKeyset(() => sb.from('owned_cards_view')
     .select('id,scryfall_id,name,set_code,collector_number,qty,foil,condition,language,purchase_price,currency,misprint,altered')
-    .eq('user_id', userId)
-    .order('id')
-    .range(from, to))
+    .eq('user_id', userId), { page: PAGE })
 }
 
 function fetchFolderCardsFull(folderIds) {

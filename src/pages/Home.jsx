@@ -8,6 +8,7 @@ import { fetchAutocomplete, buildLookupQuery, hasLookupFilters } from '../lib/ca
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getLocalCards, getLocalFolders, getAllLocalFolderCards, getAllDeckAllocationsForUser } from '../lib/db'
 import { syncOwnedCards } from '../lib/collectionFetchers'
+import { fetchAllByKeyset } from '../lib/keysetPager'
 import { cardsContentHash } from '../lib/cardsHash'
 import { getProdAppUrl } from '../lib/publicUrl'
 import { CAN_HOVER } from '../lib/deckBuilderConstants'
@@ -77,10 +78,16 @@ async function loadCollectionData(userId) {
   // Same for cards
   let allCards = idbCards?.length ? idbCards : []
   if (!allCards.length) {
-    const { data, error } = await sb.from('owned_cards_view')
-      .select('*').eq('user_id', userId).order('id')
-    if (error) console.warn('[Home] cards fallback error:', error.message)
-    allCards = data || []
+    // Keyset-paged: an unbounded select is silently capped at PostgREST's
+    // 1000-row limit, and OFFSET paging re-pays the card_prints join for every
+    // skipped row (see keysetPager.js).
+    try {
+      allCards = await fetchAllByKeyset(() => sb.from('owned_cards_view')
+        .select('*').eq('user_id', userId))
+    } catch (error) {
+      console.warn('[Home] cards fallback error:', error.message)
+      allCards = []
+    }
   }
 
   const deckIds = allFolders.filter(f => f.type === 'deck').map(f => f.id)

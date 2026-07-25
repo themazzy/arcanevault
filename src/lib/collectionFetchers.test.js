@@ -11,27 +11,32 @@ const idbState = { cards: [], meta: new Map() }
 function applyFilters(rows, filters) {
   let out = rows
   for (const [col, val] of Object.entries(filters.eq)) out = out.filter(r => r[col] === val)
-  // gt is only used on updated_at; compare as timestamps like Postgres would,
-  // since the client (JS toISOString) and server format timestamps differently.
-  for (const [col, val] of Object.entries(filters.gt)) out = out.filter(r => Date.parse(r[col]) > Date.parse(val))
+  for (const [col, val] of Object.entries(filters.gt)) {
+    // `id` is the keyset cursor and compares as text; updated_at compares as a
+    // timestamp like Postgres would, since the client (JS toISOString) and
+    // server format timestamps differently.
+    out = col === 'id'
+      ? out.filter(r => r[col] > val)
+      : out.filter(r => Date.parse(r[col]) > Date.parse(val))
+  }
   return out
 }
 
 function makeQuery(table) {
   const filters = { eq: {}, gt: {} }
-  let rangeFrom = 0
-  let rangeTo = Infinity
+  let orderCol = 'id'
+  let rowLimit = Infinity
   const q = {
     select() { return q },
     eq(col, val) { filters.eq[col] = val; return q },
     gt(col, val) { filters.gt[col] = val; return q },
-    order() { return q },
-    range(from, to) { rangeFrom = from; rangeTo = to; return q },
+    order(col) { if (col) orderCol = col; return q },
+    limit(n) { rowLimit = n; return q },
     then(resolve, reject) {
       const source = table === 'owned_cards_view' ? sbState.ownedCardsView : sbState.cardsTable
       const rows = applyFilters(source, filters)
-        .slice().sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-        .slice(rangeFrom, rangeTo + 1)
+        .slice().sort((a, b) => (a[orderCol] < b[orderCol] ? -1 : a[orderCol] > b[orderCol] ? 1 : 0))
+        .slice(0, rowLimit)
       return Promise.resolve({ data: rows, error: null }).then(resolve, reject)
     },
   }
@@ -102,6 +107,27 @@ describe('syncOwnedCards', () => {
     // The cursor must be the newest *server* timestamp seen, not the device
     // clock — a fast client clock would otherwise skip other devices' writes.
     expect(idbState.meta.get(`cards_synced_at:${USER}`)).toBe('2026-01-01T00:00:00Z')
+  })
+
+  // Collections bigger than one page used to be fetched with OFFSET, which
+  // re-scans (and re-joins card_prints for) every skipped row — deep pages hit
+  // the statement timeout and the sync died with a 500. Paging must seek on the
+  // last id read instead, and must still return every row.
+  it('walks a multi-page collection by keyset without dropping rows', async () => {
+    const total = 2500
+    sbState.ownedCardsView = Array.from({ length: total }, (_, i) => ({
+      id: `c${String(i).padStart(5, '0')}`,
+      user_id: USER,
+      name: `Card ${i}`,
+      updated_at: '2026-01-01T00:00:00Z',
+    }))
+    sbState.cardsTable = sbState.ownedCardsView.map(c => ({ id: c.id, user_id: c.user_id }))
+
+    const result = await syncOwnedCards(USER)
+
+    expect(result).toHaveLength(total)
+    expect(new Set(result.map(c => c.id)).size).toBe(total)
+    expect(idbState.cards).toHaveLength(total)
   })
 
   it('stores no cursor after a first sync of an empty collection', async () => {
