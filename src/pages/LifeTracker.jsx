@@ -418,6 +418,10 @@ export default function LifeTrackerPage() {
               x: e.clientX - gridOrigin.current.left,
               y: e.clientY - gridOrigin.current.top,
             },
+            // Carried in state rather than read from the ref at render time: the
+            // rects are fixed for the whole drag, and render must not depend on a
+            // ref React cannot track.
+            rects: seatRects.current,
           })
         },
         onSwapPointerUp: (seatIndex, e) => {
@@ -608,10 +612,8 @@ export default function LifeTrackerPage() {
               headed. */}
           {drag && (
             <SwapArrow
-              from={seatCentre(seatRects.current, drag.from)}
-              to={drag.target != null
-                ? seatCentre(seatRects.current, drag.target)
-                : drag.point}
+              from={seatCentre(drag.rects, drag.from)}
+              to={drag.target != null ? seatCentre(drag.rects, drag.target) : drag.point}
               snapped={drag.target != null}
             />
           )}
