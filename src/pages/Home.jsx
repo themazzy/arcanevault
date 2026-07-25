@@ -228,6 +228,10 @@ const NEWS_FEEDS = [
   { url: 'https://mtgazone.com/feed',        label: 'MTG Arena Zone', color: '#5aafcc' },
 ]
 
+// How many stories the Home news panel renders (fetch keeps 12 so a feed being
+// down still leaves enough to fill the list).
+const NEWS_STORY_COUNT = 6
+
 // WordPress serves the RSS "featured image" at its generated crop size
 // (e.g. "...-150x150.jpg", visibly blurry at card size) — stripping the size
 // suffix recovers the full-resolution original at the same URL.
@@ -1355,11 +1359,11 @@ function MTGNewsPanel() {
 
       {loading ? (
         <div className={styles.compactNewsList}>
-          {Array.from({ length: 3 }).map((_, i) => <div key={i} className={styles.compactRowSkeleton} />)}
+          {Array.from({ length: NEWS_STORY_COUNT }).map((_, i) => <div key={i} className={styles.compactRowSkeleton} />)}
         </div>
       ) : (
         <div className={styles.compactNewsList}>
-          {articles.slice(0, 3).map((article, i) => (
+          {articles.slice(0, NEWS_STORY_COUNT).map((article, i) => (
             <a key={article.guid || article.link || i}
               href={article.link} target="_blank" rel="noopener noreferrer"
               className={styles.compactNewsRow}>
