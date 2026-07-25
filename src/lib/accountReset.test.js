@@ -103,7 +103,9 @@ describe('reconcileActiveUser', () => {
     expect(store.get('arcanevault_consent_v1')).toBe('granted')
   })
 
-  it('wipes local state on sign-out (id -> null)', async () => {
+  // Wiping on sign-out made every re-login a cold start: the whole collection
+  // was re-downloaded to rebuild exactly what had just been discarded.
+  it('keeps local state on sign-out (id -> null)', async () => {
     const store = installLocalStorage({
       [ACTIVE_KEY]: USER_A,
       arcanevault_settings: '{"nickname":"Lilliana_Vess"}',
@@ -111,13 +113,36 @@ describe('reconcileActiveUser', () => {
     })
     const { reconcileActiveUser } = await importFresh()
 
-    const wipe = reconcileActiveUser(null)
+    await reconcileActiveUser(null)
 
-    await wipe
+    expect(clearUserScopedStores).not.toHaveBeenCalled()
+    expect(store.get(ACTIVE_KEY)).toBe(USER_A)
+    expect(store.has('arcanevault_settings')).toBe(true)
+  })
+
+  it('still wipes when a different account signs in after a sign-out', async () => {
+    const store = installLocalStorage({
+      [ACTIVE_KEY]: USER_A,
+      arcanevault_settings: '{"nickname":"Lilliana_Vess"}',
+    })
+    const { reconcileActiveUser } = await importFresh()
+
+    await reconcileActiveUser(null)     // sign out — cache kept
+    await reconcileActiveUser(USER_B)   // someone else signs in — cache must go
+
     expect(clearUserScopedStores).toHaveBeenCalledTimes(1)
-    expect(store.has(ACTIVE_KEY)).toBe(false)
+    expect(store.get(ACTIVE_KEY)).toBe(USER_B)
     expect(store.has('arcanevault_settings')).toBe(false)
-    expect(store.has('arcanevault_setup_done')).toBe(false)
+  })
+
+  it('does not wipe when the same account signs back in', async () => {
+    installLocalStorage({ [ACTIVE_KEY]: USER_A })
+    const { reconcileActiveUser } = await importFresh()
+
+    await reconcileActiveUser(null)
+    await reconcileActiveUser(USER_A)
+
+    expect(clearUserScopedStores).not.toHaveBeenCalled()
   })
 
   it('does not double-wipe when getSession and onAuthStateChange both fire for the same switch', async () => {

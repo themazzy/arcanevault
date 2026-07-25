@@ -74,6 +74,14 @@ export function reconcileActiveUser(newUserId) {
 
   if (storedId === nextId) return _wipePromise
 
+  // Signing out is not an account switch: keep the recorded identity and the
+  // cache. Wiping here made every re-login a cold start that re-downloaded the
+  // whole collection — ~14 paged requests and 10s+ for a large one — to rebuild
+  // byte-for-byte what was just thrown away. The isolation this module exists
+  // for is unaffected: a *different* account signing in still wipes below,
+  // before its session is revealed.
+  if (!nextId) return _wipePromise
+
   // Record the new identity synchronously, before the async wipe, so a
   // concurrent caller (getSession and onAuthStateChange both fire on load)
   // observes it and does not trigger a second wipe.

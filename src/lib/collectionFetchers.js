@@ -2,7 +2,7 @@ import { sb } from './supabase'
 import { loadCardMapWithSharedPrices } from './sharedCardPrices'
 import { createOfflineError } from './networkUtils'
 import { getMeta, setMeta, getLocalCards, putCards, deleteCard, deleteAllCards } from './db'
-import { fetchAllByKeyset } from './keysetPager'
+import { fetchAllByKeyset, fetchAllByKeysetSharded } from './keysetPager'
 
 const PAGE = 1000
 
@@ -23,10 +23,13 @@ export function isGroupFolder(folder) {
 // Paged by keyset, not OFFSET: every scanned row costs a card_prints join, so
 // OFFSET paging re-paid that join for all skipped rows and blew the 8s
 // statement timeout partway through a 12k-card collection (see keysetPager.js).
+// Sharded: this is the cold-cache path (first load on a device), where a single
+// serial walk costs one round trip per 1000 cards. Incremental syncs below stay
+// on the plain walk — they rarely exceed one page.
 async function fetchAllOwnedCards(userId) {
   assertOnline()
 
-  return fetchAllByKeyset(() => sb.from('owned_cards_view')
+  return fetchAllByKeysetSharded(() => sb.from('owned_cards_view')
     .select('*')
     .eq('user_id', userId), { page: PAGE })
 }
@@ -46,10 +49,40 @@ async function fetchCardsUpdatedSince(userId, sinceIso) {
 async function fetchOwnedCardIds(userId) {
   assertOnline()
 
-  const rows = await fetchAllByKeyset(() => sb.from('cards')
+  const rows = await fetchAllByKeysetSharded(() => sb.from('cards')
     .select('id')
     .eq('user_id', userId), { page: PAGE })
   return rows.map(row => row.id)
+}
+
+// One request, no rows on the wire — the cheap gate in front of the id scan
+// above (which costs a round trip per 1000 cards).
+//
+// `limit(0)` rather than `head: true`: the count rides the Content-Range header
+// either way, but Chrome logs every bodiless HEAD response as "Fetch failed
+// loading" in the console even on a 200, which reads like a real error.
+async function fetchOwnedCardCount(userId) {
+  assertOnline()
+
+  const { count, error } = await sb.from('cards')
+    .select('id', { count: 'exact' })
+    .eq('user_id', userId)
+    .limit(0)
+
+  if (error) throw error
+  return count || 0
+}
+
+// True when the server holds fewer cards than we do after merging this sync's
+// changes — i.e. something was hard-deleted (or a past sync left us short).
+//
+// Every insert reaches us through the updated_at fetch, so post-merge local
+// size is |local| + |new| while the server is |local| - |deleted| + |new|:
+// the two agree exactly when nothing was deleted. That makes the count a
+// sufficient trigger for the full id scan, and lets the common case (nothing
+// deleted) skip it entirely.
+export function needsDeleteScan(localIdCount, serverCount) {
+  return localIdCount !== serverCount
 }
 
 export function computeIdsToDelete(localIds, freshIds) {
@@ -109,12 +142,23 @@ export async function syncOwnedCards(userId) {
   const localCards = await getLocalCards(userId)
   const localIds = new Set(localCards.map(c => c.id))
 
-  const changed = await fetchCardsUpdatedSince(userId, cursorWithOverlap(cursor))
+  const [changed, serverCount] = await Promise.all([
+    fetchCardsUpdatedSince(userId, cursorWithOverlap(cursor)),
+    fetchOwnedCardCount(userId),
+  ])
   await putCards(changed)
 
-  const freshIds = new Set(await fetchOwnedCardIds(userId))
-  for (const id of computeIdsToDelete(localIds, freshIds)) {
-    await deleteCard(id)
+  // The id scan pages the whole collection — a round trip per 1000 cards on
+  // every sync, which dominated Home's load for a large collection. The count
+  // above tells us whether it can be skipped, which it almost always can.
+  const mergedIds = new Set(localIds)
+  for (const row of changed) mergedIds.add(row.id)
+
+  if (needsDeleteScan(mergedIds.size, serverCount)) {
+    const freshIds = new Set(await fetchOwnedCardIds(userId))
+    for (const id of computeIdsToDelete(localIds, freshIds)) {
+      await deleteCard(id)
+    }
   }
 
   await setMeta(cardsSyncCursorKey(userId), advanceCursor(cursor, changed))

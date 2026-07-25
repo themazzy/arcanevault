@@ -11,6 +11,10 @@ const idbState = { cards: [], meta: new Map() }
 function applyFilters(rows, filters) {
   let out = rows
   for (const [col, val] of Object.entries(filters.eq)) out = out.filter(r => r[col] === val)
+  // Shard bounds — the full-fetch path splits the id space and walks the
+  // buckets concurrently.
+  for (const [col, val] of Object.entries(filters.gte)) out = out.filter(r => r[col] >= val)
+  for (const [col, val] of Object.entries(filters.lt)) out = out.filter(r => r[col] < val)
   for (const [col, val] of Object.entries(filters.gt)) {
     // `id` is the keyset cursor and compares as text; updated_at compares as a
     // timestamp like Postgres would, since the client (JS toISOString) and
@@ -22,21 +26,38 @@ function applyFilters(rows, filters) {
   return out
 }
 
+// Counts every request the fake server sees, so tests can assert that the
+// sync stopped paging the whole collection on every run.
+const requestLog = []
+
 function makeQuery(table) {
-  const filters = { eq: {}, gt: {} }
+  const filters = { eq: {}, gt: {}, gte: {}, lt: {} }
   let orderCol = 'id'
   let rowLimit = Infinity
+  let wantsCount = false
   const q = {
-    select() { return q },
+    select(_cols, opts) {
+      if (opts?.count) wantsCount = true
+      return q
+    },
     eq(col, val) { filters.eq[col] = val; return q },
     gt(col, val) { filters.gt[col] = val; return q },
+    gte(col, val) { filters.gte[col] = val; return q },
+    lt(col, val) { filters.lt[col] = val; return q },
     order(col) { if (col) orderCol = col; return q },
     limit(n) { rowLimit = n; return q },
     then(resolve, reject) {
       const source = table === 'owned_cards_view' ? sbState.ownedCardsView : sbState.cardsTable
-      const rows = applyFilters(source, filters)
+      const matched = applyFilters(source, filters)
+      const rows = matched
         .slice().sort((a, b) => (a[orderCol] < b[orderCol] ? -1 : a[orderCol] > b[orderCol] ? 1 : 0))
         .slice(0, rowLimit)
+      // A count request asks for the total via Content-Range with limit=0, so
+      // it carries the full count but no rows.
+      requestLog.push({ table, kind: wantsCount ? 'count' : 'rows' })
+      if (wantsCount) {
+        return Promise.resolve({ data: rows, count: matched.length, error: null }).then(resolve, reject)
+      }
       return Promise.resolve({ data: rows, error: null }).then(resolve, reject)
     },
   }
@@ -73,6 +94,7 @@ beforeEach(() => {
   sbState.cardsTable = []
   idbState.cards = []
   idbState.meta = new Map()
+  requestLog.length = 0
 })
 
 describe('computeIdsToDelete', () => {
@@ -207,6 +229,64 @@ describe('syncOwnedCards', () => {
     const result = await syncOwnedCards(USER)
 
     expect(result.map(c => c.id)).toEqual(['c1'])
+  })
+
+  // The id scan pages the entire `cards` table — a round trip per 1000 cards on
+  // every single sync, which dominated Home's load time. A count comparison
+  // gates it: inserts arrive via the updated_at fetch, so post-merge local size
+  // can only exceed the server's when something was deleted.
+  it('skips the full id scan when the server count matches after merging', async () => {
+    idbState.meta.set(`cards_synced_at:${USER}`, '2026-01-01T00:00:00Z')
+    idbState.cards = [
+      { id: 'c1', user_id: USER, name: 'Forest' },
+      { id: 'c2', user_id: USER, name: 'Sol Ring' },
+    ]
+    sbState.ownedCardsView = [
+      { id: 'c3', user_id: USER, name: 'Island', updated_at: '2026-02-01T00:00:00Z' },
+    ]
+    sbState.cardsTable = [
+      { id: 'c1', user_id: USER }, { id: 'c2', user_id: USER }, { id: 'c3', user_id: USER },
+    ]
+
+    const result = await syncOwnedCards(USER)
+
+    expect(result.map(c => c.id).sort()).toEqual(['c1', 'c2', 'c3'])
+    expect(requestLog.filter(r => r.kind === 'count')).toHaveLength(1)
+    // No row-fetch against `cards` — that's the id scan we're avoiding.
+    expect(requestLog.filter(r => r.table === 'cards' && r.kind === 'rows')).toHaveLength(0)
+  })
+
+  it('still runs the id scan when the server count is short', async () => {
+    idbState.meta.set(`cards_synced_at:${USER}`, '2026-01-01T00:00:00Z')
+    idbState.cards = [
+      { id: 'c1', user_id: USER, name: 'Forest' },
+      { id: 'c2', user_id: USER, name: 'Sol Ring' },
+    ]
+    sbState.ownedCardsView = []
+    sbState.cardsTable = [{ id: 'c1', user_id: USER }]
+
+    const result = await syncOwnedCards(USER)
+
+    expect(result.map(c => c.id)).toEqual(['c1'])
+    expect(requestLog.filter(r => r.table === 'cards' && r.kind === 'rows').length).toBeGreaterThan(0)
+  })
+
+  it('detects a delete that happened alongside an insert', async () => {
+    idbState.meta.set(`cards_synced_at:${USER}`, '2026-01-01T00:00:00Z')
+    idbState.cards = [
+      { id: 'c1', user_id: USER, name: 'Forest' },
+      { id: 'c2', user_id: USER, name: 'Sol Ring' },
+    ]
+    // c2 deleted, c3 added — the server count is unchanged, but the local set
+    // grows by the insert, so the sizes still disagree.
+    sbState.ownedCardsView = [
+      { id: 'c3', user_id: USER, name: 'Island', updated_at: '2026-02-01T00:00:00Z' },
+    ]
+    sbState.cardsTable = [{ id: 'c1', user_id: USER }, { id: 'c3', user_id: USER }]
+
+    const result = await syncOwnedCards(USER)
+
+    expect(result.map(c => c.id).sort()).toEqual(['c1', 'c3'])
   })
 
   it('fetchCollectionCards delegates to the same incremental sync', async () => {

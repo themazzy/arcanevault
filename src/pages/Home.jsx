@@ -8,8 +8,9 @@ import { fetchAutocomplete, buildLookupQuery, hasLookupFilters } from '../lib/ca
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getLocalCards, getLocalFolders, getAllLocalFolderCards, getAllDeckAllocationsForUser } from '../lib/db'
 import { syncOwnedCards } from '../lib/collectionFetchers'
-import { fetchAllByKeyset } from '../lib/keysetPager'
+import { fetchAllByKeysetSharded } from '../lib/keysetPager'
 import { cardsContentHash } from '../lib/cardsHash'
+import { perfSpan } from '../lib/perf'
 import { getProdAppUrl } from '../lib/publicUrl'
 import { CAN_HOVER } from '../lib/deckBuilderConstants'
 import { lastInputWasTouch } from '../lib/inputType'
@@ -58,13 +59,16 @@ function addRecentlyViewed(card) {
 // Uses IDB (same store Collection.jsx syncs into) — no Supabase RLS issues.
 // Falls back to a fresh Supabase pull if IDB is empty (first visit on device).
 async function loadCollectionData(userId) {
+  const endLoad = perfSpan('home-collection-load')
   // IDB reads + price cache in parallel — fast
+  const endIdb = perfSpan('home-idb-read')
   const [idbCards, idbFolders, sfMap, myDecksResult] = await Promise.all([
     getLocalCards(userId),
     getLocalFolders(userId),
     getInstantCache(),
     sb.rpc('get_my_decks'),
   ])
+  endIdb()
 
   let safeSfMap = sfMap || {}
 
@@ -75,55 +79,57 @@ async function loadCollectionData(userId) {
     allFolders = data || []
   }
 
-  // Same for cards
-  let allCards = idbCards?.length ? idbCards : []
-  if (!allCards.length) {
-    // Keyset-paged: an unbounded select is silently capped at PostgREST's
-    // 1000-row limit, and OFFSET paging re-pays the card_prints join for every
-    // skipped row (see keysetPager.js).
-    try {
-      allCards = await fetchAllByKeyset(() => sb.from('owned_cards_view')
-        .select('*').eq('user_id', userId))
-    } catch (error) {
-      console.warn('[Home] cards fallback error:', error.message)
-      allCards = []
-    }
-  }
-
   const deckIds = allFolders.filter(f => f.type === 'deck').map(f => f.id)
   const placementFolderIds = allFolders.filter(f => f.type !== 'deck').map(f => f.id)
 
-  // Get folder_cards and deck_allocations from IDB; fall back to Supabase if IDB is cold
-  let allFc = placementFolderIds.length ? await getAllLocalFolderCards(placementFolderIds) : []
-  if (!allFc.length && placementFolderIds.length) {
-    let from = 0
-    while (true) {
-      const { data: page, error } = await sb.from('folder_cards')
-        .select('id, folder_id, card_id, qty')
-        .in('folder_id', placementFolderIds)
-        .range(from, from + 999)
-      if (error) { console.warn('[Home] folder_cards fallback error:', error.message); break }
-      if (page?.length) allFc = [...allFc, ...page]
-      if (!page || page.length < 1000) break
-      from += 1000
-    }
-  }
+  // Cards, placements and allocations are independent of each other, so on a
+  // cold cache they run concurrently — walked one after the other they cost the
+  // sum of three multi-page walks (~14s measured after a logout wiped IDB).
+  const endFetch = perfSpan('home-collection-fetch')
+  const [allCards, allFc, allDa] = await Promise.all([
+    (async () => {
+      if (idbCards?.length) return idbCards
+      // syncOwnedCards, not a raw fetch: it seeds IDB and the sync cursor, so
+      // the background sync right after this is incremental instead of
+      // downloading the whole collection a second time.
+      try {
+        return await syncOwnedCards(userId)
+      } catch (error) {
+        console.warn('[Home] cards fallback error:', error.message)
+        return []
+      }
+    })(),
 
-  let allDa = deckIds.length ? await getAllDeckAllocationsForUser(userId) : []
-  if (!allDa.length && deckIds.length) {
-    let from = 0
-    while (true) {
-      const { data: page, error } = await sb.from('deck_allocations')
-        .select('id, deck_id, card_id, qty, user_id')
-        .eq('user_id', userId)
-        .in('deck_id', deckIds)
-        .range(from, from + 999)
-      if (error) { console.warn('[Home] deck_allocations fallback error:', error.message); break }
-      if (page?.length) allDa = [...allDa, ...page]
-      if (!page || page.length < 1000) break
-      from += 1000
-    }
-  }
+    (async () => {
+      if (!placementFolderIds.length) return []
+      const local = await getAllLocalFolderCards(placementFolderIds)
+      if (local.length) return local
+      try {
+        return await fetchAllByKeysetSharded(() => sb.from('folder_cards')
+          .select('id, folder_id, card_id, qty')
+          .in('folder_id', placementFolderIds))
+      } catch (error) {
+        console.warn('[Home] folder_cards fallback error:', error.message)
+        return []
+      }
+    })(),
+
+    (async () => {
+      if (!deckIds.length) return []
+      const local = await getAllDeckAllocationsForUser(userId)
+      if (local.length) return local
+      try {
+        return await fetchAllByKeysetSharded(() => sb.from('deck_allocations')
+          .select('id, deck_id, card_id, qty, user_id')
+          .eq('user_id', userId)
+          .in('deck_id', deckIds))
+      } catch (error) {
+        console.warn('[Home] deck_allocations fallback error:', error.message)
+        return []
+      }
+    })(),
+  ])
+  endFetch()
 
   // Join in memory
   const cardById  = Object.fromEntries(allCards.map(c => [c.id, c]))
@@ -131,7 +137,9 @@ async function loadCollectionData(userId) {
   const deckRows = allDa.map(r => ({ ...r, cards: cardById[r.card_id] || null }))
 
   if (allCards.length) {
+    const endPrices = perfSpan('home-price-map')
     safeSfMap = await loadCardMapWithSharedPrices(allCards, { priceLookup: 'set' })
+    endPrices()
   }
 
   const deckSource = !myDecksResult.error && Array.isArray(myDecksResult.data)
@@ -149,6 +157,7 @@ async function loadCollectionData(userId) {
       return bTime - aTime
     })
 
+  endLoad()
   return { folders: allFolders, cards: allCards, cardRows, deckRows, sfMap: safeSfMap, builderDecks }
 }
 

@@ -1,25 +1,39 @@
 import { describe, it, expect } from 'vitest'
-import { fetchAllByKeyset } from './keysetPager'
+import { fetchAllByKeyset, fetchAllByKeysetSharded, uuidShards } from './keysetPager'
 
-// Minimal stand-in for a PostgrestFilterBuilder: records the gt/order/limit
-// calls and serves rows out of a sorted array.
+// Minimal stand-in for a PostgrestFilterBuilder: records the gt/gte/lt/order/
+// limit calls and serves rows out of a sorted array.
 function makeFakeTable(rows, { onQuery } = {}) {
   return () => {
-    const state = { gt: null, column: 'id', limit: null }
+    const state = { gt: null, gte: null, lt: null, column: 'id', limit: null }
     const builder = {
       gt(column, value) { state.gt = { column, value }; return builder },
+      gte(column, value) { state.gte = { column, value }; return builder },
+      lt(column, value) { state.lt = { column, value }; return builder },
       order(column) { state.column = column; return builder },
       async limit(n) {
         state.limit = n
         onQuery?.({ ...state })
-        const sorted = [...rows].sort((a, b) => (a[state.column] > b[state.column] ? 1 : -1))
-        const start = state.gt ? sorted.findIndex(r => r[state.gt.column] > state.gt.value) : 0
+        const col = state.column
+        let matched = [...rows].sort((a, b) => (a[col] > b[col] ? 1 : -1))
+        if (state.gte) matched = matched.filter(r => r[state.gte.column] >= state.gte.value)
+        if (state.lt) matched = matched.filter(r => r[state.lt.column] < state.lt.value)
+        const start = state.gt ? matched.findIndex(r => r[state.gt.column] > state.gt.value) : 0
         if (start === -1) return { data: [], error: null }
-        return { data: sorted.slice(start, start + n), error: null }
+        return { data: matched.slice(start, start + n), error: null }
       },
     }
     return builder
   }
+}
+
+// uuid-v4-shaped ids with a spread of leading nibbles, so the shard boundaries
+// actually split them.
+function uuidRows(n) {
+  return Array.from({ length: n }, (_, i) => {
+    const hex = ((i * 2654435761) >>> 0).toString(16).padStart(8, '0')
+    return { id: `${hex}-0000-4000-8000-${String(i).padStart(12, '0')}` }
+  })
 }
 
 const rowsOf = n => Array.from({ length: n }, (_, i) => ({ id: `id-${String(i).padStart(4, '0')}` }))
@@ -74,6 +88,70 @@ describe('fetchAllByKeyset', () => {
     await expect(fetchAllByKeyset(failing)).rejects.toThrow('statement timeout')
   })
 
+  it('restricts a walk to its shard range', async () => {
+    const rows = uuidRows(50)
+    const shard = { from: '40000000-0000-0000-0000-000000000000', to: '80000000-0000-0000-0000-000000000000' }
+
+    const out = await fetchAllByKeyset(makeFakeTable(rows), { page: 1000, shard })
+
+    expect(out.length).toBeGreaterThan(0)
+    expect(out.every(r => r.id >= shard.from && r.id < shard.to)).toBe(true)
+  })
+})
+
+describe('uuidShards', () => {
+  it('covers the whole id space with disjoint, ordered buckets', () => {
+    const shards = uuidShards(4)
+    expect(shards).toHaveLength(4)
+    // Open at both ends so no id can fall outside the set.
+    expect(shards[0].from).toBeNull()
+    expect(shards[3].to).toBeNull()
+    // Each bucket starts exactly where the previous one ended — no gap, no overlap.
+    for (let i = 1; i < shards.length; i++) {
+      expect(shards[i].from).toBe(shards[i - 1].to)
+    }
+  })
+
+  it('degrades to a single unbounded bucket for counts below 2', () => {
+    expect(uuidShards(1)).toEqual([{ from: null, to: null }])
+    expect(uuidShards(0)).toEqual([{ from: null, to: null }])
+  })
+})
+
+describe('fetchAllByKeysetSharded', () => {
+  it('returns every row exactly once across shards', async () => {
+    const rows = uuidRows(2500)
+
+    const out = await fetchAllByKeysetSharded(makeFakeTable(rows), { page: 1000, shards: 4 })
+
+    expect(out).toHaveLength(rows.length)
+    expect(new Set(out.map(r => r.id)).size).toBe(rows.length)
+    expect(out.map(r => r.id).sort()).toEqual(rows.map(r => r.id).sort())
+  })
+
+  it('matches an unsharded walk on the same data', async () => {
+    const rows = uuidRows(1200)
+
+    const serial = await fetchAllByKeyset(makeFakeTable(rows), { page: 500 })
+    const sharded = await fetchAllByKeysetSharded(makeFakeTable(rows), { page: 500, shards: 3 })
+
+    expect(sharded.map(r => r.id).sort()).toEqual(serial.map(r => r.id).sort())
+  })
+
+  it('pages within each shard rather than truncating at one page', async () => {
+    const rows = uuidRows(900)
+
+    const out = await fetchAllByKeysetSharded(makeFakeTable(rows), { page: 100, shards: 2 })
+
+    expect(out).toHaveLength(900)
+  })
+
+  it('handles an empty table', async () => {
+    expect(await fetchAllByKeysetSharded(makeFakeTable([]), { shards: 4 })).toEqual([])
+  })
+})
+
+describe('fetchAllByKeyset edge cases', () => {
   it('bails out instead of looping when the cursor value is null', async () => {
     let calls = 0
     const nullCursor = () => ({
