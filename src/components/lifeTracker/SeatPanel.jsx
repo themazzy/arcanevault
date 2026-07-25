@@ -35,10 +35,12 @@ function SeatPanel({
   deathText = null,
   swapping = false,
   picked = false,
+  dropTarget = false,
   onLife,
   onOpenSeat,
   onOpenDamage,
   onSwapPointerDown,
+  onSwapPointerMove,
   onSwapPointerUp,
   onSwapActivate,
 }) {
@@ -124,16 +126,19 @@ function SeatPanel({
     onContextMenu: (e) => e.preventDefault(),
   })
 
+  // data-seat-index lives on the cell, not the seat: the page hit-tests with
+  // closest() so an ancestor works, and a cell is never transformed, so its
+  // bounding box is exact for measuring the swap arrow's endpoints.
   return (
-    <div className={styles.cell} style={{ gridArea: area }} data-rot={rotation}>
+    <div className={styles.cell} style={{ gridArea: area }} data-rot={rotation}
+      data-seat-index={seatIndex}>
       <div
         className={styles.seat}
         style={{ '--pc': player.color }}
-        // Read by the page's hit test to find the seat under a drag.
-        data-seat-index={seatIndex}
         data-dead={dead ? 'true' : undefined}
         data-art={player.artUrl ? 'true' : undefined}
         data-picked={picked ? 'true' : undefined}
+        data-drop={dropTarget ? 'true' : undefined}
         data-swapping={swapping ? 'true' : undefined}
       >
         {player.artUrl && (
@@ -150,6 +155,7 @@ function SeatPanel({
             type="button"
             className={styles.swapGrab}
             onPointerDown={e => { if (e.button === 0) onSwapPointerDown?.(seatIndex, e) }}
+            onPointerMove={e => onSwapPointerMove?.(seatIndex, e)}
             onPointerUp={e => onSwapPointerUp?.(seatIndex, e)}
             onPointerCancel={e => onSwapPointerUp?.(seatIndex, e)}
             onLostPointerCapture={e => onSwapPointerUp?.(seatIndex, e)}

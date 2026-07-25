@@ -333,8 +333,24 @@
   text-overflow: ellipsis;
 }
 
-/* Swap mode replaces the whole bar, so it is obvious that normal taps are
- * suspended and there is one way out. */
+/* Swap mode takes over the whole bar and gives it a gold surface of its own. The
+ * bar is the only thing telling the player that tapping a seat no longer changes
+ * life, so it has to read as a mode rather than as a caption — and the way out
+ * has to be the largest control on screen after the seats themselves. */
+.bar[data-mode='swap'] {
+  min-height: 46px;
+  padding: 0 4px 0 12px;
+  border: 1px solid var(--border-hi);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--gold) 14%, var(--bg2));
+  animation: swapBarIn 0.18s ease-out;
+}
+
+@keyframes swapBarIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 .barSwapHint {
   composes: labelSm from '../styles/typography.module.css';
   flex: 1;
@@ -344,6 +360,10 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Full screen trims the normal bar to 28px; swap mode keeps its height, and needs
+ * the extra specificity to say so rather than a second .bar[data-mode] rule. */
+.table[data-fullscreen='true'] .bar[data-mode='swap'] { min-height: 46px; }
 
 .sharedDot {
   width: 6px;

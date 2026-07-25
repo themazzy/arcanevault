@@ -26,6 +26,7 @@ import {
   mergeSlotAttribution, seedsFromSlots, startLobby, subscribeLobby,
 } from '../lib/lifeLobby'
 import SeatPanel from '../components/lifeTracker/SeatPanel'
+import SwapArrow from '../components/lifeTracker/SwapArrow'
 import SeatSheet from '../components/lifeTracker/SeatSheet'
 import CmdDamageSheet from '../components/lifeTracker/CmdDamageSheet'
 import GameLogSheet from '../components/lifeTracker/GameLogSheet'
@@ -82,7 +83,11 @@ export default function LifeTrackerPage() {
   const [fullscreen, setFullscreen] = useState(false)
   const [swapping, setSwapping] = useState(false)
   const [picked, setPicked] = useState(null)   // seat index lifted for swapping
+  const [drag, setDrag] = useState(null)       // { from, target, point } while dragging
   const dragFrom = useRef(null)
+  const seatCentres = useRef({})               // grid-relative, measured at drag start
+  const gridOrigin = useRef({ left: 0, top: 0 })
+  const gridRef = useRef(null)
 
   const [lobby, setLobby] = useState(null)     // { session, slots }
   const [lobbyBusy, setLobbyBusy] = useState(false)
@@ -343,6 +348,7 @@ export default function LifeTrackerPage() {
   const exitSwap = useCallback(() => {
     setSwapping(false)
     setPicked(null)
+    setDrag(null)
     dragFrom.current = null
   }, [])
 
@@ -357,15 +363,34 @@ export default function LifeTrackerPage() {
     if (from == null || to == null || from === to) return
     dispatch({ type: 'swapSeats', a: from, b: to })
     setPicked(null)
+    setDrag(null)
     dragFrom.current = null
   }, [])
 
   const swapHandlers = useMemo(() => {
-    // Which seat is under the pointer. Read from the DOM rather than tracked rects
-    // so it stays correct through rotated panels and layout changes.
+    // Which seat is under the pointer. Read from the DOM rather than from tracked
+    // rects so it stays correct through rotated panels and layout changes.
     const seatAt = (x, y) => {
       const hit = document.elementFromPoint(x, y)?.closest('[data-seat-index]')
       return hit ? Number(hit.getAttribute('data-seat-index')) : null
+    }
+
+    // Seats do not move until the drag is released, so one measurement per drag is
+    // enough — no rect tracking during the gesture.
+    const measure = () => {
+      const grid = gridRef.current
+      if (!grid) return
+      const gridRect = grid.getBoundingClientRect()
+      gridOrigin.current = { left: gridRect.left, top: gridRect.top }
+      const centres = {}
+      grid.querySelectorAll('[data-seat-index]').forEach(cell => {
+        const rect = cell.getBoundingClientRect()
+        centres[Number(cell.getAttribute('data-seat-index'))] = {
+          x: rect.left - gridRect.left + rect.width / 2,
+          y: rect.top - gridRect.top + rect.height / 2,
+        }
+      })
+      seatCentres.current = centres
     }
 
     const handlers = {}
@@ -377,12 +402,30 @@ export default function LifeTrackerPage() {
               // Second tap of a tap-tap swap.
               dispatch({ type: 'swapSeats', a: prev, b: seatIndex })
               dragFrom.current = null
+              setDrag(null)
               return null
             }
-            if (prev === seatIndex) { dragFrom.current = null; return null }
+            if (prev === seatIndex) { dragFrom.current = null; setDrag(null); return null }
             dragFrom.current = seatIndex
+            measure()
+            // Capture is what makes this work on touch at all: without it,
+            // pointermove stops being delivered the moment the finger leaves
+            // this element, which is immediately.
             try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* optional */ }
             return seatIndex
+          })
+        },
+        onSwapPointerMove: (seatIndex, e) => {
+          const from = dragFrom.current
+          if (from == null) return
+          const target = seatAt(e.clientX, e.clientY)
+          setDrag({
+            from,
+            target: target != null && target !== from ? target : null,
+            point: {
+              x: e.clientX - gridOrigin.current.left,
+              y: e.clientY - gridOrigin.current.top,
+            },
           })
         },
         onSwapPointerUp: (seatIndex, e) => {
@@ -392,7 +435,7 @@ export default function LifeTrackerPage() {
           // Released somewhere else — that was a drag. Released on itself — that was
           // a tap, so the seat stays lifted for a second tap.
           if (target != null && target !== from) swapWith(from, target)
-          else dragFrom.current = null
+          else { dragFrom.current = null; setDrag(null) }
         },
         onSwapActivate: (seatIndex) => {
           setPicked(prev => {
@@ -454,7 +497,7 @@ export default function LifeTrackerPage() {
   if (game) {
     return (
       <div className={styles.table} data-fullscreen={fullscreen ? 'true' : undefined}>
-        <div className={styles.bar}>
+        <div className={styles.bar} data-mode={swapping ? 'swap' : undefined}>
           {swapping ? (
             <>
               <span className={styles.barSwapHint}>
@@ -462,7 +505,9 @@ export default function LifeTrackerPage() {
                   ? `Moving ${game.players[picked]?.name} — choose a seat`
                   : 'Drag a seat onto another, or tap two seats'}
               </span>
-              <Button size="sm" variant="primary" onClick={exitSwap}>Done</Button>
+              <Button size="lg" variant="primary" onClick={exitSwap}>
+                <CheckIcon size={14} /> Done
+              </Button>
             </>
           ) : (
           <>
@@ -534,6 +579,7 @@ export default function LifeTrackerPage() {
         </div>
 
         <div
+          ref={gridRef}
           className={styles.grid}
           style={{
             gridTemplateAreas: layout.areas,
@@ -554,14 +600,26 @@ export default function LifeTrackerPage() {
               deathText={deathTextFor(game, player)}
               swapping={swapping}
               picked={picked === index}
+              dropTarget={drag?.target === index}
               onLife={seatHandlers[player.id].onLife}
               onOpenSeat={seatHandlers[player.id].onOpenSeat}
               onOpenDamage={seatHandlers[player.id].onOpenDamage}
               onSwapPointerDown={swapHandlers[index].onSwapPointerDown}
+              onSwapPointerMove={swapHandlers[index].onSwapPointerMove}
               onSwapPointerUp={swapHandlers[index].onSwapPointerUp}
               onSwapActivate={swapHandlers[index].onSwapActivate}
             />
           ))}
+
+          {/* Snaps to the target seat's centre once the finger is over one, and
+              follows the finger otherwise, so it always says where the seat is
+              headed. */}
+          {drag && (
+            <SwapArrow
+              from={seatCentres.current[drag.from]}
+              to={drag.target != null ? seatCentres.current[drag.target] : drag.point}
+            />
+          )}
         </div>
 
         {seatSheetPlayer && (
