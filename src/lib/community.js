@@ -70,11 +70,15 @@ export async function getMyNotifications(limit = 30) {
   return data || []
 }
 
+// `limit(0)` rather than `head: true`: same single request and the count still
+// rides the Content-Range header, but Chrome logs every bodiless HEAD response
+// as "Fetch failed loading" in the console even on a 200.
 export async function getUnreadNotificationCount() {
   const { count, error } = await sb
     .from('notifications')
-    .select('id', { count: 'exact', head: true })
+    .select('id', { count: 'exact' })
     .eq('read', false)
+    .limit(0)
   if (error) throw error
   return count || 0
 }
