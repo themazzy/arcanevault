@@ -7,7 +7,7 @@ import { useSettings } from '../components/SettingsContext'
 import { useAuth } from '../components/Auth'
 import { useToast } from '../components/ToastContext'
 import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
-import { EmptyState, LibraryEmptyState, Badge, Button, ResponsiveMenu } from '../components/UI'
+import { EmptyState, LibraryEmptyState, Badge, Button, ConfirmModal, ResponsiveMenu } from '../components/UI'
 import { CheckIcon, StarIcon, ChevronUpIcon, ChevronDownIcon, ChevronLeftIcon, EditIcon, ImportIcon, ExportIcon, AddIcon, BuilderIcon, DeckIcon, SettingsIcon, DeleteIcon } from '../icons'
 import AddCardModal from '../components/AddCardModal'
 import ExportModal from '../components/ExportModal'
@@ -16,7 +16,7 @@ import { CardBrowserViewControls, CardBrowserContent } from '../components/CardB
 import styles from './DeckBrowser.module.css'
 import uiStyles from '../components/UI.module.css'
 import { parseDeckMeta, serializeDeckMeta } from '../lib/deckBuilderApi'
-import { buildSyncDiff, getSyncState, markLinkedPairUnsynced, summarizeSyncDiff, withLinkedPair, writeSyncState } from '../lib/deckSync'
+import { buildSyncDiff, getSyncState, isUniqueNameConflict, linkDeckPair, markLinkedPairUnsynced, resolveBuilderNameConflict, summarizeSyncDiff, withLinkedPair, writeSyncState } from '../lib/deckSync'
 import { useLongPress } from '../hooks/useLongPress'
 import { useFilterWorker } from '../hooks/useFilterWorker'
 import { lastInputWasTouch } from '../lib/inputType'
@@ -647,6 +647,8 @@ export default function DeckBrowser({ folder, onBack, onDelete }) {
   const [linkedDirty, setLinkedDirty] = useState(false)
   const [folderDescription, setFolderDescription] = useState(folder?.description || '{}')
   const [creatingBuilderLink, setCreatingBuilderLink] = useState(false)
+  // Existing same-name builder deck offered for pairing after a 409.
+  const [adoptCandidate, setAdoptCandidate] = useState(null)
   const [syncCheck, setSyncCheck] = useState({ loading: false, dirty: false, count: 0, unavailable: false })
   const linkedBuilderIdRef = useRef(parseDeckMeta(folder?.description || '{}').linked_builder_id || null)
   const isUnsyncedRef = useRef(false)
@@ -775,6 +777,26 @@ export default function DeckBrowser({ folder, onBack, onDelete }) {
         .insert({ user_id: user.id, name: folder.name, type: 'builder_deck', description: serializeDeckMeta(builderInitMeta) })
         .select()
         .single()
+
+      // A builder deck of this name already exists (folders is UNIQUE on
+      // user_id+name+type). That is almost always the deck the user wants to pair
+      // with, so offer to adopt it rather than dead-ending on a 409.
+      if (isUniqueNameConflict(builderErr)) {
+        const { data: existing } = await sb.from('folders')
+          .select('id,name,description')
+          .eq('user_id', user.id)
+          .eq('type', 'builder_deck')
+          .eq('name', folder.name)
+          .maybeSingle()
+        const resolution = resolveBuilderNameConflict(existing)
+        if (resolution.action === 'adopt') {
+          setAdoptCandidate({ id: resolution.builderDeckId, name: folder.name })
+        } else {
+          toast.error(resolution.reason, { duration: 6000 })
+        }
+        return
+      }
+
       if (builderErr || !builderFolder) throw builderErr || new Error('Failed to create builder deck')
 
       const now = new Date().toISOString()
@@ -827,11 +849,43 @@ export default function DeckBrowser({ folder, onBack, onDelete }) {
       linkedBuilderIdRef.current = builderFolder.id
       navigate(`/builder/${builderFolder.id}`)
     } catch (e) {
+      // Previously this only logged, so the button stopped spinning and nothing
+      // else happened — the failure was invisible outside the console.
       console.error('[DeckBrowser] failed to open in builder:', e)
+      const detail = [e?.message, e?.details, e?.hint].filter(Boolean).join(' ')
+      toast.error(
+        detail ? `Could not open in Builder. ${detail}` : 'Could not open in Builder. Please try again.',
+        { duration: 6000 },
+      )
     } finally {
       setCreatingBuilderLink(false)
     }
-  }, [folder, folderDescription, user, navigate])
+  }, [folder, folderDescription, user, navigate, toast])
+
+  // Pair this collection deck with the existing same-name builder deck. Only the
+  // two link fields are written — no cards are moved or overwritten. Both sides are
+  // marked unsynced so the Builder's sync review shows the differences and the user
+  // decides what to reconcile.
+  const adoptExistingBuilderDeck = useCallback(async () => {
+    if (!adoptCandidate || !user) return
+    setCreatingBuilderLink(true)
+    try {
+      await linkDeckPair(adoptCandidate.id, folder.id)
+      await markLinkedPairUnsynced({
+        builderDeckId: adoptCandidate.id,
+        collectionDeckId: folder.id,
+      })
+      linkedBuilderIdRef.current = adoptCandidate.id
+      setAdoptCandidate(null)
+      navigate(`/builder/${adoptCandidate.id}`, { state: { openSync: true, source: 'collection-deck' } })
+    } catch (e) {
+      console.error('[DeckBrowser] failed to pair with existing builder deck:', e)
+      toast.error(e?.message || 'Could not pair the decks. Please try again.', { duration: 6000 })
+      setAdoptCandidate(null)
+    } finally {
+      setCreatingBuilderLink(false)
+    }
+  }, [adoptCandidate, folder, user, navigate, toast])
 
   const loadCards = useCallback(async () => {
     setLoading(true)
@@ -1478,6 +1532,19 @@ export default function DeckBrowser({ folder, onBack, onDelete }) {
           title={folder.name}
           folderType="deck"
           onClose={() => setShowExport(false)}
+        />
+      )}
+
+      {adoptCandidate && (
+        <ConfirmModal
+          title="Pair with the existing builder deck?"
+          message={`You already have a builder deck called "${adoptCandidate.name}". This collection deck can be paired with it instead of creating a second one. No cards are moved — the Builder's sync review opens so you can see the differences and choose what to reconcile.`}
+          confirmLabel="Pair them"
+          cancelLabel="Cancel"
+          variant="primary"
+          busy={creatingBuilderLink}
+          onConfirm={adoptExistingBuilderDeck}
+          onClose={() => setAdoptCandidate(null)}
         />
       )}
     </div>

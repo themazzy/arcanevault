@@ -35,6 +35,48 @@ export async function patchDeckMeta(folderId, baseMeta, nextMeta) {
   return data || nextMeta || {}
 }
 
+// folders carries UNIQUE (user_id, name, type), so creating a builder deck named
+// after a collection deck fails when a builder deck of that name already exists.
+// PostgREST reports it as HTTP 409 / Postgres 23505.
+const UNIQUE_VIOLATION = '23505'
+
+export function isUniqueNameConflict(error) {
+  if (!error) return false
+  return error.code === UNIQUE_VIOLATION || error.status === 409 || error.statusCode === 409
+}
+
+/**
+ * What to do when "Edit in Builder" collides with an existing builder deck of the
+ * same name.
+ *
+ * The collision is almost always the deck the user wants to pair with — a builder
+ * deck and a collection deck holding the same list that were never linked. Before
+ * this, the insert simply failed: the operation was impossible in exactly the case
+ * where it was most wanted, and there is no other affordance anywhere in the app for
+ * pairing two folders that already exist.
+ *
+ * Adoption is offered rather than performed, because there is no standalone unlink
+ * button (unlinkPairedDeck is only wired into the delete flows), so a wrong guess is
+ * awkward to undo.
+ *
+ * @param {object|null} existing the same-name builder deck, or null if none found
+ * @returns {{ action: 'adopt'|'already-paired'|'unknown', builderDeckId?: string, reason?: string }}
+ */
+export function resolveBuilderNameConflict(existing) {
+  if (!existing?.id) {
+    return { action: 'unknown', reason: 'No builder deck of that name could be found.' }
+  }
+  const meta = parseDeckMeta(existing.description || '{}')
+  if (meta.linked_deck_id) {
+    return {
+      action: 'already-paired',
+      builderDeckId: existing.id,
+      reason: `A builder deck named "${existing.name}" is already paired with another collection deck.`,
+    }
+  }
+  return { action: 'adopt', builderDeckId: existing.id }
+}
+
 export async function linkDeckPair(builderDeckId, collectionDeckId) {
   const { data, error } = await sb.rpc('link_deck_pair', {
     p_builder_id: builderDeckId,
